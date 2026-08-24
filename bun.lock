@@ -267,6 +267,7 @@
       "name": "agent-harness-sdk",
       "version": "0.1.1",
       "dependencies": {
+        "agent-scope": "workspace:*",
         "spaces-config": "workspace:*",
         "spaces-execution": "workspace:*",
         "spaces-harness-pi-sdk": "workspace:*",

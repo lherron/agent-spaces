@@ -12,6 +12,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { type ResolvedContext, resolveContextTemplateDetailed } from './context-resolver.js'
@@ -670,6 +671,181 @@ command = "printf 'ok'"
       },
       reminder: undefined,
     })
+  })
+
+  test('replays recorded exec success and failure through the live formatting path', async () => {
+    const template = parseContextTemplate(`
+schema_version = 2
+
+[[prompt]]
+name = "success"
+type = "exec"
+command = "printf 'live-success'"
+
+[[prompt]]
+name = "failure"
+type = "exec"
+command = "printf 'live-failure'; exit 23"
+`)
+    const live = await resolveContextTemplateDetailed(template, defaultContext())
+    const replayed = await resolveContextTemplateDetailed(
+      template,
+      defaultContext({
+        execResults: [
+          {
+            sectionName: 'success',
+            command: "printf 'live-success'",
+            occurrence: 1,
+            exitStatus: 0,
+            stdout: 'live-success',
+            stderr: '',
+          },
+          {
+            sectionName: 'failure',
+            command: "printf 'live-failure'; exit 23",
+            occurrence: 1,
+            exitStatus: 23,
+            stdout: 'live-failure',
+            stderr: 'recorded stderr',
+          },
+        ],
+      })
+    )
+
+    expect(replayed.prompt).toEqual(live.prompt)
+    expect(replayed.promptSections[1]?.disposition).toMatchObject({
+      kind: 'failed',
+      source: { kind: 'exec', command: "printf 'live-failure'; exit 23" },
+    })
+    if (replayed.promptSections[1]?.disposition.kind === 'failed') {
+      expect(replayed.promptSections[1].disposition.reason).toContain('exit code: 23')
+      expect(replayed.promptSections[1].disposition.reason).toContain('recorded stderr')
+    }
+  })
+
+  test('fails closed when a recorded exec collection is missing or leaves a stale record', async () => {
+    const template = parseContextTemplate(`
+schema_version = 2
+
+[[prompt]]
+name = "dynamic"
+type = "exec"
+command = "printf 'must-not-run'"
+`)
+
+    await expect(
+      resolveContextTemplateDetailed(template, defaultContext({ execResults: [] }))
+    ).rejects.toThrow('Missing recorded exec result')
+
+    await expect(
+      resolveContextTemplateDetailed(
+        template,
+        defaultContext({
+          execResults: [
+            {
+              sectionName: 'dynamic',
+              command: "printf 'must-not-run'",
+              occurrence: 1,
+              exitStatus: 0,
+              stdout: 'recorded',
+              stderr: '',
+            },
+            {
+              sectionName: 'stale',
+              command: "printf 'stale'",
+              occurrence: 1,
+              exitStatus: 0,
+              stdout: 'stale',
+              stderr: '',
+            },
+          ],
+        })
+      )
+    ).rejects.toThrow('Unused recorded exec result')
+
+    await expect(
+      resolveContextTemplateDetailed(
+        template,
+        defaultContext({
+          execResults: [
+            {
+              sectionName: 'dynamic',
+              command: "printf 'must-not-run'",
+              occurrence: 1,
+              exitStatus: 0,
+              stdout: 'first',
+              stderr: '',
+            },
+            {
+              sectionName: 'dynamic',
+              command: "printf 'must-not-run'",
+              occurrence: 1,
+              exitStatus: 0,
+              stdout: 'duplicate',
+              stderr: '',
+            },
+          ],
+        })
+      )
+    ).rejects.toThrow('Duplicate recorded exec result')
+  })
+
+  test('fails closed on missing and duplicate recorded service probes', async () => {
+    const template = parseContextTemplate(`
+schema_version = 2
+
+[[prompt]]
+name = "services"
+type = "service-probe"
+services = [{ name = "broker", endpoint = "not-a-live-endpoint" }]
+`)
+
+    await expect(
+      resolveContextTemplateDetailed(template, defaultContext({ serviceProbeResponses: [] }))
+    ).rejects.toThrow('Missing recorded service probe response')
+
+    await expect(
+      resolveContextTemplateDetailed(
+        template,
+        defaultContext({
+          serviceProbeResponses: [
+            { name: 'broker', endpoint: 'not-a-live-endpoint', up: true },
+            { name: 'broker', endpoint: 'not-a-live-endpoint', up: false },
+          ],
+        })
+      )
+    ).rejects.toThrow('Duplicate recorded service probe response')
+  })
+
+  test('never launches a child process while exec replay is active', async () => {
+    const sentinel = join(tempRoot, 'exec-replay-sentinel')
+    const command = `touch '${sentinel}'`
+    const template = parseContextTemplate(`
+schema_version = 2
+
+[[prompt]]
+name = "replayed"
+type = "exec"
+command = "${command.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"
+`)
+    const resolved = await resolveContextTemplateDetailed(
+      template,
+      defaultContext({
+        execResults: [
+          {
+            sectionName: 'replayed',
+            command,
+            occurrence: 1,
+            exitStatus: 0,
+            stdout: 'replayed output',
+            stderr: '',
+          },
+        ],
+      })
+    )
+
+    expect(resolved.prompt?.content).toBe('replayed output')
+    expect(existsSync(sentinel)).toBe(false)
   })
 
   test('wraps resolved section content with interpolated prefix and suffix before zone joining', async () => {

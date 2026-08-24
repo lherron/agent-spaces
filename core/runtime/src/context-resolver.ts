@@ -7,7 +7,6 @@ import type {
   AgentInspectionDisposition,
   AgentInspectionFailureSource,
   AgentInspectionProvenance,
-  AgentInspectionServiceProbeResponse,
 } from 'spaces-runtime-contracts'
 import type {
   ContextSection,
@@ -19,6 +18,12 @@ import type {
   SystemPromptMode,
   WhenPredicate,
 } from './context-template.js'
+import {
+  DynamicReplayError,
+  DynamicReplayLedger,
+  type RecordedExecResult,
+  type RecordedServiceProbeResponse,
+} from './dynamic-replay.js'
 import { readFileOrUndefined } from './file-reader.js'
 import { resolveServiceProbeSection } from './service-probe-resolver.js'
 import { interpolateVariables } from './template-vars.js'
@@ -68,8 +73,10 @@ export interface ContextResolverContext {
   execCwd?: string | undefined
   /** Inspection-only pinned environment for exec sections. */
   execEnv?: Record<string, string | undefined> | undefined
+  /** Recorded exec outcomes; presence disables live command execution. */
+  execResults?: RecordedExecResult[] | undefined
   /** Inspection-only recorded service outcomes; presence disables live probes. */
-  serviceProbeResponses?: AgentInspectionServiceProbeResponse[] | undefined
+  serviceProbeResponses?: RecordedServiceProbeResponse[] | undefined
 }
 
 export interface ResolvedContext {
@@ -155,14 +162,17 @@ export async function resolveContextTemplateDetailed(
   context: ContextResolverContext,
   options: ResolveContextTemplateOptions = {}
 ): Promise<ResolvedContextDetailed> {
+  const replay = new DynamicReplayLedger(context.execResults, context.serviceProbeResponses)
   const includePrompt = options.includePrompt ?? true
   const includeReminder = options.includeReminder ?? true
   const prompt = includePrompt
-    ? await resolveZone(template.promptSections, context, 'prompt')
+    ? await resolveZone(template.promptSections, context, replay, 'prompt')
     : emptyZone()
   const reminder = includeReminder
-    ? await resolveZone(template.reminderSections, context, 'reminder')
+    ? await resolveZone(template.reminderSections, context, replay, 'reminder')
     : emptyZone()
+
+  replay.assertFullyConsumed()
 
   const totalChars = enforceGlobalMaxChars(template, [prompt, reminder])
 
@@ -209,6 +219,7 @@ type ResolvedSectionOutcome =
 async function resolveZoneSection(
   section: ContextSection,
   context: ContextResolverContext,
+  replay: DynamicReplayLedger,
   zoneName: ResolvedContextZoneName,
   order: number
 ): Promise<ResolvedSectionOutcome> {
@@ -225,7 +236,7 @@ async function resolveZoneSection(
     }
   }
 
-  const resolution = await resolveSection(section, context)
+  const resolution = await resolveSection(section, context, replay)
   if (resolution.kind === 'failed') {
     return {
       included: false,
@@ -294,6 +305,7 @@ async function resolveZoneSection(
 async function resolveZone(
   sections: ContextTemplate['promptSections'],
   context: ContextResolverContext,
+  replay: DynamicReplayLedger,
   zoneName: ResolvedContextZoneName
 ): Promise<ResolvedZone> {
   const resolvedSections: string[] = []
@@ -301,7 +313,7 @@ async function resolveZone(
   const inspectedSections: ResolvedContextSection[] = []
 
   for (const [order, section] of sections.entries()) {
-    const outcome = await resolveZoneSection(section, context, zoneName, order)
+    const outcome = await resolveZoneSection(section, context, replay, zoneName, order)
     inspectedSections.push(outcome.report)
     if (!outcome.included) {
       continue
@@ -450,7 +462,8 @@ type SectionResolution =
 
 async function resolveSection(
   section: ContextSection,
-  context: ContextResolverContext
+  context: ContextResolverContext,
+  replay: DynamicReplayLedger
 ): Promise<SectionResolution> {
   switch (section.type) {
     case 'file':
@@ -460,13 +473,14 @@ async function resolveSection(
       return asSectionResolution(content.length > 0 ? content : undefined)
     }
     case 'exec':
-      return resolveExecSection(section, context)
+      return resolveExecSection(section, context, replay)
     case 'slot':
-      return resolveSlotSection(section, context)
+      return resolveSlotSection(section, context, replay)
     case 'service-probe':
       try {
-        return asSectionResolution(await resolveServiceProbeSection(section, context))
+        return asSectionResolution(await resolveServiceProbeSection(section, context, replay))
       } catch (error) {
+        if (error instanceof DynamicReplayError) throw error
         return {
           kind: 'failed',
           source: { kind: 'service-probe', services: section.services.map(({ name }) => name) },
@@ -513,8 +527,27 @@ async function resolveFileSection(
 
 async function resolveExecSection(
   section: ExecSectionDef,
-  context: ContextResolverContext
+  context: ContextResolverContext,
+  replay: DynamicReplayLedger
 ): Promise<SectionResolution> {
+  const replayed = replay.consumeExec(section.name, section.command)
+  if (replayed !== undefined) {
+    if (replayed.exitStatus !== 0) {
+      return {
+        kind: 'failed',
+        source: { kind: 'exec', command: section.command },
+        reason: formatExecFailure({
+          code: replayed.exitStatus,
+          signal: 'none',
+          killed: false,
+          stderr: replayed.stderr,
+        }),
+        contributionRecords: [],
+      }
+    }
+    const content = replayed.stdout.trim()
+    return asSectionResolution(content.length > 0 ? content : undefined)
+  }
   const timeout = section.timeout ?? DEFAULT_EXEC_TIMEOUT_MS
   const cwd = context.execCwd ?? context.agentRoot ?? context.agentsRoot
 
@@ -530,6 +563,7 @@ async function resolveExecSection(
     const content = stdout.trim()
     return asSectionResolution(content.length > 0 ? content : undefined)
   } catch (error) {
+    if (error instanceof DynamicReplayError) throw error
     return {
       kind: 'failed',
       source: { kind: 'exec', command: section.command },
@@ -541,7 +575,8 @@ async function resolveExecSection(
 
 async function resolveSlotSection(
   section: Extract<ContextSection, { type: 'slot' }>,
-  context: ContextResolverContext
+  context: ContextResolverContext,
+  replay: DynamicReplayLedger
 ): Promise<SectionResolution> {
   // The parser requires `source` for every slot section (context-template.ts
   // parseSection: parseRequiredString(input['source'])), so a sourceless slot is
@@ -570,7 +605,7 @@ async function resolveSlotSection(
   }
 
   if (section.source.endsWith('Exec')) {
-    return resolveCommandSlot(entries, context, section.source)
+    return resolveCommandSlot(entries, context, replay, section.source)
   }
 
   return resolveFileRefSlot(entries, context, section.source)
@@ -619,6 +654,7 @@ async function resolveFileRefSlot(
 async function resolveCommandSlot(
   commands: string[],
   context: ContextResolverContext,
+  replay: DynamicReplayLedger,
   slotSource: string
 ): Promise<SectionResolution> {
   const contents: Array<string | undefined> = []
@@ -631,7 +667,8 @@ async function resolveCommandSlot(
         type: 'exec',
         command,
       },
-      context
+      context,
+      replay
     )
     contents.push(sectionResolutionContent(resolution))
     contributionRecords.push(

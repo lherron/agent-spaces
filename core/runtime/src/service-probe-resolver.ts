@@ -1,5 +1,6 @@
 import type { ContextResolverContext } from './context-resolver.js'
 import type { ServiceProbeSectionDef } from './context-template.js'
+import { DynamicReplayLedger } from './dynamic-replay.js'
 import {
   displayServiceEndpoint,
   parseServiceEndpoint,
@@ -19,7 +20,8 @@ const DOWN_MARK = '❌'
  */
 export async function resolveServiceProbeSection(
   section: ServiceProbeSectionDef,
-  context: ContextResolverContext
+  context: ContextResolverContext,
+  replay?: DynamicReplayLedger
 ): Promise<string | undefined> {
   const timeout = section.timeout ?? DEFAULT_SERVICE_PROBE_TIMEOUT_MS
   const services = section.services.map((spec) => ({
@@ -29,10 +31,10 @@ export async function resolveServiceProbeSection(
   if (services.length === 0) {
     return undefined
   }
+  const activeReplay = replay ?? new DynamicReplayLedger(undefined, context.serviceProbeResponses)
+  const replayingServices = activeReplay.consumesServiceReplay()
   const invalid = services.find(
-    (spec) =>
-      context.serviceProbeResponses === undefined &&
-      parseServiceEndpoint(spec.endpoint) === undefined
+    (spec) => !replayingServices && parseServiceEndpoint(spec.endpoint) === undefined
   )
   if (invalid !== undefined) {
     throw new Error(`Unsupported service probe endpoint for ${invalid.name}: ${invalid.endpoint}`)
@@ -40,19 +42,16 @@ export async function resolveServiceProbeSection(
 
   const results = await Promise.all(
     services.map(async (spec) => {
-      const recorded = context.serviceProbeResponses?.find(
-        (response) => response.name === spec.name && response.endpoint === spec.endpoint
-      )
       return {
         spec,
-        up:
-          recorded?.up ??
-          (context.serviceProbeResponses === undefined
-            ? await probeServiceEndpoint(spec.endpoint, timeout)
-            : false),
+        up: replayingServices
+          ? activeReplay.consumeService(spec.name, spec.endpoint)?.up
+          : await probeServiceEndpoint(spec.endpoint, timeout),
       }
     })
   )
+
+  if (replay === undefined) activeReplay.assertFullyConsumed()
 
   const nameWidth = services.reduce((max, spec) => Math.max(max, spec.name.length), 0)
   const lines: string[] = []

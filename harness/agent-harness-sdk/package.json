@@ -21,6 +21,7 @@
     "postpack": "git checkout HEAD -- package.json"
   },
   "dependencies": {
+    "agent-scope": "workspace:*",
     "spaces-config": "workspace:*",
     "spaces-execution": "workspace:*",
     "spaces-harness-pi-sdk": "workspace:*",

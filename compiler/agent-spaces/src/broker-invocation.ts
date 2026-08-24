@@ -119,7 +119,7 @@ export function deriveHandleParts(placement: RuntimePlacement): HandleParts {
   if (parts.projectId === undefined && placement.projectRoot) {
     parts.projectId = basename(resolve(placement.projectRoot))
   }
-  if (laneRef && laneRef.length > 0 && laneRef !== 'main' && laneRef !== 'lane:main') {
+  if (laneRef && laneRef.length > 0) {
     parts.lane = laneRef.startsWith('lane:') ? laneRef.slice('lane:'.length) : laneRef
   }
   return parts

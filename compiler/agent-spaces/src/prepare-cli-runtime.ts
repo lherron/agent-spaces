@@ -11,7 +11,7 @@ import {
   sweepAspTempArtifacts,
   writeRuntimeSystemPromptArtifact,
 } from 'spaces-config'
-import type { AttachmentRef } from 'spaces-runtime'
+import type { AttachmentRef, ContextResolverContext } from 'spaces-runtime'
 import type { MaterializeResult } from 'spaces-runtime'
 import { expandTemplate, materializeSystemPrompt } from 'spaces-runtime'
 
@@ -65,7 +65,7 @@ export interface PreparedPlacementCliRuntime {
   warnings: string[]
 }
 
-interface PreparePlacementCliRuntimeRequest {
+export interface PreparePlacementCliRuntimeRequest {
   aspHome?: string | undefined
   provider: HarnessContinuationRef['provider']
   frontend: HarnessFrontend
@@ -80,6 +80,8 @@ interface PreparePlacementCliRuntimeRequest {
   lockedEnv?: Record<string, string> | undefined
   dispatchEnv?: Record<string, string> | undefined
   placement?: RuntimePlacement | undefined
+  /** Fully pinned context resolution inputs for deterministic callers. */
+  resolverContext?: ContextResolverContext | undefined
 }
 
 function extractImageAttachmentPaths(attachments: AttachmentRef[] | undefined): string[] {
@@ -271,6 +273,7 @@ export async function preparePlacementCliRuntime(
       ...(handleParts.taskId !== undefined ? { taskId: handleParts.taskId } : {}),
       ...(handleParts.lane !== undefined ? { lane: handleParts.lane } : {}),
       env: contextTemplateEnv,
+      ...(req.resolverContext !== undefined ? { resolverContext: req.resolverContext } : {}),
     })
     systemPrompt =
       materializedSystemPrompt !== undefined

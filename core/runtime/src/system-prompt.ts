@@ -43,6 +43,11 @@ export interface MaterializeSystemPromptInput {
   scaffoldPackets?: RunScaffoldPacket[] | undefined
   env?: Record<string, string | undefined> | undefined
   agentRootSearchPath?: string[] | undefined
+  /**
+   * Fully pinned resolver inputs for deterministic materialization. This is
+   * passed through unchanged to the shared inspection/resolution seam.
+   */
+  resolverContext?: ContextResolverContext | undefined
 }
 
 export interface TemplateDiscoveryProfile {
@@ -83,14 +88,7 @@ export interface AgentCompilationProvenanceRecord {
   order: number
 }
 
-export interface InspectAgentSystemPromptInput extends MaterializeSystemPromptInput {
-  /**
-   * Fully pinned resolver inputs for read-only inspection. Callers that provide
-   * this value have already crossed the agent-inspection context seam; no
-   * ambient cwd, environment, clock, probe, or exec input is consulted.
-   */
-  resolverContext?: ContextResolverContext | undefined
-}
+export interface InspectAgentSystemPromptInput extends MaterializeSystemPromptInput {}
 
 export interface InspectedContextTemplateSource {
   kind: 'context' | 'built-in'

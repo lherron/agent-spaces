@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { delimiter, join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 
 import { harnessRegistry, planPlacementRuntime } from 'spaces-execution'
 import type { InputId, InvocationId } from 'spaces-harness-broker-protocol'
@@ -30,6 +30,7 @@ import {
 import * as RuntimeContracts from 'spaces-runtime-contracts'
 
 import { createAgentSpacesClient } from '../../compiler/agent-spaces/src/index.js'
+import { preparePlacementCliRuntime } from '../../compiler/agent-spaces/src/prepare-cli-runtime.js'
 import type {
   AgentSpacesClient,
   BuildHarnessBrokerInvocationRequest,
@@ -1172,6 +1173,98 @@ exit 0
       expect(directAgent.prompt?.content).toBe(readFileSync(compiledPromptPath as string, 'utf8'))
       expect(directAgent.prompt?.content).toContain('AGENT-HARNESS-PROMPT-PARITY')
     } finally {
+      rmSync(soulPath, { force: true })
+    }
+  })
+
+  test('compiler and agent-harness SDK use the same pinned task and lane resolver context', async () => {
+    const profilePath = join(fixture.agentRoot, 'agent-profile.toml')
+    const templatePath = join(fixture.agentRoot, 'context-template.toml')
+    const soulPath = join(fixture.agentRoot, 'SOUL.md')
+    const originalProfile = readFileSync(profilePath, 'utf8')
+    writeFileSync(
+      profilePath,
+      `version = 3
+
+[spaces]
+base = []
+
+[instructions]
+template = "context-template.toml"
+`,
+      'utf8'
+    )
+    writeFileSync(
+      templatePath,
+      `schema_version = 2
+mode = "replace"
+
+[[prompt]]
+name = "scope"
+type = "inline"
+content = "task={{taskId}} lane={{lane}} now={{dateUtc}}"
+`,
+      'utf8'
+    )
+    writeFileSync(soulPath, '# Cody\n', 'utf8')
+    const resolverContext = {
+      agentRoot: fixture.agentRoot,
+      agentsRoot: dirname(fixture.agentRoot),
+      agentRootSearchPath: [fixture.agentRoot, dirname(fixture.agentRoot)],
+      projectRoot: fixture.projectRoot,
+      projectId: 'agent-spaces',
+      agentId: 'cody',
+      agentName: 'Cody',
+      taskId: 'T-01609',
+      lane: 'main',
+      runMode: 'task' as const,
+      now: new Date('2026-08-24T00:00:00.000Z'),
+      env: {},
+      cwd: fixture.projectRoot,
+      predicateCwd: fixture.projectRoot,
+      predicateEnv: {},
+      execCwd: fixture.projectRoot,
+      execEnv: {},
+      execResults: [],
+      serviceProbeResponses: [],
+    }
+    try {
+      const compiled = await preparePlacementCliRuntime(
+        {
+          placement: placement(),
+          provider: 'openai',
+          frontend: 'codex-cli',
+          interactionMode: 'headless',
+          model: 'gpt-5.3-codex',
+          aspHome: fixture.aspHome,
+          resolverContext,
+        },
+        fixture.aspHome,
+        undefined,
+        compilerRuntime
+      )
+      const directAgent = await loadAgent({
+        agentId: 'cody',
+        projectId: 'agent-spaces',
+        agentRoot: fixture.agentRoot,
+        projectRoot: fixture.projectRoot,
+        cwd: fixture.projectRoot,
+        aspHome: fixture.aspHome,
+        runMode: 'task',
+        scopeRef: 'agent:cody:project:agent-spaces:task:T-01609',
+        laneRef: 'main',
+        resolverContext,
+      })
+
+      expect(compiled.systemPrompt?.content).toBe(
+        'task=T-01609 lane=main now=2026-08-24T00:00:00.000Z'
+      )
+      expect(directAgent.prompt?.content).toBe(compiled.systemPrompt?.content)
+      expect(resolverContext.taskId).toBe('T-01609')
+      expect(resolverContext.lane).toBe('main')
+    } finally {
+      writeFileSync(profilePath, originalProfile, 'utf8')
+      rmSync(templatePath, { force: true })
       rmSync(soulPath, { force: true })
     }
   })

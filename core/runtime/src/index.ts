@@ -24,6 +24,7 @@ export type {
   ResolvedZoneDiagnostics,
   ResolveContextTemplateOptions,
 } from './context-resolver.js'
+export type { RecordedExecResult, RecordedServiceProbeResponse } from './dynamic-replay.js'
 export type {
   DiscoverContextTemplateInput,
   DiscoveredContextTemplate,

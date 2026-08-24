@@ -1,5 +1,6 @@
 import { dirname, join } from 'node:path'
 
+import { parseScopeRef } from 'agent-scope'
 import {
   type MaterializedAgentRuntimeResources,
   type RunMode,
@@ -20,7 +21,7 @@ import {
   createPiAgentSession,
   resolvePiAgentSessionAuth,
 } from 'spaces-harness-pi-sdk/agent-session'
-import { inspectAgentSystemPrompt } from 'spaces-runtime'
+import { type ContextResolverContext, inspectAgentSystemPrompt } from 'spaces-runtime'
 import { type PiSdkModelCatalogEntry, findPiSdkModelCatalogEntry } from 'spaces-runtime-contracts'
 
 export interface LoadAgentOptions {
@@ -41,6 +42,8 @@ export interface LoadAgentOptions {
   reasoningEffort?: string | undefined
   lockedEnv?: Record<string, string> | undefined
   dispatchEnv?: Record<string, string> | undefined
+  /** Fully pinned context resolution inputs for deterministic callers. */
+  resolverContext?: ContextResolverContext | undefined
 }
 
 export interface ResolvedAgent {
@@ -142,14 +145,20 @@ export async function loadAgent(options: LoadAgentOptions): Promise<ResolvedAgen
         }
       : {}),
   })
+  const promptScope = derivePromptScope(placement)
   const inspectedPrompt = await inspectAgentSystemPrompt({
     agentRoot: paths.agentRoot,
     aspHome,
     ...(projectRoot !== undefined ? { projectRoot } : {}),
-    ...(options.projectId !== undefined ? { projectId: options.projectId } : {}),
-    agentId: options.agentId,
+    ...((promptScope.projectId ?? options.projectId)
+      ? { projectId: promptScope.projectId ?? options.projectId }
+      : {}),
+    agentId: promptScope.agentId ?? options.agentId,
+    ...(promptScope.taskId !== undefined ? { taskId: promptScope.taskId } : {}),
+    ...(promptScope.lane !== undefined ? { lane: promptScope.lane } : {}),
     runMode: placement.runMode,
     env: composedEnv.env,
+    ...(options.resolverContext !== undefined ? { resolverContext: options.resolverContext } : {}),
   })
   const requestedModel =
     options.model ?? placementContext.materialization.effectiveConfig?.model ?? 'gpt-5.6-sol'
@@ -184,6 +193,46 @@ export async function loadAgent(options: LoadAgentOptions): Promise<ResolvedAgen
     skillPaths,
     resources,
     warnings: [...(paths.warnings ?? []), ...composedEnv.warnings],
+  }
+}
+
+function derivePromptScope(placement: RuntimePlacement): {
+  agentId?: string | undefined
+  projectId?: string | undefined
+  taskId?: string | undefined
+  lane?: string | undefined
+} {
+  const scopeRef = placement.correlation?.sessionRef?.scopeRef
+  const laneRef = placement.correlation?.sessionRef?.laneRef
+  if (scopeRef === undefined) {
+    return laneRef === undefined
+      ? {}
+      : { lane: laneRef.startsWith('lane:') ? laneRef.slice('lane:'.length) : laneRef }
+  }
+  try {
+    const parsed = parseScopeRef(scopeRef)
+    return {
+      agentId: parsed.agentId,
+      ...(parsed.projectId !== undefined ? { projectId: parsed.projectId } : {}),
+      ...(parsed.taskId !== undefined ? { taskId: parsed.taskId } : {}),
+      ...(laneRef !== undefined
+        ? { lane: laneRef.startsWith('lane:') ? laneRef.slice('lane:'.length) : laneRef }
+        : {}),
+    }
+  } catch {
+    const atIndex = scopeRef.indexOf('@')
+    const agentId = atIndex === -1 ? scopeRef : scopeRef.slice(0, atIndex)
+    const rest = atIndex === -1 ? '' : scopeRef.slice(atIndex + 1)
+    const colonIndex = rest.indexOf(':')
+    return {
+      ...(agentId.length > 0 ? { agentId } : {}),
+      ...(atIndex !== -1 && colonIndex === -1 ? { projectId: rest } : {}),
+      ...(colonIndex !== -1 ? { projectId: rest.slice(0, colonIndex) } : {}),
+      ...(colonIndex !== -1 ? { taskId: rest.slice(colonIndex + 1) } : {}),
+      ...(laneRef !== undefined
+        ? { lane: laneRef.startsWith('lane:') ? laneRef.slice('lane:'.length) : laneRef }
+        : {}),
+    }
   }
 }
 
