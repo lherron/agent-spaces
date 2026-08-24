@@ -39,18 +39,10 @@ const PREPARE_CLI_RUNTIME_REGION = [
 ] as const
 const RUN_PLACEMENT_TURN_DECL = 'export async function runPlacementTurnNonInteractive'
 const HEAVY_TEST_TIMEOUT_MS = 60_000
+const REPO_ROOT = join(import.meta.dirname, '..', '..')
 
 async function createTurnClient(options?: { aspHome?: string; registryPath?: string }) {
-  // ARCH-L2 forbids `spaces-turn-runner` from the compiler plane, and that
-  // verdict is CORRECT — this edge must not survive the carve-out. The relative
-  // form is not an endorsement: it is invisible to the boundary checker, which
-  // is strictly worse as a pattern and must not be copied. It is accepted here
-  // only because the alternatives are worse in a mechanical relocation commit:
-  // a bare specifier trips the guard, and delisting the token would silently
-  // exempt production too.
-  // Real fix: these are turn-runner tests parked in the compiler plane; they
-  // belong in integration-tests/. Relocation owner: T-07525.
-  const { createAgentSpacesClient } = await import('../../../../apps/turn-runner/src/index.js')
+  const { createAgentSpacesClient } = await import('../../apps/turn-runner/src/index.js')
   return createAgentSpacesClient(options)
 }
 
@@ -69,7 +61,7 @@ beforeAll(() => {
 // ===================================================================
 describe('placement-based request types (T-00860)', () => {
   test('RunTurnNonInteractiveRequest has placement field', async () => {
-    const types = await import('../types.js')
+    const types = await import('../../compiler/agent-spaces/src/types.js')
 
     // The new request type should exist as an interface.
     // We verify by constructing a conforming object and checking that
@@ -107,13 +99,13 @@ describe('placement-based request types (T-00860)', () => {
     }
 
     // Import and verify the type accepts this shape
-    const types = await import('../types.js')
+    const types = await import('../../compiler/agent-spaces/src/types.js')
     const response: types.RunTurnNonInteractiveResponse = mockResponse as any
     expect(response.resolvedBundle).toBeDefined()
   })
 
   test('BuildProcessInvocationSpecRequest has placement field', async () => {
-    const types = await import('../types.js')
+    const types = await import('../../compiler/agent-spaces/src/types.js')
 
     const req: types.BuildProcessInvocationSpecRequest = {
       placement: {
@@ -150,7 +142,7 @@ describe('placement-based request types (T-00860)', () => {
       },
     }
 
-    const types = await import('../types.js')
+    const types = await import('../../compiler/agent-spaces/src/types.js')
     const response: types.BuildProcessInvocationSpecResponse = mockResponse as any
     expect(response.resolvedBundle).toBeDefined()
   })
@@ -162,7 +154,7 @@ describe('placement-based request types (T-00860)', () => {
 describe('hostSessionId rename (T-00861)', () => {
   test('HostCorrelation type uses hostSessionId not cpSessionId', async () => {
     // Import the HostCorrelation type (should be exported from types or index)
-    const types = await import('../types.js')
+    const types = await import('../../compiler/agent-spaces/src/types.js')
 
     const correlation = {
       hostSessionId: 'hs-123',
@@ -180,7 +172,7 @@ describe('hostSessionId rename (T-00861)', () => {
   })
 
   test('placement.correlation uses hostSessionId', async () => {
-    const _types = await import('../types.js')
+    const _types = await import('../../compiler/agent-spaces/src/types.js')
 
     const req = {
       placement: {
@@ -204,7 +196,7 @@ describe('hostSessionId rename (T-00861)', () => {
   })
 
   test('BaseEvent uses hostSessionId not cpSessionId', async () => {
-    const types = await import('../types.js')
+    const types = await import('../../compiler/agent-spaces/src/types.js')
 
     // The new BaseEvent should use hostSessionId
     const event: types.BaseEvent = {
@@ -227,7 +219,7 @@ describe('resolvedBundle from APIs (T-00862)', () => {
   test(
     'client.buildProcessInvocationSpec returns resolvedBundle',
     async () => {
-      const { createAgentSpacesClient } = await import('../index.js')
+      const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
       const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
 
       // Build a placement-based request for a CLI frontend
@@ -253,7 +245,7 @@ describe('resolvedBundle from APIs (T-00862)', () => {
   )
 
   test('provider mismatch still detected with placement API', async () => {
-    const { createAgentSpacesClient } = await import('../index.js')
+    const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
     const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
 
     // Try to continue an anthropic session with an openai frontend
@@ -279,7 +271,7 @@ describe('resolvedBundle from APIs (T-00862)', () => {
   test(
     'continuation refs still type-checked across providers',
     async () => {
-      const { createAgentSpacesClient } = await import('../index.js')
+      const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
       const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
 
       // anthropic continuation with anthropic frontend should be OK structurally
@@ -325,7 +317,7 @@ describe('createAgentSpacesClient options (T-00863)', () => {
   })
 
   test('accepts AgentSpacesClientOptions with registryPath', async () => {
-    const { createAgentSpacesClient } = await import('../index.js')
+    const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
 
     const client = createAgentSpacesClient({
       aspHome: '/custom/asp/home',
@@ -336,7 +328,7 @@ describe('createAgentSpacesClient options (T-00863)', () => {
   })
 
   test('still works with no arguments (backward compat)', async () => {
-    const { createAgentSpacesClient } = await import('../index.js')
+    const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
 
     // No-arg call should still work
     const client = createAgentSpacesClient()
@@ -345,7 +337,7 @@ describe('createAgentSpacesClient options (T-00863)', () => {
 
   test('AgentSpacesClientOptions type is exported', async () => {
     // The options type should be importable
-    const mod = await import('../index.js')
+    const mod = await import('../../compiler/agent-spaces/src/index.js')
     expect(mod.createAgentSpacesClient).toBeDefined()
     // Type-only check: AgentSpacesClientOptions should be in the exports
     // We verify by checking that the function accepts an object arg
@@ -361,7 +353,7 @@ describe('correlation env vars (T-00864)', () => {
   test(
     'AGENT_SCOPE_REF emitted when sessionRef present',
     async () => {
-      const { createAgentSpacesClient } = await import('../index.js')
+      const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
       const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
 
       const response = await client.buildProcessInvocationSpec({
@@ -391,7 +383,7 @@ describe('correlation env vars (T-00864)', () => {
   test(
     'AGENT_HOST_SESSION_ID emitted when hostSessionId present',
     async () => {
-      const { createAgentSpacesClient } = await import('../index.js')
+      const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
       const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
 
       const response = await client.buildProcessInvocationSpec({
@@ -417,7 +409,7 @@ describe('correlation env vars (T-00864)', () => {
   test(
     'correlation env vars are absent when no correlation provided',
     async () => {
-      const { createAgentSpacesClient } = await import('../index.js')
+      const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
       const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
 
       const response = await client.buildProcessInvocationSpec({
@@ -442,7 +434,7 @@ describe('correlation env vars (T-00864)', () => {
   test(
     'env vars are advisory only (string type)',
     async () => {
-      const { createAgentSpacesClient } = await import('../index.js')
+      const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
       const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
 
       const response = await client.buildProcessInvocationSpec({
@@ -574,10 +566,7 @@ describe('placement-based runTurnNonInteractive (T-00873)', () => {
     // Static regression: ensure the placement dispatch is present
     const { readFileSync } = require('node:fs')
     const { join } = require('node:path')
-    const source = readFileSync(
-      join(import.meta.dirname, '..', '..', '..', '..', 'apps', 'turn-runner', 'src', 'client.ts'),
-      'utf8'
-    )
+    const source = readFileSync(join(REPO_ROOT, 'apps', 'turn-runner', 'src', 'client.ts'), 'utf8')
     // Must have the placement check inside runTurnNonInteractive
     expect(source).toMatch(/runTurnNonInteractive[\s\S]*?if\s*\(req\.placement\)/)
     // Must have the placement handler function
@@ -594,26 +583,13 @@ describe('unified placement materialization (T-00876)', () => {
   test('both placement functions use resolvePlacementContext + planPlacementRuntime pipeline', () => {
     const { readFileSync } = require('node:fs')
     const { join } = require('node:path')
-    const source = readFileSync(
-      join(import.meta.dirname, '..', '..', '..', '..', 'apps', 'turn-runner', 'src', 'client.ts'),
-      'utf8'
-    )
+    const source = readFileSync(join(REPO_ROOT, 'apps', 'turn-runner', 'src', 'client.ts'), 'utf8')
     const prepareSource = readFileSync(
-      join(import.meta.dirname, '..', 'prepare-cli-runtime.ts'),
+      join(REPO_ROOT, 'compiler', 'agent-spaces', 'src', 'prepare-cli-runtime.ts'),
       'utf8'
     )
     const runSource = readFileSync(
-      join(
-        import.meta.dirname,
-        '..',
-        '..',
-        '..',
-        '..',
-        'apps',
-        'turn-runner',
-        'src',
-        'run-placement-turn.ts'
-      ),
+      join(REPO_ROOT, 'apps', 'turn-runner', 'src', 'run-placement-turn.ts'),
       'utf8'
     )
 
@@ -648,17 +624,7 @@ describe('non-interactive placement defaults (T-01092)', () => {
     const { readFileSync } = require('node:fs')
     const { join } = require('node:path')
     const source = readFileSync(
-      join(
-        import.meta.dirname,
-        '..',
-        '..',
-        '..',
-        '..',
-        'apps',
-        'turn-runner',
-        'src',
-        'run-placement-turn.ts'
-      ),
+      join(REPO_ROOT, 'apps', 'turn-runner', 'src', 'run-placement-turn.ts'),
       'utf8'
     )
     const runFn = fnRegion(source, RUN_PLACEMENT_TURN_DECL)
@@ -674,17 +640,7 @@ describe('non-interactive placement defaults (T-01092)', () => {
     const { readFileSync } = require('node:fs')
     const { join } = require('node:path')
     const source = readFileSync(
-      join(
-        import.meta.dirname,
-        '..',
-        '..',
-        '..',
-        '..',
-        'apps',
-        'turn-runner',
-        'src',
-        'run-placement-turn.ts'
-      ),
+      join(REPO_ROOT, 'apps', 'turn-runner', 'src', 'run-placement-turn.ts'),
       'utf8'
     )
     const runFn = fnRegion(source, RUN_PLACEMENT_TURN_DECL)
@@ -823,18 +779,7 @@ describe('audit bundle includes byMode space overlays (T-00890)', () => {
   test('placement-resolver.ts handles byMode instruction overlays (static)', () => {
     const { readFileSync } = require('node:fs')
     const source = readFileSync(
-      join(
-        import.meta.dirname,
-        '..',
-        '..',
-        '..',
-        '..',
-        'core',
-        'config',
-        'src',
-        'resolver',
-        'placement-resolver.ts'
-      ),
+      join(REPO_ROOT, 'core', 'config', 'src', 'resolver', 'placement-resolver.ts'),
       'utf8'
     )
 
@@ -864,7 +809,7 @@ describe('audit bundle includes byMode space overlays (T-00890)', () => {
       }
 
       try {
-        const { createAgentSpacesClient } = await import('../index.js')
+        const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
         const client = createAgentSpacesClient({ aspHome: join(tempDir, 'asp-home') })
 
         const response = await client.buildProcessInvocationSpec({
@@ -919,7 +864,7 @@ describe('audit bundle includes byMode space overlays (T-00890)', () => {
       }
 
       try {
-        const { createAgentSpacesClient } = await import('../index.js')
+        const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
         const client = createAgentSpacesClient({ aspHome: join(tempDir, 'asp-home') })
 
         const response = await client.buildProcessInvocationSpec({

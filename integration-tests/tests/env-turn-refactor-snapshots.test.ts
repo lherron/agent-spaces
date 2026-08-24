@@ -15,22 +15,16 @@ import { basename, join } from 'node:path'
 import type { RuntimePlacement } from 'spaces-config'
 import { type UnifiedSession, prepareAgentToolRuntime } from 'spaces-execution'
 
-// Cross-root relative: white-box access to spaces-turn-runner internals.
-// Deliberately NOT a package-name import — these symbols are not public and
-// must not be exported to satisfy a test. This path will break at
-// `git subtree split`; that is intentional. Relocation owner: T-07525.
+// Repo-level white-box coverage belongs here; these internals remain private.
 import {
   type InFlightRunContext,
   completeInFlightSuccess,
-} from '../../../../apps/turn-runner/src/run-tracker.js'
-import { shouldDrainOutstandingTurn } from '../../../../apps/turn-runner/src/run-turn-helpers.js'
-import {
-  createEventEmitter,
-  mapUnifiedEvents,
-} from '../../../../apps/turn-runner/src/session-events.js'
-import { buildCorrelationEnvVars } from '../placement-api.js'
-import { preparePlacementCliRuntime } from '../prepare-cli-runtime.js'
-import type { AgentEvent } from '../types.js'
+} from '../../apps/turn-runner/src/run-tracker.js'
+import { shouldDrainOutstandingTurn } from '../../apps/turn-runner/src/run-turn-helpers.js'
+import { createEventEmitter, mapUnifiedEvents } from '../../apps/turn-runner/src/session-events.js'
+import { buildCorrelationEnvVars } from '../../compiler/agent-spaces/src/placement-api.js'
+import { preparePlacementCliRuntime } from '../../compiler/agent-spaces/src/prepare-cli-runtime.js'
+import type { AgentEvent } from '../../compiler/agent-spaces/src/types.js'
 
 type Fixture = {
   agentRoot: string

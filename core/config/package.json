@@ -75,8 +75,6 @@
     "@types/proper-lockfile": "^4.1.4",
     "@types/semver": "^7.7.0",
     "@types/bun": "latest",
-    "agent-spaces": "workspace:*",
-    "spaces-turn-runner": "workspace:*",
     "typescript": "^5.8.3"
   }
 }

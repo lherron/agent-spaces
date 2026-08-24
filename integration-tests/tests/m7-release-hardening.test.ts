@@ -16,7 +16,7 @@ import { describe, expect, test } from 'bun:test'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const REPO_ROOT = join(import.meta.dirname, '..', '..', '..', '..')
+const REPO_ROOT = join(import.meta.dirname, '..', '..')
 
 // ===================================================================
 // T-00869: Legacy terminology removal

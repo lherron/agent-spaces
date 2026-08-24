@@ -53,7 +53,7 @@ const originalBulletSignals = [
 
 const sourceInspectionFiles = [
   'compiler/agent-spaces/src/__tests__/phase4-harness-adapter-integration.test.ts',
-  'compiler/agent-spaces/src/__tests__/m5-public-api-cutover.test.ts',
+  'integration-tests/tests/m5-public-api-cutover.test.ts',
   'compiler/agent-spaces/src/__tests__/headless-empty-response.test.ts',
   'apps/cli/src/__tests__/m6-agent-cli.test.ts',
 ]

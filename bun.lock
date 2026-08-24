@@ -182,8 +182,6 @@
         "@types/bun": "latest",
         "@types/proper-lockfile": "^4.1.4",
         "@types/semver": "^7.7.0",
-        "agent-spaces": "workspace:*",
-        "spaces-turn-runner": "workspace:*",
         "typescript": "^5.8.3",
       },
     },
@@ -323,9 +321,11 @@
       "version": "0.0.1",
       "dependencies": {
         "@lherron/agent-spaces": "*",
+        "agent-scope": "*",
         "agent-spaces": "workspace:*",
         "spaces-config": "*",
         "spaces-execution": "*",
+        "spaces-turn-runner": "*",
       },
       "devDependencies": {
         "@types/bun": "^1.1.14",

@@ -19,12 +19,9 @@
  */
 import { afterEach, describe, expect, it, test } from 'bun:test'
 
-// Cross-root relative: white-box access to spaces-turn-runner internals.
-// Deliberately NOT a package-name import — these symbols are not public and
-// must not be exported to satisfy a test. This path will break at
-// `git subtree split`; that is intentional. Relocation owner: T-07525.
-import { applyEnvOverlay } from '../../../../apps/turn-runner/src/runtime-env.js'
-import { createEventEmitter } from '../../../../apps/turn-runner/src/session-events.js'
+// Repo-level white-box coverage belongs here; these internals remain private.
+import { applyEnvOverlay } from '../../apps/turn-runner/src/runtime-env.js'
+import { createEventEmitter } from '../../apps/turn-runner/src/session-events.js'
 
 const PROBE_KEYS = ['ASP_TEST_CONCURRENCY_A', 'ASP_TEST_CONCURRENCY_B', 'ASP_TEST_CONCURRENCY_C']
 

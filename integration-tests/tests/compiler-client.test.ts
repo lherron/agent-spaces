@@ -4,18 +4,11 @@ import { join } from 'node:path'
 
 import { describe, expect, test } from 'bun:test'
 
-// ARCH-L2 forbids `spaces-turn-runner` from the compiler plane, and that
-// verdict is CORRECT — this edge must not survive the carve-out. The relative
-// form is not an endorsement: it is invisible to the boundary checker, which
-// is strictly worse as a pattern and must not be copied. It is accepted here
-// only because the alternatives are worse in a mechanical relocation commit:
-// a bare specifier trips the guard, and delisting the token would silently
-// exempt production too.
-// Real fix: these are turn-runner tests parked in the compiler plane; they
-// belong in integration-tests/. Relocation owner: T-07525.
-import { createAgentSpacesClient as createTurnRunnerClient } from '../../../apps/turn-runner/src/index.js'
-import { createAgentSpacesClient } from './index.js'
-import type { AgentEvent } from './types.js'
+// Repo-level parity coverage deliberately composes the compiler and turn-runner
+// roots from integration-tests, which sits above the six package roots.
+import { createAgentSpacesClient as createTurnRunnerClient } from '../../apps/turn-runner/src/index.js'
+import { createAgentSpacesClient } from '../../compiler/agent-spaces/src/index.js'
+import type { AgentEvent } from '../../compiler/agent-spaces/src/types.js'
 
 const client = createAgentSpacesClient()
 const turnClient = createTurnRunnerClient()
