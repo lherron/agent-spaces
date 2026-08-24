@@ -26,7 +26,9 @@ async function replayForProfile(agentRoot: string, agentsRoot: string, mode: Par
   const declared = /\[instructions\][\s\S]*?template\s*=\s*"([^"]+)"/.exec(profile)?.[1]
   const templatePath =
     declared === undefined ? join(agentsRoot, 'context-template.toml') : join(agentRoot, declared)
-  const template = await readFile(templatePath, 'utf8').catch(() => '')
+  const template = await readFile(templatePath, 'utf8').catch(() =>
+    readFile(join(agentsRoot, 'context-template.toml'), 'utf8')
+  )
   const blocks = template.split(/(?=\[\[(?:prompt|reminder)\]\])/)
   const execResults: {
     sectionName: string
