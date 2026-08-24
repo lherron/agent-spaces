@@ -21,7 +21,7 @@ import { verifyParityRows } from './verify.js'
 export const parityModes: readonly ParityRunMode[] = ['task', 'query', 'heartbeat', 'maintenance']
 
 /** Derive fixed replay records from declared profile sections; never execute them. */
-async function replayForProfile(agentRoot: string, agentsRoot: string) {
+async function replayForProfile(agentRoot: string, agentsRoot: string, mode: ParityRunMode) {
   const profile = await readFile(join(agentRoot, 'agent-profile.toml'), 'utf8')
   const declared = /\[instructions\][\s\S]*?template\s*=\s*"([^"]+)"/.exec(profile)?.[1]
   const templatePath =
@@ -43,6 +43,8 @@ async function replayForProfile(agentRoot: string, agentsRoot: string) {
     occurrence: number
   }[] = []
   for (const block of blocks) {
+    const requiredMode = /when\s*=\s*\{[^}]*runMode\s*=\s*"([^"]+)"/.exec(block)?.[1]
+    if (requiredMode !== undefined && requiredMode !== mode) continue
     const name = /\nname\s*=\s*"([^"]+)"/.exec(block)?.[1]
     if (name === undefined) continue
     if (/\ntype\s*=\s*"exec"/.test(block)) {
@@ -152,7 +154,7 @@ export async function runLiveTaskParity(input: {
         const compilerHome = await mkdtemp(join(tmpdir(), `agent-parity-compiler-${agentId}-`))
         const sdkHome = await mkdtemp(join(tmpdir(), `agent-parity-sdk-${agentId}-`))
         const taskId = mode === 'task' ? 'T-PARITY' : undefined
-        const replay = await replayForProfile(agentRoot, inventory.agentsRoot)
+        const replay = await replayForProfile(agentRoot, inventory.agentsRoot, mode)
         const scopeRef =
           taskId === undefined
             ? `agent:${agentId}:project:agent-spaces`
