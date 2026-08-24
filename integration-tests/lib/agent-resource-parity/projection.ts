@@ -9,7 +9,10 @@ function logicalSkillPath(skill: Skill, roots: readonly string[]): `skill://${st
   const root = roots.find((candidate) => skill.filePath.startsWith(`${resolve(candidate)}${sep}`))
   if (root === undefined)
     throw new Error(`Selected skill is outside declared ASP roots: ${skill.filePath}`)
-  return `skill://${relative(resolve(root), skill.filePath).split(sep).join('/')}`
+  // Harness adapters assign different materialization prefixes to the same
+  // selected skill. The parity identity is its effective name and package,
+  // while the projected package tree carries every authored byte.
+  return `skill://${skill.name}/SKILL.md`
 }
 
 async function projectTree(root: string): Promise<ProjectedFile[]> {

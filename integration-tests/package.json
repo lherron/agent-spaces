@@ -6,6 +6,7 @@
   "scripts": {
     "test": "bun test",
     "test:agent-resource-parity": "bun test tests/agent-resource-parity.test.ts",
+    "verify:agent-resources": "bun bin/verify-agent-resource-parity.ts --mode task",
     "test:real-claude": "RUN_REAL_CLAUDE=1 bun test"
   },
   "devDependencies": {

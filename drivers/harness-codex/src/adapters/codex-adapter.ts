@@ -542,7 +542,9 @@ export class CodexAdapter implements HarnessAdapter {
     for (const artifact of input.artifacts) {
       const srcSkillsDir = join(artifact.artifactPath, CODEX_SKILLS_DIR)
       if (await isDirectory(srcSkillsDir)) {
-        const entries = await readdir(srcSkillsDir, { withFileTypes: true })
+        const entries = (await readdir(srcSkillsDir, { withFileTypes: true })).sort(
+          (left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+        )
         for (const entry of entries) {
           if (!entry.isDirectory()) continue
           const srcPath = join(srcSkillsDir, entry.name)

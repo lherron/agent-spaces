@@ -38,7 +38,11 @@ export function compareProjections(
     fail('reminder/content.bin', byteDiagnostic(left.reminder.content, right.reminder.content))
   const leftCatalog = JSON.stringify(left.skills.catalog)
   const rightCatalog = JSON.stringify(right.skills.catalog)
-  if (leftCatalog !== rightCatalog) fail('skills/catalog.json', 'catalog differs')
+  if (leftCatalog !== rightCatalog)
+    fail(
+      'skills/catalog.json',
+      `catalog differs; left=[${left.skills.catalog.map((skill) => skill.name).join(',')}], right=[${right.skills.catalog.map((skill) => skill.name).join(',')}]`
+    )
   if (!bytesEqual(left.skills.catalogText, right.skills.catalogText))
     fail('skills/catalog.txt', byteDiagnostic(left.skills.catalogText, right.skills.catalogText))
   const names = [

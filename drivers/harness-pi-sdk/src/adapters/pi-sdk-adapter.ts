@@ -520,7 +520,9 @@ export class PiSdkAdapter implements HarnessAdapter {
     if (!(await isDirectory(srcSkillsDir))) {
       return
     }
-    const skillEntries = await readdir(srcSkillsDir, { withFileTypes: true })
+    const skillEntries = (await readdir(srcSkillsDir, { withFileTypes: true })).sort(
+      (left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+    )
     for (const entry of skillEntries) {
       if (entry.isDirectory()) {
         const srcPath = join(srcSkillsDir, entry.name)

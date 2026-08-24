@@ -29,6 +29,9 @@ test:
 test-integration:
     bun run test:integration
 
+verify-agent-resource-parity:
+    bun run --filter spaces-integration-tests verify:agent-resources
+
 # --- Room-readiness env lifecycle (T-06887 convention; host-agnostic names) ---
 # The e2e suite (integration-tests/tests) is hermetic: it drives the asp CLI
 # against in-repo fixtures using the claude/codex SHIMS, never real agent binaries

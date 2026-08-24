@@ -129,7 +129,10 @@ export function createPiAgentResourceLoader(
     extensionFactories: options.extensionFactories ?? [],
     additionalSkillPaths: options.skillPaths ?? [],
     noExtensions: true,
-    noSkills: false,
+    // ASP supplies the full ordered skill root set explicitly. Suppressing Pi's
+    // ambient agentDir discovery prevents it from prepending mutable local
+    // skills ahead of the composed bundle and changing effective precedence.
+    noSkills: true,
     noPromptTemplates: true,
     noThemes: true,
     noContextFiles: true,

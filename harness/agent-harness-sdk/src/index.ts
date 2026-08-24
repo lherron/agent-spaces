@@ -167,8 +167,11 @@ export async function loadAgent(options: LoadAgentOptions): Promise<ResolvedAgen
     options.reasoningEffort ?? placementContext.materialization.effectiveConfig?.reasoning
   const localSkillPath = localComponents?.hasSkills ? localComponents.skillsDir : undefined
   const skillPaths = [
-    ...(localSkillPath !== undefined ? [localSkillPath] : []),
     ...resources.effectiveSkillRoots,
+    // The composed Pi root already contains the agent-local artifact at its
+    // established override point. Keep the mutable source as a fallback only;
+    // placing it first changes the loader's catalog order from compiler output.
+    ...(localSkillPath !== undefined ? [localSkillPath] : []),
   ]
 
   return {
