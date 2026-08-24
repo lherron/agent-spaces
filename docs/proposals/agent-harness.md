@@ -6,36 +6,45 @@
 
 ## Thesis
 
-Praesidium should replace the live ASP compiler-to-frontier-harness path with a
-Praesidium-owned agent harness built on Pi's coding-agent SDK.
+Praesidium should make a Praesidium-owned agent harness built on Pi's
+coding-agent SDK the primary execution path while retaining the compiler for
+agents that intentionally run through Claude Code or Codex CLI.
 
 The compiler exists largely because agent-spaces translates its own agent model
 into layouts and launch conventions owned by Codex, Claude, Pi, and other
-harnesses. Once Praesidium owns the harness, that translation is unnecessary.
-The harness can read the existing ASP agent configuration, construct a Pi
-session directly, and expose that session to HRC.
+harnesses. That translation remains useful for external harness compatibility,
+but it is unnecessary when Praesidium owns the harness. Both paths should share
+the same ASP configuration, composition, prompt, context, and skill logic.
 
-The proposed execution path is:
+The expected operating split is roughly 95% of agents using `agent-harness` and
+5% using the compiler-backed Claude Code or Codex CLI paths. Those percentages
+describe the intended shape of the system, not a routing quota.
+
+The proposed execution paths are:
 
 ```text
 ASP agent configuration
-    -> agent-harness-sdk
-    -> Pi coding-agent session
-    -> agent-harness
-    -> HRC
+    -> shared ASP resolution
+        |-> agent-harness-sdk -> Pi session -> agent-harness  (default)
+        `-> compiler -> Claude Code or Codex CLI              (compatibility)
+    -> HRC-operated runtime
 ```
 
 There is no required compiled runtime plan, generated frontier-harness home, or
 serialized intermediate definition between ASP configuration and the Pi
-session. Normal resolved values inside the SDK are sufficient.
+session. Normal resolved values inside the SDK are sufficient. The compiler may
+continue producing those artifacts where an external harness requires them.
 
 ## Goals
 
-- Give ASP/HRC one first-party execution path instead of a matrix of frontier
-  harness adapters.
+- Give ASP/HRC a first-party execution path for the large majority of agents.
 - Use the existing ASP agent specification and directory structure directly.
-- Remove live ASPC compilation, generated harness homes, route selection, and
-  harness-specific process planning from agent startup.
+- Remove live ASPC compilation and generated harness homes from the default
+  agent startup path.
+- Retain compiler-backed Claude Code and Codex CLI execution for agents that
+  explicitly select those harnesses.
+- Share agent resolution, space composition, prompt/context assembly, and skill
+  discovery between the direct and compiler-backed paths.
 - Preserve HRC's ownership of runtime lifecycle and session routing.
 - Reuse the working Pi integration already present in agent-spaces.
 - Keep the first implementation small enough to dogfood with a real agent.
@@ -43,6 +52,7 @@ session. Normal resolved values inside the SDK are sufficient.
 ## Non-goals
 
 - Reproduce every feature of every frontier harness before cutover.
+- Eliminate the compiler or force every agent onto the first-party harness.
 - Establish a new sandbox, credential system, provenance system, or package
   manager.
 - Preserve incidental compiler output or byte-for-byte compiler behavior.
@@ -55,6 +65,14 @@ session. Normal resolved values inside the SDK are sufficient.
 
 `agent-harness-sdk` is the ASP-aware adapter around Pi's coding-agent session
 API. It turns the existing agent configuration into a working Pi session.
+
+Configuration resolution should live in shared ASP libraries rather than in the
+SDK itself. The SDK and compiler should call the same code for agent profiles,
+space composition, prompts, context, skills, and common provisioning values.
+They should diverge only where they lower that shared meaning into different
+execution environments. Code sharing should follow genuinely shared semantics;
+it should not force Claude Code, Codex CLI, and Pi into a false lowest-common-
+denominator model.
 
 Its responsibilities are:
 
@@ -116,17 +134,20 @@ live for one specific duration.
 
 ## Ownership boundary
 
-| Component                   | Owns                                                                              |
-| --------------------------- | --------------------------------------------------------------------------------- |
-| ASP configuration libraries | Agent profiles, space composition, prompt/context assembly, and validation        |
-| `agent-harness-sdk`         | Construction and operation of a Pi-backed agent session                           |
-| `agent-harness`             | The executable turn surface presented to HRC                                      |
-| HRC                         | Runtime placement, lifecycle, session routing, supervision, and durable messaging |
+| Component                   | Owns                                                                               |
+| --------------------------- | ---------------------------------------------------------------------------------- |
+| ASP configuration libraries | Agent profiles, space composition, prompt/context assembly, and validation         |
+| `agent-harness-sdk`         | Construction and operation of a Pi-backed agent session                            |
+| `agent-harness`             | The executable turn surface presented to HRC                                       |
+| Compiler                    | Lowering shared ASP semantics into Claude Code or Codex CLI artifacts and launches |
+| HRC                         | Runtime placement, lifecycle, session routing, supervision, and durable messaging  |
 
-HRC should pass semantic agent and runtime inputs rather than an ASPC-produced
-frontier-harness process plan. The harness should execute the selected agent; it
-should not decide where an established scope lives or assume responsibility for
-cross-node routing.
+The direct harness path should receive semantic agent and runtime inputs rather
+than an ASPC-produced frontier-harness process plan. The compatibility path may
+continue receiving a compiled process plan because that translation is its
+purpose. In both cases, the selected harness executes the agent; it does not
+decide where an established scope lives or assume responsibility for cross-node
+routing.
 
 ## Resource handling
 
@@ -157,6 +178,10 @@ semantics. The harness should not introduce a new duplicate-name failure rule.
 Pi's independent default discovery should not accidentally override ASP
 composition, but ASP may intentionally include project-level, user-level, or
 otherwise ambient resources when its specification defines that behavior.
+
+These choices govern the direct Pi path. The compatibility compiler remains
+free to materialize the files and directories required by Claude Code or Codex
+CLI, using the same resolved ASP semantics as its input.
 
 ## Permissions and security
 
@@ -199,51 +224,69 @@ Extensions, hooks, MCP, slash commands, and an interactive TUI do not need to
 block the first real deployment. They are deferred capabilities, not forbidden
 ones. Each should be added when a concrete agent or operator workflow needs it.
 
-## What remains of the compiler
+## Compiler compatibility path
 
-The live compiler path can disappear while useful configuration logic survives
-as ordinary libraries. The harness still needs:
+The compiler should remain a supported execution path for the minority of
+agents that explicitly use Claude Code or Codex CLI. Its durable purpose is
+external-harness lowering: turning shared ASP semantics into the files,
+directories, arguments, environment, and process description required by those
+harnesses.
+
+The compiler and direct harness should share ordinary libraries for:
 
 - Agent and space resolution.
 - Prompt assembly.
 - Context-template evaluation.
+- Skill discovery and composition.
+- Common provisioning values.
 - Configuration validation.
 - Inspection and diagnostics.
 
-The harness and `asp inspect`-style commands should call the same underlying
-logic. Keeping that logic does not require preserving the runtime compiler or
-its process-plan contract.
+The harness, compiler, and `asp inspect`-style commands should reuse the same
+underlying logic wherever they need the same answer. Compiler-specific code
+should begin where Claude Code or Codex CLI requires a different representation
+or launch mechanism.
 
-The retirement target is:
+The reduction target is redundant or obsolete compiler machinery, not the
+compiler itself:
 
-- Harness route selection.
-- Frontier-harness compatibility profiles.
-- Generated harness homes and bundles.
-- Harness-specific argv and environment plans.
-- Compiler service calls in the launch path.
-- Drivers for harnesses Praesidium no longer intends to run.
+- The primary `agent-harness` path no longer calls the compiler.
+- Common ASP semantics are not independently implemented in the compiler and
+  SDK.
+- Compatibility profiles and drivers remain only for supported external
+  harnesses.
+- Generated homes, bundles, argv, and environment plans remain only where the
+  selected external harness needs them.
+- Drivers for harnesses Praesidium no longer intends to support can be removed.
 
 ## Migration
 
-### 1. Extract the proven Pi session integration
+### 1. Extract shared ASP resolution
+
+Identify the configuration, composition, prompt, context, skill, and common
+provisioning logic currently embedded in the compiler. Move only that shared
+meaning into ordinary ASP libraries consumed by both execution paths.
+
+### 2. Extract the proven Pi session integration
 
 Move the working Pi session construction from the current broker Pi driver into
 `agent-harness-sdk`. Preserve behavior while establishing the new package
 boundary.
 
-### 2. Load ASP configuration directly
+### 3. Load ASP configuration directly
 
-Replace the compiled bundle input with direct calls to the existing ASP
-configuration, prompt, context, and skill libraries. Do not add a serialized
-replacement for the compiled plan unless implementation demonstrates a need.
+Replace the SDK's compiled bundle input with direct calls to the shared ASP
+libraries. Keep the compiler on those same libraries, followed by its
+Claude/Codex-specific lowering. Do not add a serialized replacement for the
+compiled plan to the direct path unless implementation demonstrates a need.
 
-### 3. Build the executable
+### 4. Build the executable
 
 Build `agent-harness` around the SDK. Reuse the existing broker connection for
 the first HRC integration so the work does not simultaneously redesign session
 transport.
 
-### 4. Dogfood a real agent
+### 5. Dogfood a real agent
 
 Run Cody through the new executable using the real agent profile, real project
 context, real skills, real tools, and real model authentication.
@@ -262,20 +305,29 @@ The migration does not require byte-for-byte prompt parity, resource hashes, or
 preservation of incidental compiler behavior. Intentional improvements are not
 migration failures.
 
-### 5. Cut over and delete
+### 6. Make the direct harness the default
 
-Make the first-party harness the default execution path. Remove live compiler
-and frontier-driver machinery after the installed path has been exercised in
-real use. Retain configuration and inspection functions that still have users.
+Make the first-party harness the default for ordinary agents after the installed
+path has been exercised in real use. Keep explicit Claude Code and Codex CLI
+selections on the compiler path. Delete duplicated resolution code and
+unsupported drivers, while continuing to maintain the compiler behavior needed
+by the expected minority of external-harness agents.
 
 ## Risks
 
 ### Recreating the compiler inside the SDK
 
-The largest risk is replacing the current compiler with manifests, snapshots,
-intermediate schemas, compatibility layers, and migration gates under a new
+The largest risk is recreating the compiler's intermediate machinery with
+manifests, snapshots, compatibility layers, and migration gates under a new
 package name. The SDK should directly compose existing ASP resolution with Pi
 session construction.
+
+### Semantic drift between the two paths
+
+The direct and compiler-backed paths will drift if each owns its own prompt,
+space, skill, or provisioning interpretation. Shared ASP resolution is the most
+important code-sharing boundary in this proposal. Tests should exercise that
+shared logic once, then separately test Pi, Claude Code, and Codex CLI lowering.
 
 ### Expanding the first cut into harness parity
 
@@ -289,11 +341,12 @@ The generic Pi harness API is not yet a sufficient base. Depending on the
 working coding-agent API behind a small local adapter keeps the project moving
 without designing around unfinished surfaces.
 
-### Losing useful inspection with the compiler
+### Coupling shared semantics to external-harness output
 
-Deleting the compiler package must not accidentally delete the only way to
-explain the resolved agent. Inspection should consume the same configuration
-logic as the harness, without requiring a compiled launch plan.
+Sharing code does not mean making the SDK consume compiler plans or making the
+compiler the canonical representation of an agent. Shared libraries should
+express ASP semantics; each execution path should own its own lowering from
+those semantics.
 
 ## Recommendation
 
@@ -304,9 +357,16 @@ Build both proposed components.
 broker only as the shortest integration path, then simplify it separately if
 the running system shows that doing so is valuable.
 
+Keep the compiler as the compatibility path for agents that explicitly select
+Claude Code or Codex CLI. Both paths should share ASP resolution code wherever
+the underlying semantics are actually the same. The system should optimize for
+the expected 95% direct-harness majority without degrading the supported 5%
+external-harness minority.
+
 The first milestone is not a comprehensive harness platform. It is one real ASP
 agent completing real multi-turn work through HRC without a live compiler or a
-frontier-harness adapter.
+frontier-harness adapter, while an existing Claude Code or Codex CLI agent still
+runs through the compiler-backed compatibility path.
 
 ## Relationship to the active invariant
 
