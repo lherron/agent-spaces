@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "bun test",
+    "test:agent-resource-parity": "bun test tests/agent-resource-parity.test.ts",
     "test:real-claude": "RUN_REAL_CLAUDE=1 bun test"
   },
   "devDependencies": {

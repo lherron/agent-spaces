@@ -1,12 +1,17 @@
-import { chmod, mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
+import { chmod, cp, mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import { describe, expect, test } from 'bun:test'
 import type { Skill } from '@earendil-works/pi-coding-agent'
 
 import { compareProjections } from '../lib/agent-resource-parity/compare.js'
+import { observeCompiler } from '../lib/agent-resource-parity/observe-compiler.js'
+import { observeSdk } from '../lib/agent-resource-parity/observe-sdk.js'
 import { projectResources } from '../lib/agent-resource-parity/projection.js'
+import { createParityReplayContext } from '../lib/agent-resource-parity/replay-context.js'
+import { verifyParityRows } from '../lib/agent-resource-parity/verify.js'
+import { compilerRuntime } from './compiler-runtime.js'
 
 async function fixtureSkill(root: string): Promise<Skill> {
   const skillDir = join(root, 'fixture')
@@ -28,7 +33,181 @@ async function fixtureSkill(root: string): Promise<Skill> {
   }
 }
 
+async function writeSkill(root: string, name: string, description: string): Promise<void> {
+  const skillDir = join(root, name)
+  await mkdir(skillDir, { recursive: true })
+  await writeFile(
+    join(skillDir, 'SKILL.md'),
+    `---\nname: ${name}\ndescription: ${description}\n---\n# ${name}\n`
+  )
+}
+
 describe('agent resource parity task fixture', () => {
+  test('observes matching task-mode resources through compiler lowering and SDK Pi loading', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'agent-resource-parity-observe-'))
+    const aspHome = join(root, 'asp-home')
+    const agentSpaces = join(root, 'agents', 'spaces')
+    const agentRoot = join(root, 'agents', 'fixture-agent')
+    const projectRoot = join(root, 'agent-spaces')
+    const codexShim = join(import.meta.dir, '../fixtures/codex-shim/codex')
+    const originalCodexPath = process.env['ASP_CODEX_PATH']
+    const originalAgentsRoot = process.env['ASP_AGENTS_ROOT']
+    await cp(
+      join(import.meta.dir, '../fixtures/sample-registry/spaces/base'),
+      join(agentSpaces, 'base'),
+      {
+        recursive: true,
+      }
+    )
+    await mkdir(projectRoot, { recursive: true })
+    await mkdir(join(agentSpaces, 'base', 'skills', 'composed'), { recursive: true })
+    await writeFile(
+      join(agentSpaces, 'base', 'skills', 'composed', 'SKILL.md'),
+      '---\nname: composed\ndescription: composed skill\n---\n# Composed\n'
+    )
+    await writeSkill(join(agentSpaces, 'base', 'skills'), 'local', 'composed duplicate loses')
+    await writeSkill(join(agentRoot, 'skills'), 'local', 'agent-local skill')
+    await writeFile(join(agentRoot, 'SOUL.md'), '# Fixture soul\n')
+    await writeFile(
+      join(agentRoot, 'agent-profile.toml'),
+      `version = 3
+
+[spaces]
+base = ["space:base@dev"]
+
+[instructions]
+template = "context-template.toml"
+`
+    )
+    const execCommand = "printf 'replayed exec'"
+    await writeFile(
+      join(agentRoot, 'context-template.toml'),
+      `schema_version = 2
+mode = "replace"
+
+[[prompt]]
+name = "task"
+type = "inline"
+content = "task={{taskId}} lane={{lane}}"
+
+[[prompt]]
+name = "exec"
+type = "exec"
+command = "${execCommand}"
+
+[[prompt]]
+name = "failed-exec"
+type = "exec"
+command = "printf 'failure detail' >&2; exit 23"
+
+[[prompt]]
+name = "services"
+type = "service-probe"
+services = [{ name = "broker", endpoint = "tcp://127.0.0.1:1" }]
+
+[[reminder]]
+name = "reminder"
+type = "inline"
+content = "remember task={{taskId}}"
+`
+    )
+    const resolverContext = createParityReplayContext({
+      agentRoot,
+      agentsRoot: dirname(agentRoot),
+      agentRootSearchPath: [agentRoot, dirname(agentRoot)],
+      projectRoot,
+      projectId: 'agent-spaces',
+      agentId: 'fixture-agent',
+      agentName: 'Fixture Agent',
+      taskId: 'T-PARITY',
+      lane: 'main',
+      runMode: 'task',
+      env: {},
+      cwd: projectRoot,
+      predicateCwd: projectRoot,
+      predicateEnv: {},
+      execCwd: projectRoot,
+      execEnv: {},
+      execResults: [
+        {
+          sectionName: 'exec',
+          command: execCommand,
+          occurrence: 1,
+          exitStatus: 0,
+          stdout: 'replayed exec',
+          stderr: '',
+        },
+        {
+          sectionName: 'failed-exec',
+          command: "printf 'failure detail' >&2; exit 23",
+          occurrence: 1,
+          exitStatus: 23,
+          stdout: '',
+          stderr: 'failure detail',
+        },
+      ],
+      serviceProbeResponses: [{ name: 'broker', endpoint: 'tcp://127.0.0.1:1', up: false }],
+    })
+    const placement = {
+      agentRoot,
+      projectRoot,
+      cwd: projectRoot,
+      runMode: 'task' as const,
+      bundle: { kind: 'agent-project' as const, agentName: 'fixture-agent', projectRoot },
+      correlation: {
+        sessionRef: {
+          scopeRef: 'agent:fixture-agent:project:agent-spaces:task:T-PARITY',
+          laneRef: 'main',
+        },
+      },
+    }
+    process.env['ASP_CODEX_PATH'] = codexShim
+    process.env['ASP_AGENTS_ROOT'] = dirname(agentRoot)
+    try {
+      const compiler = await observeCompiler({
+        agentId: 'fixture-agent',
+        mode: 'task',
+        aspHome,
+        runtime: compilerRuntime,
+        request: {
+          placement,
+          aspHome,
+          provider: 'openai',
+          frontend: 'codex-cli',
+          interactionMode: 'headless',
+          model: 'gpt-5.6-sol',
+          resolverContext,
+        },
+      })
+      const sdk = await observeSdk({
+        agentId: 'fixture-agent',
+        mode: 'task',
+        options: {
+          agentId: 'fixture-agent',
+          projectId: 'agent-spaces',
+          agentRoot,
+          projectRoot,
+          cwd: projectRoot,
+          aspHome,
+          runMode: 'task',
+          scopeRef: placement.correlation.sessionRef.scopeRef,
+          laneRef: 'main',
+          resolverContext,
+        },
+      })
+      expect(() => verifyParityRows([{ compiler, sdk }])).not.toThrow()
+      expect(compiler.prompt.content.toString()).toContain('task=T-PARITY lane=main')
+      expect(compiler.prompt.content.toString()).toContain('replayed exec')
+      expect(compiler.skills.catalog.map((skill) => skill.name)).toEqual(['local', 'composed'])
+      expect(compiler.skills.catalog[0]?.description).toBe('agent-local skill')
+    } finally {
+      if (originalCodexPath === undefined) process.env['ASP_CODEX_PATH'] = undefined
+      else process.env['ASP_CODEX_PATH'] = originalCodexPath
+      if (originalAgentsRoot === undefined) process.env['ASP_AGENTS_ROOT'] = undefined
+      else process.env['ASP_AGENTS_ROOT'] = originalAgentsRoot
+    }
+  })
+
   test('compares raw prompt/reminder bytes and selected skill package metadata without absolute roots', async () => {
     const root = await mkdtemp(join(tmpdir(), 'agent-resource-parity-'))
     const skill = await fixtureSkill(root)
@@ -72,5 +251,8 @@ describe('agent resource parity task fixture', () => {
         message: expect.stringContaining('bytes differ at 1'),
       }),
     ])
+    expect(() => verifyParityRows([{ compiler: left, sdk: right }])).toThrow(
+      '[fixture-agent/task] prompt/content.bin: bytes differ at 1'
+    )
   })
 })
