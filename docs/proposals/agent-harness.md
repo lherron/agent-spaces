@@ -231,6 +231,10 @@ ones. Each should be added when a concrete agent or operator workflow needs it.
 
 ## Compiler compatibility path
 
+The implementation-ready byte-parity gate for the shared prompt, reminder, and
+skill boundary is specified in
+[Agent Resource Parity Verifier](agent-resource-parity-verifier.md).
+
 The compiler should remain a supported execution path for the minority of
 agents that explicitly use Claude Code or Codex CLI. Its durable purpose is
 external-harness lowering: turning shared ASP semantics into the files,
