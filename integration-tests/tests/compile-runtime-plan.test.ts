@@ -35,6 +35,7 @@ import type {
   BuildHarnessBrokerInvocationRequest,
   BuildHarnessBrokerInvocationResponse,
 } from '../../compiler/agent-spaces/src/types.js'
+import { loadAgent } from '../../harness/agent-harness-sdk/src/index.js'
 import { compilerRuntime } from './compiler-runtime.js'
 
 type TestFn = () => unknown | Promise<unknown>
@@ -1132,6 +1133,44 @@ exit 0
 
       const overlayRoot = join(fixture.aspHome, 'tmp', 'launch-overlays')
       expect(existsSync(overlayRoot) ? readdirSync(overlayRoot) : []).toEqual([])
+    } finally {
+      rmSync(soulPath, { force: true })
+    }
+  })
+
+  test('agent-harness SDK resolves the same system prompt bytes as the compiler', async () => {
+    const soulPath = join(fixture.agentRoot, 'SOUL.md')
+    writeFileSync(soulPath, '# Cody\n\nAGENT-HARNESS-PROMPT-PARITY\n', 'utf8')
+    try {
+      const response = await createClient().compileRuntimePlan(
+        interactiveCompileRequest({
+          modelProvider: 'anthropic',
+          model: 'claude-sonnet-4-5',
+          harnessFamily: 'claude-code',
+          preferredHarnessRuntime: 'claude-code-cli',
+          interactionMode: 'interactive',
+        })
+      )
+      if (!response.ok) throw new Error('compileRuntimePlan unexpectedly failed')
+      const compiledPromptPath = response.plan.artifacts.systemPromptFile
+      expect(compiledPromptPath).toBeDefined()
+
+      const directAgent = await loadAgent({
+        agentId: 'cody',
+        projectId: 'agent-spaces',
+        agentRoot: fixture.agentRoot,
+        projectRoot: fixture.projectRoot,
+        cwd: fixture.projectRoot,
+        aspHome: fixture.aspHome,
+        runMode: 'task',
+        scopeRef: 'agent:cody:project:agent-spaces:task:T-01609',
+        laneRef: 'main',
+        lockedEnv: { EXTRA_FLAG: '1' },
+      })
+
+      expect(directAgent.prompt?.mode).toBe('replace')
+      expect(directAgent.prompt?.content).toBe(readFileSync(compiledPromptPath as string, 'utf8'))
+      expect(directAgent.prompt?.content).toContain('AGENT-HARNESS-PROMPT-PARITY')
     } finally {
       rmSync(soulPath, { force: true })
     }
