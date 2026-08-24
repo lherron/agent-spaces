@@ -2,6 +2,7 @@ import { basename, dirname, resolve } from 'node:path'
 
 import { parseScopeRef } from 'agent-scope'
 import { type RuntimePlacement, getAgentRootsForProject } from 'spaces-config'
+import { buildCodexAppServerLaunchDescriptor } from 'spaces-config'
 import type {
   CodexAppServerDriverSpec,
   HarnessInvocationSpec,
@@ -11,7 +12,6 @@ import type {
   InvocationStartRequest,
 } from 'spaces-harness-broker-protocol'
 import { validateInvocationInput, validateInvocationSpec } from 'spaces-harness-broker-protocol'
-import { buildCodexAppServerLaunchDescriptor } from 'spaces-harness-codex'
 import type { ContextResolverContext } from 'spaces-runtime'
 import { expandTemplate } from 'spaces-runtime'
 import { createCanonicalHasher } from 'spaces-runtime-contracts'

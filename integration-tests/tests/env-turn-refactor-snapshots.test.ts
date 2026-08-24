@@ -25,6 +25,7 @@ import { createEventEmitter, mapUnifiedEvents } from '../../apps/turn-runner/src
 import { buildCorrelationEnvVars } from '../../compiler/agent-spaces/src/placement-api.js'
 import { preparePlacementCliRuntime } from '../../compiler/agent-spaces/src/prepare-cli-runtime.js'
 import type { AgentEvent } from '../../compiler/agent-spaces/src/types.js'
+import { compilerRuntime } from './compiler-runtime.js'
 
 type Fixture = {
   agentRoot: string
@@ -186,7 +187,9 @@ describe('T-04601 env-compose snapshots', () => {
           lockedEnv: { LOCKED_ONLY: 'locked-env', REQ_WINS: 'locked-env' },
           dispatchEnv: { DISPATCH_ONLY: 'dispatch-env' },
         },
-        fixture.aspHome
+        fixture.aspHome,
+        undefined,
+        compilerRuntime
       )
 
       expect(pickEnv(prepared.lockedEnv)).toEqual({
@@ -285,7 +288,9 @@ describe('T-04601 env-compose snapshots', () => {
           model: 'gpt-5.3-codex',
           aspHome: fixture.aspHome,
         },
-        fixture.aspHome
+        fixture.aspHome,
+        undefined,
+        compilerRuntime
       )
 
       // T-05831: drain worktrees are named for the task, not the project. The

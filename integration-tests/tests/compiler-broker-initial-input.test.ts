@@ -20,8 +20,9 @@ import type {
 } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 
-import { createAgentSpacesClient } from '../index.js'
-import type { AgentSpacesClient } from '../types.js'
+import { createAgentSpacesClient } from '../../compiler/agent-spaces/src/index.js'
+import type { AgentSpacesClient } from '../../compiler/agent-spaces/src/types.js'
+import { compilerRuntime } from './compiler-runtime.js'
 
 type TestFn = () => unknown | Promise<unknown>
 
@@ -173,7 +174,10 @@ async function compile(
 ): Promise<BrokerExecutionProfile> {
   process.env['ASP_CODEX_PATH'] = join(fixture.aspHome, 'codex')
   process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
-  const client = createAgentSpacesClient({ aspHome: fixture.aspHome }) as CompileClient
+  const client = createAgentSpacesClient({
+    aspHome: fixture.aspHome,
+    runtime: compilerRuntime,
+  }) as CompileClient
   return brokerProfile(
     await client.compileRuntimePlan(
       compileRequest(fixture, materialization, identityOverrides, continuation)

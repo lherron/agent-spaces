@@ -5,7 +5,8 @@ import { join } from 'node:path'
 
 import type { RuntimePlacement } from 'spaces-config'
 
-import { createAgentSpacesClient } from '../index.js'
+import { createAgentSpacesClient } from '../../compiler/agent-spaces/src/index.js'
+import { compilerRuntime } from './compiler-runtime.js'
 
 function createCodexShim(dir: string): string {
   const shimPath = join(dir, 'codex')
@@ -113,7 +114,7 @@ describe('buildProcessInvocationSpec characterization', () => {
       process.env['ASP_CODEX_PATH'] = codexShim
       process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
 
-      const client = createAgentSpacesClient({ aspHome: fixture.aspHome })
+      const client = createAgentSpacesClient({ aspHome: fixture.aspHome, runtime: compilerRuntime })
       const response = await client.buildProcessInvocationSpec({
         placement: createPlacement(fixture),
         provider: 'openai',

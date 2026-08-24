@@ -2,11 +2,10 @@ import { isAbsolute } from 'node:path'
 
 import {
   HARNESS_PROVIDERS,
+  buildCodexAppServerLaunchDescriptor,
   getHarnessFrontendsForProvider,
   normalizeAgentSdkModel,
 } from 'spaces-config'
-import { harnessRegistry } from 'spaces-execution'
-import { buildCodexAppServerLaunchDescriptor } from 'spaces-harness-codex'
 import {
   toHarnessBrokerStartRequest,
   validateBrokerInvocationRequest,
@@ -30,6 +29,7 @@ import {
 } from './client-support.js'
 import { compileRuntimePlan } from './compile-runtime-plan.js'
 import type { AgentSpacesClientOptions } from './placement-api.js'
+import { requireAgentSpacesRuntime } from './placement-api.js'
 import { preparePlacementCliRuntime, toProcessInvocationSpec } from './prepare-cli-runtime.js'
 import type {
   BuildHarnessBrokerInvocationRequest,
@@ -71,12 +71,14 @@ export function createAgentSpacesClient(
 ): CompilerAgentSpacesClient {
   const clientAspHome = options?.aspHome
   const clientRegistryPath = options?.registryPath
+  const clientRuntime = options?.runtime
 
   return {
     async compileRuntimePlan(req, options) {
       return compileRuntimePlan(req, {
         clientAspHome,
         clientRegistryPath,
+        clientRuntime,
         ...(options?.compileContext !== undefined
           ? { compileContext: options.compileContext }
           : {}),
@@ -110,6 +112,7 @@ export function createAgentSpacesClient(
           : resolveFrontend(AGENT_SDK_FRONTEND)
         const materialized = await materializeSpec(spec, req.aspHome, frontendDef.internalId, {
           registryPathOverride: req.registryPath,
+          runtime: requireAgentSpacesRuntime(clientRuntime),
         })
         const hooks = await collectHooks(materialized.materialization.pluginDirs)
         const tools = await collectTools(materialized.materialization.mcpConfigPath)
@@ -170,7 +173,12 @@ export function createAgentSpacesClient(
       req: BuildProcessInvocationSpecRequest
     ): Promise<BuildProcessInvocationSpecResponse> {
       if (req.placement) {
-        const prepared = await preparePlacementCliRuntime(req, clientAspHome, clientRegistryPath)
+        const prepared = await preparePlacementCliRuntime(
+          req,
+          clientAspHome,
+          clientRegistryPath,
+          requireAgentSpacesRuntime(clientRuntime)
+        )
         return toProcessInvocationSpec(prepared, req)
       }
 
@@ -200,8 +208,11 @@ export function createAgentSpacesClient(
           )
         }
 
-        const materialized = await materializeSpec(spec, req.aspHome, frontendDef.internalId)
-        const adapter = harnessRegistry.getOrThrow(frontendDef.internalId)
+        const runtime = requireAgentSpacesRuntime(clientRuntime)
+        const materialized = await materializeSpec(spec, req.aspHome, frontendDef.internalId, {
+          runtime,
+        })
+        const adapter = runtime.getHarnessAdapter(frontendDef.internalId)
         const detection = await adapter.detect()
         if (!detection.available) {
           throw new Error(
@@ -265,7 +276,12 @@ export function createAgentSpacesClient(
       req: BuildHarnessBrokerInvocationRequest
     ): Promise<BuildHarnessBrokerInvocationResponse> {
       validateBrokerInvocationRequest(req)
-      const prepared = await preparePlacementCliRuntime(req, clientAspHome, clientRegistryPath)
+      const prepared = await preparePlacementCliRuntime(
+        req,
+        clientAspHome,
+        clientRegistryPath,
+        requireAgentSpacesRuntime(clientRuntime)
+      )
       return toHarnessBrokerStartRequest(prepared, req)
     },
   }

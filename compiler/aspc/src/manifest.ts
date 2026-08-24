@@ -14,7 +14,6 @@ import type { Dirent } from 'node:fs'
 import { lstatSync, readFileSync, readdirSync, readlinkSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 
-import { createAgentSpacesClient } from 'agent-spaces'
 import type {
   CompileContext,
   OutputManifest,
@@ -22,6 +21,7 @@ import type {
   OutputManifestExclusion,
   OutputManifestExclusionReason,
   RuntimeCompileRequest,
+  RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
 import { OUTPUT_MANIFEST_SCHEMA_VERSION, createCanonicalHasher } from 'spaces-runtime-contracts'
 
@@ -30,6 +30,14 @@ export interface BuildOutputManifestInput {
   aspHome: string
   mode: 'A' | 'B'
   compileContext?: CompileContext | undefined
+}
+
+/** The compile capability supplied by the CLI/application composition root. */
+export interface OutputManifestCompiler {
+  compileRuntimePlan(
+    request: RuntimeCompileRequest,
+    options?: { compileContext?: CompileContext | undefined }
+  ): Promise<RuntimeCompileResponse>
 }
 
 export type BuildOutputManifestResult =
@@ -198,10 +206,10 @@ function toEntry(
  * LLM is invoked — `compileRuntimePlan` materializes only.
  */
 export async function buildOutputManifest(
-  input: BuildOutputManifestInput
+  input: BuildOutputManifestInput,
+  compiler: OutputManifestCompiler
 ): Promise<BuildOutputManifestResult> {
-  const client = createAgentSpacesClient({ aspHome: input.aspHome })
-  const response = await client.compileRuntimePlan(
+  const response = await compiler.compileRuntimePlan(
     input.compileRequest,
     input.compileContext !== undefined ? { compileContext: input.compileContext } : undefined
   )

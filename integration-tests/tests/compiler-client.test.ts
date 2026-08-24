@@ -9,8 +9,9 @@ import { describe, expect, test } from 'bun:test'
 import { createAgentSpacesClient as createTurnRunnerClient } from '../../apps/turn-runner/src/index.js'
 import { createAgentSpacesClient } from '../../compiler/agent-spaces/src/index.js'
 import type { AgentEvent } from '../../compiler/agent-spaces/src/types.js'
+import { compilerRuntime } from './compiler-runtime.js'
 
-const client = createAgentSpacesClient()
+const client = createAgentSpacesClient({ runtime: compilerRuntime })
 const turnClient = createTurnRunnerClient()
 
 // ---------------------------------------------------------------------------

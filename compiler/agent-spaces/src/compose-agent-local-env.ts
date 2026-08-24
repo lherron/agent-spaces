@@ -1,8 +1,8 @@
 import type { AgentLocalComponents, RuntimePlacement } from 'spaces-config'
-import { prepareAgentToolRuntime } from 'spaces-execution'
 
 import { RESERVED_AGENT_SESSION_ENV_KEYS } from './agent-session-env.js'
 import { buildCorrelationEnvVars } from './placement-api.js'
+import type { AgentSpacesRuntimeDependencies } from './placement-api.js'
 
 /**
  * Inputs to {@link composeAgentLocalEnv}. The optional/flag fields encode the
@@ -56,7 +56,8 @@ export interface ComposedAgentLocalEnv {
  * typed `pathPrepend` field (consumed by the broker env compose) instead.
  */
 export async function composeAgentLocalEnv(
-  req: ComposeAgentLocalEnvRequest
+  req: ComposeAgentLocalEnvRequest,
+  runtime: Pick<AgentSpacesRuntimeDependencies, 'prepareAgentToolRuntime'>
 ): Promise<ComposedAgentLocalEnv> {
   const { placement, agentLocalComponents, aspHome } = req
 
@@ -86,7 +87,7 @@ export async function composeAgentLocalEnv(
   const warnings: string[] = []
   if (placement.agentRoot) {
     const projectId = correlationEnv['AGENT_PROJECT']
-    const toolRuntime = await prepareAgentToolRuntime(
+    const toolRuntime = await runtime.prepareAgentToolRuntime(
       {
         agentRoot: placement.agentRoot,
         projectRoot: placement.projectRoot,

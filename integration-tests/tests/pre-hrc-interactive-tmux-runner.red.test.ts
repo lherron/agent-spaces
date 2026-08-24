@@ -3,15 +3,17 @@ import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { createAgentSpacesClient } from 'agent-spaces'
 import type { HarnessInvocationSpec, InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 
 import {
   type InteractiveTmuxManager,
   type InteractiveTmuxRunnerDeps,
   runInteractiveClaudeTmuxSession,
-} from '../testing/pre-hrc-interactive-tmux-runner.js'
+} from '../../compiler/agent-spaces/src/testing/pre-hrc-interactive-tmux-runner.js'
+import { compilerRuntime } from './compiler-runtime.js'
 
-const REPO_ROOT = new URL('../../../..', import.meta.url).pathname
+const REPO_ROOT = new URL('../..', import.meta.url).pathname
 const PROJECT_ROOT = REPO_ROOT
 // The runner materializes the live `smokey@agent-spaces` persona, resolved from
 // ASP_AGENTS_ROOT (agent personas are runtime data, never image substrate), so
@@ -56,6 +58,7 @@ function runnerDeps(): {
   deps: InteractiveTmuxRunnerDeps
   getStartSpec: () => HarnessInvocationSpec | undefined
 } {
+  const compiler = createAgentSpacesClient({ runtime: compilerRuntime })
   let onEvent: ((event: InvocationEventEnvelope) => void) | undefined
   let startSpec: HarnessInvocationSpec | undefined
   let seq = 0
@@ -70,6 +73,7 @@ function runnerDeps(): {
   }
 
   const deps: InteractiveTmuxRunnerDeps = {
+    compileRuntimePlan: (request) => compiler.compileRuntimePlan(request),
     createClaudeCodeTmuxDriver: () => ({}),
     createInvocationEventSequencer: () => ({}),
     parseDispatchEnv: (input) => input as Record<string, string>,

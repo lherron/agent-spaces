@@ -5,8 +5,20 @@
  * See AGENT_SPACES_PLAN.md "Target public API" section.
  */
 
-import type { ResolvedRuntimeBundle, RuntimePlacement } from 'spaces-config'
+import type {
+  AgentLocalComponents,
+  ComposedTargetBundle,
+  HarnessFrontend as ConfigHarnessFrontend,
+  HarnessAdapter,
+  HarnessId,
+  HarnessProvider,
+  HarnessRunOptions,
+  ResolvedPlacementContext,
+  ResolvedRuntimeBundle,
+  RuntimePlacement,
+} from 'spaces-config'
 import type { AttachmentRef } from 'spaces-runtime'
+import type { PlacementRuntimePlan } from 'spaces-runtime-contracts'
 import { buildAgentSessionEnv } from './agent-session-env.js'
 import type {
   HarnessContinuationRef,
@@ -24,6 +36,60 @@ import type {
 export interface AgentSpacesClientOptions {
   aspHome?: string | undefined
   registryPath?: string | undefined
+  /** Execution-plane behavior supplied by an apps/harness composition root. */
+  runtime?: AgentSpacesRuntimeDependencies | undefined
+}
+
+export type CompilerPlacementRuntimePlan = PlacementRuntimePlan<
+  ConfigHarnessFrontend,
+  HarnessId,
+  HarnessProvider,
+  Partial<HarnessRunOptions>
+>
+
+export interface AgentSpacesRuntimeDependencies {
+  getHarnessAdapter(harnessId: HarnessId): HarnessAdapter
+  detectAgentLocalComponents(agentRoot: string): Promise<AgentLocalComponents | undefined>
+  planPlacementRuntime(options: {
+    placement: RuntimePlacement
+    placementContext: ResolvedPlacementContext
+    frontend: ConfigHarnessFrontend
+    aspHome: string
+    model?: string | undefined
+    prompt?: string | undefined
+    promptOverrideMode?: 'nullish' | 'truthy' | undefined
+    yolo?: boolean | undefined
+    interactive?: boolean | undefined
+    continuationKey?: string | boolean | undefined
+  }): Promise<CompilerPlacementRuntimePlan>
+  prepareCodexRuntimeHome(
+    bundle: ComposedTargetBundle,
+    runOptions: HarnessRunOptions
+  ): Promise<string>
+  prepareAgentToolRuntime(
+    context: {
+      agentRoot: string
+      projectRoot?: string | undefined
+      projectId?: string | undefined
+      components?: AgentLocalComponents | undefined
+    },
+    baseEnv?: Record<string, string>
+  ): Promise<{
+    env: Record<string, string>
+    pathPrepend: string[]
+    warnings: string[]
+  }>
+}
+
+export function requireAgentSpacesRuntime(
+  runtime: AgentSpacesRuntimeDependencies | undefined
+): AgentSpacesRuntimeDependencies {
+  if (runtime === undefined) {
+    throw new Error(
+      'Agent Spaces execution dependencies were not provided; bind them at the apps/harness composition root.'
+    )
+  }
+  return runtime
 }
 
 // ============================================================================

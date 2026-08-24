@@ -22,8 +22,9 @@ import type {
 } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 
-import { createAgentSpacesClient } from '../index.js'
-import type { AgentSpacesClient } from '../types.js'
+import { createAgentSpacesClient } from '../../compiler/agent-spaces/src/index.js'
+import type { AgentSpacesClient } from '../../compiler/agent-spaces/src/types.js'
+import { compilerRuntime } from './compiler-runtime.js'
 
 type CompileClient = AgentSpacesClient & {
   compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse>
@@ -112,7 +113,10 @@ afterAll(() => {
 })
 
 function createClient(): CompileClient {
-  return createAgentSpacesClient({ aspHome: fixture.aspHome }) as CompileClient
+  return createAgentSpacesClient({
+    aspHome: fixture.aspHome,
+    runtime: compilerRuntime,
+  }) as CompileClient
 }
 
 function basePlacement(): RuntimeCompileRequest['placement'] {

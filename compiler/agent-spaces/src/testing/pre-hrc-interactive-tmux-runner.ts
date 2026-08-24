@@ -31,10 +31,10 @@ import type {
   BrokerExecutionProfile,
   BrokerPermissionPolicy,
   RuntimeCompileRequest,
+  RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 
-import { compileRuntimePlan } from '../compile-runtime-plan.js'
 import { buildCorrelationEnvVars } from '../placement-api.js'
 import { assertInteractiveTmuxEvents } from './pre-hrc-broker-contract-harness.js'
 import { PreHrcBrokerEventLedger } from './pre-hrc-broker-event-ledger.js'
@@ -79,6 +79,7 @@ export type InteractiveTmuxManager = {
 }
 
 export type InteractiveTmuxRunnerDeps = {
+  compileRuntimePlan: (request: RuntimeCompileRequest) => Promise<RuntimeCompileResponse>
   createClaudeCodeTmuxDriver: (config: {
     tmux: { socketPath: string; tmuxBin: string; exec: TmuxExecFn }
     hooks: { listen: HookListenFn; bridgeCommand: string }
@@ -695,7 +696,7 @@ export async function runInteractiveClaudeTmuxSession(
 
   // --- 1. Compile + select + verify the interactive claude-code-tmux profile ---
   const request = compileRequest(options)
-  const compileResponse = await compileRuntimePlan(request, { clientAspHome: options.aspHome })
+  const compileResponse = await deps.compileRuntimePlan(request)
   if (!compileResponse.ok) {
     throw new Error(
       `Compile failed: ${compileResponse.diagnostics.map((d) => `${d.code}:${d.message}`).join('; ')}`

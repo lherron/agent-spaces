@@ -85,10 +85,8 @@
       "dependencies": {
         "agent-scope": "*",
         "spaces-config": "*",
-        "spaces-execution": "*",
         "spaces-harness-broker-client": "*",
         "spaces-harness-broker-protocol": "*",
-        "spaces-harness-codex": "*",
         "spaces-runtime": "*",
         "spaces-runtime-contracts": "*",
       },
@@ -274,14 +272,15 @@
         "aspc-facade": "./bin/aspc-facade.js",
       },
       "dependencies": {
+        "agent-spaces": "workspace:*",
         "spaces-aspc": "workspace:*",
         "spaces-aspc-protocol": "workspace:*",
+        "spaces-execution": "workspace:*",
         "spaces-harness-broker": "workspace:*",
         "spaces-harness-broker-protocol": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "latest",
-        "agent-spaces": "workspace:*",
         "typescript": "^5.8.3",
       },
     },

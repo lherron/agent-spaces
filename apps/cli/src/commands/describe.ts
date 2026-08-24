@@ -13,6 +13,7 @@ import { createAgentSpacesClient } from 'agent-spaces'
 import { TARGETS_FILENAME, formatWarnings, readTargetsToml } from 'spaces-config'
 import type { LintWarning } from 'spaces-config'
 
+import { compilerRuntime } from '../compiler-runtime.js'
 import { type CommonOptions, exitWithAspError, getProjectContext } from '../helpers.js'
 
 interface DescribeOptions extends CommonOptions {
@@ -67,7 +68,7 @@ export function registerDescribeCommand(program: Command): void {
           }
         }
 
-        const client = createAgentSpacesClient()
+        const client = createAgentSpacesClient({ runtime: compilerRuntime })
         const results: Record<string, unknown> = {}
 
         for (const name of targetNames) {

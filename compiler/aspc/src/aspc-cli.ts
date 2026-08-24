@@ -11,6 +11,7 @@
  */
 import { readFileSync } from 'node:fs'
 
+import { createAgentSpacesClient } from 'agent-spaces'
 import type { CompileContext, RuntimeCompileRequest } from 'spaces-runtime-contracts'
 
 import { buildOutputManifest } from './manifest.js'
@@ -62,12 +63,15 @@ async function runManifest(args: string[]): Promise<number> {
   const compileContext = parseCompileContext(flags)
   const compileRequest = JSON.parse(readFileSync(requestPath, 'utf8')) as RuntimeCompileRequest
 
-  const result = await buildOutputManifest({
-    compileRequest,
-    aspHome,
-    mode,
-    ...(compileContext !== undefined ? { compileContext } : {}),
-  })
+  const result = await buildOutputManifest(
+    {
+      compileRequest,
+      aspHome,
+      mode,
+      ...(compileContext !== undefined ? { compileContext } : {}),
+    },
+    createAgentSpacesClient({ aspHome })
+  )
   if (!result.ok) {
     process.stderr.write(`aspc manifest: compile failed\n${JSON.stringify(result.diagnostics)}\n`)
     return 1

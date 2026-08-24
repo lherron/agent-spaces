@@ -5,19 +5,12 @@ import { basename, extname, join, resolve } from 'node:path'
 import type { HarnessDetection, HarnessRunOptions, ResolvedPlacementContext } from 'spaces-config'
 import {
   type RuntimePlacement,
+  buildCodexAppServerLaunchDescriptor,
   getAspHome,
   resolvePlacementContext,
   sweepAspTempArtifacts,
   writeRuntimeSystemPromptArtifact,
 } from 'spaces-config'
-import type { PlacementRuntimePlan } from 'spaces-execution'
-import {
-  detectAgentLocalComponents,
-  harnessRegistry,
-  planPlacementRuntime,
-  prepareCodexRuntimeHome,
-} from 'spaces-execution'
-import { buildCodexAppServerLaunchDescriptor } from 'spaces-harness-codex'
 import type { AttachmentRef } from 'spaces-runtime'
 import type { MaterializeResult } from 'spaces-runtime'
 import { expandTemplate, materializeSystemPrompt } from 'spaces-runtime'
@@ -32,6 +25,10 @@ import {
   resolveFrontend,
 } from './client-support.js'
 import { composeAgentLocalEnv } from './compose-agent-local-env.js'
+import type {
+  AgentSpacesRuntimeDependencies,
+  CompilerPlacementRuntimePlan,
+} from './placement-api.js'
 import { buildCorrelationEnvVars } from './placement-api.js'
 import type {
   BuildProcessInvocationSpecRequest,
@@ -46,7 +43,7 @@ export interface PreparedPlacementCliRuntime {
   placement: RuntimePlacement
   placementContext: ResolvedPlacementContext
   resolvedBundle: BuildProcessInvocationSpecResponse['resolvedBundle']
-  runtimePlan: PlacementRuntimePlan
+  runtimePlan: CompilerPlacementRuntimePlan
   materialized: MaterializedSpec
   systemPrompt?: MaterializeResult | undefined
   expandedPrompt?: string | undefined
@@ -141,8 +138,12 @@ async function persistSystemPromptArtifact(
 export async function preparePlacementCliRuntime(
   req: PreparePlacementCliRuntimeRequest,
   defaultAspHome?: string,
-  defaultRegistryPath?: string
+  defaultRegistryPath?: string,
+  runtime?: AgentSpacesRuntimeDependencies
 ): Promise<PreparedPlacementCliRuntime> {
+  if (runtime === undefined) {
+    throw new Error('preparePlacementCliRuntime requires execution dependencies')
+  }
   const placement = req.placement as RuntimePlacement
   const warnings: string[] = []
 
@@ -170,7 +171,7 @@ export async function preparePlacementCliRuntime(
 
   const aspHome = req.aspHome ?? defaultAspHome ?? getAspHome()
   await sweepAspTempArtifactsWithinBudget(aspHome)
-  const runtimePlan = await planPlacementRuntime({
+  const runtimePlan = await runtime.planPlacementRuntime({
     placement,
     placementContext,
     frontend: req.frontend,
@@ -188,7 +189,7 @@ export async function preparePlacementCliRuntime(
   }
 
   // Get adapter from registry and detect binary
-  const adapter = harnessRegistry.getOrThrow(runtimePlan.harnessId)
+  const adapter = runtime.getHarnessAdapter(runtimePlan.harnessId)
   const detection = await adapter.detect()
   if (!detection.available) {
     throw new Error(
@@ -197,7 +198,7 @@ export async function preparePlacementCliRuntime(
   }
 
   // Detect agent-local skills/ and commands/ for materialization
-  const agentLocalComponents = await detectAgentLocalComponents(placement.agentRoot)
+  const agentLocalComponents = await runtime.detectAgentLocalComponents(placement.agentRoot)
 
   // Derive handle parts from the placement correlation, when present, so that
   // priming prompts and system prompt sections can reference {{agentId}},
@@ -258,6 +259,7 @@ export async function preparePlacementCliRuntime(
       : {}),
     ...(materializationIdentity ? { materializationIdentity } : {}),
     agentLocalComponents,
+    runtime,
   })
   const launchOverlayDir = join(aspHome, 'tmp', 'launch-overlays', randomUUID())
   let systemPrompt: MaterializeResult | undefined
@@ -356,7 +358,7 @@ export async function preparePlacementCliRuntime(
   // exec routes, so the model receives the system prompt without it appearing in
   // the visible launch message.
   if (frontendDef.frontend === CODEX_CLI_FRONTEND) {
-    const codexHomeDir = await prepareCodexRuntimeHome(bundle, {
+    const codexHomeDir = await runtime.prepareCodexRuntimeHome(bundle, {
       ...runOptions,
       aspHome,
       interactive: req.interactionMode === 'interactive',
@@ -388,15 +390,18 @@ export async function preparePlacementCliRuntime(
   // Compose the agent-local env channels. The CLI path folds adapterEnv +
   // agentchatEnv into lockedEnv, and consumes the typed pathPrepend + tool
   // warnings.
-  const composed = await composeAgentLocalEnv({
-    placement,
-    agentLocalComponents,
-    aspHome,
-    adapterEnv,
-    agentchatEnv,
-    ...(req.lockedEnv !== undefined ? { reqLockedEnv: req.lockedEnv } : {}),
-    ...(req.dispatchEnv !== undefined ? { reqDispatchEnv: req.dispatchEnv } : {}),
-  })
+  const composed = await composeAgentLocalEnv(
+    {
+      placement,
+      agentLocalComponents,
+      aspHome,
+      adapterEnv,
+      agentchatEnv,
+      ...(req.lockedEnv !== undefined ? { reqLockedEnv: req.lockedEnv } : {}),
+      ...(req.dispatchEnv !== undefined ? { reqDispatchEnv: req.dispatchEnv } : {}),
+    },
+    runtime
+  )
   const lockedEnv = composed.lockedEnv
   const dispatchEnv = composed.dispatchEnv
   const env = composed.env

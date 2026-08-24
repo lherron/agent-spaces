@@ -11,7 +11,8 @@ import type {
   RuntimeCompileRequest,
   RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
-import * as AgentSpaces from '../index.js'
+import * as AgentSpaces from '../../compiler/agent-spaces/src/index.js'
+import { compilerRuntime } from './compiler-runtime.js'
 
 type CompileClient = {
   compileRuntimePlan(
@@ -224,7 +225,10 @@ async function compilePinnedFixture(): Promise<{
   readonly compileCount: number
 }> {
   const inspectAgentForContext = inspectionOperation()
-  const client = AgentSpaces.createAgentSpacesClient({ aspHome: fixture.aspHome }) as CompileClient
+  const client = AgentSpaces.createAgentSpacesClient({
+    aspHome: fixture.aspHome,
+    runtime: compilerRuntime,
+  }) as CompileClient
   let compileCount = 0
   let response: RuntimeCompileResponse | undefined
   const outcome = await inspectAgentForContext(

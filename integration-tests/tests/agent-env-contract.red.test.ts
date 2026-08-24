@@ -25,9 +25,10 @@ import type {
 } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 
-import { createAgentSpacesClient } from '../index.js'
-import { preparePlacementCliRuntime } from '../prepare-cli-runtime.js'
-import type { AgentSpacesClient } from '../types.js'
+import { createAgentSpacesClient } from '../../compiler/agent-spaces/src/index.js'
+import { preparePlacementCliRuntime } from '../../compiler/agent-spaces/src/prepare-cli-runtime.js'
+import type { AgentSpacesClient } from '../../compiler/agent-spaces/src/types.js'
+import { compilerRuntime } from './compiler-runtime.js'
 
 type CompileClient = AgentSpacesClient & {
   compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse>
@@ -228,7 +229,9 @@ async function prepareCodexRuntime(fixture: Fixture, reqDispatchEnv?: Record<str
       aspHome: fixture.aspHome,
       ...(reqDispatchEnv !== undefined ? { dispatchEnv: reqDispatchEnv } : {}),
     },
-    fixture.aspHome
+    fixture.aspHome,
+    undefined,
+    compilerRuntime
   )
 }
 
@@ -371,7 +374,10 @@ command = '''printf '%s|%s' "$WRKQ_PRINCIPAL_REF" "$ASP_PROJECT"'''
       try {
         process.env['ASP_CODEX_PATH'] = fixture.codexShim
         process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
-        const client = createAgentSpacesClient({ aspHome: fixture.aspHome }) as CompileClient
+        const client = createAgentSpacesClient({
+          aspHome: fixture.aspHome,
+          runtime: compilerRuntime,
+        }) as CompileClient
         const first = await client.compileRuntimePlan(compileRequest(fixture))
         const changedCorrelation = await client.compileRuntimePlan(
           compileRequest(fixture, {

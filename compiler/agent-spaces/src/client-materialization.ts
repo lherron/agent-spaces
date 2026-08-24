@@ -6,8 +6,10 @@ import {
   type AgentLocalComponents,
   type HarnessId,
   type HygieneGateFinding,
+  type InstallOptions,
   type LintWarning,
   type LockFile,
+  type MaterializeFromRefsOptions,
   PORTABLE_SPACES_REGISTRY,
   PathResolver,
   type SpaceRefString,
@@ -19,12 +21,14 @@ import {
   generateLockFileForTarget,
   getRegistryPath,
   lintSpaces,
+  materializeFromRefs,
+  materializeTarget,
   readHooksWithPrecedence,
   resolveTarget,
 } from 'spaces-config'
-import { materializeFromRefs, materializeTarget } from 'spaces-execution'
 
 import { CodedError } from './client-support.js'
+import type { AgentSpacesRuntimeDependencies } from './placement-api.js'
 import type { SpaceSpec } from './types.js'
 
 export interface ValidatedSpec {
@@ -161,7 +165,7 @@ export async function materializeSpec(
   spec: ValidatedSpec,
   aspHome: string,
   harnessId: HarnessId,
-  options?: {
+  options: {
     registryPathOverride?: string | undefined
     agentRoot?: string | undefined
     projectRoot?: string | undefined
@@ -174,6 +178,7 @@ export async function materializeSpec(
         }
       | undefined
     agentLocalComponents?: AgentLocalComponents | undefined
+    runtime: Pick<AgentSpacesRuntimeDependencies, 'getHarnessAdapter'>
   }
 ): Promise<MaterializedSpec> {
   const registryPathOverride = options?.registryPathOverride
@@ -183,11 +188,11 @@ export async function materializeSpec(
       ...(options?.agentRoot ? { agentRoot: options.agentRoot } : {}),
       ...(options?.projectRoot ? { projectRoot: options.projectRoot } : {}),
     })
-    const materialization = await materializeTarget(targetName, lock, {
+    const materializationOptions: InstallOptions = {
       projectPath: spec.targetDir as string,
       aspHome,
       registryPath,
-      harness: harnessId,
+      adapter: options.runtime.getHarnessAdapter(harnessId),
       ...(options?.agentRoot ? { agentPath: options.agentRoot } : {}),
       ...(options?.agentLocalComponents
         ? { agentLocalComponents: options.agentLocalComponents }
@@ -195,7 +200,8 @@ export async function materializeSpec(
       ...(options?.materializationIdentity
         ? { materializationIdentity: options.materializationIdentity }
         : {}),
-    })
+    }
+    const materialization = await materializeTarget(targetName, lock, materializationOptions)
     const skillMetadata = await discoverSkills(materialization.pluginDirs)
     return {
       targetName,
@@ -220,7 +226,7 @@ export async function materializeSpec(
       registryPathOverride,
       options?.projectRoot
     )
-    const materialized = await materializeFromRefs({
+    const materializeOptions: MaterializeFromRefsOptions = {
       targetName,
       refs: [],
       registryPath,
@@ -234,7 +240,7 @@ export async function materializeSpec(
       ),
       aspHome,
       lockPath: paths.globalLock,
-      harness: harnessId,
+      adapter: options.runtime.getHarnessAdapter(harnessId),
       ...(options?.projectRoot ? { projectPath: options.projectRoot } : {}),
       ...(options?.agentRoot ? { agentRoot: options.agentRoot } : {}),
       ...(options?.projectRoot ? { projectRoot: options.projectRoot } : {}),
@@ -244,7 +250,8 @@ export async function materializeSpec(
       ...(options?.materializationIdentity
         ? { materializationIdentity: options.materializationIdentity }
         : {}),
-    })
+    }
+    const materialized = await materializeFromRefs(materializeOptions)
     return {
       targetName,
       materialization: {
@@ -270,14 +277,14 @@ export async function materializeSpec(
     },
     { fetch: false }
   )
-  const materialized = await materializeFromRefs({
+  const materializeOptions: MaterializeFromRefsOptions = {
     targetName,
     refs: refs as SpaceRefString[],
     registryPath,
     immutableRegistryPath,
     aspHome,
     lockPath: paths.globalLock,
-    harness: harnessId,
+    adapter: options.runtime.getHarnessAdapter(harnessId),
     ...(options?.projectRoot ? { projectPath: options.projectRoot } : {}),
     ...(options?.agentRoot ? { agentRoot: options.agentRoot } : {}),
     ...(options?.projectRoot ? { projectRoot: options.projectRoot } : {}),
@@ -287,7 +294,8 @@ export async function materializeSpec(
     ...(options?.materializationIdentity
       ? { materializationIdentity: options.materializationIdentity }
       : {}),
-  })
+  }
+  const materialized = await materializeFromRefs(materializeOptions)
 
   return {
     targetName,

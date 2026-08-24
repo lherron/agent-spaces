@@ -29,6 +29,7 @@ import {
   materializeSpec,
   resolveFrontend,
 } from 'agent-spaces/turn-support'
+import { compilerRuntime } from './compiler-runtime.js'
 import type { InFlightRunContext } from './run-tracker.js'
 import { enqueueInFlightPrompt } from './run-tracker.js'
 import { emitTurnFailure, toAgentSpacesError } from './run-turn-helpers.js'
@@ -151,13 +152,16 @@ export async function runPlacementTurnNonInteractive(
     // Compose the agent-local env channels. The placement turn path omits
     // adapterEnv/agentchatEnv, and deliberately ignores the typed pathPrepend +
     // tool warnings the CLI path consumes.
-    const composed = await composeAgentLocalEnv({
-      placement,
-      agentLocalComponents: placementAgentLocalComponents,
-      aspHome,
-      ...(req.lockedEnv !== undefined ? { reqLockedEnv: req.lockedEnv } : {}),
-      ...(req.dispatchEnv !== undefined ? { reqDispatchEnv: req.dispatchEnv } : {}),
-    })
+    const composed = await composeAgentLocalEnv(
+      {
+        placement,
+        agentLocalComponents: placementAgentLocalComponents,
+        aspHome,
+        ...(req.lockedEnv !== undefined ? { reqLockedEnv: req.lockedEnv } : {}),
+        ...(req.dispatchEnv !== undefined ? { reqDispatchEnv: req.dispatchEnv } : {}),
+      },
+      compilerRuntime
+    )
     const harnessEnv = composed.env
 
     let restoreEnv: (() => void) | undefined
@@ -185,6 +189,7 @@ export async function runPlacementTurnNonInteractive(
         agentRoot: placement.agentRoot,
         projectRoot: placement.projectRoot,
         agentLocalComponents: placementAgentLocalComponents,
+        runtime: compilerRuntime,
       })
 
       if (frontendDef.frontend === PI_SDK_FRONTEND) {

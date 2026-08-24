@@ -40,11 +40,17 @@ import type {
   ProjectManifest,
 } from 'spaces-config'
 import {
+  DEFAULT_CODEX_ENABLED_FEATURES,
   type McpConfig,
   composeMcpFromSpaces,
   copyDir,
   getEffectiveCodexOptions,
   linkOrCopy,
+} from 'spaces-config'
+export {
+  DEFAULT_CODEX_ENABLED_FEATURES,
+  buildCodexAppServerLaunchDescriptor,
+  type CodexAppServerLaunchDescriptor,
 } from 'spaces-config'
 import { createCanonicalHasher } from 'spaces-runtime-contracts'
 import { errorMessage } from '../errors.js'
@@ -74,7 +80,6 @@ export {
 } from './codex-agents.js'
 
 const INSTRUCTIONS_FILES = ['AGENTS.md', 'AGENT.md'] as const
-export const DEFAULT_CODEX_ENABLED_FEATURES = ['goals'] as const
 const MIN_CODEX_VERSION = '0.124.0'
 const CODEX_HOME_DIRNAME = 'codex.home'
 const CODEX_CONFIG_FILE = 'config.toml'
@@ -88,43 +93,6 @@ const SPACE_CODEX_CONFIG_FILE = 'codex.config.json'
 const MIN_MCP_CONFIG_BYTES = 2
 type CodexOptionsWithStatusLine = ComposeTargetInput['codexOptions'] & {
   status_line?: string[] | undefined
-}
-
-export interface CodexAppServerLaunchDescriptor {
-  prompt?: string | undefined
-  resumeThreadId?: string | undefined
-  model?: string | undefined
-  modelReasoningEffort?: string | undefined
-  approvalPolicy?: 'untrusted' | 'on-failure' | 'on-request' | 'never' | undefined
-  sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access' | undefined
-  profile?: string | undefined
-  imageAttachments?: string[] | undefined
-  featureFlags?: string[] | undefined
-  extraArgs?: string[] | undefined
-}
-
-export function buildCodexAppServerLaunchDescriptor(
-  options: HarnessRunOptions
-): CodexAppServerLaunchDescriptor {
-  const sandboxMode = options.yolo ? 'danger-full-access' : options.sandboxMode
-  return {
-    ...(options.prompt !== undefined ? { prompt: options.prompt } : {}),
-    ...(typeof options.continuationKey === 'string'
-      ? { resumeThreadId: options.continuationKey }
-      : {}),
-    ...(options.model !== undefined ? { model: options.model } : {}),
-    ...(options.modelReasoningEffort !== undefined
-      ? { modelReasoningEffort: options.modelReasoningEffort }
-      : {}),
-    approvalPolicy: 'never',
-    ...(sandboxMode !== undefined ? { sandboxMode } : {}),
-    ...(options.profile !== undefined ? { profile: options.profile } : {}),
-    ...(options.imageAttachments !== undefined
-      ? { imageAttachments: options.imageAttachments }
-      : {}),
-    featureFlags: [...(options.featureFlags ?? DEFAULT_CODEX_ENABLED_FEATURES)],
-    ...(options.extraArgs !== undefined ? { extraArgs: options.extraArgs } : {}),
-  }
 }
 
 async function fileExists(path: string): Promise<boolean> {

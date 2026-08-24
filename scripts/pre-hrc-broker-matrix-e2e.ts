@@ -74,6 +74,13 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
+import {
+  detectAgentLocalComponents,
+  harnessRegistry,
+  planPlacementRuntime,
+  prepareAgentToolRuntime,
+  prepareCodexRuntimeHome,
+} from 'spaces-execution'
 import { BrokerClient } from 'spaces-harness-broker-client'
 import type {
   BrokerAttachRequest,
@@ -2104,7 +2111,17 @@ function ensureAspHomeRegistry(aspHome: string, projectRoot: string): void {
 // ---------------------------------------------------------------------------
 
 function interactiveDeps(): InteractiveTmuxRunnerDeps {
+  const compiler = createAgentSpacesClient({
+    runtime: {
+      getHarnessAdapter: (harnessId) => harnessRegistry.getOrThrow(harnessId),
+      detectAgentLocalComponents,
+      planPlacementRuntime,
+      prepareCodexRuntimeHome,
+      prepareAgentToolRuntime,
+    },
+  })
   return {
+    compileRuntimePlan: (request) => compiler.compileRuntimePlan(request),
     createClaudeCodeTmuxDriver:
       createClaudeCodeTmuxDriver as InteractiveTmuxRunnerDeps['createClaudeCodeTmuxDriver'],
     createInvocationManager:

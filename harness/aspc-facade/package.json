@@ -27,14 +27,15 @@
     "postpack": "git checkout HEAD -- package.json"
   },
   "dependencies": {
+    "agent-spaces": "workspace:*",
     "spaces-aspc": "workspace:*",
     "spaces-aspc-protocol": "workspace:*",
     "spaces-harness-broker": "workspace:*",
-    "spaces-harness-broker-protocol": "workspace:*"
+    "spaces-harness-broker-protocol": "workspace:*",
+    "spaces-execution": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "agent-spaces": "workspace:*",
     "typescript": "^5.8.3"
   }
 }

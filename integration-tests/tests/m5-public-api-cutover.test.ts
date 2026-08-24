@@ -40,6 +40,7 @@ const PREPARE_CLI_RUNTIME_REGION = [
 const RUN_PLACEMENT_TURN_DECL = 'export async function runPlacementTurnNonInteractive'
 const HEAVY_TEST_TIMEOUT_MS = 60_000
 const REPO_ROOT = join(import.meta.dirname, '..', '..')
+import { compilerRuntime } from './compiler-runtime.js'
 
 async function createTurnClient(options?: { aspHome?: string; registryPath?: string }) {
   const { createAgentSpacesClient } = await import('../../apps/turn-runner/src/index.js')
@@ -220,7 +221,10 @@ describe('resolvedBundle from APIs (T-00862)', () => {
     'client.buildProcessInvocationSpec returns resolvedBundle',
     async () => {
       const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
-      const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
+      const client = createAgentSpacesClient({
+        aspHome: '/tmp/asp-test-m5',
+        runtime: compilerRuntime,
+      })
 
       // Build a placement-based request for a CLI frontend
       const response = await client.buildProcessInvocationSpec({
@@ -246,7 +250,10 @@ describe('resolvedBundle from APIs (T-00862)', () => {
 
   test('provider mismatch still detected with placement API', async () => {
     const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
-    const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
+    const client = createAgentSpacesClient({
+      aspHome: '/tmp/asp-test-m5',
+      runtime: compilerRuntime,
+    })
 
     // Try to continue an anthropic session with an openai frontend
     await expect(
@@ -272,7 +279,10 @@ describe('resolvedBundle from APIs (T-00862)', () => {
     'continuation refs still type-checked across providers',
     async () => {
       const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
-      const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
+      const client = createAgentSpacesClient({
+        aspHome: '/tmp/asp-test-m5',
+        runtime: compilerRuntime,
+      })
 
       // anthropic continuation with anthropic frontend should be OK structurally
       // (may fail for other reasons like missing agentRoot, but not provider mismatch)
@@ -322,6 +332,7 @@ describe('createAgentSpacesClient options (T-00863)', () => {
     const client = createAgentSpacesClient({
       aspHome: '/custom/asp/home',
       registryPath: '/custom/registry',
+      runtime: compilerRuntime,
     })
 
     expect(client).toBeDefined()
@@ -354,7 +365,10 @@ describe('correlation env vars (T-00864)', () => {
     'AGENT_SCOPE_REF emitted when sessionRef present',
     async () => {
       const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
-      const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
+      const client = createAgentSpacesClient({
+        aspHome: '/tmp/asp-test-m5',
+        runtime: compilerRuntime,
+      })
 
       const response = await client.buildProcessInvocationSpec({
         placement: {
@@ -384,7 +398,10 @@ describe('correlation env vars (T-00864)', () => {
     'AGENT_HOST_SESSION_ID emitted when hostSessionId present',
     async () => {
       const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
-      const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
+      const client = createAgentSpacesClient({
+        aspHome: '/tmp/asp-test-m5',
+        runtime: compilerRuntime,
+      })
 
       const response = await client.buildProcessInvocationSpec({
         placement: {
@@ -410,7 +427,10 @@ describe('correlation env vars (T-00864)', () => {
     'correlation env vars are absent when no correlation provided',
     async () => {
       const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
-      const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
+      const client = createAgentSpacesClient({
+        aspHome: '/tmp/asp-test-m5',
+        runtime: compilerRuntime,
+      })
 
       const response = await client.buildProcessInvocationSpec({
         placement: {
@@ -435,7 +455,10 @@ describe('correlation env vars (T-00864)', () => {
     'env vars are advisory only (string type)',
     async () => {
       const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
-      const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
+      const client = createAgentSpacesClient({
+        aspHome: '/tmp/asp-test-m5',
+        runtime: compilerRuntime,
+      })
 
       const response = await client.buildProcessInvocationSpec({
         placement: {
@@ -810,7 +833,10 @@ describe('audit bundle includes byMode space overlays (T-00890)', () => {
 
       try {
         const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
-        const client = createAgentSpacesClient({ aspHome: join(tempDir, 'asp-home') })
+        const client = createAgentSpacesClient({
+          aspHome: join(tempDir, 'asp-home'),
+          runtime: compilerRuntime,
+        })
 
         const response = await client.buildProcessInvocationSpec({
           placement: {
@@ -865,7 +891,10 @@ describe('audit bundle includes byMode space overlays (T-00890)', () => {
 
       try {
         const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
-        const client = createAgentSpacesClient({ aspHome: join(tempDir, 'asp-home') })
+        const client = createAgentSpacesClient({
+          aspHome: join(tempDir, 'asp-home'),
+          runtime: compilerRuntime,
+        })
 
         const response = await client.buildProcessInvocationSpec({
           placement: {

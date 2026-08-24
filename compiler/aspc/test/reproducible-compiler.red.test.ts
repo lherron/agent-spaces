@@ -18,6 +18,7 @@ import type {
   RuntimeCompileRequest,
 } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
+import { createAgentSpacesClient } from '../../agent-spaces/src/index.js'
 
 import {
   allocatePreHrcRuntimeIdentity,
@@ -845,7 +846,10 @@ async function buildManifest(mode: 'A' | 'B', namespace: string): Promise<Output
     compileContext: fixedCompileContext,
     mode,
   } as Parameters<typeof buildOutputManifest>[0] & { mode: 'A' | 'B' }
-  const result = await buildOutputManifest(input)
+  const result = await buildOutputManifest(
+    input,
+    createAgentSpacesClient({ aspHome: input.aspHome })
+  )
   if (!result.ok) {
     throw new Error(`manifest compile failed: ${JSON.stringify(result.diagnostics)}`)
   }

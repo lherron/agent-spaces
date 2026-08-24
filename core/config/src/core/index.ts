@@ -11,6 +11,12 @@ export * from './types/index.js'
 // Compile-time clock (single blessed ambient-clock fallback for the config plane)
 export { resolveNowDate, resolveNowIso, resolveNowMs } from './compile-clock.js'
 
+export {
+  buildCodexAppServerLaunchDescriptor,
+  DEFAULT_CODEX_ENABLED_FEATURES,
+  type CodexAppServerLaunchDescriptor,
+} from './codex-launch.js'
+
 // Schemas
 export {
   distTagsSchema,

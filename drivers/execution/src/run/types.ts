@@ -1,36 +1,11 @@
 import type { BuildResult, HarnessId, ResolveOptions } from 'spaces-config'
+import type { CompileRuntimeFn, RunLaunchShape } from 'spaces-runtime-contracts'
 
-export interface RunCompilerDebugContext {
-  aspHome: string
-  registryPath?: string | undefined
-  placement: Record<string, unknown>
-  requested: {
-    modelProvider?: 'anthropic' | 'openai' | undefined
-    model?: string | undefined
-    reasoningEffort?: string | undefined
-    harnessFamily?: 'claude-code' | 'codex' | 'pi' | undefined
-    preferredHarnessRuntime?:
-      | 'claude-code-cli'
-      | 'claude-agent-sdk'
-      | 'codex-cli'
-      | 'pi-cli'
-      | 'pi-sdk'
-      | undefined
-    interactionMode?: 'interactive' | 'headless' | 'nonInteractive' | undefined
-  }
-  materialization: {
-    initialPrompt?: string | undefined
-    resolvedBundleHint?: Record<string, unknown> | undefined
-  }
-  hrcPolicy: {
-    yolo?: boolean | undefined
-  }
-  correlation: {
-    appSessionKey: string
-    scopeRef?: string | undefined
-    laneRef?: string | undefined
-  }
-}
+export type {
+  CompileRuntimeFn,
+  RunCompileOutcome,
+  RunCompilerDebugContext,
+} from 'spaces-runtime-contracts'
 
 /**
  * Launch fields shared by both run paths (project-target `RunOptions` and
@@ -90,12 +65,7 @@ export interface RunInvocationResult {
  * compared for byte-parity, and so callers can inspect exactly what would be
  * spawned. `env` is the explicit per-launch env (NOT merged with process.env).
  */
-export interface LaunchShape {
-  command: string
-  args: string[]
-  cwd?: string | undefined
-  env: Record<string, string>
-}
+export type LaunchShape = RunLaunchShape
 
 /**
  * Result of compiling a run through the asp compiler (compileRuntimePlan),
@@ -108,17 +78,6 @@ export interface LaunchShape {
  * foreground TerminalExecutionProfile; when so its launch shape can drive the
  * inherit-spawn instead of the legacy adapter argv path.
  */
-export interface RunCompileOutcome {
-  ok: boolean
-  request: unknown
-  response: unknown
-  foreground?: LaunchShape | undefined
-  diagnostics?: string[] | undefined
-}
-
-/** Injected compiler entry point (CLI binds this to createAgentSpacesClient().compileRuntimePlan). */
-export type CompileRuntimeFn = (context: RunCompilerDebugContext) => Promise<RunCompileOutcome>
-
 export interface RunResult {
   build: BuildResult
   invocation?: RunInvocationResult | undefined

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { compilerRuntime } from './compiler-runtime.js'
 
 function createCodexShim(dir: string): string {
   const shimPath = join(dir, 'codex')
@@ -80,8 +81,8 @@ describe('placement prompt template expansion', () => {
       process.env['ASP_CODEX_PATH'] = createCodexShim(fixture.aspHome)
       process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
 
-      const { createAgentSpacesClient } = await import('../index.js')
-      const client = createAgentSpacesClient({ aspHome: fixture.aspHome })
+      const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
+      const client = createAgentSpacesClient({ aspHome: fixture.aspHome, runtime: compilerRuntime })
 
       const response = await client.buildProcessInvocationSpec({
         placement: {
@@ -125,8 +126,8 @@ describe('placement prompt template expansion', () => {
       process.env['ASP_CODEX_PATH'] = createCodexShim(fixture.aspHome)
       process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
 
-      const { createAgentSpacesClient } = await import('../index.js')
-      const client = createAgentSpacesClient({ aspHome: fixture.aspHome })
+      const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
+      const client = createAgentSpacesClient({ aspHome: fixture.aspHome, runtime: compilerRuntime })
 
       async function build(taskId: string) {
         return client.buildProcessInvocationSpec({
@@ -189,8 +190,8 @@ describe('placement prompt template expansion', () => {
         'utf8'
       )
 
-      const { createAgentSpacesClient } = await import('../index.js')
-      const client = createAgentSpacesClient({ aspHome: fixture.aspHome })
+      const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
+      const client = createAgentSpacesClient({ aspHome: fixture.aspHome, runtime: compilerRuntime })
 
       const response = await client.buildProcessInvocationSpec({
         placement: {

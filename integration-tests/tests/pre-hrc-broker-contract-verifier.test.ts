@@ -21,17 +21,18 @@ import type {
 } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 
-import { createAgentSpacesClient } from '../index.js'
-import { assertInteractiveTmuxLaunchClosure } from '../testing/pre-hrc-broker-contract-assertions.js'
-import { runPreHrcBrokerContractHarness } from '../testing/pre-hrc-broker-contract-harness.js'
-import { PreHrcBrokerEventLedger } from '../testing/pre-hrc-broker-event-ledger.js'
+import { createAgentSpacesClient } from '../../compiler/agent-spaces/src/index.js'
+import { assertInteractiveTmuxLaunchClosure } from '../../compiler/agent-spaces/src/testing/pre-hrc-broker-contract-assertions.js'
+import { runPreHrcBrokerContractHarness as runCompilerContractHarness } from '../../compiler/agent-spaces/src/testing/pre-hrc-broker-contract-harness.js'
+import { PreHrcBrokerEventLedger } from '../../compiler/agent-spaces/src/testing/pre-hrc-broker-event-ledger.js'
 import {
   ContractHarnessFailureError,
   allocatePreHrcRuntimeIdentity,
   buildPlacementFromScopeRef,
   selectBrokerProfile,
   verifyBrokerStartContract,
-} from '../testing/pre-hrc-broker-helpers.js'
+} from '../../compiler/agent-spaces/src/testing/pre-hrc-broker-helpers.js'
+import { compilerRuntime } from './compiler-runtime.js'
 
 type TestFn = () => unknown | Promise<unknown>
 
@@ -45,13 +46,28 @@ type CompileClient = ReturnType<typeof createAgentSpacesClient> & {
   compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse>
 }
 
+function runPreHrcBrokerContractHarness(
+  input: Parameters<typeof runCompilerContractHarness>[0]
+): ReturnType<typeof runCompilerContractHarness> {
+  return runCompilerContractHarness({
+    ...input,
+    compileRuntimePlan:
+      input.compileRuntimePlan ??
+      ((req, options) =>
+        createAgentSpacesClient({
+          ...(options?.clientAspHome !== undefined ? { aspHome: options.clientAspHome } : {}),
+          runtime: compilerRuntime,
+        }).compileRuntimePlan(req)),
+  })
+}
+
 const fakeCodexStartFreshTurn = new URL(
-  '../../../../harness/harness-broker/test/fixtures/fake-codex/start-fresh-turn.ts',
+  '../../harness/harness-broker/test/fixtures/fake-codex/start-fresh-turn.ts',
   import.meta.url
 ).pathname
 
 const fakeCodexPermissionRequest = new URL(
-  '../../../../harness/harness-broker/test/fixtures/fake-codex/permission-request.ts',
+  '../../harness/harness-broker/test/fixtures/fake-codex/permission-request.ts',
   import.meta.url
 ).pathname
 
@@ -82,7 +98,7 @@ echo "codex shim"
 function createEnvCaptureCodexFixture(dir: string): string {
   const fixturePath = join(dir, 'env-capture.ts')
   const helperPath = new URL(
-    '../../../../harness/harness-broker/src/testing/fake-codex-app-server.ts',
+    '../../harness/harness-broker/src/testing/fake-codex-app-server.ts',
     import.meta.url
   ).pathname
   writeFileSync(
@@ -284,7 +300,10 @@ async function compileInteractiveTmuxProfile(
   request: RuntimeCompileRequest,
   driver: 'claude-code-tmux' | 'codex-cli-tmux'
 ): Promise<BrokerExecutionProfile> {
-  const client = createAgentSpacesClient({ aspHome: fixture.aspHome }) as CompileClient
+  const client = createAgentSpacesClient({
+    aspHome: fixture.aspHome,
+    runtime: compilerRuntime,
+  }) as CompileClient
   const response = await client.compileRuntimePlan(request)
   if (!response.ok) {
     throw new Error(
@@ -302,7 +321,10 @@ async function compileInteractiveTmuxProfile(
 }
 
 async function compilePlan(): Promise<CompiledRuntimePlan> {
-  const client = createAgentSpacesClient({ aspHome: fixture.aspHome }) as CompileClient
+  const client = createAgentSpacesClient({
+    aspHome: fixture.aspHome,
+    runtime: compilerRuntime,
+  }) as CompileClient
   const response = await client.compileRuntimePlan(baseCompileRequest())
   if (!response.ok) {
     throw new Error(

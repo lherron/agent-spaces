@@ -18,6 +18,7 @@ import type {
 import type { Broker } from 'spaces-harness-broker'
 import type { InvocationDispatchRequest } from 'spaces-harness-broker-protocol'
 import { SUPPORTED_BROKER_PROTOCOL_VERSIONS } from 'spaces-harness-broker-protocol'
+import { runtimeCompiler } from './runtime-compiler.js'
 
 const ASPC_COMPILE_AND_START_SCHEMA = 'aspc-compile-and-start-response/v1'
 
@@ -60,7 +61,7 @@ export function createCohostedAspcService(
   options: CohostedAspcServiceOptions
 ): CohostedAspcService {
   const compile = createAspcService({
-    ...(options.compiler !== undefined ? { compiler: options.compiler } : {}),
+    compiler: options.compiler ?? runtimeCompiler,
     ...(options.agentsRoot !== undefined ? { agentsRoot: options.agentsRoot } : {}),
     ...(options.resolveProjectRoot !== undefined
       ? { resolveProjectRoot: options.resolveProjectRoot }

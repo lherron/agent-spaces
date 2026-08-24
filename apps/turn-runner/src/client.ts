@@ -55,6 +55,7 @@ import {
   resolveModel,
   validateSpec,
 } from 'agent-spaces/turn-support'
+import { compilerRuntime } from './compiler-runtime.js'
 import { runPlacementTurnNonInteractive } from './run-placement-turn.js'
 import { emitTurnFailure, toAgentSpacesError } from './run-turn-helpers.js'
 import { attachTurnDriver } from './turn-driver.js'
@@ -124,7 +125,10 @@ async function validateTurnRequest(
 export function createAgentSpacesClient(options?: AgentSpacesClientOptions): AgentSpacesClient {
   const clientAspHome = options?.aspHome
   const inFlightRuns = createInFlightRunMap()
-  const compilerClient = createCompilerClient(options)
+  const compilerClient = createCompilerClient({
+    ...options,
+    runtime: options?.runtime ?? compilerRuntime,
+  })
 
   return {
     ...compilerClient,
@@ -205,7 +209,9 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
         let context: InFlightRunContext | undefined
 
         try {
-          const materialized = await materializeSpec(spec, req.aspHome, frontendDef.internalId)
+          const materialized = await materializeSpec(spec, req.aspHome, frontendDef.internalId, {
+            runtime: compilerRuntime,
+          })
           const restoreEnv = applyEnvOverlay({})
 
           try {
@@ -488,7 +494,9 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
           }
 
         try {
-          const materialized = await materializeSpec(spec, req.aspHome, frontendDef.internalId)
+          const materialized = await materializeSpec(spec, req.aspHome, frontendDef.internalId, {
+            runtime: compilerRuntime,
+          })
 
           const harnessEnv: Record<string, string> = {}
           if (frontendDef.frontend === PI_SDK_FRONTEND) {

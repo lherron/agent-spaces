@@ -12,6 +12,7 @@ import { ASPC_PROTOCOL_VERSION } from 'spaces-aspc-protocol'
 import type { BrokerHelloResponse } from 'spaces-harness-broker-protocol'
 import { conservativeDefaultLifecyclePolicyOverlay } from 'spaces-harness-broker-protocol'
 import type { BrokerExecutionProfile } from 'spaces-runtime-contracts'
+import { runtimeDependencies } from '../src/runtime-compiler.js'
 import {
   type Fixture,
   buildCompileRequest,
@@ -60,7 +61,10 @@ describe('ASPC cohosted composition facade', () => {
 
   test('ASPC compileRuntimePlan is equivalent to SDK compileRuntimePlan', async () => {
     const compileRequest = buildCompileRequest(fixture, 'equivalence')
-    const sdk = createAgentSpacesClient({ aspHome: fixture.aspHome })
+    const sdk = createAgentSpacesClient({
+      aspHome: fixture.aspHome,
+      runtime: runtimeDependencies,
+    })
     const sdkResponse = await sdk.compileRuntimePlan(compileRequest)
     expect(sdkResponse.ok).toBe(true)
 

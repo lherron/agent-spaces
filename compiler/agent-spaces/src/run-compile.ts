@@ -1,9 +1,9 @@
 /**
  * Bridge between `asp run` and the asp compiler (compileRuntimePlan).
  *
- * The compiler lives in this package, which depends on `spaces-execution` — so
- * execution cannot import it directly. The run path takes this function as an
- * injected dependency (RunOptions.compileRuntime); the CLI binds it.
+ * The compiler and execution planes are independent siblings. The run path
+ * takes this function as an injected dependency (RunOptions.compileRuntime),
+ * and the CLI composition root binds it.
  *
  * It builds the REAL RuntimeCompileRequest the run uses (a freshly allocated,
  * non-synthetic identity), compiles it ONCE, and returns the request/response
@@ -14,15 +14,17 @@
 import { randomUUID } from 'node:crypto'
 
 import { resolveScopeInput } from 'agent-scope'
-import type { CompileRuntimeFn, RunCompilerDebugContext } from 'spaces-execution'
 import {
+  type CompileRuntimeFn,
   DEFAULT_CODEX_BROKER_INPUT_POLICY,
+  type RunCompilerDebugContext,
   type RuntimeCompileRequest,
   type RuntimeIdentityAllocation,
 } from 'spaces-runtime-contracts'
 
 import { createAgentSpacesClient } from './client.js'
 import { projectAgentCompileForDryRun } from './dry-run-projection.js'
+import type { AgentSpacesRuntimeDependencies } from './placement-api.js'
 
 function rid(prefix: string): string {
   return `${prefix}_${randomUUID()}`
@@ -164,7 +166,10 @@ function buildRunCompileRequest(context: RunCompilerDebugContext): RuntimeCompil
  * request once and returns request/response (for `--debug`) plus the foreground
  * launch shape (for the gated inherit-spawn).
  */
-export function createCompileRuntimeFn(aspHome?: string | undefined): CompileRuntimeFn {
+export function createCompileRuntimeFn(
+  aspHome?: string | undefined,
+  runtime?: AgentSpacesRuntimeDependencies
+): CompileRuntimeFn {
   return async (context) => {
     const request = buildRunCompileRequest(context)
     const registryPath = (
@@ -173,6 +178,7 @@ export function createCompileRuntimeFn(aspHome?: string | undefined): CompileRun
     const client = createAgentSpacesClient({
       ...(aspHome !== undefined ? { aspHome } : {}),
       ...(registryPath !== undefined ? { registryPath } : {}),
+      ...(runtime !== undefined ? { runtime } : {}),
     })
     const response = await client.compileRuntimePlan(request)
     const projection = projectAgentCompileForDryRun({ response })

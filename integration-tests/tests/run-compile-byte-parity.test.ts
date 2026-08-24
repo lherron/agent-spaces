@@ -35,8 +35,9 @@ import {
   createAgentSpacesClient,
   createCompileRuntimeFn,
   foregroundLaunchFromResponse,
-} from '../index.js'
-import type { AgentSpacesClient } from '../types.js'
+} from '../../compiler/agent-spaces/src/index.js'
+import type { AgentSpacesClient } from '../../compiler/agent-spaces/src/types.js'
+import { compilerRuntime } from './compiler-runtime.js'
 
 type TestFn = () => unknown | Promise<unknown>
 
@@ -176,7 +177,10 @@ function restoreEnv(): void {
 }
 
 function createClient(): CompileClient {
-  return createAgentSpacesClient({ aspHome: fixture.aspHome }) as CompileClient
+  return createAgentSpacesClient({
+    aspHome: fixture.aspHome,
+    runtime: compilerRuntime,
+  }) as CompileClient
 }
 
 interface HarnessCase {
@@ -522,7 +526,7 @@ describe('asp run <-> compiler foreground byte-parity', () => {
           interactive: true,
           dryRun: true,
           prompt,
-          compileRuntime: createCompileRuntimeFn(fixture.aspHome),
+          compileRuntime: createCompileRuntimeFn(fixture.aspHome, compilerRuntime),
         })
 
       // Legacy path (gate off) vs via-compiler path (gate on).
@@ -583,7 +587,7 @@ describe('asp run <-> compiler foreground byte-parity', () => {
     expect(brokerProcess.pathPrepend ?? []).toEqual([])
 
     const { createClaudeCodeTmuxDriver } = await import(
-      '../../../../harness/harness-broker/src/drivers/claude-code-tmux/driver'
+      '../../harness/harness-broker/src/drivers/claude-code-tmux/driver'
     )
     const tmuxArgv: string[][] = []
     const tmuxLoadedText: string[] = []

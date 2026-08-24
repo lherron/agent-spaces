@@ -15,6 +15,10 @@ import {
   getHarnessCatalogEntry,
   getHarnessCatalogEntryByFrontend,
 } from 'spaces-config'
+import type {
+  PlacementRuntimeModelResolution as ContractPlacementRuntimeModelResolution,
+  PlacementRuntimePlan as ContractPlacementRuntimePlan,
+} from 'spaces-runtime-contracts'
 
 import { harnessRegistry } from '../harness/index.js'
 
@@ -27,35 +31,15 @@ import {
   resolveProfileHarnessForRun,
 } from './agent-profile.js'
 
-interface PlacementRuntimeModelInfo {
-  effectiveModel: string
-  provider: string
-  model: string
-  /**
-   * True when the model came from an explicit source (requested CLI/model,
-   * a default run-option model, or a supported effective-config model) rather
-   * than merely falling back to the adapter's default model. Only an explicit
-   * model is pushed onto the launch argv — legacy `asp run` omits --model when
-   * no explicit model is set (e.g. codex, where CODEX_HOME/config.toml governs).
-   */
-  explicit: boolean
-}
+export type PlacementRuntimeModelResolution = ContractPlacementRuntimeModelResolution
+type PlacementRuntimeModelInfo = Extract<PlacementRuntimeModelResolution, { ok: true }>['info']
 
-export type PlacementRuntimeModelResolution =
-  | { ok: true; info: PlacementRuntimeModelInfo }
-  | { ok: false; modelId: string }
-
-export interface PlacementRuntimePlan {
-  frontend: HarnessFrontend
-  harnessId: HarnessId
-  provider: HarnessProvider
-  cwd: string
-  defaultRunOptions: Partial<HarnessRunOptions>
-  prompt?: string | undefined
-  yolo?: boolean | undefined
-  model: PlacementRuntimeModelResolution
-  runOptions: Partial<HarnessRunOptions>
-}
+export type PlacementRuntimePlan = ContractPlacementRuntimePlan<
+  HarnessFrontend,
+  HarnessId,
+  HarnessProvider,
+  Partial<HarnessRunOptions>
+>
 
 export interface PlanPlacementRuntimeOptions {
   placement: RuntimePlacement

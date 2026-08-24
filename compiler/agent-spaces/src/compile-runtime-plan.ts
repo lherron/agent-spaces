@@ -48,6 +48,7 @@ import {
   validateBrokerInvocationRequest,
 } from './broker-invocation.js'
 import { PI_SDK_FRONTEND, resolveFrontend } from './client-support.js'
+import type { AgentSpacesRuntimeDependencies } from './placement-api.js'
 import {
   type PreparedPlacementCliRuntime,
   preparePlacementCliRuntime,
@@ -82,6 +83,7 @@ type PreparedResolvedBundle = NonNullable<BuildHarnessBrokerInvocationResponse['
 type CompileRuntimePlanOptions = {
   clientAspHome?: string | undefined
   clientRegistryPath?: string | undefined
+  clientRuntime?: AgentSpacesRuntimeDependencies | undefined
   /**
    * Pinned, serializable compile context (T-04133). When present, `nowIso`
    * sources `createdAt` and `idSalt`/`toolchainManifest` feed deterministic id
@@ -1061,7 +1063,8 @@ async function compileBrokerPlan(
   const prepared = await preparePlacementCliRuntime(
     brokerReq,
     options?.clientAspHome,
-    options?.clientRegistryPath
+    options?.clientRegistryPath,
+    options?.clientRuntime
   )
   const brokerInvocation = toHarnessBrokerStartRequest(prepared, brokerReq)
   const startRequest = brokerInvocation.startRequest
@@ -1500,7 +1503,8 @@ async function compileForegroundPlan(
       placement,
     },
     options?.clientAspHome,
-    options?.clientRegistryPath
+    options?.clientRegistryPath,
+    options?.clientRuntime
   )
 
   const lockedEnv = prepared.lockedEnv
@@ -1650,7 +1654,8 @@ async function preparePiSdkSession(
         ...(req.requested.model !== undefined ? { model: req.requested.model } : {}),
       },
       options?.clientAspHome,
-      options?.clientRegistryPath
+      options?.clientRegistryPath,
+      options?.clientRuntime
     )
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -1658,7 +1663,8 @@ async function preparePiSdkSession(
       return await preparePlacementCliRuntime(
         baseReq,
         options?.clientAspHome,
-        options?.clientRegistryPath
+        options?.clientRegistryPath,
+        options?.clientRuntime
       )
     }
     throw error
@@ -1811,7 +1817,8 @@ async function compileTmuxBrokerPlan(
       placement,
     },
     options?.clientAspHome,
-    options?.clientRegistryPath
+    options?.clientRegistryPath,
+    options?.clientRuntime
   )
 
   const permissionPolicy = req.hrcPolicy.permissionPolicy ?? {

@@ -14,6 +14,7 @@ import * as path from 'node:path'
 
 import { createAgentSpacesClient } from 'agent-spaces'
 import type { BuildProcessInvocationSpecResponse, DescribeResponse } from 'agent-spaces'
+import { compilerRuntime } from './compiler-runtime.js'
 
 import {
   CLAUDE_SHIM_PATH,
@@ -25,7 +26,7 @@ import {
   initSampleRegistry,
 } from './setup.js'
 
-const client = createAgentSpacesClient()
+const client = createAgentSpacesClient({ runtime: compilerRuntime })
 
 let aspHome: string
 let savedClaudePath: string | undefined

@@ -29,6 +29,7 @@ import {
   runLocalSpace,
 } from 'spaces-execution'
 
+import { compilerRuntime } from '../compiler-runtime.js'
 import { validateOptionalHarness } from '../harness-validator.js'
 import { exitWithAspError, logInvocationOutput } from '../helpers.js'
 import { findProjectRoot } from '../lib.js'
@@ -98,7 +99,7 @@ function buildCommonRunOptions(options: RunOptions) {
     remoteControl: options.remoteControl,
     sessionNamePrefix: options.namePrefix,
     pagePrompts: options.pagePrompts,
-    compileRuntime: createCompileRuntimeFn(options.aspHome),
+    compileRuntime: createCompileRuntimeFn(options.aspHome, compilerRuntime),
   }
 }
 

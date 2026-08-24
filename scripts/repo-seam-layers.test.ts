@@ -115,12 +115,13 @@ describe('root-prefix architecture layers', () => {
     }
     expect(forbids(contracts, 'agent-spaces')).toBe(true)
 
-    // Temporary T-07526 compiler -> drivers residual remains directional.
+    // T-07526 has removed the compiler -> drivers edges. Its temporary
+    // enforcement exemption remains until the composition-root gate clears.
     for (const [name, dir] of [
       ['spaces-execution', 'drivers/execution'],
       ['spaces-harness-codex', 'drivers/harness-codex'],
     ] as const) {
-      expect(resolvedEdge(graph.edges, 'compiler', dir)).toBe(true)
+      expect(resolvedEdge(graph.edges, 'compiler', dir)).toBe(false)
       expect(forbids(compiler, name)).toBe(false)
     }
     expect(forbids(drivers, 'agent-spaces')).toBe(true)

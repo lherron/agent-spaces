@@ -27,12 +27,13 @@ import {
   validateBrokerExecutionProfile,
 } from 'spaces-runtime-contracts'
 
-import { createAgentSpacesClient } from '../index.js'
+import { createAgentSpacesClient } from '../../compiler/agent-spaces/src/index.js'
 import type {
   AgentSpacesClient,
   BuildHarnessBrokerInvocationRequest,
   BuildHarnessBrokerInvocationResponse,
-} from '../types.js'
+} from '../../compiler/agent-spaces/src/types.js'
+import { compilerRuntime } from './compiler-runtime.js'
 
 type TestFn = () => unknown | Promise<unknown>
 type EachTestFn<T extends readonly unknown[]> = (...args: T) => unknown | Promise<unknown>
@@ -141,11 +142,17 @@ const originalSkipCommon = process.env['ASP_CODEX_SKIP_COMMON_PATHS']
 const originalClaudePath = process.env['ASP_CLAUDE_PATH']
 
 function createClient(): CompileClient {
-  return createAgentSpacesClient({ aspHome: fixture.aspHome }) as CompileClient
+  return createAgentSpacesClient({
+    aspHome: fixture.aspHome,
+    runtime: compilerRuntime,
+  }) as CompileClient
 }
 
 function createBrokerClient(): BrokerClient {
-  return createAgentSpacesClient({ aspHome: fixture.aspHome }) as BrokerClient
+  return createAgentSpacesClient({
+    aspHome: fixture.aspHome,
+    runtime: compilerRuntime,
+  }) as BrokerClient
 }
 
 function placement(overrides: Record<string, unknown> = {}): RuntimeCompileRequest['placement'] {

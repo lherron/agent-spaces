@@ -17,6 +17,7 @@ import { describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { compilerRuntime } from './compiler-runtime.js'
 
 const HEAVY_TEST_TIMEOUT_MS = 60_000
 
@@ -74,8 +75,8 @@ describe('system prompt materialization (T-00900)', () => {
       })
 
       try {
-        const { createAgentSpacesClient } = await import('../index.js')
-        const client = createAgentSpacesClient({ aspHome })
+        const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
+        const client = createAgentSpacesClient({ aspHome, runtime: compilerRuntime })
 
         const response = await client.buildProcessInvocationSpec({
           placement: {
@@ -116,8 +117,8 @@ describe('HEARTBEAT.md in heartbeat mode (T-00900)', () => {
       })
 
       try {
-        const { createAgentSpacesClient } = await import('../index.js')
-        const client = createAgentSpacesClient({ aspHome })
+        const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
+        const client = createAgentSpacesClient({ aspHome, runtime: compilerRuntime })
 
         const response = await client.buildProcessInvocationSpec({
           placement: {
@@ -156,8 +157,8 @@ describe('no HEARTBEAT.md in query mode (T-00900)', () => {
       })
 
       try {
-        const { createAgentSpacesClient } = await import('../index.js')
-        const client = createAgentSpacesClient({ aspHome })
+        const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
+        const client = createAgentSpacesClient({ aspHome, runtime: compilerRuntime })
 
         const response = await client.buildProcessInvocationSpec({
           placement: {
@@ -195,8 +196,8 @@ describe('empty SOUL.md edge case (T-00900)', () => {
       })
 
       try {
-        const { createAgentSpacesClient } = await import('../index.js')
-        const client = createAgentSpacesClient({ aspHome })
+        const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
+        const client = createAgentSpacesClient({ aspHome, runtime: compilerRuntime })
 
         const response = await client.buildProcessInvocationSpec({
           placement: {

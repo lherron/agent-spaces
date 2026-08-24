@@ -8,8 +8,12 @@ import type { InputId, InvocationId } from 'spaces-harness-broker-protocol'
 import type { RuntimeCompileRequest, RuntimeCompileResponse } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 
-import { createAgentSpacesClient, foregroundLaunchFromResponse } from '../index.js'
-import type { AgentSpacesClient } from '../types.js'
+import {
+  createAgentSpacesClient,
+  foregroundLaunchFromResponse,
+} from '../../compiler/agent-spaces/src/index.js'
+import type { AgentSpacesClient } from '../../compiler/agent-spaces/src/types.js'
+import { compilerRuntime } from './compiler-runtime.js'
 
 type TestFn = () => unknown | Promise<unknown>
 
@@ -108,7 +112,10 @@ function restoreEnv(): void {
 }
 
 function createClient(): CompileClient {
-  return createAgentSpacesClient({ aspHome: fixture.aspHome }) as CompileClient
+  return createAgentSpacesClient({
+    aspHome: fixture.aspHome,
+    runtime: compilerRuntime,
+  }) as CompileClient
 }
 
 function compileRequest(dryRun: boolean): RuntimeCompileRequest {
