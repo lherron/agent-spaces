@@ -354,11 +354,14 @@
       "name": "spaces-integration-tests",
       "version": "0.0.1",
       "dependencies": {
+        "@earendil-works/pi-coding-agent": "0.84.1",
         "@lherron/agent-spaces": "*",
+        "agent-harness-sdk": "workspace:*",
         "agent-scope": "*",
         "agent-spaces": "workspace:*",
         "spaces-config": "*",
         "spaces-execution": "*",
+        "spaces-harness-pi-sdk": "workspace:*",
         "spaces-turn-runner": "*",
       },
       "devDependencies": {
