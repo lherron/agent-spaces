@@ -178,6 +178,14 @@ export interface TargetMaterializationResult {
   outputPath: string
   /** Paths to materialized plugin directories */
   pluginDirs: string[]
+  /**
+   * Ordered roots from which the selected harness discovers effective skills.
+   *
+   * Most adapters discover from plugin directories. Pi SDK instead merges the
+   * composed skills into one bundle directory, which must remain observable by
+   * callers rather than being inferred from generic plugin metadata.
+   */
+  effectiveSkillRoots: string[]
   /** Path to composed MCP config (if any) */
   mcpConfigPath?: string | undefined
   /** Path to composed settings.json (if any) */
@@ -878,6 +886,8 @@ export async function materializeTarget(
     target: targetName,
     outputPath: bundle.rootDir,
     pluginDirs: bundle.pluginDirs ?? [],
+    effectiveSkillRoots:
+      bundle.piSdk?.skillsDir !== undefined ? [bundle.piSdk.skillsDir] : (bundle.pluginDirs ?? []),
     mcpConfigPath: bundle.mcpConfigPath,
     settingsPath: bundle.settingsPath,
     ...(hygieneWarnings.length > 0 ? { hygieneWarnings } : {}),

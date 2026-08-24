@@ -113,6 +113,40 @@ export interface CreatePiAgentSessionOptions {
   continuationKey?: string | undefined
 }
 
+/**
+ * Construct the Pi resource loader used by both production session creation
+ * and resource inspection. Callers that inspect its selected resources must
+ * call reload() before getSkills(), matching createPiAgentSession().
+ */
+export function createPiAgentResourceLoader(
+  options: CreatePiAgentSessionOptions,
+  settingsManager: ReturnType<typeof SettingsManager.inMemory>
+): DefaultResourceLoader {
+  return new DefaultResourceLoader({
+    cwd: options.cwd,
+    agentDir: options.agentDir,
+    settingsManager,
+    extensionFactories: options.extensionFactories ?? [],
+    additionalSkillPaths: options.skillPaths ?? [],
+    noExtensions: true,
+    noSkills: false,
+    noPromptTemplates: true,
+    noThemes: true,
+    noContextFiles: true,
+    ...(options.systemPrompt?.mode === 'append' || (options.appendSystemPrompt?.length ?? 0) > 0
+      ? {
+          appendSystemPrompt: [
+            ...(options.systemPrompt?.mode === 'append' ? [options.systemPrompt.content] : []),
+            ...(options.appendSystemPrompt ?? []),
+          ],
+        }
+      : {}),
+    ...(options.systemPrompt !== undefined && options.systemPrompt.mode === 'replace'
+      ? { systemPrompt: options.systemPrompt.content }
+      : {}),
+  })
+}
+
 interface PiProviderRegistry {
   getProvider(providerId: string): unknown | undefined
 }
@@ -173,29 +207,7 @@ export async function createPiAgentSession(
   }
 
   const settingsManager = SettingsManager.inMemory()
-  const resourceLoader = new DefaultResourceLoader({
-    cwd: options.cwd,
-    agentDir: options.agentDir,
-    settingsManager,
-    extensionFactories: options.extensionFactories ?? [],
-    additionalSkillPaths: options.skillPaths ?? [],
-    noExtensions: true,
-    noSkills: false,
-    noPromptTemplates: true,
-    noThemes: true,
-    noContextFiles: true,
-    ...(options.systemPrompt?.mode === 'append' || (options.appendSystemPrompt?.length ?? 0) > 0
-      ? {
-          appendSystemPrompt: [
-            ...(options.systemPrompt?.mode === 'append' ? [options.systemPrompt.content] : []),
-            ...(options.appendSystemPrompt ?? []),
-          ],
-        }
-      : {}),
-    ...(options.systemPrompt !== undefined && options.systemPrompt.mode === 'replace'
-      ? { systemPrompt: options.systemPrompt.content }
-      : {}),
-  })
+  const resourceLoader = createPiAgentResourceLoader(options, settingsManager)
   await resourceLoader.reload()
 
   const spawnHook: BashSpawnHook = (context) => ({

@@ -27,6 +27,8 @@ export interface MaterializedAgentRuntimeResources {
   targetName: string
   outputPath: string
   pluginDirs: string[]
+  /** Ordered adapter-reported roots used for effective skill discovery. */
+  effectiveSkillRoots: string[]
   mcpConfigPath?: string | undefined
   skills: SkillMetadata[]
   hygieneWarnings?: HygieneGateFinding[] | undefined
@@ -147,6 +149,7 @@ export async function materializeAgentRuntimeResources(
       targetName,
       outputPath: materialization.outputPath,
       pluginDirs: materialization.pluginDirs,
+      effectiveSkillRoots: materialization.effectiveSkillRoots,
       mcpConfigPath: materialization.mcpConfigPath,
       skills: await discoverSkills(materialization.pluginDirs),
       ...(materialization.hygieneWarnings !== undefined
@@ -180,6 +183,7 @@ export async function materializeAgentRuntimeResources(
     targetName,
     outputPath: materialized.materialization.outputPath,
     pluginDirs: materialized.materialization.pluginDirs,
+    effectiveSkillRoots: materialized.materialization.effectiveSkillRoots,
     mcpConfigPath: materialized.materialization.mcpConfigPath,
     skills: materialized.skills,
     ...(materialized.materialization.hygieneWarnings !== undefined

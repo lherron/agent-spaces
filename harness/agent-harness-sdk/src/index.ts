@@ -1,4 +1,4 @@
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 
 import { parseScopeRef } from 'agent-scope'
 import {
@@ -168,7 +168,7 @@ export async function loadAgent(options: LoadAgentOptions): Promise<ResolvedAgen
   const localSkillPath = localComponents?.hasSkills ? localComponents.skillsDir : undefined
   const skillPaths = [
     ...(localSkillPath !== undefined ? [localSkillPath] : []),
-    ...resources.skills.map((skill) => dirname(skill.sourcePath)),
+    ...resources.effectiveSkillRoots,
   ]
 
   return {
