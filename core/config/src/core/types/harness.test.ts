@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
+  HARNESS_FRONTENDS,
   HARNESS_NAMES,
   type HarnessId,
   getHarnessCatalogEntry,
@@ -28,13 +29,24 @@ describe('harness catalog', () => {
     expect(normalizeHarnessFrontend('claude')).toBe('claude-code')
     expect(normalizeHarnessFrontend('codex')).toBe('codex-cli')
     expect(normalizeHarnessFrontend('agent-sdk')).toBe('agent-sdk')
-    expect(normalizeHarnessFrontend('agent-harness')).toBeUndefined()
+    // T-07564: the first-party runtime now has an interactive placement identity.
+    expect(normalizeHarnessFrontend('agent-harness')).toBe('agent-harness-tui')
     expect(normalizeHarnessFrontend('pi-sdk')).toBe('pi-sdk')
     expect(normalizeHarnessFrontend('pi')).toBe('pi-cli')
   })
 
   test('recognizes agent-harness as the first-party SDK harness id', () => {
     expect(normalizeHarnessId('agent-harness')).toBe('agent-harness')
+    expect(HARNESS_FRONTENDS).toContain('agent-harness-tui')
+    expect(getHarnessCatalogEntry('agent-harness')).toMatchObject({
+      provider: 'openai',
+      transport: 'sdk',
+      frontend: 'agent-harness-tui',
+    })
+    expect(getHarnessCatalogEntryByFrontend('agent-harness-tui' as never)).toMatchObject({
+      id: 'agent-harness',
+      frontend: 'agent-harness-tui',
+    })
     expect(resolveHarnessProvider('agent-harness')).toBe('openai')
     expect(isHarnessSupported(['pi'], 'agent-harness')).toBe(true)
     expect(isHarnessSupported(['pi-sdk'], 'agent-harness')).toBe(true)
@@ -83,7 +95,12 @@ describe('harness catalog', () => {
     expect(HARNESS_NAMES).toContain('pi-sdk')
 
     expect(getHarnessFrontendsForProvider('anthropic')).toEqual(['claude-code', 'agent-sdk'])
-    expect(getHarnessFrontendsForProvider('openai')).toEqual(['pi-cli', 'pi-sdk', 'codex-cli'])
+    expect(getHarnessFrontendsForProvider('openai')).toEqual([
+      'agent-harness-tui',
+      'pi-cli',
+      'pi-sdk',
+      'codex-cli',
+    ])
   })
 
   test('resolves catalog entries for all canonical harness ids', () => {
