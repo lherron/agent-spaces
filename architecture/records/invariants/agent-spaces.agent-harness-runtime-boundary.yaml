@@ -24,8 +24,8 @@ predicate: >
   construction respectively; the child does not re-derive broker-owned auth or
   permission values. SDK-backed model configuration is independent of process
   hosting: agent-harness-tmux carries the SDK binding with pty/tmux execution
-  rather than the in-process sentinel. The TUI starts
-  with the loader-supplied praesidium-loader validation theme, while mechanical
+  rather than the in-process sentinel. The TUI starts with the loader-supplied
+  praesidium-loader validation theme, while mechanical
   assertions and parity tests remain the correctness authority. Agents that
   explicitly select Claude Code or Codex CLI retain a compiler-backed
   compatibility path that may produce the artifacts those external harnesses
@@ -50,6 +50,7 @@ predicate: >
 authority: hrcchat#20917
 source:
   - hrcchat#20917
+  - hrcchat#20916
   - docs/proposals/agent-harness-hrc-interactive.md
   - commit:1dc8457
   - hrcchat#20779
@@ -86,6 +87,7 @@ required_tests:
   - the HRC-launched interactive TUI receives broker-allocated turn identity through an acknowledged handshake before input delivery and no turn body event reaches the ledger before the broker turn bracket
   - the HRC-launched interactive TUI constructs no agent load model runtime or session until the broker's admitted session configuration validates and a withheld malformed or late configuration fails startup
   - a broker invocation lowered permission deny is blocked inside the process that owns the tool call even when the agent profile yolo value would independently resolve to allow
+  - agent-harness-tmux refuses ask-client permission policy at admission rather than downgrading or silently substituting an in-pane decision
   - an agent-harness-tmux profile carrying an sdk block with pty transport is admitted while the same profile with in-process transport is refused
   - agent-harness-tmux is a required row in the harness-agnostic driver certification matrix with no scenario or event exemptions
 last_verified:
@@ -95,6 +97,9 @@ reopen_when:
   - shared ASP semantics split into independent direct and compatibility implementations
   - broker-mediated interactive tool approval is required on the HRC-launched interactive TUI surface
   - a fourth outer surface consumes the direct runtime factory
+  - the HRC interactive surface can deliver input before broker turn identity binds or construct a session before the admitted session configuration validates
+  - the HRC interactive child re-derives broker-owned auth permission agent SDK or continuation values instead of consuming the admitted projection
+  - SDK-block admissibility and in-process hosting become coupled again for agent-harness-tmux
   - HRC runtime placement lifecycle routing supervision or durable messaging authority moves into an execution lowering
   - the default direct path requires compiler adapter output or a generated merged Pi bundle
   - a Pi session replacement can lose the custom ASP resource loader
