@@ -946,11 +946,12 @@ export async function materializeAgentLocalComponents(
     )
   )
 
-  // Copy skills/ if present (forceCopy — mutable source files)
+  // Copy skills/ if present (forceCopy — mutable source files). Preserve
+  // selected directory symlinks so compatibility lowerings retain the same
+  // package attribution and metadata as direct Pi discovery.
   if (components.hasSkills) {
     await linkDirectory(components.skillsDir, join(tmpDir, 'skills'), {
       forceCopy: true,
-      followSymlinks: true,
     })
   }
 

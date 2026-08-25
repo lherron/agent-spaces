@@ -8,7 +8,7 @@ import type { Skill } from '@earendil-works/pi-coding-agent'
 import { compareProjections } from '../lib/agent-resource-parity/compare.js'
 import { inventoryAgents } from '../lib/agent-resource-parity/inventory.js'
 import { observeCompiler } from '../lib/agent-resource-parity/observe-compiler.js'
-import { observeSdk } from '../lib/agent-resource-parity/observe-sdk.js'
+import { observeDirectLoader } from '../lib/agent-resource-parity/observe-direct-loader.js'
 import { projectResources } from '../lib/agent-resource-parity/projection.js'
 import { createParityReplayContext } from '../lib/agent-resource-parity/replay-context.js'
 import { verifyParityRows } from '../lib/agent-resource-parity/verify.js'
@@ -74,9 +74,10 @@ describe('agent resource parity task fixture', () => {
     )
   })
 
-  test('observes every run mode through compiler lowering and SDK Pi loading', async () => {
+  test('observes every run mode through compiler lowering and the reloaded production loader', async () => {
     const root = await mkdtemp(join(tmpdir(), 'agent-resource-parity-observe-'))
-    const aspHome = join(root, 'asp-home')
+    const compilerAspHome = join(root, 'compiler-asp-home')
+    const directAspHome = join(root, 'direct-asp-home')
     const agentSpaces = join(root, 'agents', 'spaces')
     const agentRoot = join(root, 'agents', 'fixture-agent')
     const projectRoot = join(root, 'agent-spaces')
@@ -232,11 +233,11 @@ content = "remember task={{taskId}}"
         const compiler = await observeCompiler({
           agentId: 'fixture-agent',
           mode,
-          aspHome,
+          aspHome: compilerAspHome,
           runtime: compilerRuntime,
           request: {
             placement,
-            aspHome,
+            aspHome: compilerAspHome,
             provider: 'openai',
             frontend: 'codex-cli',
             interactionMode: 'headless',
@@ -244,7 +245,7 @@ content = "remember task={{taskId}}"
             resolverContext,
           },
         })
-        const sdk = await observeSdk({
+        const direct = await observeDirectLoader({
           agentId: 'fixture-agent',
           mode,
           options: {
@@ -253,14 +254,14 @@ content = "remember task={{taskId}}"
             agentRoot,
             projectRoot,
             cwd: projectRoot,
-            aspHome,
+            aspHome: directAspHome,
             runMode: mode,
             scopeRef,
             laneRef: 'main',
             resolverContext,
           },
         })
-        expect(() => verifyParityRows([{ compiler, sdk }])).not.toThrow()
+        expect(() => verifyParityRows([{ compiler, direct }])).not.toThrow()
         expect(compiler.prompt.content.toString()).toContain(`mode=${mode}`)
         expect(compiler.prompt.content.toString()).toContain('replayed exec')
         if (mode === 'task')
@@ -271,8 +272,31 @@ content = "remember task={{taskId}}"
           expect(compiler.skills.catalog.map((skill) => skill.name)).not.toContain(
             'heartbeat-space'
           )
-        expect(compiler.skills.catalog[0]?.description).toBe('agent-local skill')
+        expect(compiler.skills.catalog.map((skill) => skill.name)).toEqual(
+          mode === 'heartbeat' ? ['composed', 'local', 'heartbeat-space'] : ['composed', 'local']
+        )
+        expect(compiler.skills.catalog.find((skill) => skill.name === 'local')?.description).toBe(
+          'agent-local skill'
+        )
       }
+      await writeFile(join(agentSpaces, 'base', 'bundle.json'), '{}\n')
+      await expect(
+        observeDirectLoader({
+          agentId: 'fixture-agent',
+          mode: 'task',
+          options: {
+            agentId: 'fixture-agent',
+            projectId: 'agent-spaces',
+            agentRoot,
+            projectRoot,
+            cwd: projectRoot,
+            aspHome: directAspHome,
+            runMode: 'task',
+            scopeRef: 'agent:fixture-agent:project:agent-spaces:task:T-PARITY',
+            laneRef: 'main',
+          },
+        })
+      ).rejects.toThrow('rejects compiler-generated bundle root')
     } finally {
       if (originalCodexPath === undefined) process.env['ASP_CODEX_PATH'] = undefined
       else process.env['ASP_CODEX_PATH'] = originalCodexPath
@@ -324,7 +348,7 @@ content = "remember task={{taskId}}"
         message: expect.stringContaining('bytes differ at 1'),
       }),
     ])
-    expect(() => verifyParityRows([{ compiler: left, sdk: right }])).toThrow(
+    expect(() => verifyParityRows([{ compiler: left, direct: right }])).toThrow(
       '[fixture-agent/task] prompt/content.bin: bytes differ at 1'
     )
   })

@@ -49,17 +49,22 @@ export async function projectResources(input: {
   reminder?: string | undefined
   skills: Skill[]
   skillRoots: string[]
+  orderedSkillNames?: readonly string[] | undefined
 }): Promise<ResourceProjection> {
-  const catalog: ParitySkill[] = input.skills.map((skill) => ({
+  const skills =
+    input.orderedSkillNames === undefined
+      ? input.skills
+      : orderSkills(input.skills, input.orderedSkillNames)
+  const catalog: ParitySkill[] = skills.map((skill) => ({
     name: skill.name,
     description: skill.description,
     disableModelInvocation: skill.disableModelInvocation,
     filePath: logicalSkillPath(skill, input.skillRoots),
   }))
   const packages = new Map<string, ProjectedFile[]>()
-  for (const skill of input.skills)
+  for (const skill of skills)
     packages.set(skill.name, await projectTree(resolve(skill.filePath, '..')))
-  const logicalSkills = input.skills.map((skill, index) => {
+  const logicalSkills = skills.map((skill, index) => {
     const entry = catalog[index]
     if (entry === undefined)
       throw new Error(`Missing logical catalog entry for skill: ${skill.name}`)
@@ -79,4 +84,14 @@ export async function projectResources(input: {
       packages,
     },
   }
+}
+
+function orderSkills(skills: readonly Skill[], order: readonly string[]): Skill[] {
+  const byName = new Map(skills.map((skill) => [skill.name, skill]))
+  const ordered = order.flatMap((name) => {
+    const skill = byName.get(name)
+    return skill === undefined ? [] : [skill]
+  })
+  const listed = new Set(order)
+  return [...ordered, ...skills.filter((skill) => !listed.has(skill.name))]
 }

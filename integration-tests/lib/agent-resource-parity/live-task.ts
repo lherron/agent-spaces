@@ -15,7 +15,7 @@ import {
 
 import { type InventoryExclusion, inventoryAgents } from './inventory.js'
 import { observeCompiler } from './observe-compiler.js'
-import { observeSdk } from './observe-sdk.js'
+import { observeDirectLoader } from './observe-direct-loader.js'
 import type { ParityRunMode } from './types.js'
 import { verifyParityRows } from './verify.js'
 
@@ -165,7 +165,7 @@ export async function runLiveTaskParity(input: {
   for (const { agentId, agentRoot } of candidates) {
     for (const mode of modes) {
       const compilerHome = await mkdtemp(join(tmpdir(), `agent-parity-compiler-${agentId}-`))
-      const sdkHome = await mkdtemp(join(tmpdir(), `agent-parity-sdk-${agentId}-`))
+      const directHome = await mkdtemp(join(tmpdir(), `agent-parity-direct-${agentId}-`))
       const taskId = mode === 'task' ? 'T-PARITY' : undefined
       const replay = await replayForProfile(
         agentRoot,
@@ -225,7 +225,7 @@ export async function runLiveTaskParity(input: {
             resolverContext,
           },
         })
-        const sdk = await observeSdk({
+        const direct = await observeDirectLoader({
           agentId,
           mode,
           options: {
@@ -234,7 +234,7 @@ export async function runLiveTaskParity(input: {
             agentRoot,
             projectRoot: input.projectRoot,
             cwd: input.projectRoot,
-            aspHome: sdkHome,
+            aspHome: directHome,
             runMode: mode,
             scopeRef,
             laneRef: 'main',
@@ -246,11 +246,11 @@ export async function runLiveTaskParity(input: {
             resolverContext,
           },
         })
-        rows.push({ compiler, sdk })
+        rows.push({ compiler, direct })
       } finally {
         await Promise.all([
           rm(compilerHome, { recursive: true, force: true }),
-          rm(sdkHome, { recursive: true, force: true }),
+          rm(directHome, { recursive: true, force: true }),
         ])
       }
     }

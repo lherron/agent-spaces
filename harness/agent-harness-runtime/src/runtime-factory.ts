@@ -24,6 +24,27 @@ import type {
   RuntimeBackedSession,
 } from './types.js'
 
+/**
+ * Construct the reloaded direct resource boundary used for every Pi session
+ * creation. Inspection callers use this same seam without needing model auth
+ * or a live AgentSession.
+ */
+export async function reloadAgentSpacesResourceLoader(options: {
+  cwd: string
+  agent: ResolvedAgent
+  extensionFactories?: CreateSessionOptions['extensionFactories']
+}): Promise<AgentSpacesResourceLoader> {
+  const resourceLoader = new AgentSpacesResourceLoader({
+    cwd: options.cwd,
+    agent: options.agent,
+    ...(options.extensionFactories !== undefined
+      ? { extensionFactories: options.extensionFactories }
+      : {}),
+  })
+  await resourceLoader.reload()
+  return resourceLoader
+}
+
 export async function createAgentHarnessRuntime(
   options: CreateAgentHarnessRuntimeOptions
 ): Promise<AgentSessionRuntime> {
@@ -73,12 +94,13 @@ export async function createAgentHarnessRuntime(
     // Pi invokes this same closure for new, resume, fork, import, and cwd replacement.
     // A loader constructed outside this factory would silently retain stale ASP sources.
     const settingsManager = SettingsManager.create(cwd, runtimeAgentDir)
-    const resourceLoader = new AgentSpacesResourceLoader({
+    const resourceLoader = await reloadAgentSpacesResourceLoader({
       cwd,
       agent: options.agent,
-      extensionFactories: options.extensionFactories,
+      ...(options.extensionFactories !== undefined
+        ? { extensionFactories: options.extensionFactories }
+        : {}),
     })
-    await resourceLoader.reload()
     const activeAgent = resourceLoader.getResolvedAgent()
     const services: AgentSessionServices = {
       cwd,

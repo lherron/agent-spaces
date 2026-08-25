@@ -15,6 +15,7 @@ import {
   mkdir,
   readFile,
   readdir,
+  readlink,
   rm,
   stat,
   symlink,
@@ -546,11 +547,13 @@ export class CodexAdapter implements HarnessAdapter {
           (left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
         )
         for (const entry of entries) {
-          if (!entry.isDirectory()) continue
           const srcPath = join(srcSkillsDir, entry.name)
+          if (!entry.isDirectory() && !(entry.isSymbolicLink() && (await isDirectory(srcPath))))
+            continue
           const destPath = join(skillsDir, entry.name)
           await rm(destPath, { recursive: true, force: true })
-          await copyDir(srcPath, destPath, { useHardlinks: true })
+          if (entry.isSymbolicLink()) await symlink(await readlink(srcPath), destPath)
+          else await copyDir(srcPath, destPath, { useHardlinks: true })
           mergedSkills.add(entry.name)
         }
       }

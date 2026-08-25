@@ -6,7 +6,17 @@
  * affect materialized bundles unexpectedly.
  */
 
-import { lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readlink,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 
@@ -152,7 +162,7 @@ describe('materializeAgentLocalComponents (T-01067)', () => {
     expect(artifactDirStats.isDirectory()).toBe(true)
   })
 
-  test('follows symlinked skill directories into real materialized directories', async () => {
+  test('preserves selected symlinked skill directories', async () => {
     const { paths } = await createPaths('install-agent-local-symlink-skills-')
     const components = await createAgentLocalComponents({ name: 'symlink-skills' })
     const linkedSkillRoot = await createTempDir('agent-local-linked-skill-')
@@ -166,8 +176,9 @@ describe('materializeAgentLocalComponents (T-01067)', () => {
     const materializedSkillDir = join(artifact!.artifactPath, 'skills', 'explainer')
     const materializedSkillDirStats = await lstat(materializedSkillDir)
 
-    expect(materializedSkillDirStats.isDirectory()).toBe(true)
-    expect(materializedSkillDirStats.isSymbolicLink()).toBe(false)
+    expect(materializedSkillDirStats.isDirectory()).toBe(false)
+    expect(materializedSkillDirStats.isSymbolicLink()).toBe(true)
+    expect(await readlink(materializedSkillDir)).toBe(linkedSkillRoot)
     expect(await readFile(join(materializedSkillDir, 'SKILL.md'), 'utf-8')).toBe('# linked skill\n')
   })
 })

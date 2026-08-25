@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 
 import { loadSkills } from '@earendil-works/pi-coding-agent'
+import { canonicalSkillNames, loadAgent } from 'agent-harness-runtime'
 import {
   type AgentSpacesRuntimeDependencies,
   type PreparePlacementCliRuntimeRequest,
@@ -33,6 +34,29 @@ export async function observeCompiler(input: {
   })
   if (prepared.systemPrompt === undefined)
     throw new Error('Compiler did not materialize a system prompt')
+  const sourceAgent = await loadAgent({
+    agentId: input.agentId,
+    agentRoot: input.request.placement.agentRoot,
+    ...(input.request.placement.projectRoot !== undefined
+      ? { projectRoot: input.request.placement.projectRoot }
+      : {}),
+    cwd: prepared.cwd,
+    aspHome: input.aspHome,
+    runMode: input.mode,
+    ...(input.request.placement.correlation?.sessionRef?.scopeRef !== undefined
+      ? { scopeRef: input.request.placement.correlation.sessionRef.scopeRef }
+      : {}),
+    ...(input.request.placement.correlation?.sessionRef?.laneRef !== undefined
+      ? { laneRef: input.request.placement.correlation.sessionRef.laneRef }
+      : {}),
+    ...(input.request.model !== undefined ? { model: input.request.model } : {}),
+    ...(input.request.provider === 'openai' || input.request.provider === 'anthropic'
+      ? { provider: input.request.provider }
+      : {}),
+    ...(input.request.resolverContext !== undefined
+      ? { resolverContext: input.request.resolverContext }
+      : {}),
+  })
   return await projectResources({
     agentId: input.agentId,
     mode: input.mode,
@@ -40,5 +64,6 @@ export async function observeCompiler(input: {
     reminder: prepared.systemPrompt.reminderContent,
     skills,
     skillRoots: [skillRoot],
+    orderedSkillNames: canonicalSkillNames(sourceAgent),
   })
 }

@@ -6,7 +6,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import TOML from '@iarna/toml'
@@ -456,6 +456,35 @@ exit 1
         'context-remaining',
         'current-dir',
       ])
+    })
+
+    test('includes a selected skill directory symlink', async () => {
+      const externalSkill = join(tmpDir, 'external-explainer')
+      await mkdir(externalSkill, { recursive: true })
+      await writeFile(join(externalSkill, 'SKILL.md'), '# Explainer\n')
+      await symlink(externalSkill, join(artifact2Dir, 'skills', 'explainer'))
+      const input = {
+        targetName: 'symlink-target',
+        compose: [],
+        roots: [],
+        loadOrder: [],
+        artifacts: [
+          {
+            spaceKey: 'space2@def' as SpaceKey,
+            spaceId: 'space2',
+            artifactPath: artifact2Dir,
+            pluginName: 'space2',
+            pluginVersion: '2.0.0',
+          },
+        ],
+        settingsInputs: [],
+      }
+
+      await adapter.composeTarget(input, outputDir, { clean: true })
+      const selected = join(outputDir, 'codex.home', 'skills', 'explainer')
+      await expect(readFile(join(selected, 'SKILL.md'), 'utf8')).resolves.toBe('# Explainer\n')
+      expect((await lstat(selected)).isSymbolicLink()).toBe(true)
+      expect(await readlink(selected)).toBe(externalSkill)
     })
   })
 
