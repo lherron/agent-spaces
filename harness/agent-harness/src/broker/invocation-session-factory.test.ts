@@ -44,7 +44,11 @@ test('forwards all broker-owned inputs into the shared direct runtime without au
         provider: 'openai',
         reasoningEffort: 'high',
         lockedEnv: { LOCKED: 'yes' },
-        dispatchEnv: { DISPATCH: 'yes' },
+        dispatchEnv: {
+          DISPATCH: 'yes',
+          HARNESS_PI_AUTH_STORE: '/foreground/auth.json',
+          PI_CODING_AGENT_DIR: '/foreground/pi-agent',
+        },
       }),
     ],
     [
@@ -62,8 +66,17 @@ test('forwards all broker-owned inputs into the shared direct runtime without au
     ],
   ])
   const runtimeOptions = (
-    calls[1] as ['runtime', { extensionFactories: unknown[]; customTools: unknown[] }]
+    calls[1] as [
+      'runtime',
+      {
+        authStorePath?: string
+        extensionFactories: unknown[]
+        customTools: unknown[]
+      },
+    ]
   )[1]
+  // T-07552 scope guard: foreground fallback must never replace broker dispatch-auth authority.
+  expect(runtimeOptions.authStorePath).toBeUndefined()
   expect(runtimeOptions.extensionFactories).toHaveLength(1)
   expect(runtimeOptions.customTools).toHaveLength(1)
 
@@ -132,7 +145,12 @@ function input(): PiSdkSessionFactoryInput {
         generation: 3,
       },
     },
-    environment: { DISPATCH: 'yes', OMITTED: undefined },
+    environment: {
+      DISPATCH: 'yes',
+      HARNESS_PI_AUTH_STORE: '/foreground/auth.json',
+      PI_CODING_AGENT_DIR: '/foreground/pi-agent',
+      OMITTED: undefined,
+    },
     auth: {
       authMode: 'oauth',
       authPath: '/broker/auth.json',
