@@ -1,385 +1,638 @@
 # Praesidium Agent Harness
 
-- **Status:** accepted; initial direct-harness slice deployed and dogfooding
+- **Status:** accepted; ratified by Daedalus in `hrcchat#20779`
 - **Date:** 2026-08-24
 - **Author:** cody@agent-spaces
+- **Tracking:** T-07542
+- **Architecture authority:** `agent-spaces.agent-harness-runtime-boundary`
 
-## Thesis
+## Decision
 
-Praesidium should make a Praesidium-owned agent harness built on Pi's
-coding-agent SDK the primary execution path while retaining the compiler for
-agents that intentionally run through Claude Code or Codex CLI.
+Praesidium will own a first-party Pi runtime whose resources are supplied by a
+custom Pi `ResourceLoader`. The direct `agent-harness` path will resolve ASP
+agent and space sources and construct a Pi `AgentSessionRuntime`; it will not
+consume a compiler-materialized Pi bundle, a generated frontier-harness home,
+or a `HarnessAdapter` lowering.
 
-The compiler exists largely because agent-spaces translates its own agent model
-into layouts and launch conventions owned by Codex, Claude, Pi, and other
-harnesses. That translation remains useful for external harness compatibility,
-but it is unnecessary when Praesidium owns the harness. Both paths should share
-the same ASP configuration, composition, prompt, context, and skill logic.
+The POC in `~/agent-harness.tar.gz` is the implementation reference for the Pi
+host shape: create the loader inside Pi's replaceable runtime factory, await
+`reload()` before session construction, create the session from explicit Pi
+services, and wrap the result with `createAgentSessionRuntime()`. The POC is not
+copied wholesale because it hard-codes agents, model, query mode, roots, and
+resource categories. Those values remain ASP-owned.
 
-The expected operating split is roughly 95% of agents using `agent-harness` and
-5% using the compiler-backed Claude Code or Codex CLI paths. Those percentages
-describe the intended shape of the system, not a routing quota.
-
-The proposed execution paths are:
+The resulting system has one direct runtime and two outer execution surfaces:
 
 ```text
-ASP agent configuration
-    -> shared ASP resolution
-        |-> agent-harness-sdk -> Pi session -> agent-harness  (default)
-        `-> compiler -> Claude Code or Codex CLI              (compatibility)
-    -> HRC-operated runtime
+ASP agent/profile/space sources
+            |
+            v
+resolveAgentResourceSources()       inspectAgentSystemPrompt()
+            |                                  |
+            +----------------+-----------------+
+                             v
+               AgentSpacesResourceLoader
+                             |
+                createAgentHarnessRuntime()
+                             |
+                  Pi AgentSessionRuntime
+                    /                 \
+          TUI / print frontend      HRC broker facade
+          (`asp run`)               (`agent-harness run`)
+
+External harness selection
+            |
+            v
+compiler + HarnessAdapter -> Claude Code / Codex CLI
 ```
 
-The canonical profile and HRC selector is `agent-harness`. The earlier
-`pi-sdk` selector remains accepted as a compatibility alias during migration;
-it names the underlying Pi implementation rather than the Praesidium-owned
-product boundary.
+The canonical selector, executable, and broker driver remain
+`agent-harness`. The internal package is renamed from `agent-harness-sdk` to
+`agent-harness-runtime` because it owns a complete host runtime rather than a
+general-purpose public SDK.
 
-There is no required compiled runtime plan, generated frontier-harness home, or
-serialized intermediate definition between ASP configuration and the Pi
-session. Normal resolved values inside the SDK are sufficient. The compiler may
-continue producing those artifacts where an external harness requires them.
+The Earendil Pi dependency is upgraded coherently to exact version `0.84.3`.
+That version supplies the typed TUI startup theme and diagnostics used by the
+foreground host.
+
+## Why the deployed slice must be replaced
+
+The current `agent-harness-sdk` calls `materializeAgentRuntimeResources()` with
+the Pi SDK adapter. That produces a generated `pi-sdk` directory containing a
+bundle, settings, auth, context, extensions, hooks, and merged skills. The
+session then points Pi's loader at that compiler-produced directory.
+
+That implementation violates the intended direct boundary even though the
+session itself runs in process: it still treats the compiler adapter's output
+as the source of truth. It also makes `agent-harness` unusable through ordinary
+`asp run`: the harness id is catalogued, but there is no `HarnessAdapter`, and
+the generic run planner unconditionally asks the adapter registry for one.
+
+Registering a synthetic `agent-harness` adapter is explicitly rejected. It
+would preserve the wrong materialization pipeline and misrepresent a
+Praesidium-owned runtime as an external-harness lowering.
 
 ## Goals
 
-- Give ASP/HRC a first-party execution path for the large majority of agents.
-- Use the existing ASP agent specification and directory structure directly.
-- Remove live ASPC compilation and generated harness homes from the default
-  agent startup path.
-- Retain compiler-backed Claude Code and Codex CLI execution for agents that
-  explicitly select those harnesses.
-- Share agent resolution, space composition, prompt/context assembly, and skill
-  discovery between the direct and compiler-backed paths.
-- Preserve HRC's ownership of runtime lifecycle and session routing.
-- Reuse the working Pi integration already present in agent-spaces.
-- Keep the first implementation small enough to dogfood with a real agent.
+- Make Pi's `ResourceLoader` the sole resource-delivery boundary for the direct
+  harness.
+- Resolve ASP-authored resources without composing a generated Pi bundle.
+- Use one Pi `AgentSessionRuntime` factory for new, resumed, forked, imported,
+  and cwd-replaced sessions.
+- Launch Pi's interactive TUI when `asp run` targets an agent whose effective
+  harness is `agent-harness`.
+- Preserve a non-interactive print surface and the existing HRC broker surface.
+- Preserve ASP prompt, reminder, skill, environment, model, tool, and placement
+  semantics.
+- Keep compiler-backed Claude Code and Codex CLI execution working.
+- Make the custom loader visibly identifiable through the POC's purple theme
+  and mechanically identifiable through assertions and tests.
+- Give the TypeScript packages explicit modules rather than monolithic
+  `index.ts` implementations.
 
 ## Non-goals
 
-- Reproduce every feature of every frontier harness before cutover.
-- Eliminate the compiler or force every agent onto the first-party harness.
-- Establish a new sandbox, credential system, provenance system, or package
-  manager.
-- Preserve incidental compiler output or byte-for-byte compiler behavior.
-- Make the current broker protocol or process topology permanent.
-- Freeze a broad public SDK API before the first-party harness settles.
+- Removing the compiler or existing external-harness adapters.
+- Making Pi's filesystem layout equal to a compiled Claude or Codex home.
+- Attaching a foreground TUI to an already running HRC broker session.
+- Moving scope placement, durable messaging, or supervision authority out of
+  HRC.
+- Introducing a sandbox, credential broker, content-addressed resource store,
+  or new public serialized runtime definition.
+- Migrating the separate legacy `@mariozechner/pi-coding-agent` compatibility
+  path unless validation proves the Earendil upgrade requires it.
+- Treating the purple theme as sufficient proof of resource correctness.
 
-## Proposed components
+## Package and source layout
 
-### `agent-harness-sdk`
+```text
+harness/agent-harness-runtime/
+  src/
+    agent-definition.ts
+    agent-resource-loader.ts
+    model-resolution.ts
+    resource-sources.ts
+    runtime-factory.ts
+    session-manager.ts
+    theme.ts
+    types.ts
+    index.ts
+  test/
+    agent-resource-loader.test.ts
+    runtime-factory.test.ts
+    theme.test.ts
 
-`agent-harness-sdk` is the ASP-aware adapter around Pi's coding-agent session
-API. It turns the existing agent configuration into a working Pi session.
-
-Configuration resolution should live in shared ASP libraries rather than in the
-SDK itself. The SDK and compiler should call the same code for agent profiles,
-space composition, prompts, context, skills, and common provisioning values.
-They should diverge only where they lower that shared meaning into different
-execution environments. Code sharing should follow genuinely shared semantics;
-it should not force Claude Code, Codex CLI, and Pi into a false lowest-common-
-denominator model.
-
-Its responsibilities are:
-
-- Resolve the agent profile, project placement inputs, and selected spaces
-  through existing ASP configuration libraries.
-- Assemble the system prompt, project context, and reminder through existing
-  ASP prompt/context logic.
-- Make the resolved skills available to Pi.
-- Configure the selected model, authentication, tools, and session behavior.
-- Create or resume a Pi session.
-- Expose the prompt, follow-up, steering, interrupt, and event operations needed
-  by the executable.
-- Translate Pi events into the harness-facing event model.
-
-It should not generate configurations for Codex, Claude, or other harnesses. It
-should not own HRC placement, runtime lifecycle, or durable messaging. It should
-not reimplement configuration parsing already supplied by ASP packages.
-
-Pi's mature coding-agent `createAgentSession` surface is the appropriate base
-today. Pi's newer generic `AgentHarness` abstraction is currently incomplete for
-important operations. This is a present implementation choice, not a permanent
-architectural commitment. Keeping Pi usage concentrated in the SDK is useful
-package design because it limits dependency churn, but it does not need to be a
-durable platform law.
-
-The initial SDK API should remain small. Conceptually it needs only operations
-equivalent to:
-
-```ts
-loadAgent(options): ResolvedAgent
-createSession(agent, options): AgentSession
+harness/agent-harness/
+  src/
+    cli.ts
+    broker/
+      driver.ts
+      invocation-session-factory.ts
+    foreground/
+      print.ts
+      tui.ts
+    index.ts
+  test/
+    cli.test.ts
+    broker-session.test.ts
+    foreground.test.ts
 ```
 
-The names and exact intermediate types should emerge from implementation. A
-serialized `RuntimeDefinition`, content manifest, or public abstraction is not
-required.
-
-### `agent-harness`
-
-`agent-harness` is the executable HRC launches or controls to run agent turns.
-It should:
-
-- Accept the agent identity and runtime inputs needed to load an agent.
-- Create or resume an SDK session.
-- Accept turns and follow-up input.
-- Forward assistant, tool, status, and terminal events.
-- Support steering, interruption, and shutdown as required by HRC.
-
-The fastest implementation path is to compose the executable with the existing
-harness broker because HRC already understands that integration. The broker is
-migration scaffolding, not an architectural requirement. Once the direct
-harness is working, its wire protocol and process topology can be simplified if
-that produces a better system while preserving required HRC behavior.
-
-A long-lived process is convenient for Pi sessions and continuation, but
-process lifetime should remain an implementation choice. The product contract
-is that HRC can operate the agent session, not that one specific process must
-live for one specific duration.
-
-## Ownership boundary
-
-| Component                   | Owns                                                                               |
-| --------------------------- | ---------------------------------------------------------------------------------- |
-| ASP configuration libraries | Agent profiles, space composition, prompt/context assembly, and validation         |
-| `agent-harness-sdk`         | Construction and operation of a Pi-backed agent session                            |
-| `agent-harness`             | The executable turn surface presented to HRC                                       |
-| Compiler                    | Lowering shared ASP semantics into Claude Code or Codex CLI artifacts and launches |
-| HRC                         | Runtime placement, lifecycle, session routing, supervision, and durable messaging  |
-
-The direct harness path should receive semantic agent and runtime inputs rather
-than an ASPC-produced frontier-harness process plan. The compatibility path may
-continue receiving a compiled process plan because that translation is its
-purpose. In both cases, the selected harness executes the agent; it does not
-decide where an established scope lives or assume responsibility for cross-node
-routing.
-
-## Resource handling
-
-Resource handling should use the simplest representation accepted by Pi:
-
-- Pass system prompts directly as strings.
-- Pass skill definitions or source directories directly when possible.
-- Materialize temporary files only when Pi or a skill actually requires a
-  filesystem layout.
-- Fetch, cache, or install resources when existing ASP behavior or a concrete
-  product requirement calls for it.
-- Use the normal authentication mechanism appropriate to the selected model,
-  including environment-based credentials when practical.
-- Permit normal session-state and workspace writes.
-
-No content-addressed resource store, sorted manifest, resource hash, provenance
-record, immutable generation snapshot, or read-only startup rule is required by
-this proposal.
-
-A session will naturally receive some resolved prompt, skills, and configuration
-when it is created. That is sufficient until a real requirement demonstrates the
-need for hot reload, stronger snapshot behavior, caching, or resource identity.
-Those features can be added in response to observed behavior rather than in
-anticipation of it.
-
-Duplicate resources should follow ASP's established composition and precedence
-semantics. The harness should not introduce a new duplicate-name failure rule.
-Pi's independent default discovery should not accidentally override ASP
-composition, but ASP may intentionally include project-level, user-level, or
-otherwise ambient resources when its specification defines that behavior.
-
-These choices govern the direct Pi path. The compatibility compiler remains
-free to materialize the files and directories required by Claude Code or Codex
-CLI, using the same resolved ASP semantics as its input.
-
-## Permissions and security
-
-This project should not invent a new security boundary.
-
-The harness runs with the privileges HRC gives it and preserves permission
-behavior the product already exposes. Pi's normal tools can be used directly
-unless a concrete requirement calls for mediation. Environment variables are a
-valid credential transport when they fit the installed runtime.
-
-This proposal does not require:
-
-- An OS sandbox.
-- Custom replacements for Pi tools.
-- A new credential broker.
-- Fail-closed resource acquisition.
-- Additional audit or provenance machinery.
-- Restrictions on runtime writes beyond existing platform and operating-system
-  permissions.
-
-Pi is not a sandbox. That becomes an actionable concern only if Praesidium
-adopts a requirement to execute untrusted code inside a stronger containment
-boundary. Such a threat model should be designed and validated separately
-rather than approximated with restrictions that do not provide containment.
-
-## Initial feature scope
-
-The first useful implementation likely needs:
-
-- System prompt and project context.
-- Skills.
-- Pi's normal tools.
-- Model authentication.
-- Multi-turn continuation.
-- Steering and interrupt.
-- Structured results.
-- HRC-visible events.
-
-Extensions, hooks, MCP, slash commands, and an interactive TUI do not need to
-block the first real deployment. They are deferred capabilities, not forbidden
-ones. Each should be added when a concrete agent or operator workflow needs it.
-
-## Compiler compatibility path
-
-The implementation-ready byte-parity gate for the shared prompt, reminder, and
-skill boundary is specified in
-[Agent Resource Parity Verifier](agent-resource-parity-verifier.md).
-
-The compiler should remain a supported execution path for the minority of
-agents that explicitly use Claude Code or Codex CLI. Its durable purpose is
-external-harness lowering: turning shared ASP semantics into the files,
-directories, arguments, environment, and process description required by those
-harnesses.
-
-The compiler and direct harness should share ordinary libraries for:
-
-- Agent and space resolution.
-- Prompt assembly.
-- Context-template evaluation.
-- Skill discovery and composition.
-- Common provisioning values.
-- Configuration validation.
-- Inspection and diagnostics.
-
-The harness, compiler, and `asp inspect`-style commands should reuse the same
-underlying logic wherever they need the same answer. Compiler-specific code
-should begin where Claude Code or Codex CLI requires a different representation
-or launch mechanism.
-
-The reduction target is redundant or obsolete compiler machinery, not the
-compiler itself:
-
-- The primary `agent-harness` path no longer calls the compiler.
-- Common ASP semantics are not independently implemented in the compiler and
-  SDK.
-- Compatibility profiles and drivers remain only for supported external
-  harnesses.
-- Generated homes, bundles, argv, and environment plans remain only where the
-  selected external harness needs them.
-- Drivers for harnesses Praesidium no longer intends to support can be removed.
-
-## Migration
-
-### 1. Extract shared ASP resolution
-
-Identify the configuration, composition, prompt, context, skill, and common
-provisioning logic currently embedded in the compiler. Move only that shared
-meaning into ordinary ASP libraries consumed by both execution paths.
-
-### 2. Extract the proven Pi session integration
-
-Move the working Pi session construction from the current broker Pi driver into
-`agent-harness-sdk`. Preserve behavior while establishing the new package
-boundary.
-
-### 3. Load ASP configuration directly
-
-Replace the SDK's compiled bundle input with direct calls to the shared ASP
-libraries. Keep the compiler on those same libraries, followed by its
-Claude/Codex-specific lowering. Do not add a serialized replacement for the
-compiled plan to the direct path unless implementation demonstrates a need.
-
-### 4. Build the executable
-
-Build `agent-harness` around the SDK. Reuse the existing broker connection for
-the first HRC integration so the work does not simultaneously redesign session
-transport.
-
-### 5. Dogfood a real agent
-
-Run Cody through the new executable using the real agent profile, real project
-context, real skills, real tools, and real model authentication.
-
-Validate outcomes:
-
-- The intended prompt and project context reach the model.
-- The intended skills are available.
-- Tool execution works.
-- Multiple turns retain usable context.
-- Steering and interruption work.
-- Structured results and runtime events reach HRC correctly.
-- HRC can start, stop, and reconnect according to current product behavior.
-
-The migration does not require byte-for-byte prompt parity, resource hashes, or
-preservation of incidental compiler behavior. Intentional improvements are not
-migration failures.
-
-### 6. Make the direct harness the default
-
-Make the first-party harness the default for ordinary agents after the installed
-path has been exercised in real use. Keep explicit Claude Code and Codex CLI
-selections on the compiler path. Delete duplicated resolution code and
-unsupported drivers, while continuing to maintain the compiler behavior needed
-by the expected minority of external-harness agents.
-
-## Risks
-
-### Recreating the compiler inside the SDK
-
-The largest risk is recreating the compiler's intermediate machinery with
-manifests, snapshots, compatibility layers, and migration gates under a new
-package name. The SDK should directly compose existing ASP resolution with Pi
-session construction.
-
-### Semantic drift between the two paths
-
-The direct and compiler-backed paths will drift if each owns its own prompt,
-space, skill, or provisioning interpretation. Shared ASP resolution is the most
-important code-sharing boundary in this proposal. Tests should exercise that
-shared logic once, then separately test Pi, Claude Code, and Codex CLI lowering.
-
-### Expanding the first cut into harness parity
-
-Trying to reproduce every extension, command, hook, MCP, and TUI feature before
-dogfooding would delay the evidence that matters: whether a real ASP/HRC agent
-can work effectively through the owned harness.
-
-### Coupling the design to unfinished Pi abstractions
-
-The generic Pi harness API is not yet a sufficient base. Depending on the
-working coding-agent API behind a small local adapter keeps the project moving
-without designing around unfinished surfaces.
-
-### Coupling shared semantics to external-harness output
-
-Sharing code does not mean making the SDK consume compiler plans or making the
-compiler the canonical representation of an agent. Shared libraries should
-express ASP semantics; each execution path should own its own lowering from
-those semantics.
-
-## Recommendation
-
-Build both proposed components.
-
-`agent-harness-sdk` should directly turn ASP configuration into a Pi session.
-`agent-harness` should make that session operable by HRC. Reuse the current
-broker only as the shortest integration path, then simplify it separately if
-the running system shows that doing so is valuable.
-
-Keep the compiler as the compatibility path for agents that explicitly select
-Claude Code or Codex CLI. Both paths should share ASP resolution code wherever
-the underlying semantics are actually the same. The system should optimize for
-the expected 95% direct-harness majority without degrading the supported 5%
-external-harness minority.
-
-The first milestone is not a comprehensive harness platform. It is one real ASP
-agent completing real multi-turn work through HRC without a live compiler or a
-frontier-harness adapter, while an existing Claude Code or Codex CLI agent still
-runs through the compiler-backed compatibility path.
+Both `index.ts` files are export-only barrels. CLI dispatch, runtime
+construction, broker mapping, theme construction, and resource loading must not
+be implemented in a package root barrel.
+
+The public executable remains `agent-harness`. Its top-level dispatcher owns
+three explicit modes:
+
+```text
+agent-harness tui    # foreground Pi InteractiveMode
+agent-harness print  # foreground Pi print mode
+agent-harness run    # existing harness-broker service transport
+```
+
+Existing broker utility subcommands continue to be forwarded to the broker CLI
+without changing their protocol.
+
+## Shared ASP source resolution
+
+Add a non-materializing ASP configuration operation, conceptually:
+
+```ts
+resolveAgentResourceSources(options): Promise<ResolvedAgentResourceSources>
+```
+
+It owns the shared semantic work required by both direct and compatibility
+paths:
+
+1. Resolve and validate the agent/project placement.
+2. Resolve the effective profile, model, reasoning level, and selected spaces.
+3. Resolve the lock and ordered closure.
+4. Populate missing immutable registry snapshots when required.
+5. Filter spaces with `isHarnessSupported(..., 'agent-harness')`.
+6. Return ordered source roots and semantic metadata without calling
+   `materializeSpace()`, `materializeTarget()`, a harness adapter, or compiler
+   lowering.
+
+Immutable snapshots are permitted source acquisition. They preserve locked
+registry content and are not a merged harness runtime. Mutable `@dev` spaces
+remain rooted in their declared local sources. The result identifies source
+kind and ordered precedence so diagnostics and parity projection can attribute
+every selected resource.
+
+Conceptually, the result contains:
+
+```ts
+interface ResolvedAgentResourceSources {
+  placement: RuntimePlacement;
+  agentRoot: string;
+  projectRoot?: string;
+  cwd: string;
+  aspHome: string;
+  effectiveConfig: {
+    model?: string;
+    reasoning?: string;
+  };
+  orderedSpaces: Array<{
+    ref: SpaceRefString;
+    root: string;
+    source: "mutable" | "immutable-snapshot";
+  }>;
+  skillRoots: ResourceRoot[];
+  extensionRoots: ResourceRoot[];
+  promptTemplateRoots: ResourceRoot[];
+  environment: NodeJS.ProcessEnv;
+  warnings: string[];
+}
+```
+
+The exact internal DTO may vary, but the following are fixed:
+
+- It is an in-memory result, not a wire contract.
+- Ordered roots preserve canonical ASP composition and agent-local override
+  semantics.
+- It never contains the path of a generated merged Pi bundle.
+- It performs no ambient Pi, Codex, or Claude resource discovery.
+- It does not make placement decisions; callers supply the resolved semantic
+  placement inputs.
+- Invalid/missing locked content, unsupported spaces, duplicate-resolution
+  failures, and dynamic context failures propagate visibly.
+
+The compiler may call the same underlying lock, closure, prompt, context,
+environment, and resource-source helpers before performing external-harness
+lowering. It does not call the direct runtime package.
+
+## `AgentSpacesResourceLoader`
+
+`AgentSpacesResourceLoader` implements Pi's `ResourceLoader` interface. It is
+constructed with resolved semantic inputs, not an ASPC output directory.
+
+`reload()` must:
+
+1. Re-resolve source roots for the current cwd and placement context.
+2. Call `inspectAgentSystemPrompt()` with agent, project, task, lane, run mode,
+   environment, and any pinned resolver context.
+3. Load skills and other supported resources from the explicit ASP roots using
+   Pi's canonical parsers/loaders.
+4. Apply ASP composition and agent-local precedence deterministically.
+5. Store diagnostics and a complete in-memory snapshot used by the synchronous
+   `ResourceLoader` getters.
+
+No synchronous getter performs filesystem or network I/O. Every getter fails
+clearly if `reload()` has not completed.
+
+Prompt mapping is exact:
+
+- ASP `replace` content is returned by `getSystemPrompt()`.
+- ASP `append` content is the first entry returned by
+  `getAppendSystemPrompt()`.
+- A present reminder follows the append prompt as a separate append entry.
+- Source getters return the authored template/SOUL source and a distinct
+  reminder attribution.
+- Absent and present-empty reminders remain distinguishable internally and in
+  parity observations.
+
+Resource mapping is exact:
+
+- Skills are parsed from explicit ASP skill roots with Pi's skill loader.
+- Extensions are loaded only from explicit ASP extension roots and explicit
+  broker-supplied factories.
+- Prompt templates and agent/context files are empty unless ASP explicitly
+  selects them.
+- Ambient `~/.pi`, project `.pi`, Codex, and Claude resources are disabled.
+- `extendResources()` may add only runtime-authorized explicit roots; it cannot
+  enable ambient discovery or change ASP precedence silently.
+- Duplicate names follow ASP's established winner. Pi diagnostics must report
+  collisions whose resolution differs from that winner.
+
+The loader exposes inspection metadata for tests and diagnostics, including
+reload count, source attribution, prompt inspection, selected skills, and Pi
+resource diagnostics. This metadata remains internal to the runtime package.
+
+## Pi runtime construction
+
+The primary runtime API is conceptually:
+
+```ts
+createAgentHarnessRuntime(options): Promise<AgentSessionRuntime>
+```
+
+The factory follows the POC structure:
+
+1. Create Pi `ModelRuntime` with the resolved auth store path and resolve the
+   requested model without enabling an unbounded network catalog refresh.
+2. Build a `CreateAgentSessionRuntimeFactory`.
+3. Inside that factory, construct `SettingsManager` and a fresh
+   `AgentSpacesResourceLoader` for the supplied cwd.
+4. Await the loader's `reload()`.
+5. Call `createAgentSessionFromServices()` with explicit services, selected
+   model, thinking level, tools, and session manager.
+6. Assert that the returned session uses `AgentSpacesResourceLoader` and
+   contains the resolved prompt/reminder.
+7. Return `createAgentSessionRuntime(factory, initialOptions)`.
+
+Constructing the loader inside Pi's replacement-session factory is mandatory.
+Pi can replace the active session during `/new`, `/resume`, `/fork`, imported
+sessions, and cwd transitions. Capturing one loader outside that factory would
+silently fall back to stale resources after a replacement.
+
+The runtime owns disposal. All TUI, print, error, interrupt, and broker shutdown
+paths await `runtime.dispose()` exactly once.
+
+## Session and authentication ownership
+
+Foreground session history is isolated per agent:
+
+```text
+${ASP_HOME}/agent-harness/sessions/<agent-id>/
+```
+
+Pi continues to filter/select sessions by cwd within that agent-specific
+directory.
+
+Session selection maps as follows:
+
+| Request                 | Pi session manager                                                          |
+| ----------------------- | --------------------------------------------------------------------------- |
+| no resume option        | `SessionManager.create(cwd, sessionDir)`                                    |
+| bare `--resume`         | `SessionManager.continueRecent(cwd, sessionDir)`                            |
+| `--resume <path-or-id>` | resolve within the agent session directory, then `SessionManager.open(...)` |
+
+Explicit resume identifiers must not escape the selected agent's session
+directory after realpath normalization. A missing or ambiguous identifier
+fails visibly; the direct path does not open a different agent's session.
+
+Model credentials use the existing Pi auth resolution contract. Authentication
+is bound before model lookup or session construction, at the Pi APIs that
+actually own it:
+
+1. The caller supplies the resolved `authMode`, `authPath`, and `providerId`
+   together with the composed runtime environment.
+2. Follow the working POC and construct `ModelRuntime` with
+   `ModelRuntime.create({ authPath, modelsPath, refreshOnCreate: false,
+allowModelNetwork: false })`. Foreground execution uses the POC's
+   agent-directory `auth.json`; broker execution substitutes the auth path that
+   the broker already resolved. This binds OAuth to the caller-selected store.
+3. Resolve the model provider and require it to equal the authenticated
+   provider.
+4. For API-key mode, resolve the provider credential from the composed
+   environment and await `modelRuntime.setRuntimeApiKey(providerId, credential)`
+   before `getModel()` and before any session factory invocation.
+5. Pass the already authenticated `ModelRuntime` through
+   `AgentSessionServices`; do not attempt to pass auth to
+   `createAgentSessionFromServices()`, which has no auth parameter.
+
+Broker-supplied `PiSdkAuthResolution` remains authoritative for broker sessions:
+its path/provider/mode and the broker-composed environment are passed unchanged
+to this binding step. The foreground path first calls the existing Pi auth
+resolver against its agent-scoped/configured auth store and then uses the same
+binding function. No broker session may fall back to the foreground agent store.
+Missing credentials, provider mismatch, or unreadable/mistyped OAuth state fail
+before session creation. Secrets are never copied into resource trees or
+printed by `--dry-run`/`--print-command`.
+
+## Foreground `asp run`
+
+`agent-harness` is a discriminated direct runtime strategy, not a
+`HarnessAdapter`.
+
+Project-target planning returns one of two shapes:
+
+```ts
+type ProjectTargetRuntimePlan =
+  | {
+      kind: "external-harness";
+      harnessId: HarnessId;
+      adapter: HarnessAdapter; /* ... */
+    }
+  | {
+      kind: "agent-harness";
+      harnessId: "agent-harness";
+      agentProfile: AgentProfile; /* ... */
+    };
+```
+
+The direct branch is valid only for a resolved agent target with an agent
+profile. A global/dev space or arbitrary project target cannot select
+`agent-harness` without an agent identity and fails with a specific diagnostic.
+
+The run orchestrator branches on the plan before adapter lookup, bundle
+installation, prompt materialization, or compiler invocation. It prepares the
+semantic invocation and launches the installed `agent-harness` entrypoint with
+inherited stdin/stdout/stderr. The ASP installation/package contract must make
+the matching coherent-set executable resolvable; tests inject its path rather
+than searching an uncontrolled ambient PATH.
+
+Default behavior:
+
+```text
+asp run <agent>
+  -> agent-harness tui --agent-id <agent> --project-id <project> ...
+```
+
+The semantic invocation carries agent id/root, project id/root, cwd, ASP home,
+run mode, scope/lane correlation, selected model/reasoning, safe environment
+overrides, resume selector, and optional initial prompt. It does not carry a
+compiled bundle path.
+
+CLI behavior:
+
+- Interactive is the default and requires a real TTY.
+- A positional prompt becomes `InteractiveMode.initialMessage`.
+- `--resume` follows the session-selection table above.
+- `--no-interactive` requires a prompt and calls Pi `runPrintMode()` using the
+  same runtime factory.
+- `--dry-run` and `--print-command` print the direct semantic launch without
+  resolving/loading resources, creating sessions, or writing generated homes.
+- Unsupported compiler/debug-only options fail rather than being silently
+  ignored.
+- Child exit status and errors propagate through `asp run`.
+
+The TUI is local foreground execution. It does not attach to or take ownership
+of an existing HRC runtime, scope binding, durable inbox, or broker session.
+
+## HRC broker path
+
+HRC continues to invoke:
+
+```text
+agent-harness run --transport stdio|unix ...
+```
+
+The broker invocation still supplies semantic `spec.agent` placement values,
+auth, permission extension, structured-output tool, continuation, locked
+environment, and dispatch environment.
+
+The `agent-harness` package adapts `AgentSessionRuntime.session` to the narrow
+`PiSdkSession` interface expected by `spaces-harness-broker-pi-sdk`. The facade
+owns and awaits runtime disposal. The broker package may widen its session
+`dispose()` type to `void | Promise<void>` and must await it; it does not learn
+about ASP source resolution or depend on `agent-harness-runtime`.
+
+This preserves the dependency direction:
+
+```text
+agent-harness -> agent-harness-runtime
+agent-harness -> spaces-harness-broker-pi-sdk
+agent-harness-runtime -> ASP semantic libraries + Pi
+spaces-execution -X-> agent-harness-runtime
+```
+
+HRC retains placement, lifecycle, supervision, routing, durable messaging, and
+reconnect authority. The runtime executes sessions and maps their events.
+
+## Pi `0.84.3` upgrade
+
+All Earendil coding-agent consumers move together to exact `0.84.3`:
+
+- `drivers/harness-pi-sdk`
+- `harness/harness-broker-pi-sdk`
+- `harness/agent-harness-runtime`
+- `harness/agent-harness`, which directly owns `InteractiveMode`,
+  `runPrintMode()`, and Pi runtime/session facade types
+- `spaces-integration-tests`, which calls `formatSkillsForPrompt()` on skills
+  returned by the production loader
+- the coherent Bun lock entries for `@earendil-works/pi-*`
+
+Mixed `0.84.1`/`0.84.3` installations are not supported. Pi session, theme,
+runtime, resource-loader, extension, and tool objects cross package boundaries;
+multiple versions risk both TypeScript identity errors and runtime
+`instanceof`/behavior mismatches.
+
+The upgrade is accepted only after build/type validation and real external Pi,
+broker, and TUI smokes. The legacy Mariozechner Pi dependency is a separate
+compiler-compatibility surface and does not move unless those checks require
+it.
+
+## Purple loader-validation theme
+
+The runtime copies the POC theme under the stable name:
+
+```ts
+export const RESOURCE_LOADER_THEME_NAME = "praesidium-loader";
+```
+
+The exact foreground palette is:
+
+```ts
+{
+  accent: '#22d3ee', border: '#a855f7', borderAccent: '#22d3ee',
+  borderMuted: '#6b21a8', success: '#86efac', error: '#fca5a5',
+  warning: '#fde047', muted: '#c4b5fd', dim: '#a78bfa', text: '#f8fafc',
+  thinkingText: '#c4b5fd', searchMatchText: '#ffffff',
+  userMessageText: '#ffffff', customMessageText: '#ffffff',
+  customMessageLabel: '#67e8f9', toolTitle: '#ffffff', toolOutput: '#cffafe',
+  mdHeading: '#67e8f9', mdLink: '#c4b5fd', mdLinkUrl: '#a5f3fc',
+  mdCode: '#67e8f9', mdCodeBlock: '#d8b4fe', mdCodeBlockBorder: '#22d3ee',
+  mdQuote: '#e9d5ff', mdQuoteBorder: '#a855f7', mdHr: '#6b21a8',
+  mdListBullet: '#22d3ee', toolDiffAdded: '#86efac',
+  toolDiffRemoved: '#fca5a5', toolDiffContext: '#c4b5fd',
+  syntaxComment: '#a5b4fc', syntaxKeyword: '#67e8f9',
+  syntaxFunction: '#d8b4fe', syntaxVariable: '#f8fafc',
+  syntaxString: '#a7f3d0', syntaxNumber: '#fde68a', syntaxType: '#c4b5fd',
+  syntaxOperator: '#67e8f9', syntaxPunctuation: '#f8fafc',
+  thinkingOff: '#6b21a8', thinkingMinimal: '#7e22ce', thinkingLow: '#9333ea',
+  thinkingMedium: '#a855f7', thinkingHigh: '#c084fc',
+  thinkingXhigh: '#22d3ee', thinkingMax: '#67e8f9', bashMode: '#22d3ee'
+}
+```
+
+The exact background palette is:
+
+```ts
+{
+  selectedBg: '#0e7490', scrollbarThumb: '#22d3ee',
+  searchMatchBg: '#7e22ce', userMessageBg: '#6d28d9',
+  customMessageBg: '#581c87', toolPendingBg: '#155e75',
+  toolSuccessBg: '#166534', toolErrorBg: '#991b1b'
+}
+```
+
+Construct it as a truecolor Pi `Theme` with a packaged-module `sourcePath`,
+expose it from `AgentSpacesResourceLoader.getThemes()`, and select it with
+`InteractiveMode({ initialThemeSetting: 'praesidium-loader' })`.
+
+The TUI also emits a startup diagnostic naming the agent and session. Tests
+assert the loader class, prompt/reminder inclusion, theme name, and palette;
+the visible purple/cyan rendering is an operator smoke signal, not the sole
+test oracle.
+
+## Failure and side-effect contract
+
+The direct path fails visibly on:
+
+- unresolved agent/profile/project placement;
+- unsupported space/harness combinations;
+- missing immutable snapshots that cannot be populated;
+- prompt/context resolution failure;
+- resource parse/load failure required for correctness;
+- unsupported model or missing authentication;
+- non-TTY interactive launch;
+- invalid/escaping resume selection;
+- session creation, replacement, or disposal failure; and
+- child/front-end nonzero exit.
+
+Warnings that Pi classifies as non-fatal remain attributed and visible in
+startup diagnostics. Required ASP resource loss is never downgraded to a
+warning.
+
+Direct startup may populate locked immutable snapshots, create agent-scoped
+auth/settings/session state, and perform normal workspace tool writes after a
+turn begins. It must not create compiler target output, merged Pi resource
+directories, `bundle.json`, or `.asp-materialized.json`.
+
+## Verification
+
+### Focused automated checks
+
+- The source resolver returns ordered mutable/snapshot roots without invoking
+  any adapter or target materializer.
+- Prompt replace/append/reminder mapping is exact.
+- Skills from composed and agent-local sources use the declared ASP winner and
+  Pi parser.
+- Ambient Pi/project/user resources remain excluded.
+- Loader getters require successful reload and perform no I/O.
+- New/resume/fork/session replacement creates and reloads a fresh custom loader
+  for the active cwd.
+- Runtime construction asserts loader identity and prompt/reminder inclusion.
+- OAuth and API-key broker auth bind to the shared `ModelRuntime` before model
+  and session creation, with no foreground-store fallback.
+- Theme name and every POC color remain exact.
+- Broker facade forwards operations/events and awaits runtime disposal.
+- `asp run` planning never requests an adapter for `agent-harness`.
+- Direct dry-run produces a TUI/print launch and creates no materialized bundle.
+
+### Real installed foreground smoke
+
+After `just install`, use Ghostty/ghostmux with a real agent and terminal:
+
+1. `asp run <agent>` opens Pi's TUI.
+2. Purple/cyan `praesidium-loader` is active and visible in theme diagnostics.
+3. The startup diagnostic identifies the correct agent and session.
+4. The agent's prompt identity, reminder, composed skills, and local skills are
+   present.
+5. An initial positional prompt executes.
+6. A real tool call succeeds.
+7. `/new`, `/resume`, and `/fork` retain the custom loader and resources.
+8. Exit and interrupt dispose the runtime cleanly.
+9. Bare and explicit `asp run --resume` select only that agent's sessions.
+10. `asp run --no-interactive <agent> <prompt>` completes in print mode.
+
+### Broker and compatibility smoke
+
+- Run the real harness-broker MATRIX from Ghostty/ghostmux because the broker
+  session/disposal contract changes.
+- Exercise real HRC prompt, multi-turn, steer, interrupt, structured result,
+  event, stop, and reconnect behavior through `agent-harness run`.
+- Run agent-resource parity for all fleet agents and modes.
+- Run an explicitly selected Codex CLI agent and Claude Code agent through the
+  retained compiler path.
+- Run build, typecheck, lint, boundary, manifest, test, cross-repo pack, and CLI
+  package smoke gates.
+
+## Migration sequence
+
+1. Add the non-materializing ASP resource-source resolver and tests.
+2. Upgrade all Earendil Pi consumers to exact `0.84.3` in one lockfile change.
+3. Replace `agent-harness-sdk` with `agent-harness-runtime` and implement the
+   custom loader, theme, session selection, and runtime factory.
+4. Move `agent-harness` into explicit CLI, broker, TUI, and print modules.
+5. Adapt the broker session facade and validate the full broker MATRIX.
+6. Add the discriminated direct plan and `asp run` foreground launch.
+7. Rewrite the parity verifier's SDK observer to observe the custom loader.
+8. Install and complete the real TUI, broker, parity, and compatibility smokes.
+9. Remove obsolete generated-bundle seams used only by the old direct harness;
+   retain materialization required by external harnesses and legacy Pi SDK
+   compatibility.
+
+## Acceptance criteria
+
+The revision is implemented only when:
+
+1. `agent-harness-runtime` contains the POC-shaped custom loader and Pi runtime
+   factory, with export-only barrels and no compiler adapter dependency.
+2. Direct agent startup consumes only ASP semantic/source resolution and Pi's
+   `ResourceLoader`; no generated Pi bundle is produced or read.
+3. `asp run` launches the real Pi TUI by default for an `agent-harness` agent,
+   and print/resume/dry-run behavior follows this proposal.
+4. The exact `praesidium-loader` theme is loaded by the custom loader and is the
+   initial TUI theme.
+5. All Earendil Pi consumers resolve exact `0.84.3` from one coherent lock.
+6. Broker OAuth/API-key inputs bind to `ModelRuntime` before session creation,
+   and foreground and broker auth stores cannot substitute for one another.
+7. Pi session replacement paths retain fresh ASP resources.
+8. HRC broker behavior remains operational through the shared runtime.
+9. Compiler-backed Claude Code and Codex CLI selections remain operational.
+10. Parity, broker MATRIX, package, build, static, and real installed smoke gates
+    pass with no direct-path materialization residue.
 
 ## Relationship to the active invariant
 
-This proposal was ratified by `hrcchat#20722` and is governed by the active
-`agent-spaces.agent-harness-runtime-boundary` invariant. The initial direct
-implementation preserves the broker as HRC transport scaffolding while moving
-ASP resolution and Pi session construction behind the first-party SDK boundary.
+This revision reopened `agent-spaces.agent-harness-runtime-boundary` because the
+deployed slice contradicted its no-generated-home predicate and because a TUI
+is now a required product capability rather than a deferred option. Daedalus
+approved the corrected design in `hrcchat#20779`; the amended active record was
+ratified and pushed in commit `ef6dfaa`. It fixes the custom Pi
+`ResourceLoader`, `AgentSessionRuntime`, caller-selected auth binding,
+foreground TUI/print surface, exact Pi upgrade cohort, and validation
+obligations established here.

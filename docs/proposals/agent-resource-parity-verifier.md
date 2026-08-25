@@ -1,6 +1,6 @@
 # Agent Resource Parity Verifier
 
-- **Status:** accepted; implementation ready
+- **Status:** deployed baseline; direct-loader revision accepted in `hrcchat#20779`
 - **Date:** 2026-08-24
 - **Owner:** agent-spaces
 - **Primary package:** `spaces-integration-tests`
@@ -8,10 +8,12 @@
 
 ## Decision
 
-Add a test-only verifier that independently asks the compiler and
-`agent-harness-sdk` to resolve the same agent placement, projects their
-ASP-authored prompts and effective skills into a stable observation format, and
-byte-compares the two projections.
+Retain the deployed test-only verifier, but change its direct producer from the
+compiler-materializing `agent-harness-sdk` to the custom `ResourceLoader` in
+`agent-harness-runtime`. The verifier independently asks the compatibility
+compiler and the direct loader to resolve the same agent placement, projects
+their ASP-authored prompts and effective skills into a stable observation
+format, and byte-compares the two projections.
 
 Task mode is the product priority because ordinary `hrcchat dm` and `hrc run`
 placements use `runMode: "task"`. The implementation must establish task-mode
@@ -20,39 +22,32 @@ different `RunMode` value and scope fixture, so they are included as table-drive
 coverage rather than separate machinery.
 
 The verifier belongs in the private `spaces-integration-tests` package. It must
-not live in either producer: making the compiler depend on `agent-harness-sdk`,
-or the SDK depend on the compiler, would weaken the independent-producer test.
+not live in either producer: making the compiler depend on
+`agent-harness-runtime`, or the runtime depend on the compiler, would weaken the
+independent-producer test.
 
-## Current evidence
+## Current evidence and reopened boundary
 
-A live Cody probe with equal placement inputs found:
+The deployed verifier passes all four modes for the current live fleet: 41
+valid agents, one exact invalid-root exclusion, and 164 compared rows. That
+evidence proved parity between the compiler and the initial SDK implementation,
+but the SDK achieved its result by consuming the Pi adapter's generated merged
+bundle.
 
-| Resource | Compiler | `agent-harness-sdk` |
-| --- | ---: | ---: |
-| System prompt | 8,743 bytes | 8,743 bytes |
-| Reminder | 8,671 bytes | 704 bytes |
-| Effective skills | 24 | 2 |
-
-The prompt happened to match, but the result is not general parity:
-
-- The compiler derives `agentId`, `projectId`, `taskId`, and `lane` from the
-  placement and resolves context with its launch environment.
-- `loadAgent()` currently supplies agent/project/run-mode values but does not
-  forward task or lane to prompt inspection, and it supplies a different exec
-  environment.
-- The Pi SDK adapter writes merged skills to its bundle `skillsDir`, but generic
-  materialization currently retains only `pluginDirs`. `loadAgent()` therefore
-  sees agent-local skills while losing composed space skills.
-
-The verifier is expected to fail against the current implementation. There is
-no baseline or bless operation that makes those differences acceptable.
+The agent-harness rewrite intentionally removes that materialization. The gate
+must therefore be preserved while changing only the direct observation seam:
+the compatibility producer still observes real compiler output, while the
+direct producer observes the reloaded `AgentSpacesResourceLoader` constructed
+from ordered raw/snapshot ASP sources. There is no baseline or bless operation
+that makes a regression acceptable.
 
 ## Goals
 
 - Prove task-mode prompt, reminder, skill-catalog, and skill-package parity for
   every valid agent under `~/agents`.
 - Cover query, heartbeat, and maintenance through the same parameterized code.
-- Exercise the compiler and SDK integration seams independently.
+- Exercise the compiler and direct resource-loader integration seams
+  independently.
 - Compare authored bytes, not hashes or normalized prose.
 - Produce a small, attributable failure showing the agent, mode, resource, and
   first differing byte.
@@ -82,7 +77,7 @@ integration-tests/
       compare.ts
       inventory.ts
       observe-compiler.ts
-      observe-sdk.ts
+      observe-direct-loader.ts
       projection.ts
       replay-context.ts
       types.ts
@@ -96,8 +91,8 @@ integration-tests/
       exclusions.json
 ```
 
-`integration-tests/package.json` gains an explicit workspace dependency on
-`agent-harness-sdk` and a `verify:agent-resources` script. The root justfile
+`integration-tests/package.json` carries an explicit workspace dependency on
+`agent-harness-runtime` and a `verify:agent-resources` script. The root justfile
 exposes:
 
 ```text
@@ -111,12 +106,12 @@ comparison logic in a shell script.
 
 The matrix key is `(agentId, runMode)`. A passing row cannot mask another row.
 
-| Mode | Scope fixture | Priority |
-| --- | --- | --- |
-| `task` | `agent:<id>:project:agent-spaces:task:T-PARITY` | Required first |
-| `query` | `agent:<id>:project:agent-spaces` | Same-runner coverage |
-| `heartbeat` | `agent:<id>:project:agent-spaces` | Same-runner coverage |
-| `maintenance` | `agent:<id>:project:agent-spaces` | Same-runner coverage |
+| Mode          | Scope fixture                                   | Priority             |
+| ------------- | ----------------------------------------------- | -------------------- |
+| `task`        | `agent:<id>:project:agent-spaces:task:T-PARITY` | Required first       |
+| `query`       | `agent:<id>:project:agent-spaces`               | Same-runner coverage |
+| `heartbeat`   | `agent:<id>:project:agent-spaces`               | Same-runner coverage |
+| `maintenance` | `agent:<id>:project:agent-spaces`               | Same-runner coverage |
 
 Every row uses lane `main`, project id `agent-spaces`, the repository root as
 the project root/cwd, and the same explicit model and correlation values on both
@@ -174,23 +169,24 @@ The dependency fixture may pin harness detection and model lookup, but it must
 delegate placement, composition, prompt resolution, materialization, and
 adapter lowering to production implementations.
 
-### SDK observation
+### Direct resource-loader observation
 
-Call `loadAgent()` with the identical placement and replay context. Observe its
-prompt and reminder directly.
+Construct `AgentSpacesResourceLoader` through the same inspectable runtime
+factory used by `createAgentHarnessRuntime()`, with the identical placement and
+replay context, and await `reload()`. Observe prompt mode/content, reminder
+presence/content, diagnostics, and source attribution from that loader.
 
-Skill evidence must come from the Pi resource-loader construction used by
-`createSession()`, after `reload()`, via `getSkills()`. Extract that construction
-into an inspectable helper and have both `createSession()` and the verifier use
-it. The verifier must not carry a second implementation of Pi discovery,
-precedence, frontmatter parsing, or duplicate handling.
+Skill evidence comes from `getSkills()` on that production loader. The verifier
+must not carry a second implementation of ASP source resolution, Pi discovery,
+precedence, frontmatter parsing, or duplicate handling. It must also assert that
+the observed loader has no generated bundle root among its sources.
 
-The parity scope is ASP-owned skill roots explicitly delivered by the SDK.
-Vendor/user/project ambient Pi directories are outside this equivalence. The
-inspection helper must identify entries originating from the declared ASP roots
-without changing production discovery behavior. A same-name ambient collision
-that changes the selected ASP entry must be surfaced as a diagnostic rather
-than silently filtered.
+The parity scope is ASP-owned skill roots explicitly delivered by the runtime.
+Vendor/user/project ambient Pi directories are outside this equivalence and are
+disabled in production. The inspection helper identifies entries originating
+from declared mutable or immutable-snapshot ASP roots without changing
+production discovery behavior. A same-name collision that changes the selected
+ASP entry is a parity failure rather than an ambient exception.
 
 ## `agent-resource-parity/v1` projection
 
@@ -228,10 +224,10 @@ For every effective skill, retain:
 
 ```ts
 interface ParitySkill {
-  name: string
-  description: string
-  disableModelInvocation: boolean
-  filePath: `skill://${string}/SKILL.md`
+  name: string;
+  description: string;
+  disableModelInvocation: boolean;
+  filePath: `skill://${string}/SKILL.md`;
 }
 ```
 
@@ -263,9 +259,9 @@ of its `SKILL.md`:
 
 ```ts
 type ParityTreeEntry =
-  | { path: string; kind: 'file'; mode: number; size: number; sha256: string }
-  | { path: string; kind: 'symlink'; target: string }
-  | { path: string; kind: 'directory' }
+  | { path: string; kind: "file"; mode: number; size: number; sha256: string }
+  | { path: string; kind: "symlink"; target: string }
+  | { path: string; kind: "directory" };
 ```
 
 The raw package files remain the primary comparison. SHA-256 values are
@@ -303,20 +299,21 @@ it must gain the same pinned resolver seam already available to prompt
 inspection. `loadAgent()` must forward the full semantic identifiers, including
 task id and lane derived from its scope.
 
-## Materialized skill-root seam
+## Direct source-root seam
 
-Do not infer `outputPath/skills` in `agent-harness-sdk` or the verifier.
+Do not infer a generated `outputPath/skills` in `agent-harness-runtime` or the
+verifier.
 
-Preserve the adapter's effective skill roots when `materializeTarget()` loads a
-`ComposedTargetBundle`. Thread those roots through
-`TargetMaterializationResult` and `MaterializedAgentRuntimeResources`. The Pi
-SDK adapter supplies its merged `bundle.piSdk.skillsDir`; adapters using plugin
-directories retain their existing behavior.
+The shared non-materializing source resolver returns the ordered raw `@dev` and
+immutable-snapshot roots selected by the lock/closure plus agent-local inputs.
+The direct loader consumes those exact roots. The compiler independently lowers
+the same semantic closure into the external harness's required materialized
+shape.
 
-The result must let `loadAgent()` construct its explicit Pi skill paths from the
-actual composed bundle plus agent-local inputs. The package-level unit test must
-prove that a composed space skill reaches `ResolvedAgent.skillPaths` and the
-reloaded Pi resource loader.
+The package-level unit test must prove that a composed space skill and an
+agent-local skill reach the reloaded Pi loader with the declared ASP precedence,
+while no `bundle.json`, `.asp-materialized.json`, or merged Pi skill directory is
+created by the direct observation.
 
 ## Comparison and diagnostics
 
@@ -357,18 +354,21 @@ turn a mismatch into success.
 - missing/stale/unused records fail closed;
 - replay mode launches no child process or service probe.
 
-`spaces-config` and `spaces-harness-pi-sdk`:
+`spaces-config`:
 
-- Pi SDK materialization exposes its actual merged skill root;
-- target and direct-space materialization preserve it;
-- agent-local and composed skills follow existing precedence.
+- the direct source resolver returns ordered raw/snapshot roots without calling
+  a harness adapter or target materializer;
+- immutable source acquisition and mutable `@dev` resolution follow the lock;
+- agent-local and composed resources follow existing precedence.
 
-`agent-harness-sdk`:
+`agent-harness-runtime`:
 
 - task id and lane reach prompt interpolation;
 - caller-supplied resolver context is used unchanged;
-- the inspectable resource loader is the loader passed to session creation;
-- composed and local skills appear in its effective catalog.
+- the inspectable resource loader is the loader passed to every Pi session
+  construction/replacement;
+- composed and local skills appear in its effective catalog; and
+- direct observation creates no generated harness bundle.
 
 ### Hermetic integration matrix
 
@@ -419,33 +419,21 @@ modes: task, query, heartbeat, maintenance
 rows compared: 164
 ```
 
-## Implementation sequence
+## Revision sequence
 
-1. **Task prompt/reminder replay seam**
-   - Add recorded exec replay.
-   - Thread resolver context and task/lane through compiler and SDK.
-   - Add the task-mode hermetic prompt/reminder comparison.
+The original prompt/replay projection, fleet inventory, four-mode runner, and
+negative controls remain in place. Revise only the direct producer:
 
-2. **Effective skill seam**
-   - Preserve adapter skill roots through materialization.
-   - Extract/observe the Pi loader used by `createSession()`.
-   - Add catalog and package projection plus task-mode comparison.
-
-3. **Fleet task gate**
-   - Add candidate validation/exclusions and the live task-mode command.
-   - Fix all current task-mode mismatches; do not bless them.
-
-4. **Low-cost mode expansion**
-   - Parameterize the same fixture and fleet runner over query, heartbeat, and
-     maintenance.
-   - Fix mode-specific differences and make `--mode all` the justfile gate.
-
-5. **Negative controls and closeout**
-   - Complete byte/metadata mutation tests.
-   - Run the hermetic integration suite and live fleet gate.
-   - Install only if production package changes require it, then smoke the real
-     task-mode `hrcchat dm`/`hrc run` surface under the normal repository
-     closeout doctrine.
+1. Add the non-materializing source resolver and direct-loader inspection seam.
+2. Replace the `agent-harness-sdk` observer with the production
+   `AgentSpacesResourceLoader` observer.
+3. Add a negative control that injects a generated bundle root and proves the
+   direct observer rejects it.
+4. Re-run the hermetic matrix and all existing mutation controls.
+5. Re-run the complete live fleet gate against a clean ASP home and assert that
+   direct rows leave no compiler-materialization residue.
+6. After installation, smoke both the foreground TUI and HRC broker paths; each
+   must report the same loader-backed resources.
 
 ## Acceptance criteria
 
@@ -466,6 +454,8 @@ Implementation is complete only when:
 8. The verifier has no bless, normalization, or producer-specific exception
    path beyond logical absolute-path relocation and checked-in invalid-agent
    exclusions.
+9. The direct observer uses `AgentSpacesResourceLoader` and rejects/does not
+   create compiler-generated bundle roots.
 
 ## Locked decisions
 
@@ -476,7 +466,9 @@ Implementation is complete only when:
   evidence.
 - The projection is verifier-only and versioned `agent-resource-parity/v1`.
 - ASP-authored prompt/reminder bytes and effective ASP skill catalog/package
-  bytes are exact; vendor base prompts and absolute materialization locations
-  are excluded.
+  bytes are exact; vendor base prompts and producer-specific absolute source or
+  materialization locations are excluded.
+- The direct producer is Pi's production custom resource loader over ordered
+  ASP sources, never compiler/adapter materialization.
 - Differences are fixed in producers or reviewed as a contract change; they are
   never blessed locally.
