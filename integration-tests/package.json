@@ -17,7 +17,7 @@
     "@earendil-works/pi-coding-agent": "0.84.3",
     "@lherron/agent-spaces": "*",
     "agent-scope": "*",
-    "agent-harness-sdk": "workspace:*",
+    "agent-harness-runtime": "workspace:*",
     "agent-spaces": "workspace:*",
     "spaces-config": "*",
     "spaces-execution": "*",

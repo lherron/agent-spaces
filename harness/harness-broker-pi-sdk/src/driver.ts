@@ -93,7 +93,7 @@ export interface PiSdkSession {
   waitForIdle(): Promise<void>
   getActiveToolNames(): string[]
   setActiveToolsByName(toolNames: string[]): void
-  dispose(): void
+  dispose(): void | Promise<void>
 }
 
 export interface PiSdkSessionFactoryInput {
@@ -396,7 +396,7 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
     disposed = true
     unsubscribe?.()
     unsubscribe = undefined
-    session?.dispose()
+    await session?.dispose()
     session = undefined
   }
 }

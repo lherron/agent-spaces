@@ -1,7 +1,7 @@
 {
-  "name": "agent-harness-sdk",
+  "name": "agent-harness-runtime",
   "version": "0.1.1",
-  "description": "ASP-aware construction of first-party Pi-backed agent sessions",
+  "description": "Direct ASP-aware Pi AgentSessionRuntime host",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -25,7 +25,6 @@
     "agent-scope": "workspace:*",
     "spaces-config": "workspace:*",
     "spaces-execution": "workspace:*",
-    "spaces-harness-pi-sdk": "workspace:*",
     "spaces-runtime": "workspace:*",
     "spaces-runtime-contracts": "workspace:*"
   },

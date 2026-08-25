@@ -53,7 +53,7 @@ source:
   - core/config/src/core/types/agent-profile.ts
   - core/config/src/core/merge/agent-project-merge.ts
   - core/runtime/src/context-resolver.ts
-  - harness/agent-harness-sdk/src/index.ts
+  - harness/agent-harness-runtime/src/index.ts
   - drivers/harness-pi-sdk/src/agent-session/index.ts
   - harness/harness-broker-pi-sdk/src/driver.ts
   - docs/harness-architecture.md

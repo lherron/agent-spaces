@@ -19,7 +19,7 @@ const DEV_PUBLISH_PACKAGES = [
   'contracts/harness-broker-client',
   'harness/harness-broker',
   'harness/harness-broker-pi-sdk',
-  'harness/agent-harness-sdk',
+  'harness/agent-harness-runtime',
   'harness/agent-harness',
   'contracts/spaces-runtime-contracts',
   'contracts/aspc-protocol',

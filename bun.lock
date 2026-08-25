@@ -254,7 +254,7 @@
         "agent-harness": "./bin/agent-harness.js",
       },
       "dependencies": {
-        "agent-harness-sdk": "workspace:*",
+        "agent-harness-runtime": "workspace:*",
         "spaces-harness-broker-pi-sdk": "workspace:*",
         "spaces-harness-broker-protocol": "workspace:*",
       },
@@ -263,15 +263,14 @@
         "typescript": "^5.8.3",
       },
     },
-    "harness/agent-harness-sdk": {
-      "name": "agent-harness-sdk",
+    "harness/agent-harness-runtime": {
+      "name": "agent-harness-runtime",
       "version": "0.1.1",
       "dependencies": {
         "@earendil-works/pi-coding-agent": "0.84.3",
         "agent-scope": "workspace:*",
         "spaces-config": "workspace:*",
         "spaces-execution": "workspace:*",
-        "spaces-harness-pi-sdk": "workspace:*",
         "spaces-runtime": "workspace:*",
         "spaces-runtime-contracts": "workspace:*",
       },
@@ -357,7 +356,7 @@
       "dependencies": {
         "@earendil-works/pi-coding-agent": "0.84.3",
         "@lherron/agent-spaces": "*",
-        "agent-harness-sdk": "workspace:*",
+        "agent-harness-runtime": "workspace:*",
         "agent-scope": "*",
         "agent-spaces": "workspace:*",
         "spaces-config": "*",
@@ -610,7 +609,7 @@
 
     "agent-harness": ["agent-harness@workspace:harness/agent-harness"],
 
-    "agent-harness-sdk": ["agent-harness-sdk@workspace:harness/agent-harness-sdk"],
+    "agent-harness-runtime": ["agent-harness-runtime@workspace:harness/agent-harness-runtime"],
 
     "agent-scope": ["agent-scope@workspace:contracts/agent-scope"],
 

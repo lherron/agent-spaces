@@ -60,7 +60,7 @@ seam consumed by every layer, not just a CLI convenience — see
 
 Dependency shape: `agent-scope → spaces-config → spaces-runtime → spaces-execution → {spaces-harness-claude, -codex, -pi, -pi-sdk} → agent-spaces → cli`.
 
-The first-party path adds `agent-harness-sdk` after shared ASP resolution and
+The first-party path adds `agent-harness-runtime` after shared ASP resolution and
 `agent-harness` as the HRC-operated executable. Unlike the external-harness
 compatibility path, it creates a Pi session from semantic agent placement and
 does not consume an ASPC-produced frontier-harness process plan:
@@ -68,7 +68,7 @@ does not consume an ASPC-produced frontier-harness process plan:
 ```text
 ASP agent + project placement
   -> shared spaces-config / spaces-runtime resolution
-  -> agent-harness-sdk -> Pi session
+  -> agent-harness-runtime -> Pi session
   -> agent-harness broker surface -> HRC
 ```
 
@@ -147,7 +147,7 @@ against the `sockaddr_un` limit (104 bytes macOS / 108 bytes Linux) before
 bind (`packages/harness-broker/src/socket-path.ts`).
 
 `agent-harness` composes this broker surface with the Pi SDK driver and
-`agent-harness-sdk`. The broker protocol is integration scaffolding: HRC still
+`agent-harness-runtime`. The broker protocol is integration scaffolding: HRC still
 owns placement, lifecycle, supervision, and durable messaging, while the SDK
 owns ASP-aware Pi session construction. The older `harness-broker-pi` binary
 remains available for compiler-produced Pi invocation specs during migration.

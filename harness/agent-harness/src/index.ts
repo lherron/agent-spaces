@@ -1,4 +1,4 @@
-import { createSession, loadAgent } from 'agent-harness-sdk'
+import { createSession, loadAgent } from 'agent-harness-runtime'
 import {
   type PiSdkSession,
   type PiSdkSessionFactoryInput,
@@ -58,4 +58,4 @@ async function createResolvedAgentSession(input: PiSdkSessionFactoryInput): Prom
   })) as PiSdkSession
 }
 
-export { loadAgent, createSession } from 'agent-harness-sdk'
+export { loadAgent, createSession } from 'agent-harness-runtime'

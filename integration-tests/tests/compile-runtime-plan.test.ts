@@ -36,7 +36,8 @@ import type {
   BuildHarnessBrokerInvocationRequest,
   BuildHarnessBrokerInvocationResponse,
 } from '../../compiler/agent-spaces/src/types.js'
-import { loadAgent } from '../../harness/agent-harness-sdk/src/index.js'
+import { loadAgent } from '../../harness/agent-harness-runtime/src/index.js'
+import { AgentSpacesResourceLoader } from '../../harness/agent-harness-runtime/src/index.js'
 import { compilerRuntime } from './compiler-runtime.js'
 
 type TestFn = () => unknown | Promise<unknown>
@@ -1172,6 +1173,11 @@ exit 0
       expect(directAgent.prompt?.mode).toBe('replace')
       expect(directAgent.prompt?.content).toBe(readFileSync(compiledPromptPath as string, 'utf8'))
       expect(directAgent.prompt?.content).toContain('AGENT-HARNESS-PROMPT-PARITY')
+      const loader = new AgentSpacesResourceLoader({ cwd: fixture.projectRoot, agent: directAgent })
+      expect(() => loader.getSkills()).toThrow('reload() must complete')
+      await loader.reload()
+      expect(loader.getInspection().prompt.content).toContain('AGENT-HARNESS-PROMPT-PARITY')
+      expect(loader.getSystemPrompt()).toContain('AGENT-HARNESS-PROMPT-PARITY')
     } finally {
       rmSync(soulPath, { force: true })
     }

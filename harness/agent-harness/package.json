@@ -24,7 +24,7 @@
     "postpack": "git checkout HEAD -- package.json"
   },
   "dependencies": {
-    "agent-harness-sdk": "workspace:*",
+    "agent-harness-runtime": "workspace:*",
     "spaces-harness-broker-pi-sdk": "workspace:*",
     "spaces-harness-broker-protocol": "workspace:*"
   },
