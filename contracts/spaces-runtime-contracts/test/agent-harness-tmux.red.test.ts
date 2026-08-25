@@ -218,7 +218,7 @@ describe('T-07564 agent-harness-tmux runtime route', () => {
         candidate.controller === 'harness-broker' &&
         candidate.modelProvider === 'openai' &&
         candidate.harnessFamily === 'pi' &&
-        candidate.harnessRuntime === 'agent-harness' &&
+        candidate.harnessRuntime === 'pi-sdk' &&
         candidate.interactionMode === 'interactive'
     )
 
