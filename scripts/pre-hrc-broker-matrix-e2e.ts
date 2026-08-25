@@ -2601,7 +2601,7 @@ function createPiSdkFixture(): {
   }
 }
 
-function piSdkBrokerCompileRequest(input: {
+export function piSdkBrokerCompileRequest(input: {
   agentRoot: string
   projectRoot: string
   hostSessionId: string
@@ -2659,6 +2659,9 @@ function piSdkBrokerCompileRequest(input: {
       },
     },
     hrcPolicy: {
+      // This real command-turn certification row is allowed to execute its
+      // canonical `printf` command. Production omission remains fail-closed.
+      permissionPolicy: { mode: 'allow' },
       resourceLimits: { startupTimeoutMs: input.timeoutMs, turnTimeoutMs: input.timeoutMs },
       observability: { traceId: ids.traceId },
     },
@@ -2670,6 +2673,48 @@ function piSdkBrokerCompileRequest(input: {
       laneRef: 'main',
     },
   } as RuntimeCompileRequest
+}
+
+function sanitizedPiCommandCompletion(
+  events: InvocationEventEnvelope[],
+  commandTurnId: string | undefined
+): Record<string, unknown> | undefined {
+  const completion = events.find((event) => {
+    if (event.type !== 'tool.call.completed') return false
+    if (commandTurnId !== undefined && event.turnId !== commandTurnId) return false
+    return asRecord(event.payload)?.['name'] === 'bash'
+  })
+  if (completion === undefined) return undefined
+
+  const payload = asRecord(completion.payload)
+  const result = payload?.['result']
+  return {
+    toolName: payload?.['name'],
+    isError: payload?.['isError'],
+    result: sanitizePiToolResult(result),
+  }
+}
+
+function sanitizePiToolResult(result: unknown): Record<string, unknown> {
+  if (typeof result === 'string') return { text: result.slice(0, 512) }
+  const record = asRecord(result)
+  if (record === undefined) return { kind: typeof result }
+
+  const sanitized: Record<string, unknown> = {}
+  for (const key of ['exitCode', 'code'] as const) {
+    if (typeof record[key] === 'number') sanitized[key] = record[key]
+  }
+  for (const key of ['output', 'error', 'message'] as const) {
+    if (typeof record[key] === 'string') sanitized[key] = record[key].slice(0, 512)
+  }
+  const content = Array.isArray(record['content'])
+    ? record['content']
+        .map((item) => asRecord(item)?.['text'])
+        .filter((text): text is string => typeof text === 'string')
+        .join('\n')
+    : undefined
+  if (content !== undefined && content.length > 0) sanitized['content'] = content.slice(0, 512)
+  return Object.keys(sanitized).length > 0 ? sanitized : { keys: Object.keys(record).sort() }
 }
 
 function assertPiSdkBrokerProfile(profile: BrokerExecutionProfile): Failure[] {
@@ -2874,6 +2919,7 @@ async function runPiSdkDriverRow(ctx: RowContext): Promise<RowResult> {
     const commandTurnId =
       findTurnWithToolCommandMarker(events, ctx.marker) ?? deriveCommandTurnId(events)
     result.commandTurnId = commandTurnId
+    result.notes['commandToolCompletion'] = sanitizedPiCommandCompletion(events, commandTurnId)
 
     const narrationBaseline = terminalTurnCount(events)
     const narrationResponse = await client.input({

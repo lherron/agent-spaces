@@ -12,6 +12,7 @@ import {
   SPARKY_CODEX_MATRIX_ROWS,
   compilerRuntimeDependencies,
   createSparkyCodexMatrixCompileRequest,
+  piSdkBrokerCompileRequest,
   structuredOutputEvidenceFailures,
 } from './pre-hrc-broker-matrix-e2e.ts'
 
@@ -143,6 +144,42 @@ echo "codex shim"
         requested: { ...request.requested, model: 'openai-codex/gpt-5.5' },
       })
     ).rejects.toThrow('Model not supported for frontend codex-cli: openai-codex/gpt-5.5')
+  })
+
+  test('Pi matrix allow policy survives serialization and omitted policy remains deny', async () => {
+    const client = createAgentSpacesClient({
+      aspHome,
+      runtime: compilerRuntimeDependencies,
+    }) as CompileClient
+    const request = piSdkBrokerCompileRequest({
+      agentRoot,
+      projectRoot,
+      hostSessionId: 'matrix-pi-policy',
+      prompt: 'run the matrix command',
+      marker: 'pi_policy',
+      timeoutMs: 10_000,
+    })
+
+    expect(request.hrcPolicy.permissionPolicy).toEqual({ mode: 'allow' })
+    const allowed = brokerProfile(await client.compileRuntimePlan(request))
+    expect(allowed.policy.permissionPolicy).toEqual({ mode: 'allow' })
+    expect(allowed.harnessInvocation.startRequest.spec.driver).toEqual({
+      kind: 'pi-sdk',
+      permissionPolicy: { mode: 'allow' },
+    })
+
+    const { permissionPolicy: _permissionPolicy, ...policyWithoutPermission } = request.hrcPolicy
+    const denied = brokerProfile(
+      await client.compileRuntimePlan({
+        ...request,
+        hrcPolicy: policyWithoutPermission,
+      })
+    )
+    expect(denied.policy.permissionPolicy).toEqual({ mode: 'deny', audit: true })
+    expect(denied.harnessInvocation.startRequest.spec.driver).toEqual({
+      kind: 'pi-sdk',
+      permissionPolicy: { mode: 'deny' },
+    })
   })
 
   test('every broker-managed row fails closed when structured-output evidence is omitted', () => {

@@ -494,7 +494,10 @@ export function toHarnessBrokerStartRequest(
             },
           }
         : {}),
-      driver: { kind: 'pi-sdk' },
+      // The Pi SDK driver consumes this policy directly to decide whether a
+      // tool call may execute. Keep the already-compiled policy on the Pi
+      // driver spec so the profile policy and running broker cannot diverge.
+      driver: { kind: 'pi-sdk', permissionPolicy: req.permissionPolicy ?? { mode: 'deny' } },
       sdk: req.sdk,
       ...(prepared.systemPrompt?.path !== undefined
         ? {
