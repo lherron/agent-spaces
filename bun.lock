@@ -254,6 +254,7 @@
         "agent-harness": "./bin/agent-harness.js",
       },
       "dependencies": {
+        "@earendil-works/pi-coding-agent": "0.84.3",
         "agent-harness-runtime": "workspace:*",
         "spaces-harness-broker-pi-sdk": "workspace:*",
         "spaces-harness-broker-protocol": "workspace:*",
