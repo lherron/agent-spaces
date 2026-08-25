@@ -655,6 +655,73 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
     })
   })
 
+  describe('unified_exec terminalInteraction', () => {
+    function interaction(params: Record<string, unknown>) {
+      return note('item/commandExecution/terminalInteraction', {
+        threadId: 'thread_1',
+        turnId: 'turn_1',
+        itemId: 'cmd_1',
+        processId: '4242',
+        ...params,
+      })
+    }
+
+    test('non-empty stdin → tool.call.delta on the OWNING exec call, tagged stream=stdin', () => {
+      const events = mapCodexNotification(interaction({ stdin: '\\dt\n' }))
+      expect(events).toHaveLength(1)
+      expect(events[0]?.type).toBe('tool.call.delta')
+      expect(events[0]?.payload).toEqual({
+        toolCallId: 'cmd_1',
+        text: '\\dt\n',
+        data: { stream: 'stdin' },
+      })
+      expect(events[0]?.extra?.turnId).toBe('turn_1')
+      expect(events[0]?.extra?.itemId).toBe('cmd_1')
+    })
+
+    test('itemId is the same toolCallId the exec item opened, so stdin joins that call', () => {
+      const events = mapSequence([
+        note('item/started', {
+          turnId: 'turn_1',
+          item: { type: 'commandExecution', id: 'cmd_1', command: 'psql' },
+        }),
+        interaction({ stdin: '\\dt\n' }),
+      ])
+      const started = events.find((event) => event.type === 'tool.call.started')
+      const delta = events.find((event) => event.type === 'tool.call.delta')
+      expect((started?.payload as { toolCallId: string }).toolCallId).toBe(
+        (delta?.payload as { toolCallId: string }).toolCallId
+      )
+    })
+
+    test('empty stdin is a background-PTY poll, not content → no events', () => {
+      expect(mapCodexNotification(interaction({ stdin: '' }))).toEqual([])
+    })
+
+    test('repeated background polls never accumulate events (pane-flood guard)', () => {
+      const polls = Array.from({ length: 25 }, () => interaction({ stdin: '' }))
+      expect(mapSequence(polls)).toEqual([])
+    })
+
+    test('the method is handled, NOT left to the unknown-notification diagnostic', () => {
+      const events = mapSequence([interaction({ stdin: 'y\n' }), interaction({ stdin: '' })])
+      expect(events.some((event) => event.type === 'diagnostic')).toBe(false)
+    })
+
+    test('missing turnId or itemId is dropped rather than emitting a malformed delta', () => {
+      expect(
+        mapCodexNotification(
+          note('item/commandExecution/terminalInteraction', { itemId: 'cmd_1', stdin: 'y' })
+        )
+      ).toEqual([])
+      expect(
+        mapCodexNotification(
+          note('item/commandExecution/terminalInteraction', { turnId: 'turn_1', stdin: 'y' })
+        )
+      ).toEqual([])
+    })
+  })
+
   describe('unknown native notification (H6, T-05219)', () => {
     test('unknown method → trace diagnostic carrying params, never leaks native type as normalized type', () => {
       const events = mapCodexNotification(note('thread/somethingNew', { foo: 1 }))

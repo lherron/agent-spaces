@@ -229,6 +229,49 @@ function mapDiffUpdated(
   ]
 }
 
+/**
+ * Codex `unified_exec`: the MODEL wrote to a PTY session that is still open
+ * (`write_stdin` tool, core/src/tools/handlers/unified_exec/write_stdin.rs).
+ *
+ * `itemId` is the owning `ExecCommandBegin` call_id — the same id already used as
+ * `toolCallId` — so this is a continuation write into an IN-FLIGHT tool call, not
+ * a new call and emphatically not operator input (that is `input.queued`).
+ *
+ * Unlike `outputDelta`, each fire carries one COMPLETE `chars` argument rather
+ * than a fragment of a byte stream, so `deltas.join('')` is wrong here. The
+ * `stream: 'stdin'` tag on `payload.data` is what lets the renderer keep input
+ * and output distinct instead of smearing them into one blob.
+ *
+ * Empty stdin is a background-PTY liveness poll, not content — Codex's own TUI
+ * routes it to a status indicator and never the transcript
+ * (tui/src/chatwidget/command_lifecycle.rs:76). Dropping it is what keeps a
+ * long-running background session from flooding the pane, and it is why this
+ * method is handled here rather than left to the unknown-notification
+ * diagnostic, which rendered a clipped `data={"params":{…}}` line per fire.
+ */
+function mapTerminalInteraction(
+  params: Record<string, unknown>,
+  heldAssistantCompletions: HeldAssistantCompletions
+): MappedEvent[] {
+  const turnId = stringValue(params['turnId'])
+  const itemId = stringValue(params['itemId']) ?? stringValue(params['id'])
+  const stdin = stringValue(params['stdin'])
+  if (!turnId || !itemId) return []
+  if (stdin === undefined || stdin.length === 0) return []
+  return [
+    ...flushHeldAssistantCompletion(heldAssistantCompletions, turnId, false),
+    {
+      type: 'tool.call.delta',
+      payload: {
+        toolCallId: asToolCallId(itemId),
+        text: stdin,
+        data: { stream: 'stdin' },
+      },
+      extra: { turnId: asTurnId(turnId), itemId },
+    },
+  ]
+}
+
 function mapCodexNotificationInner(
   notification: JsonRpcNotification,
   heldAssistantCompletions: HeldAssistantCompletions,
@@ -366,6 +409,9 @@ function mapCodexNotificationInner(
         },
       ]
     }
+
+    case 'item/commandExecution/terminalInteraction':
+      return mapTerminalInteraction(params, heldAssistantCompletions)
 
     case 'item/mcpToolCall/progress': {
       const turnId = stringValue(params['turnId'])

@@ -860,8 +860,22 @@ export function createCodexTranscriptModel(
         )
         return
       }
-      case 'tool.call.delta':
-        return // streaming chunk — folded into the completed output
+      case 'tool.call.delta': {
+        // Output chunks stay folded into the completed output. A unified_exec
+        // stdin write is not a chunk of anything — it is one whole line the
+        // model typed into a still-open PTY — so it is shown at the point it
+        // happened, in the exec card's own band.
+        if (str(asRecord(p['data'])['stream']) !== 'stdin') return
+        const typed = clip(str(p['text']))
+        if (typed.length === 0) return
+        emit(
+          band('tool', 'kiln', [
+            { text: '› ', fg: 'dim' },
+            { text: typed, fg: 'muted' },
+          ])
+        )
+        return
+      }
       case 'tool.call.completed': {
         const output = toolOutput(p)
         const lines = output.trim().length > 0 ? truncateOutput(output) : []

@@ -235,6 +235,41 @@ describe('codex-app-server renderer durable read projection (T-04909 Phase B red
     projection.close()
   })
 
+  test('renders unified_exec stdin in the exec card while folding output deltas away', async () => {
+    const { createCodexAppServerRendererProjection } = await loadRendererModule()
+    const { surface } = createReadSurface([
+      event(1, 'turn.started', { turnId: 'turn_1' }),
+      event(2, 'tool.call.started', {
+        toolCallId: 'cmd_1',
+        name: 'command',
+        input: { command: 'psql' },
+      }),
+      // A unified_exec stdin write: one whole line the model typed, shown where
+      // it happened. An untagged delta is an output chunk and stays folded.
+      event(3, 'tool.call.delta', {
+        toolCallId: 'cmd_1',
+        text: '\\dt',
+        data: { stream: 'stdin' },
+      }),
+      event(4, 'tool.call.delta', { toolCallId: 'cmd_1', text: 'output-chunk' }),
+      event(5, 'tool.call.completed', {
+        toolCallId: 'cmd_1',
+        result: { output: 'public | users | table', exitCode: 0 },
+      }),
+    ])
+    const projection = createCodexAppServerRendererProjection({
+      invocationId: 'inv_renderer',
+      readSurface: surface,
+    })
+
+    await projection.start()
+
+    const rendered = textLines(projection).join('\n')
+    expectTextInOrder(rendered, ['$ command', '› \\dt', '↳ public | users | table'])
+    expect(rendered).not.toContain('output-chunk')
+    projection.close()
+  })
+
   test('renders the final request usage for a turn, not the lifetime cumulative total (T-06423)', async () => {
     const { createCodexAppServerRendererProjection } = await loadRendererModule()
     const { surface } = createReadSurface([
