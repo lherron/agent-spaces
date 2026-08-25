@@ -123,6 +123,22 @@ function readDriverHookBridge(spec: BrokerInvocationSpec): unknown {
   return 'hookBridge' in driver ? driver['hookBridge'] : undefined
 }
 
+function readDriverPermissionPolicyMode(spec: BrokerInvocationSpec): unknown {
+  const { driver } = spec
+  if (!('permissionPolicy' in driver)) {
+    return undefined
+  }
+  const permissionPolicy = driver['permissionPolicy']
+  if (
+    typeof permissionPolicy !== 'object' ||
+    permissionPolicy === null ||
+    !('mode' in permissionPolicy)
+  ) {
+    return undefined
+  }
+  return permissionPolicy['mode']
+}
+
 type BrokerInvocationSpec = BrokerExecutionProfile['harnessInvocation']['startRequest']['spec']
 
 /**
@@ -143,6 +159,8 @@ type BrokerProfileFacts = {
   isCodexCliTmux: boolean
   profileClaimsPiTuiTmux: boolean
   isPiTuiTmux: boolean
+  profileClaimsAgentHarnessTmux: boolean
+  isAgentHarnessTmux: boolean
   profileClaimsPiSdk: boolean
   isPiSdk: boolean
 }
@@ -153,6 +171,7 @@ function computeBrokerProfileFacts(profile: BrokerExecutionProfile): BrokerProfi
   const profileClaimsClaudeCodeTmux = profile.brokerDriver === 'claude-code-tmux'
   const profileClaimsCodexCliTmux = profile.brokerDriver === 'codex-cli-tmux'
   const profileClaimsPiTuiTmux = profile.brokerDriver === 'pi-tui-tmux'
+  const profileClaimsAgentHarnessTmux = profile.brokerDriver === 'agent-harness-tmux'
   const profileClaimsPiSdk = ['pi-sdk', 'agent-harness'].includes(profile.brokerDriver)
   return {
     specDriverKind,
@@ -168,6 +187,8 @@ function computeBrokerProfileFacts(profile: BrokerExecutionProfile): BrokerProfi
     isCodexCliTmux: profileClaimsCodexCliTmux || specDriverKind === 'codex-cli-tmux',
     profileClaimsPiTuiTmux,
     isPiTuiTmux: profileClaimsPiTuiTmux || specDriverKind === 'pi-tui-tmux',
+    profileClaimsAgentHarnessTmux,
+    isAgentHarnessTmux: profileClaimsAgentHarnessTmux || specDriverKind === 'agent-harness-tmux',
     profileClaimsPiSdk,
     isPiSdk: profileClaimsPiSdk || ['pi-sdk', 'agent-harness'].includes(specDriverKind),
   }
@@ -339,6 +360,66 @@ const PI_TUI_TMUX_RULES: BrokerLegalityRule[] = [
       : undefined,
 ]
 
+const AGENT_HARNESS_TMUX_RULES: BrokerLegalityRule[] = [
+  (profile, facts) =>
+    facts.profileClaimsAgentHarnessTmux && facts.specDriverKind !== 'agent-harness-tmux'
+      ? executionProfileDiagnostic(
+          profile,
+          'agent_harness_tmux_requires_driver_kind',
+          'agent-harness-tmux broker profiles must use agent-harness-tmux in the hashed driver spec.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.isAgentHarnessTmux && profile.interactionMode !== 'interactive'
+      ? executionProfileDiagnostic(
+          profile,
+          'agent_harness_tmux_requires_interactive',
+          'agent-harness-tmux broker profiles must use interactionMode interactive.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.specDriverKind === 'agent-harness-tmux' && facts.specDriverTerminalHost !== 'tmux'
+      ? executionProfileDiagnostic(
+          profile,
+          'agent_harness_tmux_requires_terminal_host',
+          'agent-harness-tmux broker profiles must declare terminalHost tmux in the hashed driver spec.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.isAgentHarnessTmux && facts.transportKind !== 'pty'
+      ? executionProfileDiagnostic(
+          profile,
+          'agent_harness_tmux_requires_pty_transport',
+          'agent-harness-tmux broker profiles must use pty process transport.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.specDriverKind === 'agent-harness-tmux' && facts.specDriverHookBridge !== undefined
+      ? executionProfileDiagnostic(
+          profile,
+          'agent_harness_tmux_forbids_hook_bridge',
+          'agent-harness-tmux broker profiles must not declare a hookBridge.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.isAgentHarnessTmux && profile.harnessInvocation.startRequest.spec.sdk === undefined
+      ? executionProfileDiagnostic(
+          profile,
+          'agent_harness_tmux_requires_sdk_block',
+          'agent-harness-tmux broker profiles must carry an sdk block in the hashed invocation spec.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.specDriverKind === 'agent-harness-tmux' &&
+    readDriverPermissionPolicyMode(profile.harnessInvocation.startRequest.spec) === 'ask-client'
+      ? executionProfileDiagnostic(
+          profile,
+          'agent_harness_tmux_forbids_ask_client',
+          'agent-harness-tmux broker profiles do not support permissionPolicy mode ask-client.'
+        )
+      : undefined,
+]
+
 const PI_SDK_RULES: BrokerLegalityRule[] = [
   (profile, facts) =>
     facts.isPiSdk && profile.interactionMode !== 'nonInteractive'
@@ -465,6 +546,7 @@ const BROKER_RULES: BrokerLegalityRule[] = [
   ...CLAUDE_CODE_TMUX_RULES,
   ...CODEX_CLI_TMUX_RULES,
   ...PI_TUI_TMUX_RULES,
+  ...AGENT_HARNESS_TMUX_RULES,
   ...PI_SDK_RULES,
   ...INTERACTIVE_TMUX_RULES,
 ]

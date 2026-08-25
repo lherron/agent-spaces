@@ -131,6 +131,19 @@ describe('ASPC identifier-only inspection authority', () => {
         },
         declaredOverrides: {},
       },
+      {
+        identifiers: {
+          agentId: 'sparky',
+          projectId: 'agent-spaces',
+          mode: 'task',
+          scope: 'agent:sparky:project:agent-spaces',
+          lane: 'main',
+          harness: 'pi-sdk',
+          frontend: 'pi-sdk',
+          interaction: 'interactive',
+        },
+        declaredOverrides: {},
+      },
     ])
     expect(catalog.agents.find(({ agentId }) => agentId === 'cody')?.defaultContextSummary).toEqual(
       {

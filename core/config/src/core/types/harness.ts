@@ -22,7 +22,13 @@ export type HarnessId = 'agent-harness' | 'claude' | 'claude-agent-sdk' | 'pi' |
 export type HarnessProvider = 'anthropic' | 'openai'
 
 /** Provider-facing frontend identifier used by placement/runtime APIs. */
-export type HarnessFrontend = 'agent-sdk' | 'pi-sdk' | 'claude-code' | 'codex-cli' | 'pi-cli'
+export type HarnessFrontend =
+  | 'agent-sdk'
+  | 'agent-harness-tui'
+  | 'pi-sdk'
+  | 'claude-code'
+  | 'codex-cli'
+  | 'pi-cli'
 
 /** Runtime transport family for a harness. */
 export type HarnessTransport = 'cli' | 'sdk'
@@ -49,6 +55,7 @@ export const HARNESS_IDS: readonly HarnessId[] = [
 /** Frontends that can be used via placement/runtime APIs. */
 export const HARNESS_FRONTENDS: readonly HarnessFrontend[] = [
   'agent-sdk',
+  'agent-harness-tui',
   'pi-sdk',
   'claude-code',
   'codex-cli',
@@ -65,6 +72,7 @@ export const HARNESS_CATALOG: readonly HarnessCatalogEntry[] = [
     aliases: [],
     provider: 'openai',
     transport: 'sdk',
+    frontend: 'agent-harness-tui',
   },
   {
     id: 'claude',
@@ -173,6 +181,9 @@ export function resolveHarnessFrontendForProvider(
   provider: HarnessProvider,
   transport: HarnessTransport
 ): HarnessFrontend | undefined {
+  if (provider === 'openai' && transport === 'sdk') {
+    return getHarnessCatalogEntry('pi-sdk').frontend
+  }
   return HARNESS_CATALOG.find(
     (entry) => entry.provider === provider && entry.transport === transport && entry.frontend
   )?.frontend
