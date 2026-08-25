@@ -21,6 +21,7 @@
     "postpack": "git checkout HEAD -- package.json"
   },
   "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.3",
     "agent-scope": "workspace:*",
     "spaces-config": "workspace:*",
     "spaces-execution": "workspace:*",

@@ -43,7 +43,7 @@
     "postpack": "git checkout HEAD -- package.json"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.84.1",
+    "@earendil-works/pi-coding-agent": "0.84.3",
     "@mariozechner/pi-coding-agent": "^0.70.2",
     "spaces-config": "*",
     "spaces-runtime": "*"

@@ -14,7 +14,7 @@
     "typescript": "^5.7.2"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.84.1",
+    "@earendil-works/pi-coding-agent": "0.84.3",
     "@lherron/agent-spaces": "*",
     "agent-scope": "*",
     "agent-harness-sdk": "workspace:*",
