@@ -14,9 +14,17 @@ predicate: >
   adapter lowering, generated merged Pi bundle, or generated external-harness
   home. The loader is created and reloaded inside Pi's replacement-session
   factory so new, resumed, forked, imported, and cwd-replaced sessions keep the
-  same ASP resource authority. The direct runtime has two outer surfaces: local
-  foreground TUI/print execution selected by asp run, and the HRC-operated
-  agent-harness broker service; both use the same runtime factory. The TUI starts
+  same ASP resource authority. The direct runtime has three outer surfaces that
+  all use the same createAgentHarnessRuntime factory: local foreground TUI/print
+  execution selected by asp run, the HRC-operated headless agent-harness broker
+  service, and an HRC-launched interactive TUI in a broker-leased tmux pane. The
+  third surface is fresh and HRC-owned; it does not attach to a foreground
+  session. Across its process boundary, broker-allocated turn identity and the
+  broker's admitted session configuration bind before input delivery and session
+  construction respectively; the child does not re-derive broker-owned auth or
+  permission values. SDK-backed model configuration is independent of process
+  hosting: agent-harness-tmux carries the SDK binding with pty/tmux execution
+  rather than the in-process sentinel. The TUI starts
   with the loader-supplied praesidium-loader validation theme, while mechanical
   assertions and parity tests remain the correctness authority. Agents that
   explicitly select Claude Code or Codex CLI retain a compiler-backed
@@ -39,8 +47,11 @@ predicate: >
   credential transport beyond that binding, broker wire/process topology, and
   support for additional resource categories remain implementation choices
   unless another active contract fixes them.
-authority: hrcchat#20779
+authority: hrcchat#20917
 source:
+  - hrcchat#20917
+  - docs/proposals/agent-harness-hrc-interactive.md
+  - commit:1dc8457
   - hrcchat#20779
   - hrcchat#20777
   - docs/proposals/agent-harness.md
@@ -72,11 +83,18 @@ required_tests:
   - installed real-agent direct-path evidence covers prompt context skills tools authentication multi-turn continuation steer interrupt structured results and HRC-visible events
   - HRC can start stop and reconnect the direct harness with runtime placement session routing supervision and durable messaging authority unchanged
   - installed evidence covers at least one explicitly selected external-harness agent through the retained compatibility path
+  - the HRC-launched interactive TUI receives broker-allocated turn identity through an acknowledged handshake before input delivery and no turn body event reaches the ledger before the broker turn bracket
+  - the HRC-launched interactive TUI constructs no agent load model runtime or session until the broker's admitted session configuration validates and a withheld malformed or late configuration fails startup
+  - a broker invocation lowered permission deny is blocked inside the process that owns the tool call even when the agent profile yolo value would independently resolve to allow
+  - an agent-harness-tmux profile carrying an sdk block with pty transport is admitted while the same profile with in-process transport is refused
+  - agent-harness-tmux is a required row in the harness-agnostic driver certification matrix with no scenario or event exemptions
 last_verified:
   date: 2026-08-25
-  evidence: hrcchat#20779 approved by daedalus against Pi 0.84.3 runtime replacement auth binding package identity current broker source and the submitted direct-loader parity revision
+  evidence: hrcchat#20917 approved by daedalus against the r4 third-surface design covering acknowledged turn-identity and session-config handshakes in-process permission binding and split sdk-block versus in-process-host admissibility
 reopen_when:
   - shared ASP semantics split into independent direct and compatibility implementations
+  - broker-mediated interactive tool approval is required on the HRC-launched interactive TUI surface
+  - a fourth outer surface consumes the direct runtime factory
   - HRC runtime placement lifecycle routing supervision or durable messaging authority moves into an execution lowering
   - the default direct path requires compiler adapter output or a generated merged Pi bundle
   - a Pi session replacement can lose the custom ASP resource loader

@@ -1,10 +1,11 @@
 # HRC-operated agent-harness interactive TUI
 
-- **Status:** proposed (r4); r1-r3 rejected in `hrcchat#20910`/`#20912`/`#20914`, resubmitted
+- **Status:** **accepted**; ratified by Daedalus in `hrcchat#20917` at r4
+  (r1-r3 rejected in `hrcchat#20910`/`#20912`/`#20914`)
 - **Date:** 2026-08-25
 - **Author:** clod@agent-spaces
 - **Tracking:** (campaign to be derived on approval)
-- **Architecture authority:** `agent-spaces.agent-harness-runtime-boundary`
+- **Architecture authority:** `agent-spaces.agent-harness-runtime-boundary` (amended by this ruling: two → three outer surfaces)
 - **Supersedes scope in:** `docs/proposals/agent-harness.md` (two-outer-surface clause)
 
 ## Decision
