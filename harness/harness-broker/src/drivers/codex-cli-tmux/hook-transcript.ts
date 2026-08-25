@@ -176,6 +176,55 @@ export function createCodexHookTranscriptReader(
     return `msg_${options.invocationId}_${messageCounter}` as MessageId
   }
 
+  const processAgentMessage = (
+    entry: Record<string, unknown>,
+    messageRecord: Record<string, unknown>,
+    message: string,
+    phase: string | undefined,
+    into: InvocationEventEnvelope[]
+  ): void => {
+    const id = messageIdFor(entry, messageRecord)
+    // A consolidated agent_message supersedes its own streamed deltas; for a
+    // different id, the streamed deltas complete as a prior interim first.
+    if (pendingDelta !== undefined) {
+      if (pendingDelta.messageId === id) {
+        pendingDelta = undefined
+      } else {
+        coalescePendingDelta(into)
+      }
+    }
+    if (seenMessageIds.has(id)) return
+    seenMessageIds.add(id)
+    transcriptLastAgentMessage = message
+    if (phase === 'commentary') {
+      flushHeldInterim(into)
+      into.push(completedEvent({ messageId: id, content: message }, false))
+      return
+    }
+    holdMessage(id, message, into)
+  }
+
+  const itemCompletedAgentMessage = (
+    payload: Record<string, unknown>
+  ): { item: Record<string, unknown>; message: string; phase: string | undefined } | undefined => {
+    const itemValue = payload['item']
+    if (itemValue === null || typeof itemValue !== 'object' || Array.isArray(itemValue)) {
+      return undefined
+    }
+    const item = itemValue as Record<string, unknown>
+    if (getString(item, 'type') !== 'AgentMessage') return undefined
+    const content = item['content']
+    if (!Array.isArray(content)) return undefined
+    const message = content
+      .flatMap((part) => {
+        if (part === null || typeof part !== 'object' || Array.isArray(part)) return []
+        const text = getString(part as Record<string, unknown>, 'text')
+        return text === undefined ? [] : [text]
+      })
+      .join('')
+    return { item, message, phase: getString(item, 'phase') }
+  }
+
   const processLine = (line: string, into: InvocationEventEnvelope[]): void => {
     if (line.trim().length === 0) return
     let entry: Record<string, unknown>
@@ -221,25 +270,17 @@ export function createCodexHookTranscriptReader(
     if (payloadType === 'agent_message') {
       const message = getString(payload, 'message')
       if (message === undefined) return
-      const id = messageIdFor(entry, payload)
-      // A consolidated agent_message supersedes its own streamed deltas; for a
-      // different id, the streamed deltas complete as a prior interim first.
-      if (pendingDelta !== undefined) {
-        if (pendingDelta.messageId === id) {
-          pendingDelta = undefined
-        } else {
-          coalescePendingDelta(into)
-        }
-      }
-      if (seenMessageIds.has(id)) return
-      seenMessageIds.add(id)
-      transcriptLastAgentMessage = message
-      if (getString(payload, 'phase') === 'commentary') {
-        flushHeldInterim(into)
-        into.push(completedEvent({ messageId: id, content: message }, false))
-        return
-      }
-      holdMessage(id, message, into)
+      processAgentMessage(entry, payload, message, getString(payload, 'phase'), into)
+      return
+    }
+
+    // Codex CLI 0.149 emits visible prose as item_completed/AgentMessage rather
+    // than the earlier agent_message record. Preserve its phase: commentary is
+    // an intermediate completion, while final_answer remains held for Stop.
+    if (payloadType === 'item_completed') {
+      const agentMessage = itemCompletedAgentMessage(payload)
+      if (agentMessage === undefined) return
+      processAgentMessage(entry, agentMessage.item, agentMessage.message, agentMessage.phase, into)
       return
     }
 

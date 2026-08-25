@@ -54,6 +54,16 @@ const agentMessageDelta = (delta: string, extra: Record<string, unknown> = {}): 
     payload: { type: 'agent_message_delta', delta, ...extra },
   })
 
+const itemCompletedAgentMessage = (message: string, extra: Record<string, unknown> = {}): string =>
+  jsonl({
+    timestamp: '2026-08-25T05:26:25.486Z',
+    type: 'event_msg',
+    payload: {
+      type: 'item_completed',
+      item: { type: 'AgentMessage', content: [{ type: 'Text', text: message }], ...extra },
+    },
+  })
+
 const taskComplete = (extra: Record<string, unknown> = {}): string =>
   jsonl({
     timestamp: '2026-05-27T17:30:03.000Z',
@@ -199,6 +209,61 @@ describe('codex-cli-tmux hook-driven transcript reader', () => {
     expect(eventTypes(all)).not.toContain('assistant.message.started')
     expect(eventTypes(all)).not.toContain('assistant.message.delta')
     expect(finals(all)).toEqual([false, false, true])
+  })
+
+  test('Codex item_completed AgentMessage narration preserves intermediate and terminal semantics', async () => {
+    const path = tempTranscript()
+    const { reader } = await createHarness()
+
+    reader.handleHook(sessionStart(path))
+    appendFileSync(
+      path,
+      itemCompletedAgentMessage('I am about to inspect the current project directory contents.', {
+        id: 'msg_commentary',
+        phase: 'commentary',
+      })
+    )
+    const interim = reader.handleHook(preToolUse())
+
+    appendFileSync(
+      path,
+      itemCompletedAgentMessage('Inspected the directory and confirmed the working path.', {
+        id: 'msg_final',
+        phase: 'final_answer',
+      })
+    )
+    appendFileSync(
+      path,
+      taskComplete({
+        last_agent_message: 'Inspected the directory and confirmed the working path.',
+      })
+    )
+    const terminal = reader.handleHook(stop())
+
+    expect(interim).toMatchObject([
+      {
+        itemId: 'msg_commentary',
+        payload: {
+          messageId: 'msg_commentary',
+          content: [
+            { type: 'text', text: 'I am about to inspect the current project directory contents.' },
+          ],
+          final: false,
+        },
+      },
+    ])
+    expect(terminal).toMatchObject([
+      {
+        itemId: 'msg_final',
+        payload: {
+          messageId: 'msg_final',
+          content: [
+            { type: 'text', text: 'Inspected the directory and confirmed the working path.' },
+          ],
+          final: true,
+        },
+      },
+    ])
   })
 
   test('coalesces agent_message_delta chunks by message id into one completed message', async () => {
