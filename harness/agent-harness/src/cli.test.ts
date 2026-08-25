@@ -50,6 +50,26 @@ describe('agent-harness CLI dispatch', () => {
     ])
   })
 
+  test('selects broker TUI mode with an explicit control socket', async () => {
+    const testDependencies = dependencies()
+    await dispatchAgentHarness(
+      [
+        'tui',
+        '--agent-id',
+        'cody',
+        '--project-id',
+        'agent-spaces',
+        '--broker-control-socket',
+        '/tmp/agent-harness-control.sock',
+      ],
+      testDependencies.values
+    )
+
+    expect(testDependencies.calls).toEqual([
+      'tui:{"agentId":"cody","projectId":"agent-spaces","brokerControlSocket":"/tmp/agent-harness-control.sock"}',
+    ])
+  })
+
   test('dispatches print and retains its exit status', async () => {
     const testDependencies = dependencies()
     await dispatchAgentHarness(
