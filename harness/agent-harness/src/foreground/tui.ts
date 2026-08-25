@@ -6,6 +6,8 @@ import {
   loadAgent,
 } from 'agent-harness-runtime'
 
+import { resolveForegroundAuthStorePath } from './auth-store.js'
+
 export interface ForegroundTuiDependencies {
   loadAgent: typeof loadAgent
   createRuntime: typeof createAgentHarnessRuntime
@@ -34,6 +36,7 @@ export async function runAgentHarnessTui(
   const agent = await dependencies.loadAgent(options)
   const runtime = await dependencies.createRuntime({
     agent,
+    authStorePath: resolveForegroundAuthStorePath(agent.environment),
     ...(options.resume !== undefined ? { continuationKey: options.resume } : {}),
   })
   try {
