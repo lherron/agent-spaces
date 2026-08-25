@@ -1,6 +1,6 @@
 # HRC-operated agent-harness interactive TUI
 
-- **Status:** proposed (r3); r1/r2 rejected in `hrcchat#20910`/`#20912`, resubmitted
+- **Status:** proposed (r4); r1-r3 rejected in `hrcchat#20910`/`#20912`/`#20914`, resubmitted
 - **Date:** 2026-08-25
 - **Author:** clod@agent-spaces
 - **Tracking:** (campaign to be derived on approval)
@@ -142,10 +142,19 @@ Each field names its provenance:
 | Field | Spec provenance | Consumed by |
 | --- | --- | --- |
 | `permissionPolicy` | `spec.driver.permissionPolicy` | permission bridge (D9) |
-| `auth` | driver's resolved `PiSdkAuthResolution` — `{authMode, authPath, providerId, credentialType, storeBound}` (`harness-broker-pi-sdk/src/driver.ts:107-113`) | `ModelRuntime` binding (D5) |
+| `auth` | `resolvePiSdkAuth(spec, ctx)` (`harness-broker-pi-sdk/src/driver.ts:432-460`) → `PiSdkAuthResolution` `{authMode, authPath, providerId, credentialType, storeBound}` (:107-113) | `ModelRuntime` binding (D5) |
 | `sdk` | `spec.sdk.modelId`, `spec.sdk.thinkingLevel` | model resolution |
 | `agent` | `spec.agent` semantic inputs | `loadAgent` |
 | `continuation` | `spec.continuation.key` | session resume (D8) |
+
+**Both `auth` and `sdk` require `spec.sdk` to be present.** `resolvePiSdkAuth`
+throws when it is absent (`driver.ts:432-437`), and the model projection has no
+other source. `agent-harness-tmux` therefore **carries an `sdk` block**; D7
+states the contract change that admits it, since the current predicate would
+reject `sdk` on any driver outside `pi-sdk`/`agent-harness`. The driver holds
+both inputs `resolvePiSdkAuth` needs — the spec and `ctx.dispatchEnv` (for
+`HARNESS_PI_AUTH_STORE` in oauth mode) — so it resolves auth exactly as the
+headless driver does and projects the result.
 
 No credential material crosses the wire — `PiSdkAuthResolution` is scalars and a
 path. The child reads the credential from that path and the composed env, as the
@@ -238,7 +247,10 @@ emits `process.command: 'in-process'`, `harnessTransport: {kind:'in-process'}`,
   else**,
 - `process.harnessTransport`: `{kind: 'pty'}`,
 - `interaction.mode`: `'interactive'`,
-- `driver.kind`: `'agent-harness-tmux'`, `driver.terminalHost`: `'tmux'`.
+- `driver.kind`: `'agent-harness-tmux'`, `driver.terminalHost`: `'tmux'`,
+- `sdk`: `{runtime: 'pi-sdk', provider, modelId, authMode, thinkingLevel?}` —
+  **present**, carried over from the headless plan unchanged. It is the source
+  for both the model projection and `resolvePiSdkAuth` (D2/D7).
 
 Argv deliberately carries **no semantic or authoritative value** — not the agent
 id, not the roots, not a permission mode. Every such value arrives in
@@ -311,17 +323,38 @@ default-on pattern (`server-constants.ts`, `option-resolvers.ts`,
   `controller: harness-broker / harnessFamily: pi / interactionMode: interactive /
   driver: agent-harness-tmux / processTransport: pty`.
 - `contracts/spaces-runtime-contracts/src/validate-execution-profile.ts:156,172`
-  — `agent-harness` is hard-wired into the `pi-sdk` legality lane, which
-  mandates in-process transport and `nonInteractive` mode. An interactive
-  profile trips those rules today. Add a distinct rule array for
-  `agent-harness-tmux` (terminalHost `tmux`, pty transport, hookBridge absent),
-  **including a rule rejecting `spec.driver.permissionPolicy.mode ===
-  'ask-client'`** for this driver kind (D9).
-- `contracts/harness-broker-protocol/src/schemas.ts:381,1130,1719` —
-  `agent-harness` is treated as SDK-backed (`sdk` block permitted, in-process
-  transport permitted), and the tmux terminal-surface gates whitelist only the
-  three existing tmux kinds. Add `agent-harness-tmux` to the tmux gates; it
-  carries no `sdk` block.
+  — `agent-harness` is hard-wired into the `pi-sdk` legality lane, whose
+  `PI_SDK_RULES` mandate `interactionMode: nonInteractive` (:342-348). Do **not**
+  add `agent-harness-tmux` to `profileClaimsPiSdk`. Add a distinct rule array
+  requiring `interactionMode: interactive`, pty transport, terminalHost `tmux`,
+  hookBridge absent, an **`sdk` block present**, and rejecting
+  `spec.driver.permissionPolicy.mode === 'ask-client'` (D9).
+- `contracts/harness-broker-protocol/src/schemas.ts` — `validateSdkContract`
+  (:373-424) currently conflates two questions under one `isPiSdkDriver`
+  predicate: *may this driver carry an `sdk` block* and *must this driver be
+  hosted in-process*. For `pi-sdk` and `agent-harness` the answers coincide; for
+  `agent-harness-tmux` they diverge. Split them:
+  - `carriesSdkBlock` = `pi-sdk | agent-harness | agent-harness-tmux` — the
+    `sdk` block is validated (`runtime`, `provider`, `modelId`, `authMode`,
+    `thinkingLevel`) for all three.
+  - `requiresInProcessHost` = `pi-sdk | agent-harness` — only these are forced
+    to `harnessTransport.kind === 'in-process'` and `command === 'in-process'`
+    (:410-427). `agent-harness-tmux` is instead required to use pty transport,
+    matching the profile rule above.
+  - Everything outside `carriesSdkBlock` keeps today's behavior: `sdk`
+    forbidden, in-process transport forbidden (:384-397).
+  Also add `agent-harness-tmux` to the tmux terminal-surface gates (:1130,
+  :1719), which currently whitelist only the three existing tmux kinds.
+
+**Why this driver is SDK-backed but not in-process.** All three outer surfaces
+run the same `AgentSessionRuntime` through the same factory — the invariant
+requires it. The `sdk` block describes the *model binding* (provider, modelId,
+authMode, thinkingLevel), which is identical across all three. What differs for
+`agent-harness-tmux` is only *which process hosts the session and how it is
+presented*: a pty in a leased tmux pane rather than in-process. Conflating
+"SDK-backed" with "in-process" is an accident of the two pre-existing SDK
+drivers happening to be both; this surface separates them, so the predicate has
+to separate them too.
 
 ### D8 — Continuation
 
@@ -465,11 +498,17 @@ Additional required evidence:
 7. **Policy admissibility (D9).** A profile carrying `mode: 'ask-client'` for
    `agent-harness-tmux` is refused by the execution-profile validator, not
    silently downgraded.
-8. Auth containment (D5): broker mode with a broken binding fails closed and
+8. **SDK admissibility (D7, r4 flaw).** The interactive profile the direct plan
+   emits passes BOTH `validateSdkContract` and `validateBrokerExecutionProfile`
+   — i.e. an `agent-harness-tmux` spec carrying an `sdk` block with pty
+   transport is admitted, while the same spec with `in-process` transport is
+   refused. This is the assertion whose absence let r3 ship a spec that could
+   not construct an admissible invocation at all.
+9. Auth containment (D5): broker mode with a broken binding fails closed and
    does not reach the foreground auth store.
-9. Real-terminal validation via ghostmux: `hrc run sparky` boots a live pane,
+10. Real-terminal validation via ghostmux: `hrc run sparky` boots a live pane,
    accepts a dispatched turn, and the turn appears in `hrc monitor`.
-10. `asp run sparky` foreground behavior unchanged.
+11. `asp run sparky` foreground behavior unchanged.
 
 ## Out of scope
 
@@ -497,7 +536,38 @@ Additional required evidence:
 
 ## Revision history
 
-**r3 (this document)** — r2 rejected by Daedalus (`hrcchat#20912`) on one flaw:
+**r4 (this document)** — r3 rejected by Daedalus (`hrcchat#20914`) on an
+internal contradiction of my own making: D2 projected `session.config.sdk` and
+`session.config.auth` from `spec.sdk`, while D7 still asserted this driver
+"carries no `sdk` block". Both branches were dead — include `sdk` and
+`validateSdkContract` rejects the spec (only `pi-sdk`/`agent-harness` are
+classified SDK-backed, `schemas.ts:373-397`); omit it and `resolvePiSdkAuth`
+throws (`driver.ts:432-437`) with no source for the model projection. No
+admissible invocation could reach `ready`.
+
+- *Resolved in D7.* `validateSdkContract` conflates two questions under one
+  predicate — *may this driver carry `sdk`* and *must it be hosted in-process*.
+  They coincide for the two pre-existing SDK drivers and diverge here. r4 splits
+  them: `carriesSdkBlock` = `pi-sdk | agent-harness | agent-harness-tmux`;
+  `requiresInProcessHost` = `pi-sdk | agent-harness`. `agent-harness-tmux`
+  carries the block and is required to use pty transport.
+- *Root cause.* D7 was written treating this as a CLI-shaped tmux driver by
+  analogy with the other three. It is not: all three outer surfaces run the same
+  `AgentSessionRuntime` through the same factory, so the model binding is
+  identical and only the host process and presentation differ. "SDK-backed" and
+  "in-process" were never the same property; the existing predicate only got
+  away with treating them as one because no prior driver separated them.
+- *Not added to `profileClaimsPiSdk`.* That lane's `PI_SDK_RULES` force
+  `nonInteractive` (`validate-execution-profile.ts:342-348`), which would
+  reintroduce the same dead end from the profile side.
+- New conformance assertion 8 pins both directions — `sdk` + pty admitted,
+  `sdk` + in-process refused — so this class cannot regress silently.
+
+**r3** — `885bf45`. Rejected on SDK admissibility; its permission-value fix
+(`hello` → authoritative `session.config` → `ack`, no-config/no-session
+construction order) was accepted and is carried forward unchanged.
+
+**r2 disposition** — r2 rejected by Daedalus (`hrcchat#20912`) on one flaw:
 the permission *decision* moved into the session-owning process, but the
 broker-authoritative *value* still never crossed the boundary. r2 asserted the
 TUI "already holds" the spec; it does not — a tmux launch delivers only argv,
