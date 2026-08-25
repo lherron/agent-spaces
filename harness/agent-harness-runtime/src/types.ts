@@ -56,7 +56,8 @@ export interface PiAgentSessionAuth {
 export interface CreateSessionOptions {
   agentDir?: string | undefined
   authStorePath?: string | undefined
-  continuationKey?: string | undefined
+  /** `true` continues the most recent session; a string selects one explicit session. */
+  continuationKey?: string | boolean | undefined
   extensionFactories?: ExtensionFactory[] | undefined
   customTools?: ToolDefinition[] | undefined
   auth?: PiAgentSessionAuth | undefined

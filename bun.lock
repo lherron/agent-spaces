@@ -23,6 +23,8 @@
         "@anthropic-ai/claude-agent-sdk": "^0.1.72",
         "@iarna/toml": "^2.2.5",
         "@mariozechner/pi-coding-agent": "^0.70.2",
+        "agent-harness": "workspace:*",
+        "agent-harness-runtime": "workspace:*",
         "agent-scope": "*",
         "agent-spaces": "workspace:*",
         "ajv": "^8.17.1",

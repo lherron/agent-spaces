@@ -7,6 +7,8 @@ import { runAgentHarnessTui } from './foreground/tui.js'
 
 export interface ForegroundInvocation extends LoadAgentOptions {
   prompt?: string | undefined
+  /** `true` continues the most recent agent-scoped session; a string opens that session. */
+  resume?: string | boolean | undefined
 }
 
 export interface AgentHarnessCliDependencies {
@@ -125,6 +127,14 @@ export function parseForegroundInvocation(args: string[]): ForegroundInvocation 
       case '--reasoning-effort':
         invocation.reasoningEffort = requiredValue(arg, value)
         index += 1
+        break
+      case '--resume':
+        if (value !== undefined && !value.startsWith('--')) {
+          invocation.resume = value
+          index += 1
+        } else {
+          invocation.resume = true
+        }
         break
       default:
         throw new Error(`Unknown agent-harness foreground option: ${arg}`)

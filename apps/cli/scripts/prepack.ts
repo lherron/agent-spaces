@@ -13,7 +13,7 @@ const CLI_ROOT = dirname(HERE)
 const BUNDLED = join(CLI_ROOT, 'node_modules')
 const BACKUP = join(CLI_ROOT, '.asp-prepack-backup')
 
-const WORKSPACES: Array<{ src: string; dest: string }> = [
+const WORKSPACES: Array<{ src: string; dest: string; includeBin?: boolean }> = [
   { src: '../../core/config', dest: 'spaces-config' },
   { src: '../../core/runtime', dest: 'spaces-runtime' },
   { src: '../../contracts/harness-broker-client', dest: 'spaces-harness-broker-client' },
@@ -28,6 +28,8 @@ const WORKSPACES: Array<{ src: string; dest: string }> = [
   { src: '../turn-runner', dest: 'spaces-turn-runner' },
   { src: '../../contracts/agent-scope', dest: 'agent-scope' },
   { src: '../cli-kit', dest: 'cli-kit' },
+  { src: '../../harness/agent-harness', dest: 'agent-harness', includeBin: true },
+  { src: '../../harness/agent-harness-runtime', dest: 'agent-harness-runtime' },
 ]
 
 const SPECIFIER_TARGETS: Record<string, string> = {
@@ -51,6 +53,8 @@ const SPECIFIER_TARGETS: Record<string, string> = {
   'agent-spaces/turn-support': 'agent-spaces/dist/turn-support.js',
   'spaces-turn-runner': 'spaces-turn-runner/dist/index.js',
   'agent-scope': 'agent-scope/dist/index.js',
+  'agent-harness': 'agent-harness/dist/index.js',
+  'agent-harness-runtime': 'agent-harness-runtime/dist/index.js',
   'cli-kit': 'cli-kit/dist/index.js',
 }
 
@@ -88,16 +92,17 @@ async function backupMutableFiles() {
 }
 
 const BARE_IMPORT_RE =
-  /((?:from|import)\s*['"])(spaces-[a-z][a-z-]*(?:\/[a-z][a-z-]*)?|agent-spaces(?:\/turn-support)?|agent-scope|cli-kit)(['"])/g
+  /((?:from|import)\s*['"])(spaces-[a-z][a-z-]*(?:\/[a-z][a-z-]*)?|agent-spaces(?:\/turn-support)?|agent-scope|agent-harness(?:-runtime)?|cli-kit)(['"])/g
 
 async function copyWorkspaces() {
-  for (const { src, dest } of WORKSPACES) {
+  for (const { src, dest, includeBin } of WORKSPACES) {
     const destDir = join(BUNDLED, dest)
     await rm(destDir, { recursive: true, force: true })
     await mkdir(destDir, { recursive: true })
     const srcDir = join(CLI_ROOT, src)
     await cp(join(srcDir, 'dist'), join(destDir, 'dist'), { recursive: true })
     await cp(join(srcDir, 'package.json'), join(destDir, 'package.json'))
+    if (includeBin) await cp(join(srcDir, 'bin'), join(destDir, 'bin'), { recursive: true })
   }
 }
 

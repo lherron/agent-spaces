@@ -85,4 +85,17 @@ describe('agent-harness CLI dispatch', () => {
     )
     expect(() => parseForegroundInvocation(['--agent-id', 'cody', '--unknown'])).toThrow('Unknown')
   })
+
+  test('maps bare and explicit resume selectors without changing broker dispatch', () => {
+    expect(parseForegroundInvocation(['--agent-id', 'cody', '--resume'])).toMatchObject({
+      agentId: 'cody',
+      resume: true,
+    })
+    expect(
+      parseForegroundInvocation(['--agent-id', 'cody', '--resume', 'session.jsonl'])
+    ).toMatchObject({
+      agentId: 'cody',
+      resume: 'session.jsonl',
+    })
+  })
 })

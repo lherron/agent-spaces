@@ -18,11 +18,14 @@ const productionDependencies: ForegroundPrintDependencies = {
 
 /** Run a one-shot Pi prompt using the direct shared runtime. */
 export async function runAgentHarnessPrint(
-  options: LoadAgentOptions & { prompt: string },
+  options: LoadAgentOptions & { prompt: string; resume?: string | boolean | undefined },
   dependencies: ForegroundPrintDependencies = productionDependencies
 ): Promise<number> {
   const agent = await dependencies.loadAgent(options)
-  const runtime = await dependencies.createRuntime({ agent })
+  const runtime = await dependencies.createRuntime({
+    agent,
+    ...(options.resume !== undefined ? { continuationKey: options.resume } : {}),
+  })
   try {
     return await dependencies.runPrintMode(runtime, {
       mode: 'text',

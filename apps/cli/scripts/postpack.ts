@@ -37,6 +37,8 @@ const BUNDLED_DIRS = [
   'agent-spaces',
   'spaces-turn-runner',
   'agent-scope',
+  'agent-harness',
+  'agent-harness-runtime',
   'cli-kit',
 ]
 

@@ -25,11 +25,17 @@ const productionDependencies: ForegroundTuiDependencies = {
 
 /** Run a local Pi TUI using the same shared runtime as the broker facade. */
 export async function runAgentHarnessTui(
-  options: LoadAgentOptions & { prompt?: string | undefined },
+  options: LoadAgentOptions & {
+    prompt?: string | undefined
+    resume?: string | boolean | undefined
+  },
   dependencies: ForegroundTuiDependencies = productionDependencies
 ): Promise<void> {
   const agent = await dependencies.loadAgent(options)
-  const runtime = await dependencies.createRuntime({ agent })
+  const runtime = await dependencies.createRuntime({
+    agent,
+    ...(options.resume !== undefined ? { continuationKey: options.resume } : {}),
+  })
   try {
     await dependencies.runInteractiveMode(runtime, options.prompt)
   } finally {
