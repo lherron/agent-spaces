@@ -92,6 +92,15 @@ export class EventEnvelopeValidationError extends ProtocolValidationError {
   }
 }
 
+/** Raised when an agent-harness control-channel frame or config is invalid. */
+export class AgentHarnessControlValidationError extends ProtocolValidationError {
+  readonly code = 'INVALID_AGENT_HARNESS_CONTROL'
+
+  constructor(issues: ValidationIssue[]) {
+    super('AgentHarnessControlValidationError', 'Invalid agent-harness control frame', issues)
+  }
+}
+
 export enum BrokerErrorCode {
   UnknownInvocation = -32001,
   InvalidInvocationState = -32002,
