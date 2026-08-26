@@ -6,6 +6,8 @@ import { runAgentHarnessPrint } from './foreground/print.js'
 import { runAgentHarnessTui } from './foreground/tui.js'
 
 export interface ForegroundInvocation extends LoadAgentOptions {
+  /** Selects the broker-owned interactive control path. */
+  brokerControlSocket?: string | undefined
   prompt?: string | undefined
   /** `true` continues the most recent agent-scoped session; a string opens that session. */
   resume?: string | boolean | undefined
@@ -135,6 +137,10 @@ export function parseForegroundInvocation(args: string[]): ForegroundInvocation 
         } else {
           invocation.resume = true
         }
+        break
+      case '--broker-control-socket':
+        invocation.brokerControlSocket = requiredValue(arg, value)
+        index += 1
         break
       default:
         throw new Error(`Unknown agent-harness foreground option: ${arg}`)
