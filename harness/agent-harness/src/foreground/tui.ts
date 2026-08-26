@@ -266,7 +266,7 @@ class BrokerControlConnection {
       }
       try {
         this.onTurnBegin(frame)
-        this.socket.write('{"ack":true}\n')
+        this.#ack(frame.requestId)
       } catch (error) {
         this.#fail(error)
       }
@@ -282,7 +282,7 @@ class BrokerControlConnection {
     }
     try {
       const config = validateAgentHarnessSessionConfig(frame.payload)
-      this.socket.write('{"ack":true}\n')
+      this.#ack(frame.requestId)
       this.#configured = true
       this.#resolveConfig?.(config)
     } catch (error) {
@@ -295,5 +295,9 @@ class BrokerControlConnection {
     this.#failed = true
     this.#rejectConfig?.(error instanceof Error ? error : new Error(String(error)))
     if (!this.socket.destroyed) this.socket.destroy()
+  }
+
+  #ack(requestId: string): void {
+    this.socket.write(`${JSON.stringify({ ack: true, requestId })}\n`)
   }
 }
