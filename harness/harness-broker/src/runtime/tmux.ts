@@ -219,6 +219,14 @@ export class TmuxPaneController {
    * inputs can exceed the OS command-line limit before tmux sees them. A unique
    * named buffer prevents independent broker panes from contending with tmux's
    * default buffer, while paste-buffer -d removes it after a successful paste.
+   *
+   * The paste is bracketed (-p). tmux hands the pane's PTY the text in
+   * ~1022-byte read() chunks; without bracketed-paste framing the TUI has to
+   * classify each chunk by size, and Claude Code (2.1.243/2.1.246 observed)
+   * treats a large chunk as a paste and a following small chunk as typed keys,
+   * discarding the buffered paste — payloads of 1023..~1822 bytes lost exactly
+   * their first 1022 bytes. Framing makes the whole payload one paste regardless
+   * of chunking, and stops the LF→CR translation the unframed paste applied.
    */
   private async pasteBuffer(text: string): Promise<void> {
     const bufferName = `harness-broker-${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -231,7 +239,7 @@ export class TmuxPaneController {
       await writeFile(tempPath, text, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
       await this.exec(['load-buffer', '-b', bufferName, tempPath])
       bufferLoaded = true
-      await this.exec(['paste-buffer', '-d', '-b', bufferName, '-t', this.lease.paneId])
+      await this.exec(['paste-buffer', '-d', '-p', '-b', bufferName, '-t', this.lease.paneId])
       bufferLoaded = false
     } finally {
       if (bufferLoaded) {

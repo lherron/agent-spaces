@@ -172,6 +172,9 @@ describe('TmuxPaneController', () => {
         (call) =>
           call.argv.includes('paste-buffer') &&
           call.argv.includes('-d') &&
+          // Bracketed paste: an unframed paste reaches the TUI in ~1022-byte
+          // PTY chunks and Claude Code discards the head (first 1022 bytes lost).
+          call.argv.includes('-p') &&
           call.argv.includes(baseLease.paneId)
       )
     ).toBe(true)
