@@ -57,6 +57,7 @@ Thumbs.db
 
 # Coverage output
 coverage/
+*.profraw
 
 # Stray ~ expansion mishaps (e.g. copy to literal "~")
 /~/
