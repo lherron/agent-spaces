@@ -29,7 +29,7 @@ type TestSessionConfig = {
     projectId?: string
     scopeRef?: string
   }
-  continuation: { key: string }
+  continuation?: { key: string } | undefined
 }
 
 type TestFrameResult = { ok: true; value: TestControlFrame } | { ok: false; error: unknown }
@@ -175,7 +175,10 @@ describe('agent-harness-control/v1 framing', () => {
 })
 
 describe('agent-harness-session-config/v1 validation', () => {
-  for (const field of ['permissionPolicy', 'auth', 'sdk', 'agent', 'continuation'] as const) {
+  // `continuation` is deliberately NOT in this list. It is the resume selector,
+  // and requiring it made a fresh first launch unrepresentable (T-07585); the
+  // two tests below pin absence-is-legal and present-but-malformed-is-not.
+  for (const field of ['permissionPolicy', 'auth', 'sdk', 'agent'] as const) {
     test(`refuses a session.config missing required ${field}`, () => {
       const validateConfig = requireConfigValidator()
       const validateFrame = requireValidator()
@@ -192,6 +195,31 @@ describe('agent-harness-session-config/v1 validation', () => {
       ).toThrow()
     })
   }
+
+  test('accepts a session.config with NO continuation — the fresh-launch case', () => {
+    const validateConfig = requireConfigValidator()
+    const validateFrame = requireValidator()
+    const fresh = structuredClone(sessionConfig) as Record<string, unknown>
+    Reflect.deleteProperty(fresh, 'continuation')
+
+    expect(() => validateConfig(fresh)).not.toThrow()
+    expect(() =>
+      validateFrame({
+        verb: 'session.config',
+        requestId: 'request_config_fresh',
+        payload: fresh,
+      })
+    ).not.toThrow()
+  })
+
+  test('still refuses a continuation that is present but malformed', () => {
+    const validateConfig = requireConfigValidator()
+    for (const continuation of [{}, { key: '' }, { key: 7 }, { key: 'k', extra: 1 }, 'nope']) {
+      const invalid = structuredClone(sessionConfig) as Record<string, unknown>
+      invalid['continuation'] = continuation
+      expect(() => validateConfig(invalid)).toThrow()
+    }
+  })
 
   for (const credentialMaterial of [
     { apiKey: 'sk-secret' },

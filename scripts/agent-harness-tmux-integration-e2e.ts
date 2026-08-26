@@ -40,15 +40,12 @@ const aspHome = process.env['ASP_HOME'] ?? join(homedir(), 'praesidium/var/space
 const tmuxBin = process.env['TMUX_BIN'] ?? '/opt/homebrew/bin/tmux'
 const sentinel = `PONG-${marker.toUpperCase()}`
 /**
- * The D2 contract makes `session.config.continuation.key` MANDATORY, and the
- * child feeds it straight to SessionManager.open, which requires the session to
- * already exist. So the synthesized default below reproduces the fresh-launch
- * case — the only case a first launch can be — and it FAILS. Set
+ * DEFAULT is the FRESH-launch case: no continuation anywhere, which is what
+ * production starts from and what T-07585 made representable. Set
  * AH_E2E_CONTINUATION_KEY to an existing session file under
- * <aspHome>/agent-harness/sessions/<agentId>/ to exercise the resume case and
- * reach the turn assertions.
+ * <aspHome>/agent-harness/sessions/<agentId>/ to exercise resume instead.
  */
-const continuationKey = process.env['AH_E2E_CONTINUATION_KEY'] ?? `session-${marker}`
+const continuationKey = process.env['AH_E2E_CONTINUATION_KEY']
 
 const BOOT_TIMEOUT_MS = 120_000
 const TURN_TIMEOUT_MS = 180_000
@@ -145,7 +142,9 @@ function buildSpec(controlCwd: string): HarnessInvocationSpec {
       scopeRef: `agent:${agentId}:project:agent-spaces:task:T-07567`,
       runId: `run-${marker}`,
     },
-    continuation: { provider: 'openai', kind: 'session', key: continuationKey },
+    ...(continuationKey !== undefined
+      ? { continuation: { provider: 'openai', kind: 'session', key: continuationKey } }
+      : {}),
     correlation: { runtimeId: `runtime-${marker}` },
   } as HarnessInvocationSpec
 }
@@ -161,6 +160,7 @@ async function main(): Promise<void> {
   console.log(`asp home   ${aspHome}`)
   console.log(`auth store ${authStore}`)
   console.log(`sentinel   ${sentinel}`)
+  console.log(`continuation ${continuationKey ?? '(none — fresh launch)'}`)
   console.log('')
 
   try {

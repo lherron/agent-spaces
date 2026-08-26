@@ -245,13 +245,10 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
         'agent-harness-tmux requires spec.agent to project session.config'
       )
     }
+    // No continuation is the FRESH-launch case, which is the only case a first
+    // launch can be. Projecting a synthetic key here would name a session file
+    // that does not exist, and the child opens-or-throws on it (T-07585).
     const continuationKey = currentSpec.continuation?.key
-    if (continuationKey === undefined) {
-      throw new BrokerError(
-        BrokerErrorCode.InvalidInvocationState,
-        'agent-harness-tmux requires spec.continuation.key to project session.config'
-      )
-    }
 
     const payload: AgentHarnessSessionConfig = {
       permissionPolicy,
@@ -261,7 +258,7 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
         ...(sdk.thinkingLevel !== undefined ? { thinkingLevel: sdk.thinkingLevel } : {}),
       },
       agent,
-      continuation: { key: continuationKey },
+      ...(continuationKey !== undefined ? { continuation: { key: continuationKey } } : {}),
     }
     await request({
       verb: 'session.config',

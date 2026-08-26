@@ -132,7 +132,11 @@ async function runBrokerAgentHarnessTui(
         authPath: config.auth.authPath,
         providerId: config.auth.providerId,
       },
-      continuationKey: config.continuation.key,
+      // Mirrors broker/invocation-session-factory.ts:55-57. Absent means the
+      // runtime creates a fresh session; a key means resume THAT session.
+      ...(config.continuation?.key !== undefined
+        ? { continuationKey: config.continuation.key }
+        : {}),
       extensionFactories: [
         (pi) => {
           pi.on('tool_call', (event) => permissionBridge.handle(event))

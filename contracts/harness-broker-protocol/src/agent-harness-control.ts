@@ -41,9 +41,17 @@ export interface AgentHarnessSessionConfig {
   auth: AgentHarnessControlAuth
   sdk: AgentHarnessControlSdk
   agent: AgentHarnessSpec
-  continuation: {
-    key: string
-  }
+  /**
+   * Present ONLY to resume an existing session. `spec.continuation` is itself
+   * optional, and the child feeds this key straight to `SessionManager.open`,
+   * which requires the session to already exist — so a mandatory key would make
+   * a FIRST launch unrepresentable. Absent means "start fresh" (T-07585).
+   */
+  continuation?:
+    | {
+        key: string
+      }
+    | undefined
 }
 
 export interface AgentHarnessControlHelloFrame {
@@ -185,7 +193,10 @@ export function validateAgentHarnessSessionConfig(value: unknown): AgentHarnessS
     validateAuth(config['auth'], 'auth', issues)
     validateSdk(config['sdk'], 'sdk', issues)
     validateAgent(config['agent'], 'agent', issues)
-    validateContinuation(config['continuation'], 'continuation', issues)
+    // Absent is legal (fresh session). Present-but-malformed is not.
+    if (config['continuation'] !== undefined) {
+      validateContinuation(config['continuation'], 'continuation', issues)
+    }
   }
 
   throwForIssues(issues)
