@@ -21,10 +21,17 @@ predicate: >
   third surface is fresh and HRC-owned; it does not attach to a foreground
   session. Across its process boundary, broker-allocated turn identity and the
   broker's admitted session configuration bind before input delivery and session
-  construction respectively; the child does not re-derive broker-owned auth or
-  permission values. SDK-backed model configuration is independent of process
-  hosting: agent-harness-tmux carries the SDK binding with pty/tmux execution
-  rather than the in-process sentinel. The TUI starts with the loader-supplied
+  construction respectively. An inability to bind a proposed turn is a
+  recoverable turn failure: the child returns a closed-code negative
+  acknowledgement without closing the control channel or runtime, the driver
+  delivers no pane input, and the broker preserves its normal accepted-input and
+  idempotency boundary by opening and terminally failing the allocated turn
+  before returning the invocation to ready. Session configuration failure
+  remains fail-closed before construction; the child does not re-derive
+  broker-owned auth or permission values. SDK-backed model configuration is
+  independent of process hosting: agent-harness-tmux carries the SDK binding
+  with pty/tmux execution rather than the in-process sentinel. The TUI starts
+  with the loader-supplied
   praesidium-loader validation theme, while mechanical
   assertions and parity tests remain the correctness authority. Agents that
   explicitly select Claude Code or Codex CLI retain a compiler-backed
@@ -47,8 +54,12 @@ predicate: >
   credential transport beyond that binding, broker wire/process topology, and
   support for additional resource categories remain implementation choices
   unless another active contract fixes them.
-authority: hrcchat#20917
+authority: hrcchat#21059
 source:
+  - hrcchat#21059
+  - hrcchat#21058
+  - hrcchat#21057
+  - hrcchat#21054
   - hrcchat#20917
   - hrcchat#20916
   - docs/proposals/agent-harness-hrc-interactive.md
@@ -85,6 +96,7 @@ required_tests:
   - HRC can start stop and reconnect the direct harness with runtime placement session routing supervision and durable messaging authority unchanged
   - installed evidence covers at least one explicitly selected external-harness agent through the retained compatibility path
   - the HRC-launched interactive TUI receives broker-allocated turn identity through an acknowledged handshake before input delivery and no turn body event reaches the ledger before the broker turn bracket
+  - a rejected turn.begin returns a closed-code negative acknowledgement without pane input or control-channel destruction while the broker records the accepted input once emits turn.started before turn.failed restores ready and can run a later turn on the same runtime
   - the HRC-launched interactive TUI constructs no agent load model runtime or session until the broker's admitted session configuration validates and a withheld malformed or late configuration fails startup
   - a broker invocation lowered permission deny is blocked inside the process that owns the tool call even when the agent profile yolo value would independently resolve to allow
   - agent-harness-tmux refuses ask-client permission policy at admission rather than downgrading or silently substituting an in-pane decision
@@ -92,12 +104,13 @@ required_tests:
   - agent-harness-tmux is a required row in the harness-agnostic driver certification matrix with no scenario or event exemptions
 last_verified:
   date: 2026-08-25
-  evidence: hrcchat#20917 approved by daedalus against the r4 third-surface design covering acknowledged turn-identity and session-config handshakes in-process permission binding and split sdk-block versus in-process-host admissibility
+  evidence: hrcchat#21059 approved by daedalus against the revised negative-ack design preserving accepted-input idempotency through an ordered broker turn.failed terminal while keeping session.config fail-closed
 reopen_when:
   - shared ASP semantics split into independent direct and compatibility implementations
   - broker-mediated interactive tool approval is required on the HRC-launched interactive TUI surface
   - a fourth outer surface consumes the direct runtime factory
   - the HRC interactive surface can deliver input before broker turn identity binds or construct a session before the admitted session configuration validates
+  - a rejected turn.begin can paste input destroy the control channel escape the broker turn bracket or leave the invocation outside ready after its turn terminal
   - the HRC interactive child re-derives broker-owned auth permission agent SDK or continuation values instead of consuming the admitted projection
   - SDK-block admissibility and in-process hosting become coupled again for agent-harness-tmux
   - HRC runtime placement lifecycle routing supervision or durable messaging authority moves into an execution lowering
