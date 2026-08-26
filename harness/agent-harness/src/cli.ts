@@ -1,4 +1,6 @@
+import { readStoredCredential } from '@earendil-works/pi-coding-agent'
 import type { LoadAgentOptions } from 'agent-harness-runtime'
+import { createDefaultAgentHarnessTmuxDriver } from 'spaces-harness-broker'
 import { runBrokerCli } from 'spaces-harness-broker-pi-sdk'
 
 import { createAgentHarnessDriver } from './broker/driver.js'
@@ -22,7 +24,16 @@ export interface AgentHarnessCliDependencies {
 }
 
 const productionDependencies: AgentHarnessCliDependencies = {
-  runBrokerCli: () => runBrokerCli({ additionalDrivers: [createAgentHarnessDriver] }),
+  runBrokerCli: () =>
+    runBrokerCli({
+      additionalDrivers: [
+        createAgentHarnessDriver,
+        // The `agent-harness` executable is the broker process for BOTH
+        // agent-harness driver kinds; the stock harness-broker binary must not
+        // register either, or spaces-harness-broker would depend on this package.
+        () => createDefaultAgentHarnessTmuxDriver(undefined, { readStoredCredential }),
+      ],
+    }),
   runTui: runAgentHarnessTui,
   runPrint: runAgentHarnessPrint,
   isInteractiveTerminal: () => process.stdin.isTTY === true && process.stdout.isTTY === true,

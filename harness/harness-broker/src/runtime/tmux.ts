@@ -297,8 +297,24 @@ export class TmuxPaneController {
     }
   }
 
+  /**
+   * Send a single tmux key name (e.g. `C-c`, `Escape`) to the leased pane.
+   * Interrupt-class, so it is gated by the same allowedOps the constructor
+   * already requires. Which key actually interrupts is harness-specific: the
+   * shell-hosted TUIs take `C-c`, the Pi TUI takes `Escape`.
+   */
+  async sendNamedKey(key: string): Promise<void> {
+    if (this.lease.allowedOps.sendInterrupt !== true) {
+      throw new BrokerError(
+        BrokerErrorCode.CapabilityDenied,
+        'sendNamedKey requires allowedOps.sendInterrupt'
+      )
+    }
+    await this.exec(['send-keys', '-t', this.lease.paneId, key])
+  }
+
   async interrupt(): Promise<void> {
-    await this.exec(['send-keys', '-t', this.lease.paneId, 'C-c'])
+    await this.sendNamedKey('C-c')
   }
 
   async capture(): Promise<string> {

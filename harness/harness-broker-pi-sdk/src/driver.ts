@@ -1,6 +1,4 @@
 import { readFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import {
   type AgentSessionEvent,
   type ExtensionFactory,
@@ -13,7 +11,11 @@ import {
   type Driver,
   type DriverContext,
   type DriverStartResult,
+  PiSdkAuthError,
+  type PiSdkAuthResolution,
   buildProcessEnv,
+  piSdkAgentDir,
+  resolvePiSdkAuth as resolveBrokerPiSdkAuth,
   validateJsonSchemaValue,
 } from 'spaces-harness-broker'
 import {
@@ -33,6 +35,8 @@ import {
 import { createPiAgentSession, resolvePiModelReference } from 'spaces-harness-pi-sdk/agent-session'
 import { PiSdkTurnEventMapper } from './event-mapper'
 import { createPiSdkPermissionBridge } from './permissions'
+
+export type { PiSdkAuthResolution }
 
 export const PI_SDK_DRIVER_KIND = 'pi-sdk'
 const PI_SDK_DRIVER_VERSION = '0.1.0'
@@ -102,14 +106,6 @@ export interface PiSdkSessionFactoryInput {
   auth: PiSdkAuthResolution
   permissionExtension: ExtensionFactory
   structuredTool: ToolDefinition
-}
-
-export interface PiSdkAuthResolution {
-  authMode: 'api-key' | 'oauth'
-  authPath: string
-  providerId: string
-  credentialType: 'api-key' | 'oauth'
-  storeBound: boolean
 }
 
 export interface PiSdkDriverOptions {
@@ -419,71 +415,16 @@ export function composePiSdkEnvironment(
   })
 }
 
-class PiSdkAuthError extends Error {
-  constructor(
-    readonly code: 'missing_auth_store' | 'auth_mode_mismatch',
-    message: string
-  ) {
-    super(message)
-    this.name = 'PiSdkAuthError'
-  }
-}
-
-async function resolvePiSdkAuth(
+/**
+ * Bind the shared broker resolution to this package's credential reader. The
+ * resolution itself lives in `spaces-harness-broker` so the `agent-harness-tmux`
+ * driver projects the SAME value into its `session.config` frame.
+ */
+function resolvePiSdkAuth(
   spec: HarnessInvocationSpec,
   ctx: Pick<DriverContext, 'dispatchEnv'>
 ): Promise<PiSdkAuthResolution> {
-  const sdk = spec.sdk
-  if (sdk === undefined) throw new Error('pi-sdk invocation requires spec.sdk')
-
-  const providerId = sdk.provider
-  if (sdk.authMode === 'api-key') {
-    return {
-      authMode: 'api-key',
-      authPath: join(piSdkAgentDir(spec), 'auth.json'),
-      providerId,
-      credentialType: 'api-key',
-      storeBound: false,
-    }
-  }
-
-  const authPath = ctx.dispatchEnv?.['HARNESS_PI_AUTH_STORE']
-  if (authPath === undefined || authPath.trim().length === 0) {
-    throw new PiSdkAuthError(
-      'missing_auth_store',
-      'OAuth mode requires dispatchEnv.HARNESS_PI_AUTH_STORE'
-    )
-  }
-
-  try {
-    const encoded = await readFile(authPath, 'utf8')
-    JSON.parse(encoded)
-  } catch {
-    throw new PiSdkAuthError(
-      'missing_auth_store',
-      `OAuth auth store is missing or unreadable: ${authPath}`
-    )
-  }
-
-  const credential = readStoredCredential(providerId, authPath)
-  if (credential?.type !== 'oauth') {
-    throw new PiSdkAuthError(
-      'auth_mode_mismatch',
-      `OAuth auth store credential for provider ${providerId} is not OAuth-typed`
-    )
-  }
-
-  return {
-    authMode: 'oauth',
-    authPath,
-    providerId,
-    credentialType: credential.type,
-    storeBound: true,
-  }
-}
-
-function piSdkAgentDir(spec: HarnessInvocationSpec): string {
-  return join(tmpdir(), 'harness-broker-pi-sdk', String(spec.invocationId ?? 'session'))
+  return resolveBrokerPiSdkAuth(spec, ctx, { readStoredCredential })
 }
 
 async function createDefaultPiSdkSession(input: PiSdkSessionFactoryInput): Promise<PiSdkSession> {
