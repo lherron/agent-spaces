@@ -160,6 +160,86 @@ describe('agent-harness control listener ack correlation', () => {
     await handle.close()
   })
 
+  // T-07584: the ack result is now discriminated on `ack`. A refusal is an
+  // ANSWER to the request, so it must settle the pending promise with the
+  // closed-code payload — not reject it, and not fall through to the frame
+  // decoder (where it would be an unsupported verb and a protocol error).
+  test('settles the matching request with a negative acknowledgement, by requestId', async () => {
+    const { handle, connect } = await startListener()
+    const socket = await connect()
+    readLines(socket, () => undefined)
+
+    const first = handle.request(turnBegin('turn-1', 'req-1'))
+    const second = handle.request(turnBegin('turn-2', 'req-2'))
+    await Bun.sleep(20)
+
+    socket.write(
+      `${JSON.stringify({
+        ack: false,
+        requestId: 'req-2',
+        code: 'turn_already_active',
+        message: 'Cannot begin a pi SDK turn while turn-1 is active',
+      })}\n`
+    )
+    expect(await second).toEqual({
+      ack: false,
+      code: 'turn_already_active',
+      message: 'Cannot begin a pi SDK turn while turn-1 is active',
+    })
+
+    socket.write(`${JSON.stringify({ ack: true, requestId: 'req-1' })}\n`)
+    expect(await first).toEqual({ ack: true })
+  })
+
+  test('settles FIFO on a bare negative acknowledgement with no requestId', async () => {
+    const { handle, connect } = await startListener()
+    const socket = await connect()
+    readLines(socket, () => undefined)
+
+    const pending = handle.request(turnBegin('turn-1', 'req-1'))
+    await Bun.sleep(20)
+
+    socket.write(
+      `${JSON.stringify({ ack: false, code: 'turn_begin_failed', message: 'no session' })}\n`
+    )
+    expect(await pending).toEqual({ ack: false, code: 'turn_begin_failed', message: 'no session' })
+  })
+
+  test('rejects rather than settles when a negative acknowledgement is malformed', async () => {
+    const { handle, connect } = await startListener()
+    const socket = await connect()
+    readLines(socket, () => undefined)
+
+    const pending = handle.request(turnBegin('turn-1', 'req-1'))
+    await Bun.sleep(20)
+
+    // Off the closed code set: the driver cannot act on it, so it must not be
+    // mistaken for a legible refusal.
+    socket.write(
+      `${JSON.stringify({
+        ack: false,
+        requestId: 'req-1',
+        code: 'session_config_failed',
+        message: 'not a turn code',
+      })}\n`
+    )
+    await expect(pending).rejects.toThrow()
+  })
+
+  test('rejects when a negative acknowledgement omits its message', async () => {
+    const { handle, connect } = await startListener()
+    const socket = await connect()
+    readLines(socket, () => undefined)
+
+    const pending = handle.request(turnBegin('turn-1', 'req-1'))
+    await Bun.sleep(20)
+
+    socket.write(
+      `${JSON.stringify({ ack: false, requestId: 'req-1', code: 'turn_begin_failed' })}\n`
+    )
+    await expect(pending).rejects.toThrow()
+  })
+
   test('rejects a pending request when the child disconnects before acknowledging', async () => {
     const { handle, connect } = await startListener()
     const socket = await connect()

@@ -1,7 +1,9 @@
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
+  AgentHarnessControlAck,
   AgentHarnessControlFrame,
+  AgentHarnessControlNegativeAck,
   AgentHarnessControlRequest,
   AgentHarnessSessionConfig,
   DriverPermissionPolicy,
@@ -203,10 +205,25 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
   }
 
   /** Send an ack-bearing frame; the returned promise settles on the child's ack. */
-  async function request(frame: AgentHarnessControlRequest): Promise<void> {
+  async function request(frame: AgentHarnessControlRequest): Promise<AgentHarnessControlAck> {
     const channelHandle = requireChannel()
     validateAgentHarnessControlFrame(frame)
-    await channelHandle.request(frame)
+    return await channelHandle.request(frame)
+  }
+
+  /**
+   * `session.config` has no recoverable negative answer: the child fails closed
+   * and destroys the channel rather than nacking it, so a negative ack here is
+   * a protocol violation and not a turn-scoped outcome.
+   */
+  async function requestAcknowledged(frame: AgentHarnessControlRequest): Promise<void> {
+    const ack = await request(frame)
+    if (ack.ack === false) {
+      throw new BrokerError(
+        BrokerErrorCode.InvalidInvocationState,
+        `agent-harness child refused ${frame.verb}: ${ack.code} — ${ack.message}`
+      )
+    }
   }
 
   /**
@@ -260,7 +277,7 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
       agent,
       ...(continuationKey !== undefined ? { continuation: { key: continuationKey } } : {}),
     }
-    await request({
+    await requestAcknowledged({
       verb: 'session.config',
       requestId: allocateRequestId('session.config'),
       payload,
@@ -329,6 +346,40 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
           `agent-harness control verb ${frame.verb} is driver-to-TUI only`
         )
     }
+  }
+
+  /**
+   * Queue the refused turn's terminal on the SAME outbound gate body events use.
+   * The gate flushes one macrotask after `applyInputNow` returns, which is
+   * strictly after the broker's synchronous `turn.started` continuation — so the
+   * bracket is always opened before it is failed, without this driver having to
+   * know anything about the broker's internal ordering.
+   */
+  function failRefusedTurn(
+    turnId: string,
+    inputId: InputId,
+    ack: AgentHarnessControlNegativeAck
+  ): void {
+    const driverCtx = requireCtx()
+    gated.push(() => {
+      driverCtx.emit(
+        'turn.failed',
+        {
+          turnId: turnId as TurnId,
+          status: 'failed',
+          code: ack.code,
+          message: ack.message,
+          // The runtime is intact and the input was never delivered, so the same
+          // content is safe to send again under a NEW inputId.
+          retryable: true,
+        },
+        {
+          turnId: turnId as TurnId,
+          inputId,
+          driver: { kind: AGENT_HARNESS_TMUX_DRIVER_KIND, rawType: 'turn.begin.nack' },
+        }
+      )
+    })
   }
 
   async function deliverInput(input: InvocationInput): Promise<void> {
@@ -402,11 +453,22 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
       try {
         // The child's event mapper discards everything until `beginTurn`, so the
         // ack — not a timer — is what makes the paste safe to send.
-        await request({
+        const ack = await request({
           verb: 'turn.begin',
           requestId: allocateRequestId('turn.begin'),
           payload: { turnId, inputId, structured: false },
         })
+        if (ack.ack === false) {
+          // A refusal is a TURN failure, not an INPUT failure. Returning
+          // normally with the allocated turnId is what preserves the broker's
+          // accepted-input boundary: `input.accepted{started}` was already
+          // emitted, and only a normal return lets the broker record the
+          // inputId disposition, open the turn bracket, and then close it on
+          // the terminal below. Throwing here would strand a started input that
+          // never started and leave the same inputId re-drivable.
+          failRefusedTurn(turnId, inputId, ack)
+          return { turnId: turnId as ApplyInputResult['turnId'] }
+        }
         await deliverInput(input)
         return { turnId: turnId as ApplyInputResult['turnId'] }
       } finally {

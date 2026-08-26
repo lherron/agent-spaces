@@ -273,3 +273,65 @@ describe('closed verb and request validation', () => {
     })
   }
 })
+
+// T-07584: the acknowledgement widened to a result discriminated on `ack`.
+// Acks are NOT control frames — the verb set is closed to the five wire verbs —
+// so they are recognized and validated on their own path, ahead of the decoder.
+describe('agent-harness-control/v1 acknowledgement validation', () => {
+  const isAckLine = () => protocol.isAgentHarnessControlAckLine
+  const validateAck = () => protocol.validateAgentHarnessControlAck
+
+  test('pins the closed refusal code set', () => {
+    expect([...protocol.AGENT_HARNESS_CONTROL_NACK_CODES]).toEqual([
+      'turn_already_active',
+      'turn_begin_failed',
+    ])
+  })
+
+  test('recognizes both polarities as ack lines and control frames as not', () => {
+    expect(isAckLine()({ ack: true, requestId: 'r1' })).toBe(true)
+    expect(isAckLine()({ ack: false, code: 'turn_begin_failed', message: 'no' })).toBe(true)
+    expect(isAckLine()({ verb: 'hello', payload: {} })).toBe(false)
+    expect(isAckLine()('not an object')).toBe(false)
+    expect(isAckLine()(undefined)).toBe(false)
+  })
+
+  test('accepts a positive ack with or without the echoed requestId', () => {
+    expect(validateAck()({ ack: true })).toEqual({ ack: true })
+    expect(validateAck()({ ack: true, requestId: 'r1' })).toEqual({ ack: true })
+  })
+
+  test('accepts a negative ack for every closed code', () => {
+    for (const code of protocol.AGENT_HARNESS_CONTROL_NACK_CODES) {
+      expect(validateAck()({ ack: false, requestId: 'r1', code, message: 'refused' })).toEqual({
+        ack: false,
+        code,
+        message: 'refused',
+      })
+    }
+  })
+
+  test('refuses a refusal code outside the closed set', () => {
+    expect(() =>
+      validateAck()({ ack: false, code: 'session_config_failed', message: 'refused' })
+    ).toThrow()
+  })
+
+  test('refuses a negative ack with no code or no message', () => {
+    expect(() => validateAck()({ ack: false, message: 'refused' })).toThrow()
+    expect(() => validateAck()({ ack: false, code: 'turn_begin_failed' })).toThrow()
+    expect(() => validateAck()({ ack: false, code: 'turn_begin_failed', message: '' })).toThrow()
+  })
+
+  test('refuses a positive ack that smuggles a refusal payload', () => {
+    expect(() =>
+      validateAck()({ ack: true, code: 'turn_already_active', message: 'refused' })
+    ).toThrow()
+  })
+
+  test('refuses a non-boolean ack, an unknown field, and a non-object', () => {
+    expect(() => validateAck()({ ack: 'true' })).toThrow()
+    expect(() => validateAck()({ ack: true, retryable: true })).toThrow()
+    expect(() => validateAck()('ack')).toThrow()
+  })
+})

@@ -7,14 +7,17 @@ import {
   loadAgent,
 } from 'agent-harness-runtime'
 import {
+  PiSdkTurnAlreadyActiveError,
   PiSdkTurnEventMapper,
   type PiSdkTurnEventMapperOptions,
   createPiSdkPermissionBridge,
 } from 'spaces-harness-broker-pi-sdk'
 import {
   AGENT_HARNESS_CONTROL_PROTOCOL_VERSION,
+  type AgentHarnessControlAck,
   AgentHarnessControlDecoder,
   type AgentHarnessControlFrame,
+  type AgentHarnessControlNackCode,
   type AgentHarnessControlSessionConfigFrame,
   type AgentHarnessControlTurnBeginFrame,
   type AgentHarnessSessionConfig,
@@ -26,6 +29,7 @@ import {
   type InvocationId,
   type TurnId,
   encodeAgentHarnessControlFrame,
+  validateAgentHarnessControlAck,
   validateAgentHarnessSessionConfig,
   validateEventEnvelope,
 } from 'spaces-harness-broker-protocol'
@@ -275,7 +279,13 @@ class BrokerControlConnection {
         this.onTurnBegin(frame)
         this.#ack(frame.requestId)
       } catch (error) {
-        this.#fail(error)
+        // A turn we cannot bind is a RECOVERABLE turn failure, not a crash. The
+        // mapper throws before it reassigns #turnId, so the runtime, the live
+        // turn, and this channel are all still intact — say so on the wire and
+        // stay up. Destroying here would make "I cannot begin this turn"
+        // indistinguishable from "I died" and would take the whole invocation
+        // down for one refused turn.
+        this.#nack(frame.requestId, error)
       }
       return
     }
@@ -305,6 +315,23 @@ class BrokerControlConnection {
   }
 
   #ack(requestId: string): void {
-    this.socket.write(`${JSON.stringify({ ack: true, requestId })}\n`)
+    this.#writeAck({ ack: true, requestId })
+  }
+
+  #nack(requestId: string, error: unknown): void {
+    const code: AgentHarnessControlNackCode =
+      error instanceof PiSdkTurnAlreadyActiveError ? 'turn_already_active' : 'turn_begin_failed'
+    this.#writeAck({
+      ack: false,
+      requestId,
+      code,
+      message: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  #writeAck(line: AgentHarnessControlAck & { requestId: string }): void {
+    if (this.#failed) return
+    validateAgentHarnessControlAck(line)
+    this.socket.write(`${JSON.stringify(line)}\n`)
   }
 }

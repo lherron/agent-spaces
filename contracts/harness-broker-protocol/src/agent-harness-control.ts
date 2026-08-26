@@ -110,9 +110,39 @@ export type AgentHarnessControlNotification =
   | AgentHarnessControlReadyFrame
   | AgentHarnessControlEventFrame
 
-export interface AgentHarnessControlAck {
+/**
+ * The closed code set for a `turn.begin` refusal. `turn_already_active` is the
+ * one condition the child can name precisely (its mapper still holds a
+ * non-terminal turn); `turn_begin_failed` is the catch-all for any other
+ * inability to bind the proposed turn. There is deliberately no code for a
+ * `session.config` refusal: that path stays fail-closed and destroys the
+ * channel, because a configuration that does not validate has no recoverable
+ * continuation.
+ */
+export const AGENT_HARNESS_CONTROL_NACK_CODES = [
+  'turn_already_active',
+  'turn_begin_failed',
+] as const
+
+export type AgentHarnessControlNackCode = (typeof AGENT_HARNESS_CONTROL_NACK_CODES)[number]
+
+export interface AgentHarnessControlPositiveAck {
   ack: true
 }
+
+/**
+ * "I cannot bind this turn" — distinct on the wire from "I crashed". The child
+ * writes this INSTEAD of dying, so the control channel, the runtime, and every
+ * later turn on it survive a single turn's refusal.
+ */
+export interface AgentHarnessControlNegativeAck {
+  ack: false
+  code: AgentHarnessControlNackCode
+  message: string
+}
+
+/** The acknowledgement result, discriminated on `ack`. */
+export type AgentHarnessControlAck = AgentHarnessControlPositiveAck | AgentHarnessControlNegativeAck
 
 /**
  * Consumer-facing split that makes an acknowledgement-bearing frame impossible
@@ -201,6 +231,61 @@ export function validateAgentHarnessSessionConfig(value: unknown): AgentHarnessS
 
   throwForIssues(issues)
   return value as AgentHarnessSessionConfig
+}
+
+/**
+ * Acknowledgements are NOT control frames — the verb set is closed to the five
+ * wire verbs — so they are recognized and validated on their own path, ahead of
+ * the frame decoder, by the presence of a boolean `ack`. Returns false for any
+ * line that is a frame (or garbage) so the caller can hand it to the decoder.
+ */
+export function isAgentHarnessControlAckLine(value: unknown): boolean {
+  const line = asRecord(value)
+  return line !== undefined && typeof line['ack'] === 'boolean'
+}
+
+/** Validate one acknowledgement line. Throws for a malformed or unknown-code ack. */
+export function validateAgentHarnessControlAck(value: unknown): AgentHarnessControlAck {
+  const issues: ValidationIssue[] = []
+  const line = asRecord(value)
+  if (!line) {
+    issues.push(makeIssue('', 'invalid_type', 'Acknowledgement must be an object'))
+    throwForIssues(issues)
+    return value as AgentHarnessControlAck
+  }
+
+  rejectUnknownKeys(line, ['ack', 'requestId', 'code', 'message'], '', issues)
+  if (line['requestId'] !== undefined && typeof line['requestId'] !== 'string') {
+    issues.push(makeIssue('requestId', 'invalid_type', 'requestId must be a string'))
+  }
+
+  if (line['ack'] === true) {
+    for (const key of ['code', 'message']) {
+      if (line[key] !== undefined) {
+        issues.push(makeIssue(key, 'forbidden', `A positive acknowledgement must not carry ${key}`))
+      }
+    }
+    throwForIssues(issues)
+    return { ack: true }
+  }
+
+  if (line['ack'] !== false) {
+    issues.push(makeIssue('ack', 'invalid_type', 'ack must be a boolean'))
+    throwForIssues(issues)
+  }
+
+  if (!isOneOf(line['code'], AGENT_HARNESS_CONTROL_NACK_CODES)) {
+    issues.push(
+      makeIssue('code', 'invalid_literal', 'A negative acknowledgement needs a closed-set code')
+    )
+  }
+  requireNonEmptyString(line['message'], 'message', issues)
+  throwForIssues(issues)
+  return {
+    ack: false,
+    code: line['code'] as AgentHarnessControlNackCode,
+    message: line['message'] as string,
+  }
 }
 
 export function validateAgentHarnessControlFrame(value: unknown): AgentHarnessControlFrame {

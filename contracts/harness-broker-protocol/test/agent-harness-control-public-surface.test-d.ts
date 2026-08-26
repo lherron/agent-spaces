@@ -8,6 +8,9 @@ import type {
   AgentHarnessControlFrame,
   AgentHarnessControlFrameResult,
   AgentHarnessControlHelloFrame,
+  AgentHarnessControlNackCode,
+  AgentHarnessControlNegativeAck,
+  AgentHarnessControlPositiveAck,
   AgentHarnessControlProtocolVersion,
   AgentHarnessControlSdk,
   AgentHarnessSessionConfig,
@@ -24,6 +27,9 @@ declare const config: AgentHarnessSessionConfig
 declare const hello: AgentHarnessControlHelloFrame
 declare const frame: AgentHarnessControlFrame
 declare const frameResult: AgentHarnessControlFrameResult
+declare const nackCode: AgentHarnessControlNackCode
+declare const negativeAck: AgentHarnessControlNegativeAck
+declare const positiveAck: AgentHarnessControlPositiveAck
 
 const authProjection: AgentHarnessControlAuth = auth
 const sdkProjection: AgentHarnessControlSdk = sdk
@@ -42,4 +48,11 @@ void helloFrame
 void controlFrame
 void controlResult
 void frameError
+const refusalCode: AgentHarnessControlNackCode = nackCode
+const refusal: AgentHarnessControlNegativeAck = negativeAck
+const acceptance: AgentHarnessControlPositiveAck = positiveAck
+
 void validationError
+void refusalCode
+void refusal
+void acceptance

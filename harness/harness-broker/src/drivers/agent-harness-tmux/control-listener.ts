@@ -7,6 +7,8 @@ import type {
 import {
   AgentHarnessControlDecoder,
   encodeAgentHarnessControlFrame,
+  isAgentHarnessControlAckLine,
+  validateAgentHarnessControlAck,
 } from 'spaces-harness-broker-protocol'
 
 export interface AgentHarnessControlListenerContext {
@@ -43,7 +45,11 @@ interface PendingRequest {
  *
  * Ack lines are NOT control frames (the verb set is closed to the five wire
  * verbs), so they are correlated before frame validation: by `requestId` when
- * the child echoes it, otherwise in FIFO issue order.
+ * the child echoes it, otherwise in FIFO issue order. Both polarities correlate
+ * identically — a negative ack is an ANSWER to the request, so it settles the
+ * pending promise with `{ack:false}` rather than rejecting it. Only a
+ * MALFORMED ack (unknown code, missing message) rejects, because that is the
+ * one shape the driver cannot act on.
  */
 export async function listenForAgentHarnessControl(
   socketPath: string,
@@ -67,7 +73,16 @@ export async function listenForAgentHarnessControl(
       requestId === undefined ? 0 : pending.findIndex((entry) => entry.requestId === requestId)
     if (index < 0) return
     const [entry] = pending.splice(index, 1)
-    entry?.resolve({ ack: true })
+    if (entry === undefined) return
+    try {
+      entry.resolve(validateAgentHarnessControlAck(line))
+    } catch (error) {
+      entry.reject(
+        error instanceof Error
+          ? error
+          : new Error('agent-harness control acknowledgement is malformed')
+      )
+    }
   }
 
   const failPending = (reason: string): void => {
@@ -94,11 +109,7 @@ export async function listenForAgentHarnessControl(
           frames.push(`${line}\n`)
           continue
         }
-        if (
-          typeof parsed === 'object' &&
-          parsed !== null &&
-          (parsed as Record<string, unknown>)['ack'] === true
-        ) {
+        if (isAgentHarnessControlAckLine(parsed)) {
           settle(parsed as Record<string, unknown>)
           continue
         }

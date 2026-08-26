@@ -11,7 +11,7 @@ export type {
   PiSdkSession,
   PiSdkSessionFactoryInput,
 } from './driver'
-export { PiSdkTurnEventMapper } from './event-mapper'
+export { PiSdkTurnAlreadyActiveError, PiSdkTurnEventMapper } from './event-mapper'
 export type {
   PiSdkSettlementAction,
   PiSdkTurnEventMapperOptions,

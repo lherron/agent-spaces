@@ -17,6 +17,24 @@ export interface PiSdkTurnEventMapperOptions {
 }
 
 /**
+ * `beginTurn` refused because the mapper still holds a non-terminal turn. It is
+ * a distinct type rather than a message so the control-channel child can map it
+ * to the closed `turn_already_active` nack code without matching on prose.
+ *
+ * It is thrown BEFORE `#turnId` is reassigned, so the mapper state a refusal
+ * reports is the state the caller can still trust.
+ */
+export class PiSdkTurnAlreadyActiveError extends Error {
+  readonly activeTurnId: TurnId
+
+  constructor(activeTurnId: TurnId) {
+    super(`Cannot begin a pi SDK turn while turn ${activeTurnId} is active`)
+    this.name = 'PiSdkTurnAlreadyActiveError'
+    this.activeTurnId = activeTurnId
+  }
+}
+
+/**
  * Maps one pi agent lifecycle to one broker turn. Pi's turn_start/turn_end are
  * model-round boundaries, so they are intentionally ignored as broker turn
  * boundaries; only agent_settled can terminate the broker turn.
@@ -61,7 +79,7 @@ export class PiSdkTurnEventMapper {
     structured: boolean
   }): void {
     if (this.#turnId !== undefined && !this.#terminal) {
-      throw new Error('Cannot begin a pi SDK turn while another turn is active')
+      throw new PiSdkTurnAlreadyActiveError(this.#turnId)
     }
     this.#turnId = options.turnId
     this.#inputId = options.inputId

@@ -44,6 +44,10 @@ const runBrokerTui = runAgentHarnessTui as BrokerTuiRunner
 const CONFIG_REQUEST_ID = 'config-request-07566'
 const TURN_REQUEST_ID = 'turn-request-07566'
 const BROKER_TURN_ID = 'broker-turn-07566'
+const REFUSED_REQUEST_ID = 'turn-request-refused-07584'
+const REFUSED_TURN_ID = 'broker-turn-refused-07584'
+const RECOVERED_REQUEST_ID = 'turn-request-recovered-07584'
+const RECOVERED_TURN_ID = 'broker-turn-recovered-07584'
 
 const deliveredConfig = {
   permissionPolicy: { mode: 'deny' },
@@ -223,14 +227,69 @@ describe('agent-harness TUI broker control', () => {
     expect(JSON.stringify(events)).not.toContain('must-be-dropped')
     expect(JSON.stringify(events)).toContain('after-handshake')
   })
+
+  // T-07584: a turn the mapper cannot bind is answered, not fatal. Before this,
+  // the child's only two options on a control request were ACK or DIE, so
+  // "I cannot begin this turn" was wire-indistinguishable from "I crashed" and
+  // took the whole invocation down for one refused turn.
+  test('nacks an unbindable turn.begin, keeps the channel, and binds a later turn on the same runtime', async () => {
+    const control = await BrokerControlDouble.start('turn-refusal')
+    const harness = runtimeHarness({
+      async onInteractive() {
+        if (!harness.hasSessionSubscriber()) return
+        await control.waitForAck(TURN_REQUEST_ID)
+
+        // A second turn while the first is still live: unbindable by construction.
+        control.sendTurnBegin(REFUSED_REQUEST_ID, REFUSED_TURN_ID)
+        await control.waitForNack(REFUSED_REQUEST_ID)
+
+        // The channel and the runtime both survived: the LIVE turn keeps mapping.
+        harness.emitSessionEvent(assistantDelta('after-refusal'))
+        await control.waitForFrame('event')
+
+        // Settle the live turn, then a later turn binds on the SAME runtime.
+        harness.emitSessionEvent({ type: 'agent_settled' } as AgentSessionEvent)
+        control.sendTurnBegin(RECOVERED_REQUEST_ID, RECOVERED_TURN_ID)
+        await control.waitForAck(RECOVERED_REQUEST_ID)
+      },
+    })
+
+    await runBrokerTui(
+      { agentId: 'smokey', brokerControlSocket: control.socketPath },
+      harness.dependencies
+    )
+
+    expect(control.nacks).toEqual([
+      {
+        requestId: REFUSED_REQUEST_ID,
+        code: 'turn_already_active',
+        message: expect.stringContaining(BROKER_TURN_ID) as unknown as string,
+      },
+    ])
+    expect(control.acked(RECOVERED_REQUEST_ID)).toBe(true)
+    expect(control.protocolErrors).toEqual([])
+
+    // The refused turn never bound: nothing on the wire carries its turnId.
+    const events = control.frames.filter((frame) => frame.verb === 'event')
+    expect(events.length).toBeGreaterThan(0)
+    expect(JSON.stringify(events)).not.toContain(REFUSED_TURN_ID)
+    expect(JSON.stringify(events)).toContain('after-refusal')
+  })
 })
 
-type ControlBehavior = 'withheld' | 'malformed' | 'late' | 'configured' | 'turn-handshake'
+type ControlBehavior =
+  | 'withheld'
+  | 'malformed'
+  | 'late'
+  | 'configured'
+  | 'turn-handshake'
+  | 'turn-refusal'
 
 class BrokerControlDouble {
   readonly frames: AgentHarnessControlFrame[] = []
   readonly protocolErrors: unknown[] = []
   readonly #ackedRequestIds = new Set<string>()
+  readonly nacks: Array<{ requestId: string; code: unknown; message: unknown }> = []
   readonly #pendingRequestIds: string[] = []
   readonly #sockets = new Set<Socket>()
   readonly #waiters = new Set<() => void>()
@@ -283,6 +342,21 @@ class BrokerControlDouble {
     await this.#waitUntil(() => this.#ackedRequestIds.has(requestId))
   }
 
+  async waitForNack(requestId: string): Promise<void> {
+    await this.#waitUntil(() => this.nacks.some((nack) => nack.requestId === requestId))
+  }
+
+  /** Offer a turn AFTER the initial handshake, on the still-open channel. */
+  sendTurnBegin(requestId: string, turnId: string): void {
+    const socket = [...this.#sockets][0]
+    if (socket === undefined) throw new Error('no live agent-harness control connection')
+    this.#send(socket, turnBeginFrame(requestId, turnId))
+  }
+
+  acked(requestId: string): boolean {
+    return this.#ackedRequestIds.has(requestId)
+  }
+
   async dispose(): Promise<void> {
     for (const socket of this.#sockets) socket.destroy()
     await new Promise<void>((resolve) => this.#server.close(() => resolve()))
@@ -310,9 +384,16 @@ class BrokerControlDouble {
   #acceptLine(socket: Socket, line: string): void {
     try {
       const value = JSON.parse(line) as Record<string, unknown>
-      if (value['ack'] === true) {
-        const requestId = this.#pendingRequestIds.shift()
-        if (requestId !== undefined) this.#ackedRequestIds.add(requestId)
+      if (typeof value['ack'] === 'boolean') {
+        // Correlate by the echoed requestId when the child sends one; the FIFO
+        // shift is the fallback and keeps the pending list honest either way.
+        const echoed = typeof value['requestId'] === 'string' ? value['requestId'] : undefined
+        const shifted = this.#pendingRequestIds.shift()
+        const requestId = echoed ?? shifted
+        if (requestId !== undefined) {
+          if (value['ack'] === true) this.#ackedRequestIds.add(requestId)
+          else this.nacks.push({ requestId, code: value['code'], message: value['message'] })
+        }
         this.#notify()
         return
       }
@@ -347,7 +428,10 @@ class BrokerControlDouble {
       return
     }
 
-    if (frame.verb === 'ready' && this.#behavior === 'turn-handshake') {
+    if (
+      frame.verb === 'ready' &&
+      (this.#behavior === 'turn-handshake' || this.#behavior === 'turn-refusal')
+    ) {
       this.#send(socket, turnBeginFrame())
     }
   }
@@ -391,13 +475,16 @@ function sessionConfigFrame(
   }
 }
 
-function turnBeginFrame(): AgentHarnessControlFrame {
+function turnBeginFrame(
+  requestId: string = TURN_REQUEST_ID,
+  turnId: string = BROKER_TURN_ID
+): AgentHarnessControlFrame {
   return {
     verb: 'turn.begin',
-    requestId: TURN_REQUEST_ID,
+    requestId,
     payload: {
-      turnId: BROKER_TURN_ID,
-      inputId: 'input-07566',
+      turnId,
+      inputId: `input-for-${turnId}`,
       structured: false,
     },
   }

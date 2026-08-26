@@ -315,6 +315,126 @@ async function main(): Promise<void> {
       assistantText.slice(0, 200)
     )
 
+    // ------------------------------------------------------------------
+    // T-07584 refusal phase: a turn.begin the child CANNOT bind.
+    //
+    // Every wire here is real — real child, real control socket, real broker
+    // event stream. The only synthesized part is the CALLER: the broker's
+    // turnConcurrency is `single`, so it will never offer turn N+1 until it has
+    // seen turn N's terminal, and it takes that terminal from the child. The
+    // two are self-consistent by construction and the rig never produced this
+    // naturally. So the rig plays the desync the design exists for — a broker
+    // that believes the turn closed when the child does not — by driving
+    // `applyInputNow` directly for a second turn while the first is still live.
+    // Naming that gap is the point: what is proven real here is the CHILD's
+    // refusal and the DRIVER's response to it, not the broker's own scheduler.
+    // The broker-side half (accepted-input ledger, turn.started before
+    // turn.failed, ready restored, replay refused) is proven against the real
+    // broker in test/drivers/agent-harness-tmux/turn-begin-nack.test.ts.
+    console.log('')
+    console.log('--- refusal phase (T-07584) ---')
+    const refusedText = `REFUSED-${marker.toUpperCase()} must never reach the pane`
+    const beforeRefusal = events.length
+    const liveTurn = await driver.applyInputNow({
+      inputId: `input-live-${marker}`,
+      kind: 'user',
+      content: [
+        {
+          type: 'text',
+          text: `Reply with exactly ${sentinel} and nothing else. Do not use any tools.`,
+        },
+      ],
+    })
+    // Offered while the live turn above is still non-terminal in the child's
+    // mapper: unbindable by construction, which is exactly `turn_already_active`.
+    const refusedTurn = await driver.applyInputNow({
+      inputId: `input-refused-${marker}`,
+      kind: 'user',
+      content: [{ type: 'text', text: refusedText }],
+    })
+    await Bun.sleep(50)
+
+    const refusalTerminal = events
+      .slice(beforeRefusal)
+      .find((event) => event.type === 'turn.failed' && event.turnId === String(refusedTurn.turnId))
+    const refusalPayload = refusalTerminal?.payload as
+      | { code?: unknown; retryable?: unknown }
+      | undefined
+
+    check(
+      'e. a refused turn.begin still returns the broker-allocated turnId',
+      typeof refusedTurn.turnId === 'string' && refusedTurn.turnId !== liveTurn.turnId,
+      `live=${String(liveTurn.turnId)} refused=${String(refusedTurn.turnId)}`
+    )
+    check(
+      'e. the refused input NEVER reached the pane',
+      !(await capturePane(tmuxSocket, paneId)).includes(refusedText)
+    )
+    check(
+      'e. the refusal surfaced as a closed-code turn.failed, not a crash',
+      refusalPayload?.code === 'turn_already_active' && refusalPayload?.retryable === true,
+      JSON.stringify(refusalPayload ?? null)
+    )
+    check(
+      'e. the control channel and invocation SURVIVED the refusal',
+      !events
+        .slice(beforeRefusal)
+        .some((event) => event.type === 'invocation.failed' || event.type === 'invocation.exited')
+    )
+
+    const liveSettled = await waitFor(
+      'the live turn to settle after the refusal',
+      () =>
+        events.some(
+          (event) =>
+            event.turnId === String(liveTurn.turnId) &&
+            (event.type === 'turn.completed' ||
+              event.type === 'turn.failed' ||
+              event.type === 'turn.interrupted')
+        ),
+      TURN_TIMEOUT_MS
+    )
+    check('e. the live turn still settled on its own', liveSettled)
+
+    // The whole point: a later turn runs on the SAME runtime, through the real
+    // broker, after a refusal.
+    const beforeRecovery = events.length
+    const recovered = await broker.input({
+      invocationId,
+      input: {
+        inputId: `input-recovered-${marker}`,
+        kind: 'user',
+        content: [
+          {
+            type: 'text',
+            text: `Reply with exactly ${sentinel} and nothing else. Do not use any tools.`,
+          },
+        ],
+      },
+    })
+    const recoveredSettled = await waitFor(
+      'the post-refusal turn to settle',
+      () =>
+        events
+          .slice(beforeRecovery)
+          .some(
+            (event) =>
+              event.turnId === String(recovered.turnId) &&
+              (event.type === 'turn.completed' || event.type === 'turn.failed')
+          ),
+      TURN_TIMEOUT_MS
+    )
+    check(
+      'e. a LATER broker turn runs on the same runtime after the refusal',
+      recovered.accepted && recoveredSettled,
+      `turnId=${String(recovered.turnId)}`
+    )
+    check(
+      '   broker sequencing stayed dense across the refusal',
+      events.every((event, index) => event.seq === index + 1),
+      `seq 1..${events.length}`
+    )
+
     if (failures.length > 0) {
       console.log(`\n--- pane ---\n${await capturePane(tmuxSocket, paneId)}`)
     }
