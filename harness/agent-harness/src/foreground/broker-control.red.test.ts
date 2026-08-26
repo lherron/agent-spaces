@@ -12,6 +12,7 @@ import type {
   LoadAgentOptions,
   ResolvedAgent,
 } from 'agent-harness-runtime'
+import { resolveAgentHarnessModel } from 'agent-harness-runtime'
 import {
   type AgentHarnessControlFrame,
   type AgentHarnessControlSessionConfigFrame,
@@ -49,12 +50,12 @@ const deliveredConfig = {
   auth: {
     authMode: 'oauth',
     authPath: '/broker/credentials/auth.json',
-    providerId: 'anthropic',
+    providerId: 'openai-codex',
     credentialType: 'oauth',
     storeBound: true,
   },
   sdk: {
-    modelId: 'claude-sonnet-4-5',
+    modelId: 'gpt-5.6-terra',
     thinkingLevel: 'high',
   },
   agent: {
@@ -90,7 +91,7 @@ describe('agent-harness TUI broker control', () => {
     })
   }
 
-  test('binds delivered auth before runtime creation and never consults foreground auth', async () => {
+  test('narrows the Pi provider namespace before real catalog lookup and never consults foreground auth', async () => {
     const control = await BrokerControlDouble.start('configured')
     const observedForegroundKeys: PropertyKey[] = []
     let loadOptions: LoadAgentOptions | undefined
@@ -132,8 +133,42 @@ describe('agent-harness TUI broker control', () => {
     expect(loadOptions).toMatchObject({
       ...deliveredConfig.agent,
       model: deliveredConfig.sdk.modelId,
-      provider: deliveredConfig.auth.providerId,
+      provider: undefined,
       reasoningEffort: deliveredConfig.sdk.thinkingLevel,
+    })
+    expect(
+      resolveAgentHarnessModel(loadOptions?.provider, deliveredConfig.sdk.modelId)
+    ).toMatchObject({
+      alias: 'openai-codex/gpt-5.6-terra',
+      piProvider: 'openai-codex',
+    })
+  })
+
+  test('retains the anthropic provider namespace through the narrowing', async () => {
+    const anthropicConfig = {
+      ...deliveredConfig,
+      auth: { ...deliveredConfig.auth, providerId: 'anthropic' },
+      sdk: { ...deliveredConfig.sdk, modelId: 'claude-sonnet-4-5' },
+    } as const satisfies AgentHarnessSessionConfig
+    const control = await BrokerControlDouble.start('configured', anthropicConfig)
+    let loadOptions: LoadAgentOptions | undefined
+    const harness = runtimeHarness({
+      onLoad(options) {
+        loadOptions = options
+      },
+    })
+
+    await runBrokerTui(
+      { agentId: 'ignored-foreground-id', brokerControlSocket: control.socketPath },
+      harness.dependencies
+    )
+
+    expect(loadOptions?.provider).toBe('anthropic')
+    expect(
+      resolveAgentHarnessModel(loadOptions?.provider, anthropicConfig.sdk.modelId)
+    ).toMatchObject({
+      alias: 'anthropic-max/claude-sonnet-4-5',
+      piProvider: 'anthropic',
     })
   })
 
@@ -202,6 +237,7 @@ class BrokerControlDouble {
   readonly #tempDirectory: string
   readonly #server: Server
   readonly #behavior: ControlBehavior
+  readonly #config: AgentHarnessSessionConfig
 
   #buffer = ''
 
@@ -209,18 +245,23 @@ class BrokerControlDouble {
     readonly socketPath: string,
     tempDirectory: string,
     server: Server,
-    behavior: ControlBehavior
+    behavior: ControlBehavior,
+    config: AgentHarnessSessionConfig
   ) {
     this.#tempDirectory = tempDirectory
     this.#server = server
     this.#behavior = behavior
+    this.#config = config
   }
 
-  static async start(behavior: ControlBehavior): Promise<BrokerControlDouble> {
+  static async start(
+    behavior: ControlBehavior,
+    config: AgentHarnessSessionConfig = deliveredConfig
+  ): Promise<BrokerControlDouble> {
     const tempDirectory = await mkdtemp('/tmp/ah-red-')
     const socketPath = join(tempDirectory, 'control.sock')
     const server = createServer()
-    const control = new BrokerControlDouble(socketPath, tempDirectory, server, behavior)
+    const control = new BrokerControlDouble(socketPath, tempDirectory, server, behavior, config)
     server.on('connection', (socket) => control.#accept(socket))
     controls.push(control)
 
@@ -299,10 +340,10 @@ class BrokerControlDouble {
       }
       if (this.#behavior === 'late') {
         this.#send(socket, turnBeginFrame())
-        this.#send(socket, sessionConfigFrame())
+        this.#send(socket, sessionConfigFrame(this.#config))
         return
       }
-      this.#send(socket, sessionConfigFrame())
+      this.#send(socket, sessionConfigFrame(this.#config))
       return
     }
 
@@ -340,11 +381,13 @@ class BrokerControlDouble {
   }
 }
 
-function sessionConfigFrame(): AgentHarnessControlSessionConfigFrame {
+function sessionConfigFrame(
+  config: AgentHarnessSessionConfig
+): AgentHarnessControlSessionConfigFrame {
   return {
     verb: 'session.config',
     requestId: CONFIG_REQUEST_ID,
-    payload: deliveredConfig,
+    payload: config,
   }
 }
 

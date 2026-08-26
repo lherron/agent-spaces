@@ -157,7 +157,11 @@ export function parseForegroundInvocation(args: string[]): ForegroundInvocation 
         throw new Error(`Unknown agent-harness foreground option: ${arg}`)
     }
   }
-  if (invocation.agentId.length === 0)
+  if (invocation.brokerControlSocket !== undefined && invocation.agentId.length !== 0)
+    throw new Error(
+      'agent-harness broker mode forbids --agent-id: broker control socket supplies agent identity'
+    )
+  if (invocation.brokerControlSocket === undefined && invocation.agentId.length === 0)
     throw new Error('agent-harness foreground modes require --agent-id')
   if (positional.length > 1)
     throw new Error('agent-harness foreground modes accept at most one prompt')

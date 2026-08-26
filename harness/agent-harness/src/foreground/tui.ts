@@ -111,7 +111,10 @@ async function runBrokerAgentHarnessTui(
     const agent = await dependencies.loadAgent({
       ...config.agent,
       model: config.sdk.modelId,
-      provider: config.auth.providerId as LoadAgentOptions['provider'],
+      provider:
+        config.auth.providerId === 'anthropic' || config.auth.providerId === 'openai'
+          ? config.auth.providerId
+          : undefined,
       ...(config.sdk.thinkingLevel !== undefined
         ? { reasoningEffort: config.sdk.thinkingLevel }
         : {}),

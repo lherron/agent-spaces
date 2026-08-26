@@ -50,24 +50,31 @@ describe('agent-harness CLI dispatch', () => {
     ])
   })
 
-  test('selects broker TUI mode with an explicit control socket', async () => {
+  test('selects broker TUI mode from the production control-socket-only argv', async () => {
     const testDependencies = dependencies()
     await dispatchAgentHarness(
-      [
-        'tui',
-        '--agent-id',
-        'cody',
-        '--project-id',
-        'agent-spaces',
-        '--broker-control-socket',
-        '/tmp/agent-harness-control.sock',
-      ],
+      ['tui', '--broker-control-socket', '/tmp/agent-harness-control.sock'],
       testDependencies.values
     )
 
     expect(testDependencies.calls).toEqual([
-      'tui:{"agentId":"cody","projectId":"agent-spaces","brokerControlSocket":"/tmp/agent-harness-control.sock"}',
+      'tui:{"agentId":"","brokerControlSocket":"/tmp/agent-harness-control.sock"}',
     ])
+  })
+
+  test('rejects --agent-id in broker TUI mode because the broker owns identity', () => {
+    expect(() =>
+      parseForegroundInvocation([
+        '--agent-id',
+        'cody',
+        '--broker-control-socket',
+        '/tmp/agent-harness-control.sock',
+      ])
+    ).toThrow('broker control socket supplies agent identity')
+  })
+
+  test('continues to require --agent-id outside broker TUI mode', () => {
+    expect(() => parseForegroundInvocation([])).toThrow('require --agent-id')
   })
 
   test('dispatches print and retains its exit status', async () => {
