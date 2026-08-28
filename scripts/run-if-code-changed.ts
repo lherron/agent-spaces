@@ -6,6 +6,11 @@ import {
 } from './lib/hook-change-scope.ts'
 import type { ChangeScope, HookName } from './lib/hook-change-scope.ts'
 import {
+  HOOK_CHANGED_PATHS_ENV,
+  HOOK_CHANGE_AMBIGUOUS_ENV,
+  isPublicSurfaceRelevant,
+} from './lib/hook-optimization.ts'
+import {
   HOOK_RUN_ID_ENV,
   HOOK_TIMING_SCHEMA_VERSION,
   appendTimingRecord,
@@ -18,9 +23,16 @@ async function main(): Promise<number> {
   const separator = process.argv.indexOf('--', 2)
   const hook = process.argv[2]
   const step = process.argv[3]
-  if ((hook !== 'pre-commit' && hook !== 'pre-push') || !step || separator !== 4) {
+  const options = process.argv.slice(4, separator)
+  const onlyPublicSurface = options.includes('--only=public-surface')
+  if (
+    (hook !== 'pre-commit' && hook !== 'pre-push') ||
+    !step ||
+    separator < 4 ||
+    options.some((option) => option !== '--only=public-surface')
+  ) {
     console.error(
-      'usage: run-if-code-changed.ts <pre-commit|pre-push> <step> -- <command> [args...]'
+      'usage: run-if-code-changed.ts <pre-commit|pre-push> <step> [--only=public-surface] -- <command> [args...]'
     )
     return 2
   }
@@ -41,20 +53,29 @@ async function main(): Promise<number> {
   let exitCode = 0
   let result: 'passed' | 'failed' | 'skipped' = 'passed'
 
-  if (shouldSkipCodeValidation(scope)) {
+  if (
+    shouldSkipCodeValidation(scope) ||
+    (onlyPublicSurface && !scope.paths.some(isPublicSurfaceRelevant))
+  ) {
     result = 'skipped'
     if (scope.deletionOnlyPush) {
       console.log('[hook-scope] skipping validation for a deletion-only push')
-    } else {
+    } else if (shouldSkipCodeValidation(scope)) {
       console.log(
         `[hook-scope] skipping code validation for ${scope.paths.length} documentation file(s)`
       )
+    } else {
+      console.log('[hook-scope] skipping public-surface validation for unrelated changes')
     }
   } else {
     try {
       const proc = Bun.spawnSync(command, {
         cwd: process.cwd(),
-        env: process.env,
+        env: {
+          ...process.env,
+          [HOOK_CHANGED_PATHS_ENV]: JSON.stringify(scope.paths),
+          [HOOK_CHANGE_AMBIGUOUS_ENV]: scope.ambiguous ? '1' : '0',
+        },
         stdin: 'inherit',
         stdout: 'inherit',
         stderr: 'inherit',

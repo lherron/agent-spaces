@@ -6,7 +6,7 @@ min_version: "2.1.10"
 lefthook: bun scripts/run-lefthook-with-timing.ts
 
 pre-commit:
-  parallel: false
+  parallel: true
   commands:
     gitleaks:
       run: bun scripts/run-hook-command.ts pre-commit {lefthook_job_name} -- gitleaks protect --staged --redact
@@ -22,7 +22,7 @@ pre-commit:
     suppressions:
       run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- bun scripts/check-suppressions.ts
     public-surface:
-      run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- bun scripts/check-public-surface.ts
+      run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} --only=public-surface -- bun scripts/check-public-surface.ts
     doc-reachability:
       run: bun scripts/run-hook-command.ts pre-commit {lefthook_job_name} -- bun scripts/check-doc-reachability.ts
     rule-authoring:

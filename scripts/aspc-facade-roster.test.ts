@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { aspPackages } from './lib/import-graph.js'
+import { discoverWorkspacePackages, topologicalWorkspaceLayers } from './lib/workspace-graph.ts'
 
 const repoRoot = new URL('..', import.meta.url).pathname
 
@@ -31,16 +32,21 @@ type RootManifest = {
 }
 
 describe('spaces-aspc-facade roster membership', () => {
-  test('AC-11: the composition package is in every closed roster', () => {
+  test('AC-11: the composition package is in every closed roster', async () => {
     const rootManifest = JSON.parse(read('package.json')) as RootManifest
 
-    // Build order: present, and AFTER spaces-aspc (it composes it).
-    const buildOrdered = rootManifest.scripts['build:ordered']
-    const facadeIndex = buildOrdered.indexOf(`'${NPM_NAME}'`)
-    const aspcIndex = buildOrdered.indexOf("'spaces-aspc'")
-    expect(facadeIndex).toBeGreaterThan(-1)
-    expect(aspcIndex).toBeGreaterThan(-1)
-    expect(facadeIndex).toBeGreaterThan(aspcIndex)
+    // Build graph: present, and AFTER spaces-aspc (it composes it).
+    expect(rootManifest.scripts['build:ordered']).toBe('bun scripts/build-workspaces.ts')
+    const buildLayers = topologicalWorkspaceLayers(await discoverWorkspacePackages(repoRoot))
+    const facadeLayer = buildLayers.findIndex((layer) =>
+      layer.some(({ name }) => name === NPM_NAME)
+    )
+    const aspcLayer = buildLayers.findIndex((layer) =>
+      layer.some(({ name }) => name === 'spaces-aspc')
+    )
+    expect(facadeLayer).toBeGreaterThan(-1)
+    expect(aspcLayer).toBeGreaterThan(-1)
+    expect(facadeLayer).toBeGreaterThan(aspcLayer)
 
     // Root test loop.
     expect(rootManifest.scripts.test).toContain(NPM_NAME)

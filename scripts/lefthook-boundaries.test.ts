@@ -14,6 +14,7 @@ interface HookConfig {
   min_version: string
   lefthook: string
   'pre-commit': {
+    parallel: boolean
     commands: Record<string, HookCommandConfig>
   }
   'pre-push': {
@@ -33,7 +34,9 @@ const repoRoot = resolve(new URL('..', import.meta.url).pathname)
 const lefthookBinary = join(repoRoot, 'node_modules', '.bin', 'lefthook')
 const scopeScript = join(repoRoot, 'scripts', 'run-if-code-changed.ts')
 const scopeLibrary = join(repoRoot, 'scripts', 'lib', 'hook-change-scope.ts')
+const optimizationLibrary = join(repoRoot, 'scripts', 'lib', 'hook-optimization.ts')
 const timingLibrary = join(repoRoot, 'scripts', 'lib', 'hook-timing.ts')
+const workspaceGraphLibrary = join(repoRoot, 'scripts', 'lib', 'workspace-graph.ts')
 const codeOnlyPreCommitCommands = [
   'lint',
   'boundaries',
@@ -93,6 +96,10 @@ async function makeHookFixture(): Promise<HookFixture> {
   await writeFile(
     join(binDir, 'hook-probe'),
     `#!/bin/sh
+if [ "$1" = "paths" ]; then
+  printf '%s\\n' "$ASP_HOOK_CHANGED_PATHS_JSON" >> "$HOOK_INVOCATIONS"
+  exit 0
+fi
 printf '%s\\n' "$*" >> "$HOOK_INVOCATIONS"
 `
   )
@@ -118,6 +125,14 @@ printf '%s\\n' "$*" >> "$HOOK_INVOCATIONS"
     await readFile(scopeLibrary)
   )
   await writeFile(join(work, 'scripts', 'lib', 'hook-timing.ts'), await readFile(timingLibrary))
+  await writeFile(
+    join(work, 'scripts', 'lib', 'hook-optimization.ts'),
+    await readFile(optimizationLibrary)
+  )
+  await writeFile(
+    join(work, 'scripts', 'lib', 'workspace-graph.ts'),
+    await readFile(workspaceGraphLibrary)
+  )
   await writeFile(
     join(work, 'lefthook.yml'),
     `min_version: "2.1.10"
@@ -176,6 +191,7 @@ describe('lefthook v2 configuration', () => {
     expect(packageJson.devDependencies['lefthook']).toBe('2.1.10')
     expect(config.min_version).toBe('2.1.10')
     expect(config.lefthook).toBe('bun scripts/run-lefthook-with-timing.ts')
+    expect(config['pre-commit'].parallel).toBeTrue()
     run([lefthookBinary, 'validate'], repoRoot)
   })
 
@@ -189,9 +205,10 @@ describe('lefthook v2 configuration', () => {
       'bun scripts/run-hook-command.ts pre-commit {lefthook_job_name} -- bun scripts/check-doc-reachability.ts'
     )
     for (const name of codeOnlyPreCommitCommands) {
-      expect(commands[name]?.run, name).toStartWith(
-        'bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- '
-      )
+      const prefix = `bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name}${
+        name === 'public-surface' ? ' --only=public-surface' : ''
+      } -- `
+      expect(commands[name]?.run, name).toStartWith(prefix)
     }
   })
 
@@ -208,6 +225,48 @@ describe('lefthook v2 configuration', () => {
 })
 
 describe('lefthook v2 real pre-commit boundaries', () => {
+  test('passes exact changed paths to validation and scopes public-surface work', async () => {
+    const fixture = await makeHookFixture()
+    await mkdir(join(fixture.work, 'scripts'), { recursive: true })
+    await writeFile(join(fixture.work, 'scripts', 'probe.ts'), 'export const probe = true\n')
+    run(['git', 'add', 'scripts/probe.ts'], fixture.work)
+
+    run(
+      [
+        'bun',
+        'scripts/run-if-code-changed.ts',
+        'pre-commit',
+        'selection',
+        '--',
+        'hook-probe',
+        'paths',
+      ],
+      fixture.work,
+      hookEnvironment(fixture)
+    )
+    expect(JSON.parse((await readInvocations(fixture.logPath))[0] ?? '[]')).toEqual([
+      'scripts/probe.ts',
+    ])
+
+    await writeFile(fixture.logPath, '')
+    const skipped = run(
+      [
+        'bun',
+        'scripts/run-if-code-changed.ts',
+        'pre-commit',
+        'public-surface',
+        '--only=public-surface',
+        '--',
+        'hook-probe',
+        'public-surface',
+      ],
+      fixture.work,
+      hookEnvironment(fixture)
+    )
+    expect(skipped).toContain('skipping public-surface validation for unrelated changes')
+    expect(await readInvocations(fixture.logPath)).toEqual([])
+  })
+
   test('runs only unconditional checks for documentation extensions regardless of case', async () => {
     const fixture = await makeHookFixture()
     await mkdir(join(fixture.work, 'docs'), { recursive: true })

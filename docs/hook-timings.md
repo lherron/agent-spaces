@@ -24,3 +24,19 @@ bun run hook:stats --since 4w --json
 ```
 
 The report shows invocation counts, pass/failure/skip counts, p50, p95, maximum duration, and the slowest steps. Explicit hook bypasses such as `LEFTHOOK=0` do not execute and therefore cannot record telemetry.
+
+## Optimized execution policy
+
+Pre-commit checks run concurrently. Workspace builds use package-manifest dependencies to run
+independent packages in bounded topological layers; set `ASP_BUILD_CONCURRENCY` to override the
+default concurrency.
+
+Pre-push receives the exact pushed change set from the timing/scope wrapper. The fast test runner
+always executes the small contract suite, adds the changed workspace and its downstream consumers,
+and fails safe to the full allowlist for ambiguous or repository-wide changes. Independent suites
+run with bounded concurrency; set `ASP_TEST_CONCURRENCY` to override the default. Direct
+`bun run test:fast` calls have no pushed change set and therefore run the full allowlist.
+
+Public-surface validation runs only when a workspace package manifest, package source, baseline, or
+the checker itself changes. Documentation-only and unrelated tooling changes are recorded as
+skipped steps, so the timing history preserves those decisions.
