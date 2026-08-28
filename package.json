@@ -30,6 +30,7 @@
     "typecheck": "bun run --filter '*' typecheck",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
+    "hook:stats": "bun scripts/hook-stats.ts",
     "test": "bash -lc 'for pkg in \"agent-scope\" \"cli-kit\" \"spaces-config\" \"spaces-runtime\" \"spaces-harness-claude\" \"spaces-harness-codex\" \"spaces-harness-pi\" \"spaces-harness-pi-sdk\" \"spaces-execution\" \"agent-harness-runtime\" \"spaces-harness-broker-protocol\" \"spaces-runtime-contracts\" \"spaces-aspc-protocol\" \"spaces-harness-broker-client\" \"spaces-harness-broker\" \"spaces-harness-broker-pi-sdk\" \"agent-harness\" \"agent-spaces\" \"spaces-turn-runner\" \"spaces-aspc\" \"spaces-aspc-facade\" \"@lherron/agent-spaces\"; do bun run --filter \"$pkg\" test || exit $?; done; bun test scripts/'",
     "test:fast": "bun scripts/test-fast.ts",
     "test:integration": "bun test integration-tests/tests",

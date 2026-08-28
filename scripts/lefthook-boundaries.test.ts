@@ -12,6 +12,7 @@ interface HookCommandConfig {
 
 interface HookConfig {
   min_version: string
+  lefthook: string
   'pre-commit': {
     commands: Record<string, HookCommandConfig>
   }
@@ -31,6 +32,8 @@ interface HookFixture {
 const repoRoot = resolve(new URL('..', import.meta.url).pathname)
 const lefthookBinary = join(repoRoot, 'node_modules', '.bin', 'lefthook')
 const scopeScript = join(repoRoot, 'scripts', 'run-if-code-changed.ts')
+const scopeLibrary = join(repoRoot, 'scripts', 'lib', 'hook-change-scope.ts')
+const timingLibrary = join(repoRoot, 'scripts', 'lib', 'hook-timing.ts')
 const codeOnlyPreCommitCommands = [
   'lint',
   'boundaries',
@@ -108,8 +111,13 @@ printf '%s\\n' "$*" >> "$HOOK_INVOCATIONS"
   run(['git', 'remote', 'add', 'origin', remote], work)
   run(['git', 'push', '-u', 'origin', 'main'], work)
 
-  await mkdir(join(work, 'scripts'), { recursive: true })
+  await mkdir(join(work, 'scripts', 'lib'), { recursive: true })
   await writeFile(join(work, 'scripts', 'run-if-code-changed.ts'), await readFile(scopeScript))
+  await writeFile(
+    join(work, 'scripts', 'lib', 'hook-change-scope.ts'),
+    await readFile(scopeLibrary)
+  )
+  await writeFile(join(work, 'scripts', 'lib', 'hook-timing.ts'), await readFile(timingLibrary))
   await writeFile(
     join(work, 'lefthook.yml'),
     `min_version: "2.1.10"
@@ -119,7 +127,7 @@ pre-commit:
     gitleaks:
       run: hook-probe gitleaks
     code:
-      run: bun scripts/run-if-code-changed.ts pre-commit -- hook-probe code
+      run: bun scripts/run-if-code-changed.ts pre-commit code -- hook-probe code
     docs:
       run: hook-probe docs
 pre-push:
@@ -128,7 +136,7 @@ pre-push:
   commands:
     validation:
       use_stdin: true
-      run: bun scripts/run-if-code-changed.ts pre-push -- sh -c 'hook-probe validation' {files}
+      run: bun scripts/run-if-code-changed.ts pre-push validation -- sh -c 'hook-probe validation' {files}
 `
   )
   run([lefthookBinary, 'install'], work)
@@ -167,17 +175,22 @@ describe('lefthook v2 configuration', () => {
 
     expect(packageJson.devDependencies['lefthook']).toBe('2.1.10')
     expect(config.min_version).toBe('2.1.10')
+    expect(config.lefthook).toBe('bun scripts/run-lefthook-with-timing.ts')
     run([lefthookBinary, 'validate'], repoRoot)
   })
 
   test('keeps secret and documentation checks unconditional', async () => {
     const commands = (await readConfig())['pre-commit'].commands
 
-    expect(commands['gitleaks']?.run).toBe('gitleaks protect --staged --redact')
-    expect(commands['doc-reachability']?.run).toBe('bun scripts/check-doc-reachability.ts')
+    expect(commands['gitleaks']?.run).toBe(
+      'bun scripts/run-hook-command.ts pre-commit {lefthook_job_name} -- gitleaks protect --staged --redact'
+    )
+    expect(commands['doc-reachability']?.run).toBe(
+      'bun scripts/run-hook-command.ts pre-commit {lefthook_job_name} -- bun scripts/check-doc-reachability.ts'
+    )
     for (const name of codeOnlyPreCommitCommands) {
       expect(commands[name]?.run, name).toStartWith(
-        'bun scripts/run-if-code-changed.ts pre-commit -- '
+        'bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- '
       )
     }
   })
@@ -188,7 +201,7 @@ describe('lefthook v2 configuration', () => {
     expect(prePush.commands).toEqual({
       'code-validation': {
         use_stdin: true,
-        run: "bun scripts/run-if-code-changed.ts pre-push -- sh -c 'bun install && bun run test:fast' {files}",
+        run: "bun scripts/run-if-code-changed.ts pre-push {lefthook_job_name} -- sh -c 'bun install && bun run test:fast' {files}",
       },
     })
   })
@@ -305,6 +318,7 @@ describe('lefthook v2 real pre-push boundaries', () => {
       'bun',
       'scripts/run-if-code-changed.ts',
       'pre-push',
+      'validation',
       '--',
       'hook-probe',
       'validation',

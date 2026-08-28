@@ -3,31 +3,32 @@
 # Docs: https://github.com/evilmartians/lefthook
 
 min_version: "2.1.10"
+lefthook: bun scripts/run-lefthook-with-timing.ts
 
 pre-commit:
   parallel: false
   commands:
     gitleaks:
-      run: gitleaks protect --staged --redact
+      run: bun scripts/run-hook-command.ts pre-commit {lefthook_job_name} -- gitleaks protect --staged --redact
     lint:
-      run: bun scripts/run-if-code-changed.ts pre-commit -- bun run lint
+      run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- bun run lint
       stage_fixed: true
     boundaries:
-      run: bun scripts/run-if-code-changed.ts pre-commit -- bun scripts/check-boundaries.ts
+      run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- bun scripts/check-boundaries.ts
     harness-boundaries:
-      run: bun scripts/run-if-code-changed.ts pre-commit -- bun scripts/check-runtime-contract-harness-boundaries.ts
+      run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- bun scripts/check-runtime-contract-harness-boundaries.ts
     manifests:
-      run: bun scripts/run-if-code-changed.ts pre-commit -- bun scripts/check-manifest-edges.ts
+      run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- bun scripts/check-manifest-edges.ts
     suppressions:
-      run: bun scripts/run-if-code-changed.ts pre-commit -- bun scripts/check-suppressions.ts
+      run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- bun scripts/check-suppressions.ts
     public-surface:
-      run: bun scripts/run-if-code-changed.ts pre-commit -- bun scripts/check-public-surface.ts
+      run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- bun scripts/check-public-surface.ts
     doc-reachability:
-      run: bun scripts/check-doc-reachability.ts
+      run: bun scripts/run-hook-command.ts pre-commit {lefthook_job_name} -- bun scripts/check-doc-reachability.ts
     rule-authoring:
-      run: bun scripts/run-if-code-changed.ts pre-commit -- bun scripts/check-rule-authoring.ts
+      run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- bun scripts/check-rule-authoring.ts
     build:
-      run: bun scripts/run-if-code-changed.ts pre-commit -- bun run build
+      run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- bun run build
 
 pre-push:
   parallel: false
@@ -37,4 +38,4 @@ pre-push:
     code-validation:
       use_stdin: true
       # One stdin consumer is intentional: Lefthook cannot fan pre-push stdin out to commands.
-      run: bun scripts/run-if-code-changed.ts pre-push -- sh -c 'bun install && bun run test:fast' {files}
+      run: bun scripts/run-if-code-changed.ts pre-push {lefthook_job_name} -- sh -c 'bun install && bun run test:fast' {files}

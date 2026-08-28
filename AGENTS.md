@@ -12,9 +12,22 @@ bun run build     # Build all packages
 
 On the main checkout, `just install` cleans, installs, and builds; links both
 the `asp` CLI and `harness-broker`; publishes one coherent timestamped ASP
-package set to the producer's loopback Verdaccio; and synchronizes HRC/ACP consumers
-unless `no-sync=1` is passed. All packages in a published ASP set must share the
-same version.
+package set to the producer's loopback Verdaccio; and synchronizes the one
+consumer that follows `latest` — **hrc-runtime** — unless `no-sync=1` is passed.
+All packages in a published ASP set must share the same version.
+
+**ACP is not a sync target.** agent-control-plane pins ASP and HRC as
+operator-managed *producer tuples* and advances them only through its own
+governed `just advance-producers` inside a coordinated deployment window. Its own
+`docs/producer-advance.md` (in the agent-control-plane repo) names producer
+`sync-downstream` — along with `just pull-deps`, routine `just install`,
+and a moving `latest` tag — as a mechanism that must never move that tuple: a
+producer's install publishes a node-local set and moves `latest`, and that side
+effect is not a release signal for ACP. T-07626 deleted ACP's `sync:asp` script
+and pinned exact versions in the same commit, so anything here that calls it
+fails the whole install. ACP sitting behind the registry is the intended steady
+state, not staleness — the `PRODUCER_PINNED` advisory lines exist so registry
+movement stays visible without changing the deployed tuple.
 
 Linked worktrees default to the isolated worktree publication channel and do
 not repoint global wrappers or synchronize consumer checkouts. Use
