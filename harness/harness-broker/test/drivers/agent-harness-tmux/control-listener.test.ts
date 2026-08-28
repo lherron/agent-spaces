@@ -27,10 +27,15 @@ afterEach(async () => {
 })
 
 async function startListener(
-  onFrame: (frame: AgentHarnessControlFrame) => Promise<void> = async () => undefined
+  onFrame: (frame: AgentHarnessControlFrame) => Promise<void> = async () => undefined,
+  onDisconnect?: () => void
 ): Promise<{ handle: AgentHarnessControlListenerHandle; connect: () => Promise<Socket> }> {
   const directory = await mkdtemp(join(tmpdir(), 'ah-control-'))
-  const handle = await listenForAgentHarnessControl(join(directory, 'control.sock'), onFrame)
+  const handle = await listenForAgentHarnessControl(
+    join(directory, 'control.sock'),
+    onFrame,
+    onDisconnect
+  )
   cleanups.push(async () => {
     await handle.close()
     await rm(directory, { recursive: true, force: true })
@@ -250,5 +255,70 @@ describe('agent-harness control listener ack correlation', () => {
     socket.destroy()
 
     await expect(pending).rejects.toThrow(/closed before acknowledgement/)
+  })
+})
+
+/**
+ * T-07677: before this, the child's death was UNOBSERVABLE. `conn.once('close')`
+ * dropped the connection and failed pending requests, and told the driver
+ * nothing — so a sparky runtime whose TUI had quit sat `ready` with a live tmux
+ * lease until someone reaped it by hand.
+ */
+describe('agent-harness control listener disconnect', () => {
+  test('reports the child going away', async () => {
+    let disconnects = 0
+    const { connect } = await startListener(undefined, () => {
+      disconnects += 1
+    })
+    const socket = await connect()
+    await Bun.sleep(20)
+    expect(disconnects).toBe(0)
+
+    socket.destroy()
+    await Bun.sleep(20)
+    expect(disconnects).toBe(1)
+  })
+
+  test('sequences the disconnect behind frames the child already sent', async () => {
+    // The `/quit` goodbye and the FIN that follows it arrive together. If the
+    // disconnect overtook the goodbye, HRC would read the crash signal first and
+    // classify a clean exit as abnormal — the exact defect being fixed.
+    const observed: string[] = []
+    const { connect } = await startListener(
+      async (frame) => {
+        await Bun.sleep(10)
+        observed.push(frame.verb)
+      },
+      () => {
+        observed.push('disconnect')
+      }
+    )
+    const socket = await connect()
+    socket.write(
+      `${JSON.stringify({
+        verb: 'ready',
+        payload: { sessionFile: '/sessions/quit.jsonl' },
+      })}\n`
+    )
+    socket.end()
+
+    await Bun.sleep(80)
+    expect(observed).toEqual(['ready', 'disconnect'])
+  })
+
+  test('stays silent when the DRIVER closes the channel', async () => {
+    // dispose()/stop() destroy the connection themselves. Reporting that back as
+    // the child dying would emit a teardown event for an invocation the broker
+    // is already tearing down.
+    let disconnects = 0
+    const { handle, connect } = await startListener(undefined, () => {
+      disconnects += 1
+    })
+    await connect()
+    await Bun.sleep(20)
+
+    await handle.close()
+    await Bun.sleep(20)
+    expect(disconnects).toBe(0)
   })
 })

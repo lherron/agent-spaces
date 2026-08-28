@@ -14,6 +14,18 @@ import {
 export interface AgentHarnessControlListenerContext {
   invocationId: string
   runtimeId?: string | undefined
+  /**
+   * Called once when the connected TUI goes away for a reason the driver did not
+   * ask for — `/quit`, a crash, a killed pane. The TUI's own goodbye (a
+   * `continuation.cleared` event frame) is what distinguishes a clean exit from
+   * a crash; this fires either way and is what makes the child's death OBSERVABLE
+   * at all, so a runtime whose TUI is gone cannot sit `ready` forever.
+   *
+   * It rides the context rather than the returned handle so there is no window
+   * between `listen` resolving and the driver wiring itself up in which a
+   * disconnect could be missed.
+   */
+  onDisconnect?: (() => void) | undefined
 }
 
 export type AgentHarnessControlFrameHandler = (frame: AgentHarnessControlFrame) => Promise<void>
@@ -53,7 +65,8 @@ interface PendingRequest {
  */
 export async function listenForAgentHarnessControl(
   socketPath: string,
-  handler: AgentHarnessControlFrameHandler
+  handler: AgentHarnessControlFrameHandler,
+  onDisconnect?: (() => void) | undefined
 ): Promise<AgentHarnessControlListenerHandle> {
   const { createServer } = await import('node:net')
   const { mkdir, rm } = await import('node:fs/promises')
@@ -66,6 +79,10 @@ export async function listenForAgentHarnessControl(
   const pending: PendingRequest[] = []
   let active: Socket | undefined
   let drain: Promise<void> = Promise.resolve()
+  // Set the instant the DRIVER tears the channel down, so its own `close()`
+  // (dispose/stop) destroying the connection is never mistaken for the child
+  // dying underneath us.
+  let closing = false
 
   const settle = (line: Record<string, unknown>): void => {
     const requestId = typeof line['requestId'] === 'string' ? line['requestId'] : undefined
@@ -132,8 +149,20 @@ export async function listenForAgentHarnessControl(
     })
     conn.once('close', () => {
       connections.delete(conn)
-      if (active === conn) active = undefined
+      const wasActive = active === conn
+      if (wasActive) active = undefined
       failPending('agent-harness control connection closed before acknowledgement')
+      if (!wasActive || closing || onDisconnect === undefined) return
+      // Sequence the disconnect BEHIND every frame this connection already
+      // delivered. 'close' can fire while the last frames are still draining,
+      // and a teardown that overtook the `/quit` continuation clear would make
+      // a clean exit indistinguishable from a crash — the exact bug this
+      // callback exists to close.
+      drain = drain.then(
+        () => onDisconnect(),
+        () => onDisconnect()
+      )
+      void drain.catch(() => undefined)
     })
     conn.on('error', () => undefined)
   })
@@ -166,6 +195,7 @@ export async function listenForAgentHarnessControl(
       })
     },
     close(): Promise<void> {
+      closing = true
       closePromise ??= (async () => {
         failPending('agent-harness control channel closed')
         await new Promise<void>((resolve) => {

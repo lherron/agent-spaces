@@ -296,6 +296,33 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
     )
   }
 
+  /**
+   * The child is gone and did not ask us to let it go — it quit, crashed, or its
+   * pane was killed. Report the process fate ONLY: no user-exit reason rides
+   * here, so a crash keeps its continuation and stays resumable on reattach
+   * (T-01761). A clean `/quit` already said so itself, with the
+   * `continuation.cleared` event frame the listener sequences ahead of this.
+   */
+  function reportChildGone(): void {
+    if (ctx === undefined) return
+    emitGated(() => {
+      ctx?.emit(
+        'invocation.exited',
+        { reason: 'process-exit' },
+        { driver: { kind: AGENT_HARNESS_TMUX_DRIVER_KIND, rawType: 'control.disconnect' } }
+      )
+    })
+  }
+
+  /** Release now, or behind the open turn gate so outbound order is preserved. */
+  function emitGated(release: () => void): void {
+    if (gateDepth > 0) {
+      gated.push(release)
+      return
+    }
+    release()
+  }
+
   /** Re-emit a child-mapped envelope through broker sequencing, gate permitting. */
   function ingestEvent(envelope: InvocationEventEnvelope): void {
     const driverCtx = requireCtx()
@@ -313,14 +340,9 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
       ...(envelope.turnAttempt !== undefined ? { turnAttempt: envelope.turnAttempt } : {}),
       driver: envelope.driver ?? { kind: AGENT_HARNESS_TMUX_DRIVER_KIND },
     }
-    const release = (): void => {
+    emitGated(() => {
       driverCtx.emitEvent(event, extra)
-    }
-    if (gateDepth > 0) {
-      gated.push(release)
-      return
-    }
-    release()
+    })
   }
 
   async function handleControlFrame(rawFrame: AgentHarnessControlFrame): Promise<void> {
@@ -418,6 +440,7 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
       channel = await options.control.listen((frame) => handleControlFrame(frame), {
         invocationId: driverCtx.invocationId,
         ...(expectedRuntimeId !== undefined ? { runtimeId: expectedRuntimeId } : {}),
+        onDisconnect: () => reportChildGone(),
       })
 
       const lease = leased.surface
@@ -540,7 +563,8 @@ export function createDefaultAgentHarnessTmuxDriver(
       listen: (handler, context) =>
         listenForAgentHarnessControl(
           buildAgentHarnessControlSocketPath(socketDir, context),
-          handler
+          handler,
+          context.onDisconnect
         ),
     },
     ...(auth !== undefined ? { auth } : {}),

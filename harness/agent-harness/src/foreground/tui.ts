@@ -36,6 +36,12 @@ import {
 
 import { resolveForegroundAuthStorePath } from './auth-store.js'
 
+/**
+ * Driver kind stamped on every event this TUI emits. Must match the broker-side
+ * `AGENT_HARNESS_TMUX_DRIVER_KIND`; the two sides label the same driver.
+ */
+const AGENT_HARNESS_DRIVER_KIND = 'agent-harness-tmux'
+
 export interface ForegroundTuiDependencies {
   loadAgent: typeof loadAgent
   createRuntime: typeof createAgentHarnessRuntime
@@ -93,16 +99,18 @@ async function runBrokerAgentHarnessTui(
 ): Promise<void> {
   const control = await BrokerControlConnection.connect(options.brokerControlSocket)
   let runtime: AgentSessionRuntime | undefined
+  let driverContext: PiSdkTurnEventMapperOptions['ctx'] | undefined
+  let userExited = false
   try {
     const config = await control.config
     assertSupportedPermissionPolicy(config)
 
-    const driverContext = createBrokerTuiDriverContext(config, control)
+    driverContext = createBrokerTuiDriverContext(config, control)
     const mapper = new PiSdkTurnEventMapper({
       ctx: driverContext,
       provider: config.auth.providerId,
       sessionFile: () => runtime?.session.sessionFile,
-      driverKind: 'agent-harness-tmux',
+      driverKind: AGENT_HARNESS_DRIVER_KIND,
     })
     control.onTurnBegin = (frame) => {
       mapper.beginTurn({
@@ -127,7 +135,7 @@ async function runBrokerAgentHarnessTui(
       ctx: driverContext,
       policy: config.permissionPolicy,
       activeTurnId: () => mapper.activeTurnId,
-      driverKind: 'agent-harness-tmux',
+      driverKind: AGENT_HARNESS_DRIVER_KIND,
     })
     runtime = await dependencies.createRuntime({
       agent,
@@ -155,9 +163,56 @@ async function runBrokerAgentHarnessTui(
       payload: { sessionFile },
     })
     await dependencies.runInteractiveMode(runtime, options.prompt)
+    // A CLEAN return from the TUI means the operator left the session (`/quit`).
+    // A throw does not: it is a crash, and must keep the continuation so the
+    // runtime stays resumable on reattach (T-01761).
+    userExited = true
   } finally {
     await runtime?.dispose()
+    // Announce the user exit only AFTER dispose has persisted the session. HRC
+    // reaps the tmux lease as soon as it has recorded the summary this event
+    // triggers, so announcing first races the pane kill against our own
+    // session write. A dispose that throws skips the announcement on purpose:
+    // we cannot claim a clean exit for a session we failed to close.
+    if (userExited) {
+      announceUserExit(driverContext)
+    }
     control.close()
+  }
+}
+
+/**
+ * The `continuation.cleared` reason that means "the operator LEFT" rather than
+ * "the session was reset". It is the single event the whole graceful-exit chain
+ * hangs off: the broker answers it with an authoritative `invocation.summary`
+ * (invocation-manager `SESSION_LEAVE_REASONS`), and HRC answers that pair with a
+ * summary-aware tmux lease reap plus the `hrc run` post-detach session summary.
+ * Mirrors what Claude Code's own SessionEnd hook reports on `/quit`.
+ */
+const USER_EXIT_REASON = 'prompt_input_exit'
+
+/**
+ * Tell the broker the operator quit.
+ *
+ * Unlike the codex CLI — a third-party binary that emits nothing on `/quit`, and
+ * so needs the launch runner's synthetic SessionEnd — this TUI is our own code
+ * and already speaks the control protocol, so it can just say so. Riding the
+ * existing `event` verb keeps this inside `agent-harness-control/v1`: no new
+ * verb, no protocol version bump.
+ *
+ * Best-effort by construction. The driver treats a silent disconnect as a crash,
+ * which is the correct fallback for every path that cannot get a word out.
+ */
+function announceUserExit(driverContext: PiSdkTurnEventMapperOptions['ctx'] | undefined): void {
+  try {
+    driverContext?.emit(
+      'continuation.cleared',
+      { reason: USER_EXIT_REASON },
+      { driver: { kind: AGENT_HARNESS_DRIVER_KIND, rawType: 'tui.user_exit' } }
+    )
+  } catch {
+    // Never let the goodbye stop the goodbye: a failed announcement degrades to
+    // the driver's disconnect path, it must not throw out of the finally block.
   }
 }
 
