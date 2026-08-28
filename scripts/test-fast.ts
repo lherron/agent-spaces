@@ -6,6 +6,7 @@ import {
   FAST_WORKSPACE_SUITE_NAMES,
   HOOK_CHANGED_PATHS_ENV,
   HOOK_CHANGE_AMBIGUOUS_ENV,
+  cleanFastTestEnvironment,
   isTestFile,
   selectAffectedPackageNames,
 } from './lib/hook-optimization.ts'
@@ -139,10 +140,7 @@ async function runSuite(suite: FastSuite, env: NodeJS.ProcessEnv): Promise<Suite
 }
 
 const { suites, mode } = await makeSuites()
-const cleanEnv = { ...process.env }
-cleanEnv.GIT_DIR = undefined
-cleanEnv.GIT_WORK_TREE = undefined
-const env = testGitGuardEnvironment(cleanEnv)
+const env = testGitGuardEnvironment(cleanFastTestEnvironment(process.env))
 const results: SuiteResult[] = []
 let nextIndex = 0
 const started = performance.now()

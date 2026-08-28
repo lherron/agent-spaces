@@ -1,3 +1,4 @@
+import { HOOK_RUN_ID_ENV } from './hook-timing.ts'
 import type { WorkspacePackage } from './workspace-graph.ts'
 import { reverseDependencyClosure, workspaceForPath } from './workspace-graph.ts'
 
@@ -55,6 +56,14 @@ export interface FastTestSelection {
   full: boolean
   packageNames: Set<string>
   includeScripts: boolean
+}
+
+export function cleanFastTestEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const clean = { ...source }
+  clean.GIT_DIR = undefined
+  clean.GIT_WORK_TREE = undefined
+  clean[HOOK_RUN_ID_ENV] = undefined
+  return clean
 }
 
 function fullSelection(): FastTestSelection {

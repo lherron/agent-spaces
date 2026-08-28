@@ -2,9 +2,11 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   ALWAYS_ON_PACKAGE_NAMES,
+  cleanFastTestEnvironment,
   isPublicSurfaceRelevant,
   selectAffectedPackageNames,
 } from './lib/hook-optimization.ts'
+import { HOOK_RUN_ID_ENV } from './lib/hook-timing.ts'
 import {
   reverseDependencyClosure,
   topologicalWorkspaceLayers,
@@ -83,5 +85,18 @@ describe('hook optimization graph', () => {
     expect(isPublicSurfaceRelevant('.public-surface-baseline.json')).toBeTrue()
     expect(isPublicSurfaceRelevant('scripts/test-fast.ts')).toBeFalse()
     expect(isPublicSurfaceRelevant('lefthook.yml')).toBeFalse()
+  })
+
+  test('test subprocesses cannot impersonate the outer hook timing run', () => {
+    const clean = cleanFastTestEnvironment({
+      GIT_DIR: '/tmp/git-dir',
+      GIT_WORK_TREE: '/tmp/work-tree',
+      [HOOK_RUN_ID_ENV]: 'outer-hook',
+      PATH: '/usr/bin',
+    })
+    expect(clean.GIT_DIR).toBeUndefined()
+    expect(clean.GIT_WORK_TREE).toBeUndefined()
+    expect(clean[HOOK_RUN_ID_ENV]).toBeUndefined()
+    expect(clean.PATH).toBe('/usr/bin')
   })
 })
