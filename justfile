@@ -157,13 +157,13 @@ rebuild:
     bun run rebuild
 
 # Install dependencies
-# Pass no-sync=1 to skip syncing downstream consumer repos (hrc-runtime, agent-control-plane).
+# Pass no-sync=1 to skip syncing the downstream consumer repo (hrc-runtime).
 # Linked Git worktrees auto-disable downstream sync and wrapper linking unless force-sync=1
 # and/or force-link=1 is passed explicitly.
 # After `bun install`, the dependency graph forks:
-#   build ─┬─→ publish-canonical ─→ (hrc sync ∥ acp sync)
+#   build ─┬─→ publish-canonical ─→ hrc sync
 #          └─→ bun link (asp + harness-broker)
-# Executable package links run alongside publish+sync; the two downstream syncs run in parallel.
+# Executable package links run alongside publish+sync.
 install no-sync="" force-sync="" force-link="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -236,11 +236,6 @@ install no-sync="" force-sync="" force-link="":
       else
         echo "[install] downstream consumer hrc-runtime not present on this node; skipping hrc sync" >&2
       fi
-      if agent_control_plane="$(resolve_consumer agent-control-plane 2>/dev/null)"; then
-        ( cd "$agent_control_plane" && bun run sync:asp ) 2>&1 | sed 's/^/[acp-sync] /'
-      else
-        echo "[install] downstream consumer agent-control-plane not present on this node; skipping acp sync" >&2
-      fi
     else
       echo "[install] skipping downstream sync (${PRAESIDIUM_INSTALL_CONTEXT}, sync=${PRAESIDIUM_INSTALL_SYNC_MODE})"
     fi
@@ -249,8 +244,16 @@ install no-sync="" force-sync="" force-link="":
       wait $link_pid
     done
 
-# Sync downstream consumer repos in parallel (hrc-runtime ∥ agent-control-plane).
-# This is the only place ASP knows where its consumers live; it never appears in source.
+# ACP is deliberately NOT synced here. It pins ASP/HRC as operator-managed
+# producer tuples and advances them only through its own governed
+# `just advance-producers` inside a coordinated deployment window; its
+# docs/producer-advance.md names producer `sync-downstream` as one of the
+# mechanisms that must never move that tuple. ACP removed its own `sync:asp`
+# script in T-07626 (8626af2) and pinned exact versions in the same commit, so
+# calling it from here failed every install.
+#
+# This is the only place ASP knows where its consumer lives; it never appears in source.
+# Sync the one downstream consumer that follows `latest`: hrc-runtime.
 sync-downstream:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -275,11 +278,6 @@ sync-downstream:
       ( cd "$hrc_runtime" && bun run sync:asp && bun run build && just publish-dev ) 2>&1 | sed 's/^/[hrc-sync] /'
     else
       echo "[sync-downstream] hrc-runtime not present on this node; skipping hrc sync" >&2
-    fi
-    if agent_control_plane="$(resolve_consumer agent-control-plane 2>/dev/null)"; then
-      ( cd "$agent_control_plane" && bun run sync:asp ) 2>&1 | sed 's/^/[acp-sync] /'
-    else
-      echo "[sync-downstream] agent-control-plane not present on this node; skipping acp sync" >&2
     fi
 
 # Publish timestamped dev package set to local Verdaccio
