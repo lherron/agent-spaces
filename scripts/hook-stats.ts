@@ -60,6 +60,13 @@ function parseArgs(argv: string[]): CliOptions {
   return { path, sinceMs: parseDuration(sinceLabel), sinceLabel, json }
 }
 
+function printUsage(): void {
+  console.log(`usage: bun run hook:stats [--since <duration>] [--path <jsonl>] [--json]
+
+Report locally recorded pre-commit and pre-push timing trends.
+Durations accept minutes, hours, days, or weeks (for example: 30m, 24h, 7d, 4w).`)
+}
+
 export function percentile(values: number[], percentileValue: number): number {
   if (values.length === 0) return 0
   const sorted = [...values].sort((left, right) => left - right)
@@ -125,7 +132,12 @@ export function buildHookStats(records: TimingRecord[], cutoff: number) {
 }
 
 async function main(): Promise<void> {
-  const options = parseArgs(process.argv.slice(2))
+  const argv = process.argv.slice(2)
+  if (argv.includes('--help') || argv.includes('-h')) {
+    printUsage()
+    return
+  }
+  const options = parseArgs(argv)
   const { records, malformedLines } = await readTimingRecords(options.path)
   const stats = buildHookStats(records, Date.now() - options.sinceMs)
   const report = {

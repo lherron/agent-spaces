@@ -194,6 +194,12 @@ pre-commit:
 })
 
 describe('hook timing statistics', () => {
+  test('documents the repository reporting command', () => {
+    const output = run(['bun', join(repoRoot, 'scripts', 'hook-stats.ts'), '--help'], repoRoot)
+    expect(output).toContain('usage: bun run hook:stats')
+    expect(output).toContain('--since <duration>')
+  })
+
   test('uses nearest-rank percentiles and groups hook and step outcomes', () => {
     expect(percentile([100, 200, 300, 400], 0.5)).toBe(200)
     expect(percentile([100, 200, 300, 400], 0.95)).toBe(400)

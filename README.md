@@ -135,6 +135,7 @@ asp agent alice@demo:T-1 task --prompt "triage the failing build"
 - [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) — Package boundaries, runtime contracts, and current seams
 - [docs/cli-reference.md](./docs/cli-reference.md) — `asp` command reference
 - [docs/env-contract.md](./docs/env-contract.md) — Environment variable contract
+- [docs/hook-timings.md](./docs/hook-timings.md) — Local pre-commit/pre-push timing telemetry and reporting
 - [docs/proposals/](./docs/proposals/) — Design proposals (agent roots, agent-authored runtime resources, reproducible compiler)
 - [spaces/agent-spaces-manager/skills/space-authoring/SKILL.md](./spaces/agent-spaces-manager/skills/space-authoring/SKILL.md) — Space authoring guide
 
