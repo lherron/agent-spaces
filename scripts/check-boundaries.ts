@@ -1,6 +1,7 @@
 import { defineGuard, runGuard } from './lib/boundary-guard/engine.ts'
 import type { Guard, ImportFinding } from './lib/boundary-guard/engine.ts'
 import { type Layer, collectTsFiles, isForbidden, layers } from './lib/import-graph.ts'
+import { scanTestCloneCommands } from './lib/test-no-git-clone.ts'
 
 function layerGuard(layer: Layer): Guard {
   return defineGuard({
@@ -41,6 +42,14 @@ for (const layer of layers) {
 
   exitCode ||= await runGuard(layerGuard(layer))
 }
+
+const testCloneFindings = await scanTestCloneCommands(process.cwd())
+for (const finding of testCloneFindings) {
+  console.error(
+    `${finding.path}:${finding.line}: repository cloning is forbidden in tests and test execution paths`
+  )
+}
+if (testCloneFindings.length > 0) exitCode = 1
 
 if (exitCode === 0) {
   console.log('Boundary check passed.')

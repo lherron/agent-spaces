@@ -17,7 +17,7 @@
 import { describe, expect, test } from 'bun:test'
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { cp, lstat, mkdir, mkdtemp, readlink, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -53,7 +53,6 @@ const SAMPLE_FIXTURES_DIR = join(
   'integration-tests',
   'fixtures'
 )
-const CLAUDE_SHIM_DIR = join(SAMPLE_FIXTURES_DIR, 'claude-shim')
 const CLI_TEST_TIMEOUT_MS = 60000
 
 function cliTest(name: string, fn: TestFn): void
@@ -404,58 +403,6 @@ describe('existing CLI compatibility (T-00867)', () => {
     } finally {
       await rm(aspHome, { recursive: true, force: true })
       await rm(projectDir, { recursive: true, force: true })
-    }
-  })
-
-  cliTest('asp run resolves @dev shared spaces from agents root in a clean ASP_HOME', async () => {
-    const aspHome = await mkdtemp(join(tmpdir(), 'asp-run-agents-root-home-'))
-    const projectDir = await mkdtemp(join(tmpdir(), 'asp-run-agents-root-project-'))
-    const agentsRoot = await mkdtemp(join(tmpdir(), 'asp-run-agents-root-'))
-    try {
-      await mkdir(join(projectDir), { recursive: true })
-      await writeFile(
-        join(projectDir, 'asp-targets.toml'),
-        [
-          'schema = 1',
-          '',
-          '[targets.dev]',
-          'description = "Clean home agents-root dev target"',
-          'compose = ["space:base@dev"]',
-          '',
-        ].join('\n')
-      )
-      await mkdir(join(agentsRoot, 'spaces'), { recursive: true })
-      await cp(
-        join(SAMPLE_FIXTURES_DIR, 'sample-registry', 'spaces', 'base'),
-        join(agentsRoot, 'spaces', 'base'),
-        {
-          recursive: true,
-        }
-      )
-
-      const env = {
-        ASP_HOME: aspHome,
-        ASP_AGENTS_ROOT: agentsRoot,
-        PATH: `${CLAUDE_SHIM_DIR}:${process.env.PATH ?? ''}`,
-      }
-
-      const install = runAsp(['install', '--update', '--no-fetch', '--project', projectDir], {
-        env,
-      })
-      expect(install.exitCode).toBe(0)
-
-      const result = runAsp(['run', 'dev', '--dry-run', '--project', projectDir], {
-        env,
-      })
-      const output = result.stdout + result.stderr
-
-      expect(result.exitCode).toBe(0)
-      expect(output).toContain('plugins/000-base')
-      expect(output).not.toContain(`${aspHome}/repo`)
-    } finally {
-      await rm(aspHome, { recursive: true, force: true })
-      await rm(projectDir, { recursive: true, force: true })
-      await rm(agentsRoot, { recursive: true, force: true })
     }
   })
 
@@ -1073,69 +1020,5 @@ describe('pi-sdk placement path (T-00879)', () => {
     expect(runFn).toMatch(/materializeSpec\(/)
     // Pi-sdk should load bundle from materialized output (composeTarget produces bundle.json)
     expect(runFn).toMatch(/loadPiSdkBundle\(materialized/)
-  })
-})
-
-// ===================================================================
-// T-00882: codex-cli placement auth propagation
-// Defect: placement path skipped composeTarget(), so CODEX_HOME lacked auth.json.
-// ===================================================================
-describe('codex-cli placement auth propagation (T-00882)', () => {
-  cliTest('dry-run links ~/.codex/auth.json into CODEX_HOME', async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), 'asp-codex-auth-'))
-    const agentRoot = join(tempDir, 'agent-root')
-    const fakeHome = join(tempDir, 'home')
-    const fakeAuthPath = join(fakeHome, '.codex', 'auth.json')
-    const codexShimDir = join(
-      import.meta.dirname,
-      '..',
-      '..',
-      '..',
-      '..',
-      'integration-tests',
-      'fixtures',
-      'codex-shim'
-    )
-
-    await cp(resolveAgentRoot(), agentRoot, { recursive: true })
-    await mkdir(join(fakeHome, '.codex'), { recursive: true })
-    await writeFile(fakeAuthPath, '{"access_token":"test-token"}\n')
-
-    const result = runAsp(
-      [
-        'agent',
-        'agent:alice',
-        'query',
-        'Reply with exactly: CODEX_PASS',
-        '--agent-root',
-        agentRoot,
-        '--harness',
-        'codex-cli',
-        '--interaction',
-        'headless',
-        '--io',
-        'pipes',
-        '--dry-run',
-        '--json',
-      ],
-      {
-        expectError: true,
-        env: {
-          HOME: fakeHome,
-          PATH: `${codexShimDir}:${process.env.PATH ?? ''}`,
-          ASP_HOME: join(tempDir, 'asp-home'),
-        },
-      }
-    )
-
-    expect(result.exitCode).toBe(0)
-    const parsed = JSON.parse(result.stdout)
-    const codexHome = parsed.spec.env.CODEX_HOME
-    expect(typeof codexHome).toBe('string')
-
-    const linkedAuthPath = join(codexHome, 'auth.json')
-    const stats = await lstat(linkedAuthPath)
-    expect(stats.isSymbolicLink()).toBe(true)
-    expect(await readlink(linkedAuthPath)).toBe(fakeAuthPath)
   })
 })

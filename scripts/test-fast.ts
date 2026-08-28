@@ -1,3 +1,5 @@
+import { testGitGuardEnvironment } from './lib/test-git-guard.ts'
+
 // Explicit pre-push allowlist. Keep this to deterministic unit and broker fake-driver tests;
 // slow CLI subprocess suites and integration-tests stay on the full/integration paths.
 const FAST_TEST_TIMEOUT_MS = 60_000
@@ -34,7 +36,7 @@ cleanEnv.GIT_WORK_TREE = undefined
 
 const proc = Bun.spawn(['bun', ...fastSuiteArgs], {
   cwd: `${import.meta.dir}/..`,
-  env: cleanEnv,
+  env: testGitGuardEnvironment(cleanEnv),
   stdin: 'inherit',
   stdout: 'inherit',
   stderr: 'inherit',

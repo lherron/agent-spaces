@@ -1,47 +1,11 @@
-import { afterEach, describe, expect, test } from 'bun:test'
-import { spawnSync } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { describe, expect, test } from 'bun:test'
 import {
   PRAESIDIUM_BUILD_FIELDS,
   RELEASE_PUBLISH_PACKAGES,
   assertNoCanonicalVersionReplacement,
   createPraesidiumBuild,
-  provePublicationSource,
   timestampVersion,
 } from './publish-local-verdaccio'
-
-const tempRoots: string[] = []
-
-afterEach(async () => {
-  await Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
-})
-
-function git(cwd: string, ...args: string[]): string {
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' })
-  if (result.status !== 0) {
-    throw new Error(`git ${args.join(' ')} failed: ${result.stderr || result.stdout}`)
-  }
-  return result.stdout.trim()
-}
-
-async function canonicalFixture(): Promise<{ clone: string; remote: string }> {
-  const root = await mkdtemp(join(tmpdir(), 'asp-canonical-publish-'))
-  tempRoots.push(root)
-  const remote = join(root, 'remote.git')
-  const clone = join(root, 'clone')
-  git(root, 'init', '--bare', remote)
-  git(root, 'clone', remote, clone)
-  git(clone, 'config', 'user.email', 'publisher@example.test')
-  git(clone, 'config', 'user.name', 'Publisher Test')
-  await writeFile(join(clone, 'tracked.txt'), 'landed\n')
-  git(clone, 'add', 'tracked.txt')
-  git(clone, 'commit', '-m', 'landed')
-  git(clone, 'branch', '-M', 'main')
-  git(clone, 'push', '-u', 'origin', 'main')
-  return { clone, remote }
-}
 
 test('publishes the installable public CLI after its workspace package set', () => {
   expect(RELEASE_PUBLISH_PACKAGES.at(-1)).toBe('apps/cli')
@@ -68,47 +32,6 @@ test('stages the exact normative praesidiumBuild tuple and no package fingerprin
     builtAt: '2026-07-25T01:01:01.000Z',
   })
   expect(build).not.toHaveProperty('fingerprint')
-})
-
-describe('canonical publication source proof', () => {
-  test('freshly fetches the named ref and accepts a clean contained source', async () => {
-    const fixture = await canonicalFixture()
-    expect(
-      provePublicationSource({
-        canonical: true,
-        canonicalRef: 'origin/main',
-        root: fixture.clone,
-      })
-    ).toMatchObject({
-      canonical: true,
-      canonicalRef: 'origin/main',
-      canonicalRemote: fixture.remote,
-    })
-  })
-
-  test('refuses dirty and uncontained source commits', async () => {
-    const fixture = await canonicalFixture()
-    await writeFile(join(fixture.clone, 'tracked.txt'), 'dirty\n')
-    expect(() =>
-      provePublicationSource({
-        canonical: true,
-        canonicalRef: 'origin/main',
-        root: fixture.clone,
-      })
-    ).toThrow(/clean source tree/)
-
-    git(fixture.clone, 'restore', 'tracked.txt')
-    await writeFile(join(fixture.clone, 'uncontained.txt'), 'local-only\n')
-    git(fixture.clone, 'add', 'uncontained.txt')
-    git(fixture.clone, 'commit', '-m', 'local only')
-    expect(() =>
-      provePublicationSource({
-        canonical: true,
-        canonicalRef: 'origin/main',
-        root: fixture.clone,
-      })
-    ).toThrow(/not contained/)
-  })
 })
 
 test('canonical publication refuses same-name/version replacement before publishing', async () => {

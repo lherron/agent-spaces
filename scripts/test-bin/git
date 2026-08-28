@@ -1,0 +1,40 @@
+#!/bin/sh
+
+find_git_command() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -C|-c|--config-env|--exec-path|--git-dir|--namespace|--super-prefix|--work-tree)
+        shift
+        [ "$#" -gt 0 ] || break
+        shift
+        ;;
+      --config-env=*|--exec-path=*|--git-dir=*|--namespace=*|--super-prefix=*|--work-tree=*)
+        shift
+        ;;
+      --bare|--glob-pathspecs|--icase-pathspecs|--literal-pathspecs|--no-advice|--no-optional-locks|--no-pager|--no-replace-objects|--noglob-pathspecs|--paginate|--version)
+        shift
+        ;;
+      -*)
+        shift
+        ;;
+      *)
+        printf '%s\n' "$1"
+        return
+        ;;
+    esac
+  done
+}
+
+git_command="$(find_git_command "$@")"
+
+if [ "$git_command" = "clone" ]; then
+  echo "test Git guard: repository cloning is forbidden during tests" >&2
+  exit 86
+fi
+
+if [ -z "${ASP_TEST_REAL_GIT:-}" ]; then
+  echo "test Git guard: ASP_TEST_REAL_GIT is not set" >&2
+  exit 86
+fi
+
+exec "$ASP_TEST_REAL_GIT" "$@"
