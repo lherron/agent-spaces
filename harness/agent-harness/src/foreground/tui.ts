@@ -100,7 +100,28 @@ async function runBrokerAgentHarnessTui(
   const control = await BrokerControlConnection.connect(options.brokerControlSocket)
   let runtime: AgentSessionRuntime | undefined
   let driverContext: PiSdkTurnEventMapperOptions['ctx'] | undefined
-  let userExited = false
+  let announced = false
+
+  /**
+   * Tell the broker the operator left. Idempotent: the shutdown event can be
+   * emitted more than once across a teardown, and a second clear would be noise
+   * on the ledger.
+   */
+  const announceUserExit = async (): Promise<void> => {
+    if (announced || driverContext === undefined) return
+    announced = true
+    driverContext.emit(
+      'continuation.cleared',
+      { reason: USER_EXIT_REASON },
+      { driver: { kind: AGENT_HARNESS_DRIVER_KIND, rawType: 'tui.user_exit' } }
+    )
+    // The bytes must reach the kernel before pi's `process.exit(0)`, which
+    // follows this handler by only a few statements. Without the flush the
+    // goodbye is still sitting in the socket's write buffer when the process
+    // dies, and the broker sees nothing but a disconnect.
+    await control.flush()
+  }
+
   try {
     const config = await control.config
     assertSupportedPermissionPolicy(config)
@@ -152,6 +173,21 @@ async function runBrokerAgentHarnessTui(
       extensionFactories: [
         (pi) => {
           pi.on('tool_call', (event) => permissionBridge.handle(event))
+          // The ONLY reliable `/quit` signal. Pi's InteractiveMode ends the
+          // session with `process.exit(0)` (interactive-mode.js:3227), so
+          // `runInteractiveMode` never returns and no `finally` of ours runs.
+          // `session_shutdown` is emitted from AgentSessionRuntime.dispose()
+          // and AWAITED before that exit, which also means the session file is
+          // already persisted when we announce — exactly the ordering HRC needs,
+          // since it reaps the tmux lease as soon as it records the summary.
+          pi.on('session_shutdown', async (event) => {
+            // 'quit' is the operator LEAVING. 'new'/'resume'/'fork' are session
+            // REPLACEMENT and 'reload' is an extension-runtime bounce: the
+            // session continues, so announcing a user exit for those would drop
+            // a continuation that is still wanted (T-01761).
+            if (event.reason !== 'quit') return
+            await announceUserExit()
+          })
         },
       ],
     })
@@ -163,20 +199,12 @@ async function runBrokerAgentHarnessTui(
       payload: { sessionFile },
     })
     await dependencies.runInteractiveMode(runtime, options.prompt)
-    // A CLEAN return from the TUI means the operator left the session (`/quit`).
-    // A throw does not: it is a crash, and must keep the continuation so the
-    // runtime stays resumable on reattach (T-01761).
-    userExited = true
   } finally {
+    // Reached only when the TUI returns instead of exiting the process (the
+    // injected-dependency path in tests, and any future non-exiting mode).
+    // dispose() re-emits `session_shutdown`, so the announcement still runs
+    // through the one hook above rather than a second code path here.
     await runtime?.dispose()
-    // Announce the user exit only AFTER dispose has persisted the session. HRC
-    // reaps the tmux lease as soon as it has recorded the summary this event
-    // triggers, so announcing first races the pane kill against our own
-    // session write. A dispose that throws skips the announcement on purpose:
-    // we cannot claim a clean exit for a session we failed to close.
-    if (userExited) {
-      announceUserExit(driverContext)
-    }
     control.close()
   }
 }
@@ -190,31 +218,6 @@ async function runBrokerAgentHarnessTui(
  * Mirrors what Claude Code's own SessionEnd hook reports on `/quit`.
  */
 const USER_EXIT_REASON = 'prompt_input_exit'
-
-/**
- * Tell the broker the operator quit.
- *
- * Unlike the codex CLI — a third-party binary that emits nothing on `/quit`, and
- * so needs the launch runner's synthetic SessionEnd — this TUI is our own code
- * and already speaks the control protocol, so it can just say so. Riding the
- * existing `event` verb keeps this inside `agent-harness-control/v1`: no new
- * verb, no protocol version bump.
- *
- * Best-effort by construction. The driver treats a silent disconnect as a crash,
- * which is the correct fallback for every path that cannot get a word out.
- */
-function announceUserExit(driverContext: PiSdkTurnEventMapperOptions['ctx'] | undefined): void {
-  try {
-    driverContext?.emit(
-      'continuation.cleared',
-      { reason: USER_EXIT_REASON },
-      { driver: { kind: AGENT_HARNESS_DRIVER_KIND, rawType: 'tui.user_exit' } }
-    )
-  } catch {
-    // Never let the goodbye stop the goodbye: a failed announcement degrades to
-    // the driver's disconnect path, it must not throw out of the finally block.
-  }
-}
 
 function assertSupportedPermissionPolicy(config: AgentHarnessSessionConfig): void {
   if (config.permissionPolicy.mode === 'ask-client') {
@@ -301,6 +304,31 @@ class BrokerControlConnection {
   send(frame: Extract<AgentHarnessControlFrame, { verb: 'hello' | 'ready' | 'event' }>): void {
     if (this.#failed) return
     this.socket.write(encodeAgentHarnessControlFrame(frame))
+  }
+
+  /**
+   * Resolve once everything already written has been handed to the kernel.
+   *
+   * `send` is fire-and-forget, which is fine for every frame that is followed by
+   * more session; it is NOT fine for the last frame before pi calls
+   * `process.exit(0)`. Bounded so a wedged socket can never hold up the
+   * operator's quit — losing the goodbye degrades to the driver's disconnect
+   * path, which is the correct crash-shaped fallback.
+   */
+  flush(timeoutMs = 1000): Promise<void> {
+    if (this.#failed || this.socket.destroyed || this.socket.writableLength === 0) {
+      return Promise.resolve()
+    }
+    return new Promise<void>((resolve) => {
+      const done = (): void => {
+        clearTimeout(timer)
+        this.socket.off('drain', done)
+        resolve()
+      }
+      const timer = setTimeout(done, timeoutMs)
+      timer.unref?.()
+      this.socket.once('drain', done)
+    })
   }
 
   close(): void {

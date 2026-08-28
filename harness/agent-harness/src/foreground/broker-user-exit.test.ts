@@ -15,13 +15,21 @@ import { type ForegroundTuiDependencies, runAgentHarnessTui } from './tui'
  * Everything downstream hangs off one event: `continuation.cleared { reason:
  * 'prompt_input_exit' }` is what makes the broker push an authoritative
  * `invocation.summary`, which is what HRC records before reaping the tmux lease,
- * which is what `hrc run` reads to print its post-detach session summary. Before
- * this fix the TUI returned from the interactive loop and simply hung up, so a
- * clean `/quit` was indistinguishable from a crash and none of that ran.
+ * which is what `hrc run` reads to print its post-detach session summary.
  *
- * The negative case matters just as much. A crash must NOT claim a user exit:
- * HRC drops the continuation on a user exit and keeps it otherwise, so a
- * mislabelled crash would cost the operator their resumable session (T-01761).
+ * The signal has to come from pi's `session_shutdown` extension event, NOT from
+ * the interactive loop returning. Pi's InteractiveMode ends `/quit` with
+ * `process.exit(0)` (interactive-mode.js:3227), so `runInteractiveMode` never
+ * returns and no `finally` ever runs — an earlier cut of this fix announced on a
+ * clean return and was silent against the real TUI, which is what the live smoke
+ * caught. `session_shutdown` is emitted from AgentSessionRuntime.dispose() and
+ * awaited before that exit, so it is both reliable and correctly ordered after
+ * the session file is written.
+ *
+ * The reason filter matters as much as the signal. 'quit' is leaving;
+ * 'new'/'resume'/'fork' are session REPLACEMENT and 'reload' is an
+ * extension-runtime bounce. Announcing a user exit for those would drop a
+ * continuation that is still wanted (T-01761).
  */
 
 type BrokerTuiRunner = (
@@ -139,19 +147,29 @@ async function startControl(note: () => unknown = () => undefined): Promise<Cont
 
 interface TuiHarness {
   dependencies: ForegroundTuiDependencies
+  /** Fire pi's session_shutdown the way AgentSessionRuntime.dispose() does. */
+  firePiShutdown: (reason: string) => Promise<void>
   disposed: () => boolean
 }
 
 /**
- * `disposeMs` makes dispose observably slow so the ORDER of the goodbye against
- * it is testable rather than incidental: the announcement must not go out while
- * the session is still being written.
+ * `disposeMs` makes dispose observably slow so ordering against it is testable
+ * rather than incidental.
  */
 function harness(options: {
-  interactive: () => Promise<void>
+  interactive: (h: { firePiShutdown: (reason: string) => Promise<void> }) => Promise<void>
   disposeMs?: number
 }): TuiHarness {
   let disposed = false
+  // Handlers registered by the extension factories the TUI passes to createRuntime.
+  const handlers = new Map<string, (event: unknown) => unknown>()
+
+  const firePiShutdown = async (reason: string): Promise<void> => {
+    const handler = handlers.get('session_shutdown')
+    if (handler === undefined) throw new Error('TUI registered no session_shutdown handler')
+    await handler({ type: 'session_shutdown', reason })
+  }
+
   const runtime = {
     session: {
       sessionFile: '/tmp/agent-harness-session-07677.jsonl',
@@ -164,6 +182,7 @@ function harness(options: {
   } as unknown as AgentSessionRuntime
 
   return {
+    firePiShutdown,
     disposed: () => disposed,
     dependencies: {
       async loadAgent() {
@@ -178,11 +197,19 @@ function harness(options: {
           warnings: [],
         } as unknown as ResolvedAgent
       },
-      async createRuntime(_options: CreateAgentHarnessRuntimeOptions) {
+      async createRuntime(createOptions: CreateAgentHarnessRuntimeOptions) {
+        const factories = (createOptions as { extensionFactories?: Array<(pi: unknown) => void> })
+          .extensionFactories
+        const pi = {
+          on(event: string, handler: (event: unknown) => unknown) {
+            handlers.set(event, handler)
+          },
+        }
+        for (const factory of factories ?? []) factory(pi)
         return runtime
       },
       async runInteractiveMode(_runtime: AgentSessionRuntime, _initial?: string) {
-        await options.interactive()
+        await options.interactive({ firePiShutdown })
       },
     } satisfies ForegroundTuiDependencies,
   }
@@ -195,9 +222,11 @@ const isUserExit = (frame: Record<string, unknown>): boolean => {
 }
 
 describe('agent-harness broker TUI user exit', () => {
-  test('announces the user exit when the interactive loop returns cleanly', async () => {
+  test('announces the user exit when pi reports session_shutdown reason=quit', async () => {
     const control = await startControl()
-    const fake = harness({ interactive: async () => undefined })
+    // Faithful to the real shape: pi fires session_shutdown from dispose() while
+    // the interactive loop is still on the stack, then exits the process.
+    const fake = harness({ interactive: async (h) => h.firePiShutdown('quit') })
 
     await runBrokerTui(
       { agentId: 'sparky', brokerControlSocket: control.socketPath },
@@ -215,7 +244,24 @@ describe('agent-harness broker TUI user exit', () => {
     })
   })
 
-  test('stays silent when the interactive loop throws', async () => {
+  test('stays silent for session replacement and reload', async () => {
+    // 'new'/'resume'/'fork' replace the session and 'reload' bounces the
+    // extension runtime; the session continues, so a user exit here would drop a
+    // continuation that is still wanted (T-01761).
+    for (const reason of ['new', 'resume', 'fork', 'reload']) {
+      const control = await startControl()
+      const fake = harness({ interactive: async (h) => h.firePiShutdown(reason) })
+
+      await runBrokerTui(
+        { agentId: 'sparky', brokerControlSocket: control.socketPath },
+        fake.dependencies
+      )
+
+      expect(await control.waitFor(isUserExit, 120)).toBeUndefined()
+    }
+  })
+
+  test('stays silent when the interactive loop throws without a shutdown', async () => {
     const control = await startControl()
     const fake = harness({
       interactive: async () => {
@@ -235,12 +281,14 @@ describe('agent-harness broker TUI user exit', () => {
     expect(await control.waitFor(isUserExit, 150)).toBeUndefined()
   })
 
-  test('announces only after the session has been disposed', async () => {
-    // HRC reaps the tmux lease as soon as it records the summary this event
-    // triggers. Announcing before dispose would race the pane kill against the
-    // TUI's own session write.
-    const fake = harness({ interactive: async () => undefined, disposeMs: 40 })
-    const control = await startControl(() => fake.disposed())
+  test('announces at most once across a repeated shutdown', async () => {
+    const control = await startControl()
+    const fake = harness({
+      interactive: async (h) => {
+        await h.firePiShutdown('quit')
+        await h.firePiShutdown('quit')
+      },
+    })
 
     await runBrokerTui(
       { agentId: 'sparky', brokerControlSocket: control.socketPath },
@@ -248,8 +296,6 @@ describe('agent-harness broker TUI user exit', () => {
     )
     await control.waitFor(isUserExit)
 
-    const arrival = control.arrivals.find((entry) => isUserExit(entry.frame))
-    expect(arrival).toBeDefined()
-    expect(arrival?.note).toBe(true)
+    expect(control.frames.filter(isUserExit).length).toBe(1)
   })
 })
