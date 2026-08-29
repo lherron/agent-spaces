@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import { existsSync } from 'node:fs'
 import { chmod, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 interface HookCommandConfig {
   files?: string
@@ -31,7 +32,21 @@ interface HookFixture {
 }
 
 const repoRoot = resolve(new URL('..', import.meta.url).pathname)
-const lefthookBinary = join(repoRoot, 'node_modules', '.bin', 'lefthook')
+// Resolve by walking up rather than assuming this repo's node_modules. Under the
+// praesidium dev workspace agent-spaces, hrc-runtime and agent-control-plane
+// install as one workspace and bun hoists binaries to the workspace root, so the
+// repo-local path exists only in a standalone install. Walking up satisfies both.
+function resolveWorkspaceBinary(name: string): string {
+  for (let directory = repoRoot; ; directory = dirname(directory)) {
+    const candidate = join(directory, 'node_modules', '.bin', name)
+    if (existsSync(candidate)) return candidate
+    if (dirname(directory) === directory) {
+      throw new Error(`cannot resolve ${name} in any node_modules/.bin above ${repoRoot}`)
+    }
+  }
+}
+
+const lefthookBinary = resolveWorkspaceBinary('lefthook')
 const scopeScript = join(repoRoot, 'scripts', 'run-if-code-changed.ts')
 const scopeLibrary = join(repoRoot, 'scripts', 'lib', 'hook-change-scope.ts')
 const optimizationLibrary = join(repoRoot, 'scripts', 'lib', 'hook-optimization.ts')

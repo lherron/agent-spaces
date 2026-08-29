@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 import {
   classifyChangeScope,
@@ -21,9 +22,25 @@ import {
 } from './lib/hook-timing.ts'
 
 const repoRoot = resolve(import.meta.dir, '..')
-const lefthookBinary = join(
-  repoRoot,
-  'node_modules',
+
+/**
+ * First `node_modules/<segments>` at or above `repoRoot`, else the repo-local path.
+ *
+ * This repo installs standalone in CI and on the fleet, where the repo-local path
+ * is correct and the walk stops immediately. Under the praesidium dev workspace,
+ * agent-spaces installs as one workspace with hrc-runtime and agent-control-plane
+ * and bun hoists to the shared root, leaving no repo-local node_modules — and this
+ * wrapper IS the git hook, so an unresolvable path there fails every commit.
+ */
+function resolveHoisted(...segments: string[]): string {
+  for (let directory = repoRoot; ; directory = dirname(directory)) {
+    const candidate = join(directory, 'node_modules', ...segments)
+    if (existsSync(candidate)) return candidate
+    if (dirname(directory) === directory) return join(repoRoot, 'node_modules', ...segments)
+  }
+}
+
+const lefthookBinary = resolveHoisted(
   '.bin',
   process.platform === 'win32' ? 'lefthook.cmd' : 'lefthook'
 )
@@ -31,7 +48,7 @@ const lefthookBinary = join(
 async function lefthookVersion(): Promise<string | undefined> {
   try {
     const manifest = JSON.parse(
-      await readFile(join(repoRoot, 'node_modules', 'lefthook', 'package.json'), 'utf8')
+      await readFile(resolveHoisted('lefthook', 'package.json'), 'utf8')
     ) as { version?: unknown }
     return typeof manifest.version === 'string' ? manifest.version : undefined
   } catch {
