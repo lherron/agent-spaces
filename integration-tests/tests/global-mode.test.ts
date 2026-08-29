@@ -46,10 +46,10 @@ describe('asp run global mode', () => {
     await cleanupShimOutput()
 
     // Set environment for claude shim
-    process.env.ASP_HOME = aspHome
-    process.env.ASP_CLAUDE_PATH = CLAUDE_SHIM_PATH
-    process.env.CLAUDE_SHIM_OUTPUT = '/tmp/claude-shim-output.json'
-    process.env.CLAUDE_SHIM_VALIDATE_PLUGINS = '1'
+    process.env['ASP_HOME'] = aspHome
+    process.env['ASP_CLAUDE_PATH'] = CLAUDE_SHIM_PATH
+    process.env['CLAUDE_SHIM_OUTPUT'] = '/tmp/claude-shim-output.json'
+    process.env['CLAUDE_SHIM_VALIDATE_PLUGINS'] = '1'
   })
 
   afterEach(async () => {
@@ -69,7 +69,6 @@ describe('asp run global mode', () => {
         interactive: false,
         prompt: 'test prompt',
         cleanup: false,
-        printWarnings: false,
       })
 
       expect(result.exitCode).toBe(0)
@@ -91,7 +90,6 @@ describe('asp run global mode', () => {
         registryPath: SAMPLE_REGISTRY_DIR,
         interactive: false,
         prompt: 'test prompt',
-        printWarnings: false,
       })
 
       const paths = new PathResolver({ aspHome })
@@ -115,7 +113,6 @@ describe('asp run global mode', () => {
         registryPath: SAMPLE_REGISTRY_DIR,
         interactive: false,
         prompt: 'test prompt',
-        printWarnings: false,
       })
 
       const paths = new PathResolver({ aspHome })
@@ -128,7 +125,6 @@ describe('asp run global mode', () => {
         registryPath: SAMPLE_REGISTRY_DIR,
         interactive: false,
         prompt: 'test prompt',
-        printWarnings: false,
       })
 
       const lockAfterSecond = await readLockJson(paths.globalLock)
@@ -144,7 +140,6 @@ describe('asp run global mode', () => {
         interactive: false,
         prompt: 'test prompt',
         cleanup: false,
-        printWarnings: false,
       })
 
       // Should have at least 2 plugin dirs (frontend + base)
@@ -157,7 +152,6 @@ describe('asp run global mode', () => {
         registryPath: SAMPLE_REGISTRY_DIR,
         interactive: false,
         prompt: 'test global',
-        printWarnings: false,
       })
 
       const shimOutput = await readShimOutput()
@@ -173,7 +167,6 @@ describe('asp run global mode', () => {
         interactive: false,
         prompt: 'test',
         extraArgs: ['--model', 'claude-3-5-sonnet-20241022'],
-        printWarnings: false,
       })
 
       const shimOutput = await readShimOutput()
@@ -211,7 +204,6 @@ describe('asp run global mode', () => {
         interactive: false,
         prompt: 'test dev mode',
         cleanup: false,
-        printWarnings: false,
       })
 
       expect(result.exitCode).toBe(0)
@@ -232,7 +224,6 @@ describe('asp run global mode', () => {
         aspHome,
         interactive: false,
         prompt: 'test dev mode',
-        printWarnings: false,
       })
 
       const paths = new PathResolver({ aspHome })
@@ -249,7 +240,6 @@ describe('asp run global mode', () => {
         aspHome,
         interactive: false,
         prompt: 'test dev',
-        printWarnings: false,
       })
 
       const shimOutput = await readShimOutput()
@@ -264,7 +254,6 @@ describe('asp run global mode', () => {
         interactive: false,
         prompt: 'test',
         cleanup: false,
-        printWarnings: false,
       })
 
       // Verify commands directory was materialized
@@ -281,7 +270,6 @@ describe('asp run global mode', () => {
         aspHome,
         interactive: false,
         prompt: 'test cwd',
-        printWarnings: false,
       })
 
       const shimOutput = await readShimOutput()
@@ -299,7 +287,6 @@ describe('asp run global mode', () => {
           cwd: customCwd,
           interactive: false,
           prompt: 'test cwd override',
-          printWarnings: false,
         })
 
         const shimOutput = await readShimOutput()
@@ -319,7 +306,6 @@ describe('asp run global mode', () => {
         registryPath: SAMPLE_REGISTRY_DIR,
         interactive: false,
         prompt: 'test',
-        printWarnings: false,
       })
 
       const paths = new PathResolver({ aspHome })
@@ -341,7 +327,6 @@ describe('asp run global mode', () => {
         registryPath: SAMPLE_REGISTRY_DIR,
         interactive: false,
         prompt: 'test',
-        printWarnings: false,
       })
 
       const paths = new PathResolver({ aspHome })
@@ -363,7 +348,6 @@ describe('asp run global mode', () => {
         registryPath: SAMPLE_REGISTRY_DIR,
         interactive: false,
         prompt: 'test',
-        printWarnings: false,
       })
 
       const paths = new PathResolver({ aspHome })

@@ -25,6 +25,14 @@ import type {
 } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 
+import type {
+  HostSessionId,
+  RequestId,
+  RunId,
+  RuntimeId,
+  RuntimeOperationId,
+  TraceId,
+} from 'spaces-runtime-contracts'
 import { createAgentSpacesClient } from '../../compiler/agent-spaces/src/index.js'
 import { preparePlacementCliRuntime } from '../../compiler/agent-spaces/src/prepare-cli-runtime.js'
 import type { AgentSpacesClient } from '../../compiler/agent-spaces/src/types.js'
@@ -144,18 +152,18 @@ function compileRequest(
   return {
     schemaVersion: 'agent-runtime-compile-request/v1',
     identity: {
-      requestId: 'request_T04218',
-      operationId: 'runtimeOperation_T04218',
-      hostSessionId: 'hostSession_T04218',
+      requestId: 'request_T04218' as RequestId,
+      operationId: 'runtimeOperation_T04218' as RuntimeOperationId,
+      hostSessionId: 'hostSession_T04218' as HostSessionId,
       generation: 1,
-      runtimeId: 'runtime_T04218',
+      runtimeId: 'runtime_T04218' as RuntimeId,
       invocationId: 'inv_T04218' as InvocationId,
       initialInputId: 'input_T04218' as InputId,
-      runId: 'run_T04218',
-      traceId: 'trace_T04218',
+      runId: 'run_T04218' as RunId,
+      traceId: 'trace_T04218' as TraceId,
       idempotencyKey: 'agent-env-contract-red',
     },
-    placement: placement(fixture),
+    placement: { ...placement(fixture) },
     requested: {
       modelProvider: 'openai',
       model: 'gpt-5.5',
@@ -180,21 +188,21 @@ function compileRequest(
       inputPolicy: DEFAULT_CODEX_BROKER_INPUT_POLICY,
       exposurePolicy: { mode: 'none' },
       resourceLimits: { startupTimeoutMs: 10_000, turnTimeoutMs: 20_000 },
-      observability: { traceId: 'trace_T04218' },
+      observability: { traceId: 'trace_T04218' as TraceId },
       capabilityPolicy: {
         allowDegrade: false,
         requireBrokerDefaultForCodexHeadless: true,
       },
     },
     correlation: {
-      requestId: 'request_T04218',
-      operationId: 'runtimeOperation_T04218',
-      hostSessionId: 'hostSession_T04218',
+      requestId: 'request_T04218' as RequestId,
+      operationId: 'runtimeOperation_T04218' as RuntimeOperationId,
+      hostSessionId: 'hostSession_T04218' as HostSessionId,
       generation: 1,
-      runtimeId: 'runtime_T04218',
-      runId: 'run_T04218',
+      runtimeId: 'runtime_T04218' as RuntimeId,
+      runId: 'run_T04218' as RunId,
       invocationId: 'inv_T04218' as InvocationId,
-      traceId: 'trace_T04218',
+      traceId: 'trace_T04218' as TraceId,
       appId: 'agent-spaces-tests',
       appSessionKey: 'agent-env-contract',
       scopeRef: 'agent:cody:project:agent-spaces:task:T-04218',
@@ -213,7 +221,11 @@ function brokerProfile(response: RuntimeCompileResponse): BrokerExecutionProfile
     (profile): profile is BrokerExecutionProfile => profile.kind === 'harness-broker'
   )
   expect(profiles).toHaveLength(1)
-  return profiles[0]
+  const profile = profiles[0]
+  if (profile === undefined) {
+    throw new Error('compileRuntimePlan produced no matching execution profile')
+  }
+  return profile
 }
 
 async function prepareCodexRuntime(fixture: Fixture, reqDispatchEnv?: Record<string, string>) {
@@ -221,7 +233,7 @@ async function prepareCodexRuntime(fixture: Fixture, reqDispatchEnv?: Record<str
   process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
   return await preparePlacementCliRuntime(
     {
-      placement: placement(fixture),
+      placement: { ...placement(fixture) },
       provider: 'openai',
       frontend: 'codex-cli',
       interactionMode: 'headless',
@@ -383,32 +395,34 @@ command = '''printf '%s|%s' "$WRKQ_PRINCIPAL_REF" "$ASP_PROJECT"'''
           compileRequest(fixture, {
             identity: {
               ...compileRequest(fixture).identity,
-              requestId: 'request_T04218_changed',
-              operationId: 'runtimeOperation_T04218_changed',
-              hostSessionId: 'hostSession_T04218_changed',
+              requestId: 'request_T04218_changed' as RequestId,
+              operationId: 'runtimeOperation_T04218_changed' as RuntimeOperationId,
+              hostSessionId: 'hostSession_T04218_changed' as HostSessionId,
               invocationId: 'inv_T04218_changed' as InvocationId,
-              runId: 'run_T04218_changed',
-              traceId: 'trace_T04218_changed',
+              runId: 'run_T04218_changed' as RunId,
+              traceId: 'trace_T04218_changed' as TraceId,
             },
-            placement: placement(fixture, {
-              correlation: {
-                sessionRef: {
-                  scopeRef: 'agent:cody:project:agent-spaces:task:T-99999',
-                  laneRef: 'main',
+            placement: {
+              ...placement(fixture, {
+                correlation: {
+                  sessionRef: {
+                    scopeRef: 'agent:cody:project:agent-spaces:task:T-99999',
+                    laneRef: 'main',
+                  },
+                  hostSessionId: 'host-session-changed',
+                  runId: 'run-changed',
+                  generation: 8,
                 },
-                hostSessionId: 'host-session-changed',
-                runId: 'run-changed',
-                generation: 8,
-              },
-            }),
+              }),
+            },
             correlation: {
               ...compileRequest(fixture).correlation,
-              requestId: 'request_T04218_changed',
-              operationId: 'runtimeOperation_T04218_changed',
-              hostSessionId: 'hostSession_T04218_changed',
+              requestId: 'request_T04218_changed' as RequestId,
+              operationId: 'runtimeOperation_T04218_changed' as RuntimeOperationId,
+              hostSessionId: 'hostSession_T04218_changed' as HostSessionId,
               invocationId: 'inv_T04218_changed' as InvocationId,
-              runId: 'run_T04218_changed',
-              traceId: 'trace_T04218_changed',
+              runId: 'run_T04218_changed' as RunId,
+              traceId: 'trace_T04218_changed' as TraceId,
               scopeRef: 'agent:cody:project:agent-spaces:task:T-99999',
               laneRef: 'main',
             },

@@ -21,6 +21,14 @@ import type {
 } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 
+import type {
+  HostSessionId,
+  RequestId,
+  RunId,
+  RuntimeId,
+  RuntimeOperationId,
+  TraceId,
+} from 'spaces-runtime-contracts'
 import { createAgentSpacesClient } from '../../compiler/agent-spaces/src/index.js'
 import { assertInteractiveTmuxLaunchClosure } from '../../compiler/agent-spaces/src/testing/pre-hrc-broker-contract-assertions.js'
 import { runPreHrcBrokerContractHarness as runCompilerContractHarness } from '../../compiler/agent-spaces/src/testing/pre-hrc-broker-contract-harness.js'
@@ -34,7 +42,10 @@ import {
 } from '../../compiler/agent-spaces/src/testing/pre-hrc-broker-helpers.js'
 import { compilerRuntime } from './compiler-runtime.js'
 
-type TestFn = () => unknown | Promise<unknown>
+/** Whatever bun accepts back from a test body -- named so the `void` union that
+ * bun itself declares does not have to be re-spelled (biome noConfusingVoidType). */
+type TestBodyReturn = ReturnType<Parameters<typeof bunTest>[1]>
+type TestFn = () => TestBodyReturn
 
 const HEAVY_TEST_TIMEOUT_MS = 60000
 
@@ -423,15 +434,15 @@ describe('allocatePreHrcRuntimeIdentity', () => {
       invocationId: 'inv_abc' as InvocationId,
       initialInputId: 'input_abc' as InputId,
     })
-    expect(identity.requestId).toBe('request_prehrc_contract')
-    expect(identity.operationId).toBe('runtimeOperation_prehrc_contract')
-    expect(identity.hostSessionId).toBe('hostSession_prehrc_contract')
-    expect(identity.runtimeId).toBe('runtime_prehrc_contract')
-    expect(identity.runId).toBe('run_prehrc_contract')
-    expect(identity.traceId).toBe('trace_prehrc_contract')
+    expect(identity.requestId).toBe('request_prehrc_contract' as RequestId)
+    expect(identity.operationId).toBe('runtimeOperation_prehrc_contract' as RuntimeOperationId)
+    expect(identity.hostSessionId).toBe('hostSession_prehrc_contract' as HostSessionId)
+    expect(identity.runtimeId).toBe('runtime_prehrc_contract' as RuntimeId)
+    expect(identity.runId).toBe('run_prehrc_contract' as RunId)
+    expect(identity.traceId).toBe('trace_prehrc_contract' as TraceId)
     expect(identity.generation).toBe(1)
-    expect(identity.invocationId).toBe('inv_abc')
-    expect(identity.initialInputId).toBe('input_abc')
+    expect(identity.invocationId).toBe('inv_abc' as InvocationId)
+    expect(identity.initialInputId).toBe('input_abc' as InputId)
   })
 
   test('omits initialInputId when withInitialInput is false', () => {
@@ -449,7 +460,8 @@ describe('buildPlacementFromScopeRef', () => {
       scopeRef: 'cody@agent-spaces',
       agentRoot: '/agents/cody',
       projectRoot: '/proj',
-      env: { FOO: 'bar' },
+      // `env` was never an input to this helper; the real field is `lockedEnv`.
+      lockedEnv: { FOO: 'bar' },
       hostSessionId: 'hostSession_x',
     })
     expect(placement['agentRoot']).toBe('/agents/cody')
@@ -757,7 +769,7 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
       if (result.brokerStart?.attempted !== true) {
         throw new Error('expected broker start to be attempted')
       }
-      expect(result.brokerStart.response.invocationId).toBe('inv_T01621')
+      expect(result.brokerStart.response.invocationId).toBe('inv_T01621' as InvocationId)
       expect(result.brokerStart.response.capabilities.input.queue).toBe(true)
       expect(result.brokerStart.eventTypes).toContain('invocation.started')
       expect(result.brokerStart.eventTypes).toContain('turn.completed')

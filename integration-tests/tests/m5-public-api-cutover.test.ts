@@ -40,6 +40,7 @@ const PREPARE_CLI_RUNTIME_REGION = [
 const RUN_PLACEMENT_TURN_DECL = 'export async function runPlacementTurnNonInteractive'
 const HEAVY_TEST_TIMEOUT_MS = 60_000
 const REPO_ROOT = join(import.meta.dirname, '..', '..')
+import type * as CompilerTypes from '../../compiler/agent-spaces/src/types.js'
 import { compilerRuntime } from './compiler-runtime.js'
 import { seedImmutableRegistryMirror } from './hermetic.js'
 
@@ -63,12 +64,10 @@ beforeAll(() => {
 // ===================================================================
 describe('placement-based request types (T-00860)', () => {
   test('RunTurnNonInteractiveRequest has placement field', async () => {
-    const types = await import('../../compiler/agent-spaces/src/types.js')
-
     // The new request type should exist as an interface.
     // We verify by constructing a conforming object and checking that
     // the old SpaceSpec/cpSessionId fields are NOT required.
-    const req: types.RunTurnNonInteractiveRequest = {
+    const req: CompilerTypes.RunTurnNonInteractiveRequest = {
       placement: {
         agentRoot: '/srv/agents/alice',
         runMode: 'query',
@@ -101,15 +100,12 @@ describe('placement-based request types (T-00860)', () => {
     }
 
     // Import and verify the type accepts this shape
-    const types = await import('../../compiler/agent-spaces/src/types.js')
-    const response: types.RunTurnNonInteractiveResponse = mockResponse as any
+    const response: CompilerTypes.RunTurnNonInteractiveResponse = mockResponse as any
     expect(response.resolvedBundle).toBeDefined()
   })
 
   test('BuildProcessInvocationSpecRequest has placement field', async () => {
-    const types = await import('../../compiler/agent-spaces/src/types.js')
-
-    const req: types.BuildProcessInvocationSpecRequest = {
+    const req: CompilerTypes.BuildProcessInvocationSpecRequest = {
       placement: {
         agentRoot: '/srv/agents/alice',
         runMode: 'query',
@@ -144,8 +140,7 @@ describe('placement-based request types (T-00860)', () => {
       },
     }
 
-    const types = await import('../../compiler/agent-spaces/src/types.js')
-    const response: types.BuildProcessInvocationSpecResponse = mockResponse as any
+    const response: CompilerTypes.BuildProcessInvocationSpecResponse = mockResponse as any
     expect(response.resolvedBundle).toBeDefined()
   })
 })
@@ -156,8 +151,6 @@ describe('placement-based request types (T-00860)', () => {
 describe('hostSessionId rename (T-00861)', () => {
   test('HostCorrelation type uses hostSessionId not cpSessionId', async () => {
     // Import the HostCorrelation type (should be exported from types or index)
-    const types = await import('../../compiler/agent-spaces/src/types.js')
-
     const correlation = {
       hostSessionId: 'hs-123',
       runId: 'run-456',
@@ -167,10 +160,12 @@ describe('hostSessionId rename (T-00861)', () => {
       },
     }
 
-    // The type should accept hostSessionId
-    expect(correlation.hostSessionId).toBe('hs-123')
-    // Verify the type is exported
-    expect((types as any).HostCorrelation || true).toBeTruthy()
+    // The type should accept hostSessionId. `HostCorrelation` is a type, so it
+    // has no runtime presence -- the old `expect(types.HostCorrelation || true)`
+    // asserted nothing at all. The annotation below is the real check: it fails
+    // to compile if the export is gone or no longer accepts this shape.
+    const typed: CompilerTypes.HostCorrelation = correlation
+    expect(typed.hostSessionId).toBe('hs-123')
   })
 
   test('placement.correlation uses hostSessionId', async () => {
@@ -198,10 +193,8 @@ describe('hostSessionId rename (T-00861)', () => {
   })
 
   test('BaseEvent uses hostSessionId not cpSessionId', async () => {
-    const types = await import('../../compiler/agent-spaces/src/types.js')
-
     // The new BaseEvent should use hostSessionId
-    const event: types.BaseEvent = {
+    const event: CompilerTypes.BaseEvent = {
       ts: new Date().toISOString(),
       seq: 1,
       hostSessionId: 'hs-123',
@@ -389,8 +382,8 @@ describe('correlation env vars (T-00864)', () => {
         ioMode: 'pipes',
       } as any)
 
-      expect(response.spec.env.AGENT_SCOPE_REF).toBe('agent:alice:project:demo')
-      expect(response.spec.env.AGENT_LANE_REF).toBe('main')
+      expect(response.spec.env['AGENT_SCOPE_REF']).toBe('agent:alice:project:demo')
+      expect(response.spec.env['AGENT_LANE_REF']).toBe('main')
     },
     HEAVY_TEST_TIMEOUT_MS
   )
@@ -419,7 +412,7 @@ describe('correlation env vars (T-00864)', () => {
         ioMode: 'pipes',
       } as any)
 
-      expect(response.spec.env.AGENT_HOST_SESSION_ID).toBe('hs-correlation-test')
+      expect(response.spec.env['AGENT_HOST_SESSION_ID']).toBe('hs-correlation-test')
     },
     HEAVY_TEST_TIMEOUT_MS
   )
@@ -445,9 +438,9 @@ describe('correlation env vars (T-00864)', () => {
         ioMode: 'pipes',
       } as any)
 
-      expect(response.spec.env.AGENT_SCOPE_REF).toBeUndefined()
-      expect(response.spec.env.AGENT_LANE_REF).toBeUndefined()
-      expect(response.spec.env.AGENT_HOST_SESSION_ID).toBeUndefined()
+      expect(response.spec.env['AGENT_SCOPE_REF']).toBeUndefined()
+      expect(response.spec.env['AGENT_LANE_REF']).toBeUndefined()
+      expect(response.spec.env['AGENT_HOST_SESSION_ID']).toBeUndefined()
     },
     HEAVY_TEST_TIMEOUT_MS
   )
@@ -480,11 +473,11 @@ describe('correlation env vars (T-00864)', () => {
         ioMode: 'pipes',
       } as any)
 
-      expect(typeof response.spec.env.AGENT_SCOPE_REF).toBe('string')
-      expect(typeof response.spec.env.AGENT_LANE_REF).toBe('string')
-      expect(typeof response.spec.env.AGENT_HOST_SESSION_ID).toBe('string')
-      expect(response.spec.env.AGENT_SCOPE_REF).toBe('agent:alice:project:demo:task:t1')
-      expect(response.spec.env.AGENT_LANE_REF).toBe('lane:deploy')
+      expect(typeof response.spec.env['AGENT_SCOPE_REF']).toBe('string')
+      expect(typeof response.spec.env['AGENT_LANE_REF']).toBe('string')
+      expect(typeof response.spec.env['AGENT_HOST_SESSION_ID']).toBe('string')
+      expect(response.spec.env['AGENT_SCOPE_REF']).toBe('agent:alice:project:demo:task:t1')
+      expect(response.spec.env['AGENT_LANE_REF']).toBe('lane:deploy')
     },
     HEAVY_TEST_TIMEOUT_MS
   )
@@ -513,7 +506,7 @@ describe('placement-based runTurnNonInteractive (T-00873)', () => {
       runId: 'run-placement-1',
       hostSessionId: 'hs-placement-1',
       callbacks: {
-        onEvent: (event) => {
+        onEvent: (event: { type: string; seq: number }) => {
           events.push({ type: event.type, seq: event.seq })
         },
       },
@@ -544,7 +537,7 @@ describe('placement-based runTurnNonInteractive (T-00873)', () => {
       runId: 'run-hsid-test',
       hostSessionId: 'hs-placement-hsid',
       callbacks: {
-        onEvent: (event) => {
+        onEvent: (event: { hostSessionId: string; runId: string }) => {
           events.push({ hostSessionId: event.hostSessionId, runId: event.runId })
         },
       },
@@ -574,7 +567,7 @@ describe('placement-based runTurnNonInteractive (T-00873)', () => {
       runId: 'run-mismatch',
       hostSessionId: 'hs-mismatch',
       callbacks: {
-        onEvent: (event) => {
+        onEvent: (event: { type: string }) => {
           events.push({ type: event.type })
         },
       },
@@ -709,7 +702,7 @@ describe('placement.correlation for hostSessionId/runId (T-00891)', () => {
       model: 'api/not-a-model',
       prompt: 'Hello',
       callbacks: {
-        onEvent: (event) => {
+        onEvent: (event: { hostSessionId: string; runId: string }) => {
           events.push({ hostSessionId: event.hostSessionId, runId: event.runId })
         },
       },
@@ -743,7 +736,7 @@ describe('placement.correlation for hostSessionId/runId (T-00891)', () => {
       prompt: 'Hello',
       hostSessionId: 'hs-t891b', // provide hostSessionId at top-level to isolate the runId defect
       callbacks: {
-        onEvent: (event) => {
+        onEvent: (event: { runId: string }) => {
           events.push({ runId: event.runId })
         },
       },
@@ -772,7 +765,7 @@ describe('placement.correlation for hostSessionId/runId (T-00891)', () => {
       runId: 'run-top-level',
       hostSessionId: 'hs-top-level',
       callbacks: {
-        onEvent: (event) => {
+        onEvent: (event: { hostSessionId: string; runId: string }) => {
           events.push({ hostSessionId: event.hostSessionId, runId: event.runId })
         },
       },

@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import type { RuntimePlacement } from 'spaces-config'
 
 import { createAgentSpacesClient } from '../../compiler/agent-spaces/src/index.js'
+import type { BuildProcessInvocationSpecRequest } from '../../compiler/agent-spaces/src/types.js'
 import { compilerRuntime } from './compiler-runtime.js'
 
 function createCodexShim(dir: string): string {
@@ -115,6 +116,13 @@ describe('buildProcessInvocationSpec characterization', () => {
       process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
 
       const client = createAgentSpacesClient({ aspHome: fixture.aspHome, runtime: compilerRuntime })
+      // `BuildProcessInvocationSpecRequest` still declares the legacy `aspHome`,
+      // `spec` and `cwd` as REQUIRED, while its own `placement` doc says those
+      // three are ignored whenever `placement` is set -- which is this call.
+      // Passing dummies would put fabricated inputs into a characterization
+      // test, so the request keeps its honest v2 shape and the legacy trio is
+      // widened away here. Making them optional-when-placed is a product change
+      // and out of scope for T-07689.
       const response = await client.buildProcessInvocationSpec({
         placement: createPlacement(fixture),
         provider: 'openai',
@@ -126,7 +134,7 @@ describe('buildProcessInvocationSpec characterization', () => {
         attachments: [{ kind: 'file', path: fixture.imagePath, contentType: 'image/png' }],
         lockedEnv: { EXTRA_FLAG: 'from-request', ASP_HOME: 'request-overlay-is-normalized' },
         yolo: true,
-      })
+      } as unknown as BuildProcessInvocationSpecRequest)
 
       expect(response.resolvedBundle?.cwd).toBe(fixture.projectRoot)
       expect(response.spec.provider).toBe('openai')

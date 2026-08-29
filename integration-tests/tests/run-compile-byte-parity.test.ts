@@ -31,6 +31,14 @@ import type {
 } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 
+import type {
+  HostSessionId,
+  RequestId,
+  RunId,
+  RuntimeId,
+  RuntimeOperationId,
+  TraceId,
+} from 'spaces-runtime-contracts'
 import {
   createAgentSpacesClient,
   createCompileRuntimeFn,
@@ -40,7 +48,10 @@ import type { AgentSpacesClient } from '../../compiler/agent-spaces/src/types.js
 import { compilerRuntime } from './compiler-runtime.js'
 import { seedImmutableRegistryMirror } from './hermetic.js'
 
-type TestFn = () => unknown | Promise<unknown>
+/** Whatever bun accepts back from a test body -- named so the `void` union that
+ * bun itself declares does not have to be re-spelled (biome noConfusingVoidType). */
+type TestBodyReturn = ReturnType<Parameters<typeof bunTest>[1]>
+type TestFn = () => TestBodyReturn
 
 const HEAVY_TEST_TIMEOUT_MS = 60000
 
@@ -222,15 +233,15 @@ function compileRequest(
   return {
     schemaVersion: 'agent-runtime-compile-request/v1',
     identity: {
-      requestId: 'request_parity',
-      operationId: 'runtimeOperation_parity',
-      hostSessionId: 'hostSession_parity',
+      requestId: 'request_parity' as RequestId,
+      operationId: 'runtimeOperation_parity' as RuntimeOperationId,
+      hostSessionId: 'hostSession_parity' as HostSessionId,
       generation: 1,
-      runtimeId: 'runtime_parity',
+      runtimeId: 'runtime_parity' as RuntimeId,
       invocationId: 'inv_parity' as InvocationId,
       initialInputId: 'input_parity' as InputId,
-      runId: 'run_parity',
-      traceId: 'trace_parity',
+      runId: 'run_parity' as RunId,
+      traceId: 'trace_parity' as TraceId,
       idempotencyKey: 'run-compile-byte-parity',
     },
     placement: {
@@ -270,14 +281,14 @@ function compileRequest(
       exposurePolicy: { mode: 'none' },
     },
     correlation: {
-      requestId: 'request_parity',
-      operationId: 'runtimeOperation_parity',
-      hostSessionId: 'hostSession_parity',
+      requestId: 'request_parity' as RequestId,
+      operationId: 'runtimeOperation_parity' as RuntimeOperationId,
+      hostSessionId: 'hostSession_parity' as HostSessionId,
       generation: 1,
-      runtimeId: 'runtime_parity',
-      runId: 'run_parity',
+      runtimeId: 'runtime_parity' as RuntimeId,
+      runId: 'run_parity' as RunId,
       invocationId: 'inv_parity' as InvocationId,
-      traceId: 'trace_parity',
+      traceId: 'trace_parity' as TraceId,
       appId: 'agent-spaces-tests',
       appSessionKey: 'run-compile-byte-parity',
     },
@@ -295,7 +306,11 @@ function brokerProfile(response: RuntimeCompileResponse): BrokerExecutionProfile
     (profile): profile is BrokerExecutionProfile => profile.kind === 'harness-broker'
   )
   expect(profiles).toHaveLength(1)
-  return profiles[0]
+  const profile = profiles[0]
+  if (profile === undefined) {
+    throw new Error('compileRuntimePlan produced no matching execution profile')
+  }
+  return profile
 }
 
 function normalizeGeneratedSessionIds(value: string): string {

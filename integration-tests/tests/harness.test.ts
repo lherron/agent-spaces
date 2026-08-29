@@ -41,6 +41,28 @@ const MULTI_HARNESS_DIR = path.join(FIXTURES_DIR, 'multi-harness')
 const CLI_PATH = path.join(import.meta.dir, '..', '..', 'apps', 'cli', 'bin', 'asp.js')
 
 /**
+ * The `pi` CLI entrypoint from this package's declared dependency.
+ *
+ * Resolved from the module graph rather than looked up on PATH so `--harness pi`
+ * behaves identically under `bun run test:integration` (which prepends
+ * `node_modules/.bin`) and under a bare `bun test` of this file.
+ */
+const PI_ENTRYPOINT = path.join(
+  path.dirname(path.dirname(Bun.resolveSync('@earendil-works/pi-coding-agent', import.meta.dir))),
+  'dist',
+  'bundle',
+  'cli.js'
+)
+
+/** Replace the per-invocation `--session-id <uuid>` with a stable placeholder. */
+function normalizeSessionId(command: string): string {
+  return command.replace(
+    /--session-id [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g,
+    '--session-id <uuid>'
+  )
+}
+
+/**
  * Run CLI command and capture output.
  */
 async function runCli(
@@ -212,22 +234,30 @@ describe('asp run --harness', () => {
     expect(command).toContain('Register with agentchat and send READY\n\nplan-next-steps')
   })
 
-  test('--dry-run works with --harness pi-sdk', async () => {
+  // `pi-sdk` is deliberately retired from `asp run` (assertHarnessAvailableForRun
+  // in drivers/execution). The old test here asserted exit 0 for that path, i.e.
+  // it asserted the absence of the guard -- so it went red the day the product
+  // became correct (T-07685 bucket 7). Assert the retirement instead.
+  test('--harness pi-sdk is refused by asp run and names the replacement', async () => {
     const testEnv = getTestEnv(aspHome)
-    const { stdout, exitCode } = await runCli(
+    const { stderr, exitCode } = await runCli(
       ['run', 'claude-target', '--harness', 'pi-sdk', '--dry-run'],
       { env: testEnv, cwd: projectDir }
     )
 
-    expect(exitCode).toBe(0)
-    expect(stdout).toContain('Dry run')
-    expect(extractDryRunCommand(stdout)).not.toBe('')
-    expect(stdout).toContain('--bundle')
-    expect(stdout).toContain('pi-sdk')
+    expect(exitCode).not.toBe(0)
+    expect(stderr).toContain('Harness "pi-sdk" is retired from asp run')
+    expect(stderr).toContain('use hrc to spawn non-foreground runtimes')
   })
 
   test('--dry-run works with --harness pi', async () => {
-    const testEnv = getTestEnv(aspHome)
+    // Pin the pi entrypoint the same way the claude/codex rows pin their shims.
+    // Without the pin this row resolved pi off PATH, and the only reason it was
+    // ever on PATH is that `bun run` prepends `node_modules/.bin` -- so the test
+    // passed under `bun run test:integration` and failed under a bare `bun test`
+    // of the same file (T-07685 bucket 7). PI_ENTRYPOINT resolves the declared
+    // `@earendil-works/pi-coding-agent` dependency directly, so both agree.
+    const testEnv = { ...getTestEnv(aspHome), ASP_PI_PATH: PI_ENTRYPOINT }
     const { stdout, exitCode } = await runCli(
       ['run', 'claude-target', '--harness', 'pi', '--dry-run'],
       { env: testEnv, cwd: projectDir }
@@ -258,9 +288,15 @@ describe('asp run --harness', () => {
     expect(exitWithout).toBe(0)
     expect(exitWith).toBe(0)
 
-    const commandWithout = extractDryRunCommand(withoutFlag)
-    const commandWith = extractDryRunCommand(withFlag)
+    // `--session-id` carries a fresh UUID per invocation, so comparing the two
+    // commands byte-for-byte asserted that a random value repeats. Normalise the
+    // one nondeterministic field and keep the byte comparison for the rest.
+    const commandWithout = normalizeSessionId(extractDryRunCommand(withoutFlag))
+    const commandWith = normalizeSessionId(extractDryRunCommand(withFlag))
     expect(commandWithout).toEqual(commandWith)
+    // The field really is present -- otherwise the normalisation would be
+    // silently comparing two strings it never touched.
+    expect(commandWithout).toContain('--session-id <uuid>')
   })
 
   test('output path includes harness subdirectory', async () => {

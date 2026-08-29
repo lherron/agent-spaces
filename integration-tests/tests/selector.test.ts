@@ -16,6 +16,7 @@ import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
 
 import {
+  asCommitSha,
   asSpaceId,
   computeClosure,
   getLatestVersion,
@@ -166,7 +167,7 @@ describe('selector resolution', () => {
     })
 
     test('resolves git pin to exact commit', async () => {
-      const shortSha = headCommit.slice(0, 12)
+      const shortSha = asCommitSha(headCommit.slice(0, 12))
       const selector = parseSelector(`git:${shortSha}`)
       expect(selector.kind).toBe('git-pin')
 
@@ -187,7 +188,7 @@ describe('selector resolution', () => {
         cwd: SAMPLE_REGISTRY_DIR,
       })
 
-      expect(result.commit).toBe(headCommit)
+      expect(result.commit).toBe(asCommitSha(headCommit))
     })
   })
 
@@ -234,9 +235,9 @@ describe('selector resolution', () => {
         cwd: SAMPLE_REGISTRY_DIR,
       })
 
-      expect(result.version).toBe('1.1.0')
-      expect(result.tag).toBe('space/base/v1.1.0')
-      expect(result.commit).toBeDefined()
+      expect(result!.version).toBe('1.1.0')
+      expect(result!.tag).toBe('space/base/v1.1.0')
+      expect(result!.commit).toBeDefined()
     })
 
     test('resolveExactVersion finds specific version', async () => {
@@ -244,9 +245,9 @@ describe('selector resolution', () => {
         cwd: SAMPLE_REGISTRY_DIR,
       })
 
-      expect(result.version).toBe('1.0.1')
-      expect(result.tag).toBe('space/base/v1.0.1')
-      expect(result.commit).toBeDefined()
+      expect(result!.version).toBe('1.0.1')
+      expect(result!.tag).toBe('space/base/v1.0.1')
+      expect(result!.commit).toBeDefined()
     })
   })
 

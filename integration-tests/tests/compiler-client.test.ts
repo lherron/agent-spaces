@@ -433,7 +433,11 @@ describe('runTurnNonInteractive', () => {
       // No model specified → should use default 'claude/sonnet' which is in the allowed list
       cwd: '/tmp',
       prompt: 'Hello',
-      callbacks: { onEvent: (event) => events.push(event) },
+      callbacks: {
+        onEvent: (event) => {
+          events.push(event)
+        },
+      },
     })
 
     // Should fail at materialization (no real registry), NOT at model validation
@@ -457,7 +461,11 @@ describe('runTurnNonInteractive', () => {
       model: 'api/not-a-model',
       cwd: '/tmp',
       prompt: 'Hello',
-      callbacks: { onEvent: (event) => events.push(event) },
+      callbacks: {
+        onEvent: (event) => {
+          events.push(event)
+        },
+      },
     })
 
     expect(events.length).toBeGreaterThan(0)
@@ -482,13 +490,17 @@ describe('runTurnNonInteractive', () => {
       model: 'api/not-a-model',
       cwd: '/tmp',
       prompt: 'Hello',
-      callbacks: { onEvent: (event) => seqs.push(event.seq) },
+      callbacks: {
+        onEvent: (event) => {
+          seqs.push(event.seq)
+        },
+      },
     })
 
     expect(seqs.length).toBeGreaterThan(0)
     expect(seqs[0]).toBe(1)
     for (let i = 1; i < seqs.length; i++) {
-      expect(seqs[i]).toBe(seqs[i - 1] + 1)
+      expect(seqs[i]).toBe(seqs[i - 1]! + 1)
     }
   })
 
@@ -549,7 +561,9 @@ describe('runTurnNonInteractive', () => {
         cwd: '/tmp',
         prompt: 'Hello',
         callbacks: {
-          onEvent: (event) => events.push({ continuation: event.continuation }),
+          onEvent: (event) => {
+            events.push({ continuation: event.continuation })
+          },
         },
       })
     }
@@ -573,7 +587,11 @@ describe('runTurnNonInteractive', () => {
       model: 'api/not-a-model',
       cwd: '/tmp',
       prompt: 'This is my specific test prompt',
-      callbacks: { onEvent: (event) => events.push(event) },
+      callbacks: {
+        onEvent: (event) => {
+          events.push(event)
+        },
+      },
     })
 
     const messageEvent = events.find(
@@ -613,7 +631,11 @@ describe('runTurnNonInteractive', () => {
       model: 'api/not-a-model',
       cwd: '/tmp',
       prompt: 'Hello',
-      callbacks: { onEvent: (event) => events.push(event) },
+      callbacks: {
+        onEvent: (event) => {
+          events.push(event)
+        },
+      },
     })
 
     const completeEvent = events.find((e) => e.type === 'complete')

@@ -154,7 +154,9 @@ describe('asp codex harness', () => {
     expect(stdout).toContain(`${aspHome}/codex-homes/`)
 
     const codexHome = stdout.match(/CODEX_HOME=(\S+)/)?.[1]
-    expect(codexHome).toBeDefined()
+    if (codexHome === undefined) {
+      throw new Error(`asp install printed no CODEX_HOME:\n${stdout}`)
+    }
     const agentsPath = path.join(codexHome, 'AGENTS.md')
     const configPath = path.join(codexHome, 'config.toml')
     const promptsDir = path.join(codexHome, 'prompts')

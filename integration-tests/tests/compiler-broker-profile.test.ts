@@ -27,6 +27,15 @@ import {
   validateBrokerExecutionProfile,
 } from 'spaces-runtime-contracts'
 
+import type { RuntimePlacement as ConfigRuntimePlacement } from 'spaces-config'
+import type {
+  HostSessionId,
+  RequestId,
+  RunId,
+  RuntimeId,
+  RuntimeOperationId,
+  TraceId,
+} from 'spaces-runtime-contracts'
 import { createAgentSpacesClient } from '../../compiler/agent-spaces/src/index.js'
 import type {
   AgentSpacesClient,
@@ -35,8 +44,11 @@ import type {
 } from '../../compiler/agent-spaces/src/types.js'
 import { compilerRuntime } from './compiler-runtime.js'
 
-type TestFn = () => unknown | Promise<unknown>
-type EachTestFn<T extends readonly unknown[]> = (...args: T) => unknown | Promise<unknown>
+/** Whatever bun accepts back from a test body -- named so the `void` union that
+ * bun itself declares does not have to be re-spelled (biome noConfusingVoidType). */
+type TestBodyReturn = ReturnType<Parameters<typeof bunTest>[1]>
+type TestFn = () => TestBodyReturn
+type EachTestFn<T extends readonly unknown[]> = (...args: T) => TestBodyReturn
 
 const HEAVY_TEST_TIMEOUT_MS = 60000
 
@@ -44,9 +56,18 @@ function test(name: string, fn: TestFn): void {
   bunTest(name, fn, HEAVY_TEST_TIMEOUT_MS)
 }
 
-test.each = <T extends readonly unknown[]>(table: readonly T[]) => {
+type EachRow = readonly [unknown, ...unknown[]]
+
+test.each = <T extends EachRow>(table: readonly T[]) => {
   return (name: string, fn: EachTestFn<T>): void => {
-    bunTest.each(table)(name, fn, HEAVY_TEST_TIMEOUT_MS)
+    // bun types `each` rows as a non-empty readonly tuple and the callback as
+    // variadic `unknown`; T is exactly that row, so the widening is safe here
+    // and keeps every call site strongly typed.
+    bunTest.each(table as readonly EachRow[])(
+      name,
+      fn as unknown as (...args: unknown[]) => TestBodyReturn,
+      HEAVY_TEST_TIMEOUT_MS
+    )
   }
 }
 
@@ -178,15 +199,15 @@ function baseCompileRequest(overrides: Partial<RuntimeCompileRequest> = {}): Run
   return {
     schemaVersion: 'agent-runtime-compile-request/v1',
     identity: {
-      requestId: 'request_T01610',
-      operationId: 'runtimeOperation_T01610',
-      hostSessionId: 'hostSession_T01610',
+      requestId: 'request_T01610' as RequestId,
+      operationId: 'runtimeOperation_T01610' as RuntimeOperationId,
+      hostSessionId: 'hostSession_T01610' as HostSessionId,
       generation: 1,
-      runtimeId: 'runtime_T01610',
+      runtimeId: 'runtime_T01610' as RuntimeId,
       invocationId: 'inv_T01610' as InvocationId,
       initialInputId: 'input_T01610' as InputId,
-      runId: 'run_T01610',
-      traceId: 'trace_T01610',
+      runId: 'run_T01610' as RunId,
+      traceId: 'trace_T01610' as TraceId,
       idempotencyKey: 'compiler-broker-profile',
     },
     placement: placement(),
@@ -214,7 +235,7 @@ function baseCompileRequest(overrides: Partial<RuntimeCompileRequest> = {}): Run
       inputPolicy: DEFAULT_CODEX_BROKER_INPUT_POLICY,
       exposurePolicy: { mode: 'none' },
       resourceLimits: { startupTimeoutMs: 10_000, turnTimeoutMs: 20_000 },
-      observability: { traceId: 'trace_T01610' },
+      observability: { traceId: 'trace_T01610' as TraceId },
       capabilityPolicy: {
         allowDegrade: false,
         requireBrokerDefaultForCodexHeadless: true,
@@ -222,20 +243,25 @@ function baseCompileRequest(overrides: Partial<RuntimeCompileRequest> = {}): Run
     },
     continuation: {
       schemaVersion: 'runtime-continuation/v1',
-      hrc: { provider: 'openai', keyHash: 'thread-hash', key: 'thread_T01610' },
-      broker: { provider: 'codex', kind: 'thread', keyHash: 'thread-hash', key: 'thread_T01610' },
+      hrc: { provider: 'openai', continuationId: 'thread-hash', key: 'thread_T01610' },
+      broker: {
+        provider: 'codex',
+        kind: 'thread',
+        continuationId: 'thread-hash',
+        key: 'thread_T01610',
+      },
       source: 'harness-broker',
       observedAt: '2026-05-24T07:05:32.000Z',
     },
     correlation: {
-      requestId: 'request_T01610',
-      operationId: 'runtimeOperation_T01610',
-      hostSessionId: 'hostSession_T01610',
+      requestId: 'request_T01610' as RequestId,
+      operationId: 'runtimeOperation_T01610' as RuntimeOperationId,
+      hostSessionId: 'hostSession_T01610' as HostSessionId,
       generation: 1,
-      runtimeId: 'runtime_T01610',
-      runId: 'run_T01610',
+      runtimeId: 'runtime_T01610' as RuntimeId,
+      runId: 'run_T01610' as RunId,
       invocationId: 'inv_T01610' as InvocationId,
-      traceId: 'trace_T01610',
+      traceId: 'trace_T01610' as TraceId,
       appId: 'agent-spaces-tests',
       appSessionKey: 'compiler-broker-profile',
       scopeRef: 'agent:cody:project:agent-spaces:task:T-01610',
@@ -286,7 +312,11 @@ function brokerProfile(response: RuntimeCompileResponse): BrokerExecutionProfile
     (profile): profile is BrokerExecutionProfile => profile.kind === 'harness-broker'
   )
   expect(profiles).toHaveLength(1)
-  return profiles[0]
+  const profile = profiles[0]
+  if (profile === undefined) {
+    throw new Error('compileRuntimePlan produced no matching execution profile')
+  }
+  return profile
 }
 
 function compiledSpec(profile: BrokerExecutionProfile): HarnessInvocationSpec {
@@ -301,6 +331,20 @@ function textFromInitialInput(profile: BrokerExecutionProfile): string | undefin
 }
 
 /**
+ * Bridge between the two `RuntimePlacement` types this call crosses.
+ *
+ * The compile request carries `spaces-runtime-contracts`' deliberately opaque
+ * placement -- an index-signature bag at the contract boundary -- while the
+ * legacy builder takes `spaces-config`'s structural interface. Both describe the
+ * same object; TypeScript will not bridge an interface to an index-signature
+ * type by itself, so the conversion is explicit and named rather than smeared
+ * across call sites.
+ */
+function asConfigPlacement(value: RuntimeCompileRequest['placement']): ConfigRuntimePlacement {
+  return value as unknown as ConfigRuntimePlacement
+}
+
+/**
  * Mirrors the brokerReq the compiler derives internally so the legacy
  * delegate's start request can be deep-compared against the compiled one.
  */
@@ -308,7 +352,7 @@ function legacyBrokerRequest(
   req: RuntimeCompileRequest
 ): BuildHarnessBrokerInvocationRequest & { initialInputId?: InputId | undefined } {
   return {
-    placement: req.placement,
+    placement: asConfigPlacement(req.placement),
     provider: 'openai',
     frontend: 'codex-cli',
     interactionMode: 'headless',
@@ -451,7 +495,8 @@ describe('compiled broker profile field mapping', () => {
       operatorAttach: true,
       exposurePolicy: { mode: 'broker-reports-target', targetKind: 'tmux-session' },
     })
-    expect(profile.policy.exposurePolicy).toEqual(profile.brokerTerminal?.exposurePolicy)
+    expect(profile.brokerTerminal).toBeDefined()
+    expect(profile.policy.exposurePolicy).toEqual(profile.brokerTerminal!.exposurePolicy)
     expect(spec.harness).toEqual({
       frontend: 'claude-code',
       provider: 'anthropic',
@@ -529,13 +574,13 @@ describe('compiled broker profile field mapping', () => {
             schemaVersion: 'runtime-continuation/v1',
             hrc: {
               provider: 'anthropic',
-              keyHash: 'claude-session-hash',
+              continuationId: 'claude-session-hash',
               key: 'claude-session-01769',
             },
             broker: {
               provider: 'anthropic',
               kind: 'session',
-              keyHash: 'claude-session-hash',
+              continuationId: 'claude-session-hash',
               key: 'claude-session-01769',
             },
             source: 'harness-broker',
@@ -572,13 +617,13 @@ describe('compiled broker profile field mapping', () => {
             schemaVersion: 'runtime-continuation/v1',
             hrc: {
               provider: 'anthropic',
-              keyHash: 'claude-session-hash',
+              continuationId: 'claude-session-hash',
               key: 'claude-session-07218',
             },
             broker: {
               provider: 'anthropic',
               kind: 'session',
-              keyHash: 'claude-session-hash',
+              continuationId: 'claude-session-hash',
               key: 'claude-session-07218',
             },
             source: 'harness-broker',

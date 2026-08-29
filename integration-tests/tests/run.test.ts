@@ -346,17 +346,33 @@ priming = "You are {{agentId}} in {{projectId}} working on {{taskId}}."
 `
     )
     process.env['ASP_AGENTS_ROOT'] = agentsRoot
-    process.env['ASP_PROJECT'] = 'test-project'
 
-    const result = await run('dev', {
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-      dryRun: true,
-    })
+    // `resolveRunIdentity` reads `ASP_TASK_ID` before falling back to `primary`,
+    // and this suite runs inside an agent runtime that exports it. Without the
+    // scrub the test asserted the fallback while the ambient task id was what
+    // actually expanded -- green or red depending on who ran it.
+    const savedTaskId = process.env['ASP_TASK_ID']
+    process.env['ASP_TASK_ID'] = undefined
 
-    expect(result.command).toBeDefined()
-    expect(result.command).toContain('You are dev in test-project working on primary.')
+    // Project identity comes from the project marker/git root first (`ASP_PROJECT`
+    // is only the third choice), so the expected id is the temp project's own
+    // directory name, not anything this test could put in the environment.
+    const expectedProjectId = path.basename(projectDir)
+
+    try {
+      const result = await run('dev', {
+        projectPath: projectDir,
+        registryPath: SAMPLE_REGISTRY_DIR,
+        aspHome,
+        dryRun: true,
+      })
+
+      expect(result.command).toBeDefined()
+      expect(result.command).toContain(`You are dev in ${expectedProjectId} working on primary.`)
+    } finally {
+      if (savedTaskId === undefined) process.env['ASP_TASK_ID'] = undefined
+      else process.env['ASP_TASK_ID'] = savedTaskId
+    }
   })
 
   test('CLI accepts scope handle target and passes taskId into asp run prompt expansion', async () => {

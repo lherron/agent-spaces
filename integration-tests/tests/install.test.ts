@@ -73,8 +73,8 @@ describe('asp install', () => {
     // Verify lock file structure
     expect(result.lock.lockfileVersion).toBe(1)
     expect(result.lock.targets).toHaveProperty('dev')
-    expect(result.lock.targets.dev.loadOrder).toBeDefined()
-    expect(result.lock.targets.dev.loadOrder.length).toBeGreaterThan(0)
+    expect(result.lock.targets['dev']!.loadOrder).toBeDefined()
+    expect(result.lock.targets['dev']!.loadOrder.length).toBeGreaterThan(0)
   })
 
   test('resolves transitive dependencies', async () => {
@@ -88,7 +88,7 @@ describe('asp install', () => {
     expect(result.lock).toBeDefined()
 
     // Check that base is in load order (transitive dep)
-    const loadOrder = result.lock.targets.dev.loadOrder
+    const loadOrder = result.lock.targets['dev']!.loadOrder
     const hasBase = loadOrder.some((key) => key.startsWith('base@'))
     expect(hasBase).toBe(true)
 
@@ -107,11 +107,14 @@ describe('asp install', () => {
 
     expect(result.snapshotsCreated).toBeGreaterThan(0)
 
-    // Check store has entries
+    // Check the snapshot store has entries. `PathResolver` exposes this as
+    // `snapshots`; there has never been a `store` getter, and reading the
+    // undefined property is what made this test throw ERR_INVALID_ARG_TYPE
+    // rather than assert anything (T-07685 bucket 6).
     const pathResolver = new PathResolver({ aspHome })
-    const storeDir = pathResolver.store
+    const snapshotsDir = pathResolver.snapshots
 
-    const entries = await fs.readdir(storeDir, { withFileTypes: true })
+    const entries = await fs.readdir(snapshotsDir, { withFileTypes: true })
     const hasSnapshots = entries.some((e) => e.isDirectory())
     expect(hasSnapshots).toBe(true)
   })
@@ -124,7 +127,7 @@ describe('asp install', () => {
     })
 
     // Check envHash is present and properly formatted
-    const envHash = result.lock.targets.dev.envHash
+    const envHash = result.lock.targets['dev']!.envHash
     expect(envHash).toMatch(/^sha256:[0-9a-f]{64}$/)
   })
 

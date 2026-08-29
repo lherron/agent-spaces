@@ -45,12 +45,12 @@ async function addSpaceToTarget(
   }
 
   // Check if already present
-  if (target.compose.includes(spaceRef as never)) {
+  if (target.compose!.includes(spaceRef as never)) {
     return
   }
 
   // Add space
-  target.compose.push(spaceRef as never)
+  target.compose!.push(spaceRef as never)
 
   // Serialize back
   let toml = `schema = ${manifest.schema}\n\n`
@@ -60,7 +60,7 @@ async function addSpaceToTarget(
       toml += `description = "${t.description}"\n`
     }
     toml += 'compose = [\n'
-    for (const ref of t.compose) {
+    for (const ref of t.compose ?? []) {
       toml += `  "${ref}",\n`
     }
     toml += ']\n\n'
@@ -97,10 +97,10 @@ async function removeSpaceFromTarget(
     throw new Error(`Target "${targetName}" not found`)
   }
 
-  const originalLength = target.compose.length
+  const originalLength = target.compose!.length
 
   // Filter out matching space refs
-  target.compose = target.compose.filter((ref) => {
+  target.compose = target.compose!.filter((ref) => {
     const match = ref.match(/^space:([^@]+)@/)
     const refId = match ? match[1] : ref
     return refId !== spaceId
@@ -118,7 +118,7 @@ async function removeSpaceFromTarget(
       toml += `description = "${t.description}"\n`
     }
     toml += 'compose = [\n'
-    for (const ref of t.compose) {
+    for (const ref of t.compose ?? []) {
       toml += `  "${ref}",\n`
     }
     toml += ']\n\n'
@@ -167,11 +167,11 @@ describe('asp add', () => {
 
     // Verify compose was updated
     const manifest = await readTargetsToml(path.join(projectDir, 'asp-targets.toml'))
-    expect(manifest.targets.dev.compose).toContain('space:backend@stable')
+    expect(manifest.targets['dev']!.compose).toContain('space:backend@stable')
 
     // Verify lock file was updated
     const lock = await readLockJson(path.join(projectDir, LOCK_FILENAME))
-    expect(lock.targets.dev.loadOrder.some((key) => key.startsWith('backend@'))).toBe(true)
+    expect(lock.targets['dev']!.loadOrder.some((key) => key.startsWith('backend@'))).toBe(true)
   })
 
   test('does not duplicate existing space', async () => {
@@ -190,7 +190,9 @@ describe('asp add', () => {
 
     // Verify only one entry
     const manifest = await readTargetsToml(path.join(projectDir, 'asp-targets.toml'))
-    const backendCount = manifest.targets.dev.compose.filter((r) => r.includes('backend')).length
+    const backendCount = manifest.targets['dev']!.compose!.filter((r) =>
+      r.includes('backend')
+    ).length
     expect(backendCount).toBe(1)
   })
 
@@ -203,7 +205,7 @@ describe('asp add', () => {
 
     // Verify compose was updated
     const manifest = await readTargetsToml(path.join(projectDir, 'asp-targets.toml'))
-    expect(manifest.targets.dev.compose).toContain('space:backend@stable')
+    expect(manifest.targets['dev']!.compose).toContain('space:backend@stable')
 
     // Verify no lock file was created (since we skipped install)
     const lockExists = await fs
@@ -251,11 +253,11 @@ describe('asp remove', () => {
 
     // Verify compose was updated
     const manifest = await readTargetsToml(path.join(projectDir, 'asp-targets.toml'))
-    expect(manifest.targets.dev.compose).not.toContain('space:backend@stable')
+    expect(manifest.targets['dev']!.compose).not.toContain('space:backend@stable')
 
     // Verify lock file was updated
     const lock = await readLockJson(path.join(projectDir, LOCK_FILENAME))
-    expect(lock.targets.dev.loadOrder.some((key) => key.startsWith('backend@'))).toBe(false)
+    expect(lock.targets['dev']!.loadOrder.some((key) => key.startsWith('backend@'))).toBe(false)
   })
 
   test('returns 0 when space not found', async () => {
@@ -286,7 +288,7 @@ describe('asp remove', () => {
 
     // Verify compose no longer has frontend
     const manifest = await readTargetsToml(path.join(projectDir, 'asp-targets.toml'))
-    expect(manifest.targets.dev.compose.some((r) => r.includes('frontend'))).toBe(false)
+    expect(manifest.targets['dev']!.compose!.some((r) => r.includes('frontend'))).toBe(false)
   })
 })
 

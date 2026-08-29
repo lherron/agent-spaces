@@ -20,11 +20,20 @@ import type {
 } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 
+import type {
+  HostSessionId,
+  RequestId,
+  RuntimeId,
+  RuntimeOperationId,
+} from 'spaces-runtime-contracts'
 import { createAgentSpacesClient } from '../../compiler/agent-spaces/src/index.js'
 import type { AgentSpacesClient } from '../../compiler/agent-spaces/src/types.js'
 import { compilerRuntime } from './compiler-runtime.js'
 
-type TestFn = () => unknown | Promise<unknown>
+/** Whatever bun accepts back from a test body -- named so the `void` union that
+ * bun itself declares does not have to be re-spelled (biome noConfusingVoidType). */
+type TestBodyReturn = ReturnType<Parameters<typeof bunTest>[1]>
+type TestFn = () => TestBodyReturn
 
 const HEAVY_TEST_TIMEOUT_MS = 60000
 
@@ -107,11 +116,11 @@ function compileRequest(
   return {
     schemaVersion: 'agent-runtime-compile-request/v1',
     identity: {
-      requestId: 'request_T01610',
-      operationId: 'runtimeOperation_T01610',
-      hostSessionId: 'hostSession_T01610',
+      requestId: 'request_T01610' as RequestId,
+      operationId: 'runtimeOperation_T01610' as RuntimeOperationId,
+      hostSessionId: 'hostSession_T01610' as HostSessionId,
       generation: 1,
-      runtimeId: 'runtime_T01610',
+      runtimeId: 'runtime_T01610' as RuntimeId,
       invocationId: 'inv_T01610' as InvocationId,
       initialInputId: 'input_T01610' as InputId,
       ...identityOverrides,
@@ -145,8 +154,8 @@ function compileRequest(
     },
     ...(continuation !== undefined ? { continuation } : {}),
     correlation: {
-      requestId: 'request_T01610',
-      hostSessionId: 'hostSession_T01610',
+      requestId: 'request_T01610' as RequestId,
+      hostSessionId: 'hostSession_T01610' as HostSessionId,
       generation: 1,
       scopeRef: 'agent:cody:project:agent-spaces:task:T-01610',
       laneRef: 'repair',
@@ -163,7 +172,11 @@ function brokerProfile(response: RuntimeCompileResponse): BrokerExecutionProfile
     (profile): profile is BrokerExecutionProfile => profile.kind === 'harness-broker'
   )
   expect(profiles).toHaveLength(1)
-  return profiles[0]
+  const profile = profiles[0]
+  if (profile === undefined) {
+    throw new Error('compileRuntimePlan produced no matching execution profile')
+  }
+  return profile
 }
 
 async function compile(
@@ -357,7 +370,7 @@ describe('compiled broker initial input composition', () => {
         { initialPrompt: 'first turn text' },
         { initialInputId: 'input_supplied_T01610' as InputId }
       )
-      expect(initialInput(profile)?.inputId).toBe('input_supplied_T01610')
+      expect(initialInput(profile)?.inputId).toBe('input_supplied_T01610' as InputId)
     } finally {
       fixture.cleanup()
     }

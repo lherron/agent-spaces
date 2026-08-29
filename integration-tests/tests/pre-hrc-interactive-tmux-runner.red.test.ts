@@ -63,13 +63,30 @@ function runnerDeps(): {
   let startSpec: HarnessInvocationSpec | undefined
   let seq = 0
 
-  const emit = (event: Omit<InvocationEventEnvelope, 'seq' | 'time'>): void => {
+  /**
+   * What this fake driver actually emits.
+   *
+   * `InvocationEventEnvelope` is a 38-arm discriminated union whose payloads are
+   * fully specified; the runner under test reads only the discriminant, the ids
+   * and the two or three payload fields asserted below. Typing the fake against
+   * the full union would mean fabricating required fields nothing here reads,
+   * which is why this is a deliberate partial view, cast once at the boundary.
+   */
+  type FakeEvent = {
+    invocationId: string | undefined
+    type: string
+    turnId?: string | undefined
+    driver?: { kind: string; rawType: string } | undefined
+    payload?: Record<string, unknown> | undefined
+  }
+
+  const emit = (event: FakeEvent): void => {
     seq += 1
     onEvent?.({
       seq,
       time: `2026-06-22T00:00:${String(seq).padStart(2, '0')}.000Z`,
       ...event,
-    } as InvocationEventEnvelope)
+    } as unknown as InvocationEventEnvelope)
   }
 
   const deps: InteractiveTmuxRunnerDeps = {
@@ -104,10 +121,12 @@ function runnerDeps(): {
               payload: { content: spec.launch.initialPrompt },
             })
           }
-          return { invocationId: spec.invocationId }
+          return { invocationId: spec.invocationId ?? 'inv_red_fake' }
         },
         async input(request) {
-          const prompt = request.input.content[0]?.text ?? ''
+          const firstContent = request.input.content[0]
+          const prompt =
+            firstContent !== undefined && 'text' in firstContent ? firstContent.text : ''
           const turnId = `turn_${seq + 1}`
           emit({
             invocationId: request.invocationId,

@@ -10,7 +10,36 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 
+import type { BuildResult, LintContext, SpaceLintData } from 'spaces-config'
+import { getLoadOrderEntries, lint as lintApi } from 'spaces-config'
 import { build, install } from 'spaces-execution'
+
+const { lint } = lintApi
+
+/**
+ * Rebuild the lint context `build()` itself constructs, over the plugin dirs a
+ * completed build produced.
+ *
+ * WHY this and not a second `build({ clean: false })`: plugin dirs are
+ * content-addressed cache entries, and the second build re-materializes them
+ * from source before lint runs, so anything injected into one is gone by the
+ * time a rule could see it (`clean: false` protects the output dir, not the
+ * cache). Both rules below fire only on hand-edited plugin directories -- W206
+ * because materialization runs `ensureHooksExecutable` first, W207 because
+ * materialization never nests component dirs under `.claude-plugin/` -- so the
+ * honest integration is to build real artifacts, edit one, and run the real
+ * lint entrypoint over it. Pairing is by load-order index, exactly as
+ * `build()` pairs `getLoadOrderEntries` with `pluginDirs`.
+ */
+function lintContextFor(built: BuildResult, targetName = 'test'): LintContext {
+  const entries = getLoadOrderEntries(built.lock, targetName)
+  const spaces: SpaceLintData[] = entries.map((entry, i) => ({
+    key: `${entry.id}@${entry.commit.slice(0, 12)}` as SpaceLintData['key'],
+    manifest: { schema: 1 as const, id: entry.id, plugin: entry.plugin },
+    pluginPath: built.pluginDirs[i] ?? '',
+  }))
+  return { spaces }
+}
 
 import {
   SAMPLE_REGISTRY_DIR,
@@ -225,13 +254,6 @@ describe('asp lint integration', () => {
   })
 
   test('detects non-executable hook scripts (W206)', async () => {
-    // Note: The materializer calls ensureHooksExecutable which fixes permissions
-    // BEFORE lint runs. However, the lint rule W206 is still useful for detecting
-    // issues in manually-created plugin directories.
-    //
-    // This test verifies the lint rule works by creating a bad structure
-    // AFTER materialization, simulating a manual misconfiguration.
-
     await cleanupTempProject(projectDir)
     projectDir = await createTempProject({
       test: {
@@ -245,62 +267,45 @@ describe('asp lint integration', () => {
       aspHome,
     })
 
-    // First build to create the structure
-    const result1 = await build('test', {
+    const built = await build('test', {
       projectPath: projectDir,
       registryPath: SAMPLE_REGISTRY_DIR,
       aspHome,
       outputDir,
     })
+    expect(built.pluginDirs.length).toBe(2) // frontend + base
 
-    // Get a plugin directory (plugin dirs use content hashes, not names)
-    const pluginDirs = result1.pluginDirs
-    expect(pluginDirs.length).toBe(2) // frontend + base
-
-    // Use the first plugin dir
-    const pluginDir = pluginDirs[0]
+    const pluginDir = built.pluginDirs[0]
     expect(pluginDir).toBeDefined()
+    if (pluginDir === undefined) return
 
-    // Manually create a hooks directory with non-executable script
+    // Manually create a hooks directory with a non-executable script.
     const hooksDir = path.join(pluginDir, 'hooks')
     await fs.mkdir(hooksDir, { recursive: true })
-
-    // Create hooks.json
     await fs.writeFile(
       path.join(hooksDir, 'hooks.json'),
       JSON.stringify({
-        hooks: [{ event: 'SessionStart', script: 'bad-script.sh' }],
+        hooks: {
+          PreToolUse: [
+            {
+              hooks: [
+                { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/hooks/not-executable.sh' },
+              ],
+            },
+          ],
+        },
       })
     )
+    await fs.writeFile(path.join(hooksDir, 'not-executable.sh'), '#!/bin/sh\necho hi\n')
+    await fs.chmod(path.join(hooksDir, 'not-executable.sh'), 0o644)
 
-    // Create non-executable script (mode 644)
-    await fs.writeFile(path.join(hooksDir, 'bad-script.sh'), '#!/bin/bash\necho "test"', {
-      mode: 0o644,
-    })
-
-    // Run lint through a fresh build
-    const result2 = await build('test', {
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-      outputDir,
-      clean: false, // Don't clean so we keep our manual changes
-    })
-
-    // Check for W206 warning
-    const warning = result2.warnings.find((w) => w.code === 'W206')
+    const warnings = await lint(lintContextFor(built))
+    const warning = warnings.find((w) => w.code === 'W206')
     expect(warning).toBeDefined()
-
-    if (warning) {
-      expect(warning.message).toContain('not executable')
-    }
+    expect(warning?.message).toContain('not executable')
   })
 
   test('detects invalid plugin structure (W207)', async () => {
-    // Note: The normal materialization flow doesn't copy .claude-plugin/* from source.
-    // It generates .claude-plugin/plugin.json fresh. So this test creates a bad
-    // structure AFTER materialization to verify the lint rule works.
-
     await cleanupTempProject(projectDir)
     projectDir = await createTempProject({
       test: {
@@ -314,43 +319,29 @@ describe('asp lint integration', () => {
       aspHome,
     })
 
-    // First build to create the structure
-    const result1 = await build('test', {
+    const built = await build('test', {
       projectPath: projectDir,
       registryPath: SAMPLE_REGISTRY_DIR,
       aspHome,
       outputDir,
     })
+    expect(built.pluginDirs.length).toBe(2) // frontend + base
 
-    // Get a plugin directory (plugin dirs use content hashes, not names)
-    const pluginDirs = result1.pluginDirs
-    expect(pluginDirs.length).toBe(2) // frontend + base
-
-    // Use the first plugin dir
-    const pluginDir = pluginDirs[0]
+    const pluginDir = built.pluginDirs[0]
     expect(pluginDir).toBeDefined()
+    if (pluginDir === undefined) return
 
-    // Manually create component directory inside .claude-plugin (bad structure)
+    // Component directory nested inside .claude-plugin/ -- the misconfiguration
+    // W207 exists to catch. Materialization never produces this shape, so it can
+    // only come from a hand-edited plugin dir, which is what this injects.
     const badDir = path.join(pluginDir, '.claude-plugin', 'commands')
     await fs.mkdir(badDir, { recursive: true })
     await fs.writeFile(path.join(badDir, 'wrong.md'), '# /wrong\nThis is in the wrong place.')
 
-    // Run lint through a fresh build
-    const result2 = await build('test', {
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-      outputDir,
-      clean: false, // Don't clean so we keep our manual changes
-    })
-
-    // Check for W207 warning
-    const warning = result2.warnings.find((w) => w.code === 'W207')
+    const warnings = await lint(lintContextFor(built))
+    const warning = warnings.find((w) => w.code === 'W207')
     expect(warning).toBeDefined()
-
-    if (warning) {
-      expect(warning.message).toContain('commands/')
-      expect(warning.message).toContain('.claude-plugin')
-    }
+    expect(warning?.message).toContain('commands/')
+    expect(warning?.message).toContain('.claude-plugin')
   })
 })

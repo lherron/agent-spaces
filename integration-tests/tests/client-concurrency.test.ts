@@ -22,6 +22,22 @@ import { afterEach, describe, expect, it, test } from 'bun:test'
 // Repo-level white-box coverage belongs here; these internals remain private.
 import { applyEnvOverlay } from '../../apps/turn-runner/src/runtime-env.js'
 import { createEventEmitter } from '../../apps/turn-runner/src/session-events.js'
+import type { EventPayload } from '../../apps/turn-runner/src/session-events.js'
+
+/**
+ * `test.todo(label)` with no body is legal at runtime; bun-types declares `fn`
+ * as required on every `Test` overload, in 1.3 and 1.4 alike. Declaring the
+ * one-argument form keeps these markers exactly as they run.
+ */
+const todo = test.todo as unknown as (label: string) => void
+
+/**
+ * `EventPayload` is `Omit<AgentEvent, ...>` over a discriminated UNION, and
+ * `Omit` is not distributive: `keyof AgentEvent` is only the keys common to
+ * every arm, so the result keeps `type` and drops `role`/`content`/`state`.
+ * The product hits this too and casts at every `emit` call site
+ * (apps/turn-runner/src/client.ts). Same cast here, same reason.
+ */
 
 const PROBE_KEYS = ['ASP_TEST_CONCURRENCY_A', 'ASP_TEST_CONCURRENCY_B', 'ASP_TEST_CONCURRENCY_C']
 
@@ -61,7 +77,7 @@ describe('applyEnvOverlay (sequential / non-overlapping)', () => {
   // the overlay is scoped/serialized per-call. Promoting this to a live `it`
   // would fail today (the second restore clobbers the still-active first turn's
   // value back to the original instead of leaving it intact).
-  it.todo('isolates env between two concurrent (overlapping) overlays [BUGS.md agent-spaces A1]')
+  todo('isolates env between two concurrent (overlapping) overlays [BUGS.md agent-spaces A1]')
 })
 
 describe('createEventEmitter (ordering)', () => {
@@ -77,8 +93,8 @@ describe('createEventEmitter (ordering)', () => {
     )
 
     await Promise.all([
-      emitter.emit({ type: 'message', role: 'assistant', content: 'first' }),
-      emitter.emit({ type: 'message', role: 'assistant', content: 'second' }),
+      emitter.emit({ type: 'message', role: 'assistant', content: 'first' } as EventPayload),
+      emitter.emit({ type: 'message', role: 'assistant', content: 'second' } as EventPayload),
     ])
     await emitter.idle()
 
@@ -111,5 +127,5 @@ describe('createEventEmitter (ordering)', () => {
   // `void lastEmission.catch(() => {})`, so neither the returned `emit` promise
   // nor `idle()` rejects. Marked `.todo` until emit failures are surfaced.
   // Promoting this would fail today because the rejection never propagates.
-  test.todo('surfaces a throwing onEvent consumer to the caller / idle() [BUGS.md agent-spaces A2]')
+  todo('surfaces a throwing onEvent consumer to the caller / idle() [BUGS.md agent-spaces A2]')
 })

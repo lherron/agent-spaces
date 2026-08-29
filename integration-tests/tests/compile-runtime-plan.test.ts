@@ -31,6 +31,15 @@ import {
 } from 'spaces-runtime-contracts'
 import * as RuntimeContracts from 'spaces-runtime-contracts'
 
+import type { RuntimePlacement as ConfigRuntimePlacement } from 'spaces-config'
+import type {
+  HostSessionId,
+  RequestId,
+  RunId,
+  RuntimeId,
+  RuntimeOperationId,
+  TraceId,
+} from 'spaces-runtime-contracts'
 import { createAgentSpacesClient } from '../../compiler/agent-spaces/src/index.js'
 import { preparePlacementCliRuntime } from '../../compiler/agent-spaces/src/prepare-cli-runtime.js'
 import type {
@@ -42,8 +51,56 @@ import { loadAgent } from '../../harness/agent-harness-runtime/src/index.js'
 import { AgentSpacesResourceLoader } from '../../harness/agent-harness-runtime/src/index.js'
 import { compilerRuntime } from './compiler-runtime.js'
 
-type TestFn = () => unknown | Promise<unknown>
-type EachTestFn<T extends readonly unknown[]> = (...args: T) => unknown | Promise<unknown>
+type PiSdkAliasCase = readonly [
+  caseName: string,
+  provider: 'openai' | 'anthropic',
+  model: string,
+  expectedPiProvider: string,
+  expectedPiModelId: string,
+  authMode: 'api-key' | 'oauth',
+]
+
+/**
+ * Table for the pi-sdk alias matrix.
+ *
+ * Annotated with one row type instead of `as const`: under `as const` every row
+ * gets its own literal tuple type, the table's element type becomes a UNION of
+ * five tuples, and `test.each`'s callback can no longer be checked positionally.
+ */
+const PI_SDK_ALIAS_CASES: readonly PiSdkAliasCase[] = [
+  ['bare OpenAI alias', 'openai', 'gpt-5.5', 'openai', 'openai/gpt-5.5', 'api-key'],
+  ['OpenAI API-key alias', 'openai', 'openai/gpt-5.5', 'openai', 'openai/gpt-5.5', 'api-key'],
+  [
+    'OpenAI OAuth alias',
+    'openai',
+    'openai-codex/gpt-5.5',
+    'openai-codex',
+    'openai-codex/gpt-5.5',
+    'oauth',
+  ],
+  [
+    'bare Anthropic alias',
+    'anthropic',
+    'claude-sonnet-4-5',
+    'anthropic',
+    'anthropic/claude-sonnet-4-5',
+    'api-key',
+  ],
+  [
+    'Anthropic OAuth alias',
+    'anthropic',
+    'anthropic-max/claude-sonnet-4-5',
+    'anthropic',
+    'anthropic/claude-sonnet-4-5',
+    'oauth',
+  ],
+]
+
+/** Whatever bun accepts back from a test body -- named so the `void` union that
+ * bun itself declares does not have to be re-spelled (biome noConfusingVoidType). */
+type TestBodyReturn = ReturnType<Parameters<typeof bunTest>[1]>
+type TestFn = () => TestBodyReturn
+type EachTestFn<T extends readonly unknown[]> = (...args: T) => TestBodyReturn
 
 const HEAVY_TEST_TIMEOUT_MS = 60000
 
@@ -51,9 +108,18 @@ function test(name: string, fn: TestFn): void {
   bunTest(name, fn, HEAVY_TEST_TIMEOUT_MS)
 }
 
-test.each = <T extends readonly unknown[]>(table: readonly T[]) => {
+type EachRow = readonly [unknown, ...unknown[]]
+
+test.each = <T extends EachRow>(table: readonly T[]) => {
   return (name: string, fn: EachTestFn<T>): void => {
-    bunTest.each(table)(name, fn, HEAVY_TEST_TIMEOUT_MS)
+    // bun types `each` rows as a non-empty readonly tuple and the callback as
+    // variadic `unknown`; T is exactly that row, so the widening is safe here
+    // and keeps every call site strongly typed.
+    bunTest.each(table as readonly EachRow[])(
+      name,
+      fn as unknown as (...args: unknown[]) => TestBodyReturn,
+      HEAVY_TEST_TIMEOUT_MS
+    )
   }
 }
 
@@ -216,15 +282,15 @@ function baseCompileRequest(overrides: Partial<RuntimeCompileRequest> = {}): Run
   return {
     schemaVersion: 'agent-runtime-compile-request/v1',
     identity: {
-      requestId: 'request_T01609',
-      operationId: 'runtimeOperation_T01609',
-      hostSessionId: 'hostSession_T01609',
+      requestId: 'request_T01609' as RequestId,
+      operationId: 'runtimeOperation_T01609' as RuntimeOperationId,
+      hostSessionId: 'hostSession_T01609' as HostSessionId,
       generation: 1,
-      runtimeId: 'runtime_T01609',
+      runtimeId: 'runtime_T01609' as RuntimeId,
       invocationId: 'inv_T01609' as InvocationId,
       initialInputId: 'input_T01609' as InputId,
-      runId: 'run_T01609',
-      traceId: 'trace_T01609',
+      runId: 'run_T01609' as RunId,
+      traceId: 'trace_T01609' as TraceId,
       idempotencyKey: 'compile-runtime-plan-red',
     },
     placement: placement(),
@@ -252,7 +318,7 @@ function baseCompileRequest(overrides: Partial<RuntimeCompileRequest> = {}): Run
       inputPolicy: DEFAULT_CODEX_BROKER_INPUT_POLICY,
       exposurePolicy: { mode: 'none' },
       resourceLimits: { startupTimeoutMs: 10_000, turnTimeoutMs: 20_000 },
-      observability: { traceId: 'trace_T01609' },
+      observability: { traceId: 'trace_T01609' as TraceId },
       capabilityPolicy: {
         allowDegrade: false,
         requireBrokerDefaultForCodexHeadless: true,
@@ -260,25 +326,25 @@ function baseCompileRequest(overrides: Partial<RuntimeCompileRequest> = {}): Run
     },
     continuation: {
       schemaVersion: 'runtime-continuation/v1',
-      hrc: { provider: 'openai', keyHash: 'thread-hash', key: 'thread_T01609' },
+      hrc: { provider: 'openai', continuationId: 'thread-hash', key: 'thread_T01609' },
       broker: {
         provider: 'codex',
         kind: 'thread',
-        keyHash: 'thread-hash',
+        continuationId: 'thread-hash',
         key: 'thread_T01609',
       },
       source: 'harness-broker',
       observedAt: '2026-05-24T07:05:32.000Z',
     },
     correlation: {
-      requestId: 'request_T01609',
-      operationId: 'runtimeOperation_T01609',
-      hostSessionId: 'hostSession_T01609',
+      requestId: 'request_T01609' as RequestId,
+      operationId: 'runtimeOperation_T01609' as RuntimeOperationId,
+      hostSessionId: 'hostSession_T01609' as HostSessionId,
       generation: 1,
-      runtimeId: 'runtime_T01609',
-      runId: 'run_T01609',
+      runtimeId: 'runtime_T01609' as RuntimeId,
+      runId: 'run_T01609' as RunId,
       invocationId: 'inv_T01609' as InvocationId,
-      traceId: 'trace_T01609',
+      traceId: 'trace_T01609' as TraceId,
       appId: 'agent-spaces-tests',
       appSessionKey: 'compile-runtime-plan',
       scopeRef: 'agent:cody:project:agent-spaces:task:T-01609',
@@ -297,7 +363,11 @@ function brokerProfile(response: RuntimeCompileResponse): BrokerExecutionProfile
     (profile): profile is BrokerExecutionProfile => profile.kind === 'harness-broker'
   )
   expect(profiles).toHaveLength(1)
-  return profiles[0]
+  const profile = profiles[0]
+  if (profile === undefined) {
+    throw new Error('compileRuntimePlan produced no matching execution profile')
+  }
+  return profile
 }
 
 type BrokerProfileValidator = (profile: BrokerExecutionProfile) => CompileDiagnostic[]
@@ -332,7 +402,11 @@ function terminalProfile(response: RuntimeCompileResponse): TerminalExecutionPro
     (profile): profile is TerminalExecutionProfile => profile.kind === 'terminal'
   )
   expect(profiles).toHaveLength(1)
-  return profiles[0]
+  const profile = profiles[0]
+  if (profile === undefined) {
+    throw new Error('compileRuntimePlan produced no matching execution profile')
+  }
+  return profile
 }
 
 function interactiveCompileRequest(
@@ -381,7 +455,7 @@ function legacyBrokerRequest(req: RuntimeCompileRequest): BuildHarnessBrokerInvo
   initialInputId?: InputId | undefined
 } {
   return {
-    placement: req.placement,
+    placement: asConfigPlacement(req.placement),
     provider: 'openai',
     frontend: 'codex-cli',
     interactionMode: 'headless',
@@ -524,34 +598,10 @@ describe('compileRuntimePlan broker profile contract', () => {
     expect(profile.brokerDriver).toBe('codex-app-server')
   })
 
-  test.each([
-    ['bare OpenAI alias', 'openai', 'gpt-5.5', 'openai', 'openai/gpt-5.5', 'api-key'],
-    ['OpenAI API-key alias', 'openai', 'openai/gpt-5.5', 'openai', 'openai/gpt-5.5', 'api-key'],
-    [
-      'OpenAI OAuth alias',
-      'openai',
-      'openai-codex/gpt-5.5',
-      'openai-codex',
-      'openai-codex/gpt-5.5',
-      'oauth',
-    ],
-    [
-      'bare Anthropic alias',
-      'anthropic',
-      'claude-sonnet-4-5',
-      'anthropic',
-      'anthropic/claude-sonnet-4-5',
-      'api-key',
-    ],
-    [
-      'Anthropic OAuth alias',
-      'anthropic',
-      'anthropic-max/claude-sonnet-4-5',
-      'anthropic',
-      'anthropic/claude-sonnet-4-5',
-      'oauth',
-    ],
-  ] as const)(
+  // Typed as one row shape rather than `as const`: with `as const` each row gets
+  // its own literal tuple type, so the table's element type is a UNION of five
+  // tuples and the callback can no longer be checked positionally.
+  test.each(PI_SDK_ALIAS_CASES)(
     'compiles %s pi-sdk nonInteractive to a validator-legal broker profile',
     async (_caseName, provider, model, expectedPiProvider, expectedPiModelId, authMode) => {
       const response = await createClient().compileRuntimePlan(
@@ -609,7 +659,10 @@ describe('compileRuntimePlan broker profile contract', () => {
       expect(response.ok && response.plan.model.modelId).toBe(
         model.includes('/') ? model : `${provider}/${model}`
       )
-      expect(spec.driver).toEqual({ kind: 'pi-sdk' })
+      // The compiled driver carries the broker's permission policy (T-07550,
+      // 868ef09) so the compiled profile and the running broker cannot diverge.
+      // Asserted, not loosened: the policy is contract, not incidental detail.
+      expect(spec.driver).toEqual({ kind: 'pi-sdk', permissionPolicy: { mode: 'deny' } })
       expect(validateInvocationStartRequest(profile.harnessInvocation.startRequest)).toEqual(
         profile.harnessInvocation.startRequest
       )
@@ -1007,16 +1060,16 @@ describe('compileRuntimePlan broker profile contract', () => {
         })
       )
 
-      if (profile.kind === 'harness-broker') {
-        expect(profile.harnessInvocation.startRequest.spec.process.args).not.toContain(
+      if (profile!.kind === 'harness-broker') {
+        expect(profile!.harnessInvocation.startRequest.spec.process.args).not.toContain(
           '--disallowedTools'
         )
-        expect(profile.policy.disallowedTools).toBeUndefined()
-      } else if (profile.kind === 'terminal') {
-        expect(profile.process.args).not.toContain('--disallowedTools')
-        expect(JSON.stringify(profile.policy)).not.toContain('disallowedTools')
+        expect(profile!.policy.disallowedTools).toBeUndefined()
+      } else if (profile!.kind === 'terminal') {
+        expect(profile!.process.args).not.toContain('--disallowedTools')
+        expect(JSON.stringify(profile!.policy)).not.toContain('disallowedTools')
       } else {
-        throw new Error(`unexpected profile kind ${profile.kind}`)
+        throw new Error(`unexpected profile kind ${profile!.kind}`)
       }
     }
   )
@@ -1240,7 +1293,7 @@ content = "task={{taskId}} lane={{lane}} now={{dateUtc}}"
     try {
       const compiled = await preparePlacementCliRuntime(
         {
-          placement: placement(),
+          placement: asConfigPlacement(placement()),
           provider: 'openai',
           frontend: 'codex-cli',
           interactionMode: 'headless',
@@ -1362,11 +1415,11 @@ content = "task={{taskId}} lane={{lane}} now={{dateUtc}}"
       baseCompileRequest({
         identity: {
           ...baseCompileRequest().identity,
-          requestId: 'request_T01609_changed',
-          operationId: 'runtimeOperation_T01609_changed',
+          requestId: 'request_T01609_changed' as RequestId,
+          operationId: 'runtimeOperation_T01609_changed' as RuntimeOperationId,
           invocationId: 'inv_T01609_changed' as InvocationId,
           initialInputId: 'input_T01609_changed' as InputId,
-          traceId: 'trace_T01609_changed',
+          traceId: 'trace_T01609_changed' as TraceId,
         },
         materialization: {
           ...baseCompileRequest().materialization,
@@ -1374,10 +1427,10 @@ content = "task={{taskId}} lane={{lane}} now={{dateUtc}}"
         },
         correlation: {
           ...baseCompileRequest().correlation,
-          requestId: 'request_T01609_changed',
-          operationId: 'runtimeOperation_T01609_changed',
+          requestId: 'request_T01609_changed' as RequestId,
+          operationId: 'runtimeOperation_T01609_changed' as RuntimeOperationId,
           invocationId: 'inv_T01609_changed' as InvocationId,
-          traceId: 'trace_T01609_changed',
+          traceId: 'trace_T01609_changed' as TraceId,
           appSessionKey: 'compile-runtime-plan-changed',
         },
       })
@@ -1686,4 +1739,16 @@ base = []
       writeFileSync(profilePath, 'version = 3\n\n[spaces]\nbase = []\n', 'utf8')
     }
   })
-})
+}) /**
+ * Bridge between the two `RuntimePlacement` types this call crosses.
+ *
+ * The compile request carries `spaces-runtime-contracts`' deliberately opaque
+ * placement -- an index-signature bag at the contract boundary -- while the
+ * legacy builder takes `spaces-config`'s structural interface. Both describe the
+ * same object; TypeScript will not bridge an interface to an index-signature
+ * type by itself, so the conversion is explicit and named rather than smeared
+ * across call sites.
+ */
+function asConfigPlacement(value: RuntimeCompileRequest['placement']): ConfigRuntimePlacement {
+  return value as unknown as ConfigRuntimePlacement
+}

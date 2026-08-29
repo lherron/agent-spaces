@@ -25,6 +25,14 @@ import type {
 } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 
+import type {
+  HostSessionId,
+  RequestId,
+  RunId,
+  RuntimeId,
+  RuntimeOperationId,
+  TraceId,
+} from 'spaces-runtime-contracts'
 import { createAgentSpacesClient } from '../../compiler/agent-spaces/src/index.js'
 import type { AgentSpacesClient } from '../../compiler/agent-spaces/src/types.js'
 import { compilerRuntime } from './compiler-runtime.js'
@@ -33,7 +41,10 @@ import { compilerRuntime } from './compiler-runtime.js'
 // Timeout & type helpers
 // ---------------------------------------------------------------------------
 
-type TestFn = () => unknown | Promise<unknown>
+/** Whatever bun accepts back from a test body -- named so the `void` union that
+ * bun itself declares does not have to be re-spelled (biome noConfusingVoidType). */
+type TestBodyReturn = ReturnType<Parameters<typeof bunTest>[1]>
+type TestFn = () => TestBodyReturn
 const HEAVY_MS = 60_000
 function test(name: string, fn: TestFn) {
   bunTest(name, fn, HEAVY_MS)
@@ -130,7 +141,11 @@ function brokerProfile(response: RuntimeCompileResponse): BrokerExecutionProfile
     (p): p is BrokerExecutionProfile => p.kind === 'harness-broker'
   )
   expect(profiles).toHaveLength(1)
-  return profiles[0]
+  const profile = profiles[0]
+  if (profile === undefined) {
+    throw new Error('compileRuntimePlan produced no matching execution profile')
+  }
+  return profile
 }
 
 function specFromProfile(profile: BrokerExecutionProfile): HarnessInvocationSpec {
@@ -164,11 +179,11 @@ function basePlacement() {
 
 function baseHrcPolicy() {
   return {
-    permissionPolicy: { mode: 'deny' as const, audit: true },
+    permissionPolicy: { mode: 'deny' as const, audit: true as const },
     inputPolicy: DEFAULT_CODEX_BROKER_INPUT_POLICY,
     exposurePolicy: { mode: 'none' as const },
     resourceLimits: { startupTimeoutMs: 10_000, turnTimeoutMs: 20_000 },
-    observability: { traceId: 'trace_T04829' },
+    observability: { traceId: 'trace_T04829' as TraceId },
     capabilityPolicy: {
       allowDegrade: false,
       requireBrokerDefaultForCodexHeadless: true,
@@ -178,14 +193,14 @@ function baseHrcPolicy() {
 
 function baseCorrelation() {
   return {
-    requestId: 'request_T04829',
-    operationId: 'op_T04829',
-    hostSessionId: 'host_T04829',
+    requestId: 'request_T04829' as RequestId,
+    operationId: 'op_T04829' as RuntimeOperationId,
+    hostSessionId: 'host_T04829' as HostSessionId,
     generation: 1,
-    runtimeId: 'runtime_T04829',
-    runId: 'run_T04829',
+    runtimeId: 'runtime_T04829' as RuntimeId,
+    runId: 'run_T04829' as RunId,
     invocationId: 'inv_T04829' as InvocationId,
-    traceId: 'trace_T04829',
+    traceId: 'trace_T04829' as TraceId,
     appId: 'agent-spaces-tests',
     appSessionKey: 'continuation-threading',
     scopeRef: 'agent:cody:project:agent-spaces:task:T-04829',
@@ -232,16 +247,15 @@ describe('continuation threading no-loss regression guards (T-04829)', () => {
       return {
         schemaVersion: 'agent-runtime-compile-request/v1',
         identity: {
-          requestId: 'request_T04829',
-          operationId: 'op_T04829',
-          hostSessionId: 'host_T04829',
+          requestId: 'request_T04829' as RequestId,
+          operationId: 'op_T04829' as RuntimeOperationId,
+          hostSessionId: 'host_T04829' as HostSessionId,
           generation: 1,
-          runtimeId: 'runtime_T04829',
+          runtimeId: 'runtime_T04829' as RuntimeId,
           invocationId: 'inv_T04829' as InvocationId,
           initialInputId: 'input_T04829' as InputId,
-          runId: 'run_T04829',
-          traceId: 'trace_T04829',
-          idempotencyKey: 'continuation-threading-codex-app-server',
+          runId: 'run_T04829' as RunId,
+          traceId: 'trace_T04829' as TraceId,
         },
         placement: basePlacement(),
         requested: {
@@ -267,11 +281,11 @@ describe('continuation threading no-loss regression guards (T-04829)', () => {
         hrcPolicy: baseHrcPolicy(),
         continuation: {
           schemaVersion: 'runtime-continuation/v1',
-          hrc: { provider: 'openai', keyHash: 'codex-hash-04829', key: CODEX_KEY },
+          hrc: { provider: 'openai', continuationId: 'codex-hash-04829', key: CODEX_KEY },
           broker: {
             provider: 'codex',
             kind: 'thread',
-            keyHash: 'codex-hash-04829',
+            continuationId: 'codex-hash-04829',
             key: CODEX_KEY,
           },
           source: 'harness-broker',
@@ -320,16 +334,15 @@ describe('continuation threading no-loss regression guards (T-04829)', () => {
       return {
         schemaVersion: 'agent-runtime-compile-request/v1',
         identity: {
-          requestId: 'request_T04829_ctmux',
-          operationId: 'op_T04829_ctmux',
-          hostSessionId: 'host_T04829_ctmux',
+          requestId: 'request_T04829_ctmux' as RequestId,
+          operationId: 'op_T04829_ctmux' as RuntimeOperationId,
+          hostSessionId: 'host_T04829_ctmux' as HostSessionId,
           generation: 1,
-          runtimeId: 'runtime_T04829_ctmux',
+          runtimeId: 'runtime_T04829_ctmux' as RuntimeId,
           invocationId: 'inv_T04829_ctmux' as InvocationId,
           initialInputId: 'input_T04829_ctmux' as InputId,
-          runId: 'run_T04829_ctmux',
-          traceId: 'trace_T04829_ctmux',
-          idempotencyKey: 'continuation-threading-codex-cli-tmux',
+          runId: 'run_T04829_ctmux' as RunId,
+          traceId: 'trace_T04829_ctmux' as TraceId,
         },
         placement: basePlacement(),
         requested: {
@@ -357,11 +370,11 @@ describe('continuation threading no-loss regression guards (T-04829)', () => {
         },
         continuation: {
           schemaVersion: 'runtime-continuation/v1',
-          hrc: { provider: 'openai', keyHash: 'codex-hash-04829', key: CODEX_KEY },
+          hrc: { provider: 'openai', continuationId: 'codex-hash-04829', key: CODEX_KEY },
           broker: {
             provider: 'codex',
             kind: 'thread',
-            keyHash: 'codex-hash-04829',
+            continuationId: 'codex-hash-04829',
             key: CODEX_KEY,
           },
           source: 'harness-broker',
@@ -369,11 +382,10 @@ describe('continuation threading no-loss regression guards (T-04829)', () => {
         },
         correlation: {
           ...baseCorrelation(),
-          requestId: 'request_T04829_ctmux',
-          operationId: 'op_T04829_ctmux',
-          hostSessionId: 'host_T04829_ctmux',
+          requestId: 'request_T04829_ctmux' as RequestId,
+          operationId: 'op_T04829_ctmux' as RuntimeOperationId,
+          hostSessionId: 'host_T04829_ctmux' as HostSessionId,
           invocationId: 'inv_T04829_ctmux' as InvocationId,
-          idempotencyKey: 'continuation-threading-codex-cli-tmux',
         },
       }
     }
@@ -425,16 +437,15 @@ describe('continuation threading no-loss regression guards (T-04829)', () => {
       return {
         schemaVersion: 'agent-runtime-compile-request/v1',
         identity: {
-          requestId: 'request_T04829_cctmux',
-          operationId: 'op_T04829_cctmux',
-          hostSessionId: 'host_T04829_cctmux',
+          requestId: 'request_T04829_cctmux' as RequestId,
+          operationId: 'op_T04829_cctmux' as RuntimeOperationId,
+          hostSessionId: 'host_T04829_cctmux' as HostSessionId,
           generation: 1,
-          runtimeId: 'runtime_T04829_cctmux',
+          runtimeId: 'runtime_T04829_cctmux' as RuntimeId,
           invocationId: 'inv_T04829_cctmux' as InvocationId,
           initialInputId: 'input_T04829_cctmux' as InputId,
-          runId: 'run_T04829_cctmux',
-          traceId: 'trace_T04829_cctmux',
-          idempotencyKey: 'continuation-threading-claude-code-tmux',
+          runId: 'run_T04829_cctmux' as RunId,
+          traceId: 'trace_T04829_cctmux' as TraceId,
         },
         placement: basePlacement(),
         requested: {
@@ -461,11 +472,11 @@ describe('continuation threading no-loss regression guards (T-04829)', () => {
         },
         continuation: {
           schemaVersion: 'runtime-continuation/v1',
-          hrc: { provider: 'anthropic', keyHash: 'claude-hash-04829', key: CLAUDE_KEY },
+          hrc: { provider: 'anthropic', continuationId: 'claude-hash-04829', key: CLAUDE_KEY },
           broker: {
             provider: 'anthropic',
             kind: 'session',
-            keyHash: 'claude-hash-04829',
+            continuationId: 'claude-hash-04829',
             key: CLAUDE_KEY,
           },
           source: 'harness-broker',
@@ -473,11 +484,10 @@ describe('continuation threading no-loss regression guards (T-04829)', () => {
         },
         correlation: {
           ...baseCorrelation(),
-          requestId: 'request_T04829_cctmux',
-          operationId: 'op_T04829_cctmux',
-          hostSessionId: 'host_T04829_cctmux',
+          requestId: 'request_T04829_cctmux' as RequestId,
+          operationId: 'op_T04829_cctmux' as RuntimeOperationId,
+          hostSessionId: 'host_T04829_cctmux' as HostSessionId,
           invocationId: 'inv_T04829_cctmux' as InvocationId,
-          idempotencyKey: 'continuation-threading-claude-code-tmux',
         },
       }
     }

@@ -22,6 +22,14 @@ import type {
 } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 
+import type {
+  HostSessionId,
+  RequestId,
+  RunId,
+  RuntimeId,
+  RuntimeOperationId,
+  TraceId,
+} from 'spaces-runtime-contracts'
 import { createAgentSpacesClient } from '../../compiler/agent-spaces/src/index.js'
 import type { AgentSpacesClient } from '../../compiler/agent-spaces/src/types.js'
 import { compilerRuntime } from './compiler-runtime.js'
@@ -141,15 +149,15 @@ function headlessCodexRequest(): RuntimeCompileRequest {
   return {
     schemaVersion: 'agent-runtime-compile-request/v1',
     identity: {
-      requestId: 'request_T01867',
-      operationId: 'op_T01867',
-      hostSessionId: 'host_T01867',
+      requestId: 'request_T01867' as RequestId,
+      operationId: 'op_T01867' as RuntimeOperationId,
+      hostSessionId: 'host_T01867' as HostSessionId,
       generation: 1,
-      runtimeId: 'runtime_T01867',
+      runtimeId: 'runtime_T01867' as RuntimeId,
       invocationId: 'inv_T01867' as InvocationId,
       initialInputId: 'input_T01867' as InputId,
-      runId: 'run_T01867',
-      traceId: 'trace_T01867',
+      runId: 'run_T01867' as RunId,
+      traceId: 'trace_T01867' as TraceId,
       idempotencyKey: 'v01-removal-red',
     },
     placement: basePlacement(),
@@ -173,11 +181,11 @@ function headlessCodexRequest(): RuntimeCompileRequest {
       },
     },
     hrcPolicy: {
-      permissionPolicy: { mode: 'deny', audit: false },
+      permissionPolicy: { mode: 'deny', audit: true },
       inputPolicy: DEFAULT_CODEX_BROKER_INPUT_POLICY,
       exposurePolicy: { mode: 'none' },
       resourceLimits: { startupTimeoutMs: 10_000, turnTimeoutMs: 20_000 },
-      observability: { traceId: 'trace_T01867' },
+      observability: { traceId: 'trace_T01867' as TraceId },
       capabilityPolicy: {
         allowDegrade: false,
         requireBrokerDefaultForCodexHeadless: true,
@@ -185,20 +193,25 @@ function headlessCodexRequest(): RuntimeCompileRequest {
     },
     continuation: {
       schemaVersion: 'runtime-continuation/v1',
-      hrc: { provider: 'openai', keyHash: 'thread-hash', key: 'thread_T01867' },
-      broker: { provider: 'codex', kind: 'thread', keyHash: 'thread-hash', key: 'thread_T01867' },
+      hrc: { provider: 'openai', continuationId: 'thread-hash', key: 'thread_T01867' },
+      broker: {
+        provider: 'codex',
+        kind: 'thread',
+        continuationId: 'thread-hash',
+        key: 'thread_T01867',
+      },
       source: 'harness-broker',
       observedAt: '2026-05-24T07:05:32.000Z',
     },
     correlation: {
-      requestId: 'request_T01867',
-      operationId: 'op_T01867',
-      hostSessionId: 'host_T01867',
+      requestId: 'request_T01867' as RequestId,
+      operationId: 'op_T01867' as RuntimeOperationId,
+      hostSessionId: 'host_T01867' as HostSessionId,
       generation: 1,
-      runtimeId: 'runtime_T01867',
-      runId: 'run_T01867',
+      runtimeId: 'runtime_T01867' as RuntimeId,
+      runId: 'run_T01867' as RunId,
       invocationId: 'inv_T01867' as InvocationId,
-      traceId: 'trace_T01867',
+      traceId: 'trace_T01867' as TraceId,
       appId: 'agent-spaces-tests',
       appSessionKey: 'v01-removal-red',
       scopeRef: 'agent:cody:project:agent-spaces:task:T-01867',
@@ -213,8 +226,8 @@ function interactiveClaudeRequest(): RuntimeCompileRequest {
     ...base,
     identity: {
       ...base.identity,
-      requestId: 'request_T01867_claude',
-      operationId: 'op_T01867_claude',
+      requestId: 'request_T01867_claude' as RequestId,
+      operationId: 'op_T01867_claude' as RuntimeOperationId,
       invocationId: 'inv_T01867_claude' as InvocationId,
       idempotencyKey: 'v01-removal-red-claude',
     },
@@ -232,8 +245,8 @@ function interactiveClaudeRequest(): RuntimeCompileRequest {
     continuation: undefined,
     correlation: {
       ...base.correlation,
-      requestId: 'request_T01867_claude',
-      operationId: 'op_T01867_claude',
+      requestId: 'request_T01867_claude' as RequestId,
+      operationId: 'op_T01867_claude' as RuntimeOperationId,
       invocationId: 'inv_T01867_claude' as InvocationId,
       idempotencyKey: 'v01-removal-red-claude',
     },
@@ -247,7 +260,11 @@ function extractBrokerProfile(response: RuntimeCompileResponse): BrokerExecution
     (p): p is BrokerExecutionProfile => p.kind === 'harness-broker'
   )
   expect(profiles).toHaveLength(1)
-  return profiles[0]
+  const profile = profiles[0]
+  if (profile === undefined) {
+    throw new Error('compileRuntimePlan produced no matching execution profile')
+  }
+  return profile
 }
 
 // ---------------------------------------------------------------------------

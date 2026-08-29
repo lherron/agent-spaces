@@ -14,6 +14,7 @@ import { basename, join } from 'node:path'
 
 import type { RuntimePlacement } from 'spaces-config'
 import { type UnifiedSession, prepareAgentToolRuntime } from 'spaces-execution'
+import type { SessionMetadataSnapshot, UnifiedSessionState } from 'spaces-runtime'
 
 // Repo-level white-box coverage belongs here; these internals remain private.
 import {
@@ -36,12 +37,31 @@ type Fixture = {
   cleanup: () => void
 }
 
+/**
+ * Minimal `UnifiedSession` stand-in for the env/turn snapshots.
+ *
+ * The turn helpers under test never drive the session -- they only need a value
+ * of the right shape -- so every member is the smallest legal implementation.
+ * The five members beyond start/stop/sendPrompt/onEvent are required by the
+ * interface and were simply missing, which is why this class never typechecked.
+ */
 class FakeSession implements UnifiedSession {
   readonly kind = 'agent-sdk'
+  readonly sessionId = 'fake-session'
   async start(): Promise<void> {}
   async stop(): Promise<void> {}
   async sendPrompt(): Promise<void> {}
   onEvent(): void {}
+  isHealthy(): boolean {
+    return true
+  }
+  getState(): UnifiedSessionState {
+    return 'idle' as UnifiedSessionState
+  }
+  getMetadata(): SessionMetadataSnapshot {
+    return {} as SessionMetadataSnapshot
+  }
+  setPermissionHandler(): void {}
 }
 
 const originalCodexPath = process.env['ASP_CODEX_PATH']
@@ -315,7 +335,7 @@ describe('T-04601 env-compose snapshots', () => {
         REQ_WINS: 'locked-env',
         LOCKED_ONLY: 'locked-env',
       }
-      const dispatchEnv = {
+      const dispatchEnv: Record<string, string> = {
         ...buildCorrelationEnvVars(placement),
         DISPATCH_ONLY: 'dispatch-env',
       }
@@ -418,10 +438,15 @@ describe('T-04601 env-compose snapshots', () => {
 describe('T-04602 turn-driver loop snapshots', () => {
   test('in-flight outstanding-turn drain waits for all pending turns before completing', async () => {
     const emitted: AgentEvent[] = []
-    const eventEmitter = createEventEmitter((event) => emitted.push(event), {
-      hostSessionId: 'host-inflight',
-      runId: 'run-inflight',
-    })
+    const eventEmitter = createEventEmitter(
+      (event) => {
+        emitted.push(event)
+      },
+      {
+        hostSessionId: 'host-inflight',
+        runId: 'run-inflight',
+      }
+    )
     const context: InFlightRunContext = {
       hostSessionId: 'host-inflight',
       runId: 'run-inflight',
@@ -497,11 +522,20 @@ describe('T-04602 turn-driver loop snapshots', () => {
 
   test('non-inflight turnEnded boolean completes once and preserves continuation capture', async () => {
     const emitted: AgentEvent[] = []
-    const eventEmitter = createEventEmitter((event) => emitted.push(event), {
-      hostSessionId: 'host-non-inflight',
-      runId: 'run-non-inflight',
-    })
-    const assistantState = { assistantBuffer: '' }
+    const eventEmitter = createEventEmitter(
+      (event) => {
+        emitted.push(event)
+      },
+      {
+        hostSessionId: 'host-non-inflight',
+        runId: 'run-non-inflight',
+      }
+    )
+    // The turn helpers write `lastAssistantText` back onto this object, so it is
+    // the product's own state shape, not a bare `{ assistantBuffer }`.
+    const assistantState: { assistantBuffer: string; lastAssistantText?: string | undefined } = {
+      assistantBuffer: '',
+    }
     let continuationKey: string | undefined
     let turnEnded = false
     let completions = 0
@@ -541,10 +575,15 @@ describe('T-04602 turn-driver loop snapshots', () => {
 
   test('placement in-flight drain disables pi-sdk continuation updates and empty-response gate fails with no assistant content', async () => {
     const emitted: AgentEvent[] = []
-    const eventEmitter = createEventEmitter((event) => emitted.push(event), {
-      hostSessionId: 'host-placement',
-      runId: 'run-placement',
-    })
+    const eventEmitter = createEventEmitter(
+      (event) => {
+        emitted.push(event)
+      },
+      {
+        hostSessionId: 'host-placement',
+        runId: 'run-placement',
+      }
+    )
     const context: InFlightRunContext = {
       hostSessionId: 'host-placement',
       runId: 'run-placement',

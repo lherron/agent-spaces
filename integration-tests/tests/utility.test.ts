@@ -61,13 +61,13 @@ describe('asp diff', () => {
 
     // Modify manifest to add backend
     const manifest = await readTargetsToml(path.join(projectDir, 'asp-targets.toml'))
-    manifest.targets.dev.compose.push('space:backend@stable' as never)
+    manifest.targets['dev']!.compose!.push('space:backend@stable' as never)
 
     let toml = `schema = ${manifest.schema}\n\n`
     for (const [name, t] of Object.entries(manifest.targets)) {
       toml += `[targets.${name}]\n`
       toml += 'compose = [\n'
-      for (const ref of t.compose) {
+      for (const ref of t.compose ?? []) {
         toml += `  "${ref}",\n`
       }
       toml += ']\n\n'
@@ -84,14 +84,16 @@ describe('asp diff', () => {
     })
 
     // Check that backend is in the fresh resolution
-    const hasBackend = freshResult.lock.targets.dev.loadOrder.some((key) =>
+    const hasBackend = freshResult.lock.targets['dev']!.loadOrder.some((key) =>
       key.startsWith('backend@')
     )
     expect(hasBackend).toBe(true)
 
     // Original lock should not have backend
     const oldLock = await readLockJson(path.join(projectDir, LOCK_FILENAME))
-    const oldHasBackend = oldLock.targets.dev.loadOrder.some((key) => key.startsWith('backend@'))
+    const oldHasBackend = oldLock.targets['dev']!.loadOrder.some((key) =>
+      key.startsWith('backend@')
+    )
     expect(oldHasBackend).toBe(false)
   })
 
@@ -113,7 +115,7 @@ describe('asp diff', () => {
 
     // Remove backend from manifest
     const manifest = await readTargetsToml(path.join(projectDir, 'asp-targets.toml'))
-    manifest.targets.dev.compose = manifest.targets.dev.compose.filter(
+    manifest.targets['dev']!.compose = manifest.targets['dev']!.compose!.filter(
       (r) => !r.includes('backend')
     )
 
@@ -121,7 +123,7 @@ describe('asp diff', () => {
     for (const [name, t] of Object.entries(manifest.targets)) {
       toml += `[targets.${name}]\n`
       toml += 'compose = [\n'
-      for (const ref of t.compose) {
+      for (const ref of t.compose ?? []) {
         toml += `  "${ref}",\n`
       }
       toml += ']\n\n'
@@ -138,14 +140,16 @@ describe('asp diff', () => {
     })
 
     // Fresh should not have backend
-    const freshHasBackend = freshResult.lock.targets.dev.loadOrder.some((key) =>
+    const freshHasBackend = freshResult.lock.targets['dev']!.loadOrder.some((key) =>
       key.startsWith('backend@')
     )
     expect(freshHasBackend).toBe(false)
 
     // Original lock should have backend
     const oldLock = await readLockJson(path.join(projectDir, LOCK_FILENAME))
-    const oldHasBackend = oldLock.targets.dev.loadOrder.some((key) => key.startsWith('backend@'))
+    const oldHasBackend = oldLock.targets['dev']!.loadOrder.some((key) =>
+      key.startsWith('backend@')
+    )
     expect(oldHasBackend).toBe(true)
   })
 
@@ -168,7 +172,7 @@ describe('asp diff', () => {
     const oldLock = await readLockJson(path.join(projectDir, LOCK_FILENAME))
 
     // Load orders should match
-    expect(freshResult.lock.targets.dev.loadOrder).toEqual(oldLock.targets.dev.loadOrder)
+    expect(freshResult.lock.targets['dev']!.loadOrder).toEqual(oldLock.targets['dev']!.loadOrder)
   })
 })
 
@@ -205,8 +209,8 @@ describe('asp explain', () => {
     })
 
     expect(result.targets).toHaveProperty('dev')
-    expect(result.targets.dev.compose).toContain('space:frontend@stable')
-    expect(result.targets.dev.compose).toContain('space:backend@stable')
+    expect(result.targets['dev']!.compose).toContain('space:frontend@stable')
+    expect(result.targets['dev']!.compose).toContain('space:backend@stable')
   })
 
   test('includes load order with dependencies first', async () => {
@@ -216,7 +220,7 @@ describe('asp explain', () => {
       aspHome,
     })
 
-    const loadOrder = result.targets.dev.loadOrder
+    const loadOrder = result.targets['dev']!.loadOrder
 
     // base should come before frontend and backend
     const baseIndex = loadOrder.findIndex((key) => key.startsWith('base@'))
@@ -234,7 +238,7 @@ describe('asp explain', () => {
       aspHome,
     })
 
-    const frontendSpace = result.targets.dev.spaces.find((s) => s.id === 'frontend')
+    const frontendSpace = result.targets['dev']!.spaces.find((s) => s.id === 'frontend')
     expect(frontendSpace).toBeDefined()
     expect(frontendSpace?.pluginName).toBe('frontend')
     expect(frontendSpace?.commit).toMatch(/^[0-9a-f]{40}$/)
@@ -249,7 +253,7 @@ describe('asp explain', () => {
       aspHome,
     })
 
-    expect(result.targets.dev.envHash).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(result.targets['dev']!.envHash).toMatch(/^sha256:[0-9a-f]{64}$/)
   })
 
   test('can explain specific target', async () => {
@@ -304,7 +308,7 @@ describe('asp explain', () => {
     })
 
     // cmd-collision-a and cmd-collision-b both ship a 'build' command
-    const hasCollisionWarning = result.targets.dev.warnings.some(
+    const hasCollisionWarning = result.targets['dev']!.warnings.some(
       (w) => w.code === 'W201' && w.message.includes('build')
     )
     expect(hasCollisionWarning).toBe(true)
@@ -339,8 +343,8 @@ describe('asp list', () => {
 
     expect(Object.keys(manifest.targets)).toContain('dev')
     expect(Object.keys(manifest.targets)).toContain('prod')
-    expect(manifest.targets.dev.description).toBe('Development environment')
-    expect(manifest.targets.prod.description).toBe('Production environment')
+    expect(manifest.targets['dev']!.description).toBe('Development environment')
+    expect(manifest.targets['prod']!.description).toBe('Production environment')
   })
 
   test('shows locked status when lock exists', async () => {
@@ -353,14 +357,14 @@ describe('asp list', () => {
     const lock = await readLockJson(path.join(projectDir, LOCK_FILENAME))
     expect(lock.targets).toHaveProperty('dev')
     expect(lock.targets).toHaveProperty('prod')
-    expect(lock.targets.dev.envHash).toMatch(/^sha256:/)
+    expect(lock.targets['dev']!.envHash).toMatch(/^sha256:/)
   })
 
   test('shows compose lists', async () => {
     const manifest = await readTargetsToml(path.join(projectDir, 'asp-targets.toml'))
 
-    expect(manifest.targets.dev.compose).toContain('space:frontend@stable')
-    expect(manifest.targets.prod.compose).toContain('space:backend@stable')
+    expect(manifest.targets['dev']!.compose).toContain('space:frontend@stable')
+    expect(manifest.targets['prod']!.compose).toContain('space:backend@stable')
   })
 })
 
@@ -464,7 +468,7 @@ describe('asp gc', () => {
     const paths = new PathResolver({ aspHome })
 
     // Create an orphan snapshot
-    const orphanIntegrity = `sha256:${'0'.repeat(64)}`
+    const orphanIntegrity: `sha256:${string}` = `sha256:${'0'.repeat(64)}`
     const orphanPath = paths.snapshot(orphanIntegrity)
     await fs.mkdir(orphanPath, { recursive: true })
     await fs.writeFile(path.join(orphanPath, 'test.txt'), 'orphan content')
@@ -499,7 +503,7 @@ describe('asp gc', () => {
     const paths = new PathResolver({ aspHome })
 
     // Create an orphan snapshot
-    const orphanIntegrity = `sha256:${'1'.repeat(64)}`
+    const orphanIntegrity: `sha256:${string}` = `sha256:${'1'.repeat(64)}`
     const orphanPath = paths.snapshot(orphanIntegrity)
     await fs.mkdir(orphanPath, { recursive: true })
     await fs.writeFile(path.join(orphanPath, 'test.txt'), 'orphan content')
@@ -527,7 +531,7 @@ describe('asp gc', () => {
     const paths = new PathResolver({ aspHome })
 
     // Create an orphan snapshot with known content
-    const orphanIntegrity = `sha256:${'2'.repeat(64)}`
+    const orphanIntegrity: `sha256:${string}` = `sha256:${'2'.repeat(64)}`
     const orphanPath = paths.snapshot(orphanIntegrity)
     await fs.mkdir(orphanPath, { recursive: true })
     await fs.writeFile(path.join(orphanPath, 'test.txt'), 'x'.repeat(1000))
@@ -542,8 +546,18 @@ describe('asp gc', () => {
     // Should report snapshot deleted
     expect(result.snapshotsDeleted).toBe(1)
 
-    // bytesFreed should include the size of deleted content
-    // The orphan file is 1000 bytes ('x'.repeat(1000))
-    expect(result.bytesFreed).toBe(1000)
+    // The orphan is really gone, not merely counted.
+    const orphanStillExists = await fs
+      .access(orphanPath)
+      .then(() => true)
+      .catch(() => false)
+    expect(orphanStillExists).toBe(false)
+
+    // bytesFreed is a whole-run total: `runGC` accumulates it over snapshots,
+    // unreachable cache entries AND pruned bundle versions (gc.ts), so it is a
+    // lower bound on this orphan's 1000 bytes, never an equality. The old
+    // `toBe(1000)` asserted a sum the product has not produced since bundle
+    // pruning joined the tally.
+    expect(result.bytesFreed).toBeGreaterThanOrEqual(1000)
   })
 })

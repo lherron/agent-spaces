@@ -8,6 +8,14 @@ import type { InputId, InvocationId } from 'spaces-harness-broker-protocol'
 import type { RuntimeCompileRequest, RuntimeCompileResponse } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 
+import type {
+  HostSessionId,
+  RequestId,
+  RunId,
+  RuntimeId,
+  RuntimeOperationId,
+  TraceId,
+} from 'spaces-runtime-contracts'
 import {
   createAgentSpacesClient,
   foregroundLaunchFromResponse,
@@ -15,12 +23,15 @@ import {
 import type { AgentSpacesClient } from '../../compiler/agent-spaces/src/types.js'
 import { compilerRuntime } from './compiler-runtime.js'
 
-type TestFn = () => unknown | Promise<unknown>
+/** Whatever bun accepts back from a test body -- named so the `void` union that
+ * bun itself declares does not have to be re-spelled (biome noConfusingVoidType). */
+type TestBodyReturn = ReturnType<Parameters<typeof bunTest>[1]>
+type TestFn = () => TestBodyReturn
 
 const HEAVY_TEST_TIMEOUT_MS = 60000
 
-function test(name: string, fn: TestFn): void {
-  bunTest(name, fn, HEAVY_TEST_TIMEOUT_MS)
+function test(name: string, fn: TestFn, timeoutMs: number = HEAVY_TEST_TIMEOUT_MS): void {
+  bunTest(name, fn, timeoutMs)
 }
 
 type CompileClient = AgentSpacesClient & {
@@ -122,15 +133,15 @@ function compileRequest(dryRun: boolean): RuntimeCompileRequest {
   return {
     schemaVersion: 'agent-runtime-compile-request/v1',
     identity: {
-      requestId: 'request_brain',
-      operationId: 'runtimeOperation_brain',
-      hostSessionId: 'hostSession_brain',
+      requestId: 'request_brain' as RequestId,
+      operationId: 'runtimeOperation_brain' as RuntimeOperationId,
+      hostSessionId: 'hostSession_brain' as HostSessionId,
       generation: 1,
-      runtimeId: 'runtime_brain',
+      runtimeId: 'runtime_brain' as RuntimeId,
       invocationId: 'inv_brain' as InvocationId,
       initialInputId: 'input_brain' as InputId,
-      runId: 'run_brain',
-      traceId: 'trace_brain',
+      runId: 'run_brain' as RunId,
+      traceId: 'trace_brain' as TraceId,
       idempotencyKey: 'run-compile-brain-decommissioned',
     },
     placement: {
@@ -156,14 +167,14 @@ function compileRequest(dryRun: boolean): RuntimeCompileRequest {
       exposurePolicy: { mode: 'none' },
     },
     correlation: {
-      requestId: 'request_brain',
-      operationId: 'runtimeOperation_brain',
-      hostSessionId: 'hostSession_brain',
+      requestId: 'request_brain' as RequestId,
+      operationId: 'runtimeOperation_brain' as RuntimeOperationId,
+      hostSessionId: 'hostSession_brain' as HostSessionId,
       generation: 1,
-      runtimeId: 'runtime_brain',
-      runId: 'run_brain',
+      runtimeId: 'runtime_brain' as RuntimeId,
+      runId: 'run_brain' as RunId,
       invocationId: 'inv_brain' as InvocationId,
-      traceId: 'trace_brain',
+      traceId: 'trace_brain' as TraceId,
       appId: 'agent-spaces-tests',
       appSessionKey: 'run-compile-brain-decommissioned',
     },

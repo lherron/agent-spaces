@@ -171,7 +171,10 @@ describe('placement prompt template expansion', () => {
     } finally {
       fixture.cleanup()
     }
-  })
+    // Two full compiles; it runs ~3.8s alone and timed out on bun's 5s default in
+    // 1 of 3 full-suite runs (T-07687). Every comparable heavy test in this suite
+    // is on a 60s budget.
+  }, 60_000)
 
   // T-03939: the materialized system prompt must reach codex via the home
   // AGENTS.md, NOT by being concatenated ahead of the priming prompt in the
