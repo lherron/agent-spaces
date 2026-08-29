@@ -1,5 +1,9 @@
 import { type Socket, createConnection } from 'node:net'
-import { type AgentSessionRuntime, InteractiveMode } from '@earendil-works/pi-coding-agent'
+import {
+  type AgentSessionEvent,
+  type AgentSessionRuntime,
+  InteractiveMode,
+} from '@earendil-works/pi-coding-agent'
 import {
   type LoadAgentOptions,
   RESOURCE_LOADER_THEME_NAME,
@@ -191,7 +195,21 @@ async function runBrokerAgentHarnessTui(
         },
       ],
     })
-    runtime.session.subscribe((event) => mapper.handle(event))
+    // Operator-typed turns (T-07710). `beginTurn` above runs only for a
+    // broker-delivered `turn.begin`; a prompt the operator types straight into
+    // the pane reaches pi without one, and the mapper drops every session
+    // event while it holds no turn — so an interactive seat driven by hand
+    // produced an empty ledger. Mint a TUI-side turn on the first event of an
+    // agent run when no broker turn is open, exactly as claude-code-tmux mints
+    // one on UserPromptSubmit (C-02755) and pi-tui-tmux on its prompt hook.
+    // The broker dedupes `turn.started` by turnId (T-04846), so a
+    // broker-delivered turn — whose `turn.begin` is acked BEFORE the input is
+    // submitted to the pane — already holds the mapper and is never re-minted.
+    const operatorTurns = createOperatorTurnObserver(driverContext, mapper)
+    runtime.session.subscribe((event) => {
+      operatorTurns.observe(event)
+      mapper.handle(event)
+    })
     const sessionFile = runtime.session.sessionFile
     if (sessionFile === undefined) throw new Error('Broker TUI session has no session file')
     control.send({
@@ -223,6 +241,57 @@ function assertSupportedPermissionPolicy(config: AgentHarnessSessionConfig): voi
   if (config.permissionPolicy.mode === 'ask-client') {
     throw new Error('agent-harness TUI broker mode does not support ask-client permission policy')
   }
+}
+
+/**
+ * Opens a broker turn for prompts that originate in the TUI rather than from a
+ * broker `turn.begin`. Ids live in their own `_tui_` namespace so they can never
+ * collide with the driver's `turn_<invocation>_<n>` allocator.
+ */
+function createOperatorTurnObserver(
+  driverContext: PiSdkTurnEventMapperOptions['ctx'],
+  mapper: PiSdkTurnEventMapper
+): { observe: (event: AgentSessionEvent) => void } {
+  let counter = 0
+  /** The turn this observer minted, while it is the mapper's active turn. */
+  let tuiTurnId: TurnId | undefined
+  const driver = { kind: AGENT_HARNESS_DRIVER_KIND, rawType: 'tui.operator_prompt' }
+
+  const ensureTurn = (): void => {
+    if (mapper.activeTurnId !== undefined) return
+    counter += 1
+    const turnId = `turn_${driverContext.invocationId}_tui_${counter}` as TurnId
+    mapper.beginTurn({ turnId, structured: false })
+    tuiTurnId = turnId
+    driverContext.emit('turn.started', { turnId, source: 'hook-observed' }, { turnId, driver })
+  }
+
+  return {
+    observe(event) {
+      if (event.type === 'agent_start') {
+        ensureTurn()
+        return
+      }
+      if (event.type !== 'message_start' || event.message.role !== 'user') return
+      ensureTurn()
+      // A broker-delivered prompt is already attributed by the broker's own
+      // `user.message`; only a TUI-minted turn needs the typed text carried
+      // here (T-02026 parity for claude-code-tmux).
+      const turnId = mapper.activeTurnId
+      if (turnId === undefined || turnId !== tuiTurnId) return
+      const content = userText(event.message.content)
+      if (content.length === 0) return
+      driverContext.emit('user.message', { content, turnId, role: 'user' }, { turnId, driver })
+    },
+  }
+}
+
+function userText(content: string | ReadonlyArray<{ type: string; text?: string }>): string {
+  if (typeof content === 'string') return content
+  return content
+    .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
+    .map((part) => part.text)
+    .join('\n')
 }
 
 function createBrokerTuiDriverContext(
