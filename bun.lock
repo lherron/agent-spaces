@@ -170,6 +170,7 @@
       "name": "spaces-runtime",
       "version": "0.1.1",
       "dependencies": {
+        "@iarna/toml": "^2.2.5",
         "spaces-config": "*",
         "spaces-runtime-contracts": "*",
       },
@@ -319,6 +320,7 @@
       },
       "devDependencies": {
         "@types/bun": "latest",
+        "spaces-runtime-contracts": "workspace:*",
         "typescript": "^5.8.3",
       },
     },
@@ -365,7 +367,10 @@
         "agent-spaces": "workspace:*",
         "spaces-config": "*",
         "spaces-execution": "*",
+        "spaces-harness-broker-protocol": "workspace:*",
         "spaces-harness-pi-sdk": "workspace:*",
+        "spaces-runtime": "workspace:*",
+        "spaces-runtime-contracts": "workspace:*",
         "spaces-turn-runner": "*",
       },
       "devDependencies": {

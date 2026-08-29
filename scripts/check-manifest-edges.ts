@@ -1,5 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises'
+import { isBuiltin } from 'node:module'
 import { join, relative } from 'node:path'
+import ts from 'typescript'
 import { defineGuard, runGuard } from './lib/boundary-guard/engine.ts'
 import type { GuardDiagnostic } from './lib/boundary-guard/engine.ts'
 
@@ -28,7 +30,6 @@ type PackageJson = {
   peerDependencies?: unknown
 }
 
-const importPattern = /\bfrom\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g
 const ignoredDirectories = new Set(['.git', 'coverage', 'dist', 'node_modules', 'tmp'])
 const workspaceRoots = ['contracts', 'core', 'drivers', 'compiler', 'harness', 'apps']
 
@@ -118,8 +119,8 @@ async function workspacePackages(): Promise<PackageInfo[]> {
   return packages.sort((left, right) => left.dir.localeCompare(right.dir))
 }
 
-async function collectSourceFiles(srcDir: string): Promise<string[]> {
-  if (!(await pathExists(srcDir))) {
+async function collectSourceFiles(packageDir: string): Promise<string[]> {
+  if (!(await pathExists(packageDir))) {
     return []
   }
 
@@ -136,18 +137,29 @@ async function collectSourceFiles(srcDir: string): Promise<string[]> {
         continue
       }
 
-      if (entry.isFile() && /\.(ts|tsx)$/.test(entry.name) && !entry.name.endsWith('.d.ts')) {
+      if (
+        entry.isFile() &&
+        /\.(ts|tsx|mts|cts|js|mjs|cjs)$/.test(entry.name) &&
+        !entry.name.endsWith('.d.ts')
+      ) {
         files.push(path)
       }
     }
   }
 
-  await walk(srcDir)
+  await walk(packageDir)
   return files.sort()
 }
 
 function barePackageName(specifier: string): string | undefined {
-  if (specifier.startsWith('.') || specifier.startsWith('/') || specifier.startsWith('node:')) {
+  if (specifier.startsWith('.') || specifier.startsWith('/')) {
+    return undefined
+  }
+
+  // Runtime-provided specifiers are never manifest edges: `node:`/`bun:` prefixed
+  // builtins, and the bare builtin names both runtimes expose (isBuiltin covers
+  // `bun` itself when this guard runs under bun).
+  if (specifier.startsWith('node:') || specifier.startsWith('bun:') || isBuiltin(specifier)) {
     return undefined
   }
 
@@ -165,30 +177,29 @@ function lineNumberForIndex(content: string, index: number): number {
   return content.slice(0, index).split('\n').length
 }
 
-async function importedWorkspacePackages(
-  packageInfo: PackageInfo,
-  workspaceNames: Set<string>
-): Promise<Map<string, ImportLocation[]>> {
+async function importedPackages(packageInfo: PackageInfo): Promise<Map<string, ImportLocation[]>> {
   const imports = new Map<string, ImportLocation[]>()
-  const files = await collectSourceFiles(join(packageInfo.dir, 'src'))
+  const files = await collectSourceFiles(packageInfo.dir)
 
   for (const file of files) {
     const content = await readFile(file, 'utf8')
-    for (const match of content.matchAll(importPattern)) {
-      const specifier = match[1] ?? match[2]
-      if (!specifier) {
-        continue
-      }
-
-      const packageName = barePackageName(specifier)
-      if (!packageName || packageName === packageInfo.name || !workspaceNames.has(packageName)) {
+    // Scan with the TypeScript preprocessor rather than a regex. Once this guard
+    // checks EVERY bare specifier (not just workspace names), a regex is no longer
+    // viable: it matches quoted text that merely looks like an import — a template
+    // literal holding a script for another runtime, an option string containing
+    // `from '...'` — and reports it as a missing dependency. The preprocessor sees
+    // only real module references, and it sees all of them: type-only imports,
+    // side-effect imports, `export ... from`, dynamic `import()`, and `require()`.
+    for (const reference of ts.preProcessFile(content, true, true).importedFiles) {
+      const packageName = barePackageName(reference.fileName)
+      if (!packageName || packageName === packageInfo.name) {
         continue
       }
 
       const importLocations = imports.get(packageName) ?? []
       importLocations.push({
         file: relative(process.cwd(), file),
-        line: lineNumberForIndex(content, match.index),
+        line: lineNumberForIndex(content, reference.pos),
       })
       imports.set(packageName, importLocations)
     }
@@ -199,11 +210,10 @@ async function importedWorkspacePackages(
 
 async function missingManifestEdges(): Promise<MissingEdge[]> {
   const packages = await workspacePackages()
-  const workspaceNames = new Set(packages.map((packageInfo) => packageInfo.name))
   const missingEdges: MissingEdge[] = []
 
   for (const packageInfo of packages) {
-    const imports = await importedWorkspacePackages(packageInfo, workspaceNames)
+    const imports = await importedPackages(packageInfo)
     for (const [dependency, locations] of imports) {
       if (!packageInfo.declared.has(dependency)) {
         missingEdges.push({
@@ -232,11 +242,11 @@ async function detectMissingManifestEdges(): Promise<GuardDiagnostic[]> {
   return edges.flatMap((edge) =>
     edge.locations.map((location) => ({
       location,
-      ruleId: 'MANIFEST:missing-workspace-dependency',
-      expected: `every imported workspace package is declared in ${edge.packageDir}/package.json dependencies`,
+      ruleId: 'MANIFEST:missing-dependency',
+      expected: `every imported package is declared in ${edge.packageDir}/package.json dependencies`,
       got: `source imports '${edge.dependency}' without a manifest edge`,
       fix: `add '${edge.dependency}' to ${edge.packageDir}/package.json dependencies (autofix: \`cd ${edge.packageDir} && bun add ${edge.dependency}\`)`,
-      why: 'undeclared workspace dependencies break isolated installs and hide the real package edge from tooling.',
+      why: 'undeclared dependencies break isolated installs and hide the real package edge from tooling; a hoisted layout resolves them from a sibling that happens to declare them, so they only fail elsewhere.',
       exception:
         'declaring the dependency is the fix; if it truly should not be declared, edit this rule via reviewed change with rationale.',
       doNotSuppress: 'Do not suppress, silence, disable, or re-export to hide this; fix the edge.',
@@ -251,7 +261,7 @@ const guard = defineGuard({
   },
   rules: [
     {
-      id: 'MANIFEST:missing-workspace-dependency',
+      id: 'MANIFEST:missing-dependency',
       kind: 'custom',
       detect: detectMissingManifestEdges,
     },

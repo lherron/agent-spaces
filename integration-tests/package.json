@@ -16,12 +16,15 @@
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.84.3",
     "@lherron/agent-spaces": "*",
-    "agent-scope": "*",
     "agent-harness-runtime": "workspace:*",
+    "agent-scope": "*",
     "agent-spaces": "workspace:*",
     "spaces-config": "*",
     "spaces-execution": "*",
+    "spaces-harness-broker-protocol": "workspace:*",
     "spaces-harness-pi-sdk": "workspace:*",
+    "spaces-runtime": "workspace:*",
+    "spaces-runtime-contracts": "workspace:*",
     "spaces-turn-runner": "*"
   }
 }
