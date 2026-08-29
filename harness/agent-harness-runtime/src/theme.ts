@@ -2,46 +2,77 @@ import { Theme } from '@earendil-works/pi-coding-agent'
 
 export const RESOURCE_LOADER_THEME_NAME = 'praesidium-loader'
 
-const foregrounds = {
-  accent: '#22d3ee',
-  border: '#a855f7',
-  borderAccent: '#22d3ee',
-  borderMuted: '#6b21a8',
-  success: '#86efac',
-  error: '#fca5a5',
-  warning: '#fde047',
-  muted: '#c4b5fd',
-  dim: '#a78bfa',
-  text: '#f8fafc',
-  thinkingText: '#c4b5fd',
-  searchMatchText: '#ffffff',
+type Foregrounds = ConstructorParameters<typeof Theme>[0]
+type Backgrounds = ConstructorParameters<typeof Theme>[1]
+
+/** Resolved colors from Pi's bundled `modes/interactive/theme/dark.json`. */
+const piDarkForegrounds = {
+  accent: '#8abeb7',
+  border: '#5f87ff',
+  borderAccent: '#00d7ff',
+  borderMuted: '#505050',
+  success: '#b5bd68',
+  error: '#cc6666',
+  warning: '#ffff00',
+  muted: '#808080',
+  dim: '#666666',
+  text: '#d4d4d4',
+  thinkingText: '#808080',
+  searchMatchText: '#d4d4d4',
+  userMessageText: '#d4d4d4',
+  customMessageText: '#d4d4d4',
+  customMessageLabel: '#9575cd',
+  toolTitle: '#d4d4d4',
+  toolOutput: '#808080',
+  mdHeading: '#f0c674',
+  mdLink: '#81a2be',
+  mdLinkUrl: '#666666',
+  mdCode: '#8abeb7',
+  mdCodeBlock: '#b5bd68',
+  mdCodeBlockBorder: '#808080',
+  mdQuote: '#808080',
+  mdQuoteBorder: '#808080',
+  mdHr: '#808080',
+  mdListBullet: '#8abeb7',
+  toolDiffAdded: '#b5bd68',
+  toolDiffRemoved: '#cc6666',
+  toolDiffContext: '#808080',
+  syntaxComment: '#6a9955',
+  syntaxKeyword: '#569cd6',
+  syntaxFunction: '#dcdcaa',
+  syntaxVariable: '#9cdcfe',
+  syntaxString: '#ce9178',
+  syntaxNumber: '#b5cea8',
+  syntaxType: '#4ec9b0',
+  syntaxOperator: '#d4d4d4',
+  syntaxPunctuation: '#d4d4d4',
+  thinkingOff: '#505050',
+  thinkingMinimal: '#6e6e6e',
+  thinkingLow: '#5f87af',
+  thinkingMedium: '#81a2be',
+  thinkingHigh: '#b294bb',
+  thinkingXhigh: '#d183e8',
+  thinkingMax: '#ff5fff',
+  bashMode: '#b5bd68',
+} satisfies Foregrounds
+
+const piDarkBackgrounds = {
+  selectedBg: '#3a3a4a',
+  scrollbarThumb: '#3a3a4a',
+  searchMatchBg: '#3a3a4a',
+  userMessageBg: '#343541',
+  customMessageBg: '#2d2838',
+  toolPendingBg: '#282832',
+  toolSuccessBg: '#283228',
+  toolErrorBg: '#3c2828',
+} satisfies Backgrounds
+
+// Keep the harness identity at the interaction boundary; all other tokens use Pi dark.
+const foregroundOverrides = {
+  // Submitted user-message foreground.
   userMessageText: '#ffffff',
-  customMessageText: '#ffffff',
-  customMessageLabel: '#67e8f9',
-  toolTitle: '#ffffff',
-  toolOutput: '#cffafe',
-  mdHeading: '#67e8f9',
-  mdLink: '#c4b5fd',
-  mdLinkUrl: '#a5f3fc',
-  mdCode: '#67e8f9',
-  mdCodeBlock: '#d8b4fe',
-  mdCodeBlockBorder: '#22d3ee',
-  mdQuote: '#e9d5ff',
-  mdQuoteBorder: '#a855f7',
-  mdHr: '#6b21a8',
-  mdListBullet: '#22d3ee',
-  toolDiffAdded: '#86efac',
-  toolDiffRemoved: '#fca5a5',
-  toolDiffContext: '#c4b5fd',
-  syntaxComment: '#a5b4fc',
-  syntaxKeyword: '#67e8f9',
-  syntaxFunction: '#d8b4fe',
-  syntaxVariable: '#f8fafc',
-  syntaxString: '#a7f3d0',
-  syntaxNumber: '#fde68a',
-  syntaxType: '#c4b5fd',
-  syntaxOperator: '#67e8f9',
-  syntaxPunctuation: '#f8fafc',
+  // Input editor borders: inactive plus each active thinking/bash mode.
+  borderMuted: '#6b21a8',
   thinkingOff: '#6b21a8',
   thinkingMinimal: '#7e22ce',
   thinkingLow: '#9333ea',
@@ -50,22 +81,20 @@ const foregrounds = {
   thinkingXhigh: '#22d3ee',
   thinkingMax: '#67e8f9',
   bashMode: '#22d3ee',
-} satisfies ConstructorParameters<typeof Theme>[0]
+  // Footer and transient status text.
+  dim: '#a78bfa',
+} satisfies Partial<Foregrounds>
 
-const backgrounds = {
-  selectedBg: '#0e7490',
-  scrollbarThumb: '#22d3ee',
-  searchMatchBg: '#7e22ce',
+const backgroundOverrides = {
+  // Submitted user-message background.
   userMessageBg: '#6d28d9',
-  customMessageBg: '#581c87',
-  toolPendingBg: '#155e75',
-  toolSuccessBg: '#166534',
-  toolErrorBg: '#991b1b',
-} satisfies ConstructorParameters<typeof Theme>[1]
+} satisfies Partial<Backgrounds>
 
 export function createResourceLoaderTheme(sourcePath: string): Theme {
-  return new Theme(foregrounds, backgrounds, 'truecolor', {
-    name: RESOURCE_LOADER_THEME_NAME,
-    sourcePath,
-  })
+  return new Theme(
+    { ...piDarkForegrounds, ...foregroundOverrides },
+    { ...piDarkBackgrounds, ...backgroundOverrides },
+    'truecolor',
+    { name: RESOURCE_LOADER_THEME_NAME, sourcePath }
+  )
 }

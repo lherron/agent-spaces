@@ -24,15 +24,22 @@ describe('resolveAgentHarnessModel', () => {
 })
 
 describe('praesidium-loader theme', () => {
-  test('keeps the POC purple/cyan identity and truecolor palette', () => {
+  test('uses Pi dark except at the harness interaction boundary', () => {
     const theme = createResourceLoaderTheme('/runtime/theme.ts')
     expect(theme.name).toBe(RESOURCE_LOADER_THEME_NAME)
     expect(theme.sourcePath).toBe('/runtime/theme.ts')
     expect(theme.getColorMode()).toBe('truecolor')
-    expect(theme.getFgAnsi('accent')).toContain('34;211;238')
-    expect(theme.getFgAnsi('border')).toContain('168;85;247')
-    expect(theme.getFgAnsi('toolOutput')).toContain('207;250;254')
+
+    // Pi dark baseline.
+    expect(theme.getFgAnsi('accent')).toContain('138;190;183')
+    expect(theme.getFgAnsi('toolOutput')).toContain('128;128;128')
+    expect(theme.getBgAnsi('toolSuccessBg')).toContain('40;50;40')
+
+    // Harness-only input, editor-border, and status-line overrides.
+    expect(theme.getFgAnsi('userMessageText')).toContain('255;255;255')
     expect(theme.getBgAnsi('userMessageBg')).toContain('109;40;217')
-    expect(theme.getBgAnsi('toolSuccessBg')).toContain('22;101;52')
+    expect(theme.getFgAnsi('thinkingMedium')).toContain('168;85;247')
+    expect(theme.getFgAnsi('bashMode')).toContain('34;211;238')
+    expect(theme.getFgAnsi('dim')).toContain('167;139;250')
   })
 })
