@@ -19,6 +19,8 @@ pre-commit:
       run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- bun scripts/check-runtime-contract-harness-boundaries.ts
     manifests:
       run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- bun scripts/check-manifest-edges.ts
+    dependency-pins:
+      run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- bun scripts/check-dependency-pins.ts
     suppressions:
       run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- bun scripts/check-suppressions.ts
     public-surface:

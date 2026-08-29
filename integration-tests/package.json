@@ -11,7 +11,7 @@
     "test:real-claude": "RUN_REAL_CLAUDE=1 bun ../scripts/run-tests-no-git-clone.ts -- bun test"
   },
   "devDependencies": {
-    "@types/bun": "^1.1.14",
+    "@types/bun": "1.3.14",
     "typescript": "^5.7.2"
   },
   "dependencies": {

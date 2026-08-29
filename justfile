@@ -136,6 +136,7 @@ check:
     bun scripts/check-boundaries.ts
     bun scripts/check-runtime-contract-harness-boundaries.ts
     bun scripts/check-manifest-edges.ts
+    bun scripts/check-dependency-pins.ts
     bun scripts/check-suppressions.ts
     bun scripts/check-public-surface.ts
     bun scripts/check-doc-reachability.ts
@@ -156,6 +157,14 @@ architecture-records *args:
 # widens some keyof types to `string | symbol`). Without a prior build a fresh clone
 # fails typecheck where a warm host tree passes — room-readiness gate (T-06887).
 verify: build architecture-records check lint typecheck test
+
+# Prune stale nested node_modules copies that shadow the root pinned resolution.
+# `bun install` never removes a copy an earlier floating specifier materialised, and
+# TypeScript resolves from the nearest node_modules — so a corrected manifest plus a
+# "no changes" lockfile can still build against the wrong types (T-07690).
+# Pass --check to report without deleting.
+doctor *args:
+    bun scripts/workspace-doctor.ts {{args}}
 
 # Clean build artifacts
 clean:
@@ -194,6 +203,7 @@ install no-sync="" force-sync="" force-link="":
     echo "[install] context=${PRAESIDIUM_INSTALL_CONTEXT} sync=${PRAESIDIUM_INSTALL_SYNC_MODE} link=${PRAESIDIUM_INSTALL_LINK_MODE} publish=${PRAESIDIUM_INSTALL_PUBLISH_CHANNEL} tag=${PRAESIDIUM_INSTALL_PUBLISH_TAG}"
     bun run clean
     bun install
+    bun scripts/workspace-doctor.ts
     bun run build
 
     link_pids=()

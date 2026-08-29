@@ -35,7 +35,7 @@
     "spaces-execution": "workspace:*"
   },
   "devDependencies": {
-    "@types/bun": "latest",
+    "@types/bun": "1.3.14",
     "spaces-runtime-contracts": "workspace:*",
     "typescript": "^5.8.3"
   }

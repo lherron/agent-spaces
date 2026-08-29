@@ -34,7 +34,7 @@
     "spaces-runtime-contracts": "*"
   },
   "devDependencies": {
-    "@types/bun": "latest",
+    "@types/bun": "1.3.14",
     "typescript": "^5.8.3"
   }
 }

@@ -57,6 +57,7 @@ const codeOnlyPreCommitCommands = [
   'boundaries',
   'harness-boundaries',
   'manifests',
+  'dependency-pins',
   'suppressions',
   'public-surface',
   'rule-authoring',
