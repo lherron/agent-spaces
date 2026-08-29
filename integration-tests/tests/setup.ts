@@ -11,6 +11,8 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { promisify } from 'node:util'
 
+import { hermeticAgentsRoot, seedImmutableRegistryMirror } from './hermetic.js'
+
 const execAsync = promisify(exec)
 
 /** Path to the fixtures directory */
@@ -140,6 +142,9 @@ export async function createTempAspHome(): Promise<string> {
   const tmpDir = await fs.mkdtemp('/tmp/asp-test-')
   await fs.mkdir(path.join(tmpDir, 'snapshots'), { recursive: true })
   await fs.mkdir(path.join(tmpDir, 'cache'), { recursive: true })
+  // Without the mirror in place the first target resolution clones the canonical
+  // spaces-repo, which the test Git guard forbids. See ./hermetic.ts.
+  seedImmutableRegistryMirror(tmpDir)
   return tmpDir
 }
 
@@ -220,12 +225,25 @@ export async function cleanupTempProject(projectDir: string): Promise<void> {
 }
 
 /**
+ * `process.env` with the undefined-valued keys dropped.
+ *
+ * `ProcessEnv` values are `string | undefined`, which cannot seed a
+ * `Record<string, string>` under the repo's `exactOptionalPropertyTypes`.
+ */
+function definedProcessEnv(): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)
+  )
+}
+
+/**
  * Set environment variables for testing with the claude shim.
  */
 export function getTestEnv(aspHome: string): Record<string, string> {
   return {
-    ...process.env,
+    ...definedProcessEnv(),
     ASP_HOME: aspHome,
+    ASP_AGENTS_ROOT: hermeticAgentsRoot(),
     ASP_CLAUDE_PATH: CLAUDE_SHIM_PATH,
     CLAUDE_SHIM_OUTPUT: SHIM_OUTPUT_FILE,
     CLAUDE_SHIM_VALIDATE_PLUGINS: '1',
@@ -237,10 +255,11 @@ export function getTestEnv(aspHome: string): Record<string, string> {
  */
 export function getCodexTestEnv(aspHome: string): Record<string, string> {
   const shimDir = path.dirname(CODEX_SHIM_PATH)
-  const pathEnv = [shimDir, process.env.PATH ?? ''].filter(Boolean).join(path.delimiter)
+  const pathEnv = [shimDir, process.env['PATH'] ?? ''].filter(Boolean).join(path.delimiter)
   return {
-    ...process.env,
+    ...definedProcessEnv(),
     ASP_HOME: aspHome,
+    ASP_AGENTS_ROOT: hermeticAgentsRoot(),
     PATH: pathEnv,
   }
 }

@@ -1,9 +1,56 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
-    "outDir": "./dist",
-    "rootDir": "./",
+    // Typecheck-only: this package is private, has no `build` script, and
+    // deep-imports sibling package sources, so `rootDir`/`outDir` produced
+    // nothing but TS6059 noise.
+    "noEmit": true,
     "types": ["bun-types"]
   },
-  "include": ["tests/**/*.ts"]
+  "include": ["tests/**/*.ts", "lib/**/*.ts", "bin/**/*.ts"],
+  // ------------------------------------------------------------------
+  // Typecheck debt ledger (T-07687 → T-07689). SHRINK ONLY.
+  //
+  // This package had no `typecheck` script at all, so `bun run --filter '*'
+  // typecheck` skipped it and a call to a `PathResolver.store` getter that does
+  // not exist sat in the tree unflagged (T-07685 bucket 6). The script now
+  // exists; the 23 leaf test files below were red when it landed (375 errors,
+  // overwhelmingly unbranded id literals in fixtures plus strict-flag friction)
+  // and are excluded until T-07689 clears them, which is where the assertion
+  // cleanup for these same files already lives.
+  //
+  // Every shared module — tests/setup.ts, tests/hermetic.ts,
+  // tests/compiler-runtime.ts, lib/**, bin/** — IS typechecked and was fixed
+  // here; excluding an imported file would not have silenced it anyway.
+  //
+  // Rules: a new test file is covered by default. Never add a line here to get
+  // a red file past the gate — fix the file. Delete a line as T-07689 clears it.
+  // ------------------------------------------------------------------
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tests/agent-env-contract.red.test.ts",
+    "tests/agent-spaces-client.test.ts",
+    "tests/client-concurrency.test.ts",
+    "tests/client-process-invocation.characterization.test.ts",
+    "tests/codex-harness.test.ts",
+    "tests/compile-runtime-plan.test.ts",
+    "tests/compiler-broker-initial-input.test.ts",
+    "tests/compiler-broker-profile.test.ts",
+    "tests/compiler-client.test.ts",
+    "tests/continuation-threading.red.test.ts",
+    "tests/env-turn-refactor-snapshots.test.ts",
+    "tests/global-mode.test.ts",
+    "tests/install.test.ts",
+    "tests/lint.test.ts",
+    "tests/m5-public-api-cutover.test.ts",
+    "tests/management.test.ts",
+    "tests/pre-hrc-broker-contract-verifier.test.ts",
+    "tests/pre-hrc-interactive-tmux-runner.red.test.ts",
+    "tests/run-compile-brain-decommissioned.test.ts",
+    "tests/run-compile-byte-parity.test.ts",
+    "tests/selector.test.ts",
+    "tests/utility.test.ts",
+    "tests/v01-removal.red.test.ts"
+  ]
 }

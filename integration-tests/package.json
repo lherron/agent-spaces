@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "bun ../scripts/run-tests-no-git-clone.ts -- bun test",
+    "typecheck": "tsc --noEmit",
     "test:agent-resource-parity": "bun ../scripts/run-tests-no-git-clone.ts -- bun test tests/agent-resource-parity.test.ts",
     "verify:agent-resources": "bun ../scripts/run-tests-no-git-clone.ts -- bun bin/verify-agent-resource-parity.ts --mode all",
     "test:real-claude": "RUN_REAL_CLAUDE=1 bun ../scripts/run-tests-no-git-clone.ts -- bun test"

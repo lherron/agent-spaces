@@ -11,6 +11,7 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { promisify } from 'node:util'
 
+import { useHermeticAgentsRoot } from './hermetic.js'
 import {
   cleanupTempAspHome,
   cleanupTempProject,
@@ -21,6 +22,8 @@ import {
 } from './setup.js'
 
 const execAsync = promisify(exec)
+
+useHermeticAgentsRoot()
 
 /** Path to CLI entry point */
 const CLI_PATH = path.join(import.meta.dir, '..', '..', 'apps', 'cli', 'bin', 'asp.js')

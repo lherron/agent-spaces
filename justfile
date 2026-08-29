@@ -29,6 +29,12 @@ test:
 test-integration:
     bun run test:integration
 
+# Full unit + integration qualification. Required before a release, not on
+# pre-push: the integration suite alone runs ~5 minutes, which is why it sat in
+# no gate at all and rotted to 51 reds unnoticed (T-07685).
+release-test:
+    bun run test:release
+
 verify-agent-resource-parity:
     bun run --filter spaces-integration-tests verify:agent-resources
 
@@ -84,7 +90,10 @@ e2e: env-up
     #!/usr/bin/env bash
     set -euo pipefail
     echo "==> e2e: agent-spaces integration suite"
-    bun test integration-tests/tests
+    # Via the root script so the suite runs under the same clone guard as
+    # `bun run test:integration`; a bare `bun test` here would let it reach the
+    # network and hide the hermeticity the fixtures now depend on.
+    bun run test:integration
     echo "==> e2e: green"
 
 # Run linter

@@ -17,6 +17,7 @@ import { promisify } from 'node:util'
 
 import { harnessRegistry, install } from 'spaces-execution'
 
+import { useHermeticAgentsRoot } from './hermetic.js'
 import {
   FIXTURES_DIR,
   cleanupTempAspHome,
@@ -28,6 +29,10 @@ import {
 } from './setup.js'
 
 const execAsync = promisify(exec)
+
+// Several cases below call the CLI (and `install`) without an explicit env, so
+// the agents-root pin has to cover the whole process, not just getTestEnv().
+useHermeticAgentsRoot()
 
 /** Path to the multi-harness fixtures */
 const MULTI_HARNESS_DIR = path.join(FIXTURES_DIR, 'multi-harness')

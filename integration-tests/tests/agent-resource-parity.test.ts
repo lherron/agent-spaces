@@ -13,6 +13,7 @@ import { projectResources } from '../lib/agent-resource-parity/projection.js'
 import { createParityReplayContext } from '../lib/agent-resource-parity/replay-context.js'
 import { verifyParityRows } from '../lib/agent-resource-parity/verify.js'
 import { compilerRuntime } from './compiler-runtime.js'
+import { seedImmutableRegistryMirror } from './hermetic.js'
 
 async function fixtureSkill(root: string): Promise<Skill> {
   const skillDir = join(root, 'fixture')
@@ -78,6 +79,8 @@ describe('agent resource parity task fixture', () => {
     const root = await mkdtemp(join(tmpdir(), 'agent-resource-parity-observe-'))
     const compilerAspHome = join(root, 'compiler-asp-home')
     const directAspHome = join(root, 'direct-asp-home')
+    seedImmutableRegistryMirror(compilerAspHome)
+    seedImmutableRegistryMirror(directAspHome)
     const agentSpaces = join(root, 'agents', 'spaces')
     const agentRoot = join(root, 'agents', 'fixture-agent')
     const projectRoot = join(root, 'agent-spaces')

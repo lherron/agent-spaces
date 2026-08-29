@@ -12,6 +12,8 @@ import {
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
 
+import { seedImmutableRegistryMirror } from './hermetic.js'
+
 import { harnessRegistry, planPlacementRuntime } from 'spaces-execution'
 import type { InputId, InvocationId } from 'spaces-harness-broker-protocol'
 import { validateInvocationStartRequest } from 'spaces-harness-broker-protocol'
@@ -144,6 +146,7 @@ function createFixture(): {
   mkdirSync(agentRoot, { recursive: true })
   mkdirSync(projectRoot, { recursive: true })
   mkdirSync(aspHome, { recursive: true })
+  seedImmutableRegistryMirror(aspHome)
   writeFileSync(imagePath, 'not-really-a-png', 'utf8')
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),

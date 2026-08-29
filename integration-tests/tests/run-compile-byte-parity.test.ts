@@ -38,6 +38,7 @@ import {
 } from '../../compiler/agent-spaces/src/index.js'
 import type { AgentSpacesClient } from '../../compiler/agent-spaces/src/types.js'
 import { compilerRuntime } from './compiler-runtime.js'
+import { seedImmutableRegistryMirror } from './hermetic.js'
 
 type TestFn = () => unknown | Promise<unknown>
 
@@ -77,6 +78,7 @@ function createFixture(): {
   mkdirSync(agentRoot, { recursive: true })
   mkdirSync(projectRoot, { recursive: true })
   mkdirSync(aspHome, { recursive: true })
+  seedImmutableRegistryMirror(aspHome)
 
   // Agent profile with empty compose, no system prompt material
   // so the launch shape stays minimal and the expansion context cannot diverge.

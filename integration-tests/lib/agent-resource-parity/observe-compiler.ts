@@ -2,8 +2,8 @@ import { join } from 'node:path'
 
 import { loadSkills } from '@earendil-works/pi-coding-agent'
 import { canonicalSkillNames, loadAgent } from 'agent-harness-runtime'
+import type { AgentSpacesRuntimeDependencies } from '../../../compiler/agent-spaces/src/placement-api.js'
 import {
-  type AgentSpacesRuntimeDependencies,
   type PreparePlacementCliRuntimeRequest,
   preparePlacementCliRuntime,
 } from '../../../compiler/agent-spaces/src/prepare-cli-runtime.js'
@@ -19,6 +19,12 @@ export async function observeCompiler(input: {
   aspHome: string
   runtime: AgentSpacesRuntimeDependencies
 }): Promise<ResourceProjection> {
+  // Placement is optional on the request type but mandatory for this observer:
+  // the parity projection is defined against a placement's agent/project roots.
+  const placement = input.request.placement
+  if (placement === undefined) {
+    throw new Error('observeCompiler requires a placement on the compile request')
+  }
   const prepared = await preparePlacementCliRuntime(
     input.request,
     input.aspHome,
@@ -36,18 +42,16 @@ export async function observeCompiler(input: {
     throw new Error('Compiler did not materialize a system prompt')
   const sourceAgent = await loadAgent({
     agentId: input.agentId,
-    agentRoot: input.request.placement.agentRoot,
-    ...(input.request.placement.projectRoot !== undefined
-      ? { projectRoot: input.request.placement.projectRoot }
-      : {}),
+    agentRoot: placement.agentRoot,
+    ...(placement.projectRoot !== undefined ? { projectRoot: placement.projectRoot } : {}),
     cwd: prepared.cwd,
     aspHome: input.aspHome,
     runMode: input.mode,
-    ...(input.request.placement.correlation?.sessionRef?.scopeRef !== undefined
-      ? { scopeRef: input.request.placement.correlation.sessionRef.scopeRef }
+    ...(placement.correlation?.sessionRef?.scopeRef !== undefined
+      ? { scopeRef: placement.correlation.sessionRef.scopeRef }
       : {}),
-    ...(input.request.placement.correlation?.sessionRef?.laneRef !== undefined
-      ? { laneRef: input.request.placement.correlation.sessionRef.laneRef }
+    ...(placement.correlation?.sessionRef?.laneRef !== undefined
+      ? { laneRef: placement.correlation.sessionRef.laneRef }
       : {}),
     ...(input.request.model !== undefined ? { model: input.request.model } : {}),
     ...(input.request.provider === 'openai' || input.request.provider === 'anthropic'

@@ -41,6 +41,7 @@ const RUN_PLACEMENT_TURN_DECL = 'export async function runPlacementTurnNonIntera
 const HEAVY_TEST_TIMEOUT_MS = 60_000
 const REPO_ROOT = join(import.meta.dirname, '..', '..')
 import { compilerRuntime } from './compiler-runtime.js'
+import { seedImmutableRegistryMirror } from './hermetic.js'
 
 async function createTurnClient(options?: { aspHome?: string; registryPath?: string }) {
   const { createAgentSpacesClient } = await import('../../apps/turn-runner/src/index.js')
@@ -815,6 +816,7 @@ describe('audit bundle includes byMode space overlays (T-00890)', () => {
     'heartbeat byMode spaces are materialized (integration)',
     async () => {
       const tempDir = mkdtempSync(join(tmpdir(), 'bymode-overlay-'))
+      seedImmutableRegistryMirror(join(tempDir, 'asp-home'))
       const agentRoot = join(tempDir, 'agent-root')
       mkdirSync(agentRoot, { recursive: true })
       writeFileSync(join(agentRoot, 'SOUL.md'), 'You are a test agent.\n')
@@ -874,6 +876,7 @@ describe('audit bundle includes byMode space overlays (T-00890)', () => {
     async () => {
       // GREEN: query mode should only have base-space.
       const tempDir = mkdtempSync(join(tmpdir(), 'bymode-overlay-'))
+      seedImmutableRegistryMirror(join(tempDir, 'asp-home'))
       const agentRoot = join(tempDir, 'agent-root')
       mkdirSync(agentRoot, { recursive: true })
       writeFileSync(join(agentRoot, 'SOUL.md'), 'You are a test agent.\n')
