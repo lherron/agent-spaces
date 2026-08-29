@@ -1,0 +1,11 @@
+# Command Collision B space - ships a command that collides with its pair
+# WHY: Tests command name collision detection (W201) without forcing the collision
+# onto frontend/backend, which are the fixture's ordinary composable spaces.
+
+schema = 1
+id = "cmd-collision-b"
+version = "1.0.0"
+description = "Space with colliding command (second)"
+
+[plugin]
+name = "cmd-collision-b"

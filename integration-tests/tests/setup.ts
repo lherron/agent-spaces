@@ -34,6 +34,27 @@ export const CODEX_SHIM_PATH = path.join(FIXTURES_DIR, 'codex-shim', 'codex')
 export const SHIM_OUTPUT_FILE = '/tmp/claude-shim-output.json'
 
 /**
+ * Whether an existing sample-registry git repo still reflects the fixture tree.
+ *
+ * False when there is no repo, when the worktree is dirty relative to its commit
+ * (fixture files changed since it was built), or when git itself refuses to
+ * answer -- all of which mean the repo must be rebuilt.
+ */
+async function isFreshSampleRegistryRepo(registryDir: string, gitDir: string): Promise<boolean> {
+  try {
+    await fs.access(gitDir)
+  } catch {
+    return false
+  }
+  try {
+    const { stdout } = await execAsync('git status --porcelain', { cwd: registryDir })
+    return stdout.trim() === ''
+  } catch {
+    return false
+  }
+}
+
+/**
  * Initialize the sample-registry as a git repository with proper tags.
  *
  * WHY: The resolver needs git tags to resolve space references.
@@ -42,15 +63,19 @@ export const SHIM_OUTPUT_FILE = '/tmp/claude-shim-output.json'
 export async function initSampleRegistry(): Promise<void> {
   const registryDir = SAMPLE_REGISTRY_DIR
 
-  // Check if .git already exists
+  // Reuse an existing repo only when it still matches the fixture on disk.
+  //
+  // WHY: this used to return on the mere existence of `.git`, which made the repo
+  // a cache with no invalidation. Any edit to the fixture tree -- adding a space,
+  // renaming a command -- left a dev's stale `.git` serving the OLD content from
+  // its object store, so resolution succeeded against a tree that no longer
+  // exists in git. A dirty worktree is the exact signal that the commit is behind
+  // the files, so re-initialize on it rather than trusting the cache.
   const gitDir = path.join(registryDir, '.git')
-  try {
-    await fs.access(gitDir)
-    // Git repo already exists, just verify tags
+  if (await isFreshSampleRegistryRepo(registryDir, gitDir)) {
     return
-  } catch {
-    // .git doesn't exist, initialize
   }
+  await fs.rm(gitDir, { recursive: true, force: true })
 
   // Initialize git repo
   await execAsync('git init', { cwd: registryDir })
@@ -121,6 +146,14 @@ export async function initSampleRegistry(): Promise<void> {
 
   await execAsync('git tag space/mcp-collision-b/v1.0.0', { cwd: registryDir })
   await execAsync('git tag space/mcp-collision-b/stable', { cwd: registryDir })
+
+  // Command-collision pair for W201. Kept off frontend/backend so the fixture's
+  // ordinary composable spaces stay materializable together.
+  await execAsync('git tag space/cmd-collision-a/v1.0.0', { cwd: registryDir })
+  await execAsync('git tag space/cmd-collision-a/stable', { cwd: registryDir })
+
+  await execAsync('git tag space/cmd-collision-b/v1.0.0', { cwd: registryDir })
+  await execAsync('git tag space/cmd-collision-b/stable', { cwd: registryDir })
 }
 
 /**

@@ -9,7 +9,6 @@
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
-import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 
 import { createAgentSpacesClient } from 'agent-spaces'
@@ -26,7 +25,16 @@ import {
   initSampleRegistry,
 } from './setup.js'
 
-const client = createAgentSpacesClient({ runtime: compilerRuntime })
+// `registryPath` is the client-level surface for pointing resolution at a local
+// registry with no remote -- the same thing `asp --registry <path>` exposes on nine
+// CLI commands. The suite previously symlinked `<aspHome>/repo` at the fixture
+// instead, which `getRegistryPath` stopped consulting once the agents root became
+// the default shared-space source: it only falls back to `paths.repo` when
+// `getAgentsRoot()` is empty, which it never is on a praesidium node.
+const client = createAgentSpacesClient({
+  runtime: compilerRuntime,
+  registryPath: SAMPLE_REGISTRY_DIR,
+})
 
 let aspHome: string
 let savedClaudePath: string | undefined
@@ -38,8 +46,6 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   aspHome = await createTempAspHome()
-  // Symlink aspHome/repo → sample-registry so the resolver finds the registry
-  await fs.symlink(SAMPLE_REGISTRY_DIR, path.join(aspHome, 'repo'))
 
   // Save and set env for harness detection
   savedClaudePath = process.env['ASP_CLAUDE_PATH']
@@ -113,7 +119,7 @@ describe('describe', () => {
       spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
       registryPath: SAMPLE_REGISTRY_DIR,
       frontend: 'agent-sdk',
-      cpSessionId: 'test-cp-session',
+      hostSessionId: 'test-cp-session',
       cwd: '/tmp',
     })
 
@@ -172,10 +178,16 @@ describe('describe', () => {
 // buildProcessInvocationSpec() success paths
 // ---------------------------------------------------------------------------
 
+// No 'merges request env into spec env' case: `BuildProcessInvocationSpecRequest.env`
+// was a deprecated alias for `lockedEnv` and T-04600 (64d5f9c, 2026-06-21) deleted it
+// along with `cpSessionId`. The test outlived the contract it asserted and only ever
+// passed an excess property. The surviving `lockedEnv`/`dispatchEnv` are composed by
+// the `placement` branch, not this legacy one, which has no production caller (HRC's
+// cli-adapter always supplies `placement`) -- see T-07694.
 describe('buildProcessInvocationSpec', () => {
   test('returns complete invocation spec for claude-code', async () => {
     const response: BuildProcessInvocationSpecResponse = await client.buildProcessInvocationSpec({
-      cpSessionId: 'test-session',
+      hostSessionId: 'test-session',
       aspHome,
       spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
       provider: 'anthropic',
@@ -209,7 +221,7 @@ describe('buildProcessInvocationSpec', () => {
 
   test('argv includes plugin-dir flags for claude-code', async () => {
     const response = await client.buildProcessInvocationSpec({
-      cpSessionId: 'test-session',
+      hostSessionId: 'test-session',
       aspHome,
       spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
       provider: 'anthropic',
@@ -226,7 +238,7 @@ describe('buildProcessInvocationSpec', () => {
 
   test('env includes ASP_PLUGIN_ROOT for claude-code', async () => {
     const response = await client.buildProcessInvocationSpec({
-      cpSessionId: 'test-session',
+      hostSessionId: 'test-session',
       aspHome,
       spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
       provider: 'anthropic',
@@ -240,28 +252,9 @@ describe('buildProcessInvocationSpec', () => {
     expect(response.spec.env['ASP_PLUGIN_ROOT']).toBeDefined()
   })
 
-  test('merges request env into spec env', async () => {
-    const response = await client.buildProcessInvocationSpec({
-      cpSessionId: 'test-session',
-      aspHome,
-      spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
-      provider: 'anthropic',
-      frontend: 'claude-code',
-      interactionMode: 'interactive',
-      ioMode: 'pty',
-      cwd: '/tmp',
-      env: { CUSTOM_VAR: 'custom_value', CP_SESSION_ID: 'cp-123' },
-    })
-
-    expect(response.spec.env['CUSTOM_VAR']).toBe('custom_value')
-    expect(response.spec.env['CP_SESSION_ID']).toBe('cp-123')
-    // ASP_HOME should still be present
-    expect(response.spec.env['ASP_HOME']).toBe(aspHome)
-  })
-
   test('includes continuation ref when provided', async () => {
     const response = await client.buildProcessInvocationSpec({
-      cpSessionId: 'test-session',
+      hostSessionId: 'test-session',
       aspHome,
       spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
       provider: 'anthropic',
@@ -283,7 +276,7 @@ describe('buildProcessInvocationSpec', () => {
 
   test('omits continuation when not provided', async () => {
     const response = await client.buildProcessInvocationSpec({
-      cpSessionId: 'test-session',
+      hostSessionId: 'test-session',
       aspHome,
       spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
       provider: 'anthropic',
@@ -298,7 +291,7 @@ describe('buildProcessInvocationSpec', () => {
 
   test('uses specified model in argv', async () => {
     const response = await client.buildProcessInvocationSpec({
-      cpSessionId: 'test-session',
+      hostSessionId: 'test-session',
       aspHome,
       spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
       provider: 'anthropic',
@@ -318,7 +311,7 @@ describe('buildProcessInvocationSpec', () => {
 
   test('returns codex-cli invocation spec', async () => {
     const response = await client.buildProcessInvocationSpec({
-      cpSessionId: 'test-session',
+      hostSessionId: 'test-session',
       aspHome,
       spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
       provider: 'openai',
@@ -339,7 +332,7 @@ describe('buildProcessInvocationSpec', () => {
 
   test('displayCommand is a shell-safe string', async () => {
     const response = await client.buildProcessInvocationSpec({
-      cpSessionId: 'test-session',
+      hostSessionId: 'test-session',
       aspHome,
       spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
       provider: 'anthropic',

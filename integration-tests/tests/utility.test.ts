@@ -282,13 +282,28 @@ describe('asp explain', () => {
   })
 
   test('detects warnings (command collisions)', async () => {
+    // The collision lives in a dedicated pair rather than in frontend/backend, so
+    // this case builds its own project instead of using the shared `dev` above.
+    await cleanupTempProject(projectDir)
+    projectDir = await createTempProject({
+      dev: {
+        compose: ['space:cmd-collision-a@stable', 'space:cmd-collision-b@stable'],
+      },
+    })
+
+    await install({
+      projectPath: projectDir,
+      registryPath: SAMPLE_REGISTRY_DIR,
+      aspHome,
+    })
+
     const result = await explain({
       projectPath: projectDir,
       registryPath: SAMPLE_REGISTRY_DIR,
       aspHome,
     })
 
-    // Both frontend and backend have 'build' command
+    // cmd-collision-a and cmd-collision-b both ship a 'build' command
     const hasCollisionWarning = result.targets.dev.warnings.some(
       (w) => w.code === 'W201' && w.message.includes('build')
     )

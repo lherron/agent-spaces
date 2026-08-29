@@ -50,5 +50,13 @@
   "mcp-collision-b": {
     "stable": "v1.0.0",
     "latest": "v1.0.0"
+  },
+  "cmd-collision-a": {
+    "stable": "v1.0.0",
+    "latest": "v1.0.0"
+  },
+  "cmd-collision-b": {
+    "stable": "v1.0.0",
+    "latest": "v1.0.0"
   }
 }

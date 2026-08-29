@@ -36,9 +36,14 @@ describe('asp lint integration', () => {
 
   beforeEach(async () => {
     aspHome = await createTempAspHome()
+    // The colliding pair is dedicated fixture content. frontend/backend used to
+    // carry the duplicate /build themselves, which made them un-materializable
+    // together on the `spaces:` path (detectCommandConflicts throws there, unlike
+    // lint, which only warns). Only the two W201 cases below use this project;
+    // every other test in this file builds its own.
     projectDir = await createTempProject({
       dev: {
-        compose: ['space:frontend@stable', 'space:backend@stable'],
+        compose: ['space:cmd-collision-a@stable', 'space:cmd-collision-b@stable'],
       },
     })
     outputDir = await fs.mkdtemp('/tmp/asp-lint-output-')
@@ -57,7 +62,7 @@ describe('asp lint integration', () => {
   })
 
   test('detects command collisions (W201)', async () => {
-    // Frontend and backend both have /build command
+    // cmd-collision-a and cmd-collision-b both ship /build
     const result = await build('dev', {
       projectPath: projectDir,
       registryPath: SAMPLE_REGISTRY_DIR,
@@ -105,7 +110,7 @@ describe('asp lint integration', () => {
   })
 
   test('includes all spaces in collision warning details', async () => {
-    // Frontend and backend both have /build command
+    // cmd-collision-a and cmd-collision-b both ship /build
     const result = await build('dev', {
       projectPath: projectDir,
       registryPath: SAMPLE_REGISTRY_DIR,

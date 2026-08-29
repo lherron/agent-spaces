@@ -1,11 +1,11 @@
-# /build
+# /compile
 
-Build the backend application.
+Compile the backend application.
 
 ## Usage
 
 ```
-/build [--production]
+/compile [--production]
 ```
 
 Compiles the backend code and prepares for deployment.

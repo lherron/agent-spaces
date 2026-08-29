@@ -144,7 +144,21 @@ describe('asp build', () => {
   })
 
   test('returns warnings for command collisions', async () => {
-    // Frontend and backend both have /build command
+    // The collision lives in a dedicated pair rather than in frontend/backend, so
+    // this case builds its own project instead of using the shared `dev` above.
+    await cleanupTempProject(projectDir)
+    projectDir = await createTempProject({
+      dev: {
+        compose: ['space:cmd-collision-a@stable', 'space:cmd-collision-b@stable'],
+      },
+    })
+
+    await install({
+      projectPath: projectDir,
+      registryPath: SAMPLE_REGISTRY_DIR,
+      aspHome,
+    })
+
     const result = await build('dev', {
       projectPath: projectDir,
       registryPath: SAMPLE_REGISTRY_DIR,

@@ -89,7 +89,9 @@ export function createAgentSpacesClient(
       return withAspHome(req.aspHome, async () => {
         try {
           const spec = validateSpec(req.spec)
-          await resolveSpecToLock(spec, req.aspHome)
+          await resolveSpecToLock(spec, req.aspHome, {
+            registryPathOverride: clientRegistryPath,
+          })
           return { ok: true }
         } catch (error) {
           return {
@@ -111,14 +113,14 @@ export function createAgentSpacesClient(
           ? resolveFrontend(req.frontend)
           : resolveFrontend(AGENT_SDK_FRONTEND)
         const materialized = await materializeSpec(spec, req.aspHome, frontendDef.internalId, {
-          registryPathOverride: req.registryPath,
+          registryPathOverride: req.registryPath ?? clientRegistryPath,
           runtime: requireAgentSpacesRuntime(clientRuntime),
         })
         const hooks = await collectHooks(materialized.materialization.pluginDirs)
         const tools = await collectTools(materialized.materialization.mcpConfigPath)
         const lintWarnings =
           req.runLint === true
-            ? await collectLintWarnings(spec, req.aspHome, req.registryPath)
+            ? await collectLintWarnings(spec, req.aspHome, req.registryPath ?? clientRegistryPath)
             : undefined
         const response: DescribeResponse = {
           hooks,
@@ -210,6 +212,7 @@ export function createAgentSpacesClient(
 
         const runtime = requireAgentSpacesRuntime(clientRuntime)
         const materialized = await materializeSpec(spec, req.aspHome, frontendDef.internalId, {
+          registryPathOverride: clientRegistryPath,
           runtime,
         })
         const adapter = runtime.getHarnessAdapter(frontendDef.internalId)
