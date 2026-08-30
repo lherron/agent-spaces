@@ -158,6 +158,13 @@ architecture-records *args:
 # fails typecheck where a warm host tree passes — room-readiness gate (T-06887).
 verify: build architecture-records check lint typecheck test
 
+# Bump the pinned pi agent SDK (@earendil-works/pi-coding-agent) across every
+# manifest that declares it, then install and read the version back off disk.
+# No argument targets the registry's `latest`; pass a version to pin a specific
+# release. `--check` reports drift without writing; `--no-install` skips install.
+update-pi *args:
+    bun scripts/update-pi.ts {{args}}
+
 # Prune stale nested node_modules copies that shadow the root pinned resolution.
 # `bun install` never removes a copy an earlier floating specifier materialised, and
 # TypeScript resolves from the nearest node_modules — so a corrected manifest plus a
