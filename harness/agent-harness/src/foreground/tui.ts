@@ -39,6 +39,7 @@ import {
 } from 'spaces-harness-broker-protocol'
 
 import { resolveForegroundAuthStorePath } from './auth-store.js'
+import { createAgentScopeStatusExtension } from './scope-status.js'
 
 /**
  * Driver kind stamped on every event this TUI emits. Must match the broker-side
@@ -85,6 +86,7 @@ export async function runAgentHarnessTui(
     agent,
     authStorePath: resolveForegroundAuthStorePath(agent.environment),
     ...(options.resume !== undefined ? { continuationKey: options.resume } : {}),
+    extensionFactories: [createAgentScopeStatusExtension(agent)],
   })
   try {
     await dependencies.runInteractiveMode(runtime, options.prompt)
@@ -175,6 +177,7 @@ async function runBrokerAgentHarnessTui(
         ? { continuationKey: config.continuation.key }
         : {}),
       extensionFactories: [
+        createAgentScopeStatusExtension(agent),
         (pi) => {
           pi.on('tool_call', (event) => permissionBridge.handle(event))
           // The ONLY reliable `/quit` signal. Pi's InteractiveMode ends the
@@ -255,7 +258,10 @@ function createOperatorTurnObserver(
   let counter = 0
   /** The turn this observer minted, while it is the mapper's active turn. */
   let tuiTurnId: TurnId | undefined
-  const driver = { kind: AGENT_HARNESS_DRIVER_KIND, rawType: 'tui.operator_prompt' }
+  const driver = {
+    kind: AGENT_HARNESS_DRIVER_KIND,
+    rawType: 'tui.operator_prompt',
+  }
 
   const ensureTurn = (): void => {
     if (mapper.activeTurnId !== undefined) return
@@ -408,7 +414,9 @@ class BrokerControlConnection {
     for (const result of this.#decoder.push(chunk)) {
       if (!result.ok) {
         this.#fail(
-          new Error('Broker control socket sent an invalid frame', { cause: result.error })
+          new Error('Broker control socket sent an invalid frame', {
+            cause: result.error,
+          })
         )
         return
       }
