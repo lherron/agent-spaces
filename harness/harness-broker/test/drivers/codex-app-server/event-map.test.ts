@@ -764,8 +764,215 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
       'hook/started',
       'hook/completed',
       'thread/started',
+      // T-07726 — observed live in provider transcripts before the sweep.
+      'skills/changed',
+      'thread/goal/cleared',
+      // T-07726 — representative members of each newly-dispositioned group.
+      'thread/archived',
+      'thread/compacted',
+      'account/updated',
+      'model/verification',
+      'item/autoApprovalReview/started',
+      'item/plan/delta',
+      'command/exec/outputDelta',
+      'rawResponse/completed',
+      'thread/realtime/outputAudio/delta',
+      'fuzzyFileSearch/sessionCompleted',
     ])('intentionally-suppressed method %s is dropped (no event, no diagnostic)', (method) => {
       expect(mapCodexNotification(note(method, { foo: 1 }))).toEqual([])
+    })
+  })
+
+  describe('warning channels (T-07726)', () => {
+    test.each(['warning', 'guardianWarning'])(
+      '%s becomes an operator-visible driver.notice, not a folded-out debug diagnostic',
+      (method) => {
+        const events = mapCodexNotification(
+          note(method, { threadId: 'thread_1', message: 'Sandbox escape attempt blocked.' })
+        )
+        expect(events).toEqual([
+          {
+            type: 'driver.notice',
+            payload: { message: 'Sandbox escape attempt blocked.', code: method },
+            extra: { driver: { kind: CODEX_DRIVER_KIND, rawType: method } },
+          },
+        ])
+      }
+    )
+
+    test('a warning with no message is dropped rather than emitting an empty notice', () => {
+      expect(mapCodexNotification(note('warning', { threadId: 'thread_1' }))).toEqual([])
+      expect(mapCodexNotification(note('guardianWarning', { message: '' }))).toEqual([])
+    })
+  })
+
+  describe('model/rerouted (T-07726)', () => {
+    test('a model swap under the operator is a notice carrying both models and the reason', () => {
+      const events = mapCodexNotification(
+        note('model/rerouted', {
+          threadId: 'thread_1',
+          turnId: 'turn_1',
+          fromModel: 'gpt-5-codex',
+          toModel: 'gpt-5-codex-safe',
+          reason: 'highRiskCyberActivity',
+        })
+      )
+      expect(events).toEqual([
+        {
+          type: 'driver.notice',
+          payload: {
+            message:
+              'Codex rerouted the model gpt-5-codex → gpt-5-codex-safe (highRiskCyberActivity)',
+            code: 'model/rerouted',
+            data: {
+              fromModel: 'gpt-5-codex',
+              toModel: 'gpt-5-codex-safe',
+              reason: 'highRiskCyberActivity',
+            },
+          },
+          extra: { driver: { kind: CODEX_DRIVER_KIND, rawType: 'model/rerouted' } },
+        },
+      ])
+    })
+
+    test('a reroute missing either model side is dropped rather than half-reported', () => {
+      expect(mapCodexNotification(note('model/rerouted', { fromModel: 'gpt-5-codex' }))).toEqual([])
+    })
+  })
+
+  describe('contextCompaction item (T-07726)', () => {
+    test('a completed compaction surfaces the transcript discontinuity as an info diagnostic', () => {
+      const events = mapCodexNotification(
+        note('item/completed', {
+          turnId: 'turn_1',
+          item: { type: 'contextCompaction', id: 'compact_1' },
+        })
+      )
+      expect(events).toEqual([
+        {
+          type: 'diagnostic',
+          payload: {
+            level: 'info',
+            source: 'driver',
+            kind: 'compaction',
+            message: 'Codex compacted the thread context',
+          },
+          extra: {
+            turnId: 'turn_1',
+            itemId: 'compact_1',
+            driver: { kind: CODEX_DRIVER_KIND, rawType: 'item/completed' },
+          },
+        },
+      ])
+    })
+
+    test('the started half stays silent so one compaction is one event', () => {
+      expect(
+        mapCodexNotification(
+          note('item/started', {
+            turnId: 'turn_1',
+            item: { type: 'contextCompaction', id: 'compact_1' },
+          })
+        )
+      ).toEqual([])
+    })
+  })
+
+  describe('imageGeneration item (T-07726)', () => {
+    test('a started generation is a tool call, no longer dropped', () => {
+      const events = mapCodexNotification(
+        note('item/started', {
+          turnId: 'turn_1',
+          item: { type: 'imageGeneration', id: 'img_1', status: 'in_progress', result: '' },
+        })
+      )
+      expect(events).toEqual([
+        {
+          type: 'tool.call.started',
+          payload: { toolCallId: 'img_1', name: 'image_generation' },
+          extra: {
+            turnId: 'turn_1',
+            itemId: 'img_1',
+            driver: { kind: CODEX_DRIVER_KIND, rawType: 'item/started' },
+          },
+        },
+      ])
+    })
+
+    test('the base64 image NEVER reaches the event; only the artifact path and its size do', () => {
+      const base64 = 'iVBORw0KGgo'.repeat(50_000)
+      const events = mapCodexNotification(
+        note('item/completed', {
+          turnId: 'turn_1',
+          item: {
+            type: 'imageGeneration',
+            id: 'img_1',
+            status: 'completed',
+            revisedPrompt: 'A wide engineering timeline chart.',
+            result: base64,
+            savedPath: '/tmp/codex/img_1.png',
+          },
+        })
+      )
+      expect(events).toHaveLength(1)
+      expect(events[0]).toEqual({
+        type: 'tool.call.completed',
+        payload: {
+          toolCallId: 'img_1',
+          name: 'image_generation',
+          result: {
+            savedPath: '/tmp/codex/img_1.png',
+            prompt: 'A wide engineering timeline chart.',
+            encodedBytes: base64.length,
+          },
+          isError: false,
+        },
+        extra: {
+          turnId: 'turn_1',
+          itemId: 'img_1',
+          driver: { kind: CODEX_DRIVER_KIND, rawType: 'item/completed' },
+        },
+      })
+      expect(JSON.stringify(events[0])).not.toContain('iVBORw0KGgo')
+    })
+
+    test('an oversized revised prompt is clipped, not carried whole', () => {
+      const events = mapCodexNotification(
+        note('item/completed', {
+          turnId: 'turn_1',
+          item: {
+            type: 'imageGeneration',
+            id: 'img_1',
+            status: 'completed',
+            revisedPrompt: 'p'.repeat(2_000),
+            result: 'abc',
+          },
+        })
+      )
+      const prompt = (events[0]?.payload as { result: { prompt: string } }).result.prompt
+      expect(prompt).toHaveLength(501)
+      expect(prompt.endsWith('…')).toBe(true)
+    })
+
+    test('a generation that terminated without a result is a tool.call.failed', () => {
+      const events = mapCodexNotification(
+        note('item/completed', {
+          turnId: 'turn_1',
+          item: {
+            type: 'imageGeneration',
+            id: 'img_1',
+            status: 'failed',
+            result: '',
+            failure: { reason: 'moderation_blocked' },
+          },
+        })
+      )
+      expect(events[0]?.type).toBe('tool.call.failed')
+      expect(events[0]?.payload).toMatchObject({
+        toolCallId: 'img_1',
+        name: 'image_generation',
+        code: 'codex_failed',
+      })
     })
   })
 

@@ -38,6 +38,7 @@ const TOOL_NAMES: Record<string, string> = {
   mcpToolCall: 'mcp_tool',
   webSearch: 'web_search',
   imageView: 'image_view',
+  imageGeneration: 'image_generation',
 }
 
 const TOOL_TYPES = new Set(Object.keys(TOOL_NAMES))
@@ -60,6 +61,95 @@ const SUPPRESSED_METHODS = new Set<string>([
   'hook/started', // T-06195 — provider-internal hook progress, no broker consumer
   'hook/completed', // T-06196 — hook lifecycle edge, NOT a broker turn terminal
   'thread/started', // T-06197 — optional metadata; start-response thread id stays authoritative
+
+  // T-07726 — remainder of the declared `server_notification_definitions!` set
+  // (codex app-server-protocol). Every method the provider can emit is
+  // dispositioned here or above so the unknown-method diagnostic below fires
+  // only for a method the PROVIDER added after this sweep. Grouped by why.
+
+  // Thread lifecycle / metadata churn. The broker's thread identity comes from
+  // the start response and `continuation.updated`; none of these change it.
+  'thread/archived',
+  'thread/unarchived',
+  'thread/deleted',
+  'thread/closed',
+  'thread/reverted',
+  'thread/name/updated',
+  'thread/goal/updated',
+  'thread/goal/cleared',
+  'thread/settings/updated',
+  'thread/queue/changed',
+  'thread/project/updated',
+  'thread/environment/connected',
+  'thread/environment/disconnected',
+  'project/changed',
+  // Deprecated by the provider in favour of the `contextCompaction` ITEM, which
+  // this mapper surfaces at `item/completed`. Never observed live.
+  'thread/compacted',
+
+  // Provider plugin/skill catalogue churn. `SkillsChangedNotification` is an
+  // EMPTY struct — the signal carries no payload a consumer could act on.
+  'skills/changed',
+
+  // Account / app / capability telemetry with no broker consumer.
+  'account/updated',
+  'account/login/completed',
+  'app/list/updated',
+  'mcpServer/oauthLogin/completed',
+  'mcpServer/event/stream/notification',
+  'externalAgentConfig/import/progress',
+  'externalAgentConfig/import/completed',
+  'fs/changed',
+  'windowsSandbox/setupCompleted',
+
+  // Model-side telemetry. `model/rerouted` is the one operator-relevant member
+  // of this family and gets a first-class notice instead (see mapCodexNotice).
+  'model/verification',
+  'model/safetyBuffering/updated',
+  'modelProvider/authRecoveryStarted',
+  'modelProvider/authRecoveryCompleted',
+  'turn/moderationMetadata',
+
+  // Auto-approval review lifecycle. The broker owns approvals through its own
+  // permission request path (permissions.ts), not through these observations.
+  'item/autoApprovalReview/started',
+  'item/autoApprovalReview/completed',
+  'autoApprovalReview/strictReviewRequired',
+
+  // Streaming deltas already aggregated into an authoritative completed item,
+  // exactly like the reasoning deltas handled in the switch below.
+  'item/plan/delta',
+  'item/fileChange/patchUpdated',
+
+  // Client-driven session streams. The broker never issues `command/exec` or
+  // `process/spawn`, so these can only describe some other client's session.
+  'command/exec/outputDelta',
+  'process/outputDelta',
+  'process/exited',
+  'serverRequest/resolved',
+
+  // Declared internal-only by the provider (used by Codex Cloud). Carrying the
+  // full upstream response would duplicate the whole transcript into the ledger.
+  'rawResponseItem/completed',
+  'rawResponse/completed',
+
+  // Realtime audio/voice session surface. No broker consumer; the audio deltas
+  // in particular are high-volume binary payloads.
+  'thread/realtime/started',
+  'thread/realtime/itemAdded',
+  'thread/realtime/item/started',
+  'thread/realtime/item/completed',
+  'thread/realtime/item/transcript/delta',
+  'thread/realtime/transcript/delta',
+  'thread/realtime/transcript/done',
+  'thread/realtime/outputAudio/delta',
+  'thread/realtime/sdp',
+  'thread/realtime/error',
+  'thread/realtime/closed',
+
+  // Client-issued fuzzy file search sessions; the broker issues none.
+  'fuzzyFileSearch/sessionUpdated',
+  'fuzzyFileSearch/sessionCompleted',
 ])
 
 export interface DiffFileStat {
@@ -464,6 +554,25 @@ function mapCodexNotificationInner(
         ]
       }
 
+      // T-07726 — the provider compacted the thread's context mid-invocation.
+      // Previously dropped with every other unmodelled item type, which hid a
+      // real transcript discontinuity from the operator. The item carries only
+      // its id, so the event is the fact itself.
+      if (itemType === 'contextCompaction') {
+        return [
+          {
+            type: 'diagnostic',
+            payload: {
+              level: 'info',
+              source: 'driver',
+              kind: 'compaction',
+              message: 'Codex compacted the thread context',
+            },
+            extra: { turnId: asTurnId(turnId), itemId },
+          },
+        ]
+      }
+
       if (TOOL_TYPES.has(itemType)) {
         return [
           ...flushHeldAssistantCompletion(heldAssistantCompletions, turnId, false),
@@ -571,6 +680,35 @@ function mapCodexNotice(
             message: summary,
             code: method,
             ...(details !== undefined ? { data: { details } } : {}),
+          },
+        },
+      ]
+    }
+    // T-07726 — the provider's two generic user-facing warning channels. Same
+    // treatment as the deprecation/config notices above: an operator-visible
+    // `driver.notice`, never a debug diagnostic folded out of the pane.
+    case 'warning':
+    case 'guardianWarning': {
+      const message = stringValue(params['message'])
+      if (message === undefined || message.length === 0) return []
+      return [{ type: 'driver.notice', payload: { message, code: method } }]
+    }
+    // T-07726 — the model actually serving the turn changed underneath the
+    // operator. That is a decision-changing fact, not telemetry.
+    case 'model/rerouted': {
+      const fromModel = stringValue(params['fromModel'])
+      const toModel = stringValue(params['toModel'])
+      if (fromModel === undefined || toModel === undefined) return []
+      const reason = stringValue(params['reason'])
+      return [
+        {
+          type: 'driver.notice',
+          payload: {
+            message: `Codex rerouted the model ${fromModel} → ${toModel}${
+              reason !== undefined ? ` (${reason})` : ''
+            }`,
+            code: method,
+            data: { fromModel, toModel, ...(reason !== undefined ? { reason } : {}) },
           },
         },
       ]
@@ -745,6 +883,13 @@ function normalizeToolInput(itemType: string, item: Record<string, unknown>): un
       return objectWithDefined({ query: stringValue(item['query']) }) ?? explicitInput
     case 'imageView':
       return objectWithDefined({ path: stringValue(item['path']) }) ?? explicitInput
+    case 'imageGeneration':
+      // `revisedPrompt` is null until the item completes; a started image
+      // generation legitimately has no input to report.
+      return (
+        objectWithDefined({ prompt: clipImagePrompt(stringValue(item['revisedPrompt'])) }) ??
+        explicitInput
+      )
     default:
       return undefined
   }
@@ -779,6 +924,19 @@ function normalizeToolResult(itemType: string, item: Record<string, unknown>): u
       const query = stringValue(item['query'])
       return query !== undefined ? { query } : explicitResult
     }
+    case 'imageGeneration': {
+      // `result` is the RAW BASE64 IMAGE (~1.4MB observed). It must never reach
+      // the durable event stream or the pane, so this case NEVER falls back to
+      // `explicitResult`: report the on-disk artifact and the encoded size only.
+      const encoded = stringValue(item['result'])
+      const failure = item['failure']
+      return objectWithDefined({
+        savedPath: stringValue(item['savedPath']),
+        prompt: clipImagePrompt(stringValue(item['revisedPrompt'])),
+        encodedBytes: encoded !== undefined && encoded.length > 0 ? encoded.length : undefined,
+        ...(failure !== undefined && failure !== null ? { failure } : {}),
+      })
+    }
     case 'imageView': {
       const path = stringValue(item['path'])
       return path !== undefined ? { path } : explicitResult
@@ -786,6 +944,16 @@ function normalizeToolResult(itemType: string, item: Record<string, unknown>): u
     default:
       return undefined
   }
+}
+
+/** Bound the provider's revised image prompt; observed values run to ~2KB. */
+const MAX_IMAGE_PROMPT_CHARS = 500
+
+function clipImagePrompt(prompt: string | undefined): string | undefined {
+  if (prompt === undefined || prompt.length === 0) return undefined
+  return prompt.length > MAX_IMAGE_PROMPT_CHARS
+    ? `${prompt.slice(0, MAX_IMAGE_PROMPT_CHARS)}…`
+    : prompt
 }
 
 /**
