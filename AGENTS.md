@@ -16,6 +16,12 @@ package set to the producer's loopback Verdaccio; and synchronizes the one
 consumer that follows `latest` — **hrc-runtime** — unless `no-sync=1` is passed.
 All packages in a published ASP set must share the same version.
 
+That sync runs `just pull-deps` in hrc-runtime, so expect it to advance and
+**commit `bun.lock` in that repo** — an install here leaves a commit to push
+there. It fails loudly if that lock is already dirty. Do not weaken it back to a
+bare `bun run sync:asp`: without `--pull` that only reports staleness and exits
+0, which silently published hrc-runtime against a stale ASP lock (T-07727).
+
 **ACP is not a sync target.** agent-control-plane pins ASP and HRC as
 operator-managed *producer tuples* and advances them only through its own
 governed `just advance-producers` inside a coordinated deployment window. Its own
