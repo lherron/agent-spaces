@@ -250,8 +250,17 @@ install no-sync="" force-sync="" force-link="":
       # status under `set -e`, so a missing agent-control-plane used to kill the
       # hrc-runtime sync before it ran. In an `if` condition, `set -e` is suppressed
       # for the substitution, so a missing repo takes the else branch cleanly.
+      #
+      # `just pull-deps`, NOT `bun run sync:asp` (T-07727). Without `--pull` the
+      # sync CLI only REPORTS freshness and exits 0 — it even swallows a registry
+      # error into a warning — so the `&&` chain proceeded and hrc-runtime built
+      # and published against the OLD lock. A successful install therefore left
+      # the running daemon on the previous ASP set, silently, with nothing in the
+      # output saying so. `pull-deps` is the command that stale message itself
+      # names; it advances the lock, checks coherence, and COMMITS bun.lock in the
+      # consumer repo, so `publish-dev` downstream of it sees a clean tree.
       if hrc_runtime="$(resolve_consumer hrc-runtime 2>/dev/null)"; then
-        ( cd "$hrc_runtime" && bun run sync:asp && bun run build && just publish-dev ) 2>&1 | sed 's/^/[hrc-sync] /'
+        ( cd "$hrc_runtime" && just pull-deps && bun run build && just publish-dev ) 2>&1 | sed 's/^/[hrc-sync] /'
       else
         echo "[install] downstream consumer hrc-runtime not present on this node; skipping hrc sync" >&2
       fi
@@ -293,8 +302,12 @@ sync-downstream:
     # Resolve + sync each consumer INDEPENDENTLY (T-06819): a repo absent on this
     # node degrades to a warning instead of aborting the other consumer's sync
     # (an unguarded assignment from a failing substitution trips `set -e`).
+    #
+    # `just pull-deps` is what actually advances the consumer's lock; a bare
+    # `bun run sync:asp` only reports and exits 0 (T-07727). See the same note in
+    # the `install` recipe.
     if hrc_runtime="$(resolve_consumer hrc-runtime 2>/dev/null)"; then
-      ( cd "$hrc_runtime" && bun run sync:asp && bun run build && just publish-dev ) 2>&1 | sed 's/^/[hrc-sync] /'
+      ( cd "$hrc_runtime" && just pull-deps && bun run build && just publish-dev ) 2>&1 | sed 's/^/[hrc-sync] /'
     else
       echo "[sync-downstream] hrc-runtime not present on this node; skipping hrc sync" >&2
     fi
