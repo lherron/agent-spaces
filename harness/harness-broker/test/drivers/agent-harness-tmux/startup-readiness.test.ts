@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type {
   AgentHarnessControlAck,
   AgentHarnessControlFrame,
@@ -10,7 +13,10 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../../../src/broker'
-import type { AgentHarnessControlListenerContext } from '../../../src/drivers/agent-harness-tmux/control-listener'
+import {
+  type AgentHarnessControlListenerContext,
+  listenForAgentHarnessControl,
+} from '../../../src/drivers/agent-harness-tmux/control-listener'
 import { createAgentHarnessTmuxDriver } from '../../../src/drivers/agent-harness-tmux/driver'
 
 type TmuxExecCall = { argv: string[]; loadedText?: string | undefined }
@@ -18,6 +24,11 @@ type TmuxExecCall = { argv: string[]; loadedText?: string | undefined }
 const invocationId = 'inv_agent_harness_startup_ready'
 const controlSocket = '/tmp/harness-broker/agent-harness-control.startup-ready.sock'
 const now = () => new Date('2026-08-31T15:30:00.000Z')
+const repoRoot = new URL('../../../../../', import.meta.url).pathname
+const delayedChildFixture = new URL(
+  '../../fixtures/agent-harness-delayed-control-child.ts',
+  import.meta.url
+).pathname
 
 const paneLease = () => ({
   kind: 'tmux-pane' as const,
@@ -159,6 +170,71 @@ function createSubject(startupTimeoutMs = 1_000) {
 }
 
 describe('agent-harness-tmux startup readiness', () => {
+  test('holds initialInput across a real socket until a delayed child process is ready', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'agent-harness-startup-ready-'))
+    const socketPath = join(tempDir, 'control.sock')
+    const events: InvocationEventEnvelope[] = []
+    let pendingLine = ''
+    let child: ReturnType<typeof Bun.spawn> | undefined
+    const driver = createAgentHarnessTmuxDriver({
+      tmux: {
+        tmuxBin: '/opt/bin/tmux',
+        exec: async (argv) => {
+          if (argv.includes('display-message')) return { stdout: '$21\t@22\t%23\n', stderr: '' }
+          if (argv.includes('load-buffer')) {
+            pendingLine = readFileSync(argv.at(-1) ?? '', 'utf8')
+            return { stdout: '', stderr: '' }
+          }
+          if (argv.includes('send-keys') && argv.includes('Enter')) {
+            if (child === undefined && pendingLine.includes('tmux-launch-runner')) {
+              child = Bun.spawn({
+                cmd: [process.execPath, delayedChildFixture, socketPath, '75'],
+                cwd: repoRoot,
+                stdin: 'ignore',
+                stdout: 'ignore',
+                stderr: 'pipe',
+              })
+            }
+            pendingLine = ''
+            return { stdout: '', stderr: '' }
+          }
+          if (argv.includes('capture-pane')) return { stdout: pendingLine, stderr: '' }
+          return { stdout: '', stderr: '' }
+        },
+      },
+      control: {
+        listen: (handler, context) =>
+          listenForAgentHarnessControl(socketPath, handler, context.onDisconnect),
+      },
+      now,
+    })
+    const broker = createBroker({
+      drivers: [driver],
+      onEvent: (event: InvocationEventEnvelope) => events.push(event),
+      now,
+    })
+    const startedAt = performance.now()
+
+    try {
+      await broker.start({ spec: spec(2_000), initialInput }, {}, { terminalSurface: paneLease() })
+
+      expect(performance.now() - startedAt).toBeGreaterThanOrEqual(50)
+      expect(events.map((event) => event.type)).toContain('continuation.updated')
+      expect(events.map((event) => event.type)).toContain('input.accepted')
+      expect(events.map((event) => event.type)).toContain('turn.started')
+      expect(child).toBeDefined()
+    } finally {
+      await driver.dispose()
+      if (child !== undefined) {
+        const exitCode = await child.exited
+        const stderr = await new Response(child.stderr).text()
+        expect(exitCode).toBe(0)
+        expect(stderr).toBe('')
+      }
+      await rm(tempDir, { recursive: true, force: true })
+    }
+  })
+
   test('keeps start and initialInput pending until hello -> session.config -> ready', async () => {
     const { broker, control, events, invocationSpec } = createSubject()
     const starting = broker.start(
