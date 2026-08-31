@@ -129,7 +129,8 @@ function createChildControl() {
         },
       }
     },
-    async ready(sessionFile: string): Promise<void> {
+    async start(sessionFile: string): Promise<void> {
+      await send({ verb: 'hello', payload: { protocolVersion: 'agent-harness-control/v1' } })
       await send({ verb: 'ready', payload: { sessionFile } })
     },
     /** The `/quit` goodbye, then the hang-up — in the order the child sends them. */
@@ -167,7 +168,10 @@ async function startBroker(control: ReturnType<typeof createChildControl>) {
     onEvent: (event: InvocationEventEnvelope) => events.push(event),
     now,
   })
-  await broker.start({ spec: spec() }, {}, { terminalSurface: paneLease() })
+  const starting = broker.start({ spec: spec() }, {}, { terminalSurface: paneLease() })
+  await Bun.sleep(0)
+  await control.start('/sessions/sparky-start.jsonl')
+  await starting
   return { broker, events }
 }
 
@@ -177,7 +181,6 @@ describe('agent-harness-tmux graceful exit', () => {
   test('/quit emits the user-exit clear, and the broker answers it with a summary', async () => {
     const control = createChildControl()
     const { events } = await startBroker(control)
-    await control.ready('/sessions/sparky-quit.jsonl')
 
     await control.quit()
 
@@ -195,7 +198,6 @@ describe('agent-harness-tmux graceful exit', () => {
   test('the teardown never overtakes the goodbye', async () => {
     const control = createChildControl()
     const { events } = await startBroker(control)
-    await control.ready('/sessions/sparky-quit.jsonl')
 
     await control.quit()
 
@@ -211,7 +213,6 @@ describe('agent-harness-tmux graceful exit', () => {
   test('a silent death is a crash: exited, with no user-exit clear', async () => {
     const control = createChildControl()
     const { events } = await startBroker(control)
-    await control.ready('/sessions/sparky-crash.jsonl')
 
     control.die()
 
@@ -230,7 +231,6 @@ describe('agent-harness-tmux graceful exit', () => {
   test('the invocation reaches a terminal state on /quit', async () => {
     const control = createChildControl()
     const { broker } = await startBroker(control)
-    await control.ready('/sessions/sparky-quit.jsonl')
 
     await control.quit()
 

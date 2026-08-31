@@ -122,6 +122,7 @@ function pastedText(calls: TmuxExecCall[], text: string): boolean {
  */
 function createRefusingControl(options: { immediate?: boolean } = {}) {
   const requests: AgentHarnessControlRequest[] = []
+  let handler: ((frame: AgentHarnessControlFrame) => Promise<void>) | undefined
   let closeCount = 0
   let refused = false
   return {
@@ -132,25 +133,35 @@ function createRefusingControl(options: { immediate?: boolean } = {}) {
     turnBeginCount(): number {
       return requests.filter((frame) => frame.verb === 'turn.begin').length
     },
-    listen: async (_handler: (frame: AgentHarnessControlFrame) => Promise<void>) => ({
-      socketPath: controlSocket,
-      request: async (frame: AgentHarnessControlRequest): Promise<AgentHarnessControlAck> => {
-        requests.push(frame)
-        if (frame.verb !== 'turn.begin' || refused) return { ack: true }
-        refused = true
-        const nack: AgentHarnessControlAck = {
-          ack: false,
-          code: 'turn_already_active',
-          message: `Cannot begin a pi SDK turn while turn ${frame.payload.turnId}-prev is active`,
-        }
-        if (options.immediate === true) return nack
-        await Promise.resolve()
-        return nack
-      },
-      close: async () => {
-        closeCount += 1
-      },
-    }),
+    listen: async (nextHandler: (frame: AgentHarnessControlFrame) => Promise<void>) => {
+      handler = nextHandler
+      return {
+        socketPath: controlSocket,
+        request: async (frame: AgentHarnessControlRequest): Promise<AgentHarnessControlAck> => {
+          requests.push(frame)
+          if (frame.verb !== 'turn.begin' || refused) return { ack: true }
+          refused = true
+          const nack: AgentHarnessControlAck = {
+            ack: false,
+            code: 'turn_already_active',
+            message: `Cannot begin a pi SDK turn while turn ${frame.payload.turnId}-prev is active`,
+          }
+          if (options.immediate === true) return nack
+          await Promise.resolve()
+          return nack
+        },
+        close: async () => {
+          closeCount += 1
+        },
+      }
+    },
+    async start(): Promise<void> {
+      await handler?.({ verb: 'hello', payload: { protocolVersion: 'agent-harness-control/v1' } })
+      await handler?.({
+        verb: 'ready',
+        payload: { sessionFile: '/sessions/agent-harness-nack.jsonl' },
+      })
+    },
   }
 }
 
@@ -167,7 +178,10 @@ async function startBroker(control: ReturnType<typeof createRefusingControl>) {
     onEvent: (event: InvocationEventEnvelope) => events.push(event),
     now,
   })
-  await broker.start({ spec: spec() }, {}, { terminalSurface: paneLease() })
+  const starting = broker.start({ spec: spec() }, {}, { terminalSurface: paneLease() })
+  await Bun.sleep(0)
+  await control.start()
+  await starting
   calls.length = 0
   return { broker, calls, events }
 }
@@ -339,7 +353,7 @@ describe('agent-harness-tmux turn.begin negative acknowledgement', () => {
       events.push(envelope)
       return envelope
     }
-    await driver.start(spec(), {
+    const starting = driver.start(spec(), {
       invocationId,
       clientCapabilities: {},
       runtime: { terminalSurface: paneLease() },
@@ -347,9 +361,26 @@ describe('agent-harness-tmux turn.begin negative acknowledgement', () => {
         emitEvent({ type, payload } as InvocationEvent, extra) as never,
       emitEvent: (event, extra) => emitEvent(event, extra),
     } as never)
+    for (let attempt = 0; attempt < 100 && handler === undefined; attempt += 1) {
+      await Bun.sleep(1)
+    }
+    expect(handler).toBeDefined()
 
-    await expect(
-      handler?.({ verb: 'hello', payload: { protocolVersion: 'agent-harness-control/v1' } })
-    ).rejects.toThrow(/refused session.config/)
+    const startOutcome = starting.then(
+      () => undefined,
+      (error: unknown) => error
+    )
+    const helloOutcome = handler!({
+      verb: 'hello',
+      payload: { protocolVersion: 'agent-harness-control/v1' },
+    }).then(
+      () => undefined,
+      (error: unknown) => error
+    )
+    const [startError, helloError] = await Promise.all([startOutcome, helloOutcome])
+    expect(startError).toBeInstanceOf(Error)
+    expect((startError as Error).message).toMatch(/refused session.config/)
+    expect(helloError).toBeInstanceOf(Error)
+    expect((helloError as Error).message).toMatch(/refused session.config/)
   })
 })

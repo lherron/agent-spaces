@@ -294,7 +294,17 @@ async function startDriver(
     control: { listen: control.listen },
     now,
   })
-  await driver.start(agentHarnessTmuxSpec(), createCtx(events))
+  const starting = driver.start(agentHarnessTmuxSpec(), createCtx(events))
+  await flushMicrotasks()
+  await control.receive({
+    verb: 'hello',
+    payload: { protocolVersion: 'agent-harness-control/v1' },
+  })
+  await control.receive({
+    verb: 'ready',
+    payload: { sessionFile: '/sessions/agent-harness-red.jsonl' },
+  })
+  await starting
   return { driver, calls, control, events }
 }
 
@@ -390,11 +400,21 @@ describe('agent-harness-tmux driver D1/D2 acceptance reds', () => {
     })
     const events: InvocationEventEnvelope[] = []
     const broker = createBroker({ drivers: [driver], onEvent: (event) => events.push(event), now })
-    await broker.start(
+    const starting = broker.start(
       { spec: agentHarnessTmuxSpec() },
       { ASP_PROJECT: 'agent-spaces' },
       { terminalSurface: paneLease() }
     )
+    await flushMicrotasks()
+    await control.receive({
+      verb: 'hello',
+      payload: { protocolVersion: 'agent-harness-control/v1' },
+    })
+    await control.receive({
+      verb: 'ready',
+      payload: { sessionFile: '/sessions/agent-harness-red.jsonl' },
+    })
+    await starting
 
     await broker.input({ invocationId, input: userInput() })
     await flushMicrotasks()
@@ -407,10 +427,6 @@ describe('agent-harness-tmux driver D1/D2 acceptance reds', () => {
 
   test('projects session.config from the spec after hello without credential material', async () => {
     const { control } = await startDriver()
-    await control.receive({
-      verb: 'hello',
-      payload: { protocolVersion: 'agent-harness-control/v1' },
-    })
 
     const frame = control.requests.find((request) => request.verb === 'session.config')
     expect(frame).toMatchObject({

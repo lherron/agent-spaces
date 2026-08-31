@@ -52,6 +52,15 @@ export type {
 export const AGENT_HARNESS_TMUX_DRIVER_KIND = 'agent-harness-tmux'
 const AGENT_HARNESS_TMUX_DRIVER_VERSION = '0.1.0'
 const INPUT_SUBMIT_GAP_MS = 1_000
+const DEFAULT_STARTUP_READY_TIMEOUT_MS = 120_000
+
+interface StartupReadinessBarrier {
+  promise: Promise<void>
+  resolve: () => void
+  reject: (error: Error) => void
+  settled: boolean
+  timer?: ReturnType<typeof setTimeout> | undefined
+}
 
 /**
  * Capabilities are deliberately identical to `pi-tui-tmux`: the same pane-leased
@@ -136,6 +145,9 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
   let surface: PaneLeaseSurface | undefined
   let paneController: TmuxPaneController | undefined
   let channel: AgentHarnessControlListenerHandle | undefined
+  let startupReadiness: StartupReadinessBarrier | undefined
+  let starting = false
+  let sessionConfigured = false
   let turnCounter = 0
   let requestCounter = 0
 
@@ -202,6 +214,52 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
       if (gateDepth > 0) return
       for (const release of gated.splice(0)) release()
     }, 0)
+  }
+
+  function armStartupReadiness(timeoutMs: number): Promise<void> {
+    let resolvePromise: (() => void) | undefined
+    let rejectPromise: ((error: Error) => void) | undefined
+    const promise = new Promise<void>((resolve, reject) => {
+      resolvePromise = resolve
+      rejectPromise = reject
+    })
+    const barrier: StartupReadinessBarrier = {
+      promise,
+      resolve: () => resolvePromise?.(),
+      reject: (error: Error) => rejectPromise?.(error),
+      settled: false,
+    }
+    barrier.timer = setTimeout(() => {
+      if (barrier.settled) return
+      barrier.settled = true
+      barrier.reject(
+        new BrokerError(
+          BrokerErrorCode.Timeout,
+          `agent-harness TUI did not become ready within ${timeoutMs}ms`
+        )
+      )
+    }, timeoutMs)
+    startupReadiness = barrier
+    return promise
+  }
+
+  function resolveStartupReadiness(): void {
+    const barrier = startupReadiness
+    if (barrier === undefined || barrier.settled) return
+    barrier.settled = true
+    barrier.resolve()
+  }
+
+  function rejectStartupReadiness(error: Error): void {
+    const barrier = startupReadiness
+    if (barrier === undefined || barrier.settled) return
+    barrier.settled = true
+    barrier.reject(error)
+  }
+
+  function clearStartupReadiness(): void {
+    if (startupReadiness?.timer !== undefined) clearTimeout(startupReadiness.timer)
+    startupReadiness = undefined
   }
 
   /** Send an ack-bearing frame; the returned promise settles on the child's ack. */
@@ -304,6 +362,15 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
    * `continuation.cleared` event frame the listener sequences ahead of this.
    */
   function reportChildGone(): void {
+    if (starting) {
+      rejectStartupReadiness(
+        new BrokerError(
+          BrokerErrorCode.InvalidInvocationState,
+          'agent-harness control connection disconnected before ready'
+        )
+      )
+      return
+    }
     if (ctx === undefined) return
     emitGated(() => {
       ctx?.emit(
@@ -352,12 +419,22 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
     switch (frame.verb) {
       case 'hello':
         await sendSessionConfig()
+        sessionConfigured = true
         return
       case 'ready':
+        if (!sessionConfigured) {
+          const error = new BrokerError(
+            BrokerErrorCode.InvalidInvocationState,
+            'agent-harness TUI sent ready before session.config was acknowledged'
+          )
+          rejectStartupReadiness(error)
+          throw error
+        }
         // D8: the mapper reads `session.sessionFile` in-process, but the driver
         // still captures it here so a runtime that dies before its first turn
         // completes is still resumable.
         captureContinuation(frame.payload.sessionFile)
+        resolveStartupReadiness()
         return
       case 'event':
         ingestEvent(frame.payload)
@@ -367,6 +444,17 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
           BrokerErrorCode.InvalidInvocationState,
           `agent-harness control verb ${frame.verb} is driver-to-TUI only`
         )
+    }
+  }
+
+  async function handleControlFrameDuringStartup(frame: AgentHarnessControlFrame): Promise<void> {
+    try {
+      await handleControlFrame(frame)
+    } catch (error) {
+      if (starting) {
+        rejectStartupReadiness(error instanceof Error ? error : new Error(String(error)))
+      }
+      throw error
     }
   }
 
@@ -433,34 +521,53 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
       spec = nextSpec
       paneController = leased.controller
       surface = leased.surface
+      starting = true
+      sessionConfigured = false
+      const startupTimeoutMs =
+        nextSpec.process.limits?.startupTimeoutMs ?? DEFAULT_STARTUP_READY_TIMEOUT_MS
+      const ready = armStartupReadiness(startupTimeoutMs)
+      // A child can connect and fail session.config while the launch paste is
+      // still unwinding. Observe the rejection immediately; `await ready` below
+      // remains the authoritative propagation point once launch has completed.
+      void ready.catch(() => undefined)
 
-      const expectedRuntimeId = getInvocationRuntimeId(nextSpec)
-      // Bind the control socket BEFORE the launch command is pasted: the child
-      // connects and says `hello` as soon as it starts.
-      channel = await options.control.listen((frame) => handleControlFrame(frame), {
-        invocationId: driverCtx.invocationId,
-        ...(expectedRuntimeId !== undefined ? { runtimeId: expectedRuntimeId } : {}),
-        onDisconnect: () => reportChildGone(),
-      })
+      try {
+        const expectedRuntimeId = getInvocationRuntimeId(nextSpec)
+        // Bind the control socket BEFORE the launch command is pasted: the child
+        // connects and says `hello` as soon as it starts.
+        channel = await options.control.listen((frame) => handleControlFrameDuringStartup(frame), {
+          invocationId: driverCtx.invocationId,
+          ...(expectedRuntimeId !== undefined ? { runtimeId: expectedRuntimeId } : {}),
+          onDisconnect: () => reportChildGone(),
+        })
 
-      const lease = leased.surface
-      driverCtx.emit(
-        'terminal.surface.reported',
-        {
-          kind: 'tmux-pane' as const,
-          socketPath: lease.socketPath,
-          sessionId: lease.sessionId,
-          windowId: lease.windowId,
-          paneId: lease.paneId,
-          ...(lease.sessionName !== undefined ? { sessionName: lease.sessionName } : {}),
-          ...(lease.windowName !== undefined ? { windowName: lease.windowName } : {}),
-        },
-        { driver: { kind: AGENT_HARNESS_TMUX_DRIVER_KIND, rawType: 'tmux.surface' } }
-      )
+        const lease = leased.surface
+        driverCtx.emit(
+          'terminal.surface.reported',
+          {
+            kind: 'tmux-pane' as const,
+            socketPath: lease.socketPath,
+            sessionId: lease.sessionId,
+            windowId: lease.windowId,
+            paneId: lease.paneId,
+            ...(lease.sessionName !== undefined ? { sessionName: lease.sessionName } : {}),
+            ...(lease.windowName !== undefined ? { windowName: lease.windowName } : {}),
+          },
+          { driver: { kind: AGENT_HARNESS_TMUX_DRIVER_KIND, rawType: 'tmux.surface' } }
+        )
 
-      const launchCommand = await buildLaunchCommandLine(nextSpec, driverCtx, channel.socketPath)
-      await leased.controller.sendPastedLine(launchCommand)
-      return { ok: true }
+        const launchCommand = await buildLaunchCommandLine(nextSpec, driverCtx, channel.socketPath)
+        await leased.controller.sendPastedLine(launchCommand)
+        // This is the semantic startup boundary: the TUI has connected, accepted
+        // session.config, constructed its session, and announced `ready`.
+        await ready
+        starting = false
+        clearStartupReadiness()
+        return { ok: true }
+      } catch (error) {
+        await teardownFailedStart()
+        throw error
+      }
     },
 
     async applyInputNow(input: InvocationInput): Promise<ApplyInputResult> {
@@ -516,6 +623,9 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
 
     async dispose(): Promise<void> {
       await closeChannel()
+      clearStartupReadiness()
+      starting = false
+      sessionConfigured = false
       ctx = undefined
       spec = undefined
       surface = undefined
@@ -530,6 +640,19 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
     const handle = channel
     channel = undefined
     await handle.close()
+  }
+
+  async function teardownFailedStart(): Promise<void> {
+    // The pane lease is HRC-owned, so the driver cannot destroy its tmux server.
+    // Abort the launched foreground child, close the listener, and clear every
+    // local lease reference; the broker-start failure then lets HRC reap its pane.
+    const controller = paneController
+    await Promise.allSettled([controller?.sendNamedKey('C-c') ?? Promise.resolve(), closeChannel()])
+    clearStartupReadiness()
+    starting = false
+    sessionConfigured = false
+    surface = undefined
+    paneController = undefined
   }
 }
 

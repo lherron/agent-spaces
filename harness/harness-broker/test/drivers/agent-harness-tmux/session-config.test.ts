@@ -124,8 +124,14 @@ async function projectSessionConfig(
     },
     now: () => new Date('2026-08-25T21:00:00.000Z'),
   })
-  await driver.start(specWith(continuation), createCtx())
+  const starting = driver.start(specWith(continuation), createCtx())
+  await Bun.sleep(0)
   await handler?.({ verb: 'hello', payload: { protocolVersion: 'agent-harness-control/v1' } })
+  await handler?.({
+    verb: 'ready',
+    payload: { sessionFile: '/sessions/agent-harness-config.jsonl' },
+  })
+  await starting
   return requests.find((frame) => frame.verb === 'session.config')
 }
 
