@@ -53,10 +53,16 @@ export interface ForegroundTuiDependencies {
   runInteractiveMode: (runtime: AgentSessionRuntime, initialMessage?: string) => Promise<void>
 }
 
+/** Keep Pi's regular-mode footer anchored after transient status rows disappear. */
+export function applyAgentHarnessTuiEnvironment(environment: NodeJS.ProcessEnv): void {
+  environment['PI_CLEAR_ON_SHRINK'] ??= '1'
+}
+
 const productionDependencies: ForegroundTuiDependencies = {
   loadAgent,
   createRuntime: createAgentHarnessRuntime,
   async runInteractiveMode(runtime, initialMessage) {
+    applyAgentHarnessTuiEnvironment(process.env)
     await new InteractiveMode(runtime, {
       ...(initialMessage !== undefined ? { initialMessage } : {}),
       initialThemeSetting: RESOURCE_LOADER_THEME_NAME,
