@@ -216,6 +216,25 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
    * emit seam rather than at each of the ~20 call sites.
    */
   let mintedForRecord = 0
+
+  /**
+   * Run `body` with `provenance` active on {@link emitCaptured}, restoring the
+   * previous value afterwards. This is a STACK, not a slot: transcript rows are
+   * normalized inside a hook record's normalization, and the inner row's
+   * provenance must not leak out to what the outer hook mints afterwards.
+   */
+  function withProvenance<T>(provenance: EventProvenance, body: () => T): T {
+    const previousProvenance = activeProvenance
+    const previousMinted = mintedForRecord
+    activeProvenance = provenance
+    mintedForRecord = 0
+    try {
+      return body()
+    } finally {
+      activeProvenance = previousProvenance
+      mintedForRecord = previousMinted
+    }
+  }
   const structuredTurns = new Map<string, StructuredTurnState>()
   const completedStructuredTurns = new Set<string>()
   const apiErrorTurns = new Set<string>()
@@ -475,6 +494,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         now,
         getCurrentTurnId: () => turnAttribution.activeTurnId,
         ...(driverCtx.capture !== undefined ? { capture: driverCtx.capture } : {}),
+        withProvenance,
         emit: (type, payload, extra) => {
           emitCaptured(driverCtx, type, payload, extra)
         },
@@ -675,22 +695,12 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
               ? { correlationHints: { turnId: envelope.turnId } }
               : {}),
           },
-          (captured) => {
-            const previousProvenance = activeProvenance
-            const previousMinted = mintedForRecord
-            activeProvenance = captured.provenance()
-            mintedForRecord = 0
-            try {
+          (captured) =>
+            withProvenance(captured.provenance(), () => {
               const result = normalizeHookRecord(envelope, rawHook)
               decision = result.decision
               return result.outcome
-            } finally {
-              // Restore rather than clear: transcript rows normalize INSIDE
-              // this callback, so these are a stack, not a single slot.
-              activeProvenance = previousProvenance
-              mintedForRecord = previousMinted
-            }
-          }
+            })
         )
         return decision
       }

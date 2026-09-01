@@ -1,4 +1,5 @@
 import type {
+  EventProvenance,
   InvocationEventPayloadMap,
   InvocationEventType,
   TurnId,
@@ -87,6 +88,14 @@ export type ClaudeHookTranscriptReaderOptions = {
   onTranscriptEntry?: ((entry: Record<string, unknown>) => boolean) | undefined
   /** This invocation's normalization cursor. Absent in the isolated unit harness. */
   capture?: CaptureGate | undefined
+  /**
+   * Run `body` with `provenance` active on the driver's emit seam, restoring
+   * whatever was active before. Transcript rows are normalized INSIDE a hook
+   * record's normalization, so without this the events a transcript row mints
+   * would inherit the HOOK record's provenance and report native evidence as
+   * hook-observed — the exact falsehood §7.2 exists to prevent.
+   */
+  withProvenance?: (<T>(provenance: EventProvenance, body: () => T) => T) | undefined
 }
 
 type ApiErrorClass = 'rate_limit' | 'overloaded' | 'server_error' | 'auth' | 'quota'
@@ -310,7 +319,12 @@ export function createClaudeHookTranscriptReader(
           nativeType: nativeTypeOf(line),
           rawBytes: Buffer.from(line, 'utf8'),
         },
-        () => processLine(line, turnIdText)
+        (captured) => {
+          const run = () => processLine(line, turnIdText)
+          return options.withProvenance === undefined
+            ? run()
+            : options.withProvenance(captured.provenance(), run)
+        }
       )
     })
   }

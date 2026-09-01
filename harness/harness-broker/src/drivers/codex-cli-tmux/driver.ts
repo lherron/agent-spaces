@@ -220,6 +220,7 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
         invocationId: driverCtx.invocationId,
         now,
         getCurrentTurnId: () => currentTurnId,
+        ...(driverCtx.capture !== undefined ? { capture: driverCtx.capture } : {}),
       })
       transcriptReader = reader
       const captureSeam = createHookCaptureSeam({
@@ -234,7 +235,10 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
       })
       const emit = (event: InvocationEventEnvelope): void => {
         captureSeam.minted()
-        const provenance = captureSeam.provenance()
+        // An envelope the transcript reader stamped carries the ROLLOUT ROW that
+        // is its evidence; that always wins over the hook record we happen to be
+        // inside, which is only where the read was triggered from.
+        const provenance = event.provenance ?? captureSeam.provenance()
         driverCtx.emit(event.type, event.payload, {
           ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
           ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
