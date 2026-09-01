@@ -39,6 +39,81 @@ describe('claude-code-tmux disposition mirror', () => {
     expect(tracker.pendingCount).toBe(0)
   })
 
+  test('remove burst stays absorb-pending until FIFO queued_command attachments arrive', () => {
+    const tracker = createTracker()
+    tracker.observeTurnStarted('turn_live' as TurnId)
+    const prompts = ['one', 'two', 'three']
+    const actions: ClaudeAttributionAction[] = []
+
+    for (const prompt of prompts) tracker.observeQueueOperation(queueOp('enqueue', prompt))
+    for (const prompt of prompts) {
+      actions.push(...tracker.observeQueueOperation(queueOp('remove', prompt)))
+    }
+    for (const prompt of prompts) {
+      actions.push(...tracker.observeQueuedCommand(prompt, { type: 'queued_command' }))
+    }
+
+    expect(actions).toEqual(
+      prompts.map((content) =>
+        expect.objectContaining({ kind: 'absorbed', content, turnId: 'turn_live' })
+      )
+    )
+    expect(tracker.pendingCount).toBe(0)
+  })
+
+  test('unmatched removes settle with cancellation and warning only at a disposition boundary', () => {
+    const tracker = createTracker()
+    tracker.observeTurnStarted('turn_live' as TurnId)
+    tracker.observeQueueOperation(queueOp('enqueue', 'one'))
+    tracker.observeQueueOperation(queueOp('enqueue', 'two'))
+
+    expect(tracker.observeQueueOperation(queueOp('remove', 'one'))).toEqual([])
+    expect(tracker.observeQueueOperation(queueOp('remove', 'two'))).toEqual([])
+    expect(tracker.pendingCount).toBe(2)
+
+    const stop = { hook_event_name: 'Stop' }
+    expect(tracker.settleOutstandingRemovals(stop)).toEqual([
+      expect.objectContaining({ kind: 'cancelled', content: 'one', reason: 'removed' }),
+      expect.objectContaining({
+        kind: 'warning',
+        message:
+          'Claude queue remove reached a disposition boundary without queued_command evidence',
+      }),
+      expect.objectContaining({ kind: 'cancelled', content: 'two', reason: 'removed' }),
+      expect.objectContaining({
+        kind: 'warning',
+        message:
+          'Claude queue remove reached a disposition boundary without queued_command evidence',
+      }),
+    ])
+    expect(tracker.pendingCount).toBe(0)
+  })
+
+  test('plain-user and popAll boundaries settle unmatched removes without an extra popAll alarm', () => {
+    const plain = createTracker('plain_boundary')
+    plain.observeTurnStarted('turn_live' as TurnId)
+    plain.observeQueueOperation(queueOp('enqueue', 'removed before next user'))
+    plain.observeQueueOperation(queueOp('remove', 'removed before next user'))
+    plain.observeTurnTerminal('turn_live' as TurnId)
+    expect(plain.observePlainUser('next user', { type: 'user' })).toEqual([
+      expect.objectContaining({ kind: 'cancelled', reason: 'removed' }),
+      expect.objectContaining({ kind: 'warning' }),
+      expect.objectContaining({ kind: 'executed', content: 'next user' }),
+    ])
+
+    const popped = createTracker('popall_boundary')
+    popped.observeQueueOperation(queueOp('enqueue', 'removed before recall'))
+    popped.observeQueueOperation(queueOp('remove', 'removed before recall'))
+    expect(popped.observeQueueOperation(queueOp('popAll', 'removed before recall'))).toEqual([
+      expect.objectContaining({ kind: 'cancelled', reason: 'removed' }),
+      expect.objectContaining({
+        kind: 'warning',
+        message:
+          'Claude queue remove reached a disposition boundary without queued_command evidence',
+      }),
+    ])
+  })
+
   test('dequeue is drain-pending only; the plain user row promotes FIFO 1:1', () => {
     const tracker = createTracker()
     tracker.observeTurnStarted('turn_original' as TurnId)
@@ -176,7 +251,9 @@ type ArchiveRow = Record<string, unknown>
 const artifactRoot = join(process.env['HOME'] ?? '', 'praesidium/var/wrkq-artifacts/T-07849')
 const archiveOne = join(artifactRoot, 'e2e-enqueue-pin-transcript-73efc2a5.jsonl')
 const archiveTwo = join(artifactRoot, 'e2e-enqueue-pin2-transcript-36022e44.jsonl')
+const archiveThree = join(artifactRoot, 'e2e-enqueue-pin3-transcript-f3003503.jsonl')
 const archiveTest = existsSync(archiveOne) && existsSync(archiveTwo) ? test : test.skip
+const archiveThreeTest = existsSync(archiveThree) ? test : test.skip
 
 const readArchive = (path: string): ArchiveRow[] =>
   readFileSync(path, 'utf8')
@@ -236,6 +313,80 @@ const replayRows = (
 }
 
 describe('T-07849 archived transcript replays', () => {
+  archiveThreeTest('session 3 absorbs human remove×3 then attachment×3 FIFO', () => {
+    const rows = readArchive(archiveThree)
+    const tracker = createTracker('archive_pin3_human')
+    const sequence = rows.slice(28, 55)
+    const basePrompt = promptFromUserRow(sequence[0] ?? {})
+    expect(typeof basePrompt).toBe('string')
+    tracker.observePromptHook(
+      basePrompt === 'interrupted' ? undefined : basePrompt,
+      'turn_pin3_human' as TurnId
+    )
+    const actions: ClaudeAttributionAction[] = []
+
+    replayRows(tracker, sequence, actions)
+
+    expect(actions).toEqual([
+      expect.objectContaining({
+        kind: 'absorbed',
+        content: 'ROUND3_DRAIN_ONE: reply exactly DRAIN_ONE',
+      }),
+      expect.objectContaining({
+        kind: 'absorbed',
+        content: 'ROUND3_DRAIN_TWO: reply exactly DRAIN_TWO',
+      }),
+      expect.objectContaining({
+        kind: 'absorbed',
+        content: 'ROUND3_DRAIN_THREE: reply exactly DRAIN_THREE',
+      }),
+    ])
+    expect(tracker.pendingCount).toBe(0)
+  })
+
+  archiveThreeTest(
+    'session 3 absorbs broker remove×3 then attachment×3 with input correlation',
+    () => {
+      const rows = readArchive(archiveThree)
+      const sequence = rows.slice(58, 74)
+      const tracker = createTracker('archive_pin3_broker')
+      const basePrompt = promptFromUserRow(sequence[0] ?? {})
+      expect(typeof basePrompt).toBe('string')
+      tracker.observePromptHook(
+        basePrompt === 'interrupted' ? undefined : basePrompt,
+        'turn_pin3_broker' as TurnId
+      )
+      const prompts = sequence
+        .filter((row) => row['type'] === 'queue-operation' && row['operation'] === 'enqueue')
+        .map((row) => row['content'])
+        .filter((content): content is string => typeof content === 'string')
+      for (const [index, content] of prompts.entries()) {
+        tracker.trackBrokerSubmission({
+          submissionId: `input_pin3_${index + 1}`,
+          inputId: `input_pin3_${index + 1}`,
+          allocatedTurnId: `turn_allocated_${index + 1}` as TurnId,
+          content,
+        })
+      }
+      const actions: ClaudeAttributionAction[] = []
+
+      replayRows(tracker, sequence, actions)
+
+      expect(
+        actions.map((action) => ({
+          kind: action.kind,
+          ...('submissionId' in action ? { submissionId: action.submissionId } : {}),
+          ...('turnId' in action ? { turnId: action.turnId } : {}),
+        }))
+      ).toEqual([
+        { kind: 'absorbed', submissionId: 'input_pin3_1', turnId: 'turn_pin3_broker' },
+        { kind: 'absorbed', submissionId: 'input_pin3_2', turnId: 'turn_pin3_broker' },
+        { kind: 'absorbed', submissionId: 'input_pin3_3', turnId: 'turn_pin3_broker' },
+      ])
+      expect(tracker.pendingCount).toBe(0)
+    }
+  )
+
   archiveTest('session 1 round 5 absorbs three prompts into one live turn', () => {
     const rows = readArchive(archiveOne)
     const tracker = createTracker('archive_round5')

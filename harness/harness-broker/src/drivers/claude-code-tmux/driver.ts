@@ -483,6 +483,9 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
           )
           return
         }
+        if (rawType === 'Stop') {
+          emitAttributionActions(turnAttribution.settleOutstandingRemovals(rawHook), rawType)
+        }
         let effectiveEnvelope =
           envelope.turnId === undefined && turnAttribution.activeTurnId !== undefined
             ? { ...envelope, turnId: turnAttribution.activeTurnId }

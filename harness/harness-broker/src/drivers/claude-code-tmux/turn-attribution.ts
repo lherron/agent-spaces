@@ -9,6 +9,7 @@ type PendingSubmission = {
   sawPromptHook: boolean
   drainPending: boolean
   removePending: boolean
+  removeOperation?: unknown
 }
 
 type SubmissionActionBase = {
@@ -49,6 +50,7 @@ export interface ClaudeTurnAttribution {
   observePlainUser(content: string, raw: unknown): ClaudeAttributionAction[]
   observeInterrupt(raw: unknown): ClaudeAttributionAction[]
   observePromptHook(content: string | undefined, hintedTurnId?: TurnId): ClaudeAttributionAction[]
+  settleOutstandingRemovals(raw: unknown): ClaudeAttributionAction[]
   observeTurnStarted(turnId: TurnId): void
   observeTurnTerminal(turnId: TurnId): void
   teardown(): ClaudeAttributionAction[]
@@ -83,6 +85,7 @@ export function createClaudeTurnAttribution(options: {
       sawPromptHook: init.sawPromptHook ?? false,
       drainPending: init.drainPending ?? false,
       removePending: init.removePending ?? false,
+      ...(init.removeOperation !== undefined ? { removeOperation: init.removeOperation } : {}),
     }
     pending.push(item)
     return item
@@ -99,12 +102,18 @@ export function createClaudeTurnAttribution(options: {
     if (index >= 0) pending.splice(index, 1)
   }
 
-  const cancelOutstandingRemovals = (): ClaudeAttributionAction[] => {
+  const settleOutstandingRemovals = (raw: unknown): ClaudeAttributionAction[] => {
     const actions: ClaudeAttributionAction[] = []
     for (const item of [...pending]) {
       if (!item.removePending) continue
       drop(item)
       actions.push({ kind: 'cancelled', ...base(item), reason: 'removed' })
+      actions.push(
+        warning(
+          'Claude queue remove reached a disposition boundary without queued_command evidence',
+          item.removeOperation ?? raw
+        )
+      )
     }
     return actions
   }
@@ -161,7 +170,6 @@ export function createClaudeTurnAttribution(options: {
       }
 
       if (op === 'remove') {
-        const actions = cancelOutstandingRemovals()
         const content = typeof operation.content === 'string' ? operation.content : undefined
         const item =
           content === undefined
@@ -173,28 +181,26 @@ export function createClaudeTurnAttribution(options: {
                   !candidate.removePending
               )
         if (item === undefined) {
-          actions.push(warning('Unmatched Claude queue remove', operation))
-        } else {
-          item.removePending = true
+          return [warning('Unmatched Claude queue remove', operation)]
         }
-        return actions
+        item.removePending = true
+        item.removeOperation = operation
+        return []
       }
 
       if (op === 'dequeue') {
-        const actions = cancelOutstandingRemovals()
         const item = pending.find(
           (candidate) => !candidate.drainPending && !candidate.removePending
         )
         if (item === undefined) {
-          actions.push(warning('Unmatched Claude queue dequeue', operation))
-        } else {
-          item.drainPending = true
+          return [warning('Unmatched Claude queue dequeue', operation)]
         }
-        return actions
+        item.drainPending = true
+        return []
       }
 
       if (op === 'popAll') {
-        const actions = cancelOutstandingRemovals()
+        const actions = settleOutstandingRemovals(operation)
         const content = typeof operation.content === 'string' ? operation.content : undefined
         const matches =
           content === undefined
@@ -206,7 +212,9 @@ export function createClaudeTurnAttribution(options: {
                   (item.content === content || content.includes(item.content))
               )
         if (matches.length === 0) {
-          actions.push(warning('Unmatched Claude queue popAll', operation))
+          if (actions.length === 0) {
+            actions.push(warning('Unmatched Claude queue popAll', operation))
+          }
           return actions
         }
         for (const item of matches) {
@@ -238,7 +246,7 @@ export function createClaudeTurnAttribution(options: {
     },
 
     observePlainUser(content, raw): ClaudeAttributionAction[] {
-      const actions = cancelOutstandingRemovals()
+      const actions = settleOutstandingRemovals(raw)
       if (content === recentDisposedPrompt) {
         recentDisposedPrompt = undefined
         return actions
@@ -315,6 +323,10 @@ export function createClaudeTurnAttribution(options: {
         candidate ?? createPending(content, { allocatedTurnId: hintedTurnId, sawPromptHook: true })
       item.sawPromptHook = true
       return [execute(item, true)]
+    },
+
+    settleOutstandingRemovals(raw): ClaudeAttributionAction[] {
+      return settleOutstandingRemovals(raw)
     },
 
     observeTurnStarted(turnId): void {

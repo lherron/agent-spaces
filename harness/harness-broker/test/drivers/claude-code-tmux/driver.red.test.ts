@@ -554,11 +554,37 @@ describe('claude-code-tmux driver RED lifecycle', () => {
         payload: { submissionId: 'input_absorbed', turnId: 'turn_live' },
       })
 
+      await driver.applyInputNow({
+        inputId: 'input_removed',
+        kind: 'user',
+        content: [{ type: 'text', text: 'removed without attachment' }],
+      })
+      appendFileSync(
+        transcriptPath,
+        `${[
+          { type: 'queue-operation', operation: 'enqueue', content: 'removed without attachment' },
+          { type: 'queue-operation', operation: 'remove', content: 'removed without attachment' },
+        ]
+          .map((row) => JSON.stringify(row))
+          .join('\n')}\n`
+      )
+
       await hookHandler?.({
         invocationId: 'inv_claude_tmux_1',
         generation: 1,
         callbackSocket: hookSocket,
         hookData: { hook_event_name: 'Stop' },
+      })
+      expect(events.find((event) => event.type === 'submission.cancelled')).toMatchObject({
+        inputId: 'input_removed',
+        payload: { submissionId: 'input_removed', reason: 'removed' },
+      })
+      expect(events.find((event) => event.type === 'capture.warning')).toMatchObject({
+        driver: { kind: 'claude-code-tmux', rawType: 'Stop' },
+        payload: {
+          message:
+            'Claude queue remove reached a disposition boundary without queued_command evidence',
+        },
       })
       const idle = await driver.applyInputNow({
         inputId: 'input_executed',
