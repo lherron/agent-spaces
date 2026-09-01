@@ -1,0 +1,56 @@
+id: agent-spaces.harness-broker-admission
+kind: invariant
+status: active
+owner_project: agent-spaces
+scope: per-seat harness-broker admission disposition control and observation contract
+predicate: >
+  One harness-broker owns one harness process and exposes per-seat mechanism;
+  HRC permanently owns cross-seat scheduling and caller policy. Every mediated
+  submission enters exactly one admission class: steer enters the harness-local
+  queue seeking absorption and may instead execute after drain; queue remains
+  broker-held FIFO until idle and then originates its own turn; exclusive
+  originates a turn only when immediately idle or rejects busy; preempt is
+  authority-gated, interrupts the live turn and every drain-spawned successor
+  until true quiescence, then injects the held submission as its own turn while
+  recording any fast completion honestly. Every submission has stable identity,
+  exactly one authoritative disposition, and a turn manifest mapping each turn
+  to the submissions it carried. Obligation-bearing submissions use only queue,
+  exclusive, or preempt and originate a dedicated turn; steer carries no
+  obligation, wait, or own response and resolves only through absorbed or
+  executed disposition. Admission composes driver capability, active-turn
+  policy, and caller authority without silent class upgrades. The broker-held
+  queue is queryable, cancellable, TTL-aware, and reorderable under authority;
+  admission queue disposition interrupt and capture decisions share the broker
+  replay ledger and snapshot surface. TUI mechanics never use navigation-key
+  choreography, and unsupported capabilities remain unset. Turn evidence and
+  bracket-minting declarations remain governed by
+  agent-spaces.harness-broker-turn-evidence and its bounded Pi accepted risk.
+authority:
+  repo: agent-spaces
+  surface: wrkq T-07843 rev 7 approved by Daedalus on Lance's authority
+source:
+  - wrkq:T-07843
+  - architecture/records/invariants/agent-spaces.harness-broker-turn-evidence.yaml
+  - architecture/records/risks/agent-spaces.pi-delivery-asserted-turn-start.yaml
+  - contracts/harness-broker-protocol/src/capabilities.ts
+  - harness/harness-broker/src/drivers/driver.ts
+  - harness/harness-broker/src/invocation-manager.ts
+required_tests:
+  - every seat-state turn-policy admission-class and authority cell produces the specified admit hold reject or interrupt outcome and one truthful disposition
+  - obligation-bearing submissions cannot use steer and every steer surface excludes wait obligation and own-response options
+  - queue list jump cancel TTL FIFO and snapshot replay preserve submission identity and authority
+  - preempt with a surviving harness-local queue drives through drain-spawned turns to true quiescence with honest terminals and bounded slippage
+  - every driver advertises supported admission classes and bracket-minting mode while new delivery-asserted drivers fail conformance
+  - decision events replay and persist through the existing broker event stream without consumers reading harness transcripts
+last_verified:
+  date: 2026-09-01
+  evidence: Daedalus round-5 source-grounded architecture approval of T-07843 rev 7; implementation gates pending
+reopen_when:
+  - cross-seat scheduling or caller policy moves into the broker
+  - an admission class changes own-turn obligation wait or disposition semantics
+  - preempt no longer drives to quiescence before admitting its held submission
+  - queue identity authority cancellation TTL ordering snapshot or replay semantics change
+  - a TUI mechanic requires navigation-key choreography or an unsupported capability is emulated
+  - turn evidence disposition or manifest contracts change
+supersedes: []
+superseded_by: null
