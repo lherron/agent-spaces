@@ -442,6 +442,19 @@ async function allocatePane(
 // Recipes
 // ---------------------------------------------------------------------------
 
+function exportCodexPath(): void {
+  const codex = resolveCodexBin()
+  if (codex === undefined) return
+  process.env['ASP_CODEX_PATH'] = codex
+  process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
+}
+
+function exportPiPath(): void {
+  const pi = resolvePiBin()
+  if (pi === undefined) return
+  process.env['ASP_PI_PATH'] = pi
+}
+
 /** Priming prompt every seat runs at launch: cheap, deterministic, tool-free. */
 export const PRIMING_PROMPT = 'Reply with exactly READY and nothing else. Do not use any tools.'
 
@@ -451,12 +464,20 @@ function compiledRecipe(input: {
   needsPane: boolean
   probe: () => DependencyProbe
   driver: (hookIpcDir: string, controlDir: string) => Driver
-  env?: (bin: string) => Record<string, string>
+  /**
+   * Point the compiler at the binary the probe resolved. `codex` / `pi` are
+   * frequently absent from a headless agent's PATH (version-manager installs),
+   * and the compiler reads these env keys — so a row that probed a real binary
+   * must hand that same path to the compile, or the compiled launch is a
+   * different binary than the one the row claims to be testing.
+   */
+  prepareEnv?: () => void
 }): RowRecipe {
   return {
     kind: input.kind,
     probe: input.probe,
     plan: async (ctx) => {
+      input.prepareEnv?.()
       const fixture = createFixture(input.kind, input.agentName, ctx.repoRoot)
       const cleanups: Array<() => Promise<void> | void> = [fixture.cleanup]
       try {
@@ -587,6 +608,7 @@ export const ROW_RECIPES: Record<string, RowRecipe> = {
     kind: 'codex-cli-tmux',
     agentName: 'curly',
     needsPane: true,
+    prepareEnv: exportCodexPath,
     driver: (hookIpcDir) => createDefaultCodexCliTmuxDriver(hookIpcDir),
     probe: () => {
       const codex = resolveCodexBin()
@@ -603,6 +625,7 @@ export const ROW_RECIPES: Record<string, RowRecipe> = {
     kind: 'pi-tui-tmux',
     agentName: 'curly',
     needsPane: true,
+    prepareEnv: exportPiPath,
     driver: (hookIpcDir) => createDefaultPiTuiTmuxDriver(hookIpcDir),
     probe: () => {
       const pi = resolvePiBin()
@@ -619,6 +642,7 @@ export const ROW_RECIPES: Record<string, RowRecipe> = {
     kind: 'codex-app-server',
     agentName: 'curly',
     needsPane: false,
+    prepareEnv: exportCodexPath,
     driver: () => createCodexAppServerDriver(),
     probe: () => {
       const codex = resolveCodexBin()
