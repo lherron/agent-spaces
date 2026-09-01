@@ -143,10 +143,13 @@ export function createCaptureGate(options: CaptureGateOptions): CaptureGate {
       // A normalizer that throws has classified nothing. That is exactly the
       // "provider method silently disappeared" case §6.1 forbids, so it becomes
       // a blocked-unknown rather than a swallowed exception.
+      // Carry the detail, not just the class. A validation failure's `issues`
+      // are the whole diagnosis, and "Normalizer threw: Invalid invocation
+      // event envelope" on its own sends the reader back to a debugger.
       outcome = {
         disposition: 'blocked-unknown',
         family: 'diagnostic',
-        message: `Normalizer threw: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Normalizer threw: ${describeThrown(error)}`,
       }
     }
 
@@ -330,6 +333,20 @@ export function createCaptureGate(options: CaptureGateOptions): CaptureGate {
     },
 
     state: stateView,
+  }
+}
+
+/** Message plus any structured `issues`/`data` the thrown error carries. */
+function describeThrown(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  const detail =
+    (error as { issues?: unknown; data?: unknown } | null)?.issues ??
+    (error as { data?: unknown } | null)?.data
+  if (detail === undefined) return message
+  try {
+    return `${message}: ${JSON.stringify(detail)}`
+  } catch {
+    return message
   }
 }
 
