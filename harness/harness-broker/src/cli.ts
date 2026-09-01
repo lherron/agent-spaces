@@ -17,6 +17,7 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import {
   BrokerErrorCode,
+  SUPPORTED_BROKER_PROTOCOL_VERSIONS,
   validateCommand,
   validateInvocationStartRequest,
 } from 'spaces-harness-broker-protocol'
@@ -80,7 +81,7 @@ export async function runBrokerCli(options: RunBrokerCliOptions): Promise<void> 
     })
     const hello = await broker.hello({
       clientInfo: { name: 'harness-broker-cli' },
-      protocolVersions: ['harness-broker/0.2'],
+      protocolVersions: [...SUPPORTED_BROKER_PROTOCOL_VERSIONS],
     })
     if (json) {
       process.stdout.write(`${JSON.stringify(hello.drivers, null, 2)}\n`)
@@ -212,6 +213,21 @@ function registerReadMethods(server: ProtocolServer, broker: Broker): void {
     validateParams(method, id, params)
     return broker.eventsSince(params as Parameters<typeof broker.eventsSince>[0])
   })
+
+  server.register('queue.list', async ({ id, method, params }) => {
+    validateParams(method, id, params)
+    return broker.queueList(params as Parameters<typeof broker.queueList>[0])
+  })
+
+  server.register('turn.manifest', async ({ id, method, params }) => {
+    validateParams(method, id, params)
+    return broker.turnManifest(params as Parameters<typeof broker.turnManifest>[0])
+  })
+
+  server.register('seat.probe', async ({ id, method, params }) => {
+    validateParams(method, id, params)
+    return broker.seatProbe(params as Parameters<typeof broker.seatProbe>[0])
+  })
 }
 
 /**
@@ -253,6 +269,36 @@ function registerBrokerMethods(
   server.register('invocation.input', async ({ id, method, params }) => {
     validateParams(method, id, params)
     return broker.input(params as Parameters<typeof broker.input>[0])
+  })
+
+  server.register('submission.steer', async ({ id, method, params }) => {
+    validateParams(method, id, params)
+    return broker.steer(params as Parameters<typeof broker.steer>[0])
+  })
+
+  server.register('submission.enqueue', async ({ id, method, params }) => {
+    validateParams(method, id, params)
+    return broker.enqueue(params as Parameters<typeof broker.enqueue>[0])
+  })
+
+  server.register('submission.invoke', async ({ id, method, params }) => {
+    validateParams(method, id, params)
+    return broker.invoke(params as Parameters<typeof broker.invoke>[0])
+  })
+
+  server.register('submission.preempt', async ({ id, method, params }) => {
+    validateParams(method, id, params)
+    return broker.preempt(params as Parameters<typeof broker.preempt>[0])
+  })
+
+  server.register('queue.jump', async ({ id, method, params }) => {
+    validateParams(method, id, params)
+    return broker.queueJump(params as Parameters<typeof broker.queueJump>[0])
+  })
+
+  server.register('queue.cancel', async ({ id, method, params }) => {
+    validateParams(method, id, params)
+    return broker.queueCancel(params as Parameters<typeof broker.queueCancel>[0])
   })
 
   server.register('invocation.interrupt', async ({ id, method, params }) => {

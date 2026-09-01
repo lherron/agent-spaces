@@ -1,4 +1,5 @@
 import type {
+  EventProvenance,
   InputId,
   InvocationEvent,
   InvocationEventEnvelope,
@@ -30,6 +31,7 @@ export interface InvocationEventExtra {
   driver?: { kind: string; rawType?: string | undefined } | undefined
   harnessGeneration?: number | undefined
   turnAttempt?: number | undefined
+  provenance?: EventProvenance | undefined
 }
 
 export interface InvocationEventSequencer {
@@ -117,5 +119,6 @@ function applyExtra(
     envelope.harnessGeneration = extra.harnessGeneration
   }
   if (extra?.turnAttempt !== undefined) envelope.turnAttempt = extra.turnAttempt
+  if (extra?.provenance !== undefined) envelope.provenance = extra.provenance
   if (correlation !== undefined) envelope.correlation = correlation
 }

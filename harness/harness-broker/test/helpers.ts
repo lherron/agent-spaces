@@ -28,6 +28,11 @@ export function brokerProcessEnv(
 }
 
 export const noopCapabilities: InvocationCapabilities = {
+  admission: { classes: [] },
+  bracketMintingMode: 'delivery-acknowledged',
+  queue: { cancelHarnessLocal: false },
+  preempt: { mode: null },
+  steer: { landingEvidence: null },
   input: {
     user: true,
     steer: false,

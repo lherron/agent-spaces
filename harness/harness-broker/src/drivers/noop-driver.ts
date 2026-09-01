@@ -20,6 +20,11 @@ export interface NoopDriverOptions {
 }
 
 const NOOP_CAPABILITIES: InvocationCapabilities = {
+  admission: { classes: [] },
+  bracketMintingMode: 'delivery-acknowledged',
+  queue: { cancelHarnessLocal: false },
+  preempt: { mode: null },
+  steer: { landingEvidence: null },
   input: {
     user: true,
     steer: false,
@@ -56,6 +61,8 @@ export function createNoopDriver(options: NoopDriverOptions = {}): Driver {
     kind: 'noop-driver',
     version: '0.1.0',
     bracketMintingMode: 'delivery-acknowledged',
+    preemptMode: null,
+    steerLandingEvidence: null,
 
     capabilities(): InvocationCapabilities {
       return NOOP_CAPABILITIES

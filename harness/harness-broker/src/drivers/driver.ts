@@ -22,6 +22,8 @@ import type { DispatchEnv } from '../runtime/env'
 
 export interface ApplyInputResult {
   turnId?: TurnId | undefined
+  deliveryDisposition?: 'executed' | 'rejected' | undefined
+  rejectionReason?: string | undefined
 }
 
 /**
@@ -30,15 +32,22 @@ export interface ApplyInputResult {
  * change modes together with the corresponding verified delivery semantics.
  */
 export type BracketMintingMode = 'delivery-acknowledged' | 'harness-evidence' | 'delivery-asserted'
+export type PreemptMode = 'quiescence' | 'atomic'
+export type SteerLandingEvidence = 'transcript' | 'ack' | 'asserted'
 
 export interface Driver {
   readonly kind: string
   readonly version: string
   readonly bracketMintingMode: BracketMintingMode
+  readonly preemptMode: PreemptMode | null
+  readonly steerLandingEvidence: SteerLandingEvidence | null
   capabilities(): InvocationCapabilities
   start(spec: HarnessInvocationSpec, ctx: DriverContext): Promise<DriverStartResult>
   applyInputNow(input: InvocationInput): Promise<ApplyInputResult>
   applySteerNow?(input: InvocationInput): Promise<void>
+  probeAdmissionState?(): {
+    harnessLocalQueueDepth: number
+  }
   interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse>
   stop(req: InvocationStopRequest): Promise<InvocationStopResponse>
   dispose(): Promise<void>
@@ -74,6 +83,7 @@ export interface DriverContext {
       driver?: { kind: string; rawType?: string | undefined } | undefined
       harnessGeneration?: number | undefined
       turnAttempt?: number | undefined
+      provenance?: import('spaces-harness-broker-protocol').EventProvenance | undefined
     }
   ): InvocationEventEnvelope<K>
   emitEvent(
@@ -85,6 +95,7 @@ export interface DriverContext {
       driver?: { kind: string; rawType?: string | undefined } | undefined
       harnessGeneration?: number | undefined
       turnAttempt?: number | undefined
+      provenance?: import('spaces-harness-broker-protocol').EventProvenance | undefined
     }
   ): InvocationEventEnvelope
   /**

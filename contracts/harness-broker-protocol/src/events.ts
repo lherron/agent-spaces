@@ -20,6 +20,15 @@ import type {
   TurnStalledPayload,
 } from './lifecycle'
 import type { IsoTimestamp } from './primitives'
+import type { AdmissionLayer, SubmissionClass, SubmissionOrigin, TurnPolicy } from './submission'
+
+export interface EventProvenance {
+  sourceKind: 'provider-jsonl' | 'provider-jsonrpc' | 'hook' | 'broker'
+  normalizer: {
+    name: string
+    version: string
+  }
+}
 
 export interface InvocationEventEnvelopeBase {
   invocationId: InvocationId
@@ -37,6 +46,7 @@ export interface InvocationEventEnvelopeBase {
     | undefined
   harnessGeneration?: number | undefined
   turnAttempt?: number | undefined
+  provenance?: EventProvenance | undefined
 }
 
 /**
@@ -187,8 +197,20 @@ export interface InvocationEventPayloadMap {
   'input.accepted': InputDispositionPayload
   'input.rejected': InputDispositionPayload
   'input.queued': InputDispositionPayload
+  'admission.requested': AdmissionRequestedPayload
+  'admission.admitted': AdmissionAdmittedPayload
+  'admission.rejected': AdmissionRejectedPayload
+  'queue.enqueued': QueueEnqueuedPayload
+  'queue.jumped': QueueJumpedPayload
+  'queue.cancelled': QueueCancelledPayload
+  'queue.expired': QueueExpiredPayload
+  'interrupt.requested': InterruptDecisionPayload
+  'interrupt.landed': InterruptDecisionPayload
+  'interrupt.failed': InterruptFailedPayload
   'submission.absorbed': SubmissionTurnDispositionPayload
   'submission.executed': SubmissionTurnDispositionPayload
+  'submission.rejected': SubmissionRejectedPayload
+  'submission.expired': SubmissionExpiredPayload
   'submission.cancelled': SubmissionCancelledPayload
   'capture.warning': CaptureWarningPayload
   'turn.started': TurnStartedPayload
@@ -271,7 +293,68 @@ export interface SubmissionTurnDispositionPayload {
 /** A submission left the harness-local queue without entering model context. */
 export interface SubmissionCancelledPayload {
   submissionId: string
-  reason?: 'recalled' | 'removed' | 'teardown' | undefined
+  reason?: 'recalled' | 'removed' | 'teardown' | 'broker-cancelled' | undefined
+}
+
+export interface AdmissionRequestedPayload {
+  submissionId: string
+  class: SubmissionClass
+  origin: SubmissionOrigin
+  turnPolicy?: TurnPolicy | undefined
+  freshContext?: boolean | undefined
+}
+
+export interface AdmissionAdmittedPayload {
+  submissionId: string
+  class: SubmissionClass
+}
+
+export interface AdmissionRejectedPayload {
+  submissionId: string
+  class: SubmissionClass
+  layer: AdmissionLayer
+  reason: string
+}
+
+export interface QueueEnqueuedPayload {
+  submissionId: string
+  class: 'queue' | 'preempt'
+  position: number
+  ttlMs?: number | undefined
+}
+
+export interface QueueJumpedPayload {
+  submissionId: string
+  fromPosition: number
+  toPosition: number
+  principalRef: string
+}
+
+export interface QueueCancelledPayload {
+  submissionId: string
+  principalRef: string
+}
+
+export interface QueueExpiredPayload {
+  submissionId: string
+}
+
+export interface InterruptDecisionPayload {
+  submissionId?: string | undefined
+  turnId?: TurnId | undefined
+}
+
+export interface InterruptFailedPayload extends InterruptDecisionPayload {
+  reason: string
+}
+
+export interface SubmissionRejectedPayload {
+  submissionId: string
+  reason: string
+}
+
+export interface SubmissionExpiredPayload {
+  submissionId: string
 }
 
 /** Loud evidence that the behavior-pinned harness transcript vocabulary drifted. */

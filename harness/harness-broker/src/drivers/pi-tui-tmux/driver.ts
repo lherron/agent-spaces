@@ -40,6 +40,11 @@ const PI_HOOK_GENERATION = 1
 const INPUT_SUBMIT_GAP_MS = 1_000
 
 const PI_TUI_TMUX_CAPABILITIES: InvocationCapabilities = {
+  admission: { classes: ['steer', 'queue', 'exclusive'] },
+  bracketMintingMode: 'delivery-asserted',
+  queue: { cancelHarnessLocal: false },
+  preempt: { mode: null },
+  steer: { landingEvidence: 'asserted' },
   input: {
     user: true,
     steer: false,
@@ -156,6 +161,8 @@ export function createPiTuiTmuxDriver(options: PiTuiTmuxDriverOptions): Driver {
     kind: PI_TUI_TMUX_DRIVER_KIND,
     version: PI_TUI_TMUX_DRIVER_VERSION,
     bracketMintingMode: 'delivery-asserted',
+    preemptMode: null,
+    steerLandingEvidence: 'asserted',
 
     capabilities(): InvocationCapabilities {
       return PI_TUI_TMUX_CAPABILITIES

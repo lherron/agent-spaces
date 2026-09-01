@@ -157,8 +157,8 @@ describe('T-07155 whenBusy: steer', () => {
     expect(controller.steeredInputs).toHaveLength(0)
   })
 
-  // G4 — the regression fence. `queue` is the default path every existing
-  // caller uses; this change must not perturb it in either interaction mode.
+  // G4 — legacy invocation.input compatibility is unchanged. The new
+  // submission.enqueue RPC is the explicit broker-held queue door.
   test('G4: whenBusy queue still enqueues on headless', async () => {
     const { broker, controller, events, invocationId } = await setup({
       invocationId: 'inv_t07155_g4_headless',
@@ -177,8 +177,8 @@ describe('T-07155 whenBusy: steer', () => {
     expect(inputEvents(events, 'input.queued')).toHaveLength(1)
   })
 
-  test('G4b: whenBusy queue still write-through steers on interactive', async () => {
-    const { broker, controller, invocationId } = await setup({
+  test('G4b: whenBusy queue preserves interactive write-through', async () => {
+    const { broker, controller, events, invocationId } = await setup({
       invocationId: 'inv_t07155_g4_interactive',
       supportsSteer: true,
       mode: 'interactive',
@@ -192,7 +192,8 @@ describe('T-07155 whenBusy: steer', () => {
     })
 
     expect(response).toMatchObject({ accepted: true, disposition: 'attempted_steer' })
-    expect(controller.steeredInputs.map((input) => input.inputId)).toEqual(['input_steered'])
+    expect(controller.steeredInputs).toHaveLength(1)
+    expect(inputEvents(events, 'input.queued')).toHaveLength(0)
   })
 
   // G19 — the negotiation signal HRC gates on. A long-lived broker process

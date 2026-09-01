@@ -55,6 +55,14 @@ const CODEX_HOOK_GENERATION = 1
 const INPUT_SUBMIT_GAP_MS = 1_000
 
 const CODEX_CLI_TMUX_CAPABILITIES: InvocationCapabilities = {
+  admission: { classes: ['steer', 'queue', 'exclusive'] },
+  bracketMintingMode: 'harness-evidence',
+  queue: { cancelHarnessLocal: false },
+  preempt: { mode: null },
+  // This legacy TUI has no T-07849-style queue attribution mirror. Its busy
+  // steer path therefore reports delivery-asserted landing, rather than
+  // claiming transcript evidence it does not collect.
+  steer: { landingEvidence: 'asserted' },
   input: {
     user: true,
     steer: false,
@@ -183,6 +191,8 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
     kind: CODEX_CLI_TMUX_DRIVER_KIND,
     version: CODEX_CLI_TMUX_DRIVER_VERSION,
     bracketMintingMode: 'harness-evidence',
+    preemptMode: null,
+    steerLandingEvidence: 'asserted',
 
     capabilities(): InvocationCapabilities {
       return CODEX_CLI_TMUX_CAPABILITIES

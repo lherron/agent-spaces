@@ -122,8 +122,7 @@ describe('event delivery order', () => {
     const stoppingIndex = events.findIndex((event) => event.type === 'invocation.stopping')
     const evictedIndex = events.findIndex(
       (event) =>
-        event.type === 'input.rejected' &&
-        (event.payload as { inputId?: string }).inputId === 'input_parked'
+        event.type === 'submission.cancelled' && event.payload.submissionId === 'input_parked'
     )
     expect(stoppingIndex).toBeGreaterThanOrEqual(0)
     expect(evictedIndex).toBeGreaterThanOrEqual(0)

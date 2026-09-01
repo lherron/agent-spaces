@@ -15,9 +15,11 @@ describe('Ph6 red: harness-broker/0.1 removal — protocol constants (T-01867)',
     expect(SUPPORTED_BROKER_PROTOCOL_VERSIONS).not.toContain('harness-broker/0.1')
   })
 
-  test('SUPPORTED_BROKER_PROTOCOL_VERSIONS equals exactly ["harness-broker/0.2"]', () => {
-    // RED today: has two entries — v0.1 is still present
-    expect(Array.from(SUPPORTED_BROKER_PROTOCOL_VERSIONS)).toEqual(['harness-broker/0.2'])
+  test('SUPPORTED_BROKER_PROTOCOL_VERSIONS contains the v0.3 admission ABI and v0.2 compatibility', () => {
+    expect(Array.from(SUPPORTED_BROKER_PROTOCOL_VERSIONS)).toEqual([
+      'harness-broker/0.3',
+      'harness-broker/0.2',
+    ])
   })
 })
 

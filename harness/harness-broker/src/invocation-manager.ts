@@ -1,13 +1,14 @@
 import type {
+  AdmissionLayer,
   BrokerLifecyclePolicyOverlay,
   BrokerListInvocationsRequest,
   BrokerListInvocationsResponse,
+  BrokerQueueEntry,
   BrokerTerminalSurfaceReport,
   ClientCapabilities,
   ContinuationUpdate,
   HarnessInvocationSpec,
   InputId,
-  InputPolicy,
   InvocationCapabilities,
   InvocationCurrentTurnSummary,
   InvocationDisposeRequest,
@@ -38,8 +39,23 @@ import type {
   PermissionDecision,
   PermissionRequestId,
   PermissionRequestParams,
+  QueueCancelRequest,
+  QueueCancelResponse,
+  QueueJumpRequest,
+  QueueJumpResponse,
+  QueueListResponse,
+  SeatProbeResponse,
+  SubmissionClass,
+  SubmissionEnqueueRequest,
+  SubmissionInvokeRequest,
+  SubmissionOrigin,
+  SubmissionPreemptRequest,
+  SubmissionResponse,
+  SubmissionSteerRequest,
   ToolCallId,
   TurnId,
+  TurnManifestResponse,
+  TurnPolicy,
 } from 'spaces-harness-broker-protocol'
 import {
   BrokerErrorCode,
@@ -47,7 +63,7 @@ import {
   acceptedLifecyclePolicy,
   validateEventEnvelope,
 } from 'spaces-harness-broker-protocol'
-import type { Driver, DriverContext } from './drivers/driver'
+import type { ApplyInputResult, Driver, DriverContext } from './drivers/driver'
 import { BrokerError } from './errors'
 import { stableJsonStringify } from './event-ledger'
 import type { InvocationEventExtra, InvocationEventSequencer } from './events'
@@ -99,6 +115,31 @@ const INVOCATION_TEARDOWN_TYPES = new Set<InvocationEventType>([
   'invocation.exited',
   'invocation.failed',
 ])
+const SUBMISSION_TERMINAL_TYPES = new Set<InvocationEventType>([
+  'submission.absorbed',
+  'submission.executed',
+  'submission.rejected',
+  'submission.expired',
+  'submission.cancelled',
+])
+const BROKER_DECISION_TYPES = new Set<InvocationEventType>([
+  'admission.requested',
+  'admission.admitted',
+  'admission.rejected',
+  'queue.enqueued',
+  'queue.jumped',
+  'queue.cancelled',
+  'queue.expired',
+  'interrupt.requested',
+  'interrupt.landed',
+  'interrupt.failed',
+  ...SUBMISSION_TERMINAL_TYPES,
+  'capture.warning',
+])
+const BROKER_PROVENANCE = {
+  sourceKind: 'broker' as const,
+  normalizer: { name: 'harness-broker-admission', version: '1' },
+}
 /** Machine-readable `code` for a tool call left open when its turn closed. */
 const TOOL_CALL_UNTERMINATED_CODE = 'broker_unterminated_tool_call'
 /** Machine-readable `code` for a tool call left open when the invocation tore down. */
@@ -210,6 +251,29 @@ interface QueuedInput {
   input: InvocationInputWithId
 }
 
+type SubmissionRequest =
+  | SubmissionSteerRequest
+  | SubmissionEnqueueRequest
+  | SubmissionInvokeRequest
+  | SubmissionPreemptRequest
+
+interface SubmissionRecord {
+  submissionId: string
+  class: SubmissionClass
+  origin: SubmissionOrigin
+  input: InvocationInputWithId
+  turnPolicy: TurnPolicy
+  terminal: boolean
+}
+
+interface BrokerHeldSubmission {
+  record: SubmissionRecord
+  class: 'queue' | 'preempt'
+  ttlMs?: number | undefined
+  expiresAt?: number | undefined
+  timer?: ReturnType<typeof setTimeout> | undefined
+}
+
 type InvocationInputWithId = InvocationInput & { inputId: InputId }
 
 /** Per-invocation in-memory record of a resolved input disposition. */
@@ -287,6 +351,15 @@ export interface Invocation {
   harnessStartedSeen?: boolean | undefined
   /** Per-invocation FIFO queue of pending inputs. */
   pending: QueuedInput[]
+  brokerQueue: BrokerHeldSubmission[]
+  submissions: Map<string, SubmissionRecord>
+  submissionDispositions: Map<string, InvocationEventEnvelope>
+  turnManifests: Map<TurnId, TurnManifestResponse>
+  currentTurnPolicy: TurnPolicy
+  submissionCounter: number
+  /** Own-turn delivery awaiting the driver's declared turn-start evidence. */
+  pendingOwnTurnSubmissionId?: string | undefined
+  admissionDrainPromise?: Promise<void> | undefined
   /** Self-clearing drain lock: set while a drain is in flight, cleared in .finally(). */
   drainPromise?: Promise<void> | undefined
   /** Short write lock for terminal-immediate busy inputs. This is not a turn queue. */
@@ -361,6 +434,25 @@ export interface InvocationManagerOptions {
   maxInputQueueDepth?: number | undefined
   /** Clock for broker-owned permission deadlines. Defaults to wall-clock. */
   now?: (() => Date) | undefined
+  authorizeSubmission?:
+    | ((context: {
+        invocationId: InvocationId
+        class: SubmissionClass
+        origin: SubmissionOrigin
+        activeTurnId?: TurnId | undefined
+        activeTurnPolicy?: TurnPolicy | undefined
+      }) => boolean | Promise<boolean>)
+    | undefined
+  isOperator?: ((principalRef: string) => boolean) | undefined
+  authorizeQueueJump?:
+    | ((context: {
+        invocationId: InvocationId
+        principalRef: string
+        submissionOrigin: SubmissionOrigin
+        fromPosition: number
+        toPosition: number
+      }) => boolean | Promise<boolean>)
+    | undefined
 }
 
 /** Options for the shared inspection summary builder. */
@@ -383,6 +475,15 @@ export interface InvocationManager {
     lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
   ): Promise<InvocationStartResponse>
   input(req: InvocationInputRequest): Promise<InvocationInputResponse>
+  steer(req: SubmissionSteerRequest): Promise<SubmissionResponse>
+  enqueue(req: SubmissionEnqueueRequest): Promise<SubmissionResponse>
+  invoke(req: SubmissionInvokeRequest): Promise<SubmissionResponse>
+  preempt(req: SubmissionPreemptRequest): Promise<SubmissionResponse>
+  queueList(invocationId: InvocationId): QueueListResponse
+  queueJump(req: QueueJumpRequest): Promise<QueueJumpResponse>
+  queueCancel(req: QueueCancelRequest): Promise<QueueCancelResponse>
+  turnManifest(invocationId: InvocationId, turnId: TurnId): TurnManifestResponse
+  seatProbe(invocationId: InvocationId): SeatProbeResponse
   interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse>
   stop(req: InvocationStopRequest): Promise<InvocationStopResponse>
   status(invocationId: InvocationId, opts?: InspectionSummaryOptions): InvocationStatusResponse
@@ -415,6 +516,13 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   const now = options.now ?? (() => new Date())
   const maxQueueDepth = options.maxInputQueueDepth ?? DEFAULT_MAX_INPUT_QUEUE_DEPTH
   const invocations = new Map<string, Invocation>()
+  const authorizeSubmission = options.authorizeSubmission ?? (() => true)
+  const isOperator =
+    options.isOperator ??
+    ((principalRef: string) => principalRef === 'lance' || principalRef.startsWith('human:'))
+  const authorizeQueueJump =
+    options.authorizeQueueJump ??
+    ((context: { principalRef: string }) => isOperator(context.principalRef))
 
   function requireInvocation(invocationId: InvocationId): Invocation {
     const inv = invocations.get(invocationId)
@@ -428,6 +536,296 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     return inv
   }
 
+  function nextSubmissionId(inv: Invocation): string {
+    inv.submissionCounter += 1
+    return `submission_${inv.invocationId}_${inv.submissionCounter}`
+  }
+
+  function requestToInput(submissionId: string, req: SubmissionRequest): InvocationInputWithId {
+    return {
+      inputId: submissionId as InputId,
+      kind: 'user',
+      content: [{ type: 'text', text: req.body }],
+      ...(req.responseFormat !== undefined ? { responseFormat: req.responseFormat } : {}),
+      metadata: {
+        submissionId,
+        principalRef: req.origin.principalRef,
+        ...(req.origin.scopeRef !== undefined ? { scopeRef: req.origin.scopeRef } : {}),
+        ...(req.origin.envelopeId !== undefined ? { envelopeId: req.origin.envelopeId } : {}),
+      },
+    }
+  }
+
+  function registerSubmission(
+    inv: Invocation,
+    admissionClass: SubmissionClass,
+    req: SubmissionRequest
+  ): SubmissionRecord {
+    const submissionId = nextSubmissionId(inv)
+    const record: SubmissionRecord = {
+      submissionId,
+      class: admissionClass,
+      origin: req.origin,
+      input: requestToInput(submissionId, req),
+      turnPolicy:
+        admissionClass === 'steer'
+          ? 'open'
+          : ((req as SubmissionEnqueueRequest).turnPolicy ?? 'open'),
+      terminal: false,
+    }
+    inv.submissions.set(submissionId, record)
+    emit(inv, 'admission.requested', {
+      submissionId,
+      class: admissionClass,
+      origin: req.origin,
+      ...(admissionClass !== 'steer' ? { turnPolicy: record.turnPolicy } : {}),
+      ...(req.freshContext !== undefined ? { freshContext: req.freshContext } : {}),
+    })
+    return record
+  }
+
+  function registerLegacySubmission(
+    inv: Invocation,
+    admissionClass: SubmissionClass,
+    input: InvocationInputWithId
+  ): SubmissionRecord {
+    const origin: SubmissionOrigin = {
+      principalRef: input.metadata?.['principalRef'] ?? 'legacy:invocation.input',
+      ...(input.metadata?.['scopeRef'] !== undefined
+        ? { scopeRef: input.metadata['scopeRef'] }
+        : {}),
+      ...(input.metadata?.['envelopeId'] !== undefined
+        ? { envelopeId: input.metadata['envelopeId'] }
+        : {}),
+    }
+    const record: SubmissionRecord = {
+      submissionId: input.inputId,
+      class: admissionClass,
+      origin,
+      input,
+      turnPolicy: 'open',
+      terminal: false,
+    }
+    inv.submissions.set(input.inputId, record)
+    emit(inv, 'admission.requested', {
+      submissionId: input.inputId,
+      class: admissionClass,
+      origin,
+      ...(admissionClass !== 'steer' ? { turnPolicy: 'open' } : {}),
+    })
+    return record
+  }
+
+  function rejectSubmission(
+    inv: Invocation,
+    record: SubmissionRecord,
+    layer: AdmissionLayer,
+    reason: string
+  ): SubmissionResponse {
+    emit(inv, 'admission.rejected', {
+      submissionId: record.submissionId,
+      class: record.class,
+      layer,
+      reason,
+    })
+    emit(inv, 'submission.rejected', { submissionId: record.submissionId, reason })
+    return { submissionId: record.submissionId, admission: 'rejected', reason }
+  }
+
+  async function checkAdmission(
+    inv: Invocation,
+    record: SubmissionRecord,
+    req: SubmissionRequest
+  ): Promise<SubmissionResponse | undefined> {
+    if (!inv.capabilities.admission.classes.includes(record.class)) {
+      return rejectSubmission(inv, record, 'capability', `unsupported:${record.class}`)
+    }
+    if (req.freshContext === true) {
+      return rejectSubmission(inv, record, 'capability', 'fresh-context-unsupported')
+    }
+    if (inv.state !== 'ready' && inv.state !== 'turn_active') {
+      return rejectSubmission(inv, record, 'state', `invalid-state:${inv.state}`)
+    }
+    if (
+      inv.pendingOwnTurnSubmissionId !== undefined &&
+      (record.class === 'steer' || record.class === 'exclusive')
+    ) {
+      return rejectSubmission(inv, record, 'state', 'busy')
+    }
+    if (
+      record.class === 'steer' &&
+      inv.state === 'turn_active' &&
+      inv.currentTurnPolicy === 'guarded'
+    ) {
+      return rejectSubmission(inv, record, 'policy', 'guarded')
+    }
+    const authorized = await authorizeSubmission({
+      invocationId: inv.invocationId,
+      class: record.class,
+      origin: record.origin,
+      ...(inv.currentTurnId !== undefined ? { activeTurnId: inv.currentTurnId } : {}),
+      ...(inv.state === 'turn_active' ? { activeTurnPolicy: inv.currentTurnPolicy } : {}),
+    })
+    if (!authorized) {
+      return rejectSubmission(inv, record, 'authority', 'authority-denied')
+    }
+    return undefined
+  }
+
+  function admitSubmission(inv: Invocation, record: SubmissionRecord): SubmissionResponse {
+    emit(inv, 'admission.admitted', {
+      submissionId: record.submissionId,
+      class: record.class,
+    })
+    return { submissionId: record.submissionId, admission: 'admitted' }
+  }
+
+  function rejectAdmittedExecution(
+    inv: Invocation,
+    record: SubmissionRecord,
+    error: unknown
+  ): void {
+    const heldIndex = inv.brokerQueue.findIndex(
+      (item) => item.record.submissionId === record.submissionId
+    )
+    if (heldIndex >= 0) {
+      const [held] = inv.brokerQueue.splice(heldIndex, 1)
+      if (held?.timer !== undefined) clearTimeout(held.timer)
+    }
+    emit(inv, 'submission.rejected', {
+      submissionId: record.submissionId,
+      reason: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  function queueEntry(item: BrokerHeldSubmission, position: number): BrokerQueueEntry {
+    return {
+      submissionId: item.record.submissionId,
+      origin: item.record.origin,
+      class: item.class,
+      ...(item.ttlMs !== undefined ? { ttlMs: item.ttlMs } : {}),
+      position,
+    }
+  }
+
+  function expireHeldSubmission(inv: Invocation, submissionId: string): void {
+    const index = inv.brokerQueue.findIndex((item) => item.record.submissionId === submissionId)
+    if (index < 0) return
+    const [item] = inv.brokerQueue.splice(index, 1)
+    if (item === undefined || item.record.terminal) return
+    emit(inv, 'queue.expired', { submissionId })
+    emit(inv, 'submission.expired', { submissionId })
+    scheduleAdmissionDrain(inv)
+  }
+
+  function holdSubmission(
+    inv: Invocation,
+    record: SubmissionRecord,
+    admissionClass: 'queue' | 'preempt',
+    ttlMs?: number | undefined
+  ): void {
+    const item: BrokerHeldSubmission = {
+      record,
+      class: admissionClass,
+      ...(ttlMs !== undefined ? { ttlMs, expiresAt: now().getTime() + ttlMs } : {}),
+    }
+    if (admissionClass === 'preempt') inv.brokerQueue.unshift(item)
+    else inv.brokerQueue.push(item)
+    if (ttlMs !== undefined) {
+      item.timer = setTimeout(
+        () => expireHeldSubmission(inv, record.submissionId),
+        Math.max(0, ttlMs)
+      )
+    }
+    const position = inv.brokerQueue.indexOf(item)
+    emit(inv, 'queue.enqueued', {
+      submissionId: record.submissionId,
+      class: admissionClass,
+      position,
+      ...(ttlMs !== undefined ? { ttlMs } : {}),
+    })
+  }
+
+  function scheduleAdmissionDrain(inv: Invocation): void {
+    if (inv.admissionDrainPromise !== undefined) return
+    if (inv.pendingOwnTurnSubmissionId !== undefined) return
+    inv.admissionDrainPromise = Promise.resolve()
+      .then(() => drainAdmissionQueue(inv))
+      .finally(() => {
+        inv.admissionDrainPromise = undefined
+        const head = inv.brokerQueue[0]
+        const quiescenceBlocked =
+          head?.class === 'preempt' &&
+          (inv.driver.probeAdmissionState?.().harnessLocalQueueDepth ?? 0) > 0
+        if (
+          inv.state === 'ready' &&
+          inv.pendingOwnTurnSubmissionId === undefined &&
+          head !== undefined &&
+          !quiescenceBlocked
+        ) {
+          scheduleAdmissionDrain(inv)
+        }
+      })
+  }
+
+  async function drainAdmissionQueue(inv: Invocation): Promise<void> {
+    if (inv.state !== 'ready') return
+    if (inv.pendingOwnTurnSubmissionId !== undefined) return
+    const head = inv.brokerQueue[0]
+    if (head === undefined) return
+    if (
+      head.class === 'preempt' &&
+      head.record.class === 'preempt' &&
+      head.record.terminal === false &&
+      (inv.driver.probeAdmissionState?.().harnessLocalQueueDepth ?? 0) > 0
+    ) {
+      return
+    }
+    inv.brokerQueue.shift()
+    if (head.timer !== undefined) clearTimeout(head.timer)
+    try {
+      await applyAndEmit(inv, head.record.input)
+    } catch (error) {
+      rejectAdmittedExecution(inv, head.record, error)
+    }
+  }
+
+  async function requestPreemptInterrupt(inv: Invocation, record: SubmissionRecord): Promise<void> {
+    const turnId = inv.currentTurnId
+    emit(inv, 'interrupt.requested', {
+      submissionId: record.submissionId,
+      ...(turnId !== undefined ? { turnId } : {}),
+    })
+    try {
+      const result = await inv.driver.interrupt({
+        invocationId: inv.invocationId,
+        scope: 'turn',
+        reason: `submission.preempt:${record.submissionId}`,
+      })
+      if (!result.accepted) {
+        emit(inv, 'interrupt.failed', {
+          submissionId: record.submissionId,
+          ...(turnId !== undefined ? { turnId } : {}),
+          reason: result.reason ?? result.effect,
+        })
+        rejectAdmittedExecution(inv, record, result.reason ?? result.effect)
+        return
+      }
+      emit(inv, 'interrupt.landed', {
+        submissionId: record.submissionId,
+        ...(turnId !== undefined ? { turnId } : {}),
+      })
+      scheduleAdmissionDrain(inv)
+    } catch (error) {
+      emit(inv, 'interrupt.failed', {
+        submissionId: record.submissionId,
+        ...(turnId !== undefined ? { turnId } : {}),
+        reason: error instanceof Error ? error.message : String(error),
+      })
+      rejectAdmittedExecution(inv, record, error)
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Drain logic — promise-guarded, at most one drain in flight per ready window
   // ---------------------------------------------------------------------------
@@ -435,18 +833,27 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     if (inv.drainPromise) return
     if (inv.pending.length === 0) return
     if (inv.state !== 'ready') return
+    if (inv.pendingOwnTurnSubmissionId !== undefined) return
     inv.drainPromise = doDrain(inv).finally(() => {
       inv.drainPromise = undefined
       // Reschedule if invocation is still ready with pending inputs — prevents
       // stalling when a mid-drain failure leaves items in the queue.
-      if (inv.state === 'ready' && inv.pending.length > 0) {
+      if (
+        inv.state === 'ready' &&
+        inv.pendingOwnTurnSubmissionId === undefined &&
+        inv.pending.length > 0
+      ) {
         scheduleDrain(inv)
       }
     })
   }
 
   async function doDrain(inv: Invocation): Promise<void> {
-    while (inv.pending.length > 0 && inv.state === 'ready') {
+    while (
+      inv.pending.length > 0 &&
+      inv.state === 'ready' &&
+      inv.pendingOwnTurnSubmissionId === undefined
+    ) {
       const head = inv.pending.shift()
       if (head === undefined) return
       try {
@@ -463,6 +870,10 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
           },
           { inputId: head.inputId }
         )
+        emit(inv, 'submission.rejected', {
+          submissionId: head.inputId,
+          reason: String(err instanceof Error ? err.message : err),
+        })
       }
     }
   }
@@ -488,8 +899,28 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   ): Promise<{ turnId?: TurnId | undefined }> {
     // Broker owns input.accepted emission — before the driver applies the input
     const { inputId } = input
+    if (inv.submissions.has(inputId)) {
+      if (
+        inv.pendingOwnTurnSubmissionId !== undefined &&
+        inv.pendingOwnTurnSubmissionId !== inputId
+      ) {
+        throw new BrokerError(BrokerErrorCode.InvalidInvocationState, 'Seat delivery is busy', {
+          invocationId: inv.invocationId,
+          submissionId: inv.pendingOwnTurnSubmissionId,
+        })
+      }
+      inv.pendingOwnTurnSubmissionId = inputId
+    }
     emit(inv, 'input.accepted', { inputId, disposition: 'started' }, { inputId })
-    const result = await inv.driver.applyInputNow(input)
+    let result: ApplyInputResult
+    try {
+      result = await inv.driver.applyInputNow(input)
+    } catch (error) {
+      if (inv.pendingOwnTurnSubmissionId === inputId) {
+        inv.pendingOwnTurnSubmissionId = undefined
+      }
+      throw error
+    }
     // Broker-guaranteed turn.started: synthesize the bracket from the delivered
     // input's turnId. Deduped in emit() so it never double-opens a turn the
     // driver/hook also reports. Emitted synchronously after delivery so it
@@ -501,6 +932,26 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         { turnId: result.turnId, source: 'broker-delivery', inputId },
         { turnId: result.turnId, inputId }
       )
+      if (inv.submissions.has(inputId)) {
+        if (result.deliveryDisposition === 'rejected') {
+          emit(
+            inv,
+            'submission.rejected',
+            {
+              submissionId: inputId,
+              reason: result.rejectionReason ?? 'delivery-rejected',
+            },
+            { turnId: result.turnId, inputId }
+          )
+        } else {
+          emit(
+            inv,
+            'submission.executed',
+            { submissionId: inputId, turnId: result.turnId },
+            { turnId: result.turnId, inputId }
+          )
+        }
+      }
     }
     return result
   }
@@ -511,7 +962,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   ): Promise<InvocationInputResponse> {
     const applySteerNow = inv.driver.applySteerNow
     if (applySteerNow === undefined) {
-      return rejectQueueInput(inv, input.inputId, REASON_QUEUE_NOT_SUPPORTED)
+      return rejectQueueInput(inv, input.inputId, REASON_STEER_NOT_SUPPORTED)
     }
 
     // Serialize pane writes only. This does not create a broker-owned pending
@@ -536,6 +987,18 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
           { inputId: input.inputId, disposition: 'attempted_steer' },
           { inputId: input.inputId }
         )
+        if (
+          inv.submissions.has(input.inputId) &&
+          inv.currentTurnId !== undefined &&
+          inv.driver.steerLandingEvidence !== 'transcript'
+        ) {
+          emit(
+            inv,
+            'submission.absorbed',
+            { submissionId: input.inputId, turnId: inv.currentTurnId },
+            { turnId: inv.currentTurnId, inputId: input.inputId }
+          )
+        }
         return {
           inputId: input.inputId,
           accepted: true,
@@ -574,109 +1037,36 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   // Queue eviction — reject all pending when invocation terminates or stops
   // ---------------------------------------------------------------------------
   function evictQueue(inv: Invocation, reason: string): void {
+    if (inv.pendingOwnTurnSubmissionId !== undefined) {
+      const pendingId = inv.pendingOwnTurnSubmissionId
+      inv.pendingOwnTurnSubmissionId = undefined
+      emit(inv, 'submission.cancelled', {
+        submissionId: pendingId,
+        reason: 'teardown',
+      })
+    }
     while (inv.pending.length > 0) {
       const item = inv.pending.shift()
       if (item === undefined) return
       emit(inv, 'input.rejected', { inputId: item.inputId, reason }, { inputId: item.inputId })
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // whenBusy policy dispatch — one handler per policy (OCP): adding a policy is
-  // adding a table entry, not editing an if-chain. Each handler receives the
-  // resolved input and the originating request and returns the input response
-  // (or throws for the rejection paths that surface as broker errors).
-  // ---------------------------------------------------------------------------
-  type BusyInputContext = {
-    inv: Invocation
-    input: InvocationInputWithId
-    inputId: InputId
-    req: InvocationInputRequest
-  }
-
-  async function handleQueueWhenBusy({
-    inv,
-    input,
-    inputId,
-    req,
-  }: BusyInputContext): Promise<InvocationInputResponse> {
-    // Only 'user' kind can be queued
-    if (input.kind !== 'user') {
-      return rejectQueueInput(inv, inputId, REASON_UNSUPPORTED_INPUT_KIND)
-    }
-
-    // Check composed queue capability
-    const queueEnabled =
-      inv.spec.interaction?.inputQueue === 'fifo' && inv.capabilities.input.queue === true
-    if (!queueEnabled) {
-      return rejectQueueInput(inv, inputId, REASON_QUEUE_NOT_SUPPORTED)
-    }
-
-    if (inv.spec.interaction?.mode === 'interactive' && inv.driver.applySteerNow !== undefined) {
-      const response = await attemptSteerAndEmit(inv, input)
-      recordDisposition(inv, req, response)
-      return response
-    }
-
-    // Check depth cap
-    if (inv.pending.length >= maxQueueDepth) {
-      return rejectQueueInput(inv, inputId, REASON_QUEUE_FULL)
-    }
-
-    // Enqueue
-    inv.pending.push({ inputId, input })
-    emit(inv, 'input.queued', { inputId, disposition: 'queued' }, { inputId })
-    const response: InvocationInputResponse = {
-      inputId,
-      accepted: true,
-      disposition: 'queued',
-    }
-    recordDisposition(inv, req, response)
-    return response
-  }
-
-  /**
-   * T-07155 — `whenBusy: 'steer'`. Applies the input to the ACTIVE turn instead
-   * of the FIFO drain queue, so a supervisor order preempts a busy worker.
-   *
-   * Deliberately separate from `handleQueueWhenBusy`, which is left untouched:
-   * `queue` keeps its existing interactive write-through branch and its headless
-   * enqueue, so no current caller changes behaviour. This handler never falls
-   * back to the tail queue — a driver that cannot steer is rejected typed, so an
-   * urgent order can never be silently downgraded into a deferred one.
-   */
-  async function handleSteerWhenBusy({
-    inv,
-    input,
-    inputId,
-    req,
-  }: BusyInputContext): Promise<InvocationInputResponse> {
-    if (input.kind !== 'user') {
-      return rejectQueueInput(inv, inputId, REASON_UNSUPPORTED_INPUT_KIND)
-    }
-    if (inv.driver.applySteerNow === undefined) {
-      return rejectQueueInput(inv, inputId, REASON_STEER_NOT_SUPPORTED)
-    }
-    const response = await attemptSteerAndEmit(inv, input)
-    recordDisposition(inv, req, response)
-    return response
-  }
-
-  const busyPolicyHandlers: Record<
-    InputPolicy['whenBusy'],
-    (ctx: BusyInputContext) => Promise<InvocationInputResponse>
-  > = {
-    reject: async ({ inv, inputId }) => {
-      emit(inv, 'input.rejected', { inputId, reason: REASON_BUSY_REJECTED }, { inputId })
-      throw new BrokerError(BrokerErrorCode.InputRejected, REASON_BUSY_REJECTED, {
-        invocationId: inv.invocationId,
+      emit(inv, 'submission.cancelled', {
+        submissionId: item.inputId,
+        reason: 'teardown',
       })
-    },
-    // interrupt_then_apply is centrally rejected in v1.
-    interrupt_then_apply: async ({ inv, inputId }) =>
-      rejectQueueInput(inv, inputId, REASON_UNSUPPORTED_BUSY_POLICY),
-    queue: handleQueueWhenBusy,
-    steer: handleSteerWhenBusy,
+    }
+    while (inv.brokerQueue.length > 0) {
+      const item = inv.brokerQueue.shift()
+      if (item === undefined) return
+      if (item.timer !== undefined) clearTimeout(item.timer)
+      emit(inv, 'queue.cancelled', {
+        submissionId: item.record.submissionId,
+        principalRef: 'broker',
+      })
+      emit(inv, 'submission.cancelled', {
+        submissionId: item.record.submissionId,
+        reason: 'teardown',
+      })
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -770,6 +1160,21 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         if (typeof generation === 'number') {
           inv.currentHarnessGeneration = generation
         }
+        const preempt = inv.brokerQueue.find((item) => item.class === 'preempt')
+        if (preempt !== undefined && inv.driver.preemptMode === 'quiescence') {
+          void requestPreemptInterrupt(inv, preempt.record)
+        }
+        if (inv.driver.bracketMintingMode === 'harness-evidence' && event.inputId !== undefined) {
+          const record = inv.submissions.get(event.inputId)
+          if (record !== undefined && !record.terminal && event.turnId !== undefined) {
+            emit(
+              inv,
+              'submission.executed',
+              { submissionId: record.submissionId, turnId: event.turnId },
+              { turnId: event.turnId, inputId: event.inputId }
+            )
+          }
+        }
         return
       }
       // biome-ignore lint/suspicious/noFallthroughSwitchClause: intentional — turn.completed increments the counter then shares the turn-end projection below.
@@ -786,6 +1191,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         }
         // Schedule drain if there are pending inputs and we transitioned to ready
         scheduleDrain(inv)
+        scheduleAdmissionDrain(inv)
         return
       case 'invocation.stopping':
         inv.state = 'stopping'
@@ -889,6 +1295,42 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     return emitEvent(inv, { type, payload }, extra)
   }
 
+  function submissionDispositionContext(
+    inv: Invocation,
+    type: InvocationEventType,
+    payload: unknown
+  ): { submissionId?: string; existing?: InvocationEventEnvelope } {
+    if (!SUBMISSION_TERMINAL_TYPES.has(type)) return {}
+    const submissionId = (payload as { submissionId?: string }).submissionId
+    if (submissionId === undefined) return {}
+    const existing = inv.submissionDispositions.get(submissionId)
+    return {
+      submissionId,
+      ...(existing !== undefined ? { existing } : {}),
+    }
+  }
+
+  function buildEventExtra(
+    inv: Invocation,
+    type: InvocationEventType,
+    extra?: InvocationEventExtra
+  ): InvocationEventExtra {
+    const withProvenance: InvocationEventExtra = BROKER_DECISION_TYPES.has(type)
+      ? { ...extra, provenance: BROKER_PROVENANCE }
+      : (extra ?? {})
+    if (
+      type !== 'turn.started' ||
+      withProvenance.inputId !== undefined ||
+      inv.pendingOwnTurnSubmissionId === undefined
+    ) {
+      return withProvenance
+    }
+    return {
+      ...withProvenance,
+      inputId: inv.pendingOwnTurnSubmissionId as InputId,
+    }
+  }
+
   function emitEvent<K extends InvocationEventType>(
     inv: Invocation,
     descriptor: InvocationEventFor<K>,
@@ -900,9 +1342,13 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     extra?: InvocationEventExtra
   ): InvocationEventEnvelope {
     const { type, payload } = descriptor
+    const disposition = submissionDispositionContext(inv, type, payload)
+    if (disposition.existing !== undefined) return disposition.existing
+    const submissionId = disposition.submissionId
+    const eventExtra = buildEventExtra(inv, type, extra)
     const isTurnTerminal = TURN_TERMINAL_TYPES.has(type)
     const terminalTurnId = isTurnTerminal
-      ? (extra?.turnId ?? (payload as { turnId?: TurnId } | undefined)?.turnId)
+      ? (eventExtra.turnId ?? (payload as { turnId?: TurnId } | undefined)?.turnId)
       : undefined
 
     // Exactly-one turn-terminal bracket. An error callback and a late recovery
@@ -947,7 +1393,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     // for the same turn is suppressed (not sequenced, not projected) and the
     // original winning envelope is returned to the (return-ignoring) caller.
     if (descriptor.type === 'turn.started') {
-      const turnId = extra?.turnId ?? descriptor.payload.turnId
+      const turnId = eventExtra.turnId ?? descriptor.payload.turnId
       if (turnId !== undefined) {
         const existing = inv.startedTurns.get(turnId)
         if (existing !== undefined) {
@@ -964,7 +1410,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       maxEventBytes: inv.spec.process.limits?.maxEventBytes,
     })
 
-    const sequencedEvent = sequencer.next(inv.invocationId, type, safePayload, extra)
+    const sequencedEvent = sequencer.next(inv.invocationId, type, safePayload, eventExtra)
     // Runtime producer boundary: validate the fully normalized, sequenced
     // envelope before it can reach state projection, observers, or the durable
     // ledger. The protocol package owns both the map and these validators.
@@ -981,9 +1427,41 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     // above and resolves back to this same envelope (T-04846).
     if (event.type === 'turn.started' && event.turnId !== undefined) {
       inv.startedTurns.set(event.turnId, event)
+      const record = event.inputId !== undefined ? inv.submissions.get(event.inputId) : undefined
+      const policy = record?.class === 'steer' ? 'open' : (record?.turnPolicy ?? 'open')
+      inv.currentTurnPolicy = policy
+      inv.turnManifests.set(event.turnId, {
+        invocationId: inv.invocationId,
+        turnId: event.turnId,
+        policy,
+        submissionIds: [],
+      })
+      if (event.inputId !== undefined && inv.pendingOwnTurnSubmissionId === event.inputId) {
+        inv.pendingOwnTurnSubmissionId = undefined
+      }
     }
     if (TURN_TERMINAL_TYPES.has(event.type) && event.turnId !== undefined) {
       inv.terminalTurns.set(event.turnId, event)
+    }
+    if (submissionId !== undefined) {
+      inv.submissionDispositions.set(submissionId, event)
+      const record = inv.submissions.get(submissionId)
+      if (record !== undefined) record.terminal = true
+      if (
+        (event.type === 'submission.absorbed' || event.type === 'submission.executed') &&
+        event.payload.turnId !== undefined
+      ) {
+        const existingManifest = inv.turnManifests.get(event.payload.turnId)
+        const policy = existingManifest?.policy ?? record?.turnPolicy ?? 'open'
+        const submissionIds = existingManifest?.submissionIds ?? []
+        if (!submissionIds.includes(submissionId)) submissionIds.push(submissionId)
+        inv.turnManifests.set(event.payload.turnId, {
+          invocationId: inv.invocationId,
+          turnId: event.payload.turnId,
+          policy,
+          submissionIds,
+        })
+      }
     }
     // Tool-call bracket bookkeeping (T-06550): open the bracket on a start, close
     // it on either terminal. A real driver terminal AND a broker-synthesized one
@@ -1012,7 +1490,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     // events. Their payloads are small, so they never re-trigger truncation.
     if (diagnostics) {
       for (const diagnostic of diagnostics) {
-        emit(inv, 'diagnostic', diagnostic, extra)
+        emit(inv, 'diagnostic', diagnostic, eventExtra)
       }
     }
 
@@ -1345,6 +1823,16 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         spec.interaction?.inputQueue === 'fifo'
       const capabilities: InvocationCapabilities = {
         ...driverCaps,
+        admission: {
+          // Admission is a driver declaration, not an inference from method
+          // presence. A driver may retain a legacy input method without being
+          // able to provide the evidence required by a v0.3 admission class.
+          classes: [...driverCaps.admission.classes],
+        },
+        bracketMintingMode: driver.bracketMintingMode,
+        queue: { cancelHarnessLocal: false },
+        preempt: { mode: driver.preemptMode },
+        steer: { landingEvidence: driver.steerLandingEvidence },
         input: {
           ...driverCaps.input,
           // Broker-composed: the public surface reflects the composed value,
@@ -1370,6 +1858,12 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         terminalEmitted: false,
         disposedEmitted: false,
         pending: [],
+        brokerQueue: [],
+        submissions: new Map(),
+        submissionDispositions: new Map(),
+        turnManifests: new Map(),
+        currentTurnPolicy: 'open',
+        submissionCounter: 0,
         inputCounter: 0,
         inputDispositions: new Map(),
         startedTurns: new Map(),
@@ -1444,7 +1938,14 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       if (initialInput !== undefined && !inv.terminalEmitted) {
         const inputId = resolveInputId(inv, initialInput)
         const inputWithId: InvocationInputWithId = { ...initialInput, inputId }
-        await applyAndEmit(inv, inputWithId)
+        const submission = registerLegacySubmission(inv, 'exclusive', inputWithId)
+        admitSubmission(inv, submission)
+        try {
+          await applyAndEmit(inv, inputWithId)
+        } catch (error) {
+          rejectAdmittedExecution(inv, submission, error)
+          throw error
+        }
       }
 
       return {
@@ -1455,6 +1956,160 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
           ? { acceptedLifecyclePolicy: acceptedLifecyclePolicy(lifecyclePolicy) }
           : {}),
       }
+    },
+
+    async steer(req: SubmissionSteerRequest): Promise<SubmissionResponse> {
+      const inv = requireInvocation(req.invocationId)
+      const record = registerSubmission(inv, 'steer', req)
+      const rejection = await checkAdmission(inv, record, req)
+      if (rejection !== undefined) return rejection
+      const response = admitSubmission(inv, record)
+      if (inv.state === 'ready') {
+        void applyAndEmit(inv, record.input).catch((error) =>
+          rejectAdmittedExecution(inv, record, error)
+        )
+      } else {
+        void attemptSteerAndEmit(inv, record.input).then((result) => {
+          if (!result.accepted)
+            rejectAdmittedExecution(inv, record, result.reason ?? 'steer-failed')
+        })
+      }
+      return response
+    },
+
+    async enqueue(req: SubmissionEnqueueRequest): Promise<SubmissionResponse> {
+      const inv = requireInvocation(req.invocationId)
+      const record = registerSubmission(inv, 'queue', req)
+      const rejection = await checkAdmission(inv, record, req)
+      if (rejection !== undefined) return rejection
+      if (inv.brokerQueue.length >= maxQueueDepth) {
+        return rejectSubmission(inv, record, 'state', REASON_QUEUE_FULL)
+      }
+      const response = admitSubmission(inv, record)
+      holdSubmission(inv, record, 'queue', req.ttlMs)
+      scheduleAdmissionDrain(inv)
+      return response
+    },
+
+    async invoke(req: SubmissionInvokeRequest): Promise<SubmissionResponse> {
+      const inv = requireInvocation(req.invocationId)
+      const record = registerSubmission(inv, 'exclusive', req)
+      const rejection = await checkAdmission(inv, record, req)
+      if (rejection !== undefined) return rejection
+      if (inv.state === 'turn_active' || inv.pendingOwnTurnSubmissionId !== undefined) {
+        return rejectSubmission(inv, record, 'state', 'busy')
+      }
+      const response = admitSubmission(inv, record)
+      void applyAndEmit(inv, record.input).catch((error) =>
+        rejectAdmittedExecution(inv, record, error)
+      )
+      return response
+    },
+
+    async preempt(req: SubmissionPreemptRequest): Promise<SubmissionResponse> {
+      const inv = requireInvocation(req.invocationId)
+      const record = registerSubmission(inv, 'preempt', req)
+      const rejection = await checkAdmission(inv, record, req)
+      if (rejection !== undefined) return rejection
+      const response = admitSubmission(inv, record)
+      holdSubmission(inv, record, 'preempt', req.ttlMs)
+      if (inv.state === 'turn_active') void requestPreemptInterrupt(inv, record)
+      else scheduleAdmissionDrain(inv)
+      return response
+    },
+
+    queueList(invocationId: InvocationId): QueueListResponse {
+      const inv = requireInvocation(invocationId)
+      return { entries: inv.brokerQueue.map(queueEntry) }
+    },
+
+    async queueJump(req: QueueJumpRequest): Promise<QueueJumpResponse> {
+      const inv = requireInvocation(req.invocationId)
+      const fromPosition = inv.brokerQueue.findIndex(
+        (item) => item.record.submissionId === req.submissionId
+      )
+      if (fromPosition < 0) return { jumped: false, reason: 'not-broker-held' }
+      const queued = inv.brokerQueue[fromPosition]
+      if (queued === undefined) return { jumped: false, reason: 'not-broker-held' }
+      const toPosition = Math.max(0, Math.min(req.position, inv.brokerQueue.length - 1))
+      const authorized = await authorizeQueueJump({
+        invocationId: inv.invocationId,
+        principalRef: req.principalRef,
+        submissionOrigin: queued.record.origin,
+        fromPosition,
+        toPosition,
+      })
+      if (!authorized) return { jumped: false, reason: 'authority-denied' }
+      const [item] = inv.brokerQueue.splice(fromPosition, 1)
+      if (item === undefined) return { jumped: false, reason: 'not-broker-held' }
+      inv.brokerQueue.splice(toPosition, 0, item)
+      emit(inv, 'queue.jumped', {
+        submissionId: req.submissionId,
+        fromPosition,
+        toPosition,
+        principalRef: req.principalRef,
+      })
+      scheduleAdmissionDrain(inv)
+      return { jumped: true }
+    },
+
+    async queueCancel(req: QueueCancelRequest): Promise<QueueCancelResponse> {
+      const inv = requireInvocation(req.invocationId)
+      const index = inv.brokerQueue.findIndex(
+        (item) => item.record.submissionId === req.submissionId
+      )
+      if (index < 0) return { cancelled: false, reason: 'not-broker-held' }
+      const item = inv.brokerQueue[index]
+      if (
+        item === undefined ||
+        (item.record.origin.principalRef !== req.principalRef && !isOperator(req.principalRef))
+      ) {
+        return { cancelled: false, reason: 'authority-denied' }
+      }
+      inv.brokerQueue.splice(index, 1)
+      if (item.timer !== undefined) clearTimeout(item.timer)
+      emit(inv, 'queue.cancelled', {
+        submissionId: req.submissionId,
+        principalRef: req.principalRef,
+      })
+      emit(inv, 'submission.cancelled', {
+        submissionId: req.submissionId,
+        reason: 'broker-cancelled',
+      })
+      return { cancelled: true }
+    },
+
+    turnManifest(invocationId: InvocationId, turnId: TurnId): TurnManifestResponse {
+      const inv = requireInvocation(invocationId)
+      return (
+        inv.turnManifests.get(turnId) ?? {
+          invocationId,
+          turnId,
+          policy: 'open',
+          submissionIds: [],
+        }
+      )
+    },
+
+    seatProbe(invocationId: InvocationId): SeatProbeResponse {
+      const inv = requireInvocation(invocationId)
+      const seat =
+        inv.state === 'ready' && inv.pendingOwnTurnSubmissionId !== undefined
+          ? ({ state: 'starting' } as const)
+          : inv.state === 'ready'
+            ? ({ state: 'idle' } as const)
+            : inv.state === 'turn_active' && inv.currentTurnId !== undefined
+              ? ({
+                  state: 'turn-active',
+                  turnId: inv.currentTurnId,
+                  policy: inv.currentTurnPolicy,
+                } as const)
+              : inv.state === 'starting'
+                ? ({ state: 'starting' } as const)
+                : inv.state === 'stopping'
+                  ? ({ state: 'stopping' } as const)
+                  : ({ state: 'terminal' } as const)
+      return { invocationId, seat, brokerHeldDepth: inv.brokerQueue.length }
     },
 
     async input(req: InvocationInputRequest): Promise<InvocationInputResponse> {
@@ -1483,59 +2138,83 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       const rawInput = req.input
       const inputId = resolveInputId(inv, rawInput)
       const input: InvocationInputWithId = { ...rawInput, inputId }
+      const seatBusy = inv.state === 'turn_active' || inv.pendingOwnTurnSubmissionId !== undefined
+      const admissionClass: SubmissionClass = seatBusy
+        ? req.policy?.whenBusy === 'queue'
+          ? 'queue'
+          : req.policy?.whenBusy === 'interrupt_then_apply'
+            ? 'preempt'
+            : req.policy?.whenBusy === 'steer' || input.kind === 'steer'
+              ? 'steer'
+              : 'exclusive'
+        : input.kind === 'steer'
+          ? 'steer'
+          : 'exclusive'
+      const submission = registerLegacySubmission(inv, admissionClass, input)
+
+      const rejectLegacy = (
+        layer: AdmissionLayer,
+        reason: string,
+        code: BrokerErrorCode = BrokerErrorCode.InputRejected
+      ): never => {
+        rejectSubmission(inv, submission, layer, reason)
+        emit(inv, 'input.rejected', { inputId, reason }, { inputId })
+        throw new BrokerError(code, reason, { invocationId: inv.invocationId, inputId })
+      }
+      const rejectLegacyResponse = (
+        layer: AdmissionLayer,
+        reason: string
+      ): InvocationInputResponse => {
+        rejectSubmission(inv, submission, layer, reason)
+        const response = rejectQueueInput(inv, inputId, reason)
+        recordDisposition(inv, req, response)
+        return response
+      }
 
       // Invalid state rejection
       if (inv.state !== 'ready' && inv.state !== 'turn_active') {
-        throw new BrokerError(
-          BrokerErrorCode.InvalidInvocationState,
+        rejectLegacy(
+          'state',
           `Cannot accept input in state: ${inv.state}`,
-          { invocationId: inv.invocationId, state: inv.state }
+          BrokerErrorCode.InvalidInvocationState
         )
       }
 
       if (input.kind === 'steer' && !inv.capabilities.input.steer) {
-        emit(
-          inv,
-          'input.rejected',
-          { inputId, reason: 'UnsupportedCapability: input.steer' },
-          { inputId }
-        )
-        throw new BrokerError(
-          BrokerErrorCode.UnsupportedCapability,
-          'UnsupportedCapability: input.steer'
+        rejectLegacy(
+          'capability',
+          'UnsupportedCapability: input.steer',
+          BrokerErrorCode.UnsupportedCapability
         )
       }
       if (input.kind === 'append_context' && !inv.capabilities.input.appendContext) {
-        emit(
-          inv,
-          'input.rejected',
-          { inputId, reason: 'UnsupportedCapability: input.appendContext' },
-          { inputId }
-        )
-        throw new BrokerError(
-          BrokerErrorCode.UnsupportedCapability,
-          'UnsupportedCapability: input.appendContext'
+        rejectLegacy(
+          'capability',
+          'UnsupportedCapability: input.appendContext',
+          BrokerErrorCode.UnsupportedCapability
         )
       }
       // T-03779: a JSON Schema response format is accepted only when the driver
       // advertises per-turn structured support. Reject before input.accepted,
       // queueing, or driver apply.
       if (requestsJsonSchemaResponse(input) && !supportsJsonSchemaResponse(inv.capabilities)) {
-        emit(
-          inv,
-          'input.rejected',
-          { inputId, reason: REASON_UNSUPPORTED_FINAL_RESPONSE },
-          { inputId }
-        )
-        throw new BrokerError(
-          BrokerErrorCode.UnsupportedCapability,
-          REASON_UNSUPPORTED_FINAL_RESPONSE
+        rejectLegacy(
+          'capability',
+          REASON_UNSUPPORTED_FINAL_RESPONSE,
+          BrokerErrorCode.UnsupportedCapability
         )
       }
 
       // --- State: ready → apply immediately ---
-      if (inv.state === 'ready') {
-        const result = await applyAndEmit(inv, input)
+      if (inv.state === 'ready' && inv.pendingOwnTurnSubmissionId === undefined) {
+        admitSubmission(inv, submission)
+        let result: ApplyInputResult
+        try {
+          result = await applyAndEmit(inv, input)
+        } catch (error) {
+          rejectAdmittedExecution(inv, submission, error)
+          throw error
+        }
         const response: InvocationInputResponse = {
           inputId,
           accepted: true,
@@ -1550,23 +2229,64 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       const policy = req.policy
 
       // Default: no policy → reject (legacy behavior)
-      if (!policy) {
-        throw new BrokerError(
-          BrokerErrorCode.InputRejected,
-          'Input rejected: turn already active (no policy specified)',
-          { invocationId: inv.invocationId }
-        )
-      }
+      const busyPolicy =
+        policy ?? rejectLegacy('state', 'Input rejected: turn already active (no policy specified)')
 
-      const handler = busyPolicyHandlers[policy.whenBusy]
-      if (handler === undefined) {
-        throw new BrokerError(
-          BrokerErrorCode.InputRejected,
-          `Unknown whenBusy policy: ${(policy as { whenBusy: string }).whenBusy}`,
-          { invocationId: inv.invocationId }
-        )
+      if (busyPolicy.whenBusy === 'reject') {
+        rejectLegacy('state', REASON_BUSY_REJECTED)
       }
-      return handler({ inv, input, inputId, req })
+      if (busyPolicy.whenBusy === 'queue') {
+        if (input.kind !== 'user') {
+          return rejectLegacyResponse('capability', REASON_UNSUPPORTED_INPUT_KIND)
+        }
+        const queueEnabled =
+          inv.spec.interaction?.inputQueue === 'fifo' && inv.capabilities.input.queue === true
+        if (!queueEnabled) {
+          return rejectLegacyResponse('capability', REASON_QUEUE_NOT_SUPPORTED)
+        }
+        if (
+          inv.spec.interaction?.mode === 'interactive' &&
+          inv.driver.applySteerNow !== undefined
+        ) {
+          admitSubmission(inv, submission)
+          const response = await attemptSteerAndEmit(inv, input)
+          if (!response.accepted) {
+            rejectAdmittedExecution(inv, submission, response.reason ?? REASON_STEER_NOT_SUPPORTED)
+          }
+          recordDisposition(inv, req, response)
+          return response
+        }
+        if (inv.pending.length >= maxQueueDepth) {
+          return rejectLegacyResponse('state', REASON_QUEUE_FULL)
+        }
+        admitSubmission(inv, submission)
+        inv.pending.push({ inputId, input })
+        emit(inv, 'input.queued', { inputId, disposition: 'queued' }, { inputId })
+        const response: InvocationInputResponse = {
+          inputId,
+          accepted: true,
+          disposition: 'queued',
+        }
+        recordDisposition(inv, req, response)
+        return response
+      }
+      if (busyPolicy.whenBusy === 'interrupt_then_apply') {
+        return rejectLegacyResponse('capability', REASON_UNSUPPORTED_BUSY_POLICY)
+      }
+      if (input.kind !== 'user') {
+        return rejectLegacyResponse('capability', REASON_UNSUPPORTED_INPUT_KIND)
+      }
+      if (inv.driver.applySteerNow === undefined) {
+        return rejectLegacyResponse('capability', REASON_STEER_NOT_SUPPORTED)
+      }
+      if (inv.currentTurnPolicy === 'guarded') {
+        return rejectLegacyResponse('policy', 'guarded')
+      }
+      admitSubmission(inv, submission)
+      const response = await attemptSteerAndEmit(inv, input)
+      if (!response.accepted) rejectAdmittedExecution(inv, submission, response.reason)
+      recordDisposition(inv, req, response)
+      return response
     },
 
     async interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
@@ -1574,8 +2294,30 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       if (TERMINAL_STATES.has(inv.state) || inv.state === 'disposed') {
         return { accepted: false, effect: 'no_active_turn', reason: `Invocation is ${inv.state}` }
       }
-
-      return inv.driver.interrupt(req)
+      const turnId = inv.currentTurnId
+      emit(inv, 'interrupt.requested', {
+        ...(turnId !== undefined ? { turnId } : {}),
+      })
+      try {
+        const response = await inv.driver.interrupt(req)
+        if (response.accepted) {
+          emit(inv, 'interrupt.landed', {
+            ...(turnId !== undefined ? { turnId } : {}),
+          })
+        } else {
+          emit(inv, 'interrupt.failed', {
+            ...(turnId !== undefined ? { turnId } : {}),
+            reason: response.reason ?? response.effect,
+          })
+        }
+        return response
+      } catch (error) {
+        emit(inv, 'interrupt.failed', {
+          ...(turnId !== undefined ? { turnId } : {}),
+          reason: error instanceof Error ? error.message : String(error),
+        })
+        throw error
+      }
     },
 
     async stop(req: InvocationStopRequest): Promise<InvocationStopResponse> {

@@ -170,7 +170,7 @@ describe('broker-guaranteed turn.started bracket (T-04846)', () => {
     const response = await broker.input({
       invocationId,
       input: userInput('input_steer', 'steer text'),
-      policy: { whenBusy: 'queue' },
+      policy: { whenBusy: 'steer' },
     })
 
     expect(response).toMatchObject({ disposition: 'attempted_steer' })

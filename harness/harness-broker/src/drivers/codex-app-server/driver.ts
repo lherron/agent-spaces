@@ -470,6 +470,8 @@ export function createCodexAppServerDriver(): Driver {
     kind: 'codex-app-server',
     version: '0.1.0',
     bracketMintingMode: 'delivery-acknowledged',
+    preemptMode: 'atomic',
+    steerLandingEvidence: 'ack',
 
     capabilities(): InvocationCapabilities {
       return CODEX_CAPABILITIES
@@ -814,15 +816,26 @@ export function createCodexAppServerDriver(): Driver {
     },
 
     async interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
-      const reason =
-        req.scope === 'turn'
-          ? 'Codex app-server v0 does not support turn interrupt'
-          : 'Codex app-server v0 interrupt unsupported'
-      return {
-        accepted: false,
-        effect: 'unsupported',
-        reason,
+      if (req.scope !== 'turn') {
+        return {
+          accepted: false,
+          effect: 'unsupported',
+          reason: 'Codex invocation-scope interrupt is unsupported',
+        }
       }
+      if (!rpc || !threadId || !turnActive || currentTurnId === undefined) {
+        return { accepted: false, effect: 'no_active_turn' }
+      }
+      const turnId = currentTurnId
+      try {
+        await rpc.sendRequest('turn/interrupt', { threadId, turnId })
+      } catch (error) {
+        throw new BrokerError(
+          BrokerErrorCode.HarnessError,
+          error instanceof Error ? error.message : 'Codex turn/interrupt failed'
+        )
+      }
+      return { accepted: true, effect: 'turn_interrupted' }
     },
 
     async stop(req: InvocationStopRequest): Promise<InvocationStopResponse> {
