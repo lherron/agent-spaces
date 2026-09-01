@@ -157,6 +157,85 @@ describe('event family taxonomy', () => {
   })
 })
 
+describe('disposition provenance may name any source; broker-only facts may not', () => {
+  // Ruling on wrkq T-07863 (pointer on T-07860): provenance must be TRUE, so a
+  // DISPOSITION accepts whichever source actually produced it, while a fact only
+  // the broker can author must still say `broker`. Before the ruling,
+  // `submission.absorbed` was broker-only, which forced claude-code-tmux to
+  // overwrite the session-JSONL record it was minted from with a false one.
+  const transcript: EventProvenance = {
+    rawRecordId: 'raw_000045',
+    sourceKind: 'provider-jsonl',
+    sourceEpoch: 'ep_1',
+    sourceCursor: { byteOffset: 10, line: 2 },
+    nativeType: 'attachment:queued_command',
+    rawSha256: 'a'.repeat(64),
+    normalizer: { name: 'claude-code-tmux', version: '0.1.0' },
+  }
+
+  test('absorbed / executed / cancelled accept provider-observed provenance', () => {
+    expect(() =>
+      validateEventEnvelope(
+        envelope({
+          type: 'submission.absorbed',
+          provenance: transcript,
+          payload: { submissionId: 's1', turnId: 'turn_live' },
+        })
+      )
+    ).not.toThrow()
+    expect(() =>
+      validateEventEnvelope(
+        envelope({
+          type: 'submission.executed',
+          provenance: transcript,
+          payload: { submissionId: 's1', turnId: 'turn_live' },
+        })
+      )
+    ).not.toThrow()
+    // `cancelled{reason:'recalled'}` IS the transcript popAll row.
+    expect(() =>
+      validateEventEnvelope(
+        envelope({
+          type: 'submission.cancelled',
+          provenance: transcript,
+          payload: { submissionId: 's1', reason: 'recalled' },
+        })
+      )
+    ).not.toThrow()
+  })
+
+  test('a disposition still REQUIRES provenance — any source, but not none', () => {
+    expect(() =>
+      validateEventEnvelope(
+        envelope({ type: 'submission.absorbed', payload: { submissionId: 's1', turnId: 't' } })
+      )
+    ).toThrow()
+  })
+
+  test('a broker-only fact rejects provider-observed provenance', () => {
+    // An admission refusal and a TTL expiry are broker decisions; no provider
+    // reports them, so claiming one did is a falsehood the schema catches.
+    expect(() =>
+      validateEventEnvelope(
+        envelope({
+          type: 'submission.rejected',
+          provenance: transcript,
+          payload: { submissionId: 's1', reason: 'busy_rejected' },
+        })
+      )
+    ).toThrow()
+    expect(() =>
+      validateEventEnvelope(
+        envelope({
+          type: 'admission.admitted',
+          provenance: transcript,
+          payload: { submissionId: 's1', class: 'steer', origin: 'operator', layer: 'broker' },
+        })
+      )
+    ).toThrow()
+  })
+})
+
 describe('capture types compile against their documented shapes', () => {
   test('the raw record, disposition, matrix and RPC shapes are usable as declared', () => {
     const cursor: RawSourceCursor = { byteOffset: 0, line: 1, nativeSequence: 'n1' }

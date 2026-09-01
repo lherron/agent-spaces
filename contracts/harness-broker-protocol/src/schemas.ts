@@ -163,6 +163,26 @@ const EVENT_TYPES = [
   'provider.transcript.reported',
 ] as const satisfies readonly InvocationEventType[]
 
+/**
+ * Events that can ONLY be broker facts, and whose provenance must therefore say
+ * so. Admission, the broker-held queue and interrupt actuation are decisions the
+ * broker makes; `submission.rejected` is an admission refusal and
+ * `submission.expired` a TTL — no provider reports any of them.
+ *
+ * `submission.absorbed`, `submission.executed` and `submission.cancelled` were
+ * in this set and have been REMOVED (mable's ruling on wrkq T-07863, recorded
+ * there and on T-07860). They are DISPOSITIONS, and a disposition reports what
+ * the harness did with a submission:
+ *   - on an evidence driver, `absorbed`/`executed` are minted from the session
+ *     JSONL and nothing else (T-07849 rev 11), and on a headless driver they may
+ *     be broker- or API-acknowledged;
+ *   - `cancelled{reason:'recalled'}` is the transcript `popAll` row (provider),
+ *     while `cancelled{reason:'teardown'}` is broker lifecycle knowledge.
+ * Requiring `sourceKind:'broker'` on them forced the emitter to overwrite a true
+ * record with a false one — falsifying the very field T-07853 §7.2 exists to
+ * make truthful. They still require WELL-FORMED provenance; they simply accept
+ * whichever source actually produced them.
+ */
 const BROKER_PROVENANCE_EVENT_TYPES = new Set<InvocationEventType>([
   'admission.requested',
   'admission.admitted',
@@ -174,12 +194,19 @@ const BROKER_PROVENANCE_EVENT_TYPES = new Set<InvocationEventType>([
   'interrupt.requested',
   'interrupt.landed',
   'interrupt.failed',
-  'submission.absorbed',
-  'submission.executed',
   'submission.rejected',
   'submission.expired',
-  'submission.cancelled',
   'capture.warning',
+])
+
+/**
+ * Dispositions: provenance is REQUIRED and must be well-formed, but any source
+ * kind is legitimate because the emitter's true record is the authority.
+ */
+const REQUIRED_PROVENANCE_EVENT_TYPES = new Set<InvocationEventType>([
+  'submission.absorbed',
+  'submission.executed',
+  'submission.cancelled',
 ])
 
 // Compile-time exhaustiveness guard: if a union member is missing from the
@@ -299,6 +326,8 @@ export function validateEventEnvelope(value: unknown): InvocationEventEnvelope {
       })
       if (BROKER_PROVENANCE_EVENT_TYPES.has(eventType)) {
         validateBrokerProvenance(envelope['provenance'], issues)
+      } else if (REQUIRED_PROVENANCE_EVENT_TYPES.has(eventType)) {
+        requireEventProvenance(envelope['provenance'], issues)
       }
     }
   }
@@ -362,6 +391,17 @@ function validateEventProvenance(value: unknown, issues: ValidationIssue[]): voi
         }
       }
     }
+  }
+}
+
+/**
+ * Provenance must be PRESENT and well-formed, with any source kind. Shape
+ * checking is `validateEventProvenance`'s job and has already run on the
+ * envelope; this only adds the presence requirement.
+ */
+function requireEventProvenance(value: unknown, issues: ValidationIssue[]): void {
+  if (value === undefined) {
+    issues.push(makeIssue('provenance', 'required', 'disposition provenance is required'))
   }
 }
 

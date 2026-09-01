@@ -90,6 +90,30 @@ without reminting it. Declaring `hook` here would be exactly the false claim the
 law forbids. Pi session JSONL is non-authoritative until a separately approved
 evidence change.
 
+## Disposition provenance: any source, never none
+
+`submission.absorbed`, `submission.executed` and `submission.cancelled` REQUIRE
+provenance and accept **any** `sourceKind`. `submission.rejected`,
+`submission.expired`, `admission.*`, `queue.*` and `interrupt.*` require
+`sourceKind: 'broker'`.
+
+The split is the point. A disposition reports what the harness *did* with a
+submission, and the source of that fact varies by driver and by outcome:
+
+- on an evidence driver, `absorbed`/`executed` are minted from the session JSONL
+  and nothing else (T-07849 rev 11); on a headless driver they may be broker- or
+  API-acknowledged;
+- `cancelled{reason:'recalled'}` is the transcript `popAll` row (provider), while
+  `cancelled{reason:'teardown'}` is broker lifecycle knowledge;
+- an admission refusal or a TTL expiry has no provider behind it at all.
+
+`submission.absorbed`/`executed`/`cancelled` were briefly broker-only, which
+forced the emitter to overwrite a true record with a false one — falsifying the
+very field this contract exists to make truthful. Ruled on wrkq T-07863 (pointer
+on T-07860): the ledger must never carry a rewritten provenance. This is what
+makes the `submission-disposition: native` cell honestly true for
+claude-code-tmux.
+
 ## Exception matrix
 
 A family's declared value names its **primary** owner. Where a specific event

@@ -1414,27 +1414,22 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     extra?: InvocationEventExtra
   ): InvocationEventExtra {
     // Provenance precedence (T-07853 §7.2):
-    //   1. BROKER_DECISION_TYPES — the schema `validateBrokerProvenance`
-    //      REQUIRES `sourceKind:'broker'` for these, so nothing else may be
-    //      stamped on them whatever the emitter holds;
-    //   2. what the EMITTER supplied — it holds the committed raw record this
+    //   1. what the EMITTER supplied — it holds the committed raw record this
     //      event was normalized from, which no default can reconstruct;
+    //   2. the broker-decision default for the admission/queue/interrupt types
+    //      that are broker facts by construction (T-07860);
     //   3. the driver's DECLARED authority for the family, so a
     //      provider-observed fact is never labelled broker-authored.
     //
-    // Rule 1 is currently WIDER than it should be and it is an OPEN QUESTION
-    // escalated to the campaign owner, not a settled position. T-07860 places
-    // `submission.*` in that set, but for claude-code-tmux `submission.absorbed`
-    // and `submission.executed` are minted from session-JSONL queue evidence
-    // (T-07849 rev 10) and nothing else — a live mid-turn parity report is what
-    // exposed the collision, because attaching the true transcript provenance
-    // makes the envelope fail upstream's validator. Rule 1 wins here ONLY so
-    // that T-07860's landed behaviour does not regress while the ruling is
-    // pending; the `user.message` minted from the same raw row still carries
-    // that row's real provenance, so the evidence link survives.
-    const suppliedProvenance = BROKER_DECISION_TYPES.has(type)
-      ? BROKER_PROVENANCE
-      : (extra?.provenance ?? declaredProvenance(inv, type, extra?.driver?.rawType))
+    // Order 1-before-2 is the ruling on wrkq T-07863: the ledger must never
+    // carry a rewritten provenance. `submission.absorbed`/`executed`/`cancelled`
+    // are DISPOSITIONS — on claude-code-tmux they are minted from session-JSONL
+    // queue evidence (T-07849 rev 11) and carry that row's real record — so the
+    // schema requires provenance on them without dictating its source.
+    const suppliedProvenance =
+      extra?.provenance ??
+      (BROKER_DECISION_TYPES.has(type) ? BROKER_PROVENANCE : undefined) ??
+      declaredProvenance(inv, type, extra?.driver?.rawType)
     const withProvenance: InvocationEventExtra = { ...extra, provenance: suppliedProvenance }
     if (
       type !== 'turn.started' ||
