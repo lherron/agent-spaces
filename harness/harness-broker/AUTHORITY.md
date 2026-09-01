@@ -141,6 +141,25 @@ The tables that decide `ignored-known` vs `blocked-unknown` are
   `src/drivers/pi-tui-tmux/native-types.ts` — the hook names the broker
   registers for each harness.
 
+### A named gap: the Codex rollout vocabulary is not pinned yet
+
+`claude-code-tmux`'s native-type table was enumerated from three archived real
+sessions, so it can tell "reviewed and intentionally ignored" apart from "new,
+and therefore suspect". **codex-cli-tmux has no such archive.** Its rollout rows
+are now captured verbatim with cursors and dispositions, but a row the reader
+does not consume is dispositioned `ignored-known` (carrying its type in
+`detail`), never `blocked-unknown`.
+
+This is deliberate and it is a gap, not a design: inventing a known-types table
+for a vocabulary nobody has enumerated would either halt real sessions on
+ordinary rows, or — worse — give a false assurance of completeness. Capturing
+every row is what makes the table derivable, so pinning it from real captures is
+the concrete prerequisite for the Phase 3 Codex CLI authority cutover, alongside
+that phase's own parity requirement.
+
+`pi-tui-tmux` has no transcript reader at all (hooks only, by the accepted risk
+above), so it has no equivalent gap.
+
 ### A named risk: unknown Claude attachment subtypes do not halt
 
 An attachment subtype outside the pinned set is attributed to `diagnostic`, so
