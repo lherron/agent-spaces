@@ -278,6 +278,17 @@ export interface SubmissionCancelledPayload {
 export interface CaptureWarningPayload {
   message: string
   raw: unknown
+  /**
+   * Stable machine-readable discriminator for warnings a consumer must be able
+   * to act on rather than merely render. Optional: most capture warnings are
+   * free-form driver diagnostics and carry only `message`/`raw`.
+   *
+   * Known kinds:
+   * - `ledger_tail_repaired` — the broker truncated a torn trailing record from
+   *   the durable event ledger at startup (a crash mid-append). `raw` carries
+   *   the truncation offset and byte count.
+   */
+  kind?: string | undefined
 }
 
 /**

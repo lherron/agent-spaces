@@ -504,6 +504,10 @@ async function runUnix(args: string[], options: RunBrokerCliOptions): Promise<vo
 
   const shutdown = (): void => {
     netServer.close()
+    // Release the durable consumer-state index handle. Its contents are already
+    // fsync'd per write (synchronous=FULL), so a `kill -9` that skips this loses
+    // nothing — this only avoids leaving a WAL open on a clean exit.
+    eventLedger?.close()
     void Promise.all([observer?.close(), unlink(socketPath).catch(() => {})]).then(() => {
       process.exit(0)
     })

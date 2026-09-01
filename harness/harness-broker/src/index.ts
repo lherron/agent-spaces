@@ -12,6 +12,23 @@ export type { InvocationEventSequencer, EventSequencerOptions } from './events'
 
 export { BrokerError, toJsonRpcError } from './errors'
 
+export { createEventLedger, replayBelowFloorError } from './event-ledger'
+export type {
+  EventLedger,
+  EventLedgerAckResult,
+  EventLedgerAppendResult,
+  EventLedgerOptions,
+  EventLedgerPruneOptions,
+  LedgerTailRepair,
+} from './event-ledger'
+
+export { createCommittedEventPublisher, LEDGER_APPEND_FAILED } from './ledger-commit'
+export type {
+  CommittedEventPublisher,
+  CommittedEventPublisherOptions,
+  LedgerStorageFailure,
+} from './ledger-commit'
+
 export { validateJsonSchemaValue } from './json-schema'
 export type { JsonSchemaValidationResult } from './json-schema'
 

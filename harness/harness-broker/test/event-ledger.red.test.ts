@@ -39,8 +39,11 @@ describe('event ledger red tests for T-01793 Phase C1', () => {
     await withLedger(async (ledger) => {
       const first = event('inv_ledger_idempotent', 1, 'invocation.started', { pid: 123 })
 
-      await expect(ledger.append(first)).resolves.toEqual({ appended: true })
-      await expect(ledger.append(structuredClone(first))).resolves.toEqual({ appended: false })
+      await expect(ledger.append(first)).resolves.toEqual({ appended: true, seq: 1 })
+      await expect(ledger.append(structuredClone(first))).resolves.toEqual({
+        appended: false,
+        seq: 1,
+      })
       await expect(
         ledger.append(event('inv_ledger_idempotent', 1, 'invocation.started', { pid: 456 }))
       ).rejects.toMatchObject({

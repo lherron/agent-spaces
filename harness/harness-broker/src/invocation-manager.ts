@@ -51,6 +51,7 @@ import type { Driver, DriverContext } from './drivers/driver'
 import { BrokerError } from './errors'
 import { stableJsonStringify } from './event-ledger'
 import type { InvocationEventExtra, InvocationEventSequencer } from './events'
+import { LEDGER_APPEND_FAILED } from './ledger-commit'
 import type { DispatchEnv } from './runtime/env'
 import { normalizeEventPayload } from './runtime/event-normalize'
 
@@ -399,6 +400,14 @@ export interface InvocationManager {
   ): InvocationInspectionSummary
   listInvocations(req: BrokerListInvocationsRequest): BrokerListInvocationsResponse
   activeCount(): number
+  /**
+   * Drive an invocation to a typed storage failure after its durable event
+   * ledger refused an append. Called synchronously from the commit-before-publish
+   * path, so it must never throw: it emits the terminal (the only event still
+   * allowed onto the poisoned stream) and then stops/disposes the driver
+   * cleanly in the background.
+   */
+  failForStorage(invocationId: InvocationId, detail: string): void
 }
 
 export function createInvocationManager(options: InvocationManagerOptions): InvocationManager {
@@ -1647,6 +1656,39 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       emit(inv, 'invocation.disposed', { disposed: true })
 
       return { disposed: true }
+    },
+
+    failForStorage(invocationId: InvocationId, detail: string): void {
+      const inv = invocations.get(invocationId)
+      if (inv === undefined || inv.state === 'disposed') {
+        return
+      }
+      const wasTerminal = TERMINAL_STATES.has(inv.state)
+      if (!wasTerminal) {
+        inv.state = 'failed'
+      }
+      emitTerminal(inv, 'invocation.failed', {
+        message: `Event ledger append failed: ${detail}`,
+        reason: LEDGER_APPEND_FAILED,
+        code: 'LEDGER_APPEND_FAILED',
+        retryable: false,
+        data: { detail },
+      })
+      // Best effort and out of band: the caller is inside the publish path, so
+      // this must neither block it nor let a driver rejection escape into it.
+      void (async () => {
+        try {
+          await inv.driver.stop({ invocationId, reason: LEDGER_APPEND_FAILED })
+        } catch {
+          // The driver is being torn down because storage is already broken;
+          // a stop failure changes nothing we can still record.
+        }
+        try {
+          await inv.driver.dispose()
+        } catch {
+          // Same: dispose is the last cleanup step, with nowhere left to report.
+        }
+      })()
     },
 
     permissionRespond(

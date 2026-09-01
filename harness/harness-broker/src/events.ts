@@ -14,6 +14,13 @@ import { validateEventEnvelope } from 'spaces-harness-broker-protocol'
 export interface EventSequencerOptions {
   now: () => Date
   correlation?: Record<string, string> | undefined
+  /**
+   * Durable resume point for an invocation this process has not sequenced yet.
+   * The durable broker wires this to the event ledger so a restart continues
+   * after the last COMMITTED seq instead of restarting at 1 and colliding with
+   * records that survived the crash. Defaults to 0 (fresh stream).
+   */
+  resumeSeq?: ((invocationId: InvocationId) => number) | undefined
 }
 
 export interface InvocationEventExtra {
@@ -44,13 +51,19 @@ export function createInvocationEventSequencer(
 ): InvocationEventSequencer {
   const counters = new Map<string, number>()
   const { now, correlation } = options
+  const resumeSeq = options.resumeSeq ?? (() => 0)
+
+  function currentSeq(invocationId: InvocationId): number {
+    const known = counters.get(invocationId)
+    return known !== undefined ? known : resumeSeq(invocationId)
+  }
 
   function nextEvent(
     invocationId: InvocationId,
     event: InvocationEvent,
     extra?: InvocationEventExtra
   ): InvocationEventEnvelope {
-    const current = counters.get(invocationId) ?? 0
+    const current = currentSeq(invocationId)
     const seq = current + 1
 
     const envelopeMetadata: InvocationEventEnvelopeBase & { type: InvocationEventType } = {
@@ -73,7 +86,7 @@ export function createInvocationEventSequencer(
       payload: InvocationEventPayloadMap[K],
       extra?: InvocationEventExtra
     ): InvocationEventEnvelopeFor<K> {
-      const current = counters.get(invocationId) ?? 0
+      const current = currentSeq(invocationId)
       const seq = current + 1
       const envelopeMetadata: InvocationEventEnvelopeBase & { type: K } = {
         invocationId,

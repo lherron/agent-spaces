@@ -46,8 +46,11 @@ import type { Driver } from './drivers/driver'
 import { createDriverRegistry } from './drivers/registry'
 import { BrokerError, toInvalidParamsBrokerError } from './errors'
 import type { EventLedger } from './event-ledger'
+import { replayBelowFloorError } from './event-ledger'
 import { createInvocationEventSequencer } from './events'
 import { createInvocationManager } from './invocation-manager'
+import type { CommittedEventPublisher } from './ledger-commit'
+import { createCommittedEventPublisher } from './ledger-commit'
 import type { DispatchEnv } from './runtime/env'
 import { parseDispatchEnv } from './runtime/env'
 
@@ -131,17 +134,34 @@ export interface Broker {
 export function createBroker(options: BrokerOptions): Broker {
   const { drivers, now = () => new Date() } = options
   const registry = createDriverRegistry(drivers)
-  const sequencer = createInvocationEventSequencer({ now })
   const eventLedger = options.eventLedger
+  const sequencer = createInvocationEventSequencer({
+    now,
+    // Seq is a DURABLE position, not a per-process counter. Resuming it from the
+    // ledger keeps the stream monotonic across a broker restart: an invocation
+    // whose events survived a crash continues after its last committed record
+    // instead of restarting at 1 and colliding with it.
+    ...(eventLedger !== undefined
+      ? { resumeSeq: (invocationId: InvocationId) => eventLedger.currentSeq(invocationId) }
+      : {}),
+  })
   const attachIdentity = options.attachIdentity
   const brokerInstanceId = options.brokerInstanceId ?? `broker_${process.pid}`
   const baseOnEvent = options.onEvent ?? (() => {})
-  // Persist before notifying: the ledger's synchronous append runs before the
-  // client sees the event, so a reconnecting controller can always replay it.
+  // Commit before publish, fail closed. `commitAndPublish` durably appends
+  // (write + fsync) and only then fans out; a failed append publishes NOTHING —
+  // not that event, and not any later one on the same invocation — and drives
+  // the invocation to a typed storage failure with its driver stopped.
+  let publisher: CommittedEventPublisher | undefined
   const onEvent = eventLedger
     ? (event: InvocationEventEnvelope) => {
-        eventLedger.append(event).catch(() => {})
-        baseOnEvent(event)
+        if (publisher === undefined) {
+          // Unreachable: assigned synchronously right after the manager is
+          // built, before anything can emit. Loud rather than silent, because
+          // silently dropping here would be a publication gap with no trace.
+          throw new Error('Committed event publisher not initialised')
+        }
+        publisher.commitAndPublish(event)
       }
     : baseOnEvent
   const advertisedTransports: BrokerTransportKind[] = options.advertisedTransports ?? [
@@ -158,6 +178,20 @@ export function createBroker(options: BrokerOptions): Broker {
     maxInputQueueDepth: options.maxInputQueueDepth,
     now,
   })
+
+  if (eventLedger !== undefined) {
+    publisher = createCommittedEventPublisher({
+      ledger: eventLedger,
+      publish: baseOnEvent,
+      onStorageFailure: (failure) => manager.failForStorage(failure.invocationId, failure.detail),
+    })
+    commitTailRepairWarning(eventLedger, publisher, now)
+  }
+
+  /** Typed refusal for any actuating RPC on an invocation whose ledger failed. */
+  function assertCommittable(invocationId: InvocationId): void {
+    publisher?.assertCommittable(invocationId)
+  }
 
   function requireManagedInvocation(invocationId: InvocationId) {
     const inv = manager.get(invocationId)
@@ -327,6 +361,12 @@ export function createBroker(options: BrokerOptions): Broker {
         return Promise.reject(toInvalidParamsBrokerError(err) ?? err)
       }
 
+      try {
+        assertCommittable(req.invocationId)
+      } catch (err) {
+        return Promise.reject(err)
+      }
+
       // Non-async: suppress unhandled rejection for turn timeout scenarios
       const result = manager.input(req)
       result.catch(() => {})
@@ -335,6 +375,7 @@ export function createBroker(options: BrokerOptions): Broker {
 
     async interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
       validateBrokerParams('invocation.interrupt', req)
+      assertCommittable(req.invocationId)
       return manager.interrupt(req)
     },
 
@@ -407,6 +448,21 @@ export function createBroker(options: BrokerOptions): Broker {
         )
       }
 
+      // Below-floor attach fails typed (§8.3): a controller asking to resume
+      // from a sequence retention has already discarded must be told, not
+      // handed a snapshot it would silently infer the gap from.
+      if (eventLedger !== undefined && req.lastProjectedSeq !== undefined) {
+        const retentionFloorSeq = await eventLedger.retentionFloorSeq(req.invocationId)
+        if (req.lastProjectedSeq < retentionFloorSeq) {
+          throw replayBelowFloorError({
+            invocationId: req.invocationId,
+            afterSeq: req.lastProjectedSeq,
+            retentionFloorSeq,
+            currentSeq: eventLedger.currentSeq(req.invocationId),
+          })
+        }
+      }
+
       const snapshot = await buildSnapshot(req.invocationId)
       return {
         attached: true,
@@ -469,9 +525,50 @@ export function createBroker(options: BrokerOptions): Broker {
       req: InvocationPermissionRespondRequest
     ): Promise<InvocationPermissionRespondResponse> {
       validateBrokerParams('invocation.permission.respond', req)
+      assertCommittable(req.invocationId)
       return manager.permissionRespond(req)
     },
   }
+}
+
+/**
+ * Record a startup trailing-segment repair on the stream itself. The truncation
+ * already happened when the ledger opened; this commits the fact so a
+ * reconnecting controller sees WHY its sequence jumped instead of inferring it.
+ * Attributed to the last intact record's invocation — with no intact record
+ * there is no invocation to attribute it to, so it is reported on stderr only.
+ */
+function commitTailRepairWarning(
+  eventLedger: EventLedger,
+  publisher: CommittedEventPublisher,
+  now: () => Date
+): void {
+  const repair = eventLedger.tailRepair()
+  if (repair === undefined) {
+    return
+  }
+  const message = `Event ledger tail repaired: discarded ${repair.truncatedBytes} torn trailing byte(s) at offset ${repair.truncatedAtOffset}`
+  if (repair.lastIntact === undefined) {
+    process.stderr.write(`${message} (no intact record to attribute the warning to)\n`)
+    return
+  }
+  const invocationId = repair.lastIntact.invocationId
+  const event: InvocationEventEnvelope = {
+    invocationId,
+    seq: eventLedger.currentSeq(invocationId) + 1,
+    time: now().toISOString(),
+    type: 'capture.warning',
+    payload: {
+      kind: 'ledger_tail_repaired',
+      message,
+      raw: {
+        truncatedAtOffset: repair.truncatedAtOffset,
+        truncatedBytes: repair.truncatedBytes,
+        lastIntactSeq: repair.lastIntact.seq,
+      },
+    },
+  } as InvocationEventEnvelope
+  publisher.commitAndPublish(event)
 }
 
 function validateBrokerParams(method: string, params: unknown): void {

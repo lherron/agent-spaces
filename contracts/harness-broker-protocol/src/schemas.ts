@@ -1499,6 +1499,7 @@ const EVENT_PAYLOAD_VALIDATORS = {
     if (!Object.hasOwn(payload, 'raw')) {
       issues.push(makeIssue('payload.raw', 'required', 'payload.raw is required'))
     }
+    optionalString(payload['kind'], 'payload.kind', issues)
   },
   'turn.started': (payload, issues) => {
     requireString(payload['turnId'], 'payload.turnId', issues)
