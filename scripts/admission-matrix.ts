@@ -2,20 +2,18 @@
 /**
  * Broker admission conformance matrix — T-07860, contract hcs T-07843 §9.
  *
- * Four submit doors × every registered driver × idle/busy seat states, asserted
- * from the BROKER EVENT LEDGER ONLY. This is a NEW, small, single-purpose
- * harness: it deliberately does not extend or reuse
- * `scripts/pre-hrc-broker-matrix-e2e.ts` (Lance, 2026-09-01).
- *
- * Landing 1 (this file today) runs the two columns the current protocol can
- * express — `input` (idle own-turn) and `steer` (`whenBusy: 'steer'`). Landing 2
- * swaps `scripts/lib/admission-matrix/doors.ts` onto the four real admission
- * methods once T-07859 publishes; the row machinery and the assertion engine do
- * not change.
+ * The FOUR submit doors x every registered driver x idle/busy seat states,
+ * asserted from the BROKER EVENT LEDGER and the broker's own read models
+ * (`turn.manifest`, `queue.list`, `seat.probe`) ONLY — no harness JSONL, no
+ * tmux pane capture. This is a NEW, small, single-purpose harness: it
+ * deliberately does not extend or reuse `scripts/pre-hrc-broker-matrix-e2e.ts`
+ * (Lance, 2026-09-01).
  *
  * Rules this harness obeys:
  *   - rows are registry-driven; a new driver kind is a row automatically
  *   - a missing real dependency is a row FAILURE, never a skip
+ *   - expectations DERIVE from `capabilities.admission.classes` + the §3.1
+ *     class table; nothing is hand-tabulated per driver
  *   - zero `capture.warning` across the WHOLE runtime is an assertion
  *   - no UI keys are ever sent (only the driver's own `interrupt()`)
  *   - a red cell is a finding to REPORT, never something to patch here
@@ -23,7 +21,7 @@
  * Usage:
  *   bun scripts/admission-matrix.ts [--row <kind>]... [--door <door>]...
  *                                   [--state <seat-state>]... [--artifact-dir <dir>]
- *                                   [--timeout-ms <n>] [--keep-artifacts]
+ *                                   [--timeout-ms <n>]
  */
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
@@ -34,12 +32,11 @@ import type {
   InvocationCapabilities,
   InvocationEventEnvelope,
   InvocationId,
-  InvocationInput,
+  TurnId,
 } from 'spaces-harness-broker-protocol'
 
 import type { Broker } from '../harness/harness-broker/src/broker'
 import { createBroker } from '../harness/harness-broker/src/broker'
-import type { BracketMintingMode } from '../harness/harness-broker/src/drivers/driver'
 import { createDriverRegistry } from '../harness/harness-broker/src/drivers/registry'
 import {
   CELLS,
@@ -47,19 +44,25 @@ import {
   type DoorName,
   SEAT_STATES,
   type SeatState,
+  TTL_CELL_MS,
   basePrompt,
   expectationFor,
+  isBusy,
   knock,
+  submissionCount,
 } from './lib/admission-matrix/doors'
 import {
   type Check,
   TERMINAL_TURN_TYPES,
   type Verdict,
   checkBracketMinting,
+  checkDecisionLedger,
   checkNoCaptureWarning,
   checkOneDispositionPerSubmission,
   checkTurnManifest,
   excerpt,
+  forSubmissions,
+  terminalsBySubmission,
   verdictOf,
 } from './lib/admission-matrix/ledger'
 import {
@@ -74,12 +77,12 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 /** Let an interactive TUI return to its composer after the launch priming turn. */
 const BOOT_SETTLE_MS = 2_000
-/** How long a delivered own-turn submission has to produce its turn bracket. */
-const TURN_BRACKET_TIMEOUT_MS = 45_000
-/** How long a steered submission has to produce a disposition. */
-const DISPOSITION_TIMEOUT_MS = 60_000
+/** How long every submission of a cell has to reach a terminal disposition. */
+const DISPOSITION_TIMEOUT_MS = 90_000
 /** Post-quiescence settle so a late own-turn resolution is not missed. */
 const CELL_SETTLE_MS = 3_000
+/** Principal the matrix submits as. Operator authority so `preempt` is admitted. */
+const MATRIX_PRINCIPAL = 'agent:clod'
 
 type Args = {
   rows: string[]
@@ -140,7 +143,8 @@ type CellResult = {
   state: SeatState
   verdict: Verdict
   expectation: string
-  submission: unknown
+  submissions: unknown[]
+  queueListWhileBusy?: unknown
   checks: Check[]
   ledgerSlice: unknown[]
   durationMs: number
@@ -149,13 +153,12 @@ type CellResult = {
 type RowResult = {
   kind: string
   version: string
-  bracketMintingMode?: string | undefined
   probe: { available: boolean; reason: string }
   compile?: Record<string, unknown> | undefined
   capabilities?: unknown
   cells: CellResult[]
-  /** Ledger tail per door, so a boot/settle failure is diagnosable from the artifact alone. */
-  eventTails: Record<string, unknown[]>
+  /** Ledger tail, so a boot/settle failure is diagnosable from the artifact alone. */
+  eventTail: unknown[]
   errors: string[]
   status: 'OK' | 'FAIL'
 }
@@ -180,14 +183,6 @@ function openTurnIds(events: InvocationEventEnvelope[]): string[] {
   return [...open]
 }
 
-function userInput(text: string, inputId: string): InvocationInput {
-  return {
-    inputId: inputId as InvocationInput['inputId'],
-    kind: 'user',
-    content: [{ type: 'text', text }],
-  }
-}
-
 async function waitForIdle(
   broker: Broker,
   invocationId: InvocationId,
@@ -196,11 +191,15 @@ async function waitForIdle(
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    const status = await broker.status({ invocationId })
-    if (status.state === 'ready' && openTurnIds(events).length === 0) return true
-    if (status.state === 'exited' || status.state === 'failed' || status.state === 'disposed') {
-      return false
+    const probe = await broker.seatProbe({ invocationId })
+    if (
+      probe.seat.state === 'idle' &&
+      probe.brokerHeldDepth === 0 &&
+      openTurnIds(events).length === 0
+    ) {
+      return true
     }
+    if (probe.seat.state === 'terminal') return false
     await Bun.sleep(250)
   }
   return false
@@ -213,7 +212,7 @@ async function waitForTurnActive(
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    if ((await broker.status({ invocationId })).state === 'turn_active') return true
+    if ((await broker.seatProbe({ invocationId })).seat.state === 'turn-active') return true
     await Bun.sleep(200)
   }
   return false
@@ -233,6 +232,30 @@ async function recoverToIdle(
   await waitForIdle(broker, invocationId, events, timeoutMs)
 }
 
+/** Ask the broker for the manifest of every turn the slice touched. */
+async function collectManifests(
+  broker: Broker,
+  invocationId: InvocationId,
+  slice: InvocationEventEnvelope[]
+): Promise<Map<string, readonly string[]>> {
+  const turnIds = new Set<string>()
+  for (const event of slice) {
+    const turnId = (event.payload as { turnId?: unknown } | undefined)?.turnId
+    if (typeof turnId === 'string') turnIds.add(turnId)
+  }
+  const manifests = new Map<string, readonly string[]>()
+  for (const turnId of turnIds) {
+    try {
+      const manifest = await broker.turnManifest({ invocationId, turnId: turnId as TurnId })
+      manifests.set(turnId, manifest.submissionIds)
+    } catch {
+      // A turn the broker does not know is itself the finding; leave it absent
+      // so checkTurnManifest reports it against the ledger.
+    }
+  }
+  return manifests
+}
+
 // ---------------------------------------------------------------------------
 // One cell: arm the seat state, knock on the door, settle, assert
 // ---------------------------------------------------------------------------
@@ -244,32 +267,33 @@ async function runCell(input: {
   door: DoorName
   state: SeatState
   ctx: PlanContext
-  bracketMintingMode: BracketMintingMode
   capabilities: InvocationCapabilities
 }): Promise<CellResult> {
-  const { broker, invocationId, events, door, state, ctx } = input
+  const { broker, invocationId, events, door, state, ctx, capabilities } = input
   const startedAt = Date.now()
   const cellMarker = `AM_${door}_${state}_${ctx.marker}`.replace(/-/g, '_').toUpperCase()
   const checks: Check[] = []
+  const expectation = expectationFor(door, state, capabilities)
 
-  // 1. Arm the seat state.
+  // 1. Arm the seat state. The base turn goes through `invoke` — the exclusive
+  //    door — so even the fixture traffic obeys the four-door rule.
   const base = basePrompt(state, cellMarker)
   if (base !== undefined) {
-    await broker.input({ invocationId, input: userInput(base, `input-base-${cellMarker}`) })
+    await knock('invoke', broker, { invocationId, body: base, principalRef: MATRIX_PRINCIPAL })
     const armed =
-      state === 'busy-in-tool'
-        ? await waitFor(
+      state === 'busy-generating'
+        ? await waitForTurnActive(broker, invocationId, ctx.timeoutMs)
+        : await waitFor(
             () => events.some((event) => event.type === 'tool.call.started'),
             ctx.timeoutMs
           )
-        : await waitForTurnActive(broker, invocationId, ctx.timeoutMs)
     if (!armed) {
       return {
         door,
         state,
         verdict: 'FAIL',
-        expectation: 'seat armed into the requested state',
-        submission: null,
+        expectation: expectation.kind,
+        submissions: [],
         checks: [
           {
             id: 'seat-state-armed',
@@ -284,81 +308,234 @@ async function runCell(input: {
     }
   }
 
-  // 2. Knock on the door.
+  // 2. Knock on the door — once, or three times for the FIFO cell.
   const watermark = events.length
-  const expectation = expectationFor(door, state, input.capabilities)
-  const outcome = await knock(
-    door,
-    (req) => broker.input(req),
-    invocationId,
-    userInput(
-      `Reply with exactly ${cellMarker} and nothing else. Do not use any tools.`,
-      `input-door-${cellMarker}`
-    )
-  )
-
-  // 3. Settle. An evidence-minting driver opens no bracket at delivery, so a
-  //    plain `waitForIdle` here returns instantly and the cell would assert on
-  //    an empty slice. Wait for the shape the expectation predicts FIRST, then
-  //    let the seat quiesce.
-  const sliceHas = (predicate: (event: InvocationEventEnvelope) => boolean): boolean =>
-    events.slice(watermark).some(predicate)
-  if (expectation.kind === 'own-turn') {
-    await waitFor(() => sliceHas((event) => event.type === 'turn.started'), TURN_BRACKET_TIMEOUT_MS)
-  } else if (expectation.kind === 'absorbed-or-executed') {
-    await waitFor(
-      () =>
-        sliceHas(
-          (event) => event.type === 'submission.absorbed' || event.type === 'submission.executed'
-        ),
-      DISPOSITION_TIMEOUT_MS
+  const outcomes = []
+  for (let i = 0; i < submissionCount(state); i += 1) {
+    outcomes.push(
+      await knock(door, broker, {
+        invocationId,
+        body: `Reply with exactly ${cellMarker}_${i + 1} and nothing else. Do not use any tools.`,
+        principalRef: MATRIX_PRINCIPAL,
+        ...(state === 'busy-ttl' ? { ttlMs: TTL_CELL_MS } : {}),
+      })
     )
   }
+  const submissionIds = outcomes
+    .map((outcome) => (outcome.admitted ? outcome.response.submissionId : outcome.submissionId))
+    .filter((id): id is string => id !== undefined)
+  const admittedIds = outcomes
+    .filter((outcome) => outcome.admitted)
+    .map((outcome) => (outcome as { response: { submissionId: string } }).response.submissionId)
+
+  // While the seat is still busy, the broker-held queue must be observable (§6).
+  let queueListWhileBusy: unknown
+  if (door === 'enqueue' && isBusy(state)) {
+    queueListWhileBusy = (await broker.queueList({ invocationId })).entries
+  }
+
+  // 3. Settle: every submission owes a terminal disposition (§3.2), so wait for
+  //    exactly that, then let the seat quiesce.
+  await waitFor(() => {
+    const terminals = terminalsBySubmission(events.slice(watermark))
+    return submissionIds.every((id) => (terminals.get(id) ?? []).length > 0)
+  }, DISPOSITION_TIMEOUT_MS)
   await waitForIdle(broker, invocationId, events, ctx.timeoutMs)
-  // A steered submission that found no boundary resolves as its OWN turn, which
-  // can open just after the live turn ends; give that turn a chance to appear.
   await Bun.sleep(CELL_SETTLE_MS)
   await waitForIdle(broker, invocationId, events, ctx.timeoutMs)
   const slice = events.slice(watermark)
+  const terminals = terminalsBySubmission(slice)
+  const terminalTypeOf = (id: string): string | undefined => terminals.get(id)?.[0]?.type
+  const turnOf = (id: string): string | undefined => {
+    const event = terminals.get(id)?.[0]
+    const turnId = (event?.payload as { turnId?: unknown } | undefined)?.turnId
+    return typeof turnId === 'string' ? turnId : undefined
+  }
 
-  // 4. Assert — ledger only.
+  // 4. Assert — ledger and broker read models only.
   let rejected = false
-  if (expectation.kind === 'typed-rejection') {
-    rejected = true
-    const rejectedOnLedger = slice.some((event) => event.type === 'input.rejected')
-    checks.push({
-      id: 'typed-rejection',
-      ok: !outcome.accepted && rejectedOnLedger,
-      detail: outcome.accepted
-        ? `expected a typed rejection (${expectation.because}) but the door accepted: ${JSON.stringify(outcome.response)}`
-        : `typed rejection recorded on the ledger: ${outcome.error.message}`,
-      evidence: excerpt(slice.filter((event) => event.type.startsWith('input.'))),
-    })
-  } else if (expectation.kind === 'own-turn') {
-    checks.push({
-      id: 'own-turn-admitted',
-      ok: outcome.accepted && outcome.response.disposition === 'started',
-      detail: outcome.accepted
-        ? `disposition=${outcome.response.disposition}`
-        : `door rejected: ${outcome.error.message}`,
-    })
-    const bracket = slice.some((event) => event.type === 'turn.started')
-    const terminal = slice.some((event) => TERMINAL_TURN_TYPES.has(event.type))
-    checks.push({
-      id: 'own-turn-bracketed',
-      ok: bracket && terminal,
-      detail: `turn.started=${bracket} terminal=${terminal}`,
-      evidence: bracket && terminal ? undefined : excerpt(slice),
-    })
-    // Correlation: the asserted turn must be THIS door call's turn. Without it a
-    // cell that races an unrelated turn (a launch priming prompt, a leftover
-    // drain) reports a green on someone else's evidence.
-    const carried = slice.filter(
-      (event) =>
-        (event.type === 'user.message' || event.type === 'assistant.message.completed') &&
-        JSON.stringify(event.payload ?? {}).includes(cellMarker)
+  switch (expectation.kind) {
+    case 'typed-rejection':
+    case 'rejected-busy': {
+      rejected = true
+      const layer = expectation.kind === 'rejected-busy' ? 'state' : 'capability'
+      const decision = slice.find((event) => event.type === 'admission.rejected')
+      const decisionLayer = (decision?.payload as { layer?: unknown } | undefined)?.layer
+      checks.push({
+        id: 'typed-rejection',
+        ok:
+          outcomes.every((outcome) => !outcome.admitted) &&
+          decision !== undefined &&
+          decisionLayer === layer,
+        detail: outcomes.some((outcome) => outcome.admitted)
+          ? `expected a typed rejection but the door admitted: ${JSON.stringify(outcomes)}`
+          : `rejected; admission.rejected layer=${String(decisionLayer)} (expected '${layer}'), reason=${String((decision?.payload as { reason?: unknown } | undefined)?.reason)}`,
+        evidence: excerpt(slice.filter((event) => event.type.startsWith('admission.'))),
+      })
+      break
+    }
+    case 'own-turn': {
+      checks.push(...ownTurnChecks(outcomes, submissionIds, terminalTypeOf, slice, cellMarker))
+      break
+    }
+    case 'absorbed-or-executed': {
+      const observed = submissionIds.map(terminalTypeOf)
+      checks.push({
+        id: 'steer-dual-resolution',
+        ok: observed.every(
+          (type) => type === 'submission.absorbed' || type === 'submission.executed'
+        ),
+        detail: `dispositions: ${observed.map((type) => String(type)).join(', ')} (§3.1 accepts absorbed OR executed)`,
+        evidence: observed.every(
+          (type) => type === 'submission.absorbed' || type === 'submission.executed'
+        )
+          ? undefined
+          : excerpt(slice),
+      })
+      break
+    }
+    case 'held-then-own-turn': {
+      const enqueued = slice.filter((event) => event.type === 'queue.enqueued')
+      checks.push({
+        id: 'broker-held',
+        ok: admittedIds.every((id) =>
+          enqueued.some(
+            (event) => (event.payload as { submissionId?: unknown }).submissionId === id
+          )
+        ),
+        detail: `${enqueued.length} queue.enqueued for ${admittedIds.length} admitted submission(s)`,
+        evidence: excerpt(enqueued),
+      })
+      if (isBusy(state)) {
+        const held = (queueListWhileBusy ?? []) as Array<{ submissionId?: string }>
+        checks.push({
+          id: 'queue-list-visible',
+          ok: admittedIds.every((id) => held.some((entry) => entry.submissionId === id)),
+          detail: `queue.list while busy reported ${held.length} held entry/entries`,
+          evidence: queueListWhileBusy,
+        })
+      }
+      const executedTurns = submissionIds.map(turnOf)
+      const allExecuted = submissionIds.every((id) => terminalTypeOf(id) === 'submission.executed')
+      const distinct = new Set(executedTurns.filter((id): id is string => id !== undefined))
+      checks.push({
+        id: 'own-turn-each',
+        ok: allExecuted && distinct.size === submissionIds.length,
+        detail: `${submissionIds.length} submission(s) -> ${distinct.size} distinct turn(s); dispositions ${submissionIds.map((id) => String(terminalTypeOf(id))).join(', ')}`,
+        evidence:
+          allExecuted && distinct.size === submissionIds.length ? undefined : excerpt(slice),
+      })
+      if (submissionIds.length > 1) {
+        const order = slice
+          .filter((event) => event.type === 'submission.executed')
+          .map((event) => (event.payload as { submissionId?: unknown }).submissionId)
+          .filter((id): id is string => typeof id === 'string' && submissionIds.includes(id))
+        checks.push({
+          id: 'fifo-order',
+          ok: JSON.stringify(order) === JSON.stringify(submissionIds),
+          detail: `executed order ${JSON.stringify(order)} vs submitted order ${JSON.stringify(submissionIds)}`,
+        })
+      }
+      break
+    }
+    case 'expired': {
+      const expired = slice.filter((event) => event.type === 'submission.expired')
+      const queueExpired = slice.filter((event) => event.type === 'queue.expired')
+      checks.push({
+        id: 'ttl-expiry',
+        ok:
+          submissionIds.every((id) => terminalTypeOf(id) === 'submission.expired') &&
+          queueExpired.length > 0,
+        detail: `submission.expired=${expired.length} queue.expired=${queueExpired.length}; dispositions ${submissionIds.map((id) => String(terminalTypeOf(id))).join(', ')}`,
+        evidence: expired.length > 0 ? undefined : excerpt(slice),
+      })
+      break
+    }
+    case 'preempt-then-own-turn': {
+      const requestedInterrupt = slice.filter((event) => event.type === 'interrupt.requested')
+      const landed = slice.filter((event) => event.type === 'interrupt.landed')
+      checks.push({
+        id: 'interrupt-recorded',
+        ok: requestedInterrupt.length > 0 && landed.length > 0,
+        detail: `interrupt.requested=${requestedInterrupt.length} interrupt.landed=${landed.length}`,
+        evidence:
+          requestedInterrupt.length > 0 && landed.length > 0
+            ? undefined
+            : excerpt(slice.filter((event) => event.type.startsWith('interrupt.'))),
+      })
+      // §3.1 bounded-slippage clause: a drained turn that completed before the
+      // interrupt key landed is recorded `completed`, and that is truth, not a
+      // failure. So the requirement is that the live turn TERMINALIZED, with
+      // the interrupted/completed split reported rather than demanded.
+      const interrupted = slice.filter((event) => event.type === 'turn.interrupted')
+      const completed = slice.filter((event) => event.type === 'turn.completed')
+      checks.push({
+        id: 'live-turn-terminalized',
+        ok: interrupted.length + completed.length > 0,
+        detail: `turn.interrupted=${interrupted.length} turn.completed=${completed.length} (${expectation.mode} mode; bounded slippage tolerated)`,
+        evidence: interrupted.length + completed.length > 0 ? undefined : excerpt(slice),
+      })
+      checks.push(...ownTurnChecks(outcomes, submissionIds, terminalTypeOf, slice, cellMarker))
+      break
+    }
+  }
+
+  // Shared §9 assertions.
+  checks.push(checkDecisionLedger(slice, submissionIds))
+  checks.push(checkOneDispositionPerSubmission(slice, submissionIds))
+  checks.push(
+    checkBracketMinting(
+      slice,
+      capabilities.bracketMintingMode,
+      submissionIds
+        .filter((id) => terminalTypeOf(id) === 'submission.executed')
+        .map(turnOf)
+        .filter((id): id is string => id !== undefined)
     )
-    checks.push({
+  )
+  checks.push(checkTurnManifest(slice, await collectManifests(broker, invocationId, slice)))
+
+  return {
+    door,
+    state,
+    verdict: verdictOf(checks, rejected),
+    expectation: expectation.kind,
+    submissions: outcomes,
+    ...(queueListWhileBusy !== undefined ? { queueListWhileBusy } : {}),
+    checks,
+    ledgerSlice: excerpt(forSubmissions(slice, submissionIds).concat(slice), 70),
+    durationMs: Date.now() - startedAt,
+  }
+}
+
+/** Own-turn shape: admitted, executed, bracketed, and carrying THIS cell's text. */
+function ownTurnChecks(
+  outcomes: Array<{ admitted: boolean }>,
+  submissionIds: readonly string[],
+  terminalTypeOf: (id: string) => string | undefined,
+  slice: InvocationEventEnvelope[],
+  cellMarker: string
+): Check[] {
+  const executed = submissionIds.filter((id) => terminalTypeOf(id) === 'submission.executed')
+  // Correlation: the asserted turn must be THIS door call's turn. Without it a
+  // cell that races an unrelated turn (a launch priming prompt, a leftover
+  // drain) reports a green on someone else's evidence.
+  const carried = slice.filter(
+    (event) =>
+      (event.type === 'user.message' || event.type === 'assistant.message.completed') &&
+      JSON.stringify(event.payload ?? {}).includes(cellMarker)
+  )
+  return [
+    {
+      id: 'own-turn-admitted',
+      ok: outcomes.every((outcome) => outcome.admitted) && executed.length === submissionIds.length,
+      detail: `admitted=${outcomes.every((outcome) => outcome.admitted)}; dispositions ${submissionIds.map((id) => String(terminalTypeOf(id))).join(', ')}`,
+      evidence:
+        outcomes.every((outcome) => outcome.admitted) && executed.length === submissionIds.length
+          ? undefined
+          : excerpt(slice),
+    },
+    {
       id: 'own-turn-correlation',
       ok: carried.length > 0,
       detail:
@@ -366,76 +543,33 @@ async function runCell(input: {
           ? `door submission text observed on ${carried.length} ledger event(s) of the asserted turn`
           : `no ledger event of the asserted turn carries this cell's submission (${cellMarker})`,
       evidence: carried.length > 0 ? undefined : excerpt(slice),
-    })
-  } else {
-    // absorbed-or-executed: the §3.1 dual resolution.
-    checks.push({
-      id: 'steer-admitted',
-      ok: outcome.accepted && outcome.response.disposition === 'attempted_steer',
-      detail: outcome.accepted
-        ? `disposition=${outcome.response.disposition}`
-        : `door rejected: ${outcome.error.message}`,
-    })
-    const dispositions = slice.filter(
-      (event) => event.type === 'submission.absorbed' || event.type === 'submission.executed'
-    )
-    checks.push({
-      id: 'steer-dual-resolution',
-      ok: dispositions.length > 0,
-      detail:
-        dispositions.length > 0
-          ? dispositions
-              .map((event) => `${event.type}(${JSON.stringify(event.payload)})`)
-              .join(', ')
-          : 'no submission.absorbed / submission.executed disposition for the steered submission',
-      evidence: dispositions.length > 0 ? undefined : excerpt(slice),
-    })
-  }
-
-  checks.push(
-    checkOneDispositionPerSubmission(slice, input.bracketMintingMode, outcome.accepted ? 1 : 0)
-  )
-  checks.push(
-    checkBracketMinting(
-      slice,
-      input.bracketMintingMode,
-      expectation.kind === 'own-turn',
-      outcome.accepted ? outcome.response.turnId : undefined
-    )
-  )
-  checks.push(checkTurnManifest(slice, events))
-
-  return {
-    door,
-    state,
-    verdict: verdictOf(checks, rejected),
-    expectation: expectation.kind,
-    submission: outcome.accepted ? outcome.response : outcome.error,
-    checks,
-    ledgerSlice: excerpt(slice, 60),
-    durationMs: Date.now() - startedAt,
-  }
+    },
+  ]
 }
 
 // ---------------------------------------------------------------------------
-// One (row, door) seat: boot once, run every cell of that door on it
+// One row = one seat carrying every selected cell in sequence
 // ---------------------------------------------------------------------------
 
-async function runDoor(input: {
+async function runRow(input: {
   kind: string
-  door: DoorName
-  states: SeatState[]
+  cells: ReadonlyArray<{ door: DoorName; state: SeatState }>
   ctx: PlanContext
-  bracketMintingMode: BracketMintingMode
   row: RowResult
-}): Promise<CellResult[]> {
-  const { kind, door, ctx, row } = input
+}): Promise<void> {
+  const { kind, ctx, row } = input
   const recipe = ROW_RECIPES[kind]
   if (recipe === undefined) throw new Error(`no recipe for registered driver kind '${kind}'`)
   const plan = await recipe.plan(ctx)
   const events: InvocationEventEnvelope[] = []
-  const results: CellResult[] = []
-  const broker = createBroker({ drivers: [plan.driver], onEvent: (event) => events.push(event) })
+  const broker = createBroker({
+    drivers: [plan.driver],
+    onEvent: (event) => events.push(event),
+    // Operator authority: `preempt` is granted by authority, never by policy
+    // (§5 layer 3). The matrix submits as the operator so the preempt column
+    // tests the CLASS rather than the authority check.
+    isOperator: (principalRef) => principalRef === MATRIX_PRINCIPAL,
+  })
   const invocationId = plan.startRequest.spec.invocationId as InvocationId
   let started = false
   try {
@@ -470,19 +604,23 @@ async function runDoor(input: {
     }
     await Bun.sleep(BOOT_SETTLE_MS)
 
-    for (const state of input.states) {
-      results.push(
-        await runCell({
-          broker,
-          invocationId,
-          events,
-          door,
-          state,
-          ctx,
-          bracketMintingMode: input.bracketMintingMode,
-          capabilities: startResponse.capabilities,
-        })
+    for (const cell of input.cells) {
+      const result = await runCell({
+        broker,
+        invocationId,
+        events,
+        door: cell.door,
+        state: cell.state,
+        ctx,
+        capabilities: startResponse.capabilities,
+      })
+      row.cells.push(result)
+      console.log(
+        `  ${kind} ${cell.door}/${cell.state}: ${result.verdict} (${result.durationMs}ms)`
       )
+      for (const check of result.checks.filter((candidate) => !candidate.ok)) {
+        console.log(`      x ${check.id}: ${check.detail}`)
+      }
       // Recover to idle between cells so one cell never contaminates the next.
       await recoverToIdle(broker, invocationId, events, ctx.timeoutMs)
     }
@@ -490,13 +628,13 @@ async function runDoor(input: {
     // §9 assertion 8 is a RUNTIME-wide fact, so it is evaluated over the whole
     // seat lifetime and attributed to every cell this seat carried.
     const runtimeWide = checkNoCaptureWarning(events)
-    for (const result of results) {
+    for (const result of row.cells) {
       result.checks.push(runtimeWide)
       result.verdict = verdictOf(result.checks, result.verdict === 'REJECT-OK')
     }
-    return results
+    if (!runtimeWide.ok) console.log(`      x ${runtimeWide.id}: ${runtimeWide.detail}`)
   } finally {
-    row.eventTails[door] = excerpt(events.slice(-60), 60)
+    row.eventTail = excerpt(events.slice(-60), 60)
     if (started) {
       await broker
         .stop({ invocationId, reason: 'admission-matrix-teardown' })
@@ -573,7 +711,6 @@ async function main(): Promise<void> {
       (args.doors.length === 0 || args.doors.includes(cell.door)) &&
       (args.states.length === 0 || args.states.includes(cell.state))
   )
-  const doors = [...new Set(selectedCells.map((cell) => cell.door))]
 
   console.log(`admission matrix ${marker}`)
   console.log(`repo       ${repoRoot}`)
@@ -585,14 +722,12 @@ async function main(): Promise<void> {
   const startedAt = Date.now()
   const rows: RowResult[] = []
   for (const summary of summaries) {
-    const declared = drivers.find((driver) => driver.kind === summary.kind)
     const row: RowResult = {
       kind: summary.kind,
       version: summary.version,
-      bracketMintingMode: declared?.bracketMintingMode,
       probe: { available: false, reason: 'not probed' },
       cells: [],
-      eventTails: {},
+      eventTail: [],
       errors: [],
       status: 'FAIL',
     }
@@ -619,35 +754,16 @@ async function main(): Promise<void> {
       continue
     }
 
-    for (const door of doors) {
-      const states = selectedCells.filter((cell) => cell.door === door).map((cell) => cell.state)
-      try {
-        const cells = await runDoor({
-          kind: summary.kind,
-          door,
-          states,
-          ctx,
-          bracketMintingMode: declared?.bracketMintingMode ?? 'delivery-asserted',
-          row,
-        })
-        row.cells.push(...cells)
-        for (const cell of cells) {
-          console.log(
-            `  ${summary.kind} ${door}/${cell.state}: ${cell.verdict} (${cell.durationMs}ms)`
-          )
-          for (const check of cell.checks.filter((candidate) => !candidate.ok)) {
-            console.log(`      x ${check.id}: ${check.detail}`)
-          }
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        row.errors.push(`${door}: ${message}`)
-        console.log(`  ${summary.kind} ${door}: ERROR — ${message}`)
-      }
+    try {
+      await runRow({ kind: summary.kind, cells: selectedCells, ctx, row })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      row.errors.push(message)
+      console.log(`  ${summary.kind}: ERROR — ${message}`)
     }
     row.status =
       row.errors.length === 0 &&
-      row.cells.length > 0 &&
+      row.cells.length === selectedCells.length &&
       row.cells.every((cell) => cell.verdict !== 'FAIL')
         ? 'OK'
         : 'FAIL'
@@ -659,10 +775,10 @@ async function main(): Promise<void> {
     artifactPath,
     `${JSON.stringify(
       {
-        schema: 'admission-matrix/v1',
+        schema: 'admission-matrix/v2',
         taskId: 'T-07860',
-        contract: 'hcs T-07843 rev 7 §9',
-        landing: 1,
+        contract: 'hcs T-07843 rev 7 §9 (four doors)',
+        landing: 2,
         marker,
         host: hostname(),
         startedAt: new Date(startedAt).toISOString(),
