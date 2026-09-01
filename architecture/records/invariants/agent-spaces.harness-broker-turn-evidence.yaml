@@ -1,0 +1,49 @@
+id: agent-spaces.harness-broker-turn-evidence
+kind: invariant
+status: active
+owner_project: agent-spaces
+scope: harness-broker turn brackets and claude-code-tmux submission disposition attribution
+predicate: >
+  Except for the bounded legacy risk recorded as
+  agent-spaces.pi-delivery-asserted-turn-start, harness-broker turn lifecycle
+  brackets are minted only at the evidence moment declared by the driver:
+  delivery-acknowledged drivers may open a bracket after an answered harness
+  handshake, while harness-evidence drivers open one only from a hook or
+  transcript observation. The declaration is advertised per driver and gates
+  the shared delivery-time synthesis. agent-harness-tmux remains
+  delivery-acknowledged so a rejected turn.begin opens turn.started before
+  turn.failed. claude-code-tmux is harness-evidence: an overlapping prompt is
+  buffered without a user.message until strict-order harness evidence resolves
+  it as absorbed, executed, cancelled, or recalled; dequeue only marks it
+  drain-pending, the later plain user row opens an executed turn, and an
+  interrupt marker terminalizes the still-active original turn. Each tracked
+  prompt produces exactly one disposition and at most one user.message;
+  absorption joins the live turn through submission.absorbed rather than
+  fabricating a new turn bracket.
+authority:
+  repo: agent-spaces
+  surface: wrkq T-07849 rev 8 approved by Daedalus on Lance's authority
+source:
+  - wrkq:T-07849
+  - harness/harness-broker/src/invocation-manager.ts
+  - harness/harness-broker/src/drivers/claude-code-tmux/driver.ts
+  - harness/harness-broker/src/drivers/claude-code-tmux/hook-events.ts
+  - harness/harness-broker/src/drivers/agent-harness-tmux/driver.ts
+  - architecture/records/invariants/agent-spaces.agent-harness-runtime-boundary.yaml
+required_tests:
+  - archived Claude queue-operation replays preserve strict dequeue interrupt and user-row ordering
+  - active-turn applyInputNow absorption opens no allocated-id bracket while execution opens on the observed user row
+  - agent-harness-tmux negative turn.begin acknowledgement emits turn.started before turn.failed
+  - pi-tui-tmux delivery-asserted regression preserves its existing observable lifecycle
+  - live claude-code-tmux matrix evidence exposes one disposition per tracked prompt without transcript snooping by consumers
+last_verified:
+  date: 2026-09-01
+  evidence: Daedalus round-4 source verification of T-07849 rev 8 against the archived ordering and current shared driver paths
+reopen_when:
+  - a driver changes bracket-minting declaration or evidence moment
+  - claude-code-tmux queue-operation vocabulary ordering or absorption signature changes
+  - the shared applyInputNow synthesis or agent-harness turn.begin gate changes
+  - a tracked prompt can emit multiple dispositions multiple user.message rows or a terminal against the wrong turn
+  - submission.absorbed or the turn manifest no longer identifies the turn a steer joined
+supersedes: []
+superseded_by: null

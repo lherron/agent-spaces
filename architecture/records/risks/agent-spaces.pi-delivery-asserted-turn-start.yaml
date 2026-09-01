@@ -1,0 +1,33 @@
+id: agent-spaces.pi-delivery-asserted-turn-start
+kind: accepted_risk
+status: active
+owner_project: agent-spaces
+accepted_by: Lance
+date: 2026-09-01
+severity: medium
+blast_radius: >
+  pi-tui-tmux can emit turn.started after blind PTY delivery but before any
+  harness acknowledgment or hook evidence, so the broker can transiently or
+  permanently represent a Pi turn that the harness never accepted. The risk is
+  confined to the grandfathered pi-tui-tmux compatibility driver.
+mitigation: >
+  Advertise the behavior explicitly as delivery-asserted, retain its existing
+  lifecycle during the claude-code-tmux change, refuse delivery-asserted for new
+  drivers in conformance, and migrate Pi only through its own verified change
+  using its existing agent_start hook evidence.
+expiry: null
+review_trigger:
+  - pi-tui-tmux changes input delivery turn allocation hook capture or lifecycle ordering
+  - a false or unterminated Pi turn bracket is observed
+  - conformance admits a new delivery-asserted driver
+reopen_when:
+  - pi-tui-tmux can declare harness-evidence or delivery-acknowledged without changing unverified behavior
+  - the shared delivery-time synthesis changes for delivery-asserted drivers
+  - the accepted blast radius extends beyond pi-tui-tmux
+source:
+  - wrkq:T-07849
+  - harness/harness-broker/src/invocation-manager.ts
+  - harness/harness-broker/src/drivers/pi-tui-tmux/driver.ts
+  - harness/harness-broker/src/drivers/pi-tui-tmux/hook-events.ts
+supersedes: []
+superseded_by: null

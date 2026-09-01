@@ -8,3 +8,10 @@
 - Accepted by: Lance
 - Blast radius: When one member of a schedule's static owner set is down, healthy members do not execute that member's occurrences. A multi-member set is independent per-node fan-out and provides neither failover nor cross-node exactly-once.
 - Mitigation: Keep the producer contract explicit and static, preserve catch-up policy, and require ACP's documented break-before-make relocation procedure for planned owner changes.
+
+## agent-spaces.pi-delivery-asserted-turn-start
+
+- Severity: medium
+- Accepted by: Lance
+- Blast radius: pi-tui-tmux can emit turn.started after blind PTY delivery but before any harness acknowledgment or hook evidence, so the broker can transiently or permanently represent a Pi turn that the harness never accepted. The risk is confined to the grandfathered pi-tui-tmux compatibility driver.
+- Mitigation: Advertise the behavior explicitly as delivery-asserted, retain its existing lifecycle during the claude-code-tmux change, refuse delivery-asserted for new drivers in conformance, and migrate Pi only through its own verified change using its existing agent_start hook evidence.
