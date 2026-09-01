@@ -56,6 +56,9 @@ export type ClaudeHookTranscriptReaderOptions = {
   invocationId: string
   getCurrentTurnId: () => string | undefined
   onApiError?: ((turnId: string) => void) | undefined
+  onAssistantMessageStarted?:
+    | ((messageId: string, entry: Record<string, unknown>) => void)
+    | undefined
   onTranscriptEntry?: ((entry: Record<string, unknown>) => void) | undefined
 }
 
@@ -156,6 +159,18 @@ export function createClaudeHookTranscriptReader(
     // hook. Emit a non-terminal diagnostic; never a terminal/lifecycle event.
     if (entryType === 'assistant' && entry['isApiErrorMessage'] === true) {
       into.push(apiErrorDiagnosticEvent(entry, turnIdText))
+      return
+    }
+
+    if (entryType === 'assistant') {
+      const message = entry['message']
+      const messageId =
+        message !== null && typeof message === 'object' && !Array.isArray(message)
+          ? getString(message as Record<string, unknown>, 'id')
+          : undefined
+      const fallbackId = getString(entry, 'uuid')
+      const resolvedId = messageId ?? fallbackId
+      if (resolvedId !== undefined) options.onAssistantMessageStarted?.(resolvedId, entry)
       return
     }
 

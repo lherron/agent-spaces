@@ -40,6 +40,8 @@ export type ClaudeTranscriptQueueOperation = {
 export interface ClaudeTurnAttribution {
   readonly activeTurnId: TurnId | undefined
   readonly pendingCount: number
+  expectInterrupt(): number
+  cancelExpectedInterrupt(expectationId: number): void
   trackBrokerSubmission(input: {
     submissionId?: string | undefined
     content: string
@@ -64,6 +66,9 @@ export function createClaudeTurnAttribution(options: {
   const pending: PendingSubmission[] = []
   let activeTurnId: TurnId | undefined
   let submissionCounter = 0
+  let interruptExpectationCounter = 0
+  const expectedInterrupts: Array<{ id: number; turnId: TurnId | undefined }> = []
+  const settledInterruptTargets: TurnId[] = []
   let recentDisposedPrompt: string | undefined
 
   const nextHumanSubmissionId = (): string => {
@@ -143,6 +148,17 @@ export function createClaudeTurnAttribution(options: {
 
     get pendingCount(): number {
       return pending.length
+    },
+
+    expectInterrupt(): number {
+      interruptExpectationCounter += 1
+      expectedInterrupts.push({ id: interruptExpectationCounter, turnId: activeTurnId })
+      return interruptExpectationCounter
+    },
+
+    cancelExpectedInterrupt(expectationId): void {
+      const index = expectedInterrupts.findIndex((expected) => expected.id === expectationId)
+      if (index >= 0) expectedInterrupts.splice(index, 1)
     },
 
     trackBrokerSubmission(input): void {
@@ -278,6 +294,14 @@ export function createClaudeTurnAttribution(options: {
     observeInterrupt(raw): ClaudeAttributionAction[] {
       recentDisposedPrompt = undefined
       const actions = settleOutstandingRemovals(raw)
+      const expected = expectedInterrupts.shift()
+      if (expected !== undefined) {
+        if (expected.turnId === undefined) return actions
+        if (activeTurnId === expected.turnId) activeTurnId = undefined
+        actions.push({ kind: 'interrupted', turnId: expected.turnId })
+        return actions
+      }
+      if (settledInterruptTargets.shift() !== undefined) return actions
       if (activeTurnId === undefined) {
         actions.push(warning('Claude interrupt row has no active turn', raw))
         return actions
@@ -334,11 +358,20 @@ export function createClaudeTurnAttribution(options: {
     },
 
     observeTurnStarted(turnId): void {
+      // If an interrupt-target turn completed before its C-c produced a marker,
+      // the next turn start proves that marker will not arrive at this boundary.
+      settledInterruptTargets.length = 0
       activeTurnId = turnId
       recentDisposedPrompt = undefined
     },
 
     observeTurnTerminal(turnId): void {
+      for (let index = expectedInterrupts.length - 1; index >= 0; index -= 1) {
+        if (expectedInterrupts[index]?.turnId === turnId) {
+          expectedInterrupts.splice(index, 1)
+          settledInterruptTargets.push(turnId)
+        }
+      }
       if (activeTurnId === turnId) activeTurnId = undefined
       recentDisposedPrompt = undefined
     },
