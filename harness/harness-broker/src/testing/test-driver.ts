@@ -14,7 +14,13 @@ import {
   BrokerErrorCode,
   CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 } from 'spaces-harness-broker-protocol'
-import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../drivers/driver'
+import type {
+  ApplyInputResult,
+  BracketMintingMode,
+  Driver,
+  DriverContext,
+  DriverStartResult,
+} from '../drivers/driver'
 import { BrokerError } from '../errors'
 
 export interface TestDriverController {
@@ -50,6 +56,7 @@ export interface TestDriverOptions {
    * guarantee the bracket from the returned turnId (T-04846).
    */
   suppressTurnStarted?: boolean | undefined
+  bracketMintingMode?: BracketMintingMode | undefined
 }
 
 export interface TestDriverHandle {
@@ -194,6 +201,7 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
   const driver: Driver = {
     kind: 'test-driver',
     version: '0.1.0',
+    bracketMintingMode: options.bracketMintingMode ?? 'delivery-asserted',
 
     capabilities(): InvocationCapabilities {
       return capabilities

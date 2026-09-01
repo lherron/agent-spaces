@@ -24,9 +24,17 @@ export interface ApplyInputResult {
   turnId?: TurnId | undefined
 }
 
+/**
+ * Declares what makes an applyInputNow-returned turn id sufficient evidence to
+ * open a broker turn bracket. The declaration is descriptive: drivers may only
+ * change modes together with the corresponding verified delivery semantics.
+ */
+export type BracketMintingMode = 'delivery-acknowledged' | 'harness-evidence' | 'delivery-asserted'
+
 export interface Driver {
   readonly kind: string
   readonly version: string
+  readonly bracketMintingMode: BracketMintingMode
   capabilities(): InvocationCapabilities
   start(spec: HarnessInvocationSpec, ctx: DriverContext): Promise<DriverStartResult>
   applyInputNow(input: InvocationInput): Promise<ApplyInputResult>

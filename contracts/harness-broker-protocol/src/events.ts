@@ -187,6 +187,10 @@ export interface InvocationEventPayloadMap {
   'input.accepted': InputDispositionPayload
   'input.rejected': InputDispositionPayload
   'input.queued': InputDispositionPayload
+  'submission.absorbed': SubmissionTurnDispositionPayload
+  'submission.executed': SubmissionTurnDispositionPayload
+  'submission.cancelled': SubmissionCancelledPayload
+  'capture.warning': CaptureWarningPayload
   'turn.started': TurnStartedPayload
   'turn.stalled': TurnStalledPayload
   'turn.retry': TurnRetryPayload
@@ -256,6 +260,24 @@ export interface TurnStartedPayload {
   source?: 'broker-delivery' | 'hook-observed' | undefined
   sessionId?: string | undefined
   prompt?: string | undefined
+}
+
+/** A submission joined an already-open turn or originated its own turn. */
+export interface SubmissionTurnDispositionPayload {
+  submissionId: string
+  turnId: TurnId
+}
+
+/** A submission left the harness-local queue without entering model context. */
+export interface SubmissionCancelledPayload {
+  submissionId: string
+  reason?: 'recalled' | 'removed' | 'teardown' | undefined
+}
+
+/** Loud evidence that the behavior-pinned harness transcript vocabulary drifted. */
+export interface CaptureWarningPayload {
+  message: string
+  raw: unknown
 }
 
 /**

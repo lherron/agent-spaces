@@ -182,6 +182,7 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
   return {
     kind: CODEX_CLI_TMUX_DRIVER_KIND,
     version: CODEX_CLI_TMUX_DRIVER_VERSION,
+    bracketMintingMode: 'harness-evidence',
 
     capabilities(): InvocationCapabilities {
       return CODEX_CLI_TMUX_CAPABILITIES

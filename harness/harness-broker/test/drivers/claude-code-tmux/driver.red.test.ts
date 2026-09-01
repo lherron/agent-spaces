@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
@@ -487,6 +487,189 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     expectTargetsLeasedPane(tmuxCalls, DEFAULT_LEASE_PANE)
   })
 
+  test('applyInputNow correlation id opens on a user row but is never opened for absorption', async () => {
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
+    const events: InvocationEventEnvelope[] = []
+    const root = mkdtempSync(join(tmpdir(), 'claude-disposition-driver-'))
+    const transcriptPath = join(root, 'session.jsonl')
+    writeFileSync(transcriptPath, '')
+    const hookSocket = '/tmp/harness-broker/claude-hooks.sock'
+    const driver = createDriver({
+      tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
+      hooks: {
+        listen: async (handler) => {
+          hookHandler = handler as (envelope: HookEnvelope) => Promise<void>
+          return { socketPath: hookSocket, close: async () => undefined }
+        },
+      },
+      now,
+    })
+
+    try {
+      await driver.start(claudeTmuxSpec(), createCtx(events, { terminalSurface: defaultLease() }))
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        hookData: { hook_event_name: 'SessionStart', transcript_path: transcriptPath },
+      })
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        turnId: 'turn_live',
+        hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'base turn' },
+      })
+
+      const applied = await driver.applyInputNow({
+        inputId: 'input_absorbed',
+        kind: 'user',
+        content: [{ type: 'text', text: 'broker steer' }],
+      })
+      appendFileSync(
+        transcriptPath,
+        `${[
+          { type: 'queue-operation', operation: 'enqueue', content: 'broker steer' },
+          { type: 'queue-operation', operation: 'remove', content: 'broker steer' },
+          { type: 'attachment', attachment: { type: 'queued_command', prompt: 'broker steer' } },
+        ]
+          .map((row) => JSON.stringify(row))
+          .join('\n')}\n`
+      )
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'broker steer' },
+      })
+
+      expect(
+        events.some((event) => event.type === 'turn.started' && event.turnId === applied.turnId)
+      ).toBe(false)
+      expect(events.find((event) => event.type === 'submission.absorbed')).toMatchObject({
+        turnId: 'turn_live',
+        inputId: 'input_absorbed',
+        payload: { submissionId: 'input_absorbed', turnId: 'turn_live' },
+      })
+
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        hookData: { hook_event_name: 'Stop' },
+      })
+      const idle = await driver.applyInputNow({
+        inputId: 'input_executed',
+        kind: 'user',
+        content: [{ type: 'text', text: 'idle own turn' }],
+      })
+      appendFileSync(
+        transcriptPath,
+        `${JSON.stringify({ type: 'user', message: { role: 'user', content: 'idle own turn' } })}\n`
+      )
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'idle own turn' },
+      })
+      expect(
+        events.find(
+          (event) => event.type === 'submission.executed' && event.inputId === 'input_executed'
+        )
+      ).toMatchObject({
+        turnId: idle.turnId,
+        inputId: 'input_executed',
+        payload: { submissionId: 'input_executed', turnId: idle.turnId },
+      })
+      expect(
+        events.filter((event) => event.type === 'turn.started' && event.turnId === idle.turnId)
+      ).toHaveLength(1)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('transcript interrupt terminalizes the original before a dequeue-promoted successor', async () => {
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
+    const events: InvocationEventEnvelope[] = []
+    const root = mkdtempSync(join(tmpdir(), 'claude-interrupt-driver-'))
+    const transcriptPath = join(root, 'session.jsonl')
+    writeFileSync(transcriptPath, '')
+    const hookSocket = '/tmp/harness-broker/claude-hooks.sock'
+    const driver = createDriver({
+      tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
+      hooks: {
+        listen: async (handler) => {
+          hookHandler = handler as (envelope: HookEnvelope) => Promise<void>
+          return { socketPath: hookSocket, close: async () => undefined }
+        },
+      },
+      now,
+    })
+
+    try {
+      await driver.start(claudeTmuxSpec(), createCtx(events, { terminalSurface: defaultLease() }))
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        hookData: { hook_event_name: 'SessionStart', transcript_path: transcriptPath },
+      })
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        turnId: 'turn_original',
+        hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'long turn' },
+      })
+      appendFileSync(
+        transcriptPath,
+        `${[
+          { type: 'queue-operation', operation: 'enqueue', content: 'CHARLIE' },
+          { type: 'queue-operation', operation: 'dequeue' },
+          {
+            type: 'user',
+            message: {
+              role: 'user',
+              content: [{ type: 'text', text: '[Request interrupted by user]' }],
+            },
+          },
+          { type: 'user', message: { role: 'user', content: 'CHARLIE' } },
+        ]
+          .map((row) => JSON.stringify(row))
+          .join('\n')}\n`
+      )
+      const before = events.length
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        hookData: { hook_event_name: 'Notification', message: 'after promotion' },
+      })
+
+      const captured = events.slice(before)
+      expect(captured.map((event) => event.type).slice(0, 4)).toEqual([
+        'turn.interrupted',
+        'turn.started',
+        'user.message',
+        'submission.executed',
+      ])
+      expect(captured[0]).toMatchObject({ turnId: 'turn_original' })
+      expect(captured[1]?.turnId).not.toBe('turn_original')
+      expect(captured.at(-1)).toMatchObject({
+        type: 'driver.notice',
+        turnId: captured[1]?.turnId,
+      })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test('hook envelopes received by the driver flow through ctx.emit in start-to-complete order', async () => {
     const createDriver = await loadFactory()
     const tmuxCalls: TmuxExecCall[] = []
@@ -542,7 +725,13 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     )
     expect(
       events.filter((event) => event.turnId === 'turn_driver_envelope_1').map((event) => event.type)
-    ).toEqual(['turn.started', 'user.message', 'tool.call.started', 'turn.completed'])
+    ).toEqual([
+      'turn.started',
+      'user.message',
+      'submission.executed',
+      'tool.call.started',
+      'turn.completed',
+    ])
   })
 
   test('durable hook envelopes reject mismatched generation but accept matching identity', async () => {
@@ -594,6 +783,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     expect(events.slice(baseline).map((event) => event.type)).toEqual([
       'turn.started',
       'user.message',
+      'submission.executed',
     ])
   })
 
@@ -1142,7 +1332,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
         type: 'turn.started',
         turnId: activeTurnId,
         // T-04846: hook-observed starts carry provenance (vs broker-delivery).
-        payload: { turnId: activeTurnId, source: 'hook-observed' },
+        payload: expect.objectContaining({ turnId: activeTurnId, source: 'hook-observed' }),
       })
     )
     expect(events).toContainEqual(

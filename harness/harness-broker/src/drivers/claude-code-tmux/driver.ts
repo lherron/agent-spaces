@@ -19,7 +19,7 @@ import { BrokerError } from '../../errors'
 import type { TmuxExec, TmuxPaneController } from '../../runtime/tmux'
 import { writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
-import { asRecord as asHookRecord } from '../hook-json'
+import { asRecord as asHookRecord, getString } from '../hook-json'
 import {
   type HookEnvelopeDecision,
   type HookEnvelopeResult,
@@ -34,7 +34,6 @@ import {
 import {
   CLAUDE_CODE_TMUX_DRIVER_KIND,
   type ClaudeCodeHookEnvelope,
-  type ClaudeCodeHookEventNormalizer,
   createClaudeCodeHookEventNormalizer,
   normalizeHookEnvelope,
 } from './hook-events'
@@ -42,6 +41,12 @@ import {
   type ClaudeHookTranscriptReader,
   createClaudeHookTranscriptReader,
 } from './hook-transcript'
+import {
+  type ClaudeAttributionAction,
+  type ClaudeTranscriptQueueOperation,
+  type ClaudeTurnAttribution,
+  createClaudeTurnAttribution,
+} from './turn-attribution'
 
 const CLAUDE_CODE_TMUX_DRIVER_VERSION = '0.1.0'
 
@@ -182,6 +187,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
   let surface: SurfaceState | undefined
   let hookListener: HookListenerHandle | undefined
   let transcriptReader: ClaudeHookTranscriptReader | undefined
+  let attribution: ClaudeTurnAttribution | undefined
   let hookDrain: Promise<HookEnvelopeResult> = Promise.resolve(undefined)
   // The runtime hands the driver a pane LEASE — `runtime.terminalSurface`
   // (kind: 'tmux-pane', ownership: 'hrc', T-01723 Phase A). The driver
@@ -190,10 +196,6 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
   // (inspect, sendInput, sendInterrupt, capture, resize) come from the
   // lease's `allowedOps` set.
   let paneController: TmuxPaneController | undefined
-  // Active broker turn id (cody's Phase 3 seam, H2). Set by applyInputNow so
-  // raw hook envelopes that carry neither an envelope turn id nor a raw
-  // `turn_id` still attribute turn.started/turn.completed to the live turn.
-  let activeTurnId: string | undefined
   let turnCounter = 0
   const structuredTurns = new Map<string, StructuredTurnState>()
   const completedStructuredTurns = new Set<string>()
@@ -229,9 +231,25 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     return paneController
   }
 
+  function emitDriverTeardownDispositions(rawType: string): void {
+    if (ctx === undefined || attribution === undefined) return
+    for (const action of attribution.teardown()) {
+      if (action.kind !== 'cancelled') continue
+      ctx.emit(
+        'submission.cancelled',
+        { submissionId: action.submissionId, reason: action.reason },
+        {
+          ...(action.inputId !== undefined ? { inputId: action.inputId } : {}),
+          driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType },
+        }
+      )
+    }
+  }
+
   return {
     kind: CLAUDE_CODE_TMUX_DRIVER_KIND,
     version: CLAUDE_CODE_TMUX_DRIVER_VERSION,
+    bracketMintingMode: 'harness-evidence',
 
     capabilities(): InvocationCapabilities {
       return CLAUDE_CODE_TMUX_CAPABILITIES
@@ -258,27 +276,166 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       surface = leased.surface
       const lease = leased.surface
 
-      // Wire the hook ingestion callback socket → normalize via the ENVELOPE
-      // turn id seam → re-emit as broker events through ctx.emit. The shared
-      // stateful normalizer preserves activeTurnId / completed-turn dedup.
-      const normalizer: ClaudeCodeHookEventNormalizer = createClaudeCodeHookEventNormalizer({
+      const normalizer = createClaudeCodeHookEventNormalizer({
         invocationId: driverCtx.invocationId,
         now,
         allocateTurnId,
         hasApiErrorForTurn: (turnId) => apiErrorTurns.has(turnId),
         clearApiErrorForTurn: (turnId) => apiErrorTurns.delete(turnId),
       })
+      const turnAttribution = createClaudeTurnAttribution({
+        invocationId: driverCtx.invocationId,
+        allocateTurnId,
+      })
+      attribution = turnAttribution
+
+      const emitAttributionActions = (
+        actions: ClaudeAttributionAction[],
+        rawType: string
+      ): void => {
+        for (const action of actions) {
+          const inputExtra =
+            'inputId' in action && action.inputId !== undefined ? { inputId: action.inputId } : {}
+          if (action.kind === 'executed') {
+            normalizer.activateTurn(action.turnId)
+            driverCtx.emit(
+              'turn.started',
+              {
+                turnId: action.turnId,
+                source: 'hook-observed',
+                ...(action.inputId !== undefined ? { inputId: action.inputId } : {}),
+              },
+              {
+                turnId: action.turnId,
+                ...inputExtra,
+                driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType },
+              }
+            )
+            driverCtx.emit(
+              'user.message',
+              {
+                content: action.content,
+                turnId: action.turnId,
+                ...(action.inputId !== undefined ? { inputId: action.inputId } : {}),
+              },
+              {
+                turnId: action.turnId,
+                ...inputExtra,
+                driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType },
+              }
+            )
+            driverCtx.emit(
+              'submission.executed',
+              { submissionId: action.submissionId, turnId: action.turnId },
+              {
+                turnId: action.turnId,
+                ...inputExtra,
+                driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType },
+              }
+            )
+            continue
+          }
+          if (action.kind === 'absorbed') {
+            driverCtx.emit(
+              'user.message',
+              {
+                content: action.content,
+                turnId: action.turnId,
+                ...(action.inputId !== undefined ? { inputId: action.inputId } : {}),
+              },
+              {
+                turnId: action.turnId,
+                ...inputExtra,
+                driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType },
+              }
+            )
+            driverCtx.emit(
+              'submission.absorbed',
+              { submissionId: action.submissionId, turnId: action.turnId },
+              {
+                turnId: action.turnId,
+                ...inputExtra,
+                driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType },
+              }
+            )
+            continue
+          }
+          if (action.kind === 'cancelled') {
+            driverCtx.emit(
+              'submission.cancelled',
+              { submissionId: action.submissionId, reason: action.reason },
+              {
+                ...inputExtra,
+                driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType },
+              }
+            )
+            continue
+          }
+          if (action.kind === 'started') {
+            normalizer.activateTurn(action.turnId)
+            driverCtx.emit(
+              'turn.started',
+              { turnId: action.turnId, source: 'hook-observed' },
+              {
+                turnId: action.turnId,
+                driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType },
+              }
+            )
+            continue
+          }
+          if (action.kind === 'interrupted') {
+            for (const event of normalizer.normalizeInterrupted(action.turnId)) {
+              driverCtx.emit(event.type, event.payload, {
+                ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
+                ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
+                ...(event.driver !== undefined ? { driver: event.driver } : {}),
+              })
+            }
+            continue
+          }
+          driverCtx.emit(
+            'capture.warning',
+            { message: action.message, raw: action.raw },
+            { driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType } }
+          )
+        }
+      }
+
       const expectedRuntimeId = getInvocationRuntimeId(spec)
       hookDrain = Promise.resolve(undefined)
-      // Hook-driven session-transcript reader (T-02027): captures the mid-turn /
-      // steered prompts that fire NO UserPromptSubmit. Reads newly appended
-      // transcript bytes synchronously in hook order, attributes each
-      // `queue-operation`/`enqueue` line to the live broker turn (activeTurnId).
       const reader = createClaudeHookTranscriptReader({
         invocationId: driverCtx.invocationId,
         now,
-        getCurrentTurnId: () => activeTurnId,
+        getCurrentTurnId: () => turnAttribution.activeTurnId,
         onApiError: (turnId) => apiErrorTurns.add(turnId),
+        onTranscriptEntry: (entry) => {
+          const entryType = getString(entry, 'type')
+          if (entryType === 'queue-operation') {
+            emitAttributionActions(
+              turnAttribution.observeQueueOperation(entry as ClaudeTranscriptQueueOperation),
+              'queue-operation'
+            )
+            return
+          }
+          if (entryType === 'attachment') {
+            const attachment = asHookRecord(entry['attachment'])
+            if (getString(attachment, 'type') !== 'queued_command') return
+            emitAttributionActions(
+              turnAttribution.observeQueuedCommand(getString(attachment, 'prompt'), entry),
+              'queued_command'
+            )
+            return
+          }
+          const userObservation = classifyTranscriptUserEntry(entry)
+          if (userObservation?.kind === 'interrupted') {
+            emitAttributionActions(turnAttribution.observeInterrupt(entry), 'transcript.interrupt')
+          } else if (userObservation?.kind === 'prompt') {
+            emitAttributionActions(
+              turnAttribution.observePlainUser(userObservation.content, entry),
+              'transcript.user'
+            )
+          }
+        },
       })
       transcriptReader = reader
       const handleHookEnvelope = async (
@@ -304,26 +461,10 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         if (hookListener !== undefined && envelope.callbackSocket !== hookListener.socketPath) {
           return
         }
-        // H2: when neither the envelope nor the raw hook carries a turn id, fall
-        // back to the driver-tracked active broker turn id so turn lifecycle
-        // events still resolve to the live turn. The fallback is only injected
-        // while a turn is OPEN — it is cleared on terminal below so a stale,
-        // already-completed id is never merged into raw turn_id indistinguishably
-        // (C-02755 step 5); that lets the normalizer mint a fresh id for the next
-        // turn-id-less operator prompt.
-        let effectiveEnvelope =
-          envelope.turnId === undefined && activeTurnId !== undefined
-            ? { ...envelope, turnId: activeTurnId }
-            : envelope
-        // T-02027: read the session transcript BEFORE normalizing the triggering
-        // hook so a mid-turn/steered prompt's `user.message` lands in hook order
-        // ahead of this hook's normalized events. SessionStart captures the
-        // transcript path; every other hook reads newly appended bytes. This also
-        // records same-turn API-error state before structured Stop validation, so
-        // a truncated candidate is attributed to the provider instead of Ajv.
+        const rawHook = asHookRecord(envelope.hookData)
         for (const event of reader.handleHook(
-          asHookRecord(effectiveEnvelope.hookData),
-          effectiveEnvelope.turnId
+          rawHook,
+          envelope.turnId ?? turnAttribution.activeTurnId
         )) {
           driverCtx.emit(event.type, event.payload, {
             ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
@@ -331,6 +472,21 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
             ...(event.driver !== undefined ? { driver: event.driver } : {}),
           })
         }
+        const rawType = getString(rawHook, 'hook_event_name')
+        if (rawType === 'UserPromptSubmit') {
+          emitAttributionActions(
+            turnAttribution.observePromptHook(
+              getString(rawHook, 'prompt'),
+              envelope.turnId as TurnId | undefined
+            ),
+            rawType
+          )
+          return
+        }
+        let effectiveEnvelope =
+          envelope.turnId === undefined && turnAttribution.activeTurnId !== undefined
+            ? { ...envelope, turnId: turnAttribution.activeTurnId }
+            : envelope
         const structuredDecision = handleStructuredOutputHook(effectiveEnvelope)
         if (structuredDecision.action === 'drop') {
           return structuredDecision.decision
@@ -342,20 +498,14 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
             ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
             ...(event.driver !== undefined ? { driver: event.driver } : {}),
           })
-          // Provenance sync (C-02755 step 5): mirror the normalizer's turn
-          // lifecycle into the driver-side fallback id. After turn.started, point
-          // the fallback at the live turn (so its tool-call/Stop hooks resolve);
-          // after a terminal, clear it so the next turn-id-less prompt mints.
           if (event.type === 'turn.started' && event.turnId !== undefined) {
-            activeTurnId = event.turnId
+            turnAttribution.observeTurnStarted(event.turnId)
           } else if (
             event.type === 'turn.completed' ||
             event.type === 'turn.failed' ||
             event.type === 'turn.interrupted'
           ) {
-            if (activeTurnId === event.turnId) {
-              activeTurnId = undefined
-            }
+            if (event.turnId !== undefined) turnAttribution.observeTurnTerminal(event.turnId)
           }
         }
       }
@@ -417,13 +567,19 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       requireCtx()
       requireSurface()
       const text = extractText(input)
-      // H2: open a broker-tracked turn so out-of-band hook envelopes that omit a
-      // turn id are attributed to this turn. Uses the SAME shared allocator as
-      // the normalizer (C-02755) and is returned to the caller as the
-      // authoritative turn id for this input.
+      // This id authoritatively correlates the submission, but does not open a
+      // turn bracket. Blind keystroke delivery is not harness evidence: the
+      // transcript disposition mirror will either open this id on a plain user
+      // row or announce that the submission joined the live turn.
       const turnId = allocateTurnId()
-      activeTurnId = turnId
       const prompt = promptForStructuredOutput(input, text, turnId)
+      attribution?.trackBrokerSubmission({
+        ...(input.inputId !== undefined
+          ? { submissionId: input.inputId, inputId: input.inputId }
+          : {}),
+        content: prompt,
+        allocatedTurnId: turnId as TurnId,
+      })
       // terminal-literal-input turn delivery: literal text, a short TUI-friendly
       // pause, then Enter so shell expansion / key interpretation never mangles
       // the prompt and Claude reliably submits it.
@@ -434,7 +590,14 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     async applySteerNow(input: InvocationInput): Promise<void> {
       requireCtx()
       requireSurface()
-      await requirePaneController().sendKeys(extractText(input))
+      const text = extractText(input)
+      attribution?.trackBrokerSubmission({
+        ...(input.inputId !== undefined
+          ? { submissionId: input.inputId, inputId: input.inputId }
+          : {}),
+        content: text,
+      })
+      await requirePaneController().sendKeys(text)
     },
 
     async interrupt(_req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
@@ -469,6 +632,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
           })
         }
       }
+      emitDriverTeardownDispositions('driver.stop')
       transcriptReader?.reset()
       transcriptReader = undefined
       surface = undefined
@@ -492,12 +656,13 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
           })
         }
       }
+      emitDriverTeardownDispositions('driver.dispose')
       transcriptReader?.reset()
       transcriptReader = undefined
+      attribution = undefined
       ctx = undefined
       surface = undefined
       paneController = undefined
-      activeTurnId = undefined
       structuredTurns.clear()
       completedStructuredTurns.clear()
       apiErrorTurns.clear()
@@ -817,9 +982,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND },
       }
     )
-    if (activeTurnId === state.turnId) {
-      activeTurnId = undefined
-    }
+    attribution?.observeTurnTerminal(state.turnId as TurnId)
   }
 
   function formatValidationData(errors: ErrorObject[]): Array<Record<string, unknown>> {
@@ -889,6 +1052,27 @@ export function buildClaudeHookSettingsOverlay(options: {
 
 function toDecisionBridgeCommand(bridgeCommand: string): string {
   return bridgeCommand.replace(/\bclaude-hook\b/, 'claude-hook-decision')
+}
+
+function classifyTranscriptUserEntry(
+  entry: Record<string, unknown>
+): { kind: 'prompt'; content: string } | { kind: 'interrupted' } | undefined {
+  const message = asHookRecord(entry['message'])
+  const content = message['content']
+  if (typeof content === 'string') {
+    return content.length > 0 ? { kind: 'prompt', content } : undefined
+  }
+  if (!Array.isArray(content)) return undefined
+  const text = content
+    .map((part) =>
+      part !== null && typeof part === 'object' && !Array.isArray(part)
+        ? getString(part as Record<string, unknown>, 'text')
+        : undefined
+    )
+    .filter((part): part is string => part !== undefined)
+    .join('')
+    .trim()
+  return text === '[Request interrupted by user]' ? { kind: 'interrupted' } : undefined
 }
 
 async function buildLaunchCommandLine(

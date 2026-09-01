@@ -3,11 +3,14 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import * as protocol from '../src'
 import type {
+  CaptureWarningPayload,
   InputId,
   InvocationEventPayloadMap,
   InvocationId,
   MessageId,
   PermissionRequestId,
+  SubmissionCancelledPayload,
+  SubmissionTurnDispositionPayload,
   ToolCallId,
   TurnId,
 } from '../src'
@@ -1419,6 +1422,22 @@ describe('validateEventEnvelope', () => {
     'input.accepted': { inputId: 'input_1' as InputId },
     'input.rejected': { inputId: 'input_1' as InputId, reason: 'busy' },
     'input.queued': { inputId: 'input_1' as InputId },
+    'submission.absorbed': {
+      submissionId: 'submission_1',
+      turnId: 'turn_1' as TurnId,
+    } satisfies SubmissionTurnDispositionPayload,
+    'submission.executed': {
+      submissionId: 'submission_1',
+      turnId: 'turn_1' as TurnId,
+    } satisfies SubmissionTurnDispositionPayload,
+    'submission.cancelled': {
+      submissionId: 'submission_1',
+      reason: 'recalled',
+    } satisfies SubmissionCancelledPayload,
+    'capture.warning': {
+      message: 'unknown queue operation',
+      raw: { type: 'queue-operation', operation: 'unknown' },
+    } satisfies CaptureWarningPayload,
     'turn.started': { turnId: 'turn_1' as TurnId },
     'turn.stalled': {
       inputId: 'input_1' as InputId,

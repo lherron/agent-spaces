@@ -17,6 +17,8 @@ export const CLAUDE_CODE_TMUX_DRIVER_KIND = 'claude-code-tmux'
 
 export type ClaudeCodeHookEventNormalizer = {
   normalizeHook: (hook: Record<string, unknown>) => InvocationEventEnvelope[]
+  activateTurn: (turnId: string) => void
+  normalizeInterrupted: (turnId: string) => InvocationEventEnvelope[]
   normalizeToolCallFailure: (failure: {
     turnId: string
     toolCallId: string
@@ -206,6 +208,30 @@ export function createClaudeCodeHookEventNormalizer(
   }
 
   return {
+    activateTurn(turnId: string): void {
+      if (!completedTurns.has(turnId)) activeTurnId = turnId
+    },
+
+    normalizeInterrupted(turnIdText: string): InvocationEventEnvelope[] {
+      if (completedTurns.has(turnIdText)) return []
+      const turnId = asTurnId(turnIdText)
+      completedTurns.add(turnIdText)
+      if (activeTurnId === turnIdText) activeTurnId = undefined
+      heldAssistantMessage = undefined
+      messageDisplays.clear()
+      return [
+        emit('transcript.interrupt', {
+          type: 'turn.interrupted',
+          payload: {
+            turnId,
+            status: 'interrupted',
+            reason: 'request_interrupted_by_user',
+          },
+          turnId,
+        }),
+      ]
+    },
+
     // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: this is the stateful dispatch table for Claude's hook vocabulary.
     normalizeHook(hook: Record<string, unknown>): InvocationEventEnvelope[] {
       const unwrapped = unwrapHookPayload(hook)

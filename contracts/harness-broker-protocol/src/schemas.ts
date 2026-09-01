@@ -112,6 +112,10 @@ const EVENT_TYPES = [
   'input.accepted',
   'input.rejected',
   'input.queued',
+  'submission.absorbed',
+  'submission.executed',
+  'submission.cancelled',
+  'capture.warning',
   'turn.started',
   'turn.stalled',
   'turn.retry',
@@ -1478,6 +1482,24 @@ const EVENT_PAYLOAD_VALIDATORS = {
   'input.accepted': validateInputDispositionPayload,
   'input.rejected': validateInputDispositionPayload,
   'input.queued': validateInputDispositionPayload,
+  'submission.absorbed': (payload, issues) => {
+    requireString(payload['submissionId'], 'payload.submissionId', issues)
+    requireString(payload['turnId'], 'payload.turnId', issues)
+  },
+  'submission.executed': (payload, issues) => {
+    requireString(payload['submissionId'], 'payload.submissionId', issues)
+    requireString(payload['turnId'], 'payload.turnId', issues)
+  },
+  'submission.cancelled': (payload, issues) => {
+    requireString(payload['submissionId'], 'payload.submissionId', issues)
+    optionalEnum(payload['reason'], ['recalled', 'removed', 'teardown'], 'payload.reason', issues)
+  },
+  'capture.warning': (payload, issues) => {
+    requireString(payload['message'], 'payload.message', issues)
+    if (!Object.hasOwn(payload, 'raw')) {
+      issues.push(makeIssue('payload.raw', 'required', 'payload.raw is required'))
+    }
+  },
   'turn.started': (payload, issues) => {
     requireString(payload['turnId'], 'payload.turnId', issues)
     optionalString(payload['inputId'], 'payload.inputId', issues)

@@ -155,6 +155,7 @@ export function createPiTuiTmuxDriver(options: PiTuiTmuxDriverOptions): Driver {
   return {
     kind: PI_TUI_TMUX_DRIVER_KIND,
     version: PI_TUI_TMUX_DRIVER_VERSION,
+    bracketMintingMode: 'delivery-asserted',
 
     capabilities(): InvocationCapabilities {
       return PI_TUI_TMUX_CAPABILITIES

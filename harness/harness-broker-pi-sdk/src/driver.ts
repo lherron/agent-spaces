@@ -234,6 +234,7 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
   return {
     kind: driverKind,
     version: PI_SDK_DRIVER_VERSION,
+    bracketMintingMode: 'delivery-asserted',
 
     capabilities(): InvocationCapabilities {
       return PI_SDK_CAPABILITIES

@@ -52,12 +52,14 @@ const setup = async (
     suppressTurnStarted?: boolean
     interactionMode?: 'headless' | 'interactive'
     supportsSteer?: boolean
+    bracketMintingMode?: 'delivery-acknowledged' | 'harness-evidence' | 'delivery-asserted'
   } = {}
 ) => {
   const events: InvocationEventEnvelope[] = []
   const { driver, controller } = createTestDriver({
     suppressTurnStarted: options.suppressTurnStarted,
     supportsSteer: options.supportsSteer,
+    bracketMintingMode: options.bracketMintingMode,
   })
   const broker = createBroker({
     drivers: [driver],
@@ -87,6 +89,21 @@ const BODY_OR_TERMINAL = new Set<InvocationEventEnvelope['type']>([
 ])
 
 describe('broker-guaranteed turn.started bracket (T-04846)', () => {
+  test('harness-evidence drivers receive a correlation id without delivery-time bracket synthesis', async () => {
+    const { broker, events, invocationId } = await setup('inv_harness_evidence', {
+      suppressTurnStarted: true,
+      bracketMintingMode: 'harness-evidence',
+    })
+
+    const response = await broker.input({
+      invocationId,
+      input: userInput('input_harness_evidence', 'blind keystroke delivery'),
+    })
+
+    expect(response.turnId).toBeDefined()
+    expect(ofType(events, 'turn.started')).toHaveLength(0)
+  })
+
   test('delivered IDLE input with NO driver/hook start still emits exactly one turn.started before any body/terminal', async () => {
     const { broker, controller, events, invocationId } = await setup('inv_idle_no_hook', {
       suppressTurnStarted: true,

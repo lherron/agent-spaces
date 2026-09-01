@@ -485,7 +485,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     // input's turnId. Deduped in emit() so it never double-opens a turn the
     // driver/hook also reports. Emitted synchronously after delivery so it
     // strictly precedes the (asynchronously-arriving) hook body/terminal events.
-    if (result.turnId !== undefined) {
+    if (result.turnId !== undefined && inv.driver.bracketMintingMode !== 'harness-evidence') {
       emit(
         inv,
         'turn.started',

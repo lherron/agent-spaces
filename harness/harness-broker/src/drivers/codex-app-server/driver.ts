@@ -469,6 +469,7 @@ export function createCodexAppServerDriver(): Driver {
   return {
     kind: 'codex-app-server',
     version: '0.1.0',
+    bracketMintingMode: 'delivery-acknowledged',
 
     capabilities(): InvocationCapabilities {
       return CODEX_CAPABILITIES

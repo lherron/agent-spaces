@@ -502,6 +502,7 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
   return {
     kind: AGENT_HARNESS_TMUX_DRIVER_KIND,
     version: AGENT_HARNESS_TMUX_DRIVER_VERSION,
+    bracketMintingMode: 'delivery-acknowledged',
 
     capabilities(): InvocationCapabilities {
       return AGENT_HARNESS_TMUX_CAPABILITIES

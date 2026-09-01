@@ -16,6 +16,7 @@ type ClaudeHookTranscriptReaderFactory = (options: {
   now: () => Date
   invocationId: string
   getCurrentTurnId: () => string | undefined
+  onTranscriptEntry?: ((entry: Record<string, unknown>) => void) | undefined
 }) => ClaudeHookTranscriptReader
 
 const tempRoots: string[] = []
@@ -108,17 +109,16 @@ const stop = (): Record<string, unknown> => ({ hook_event_name: 'Stop' })
 const eventTypes = (events: InvocationEventEnvelope[]): InvocationEventType[] =>
   events.map((event) => event.type)
 
-const contentOf = (event: InvocationEventEnvelope): string =>
-  (event.payload as { content?: string }).content ?? ''
-
 describe('createClaudeHookTranscriptReader', () => {
-  test('emits one user.message for a mid-turn queue/enqueue line, attributed to the live turn', async () => {
+  test('forwards a mid-turn queue/enqueue observation without minting a user.message', async () => {
     const create = await loadFactory()
     const path = tempTranscript()
+    const observed: Record<string, unknown>[] = []
     const reader = create({
       now: () => new Date('2026-06-07T22:33:04.000Z'),
       invocationId,
       getCurrentTurnId: () => 'turn_active_1',
+      onTranscriptEntry: (entry) => observed.push(entry),
     })
 
     // SessionStart records the transcript path, emits nothing.
@@ -128,10 +128,14 @@ describe('createClaudeHookTranscriptReader', () => {
     appendFileSync(path, enqueue('GHOSTE2E_PROMPT_PROBE reply with exactly OK'))
 
     const events = reader.handleHook(postToolUse())
-    expect(eventTypes(events)).toEqual(['user.message'])
-    expect(contentOf(events[0]!)).toBe('GHOSTE2E_PROMPT_PROBE reply with exactly OK')
-    expect(events[0]!.turnId).toBe('turn_active_1')
-    expect((events[0]!.payload as { turnId?: string }).turnId).toBe('turn_active_1')
+    expect(events).toEqual([])
+    expect(observed).toEqual([
+      expect.objectContaining({
+        type: 'queue-operation',
+        operation: 'enqueue',
+        content: 'GHOSTE2E_PROMPT_PROBE reply with exactly OK',
+      }),
+    ])
   })
 
   test('idle prompts (type:user, no enqueue) emit nothing — no double-count', async () => {
@@ -182,53 +186,62 @@ describe('createClaudeHookTranscriptReader', () => {
     expect(reader.handleHook(postToolUse())).toEqual([])
   })
 
-  test('omits turnId when no turn is active', async () => {
+  test('forwards enqueue identically when no turn is active', async () => {
     const create = await loadFactory()
     const path = tempTranscript()
+    const observed: Record<string, unknown>[] = []
     const reader = create({
       now: () => new Date('2026-06-07T22:33:04.000Z'),
       invocationId,
       getCurrentTurnId: () => undefined,
+      onTranscriptEntry: (entry) => observed.push(entry),
     })
 
     reader.handleHook(sessionStart(path))
     appendFileSync(path, enqueue('a steered prompt with no active turn'))
 
     const events = reader.handleHook(postToolUse())
-    expect(eventTypes(events)).toEqual(['user.message'])
-    expect(events[0]!.turnId).toBeUndefined()
-    expect((events[0]!.payload as { turnId?: string }).turnId).toBeUndefined()
+    expect(events).toEqual([])
+    expect(observed.map((entry) => entry['content'])).toEqual([
+      'a steered prompt with no active turn',
+    ])
   })
 
-  test('two mid-turn enqueues across separate hooks emit one user.message each', async () => {
+  test('two mid-turn enqueues across separate hooks are forwarded once each', async () => {
     const create = await loadFactory()
     const path = tempTranscript()
+    const observed: Record<string, unknown>[] = []
     const reader = create({
       now: () => new Date('2026-06-07T22:33:04.000Z'),
       invocationId,
       getCurrentTurnId: () => 'turn_active_1',
+      onTranscriptEntry: (entry) => observed.push(entry),
     })
 
     reader.handleHook(sessionStart(path))
 
     appendFileSync(path, enqueue('first steered prompt'))
     const first = reader.handleHook(postToolUse())
-    expect(eventTypes(first)).toEqual(['user.message'])
-    expect(contentOf(first[0]!)).toBe('first steered prompt')
+    expect(first).toEqual([])
 
     appendFileSync(path, enqueue('second steered prompt'))
     const second = reader.handleHook(postToolUse())
-    expect(eventTypes(second)).toEqual(['user.message'])
-    expect(contentOf(second[0]!)).toBe('second steered prompt')
+    expect(second).toEqual([])
+    expect(observed.map((entry) => entry['content'])).toEqual([
+      'first steered prompt',
+      'second steered prompt',
+    ])
   })
 
   test('byte-offset tailing preserves partial-line buffering, multi-record order, and offset resume', async () => {
     const create = await loadFactory()
     const path = tempTranscript()
+    const observed: Record<string, unknown>[] = []
     const reader = create({
       now: () => new Date('2026-06-07T22:33:04.000Z'),
       invocationId,
       getCurrentTurnId: () => 'turn_active_1',
+      onTranscriptEntry: (entry) => observed.push(entry),
     })
 
     reader.handleHook(sessionStart(path))
@@ -247,8 +260,12 @@ describe('createClaudeHookTranscriptReader', () => {
     )
     const firstRead = reader.handleHook(postToolUse())
 
-    expect(eventTypes(firstRead)).toEqual(['user.message', 'user.message'])
-    expect(firstRead.map(contentOf)).toEqual(['partial prompt', 'second prompt'])
+    expect(firstRead).toEqual([])
+    expect(observed.map((entry) => entry['operation'])).toEqual(['enqueue', 'enqueue', 'remove'])
+    expect(observed.slice(0, 2).map((entry) => entry['content'])).toEqual([
+      'partial prompt',
+      'second prompt',
+    ])
 
     // Offset resume guard: already-read complete records are not replayed.
     expect(reader.handleHook(postToolUse())).toEqual([])
@@ -259,8 +276,8 @@ describe('createClaudeHookTranscriptReader', () => {
     )
     const resumed = reader.handleHook(postToolUse())
 
-    expect(eventTypes(resumed)).toEqual(['user.message'])
-    expect(resumed.map(contentOf)).toEqual(['third prompt'])
+    expect(resumed).toEqual([])
+    expect(observed.at(-1)?.['content']).toBe('third prompt')
   })
 
   // T-05092: API-failure rows → non-terminal diagnostic (daedalus DM #9988).

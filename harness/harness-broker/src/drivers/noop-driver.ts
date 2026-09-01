@@ -55,6 +55,7 @@ export function createNoopDriver(options: NoopDriverOptions = {}): Driver {
   return {
     kind: 'noop-driver',
     version: '0.1.0',
+    bracketMintingMode: 'delivery-acknowledged',
 
     capabilities(): InvocationCapabilities {
       return NOOP_CAPABILITIES

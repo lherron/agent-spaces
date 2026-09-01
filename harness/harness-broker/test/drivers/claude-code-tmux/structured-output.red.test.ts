@@ -603,11 +603,19 @@ describe('claude-code-tmux JSON Schema structured-output RED contract', () => {
   })
 
   test('12b. SubagentStop does not fail or complete the live structured parent turn', async () => {
-    const { driver, events, hookHandler } = await setupDriver()
+    const { driver, tmuxCalls, events, hookHandler } = await setupDriver()
 
     const applied = await driver.applyInputNow(
       input('input_subagent_parent', 'return status', schemaResponse(statusSchema))
     )
+    const submitted = sentLiteralInputs(tmuxCalls).at(-1) ?? ''
+    await hookHandler({
+      invocationId: 'inv_claude_structured',
+      runtimeId: 'runtime-structured',
+      generation: 1,
+      callbackSocket: '/tmp/harness-broker/claude-structured-output.sock',
+      hookData: { hook_event_name: 'UserPromptSubmit', prompt: submitted },
+    })
     await hookHandler({
       invocationId: 'inv_claude_structured',
       runtimeId: 'runtime-structured',

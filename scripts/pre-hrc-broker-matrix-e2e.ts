@@ -4087,7 +4087,7 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
   {
     name: 'real-claude-tmux-midturn',
     description:
-      'claude-code-tmux mid-turn/steered prompt capture (queue-operation/enqueue → user.message, T-02027)',
+      'claude-code-tmux mid-turn disposition capture (enqueue → queued_command → user.message + submission.absorbed)',
     probe: async () => {
       const claude = resolveClaudeBin()
       if (claude === undefined) {
@@ -4106,9 +4106,11 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
       // also prints the marker (shared floor). While it's in-flight the runner
       // types a SECOND prompt DIRECTLY into the tmux pane (tmux send-keys, NOT
       // broker manager.input) carrying MIDTURN_<marker>; Claude enqueues it
-      // (queue-operation/enqueue, no UserPromptSubmit) and the driver's
-      // transcript reader surfaces it as user.message. turn2 = the SHARED
-      // narration scenario so assertIntermediateMessages runs on this row too.
+      // (queue-operation/enqueue, no UserPromptSubmit). The transcript reader
+      // holds it pending until Claude emits remove + queued_command, then
+      // surfaces exactly one user.message + submission.absorbed disposition.
+      // turn2 = the SHARED narration scenario so assertIntermediateMessages
+      // runs on this row too.
       //
       // The window MUST stay comfortably wider than the inject latency
       // (tool.call.started hook delivery + the runner's poll + settle before the
@@ -4244,40 +4246,55 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
         ...assertStructuredValidTurn(events, structuredTurnId, structuredMarker)
       )
 
-      // CORE midturn signal (T-02027): the steered prompt typed mid-turn fires
-      // NO UserPromptSubmit — its ONLY transcript record is a
-      // queue-operation/enqueue line. The driver's hook-transcript reader is the
-      // sole emitter of `user.message` events whose driver.rawType is
-      // 'queue-operation'. Assert EXACTLY ONE such reader-sourced user.message,
-      // carrying the MIDTURN marker and correlated to a turn. RED until the
-      // reader lands — that red IS the worklist signal; greened by this commit.
+      // Disposition-mirrored attribution (T-07849): enqueue only enters the
+      // pending buffer. Claude's remove + queued_command pair disposes it into
+      // the live turn and mints exactly one user.message immediately followed
+      // by submission.absorbed. Enqueue itself must never mint user.message.
       const userMessageContent = (e: InvocationEventEnvelope): string =>
         String(asRecord(e.payload)?.['content'] ?? '')
       const userMessages = events.filter((e) => e.type === 'user.message')
       const queueSourced = userMessages.filter((e) => e.driver?.rawType === 'queue-operation')
+      const absorbed = events.filter((e) => e.type === 'submission.absorbed')
+      const midTurnMessages = userMessages.filter((e) =>
+        userMessageContent(e).includes(midTurnMarker)
+      )
       result.notes['userMessageCount'] = userMessages.length
       result.notes['queueSourcedUserMessageCount'] = queueSourced.length
-      if (queueSourced.length !== 1) {
-        // 0 = reader not emitting (RED worklist signal); >1 = reader over-emitting
-        // (e.g. dequeue/remove or idle lines leaking) — the disjoint-channel
-        // no-double-count guarantee broken.
+      result.notes['absorbedSubmissionCount'] = absorbed.length
+      result.notes['midTurnUserMessageCount'] = midTurnMessages.length
+      if (queueSourced.length !== 0) {
         result.extraFailures.push({
-          code: 'midturn_user_prompt_capture',
-          message: `expected exactly one queue-operation-sourced user.message (mid-turn/steered prompt capture), got ${queueSourced.length}`,
+          code: 'midturn_enqueue_minted_message',
+          message: `enqueue must not mint user.message; got ${queueSourced.length} queue-operation-sourced message(s)`,
+        })
+      }
+      if (absorbed.length !== 1) {
+        result.extraFailures.push({
+          code: 'midturn_absorbed_disposition_count',
+          message: `expected exactly one submission.absorbed disposition, got ${absorbed.length}`,
+        })
+      }
+      if (midTurnMessages.length !== 1) {
+        result.extraFailures.push({
+          code: 'midturn_disposition_message_count',
+          message: `expected exactly one disposition-minted user.message carrying "${midTurnMarker}", got ${midTurnMessages.length}`,
         })
       } else {
-        // biome-ignore lint/style/noNonNullAssertion: the else-branch is reached only when queueSourced.length === 1, so index 0 is present.
-        const captured = queueSourced[0]!
-        if (!userMessageContent(captured).includes(midTurnMarker)) {
-          result.extraFailures.push({
-            code: 'midturn_user_prompt_content',
-            message: `captured mid-turn user.message must contain "${midTurnMarker}", got "${userMessageContent(captured).slice(0, 80)}"`,
-          })
+        const [captured] = midTurnMessages
+        if (captured === undefined) {
+          throw new Error('midTurnMessages length guard violated')
         }
-        if (captured.turnId === undefined) {
+        const capturedIndex = events.indexOf(captured)
+        const disposition = events[capturedIndex + 1]
+        if (
+          captured.turnId === undefined ||
+          disposition?.type !== 'submission.absorbed' ||
+          disposition.turnId !== captured.turnId
+        ) {
           result.extraFailures.push({
-            code: 'midturn_user_prompt_uncorrelated',
-            message: 'captured mid-turn user.message must be correlated to a turn (turnId present)',
+            code: 'midturn_absorbed_disposition_order',
+            message:
+              'mid-turn user.message must be correlated and immediately followed by submission.absorbed on the same turn',
           })
         }
       }
@@ -4285,16 +4302,20 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
       // No double-count of IDLE prompts: the reader must NEVER re-emit a prompt
       // that fired UserPromptSubmit. Channels are disjoint (idle → type:user +
       // UserPromptSubmit; steered → queue-operation/enqueue), so NO
-      // queue-operation-sourced user.message may carry the idle turn-1 prompt
+      // disposition-sourced user.message may carry the idle turn-1 prompt
       // text. (Real Claude may itself re-submit a prompt as a fresh turn — that
       // is a model behaviour producing a real UserPromptSubmit, not a reader
       // double-count, so this guards the reader specifically.)
       const idleText = 'Run the Bash command: sleep 3'
-      const readerLeakedIdle = queueSourced.filter((e) => userMessageContent(e).includes(idleText))
+      const readerLeakedIdle = userMessages.filter(
+        (e) =>
+          (e.driver?.rawType === 'queued_command' || e.driver?.rawType === 'transcript.user') &&
+          userMessageContent(e).includes(idleText)
+      )
       if (readerLeakedIdle.length > 0) {
         result.extraFailures.push({
           code: 'midturn_idle_double_count',
-          message: `transcript reader must not re-emit idle prompts; ${readerLeakedIdle.length} queue-operation user.message(s) carried the idle turn-1 prompt`,
+          message: `transcript reader must not re-emit idle prompts; ${readerLeakedIdle.length} disposition-sourced user.message(s) carried the idle turn-1 prompt`,
         })
       }
 
