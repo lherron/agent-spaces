@@ -1032,7 +1032,7 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
       },
     })
     expect(['broker-delivery', 'hook-observed']).toContain(
-      (events[turnStartedIndex]?.payload as { source?: unknown }).source
+      (events[turnStartedIndex]?.payload as { source?: string | undefined }).source as string
     )
     expect(terminalTurns).toHaveLength(1)
     expect(terminalTurns[0]?.type).toBe('turn.completed')
