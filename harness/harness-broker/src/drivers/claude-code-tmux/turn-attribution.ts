@@ -68,7 +68,7 @@ export function createClaudeTurnAttribution(options: {
 
   const nextHumanSubmissionId = (): string => {
     submissionCounter += 1
-    return `submission_${options.invocationId}_${submissionCounter}`
+    return `human_submission_${options.invocationId}_${submissionCounter}`
   }
 
   const createPending = (

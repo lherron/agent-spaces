@@ -22,6 +22,28 @@ const queueOp = (operation: string, content?: string) => ({
 })
 
 describe('claude-code-tmux disposition mirror', () => {
+  test('keeps unmediated human ids disjoint from broker-minted submission ids', () => {
+    const tracker = createTracker('namespace')
+    const [priming] = tracker.observePlainUser('launch priming', { type: 'user' })
+    expect(priming).toMatchObject({
+      kind: 'executed',
+      submissionId: 'human_submission_namespace_1',
+    })
+    if (priming?.kind !== 'executed') throw new Error('expected priming execution')
+    tracker.observeTurnTerminal(priming.turnId)
+
+    tracker.trackBrokerSubmission({
+      submissionId: 'submission_namespace_1',
+      content: 'mediated turn',
+    })
+    expect(tracker.observePlainUser('mediated turn', { type: 'user' })).toEqual([
+      expect.objectContaining({
+        kind: 'executed',
+        submissionId: 'submission_namespace_1',
+      }),
+    ])
+  })
+
   test('enqueue + prompt hook dedupes, then remove + queued_command absorbs once', () => {
     const tracker = createTracker()
     tracker.observeTurnStarted('turn_live' as TurnId)
