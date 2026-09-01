@@ -1,0 +1,63 @@
+id: agent-spaces.harness-broker-local-commit-observation
+kind: invariant
+status: active
+owner_project: agent-spaces
+scope: harness-broker provider evidence, local commit ledger, observation, and control fencing
+predicate: >
+  The harness-broker commits execution facts locally and publishes only
+  committed normalized broker envelopes. Provider authority is declared per
+  event family: native transcripts or notification streams own families they
+  represent completely, while hooks remain discovery, wakeup, synchronous
+  control, and missing-evidence inputs. Every provider input is committed
+  verbatim with a source epoch, cursor, and provenance before the same
+  production normalizer handles live delivery or replay; every raw row reaches
+  one durable normalized, state-only, duplicate, ignored-known, or
+  blocked-unknown disposition. An unclassified load-bearing type, including a
+  queue operation used for turn attribution, warns and stops its normalization
+  cursor until an operator disposition releases it. A normalized append failure
+  prevents publication. The bounded Pi risk remains exactly the exception
+  governed by agent-spaces.harness-broker-turn-evidence: the manager-authored
+  delivery-asserted turn.started owns the initial bracket, hooks correlate
+  provider evidence into that bracket without reminting it, and Pi session JSONL
+  is non-authoritative until a separately approved evidence change. The stable
+  replay-follow observer socket is read-only, bounded, and carries no mutation
+  or acknowledgement method. HRC is the sole retention-bearing consumer and
+  advances one durable scalar acknowledgement per invocation only through its
+  fenced control connection; other observers accept the retained floor. All
+  mutating RPCs remain on that fenced connection. Explicit permission decisions
+  are HRC-owned, while a disconnected deadline fallback is broker-owned and may
+  release the provider only after permission.resolved is durably committed;
+  failure to commit keeps the provider gate closed.
+authority:
+  repo: agent-spaces
+  surface: Lance HCS T-07827 / Daedalus approval wrkq T-07853, 2026-09-01
+source:
+  - wrkq:T-07853
+  - wrkq:T-07827
+  - architecture/records/invariants/agent-spaces.harness-broker-turn-evidence.yaml
+  - architecture/records/risks/agent-spaces.pi-delivery-asserted-turn-start.yaml
+  - harness/harness-broker/src/event-ledger.ts
+  - harness/harness-broker/src/invocation-manager.ts
+  - harness/harness-broker/src/cli.ts
+required_tests:
+  - raw and normalized append failure partial-tail restart and commit-before-publish fault injection
+  - live and replay use one normalizer and produce one normalized identity across every crash boundary
+  - every native type reaches one durable disposition and an unknown load-bearing queue operation warns and stops its cursor
+  - each provider passes a real native-versus-hook authority matrix while Pi preserves its delivery-asserted bracket and non-authoritative JSONL posture
+  - replay-to-follow has no seam gap and a slow observer disconnects typed within fixed queue bounds
+  - HRC scalar acknowledgement and retention floor survive broker restart while a below-floor read-only observer fails typed without holding retention
+  - stale control connections cannot mutate or acknowledge and RPC acceptance is never reported as provider effect
+  - broker timeout fallback commits requested and resolved permission facts before provider release and remains closed on commit failure
+last_verified:
+  date: 2026-09-01
+  evidence: Daedalus source-grounded approval of revised T-07853 after resolution of Pi authority, retention ownership, and permission-timeout authority flaws; implementation gates pending
+reopen_when:
+  - provider or event-family authority changes
+  - Pi initial bracket authority or its accepted-risk boundary changes
+  - live and replay normalization diverge or an uncommitted normalized event can publish
+  - raw disposition, source epoch, cursor, or blocked-unknown semantics change
+  - a second retention-bearing broker consumer is introduced
+  - observer mutation, acknowledgement, queue bounds, or replay-floor semantics change
+  - broker control fencing or explicit-versus-timeout permission ownership changes
+supersedes: []
+superseded_by: null
