@@ -154,6 +154,8 @@ type RowResult = {
   compile?: Record<string, unknown> | undefined
   capabilities?: unknown
   cells: CellResult[]
+  /** Ledger tail per door, so a boot/settle failure is diagnosable from the artifact alone. */
+  eventTails: Record<string, unknown[]>
   errors: string[]
   status: 'OK' | 'FAIL'
 }
@@ -494,6 +496,7 @@ async function runDoor(input: {
     }
     return results
   } finally {
+    row.eventTails[door] = excerpt(events.slice(-60), 60)
     if (started) {
       await broker
         .stop({ invocationId, reason: 'admission-matrix-teardown' })
@@ -589,6 +592,7 @@ async function main(): Promise<void> {
       bracketMintingMode: declared?.bracketMintingMode,
       probe: { available: false, reason: 'not probed' },
       cells: [],
+      eventTails: {},
       errors: [],
       status: 'FAIL',
     }
