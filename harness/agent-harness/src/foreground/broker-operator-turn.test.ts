@@ -125,10 +125,9 @@ const assistantMessage = (text: string) => ({
   timestamp: 1,
 })
 
-/** One complete pi agent run for a typed prompt, as the session would emit it. */
-function operatorRun(prompt: string, reply: string): AgentSessionEvent[] {
+/** One model round inside a Pi agent run. */
+function agentRound(prompt: string, reply: string): AgentSessionEvent[] {
   return [
-    { type: 'agent_start' },
     { type: 'message_start', message: { role: 'user', content: prompt, timestamp: 0 } },
     { type: 'message_end', message: { role: 'user', content: prompt, timestamp: 0 } },
     { type: 'turn_start' },
@@ -140,6 +139,14 @@ function operatorRun(prompt: string, reply: string): AgentSessionEvent[] {
     },
     { type: 'message_end', message: assistantMessage(reply) },
     { type: 'turn_end', message: assistantMessage(reply), toolResults: [] },
+  ] as unknown as AgentSessionEvent[]
+}
+
+/** One complete Pi agent run for a typed prompt, as Pi 0.84.4 emits it. */
+function operatorRun(prompt: string, reply: string): AgentSessionEvent[] {
+  return [
+    { type: 'agent_start' },
+    ...agentRound(prompt, reply),
     { type: 'agent_end', messages: [] },
     { type: 'agent_settled' },
   ] as unknown as AgentSessionEvent[]
@@ -239,6 +246,50 @@ describe('agent-harness broker TUI operator-typed turns (T-07710)', () => {
       'turn_inv-operator-07710_tui_2',
     ])
     expect(types(control.events()).filter((type) => type === 'turn.completed')).toHaveLength(2)
+  })
+
+  test('busy follow-up prompts stay in one Pi run until agent_settled', async () => {
+    const control = await startControl()
+    await runBrokerTui(
+      { agentId: 'sparky', brokerControlSocket: control.socketPath },
+      harness(async (emit) => {
+        // Pi 0.84.4 drains prompts submitted while busy inside the same agent
+        // run. It emits one agent_start/agent_settled bracket around every
+        // queued user message and model round; agent_end is not a safe broker
+        // terminal because retry/compaction/follow-up work may still continue.
+        const busyRun = [
+          { type: 'agent_start' },
+          ...agentRound('one', 'a'),
+          ...agentRound('two while busy', 'b'),
+          { type: 'agent_end', messages: [] },
+          { type: 'agent_settled' },
+        ] as unknown as AgentSessionEvent[]
+        for (const event of busyRun) emit(event)
+        for (const event of operatorRun('three after settle', 'c')) emit(event)
+      }, control)
+    )
+
+    const events = control.events()
+    const starts = events.filter((event) => event['type'] === 'turn.started')
+    const completed = events.filter((event) => event['type'] === 'turn.completed')
+    const userMessages = events.filter((event) => event['type'] === 'user.message') as Array<{
+      turnId: string
+      payload: { content: string }
+    }>
+
+    expect(starts.map((event) => event['turnId'])).toEqual([
+      'turn_inv-operator-07710_tui_1',
+      'turn_inv-operator-07710_tui_2',
+    ])
+    expect(completed.map((event) => event['turnId'])).toEqual([
+      'turn_inv-operator-07710_tui_1',
+      'turn_inv-operator-07710_tui_2',
+    ])
+    expect(userMessages.map((event) => [event.turnId, event.payload.content])).toEqual([
+      ['turn_inv-operator-07710_tui_1', 'one'],
+      ['turn_inv-operator-07710_tui_1', 'two while busy'],
+      ['turn_inv-operator-07710_tui_2', 'three after settle'],
+    ])
   })
 
   test('a broker-delivered turn keeps its own id and is not re-minted', async () => {
