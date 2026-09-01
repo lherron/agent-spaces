@@ -145,6 +145,7 @@ type CellResult = {
   expectation: string
   submissions: unknown[]
   queueListWhileBusy?: unknown
+  seatAtSettle?: unknown
   checks: Check[]
   ledgerSlice: unknown[]
   durationMs: number
@@ -365,6 +366,9 @@ async function runCell(input: {
   await waitForIdle(broker, invocationId, events, ctx.timeoutMs)
   await Bun.sleep(CELL_SETTLE_MS)
   await waitForIdle(broker, invocationId, events, ctx.timeoutMs)
+  // Quiescence evidence, read from the broker's own seat probe rather than
+  // inferred: idle seat AND an empty broker-held queue.
+  const seatAtSettle = await broker.seatProbe({ invocationId }).catch(() => undefined)
   const slice = events.slice(watermark)
   const terminals = terminalsBySubmission(slice)
   const terminalTypeOf = (id: string): string | undefined => terminals.get(id)?.[0]?.type
@@ -474,28 +478,57 @@ async function runCell(input: {
       break
     }
     case 'preempt-then-own-turn': {
+      // Mable's ruling (2026-09-01, on cody's T-07859 escalation): a preempt
+      // cell asserts QUIESCENCE REACHED + the preempting submission EXECUTED +
+      // an HONEST TERMINAL FOR EVERY OPENED TURN (completed OR interrupted) +
+      // zero capture.warning. It must NOT count `turn.interrupted`: §3.1's
+      // bounded-slippage clause makes a drained turn that finished before the
+      // key landed a `completed`, and cody's loop interrupts only evidenced
+      // in-flight requests, so a count would pin an implementation detail
+      // rather than the contract.
+      const opened = new Set(
+        slice
+          .filter((event) => event.type === 'turn.started')
+          .map((event) => (event.payload as { turnId?: unknown }).turnId)
+          .filter((id): id is string => typeof id === 'string')
+      )
+      const terminalized = new Set(
+        slice
+          .filter((event) => TERMINAL_TURN_TYPES.has(event.type))
+          .map((event) => (event.payload as { turnId?: unknown }).turnId)
+          .filter((id): id is string => typeof id === 'string')
+      )
+      const unterminated = [...opened].filter((turnId) => !terminalized.has(turnId))
+      const interrupted = slice.filter((event) => event.type === 'turn.interrupted').length
+      const completed = slice.filter((event) => event.type === 'turn.completed').length
+      checks.push({
+        id: 'every-opened-turn-terminalized',
+        ok: unterminated.length === 0,
+        detail: `${opened.size} turn(s) opened, ${terminalized.size} terminalized (${interrupted} interrupted / ${completed} completed, ${expectation.mode} mode)`,
+        evidence: unterminated.length === 0 ? undefined : { unterminated, slice: excerpt(slice) },
+      })
+      checks.push({
+        id: 'quiescence-reached',
+        ok: seatAtSettle?.seat.state === 'idle' && seatAtSettle.brokerHeldDepth === 0,
+        detail: `seat.probe after settle: ${JSON.stringify(seatAtSettle)}`,
+        evidence:
+          seatAtSettle?.seat.state === 'idle' && seatAtSettle.brokerHeldDepth === 0
+            ? undefined
+            : excerpt(slice),
+      })
+      // The decision ledger still has to record the interrupt decisions (§6);
+      // this reports them, and only fails when a REQUEST produced no outcome.
       const requestedInterrupt = slice.filter((event) => event.type === 'interrupt.requested')
       const landed = slice.filter((event) => event.type === 'interrupt.landed')
+      const failedInterrupt = slice.filter((event) => event.type === 'interrupt.failed')
       checks.push({
-        id: 'interrupt-recorded',
-        ok: requestedInterrupt.length > 0 && landed.length > 0,
-        detail: `interrupt.requested=${requestedInterrupt.length} interrupt.landed=${landed.length}`,
+        id: 'interrupt-decisions-recorded',
+        ok: requestedInterrupt.length === landed.length + failedInterrupt.length,
+        detail: `interrupt.requested=${requestedInterrupt.length} landed=${landed.length} failed=${failedInterrupt.length}`,
         evidence:
-          requestedInterrupt.length > 0 && landed.length > 0
+          requestedInterrupt.length === landed.length + failedInterrupt.length
             ? undefined
             : excerpt(slice.filter((event) => event.type.startsWith('interrupt.'))),
-      })
-      // §3.1 bounded-slippage clause: a drained turn that completed before the
-      // interrupt key landed is recorded `completed`, and that is truth, not a
-      // failure. So the requirement is that the live turn TERMINALIZED, with
-      // the interrupted/completed split reported rather than demanded.
-      const interrupted = slice.filter((event) => event.type === 'turn.interrupted')
-      const completed = slice.filter((event) => event.type === 'turn.completed')
-      checks.push({
-        id: 'live-turn-terminalized',
-        ok: interrupted.length + completed.length > 0,
-        detail: `turn.interrupted=${interrupted.length} turn.completed=${completed.length} (${expectation.mode} mode; bounded slippage tolerated)`,
-        evidence: interrupted.length + completed.length > 0 ? undefined : excerpt(slice),
       })
       checks.push(...ownTurnChecks(outcomes, submissionIds, terminalTypeOf, slice, cellMarker))
       break
@@ -524,6 +557,7 @@ async function runCell(input: {
     expectation: expectation.kind,
     submissions: outcomes,
     ...(queueListWhileBusy !== undefined ? { queueListWhileBusy } : {}),
+    ...(seatAtSettle !== undefined ? { seatAtSettle } : {}),
     checks,
     ledgerSlice: excerpt(forSubmissions(slice, submissionIds).concat(slice), 70),
     durationMs: Date.now() - startedAt,
