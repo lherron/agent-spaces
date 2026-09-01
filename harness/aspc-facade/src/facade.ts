@@ -50,6 +50,15 @@ const BROKER_METHODS = {
   stop: 'invocation.stop',
   status: 'invocation.status',
   dispose: 'invocation.dispose',
+  steer: 'submission.steer',
+  enqueue: 'submission.enqueue',
+  invoke: 'submission.invoke',
+  preempt: 'submission.preempt',
+  queueList: 'queue.list',
+  queueJump: 'queue.jump',
+  queueCancel: 'queue.cancel',
+  turnManifest: 'turn.manifest',
+  seatProbe: 'seat.probe',
 } as const
 
 export function createAspcFacadeServer(options: AspcFacadeOptions): ProtocolServer {
@@ -161,6 +170,42 @@ function brokerMethodTable(broker: Broker): ReadonlyArray<{
     {
       method: BROKER_METHODS.dispose,
       invoke: (params) => broker.dispose(params as Parameters<typeof broker.dispose>[0]),
+    },
+    {
+      method: BROKER_METHODS.steer,
+      invoke: (params) => broker.steer(params as Parameters<typeof broker.steer>[0]),
+    },
+    {
+      method: BROKER_METHODS.enqueue,
+      invoke: (params) => broker.enqueue(params as Parameters<typeof broker.enqueue>[0]),
+    },
+    {
+      method: BROKER_METHODS.invoke,
+      invoke: (params) => broker.invoke(params as Parameters<typeof broker.invoke>[0]),
+    },
+    {
+      method: BROKER_METHODS.preempt,
+      invoke: (params) => broker.preempt(params as Parameters<typeof broker.preempt>[0]),
+    },
+    {
+      method: BROKER_METHODS.queueList,
+      invoke: (params) => broker.queueList(params as Parameters<typeof broker.queueList>[0]),
+    },
+    {
+      method: BROKER_METHODS.queueJump,
+      invoke: (params) => broker.queueJump(params as Parameters<typeof broker.queueJump>[0]),
+    },
+    {
+      method: BROKER_METHODS.queueCancel,
+      invoke: (params) => broker.queueCancel(params as Parameters<typeof broker.queueCancel>[0]),
+    },
+    {
+      method: BROKER_METHODS.turnManifest,
+      invoke: (params) => broker.turnManifest(params as Parameters<typeof broker.turnManifest>[0]),
+    },
+    {
+      method: BROKER_METHODS.seatProbe,
+      invoke: (params) => broker.seatProbe(params as Parameters<typeof broker.seatProbe>[0]),
     },
   ]
 }

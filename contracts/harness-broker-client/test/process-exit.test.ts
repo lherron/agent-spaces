@@ -55,6 +55,8 @@ describe('BrokerClient process exit handling', () => {
       input: userInput('Start a slow turn, then close the client.'),
     })
 
+    expect((await nextEvent(iterator)).type).toBe('admission.requested')
+    expect((await nextEvent(iterator)).type).toBe('admission.admitted')
     expect((await nextEvent(iterator)).type).toBe('input.accepted')
     // codex-app-server emits a durable user.message on input apply (so the
     // prompt lands in the transcript) before the upstream turn.started arrives.

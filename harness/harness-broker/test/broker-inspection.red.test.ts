@@ -211,12 +211,12 @@ describe('broker inspection read model (T-01851 red)', () => {
       state: 'turn_active',
       driver: 'inspection-driver',
       startedAt: '2026-06-03T20:00:00.000Z',
-      lastActivityAt: '2026-06-03T20:00:04.000Z',
-      currentSeq: 5,
+      lastActivityAt: '2026-06-03T20:00:07.000Z',
+      currentSeq: 8,
       currentTurn: {
         turnId: 'turn_inspect_1',
         inputId: 'input_projection',
-        startedAt: '2026-06-03T20:00:04.000Z',
+        startedAt: '2026-06-03T20:00:06.000Z',
         attempt: 3,
       },
       lifecycle: {
@@ -233,8 +233,8 @@ describe('broker inspection read model (T-01851 red)', () => {
 
     await expect(broker.status({ invocationId: 'inv_projection' })).resolves.toMatchObject({
       state: 'exited',
-      lastActivityAt: '2026-06-03T20:00:06.000Z',
-      currentSeq: 7,
+      lastActivityAt: '2026-06-03T20:00:09.000Z',
+      currentSeq: 10,
       currentTurn: undefined,
       lifecycle: { terminalReason: 'exited' },
       process: { pid: 4321, exitCode: 17, signal: null },
@@ -268,7 +268,7 @@ describe('broker inspection read model (T-01851 red)', () => {
     })
 
     expect(filtered.events.map((event) => event.type)).toEqual(['turn.started'])
-    expect(filtered.currentSeq).toBe(4)
+    expect(filtered.currentSeq).toBe(7)
     expect(filtered.retentionFloorSeq).toBe(3)
   })
 

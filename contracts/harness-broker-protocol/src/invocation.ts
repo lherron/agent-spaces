@@ -4,10 +4,12 @@ import type { InvocationInputResponse, InvocationState, PermissionRequestParams 
 import type { ContinuationUpdate, InvocationEventEnvelope, InvocationEventType } from './events'
 import type { InputId, InvocationId, PermissionRequestId, TurnId } from './ids'
 import type { IsoTimestamp } from './primitives'
+import type { BrokerQueueEntry, SeatState, TurnManifestResponse } from './submission'
 
-export type BrokerProtocolVersion = 'harness-broker/0.2'
+export type BrokerProtocolVersion = 'harness-broker/0.2' | 'harness-broker/0.3'
 
 export const SUPPORTED_BROKER_PROTOCOL_VERSIONS = [
+  'harness-broker/0.3',
   'harness-broker/0.2',
 ] as const satisfies readonly BrokerProtocolVersion[]
 
@@ -145,6 +147,9 @@ export type InvocationSnapshot = Pick<InvocationInspectionSummary, 'invocationId
     pendingInputIds: InputId[]
     inputDispositions: Record<string, InvocationInputResponse>
     pendingPermissionRequests: PendingPermissionRequest[]
+    seat: SeatState
+    brokerQueue: BrokerQueueEntry[]
+    turnManifests: TurnManifestResponse[]
     terminalSurface?: BrokerTerminalSurfaceReport | undefined
     process?:
       | {

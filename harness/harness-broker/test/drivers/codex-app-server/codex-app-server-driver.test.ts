@@ -786,7 +786,7 @@ describe('Codex app-server driver red scenarios', () => {
     await expectGolden('stop-active', events)
   })
 
-  test('rejects unsupported steer, append_context, and turn interrupt operations', async () => {
+  test('rejects unsupported legacy steer and append_context operations', async () => {
     const events: InvocationEventEnvelope[] = []
     const broker = createBroker({
       drivers: [createCodexAppServerDriver()],
@@ -820,11 +820,30 @@ describe('Codex app-server driver red scenarios', () => {
       })
     ).resolves.toEqual({
       accepted: false,
-      effect: 'unsupported',
-      reason: 'Codex app-server v0 does not support turn interrupt',
+      effect: 'no_active_turn',
     })
 
     await expectGolden('unsupported-controls', events)
+  })
+
+  test('interrupts the active Codex turn with exact thread and turn ids', async () => {
+    const broker = createBroker({
+      drivers: [createCodexAppServerDriver()],
+      now,
+    })
+    const spec = scenarioSpec('interrupt-active')
+    await broker.start({ spec })
+    await broker.input({ invocationId: 'inv_interrupt_active', input: userInput })
+
+    await expect(
+      broker.interrupt({
+        invocationId: 'inv_interrupt_active',
+        scope: 'turn',
+        reason: 'unit test',
+      })
+    ).resolves.toEqual({ accepted: true, effect: 'turn_interrupted' })
+
+    await broker.stop({ invocationId: 'inv_interrupt_active', reason: 'test done' })
   })
 })
 

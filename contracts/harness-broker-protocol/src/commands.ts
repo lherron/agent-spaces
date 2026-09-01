@@ -25,6 +25,17 @@ import type {
 } from './invocation'
 import type { JsonRpcRequest } from './jsonrpc'
 import type { AcceptedLifecyclePolicy, BrokerLifecyclePolicyOverlay } from './lifecycle'
+import type {
+  QueueCancelRequest,
+  QueueJumpRequest,
+  QueueListRequest,
+  SeatProbeRequest,
+  SubmissionEnqueueRequest,
+  SubmissionInvokeRequest,
+  SubmissionPreemptRequest,
+  SubmissionSteerRequest,
+  TurnManifestRequest,
+} from './submission'
 
 export type BrokerMethodV1 =
   | 'broker.hello'
@@ -46,7 +57,19 @@ export type BrokerMethodV2 =
   | 'broker.listInvocations'
   | 'invocation.capture.release'
 
-export type BrokerMethod = BrokerMethodV2
+export type BrokerMethodV3 =
+  | BrokerMethodV2
+  | 'submission.steer'
+  | 'submission.enqueue'
+  | 'submission.invoke'
+  | 'submission.preempt'
+  | 'queue.list'
+  | 'queue.jump'
+  | 'queue.cancel'
+  | 'turn.manifest'
+  | 'seat.probe'
+
+export type BrokerMethod = BrokerMethodV3
 
 export type BrokerToClientRequestMethod = 'invocation.permission.request'
 export type BrokerNotificationMethod = 'invocation.event'
@@ -67,6 +90,15 @@ export type BrokerCommand =
   | JsonRpcRequest<'invocation.permission.respond', InvocationPermissionRespondRequest>
   | JsonRpcRequest<'broker.listInvocations', BrokerListInvocationsRequest>
   | JsonRpcRequest<'invocation.capture.release', InvocationCaptureReleaseRequest>
+  | JsonRpcRequest<'submission.steer', SubmissionSteerRequest>
+  | JsonRpcRequest<'submission.enqueue', SubmissionEnqueueRequest>
+  | JsonRpcRequest<'submission.invoke', SubmissionInvokeRequest>
+  | JsonRpcRequest<'submission.preempt', SubmissionPreemptRequest>
+  | JsonRpcRequest<'queue.list', QueueListRequest>
+  | JsonRpcRequest<'queue.jump', QueueJumpRequest>
+  | JsonRpcRequest<'queue.cancel', QueueCancelRequest>
+  | JsonRpcRequest<'turn.manifest', TurnManifestRequest>
+  | JsonRpcRequest<'seat.probe', SeatProbeRequest>
 
 export type {
   InvocationCurrentTurnSummary,

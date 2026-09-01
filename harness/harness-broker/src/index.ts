@@ -29,7 +29,7 @@ export type {
   LedgerStorageFailure,
 } from './ledger-commit'
 
-export { validateJsonSchemaValue } from './json-schema'
+export { BROKER_ADMISSION_JSON_SCHEMAS, validateJsonSchemaValue } from './json-schema'
 export type { JsonSchemaValidationResult } from './json-schema'
 
 export { PiSdkAuthError, piSdkAgentDir, resolvePiSdkAuth } from './runtime/pi-sdk-auth'

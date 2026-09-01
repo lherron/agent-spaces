@@ -64,6 +64,11 @@ const CLAUDE_CODE_TMUX_DRIVER_VERSION = '0.1.0'
 const CLAUDE_HOOK_GENERATION = 1
 
 const CLAUDE_CODE_TMUX_CAPABILITIES: InvocationCapabilities = {
+  admission: { classes: ['steer', 'queue', 'exclusive', 'preempt'] },
+  bracketMintingMode: 'harness-evidence',
+  queue: { cancelHarnessLocal: false },
+  preempt: { mode: 'quiescence' },
+  steer: { landingEvidence: 'transcript' },
   input: {
     user: true,
     steer: false,
@@ -314,6 +319,8 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     bracketMintingMode: 'harness-evidence',
     evidenceAuthority: CLAUDE_CODE_TMUX_AUTHORITY,
     nativeSourceKind: 'provider-jsonl',
+    preemptMode: 'quiescence',
+    steerLandingEvidence: 'transcript',
 
     capabilities(): InvocationCapabilities {
       return CLAUDE_CODE_TMUX_CAPABILITIES
@@ -797,6 +804,10 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         content: text,
       })
       await requirePaneController().sendKeys(text)
+    },
+
+    probeAdmissionState() {
+      return { harnessLocalQueueDepth: attribution?.pendingCount ?? 0 }
     },
 
     async interrupt(_req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {

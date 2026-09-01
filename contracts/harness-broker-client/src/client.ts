@@ -33,6 +33,21 @@ import type {
   InvocationStopRequest,
   InvocationStopResponse,
   JsonRpcNotification,
+  QueueCancelRequest,
+  QueueCancelResponse,
+  QueueJumpRequest,
+  QueueJumpResponse,
+  QueueListRequest,
+  QueueListResponse,
+  SeatProbeRequest,
+  SeatProbeResponse,
+  SubmissionEnqueueRequest,
+  SubmissionInvokeRequest,
+  SubmissionPreemptRequest,
+  SubmissionResponse,
+  SubmissionSteerRequest,
+  TurnManifestRequest,
+  TurnManifestResponse,
 } from 'spaces-harness-broker-protocol'
 import { SUPPORTED_BROKER_PROTOCOL_VERSIONS } from 'spaces-harness-broker-protocol'
 import { type DroppedInvocationEventHandler, InvocationEventHub } from './invocation-event-hub'
@@ -258,6 +273,42 @@ export class BrokerClient {
 
   input(req: InvocationInputRequest): Promise<InvocationInputResponse> {
     return this.#transport.request('invocation.input', req)
+  }
+
+  steer(req: SubmissionSteerRequest): Promise<SubmissionResponse> {
+    return this.#transport.request('submission.steer', req)
+  }
+
+  enqueue(req: SubmissionEnqueueRequest): Promise<SubmissionResponse> {
+    return this.#transport.request('submission.enqueue', req)
+  }
+
+  invoke(req: SubmissionInvokeRequest): Promise<SubmissionResponse> {
+    return this.#transport.request('submission.invoke', req)
+  }
+
+  preempt(req: SubmissionPreemptRequest): Promise<SubmissionResponse> {
+    return this.#transport.request('submission.preempt', req)
+  }
+
+  queueList(req: QueueListRequest): Promise<QueueListResponse> {
+    return this.#transport.request('queue.list', req)
+  }
+
+  queueJump(req: QueueJumpRequest): Promise<QueueJumpResponse> {
+    return this.#transport.request('queue.jump', req)
+  }
+
+  queueCancel(req: QueueCancelRequest): Promise<QueueCancelResponse> {
+    return this.#transport.request('queue.cancel', req)
+  }
+
+  turnManifest(req: TurnManifestRequest): Promise<TurnManifestResponse> {
+    return this.#transport.request('turn.manifest', req)
+  }
+
+  seatProbe(req: SeatProbeRequest): Promise<SeatProbeResponse> {
+    return this.#transport.request('seat.probe', req)
   }
 
   interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {

@@ -16,6 +16,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -214,7 +215,13 @@ function localRegistryRepo(projectRoot: string): string | undefined {
 }
 
 function createFixture(kind: string, agentName: string, repoRoot: string): Fixture {
-  const base = mkdtempSync(join(tmpdir(), `admission-matrix-${kind}-`))
+  // realpath the tmp base: on macOS the per-user tmpdir lives under the `/var`
+  // -> `/private/var` symlink, and a harness that canonicalizes its cwd (codex
+  // does) then fails to match the compiler-written
+  // `[projects."<non-canonical path>"] trust_level = "trusted"` key and blocks
+  // on an interactive directory-trust prompt. Canonicalizing here keeps the row
+  // testing the DRIVER rather than macOS symlink resolution.
+  const base = realpathSync(mkdtempSync(join(tmpdir(), `admission-matrix-${kind}-`)))
   const agentRoot = join(base, 'agents', agentName)
   const projectRoot = join(base, 'project')
   const aspHome = join(base, 'asp-home')

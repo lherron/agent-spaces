@@ -91,6 +91,15 @@ const BROKER_METHODS = [
   'invocation.snapshot',
   'invocation.permission.respond',
   'invocation.capture.release',
+  'submission.steer',
+  'submission.enqueue',
+  'submission.invoke',
+  'submission.preempt',
+  'queue.list',
+  'queue.jump',
+  'queue.cancel',
+  'turn.manifest',
+  'seat.probe',
 ] as const satisfies readonly BrokerMethod[]
 
 const EVENT_TYPES = [
@@ -113,8 +122,20 @@ const EVENT_TYPES = [
   'input.accepted',
   'input.rejected',
   'input.queued',
+  'admission.requested',
+  'admission.admitted',
+  'admission.rejected',
+  'queue.enqueued',
+  'queue.jumped',
+  'queue.cancelled',
+  'queue.expired',
+  'interrupt.requested',
+  'interrupt.landed',
+  'interrupt.failed',
   'submission.absorbed',
   'submission.executed',
+  'submission.rejected',
+  'submission.expired',
   'submission.cancelled',
   'capture.warning',
   'capture.released',
@@ -141,6 +162,25 @@ const EVENT_TYPES = [
   'permission.cancelled',
   'provider.transcript.reported',
 ] as const satisfies readonly InvocationEventType[]
+
+const BROKER_PROVENANCE_EVENT_TYPES = new Set<InvocationEventType>([
+  'admission.requested',
+  'admission.admitted',
+  'admission.rejected',
+  'queue.enqueued',
+  'queue.jumped',
+  'queue.cancelled',
+  'queue.expired',
+  'interrupt.requested',
+  'interrupt.landed',
+  'interrupt.failed',
+  'submission.absorbed',
+  'submission.executed',
+  'submission.rejected',
+  'submission.expired',
+  'submission.cancelled',
+  'capture.warning',
+])
 
 // Compile-time exhaustiveness guard: if a union member is missing from the
 // tuple above, `never` is no longer assignable and the build fails.
@@ -257,6 +297,9 @@ export function validateEventEnvelope(value: unknown): InvocationEventEnvelope {
       validateEventPayload(eventType, envelope['payload'], issues, {
         driverKind: typeof driverKind === 'string' ? driverKind : undefined,
       })
+      if (BROKER_PROVENANCE_EVENT_TYPES.has(eventType)) {
+        validateBrokerProvenance(envelope['provenance'], issues)
+      }
     }
   }
 
@@ -320,6 +363,22 @@ function validateEventProvenance(value: unknown, issues: ValidationIssue[]): voi
       }
     }
   }
+}
+
+function validateBrokerProvenance(value: unknown, issues: ValidationIssue[]): void {
+  const provenance = asRecord(value)
+  if (!provenance) {
+    issues.push(makeIssue('provenance', 'required', 'broker decision provenance is required'))
+    return
+  }
+  optionalEnum(provenance['sourceKind'], ['broker'], 'provenance.sourceKind', issues, true)
+  const normalizer = asRecord(provenance['normalizer'])
+  if (!normalizer) {
+    issues.push(makeIssue('provenance.normalizer', 'required', 'normalizer is required'))
+    return
+  }
+  requireString(normalizer['name'], 'provenance.normalizer.name', issues)
+  requireString(normalizer['version'], 'provenance.normalizer.version', issues)
 }
 
 function validateSpec(value: unknown, issues: ValidationIssue[], prefix = ''): void {
@@ -690,6 +749,82 @@ const COMMAND_PARAM_VALIDATORS: Partial<
       optionalString(normalizedAs['itemId'], 'params.normalizedAs.itemId', issues)
     }
   },
+  'submission.steer': (commandParams, issues) => {
+    validateSubmissionParams(commandParams, issues, false, false)
+  },
+  'submission.enqueue': (commandParams, issues) => {
+    validateSubmissionParams(commandParams, issues, true, true)
+  },
+  'submission.invoke': (commandParams, issues) => {
+    validateSubmissionParams(commandParams, issues, false, true)
+  },
+  'submission.preempt': (commandParams, issues) => {
+    validateSubmissionParams(commandParams, issues, true, true)
+  },
+  'queue.list': (commandParams, issues) => {
+    requireString(commandParams['invocationId'], 'params.invocationId', issues)
+  },
+  'queue.jump': (commandParams, issues) => {
+    requireString(commandParams['invocationId'], 'params.invocationId', issues)
+    requireString(commandParams['submissionId'], 'params.submissionId', issues)
+    requireNumber(commandParams['position'], 'params.position', issues)
+    requireString(commandParams['principalRef'], 'params.principalRef', issues)
+  },
+  'queue.cancel': (commandParams, issues) => {
+    requireString(commandParams['invocationId'], 'params.invocationId', issues)
+    requireString(commandParams['submissionId'], 'params.submissionId', issues)
+    requireString(commandParams['principalRef'], 'params.principalRef', issues)
+  },
+  'turn.manifest': (commandParams, issues) => {
+    requireString(commandParams['invocationId'], 'params.invocationId', issues)
+    requireString(commandParams['turnId'], 'params.turnId', issues)
+  },
+  'seat.probe': (commandParams, issues) => {
+    requireString(commandParams['invocationId'], 'params.invocationId', issues)
+  },
+}
+
+function validateSubmissionParams(
+  params: SchemaRecord,
+  issues: ValidationIssue[],
+  allowTtl: boolean,
+  allowTurnPolicy: boolean
+): void {
+  const allowed = new Set([
+    'invocationId',
+    'origin',
+    'body',
+    'responseFormat',
+    'freshContext',
+    ...(allowTtl ? ['ttlMs'] : []),
+    ...(allowTurnPolicy ? ['turnPolicy'] : []),
+  ])
+  for (const key of Object.keys(params)) {
+    if (!allowed.has(key)) {
+      issues.push(makeIssue(`params.${key}`, 'unexpected_key', `${key} is not accepted`))
+    }
+  }
+  requireString(params['invocationId'], 'params.invocationId', issues)
+  const origin = asRecord(params['origin'])
+  if (!origin) {
+    issues.push(makeIssue('params.origin', 'required', 'origin is required'))
+  } else {
+    requireString(origin['principalRef'], 'params.origin.principalRef', issues)
+    optionalString(origin['scopeRef'], 'params.origin.scopeRef', issues)
+    optionalString(origin['envelopeId'], 'params.origin.envelopeId', issues)
+  }
+  requireString(params['body'], 'params.body', issues)
+  validateResponseFormat(params['responseFormat'], 'params.responseFormat', issues)
+  optionalBoolean(params['freshContext'], 'params.freshContext', issues)
+  if (allowTtl) {
+    optionalNumber(params['ttlMs'], 'params.ttlMs', issues)
+    if (typeof params['ttlMs'] === 'number' && params['ttlMs'] <= 0) {
+      issues.push(makeIssue('params.ttlMs', 'out_of_range', 'ttlMs must be greater than zero'))
+    }
+  }
+  if (allowTurnPolicy) {
+    optionalEnum(params['turnPolicy'], ['open', 'guarded'], 'params.turnPolicy', issues)
+  }
 }
 
 function validateCommandParams(
@@ -1590,6 +1725,79 @@ const EVENT_PAYLOAD_VALIDATORS = {
   'input.accepted': validateInputDispositionPayload,
   'input.rejected': validateInputDispositionPayload,
   'input.queued': validateInputDispositionPayload,
+  'admission.requested': (payload, issues) => {
+    requireString(payload['submissionId'], 'payload.submissionId', issues)
+    optionalEnum(
+      payload['class'],
+      ['steer', 'queue', 'exclusive', 'preempt'],
+      'payload.class',
+      issues,
+      true
+    )
+    const origin = asRecord(payload['origin'])
+    if (!origin) {
+      issues.push(makeIssue('payload.origin', 'required', 'origin is required'))
+    } else {
+      requireString(origin['principalRef'], 'payload.origin.principalRef', issues)
+      optionalString(origin['scopeRef'], 'payload.origin.scopeRef', issues)
+      optionalString(origin['envelopeId'], 'payload.origin.envelopeId', issues)
+    }
+    optionalEnum(payload['turnPolicy'], ['open', 'guarded'], 'payload.turnPolicy', issues)
+    optionalBoolean(payload['freshContext'], 'payload.freshContext', issues)
+  },
+  'admission.admitted': (payload, issues) => {
+    requireString(payload['submissionId'], 'payload.submissionId', issues)
+    optionalEnum(
+      payload['class'],
+      ['steer', 'queue', 'exclusive', 'preempt'],
+      'payload.class',
+      issues,
+      true
+    )
+  },
+  'admission.rejected': (payload, issues) => {
+    requireString(payload['submissionId'], 'payload.submissionId', issues)
+    optionalEnum(
+      payload['class'],
+      ['steer', 'queue', 'exclusive', 'preempt'],
+      'payload.class',
+      issues,
+      true
+    )
+    optionalEnum(
+      payload['layer'],
+      ['capability', 'policy', 'authority', 'state'],
+      'payload.layer',
+      issues,
+      true
+    )
+    requireString(payload['reason'], 'payload.reason', issues)
+  },
+  'queue.enqueued': (payload, issues) => {
+    requireString(payload['submissionId'], 'payload.submissionId', issues)
+    optionalEnum(payload['class'], ['queue', 'preempt'], 'payload.class', issues, true)
+    requireNumber(payload['position'], 'payload.position', issues)
+    optionalNumber(payload['ttlMs'], 'payload.ttlMs', issues)
+  },
+  'queue.jumped': (payload, issues) => {
+    requireString(payload['submissionId'], 'payload.submissionId', issues)
+    requireNumber(payload['fromPosition'], 'payload.fromPosition', issues)
+    requireNumber(payload['toPosition'], 'payload.toPosition', issues)
+    requireString(payload['principalRef'], 'payload.principalRef', issues)
+  },
+  'queue.cancelled': (payload, issues) => {
+    requireString(payload['submissionId'], 'payload.submissionId', issues)
+    requireString(payload['principalRef'], 'payload.principalRef', issues)
+  },
+  'queue.expired': (payload, issues) => {
+    requireString(payload['submissionId'], 'payload.submissionId', issues)
+  },
+  'interrupt.requested': validateInterruptDecisionPayload,
+  'interrupt.landed': validateInterruptDecisionPayload,
+  'interrupt.failed': (payload, issues) => {
+    validateInterruptDecisionPayload(payload, issues)
+    requireString(payload['reason'], 'payload.reason', issues)
+  },
   'submission.absorbed': (payload, issues) => {
     requireString(payload['submissionId'], 'payload.submissionId', issues)
     requireString(payload['turnId'], 'payload.turnId', issues)
@@ -1598,9 +1806,21 @@ const EVENT_PAYLOAD_VALIDATORS = {
     requireString(payload['submissionId'], 'payload.submissionId', issues)
     requireString(payload['turnId'], 'payload.turnId', issues)
   },
+  'submission.rejected': (payload, issues) => {
+    requireString(payload['submissionId'], 'payload.submissionId', issues)
+    requireString(payload['reason'], 'payload.reason', issues)
+  },
+  'submission.expired': (payload, issues) => {
+    requireString(payload['submissionId'], 'payload.submissionId', issues)
+  },
   'submission.cancelled': (payload, issues) => {
     requireString(payload['submissionId'], 'payload.submissionId', issues)
-    optionalEnum(payload['reason'], ['recalled', 'removed', 'teardown'], 'payload.reason', issues)
+    optionalEnum(
+      payload['reason'],
+      ['recalled', 'removed', 'teardown', 'broker-cancelled'],
+      'payload.reason',
+      issues
+    )
   },
   'capture.warning': (payload, issues) => {
     requireString(payload['message'], 'payload.message', issues)
@@ -1860,6 +2080,11 @@ function validateInputDispositionPayload(payload: SchemaRecord, issues: Validati
     issues
   )
   optionalString(payload['reason'], 'payload.reason', issues)
+}
+
+function validateInterruptDecisionPayload(payload: SchemaRecord, issues: ValidationIssue[]): void {
+  optionalString(payload['submissionId'], 'payload.submissionId', issues)
+  optionalString(payload['turnId'], 'payload.turnId', issues)
 }
 
 function validateAssistantMessageContent(value: unknown, issues: ValidationIssue[]): void {

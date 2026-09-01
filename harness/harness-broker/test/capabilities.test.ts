@@ -6,6 +6,11 @@ import { createCodexAppServerDriver } from '../src/drivers/codex-app-server/driv
 import { createDefaultPiTuiTmuxDriver } from '../src/drivers/pi-tui-tmux/driver'
 
 const CODEX_APP_SERVER_V0_CAPABILITIES: InvocationCapabilities = {
+  admission: { classes: ['steer', 'queue', 'exclusive', 'preempt'] },
+  bracketMintingMode: 'delivery-acknowledged',
+  queue: { cancelHarnessLocal: false },
+  preempt: { mode: 'atomic' },
+  steer: { landingEvidence: 'ack' },
   input: {
     user: true,
     steer: false,
@@ -16,7 +21,7 @@ const CODEX_APP_SERVER_V0_CAPABILITIES: InvocationCapabilities = {
   },
   turns: {
     concurrency: 'single',
-    interrupt: 'unsupported',
+    interrupt: 'protocol',
   },
   continuation: {
     supported: true,

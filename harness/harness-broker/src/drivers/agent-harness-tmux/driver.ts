@@ -68,6 +68,11 @@ interface StartupReadinessBarrier {
  * interactive shape, one turn at a time, resumable, attachable by the operator.
  */
 const AGENT_HARNESS_TMUX_CAPABILITIES: InvocationCapabilities = {
+  admission: { classes: ['queue', 'exclusive', 'preempt'] },
+  bracketMintingMode: 'delivery-acknowledged',
+  queue: { cancelHarnessLocal: false },
+  preempt: { mode: 'atomic' },
+  steer: { landingEvidence: null },
   input: {
     user: true,
     steer: false,
@@ -506,6 +511,8 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
     bracketMintingMode: 'delivery-acknowledged',
     evidenceAuthority: AGENT_HARNESS_TMUX_AUTHORITY,
     nativeSourceKind: 'provider-jsonrpc',
+    preemptMode: 'atomic',
+    steerLandingEvidence: null,
 
     capabilities(): InvocationCapabilities {
       return AGENT_HARNESS_TMUX_CAPABILITIES
@@ -601,7 +608,11 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
           // the terminal below. Throwing here would strand a started input that
           // never started and leave the same inputId re-drivable.
           failRefusedTurn(turnId, inputId, ack)
-          return { turnId: turnId as ApplyInputResult['turnId'] }
+          return {
+            turnId: turnId as ApplyInputResult['turnId'],
+            deliveryDisposition: 'rejected',
+            rejectionReason: ack.code,
+          }
         }
         await deliverInput(input)
         return { turnId: turnId as ApplyInputResult['turnId'] }

@@ -231,6 +231,7 @@ describe('agent-harness-tmux turn.begin negative acknowledgement', () => {
     expect(typesFor(events, `turn_${invocationId}_1`)).toEqual([
       'input.accepted',
       'turn.started',
+      'submission.rejected',
       'turn.failed',
     ])
     expect(events.some((event) => event.type === 'invocation.failed')).toBe(false)

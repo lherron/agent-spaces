@@ -9,6 +9,11 @@ import { CONSERVATIVE_LIFECYCLE_CAPABILITIES } from 'spaces-harness-broker-proto
  * via the driver's `capabilities()` accessor.
  */
 export const CODEX_CAPABILITIES: InvocationCapabilities = {
+  admission: { classes: ['steer', 'queue', 'exclusive', 'preempt'] },
+  bracketMintingMode: 'delivery-acknowledged',
+  queue: { cancelHarnessLocal: false },
+  preempt: { mode: 'atomic' },
+  steer: { landingEvidence: 'ack' },
   input: {
     user: true,
     steer: false,
@@ -19,7 +24,7 @@ export const CODEX_CAPABILITIES: InvocationCapabilities = {
   },
   turns: {
     concurrency: 'single',
-    interrupt: 'unsupported',
+    interrupt: 'protocol',
   },
   continuation: {
     supported: true,

@@ -70,9 +70,25 @@ export const EVENT_FAMILY_BY_TYPE: Record<InvocationEventType, EventFamily> = {
   'input.accepted': 'input-admission',
   'input.rejected': 'input-admission',
   'input.queued': 'input-admission',
+  // The four-door admission API (T-07860): admission, the broker-held queue and
+  // interrupt actuation are all broker DECISIONS — the broker owns which class a
+  // submission entered, where it sits in its own queue, and whether it issued an
+  // interrupt. No provider reports any of them.
+  'admission.requested': 'input-admission',
+  'admission.admitted': 'input-admission',
+  'admission.rejected': 'input-admission',
+  'queue.enqueued': 'input-admission',
+  'queue.jumped': 'input-admission',
+  'queue.cancelled': 'input-admission',
+  'queue.expired': 'input-admission',
+  'interrupt.requested': 'input-admission',
+  'interrupt.landed': 'input-admission',
+  'interrupt.failed': 'input-admission',
   'submission.absorbed': 'submission-disposition',
   'submission.executed': 'submission-disposition',
   'submission.cancelled': 'submission-disposition',
+  'submission.rejected': 'submission-disposition',
+  'submission.expired': 'submission-disposition',
   'turn.started': 'turn-bracket',
   'turn.completed': 'turn-bracket',
   'turn.failed': 'turn-bracket',

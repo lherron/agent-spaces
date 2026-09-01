@@ -46,6 +46,11 @@ const STRUCTURED_RETRY_PROMPT =
   'Your previous response did not satisfy the required JSON Schema. Call respond_structured exactly once with schema-valid arguments. Do not answer with prose.'
 
 const PI_SDK_CAPABILITIES: InvocationCapabilities = {
+  admission: { classes: ['steer', 'queue', 'exclusive', 'preempt'] },
+  bracketMintingMode: 'delivery-asserted',
+  queue: { cancelHarnessLocal: false },
+  preempt: { mode: 'atomic' },
+  steer: { landingEvidence: 'ack' },
   input: {
     user: true,
     steer: true,
@@ -241,6 +246,8 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
     // pi-tui-tmux's bounded delivery-asserted bracket risk.
     evidenceAuthority: PI_SDK_AUTHORITY,
     nativeSourceKind: 'provider-jsonrpc',
+    preemptMode: 'atomic',
+    steerLandingEvidence: 'ack',
 
     capabilities(): InvocationCapabilities {
       return PI_SDK_CAPABILITIES

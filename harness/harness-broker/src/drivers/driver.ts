@@ -25,6 +25,8 @@ import type { DispatchEnv } from '../runtime/env'
 
 export interface ApplyInputResult {
   turnId?: TurnId | undefined
+  deliveryDisposition?: 'executed' | 'rejected' | undefined
+  rejectionReason?: string | undefined
 }
 
 /**
@@ -33,6 +35,8 @@ export interface ApplyInputResult {
  * change modes together with the corresponding verified delivery semantics.
  */
 export type BracketMintingMode = 'delivery-acknowledged' | 'harness-evidence' | 'delivery-asserted'
+export type PreemptMode = 'quiescence' | 'atomic'
+export type SteerLandingEvidence = 'transcript' | 'ack' | 'asserted'
 
 export interface Driver {
   readonly kind: string
@@ -61,10 +65,15 @@ export interface Driver {
    * driver whose every family is `hook` or `broker`.
    */
   readonly nativeSourceKind: 'provider-jsonl' | 'provider-jsonrpc'
+  readonly preemptMode: PreemptMode | null
+  readonly steerLandingEvidence: SteerLandingEvidence | null
   capabilities(): InvocationCapabilities
   start(spec: HarnessInvocationSpec, ctx: DriverContext): Promise<DriverStartResult>
   applyInputNow(input: InvocationInput): Promise<ApplyInputResult>
   applySteerNow?(input: InvocationInput): Promise<void>
+  probeAdmissionState?(): {
+    harnessLocalQueueDepth: number
+  }
   interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse>
   stop(req: InvocationStopRequest): Promise<InvocationStopResponse>
   dispose(): Promise<void>

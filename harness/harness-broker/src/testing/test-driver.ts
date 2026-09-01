@@ -30,6 +30,7 @@ export interface TestDriverController {
   readonly steeredInputs: InvocationInput[]
   readonly activeInput: InvocationInput | undefined
   readonly activeTurnId: TurnId | undefined
+  observeActiveTurnStart(): void
   completeActiveTurn(finalOutput?: string): void
   failActiveTurn(message?: string): void
   interruptActiveTurn(reason?: string): void
@@ -52,6 +53,8 @@ export interface TestDriverController {
    * than a stand-in.
    */
   captureRow(nativeType: string, body: unknown, outcome: NormalizeOutcome): void
+  setHarnessLocalQueueDepth(depth: number): void
+  startHarnessLocalTurn(inputId: string): void
 }
 
 export interface TestDriverOptions {
@@ -66,6 +69,7 @@ export interface TestDriverOptions {
    */
   suppressTurnStarted?: boolean | undefined
   bracketMintingMode?: BracketMintingMode | undefined
+  preemptMode?: import('../drivers/driver').PreemptMode | null | undefined
 }
 
 export interface TestDriverHandle {
@@ -74,6 +78,11 @@ export interface TestDriverHandle {
 }
 
 const TEST_CAPABILITIES: InvocationCapabilities = {
+  admission: { classes: ['queue', 'exclusive'] },
+  bracketMintingMode: 'delivery-asserted',
+  queue: { cancelHarnessLocal: false },
+  preempt: { mode: null },
+  steer: { landingEvidence: null },
   input: {
     user: true,
     steer: false,
@@ -104,11 +113,24 @@ const TEST_CAPABILITIES: InvocationCapabilities = {
 
 export function createTestDriver(options: TestDriverOptions = {}): TestDriverHandle {
   const failInputIds = new Set(options.failInputIds ?? [])
+  const preemptMode = options.preemptMode === undefined ? 'atomic' : options.preemptMode
   const capabilities: InvocationCapabilities = {
     ...TEST_CAPABILITIES,
+    admission: {
+      classes: [
+        ...(options.supportsSteer === true ? (['steer'] as const) : []),
+        'queue',
+        'exclusive',
+        ...(preemptMode !== null ? (['preempt'] as const) : []),
+      ],
+    },
+    bracketMintingMode: options.bracketMintingMode ?? 'delivery-asserted',
+    preempt: { mode: preemptMode },
+    steer: { landingEvidence: options.supportsSteer === true ? 'asserted' : null },
     input: {
       ...TEST_CAPABILITIES.input,
       ...options.inputCapabilities,
+      steer: options.inputCapabilities?.steer ?? TEST_CAPABILITIES.input.steer,
     },
   }
   const inputs: InvocationInput[] = []
@@ -117,6 +139,7 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
   let activeInput: InvocationInput | undefined
   let activeTurnId: TurnId | undefined
   let turnCounter = 0
+  let harnessLocalQueueDepth = 0
 
   const requireCtx = (): DriverContext => {
     if (ctx === undefined) {
@@ -147,6 +170,15 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
 
     get activeTurnId(): TurnId | undefined {
       return activeTurnId
+    },
+
+    observeActiveTurnStart(): void {
+      const active = requireActiveTurn()
+      requireCtx().emit(
+        'turn.started',
+        { turnId: active.turnId, source: 'hook-observed' },
+        { turnId: active.turnId, inputId: active.input.inputId }
+      )
     },
 
     completeActiveTurn(finalOutput = 'test turn complete'): void {
@@ -238,6 +270,32 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
         }
       )
     },
+
+    setHarnessLocalQueueDepth(depth: number): void {
+      harnessLocalQueueDepth = Math.max(0, depth)
+    },
+
+    startHarnessLocalTurn(inputId: string): void {
+      if (activeTurnId !== undefined) {
+        throw new BrokerError(
+          BrokerErrorCode.InvalidInvocationState,
+          'A test turn is already active'
+        )
+      }
+      harnessLocalQueueDepth = Math.max(0, harnessLocalQueueDepth - 1)
+      turnCounter += 1
+      activeTurnId = `turn_test_${turnCounter}` as TurnId
+      activeInput = {
+        inputId: inputId as InputId,
+        kind: 'user',
+        content: [{ type: 'text', text: inputId }],
+      }
+      requireCtx().emit(
+        'turn.started',
+        { turnId: activeTurnId, inputId: inputId as InputId, source: 'hook-observed' },
+        { turnId: activeTurnId, inputId: inputId as InputId }
+      )
+    },
   }
 
   const driver: Driver = {
@@ -246,6 +304,12 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
     bracketMintingMode: options.bracketMintingMode ?? 'delivery-asserted',
     evidenceAuthority: BROKER_ONLY_AUTHORITY,
     nativeSourceKind: 'provider-jsonl',
+    preemptMode,
+    steerLandingEvidence: options.supportsSteer ? 'asserted' : null,
+
+    probeAdmissionState() {
+      return { harnessLocalQueueDepth }
+    },
 
     capabilities(): InvocationCapabilities {
       return capabilities

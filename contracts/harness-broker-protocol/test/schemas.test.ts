@@ -1360,6 +1360,10 @@ describe('validateEventEnvelope', () => {
     time: '2026-05-24T00:00:00.000Z',
     type,
     payload,
+    provenance: {
+      sourceKind: 'broker' as const,
+      normalizer: { name: 'test', version: '1' },
+    },
   })
 
   const eventPayloads = {
@@ -1422,6 +1426,35 @@ describe('validateEventEnvelope', () => {
     'input.accepted': { inputId: 'input_1' as InputId },
     'input.rejected': { inputId: 'input_1' as InputId, reason: 'busy' },
     'input.queued': { inputId: 'input_1' as InputId },
+    'admission.requested': {
+      submissionId: 'submission_1',
+      class: 'queue',
+      origin: { principalRef: 'agent:test' },
+      turnPolicy: 'open',
+    },
+    'admission.admitted': { submissionId: 'submission_1', class: 'queue' },
+    'admission.rejected': {
+      submissionId: 'submission_1',
+      class: 'exclusive',
+      layer: 'state',
+      reason: 'busy',
+    },
+    'queue.enqueued': { submissionId: 'submission_1', class: 'queue', position: 0 },
+    'queue.jumped': {
+      submissionId: 'submission_1',
+      fromPosition: 2,
+      toPosition: 0,
+      principalRef: 'human:lance',
+    },
+    'queue.cancelled': { submissionId: 'submission_1', principalRef: 'agent:test' },
+    'queue.expired': { submissionId: 'submission_1' },
+    'interrupt.requested': { submissionId: 'submission_1', turnId: 'turn_1' as TurnId },
+    'interrupt.landed': { submissionId: 'submission_1', turnId: 'turn_1' as TurnId },
+    'interrupt.failed': {
+      submissionId: 'submission_1',
+      turnId: 'turn_1' as TurnId,
+      reason: 'unsupported',
+    },
     'submission.absorbed': {
       submissionId: 'submission_1',
       turnId: 'turn_1' as TurnId,
@@ -1430,6 +1463,8 @@ describe('validateEventEnvelope', () => {
       submissionId: 'submission_1',
       turnId: 'turn_1' as TurnId,
     } satisfies SubmissionTurnDispositionPayload,
+    'submission.rejected': { submissionId: 'submission_1', reason: 'busy' },
+    'submission.expired': { submissionId: 'submission_1' },
     'submission.cancelled': {
       submissionId: 'submission_1',
       reason: 'recalled',

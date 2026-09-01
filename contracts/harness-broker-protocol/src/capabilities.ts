@@ -14,6 +14,19 @@ export type InputPolicyWhenBusy = 'reject' | 'queue' | 'interrupt_then_apply' | 
 export const LEGACY_BUSY_POLICIES: InputPolicyWhenBusy[] = ['reject', 'queue']
 
 export interface InvocationCapabilities {
+  admission: {
+    classes: Array<'steer' | 'queue' | 'exclusive' | 'preempt'>
+  }
+  bracketMintingMode: 'delivery-acknowledged' | 'harness-evidence' | 'delivery-asserted'
+  queue: {
+    cancelHarnessLocal: boolean
+  }
+  preempt: {
+    mode: 'quiescence' | 'atomic' | null
+  }
+  steer: {
+    landingEvidence: 'transcript' | 'ack' | 'asserted' | null
+  }
   input: {
     user: boolean
     steer: boolean

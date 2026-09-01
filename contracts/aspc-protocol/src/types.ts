@@ -99,7 +99,7 @@ export interface AspcHelloResponse {
     cohostedBroker: boolean
     transports: ['stdio-jsonrpc-ndjson']
   }
-  brokerProtocol?: 'harness-broker/0.2' | undefined
+  brokerProtocol?: 'harness-broker/0.2' | 'harness-broker/0.3' | undefined
 }
 
 export interface AspcCompileRuntimePlanRequest {

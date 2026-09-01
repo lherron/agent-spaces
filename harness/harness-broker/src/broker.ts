@@ -37,6 +37,24 @@ import type {
   InvocationStopResponse,
   PermissionDecision,
   PermissionRequestParams,
+  QueueCancelRequest,
+  QueueCancelResponse,
+  QueueJumpRequest,
+  QueueJumpResponse,
+  QueueListRequest,
+  QueueListResponse,
+  SeatProbeRequest,
+  SeatProbeResponse,
+  SubmissionClass,
+  SubmissionEnqueueRequest,
+  SubmissionInvokeRequest,
+  SubmissionOrigin,
+  SubmissionPreemptRequest,
+  SubmissionResponse,
+  SubmissionSteerRequest,
+  TurnManifestRequest,
+  TurnManifestResponse,
+  TurnPolicy,
 } from 'spaces-harness-broker-protocol'
 import {
   BrokerErrorCode,
@@ -111,6 +129,25 @@ export interface BrokerOptions {
   attachIdentity?: BrokerAttachIdentity | undefined
   /** Stable id reported in `broker.attach` responses. */
   brokerInstanceId?: string | undefined
+  authorizeSubmission?:
+    | ((context: {
+        invocationId: InvocationId
+        class: SubmissionClass
+        origin: SubmissionOrigin
+        activeTurnId?: import('spaces-harness-broker-protocol').TurnId | undefined
+        activeTurnPolicy?: TurnPolicy | undefined
+      }) => boolean | Promise<boolean>)
+    | undefined
+  isOperator?: ((principalRef: string) => boolean) | undefined
+  authorizeQueueJump?:
+    | ((context: {
+        invocationId: InvocationId
+        principalRef: string
+        submissionOrigin: SubmissionOrigin
+        fromPosition: number
+        toPosition: number
+      }) => boolean | Promise<boolean>)
+    | undefined
 }
 
 export interface Broker {
@@ -123,6 +160,15 @@ export interface Broker {
     lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
   ): Promise<InvocationStartResponse>
   input(req: InvocationInputRequest): Promise<InvocationInputResponse>
+  steer(req: SubmissionSteerRequest): Promise<SubmissionResponse>
+  enqueue(req: SubmissionEnqueueRequest): Promise<SubmissionResponse>
+  invoke(req: SubmissionInvokeRequest): Promise<SubmissionResponse>
+  preempt(req: SubmissionPreemptRequest): Promise<SubmissionResponse>
+  queueList(req: QueueListRequest): Promise<QueueListResponse>
+  queueJump(req: QueueJumpRequest): Promise<QueueJumpResponse>
+  queueCancel(req: QueueCancelRequest): Promise<QueueCancelResponse>
+  turnManifest(req: TurnManifestRequest): Promise<TurnManifestResponse>
+  seatProbe(req: SeatProbeRequest): Promise<SeatProbeResponse>
   interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse>
   stop(req: InvocationStopRequest): Promise<InvocationStopResponse>
   status(req: InvocationStatusRequest): Promise<InvocationStatusResponse>
@@ -191,6 +237,9 @@ export function createBroker(options: BrokerOptions): Broker {
     maxInputQueueDepth: options.maxInputQueueDepth,
     now,
     ...(options.captureDir !== undefined ? { captureDir: options.captureDir } : {}),
+    authorizeSubmission: options.authorizeSubmission,
+    isOperator: options.isOperator,
+    authorizeQueueJump: options.authorizeQueueJump,
   })
 
   if (eventLedger !== undefined) {
@@ -252,6 +301,9 @@ export function createBroker(options: BrokerOptions): Broker {
       pendingInputIds: inv.pending.map((item) => item.inputId),
       inputDispositions,
       pendingPermissionRequests,
+      seat: manager.seatProbe(invocationId).seat,
+      brokerQueue: manager.queueList(invocationId).entries,
+      turnManifests: [...inv.turnManifests.values()],
       process: {
         brokerPid: process.pid,
         ...(inv.childPid !== undefined ? { childPid: inv.childPid } : {}),
@@ -272,9 +324,9 @@ export function createBroker(options: BrokerOptions): Broker {
     async hello(req: BrokerHelloRequest): Promise<BrokerHelloResponse> {
       validateBrokerParams('broker.hello', req)
 
-      const protocolVersion = [...SUPPORTED_BROKER_PROTOCOL_VERSIONS]
-        .reverse()
-        .find((version) => req.protocolVersions.includes(version))
+      const protocolVersion = SUPPORTED_BROKER_PROTOCOL_VERSIONS.find((version) =>
+        req.protocolVersions.includes(version)
+      )
       if (!protocolVersion) {
         throw new BrokerError(
           BrokerErrorCode.UnsupportedCapability,
@@ -389,6 +441,51 @@ export function createBroker(options: BrokerOptions): Broker {
       const result = manager.input(req)
       result.catch(() => {})
       return result
+    },
+
+    async steer(req: SubmissionSteerRequest): Promise<SubmissionResponse> {
+      validateBrokerParams('submission.steer', req)
+      return manager.steer(req)
+    },
+
+    async enqueue(req: SubmissionEnqueueRequest): Promise<SubmissionResponse> {
+      validateBrokerParams('submission.enqueue', req)
+      return manager.enqueue(req)
+    },
+
+    async invoke(req: SubmissionInvokeRequest): Promise<SubmissionResponse> {
+      validateBrokerParams('submission.invoke', req)
+      return manager.invoke(req)
+    },
+
+    async preempt(req: SubmissionPreemptRequest): Promise<SubmissionResponse> {
+      validateBrokerParams('submission.preempt', req)
+      return manager.preempt(req)
+    },
+
+    async queueList(req: QueueListRequest): Promise<QueueListResponse> {
+      validateBrokerParams('queue.list', req)
+      return manager.queueList(req.invocationId)
+    },
+
+    async queueJump(req: QueueJumpRequest): Promise<QueueJumpResponse> {
+      validateBrokerParams('queue.jump', req)
+      return manager.queueJump(req)
+    },
+
+    async queueCancel(req: QueueCancelRequest): Promise<QueueCancelResponse> {
+      validateBrokerParams('queue.cancel', req)
+      return manager.queueCancel(req)
+    },
+
+    async turnManifest(req: TurnManifestRequest): Promise<TurnManifestResponse> {
+      validateBrokerParams('turn.manifest', req)
+      return manager.turnManifest(req.invocationId, req.turnId)
+    },
+
+    async seatProbe(req: SeatProbeRequest): Promise<SeatProbeResponse> {
+      validateBrokerParams('seat.probe', req)
+      return manager.seatProbe(req.invocationId)
     },
 
     async interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {

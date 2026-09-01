@@ -5,6 +5,55 @@ export interface JsonSchemaValidationResult {
   errors?: unknown[] | undefined
 }
 
+/** Frozen JSON-Schema projection of the harness-broker/0.3 admission ABI. */
+export const BROKER_ADMISSION_JSON_SCHEMAS = {
+  origin: originJsonSchema(),
+  steerRequest: submissionRequestSchema(false, false),
+  enqueueRequest: submissionRequestSchema(true, true),
+  invokeRequest: submissionRequestSchema(false, true),
+  preemptRequest: submissionRequestSchema(true, true),
+  response: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['submissionId', 'admission'],
+    properties: {
+      submissionId: { type: 'string', minLength: 1 },
+      admission: { enum: ['admitted', 'rejected'] },
+      reason: { type: 'string' },
+    },
+  },
+} as const
+
+function originJsonSchema() {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    required: ['principalRef'],
+    properties: {
+      principalRef: { type: 'string', minLength: 1 },
+      scopeRef: { type: 'string' },
+      envelopeId: { type: 'string' },
+    },
+  } as const
+}
+
+function submissionRequestSchema(allowTtl: boolean, allowTurnPolicy: boolean) {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    required: ['invocationId', 'origin', 'body'],
+    properties: {
+      invocationId: { type: 'string', minLength: 1 },
+      origin: originJsonSchema(),
+      body: { type: 'string' },
+      responseFormat: { type: 'object' },
+      freshContext: { type: 'boolean' },
+      ...(allowTtl ? { ttlMs: { type: 'number', exclusiveMinimum: 0 } } : {}),
+      ...(allowTurnPolicy ? { turnPolicy: { enum: ['open', 'guarded'] } } : {}),
+    },
+  } as const
+}
+
 /**
  * Validate an arbitrary value against a caller-supplied JSON Schema.
  *

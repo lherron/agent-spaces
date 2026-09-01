@@ -1,14 +1,13 @@
 /**
  * Admission conformance matrix — LEDGER ASSERTION ENGINE (T-07860).
  *
- * Every assertion in this file reads the broker event ledger and NOTHING else:
- * no harness JSONL, no tmux pane capture. The ledger is the contract surface
- * (hcs T-07843 §3.2/§6), so an assertion that needed a transcript or a pane
+ * Every assertion here reads the broker event ledger (plus the broker's own
+ * `turn.manifest` / `queue.list` read models) and NOTHING else: no harness
+ * JSONL, no tmux pane capture. The ledger is the contract surface
+ * (hcs T-07843 §3.2 / §6), so an assertion that needed a transcript or a pane
  * would be proving something the contract does not promise.
  */
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
-
-import type { BracketMintingMode } from '../../../harness/harness-broker/src/drivers/driver'
 
 export type Verdict = 'PASS' | 'FAIL' | 'REJECT-OK'
 
@@ -16,10 +15,15 @@ export type Check = { id: string; ok: boolean; detail: string; evidence?: unknow
 
 export const TERMINAL_TURN_TYPES = new Set(['turn.completed', 'turn.failed', 'turn.interrupted'])
 
-/** Terminal submission dispositions in the CURRENT protocol revision. */
+/**
+ * The complete terminal-disposition vocabulary of T-07843 §3.2. Exactly one of
+ * these must exist per submission.
+ */
 export const SUBMISSION_TERMINALS = new Set([
   'submission.executed',
   'submission.absorbed',
+  'submission.rejected',
+  'submission.expired',
   'submission.cancelled',
 ])
 
@@ -27,8 +31,8 @@ function payload(event: InvocationEventEnvelope): Record<string, unknown> {
   return (event.payload ?? {}) as Record<string, unknown>
 }
 
-function submissionId(event: InvocationEventEnvelope): string | undefined {
-  const value = payload(event)['submissionId']
+function stringField(event: InvocationEventEnvelope, key: string): string | undefined {
+  const value = payload(event)[key]
   return typeof value === 'string' ? value : undefined
 }
 
@@ -42,100 +46,100 @@ export function excerpt(events: InvocationEventEnvelope[], limit = 24): unknown[
   }))
 }
 
-/**
- * Turn manifest projection: turnId → the submissions the ledger dispositioned
- * into it (T-07843 §3.2). Built ONLY from disposition events, so it is the
- * ledger's own answer to "who rode this turn".
- */
-export function turnManifest(events: InvocationEventEnvelope[]): Map<string, string[]> {
-  const manifest = new Map<string, string[]>()
-  for (const event of events) {
-    if (event.type !== 'submission.executed' && event.type !== 'submission.absorbed') continue
-    const turnId = payload(event)['turnId']
-    const id = submissionId(event)
-    if (typeof turnId !== 'string' || id === undefined) continue
-    const entries = manifest.get(turnId) ?? []
-    entries.push(id)
-    manifest.set(turnId, entries)
+/** Every event in the slice whose payload names one of these submission ids. */
+export function forSubmissions(
+  slice: InvocationEventEnvelope[],
+  submissionIds: readonly string[]
+): InvocationEventEnvelope[] {
+  const wanted = new Set(submissionIds)
+  return slice.filter((event) => {
+    const id = stringField(event, 'submissionId')
+    return id !== undefined && wanted.has(id)
+  })
+}
+
+/** Terminal disposition observed for each submission id, in ledger order. */
+export function terminalsBySubmission(
+  slice: InvocationEventEnvelope[]
+): Map<string, InvocationEventEnvelope[]> {
+  const map = new Map<string, InvocationEventEnvelope[]>()
+  for (const event of slice) {
+    if (!SUBMISSION_TERMINALS.has(event.type)) continue
+    const id = stringField(event, 'submissionId')
+    if (id === undefined) continue
+    map.set(id, [...(map.get(id) ?? []), event])
   }
-  return manifest
+  return map
 }
 
 /**
- * §9 assertion 1 — exactly one terminal disposition per submission.
+ * §9 assertion 1 — EXACTLY ONE terminal disposition per submission, and the
+ * `submissionId` correlates the door call to it.
  *
- * A driver whose bracket-minting declaration is `harness-evidence` runs the
- * T-07849 disposition mirror by construction (its brackets come from the same
- * transcript evidence the mirror reads), so a delivered submission that
- * produces NO disposition on such a driver is a red cell, not an exemption.
- * Drivers declaring `delivery-acknowledged` / `delivery-asserted` mint their
- * bracket at delivery and carry no mirror at this protocol revision; for them
- * the invariant is conditional — if dispositions appear at all, they must obey
- * the one-terminal rule.
+ * This is unconditional now that the admission API mints the id at the door:
+ * every admitted submission owes a terminal, and a rejected one owes exactly
+ * the `submission.rejected` the broker already emitted. A driver that produces
+ * none is a red cell, not an exemption.
  */
 export function checkOneDispositionPerSubmission(
   slice: InvocationEventEnvelope[],
-  bracketMintingMode: BracketMintingMode,
-  deliveredSubmissions: number
+  submissionIds: readonly string[]
 ): Check {
-  const terminals = new Map<string, string[]>()
-  for (const event of slice) {
-    if (!SUBMISSION_TERMINALS.has(event.type)) continue
-    const id = submissionId(event)
-    if (id === undefined) continue
-    terminals.set(id, [...(terminals.get(id) ?? []), event.type])
+  const terminals = terminalsBySubmission(slice)
+  const missing = submissionIds.filter((id) => (terminals.get(id) ?? []).length === 0)
+  const duplicated = submissionIds
+    .map((id) => ({ id, events: terminals.get(id) ?? [] }))
+    .filter((entry) => entry.events.length > 1)
+  if (missing.length > 0) {
+    return {
+      id: 'one-disposition-per-submission',
+      ok: false,
+      detail: `${missing.length} of ${submissionIds.length} submission(s) reached NO terminal disposition: ${missing.join(', ')}`,
+      evidence: excerpt(
+        slice.filter(
+          (event) => event.type.startsWith('submission.') || event.type.startsWith('admission.')
+        )
+      ),
+    }
   }
-  const duplicated = [...terminals.entries()].filter(([, types]) => types.length > 1)
   if (duplicated.length > 0) {
     return {
       id: 'one-disposition-per-submission',
       ok: false,
       detail: `${duplicated.length} submission(s) carry more than one terminal disposition`,
-      evidence: duplicated.map(([id, types]) => ({ submissionId: id, types })),
-    }
-  }
-  if (
-    bracketMintingMode === 'harness-evidence' &&
-    deliveredSubmissions > 0 &&
-    terminals.size === 0
-  ) {
-    return {
-      id: 'one-disposition-per-submission',
-      ok: false,
-      detail: `harness-evidence driver dispositioned none of ${deliveredSubmissions} delivered submission(s); no submission.* terminal on the ledger`,
-      evidence: excerpt(
-        slice.filter((e) => e.type.startsWith('input.') || e.type.startsWith('turn.'))
-      ),
+      evidence: duplicated.map((entry) => ({
+        submissionId: entry.id,
+        types: entry.events.map((event) => event.type),
+      })),
     }
   }
   return {
     id: 'one-disposition-per-submission',
     ok: true,
-    detail: `${terminals.size} submission terminal(s), all unique`,
+    detail: submissionIds
+      .map((id) => `${id}->${(terminals.get(id) ?? []).map((event) => event.type).join('')}`)
+      .join(', '),
   }
 }
 
 /**
  * §9 assertion 2 — bracket facts follow the driver's declaration
- * (T-07849 rev 9 / T-07843 §5 layer 1).
+ * (`capabilities.bracketMintingMode`, T-07849 rev 9 / T-07843 §5 layer 1).
  *
  * `harness-evidence`  → the broker must NOT synthesize a start from delivery:
  *                       no `turn.started{source:'broker-delivery'}` anywhere.
  *                       The bracket, when it comes, is evidence-sourced.
- * otherwise           → the delivery-minted bracket is RETAINED: the turn id
- *                       `applyInputNow` returned has a `turn.started` on the
- *                       ledger. The retained event's `source` is deliberately
- *                       NOT asserted — the broker dedupes its synthesized start
- *                       against a driver-emitted one for the same turn and
- *                       whichever lands first wins, so a driver-sourced start
- *                       for the delivered turn id satisfies the declaration
- *                       exactly as a `broker-delivery` one does.
+ * otherwise           → the delivery-minted bracket is RETAINED: a turn that
+ *                       carried an own-turn submission has a `turn.started` on
+ *                       the ledger. The retained event's `source` is
+ *                       deliberately NOT asserted — the broker dedupes its
+ *                       synthesized start against a driver-emitted one for the
+ *                       same turn and whichever lands first wins.
  */
 export function checkBracketMinting(
   slice: InvocationEventEnvelope[],
-  bracketMintingMode: BracketMintingMode,
-  expectOwnTurn: boolean,
-  deliveredTurnId?: string | undefined
+  bracketMintingMode: string,
+  expectedOwnTurnIds: readonly string[]
 ): Check {
   const starts = slice.filter((event) => event.type === 'turn.started')
   if (bracketMintingMode === 'harness-evidence') {
@@ -153,76 +157,86 @@ export function checkBracketMinting(
           evidence: excerpt(synthesized),
         }
   }
-  if (!expectOwnTurn) {
+  if (expectedOwnTurnIds.length === 0) {
     return {
       id: 'bracket-minting',
       ok: true,
       detail: `${bracketMintingMode}: no own turn expected in this cell`,
     }
   }
-  if (deliveredTurnId === undefined) {
-    return {
-      id: 'bracket-minting',
-      ok: false,
-      detail: `${bracketMintingMode} driver returned no turnId from delivery, so no bracket could be minted`,
-      evidence: excerpt(
-        slice.filter((e) => e.type.startsWith('turn.') || e.type.startsWith('input.'))
-      ),
-    }
-  }
-  const bracket = starts.find((event) => payload(event)['turnId'] === deliveredTurnId)
-  return bracket !== undefined
+  const bracketed = new Set(
+    starts
+      .map((event) => stringField(event, 'turnId'))
+      .filter((id): id is string => id !== undefined)
+  )
+  const unbracketed = expectedOwnTurnIds.filter((turnId) => !bracketed.has(turnId))
+  return unbracketed.length === 0
     ? {
         id: 'bracket-minting',
         ok: true,
-        detail: `${bracketMintingMode}: delivered turn ${deliveredTurnId} bracketed (source=${String(payload(bracket)['source'] ?? 'driver')})`,
+        detail: `${bracketMintingMode}: every dispositioned own turn is bracketed (${expectedOwnTurnIds.join(', ')})`,
       }
     : {
         id: 'bracket-minting',
         ok: false,
-        detail: `${bracketMintingMode} driver's delivered turn ${deliveredTurnId} has no turn.started bracket`,
+        detail: `${bracketMintingMode} driver dispositioned submissions into turn(s) with no turn.started bracket: ${unbracketed.join(', ')}`,
         evidence: excerpt(starts),
       }
 }
 
 /**
- * §9 assertion 7 — the manifest is well-founded: every turn a disposition names
- * has a bracket on the SAME ledger, and every manifest entry is unique.
+ * §9 assertion 7 — the broker's `turn.manifest` read model lists EXACTLY the
+ * submissions the ledger dispositioned into that turn.
+ *
+ * This is the one assertion with two independent sources: the event stream and
+ * the manifest RPC. A manifest that merely echoed the ledger projection would
+ * prove nothing, which is why the expected set is rebuilt from the events here
+ * and compared against what the broker answers.
  */
 export function checkTurnManifest(
   slice: InvocationEventEnvelope[],
-  wholeRun: InvocationEventEnvelope[]
+  manifests: ReadonlyMap<string, readonly string[]>
 ): Check {
-  const manifest = turnManifest(slice)
-  const brackets = new Set(
-    wholeRun
-      .filter((event) => event.type === 'turn.started')
-      .map((event) => payload(event)['turnId'])
-      .filter((value): value is string => typeof value === 'string')
-  )
-  const orphans = [...manifest.keys()].filter((turnId) => !brackets.has(turnId))
-  if (orphans.length > 0) {
-    return {
-      id: 'turn-manifest',
-      ok: false,
-      detail: `${orphans.length} turn(s) named by a disposition have no turn.started bracket`,
-      evidence: orphans,
+  const expected = new Map<string, Set<string>>()
+  for (const event of slice) {
+    if (event.type !== 'submission.executed' && event.type !== 'submission.absorbed') continue
+    const turnId = stringField(event, 'turnId')
+    const id = stringField(event, 'submissionId')
+    if (turnId === undefined || id === undefined) continue
+    const entry = expected.get(turnId) ?? new Set<string>()
+    entry.add(id)
+    expected.set(turnId, entry)
+  }
+  const mismatches: unknown[] = []
+  for (const [turnId, ids] of expected) {
+    const reported = manifests.get(turnId)
+    if (reported === undefined) {
+      mismatches.push({
+        turnId,
+        problem: 'turn.manifest returned nothing for a turn the ledger dispositioned into',
+      })
+      continue
+    }
+    const reportedSet = new Set(reported)
+    const missing = [...ids].filter((id) => !reportedSet.has(id))
+    const extra = reported.filter((id) => !ids.has(id))
+    if (missing.length > 0 || extra.length > 0) {
+      mismatches.push({ turnId, ledger: [...ids], manifest: reported, missing, extra })
     }
   }
-  const dupes = [...manifest.entries()].filter(([, ids]) => new Set(ids).size !== ids.length)
-  if (dupes.length > 0) {
-    return {
-      id: 'turn-manifest',
-      ok: false,
-      detail: 'a submission appears twice in one turn manifest',
-      evidence: dupes.map(([turnId, ids]) => ({ turnId, ids })),
-    }
-  }
-  return {
-    id: 'turn-manifest',
-    ok: true,
-    detail: `${manifest.size} turn(s) in manifest: ${JSON.stringify([...manifest.entries()])}`,
-  }
+  return mismatches.length === 0
+    ? {
+        id: 'turn-manifest',
+        ok: true,
+        detail: `${expected.size} turn(s) agree between the ledger and turn.manifest`,
+        evidence: [...expected].map(([turnId, ids]) => ({ turnId, submissionIds: [...ids] })),
+      }
+    : {
+        id: 'turn-manifest',
+        ok: false,
+        detail: `${mismatches.length} turn(s) where turn.manifest disagrees with the ledger`,
+        evidence: mismatches,
+      }
 }
 
 /**
@@ -243,6 +257,37 @@ export function checkNoCaptureWarning(wholeRun: InvocationEventEnvelope[]): Chec
         ok: false,
         detail: `${warnings.length} capture.warning event(s) on the runtime ledger`,
         evidence: excerpt(warnings),
+      }
+}
+
+/** The decision ledger must record every admission decision (§6). */
+export function checkDecisionLedger(
+  slice: InvocationEventEnvelope[],
+  submissionIds: readonly string[]
+): Check {
+  const requested = new Set(
+    slice
+      .filter((event) => event.type === 'admission.requested')
+      .map((event) => stringField(event, 'submissionId'))
+  )
+  const decided = new Set(
+    slice
+      .filter((event) => event.type === 'admission.admitted' || event.type === 'admission.rejected')
+      .map((event) => stringField(event, 'submissionId'))
+  )
+  const missingRequest = submissionIds.filter((id) => !requested.has(id))
+  const missingDecision = submissionIds.filter((id) => !decided.has(id))
+  return missingRequest.length === 0 && missingDecision.length === 0
+    ? {
+        id: 'decision-ledger',
+        ok: true,
+        detail: `admission.requested + admitted/rejected recorded for all ${submissionIds.length} submission(s)`,
+      }
+    : {
+        id: 'decision-ledger',
+        ok: false,
+        detail: `missing admission.requested for [${missingRequest.join(', ')}], missing admitted/rejected for [${missingDecision.join(', ')}]`,
+        evidence: excerpt(slice.filter((event) => event.type.startsWith('admission.'))),
       }
 }
 
