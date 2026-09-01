@@ -575,10 +575,11 @@ describe('claude-code-tmux driver RED lifecycle', () => {
         callbackSocket: hookSocket,
         hookData: { hook_event_name: 'Stop' },
       })
-      expect(events.find((event) => event.type === 'submission.cancelled')).toMatchObject({
-        inputId: 'input_removed',
-        payload: { submissionId: 'input_removed', reason: 'removed' },
-      })
+      expect(
+        events.some(
+          (event) => event.type === 'submission.cancelled' && event.inputId === 'input_removed'
+        )
+      ).toBe(false)
       expect(events.find((event) => event.type === 'capture.warning')).toMatchObject({
         driver: { kind: 'claude-code-tmux', rawType: 'Stop' },
         payload: {

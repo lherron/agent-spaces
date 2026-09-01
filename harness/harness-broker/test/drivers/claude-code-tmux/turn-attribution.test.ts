@@ -61,57 +61,71 @@ describe('claude-code-tmux disposition mirror', () => {
     expect(tracker.pendingCount).toBe(0)
   })
 
-  test('unmatched removes settle with cancellation and warning only at a disposition boundary', () => {
+  test('unresolved remove warns once, stays pending, and later absorbs or cancels at teardown', () => {
     const tracker = createTracker()
     tracker.observeTurnStarted('turn_live' as TurnId)
-    tracker.observeQueueOperation(queueOp('enqueue', 'one'))
-    tracker.observeQueueOperation(queueOp('enqueue', 'two'))
+    tracker.observeQueueOperation(queueOp('enqueue', 'later attachment'))
 
-    expect(tracker.observeQueueOperation(queueOp('remove', 'one'))).toEqual([])
-    expect(tracker.observeQueueOperation(queueOp('remove', 'two'))).toEqual([])
-    expect(tracker.pendingCount).toBe(2)
+    expect(tracker.observeQueueOperation(queueOp('remove', 'later attachment'))).toEqual([])
+    expect(tracker.pendingCount).toBe(1)
 
     const stop = { hook_event_name: 'Stop' }
     expect(tracker.settleOutstandingRemovals(stop)).toEqual([
-      expect.objectContaining({ kind: 'cancelled', content: 'one', reason: 'removed' }),
-      expect.objectContaining({
-        kind: 'warning',
-        message:
-          'Claude queue remove reached a disposition boundary without queued_command evidence',
-      }),
-      expect.objectContaining({ kind: 'cancelled', content: 'two', reason: 'removed' }),
       expect.objectContaining({
         kind: 'warning',
         message:
           'Claude queue remove reached a disposition boundary without queued_command evidence',
       }),
     ])
+    expect(tracker.pendingCount).toBe(1)
+    expect(tracker.settleOutstandingRemovals({ type: 'user' })).toEqual([])
+    expect(tracker.pendingCount).toBe(1)
+
+    expect(tracker.observeQueuedCommand('later attachment', { type: 'queued_command' })).toEqual([
+      expect.objectContaining({
+        kind: 'absorbed',
+        content: 'later attachment',
+        turnId: 'turn_live',
+      }),
+    ])
     expect(tracker.pendingCount).toBe(0)
+
+    const teardown = createTracker('remove_teardown')
+    teardown.observeQueueOperation(queueOp('enqueue', 'dies with seat'))
+    teardown.observeQueueOperation(queueOp('remove', 'dies with seat'))
+    expect(teardown.settleOutstandingRemovals(stop)).toEqual([
+      expect.objectContaining({ kind: 'warning' }),
+    ])
+    expect(teardown.pendingCount).toBe(1)
+    expect(teardown.teardown()).toEqual([
+      expect.objectContaining({
+        kind: 'cancelled',
+        content: 'dies with seat',
+        reason: 'teardown',
+      }),
+    ])
   })
 
-  test('plain-user and popAll boundaries settle unmatched removes without an extra popAll alarm', () => {
+  test('plain-user warns once and popAll recalls remove-pending items', () => {
     const plain = createTracker('plain_boundary')
     plain.observeTurnStarted('turn_live' as TurnId)
     plain.observeQueueOperation(queueOp('enqueue', 'removed before next user'))
     plain.observeQueueOperation(queueOp('remove', 'removed before next user'))
     plain.observeTurnTerminal('turn_live' as TurnId)
     expect(plain.observePlainUser('next user', { type: 'user' })).toEqual([
-      expect.objectContaining({ kind: 'cancelled', reason: 'removed' }),
       expect.objectContaining({ kind: 'warning' }),
       expect.objectContaining({ kind: 'executed', content: 'next user' }),
     ])
+    expect(plain.pendingCount).toBe(1)
+    expect(plain.settleOutstandingRemovals({ hook_event_name: 'Stop' })).toEqual([])
 
     const popped = createTracker('popall_boundary')
     popped.observeQueueOperation(queueOp('enqueue', 'removed before recall'))
     popped.observeQueueOperation(queueOp('remove', 'removed before recall'))
     expect(popped.observeQueueOperation(queueOp('popAll', 'removed before recall'))).toEqual([
-      expect.objectContaining({ kind: 'cancelled', reason: 'removed' }),
-      expect.objectContaining({
-        kind: 'warning',
-        message:
-          'Claude queue remove reached a disposition boundary without queued_command evidence',
-      }),
+      expect.objectContaining({ kind: 'cancelled', reason: 'recalled' }),
     ])
+    expect(popped.pendingCount).toBe(0)
   })
 
   test('dequeue is drain-pending only; the plain user row promotes FIFO 1:1', () => {

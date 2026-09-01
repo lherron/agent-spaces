@@ -9,6 +9,7 @@ type PendingSubmission = {
   sawPromptHook: boolean
   drainPending: boolean
   removePending: boolean
+  removeWarned: boolean
   removeOperation?: unknown
 }
 
@@ -23,7 +24,7 @@ export type ClaudeAttributionAction =
   | (SubmissionActionBase & { kind: 'executed'; turnId: TurnId })
   | (SubmissionActionBase & {
       kind: 'cancelled'
-      reason: 'recalled' | 'removed' | 'teardown'
+      reason: 'recalled' | 'teardown'
     })
   | { kind: 'started'; turnId: TurnId }
   | { kind: 'interrupted'; turnId: TurnId }
@@ -85,6 +86,7 @@ export function createClaudeTurnAttribution(options: {
       sawPromptHook: init.sawPromptHook ?? false,
       drainPending: init.drainPending ?? false,
       removePending: init.removePending ?? false,
+      removeWarned: init.removeWarned ?? false,
       ...(init.removeOperation !== undefined ? { removeOperation: init.removeOperation } : {}),
     }
     pending.push(item)
@@ -104,10 +106,9 @@ export function createClaudeTurnAttribution(options: {
 
   const settleOutstandingRemovals = (raw: unknown): ClaudeAttributionAction[] => {
     const actions: ClaudeAttributionAction[] = []
-    for (const item of [...pending]) {
-      if (!item.removePending) continue
-      drop(item)
-      actions.push({ kind: 'cancelled', ...base(item), reason: 'removed' })
+    for (const item of pending) {
+      if (!item.removePending || item.removeWarned) continue
+      item.removeWarned = true
       actions.push(
         warning(
           'Claude queue remove reached a disposition boundary without queued_command evidence',
@@ -184,6 +185,7 @@ export function createClaudeTurnAttribution(options: {
           return [warning('Unmatched Claude queue remove', operation)]
         }
         item.removePending = true
+        item.removeWarned = false
         item.removeOperation = operation
         return []
       }
@@ -200,26 +202,25 @@ export function createClaudeTurnAttribution(options: {
       }
 
       if (op === 'popAll') {
-        const actions = settleOutstandingRemovals(operation)
         const content = typeof operation.content === 'string' ? operation.content : undefined
         const matches =
           content === undefined
             ? []
             : pending.filter(
                 (item) =>
-                  !item.drainPending &&
-                  !item.removePending &&
-                  (item.content === content || content.includes(item.content))
+                  !item.drainPending && (item.content === content || content.includes(item.content))
               )
+        const actions: ClaudeAttributionAction[] = []
+        for (const item of matches) {
+          drop(item)
+          actions.push({ kind: 'cancelled', ...base(item), reason: 'recalled' })
+        }
+        actions.push(...settleOutstandingRemovals(operation))
         if (matches.length === 0) {
           if (actions.length === 0) {
             actions.push(warning('Unmatched Claude queue popAll', operation))
           }
           return actions
-        }
-        for (const item of matches) {
-          drop(item)
-          actions.push({ kind: 'cancelled', ...base(item), reason: 'recalled' })
         }
         return actions
       }
@@ -276,12 +277,15 @@ export function createClaudeTurnAttribution(options: {
 
     observeInterrupt(raw): ClaudeAttributionAction[] {
       recentDisposedPrompt = undefined
+      const actions = settleOutstandingRemovals(raw)
       if (activeTurnId === undefined) {
-        return [warning('Claude interrupt row has no active turn', raw)]
+        actions.push(warning('Claude interrupt row has no active turn', raw))
+        return actions
       }
       const interrupted = activeTurnId
       activeTurnId = undefined
-      return [{ kind: 'interrupted', turnId: interrupted }]
+      actions.push({ kind: 'interrupted', turnId: interrupted })
+      return actions
     },
 
     observePromptHook(content, hintedTurnId): ClaudeAttributionAction[] {
