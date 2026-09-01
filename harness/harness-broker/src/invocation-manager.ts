@@ -1489,13 +1489,20 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         index: requireCaptureIndex(),
         normalizer: { name: driver.kind, version: driver.version },
         now,
+        // The gate's own events are BROKER facts about capture, never provider
+        // observations — so they carry broker provenance explicitly rather than
+        // inheriting the `diagnostic` family's declared authority from the
+        // driver tag. Without this a driver whose diagnostics come from hooks
+        // would publish `capture.warning` as hook-observed, which it never is.
         emitWarning: (payload: CaptureWarningPayload) =>
           emit(inv, 'capture.warning', payload, {
             driver: { kind: driver.kind },
+            provenance: brokerProvenance,
           }).seq,
         emitReleased: (payload: CaptureReleasedPayload) =>
           emit(inv, 'capture.released', payload, {
             driver: { kind: driver.kind },
+            provenance: brokerProvenance,
           }).seq,
         emitNormalizedAs: (releaseSpec, provenance) =>
           emitEvent(

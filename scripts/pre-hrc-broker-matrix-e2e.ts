@@ -60,6 +60,7 @@ import { spawn } from 'node:child_process'
  * into the boundary-clean interactive-tmux runner lib.
  */
 import {
+  appendFileSync,
   chmodSync,
   existsSync,
   mkdirSync,
@@ -1680,6 +1681,28 @@ async function waitForCodexPaneReady(
   )
 }
 
+/**
+ * Durable capture artifacts for a matrix row (T-07853 §§7.1, 8.1, 13 Phase 0).
+ *
+ * Rows drive REAL drivers through an in-process manager, so without a capture
+ * directory the raw ingress journal and the disposition index stay in memory
+ * and the run proves nothing about the durable contract. This gives each row a
+ * directory holding `events.ndjson`, `raw/` and `ledger-index.db` — exactly what
+ * `harness/harness-broker/scripts/capture-parity.ts --dir` reads.
+ */
+function matrixCaptureDir(marker: string, rowName: string): string {
+  const dir = join(tmpdir(), 'asp-matrix-capture', `${rowName}-${marker}`)
+  mkdirSync(dir, { recursive: true })
+  return dir
+}
+
+function matrixCaptureSink(captureDir: string): (event: InvocationEventEnvelope) => void {
+  const path = join(captureDir, 'events.ndjson')
+  return (event) => {
+    appendFileSync(path, `${JSON.stringify(event)}\n`)
+  }
+}
+
 async function runCodexTmuxRow(
   ctx: RowContext,
   options: { ghostmuxOperator: boolean }
@@ -1814,11 +1837,16 @@ async function runCodexTmuxRow(
         bridgeCommand,
       },
     })
+    const captureDir = matrixCaptureDir(ctx.marker, rowName)
+    const captureSink = matrixCaptureSink(captureDir)
+    result.notes['captureDir'] = captureDir
     const manager = createInvocationManager({
       sequencer: createInvocationEventSequencer({ now: () => new Date() }),
+      captureDir,
       onEvent: (event) => {
         events.push(event)
         ledger.append(event)
+        captureSink(event)
       },
     })
 
@@ -2394,11 +2422,16 @@ async function runPiTuiTmuxRow(
         bridgeCommand: `bun ${join(ctx.repoRoot, 'harness/harness-broker/bin/harness-broker.js')} pi-hook`,
       },
     })
+    const captureDir = matrixCaptureDir(ctx.marker, rowName)
+    const captureSink = matrixCaptureSink(captureDir)
+    result.notes['captureDir'] = captureDir
     const manager = createInvocationManager({
       sequencer: createInvocationEventSequencer({ now: () => new Date() }),
+      captureDir,
       onEvent: (event) => {
         events.push(event)
         ledger.append(event)
+        captureSink(event)
       },
     })
     const invocationId = (profile.harnessInvocation.startRequest.spec.invocationId ??

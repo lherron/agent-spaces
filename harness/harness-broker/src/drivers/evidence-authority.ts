@@ -55,6 +55,11 @@ const BROKER_OWNED_BASE: EvidenceAuthorityMatrix = {
 export const CLAUDE_CODE_TMUX_AUTHORITY: EvidenceAuthorityMatrix = {
   ...BROKER_OWNED_BASE,
   'harness-lifecycle': 'hook',
+  // `driver.notice` (SubagentStart/Stop, Notification) and the PreCompact
+  // `diagnostic` come from hooks; only the API-failure diagnostic comes from the
+  // transcript, and that is the documented exception. Corrected from `broker`
+  // after the first live session's parity report flagged the disagreement.
+  diagnostic: 'hook',
   continuation: 'hook',
   'submission-disposition': 'native',
   'turn-bracket': 'hook',

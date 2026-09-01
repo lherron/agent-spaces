@@ -135,6 +135,19 @@ describe('claude native-type disposition coverage (archived T-07849 vocabulary)'
     expect(warnings).toEqual(['Unknown Claude queue operation: reprioritize'])
   })
 
+  test('native types found by the LIVE smoke are classified, not blocked', () => {
+    // `ai-title` and `attachment:auto_mode_exit` appear in no archived session.
+    // The first real Claude session run against this code produced both, which
+    // is why "one real call before trusting a fixture" is a validation rule and
+    // not advice.
+    const { dispositions, warnings } = replay([
+      JSON.stringify({ type: 'ai-title', aiTitle: 'x', sessionId: 's' }),
+      JSON.stringify({ type: 'attachment', attachment: { type: 'auto_mode_exit' } }),
+    ])
+    expect(dispositions.map((d) => d.disposition)).toEqual(['ignored-known', 'ignored-known'])
+    expect(warnings).toEqual([])
+  })
+
   test('an unknown top-level row type is reported but does NOT halt the cursor', () => {
     // We cannot assert a row type we cannot place is load-bearing, and the law
     // halts only on an unclassified LOAD-BEARING type. It still warns.

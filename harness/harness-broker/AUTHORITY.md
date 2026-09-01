@@ -75,7 +75,7 @@ family cannot be asserted to be load-bearing.
 | `tool` | hook | hook | native | hook | native | native |
 | `usage` | native † | native † | native | hook † | native | native |
 | `permission` | hook | hook | native | hook | native | native |
-| `diagnostic` | broker | broker | native | broker | broker | broker |
+| `diagnostic` | hook | broker | native | broker | broker | broker |
 | `terminal-surface` | broker | broker | broker | broker | broker | broker |
 | `provider-artifact` | broker | broker | broker | broker | broker | broker |
 
@@ -103,7 +103,8 @@ should show as `both`.
 | --- | --- | --- |
 | `conversation` (hook) | `user.message` for a submission that entered context via the disposition mirror | session JSONL: the `remove` + `queued_command` attachment pair, or the plain `user` row |
 | `turn-bracket` (hook) | `turn.started` for a drained submission; `turn.interrupted` from the `[Request interrupted by user]` row | session JSONL (T-07849 rev 10 items 3 and 5) |
-| `diagnostic` (broker) | the API-failure `diagnostic` | session JSONL `assistant` row with `isApiErrorMessage:true` — it never arrives via a hook (T-05092) |
+| `diagnostic` (hook) | the API-failure `diagnostic` | session JSONL `assistant` row with `isApiErrorMessage:true` — it never arrives via a hook (T-05092) |
+| `submission-disposition` (native) | `submission.executed` for an IDLE-path prompt | the `UserPromptSubmit` hook — an idle prompt skips the composer queue entirely, so no queue-operation evidence exists for it (T-07849 item 7) |
 
 Every Claude event ARRIVES through a hook — the session-JSONL reader is a
 hook-driven byte-offset tail, so no hook means no transcript read. That is why

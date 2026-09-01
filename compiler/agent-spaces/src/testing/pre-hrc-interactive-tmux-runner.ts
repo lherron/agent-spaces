@@ -87,6 +87,14 @@ export type InteractiveTmuxRunnerDeps = {
   createInvocationManager: (config: {
     sequencer: unknown
     onEvent: (event: InvocationEventEnvelope) => void
+    /**
+     * Directory the raw ingress journal and disposition index are written to
+     * (T-07853 §§7.1, 8.1). Supplied so a REAL driver session leaves the
+     * durable capture artifacts `scripts/capture-parity.ts` reads; without it
+     * capture still runs, but in memory, and the session proves nothing about
+     * the durable contract.
+     */
+    captureDir?: string | undefined
   }) => InteractiveTmuxManager
   createInvocationEventSequencer: (config: { now: () => Date }) => unknown
   parseDispatchEnv: (
@@ -219,7 +227,17 @@ export type InteractiveTmuxRunResult = {
   contractVerification: { ok: boolean; failures: unknown[] }
   assertionFailures: Array<{ code: string; message: string; path?: string | undefined }>
   ledgerEventTypes: string[]
-  artifacts: { ledgerJson: string; eventsJsonl: string; summaryJson: string }
+  artifacts: {
+    ledgerJson: string
+    eventsJsonl: string
+    summaryJson: string
+    /**
+     * Durable capture artifacts for this run: `events.ndjson`, `raw/` and
+     * `ledger-index.db`. This is the directory to hand
+     * `scripts/capture-parity.ts` (T-07853 §13 Phase 0).
+     */
+    captureDir: string
+  }
 }
 
 export type InteractiveTmuxRunOutput = {
@@ -793,6 +811,7 @@ export async function runInteractiveClaudeTmuxSession(
       eventsJsonl:
         names.eventsJsonl ?? join(options.artifactDir, 'phase5-real-claude-tmux-events.jsonl'),
       summaryJson: names.summaryJson ?? join(options.artifactDir, 'phase5-summary.json'),
+      captureDir: join(options.artifactDir, 'capture'),
     },
   }
 
@@ -838,11 +857,21 @@ export async function runInteractiveClaudeTmuxSession(
       },
     })
 
+    // Capture artifacts land beside the run's other artifacts so a parity
+    // report can be run over a finished session (§13 Phase 0). `events.ndjson`
+    // is written unconditionally here — not only under keepAlive — because the
+    // parity report needs the normalized stream and the raw journal to sit in
+    // the same directory.
+    const captureDir = result.artifacts.captureDir
+    mkdirSync(captureDir, { recursive: true })
+    const captureEventsPath = join(captureDir, 'events.ndjson')
     const manager = deps.createInvocationManager({
       sequencer: deps.createInvocationEventSequencer({ now: () => new Date() }),
+      captureDir,
       onEvent: (event) => {
         events.push(event)
         ledger.append(event)
+        appendFileSync(captureEventsPath, `${JSON.stringify(event)}\n`)
         if (options.keepAlive) {
           appendFileSync(result.artifacts.eventsJsonl, `${JSON.stringify(event)}\n`)
         }

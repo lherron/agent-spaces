@@ -9,7 +9,9 @@ import type { EventFamily } from 'spaces-harness-broker-protocol'
  * wrkq T-07849 (`e2e-enqueue-pin-transcript-73efc2a5.jsonl`,
  * `…-pin2-…-36022e44.jsonl`, `…-pin3-…-f3003503.jsonl`), which between them
  * cover 14 session-JSONL row types, 9 attachment subtypes and 4 queue
- * operations. Anything outside it is `blocked-unknown` and warns.
+ * operations — and then EXTENDED by a live smoke, which immediately produced
+ * two more (`ai-title`, `attachment:auto_mode_exit`) that no archive contained.
+ * Anything outside it is `blocked-unknown` and warns.
  */
 
 /** Session-JSONL row types that carry no broker-vocabulary fact. */
@@ -25,6 +27,11 @@ export const CLAUDE_IGNORED_ROW_TYPES: ReadonlySet<string> = new Set([
   'bridge-session',
   // Editor undo bookkeeping, not a tool result.
   'file-history-snapshot',
+  // Session title the TUI generates for its own picker. Found by the live
+  // smoke, not by the archives — the archived sessions never got far enough to
+  // be titled. Exactly the gap "make one real call before trusting a fixture"
+  // is about.
+  'ai-title',
   // Local reminders/instructions injected into the model's context; the broker
   // reports what the model DID, not what the TUI told it.
   'system',
@@ -42,6 +49,8 @@ export const CLAUDE_IGNORED_ATTACHMENT_TYPES: ReadonlySet<string> = new Set([
   'mcp_instructions_delta',
   'skill_listing',
   'auto_mode',
+  // Paired with `auto_mode`; also found only by the live smoke.
+  'auto_mode_exit',
   'total_tokens_reminder',
   'remote_session_change',
 ])
