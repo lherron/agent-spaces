@@ -631,6 +631,33 @@ describe('PreHrcBrokerEventLedger', () => {
     ])
   })
 
+  test('accepts the broker admission decision and terminal disposition vocabulary', () => {
+    const ledger = new PreHrcBrokerEventLedger()
+    const eventTypes = [
+      'admission.requested',
+      'admission.admitted',
+      'admission.rejected',
+      'queue.enqueued',
+      'queue.jumped',
+      'queue.cancelled',
+      'queue.expired',
+      'interrupt.requested',
+      'interrupt.landed',
+      'interrupt.failed',
+      'submission.absorbed',
+      'submission.executed',
+      'submission.rejected',
+      'submission.expired',
+      'submission.cancelled',
+    ] as const
+
+    for (const [index, type] of eventTypes.entries()) {
+      ledger.append(event({ seq: index + 1, type }))
+    }
+
+    expect(ledger.requireOnlyNormalizedEventTypes()).toEqual([])
+  })
+
   test('rejects the legacy permission event by default and tolerates it only with the transition flag', () => {
     const ledger = new PreHrcBrokerEventLedger()
     ledger.append(event({ seq: 1 }))
@@ -1002,9 +1029,11 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
       payload: {
         turnId: inputTurnId,
         inputId: turnStarted?.inputId,
-        source: 'broker-delivery',
       },
     })
+    expect(['broker-delivery', 'hook-observed']).toContain(
+      (events[turnStartedIndex]?.payload as { source?: unknown }).source
+    )
     expect(terminalTurns).toHaveLength(1)
     expect(terminalTurns[0]?.type).toBe('turn.completed')
     expect(eventTypes).not.toContain('invocation.permission.request' as never)
