@@ -34,6 +34,7 @@ import type {
   InvocationId,
   TurnId,
 } from 'spaces-harness-broker-protocol'
+import { SUPPORTED_BROKER_PROTOCOL_VERSIONS } from 'spaces-harness-broker-protocol'
 
 import type { Broker } from '../harness/harness-broker/src/broker'
 import { createBroker } from '../harness/harness-broker/src/broker'
@@ -154,7 +155,11 @@ type CellResult = {
 type RowResult = {
   kind: string
   version: string
+  /** The seat this row's cells ran on — the runtime id for cross-referencing. */
+  invocationId?: string | undefined
   probe: { available: boolean; reason: string }
+  /** `broker.hello` capability dump for THIS driver, as the broker advertises it. */
+  hello?: unknown
   compile?: Record<string, unknown> | undefined
   capabilities?: unknown
   cells: CellResult[]
@@ -233,18 +238,23 @@ async function waitForTurnActive(
   return false
 }
 
-/** Recover a busy seat with the driver's own capability-gated interrupt — never a UI key. */
+/**
+ * Recover a busy seat with the driver's own capability-gated interrupt — never a
+ * UI key. Returns false when the seat did NOT come back to idle: one seat
+ * carries every cell of a row, so a seat that stays wedged would turn one real
+ * finding into a column of misleading reds in every later cell.
+ */
 async function recoverToIdle(
   broker: Broker,
   invocationId: InvocationId,
   events: InvocationEventEnvelope[],
   timeoutMs: number
-): Promise<void> {
-  if (await waitForIdle(broker, invocationId, events, 5_000)) return
+): Promise<boolean> {
+  if (await waitForIdle(broker, invocationId, events, 5_000)) return true
   await broker
     .interrupt({ invocationId, scope: 'turn', reason: 'admission-matrix-cell-recovery' })
     .catch(() => undefined)
-  await waitForIdle(broker, invocationId, events, timeoutMs)
+  return waitForIdle(broker, invocationId, events, timeoutMs)
 }
 
 /** Ask the broker for the manifest of every turn the slice touched. */
@@ -252,23 +262,26 @@ async function collectManifests(
   broker: Broker,
   invocationId: InvocationId,
   slice: InvocationEventEnvelope[]
-): Promise<Map<string, readonly string[]>> {
+): Promise<{ manifests: Map<string, readonly string[]>; errors: Map<string, string> }> {
   const turnIds = new Set<string>()
   for (const event of slice) {
     const turnId = (event.payload as { turnId?: unknown } | undefined)?.turnId
     if (typeof turnId === 'string') turnIds.add(turnId)
   }
   const manifests = new Map<string, readonly string[]>()
+  const errors = new Map<string, string>()
   for (const turnId of turnIds) {
     try {
       const manifest = await broker.turnManifest({ invocationId, turnId: turnId as TurnId })
       manifests.set(turnId, manifest.submissionIds)
-    } catch {
-      // A turn the broker does not know is itself the finding; leave it absent
-      // so checkTurnManifest reports it against the ledger.
+    } catch (error) {
+      // A turn the manifest RPC will not ANSWER for is itself the finding, so
+      // record WHY rather than swallowing it: an unanswered manifest and a
+      // wrong one are different defects and must not read the same.
+      errors.set(turnId, error instanceof Error ? error.message : String(error))
     }
   }
-  return manifests
+  return { manifests, errors }
 }
 
 // ---------------------------------------------------------------------------
@@ -548,7 +561,8 @@ async function runCell(input: {
         .filter((id): id is string => id !== undefined)
     )
   )
-  checks.push(checkTurnManifest(slice, events, await collectManifests(broker, invocationId, slice)))
+  const manifestReport = await collectManifests(broker, invocationId, slice)
+  checks.push(checkTurnManifest(slice, events, manifestReport.manifests, manifestReport.errors))
 
   return {
     door,
@@ -629,7 +643,16 @@ async function runRow(input: {
   const invocationId = plan.startRequest.spec.invocationId as InvocationId
   let started = false
   try {
+    row.invocationId = invocationId
     row.compile = plan.compile
+    // Hello capability dump per driver, straight from the broker that will run
+    // the row — not from the driver object, so the artifact records what a
+    // client would actually negotiate against.
+    const hello = await broker.hello({
+      clientInfo: { name: 'admission-matrix', version: '2' },
+      protocolVersions: [...SUPPORTED_BROKER_PROTOCOL_VERSIONS],
+    })
+    row.hello = hello.drivers.find((summary) => summary.kind === kind)
     const startResponse = await broker.start(plan.startRequest, plan.dispatchEnv, plan.runtime)
     started = true
     row.capabilities = startResponse.capabilities
@@ -678,7 +701,16 @@ async function runRow(input: {
         console.log(`      x ${check.id}: ${check.detail}`)
       }
       // Recover to idle between cells so one cell never contaminates the next.
-      await recoverToIdle(broker, invocationId, events, ctx.timeoutMs)
+      // A seat that will not come back is a row-level fact: stop here and say
+      // which cell wedged it, rather than running the rest against a dead seat
+      // and reporting a column of reds that all have one cause.
+      if (!(await recoverToIdle(broker, invocationId, events, ctx.timeoutMs))) {
+        const remaining = input.cells.slice(input.cells.indexOf(cell) + 1)
+        const message = `seat did not return to idle after ${cell.door}/${cell.state}; ${remaining.length} later cell(s) not run: ${remaining.map((c) => `${c.door}/${c.state}`).join(', ')}`
+        row.errors.push(message)
+        console.log(`  ${kind}: SEAT WEDGED — ${message}`)
+        break
+      }
     }
 
     // §9 assertion 8 is a RUNTIME-wide fact, so it is evaluated over the whole

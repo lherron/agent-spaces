@@ -196,7 +196,8 @@ export function checkBracketMinting(
 export function checkTurnManifest(
   slice: InvocationEventEnvelope[],
   wholeRun: InvocationEventEnvelope[],
-  manifests: ReadonlyMap<string, readonly string[]>
+  manifests: ReadonlyMap<string, readonly string[]>,
+  manifestErrors: ReadonlyMap<string, string> = new Map()
 ): Check {
   // Which turns THIS cell touched...
   const touched = new Set<string>()
@@ -225,7 +226,8 @@ export function checkTurnManifest(
     if (reported === undefined) {
       mismatches.push({
         turnId,
-        problem: 'turn.manifest returned nothing for a turn the ledger dispositioned into',
+        problem: 'turn.manifest did not answer for a turn the ledger dispositioned into',
+        error: manifestErrors.get(turnId) ?? '(no error recorded)',
       })
       continue
     }
@@ -252,24 +254,59 @@ export function checkTurnManifest(
 }
 
 /**
- * §9 assertion 8 — zero `capture.warning` across the WHOLE runtime. This is the
- * behavior-pin guard: a harness vocabulary change fails the matrix loudly
- * instead of silently misfiling attribution.
+ * The ONE `capture.warning` raw kind mable's ruling #2 tolerates: a preempt
+ * drain that dequeued an item for which no user row ever appeared. The item is
+ * a REPORTED blocked-unknown, not a silent drop, and it is allowed at most once
+ * and only with this exact signature. Every other warning still fails the
+ * matrix loudly — that is the §9 behavior pin.
+ */
+const RULED_BLOCKED_UNKNOWN_KIND = 'claude.dequeue-without-user-row'
+
+function isRuledBlockedUnknown(event: InvocationEventEnvelope): boolean {
+  const raw = (event.payload as { raw?: unknown } | undefined)?.raw
+  if (typeof raw !== 'object' || raw === null) return false
+  const record = raw as Record<string, unknown>
+  return (
+    record['kind'] === RULED_BLOCKED_UNKNOWN_KIND &&
+    typeof record['blockedSubmissionId'] === 'string' &&
+    'dequeue' in record &&
+    'observedUserRow' in record
+  )
+}
+
+/**
+ * §9 assertion 8 — zero `capture.warning` across the WHOLE runtime, with the
+ * single ruled blocked-unknown exception above.
  */
 export function checkNoCaptureWarning(wholeRun: InvocationEventEnvelope[]): Check {
   const warnings = wholeRun.filter((event) => event.type === 'capture.warning')
-  return warnings.length === 0
-    ? {
-        id: 'zero-capture-warning',
-        ok: true,
-        detail: 'no capture.warning across the whole runtime',
-      }
-    : {
-        id: 'zero-capture-warning',
-        ok: false,
-        detail: `${warnings.length} capture.warning event(s) on the runtime ledger`,
-        evidence: excerpt(warnings),
-      }
+  const blockedUnknown = warnings.filter(isRuledBlockedUnknown)
+  const others = warnings.filter((event) => !isRuledBlockedUnknown(event))
+  if (others.length > 0) {
+    return {
+      id: 'zero-capture-warning',
+      ok: false,
+      detail: `${others.length} capture.warning event(s) outside the ruled blocked-unknown signature`,
+      evidence: excerpt(others),
+    }
+  }
+  if (blockedUnknown.length > 1) {
+    return {
+      id: 'zero-capture-warning',
+      ok: false,
+      detail: `${blockedUnknown.length} ruled blocked-unknown warnings; the ruling allows AT MOST ONE`,
+      evidence: excerpt(blockedUnknown),
+    }
+  }
+  return {
+    id: 'zero-capture-warning',
+    ok: true,
+    detail:
+      blockedUnknown.length === 0
+        ? 'no capture.warning across the whole runtime'
+        : `no capture.warning except the one ruled blocked-unknown (${RULED_BLOCKED_UNKNOWN_KIND}), reported not swallowed`,
+    ...(blockedUnknown.length > 0 ? { evidence: excerpt(blockedUnknown) } : {}),
+  }
 }
 
 /** The decision ledger must record every admission decision (§6). */
