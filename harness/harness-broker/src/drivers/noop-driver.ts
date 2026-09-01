@@ -13,6 +13,7 @@ import {
 } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../errors'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from './driver'
+import { BROKER_ONLY_AUTHORITY } from './evidence-authority'
 
 export interface NoopDriverOptions {
   /** Which terminal state to enter on stop: 'exited' or 'failed'. */
@@ -56,6 +57,8 @@ export function createNoopDriver(options: NoopDriverOptions = {}): Driver {
     kind: 'noop-driver',
     version: '0.1.0',
     bracketMintingMode: 'delivery-acknowledged',
+    evidenceAuthority: BROKER_ONLY_AUTHORITY,
+    nativeSourceKind: 'provider-jsonl',
 
     capabilities(): InvocationCapabilities {
       return NOOP_CAPABILITIES

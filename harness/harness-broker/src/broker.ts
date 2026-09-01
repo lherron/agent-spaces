@@ -12,6 +12,8 @@ import type {
   ClientCapabilities,
   InvocationAckEventsRequest,
   InvocationAckEventsResponse,
+  InvocationCaptureReleaseRequest,
+  InvocationCaptureReleaseResponse,
   InvocationDisposeRequest,
   InvocationDisposeResponse,
   InvocationEventEnvelope,
@@ -53,8 +55,7 @@ import type { CommittedEventPublisher } from './ledger-commit'
 import { createCommittedEventPublisher } from './ledger-commit'
 import type { DispatchEnv } from './runtime/env'
 import { parseDispatchEnv } from './runtime/env'
-
-const BROKER_VERSION = '0.1.0'
+import { HARNESS_BROKER_VERSION } from './version'
 
 /**
  * Launch-time runtime identity a durable (unix) broker validates incoming
@@ -81,6 +82,12 @@ export interface BrokerOptions {
     | ((params: PermissionRequestParams) => Promise<PermissionDecision>)
     | undefined
   maxInputQueueDepth?: number | undefined
+  /**
+   * Directory the durable ledger lives in. The raw ingress journal and the
+   * disposition index live beside it (§7.1, §8.1). Absent keeps capture
+   * in-memory, exactly as a pathless `eventLedger` keeps events in-memory.
+   */
+  captureDir?: string | undefined
   /**
    * Transports this broker process advertises in `broker.hello`. Defaults to
    * stdio only; the unix server entry point advertises both stdio and unix.
@@ -129,6 +136,12 @@ export interface Broker {
   permissionRespond(
     req: InvocationPermissionRespondRequest
   ): Promise<InvocationPermissionRespondResponse>
+  /**
+   * Operator disposition for a blocked-unknown raw record. Mutating, so it
+   * belongs on the fenced control connection and never on the read-only
+   * observer surface (§8.2).
+   */
+  captureRelease(req: InvocationCaptureReleaseRequest): Promise<InvocationCaptureReleaseResponse>
 }
 
 export function createBroker(options: BrokerOptions): Broker {
@@ -177,6 +190,7 @@ export function createBroker(options: BrokerOptions): Broker {
     onPermissionRequest: options.onPermissionRequest,
     maxInputQueueDepth: options.maxInputQueueDepth,
     now,
+    ...(options.captureDir !== undefined ? { captureDir: options.captureDir } : {}),
   })
 
   if (eventLedger !== undefined) {
@@ -218,6 +232,7 @@ export function createBroker(options: BrokerOptions): Broker {
     const summary = manager.buildInspectionSummary(invocationId, opts)
     const currentSeq = eventLedger?.currentSeq(invocationId) ?? summary.currentSeq ?? 0
     const retentionFloorSeq = eventLedger ? await eventLedger.retentionFloorSeq(invocationId) : 0
+    const captureState = manager.captureState(invocationId)
 
     const inputDispositions: Record<string, InvocationInputResponse> = {}
     for (const [inputId, record] of inv.inputDispositions) {
@@ -245,6 +260,9 @@ export function createBroker(options: BrokerOptions): Broker {
       },
       currentSeq,
       retentionFloorSeq,
+      // §5: the halt must be VISIBLE. A controller reading a snapshot sees the
+      // stopped cursor and the record it is stopped on, not a silent stall.
+      ...(captureState !== undefined ? { capture: captureState } : {}),
       ...(inv.currentTurnId !== undefined ? { currentTurnId: inv.currentTurnId } : {}),
       ...(inv.continuation !== undefined ? { continuation: inv.continuation } : {}),
     }
@@ -272,7 +290,7 @@ export function createBroker(options: BrokerOptions): Broker {
       return {
         brokerInfo: {
           name: 'harness-broker',
-          version: BROKER_VERSION,
+          version: HARNESS_BROKER_VERSION,
         },
         protocolVersion,
         capabilities: {
@@ -533,6 +551,18 @@ export function createBroker(options: BrokerOptions): Broker {
       validateBrokerParams('invocation.permission.respond', req)
       assertCommittable(req.invocationId)
       return manager.permissionRespond(req)
+    },
+
+    async captureRelease(
+      req: InvocationCaptureReleaseRequest
+    ): Promise<InvocationCaptureReleaseResponse> {
+      validateBrokerParams('invocation.capture.release', req)
+      // A release COMMITS events (`capture.released`, and the operator-authored
+      // normalized event). If this invocation's ledger is poisoned there is
+      // nowhere to commit them, so refuse rather than resume a cursor whose
+      // output cannot be published.
+      assertCommittable(req.invocationId)
+      return manager.captureRelease(req)
     },
   }
 }

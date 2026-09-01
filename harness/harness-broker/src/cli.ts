@@ -101,9 +101,11 @@ export async function runBrokerCli(options: RunBrokerCliOptions): Promise<void> 
     await runOnce(args.slice(1), options)
   } else if (command === 'validate-start-request') {
     await validateStartRequestCommand(args.slice(1))
+  } else if (command === 'capture') {
+    await captureCommand(args.slice(1))
   } else {
     process.stderr.write(
-      `Unknown command: ${command ?? '(none)'}\nUsage: harness-broker run --transport stdio\n`
+      `Unknown command: ${command ?? '(none)'}\nUsage: harness-broker run --transport stdio\n${CAPTURE_USAGE}`
     )
     process.exit(1)
   }
@@ -269,6 +271,14 @@ function registerBrokerMethods(
     validateParams(method, id, params)
     return broker.dispose(params as Parameters<typeof broker.dispose>[0])
   })
+
+  // Operator disposition for a halted normalization cursor. Mutating, so it is
+  // registered HERE (and on the unix durability surface) and deliberately NOT
+  // in registerReadMethods — the observer surface stays read-only (§8.2).
+  server.register('invocation.capture.release', async ({ id, method, params }) => {
+    validateParams(method, id, params)
+    return broker.captureRelease(params as Parameters<typeof broker.captureRelease>[0])
+  })
 }
 
 /**
@@ -392,6 +402,10 @@ async function runUnix(args: string[], options: RunBrokerCliOptions): Promise<vo
       hookIpcDir: join(dirname(socketPath), 'hooks'),
       additionalDrivers: options.additionalDrivers,
       ...(eventLedger !== undefined ? { eventLedger } : {}),
+      // Raw ingress journal + disposition index live beside the normalized
+      // ledger (§7.1, §8.1). Without a ledger path capture stays in memory,
+      // exactly as the ledger itself does.
+      ...(ledgerPath !== undefined ? { captureDir: dirname(ledgerPath) } : {}),
       ...(attachIdentity !== undefined ? { attachIdentity } : {}),
     }
   )
@@ -465,6 +479,9 @@ async function runUnix(args: string[], options: RunBrokerCliOptions): Promise<vo
     )
     server.register('invocation.permission.respond', async ({ params }) =>
       broker.permissionRespond(params as Parameters<typeof broker.permissionRespond>[0])
+    )
+    server.register('invocation.capture.release', async ({ params }) =>
+      broker.captureRelease(params as Parameters<typeof broker.captureRelease>[0])
     )
   }
 
@@ -797,4 +814,182 @@ function formatError(err: unknown): string {
 function readFlag(args: string[], flag: string): string | undefined {
   const index = args.indexOf(flag)
   return index === -1 ? undefined : args[index + 1]
+}
+
+// ---------------------------------------------------------------------------
+// Operator capture surface (T-07853 §6.1)
+// ---------------------------------------------------------------------------
+
+const CAPTURE_USAGE = `
+Usage: harness-broker capture <status|release> --socket <path> --invocation <id> [options]
+
+  status   Show whether an invocation's normalization cursor is running or halted,
+           and which raw record it is halted on.
+             harness-broker capture status --socket <path> --invocation <id> [--json]
+
+  release  Dispose a blocked-unknown raw record so the cursor resumes. Recorded as a
+           committed capture.released event.
+             harness-broker capture release --socket <path> --invocation <id> \\
+               --raw-record <id> --disposition ignored-known [--note <text>]
+             harness-broker capture release --socket <path> --invocation <id> \\
+               --raw-record <id> --disposition normalized-as \\
+               --event-type <invocation event type> --event-payload <json> [--turn-id <id>]
+
+  --disposition ignored-known  the native type is real but intentionally outside the
+                               broker vocabulary; nothing is minted for it.
+  --disposition normalized-as  the operator authors the normalized event the broker
+                               could not derive; it is committed with the blocked
+                               record's provenance.
+`
+
+async function captureCommand(args: string[]): Promise<void> {
+  const sub = args[0]
+  if (sub !== 'status' && sub !== 'release') {
+    process.stderr.write(`Unknown capture subcommand: ${sub ?? '(none)'}\n${CAPTURE_USAGE}`)
+    process.exit(1)
+  }
+  const socketPath = readFlag(args, '--socket')
+  const invocationId = readFlag(args, '--invocation')
+  if (socketPath === undefined || invocationId === undefined) {
+    process.stderr.write(`capture ${sub} requires --socket and --invocation\n${CAPTURE_USAGE}`)
+    process.exit(1)
+    return
+  }
+
+  const call = await connectControlClient(socketPath)
+  try {
+    if (sub === 'status') {
+      // Capture state rides the ordinary snapshot rather than a second read
+      // surface, so the operator sees the halt in the same place a controller
+      // does. `probeLiveness` is deliberately not requested: reading capture
+      // state must not poke the harness process.
+      const snapshot = (await call('invocation.snapshot', { invocationId })) as {
+        capture?: unknown
+      }
+      const capture = snapshot.capture ?? { state: 'open', deferredCount: 0 }
+      if (args.includes('--json')) {
+        process.stdout.write(`${JSON.stringify(capture, null, 2)}\n`)
+      } else {
+        process.stdout.write(`${formatCaptureState(capture)}\n`)
+      }
+      return
+    }
+
+    const rawRecordId = readFlag(args, '--raw-record')
+    const disposition = readFlag(args, '--disposition')
+    if (rawRecordId === undefined) {
+      process.stderr.write(`capture release requires --raw-record\n${CAPTURE_USAGE}`)
+      process.exit(1)
+      return
+    }
+    if (disposition !== 'ignored-known' && disposition !== 'normalized-as') {
+      process.stderr.write(
+        `capture release requires --disposition ignored-known|normalized-as\n${CAPTURE_USAGE}`
+      )
+      process.exit(1)
+      return
+    }
+
+    const note = readFlag(args, '--note')
+    let normalizedAs: Record<string, unknown> | undefined
+    if (disposition === 'normalized-as') {
+      const eventType = readFlag(args, '--event-type')
+      const payloadJson = readFlag(args, '--event-payload')
+      if (eventType === undefined || payloadJson === undefined) {
+        process.stderr.write(
+          `capture release --disposition normalized-as requires --event-type and --event-payload\n${CAPTURE_USAGE}`
+        )
+        process.exit(1)
+        return
+      }
+      const turnId = readFlag(args, '--turn-id')
+      normalizedAs = {
+        type: eventType,
+        payload: JSON.parse(payloadJson) as unknown,
+        ...(turnId !== undefined ? { turnId } : {}),
+      }
+    }
+
+    const response = await call('invocation.capture.release', {
+      invocationId,
+      rawRecordId,
+      disposition,
+      ...(normalizedAs !== undefined ? { normalizedAs } : {}),
+      ...(note !== undefined ? { note } : {}),
+    })
+    process.stdout.write(`${JSON.stringify(response, null, 2)}\n`)
+  } catch (err) {
+    process.stderr.write(`${formatError(err)}\n`)
+    process.exitCode = 1
+  }
+}
+
+function formatCaptureState(capture: unknown): string {
+  const view = capture as {
+    state?: string
+    deferredCount?: number
+    blockedOn?: { rawRecordId?: string; nativeType?: string; family?: string; message?: string }
+  }
+  if (view.state !== 'blocked' || view.blockedOn === undefined) {
+    return 'capture: open'
+  }
+  return [
+    'capture: BLOCKED',
+    `  rawRecordId: ${view.blockedOn.rawRecordId ?? '(unknown)'}`,
+    `  nativeType:  ${view.blockedOn.nativeType ?? '(unknown)'}`,
+    `  family:      ${view.blockedOn.family ?? '(unknown)'}`,
+    `  message:     ${view.blockedOn.message ?? ''}`,
+    `  deferred:    ${view.deferredCount ?? 0} raw record(s) held unnormalized`,
+  ].join('\n')
+}
+
+/**
+ * Minimal one-shot NDJSON JSON-RPC client for the operator subcommands. It does
+ * NOT attach: `invocation.capture.release` is a control-connection method, and
+ * attaching would fence the live HRC controller off its own runtime.
+ */
+async function connectControlClient(
+  socketPath: string
+): Promise<(method: string, params: unknown) => Promise<unknown>> {
+  const socket = await new Promise<Socket>((resolve, reject) => {
+    const s = connect({ path: socketPath })
+    s.once('connect', () => resolve(s))
+    s.once('error', reject)
+  })
+  let nextId = 1
+  let buffer = ''
+  const waiting = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>()
+  socket.on('data', (chunk) => {
+    buffer += chunk.toString('utf8')
+    let index = buffer.indexOf('\n')
+    while (index >= 0) {
+      const line = buffer.slice(0, index)
+      buffer = buffer.slice(index + 1)
+      index = buffer.indexOf('\n')
+      if (line.trim().length === 0) continue
+      let frame: { id?: number; result?: unknown; error?: { message?: string; data?: unknown } }
+      try {
+        frame = JSON.parse(line) as typeof frame
+      } catch {
+        continue
+      }
+      if (typeof frame.id !== 'number') continue
+      const pending = waiting.get(frame.id)
+      if (pending === undefined) continue
+      waiting.delete(frame.id)
+      if (frame.error !== undefined) {
+        const detail = frame.error.data !== undefined ? `: ${JSON.stringify(frame.error.data)}` : ''
+        pending.reject(new Error(`${frame.error.message ?? 'broker error'}${detail}`))
+      } else {
+        pending.resolve(frame.result)
+      }
+    }
+  })
+
+  return (method: string, params: unknown) =>
+    new Promise<unknown>((resolve, reject) => {
+      const id = nextId++
+      waiting.set(id, { resolve, reject })
+      socket.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
+    })
 }

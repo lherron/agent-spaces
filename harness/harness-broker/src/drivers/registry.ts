@@ -22,6 +22,9 @@ export function createDriverRegistry(drivers: Driver[]): DriverRegistry {
         version: d.version,
         available: true,
         capabilities: d.capabilities(),
+        // Published so a consumer or the parity report reads the LIVE broker's
+        // declared authority matrix rather than a checked-in copy of AUTHORITY.md.
+        evidenceAuthority: d.evidenceAuthority,
       }))
     },
   }

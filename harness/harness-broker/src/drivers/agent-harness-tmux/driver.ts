@@ -30,6 +30,7 @@ import { resolvePiSdkAuth } from '../../runtime/pi-sdk-auth'
 import type { TmuxExec, TmuxPaneController } from '../../runtime/tmux'
 import { writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
+import { AGENT_HARNESS_TMUX_AUTHORITY } from '../evidence-authority'
 import {
   type PaneLeaseSurface,
   buildHookSocketPath,
@@ -503,6 +504,8 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
     kind: AGENT_HARNESS_TMUX_DRIVER_KIND,
     version: AGENT_HARNESS_TMUX_DRIVER_VERSION,
     bracketMintingMode: 'delivery-acknowledged',
+    evidenceAuthority: AGENT_HARNESS_TMUX_AUTHORITY,
+    nativeSourceKind: 'provider-jsonrpc',
 
     capabilities(): InvocationCapabilities {
       return AGENT_HARNESS_TMUX_CAPABILITIES

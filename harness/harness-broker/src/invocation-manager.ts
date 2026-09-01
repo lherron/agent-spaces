@@ -1,14 +1,21 @@
+import { join as joinPath } from 'node:path'
 import type {
   BrokerLifecyclePolicyOverlay,
   BrokerListInvocationsRequest,
   BrokerListInvocationsResponse,
   BrokerTerminalSurfaceReport,
+  CaptureReleasedPayload,
+  CaptureStateView,
+  CaptureWarningPayload,
   ClientCapabilities,
   ContinuationUpdate,
+  EventProvenance,
   HarnessInvocationSpec,
   InputId,
   InputPolicy,
   InvocationCapabilities,
+  InvocationCaptureReleaseRequest,
+  InvocationCaptureReleaseResponse,
   InvocationCurrentTurnSummary,
   InvocationDisposeRequest,
   InvocationDisposeResponse,
@@ -43,10 +50,16 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import {
   BrokerErrorCode,
+  CAPTURE_RELEASE_NOT_BLOCKED,
+  EVENT_FAMILY_BY_TYPE,
   LEGACY_BUSY_POLICIES,
   acceptedLifecyclePolicy,
   validateEventEnvelope,
 } from 'spaces-harness-broker-protocol'
+import type { CaptureGate } from './capture/capture-gate'
+import { CaptureRecordNotBlockedError, createCaptureGate } from './capture/capture-gate'
+import { type CaptureIndex, openCaptureIndex } from './capture/capture-index'
+import { createRawJournal } from './capture/raw-journal'
 import type { Driver, DriverContext } from './drivers/driver'
 import { BrokerError } from './errors'
 import { stableJsonStringify } from './event-ledger'
@@ -54,6 +67,7 @@ import type { InvocationEventExtra, InvocationEventSequencer } from './events'
 import { LEDGER_APPEND_FAILED } from './ledger-commit'
 import type { DispatchEnv } from './runtime/env'
 import { normalizeEventPayload } from './runtime/event-normalize'
+import { HARNESS_BROKER_VERSION } from './version'
 
 // ---------------------------------------------------------------------------
 // Reason-string vocabulary (centralized for spec traceability)
@@ -343,6 +357,12 @@ export interface Invocation {
    * permissionRequestId. Backs idempotent/conflict/expired `permission.respond`.
    */
   settledPermissions: Map<PermissionRequestId, SettledPermissionRecord>
+  /**
+   * This invocation's normalization cursor (T-07853 §§6.1, 7). Owns the raw
+   * ingress journal, the durable per-record disposition, and the blocked-unknown
+   * halt. Handed to the driver as `DriverContext.capture`.
+   */
+  capture: CaptureGate
 }
 
 export interface InvocationManagerOptions {
@@ -361,6 +381,13 @@ export interface InvocationManagerOptions {
   maxInputQueueDepth?: number | undefined
   /** Clock for broker-owned permission deadlines. Defaults to wall-clock. */
   now?: (() => Date) | undefined
+  /**
+   * Directory the durable normalized ledger lives in. The raw ingress journal
+   * goes in `raw/` beneath it and the disposition index shares the Phase 1a
+   * SQLite index beside it. ABSENT keeps capture in memory — the same pathless
+   * mode `createEventLedger` already has for the stdio/in-process broker.
+   */
+  captureDir?: string | undefined
 }
 
 /** Options for the shared inspection summary builder. */
@@ -388,6 +415,10 @@ export interface InvocationManager {
   status(invocationId: InvocationId, opts?: InspectionSummaryOptions): InvocationStatusResponse
   dispose(req: InvocationDisposeRequest): Promise<InvocationDisposeResponse>
   permissionRespond(req: InvocationPermissionRespondRequest): InvocationPermissionRespondResponse
+  /** Operator disposition that resumes a halted normalization cursor (§6.1). */
+  captureRelease(req: InvocationCaptureReleaseRequest): InvocationCaptureReleaseResponse
+  /** Capture-cursor state for the snapshot surface. */
+  captureState(invocationId: InvocationId): CaptureStateView | undefined
   get(invocationId: InvocationId): Invocation | undefined
   /**
    * Shared inspection read-model builder. status(), snapshot/buildSnapshot, and
@@ -415,6 +446,62 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   const now = options.now ?? (() => new Date())
   const maxQueueDepth = options.maxInputQueueDepth ?? DEFAULT_MAX_INPUT_QUEUE_DEPTH
   const invocations = new Map<string, Invocation>()
+  // One index handle per broker process, shared by every invocation's gate.
+  // It is the Phase 1a `ledger-index.db` when a ledger dir is configured, and
+  // an in-memory index otherwise.
+  let captureIndex: CaptureIndex | undefined
+  function requireCaptureIndex(): CaptureIndex {
+    captureIndex ??= openCaptureIndex(
+      options.captureDir !== undefined
+        ? joinPath(options.captureDir, 'ledger-index.db')
+        : undefined,
+      now
+    )
+    return captureIndex
+  }
+
+  /**
+   * Provenance for a fact the BROKER authored rather than observed: input
+   * dispositions, lifecycle policy acceptance, synthesized tool terminals,
+   * control dispositions. §6 keeps these broker-authoritative, so they carry
+   * `sourceKind: 'broker'` rather than borrowing a provider's cursor.
+   */
+  const brokerProvenance: EventProvenance = {
+    sourceKind: 'broker',
+    normalizer: { name: 'harness-broker', version: HARNESS_BROKER_VERSION },
+  }
+
+  /**
+   * Provenance for an event a DRIVER emitted without attaching a committed raw
+   * record. Derived from that driver's DECLARED authority for the event's
+   * family (§6) rather than defaulting to `broker`, because calling a
+   * provider-observed fact broker-authored would be a false provenance — the
+   * one thing §7.2 exists to prevent.
+   *
+   * A driver that has been wired to the capture gate supplies real record
+   * provenance instead, and that always wins. This is the honest floor for the
+   * rest: it says which SOURCE owns the fact, and omits the record id / cursor
+   * it genuinely does not have yet.
+   */
+  function declaredProvenance(inv: Invocation, event: InvocationEvent, rawType?: string) {
+    // A `broker.*` rawType is a driver ECHOING a broker decision (the user
+    // message it was handed, a steer it was asked to deliver), not something it
+    // observed the provider do. It stays broker-authored whatever the family's
+    // declared authority says — otherwise the envelope would claim the provider
+    // reported a fact the provider never saw.
+    if (rawType?.startsWith('broker.') === true) {
+      return brokerProvenance
+    }
+    const authority = inv.driver.evidenceAuthority[EVENT_FAMILY_BY_TYPE[event.type]]
+    if (authority === 'broker') {
+      return brokerProvenance
+    }
+    return {
+      sourceKind: authority === 'hook' ? ('hook' as const) : inv.driver.nativeSourceKind,
+      ...(rawType !== undefined ? { nativeType: rawType } : {}),
+      normalizer: { name: inv.driver.kind, version: inv.driver.version },
+    }
+  }
 
   function requireInvocation(invocationId: InvocationId): Invocation {
     const inv = invocations.get(invocationId)
@@ -964,7 +1051,19 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       maxEventBytes: inv.spec.process.limits?.maxEventBytes,
     })
 
-    const sequencedEvent = sequencer.next(inv.invocationId, type, safePayload, extra)
+    // Every sequenced envelope carries provenance (§7.2). An emitter that
+    // normalized a committed raw record supplies its own; everything else is a
+    // broker-authored fact and gets broker provenance here, so provenance
+    // cannot be forgotten one call site at a time.
+    const extraWithProvenance: InvocationEventExtra = {
+      ...extra,
+      provenance:
+        extra?.provenance ??
+        (extra?.driver !== undefined
+          ? declaredProvenance(inv, descriptor, extra.driver.rawType)
+          : brokerProvenance),
+    }
+    const sequencedEvent = sequencer.next(inv.invocationId, type, safePayload, extraWithProvenance)
     // Runtime producer boundary: validate the fully normalized, sequenced
     // envelope before it can reach state projection, observers, or the durable
     // ledger. The protocol package owns both the map and these validators.
@@ -1361,7 +1460,9 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         },
       }
 
-      const inv: Invocation = {
+      // Two-step because the capture gate's emit callbacks close over `inv`:
+      // the record exists first, then its normalization cursor is attached.
+      const inv = {
         invocationId,
         spec,
         state: 'starting',
@@ -1377,7 +1478,40 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         startedToolCalls: new Map(),
         pendingPermissions: new Map(),
         settledPermissions: new Map(),
-      }
+      } as unknown as Invocation
+      inv.capture = createCaptureGate({
+        invocationId,
+        journal: createRawJournal({
+          invocationId,
+          ...(options.captureDir !== undefined ? { dir: options.captureDir } : {}),
+          now,
+        }),
+        index: requireCaptureIndex(),
+        normalizer: { name: driver.kind, version: driver.version },
+        now,
+        emitWarning: (payload: CaptureWarningPayload) =>
+          emit(inv, 'capture.warning', payload, {
+            driver: { kind: driver.kind },
+          }).seq,
+        emitReleased: (payload: CaptureReleasedPayload) =>
+          emit(inv, 'capture.released', payload, {
+            driver: { kind: driver.kind },
+          }).seq,
+        emitNormalizedAs: (releaseSpec, provenance) =>
+          emitEvent(
+            inv,
+            {
+              type: releaseSpec.type,
+              payload: releaseSpec.payload,
+            } as InvocationEvent,
+            {
+              ...(releaseSpec.turnId !== undefined ? { turnId: releaseSpec.turnId } : {}),
+              ...(releaseSpec.itemId !== undefined ? { itemId: releaseSpec.itemId } : {}),
+              driver: { kind: driver.kind },
+              provenance,
+            }
+          ).seq,
+      })
       invocations.set(invocationId, inv)
 
       const ctx: DriverContext = {
@@ -1385,6 +1519,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         clientCapabilities: getClientCapabilities(),
         ...(dispatchEnv !== undefined ? { dispatchEnv } : {}),
         ...(runtime !== undefined ? { runtime } : {}),
+        capture: inv.capture,
         emit<K extends InvocationEventType>(
           type: K,
           payload: InvocationEventPayloadMap[K],
@@ -1689,6 +1824,53 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
           // Same: dispose is the last cleanup step, with nowhere left to report.
         }
       })()
+    },
+
+    captureRelease(req: InvocationCaptureReleaseRequest): InvocationCaptureReleaseResponse {
+      const inv = requireInvocation(req.invocationId)
+      try {
+        const outcome = inv.capture.release({
+          rawRecordId: req.rawRecordId,
+          disposition: req.disposition,
+          ...(req.normalizedAs !== undefined ? { normalizedAs: req.normalizedAs } : {}),
+          ...(req.note !== undefined ? { note: req.note } : {}),
+        })
+        return {
+          released: true,
+          invocationId: req.invocationId,
+          rawRecordId: req.rawRecordId,
+          disposition: outcome.disposition,
+          releasedSeq: outcome.releasedSeq,
+          ...(outcome.normalizedSeq !== undefined ? { normalizedSeq: outcome.normalizedSeq } : {}),
+          resumedRecords: outcome.resumedRecords,
+          capture: outcome.capture,
+        }
+      } catch (error) {
+        if (error instanceof CaptureRecordNotBlockedError) {
+          // A release naming a record that is not the blocking one is an
+          // operator mistake, not a broker fault: answer typed with the record
+          // the cursor IS blocked on so the operator can correct it.
+          throw new BrokerError(
+            // JSON-RPC Invalid Params. The enum has no member for it (it names
+            // broker-domain codes); -32602 is the standard code the transport
+            // already returns for a malformed request, and a release naming the
+            // wrong record is exactly that.
+            -32602 as BrokerErrorCode,
+            `Raw record ${req.rawRecordId} is not the blocked-unknown record for ${req.invocationId}`,
+            {
+              reason: CAPTURE_RELEASE_NOT_BLOCKED,
+              invocationId: req.invocationId,
+              rawRecordId: req.rawRecordId,
+              capture: inv.capture.state(),
+            }
+          )
+        }
+        throw error
+      }
+    },
+
+    captureState(invocationId: InvocationId): CaptureStateView | undefined {
+      return invocations.get(invocationId)?.capture.state()
     },
 
     permissionRespond(

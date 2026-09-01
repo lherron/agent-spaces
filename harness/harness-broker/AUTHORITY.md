@@ -1,0 +1,183 @@
+# Harness-broker evidence authority
+
+**Law:** `agent-spaces.harness-broker-local-commit-observation` (`6d04d5de`)
+**Spec:** `HARNESS_BROKER_OBSERVABILITY_PROPOSAL.md` §§6, 6.1, 7 (wrkq `T-07853`)
+**Implemented by:** wrkq `T-07863` (observability Phase 0)
+
+> Authority is declared per **event family**, never once per provider.
+
+This file is the published prose form of the code declaration
+`Driver.evidenceAuthority` (`src/drivers/evidence-authority.ts`). The two must
+agree: the code is what the broker enforces and publishes over `broker.hello`,
+this file is what it means and what it costs.
+
+Phase 0 **declares** the authority in force today. It cuts nothing over —
+authority cutovers are Phases 2–5, and each one changes an entry here together
+with the code that actually moves the evidence, plus a parity report showing
+zero unexplained loss or duplication.
+
+## Reading the matrix
+
+| Value | Meaning |
+| --- | --- |
+| `native` | the provider's own transcript file or protocol stream owns the family |
+| `hook` | a synchronous harness hook owns it |
+| `broker` | it is a broker decision no provider can report |
+
+Families are cut finer than the event-name prefixes on purpose, so that each
+family has exactly **one truthful owner per driver**:
+
+| Family | Event types | Why it is its own family |
+| --- | --- | --- |
+| `invocation-lifecycle` | `invocation.*`, `lifecycle.*` | broker-owned everywhere |
+| `harness-lifecycle` | `harness.started`, `harness.exited`, `harness.recovery.*` | process facts, source varies by driver |
+| `continuation` | `continuation.updated`, `continuation.cleared` | session identity, source varies |
+| `input-admission` | `input.accepted`, `input.queued`, `input.rejected` | the broker DECIDING what to do with a submission |
+| `submission-disposition` | `submission.absorbed`, `submission.executed`, `submission.cancelled` | what the harness actually DID with it — a different owner from admission |
+| `turn-bracket` | `turn.started`, `turn.completed`, `turn.failed`, `turn.interrupted` | provider-observed turn boundaries |
+| `turn-supervision` | `turn.stalled`, `turn.retry` | broker lifecycle policy; no provider reports these |
+| `conversation` | `assistant.message.*`, `user.message` | model/user content |
+| `tool` | `tool.call.*` | tool evidence |
+| `usage` | `usage.updated` | token accounting |
+| `permission` | `permission.*` | pre-execution gating |
+| `diagnostic` | `diagnostic`, `driver.notice`, `capture.warning`, `capture.released` | non-load-bearing notices |
+| `terminal-surface` | `terminal.surface.reported` | the broker allocates and reports the pane lease |
+| `provider-artifact` | `provider.transcript.reported` | broker-authored pointer to a raw artifact |
+
+Merging `input-admission` with `submission-disposition`, or `turn-supervision`
+with `turn-bracket`, would force at least one driver to declare an authority it
+does not have. That is the failure this taxonomy exists to prevent.
+
+## Load-bearing families
+
+`turn-bracket`, `conversation`, `tool`, `input-admission`,
+`submission-disposition`, `permission`.
+
+An unclassified native type in one of these **stops that invocation's
+normalization cursor** until an operator disposition releases it. Everything
+else still records a `blocked-unknown` disposition and emits
+`capture.warning{kind:'blocked_unknown'}`, but does not halt — because the law
+halts on an unclassified *load-bearing* type, and a type we cannot place in a
+family cannot be asserted to be load-bearing.
+
+## The matrix
+
+| Family | claude-code-tmux | codex-cli-tmux | codex-app-server | pi-tui-tmux | agent-harness-tmux | pi-sdk |
+| --- | --- | --- | --- | --- | --- | --- |
+| `invocation-lifecycle` | broker | broker | broker | broker | broker | broker |
+| `harness-lifecycle` | hook | hook | broker | hook | native | broker |
+| `continuation` | hook | hook | native | hook | native | native |
+| `input-admission` | broker | broker | broker | broker | broker | broker |
+| `submission-disposition` | **native** | broker † | broker † | broker † | broker † | broker † |
+| `turn-bracket` | hook | hook | native | **broker** ‡ | native | **broker** ‡ |
+| `turn-supervision` | broker | broker | broker | broker | broker | broker |
+| `conversation` | hook | **native** | native | hook | native | native |
+| `tool` | hook | hook | native | hook | native | native |
+| `usage` | native † | native † | native | hook † | native | native |
+| `permission` | hook | hook | native | hook | native | native |
+| `diagnostic` | broker | broker | native | broker | broker | broker |
+| `terminal-surface` | broker | broker | broker | broker | broker | broker |
+| `provider-artifact` | broker | broker | broker | broker | broker | broker |
+
+† **Declared but not emitted today.** The value names the source that *would*
+own the family, so a later cutover has a stated starting point. The parity
+report shows zero events in these cells.
+
+‡ **Pi's bounded accepted risk**, `agent-spaces.pi-delivery-asserted-turn-start`.
+The manager authors the initial `turn.started(source:'broker-delivery')` after a
+blind pane delivery, and hooks correlate provider evidence into that bracket
+without reminting it. Declaring `hook` here would be exactly the false claim the
+law forbids. Pi session JSONL is non-authoritative until a separately approved
+evidence change.
+
+## Exception matrix
+
+A family's declared value names its **primary** owner. Where a specific event
+type inside a family comes from the other source, it is named here rather than
+smeared into a dishonest single value. These are the cells the parity report
+should show as `both`.
+
+### claude-code-tmux
+
+| Family (declared) | Exception | Source of the exception |
+| --- | --- | --- |
+| `conversation` (hook) | `user.message` for a submission that entered context via the disposition mirror | session JSONL: the `remove` + `queued_command` attachment pair, or the plain `user` row |
+| `turn-bracket` (hook) | `turn.started` for a drained submission; `turn.interrupted` from the `[Request interrupted by user]` row | session JSONL (T-07849 rev 10 items 3 and 5) |
+| `diagnostic` (broker) | the API-failure `diagnostic` | session JSONL `assistant` row with `isApiErrorMessage:true` — it never arrives via a hook (T-05092) |
+
+Every Claude event ARRIVES through a hook — the session-JSONL reader is a
+hook-driven byte-offset tail, so no hook means no transcript read. That is why
+`hook` is the primary for the families the hook normalizer produces, and it is
+also why the doc's target posture (transcript-primary, §6) is a Phase 4 cutover
+rather than a relabelling.
+
+### codex-cli-tmux
+
+| Family (declared) | Exception | Source of the exception |
+| --- | --- | --- |
+| `conversation` (native) | `user.message` | the `UserPromptSubmit` hook |
+
+Assistant prose already comes from the rollout JSONL (the held-latest transcript
+reader), which is why this driver is the doc's first broad cutover candidate
+(Phase 3).
+
+### codex-app-server, agent-harness-tmux, pi-tui-tmux, pi-sdk
+
+No exceptions. app-server and agent-harness read a single native protocol
+stream; Pi has no transcript authority at all, by the accepted risk above.
+
+## Native-type vocabularies
+
+The tables that decide `ignored-known` vs `blocked-unknown` are
+**behaviour-pinned, not documented APIs**:
+
+- `src/drivers/claude-code-tmux/native-types.ts` — enumerated from the three
+  archived live sessions on wrkq `T-07849`: 14 session-JSONL row types, 9
+  attachment subtypes, 4 queue operations. `test/capture/claude-native-type-
+  coverage.test.ts` replays those real transcripts and asserts every row reaches
+  a terminal disposition with zero warnings.
+- `src/drivers/codex-cli-tmux/native-types.ts`,
+  `src/drivers/pi-tui-tmux/native-types.ts` — the hook names the broker
+  registers for each harness.
+
+### A named risk: unknown Claude attachment subtypes do not halt
+
+An attachment subtype outside the pinned set is attributed to `diagnostic`, so
+it warns without halting. The attachment channel is overwhelmingly UI/session
+metadata — 125 attachments in the first archived session, of which 5 were
+`queued_command` — and new cosmetic subtypes appear between Claude releases
+(`remote_session_change` shows up only in the third archived session). Halting a
+whole runtime's capture on cosmetic noise would make the mechanism something
+operators route around.
+
+Absorption evidence going missing is still caught, and caught earlier: under
+T-07849 rev 10 an unresolved `remove` that reaches a disposition boundary is
+itself `blocked-unknown` in `submission-disposition`, which **does** halt. A
+renamed absorption attachment therefore fails loudly through the mirror rather
+than through this table. Unknown queue *operations* halt unconditionally.
+
+## Operating a halt
+
+```
+harness-broker capture status  --socket <broker.sock> --invocation <id>
+harness-broker capture release --socket <broker.sock> --invocation <id> \
+  --raw-record <raw_000123> --disposition ignored-known --note "reviewed: cosmetic"
+```
+
+`--disposition normalized-as` additionally mints the event the broker could not
+derive (`--event-type` / `--event-payload` / `--turn-id`); it is committed with
+the blocked record's `rawRecordId` and `sourceKind: 'broker'`, because the
+classification was an operator decision, not something the provider reported.
+
+The seat keeps running while capture is halted. Only capture stops, and it stops
+visibly: `snapshot.capture.state` is `blocked` and names the record.
+
+## Changing this file
+
+Changing a matrix cell is an authority cutover. It requires:
+
+1. the code change that actually moves the evidence;
+2. `scripts/capture-parity.ts` over real invocations for that driver, showing
+   zero unexplained loss or duplication for the affected family;
+3. the same edit in `src/drivers/evidence-authority.ts` — they are checked
+   against each other by `test/capture/authority-matrix.test.ts`.

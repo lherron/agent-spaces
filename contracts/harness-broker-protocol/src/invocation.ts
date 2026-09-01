@@ -1,4 +1,5 @@
 import type { ClientCapabilities, InvocationCapabilities } from './capabilities'
+import type { CaptureStateView } from './capture'
 import type { InvocationInputResponse, InvocationState, PermissionRequestParams } from './commands'
 import type { ContinuationUpdate, InvocationEventEnvelope, InvocationEventType } from './events'
 import type { InputId, InvocationId, PermissionRequestId, TurnId } from './ids'
@@ -155,6 +156,13 @@ export type InvocationSnapshot = Pick<InvocationInspectionSummary, 'invocationId
       | undefined
     currentSeq: number
     retentionFloorSeq: number
+    /**
+     * Whether this invocation's normalization cursor is running or halted on a
+     * blocked-unknown raw record (T-07853 §6.1). Absent on a broker with no
+     * capture pipeline for the invocation. The seat keeps running when capture
+     * is blocked; only capture halts, and it halts VISIBLY here.
+     */
+    capture?: CaptureStateView | undefined
   }
 
 export type InvocationSnapshotResponse = InvocationSnapshot

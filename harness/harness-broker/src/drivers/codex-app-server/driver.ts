@@ -23,6 +23,7 @@ import { BrokerError } from '../../errors'
 import { spawnHarnessProcess } from '../../runtime/process-runner'
 import { terminateProcess } from '../../runtime/signals'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
+import { CODEX_APP_SERVER_AUTHORITY } from '../evidence-authority'
 import {
   type HookListenerHandle,
   buildHookSocketPath,
@@ -470,6 +471,8 @@ export function createCodexAppServerDriver(): Driver {
     kind: 'codex-app-server',
     version: '0.1.0',
     bracketMintingMode: 'delivery-acknowledged',
+    evidenceAuthority: CODEX_APP_SERVER_AUTHORITY,
+    nativeSourceKind: 'provider-jsonrpc',
 
     capabilities(): InvocationCapabilities {
       return CODEX_CAPABILITIES

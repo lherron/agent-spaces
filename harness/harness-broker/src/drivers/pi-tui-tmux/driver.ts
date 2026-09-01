@@ -17,6 +17,9 @@ import { BrokerError } from '../../errors'
 import type { TmuxExec, TmuxPaneController } from '../../runtime/tmux'
 import { writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
+import { PI_TUI_TMUX_AUTHORITY } from '../evidence-authority'
+import { createHookCaptureSeam } from '../hook-capture'
+import { asRecord as asPiHookRecord, getString } from '../hook-json'
 import {
   type HookListenerHandle,
   buildHookSocketPath,
@@ -34,6 +37,7 @@ import {
   normalizePiHookEnvelope,
 } from './hook-events'
 import type { PiTuiTmuxHookEnvelope } from './hook-ingestion'
+import { PI_KNOWN_HOOK_NAMES } from './native-types'
 
 const PI_TUI_TMUX_DRIVER_VERSION = '0.1.0'
 const PI_HOOK_GENERATION = 1
@@ -156,6 +160,8 @@ export function createPiTuiTmuxDriver(options: PiTuiTmuxDriverOptions): Driver {
     kind: PI_TUI_TMUX_DRIVER_KIND,
     version: PI_TUI_TMUX_DRIVER_VERSION,
     bracketMintingMode: 'delivery-asserted',
+    evidenceAuthority: PI_TUI_TMUX_AUTHORITY,
+    nativeSourceKind: 'provider-jsonl',
 
     capabilities(): InvocationCapabilities {
       return PI_TUI_TMUX_CAPABILITIES
@@ -179,7 +185,42 @@ export function createPiTuiTmuxDriver(options: PiTuiTmuxDriverOptions): Driver {
         allocateTurnId,
       })
       hookDrain = Promise.resolve()
+      const captureSeam = createHookCaptureSeam({
+        ...(driverCtx.capture !== undefined ? { capture: driverCtx.capture } : {}),
+        provider: 'pi',
+        driverKind: PI_TUI_TMUX_DRIVER_KIND,
+        invocationId: driverCtx.invocationId,
+        knownHookNames: PI_KNOWN_HOOK_NAMES,
+        // Pi hooks own conversation and tool evidence and correlate into the
+        // broker-authored initial bracket; an unregistered hook name is an
+        // unclassified load-bearing type and halts the cursor.
+        unknownHookFamily: 'conversation',
+      })
+      const normalizeHookRecord = (envelope: PiTuiTmuxHookEnvelope): void => {
+        const effectiveEnvelope =
+          envelope.turnId === undefined && activeTurnId !== undefined
+            ? { ...envelope, turnId: activeTurnId }
+            : envelope
+        for (const event of normalizePiHookEnvelope(effectiveEnvelope, { normalizer })) {
+          captureSeam.minted()
+          const provenance = captureSeam.provenance()
+          driverCtx.emit(event.type, event.payload, {
+            ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
+            ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
+            ...(event.driver !== undefined ? { driver: event.driver } : {}),
+            ...(provenance !== undefined ? { provenance } : {}),
+          })
+          if (event.type === 'turn.started' && event.turnId !== undefined) {
+            activeTurnId = event.turnId
+          } else if (event.type === 'turn.completed' && activeTurnId === event.turnId) {
+            activeTurnId = undefined
+          }
+        }
+      }
       const handleHookEnvelope = (envelope: PiTuiTmuxHookEnvelope): void => {
+        // Fencing runs BEFORE capture: an envelope for another invocation,
+        // runtime, generation or socket is not this invocation's evidence and
+        // must not enter its raw journal.
         if (envelope.invocationId !== driverCtx.invocationId) return
         if (
           expectedRuntimeId !== undefined &&
@@ -194,22 +235,15 @@ export function createPiTuiTmuxDriver(options: PiTuiTmuxDriverOptions): Driver {
         if (hookListener !== undefined && envelope.callbackSocket !== hookListener.socketPath) {
           return
         }
-        const effectiveEnvelope =
-          envelope.turnId === undefined && activeTurnId !== undefined
-            ? { ...envelope, turnId: activeTurnId }
-            : envelope
-        for (const event of normalizePiHookEnvelope(effectiveEnvelope, { normalizer })) {
-          driverCtx.emit(event.type, event.payload, {
-            ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
-            ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
-            ...(event.driver !== undefined ? { driver: event.driver } : {}),
-          })
-          if (event.type === 'turn.started' && event.turnId !== undefined) {
-            activeTurnId = event.turnId
-          } else if (event.type === 'turn.completed' && activeTurnId === event.turnId) {
-            activeTurnId = undefined
-          }
-        }
+        const hook = asPiHookRecord(envelope.hookData)
+        captureSeam.ingest(
+          {
+            nativeType: getString(hook, 'eventName') ?? getString(hook, 'type'),
+            hookData: envelope.hookData,
+            ...(envelope.turnId !== undefined ? { turnId: envelope.turnId } : {}),
+          },
+          () => normalizeHookRecord(envelope)
+        )
       }
       hookListener = await options.hooks.listen(
         (envelope) => {

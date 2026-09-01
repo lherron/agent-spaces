@@ -1,3 +1,4 @@
+import type { CaptureReleasedPayload, EventProvenance } from './capture'
 import type {
   InputId,
   InvocationId,
@@ -37,6 +38,14 @@ export interface InvocationEventEnvelopeBase {
     | undefined
   harnessGeneration?: number | undefined
   turnAttempt?: number | undefined
+  /**
+   * How this normalized event came to exist (T-07853 §7.2): which raw provider
+   * record produced it, at which source epoch/cursor, and which normalizer ran.
+   * Optional on the wire so ledger records committed before the capture
+   * contract landed still replay; always populated by a broker that has it.
+   * Broker decisions carry `sourceKind: 'broker'`.
+   */
+  provenance?: EventProvenance | undefined
 }
 
 /**
@@ -191,6 +200,7 @@ export interface InvocationEventPayloadMap {
   'submission.executed': SubmissionTurnDispositionPayload
   'submission.cancelled': SubmissionCancelledPayload
   'capture.warning': CaptureWarningPayload
+  'capture.released': CaptureReleasedPayload
   'turn.started': TurnStartedPayload
   'turn.stalled': TurnStalledPayload
   'turn.retry': TurnRetryPayload
@@ -287,6 +297,11 @@ export interface CaptureWarningPayload {
    * - `ledger_tail_repaired` — the broker truncated a torn trailing record from
    *   the durable event ledger at startup (a crash mid-append). `raw` carries
    *   the truncation offset and byte count.
+   * - `blocked_unknown` — an unclassified native type reached the normalizer.
+   *   `raw` carries `{ rawRecordId, nativeType, family, sourceKind, sourceEpoch,
+   *   cursorHalted, ... }` plus the verbatim native row. When `cursorHalted` is
+   *   true the invocation's normalization cursor has STOPPED and only an
+   *   operator `invocation.capture.release` resumes it (law 6d04d5de).
    */
   kind?: string | undefined
 }

@@ -1,3 +1,4 @@
+import type { EvidenceAuthorityMatrix } from './capture'
 import type { InvocationLifecycleCapabilities } from './lifecycle'
 
 export type BrokerTransportKind = 'stdio-jsonrpc-ndjson' | 'unix-jsonrpc-ndjson'
@@ -113,6 +114,13 @@ export interface DriverSummary {
   available: boolean
   capabilities?: InvocationCapabilities | undefined
   unavailableReason?: string | undefined
+  /**
+   * Declared per-event-family evidence authority (T-07853 §6). Published so a
+   * consumer or parity report reads the live broker's declaration rather than a
+   * checked-in copy of `harness/harness-broker/AUTHORITY.md`. Absent on a
+   * broker predating the capture contract.
+   */
+  evidenceAuthority?: EvidenceAuthorityMatrix | undefined
 }
 
 export interface ClientCapabilities {

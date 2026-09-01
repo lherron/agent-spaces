@@ -6,6 +6,12 @@ import type { InvocationEventEnvelope, InvocationEventType } from 'spaces-harnes
 
 const invocationId = 'inv_claude_hooktx_1'
 
+/**
+ * Test-local view of the reader. The production reader EMITS through an
+ * injected callback (so events carry the provenance of the raw row that
+ * produced them); this wrapper collects what each call emitted and returns it,
+ * which is the shape these behaviour assertions are written against.
+ */
 type ClaudeHookTranscriptReader = {
   handleHook: (hook: Record<string, unknown>) => InvocationEventEnvelope[]
   drain: () => InvocationEventEnvelope[]
@@ -16,7 +22,7 @@ type ClaudeHookTranscriptReaderFactory = (options: {
   now: () => Date
   invocationId: string
   getCurrentTurnId: () => string | undefined
-  onTranscriptEntry?: ((entry: Record<string, unknown>) => void) | undefined
+  onTranscriptEntry?: ((entry: Record<string, unknown>) => boolean | undefined) | undefined
 }) => ClaudeHookTranscriptReader
 
 const tempRoots: string[] = []
@@ -27,9 +33,33 @@ afterEach(() => {
 
 const loadFactory = async (): Promise<ClaudeHookTranscriptReaderFactory> => {
   const target = (await import('../../../src/drivers/claude-code-tmux/hook-transcript')) as {
-    createClaudeHookTranscriptReader: ClaudeHookTranscriptReaderFactory
+    createClaudeHookTranscriptReader: (options: Record<string, unknown>) => {
+      handleHook: (hook: Record<string, unknown>, turnId?: string) => void
+      drain: () => void
+      reset: () => void
+    }
   }
-  return target.createClaudeHookTranscriptReader
+  return (options) => {
+    const emitted: InvocationEventEnvelope[] = []
+    const reader = target.createClaudeHookTranscriptReader({
+      ...options,
+      emit: (type: string, payload: unknown, extra?: Record<string, unknown>) => {
+        emitted.push({ type, payload, ...extra } as unknown as InvocationEventEnvelope)
+      },
+    })
+    const take = (): InvocationEventEnvelope[] => emitted.splice(0)
+    return {
+      handleHook: (hook) => {
+        reader.handleHook(hook)
+        return take()
+      },
+      drain: () => {
+        reader.drain()
+        return take()
+      },
+      reset: () => reader.reset(),
+    }
+  }
 }
 
 const tempTranscript = (name = 'session.jsonl'): string => {
@@ -363,7 +393,7 @@ describe('createClaudeHookTranscriptReader', () => {
     expect(dataOf(events[0]!)).toMatchObject({ errorClass: expectedClass })
   })
 
-  test('non-API assistant rows, false flag, empty text, and malformed JSON emit nothing', async () => {
+  test('non-API assistant rows mint nothing; a malformed row is reported, never dropped', async () => {
     const create = await loadFactory()
     const path = tempTranscript()
     const reader = create({
@@ -387,7 +417,16 @@ describe('createClaudeHookTranscriptReader', () => {
     // Malformed JSON line.
     appendFileSync(path, 'this is not json\n')
 
-    expect(reader.handleHook(postToolUse())).toEqual([])
+    // Ordinary assistant prose is the HOOK path's fact for this driver, so the
+    // transcript copy mints nothing (it is dispositioned `duplicate`). The
+    // malformed row is DIFFERENT: under law 6d04d5de a row that cannot be
+    // classified must never silently disappear, so it is reported. Before
+    // T-07863 it was skipped in silence.
+    const events = reader.handleHook(postToolUse())
+    expect(eventTypes(events)).toEqual(['capture.warning'])
+    expect(messageOf(events[0] as InvocationEventEnvelope)).toBe(
+      'Claude transcript row is not valid JSON'
+    )
   })
 
   test('empty API-error text falls back to a non-empty diagnostic message', async () => {

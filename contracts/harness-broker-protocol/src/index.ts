@@ -1,5 +1,6 @@
 export * from './agent-harness-control'
 export * from './capabilities'
+export * from './capture'
 export * from './commands'
 export * from './errors'
 export * from './events'

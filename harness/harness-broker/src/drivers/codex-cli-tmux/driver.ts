@@ -16,6 +16,8 @@ import { BrokerError } from '../../errors'
 import type { TmuxExec, TmuxPaneController } from '../../runtime/tmux'
 import { writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
+import { CODEX_CLI_TMUX_AUTHORITY } from '../evidence-authority'
+import { createHookCaptureSeam } from '../hook-capture'
 import { getString } from '../hook-json'
 import {
   type HookEnvelopeResult,
@@ -37,6 +39,7 @@ import {
   normalizeCodexHookEnvelope,
 } from './hook-events'
 import { type CodexHookTranscriptReader, createCodexHookTranscriptReader } from './hook-transcript'
+import { CODEX_CLI_KNOWN_HOOK_NAMES } from './native-types'
 
 const CODEX_CLI_TMUX_DRIVER_VERSION = '0.1.0'
 
@@ -183,6 +186,8 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
     kind: CODEX_CLI_TMUX_DRIVER_KIND,
     version: CODEX_CLI_TMUX_DRIVER_VERSION,
     bracketMintingMode: 'harness-evidence',
+    evidenceAuthority: CODEX_CLI_TMUX_AUTHORITY,
+    nativeSourceKind: 'provider-jsonl',
 
     capabilities(): InvocationCapabilities {
       return CODEX_CLI_TMUX_CAPABILITIES
@@ -217,43 +222,62 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
         getCurrentTurnId: () => currentTurnId,
       })
       transcriptReader = reader
+      const captureSeam = createHookCaptureSeam({
+        ...(driverCtx.capture !== undefined ? { capture: driverCtx.capture } : {}),
+        provider: 'openai',
+        driverKind: CODEX_CLI_TMUX_DRIVER_KIND,
+        invocationId: driverCtx.invocationId,
+        knownHookNames: CODEX_CLI_KNOWN_HOOK_NAMES,
+        // Codex hooks own this driver's turn bracket, so a hook the broker never
+        // registered is an unclassified load-bearing type: it halts the cursor.
+        unknownHookFamily: 'turn-bracket',
+      })
       const emit = (event: InvocationEventEnvelope): void => {
+        captureSeam.minted()
+        const provenance = captureSeam.provenance()
         driverCtx.emit(event.type, event.payload, {
           ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
           ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
           ...(event.driver !== undefined ? { driver: event.driver } : {}),
+          ...(provenance !== undefined ? { provenance } : {}),
         })
       }
-      const handleHookEnvelope = (envelope: CodexCliTmuxHookEnvelope): HookEnvelopeResult => {
-        // T-01794 Phase D: durable identity fencing. Reject an envelope whose
-        // invocation/runtime/generation/callback-socket does not match the live
-        // invocation — but STRICTLY only for fields the durable unix mode
-        // actually provides, so legacy/stdio rows that omit generation/runtimeId
-        // are never rejected for an absent field.
+      // T-01794 Phase D: durable identity fencing. Reject an envelope whose
+      // invocation/runtime/generation/callback-socket does not match the live
+      // invocation — but STRICTLY only for fields the durable unix mode
+      // actually provides, so legacy/stdio rows that omit generation/runtimeId
+      // are never rejected for an absent field.
+      const acceptsEnvelope = (envelope: CodexCliTmuxHookEnvelope): boolean => {
         if (
           envelope.invocationId !== undefined &&
           envelope.invocationId !== driverCtx.invocationId
         ) {
-          return
+          return false
         }
         if (
           expectedRuntimeId !== undefined &&
           envelope.runtimeId !== undefined &&
           envelope.runtimeId !== expectedRuntimeId
         ) {
-          return
+          return false
         }
         if (envelope.generation !== undefined && envelope.generation !== CODEX_HOOK_GENERATION) {
-          return
+          return false
         }
         if (
           envelope.callbackSocket !== undefined &&
           hookListener !== undefined &&
           envelope.callbackSocket !== hookListener.socketPath
         ) {
-          return
+          return false
         }
-        const hook = extractCodexHookRecord(envelope)
+        return true
+      }
+
+      const normalizeHookRecord = (
+        envelope: CodexCliTmuxHookEnvelope,
+        hook: Record<string, unknown>
+      ): HookEnvelopeResult => {
         if (
           getString(hook, 'hook_event_name') === 'Stop' &&
           envelope.mailStopDecision !== undefined
@@ -275,6 +299,23 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
         // turn.completed on Stop.
         for (const event of reader.handleHook(hook)) emit(event)
         for (const event of normalizeCodexHookEnvelope(envelope, { normalizer })) emit(event)
+        return undefined
+      }
+
+      const handleHookEnvelope = (envelope: CodexCliTmuxHookEnvelope): HookEnvelopeResult => {
+        // Fencing runs BEFORE capture: an envelope for another invocation,
+        // runtime, generation or socket is not this invocation's evidence and
+        // must not enter its raw journal.
+        if (!acceptsEnvelope(envelope)) return undefined
+        const hook = extractCodexHookRecord(envelope)
+        return captureSeam.ingest(
+          {
+            nativeType: getString(hook, 'hook_event_name'),
+            hookData: hook,
+            ...(envelope.turnId !== undefined ? { turnId: envelope.turnId } : {}),
+          },
+          () => normalizeHookRecord(envelope, hook)
+        )
       }
       // Serialize hook processing like the Claude driver's hookDrain so transcript
       // reads and hook normalization stay strictly ordered.

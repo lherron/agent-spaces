@@ -5,6 +5,7 @@ import type {
   InputPolicyWhenBusy,
   InvocationCapabilities,
 } from './capabilities'
+import type { InvocationCaptureReleaseRequest, InvocationCaptureReleaseResponse } from './capture'
 import type { ContinuationUpdate } from './events'
 import type { InputId, InvocationId, PermissionRequestId, TurnId } from './ids'
 import type {
@@ -43,6 +44,7 @@ export type BrokerMethodV2 =
   | 'invocation.snapshot'
   | 'invocation.permission.respond'
   | 'broker.listInvocations'
+  | 'invocation.capture.release'
 
 export type BrokerMethod = BrokerMethodV2
 
@@ -64,6 +66,7 @@ export type BrokerCommand =
   | JsonRpcRequest<'invocation.snapshot', InvocationSnapshotRequest>
   | JsonRpcRequest<'invocation.permission.respond', InvocationPermissionRespondRequest>
   | JsonRpcRequest<'broker.listInvocations', BrokerListInvocationsRequest>
+  | JsonRpcRequest<'invocation.capture.release', InvocationCaptureReleaseRequest>
 
 export type {
   InvocationCurrentTurnSummary,
@@ -337,6 +340,8 @@ export interface PermissionDecision {
   harnessGeneration?: number | undefined
   turnAttempt?: number | undefined
 }
+
+export type { InvocationCaptureReleaseRequest, InvocationCaptureReleaseResponse }
 
 export type {
   BrokerAttachRequest,

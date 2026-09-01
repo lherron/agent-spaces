@@ -1,4 +1,5 @@
 import type {
+  EventProvenance,
   InputId,
   InvocationEvent,
   InvocationEventEnvelope,
@@ -30,6 +31,13 @@ export interface InvocationEventExtra {
   driver?: { kind: string; rawType?: string | undefined } | undefined
   harnessGeneration?: number | undefined
   turnAttempt?: number | undefined
+  /**
+   * Where this normalized event came from (T-07853 §7.2). Supplied by an
+   * emitter that normalized a committed raw provider record; the invocation
+   * manager stamps broker provenance on everything else, so every sequenced
+   * envelope carries provenance whether or not the call site thought about it.
+   */
+  provenance?: EventProvenance | undefined
 }
 
 export interface InvocationEventSequencer {
@@ -117,5 +125,6 @@ function applyExtra(
     envelope.harnessGeneration = extra.harnessGeneration
   }
   if (extra?.turnAttempt !== undefined) envelope.turnAttempt = extra.turnAttempt
+  if (extra?.provenance !== undefined) envelope.provenance = extra.provenance
   if (correlation !== undefined) envelope.correlation = correlation
 }

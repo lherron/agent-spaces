@@ -14,6 +14,7 @@ import {
   BrokerErrorCode,
   CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 } from 'spaces-harness-broker-protocol'
+import type { NormalizeOutcome } from '../capture/capture-gate'
 import type {
   ApplyInputResult,
   BracketMintingMode,
@@ -21,6 +22,7 @@ import type {
   DriverContext,
   DriverStartResult,
 } from '../drivers/driver'
+import { BROKER_ONLY_AUTHORITY } from '../drivers/evidence-authority'
 import { BrokerError } from '../errors'
 
 export interface TestDriverController {
@@ -43,6 +45,13 @@ export interface TestDriverController {
   crashProvider(message?: string): void
   /** Emit a continuation.cleared with the given reason (simulates /quit, /clear). */
   clearContinuation(reason: string): void
+  /**
+   * Commit one raw provider record through the invocation's capture gate and
+   * report `outcome` for it — the seam that lets a test drive the normalization
+   * cursor (including a blocked-unknown halt) through the REAL broker rather
+   * than a stand-in.
+   */
+  captureRow(nativeType: string, body: unknown, outcome: NormalizeOutcome): void
 }
 
 export interface TestDriverOptions {
@@ -196,12 +205,47 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
     clearContinuation(reason: string): void {
       requireCtx().emit('continuation.cleared', { reason })
     },
+
+    captureRow(nativeType: string, body: unknown, outcome: NormalizeOutcome): void {
+      const capture = requireCtx().capture
+      if (capture === undefined) {
+        throw new BrokerError(
+          BrokerErrorCode.InvalidInvocationState,
+          'test-driver has no capture gate'
+        )
+      }
+      capture.ingest(
+        {
+          provider: 'test',
+          driverKind: 'test-driver',
+          sourceKind: 'provider-jsonl',
+          sourceKey: 'test-transcript',
+          nativeType,
+          rawBytes: Buffer.from(JSON.stringify(body), 'utf8'),
+        },
+        (captured) => {
+          if (outcome.disposition === 'normalized') {
+            requireCtx().emit(
+              'diagnostic',
+              { level: 'info', source: 'harness', message: nativeType },
+              {
+                driver: { kind: 'test-driver', rawType: nativeType },
+                provenance: captured.provenance(),
+              }
+            )
+          }
+          return outcome
+        }
+      )
+    },
   }
 
   const driver: Driver = {
     kind: 'test-driver',
     version: '0.1.0',
     bracketMintingMode: options.bracketMintingMode ?? 'delivery-asserted',
+    evidenceAuthority: BROKER_ONLY_AUTHORITY,
+    nativeSourceKind: 'provider-jsonl',
 
     capabilities(): InvocationCapabilities {
       return capabilities

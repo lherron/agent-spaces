@@ -90,6 +90,7 @@ const BROKER_METHODS = [
   'invocation.ackEvents',
   'invocation.snapshot',
   'invocation.permission.respond',
+  'invocation.capture.release',
 ] as const satisfies readonly BrokerMethod[]
 
 const EVENT_TYPES = [
@@ -116,6 +117,7 @@ const EVENT_TYPES = [
   'submission.executed',
   'submission.cancelled',
   'capture.warning',
+  'capture.released',
   'turn.started',
   'turn.stalled',
   'turn.retry',
@@ -249,6 +251,7 @@ export function validateEventEnvelope(value: unknown): InvocationEventEnvelope {
       issues.push(makeIssue('payload', 'required', 'payload is required'))
     } else if (eventType !== undefined) {
       const driverKind = asRecord(envelope['driver'])?.['kind']
+      validateEventProvenance(envelope['provenance'], issues)
       validateOptionalPositiveInteger(envelope['harnessGeneration'], 'harnessGeneration', issues)
       validateOptionalPositiveInteger(envelope['turnAttempt'], 'turnAttempt', issues)
       validateEventPayload(eventType, envelope['payload'], issues, {
@@ -261,6 +264,62 @@ export function validateEventEnvelope(value: unknown): InvocationEventEnvelope {
     throw new EventEnvelopeValidationError(issues)
   }
   return value as InvocationEventEnvelope
+}
+
+/**
+ * Optional envelope provenance (T-07853 §7.2). Optional on the wire so ledger
+ * records committed before the capture contract landed still replay; when
+ * PRESENT it must be complete enough to be actionable — a source kind and a
+ * named/versioned normalizer — rather than a half-filled bag.
+ */
+function validateEventProvenance(value: unknown, issues: ValidationIssue[]): void {
+  if (value === undefined) {
+    return
+  }
+  const provenance = asRecord(value)
+  if (!provenance) {
+    issues.push(makeIssue('provenance', 'invalid_type', 'provenance must be an object'))
+    return
+  }
+  optionalEnum(
+    provenance['sourceKind'],
+    ['provider-jsonl', 'provider-jsonrpc', 'hook', 'broker'],
+    'provenance.sourceKind',
+    issues,
+    true
+  )
+  const normalizer = asRecord(provenance['normalizer'])
+  if (!normalizer) {
+    issues.push(makeIssue('provenance.normalizer', 'required', 'normalizer is required'))
+  } else {
+    requireNonEmptyString(normalizer['name'], 'provenance.normalizer.name', issues)
+    requireNonEmptyString(normalizer['version'], 'provenance.normalizer.version', issues)
+  }
+  optionalString(provenance['rawRecordId'], 'provenance.rawRecordId', issues)
+  optionalString(provenance['sourceEpoch'], 'provenance.sourceEpoch', issues)
+  optionalString(provenance['nativeType'], 'provenance.nativeType', issues)
+  optionalString(provenance['nativeId'], 'provenance.nativeId', issues)
+  optionalString(provenance['rawSha256'], 'provenance.rawSha256', issues)
+  if (provenance['sourceCursor'] !== undefined) {
+    const cursor = asRecord(provenance['sourceCursor'])
+    if (!cursor) {
+      issues.push(
+        makeIssue('provenance.sourceCursor', 'invalid_type', 'sourceCursor must be an object')
+      )
+    } else {
+      for (const [key, entry] of Object.entries(cursor)) {
+        if (typeof entry !== 'string' && typeof entry !== 'number') {
+          issues.push(
+            makeIssue(
+              `provenance.sourceCursor.${key}`,
+              'invalid_type',
+              'sourceCursor values must be strings or numbers'
+            )
+          )
+        }
+      }
+    }
+  }
 }
 
 function validateSpec(value: unknown, issues: ValidationIssue[], prefix = ''): void {
@@ -581,6 +640,55 @@ const COMMAND_PARAM_VALIDATORS: Partial<
     optionalEnum(commandParams['decision'], ['allow', 'deny'], 'params.decision', issues, true)
     optionalString(commandParams['controllerInstanceId'], 'params.controllerInstanceId', issues)
     optionalString(commandParams['message'], 'params.message', issues)
+  },
+  'invocation.capture.release': (commandParams, issues) => {
+    requireString(commandParams['invocationId'], 'params.invocationId', issues)
+    requireNonEmptyString(commandParams['rawRecordId'], 'params.rawRecordId', issues)
+    optionalEnum(
+      commandParams['disposition'],
+      ['ignored-known', 'normalized-as'],
+      'params.disposition',
+      issues,
+      true
+    )
+    optionalString(commandParams['note'], 'params.note', issues)
+    // `normalized-as` is the operator authoring a normalized event for the
+    // blocked record, so the event it authors must be a real, known event type
+    // with a payload — never a free-form bag that would enter the ledger
+    // unvalidated. Its payload is validated against the event contract at emit.
+    const normalizedAs = asRecord(commandParams['normalizedAs'])
+    if (commandParams['disposition'] === 'normalized-as') {
+      if (!normalizedAs) {
+        issues.push(
+          makeIssue(
+            'params.normalizedAs',
+            'required',
+            "normalizedAs is required when disposition is 'normalized-as'"
+          )
+        )
+      }
+    } else if (Object.hasOwn(commandParams, 'normalizedAs') && normalizedAs === undefined) {
+      issues.push(
+        makeIssue('params.normalizedAs', 'invalid_type', 'normalizedAs must be an object')
+      )
+    }
+    if (normalizedAs) {
+      if (
+        typeof normalizedAs['type'] !== 'string' ||
+        !eventTypes.has(normalizedAs['type'] as InvocationEventType)
+      ) {
+        issues.push(
+          makeIssue('params.normalizedAs.type', 'invalid_event_type', 'Unsupported event type')
+        )
+      }
+      if (!Object.hasOwn(normalizedAs, 'payload')) {
+        issues.push(
+          makeIssue('params.normalizedAs.payload', 'required', 'normalizedAs.payload is required')
+        )
+      }
+      optionalString(normalizedAs['turnId'], 'params.normalizedAs.turnId', issues)
+      optionalString(normalizedAs['itemId'], 'params.normalizedAs.itemId', issues)
+    }
   },
 }
 
@@ -1500,6 +1608,31 @@ const EVENT_PAYLOAD_VALIDATORS = {
       issues.push(makeIssue('payload.raw', 'required', 'payload.raw is required'))
     }
     optionalString(payload['kind'], 'payload.kind', issues)
+  },
+  'capture.released': (payload, issues) => {
+    requireNonEmptyString(payload['rawRecordId'], 'payload.rawRecordId', issues)
+    optionalEnum(
+      payload['disposition'],
+      ['ignored-known', 'normalized'],
+      'payload.disposition',
+      issues,
+      true
+    )
+    requireNumber(payload['resumedRecords'], 'payload.resumedRecords', issues)
+    optionalString(payload['nativeType'], 'payload.nativeType', issues)
+    optionalString(payload['family'], 'payload.family', issues)
+    optionalString(payload['note'], 'payload.note', issues)
+    const normalizedAs = asRecord(payload['normalizedAs'])
+    if (normalizedAs) {
+      if (
+        typeof normalizedAs['type'] !== 'string' ||
+        !eventTypes.has(normalizedAs['type'] as InvocationEventType)
+      ) {
+        issues.push(
+          makeIssue('payload.normalizedAs.type', 'invalid_event_type', 'Unsupported event type')
+        )
+      }
+    }
   },
   'turn.started': (payload, issues) => {
     requireString(payload['turnId'], 'payload.turnId', issues)

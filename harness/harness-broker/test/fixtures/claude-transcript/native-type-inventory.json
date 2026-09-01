@@ -1,0 +1,471 @@
+{
+  "_source": "Structural skeletons of every distinct native type observed across the three archived live sessions on wrkq T-07849 (artifact_dir). Discriminator fields (type, operation, isApiErrorMessage, role, ...) are preserved verbatim because they ARE the contract; every other string is redacted, because the archives are real sessions carrying prompts and tool output that must not enter the repo (T-07853 section 15).",
+  "rows": {
+    "agent-name": {
+      "agentName": "<redacted>",
+      "sessionId": "<redacted>",
+      "type": "agent-name"
+    },
+    "assistant": {
+      "cwd": "<redacted>",
+      "effort": "<redacted>",
+      "entrypoint": "<redacted>",
+      "gitBranch": "<redacted>",
+      "isSidechain": false,
+      "message": {
+        "content": [
+          {
+            "text": "<redacted>",
+            "type": "text"
+          }
+        ],
+        "diagnostics": null,
+        "id": "<redacted>",
+        "model": "<redacted>",
+        "role": "assistant",
+        "stop_details": null,
+        "stop_reason": "<redacted>",
+        "stop_sequence": null,
+        "type": "message",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 28280,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 28280,
+          "cache_read_input_tokens": 23467,
+          "inference_geo": "<redacted>",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 28280,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 28280,
+              "cache_read_input_tokens": 23467,
+              "input_tokens": 2,
+              "output_tokens": 7,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 7,
+          "output_tokens_details": {
+            "thinking_tokens": 0
+          },
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "<redacted>",
+          "speed": "<redacted>"
+        }
+      },
+      "parentUuid": "<redacted>",
+      "requestId": "<redacted>",
+      "sessionId": "<redacted>",
+      "session_id": "<redacted>",
+      "timestamp": "<redacted>",
+      "type": "assistant",
+      "userType": "<redacted>",
+      "uuid": "<redacted>",
+      "version": "<redacted>"
+    },
+    "atis-latch": {
+      "atis": "<redacted>",
+      "sessionId": "<redacted>",
+      "type": "atis-latch"
+    },
+    "attachment:agent_listing_delta": {
+      "attachment": {
+        "addedLines": [
+          "<redacted>"
+        ],
+        "addedTypes": [
+          "<redacted>"
+        ],
+        "isInitial": true,
+        "removedTypes": [],
+        "showConcurrencyNote": true,
+        "type": "agent_listing_delta"
+      },
+      "cwd": "<redacted>",
+      "entrypoint": "<redacted>",
+      "gitBranch": "<redacted>",
+      "isSidechain": false,
+      "parentUuid": "<redacted>",
+      "sessionId": "<redacted>",
+      "timestamp": "<redacted>",
+      "type": "attachment",
+      "userType": "<redacted>",
+      "uuid": "<redacted>",
+      "version": "<redacted>"
+    },
+    "attachment:auto_mode": {
+      "attachment": {
+        "autoModeConsentFlow": false,
+        "bashFirst": true,
+        "bypass": true,
+        "steerOnly": true,
+        "type": "auto_mode"
+      },
+      "cwd": "<redacted>",
+      "entrypoint": "<redacted>",
+      "gitBranch": "<redacted>",
+      "isSidechain": false,
+      "parentUuid": "<redacted>",
+      "sessionId": "<redacted>",
+      "timestamp": "<redacted>",
+      "type": "attachment",
+      "userType": "<redacted>",
+      "uuid": "<redacted>",
+      "version": "<redacted>"
+    },
+    "attachment:deferred_tools_delta": {
+      "attachment": {
+        "addedLines": [
+          "<redacted>"
+        ],
+        "addedNames": [
+          "<redacted>"
+        ],
+        "failedMcpServers": [],
+        "pendingMcpServers": [
+          "<redacted>"
+        ],
+        "readdedNames": [],
+        "removedNames": [],
+        "type": "deferred_tools_delta",
+        "wireHiddenNames": []
+      },
+      "cwd": "<redacted>",
+      "entrypoint": "<redacted>",
+      "gitBranch": "<redacted>",
+      "isSidechain": false,
+      "parentUuid": "<redacted>",
+      "sessionId": "<redacted>",
+      "timestamp": "<redacted>",
+      "type": "attachment",
+      "userType": "<redacted>",
+      "uuid": "<redacted>",
+      "version": "<redacted>"
+    },
+    "attachment:hook_success": {
+      "attachment": {
+        "command": "<redacted>",
+        "content": "<redacted>",
+        "durationMs": 699,
+        "exitCode": 0,
+        "hookEvent": "<redacted>",
+        "hookName": "<redacted>",
+        "stderr": "",
+        "stdout": "<redacted>",
+        "toolUseID": "<redacted>",
+        "type": "hook_success"
+      },
+      "cwd": "<redacted>",
+      "entrypoint": "<redacted>",
+      "gitBranch": "<redacted>",
+      "isSidechain": false,
+      "parentUuid": null,
+      "sessionId": "<redacted>",
+      "timestamp": "<redacted>",
+      "type": "attachment",
+      "userType": "<redacted>",
+      "uuid": "<redacted>",
+      "version": "<redacted>"
+    },
+    "attachment:mcp_instructions_delta": {
+      "attachment": {
+        "addedBlocks": [
+          "<redacted>"
+        ],
+        "addedNames": [
+          "<redacted>"
+        ],
+        "removedNames": [],
+        "type": "mcp_instructions_delta"
+      },
+      "cwd": "<redacted>",
+      "entrypoint": "<redacted>",
+      "gitBranch": "<redacted>",
+      "isSidechain": false,
+      "parentUuid": "<redacted>",
+      "sessionId": "<redacted>",
+      "timestamp": "<redacted>",
+      "type": "attachment",
+      "userType": "<redacted>",
+      "uuid": "<redacted>",
+      "version": "<redacted>"
+    },
+    "attachment:queued_command": {
+      "attachment": {
+        "commandMode": "<redacted>",
+        "origin": {
+          "kind": "<redacted>"
+        },
+        "prompt": "<redacted>",
+        "source_uuid": "<redacted>",
+        "timestamp": "<redacted>",
+        "type": "queued_command"
+      },
+      "cwd": "<redacted>",
+      "entrypoint": "<redacted>",
+      "gitBranch": "<redacted>",
+      "isSidechain": false,
+      "parentUuid": "<redacted>",
+      "sessionId": "<redacted>",
+      "session_id": "<redacted>",
+      "timestamp": "<redacted>",
+      "type": "attachment",
+      "userType": "<redacted>",
+      "uuid": "<redacted>",
+      "version": "<redacted>"
+    },
+    "attachment:remote_session_change": {
+      "attachment": {
+        "commit": "<redacted>",
+        "pr": "<redacted>",
+        "sendUserFileHint": true,
+        "type": "remote_session_change",
+        "url": "<redacted>"
+      },
+      "cwd": "<redacted>",
+      "entrypoint": "<redacted>",
+      "gitBranch": "<redacted>",
+      "isSidechain": false,
+      "parentUuid": "<redacted>",
+      "sessionId": "<redacted>",
+      "session_id": "<redacted>",
+      "timestamp": "<redacted>",
+      "type": "attachment",
+      "userType": "<redacted>",
+      "uuid": "<redacted>",
+      "version": "<redacted>"
+    },
+    "attachment:skill_listing": {
+      "attachment": {
+        "content": "<redacted>",
+        "isInitial": true,
+        "names": [
+          "<redacted>"
+        ],
+        "skillCount": 51,
+        "type": "skill_listing"
+      },
+      "cwd": "<redacted>",
+      "entrypoint": "<redacted>",
+      "gitBranch": "<redacted>",
+      "isSidechain": false,
+      "parentUuid": "<redacted>",
+      "sessionId": "<redacted>",
+      "timestamp": "<redacted>",
+      "type": "attachment",
+      "userType": "<redacted>",
+      "uuid": "<redacted>",
+      "version": "<redacted>"
+    },
+    "attachment:total_tokens_reminder": {
+      "attachment": {
+        "text": "<redacted>",
+        "type": "total_tokens_reminder"
+      },
+      "cwd": "<redacted>",
+      "entrypoint": "<redacted>",
+      "gitBranch": "<redacted>",
+      "isSidechain": false,
+      "parentUuid": "<redacted>",
+      "sessionId": "<redacted>",
+      "timestamp": "<redacted>",
+      "type": "attachment",
+      "userType": "<redacted>",
+      "uuid": "<redacted>",
+      "version": "<redacted>"
+    },
+    "bridge-session": {
+      "bridgeSessionId": "<redacted>",
+      "lastSequenceNum": 0,
+      "ownerAccountUuid": "<redacted>",
+      "ownerOrganizationUuid": "<redacted>",
+      "sessionId": "<redacted>",
+      "type": "bridge-session"
+    },
+    "cost-state": {
+      "hasUnknownModelCost": false,
+      "modelUsage": {
+        "claude-opus-5": {
+          "cacheCreationInputTokens": 92071,
+          "cacheReadInputTokens": 2343547,
+          "costUSD": 2.2979985000000003,
+          "inputTokens": 2088,
+          "outputTokens": 7803,
+          "webSearchRequests": 0
+        }
+      },
+      "sessionId": "<redacted>",
+      "startTime": 1788280387427,
+      "totalAPIDuration": 105342,
+      "totalAPIDurationWithoutRetries": 105243,
+      "totalCostUSD": 2.2979985000000003,
+      "totalDuration": 263237,
+      "totalLinesAdded": 0,
+      "totalLinesRemoved": 0,
+      "totalToolDuration": 417,
+      "type": "cost-state"
+    },
+    "custom-title": {
+      "customTitle": "<redacted>",
+      "sessionId": "<redacted>",
+      "type": "custom-title"
+    },
+    "file-history-snapshot": {
+      "isSnapshotUpdate": false,
+      "messageId": "<redacted>",
+      "snapshot": {
+        "messageId": "<redacted>",
+        "timestamp": "<redacted>",
+        "trackedFileBackups": {}
+      },
+      "type": "file-history-snapshot"
+    },
+    "last-prompt": {
+      "leafUuid": "<redacted>",
+      "sessionId": "<redacted>",
+      "type": "last-prompt"
+    },
+    "mode": {
+      "mode": "<redacted>",
+      "sessionId": "<redacted>",
+      "type": "mode"
+    },
+    "permission-mode": {
+      "permissionMode": "<redacted>",
+      "sessionId": "<redacted>",
+      "type": "permission-mode"
+    },
+    "queue-operation:dequeue": {
+      "operation": "dequeue",
+      "sessionId": "<redacted>",
+      "timestamp": "<redacted>",
+      "type": "queue-operation"
+    },
+    "queue-operation:enqueue": {
+      "content": "<redacted>",
+      "operation": "enqueue",
+      "sessionId": "<redacted>",
+      "timestamp": "<redacted>",
+      "type": "queue-operation"
+    },
+    "queue-operation:popAll": {
+      "content": "<redacted>",
+      "operation": "popAll",
+      "sessionId": "<redacted>",
+      "timestamp": "<redacted>",
+      "type": "queue-operation"
+    },
+    "queue-operation:remove": {
+      "content": "<redacted>",
+      "operation": "remove",
+      "reason": "<redacted>",
+      "sessionId": "<redacted>",
+      "timestamp": "<redacted>",
+      "type": "queue-operation"
+    },
+    "system": {
+      "content": "<redacted>",
+      "cwd": "<redacted>",
+      "entrypoint": "<redacted>",
+      "gitBranch": "<redacted>",
+      "isMeta": false,
+      "isSidechain": false,
+      "parentUuid": "<redacted>",
+      "sessionId": "<redacted>",
+      "subtype": "bridge_status",
+      "timestamp": "<redacted>",
+      "type": "system",
+      "url": "<redacted>",
+      "userType": "<redacted>",
+      "uuid": "<redacted>",
+      "version": "<redacted>"
+    },
+    "user:prompt": {
+      "cwd": "<redacted>",
+      "entrypoint": "<redacted>",
+      "gitBranch": "<redacted>",
+      "isSidechain": false,
+      "message": {
+        "content": "<redacted>",
+        "role": "user"
+      },
+      "origin": {
+        "kind": "<redacted>"
+      },
+      "parentUuid": "<redacted>",
+      "permissionMode": "<redacted>",
+      "promptId": "<redacted>",
+      "promptSource": "typed",
+      "sessionId": "<redacted>",
+      "timestamp": "<redacted>",
+      "type": "user",
+      "userType": "<redacted>",
+      "uuid": "<redacted>",
+      "version": "<redacted>"
+    },
+    "user:tool_result": {
+      "cwd": "<redacted>",
+      "entrypoint": "<redacted>",
+      "gitBranch": "<redacted>",
+      "isSidechain": false,
+      "message": {
+        "content": [
+          {
+            "content": "<redacted>",
+            "is_error": true,
+            "tool_use_id": "<redacted>",
+            "type": "tool_result"
+          }
+        ],
+        "role": "user"
+      },
+      "parentUuid": "<redacted>",
+      "promptId": "<redacted>",
+      "sessionId": "<redacted>",
+      "session_id": "<redacted>",
+      "sourceToolAssistantUUID": "<redacted>",
+      "timestamp": "<redacted>",
+      "toolUseResult": "<redacted>",
+      "type": "user",
+      "userType": "<redacted>",
+      "uuid": "<redacted>",
+      "version": "<redacted>"
+    }
+  },
+  "types": [
+    "last-prompt",
+    "custom-title",
+    "agent-name",
+    "mode",
+    "permission-mode",
+    "atis-latch",
+    "file-history-snapshot",
+    "attachment:hook_success",
+    "user:prompt",
+    "attachment:deferred_tools_delta",
+    "attachment:agent_listing_delta",
+    "attachment:mcp_instructions_delta",
+    "attachment:skill_listing",
+    "attachment:auto_mode",
+    "attachment:total_tokens_reminder",
+    "bridge-session",
+    "system",
+    "assistant",
+    "user:tool_result",
+    "queue-operation:enqueue",
+    "queue-operation:remove",
+    "attachment:queued_command",
+    "queue-operation:dequeue",
+    "queue-operation:popAll",
+    "cost-state",
+    "attachment:remote_session_change"
+  ]
+}

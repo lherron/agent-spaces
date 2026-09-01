@@ -34,6 +34,7 @@ import {
 } from 'spaces-harness-broker-protocol'
 import { createPiAgentSession, resolvePiModelReference } from 'spaces-harness-pi-sdk/agent-session'
 import { PiSdkTurnEventMapper } from './event-mapper'
+import { PI_SDK_AUTHORITY } from './evidence-authority'
 import { createPiSdkPermissionBridge } from './permissions'
 
 export type { PiSdkAuthResolution }
@@ -235,6 +236,11 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
     kind: driverKind,
     version: PI_SDK_DRIVER_VERSION,
     bracketMintingMode: 'delivery-asserted',
+    // The pi-sdk driver runs the model in-process: every fact it reports comes
+    // from the SDK session it drives, and the broker owns the rest. It shares
+    // pi-tui-tmux's bounded delivery-asserted bracket risk.
+    evidenceAuthority: PI_SDK_AUTHORITY,
+    nativeSourceKind: 'provider-jsonrpc',
 
     capabilities(): InvocationCapabilities {
       return PI_SDK_CAPABILITIES

@@ -1,5 +1,7 @@
 import type {
   ClientCapabilities,
+  EventProvenance,
+  EvidenceAuthorityMatrix,
   HarnessInvocationSpec,
   InputId,
   InvocationCapabilities,
@@ -18,6 +20,7 @@ import type {
   PermissionRequestParams,
   TurnId,
 } from 'spaces-harness-broker-protocol'
+import type { CaptureGate } from '../capture/capture-gate'
 import type { DispatchEnv } from '../runtime/env'
 
 export interface ApplyInputResult {
@@ -35,6 +38,29 @@ export interface Driver {
   readonly kind: string
   readonly version: string
   readonly bracketMintingMode: BracketMintingMode
+  /**
+   * Declared per-event-family evidence authority (T-07853 §6, law
+   * `agent-spaces.harness-broker-local-commit-observation`). Authority is
+   * declared per FAMILY, never once per provider: `native` = the provider's own
+   * transcript / notification stream owns the family, `hook` = a synchronous
+   * harness hook owns it, `broker` = it is a broker decision no provider can
+   * report.
+   *
+   * The declaration is DESCRIPTIVE — it states where this driver's facts come
+   * from TODAY. Changing an entry is an authority cutover and must ship with
+   * the code change that actually moves the evidence, plus a parity report.
+   * `harness/harness-broker/AUTHORITY.md` is the published prose form of the
+   * same matrix and must agree with it.
+   */
+  readonly evidenceAuthority: EvidenceAuthorityMatrix
+  /**
+   * Which raw source kind this driver's `native` authority means: a provider
+   * transcript file (`provider-jsonl`) or a provider protocol stream
+   * (`provider-jsonrpc`). Used to stamp truthful provenance on events emitted
+   * without a committed raw record. Irrelevant — but still declared — for a
+   * driver whose every family is `hook` or `broker`.
+   */
+  readonly nativeSourceKind: 'provider-jsonl' | 'provider-jsonrpc'
   capabilities(): InvocationCapabilities
   start(spec: HarnessInvocationSpec, ctx: DriverContext): Promise<DriverStartResult>
   applyInputNow(input: InvocationInput): Promise<ApplyInputResult>
@@ -64,6 +90,13 @@ export interface DriverContext {
    * `terminalSurface`.
    */
   runtime?: InvocationRuntimeContext | undefined
+  /**
+   * This invocation's normalization cursor (T-07853 §§6.1, 7). A driver commits
+   * every provider input through `capture.ingest` BEFORE normalizing it, and
+   * returns a disposition for each. Absent only for in-process callers with no
+   * capture pipeline; when absent the driver normalizes directly, as before.
+   */
+  capture?: CaptureGate | undefined
   emit<K extends InvocationEventType>(
     type: K,
     payload: InvocationEventPayloadMap[K],
@@ -74,6 +107,7 @@ export interface DriverContext {
       driver?: { kind: string; rawType?: string | undefined } | undefined
       harnessGeneration?: number | undefined
       turnAttempt?: number | undefined
+      provenance?: EventProvenance | undefined
     }
   ): InvocationEventEnvelope<K>
   emitEvent(
@@ -85,6 +119,7 @@ export interface DriverContext {
       driver?: { kind: string; rawType?: string | undefined } | undefined
       harnessGeneration?: number | undefined
       turnAttempt?: number | undefined
+      provenance?: EventProvenance | undefined
     }
   ): InvocationEventEnvelope
   /**
