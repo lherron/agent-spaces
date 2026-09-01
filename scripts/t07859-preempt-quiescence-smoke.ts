@@ -32,6 +32,21 @@ function payloadString(event: InvocationEventEnvelope, key: string): string | un
   return typeof value === 'string' ? value : undefined
 }
 
+function blockedUnknownIds(events: InvocationEventEnvelope[]): Set<string> {
+  return new Set(
+    events
+      .filter((event) => event.type === 'capture.warning')
+      .map((event) => {
+        const raw = (event.payload as { raw?: Record<string, unknown> }).raw
+        return raw?.['kind'] === 'claude.dequeue-without-user-row' &&
+          typeof raw['blockedSubmissionId'] === 'string'
+          ? raw['blockedSubmissionId']
+          : undefined
+      })
+      .filter((submissionId): submissionId is string => submissionId !== undefined)
+  )
+}
+
 const recipe = ROW_RECIPES['claude-code-tmux']
 if (recipe === undefined) throw new Error('claude-code-tmux matrix recipe is unavailable')
 const probe = recipe.probe()
@@ -156,11 +171,16 @@ try {
     preempt.submissionId,
   ]
   const settled = await waitFor(async () => {
-    const terminals = terminalsBySubmission(events.slice(watermark))
-    const allDispositioned = submissionIds.every(
-      (submissionId) => (terminals.get(submissionId) ?? []).length === 1
+    const runtimeEvents = events.slice(watermark)
+    const terminals = terminalsBySubmission(runtimeEvents)
+    const blockedUnknown = blockedUnknownIds(runtimeEvents)
+    const allDispositionedOrBlocked = submissionIds.every(
+      (submissionId) =>
+        (terminals.get(submissionId) ?? []).length === 1 || blockedUnknown.has(submissionId)
     )
-    return allDispositioned && (await broker.seatProbe({ invocationId })).seat.state === 'idle'
+    return (
+      allDispositionedOrBlocked && (await broker.seatProbe({ invocationId })).seat.state === 'idle'
+    )
   })
   if (!settled) {
     const diagnosticPath = join(artifactDir, `preempt-quiescence-${marker}-settle-failure.json`)
@@ -190,6 +210,28 @@ try {
   const interruptedTurns = slice.filter((event) => event.type === 'turn.interrupted')
   const completedTurns = slice.filter((event) => event.type === 'turn.completed')
   const captureWarnings = events.filter((event) => event.type === 'capture.warning')
+  const blockedUnknownWarnings = captureWarnings.filter((event) => {
+    const raw = (event.payload as { raw?: unknown }).raw
+    return (
+      raw !== null &&
+      typeof raw === 'object' &&
+      !Array.isArray(raw) &&
+      (raw as { kind?: unknown }).kind === 'claude.dequeue-without-user-row'
+    )
+  })
+  const blockedUnknownSubmissionIds = new Set(
+    blockedUnknownWarnings
+      .map((event) => {
+        const raw = (event.payload as { raw?: Record<string, unknown> }).raw
+        return typeof raw?.['blockedSubmissionId'] === 'string'
+          ? raw['blockedSubmissionId']
+          : undefined
+      })
+      .filter((submissionId): submissionId is string => submissionId !== undefined)
+  )
+  const otherCaptureWarnings = captureWarnings.filter(
+    (event) => !blockedUnknownWarnings.includes(event)
+  )
   const preemptDisposition = terminals.get(preempt.submissionId)?.[0]
   const interruptedTurnIds = new Set(
     interruptedTurns
@@ -219,29 +261,40 @@ try {
     everySubmissionExactlyOneDisposition: submissionIds.every(
       (submissionId) => (terminals.get(submissionId) ?? []).length === 1
     ),
+    everySubmissionDispositionOrBlockedUnknown: submissionIds.every(
+      (submissionId) =>
+        (terminals.get(submissionId) ?? []).length === 1 ||
+        blockedUnknownSubmissionIds.has(submissionId)
+    ),
     queuedSubmissionsExecuted: carriedTurns.every(
-      (entry) => entry.disposition === 'submission.executed'
+      (entry) =>
+        entry.disposition === 'submission.executed' ||
+        blockedUnknownSubmissionIds.has(entry.submissionId)
     ),
     baseAndTwoDrainsTerminalized: carriedTurns.every(
       (entry) =>
-        entry.turnId !== undefined &&
-        (interruptedTurnIds.has(entry.turnId) || completedTurnIds.has(entry.turnId))
+        blockedUnknownSubmissionIds.has(entry.submissionId) ||
+        (entry.turnId !== undefined &&
+          (interruptedTurnIds.has(entry.turnId) || completedTurnIds.has(entry.turnId)))
     ),
     interruptedTurnCount: interruptedTurnIds.size,
     boundedSlippageCompletedTurnCount: carriedTurns.filter(
       (entry) => entry.turnId !== undefined && completedTurnIds.has(entry.turnId)
     ).length,
     preemptExecutedOwnTurn: preemptDisposition?.type === 'submission.executed',
+    blockedUnknownCount: blockedUnknownWarnings.length,
+    otherCaptureWarnings: otherCaptureWarnings.length,
     wholeRuntimeCaptureWarnings: captureWarnings.length,
   }
   const ok =
     assertions.admitted &&
-    assertions.everySubmissionExactlyOneDisposition &&
+    assertions.everySubmissionDispositionOrBlockedUnknown &&
     assertions.queuedSubmissionsExecuted &&
     assertions.baseAndTwoDrainsTerminalized &&
     assertions.interruptedTurnCount >= 1 &&
     assertions.preemptExecutedOwnTurn &&
-    assertions.wholeRuntimeCaptureWarnings === 0
+    assertions.blockedUnknownCount <= 1 &&
+    assertions.otherCaptureWarnings === 0
   const artifact = {
     schema: 't07859-preempt-quiescence/v1',
     marker,

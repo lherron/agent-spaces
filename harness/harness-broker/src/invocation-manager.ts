@@ -1926,6 +1926,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
           return emit(inv, type, payload, extra)
         },
         emitEvent: (event, extra) => emitEvent(inv, event, extra),
+        admissionStateChanged: () => scheduleAdmissionDrain(inv),
         ...(onPermissionRequest !== undefined
           ? {
               // Broker-owned permission lifecycle (C2): the driver hands the

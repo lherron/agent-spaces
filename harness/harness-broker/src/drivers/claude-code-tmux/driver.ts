@@ -434,10 +434,11 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         onTranscriptEntry: (entry) => {
           const entryType = getString(entry, 'type')
           if (entryType === 'queue-operation') {
-            emitAttributionActions(
-              turnAttribution.observeQueueOperation(entry as ClaudeTranscriptQueueOperation),
-              'queue-operation'
+            const actions = turnAttribution.observeQueueOperation(
+              entry as ClaudeTranscriptQueueOperation
             )
+            emitAttributionActions(actions, 'queue-operation')
+            driverCtx.admissionStateChanged?.()
             return
           }
           if (entryType === 'attachment') {
@@ -627,7 +628,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     },
 
     probeAdmissionState() {
-      return { harnessLocalQueueDepth: attribution?.pendingCount ?? 0 }
+      return { harnessLocalQueueDepth: attribution?.harnessLocalQueueDepth ?? 0 }
     },
 
     async interrupt(_req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {

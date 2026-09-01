@@ -8,6 +8,8 @@ type PendingSubmission = {
   sawEnqueue: boolean
   sawPromptHook: boolean
   drainPending: boolean
+  drainWarned: boolean
+  drainOperation?: unknown
   removePending: boolean
   removeWarned: boolean
   removeOperation?: unknown
@@ -40,6 +42,7 @@ export type ClaudeTranscriptQueueOperation = {
 export interface ClaudeTurnAttribution {
   readonly activeTurnId: TurnId | undefined
   readonly pendingCount: number
+  readonly harnessLocalQueueDepth: number
   expectInterrupt(): number
   cancelExpectedInterrupt(expectationId: number): void
   trackBrokerSubmission(input: {
@@ -90,6 +93,8 @@ export function createClaudeTurnAttribution(options: {
       sawEnqueue: init.sawEnqueue ?? false,
       sawPromptHook: init.sawPromptHook ?? false,
       drainPending: init.drainPending ?? false,
+      drainWarned: init.drainWarned ?? false,
+      ...(init.drainOperation !== undefined ? { drainOperation: init.drainOperation } : {}),
       removePending: init.removePending ?? false,
       removeWarned: init.removeWarned ?? false,
       ...(init.removeOperation !== undefined ? { removeOperation: init.removeOperation } : {}),
@@ -148,6 +153,11 @@ export function createClaudeTurnAttribution(options: {
 
     get pendingCount(): number {
       return pending.length
+    },
+
+    get harnessLocalQueueDepth(): number {
+      return pending.filter((item) => item.sawEnqueue && !item.drainPending && !item.removePending)
+        .length
     },
 
     expectInterrupt(): number {
@@ -214,6 +224,8 @@ export function createClaudeTurnAttribution(options: {
           return [warning('Unmatched Claude queue dequeue', operation)]
         }
         item.drainPending = true
+        item.drainWarned = false
+        item.drainOperation = operation
         return []
       }
 
@@ -272,11 +284,25 @@ export function createClaudeTurnAttribution(options: {
       const drained = pending.find((item) => item.drainPending)
       if (drained !== undefined) {
         if (drained.content !== content) {
-          actions.push(warning('Claude drained user row does not match FIFO submission', raw))
+          if (!drained.drainWarned) {
+            drained.drainWarned = true
+            actions.push(
+              warning('Claude drained user row does not match FIFO submission', {
+                kind: 'claude.dequeue-without-user-row',
+                blockedSubmissionId: drained.submissionId,
+                dequeue: drained.drainOperation,
+                observedUserRow: raw,
+              })
+            )
+          }
+          // The dropped item remains blocked-unknown, but it cannot prevent a
+          // later evidenced prompt (including the preempting submission) from
+          // opening its own truthful turn.
+          if (activeTurnId !== undefined) return actions
+        } else {
+          actions.push(execute(drained, true))
           return actions
         }
-        actions.push(execute(drained, true))
-        return actions
       }
 
       if (activeTurnId !== undefined) {
@@ -380,6 +406,7 @@ export function createClaudeTurnAttribution(options: {
       const actions: ClaudeAttributionAction[] = []
       for (const item of [...pending]) {
         drop(item)
+        if (item.drainPending && item.drainWarned) continue
         actions.push({ kind: 'cancelled', ...base(item), reason: 'teardown' })
       }
       recentDisposedPrompt = undefined

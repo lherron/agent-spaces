@@ -313,6 +313,10 @@ const preemptBoundaryArchive = join(
   import.meta.dir,
   '../../fixtures/claude-preempt-drain-boundary-d8c2534f.rows23-45.jsonl'
 )
+const preemptCrossingArchive = join(
+  import.meta.dir,
+  '../../fixtures/claude-preempt-request-crossing-36911f19.rows23-40.jsonl'
+)
 const archiveTest = existsSync(archiveOne) && existsSync(archiveTwo) ? test : test.skip
 const archiveThreeTest = existsSync(archiveThree) ? test : test.skip
 
@@ -553,5 +557,48 @@ describe('T-07859 archived preempt drain-boundary failure', () => {
         .map(promptFromUserRow)
         .filter((prompt) => prompt === 'interrupted')
     ).toHaveLength(2)
+  })
+
+  test('MTJA36GG dequeue evidence reaches quiescence and holds the dropped prompt unknown', () => {
+    const rows = readArchive(preemptCrossingArchive)
+    const tracker = createTracker('archive_mtja36gg')
+    tracker.observeTurnStarted('turn_base' as TurnId)
+    tracker.expectInterrupt()
+    const actions: ClaudeAttributionAction[] = []
+
+    replayRows(tracker, rows.slice(0, 5), actions)
+    expect(tracker.harnessLocalQueueDepth).toBe(1)
+    expect(tracker.activeTurnId).toBe('turn_archive_mtja36gg_1')
+
+    tracker.observeQueueOperation(rows[7] as Parameters<typeof tracker.observeQueueOperation>[0])
+    expect(tracker.harnessLocalQueueDepth).toBe(0)
+    tracker.observeTurnTerminal('turn_archive_mtja36gg_1' as TurnId)
+    expect(tracker.activeTurnId).toBeUndefined()
+
+    tracker.trackBrokerSubmission({
+      submissionId: 'submission_preempt',
+      inputId: 'submission_preempt',
+      allocatedTurnId: 'turn_preempt' as TurnId,
+      content: 'PREEMPT',
+    })
+    expect(tracker.observePlainUser('PREEMPT', { type: 'user' })).toEqual([
+      expect.objectContaining({
+        kind: 'warning',
+        message: 'Claude drained user row does not match FIFO submission',
+        raw: expect.objectContaining({
+          kind: 'claude.dequeue-without-user-row',
+          blockedSubmissionId: expect.stringContaining('archive_mtja36gg'),
+          dequeue: expect.objectContaining({ operation: 'dequeue' }),
+        }),
+      }),
+      expect.objectContaining({
+        kind: 'executed',
+        submissionId: 'submission_preempt',
+        turnId: 'turn_preempt',
+      }),
+    ])
+    expect(tracker.pendingCount).toBe(1)
+    expect(tracker.harnessLocalQueueDepth).toBe(0)
+    expect(tracker.teardown()).toEqual([])
   })
 })

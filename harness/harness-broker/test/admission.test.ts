@@ -323,4 +323,28 @@ describe('broker admission API', () => {
     expect(eventsFor(events, 'turn.completed')).toHaveLength(1)
     expect(controller.activeInput?.inputId).toBe(preempt.submissionId)
   })
+
+  test('quiescence injects preempt immediately when queue ops dequeue a dropped prompt', async () => {
+    const { broker, controller, events, invocationId } = await setup(
+      'inv_admission_quiescence_dropped',
+      { preemptMode: 'quiescence' }
+    )
+    await broker.invoke({ invocationId, origin, body: 'active' })
+    await flush()
+    controller.setHarnessLocalQueueDepth(1)
+    const preempt = await broker.preempt({ invocationId, origin, body: 'after dropped prompt' })
+    await flush()
+
+    controller.startToolCall('tool-base')
+    await flush()
+    expect(eventsFor(events, 'turn.interrupted')).toHaveLength(1)
+    expect(controller.activeInput).toBeUndefined()
+
+    controller.setHarnessLocalQueueDepth(0)
+    await flush()
+    expect(controller.activeInput?.inputId).toBe(preempt.submissionId)
+    expect(eventsFor(events, 'submission.executed').at(-1)?.payload).toMatchObject({
+      submissionId: preempt.submissionId,
+    })
+  })
 })

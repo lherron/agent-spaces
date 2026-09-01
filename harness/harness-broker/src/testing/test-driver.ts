@@ -231,6 +231,7 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
 
     setHarnessLocalQueueDepth(depth: number): void {
       harnessLocalQueueDepth = Math.max(0, depth)
+      requireCtx().admissionStateChanged?.()
     },
 
     startHarnessLocalTurn(inputId: string): void {
@@ -241,6 +242,7 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
         )
       }
       harnessLocalQueueDepth = Math.max(0, harnessLocalQueueDepth - 1)
+      requireCtx().admissionStateChanged?.()
       turnCounter += 1
       activeTurnId = `turn_test_${turnCounter}` as TurnId
       activeInput = {

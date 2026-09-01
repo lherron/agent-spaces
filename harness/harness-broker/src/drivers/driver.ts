@@ -99,6 +99,14 @@ export interface DriverContext {
     }
   ): InvocationEventEnvelope
   /**
+   * Notify the broker that a driver-private admission projection changed
+   * without producing a normalized event (for example, a Claude queue
+   * dequeue). The broker re-evaluates held admission work on the next
+   * microtask; the driver's synchronous transcript processing still wins any
+   * race that opens a turn in the same batch.
+   */
+  admissionStateChanged?(): void
+  /**
    * Ask the connected client to decide a permission request via the
    * broker→client JSON-RPC request transport. Provided only when the broker
    * has a transport that supports outbound requests (and, in production, when
