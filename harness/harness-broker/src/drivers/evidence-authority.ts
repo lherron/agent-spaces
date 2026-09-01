@@ -105,15 +105,18 @@ export const CODEX_APP_SERVER_AUTHORITY: EvidenceAuthorityMatrix = {
 }
 
 /**
- * Pi TUI. `turn-bracket` stays `broker` — that is the bounded accepted risk
- * `agent-spaces.pi-delivery-asserted-turn-start`: the manager authors the
- * initial `turn.started(source:'broker-delivery')` after a blind pane delivery,
- * and hooks correlate provider evidence INTO that bracket without reminting it.
- * Declaring `hook` here would be the false claim the law forbids. Pi session
- * JSONL is non-authoritative until a separately approved evidence change.
+ * Pi TUI. `turn-bracket` is `hook`, corrected from `broker` by the live parity
+ * report: pi's `turn_start`/`turn_end` hooks mint most of the brackets in a real
+ * session (3 hook-observed against 1 broker-authored in the smoke). The
+ * manager-authored initial bracket is real but it is ONE bracket — the bounded
+ * accepted risk `agent-spaces.pi-delivery-asserted-turn-start`, recorded as the
+ * documented exception in AUTHORITY.md rather than promoted to the family's
+ * primary. Pi session JSONL stays non-authoritative until a separately approved
+ * evidence change.
  */
 export const PI_TUI_TMUX_AUTHORITY: EvidenceAuthorityMatrix = {
   ...BROKER_OWNED_BASE,
+  'turn-bracket': 'hook',
   'harness-lifecycle': 'hook',
   continuation: 'hook',
   conversation: 'hook',

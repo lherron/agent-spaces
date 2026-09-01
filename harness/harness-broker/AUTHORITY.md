@@ -69,7 +69,7 @@ family cannot be asserted to be load-bearing.
 | `continuation` | hook | hook | native | hook | native | native |
 | `input-admission` | broker | broker | broker | broker | broker | broker |
 | `submission-disposition` | **native** | broker † | broker † | broker † | broker † | broker † |
-| `turn-bracket` | hook | hook | native | **broker** ‡ | native | **broker** ‡ |
+| `turn-bracket` | hook | hook | native | hook ‡ | native | **broker** ‡ |
 | `turn-supervision` | broker | broker | broker | broker | broker | broker |
 | `conversation` | hook | **native** | native | hook | native | native |
 | `tool` | hook | hook | native | hook | native | native |
@@ -84,11 +84,13 @@ own the family, so a later cutover has a stated starting point. The parity
 report shows zero events in these cells.
 
 ‡ **Pi's bounded accepted risk**, `agent-spaces.pi-delivery-asserted-turn-start`.
-The manager authors the initial `turn.started(source:'broker-delivery')` after a
+The manager authors the INITIAL `turn.started(source:'broker-delivery')` after a
 blind pane delivery, and hooks correlate provider evidence into that bracket
-without reminting it. Declaring `hook` here would be exactly the false claim the
-law forbids. Pi session JSONL is non-authoritative until a separately approved
-evidence change.
+without reminting it. For `pi-tui-tmux` that is one bracket among several — the
+live parity report shows 3 hook-observed against 1 broker-authored — so the
+family's primary is `hook` and the delivery-asserted bracket is the exception
+below. `pi-sdk` has no hooks at all, so `broker` is its primary. Pi session JSONL
+is non-authoritative for both until a separately approved evidence change.
 
 ## Disposition provenance: any source, never none
 
@@ -146,10 +148,17 @@ Assistant prose already comes from the rollout JSONL (the held-latest transcript
 reader), which is why this driver is the doc's first broad cutover candidate
 (Phase 3).
 
-### codex-app-server, agent-harness-tmux, pi-tui-tmux, pi-sdk
+### pi-tui-tmux
+
+| Family (declared) | Exception | Source of the exception |
+| --- | --- | --- |
+| `turn-bracket` (hook) | the INITIAL `turn.started(source:'broker-delivery')` | the broker manager, asserted at delivery — the bounded accepted risk `agent-spaces.pi-delivery-asserted-turn-start`. Every later bracket comes from pi's `turn_start`/`turn_end` hooks. |
+
+### codex-app-server, agent-harness-tmux, pi-sdk
 
 No exceptions. app-server and agent-harness read a single native protocol
-stream; Pi has no transcript authority at all, by the accepted risk above.
+stream; pi-sdk runs in-process with no hook channel, so its delivery-asserted
+bracket is the whole family.
 
 ## Native-type vocabularies
 
