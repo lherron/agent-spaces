@@ -583,6 +583,34 @@ describe('T-07861 below-floor replay', () => {
     await expect(broker.attach(attachRequest(0))).rejects.toMatchObject(expected)
   })
 
+  test('a below-floor attach is typed even after a restart dropped the invocation from memory', async () => {
+    // The §8.3 case: HRC reattaches to a RESTARTED broker. The invocation is
+    // gone from broker memory, but the durable floor is not — so the answer
+    // must be replay_below_floor (mark replay-stale), never the ambiguous
+    // unknown-invocation AttachRejected.
+    const dir = scratchDir()
+    const before = openLedger(dir)
+    for (let seq = 1; seq <= 4; seq += 1) {
+      before.appendSync(event('inv_below_floor', seq))
+    }
+    await before.ackEvents('inv_below_floor' as InvocationId, 4)
+    await before.prune({ activeInvocationIds: [] })
+    ledgers.pop()
+
+    const ledger = openLedger(dir)
+    const broker = createBroker({ drivers: [createDurabilityDriver()], eventLedger: ledger })
+    // No start(): this broker has never seen the invocation, exactly as a
+    // freshly restarted one has not.
+    await expect(broker.attach(attachRequest(0))).rejects.toMatchObject({
+      code: BrokerErrorCode.EventReplayUnavailable,
+      data: { reason: 'replay_below_floor', retentionFloorSeq: 4, currentSeq: 4 },
+    })
+    // At or above the floor, the resident-invocation gate still applies.
+    await expect(broker.attach(attachRequest(4))).rejects.toMatchObject({
+      code: BrokerErrorCode.AttachRejected,
+    })
+  })
+
   test('attach at or above the floor still succeeds', async () => {
     const dir = scratchDir()
     const ledger = openLedger(dir)

@@ -424,6 +424,27 @@ export function createBroker(options: BrokerOptions): Broker {
         )
       }
 
+      // Below-floor attach fails typed (§8.3), and it is checked BEFORE the
+      // resident-invocation gate on purpose. The ledger is durable; broker
+      // memory is not. After a broker restart the invocation is gone from
+      // memory, so an unknown-invocation rejection would mask exactly the case
+      // §8.3 is about — HRC asking to resume from a sequence retention already
+      // discarded. HRC must see `replay_below_floor` and mark the runtime
+      // replay-stale, not an ambiguous AttachRejected. The identity/token gate
+      // above still runs first, so this leaks nothing to an unauthenticated
+      // peer.
+      if (eventLedger !== undefined && req.lastProjectedSeq !== undefined) {
+        const retentionFloorSeq = await eventLedger.retentionFloorSeq(req.invocationId)
+        if (req.lastProjectedSeq < retentionFloorSeq) {
+          throw replayBelowFloorError({
+            invocationId: req.invocationId,
+            afterSeq: req.lastProjectedSeq,
+            retentionFloorSeq,
+            currentSeq: eventLedger.currentSeq(req.invocationId),
+          })
+        }
+      }
+
       const inv = manager.get(req.invocationId)
       if (!inv) {
         throw new BrokerError(
@@ -446,21 +467,6 @@ export function createBroker(options: BrokerOptions): Broker {
           'Attach rejected: start-request or profile hash mismatch',
           { invocationId: req.invocationId }
         )
-      }
-
-      // Below-floor attach fails typed (§8.3): a controller asking to resume
-      // from a sequence retention has already discarded must be told, not
-      // handed a snapshot it would silently infer the gap from.
-      if (eventLedger !== undefined && req.lastProjectedSeq !== undefined) {
-        const retentionFloorSeq = await eventLedger.retentionFloorSeq(req.invocationId)
-        if (req.lastProjectedSeq < retentionFloorSeq) {
-          throw replayBelowFloorError({
-            invocationId: req.invocationId,
-            afterSeq: req.lastProjectedSeq,
-            retentionFloorSeq,
-            currentSeq: eventLedger.currentSeq(req.invocationId),
-          })
-        }
       }
 
       const snapshot = await buildSnapshot(req.invocationId)
