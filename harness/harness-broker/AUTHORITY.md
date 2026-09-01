@@ -160,6 +160,27 @@ that phase's own parity requirement.
 `pi-tui-tmux` has no transcript reader at all (hooks only, by the accepted risk
 above), so it has no equivalent gap.
 
+### Unknown HOOK names warn; they do not halt
+
+An earlier revision of this work halted the cursor on a hook name outside a
+driver's table, reasoning that the broker writes the harness's hook
+configuration and so controls the set of names it can receive. **The first live
+pi-tui-tmux session falsified that directly**: pi fired `before_agent_start` and
+`message_start`, the cursor halted, and 135 raw records piled up behind a hook
+the normalizer would simply have ignored.
+
+A hook whose name the normalizer does not handle mints nothing, so there is no
+evidence it is load-bearing — and the law halts on an unclassified *load-bearing*
+type. Unknown hook names are therefore `blocked-unknown` with a
+`capture.warning` and no halt. Unknown QUEUE OPERATIONS are the opposite case
+and still halt: turn attribution demonstrably depends on them, which is the
+example the law itself names.
+
+The hook tables are still worth keeping accurate — a warning should mean
+"something new", not "something the author failed to look up" — so
+`PI_KNOWN_HOOK_NAMES` is now enumerated from a real capture rather than read off
+the normalizer.
+
 ### A named risk: unknown Claude attachment subtypes do not halt
 
 An attachment subtype outside the pinned set is attributed to `diagnostic`, so

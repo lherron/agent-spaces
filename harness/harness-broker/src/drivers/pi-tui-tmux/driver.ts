@@ -191,10 +191,11 @@ export function createPiTuiTmuxDriver(options: PiTuiTmuxDriverOptions): Driver {
         driverKind: PI_TUI_TMUX_DRIVER_KIND,
         invocationId: driverCtx.invocationId,
         knownHookNames: PI_KNOWN_HOOK_NAMES,
-        // Pi hooks own conversation and tool evidence and correlate into the
-        // broker-authored initial bracket; an unregistered hook name is an
-        // unclassified load-bearing type and halts the cursor.
-        unknownHookFamily: 'conversation',
+        // Warns without halting: a hook name the normalizer does not handle
+        // mints nothing, so it cannot be shown to be load-bearing. See
+        // `HookCaptureSeamOptions.unknownHookFamily` — this is the position the
+        // first live pi session forced.
+        unknownHookFamily: 'diagnostic',
       })
       const normalizeHookRecord = (envelope: PiTuiTmuxHookEnvelope): void => {
         const effectiveEnvelope =

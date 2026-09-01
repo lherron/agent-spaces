@@ -568,12 +568,15 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
             }
           }
           if (rawType === undefined || !CLAUDE_KNOWN_HOOK_NAMES.has(rawType)) {
-            // The broker writes Claude's hook configuration itself, so a name
-            // it never registered means the harness vocabulary drifted.
+            // Reported, never dropped — but NOT halting. A hook name the
+            // normalizer does not handle mints nothing, so it cannot be shown
+            // to be load-bearing, and the first live pi session proved the
+            // "the broker registers every hook it can receive" premise wrong
+            // in general. Unknown queue OPERATIONS still halt (above).
             return {
               outcome: {
                 disposition: 'blocked-unknown',
-                family: 'turn-bracket',
+                family: 'diagnostic',
                 message: `Unknown Claude hook: ${rawType ?? '(none)'}`,
               } as NormalizeOutcome,
               decision,

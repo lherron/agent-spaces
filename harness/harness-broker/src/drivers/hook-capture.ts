@@ -35,13 +35,29 @@ export interface HookCaptureSeamOptions {
   driverKind: string
   invocationId: string
   /**
-   * Hook names this driver registers. The broker writes the harness's hook
-   * configuration, so a name outside this set means the harness started firing
-   * something the broker never asked for — vocabulary drift that must be loud
-   * rather than dropped.
+   * Hook names this driver is known to receive. A name outside this set is
+   * vocabulary drift and must be loud rather than dropped.
    */
   knownHookNames: ReadonlySet<string>
-  /** Family an unknown hook name is attributed to (decides whether it halts). */
+  /**
+   * Family an unknown hook name is attributed to — which is what decides
+   * whether it HALTS the cursor or only warns.
+   *
+   * Every driver passes a non-load-bearing family here, and that is a corrected
+   * position, not an oversight. The original reasoning was "the broker writes
+   * the harness's hook configuration, so the set of names it can receive is
+   * broker-controlled, and an unregistered name is therefore load-bearing
+   * drift." The first live pi-tui-tmux session falsified that premise directly:
+   * pi fired `before_agent_start` and `message_start`, the cursor halted, and
+   * 135 records piled up behind a hook the normalizer would simply have
+   * ignored. A hook whose name the normalizer does not handle mints nothing, so
+   * there is no evidence it is load-bearing — and the law halts on an
+   * unclassified LOAD-BEARING type.
+   *
+   * Unknown QUEUE OPERATIONS are the opposite case and still halt: turn
+   * attribution demonstrably depends on them (T-07849 item 11), which is
+   * exactly the example the law names.
+   */
   unknownHookFamily: EventFamily
 }
 

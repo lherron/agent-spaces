@@ -229,9 +229,9 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
         driverKind: CODEX_CLI_TMUX_DRIVER_KIND,
         invocationId: driverCtx.invocationId,
         knownHookNames: CODEX_CLI_KNOWN_HOOK_NAMES,
-        // Codex hooks own this driver's turn bracket, so a hook the broker never
-        // registered is an unclassified load-bearing type: it halts the cursor.
-        unknownHookFamily: 'turn-bracket',
+        // Warns without halting, for the same reason as pi — see
+        // `HookCaptureSeamOptions.unknownHookFamily`.
+        unknownHookFamily: 'diagnostic',
       })
       const emit = (event: InvocationEventEnvelope): void => {
         captureSeam.minted()
