@@ -62,6 +62,29 @@ describe('claude-code-tmux disposition mirror', () => {
     expect(tracker.pendingCount).toBe(0)
   })
 
+  test('queued prompt hook evidence cannot promote before dequeue plus plain user evidence', () => {
+    const tracker = createTracker()
+    tracker.observeTurnStarted('turn_original' as TurnId)
+    tracker.observeQueueOperation(queueOp('enqueue', 'one'))
+    tracker.observeTurnTerminal('turn_original' as TurnId)
+
+    expect(tracker.observePromptHook('one')).toEqual([])
+    expect(tracker.activeTurnId).toBeUndefined()
+    expect(tracker.observeQueueOperation(queueOp('dequeue'))).toEqual([])
+    expect(tracker.observePlainUser('one', { type: 'user' })).toEqual([
+      expect.objectContaining({ kind: 'executed', content: 'one', turnId: 'turn_inv_attr_1' }),
+    ])
+  })
+
+  test('plain user transcript row dedupes turn already opened by prompt hook evidence', () => {
+    const tracker = createTracker()
+
+    expect(tracker.observePromptHook('typed prompt')).toEqual([
+      expect.objectContaining({ kind: 'executed', content: 'typed prompt' }),
+    ])
+    expect(tracker.observePlainUser('typed prompt', { type: 'user' })).toEqual([])
+  })
+
   test('archived round-B ordering interrupts the original before promoting the drain', () => {
     const tracker = createTracker()
     tracker.observeTurnStarted('turn_round_b' as TurnId)

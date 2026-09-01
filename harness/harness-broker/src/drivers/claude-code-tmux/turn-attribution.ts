@@ -239,6 +239,10 @@ export function createClaudeTurnAttribution(options: {
 
     observePlainUser(content, raw): ClaudeAttributionAction[] {
       const actions = cancelOutstandingRemovals()
+      if (content === recentDisposedPrompt) {
+        recentDisposedPrompt = undefined
+        return actions
+      }
       recentDisposedPrompt = undefined
       const drained = pending.find((item) => item.drainPending)
       if (drained !== undefined) {
@@ -283,6 +287,10 @@ export function createClaudeTurnAttribution(options: {
         content === undefined
           ? undefined
           : pending.find((item) => item.content === content && !item.sawPromptHook)
+      if (candidate?.sawEnqueue === true) {
+        candidate.sawPromptHook = true
+        return []
+      }
       if (activeTurnId !== undefined) {
         const item =
           candidate ??
@@ -306,7 +314,7 @@ export function createClaudeTurnAttribution(options: {
       const item =
         candidate ?? createPending(content, { allocatedTurnId: hintedTurnId, sawPromptHook: true })
       item.sawPromptHook = true
-      return [execute(item, false)]
+      return [execute(item, true)]
     },
 
     observeTurnStarted(turnId): void {
