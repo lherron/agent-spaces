@@ -86,6 +86,9 @@ export type ClaudeHookTranscriptReaderOptions = {
    * updated mirror state — which is how the row's raw disposition is decided.
    */
   onTranscriptEntry?: ((entry: Record<string, unknown>) => boolean) | undefined
+  onAssistantMessageStarted?:
+    | ((messageId: string, entry: Record<string, unknown>) => void)
+    | undefined
   /** This invocation's normalization cursor. Absent in the isolated unit harness. */
   capture?: CaptureGate | undefined
   /**
@@ -238,6 +241,22 @@ export function createClaudeHookTranscriptReader(
       }
     }
 
+    if (entryType === 'assistant') {
+      const message = entry['message']
+      const messageId =
+        message !== null && typeof message === 'object' && !Array.isArray(message)
+          ? getString(message as Record<string, unknown>, 'id')
+          : undefined
+      const fallbackId = getString(entry, 'uuid')
+      const resolvedId = messageId ?? fallbackId
+      if (resolvedId !== undefined) options.onAssistantMessageStarted?.(resolvedId, entry)
+      // Assistant prose is the HOOK path's fact for this driver (AUTHORITY.md).
+      // The row is real evidence of the same semantic fact, so it is a
+      // duplicate — not something ignored — regardless of whether it also fed
+      // the assistant-message-start observation above.
+      return { disposition: 'duplicate', detail: 'assistant prose owned by the hook path' }
+    }
+
     if (entryType === 'queue-operation' || entryType === 'attachment' || entryType === 'user') {
       const producedFact = options.onTranscriptEntry?.(entry) ?? false
       if (producedFact) {
@@ -266,13 +285,6 @@ export function createClaudeHookTranscriptReader(
       // A queue op or user row the mirror consumed without minting: it advanced
       // the deterministic mirror state (enqueue, dequeue, an echoed prompt).
       return { disposition: 'state-only', detail: entryType }
-    }
-
-    if (entryType === 'assistant') {
-      // Assistant prose is the HOOK path's fact for this driver (AUTHORITY.md).
-      // The row is real evidence of the same semantic fact, so it is a
-      // duplicate — not something ignored.
-      return { disposition: 'duplicate', detail: 'assistant prose owned by the hook path' }
     }
 
     if (CLAUDE_IGNORED_ROW_TYPES.has(entryType)) {

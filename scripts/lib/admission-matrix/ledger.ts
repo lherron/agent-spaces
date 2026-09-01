@@ -195,14 +195,26 @@ export function checkBracketMinting(
  */
 export function checkTurnManifest(
   slice: InvocationEventEnvelope[],
+  wholeRun: InvocationEventEnvelope[],
   manifests: ReadonlyMap<string, readonly string[]>
 ): Check {
-  const expected = new Map<string, Set<string>>()
+  // Which turns THIS cell touched...
+  const touched = new Set<string>()
   for (const event of slice) {
+    const turnId = stringField(event, 'turnId') ?? event.turnId
+    if (typeof turnId === 'string') touched.add(turnId)
+  }
+  // ...but the expected membership is rebuilt from the WHOLE runtime. A turn a
+  // steer joins was STARTED by an earlier submission, whose disposition sits
+  // before this cell's watermark; rebuilding from the slice alone would expect
+  // only the joiner and report the legitimate starter as an extra. The manifest
+  // names everyone who rode the turn, so the comparison must too.
+  const expected = new Map<string, Set<string>>()
+  for (const event of wholeRun) {
     if (event.type !== 'submission.executed' && event.type !== 'submission.absorbed') continue
     const turnId = stringField(event, 'turnId')
     const id = stringField(event, 'submissionId')
-    if (turnId === undefined || id === undefined) continue
+    if (turnId === undefined || id === undefined || !touched.has(turnId)) continue
     const entry = expected.get(turnId) ?? new Set<string>()
     entry.add(id)
     expected.set(turnId, entry)

@@ -22,6 +22,9 @@ type ClaudeHookTranscriptReaderFactory = (options: {
   now: () => Date
   invocationId: string
   getCurrentTurnId: () => string | undefined
+  onAssistantMessageStarted?:
+    | ((messageId: string, entry: Record<string, unknown>) => void)
+    | undefined
   onTranscriptEntry?: ((entry: Record<string, unknown>) => boolean | undefined) | undefined
 }) => ClaudeHookTranscriptReader
 
@@ -427,6 +430,35 @@ describe('createClaudeHookTranscriptReader', () => {
     expect(messageOf(events[0] as InvocationEventEnvelope)).toBe(
       'Claude transcript row is not valid JSON'
     )
+  })
+
+  test('ordinary assistant transcript rows announce request-in-flight evidence by message id', async () => {
+    const create = await loadFactory()
+    const path = tempTranscript()
+    const observed: string[] = []
+    const reader = create({
+      now: () => new Date('2026-06-22T19:34:10.000Z'),
+      invocationId,
+      getCurrentTurnId: () => 'turn_active_1',
+      onAssistantMessageStarted: (messageId) => observed.push(messageId),
+    })
+
+    reader.handleHook(sessionStart(path))
+    appendFileSync(
+      path,
+      jsonl({
+        type: 'assistant',
+        uuid: 'row_assistant_1',
+        message: {
+          id: 'msg_request_1',
+          role: 'assistant',
+          content: [{ type: 'thinking', thinking: '' }],
+        },
+      })
+    )
+
+    expect(reader.handleHook(postToolUse())).toEqual([])
+    expect(observed).toEqual(['msg_request_1'])
   })
 
   test('empty API-error text falls back to a non-empty diagnostic message', async () => {

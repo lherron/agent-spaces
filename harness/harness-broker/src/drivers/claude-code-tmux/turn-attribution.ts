@@ -8,6 +8,8 @@ type PendingSubmission = {
   sawEnqueue: boolean
   sawPromptHook: boolean
   drainPending: boolean
+  drainWarned: boolean
+  drainOperation?: unknown
   removePending: boolean
   removeWarned: boolean
   removeOperation?: unknown
@@ -40,6 +42,9 @@ export type ClaudeTranscriptQueueOperation = {
 export interface ClaudeTurnAttribution {
   readonly activeTurnId: TurnId | undefined
   readonly pendingCount: number
+  readonly harnessLocalQueueDepth: number
+  expectInterrupt(): number
+  cancelExpectedInterrupt(expectationId: number): void
   trackBrokerSubmission(input: {
     submissionId?: string | undefined
     content: string
@@ -64,6 +69,9 @@ export function createClaudeTurnAttribution(options: {
   const pending: PendingSubmission[] = []
   let activeTurnId: TurnId | undefined
   let submissionCounter = 0
+  let interruptExpectationCounter = 0
+  const expectedInterrupts: Array<{ id: number; turnId: TurnId | undefined }> = []
+  const settledInterruptTargets: TurnId[] = []
   let recentDisposedPrompt: string | undefined
 
   const nextHumanSubmissionId = (): string => {
@@ -85,6 +93,8 @@ export function createClaudeTurnAttribution(options: {
       sawEnqueue: init.sawEnqueue ?? false,
       sawPromptHook: init.sawPromptHook ?? false,
       drainPending: init.drainPending ?? false,
+      drainWarned: init.drainWarned ?? false,
+      ...(init.drainOperation !== undefined ? { drainOperation: init.drainOperation } : {}),
       removePending: init.removePending ?? false,
       removeWarned: init.removeWarned ?? false,
       ...(init.removeOperation !== undefined ? { removeOperation: init.removeOperation } : {}),
@@ -145,6 +155,22 @@ export function createClaudeTurnAttribution(options: {
       return pending.length
     },
 
+    get harnessLocalQueueDepth(): number {
+      return pending.filter((item) => item.sawEnqueue && !item.drainPending && !item.removePending)
+        .length
+    },
+
+    expectInterrupt(): number {
+      interruptExpectationCounter += 1
+      expectedInterrupts.push({ id: interruptExpectationCounter, turnId: activeTurnId })
+      return interruptExpectationCounter
+    },
+
+    cancelExpectedInterrupt(expectationId): void {
+      const index = expectedInterrupts.findIndex((expected) => expected.id === expectationId)
+      if (index >= 0) expectedInterrupts.splice(index, 1)
+    },
+
     trackBrokerSubmission(input): void {
       createPending(input.content, {
         ...(input.submissionId !== undefined ? { submissionId: input.submissionId } : {}),
@@ -198,6 +224,8 @@ export function createClaudeTurnAttribution(options: {
           return [warning('Unmatched Claude queue dequeue', operation)]
         }
         item.drainPending = true
+        item.drainWarned = false
+        item.drainOperation = operation
         return []
       }
 
@@ -256,11 +284,25 @@ export function createClaudeTurnAttribution(options: {
       const drained = pending.find((item) => item.drainPending)
       if (drained !== undefined) {
         if (drained.content !== content) {
-          actions.push(warning('Claude drained user row does not match FIFO submission', raw))
+          if (!drained.drainWarned) {
+            drained.drainWarned = true
+            actions.push(
+              warning('Claude drained user row does not match FIFO submission', {
+                kind: 'claude.dequeue-without-user-row',
+                blockedSubmissionId: drained.submissionId,
+                dequeue: drained.drainOperation,
+                observedUserRow: raw,
+              })
+            )
+          }
+          // The dropped item remains blocked-unknown, but it cannot prevent a
+          // later evidenced prompt (including the preempting submission) from
+          // opening its own truthful turn.
+          if (activeTurnId !== undefined) return actions
+        } else {
+          actions.push(execute(drained, true))
           return actions
         }
-        actions.push(execute(drained, true))
-        return actions
       }
 
       if (activeTurnId !== undefined) {
@@ -278,6 +320,14 @@ export function createClaudeTurnAttribution(options: {
     observeInterrupt(raw): ClaudeAttributionAction[] {
       recentDisposedPrompt = undefined
       const actions = settleOutstandingRemovals(raw)
+      const expected = expectedInterrupts.shift()
+      if (expected !== undefined) {
+        if (expected.turnId === undefined) return actions
+        if (activeTurnId === expected.turnId) activeTurnId = undefined
+        actions.push({ kind: 'interrupted', turnId: expected.turnId })
+        return actions
+      }
+      if (settledInterruptTargets.shift() !== undefined) return actions
       if (activeTurnId === undefined) {
         actions.push(warning('Claude interrupt row has no active turn', raw))
         return actions
@@ -334,11 +384,20 @@ export function createClaudeTurnAttribution(options: {
     },
 
     observeTurnStarted(turnId): void {
+      // If an interrupt-target turn completed before its C-c produced a marker,
+      // the next turn start proves that marker will not arrive at this boundary.
+      settledInterruptTargets.length = 0
       activeTurnId = turnId
       recentDisposedPrompt = undefined
     },
 
     observeTurnTerminal(turnId): void {
+      for (let index = expectedInterrupts.length - 1; index >= 0; index -= 1) {
+        if (expectedInterrupts[index]?.turnId === turnId) {
+          expectedInterrupts.splice(index, 1)
+          settledInterruptTargets.push(turnId)
+        }
+      }
       if (activeTurnId === turnId) activeTurnId = undefined
       recentDisposedPrompt = undefined
     },
@@ -347,6 +406,7 @@ export function createClaudeTurnAttribution(options: {
       const actions: ClaudeAttributionAction[] = []
       for (const item of [...pending]) {
         drop(item)
+        if (item.drainPending && item.drainWarned) continue
         actions.push({ kind: 'cancelled', ...base(item), reason: 'teardown' })
       }
       recentDisposedPrompt = undefined

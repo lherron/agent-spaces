@@ -12,6 +12,7 @@ import type {
   InvocationInterruptResponse,
   InvocationStopRequest,
   InvocationStopResponse,
+  MessageId,
   TurnId,
 } from 'spaces-harness-broker-protocol'
 import {
@@ -243,6 +244,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
   const structuredTurns = new Map<string, StructuredTurnState>()
   const completedStructuredTurns = new Set<string>()
   const apiErrorTurns = new Set<string>()
+  const startedAssistantMessages = new Set<string>()
 
   // Single shared per-invocation turn-id allocator (cody's blessed scheme,
   // C-02755). BOTH applyInputNow (manager path) and the hook normalizer (which
@@ -506,13 +508,29 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
           emitCaptured(driverCtx, type, payload, extra)
         },
         onApiError: (turnId) => apiErrorTurns.add(turnId),
+        onAssistantMessageStarted: (messageId) => {
+          const turnId = turnAttribution.activeTurnId
+          if (turnId === undefined || startedAssistantMessages.has(messageId)) return
+          startedAssistantMessages.add(messageId)
+          driverCtx.emit(
+            'assistant.message.started',
+            { messageId: messageId as MessageId },
+            {
+              turnId,
+              itemId: messageId,
+              driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType: 'transcript.assistant' },
+            }
+          )
+        },
         onTranscriptEntry: (entry) => {
           const entryType = getString(entry, 'type')
           if (entryType === 'queue-operation') {
-            return emitAttributionActions(
-              turnAttribution.observeQueueOperation(entry as ClaudeTranscriptQueueOperation),
-              'queue-operation'
+            const actions = turnAttribution.observeQueueOperation(
+              entry as ClaudeTranscriptQueueOperation
             )
+            const minted = emitAttributionActions(actions, 'queue-operation')
+            driverCtx.admissionStateChanged?.()
+            return minted
           }
           if (entryType === 'attachment') {
             const attachment = asHookRecord(entry['attachment'])
@@ -807,7 +825,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     },
 
     probeAdmissionState() {
-      return { harnessLocalQueueDepth: attribution?.pendingCount ?? 0 }
+      return { harnessLocalQueueDepth: attribution?.harnessLocalQueueDepth ?? 0 }
     },
 
     async interrupt(_req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
@@ -817,7 +835,13 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       if (surface === undefined || paneController === undefined) {
         return { accepted: false, effect: 'no_active_turn' }
       }
-      await paneController.interrupt()
+      const expectationId = attribution?.expectInterrupt()
+      try {
+        await paneController.interrupt()
+      } catch (error) {
+        if (expectationId !== undefined) attribution?.cancelExpectedInterrupt(expectationId)
+        throw error
+      }
       return { accepted: true, effect: 'turn_interrupted' }
     },
 
@@ -868,6 +892,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       structuredTurns.clear()
       completedStructuredTurns.clear()
       apiErrorTurns.clear()
+      startedAssistantMessages.clear()
     },
   }
 
@@ -1274,7 +1299,10 @@ function classifyTranscriptUserEntry(
     .filter((part): part is string => part !== undefined)
     .join('')
     .trim()
-  return text === '[Request interrupted by user]' ? { kind: 'interrupted' } : undefined
+  return text === '[Request interrupted by user]' ||
+    text === '[Request interrupted by user for tool use]'
+    ? { kind: 'interrupted' }
+    : undefined
 }
 
 async function buildLaunchCommandLine(

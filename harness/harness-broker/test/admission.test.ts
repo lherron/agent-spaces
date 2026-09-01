@@ -288,24 +288,63 @@ describe('broker admission API', () => {
     expect(atomic.controller.activeInput?.inputId).toBe(preempt.submissionId)
   })
 
-  test('quiescence preempt repeatedly interrupts three harness-local drained turns', async () => {
+  test('quiescence preempt waits for request evidence and accepts bounded drain slippage', async () => {
     const { broker, controller, events, invocationId } = await setup('inv_admission_quiescence', {
       preemptMode: 'quiescence',
     })
     await broker.invoke({ invocationId, origin, body: 'active' })
     await flush()
+    controller.startToolCall('tool-base')
     controller.setHarnessLocalQueueDepth(3)
     const preempt = await broker.preempt({ invocationId, origin, body: 'after quiescence' })
     await flush()
 
-    for (const inputId of ['local-1', 'local-2', 'local-3']) {
+    controller.startHarnessLocalTurn('local-fast')
+    await flush()
+    expect(eventsFor(events, 'interrupt.landed')).toHaveLength(1)
+    controller.completeActiveTurn('completed before request evidence')
+    await flush()
+
+    for (const [inputId, toolCallId] of [
+      ['local-1', 'tool-local-1'],
+      ['local-2', 'tool-local-2'],
+    ] as const) {
       controller.startHarnessLocalTurn(inputId)
       await flush()
+      const landedBeforeEvidence = eventsFor(events, 'interrupt.landed').length
+      controller.startToolCall(toolCallId)
+      await flush()
+      expect(eventsFor(events, 'interrupt.landed')).toHaveLength(landedBeforeEvidence + 1)
     }
     await flush()
 
-    expect(eventsFor(events, 'interrupt.landed')).toHaveLength(4)
-    expect(eventsFor(events, 'turn.interrupted')).toHaveLength(4)
+    expect(eventsFor(events, 'interrupt.landed')).toHaveLength(3)
+    expect(eventsFor(events, 'turn.interrupted')).toHaveLength(3)
+    expect(eventsFor(events, 'turn.completed')).toHaveLength(1)
     expect(controller.activeInput?.inputId).toBe(preempt.submissionId)
+  })
+
+  test('quiescence injects preempt immediately when queue ops dequeue a dropped prompt', async () => {
+    const { broker, controller, events, invocationId } = await setup(
+      'inv_admission_quiescence_dropped',
+      { preemptMode: 'quiescence' }
+    )
+    await broker.invoke({ invocationId, origin, body: 'active' })
+    await flush()
+    controller.setHarnessLocalQueueDepth(1)
+    const preempt = await broker.preempt({ invocationId, origin, body: 'after dropped prompt' })
+    await flush()
+
+    controller.startToolCall('tool-base')
+    await flush()
+    expect(eventsFor(events, 'turn.interrupted')).toHaveLength(1)
+    expect(controller.activeInput).toBeUndefined()
+
+    controller.setHarnessLocalQueueDepth(0)
+    await flush()
+    expect(controller.activeInput?.inputId).toBe(preempt.submissionId)
+    expect(eventsFor(events, 'submission.executed').at(-1)?.payload).toMatchObject({
+      submissionId: preempt.submissionId,
+    })
   })
 })

@@ -370,6 +370,10 @@ export interface Invocation {
   submissionDispositions: Map<string, InvocationEventEnvelope>
   turnManifests: Map<TurnId, TurnManifestResponse>
   currentTurnPolicy: TurnPolicy
+  /** True once the current turn's provider request has observable assistant/tool evidence. */
+  currentTurnRequestInFlight: boolean
+  /** Quiescence interrupt waiting for the targeted turn's marker or terminal. */
+  preemptInterruptTurnId?: TurnId | undefined
   submissionCounter: number
   /** Own-turn delivery awaiting the driver's declared turn-start evidence. */
   pendingOwnTurnSubmissionId?: string | undefined
@@ -890,9 +894,12 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
 
   async function requestPreemptInterrupt(inv: Invocation, record: SubmissionRecord): Promise<void> {
     const turnId = inv.currentTurnId
+    if (turnId === undefined || inv.preemptInterruptTurnId !== undefined) return
+    if (inv.driver.preemptMode === 'quiescence' && !inv.currentTurnRequestInFlight) return
+    inv.preemptInterruptTurnId = turnId
     emit(inv, 'interrupt.requested', {
       submissionId: record.submissionId,
-      ...(turnId !== undefined ? { turnId } : {}),
+      turnId,
     })
     try {
       const result = await inv.driver.interrupt({
@@ -903,25 +910,33 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       if (!result.accepted) {
         emit(inv, 'interrupt.failed', {
           submissionId: record.submissionId,
-          ...(turnId !== undefined ? { turnId } : {}),
+          turnId,
           reason: result.reason ?? result.effect,
         })
+        if (inv.preemptInterruptTurnId === turnId) inv.preemptInterruptTurnId = undefined
         rejectAdmittedExecution(inv, record, result.reason ?? result.effect)
         return
       }
       emit(inv, 'interrupt.landed', {
         submissionId: record.submissionId,
-        ...(turnId !== undefined ? { turnId } : {}),
+        turnId,
       })
       scheduleAdmissionDrain(inv)
     } catch (error) {
       emit(inv, 'interrupt.failed', {
         submissionId: record.submissionId,
-        ...(turnId !== undefined ? { turnId } : {}),
+        turnId,
         reason: error instanceof Error ? error.message : String(error),
       })
+      if (inv.preemptInterruptTurnId === turnId) inv.preemptInterruptTurnId = undefined
       rejectAdmittedExecution(inv, record, error)
     }
+  }
+
+  function maybeRequestPreemptInterrupt(inv: Invocation): void {
+    const preempt = inv.brokerQueue.find((item) => item.class === 'preempt')
+    if (preempt === undefined || inv.driver.preemptMode !== 'quiescence') return
+    void requestPreemptInterrupt(inv, preempt.record)
   }
 
   // ---------------------------------------------------------------------------
@@ -1246,6 +1261,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         if (event.turnId !== undefined) {
           inv.currentTurnId = event.turnId
         }
+        inv.currentTurnRequestInFlight = false
         // Project the active-turn summary fields (event fields first, then
         // payload, then manager-tracked fallbacks).
         const payload = event.payload as
@@ -1257,10 +1273,6 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         const generation = event.harnessGeneration
         if (typeof generation === 'number') {
           inv.currentHarnessGeneration = generation
-        }
-        const preempt = inv.brokerQueue.find((item) => item.class === 'preempt')
-        if (preempt !== undefined && inv.driver.preemptMode === 'quiescence') {
-          void requestPreemptInterrupt(inv, preempt.record)
         }
         if (inv.driver.bracketMintingMode === 'harness-evidence' && event.inputId !== undefined) {
           const record = inv.submissions.get(event.inputId)
@@ -1275,15 +1287,40 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         }
         return
       }
+      case 'assistant.message.started':
+      case 'assistant.message.delta':
+      case 'assistant.message.completed':
+      case 'tool.call.started':
+        if (event.turnId !== undefined && event.turnId === inv.currentTurnId) {
+          inv.currentTurnRequestInFlight = true
+          maybeRequestPreemptInterrupt(inv)
+        }
+        return
       // biome-ignore lint/suspicious/noFallthroughSwitchClause: intentional — turn.completed increments the counter then shares the turn-end projection below.
       case 'turn.completed':
         inv.turnsCompleted = (inv.turnsCompleted ?? 0) + 1
       // falls through to the shared turn-end projection below
       case 'turn.failed':
-      case 'turn.interrupted':
+      case 'turn.interrupted': {
+        const terminalTurnId = event.turnId
+        const targeted =
+          terminalTurnId !== undefined && inv.preemptInterruptTurnId === terminalTurnId
+        if (targeted) inv.preemptInterruptTurnId = undefined
+        if (
+          terminalTurnId !== undefined &&
+          inv.currentTurnId !== undefined &&
+          terminalTurnId !== inv.currentTurnId
+        ) {
+          // A drained successor's user row can precede the prior turn's
+          // interrupt marker. Preserve the successor projection; it becomes
+          // interruptible only after its own request evidence arrives.
+          if (targeted) maybeRequestPreemptInterrupt(inv)
+          return
+        }
         inv.currentTurnId = undefined
         inv.currentInputId = undefined
         inv.currentTurnStartedAt = undefined
+        inv.currentTurnRequestInFlight = false
         if (inv.state !== 'exited' && inv.state !== 'failed' && inv.state !== 'disposed') {
           inv.state = 'ready'
         }
@@ -1291,6 +1328,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         scheduleDrain(inv)
         scheduleAdmissionDrain(inv)
         return
+      }
       case 'invocation.stopping':
         inv.state = 'stopping'
         inv.terminalReason = 'stopping'
@@ -1980,6 +2018,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         submissionDispositions: new Map(),
         turnManifests: new Map(),
         currentTurnPolicy: 'open',
+        currentTurnRequestInFlight: false,
         submissionCounter: 0,
         inputCounter: 0,
         inputDispositions: new Map(),
@@ -2045,6 +2084,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
           return emit(inv, type, payload, extra)
         },
         emitEvent: (event, extra) => emitEvent(inv, event, extra),
+        admissionStateChanged: () => scheduleAdmissionDrain(inv),
         ...(onPermissionRequest !== undefined
           ? {
               // Broker-owned permission lifecycle (C2): the driver hands the
@@ -2171,8 +2211,10 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       if (rejection !== undefined) return rejection
       const response = admitSubmission(inv, record)
       holdSubmission(inv, record, 'preempt', req.ttlMs)
-      if (inv.state === 'turn_active') void requestPreemptInterrupt(inv, record)
-      else scheduleAdmissionDrain(inv)
+      if (inv.state === 'turn_active') {
+        if (inv.driver.preemptMode === 'quiescence') maybeRequestPreemptInterrupt(inv)
+        else void requestPreemptInterrupt(inv, record)
+      } else scheduleAdmissionDrain(inv)
       return response
     },
 

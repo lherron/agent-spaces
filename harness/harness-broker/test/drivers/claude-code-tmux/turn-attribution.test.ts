@@ -211,6 +211,27 @@ describe('claude-code-tmux disposition mirror', () => {
     ])
   })
 
+  test('a requested interrupt terminalizes its evidenced target after a successor user row', () => {
+    const tracker = createTracker()
+    tracker.observeTurnStarted('turn_original' as TurnId)
+    tracker.expectInterrupt()
+    tracker.observeTurnStarted('turn_successor' as TurnId)
+
+    expect(tracker.observeInterrupt({ message: '[Request interrupted by user]' })).toEqual([
+      { kind: 'interrupted', turnId: 'turn_original' },
+    ])
+    expect(tracker.activeTurnId).toBe('turn_successor')
+  })
+
+  test('a requested interrupt marker after bounded completion is a silent duplicate', () => {
+    const tracker = createTracker()
+    tracker.observeTurnStarted('turn_fast' as TurnId)
+    tracker.expectInterrupt()
+    tracker.observeTurnTerminal('turn_fast' as TurnId)
+
+    expect(tracker.observeInterrupt({ message: '[Request interrupted by user]' })).toEqual([])
+  })
+
   test('popAll cancels recalled items and teardown cancels every survivor', () => {
     const tracker = createTracker()
     tracker.observeTurnStarted('turn_live' as TurnId)
@@ -288,6 +309,14 @@ const artifactRoot = join(process.env['HOME'] ?? '', 'praesidium/var/wrkq-artifa
 const archiveOne = join(artifactRoot, 'e2e-enqueue-pin-transcript-73efc2a5.jsonl')
 const archiveTwo = join(artifactRoot, 'e2e-enqueue-pin2-transcript-36022e44.jsonl')
 const archiveThree = join(artifactRoot, 'e2e-enqueue-pin3-transcript-f3003503.jsonl')
+const preemptBoundaryArchive = join(
+  import.meta.dir,
+  '../../fixtures/claude-preempt-drain-boundary-d8c2534f.rows23-45.jsonl'
+)
+const preemptCrossingArchive = join(
+  import.meta.dir,
+  '../../fixtures/claude-preempt-request-crossing-36911f19.rows23-40.jsonl'
+)
 const archiveTest = existsSync(archiveOne) && existsSync(archiveTwo) ? test : test.skip
 const archiveThreeTest = existsSync(archiveThree) ? test : test.skip
 
@@ -311,7 +340,10 @@ const promptFromUserRow = (row: ArchiveRow): string | 'interrupted' | undefined 
     )
     .filter((value): value is string => typeof value === 'string')
     .join('')
-  return text === '[Request interrupted by user]' ? 'interrupted' : undefined
+  return text === '[Request interrupted by user]' ||
+    text === '[Request interrupted by user for tool use]'
+    ? 'interrupted'
+    : undefined
 }
 
 const replayRows = (
@@ -502,4 +534,71 @@ describe('T-07849 archived transcript replays', () => {
       expect(d).toEqual([expect.objectContaining({ kind: 'cancelled', reason: 'teardown' })])
     }
   )
+})
+
+describe('T-07859 archived preempt drain-boundary failure', () => {
+  test('drained user rows have no request evidence and therefore must not trigger C-c', () => {
+    const rows = readArchive(preemptBoundaryArchive)
+    const drainedIndexes = rows
+      .map((row, index) => ({ index, prompt: promptFromUserRow(row) }))
+      .filter(
+        (entry): entry is { index: number; prompt: string } =>
+          typeof entry.prompt === 'string' && entry.prompt.includes('_QUEUED_')
+      )
+      .map((entry) => entry.index)
+
+    expect(drainedIndexes).toHaveLength(2)
+    const firstDrain = drainedIndexes[0]!
+    expect(rows.slice(firstDrain).filter((row) => row['type'] === 'assistant')).toHaveLength(0)
+    expect(
+      rows
+        .slice(firstDrain)
+        .filter((row) => row['type'] === 'user')
+        .map(promptFromUserRow)
+        .filter((prompt) => prompt === 'interrupted')
+    ).toHaveLength(2)
+  })
+
+  test('MTJA36GG dequeue evidence reaches quiescence and holds the dropped prompt unknown', () => {
+    const rows = readArchive(preemptCrossingArchive)
+    const tracker = createTracker('archive_mtja36gg')
+    tracker.observeTurnStarted('turn_base' as TurnId)
+    tracker.expectInterrupt()
+    const actions: ClaudeAttributionAction[] = []
+
+    replayRows(tracker, rows.slice(0, 5), actions)
+    expect(tracker.harnessLocalQueueDepth).toBe(1)
+    expect(tracker.activeTurnId).toBe('turn_archive_mtja36gg_1')
+
+    tracker.observeQueueOperation(rows[7] as Parameters<typeof tracker.observeQueueOperation>[0])
+    expect(tracker.harnessLocalQueueDepth).toBe(0)
+    tracker.observeTurnTerminal('turn_archive_mtja36gg_1' as TurnId)
+    expect(tracker.activeTurnId).toBeUndefined()
+
+    tracker.trackBrokerSubmission({
+      submissionId: 'submission_preempt',
+      inputId: 'submission_preempt',
+      allocatedTurnId: 'turn_preempt' as TurnId,
+      content: 'PREEMPT',
+    })
+    expect(tracker.observePlainUser('PREEMPT', { type: 'user' })).toEqual([
+      expect.objectContaining({
+        kind: 'warning',
+        message: 'Claude drained user row does not match FIFO submission',
+        raw: expect.objectContaining({
+          kind: 'claude.dequeue-without-user-row',
+          blockedSubmissionId: expect.stringContaining('archive_mtja36gg'),
+          dequeue: expect.objectContaining({ operation: 'dequeue' }),
+        }),
+      }),
+      expect.objectContaining({
+        kind: 'executed',
+        submissionId: 'submission_preempt',
+        turnId: 'turn_preempt',
+      }),
+    ])
+    expect(tracker.pendingCount).toBe(1)
+    expect(tracker.harnessLocalQueueDepth).toBe(0)
+    expect(tracker.teardown()).toEqual([])
+  })
 })
