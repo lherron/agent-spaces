@@ -11,6 +11,8 @@ import type {
   HarnessInvocationSpec,
   InvocationAckEventsRequest,
   InvocationAckEventsResponse,
+  InvocationCaptureReleaseRequest,
+  InvocationCaptureReleaseResponse,
   InvocationDispatchRequest,
   InvocationDisposeRequest,
   InvocationEventEnvelope,
@@ -359,6 +361,16 @@ export class BrokerClient {
 
   snapshot(req: InvocationSnapshotRequest): Promise<InvocationSnapshot> {
     return this.#transport.request('invocation.snapshot', req)
+  }
+
+  /**
+   * Operator disposition for a blocked-unknown raw record, resuming a halted
+   * normalization cursor (T-07853 §6.1). Mutating, so it rides the fenced
+   * control connection alongside `ackEvents` — never the read-only observer
+   * surface.
+   */
+  captureRelease(req: InvocationCaptureReleaseRequest): Promise<InvocationCaptureReleaseResponse> {
+    return this.#transport.request('invocation.capture.release', req)
   }
 
   /**
