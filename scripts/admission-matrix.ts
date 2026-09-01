@@ -172,6 +172,20 @@ async function waitFor(predicate: () => boolean, timeoutMs: number): Promise<boo
   return false
 }
 
+/** True while a tool call opened in these events has not yet reached a terminal. */
+function insideToolCall(events: InvocationEventEnvelope[]): boolean {
+  const settled = new Set(
+    events
+      .filter((event) => event.type === 'tool.call.completed' || event.type === 'tool.call.failed')
+      .map((event) => (event.payload as { toolCallId?: unknown }).toolCallId)
+  )
+  return events.some(
+    (event) =>
+      event.type === 'tool.call.started' &&
+      !settled.has((event.payload as { toolCallId?: unknown }).toolCallId)
+  )
+}
+
 function openTurnIds(events: InvocationEventEnvelope[]): string[] {
   const open = new Set<string>()
   for (const event of events) {
@@ -279,14 +293,22 @@ async function runCell(input: {
   //    door — so even the fixture traffic obeys the four-door rule.
   const base = basePrompt(state, cellMarker)
   if (base !== undefined) {
+    // Watermark BEFORE the base submission: the arming predicate must look only
+    // at events this cell caused. Scanning the whole history makes
+    // `some(tool.call.started)` permanently true after the first cell that used
+    // a tool, so every later busy cell "arms" instantly and then knocks on a
+    // seat whose turn has not opened yet — which reads as a driver defect
+    // (`interrupt.requested=0`) when it is really a racing harness.
+    const armWatermark = events.length
     await knock('invoke', broker, { invocationId, body: base, principalRef: MATRIX_PRINCIPAL })
-    const armed =
+    let armed =
       state === 'busy-generating'
         ? await waitForTurnActive(broker, invocationId, ctx.timeoutMs)
-        : await waitFor(
-            () => events.some((event) => event.type === 'tool.call.started'),
-            ctx.timeoutMs
-          )
+        : await waitFor(() => insideToolCall(events.slice(armWatermark)), ctx.timeoutMs)
+    // The seat's own probe is the authority on "busy": a tool-call event can
+    // reach the ledger a beat before the broker projects `turn-active`, and a
+    // door knocked in that window is admitted against an idle seat.
+    if (armed) armed = await waitForTurnActive(broker, invocationId, 15_000)
     if (!armed) {
       return {
         door,
@@ -493,7 +515,7 @@ async function runCell(input: {
         .filter((id): id is string => id !== undefined)
     )
   )
-  checks.push(checkTurnManifest(slice, await collectManifests(broker, invocationId, slice)))
+  checks.push(checkTurnManifest(slice, events, await collectManifests(broker, invocationId, slice)))
 
   return {
     door,
