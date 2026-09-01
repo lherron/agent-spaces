@@ -215,7 +215,11 @@ describe('broker admission API', () => {
 
   test('steer is absorbed on open turns and rejected by guarded turn policy', async () => {
     const open = await setup('inv_admission_steer_open')
-    await open.broker.invoke({ invocationId: open.invocationId, origin, body: 'active' })
+    const started = await open.broker.invoke({
+      invocationId: open.invocationId,
+      origin,
+      body: 'active',
+    })
     await flush()
     const steered = await open.broker.steer({
       invocationId: open.invocationId,
@@ -226,6 +230,17 @@ describe('broker admission API', () => {
     expect(steered.admission).toBe('admitted')
     expect(eventsFor(open.events, 'submission.absorbed').at(-1)?.payload).toMatchObject({
       submissionId: steered.submissionId,
+    })
+    const turnId = (
+      eventsFor(open.events, 'submission.absorbed').at(-1)?.payload as
+        | { turnId?: string }
+        | undefined
+    )?.turnId
+    expect(turnId).toBeDefined()
+    expect(
+      await open.broker.turnManifest({ invocationId: open.invocationId, turnId: turnId! })
+    ).toMatchObject({
+      submissionIds: [started.submissionId, steered.submissionId],
     })
 
     const guarded = await setup('inv_admission_steer_guarded')
