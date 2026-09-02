@@ -236,6 +236,50 @@ describe('claude native-type disposition coverage (archived T-07849 vocabulary)'
     expect(warnings).toEqual([])
   })
 
+  test('a blocked hook decision is classified on BOTH rows it writes', () => {
+    // The structured-output retry is the only path that blocks a hook decision,
+    // so no archived session contains either row. A live leg found both, and a
+    // replay against the PREVIOUS release produced the same two — the halt is a
+    // pre-existing defect this task surfaced, not a Phase 4 regression.
+    const { dispositions, details, warnings } = replay([
+      JSON.stringify({
+        type: 'user',
+        message: {
+          role: 'user',
+          content: 'Stop hook feedback:\n/ must be valid JSON matching schema',
+        },
+      }),
+      JSON.stringify({
+        type: 'attachment',
+        attachment: {
+          type: 'hook_blocking_error',
+          hookName: 'Stop',
+          hookEvent: 'Stop',
+          toolUseID: 'tu_1',
+          blockingError: {
+            blockingError: '/ must be valid JSON matching schema',
+            command: 'harness-broker claude-hook-decision --socket /tmp/secret.sock',
+          },
+        },
+      }),
+    ])
+    expect(dispositions).toEqual([
+      // The mirror is stubbed to "no fact minted" in this harness, so the user
+      // row's classification is the driver's job and is asserted in the driver
+      // suite; here the point is that the ATTACHMENT no longer warns.
+      { nativeType: 'user', disposition: 'state-only' },
+      { nativeType: 'attachment:hook_blocking_error', disposition: 'ignored-known' },
+    ])
+    expect(JSON.parse(details[1]?.detail ?? 'null')).toEqual({
+      hookName: 'Stop',
+      hookEvent: 'Stop',
+      blockingError: '/ must be valid JSON matching schema',
+    })
+    // The command carries socket paths and is deliberately not copied.
+    expect(details[1]?.detail).not.toContain('secret.sock')
+    expect(warnings).toEqual([])
+  })
+
   test('an unknown top-level row type is reported but does NOT halt the cursor', () => {
     // We cannot assert a row type we cannot place is load-bearing, and the law
     // halts only on an unclassified LOAD-BEARING type. It still warns.

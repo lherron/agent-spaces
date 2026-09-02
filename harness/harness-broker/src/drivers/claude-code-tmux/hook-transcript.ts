@@ -477,6 +477,26 @@ export function createClaudeHookTranscriptReader(
       attachment !== null && typeof attachment === 'object' && !Array.isArray(attachment)
         ? getString(attachment as Record<string, unknown>, 'type')
         : undefined
+    if (attachmentType === 'hook_blocking_error') {
+      // The other side of the Stop DECISION bridge: when the broker BLOCKS a
+      // Stop (the structured-output retry), Claude records the block as this
+      // attachment and feeds the reason back into the conversation. Found by
+      // the T-07873 structured-output live leg — the only path that exercises a
+      // blocking hook decision, which is why no archived session contains one.
+      // Ignored-known with the reason kept and the `command` (which carries
+      // socket paths) deliberately dropped, exactly as `hook_cancelled` does.
+      const attachmentRecord = attachment as Record<string, unknown>
+      const blocking = asRecord(attachmentRecord['blockingError'])
+      return {
+        disposition: 'ignored-known',
+        detail: JSON.stringify({
+          hookName: getString(attachmentRecord, 'hookName') ?? null,
+          hookEvent: getString(attachmentRecord, 'hookEvent') ?? null,
+          blockingError:
+            blocking !== undefined ? (getString(blocking, 'blockingError') ?? null) : null,
+        }),
+      }
+    }
     if (attachmentType === 'hook_cancelled') {
       const attachmentRecord = attachment as Record<string, unknown>
       const hookName = getString(attachmentRecord, 'hookName')

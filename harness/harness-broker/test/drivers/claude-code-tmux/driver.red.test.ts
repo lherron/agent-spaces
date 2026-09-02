@@ -647,6 +647,89 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     }
   })
 
+  test('a blocked Stop hook writes feedback as a user row that must NOT halt the cursor', async () => {
+    // Reproduced on the PREVIOUS release before being fixed here: when the
+    // broker blocks a Stop decision (the structured-output retry), Claude
+    // writes the reason back as an ordinary `type:'user'` row with string
+    // content while the turn is still active. Routed to the disposition mirror
+    // that is "a plain user row arrived while a turn is active" — a
+    // load-bearing anomaly, which HALTS the cursor and stalls the invocation.
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
+    const events: InvocationEventEnvelope[] = []
+    const root = mkdtempSync(join(tmpdir(), 'claude-stop-feedback-'))
+    const transcriptPath = join(root, 'session.jsonl')
+    writeFileSync(transcriptPath, '')
+    const hookSocket = '/tmp/harness-broker/claude-hooks.sock'
+    const driver = createDriver({
+      tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
+      hooks: {
+        listen: async (handler) => {
+          hookHandler = handler as (envelope: HookEnvelope) => Promise<void>
+          return { socketPath: hookSocket, close: async () => undefined }
+        },
+      },
+      now,
+    })
+
+    try {
+      await driver.start(claudeTmuxSpec(), createCtx(events, { terminalSurface: defaultLease() }))
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        hookData: { hook_event_name: 'SessionStart', transcript_path: transcriptPath },
+      })
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        turnId: 'turn_structured',
+        hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'return a number' },
+      })
+      appendFileSync(
+        transcriptPath,
+        `${[
+          {
+            type: 'user',
+            message: {
+              role: 'user',
+              content: 'Stop hook feedback:\n/ must be valid JSON matching schema',
+            },
+          },
+          {
+            type: 'attachment',
+            attachment: {
+              type: 'hook_blocking_error',
+              hookName: 'Stop',
+              hookEvent: 'Stop',
+              blockingError: { blockingError: '/ must be valid JSON matching schema' },
+            },
+          },
+        ]
+          .map((row) => JSON.stringify(row))
+          .join('\n')}\n`
+      )
+      const before = events.length
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        hookData: { hook_event_name: 'Notification', message: 'after feedback' },
+      })
+
+      const captured = events.slice(before)
+      expect(captured.filter((event) => event.type === 'capture.warning')).toEqual([])
+      // And it is not mistaken for an operator prompt either.
+      expect(captured.map((event) => event.type)).not.toContain('user.message')
+      expect(captured.map((event) => event.type)).not.toContain('turn.started')
+    } finally {
+      await driver.dispose().catch(() => undefined)
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test('transcript interrupt terminalizes the original before a dequeue-promoted successor', async () => {
     const createDriver = await loadFactory()
     const tmuxCalls: TmuxExecCall[] = []

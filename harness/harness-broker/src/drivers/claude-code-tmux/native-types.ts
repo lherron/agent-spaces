@@ -154,3 +154,19 @@ export const CLAUDE_UNKNOWN_ATTACHMENT_FAMILY: EventFamily = 'diagnostic'
  * place in any family cannot be asserted to be load-bearing. It warns.
  */
 export const CLAUDE_UNKNOWN_ROW_FAMILY: EventFamily = 'diagnostic'
+
+/**
+ * Prefix Claude puts on the `user` row it writes when a HOOK BLOCKS a decision
+ * — today only the `Stop` decision bridge, which the broker blocks to drive a
+ * structured-output retry.
+ *
+ * Pinned as a string because it IS one: the row is an ordinary `type:'user'`
+ * row with string content, indistinguishable from an operator prompt except by
+ * this prefix. Without it the disposition mirror sees a plain user row arriving
+ * while a turn is active, which is a load-bearing anomaly and HALTS the cursor
+ * — reproduced on `release-20260902035322961-10808` (pre-Phase-4), so this is a
+ * pre-existing defect the T-07873 structured-output leg surfaced, not a
+ * regression. Same shape of fact as the `[Request interrupted by user]` marker
+ * the interrupt path already pins.
+ */
+export const CLAUDE_STOP_HOOK_FEEDBACK_PREFIX = 'Stop hook feedback:'

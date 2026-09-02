@@ -221,7 +221,10 @@ The tables that decide `ignored-known` vs `blocked-unknown` are
 - `src/drivers/claude-code-tmux/native-types.ts` — enumerated from the three
   archived live sessions on wrkq `T-07849`: 14 session-JSONL row types, 9
   attachment subtypes, 4 queue operations, and — added by Phase 4 — 3 `system`
-  row SUBTYPES (`turn_duration`, `stop_hook_summary`, `bridge_status`). `system`
+  row SUBTYPES (`turn_duration`, `stop_hook_summary`, `bridge_status`), the
+  `attachment:hook_blocking_error` subtype and the `Stop hook feedback:` user-row
+  prefix, both found by the structured-output LIVE leg because only a blocked
+  hook decision produces them. `system`
   and `cost-state` left the ignored set when they started minting; an unknown
   `system` subtype warns rather than halting, like any unknown row type. The
   later observed
@@ -417,6 +420,27 @@ terminal itself missing for the interrupt path, the question does not arise.
 interrupt terminal's raw record now carries the id of the message it cut off,
 and the partial prose is flushed as a NON-final `assistant.message.completed`
 rather than being dropped.
+
+### Two rows a blocked hook decision writes, and a halt they used to cause
+
+The `Stop` DECISION bridge is the one hook the broker BLOCKS — that is how the
+structured-output retry works. Blocking it makes Claude write TWO rows no
+archived session contains, because no archived session ever blocked a hook:
+
+| Row | What it is | Disposition |
+| --- | --- | --- |
+| `type:'user'` with string content beginning `Stop hook feedback:` | the block reason, fed back into the conversation | `ignored-known` — harness feedback about a BROKER decision, not an operator prompt and not model prose |
+| `attachment:hook_blocking_error` | Claude's marker for the blocked hook, carrying `hookName`/`hookEvent`/`blockingError` | `ignored-known`, reason kept, `command` dropped (it carries socket paths), exactly as `hook_cancelled` |
+
+The feedback row is an ordinary user row arriving while a turn is active, which
+the disposition mirror correctly treats as a load-bearing anomaly — so it HALTED
+the cursor and stalled the invocation, which is why the first structured-output
+live leg never reached its cap. **Reproduced on `release-20260902035322961-10808`
+(pre-Phase-4) with the identical two warnings**, so it is a pre-existing defect
+this phase's leg surfaced rather than a regression, and it is fixed here:
+`CLAUDE_STOP_HOOK_FEEDBACK_PREFIX` is pinned as a behaviour string, the same
+shape of fact as the `[Request interrupted by user]` marker the interrupt path
+already pins.
 
 ### The one thing a transcript-primary tool family costs
 

@@ -48,7 +48,11 @@ import {
   type ClaudeHookTranscriptReader,
   createClaudeHookTranscriptReader,
 } from './hook-transcript'
-import { CLAUDE_KNOWN_HOOK_NAMES, CLAUDE_TRANSCRIPT_OWNED_HOOK_FACTS } from './native-types'
+import {
+  CLAUDE_KNOWN_HOOK_NAMES,
+  CLAUDE_STOP_HOOK_FEEDBACK_PREFIX,
+  CLAUDE_TRANSCRIPT_OWNED_HOOK_FACTS,
+} from './native-types'
 import {
   type ClaudeAttributionAction,
   type ClaudeTranscriptQueueOperation,
@@ -690,6 +694,9 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
             )
           }
           const userObservation = classifyTranscriptUserEntry(entry)
+          if (userObservation?.kind === 'hook-feedback') {
+            return { disposition: 'ignored-known', detail: 'stop hook feedback' }
+          }
           if (userObservation?.kind === 'interrupted') {
             const hadActiveTurn = turnAttribution.activeTurnId !== undefined
             const minted = emitAttributionActions(
@@ -1459,10 +1466,19 @@ function toDecisionBridgeCommand(bridgeCommand: string): string {
 
 function classifyTranscriptUserEntry(
   entry: Record<string, unknown>
-): { kind: 'prompt'; content: string } | { kind: 'interrupted' } | undefined {
+):
+  | { kind: 'prompt'; content: string }
+  | { kind: 'interrupted' }
+  | { kind: 'hook-feedback' }
+  | undefined {
   const message = asHookRecord(entry['message'])
   const content = message['content']
   if (typeof content === 'string') {
+    // A hook the broker BLOCKED writes its reason back into the conversation as
+    // an ordinary user row. It is harness feedback about a broker decision, not
+    // an operator prompt — routing it to the disposition mirror halts the
+    // cursor on "a plain user row arrived while a turn is active".
+    if (content.startsWith(CLAUDE_STOP_HOOK_FEEDBACK_PREFIX)) return { kind: 'hook-feedback' }
     return content.length > 0 ? { kind: 'prompt', content } : undefined
   }
   if (!Array.isArray(content)) return undefined
