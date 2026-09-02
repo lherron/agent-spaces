@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { mapCodexNotification } from '../../../src/drivers/codex-app-server/event-map'
+import { isLoadBearingEventFamily } from 'spaces-harness-broker-protocol'
+import {
+  CODEX_METHOD_CLASSIFICATION,
+  classifyCodexNotificationMethod,
+  codexUnknownMethodFamily,
+  mapCodexNotification,
+} from '../../../src/drivers/codex-app-server/event-map'
 import declared from '../../../testdata/codex-app-server/declared-notification-methods.json'
 
 /**
@@ -66,5 +72,73 @@ describe('codex-app-server notification coverage', () => {
         data: { params: { detail: 'novel' } },
       },
     })
+  })
+
+  /**
+   * T-07868 — the same completeness question, now asked of the §6.1
+   * DISPOSITION classifier the driver reads. The mapper and the classifier are
+   * two hand-written lists over one vocabulary; nothing but this test stops
+   * them from drifting apart.
+   */
+  test('every declared method classifies as mapped or ignored-known, never unknown', () => {
+    const unclassified = methods.filter(
+      (method) => classifyCodexNotificationMethod(method) === 'unknown'
+    )
+    expect(unclassified).toEqual([])
+  })
+
+  test('a method the classifier calls mapped really is mapped', () => {
+    // Mutation guard in the other direction: listing a method in MAPPED_METHODS
+    // that the switch does not actually handle would silently turn a novel
+    // provider method into a `normalized`/`state-only` disposition.
+    const lying = [...CODEX_METHOD_CLASSIFICATION.mapped].filter((method) =>
+      mapCodexNotification({ jsonrpc: '2.0', method, params: {} }).some(
+        (event) =>
+          event.type === 'diagnostic' &&
+          typeof (event.payload as { message?: unknown }).message === 'string' &&
+          (event.payload as { message: string }).message.startsWith('Unhandled Codex notification')
+      )
+    )
+    expect(lying).toEqual([])
+  })
+
+  test('a method the classifier calls ignored-known really emits nothing', () => {
+    const noisy = [...CODEX_METHOD_CLASSIFICATION.ignoredKnown].filter(
+      (method) => mapCodexNotification({ jsonrpc: '2.0', method, params: {} }).length > 0
+    )
+    expect(noisy).toEqual([])
+  })
+
+  test('no method is in both classification sets', () => {
+    const both = [...CODEX_METHOD_CLASSIFICATION.mapped].filter((method) =>
+      CODEX_METHOD_CLASSIFICATION.ignoredKnown.has(method)
+    )
+    expect(both).toEqual([])
+  })
+
+  test('an undeclared method classifies unknown, and only load-bearing prefixes halt', () => {
+    expect(classifyCodexNotificationMethod('thread/methodCodexHasNotInventedYet')).toBe('unknown')
+    // The three prefixes a consumer ACTS on halt the cursor (§6.1)...
+    expect(codexUnknownMethodFamily('turn/experimentalBracket')).toBe('turn-bracket')
+    expect(codexUnknownMethodFamily('item/experimentalThought')).toBe('conversation')
+    expect(codexUnknownMethodFamily('item/commandExecution/experimental')).toBe('tool')
+    expect(codexUnknownMethodFamily('thread/queue/experimental')).toBe('input-admission')
+    for (const method of [
+      'turn/experimentalBracket',
+      'item/experimentalThought',
+      'item/commandExecution/experimental',
+      'thread/queue/experimental',
+    ]) {
+      expect(isLoadBearingEventFamily(codexUnknownMethodFamily(method))).toBe(true)
+    }
+    // ...and provider telemetry warns without stopping the seat.
+    for (const method of [
+      'thread/experimentalSignal',
+      'account/experimental',
+      'model/experimental',
+    ]) {
+      expect(codexUnknownMethodFamily(method)).toBe('diagnostic')
+      expect(isLoadBearingEventFamily(codexUnknownMethodFamily(method))).toBe(false)
+    }
   })
 })

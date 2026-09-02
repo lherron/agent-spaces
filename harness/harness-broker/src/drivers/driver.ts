@@ -21,7 +21,7 @@ import type {
   SubmissionClass,
   TurnId,
 } from 'spaces-harness-broker-protocol'
-import type { CaptureGate } from '../capture/capture-gate'
+import type { CaptureGate, CaptureNormalizer } from '../capture/capture-gate'
 import type { DispatchEnv } from '../runtime/env'
 
 export interface ApplyInputResult {
@@ -69,6 +69,20 @@ export interface Driver {
   readonly preemptMode: PreemptMode | null
   readonly steerLandingEvidence: SteerLandingEvidence | null
   capabilities(): InvocationCapabilities
+  /**
+   * This driver's PRODUCTION normalizer, for restart replay (T-07853 §7.3).
+   *
+   * The broker calls it on the warm-reattach path to re-drive raw records that
+   * were committed but never dispositioned — the crash window between raw fsync
+   * and normalized commit (§14 row 1). Returning the same closure live ingest
+   * uses is the contract: replay must not be a second implementation, or the
+   * two can disagree about the same bytes.
+   *
+   * OPTIONAL. A driver that has not been wired to the capture gate omits it,
+   * and its committed records simply stay `pending` — visible in the durable
+   * index rather than silently normalized by a stand-in.
+   */
+  captureNormalizer?(): CaptureNormalizer
   start(spec: HarnessInvocationSpec, ctx: DriverContext): Promise<DriverStartResult>
   applyInputNow(input: InvocationInput): Promise<ApplyInputResult>
   applySteerNow?(input: InvocationInput): Promise<void>

@@ -584,6 +584,14 @@ export function createBroker(options: BrokerOptions): Broker {
         )
       }
 
+      // Warm reattach is the broker's resume seam, so it is where a raw record
+      // that was committed but never dispositioned gets re-driven (§7.3, §14
+      // row 1): exactly one normalized result, because `replayPending` only
+      // touches rows the durable index still calls `pending`. This runs BEFORE
+      // the snapshot so the attaching controller sees the replayed facts in the
+      // seq range it is told to resume from.
+      manager.replayPendingCapture(req.invocationId)
+
       const snapshot = await buildSnapshot(req.invocationId)
       return {
         attached: true,

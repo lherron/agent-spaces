@@ -4,14 +4,19 @@ import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type {
   CodexAppServerDriverSpec,
+  EventProvenance,
   HarnessInvocationSpec,
   InputId,
   InvocationCapabilities,
+  InvocationEvent,
+  InvocationEventPayloadMap,
+  InvocationEventType,
   InvocationInput,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
   InvocationStopRequest,
   InvocationStopResponse,
+  RawProviderRecord,
   TurnId,
 } from 'spaces-harness-broker-protocol'
 import {
@@ -19,6 +24,7 @@ import {
   PROVIDER_TRANSCRIPT_ARTIFACT_KIND,
   emitProviderTranscriptReported,
 } from 'spaces-harness-broker-protocol'
+import type { CaptureNormalizer, NormalizeOutcome } from '../../capture/capture-gate'
 import { BrokerError } from '../../errors'
 import { spawnHarnessProcess } from '../../runtime/process-runner'
 import { terminateProcess } from '../../runtime/signals'
@@ -33,7 +39,13 @@ import {
   listenForHookEnvelopes,
 } from '../tmux-shared'
 import { CODEX_CAPABILITIES } from './capabilities'
-import { createCodexNotificationMapper, parseCodexError } from './event-map'
+import {
+  CODEX_DRIVER_KIND,
+  classifyCodexNotificationMethod,
+  codexUnknownMethodFamily,
+  createCodexNotificationMapper,
+  parseCodexError,
+} from './event-map'
 import { buildCodexInput, buildTurnStartParams } from './input'
 import {
   type PermissionHandlerContext,
@@ -104,51 +116,112 @@ export function createCodexAppServerDriver(): Driver {
   let turnTimeout: ReturnType<typeof setTimeout> | undefined
   let rendererControlListener: HookListenerHandle | undefined
   let rendererQuitAccepted = false
-  // Provider-transcript provenance state (T-05374). The broker-owned sidecar
-  // captures RAW upstream Codex JSON-RPC notifications (pre-normalization) into a
-  // verifier-compatible JSONL file; `reportedTranscriptPaths` fences provenance
-  // emission to at-most-once per concrete absolute path per invocation.
-  let transcriptSidecar: TranscriptSidecar | undefined
+  // Provider-transcript provenance state (T-05374, T-07868). The exported
+  // sidecar is now a PROJECTION of the committed raw journal rather than a
+  // parallel write, so there is no path on which it can hold a row the journal
+  // does not. `reportedTranscriptPaths` still fences provenance emission to
+  // at-most-once per concrete absolute path per invocation.
   const reportedTranscriptPaths = new Set<string>()
+  /**
+   * Verbatim frames observed while NO capture gate is wired — the isolated
+   * driver unit harness. That mode has no journal at all, so this is the only
+   * copy of the evidence rather than a second one; a gated invocation never
+   * appends here (asserted by the driver tests).
+   */
+  const ungatedFrames: string[] = []
   const mapCodexNotification = createCodexNotificationMapper()
   const permissionRequestIds = createPermissionRequestIdAllocator()
+  /**
+   * Provenance of the committed raw record currently being normalized, stamped
+   * onto every event that record produces (§7.2), plus the count of what it
+   * minted — which is what decides `normalized` vs `state-only` for it (§6.1).
+   * Both live at the single emit seam below so provenance and disposition
+   * cannot drift apart per call site.
+   */
+  let activeProvenance: EventProvenance | undefined
+  let mintedForRecord = 0
+  /** Monotonic per-connection notification counter; the §7.1 source cursor. */
+  let notificationSequence = 0
 
   /**
-   * Capture one raw upstream notification into the broker-owned sidecar BEFORE
-   * normalization. Lazily opens the sidecar (deterministic absolute path) on the
-   * first notification so scenarios that never receive one create no artifact.
-   * Uses a synchronous write + fsync so the row is durable/readable before any
-   * provenance event references the file.
+   * Run `body` with `provenance` active on {@link emitCaptured}. A stack rather
+   * than a slot for the same reason the Claude driver's is: nothing may leak
+   * one record's provenance onto what a later one mints.
    */
-  function captureTranscriptRow(notification: JsonRpcNotification): void {
-    if (transcriptSidecar === undefined) {
-      transcriptSidecar = openTranscriptSidecar(requireCtx())
+  function withProvenance<T>(provenance: EventProvenance, body: () => T): T {
+    const previousProvenance = activeProvenance
+    const previousMinted = mintedForRecord
+    activeProvenance = provenance
+    mintedForRecord = 0
+    try {
+      return body()
+    } finally {
+      activeProvenance = previousProvenance
+      mintedForRecord = previousMinted
     }
-    const sidecar = transcriptSidecar
-    const row =
-      notification.params !== undefined
-        ? { jsonrpc: '2.0' as const, method: notification.method, params: notification.params }
-        : { jsonrpc: '2.0' as const, method: notification.method }
-    writeSync(sidecar.fd, `${JSON.stringify(row)}\n`)
-    fsyncSync(sidecar.fd)
+  }
+
+  /** The driver's emit seam for facts derived from a native notification. */
+  function emitCaptured<K extends InvocationEventType>(
+    type: K,
+    payload: InvocationEventPayloadMap[K],
+    extra?: Parameters<DriverContext['emit']>[2]
+  ): ReturnType<DriverContext['emit']> {
+    mintedForRecord += 1
+    return requireCtx().emit(type, payload, {
+      ...extra,
+      ...(activeProvenance !== undefined ? { provenance: activeProvenance } : {}),
+    })
+  }
+
+  function emitEventCaptured(
+    event: InvocationEvent,
+    extra?: Parameters<DriverContext['emitEvent']>[1]
+  ): ReturnType<DriverContext['emitEvent']> {
+    mintedForRecord += 1
+    return requireCtx().emitEvent(event, {
+      ...extra,
+      ...(activeProvenance !== undefined ? { provenance: activeProvenance } : {}),
+    })
   }
 
   /**
-   * Emit `provider.transcript.reported` through the normal broker emit path once
-   * the turn terminal has flushed. Fenced to one provenance event per concrete
-   * absolute path so a multi-turn invocation does not re-report the same file.
+   * The rows the exported provider transcript is projected from. With a capture
+   * gate that is the COMMITTED journal — the single source §7.1 makes
+   * authoritative. Without one there is no journal, so the ungated frames are.
+   */
+  function transcriptRows(): string[] {
+    const capture = ctx?.capture
+    if (capture === undefined) return ungatedFrames
+    return capture
+      .records()
+      .filter(
+        (record) =>
+          record.driverKind === CODEX_DRIVER_KIND && record.sourceKind === 'provider-jsonrpc'
+      )
+      .map((record) => Buffer.from(record.rawBytes).toString('utf8'))
+  }
+
+  /**
+   * Emit `provider.transcript.reported` once the turn terminal has flushed,
+   * after materializing the verifier-compatible JSONL export from the committed
+   * rows. The file is rewritten in full on every turn terminal (it is derived,
+   * not accumulated) while the EVENT stays fenced to one per concrete absolute
+   * path, so a multi-turn invocation keeps a current file and re-reports
+   * nothing.
    */
   function reportProviderTranscript(): void {
-    const sidecar = transcriptSidecar
-    if (sidecar === undefined) return
-    if (reportedTranscriptPaths.has(sidecar.path)) return
-    fsyncSync(sidecar.fd)
-    reportedTranscriptPaths.add(sidecar.path)
+    const rows = transcriptRows()
+    if (rows.length === 0) return
+    const path = providerTranscriptPath(requireCtx())
+    writeProviderTranscriptExport(path, rows)
+    if (reportedTranscriptPaths.has(path)) return
+    reportedTranscriptPaths.add(path)
     emitProviderTranscriptReported(
       requireCtx(),
       {
         kind: PROVIDER_TRANSCRIPT_ARTIFACT_KIND,
-        artifactPath: sidecar.path,
+        artifactPath: path,
         provider: 'codex',
       },
       {
@@ -159,21 +232,31 @@ export function createCodexAppServerDriver(): Driver {
     )
   }
 
-  function closeTranscriptSidecar(): void {
-    const sidecar = transcriptSidecar
-    transcriptSidecar = undefined
-    if (sidecar !== undefined) {
-      try {
-        fsyncSync(sidecar.fd)
-      } catch {
-        // best-effort flush on teardown
-      }
-      try {
-        closeSync(sidecar.fd)
-      } catch {
-        // fd may already be closed
-      }
-    }
+  /**
+   * Stable key for the physical source: the app-server JSON-RPC connection.
+   * The THREAD id rides on `correlationHints` instead of keying the source,
+   * because a thread replacement mid-connection is an epoch rotation on the
+   * same stream — not a different stream — and §7.1 makes cursor comparison
+   * valid only within an epoch either way.
+   */
+  function captureSourceKey(): string {
+    return `codex-app-server-rpc:${requireCtx().invocationId}`
+  }
+
+  /**
+   * Mint a new source epoch and restart the per-connection cursor (§7.1).
+   *
+   * Called from `start()`, which is the ONLY place this driver acquires a
+   * JSON-RPC connection or a thread. Thread replacement therefore cannot happen
+   * without passing through here: a resumed or fresh thread arrives with a new
+   * app-server process, and a resume-fallback `thread/start` happens before the
+   * first notification is ever committed. There is no second rotation site to
+   * add — adding one would be unreachable code claiming to guard a case that
+   * cannot occur.
+   */
+  function rotateCaptureEpoch(driverCtx: DriverContext): void {
+    notificationSequence = 0
+    driverCtx.capture?.rotateEpoch(`codex-app-server-rpc:${driverCtx.invocationId}`)
   }
 
   function requireCtx(): DriverContext {
@@ -189,7 +272,7 @@ export function createCodexAppServerDriver(): Driver {
     data?: unknown,
     extra?: DriverEventExtra
   ): void {
-    requireCtx().emit(
+    emitCaptured(
       'diagnostic',
       {
         level,
@@ -210,7 +293,7 @@ export function createCodexAppServerDriver(): Driver {
   ): void {
     if (terminalEmitted) return
     terminalEmitted = true
-    requireCtx().emit('invocation.failed', {
+    emitCaptured('invocation.failed', {
       message,
       ...(code !== undefined ? { code } : {}),
       ...(data !== undefined ? { data } : {}),
@@ -229,7 +312,7 @@ export function createCodexAppServerDriver(): Driver {
 
   function failActiveTurn(failure: TurnFailure): boolean {
     if (!turnActive || currentTurnId === undefined) return false
-    requireCtx().emit(
+    emitCaptured(
       'turn.failed',
       {
         turnId: currentTurnId,
@@ -251,11 +334,90 @@ export function createCodexAppServerDriver(): Driver {
     return true
   }
 
-  function onNotification(notification: JsonRpcNotification): void {
-    // Capture the RAW upstream notification before any normalization or special
-    // error handling so the sidecar preserves verifier-compatible provider rows.
-    captureTranscriptRow(notification)
+  /**
+   * Commit the verbatim JSON-RPC frame, then normalize it FROM THE COMMITTED
+   * RECORD (T-07853 §5.2, §7.3 — the whole point of Phase 2: the live mapper no
+   * longer consumes the parallel in-memory notification object). A crash
+   * between the two leaves a `pending` raw row that `replayPending` re-drives
+   * to exactly one normalized result.
+   */
+  function onNotification(notification: JsonRpcNotification, rawFrame?: string): void {
+    const frame = rawFrame ?? JSON.stringify(canonicalFrame(notification))
+    const capture = ctx?.capture
+    if (capture === undefined) {
+      // No capture gate (isolated driver unit harness): identical
+      // classification, no journal — so nothing else would report a
+      // blocked-unknown, and the frame is retained here for the export.
+      ungatedFrames.push(frame)
+      const outcome = normalizeNotification(notification)
+      if (outcome.disposition === 'blocked-unknown') {
+        requireCtx().emit(
+          'capture.warning',
+          { kind: 'blocked_unknown', message: outcome.message, raw: { native: frame } },
+          { driver: { kind: 'codex-app-server', rawType: notification.method } }
+        )
+      }
+      return
+    }
 
+    notificationSequence += 1
+    const nativeId = nativeIdOf(notification)
+    capture.ingest(
+      {
+        provider: 'openai',
+        driverKind: CODEX_DRIVER_KIND,
+        sourceKind: 'provider-jsonrpc',
+        sourceKey: captureSourceKey(),
+        sourceCursor: { nativeSequence: String(notificationSequence) },
+        nativeType: notification.method,
+        ...(nativeId !== undefined ? { nativeId } : {}),
+        rawBytes: Buffer.from(frame, 'utf8'),
+        ...(threadId !== undefined ? { correlationHints: { threadId } } : {}),
+      },
+      normalizeCommittedRecord
+    )
+  }
+
+  /**
+   * The production normalizer. Live ingest and restart replay call THIS, so a
+   * replayed record cannot take a different code path than a live one (§7.3).
+   */
+  const normalizeCommittedRecord: CaptureNormalizer = (captured) => {
+    const decoded = decodeCommittedNotification(captured.record)
+    if (decoded === undefined) {
+      return {
+        disposition: 'blocked-unknown',
+        family: 'diagnostic',
+        message: `Committed raw record ${captured.record.rawRecordId} is not a JSON-RPC notification`,
+      }
+    }
+    return withProvenance(captured.provenance(), () => normalizeNotification(decoded))
+  }
+
+  /**
+   * Disposition for the record whose normalization just ran (§6.1). Emission
+   * alone cannot decide it — an unknown method also emits (a debug diagnostic)
+   * — so the native method's classification is what separates a mapped record
+   * from a reviewed-but-ignored one from a genuinely novel one.
+   */
+  function dispositionForMethod(method: string): NormalizeOutcome {
+    switch (classifyCodexNotificationMethod(method)) {
+      case 'ignored-known':
+        return { disposition: 'ignored-known', detail: method }
+      case 'mapped':
+        return mintedForRecord > 0
+          ? { disposition: 'normalized', detail: method }
+          : { disposition: 'state-only', detail: method }
+      default:
+        return {
+          disposition: 'blocked-unknown',
+          family: codexUnknownMethodFamily(method),
+          message: `Unknown Codex app-server notification: ${method}`,
+        }
+    }
+  }
+
+  function normalizeNotification(notification: JsonRpcNotification): NormalizeOutcome {
     if (notification.method === 'error') {
       const error = parseCodexError(notification.params)
       emitDiagnostic('error', error.message, error.data, activeTurnExtra())
@@ -279,12 +441,22 @@ export function createCodexAppServerDriver(): Driver {
           })
         )
       }
-      return
+      // The error path always mints (a diagnostic, plus a turn or invocation
+      // terminal). It is a §6.1 disposition, not a special case outside the
+      // classification.
+      return { disposition: 'normalized', detail: 'error' }
     }
 
     // After any invocation-terminal event, drop further native events so a late
     // turn/completed (or any other notification) can never follow a terminal.
-    if (terminalEmitted) return
+    // The drop keeps its semantics but is now a RECORDED disposition rather
+    // than a silent skip: the bytes are committed and accounted for.
+    if (terminalEmitted) {
+      return {
+        disposition: 'ignored-known',
+        detail: `after-invocation-terminal:${notification.method}`,
+      }
+    }
 
     for (const mapped of mapCodexNotification(notification)) {
       const isTurnTerminal =
@@ -298,7 +470,7 @@ export function createCodexAppServerDriver(): Driver {
         mapped.type === 'turn.started' || isTurnTerminal
           ? { ...mapped.extra, inputId: currentInputId }
           : mapped.extra
-      const event = requireCtx().emitEvent(mapped, extra)
+      const event = emitEventCaptured(mapped, extra)
       if (event.type === 'turn.started') {
         currentTurnId = event.turnId
         turnActive = true
@@ -319,6 +491,8 @@ export function createCodexAppServerDriver(): Driver {
         reportProviderTranscript()
       }
     }
+
+    return dispositionForMethod(notification.method)
   }
 
   function onExit(code: number | null, signal: NodeJS.Signals | null): void {
@@ -480,6 +654,10 @@ export function createCodexAppServerDriver(): Driver {
       return CODEX_CAPABILITIES
     },
 
+    captureNormalizer(): CaptureNormalizer {
+      return normalizeCommittedRecord
+    },
+
     async start(
       startSpec: HarnessInvocationSpec,
       driverCtx: DriverContext
@@ -498,8 +676,11 @@ export function createCodexAppServerDriver(): Driver {
       stopping = false
       starting = true
       rendererQuitAccepted = false
-      closeTranscriptSidecar()
       reportedTranscriptPaths.clear()
+      ungatedFrames.length = 0
+      // A fresh app-server process is a fresh JSON-RPC stream, so its cursors
+      // belong to a new epoch — never to the one a previous connection wrote.
+      rotateCaptureEpoch(driverCtx)
 
       if (
         driverCtx.runtime?.terminalSurface !== undefined ||
@@ -623,6 +804,7 @@ export function createCodexAppServerDriver(): Driver {
       const startupTimeoutMs = startSpec.process.limits?.startupTimeoutMs
       let startupTimedOut = false
       let startupTimer: ReturnType<typeof setTimeout> | undefined
+      let startedThreadId = ''
 
       function armStartupTimer(): void {
         if (startupTimer !== undefined) clearTimeout(startupTimer)
@@ -648,7 +830,8 @@ export function createCodexAppServerDriver(): Driver {
         armStartupTimer() // re-arm after successful initialize
         await withStartupRace(rpcClient.sendNotification('initialized', {}))
         armStartupTimer() // re-arm after initialized notification
-        threadId = await withStartupRace(startThread())
+        startedThreadId = await withStartupRace(startThread())
+        threadId = startedThreadId
       } catch (startupErr) {
         if (startupTimer !== undefined) clearTimeout(startupTimer)
         if (startupTimedOut) {
@@ -668,7 +851,7 @@ export function createCodexAppServerDriver(): Driver {
       requireCtx().emit('continuation.updated', {
         provider: 'codex',
         kind: 'thread',
-        key: threadId,
+        key: startedThreadId,
       })
       requireCtx().emit('invocation.ready', { state: 'ready' })
       starting = false
@@ -861,8 +1044,8 @@ export function createCodexAppServerDriver(): Driver {
 
     async dispose(): Promise<void> {
       closeRendererControlListener()
-      closeTranscriptSidecar()
       reportedTranscriptPaths.clear()
+      ungatedFrames.length = 0
       rpc?.close()
       ctx = undefined
       spec = undefined
@@ -930,32 +1113,106 @@ function classifyRpcFailure(error: Error): TurnFailure {
   }
 }
 
-interface TranscriptSidecar {
-  path: string
-  fd: number
-}
-
 /**
- * Open a broker-owned sidecar JSONL file for raw provider-transcript rows.
+ * Absolute path of the broker-owned provider-transcript export.
  *
  * The directory is taken from a broker-owned artifact root on `dispatchEnv`
  * (`HARNESS_BROKER_ARTIFACT_DIR`, supplied by HRC in production) when present;
  * otherwise it falls back to a deterministic, per-user broker-owned subtree
  * under the system temp root. The user fence matters on same-host multi-user
  * estates: one account must never inherit another account's unwritable temp
- * directory. The path is always ABSOLUTE. The file is opened with `'w'` so
- * each invocation starts a fresh transcript (the path is per-invocation).
+ * directory. The path is always ABSOLUTE and per-invocation.
  */
-function openTranscriptSidecar(ctx: DriverContext): TranscriptSidecar {
+function providerTranscriptPath(ctx: DriverContext): string {
   const fromDispatch = ctx.dispatchEnv?.['HARNESS_BROKER_ARTIFACT_DIR']
   const dir =
     typeof fromDispatch === 'string' && fromDispatch.length > 0
       ? fromDispatch
       : DEFAULT_PROVIDER_TRANSCRIPT_DIR
   mkdirSync(dir, { recursive: true })
-  const path = join(dir, `${ctx.invocationId}.provider-transcript.jsonl`)
-  const fd = openSync(path, 'w')
-  return { path, fd }
+  return join(dir, `${ctx.invocationId}.provider-transcript.jsonl`)
+}
+
+/**
+ * Materialize the verifier-compatible JSONL export from committed rows.
+ *
+ * Opened `'w'` and written whole: the export is DERIVED, so rewriting it from
+ * the journal is what keeps the §7.1 invariant true by construction — it can
+ * never hold a row the journal does not. Durability of the evidence itself is
+ * the journal's job (it fsyncs every record before the normalizer sees it);
+ * this fsync only makes the export readable to whoever follows the
+ * `provider.transcript.reported` pointer.
+ */
+function writeProviderTranscriptExport(path: string, rows: string[]): void {
+  const fd = openSync(path, 'w', 0o600)
+  try {
+    writeSync(fd, rows.map((row) => `${row}\n`).join(''))
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
+}
+
+/**
+ * Re-encoded frame for a notification that arrived without its verbatim line
+ * (only the in-process test harness, which calls `onNotification` directly).
+ * The wire path always carries the provider's own bytes.
+ */
+function canonicalFrame(notification: JsonRpcNotification): Record<string, unknown> {
+  return notification.params !== undefined
+    ? { jsonrpc: '2.0', method: notification.method, params: notification.params }
+    : { jsonrpc: '2.0', method: notification.method }
+}
+
+/**
+ * Decode the COMMITTED record's bytes back into a notification. This is the
+ * copy the normalizer reads — never the in-memory object the transport parsed —
+ * so live normalization and replay are the same computation over the same
+ * bytes. Returns undefined for a record that is not a JSON-RPC notification,
+ * which the caller turns into a blocked-unknown rather than a silent drop.
+ */
+function decodeCommittedNotification(record: RawProviderRecord): JsonRpcNotification | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(Buffer.from(record.rawBytes).toString('utf8'))
+  } catch {
+    return undefined
+  }
+  if (parsed === null || typeof parsed !== 'object') return undefined
+  const frame = parsed as Record<string, unknown>
+  if (typeof frame['method'] !== 'string') return undefined
+  return {
+    jsonrpc: '2.0',
+    method: frame['method'],
+    ...(frame['params'] !== undefined ? { params: frame['params'] } : {}),
+  }
+}
+
+/**
+ * The notification's OWN id, when it carries one (§7.1 `nativeId`). The item id
+ * wins over the turn id where both are present: it is the finer identity, and
+ * the turn is already reachable through the event envelope's `turnId`.
+ */
+function nativeIdOf(notification: JsonRpcNotification): string | undefined {
+  const params = asFrameRecord(notification.params)
+  const item = asFrameRecord(params['item'])
+  return (
+    frameString(item['id']) ??
+    frameString(params['itemId']) ??
+    frameString(params['id']) ??
+    frameString(params['turnId']) ??
+    frameString(asFrameRecord(params['turn'])['id'])
+  )
+}
+
+function asFrameRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
+function frameString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
 /**

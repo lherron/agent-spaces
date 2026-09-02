@@ -55,6 +55,12 @@ export interface CaptureGate {
   rotateEpoch(sourceKey: string): void
   /** Re-drive every still-`pending` committed record (restart replay, §7.3). */
   replayPending(normalize: CaptureNormalizer): number
+  /**
+   * Every committed raw record for this invocation, in commit order. This is
+   * the ONE source a driver may derive a provider-transcript export from: an
+   * export built from anything else could carry a row the journal does not.
+   */
+  records(): RawProviderRecord[]
   release(input: {
     rawRecordId: string
     disposition: 'ignored-known' | 'normalized-as'
@@ -232,6 +238,10 @@ export function createCaptureGate(options: CaptureGateOptions): CaptureGate {
   return {
     get blocked(): boolean {
       return blocked !== undefined
+    },
+
+    records(): RawProviderRecord[] {
+      return journal.read()
     },
 
     ingest(input, normalize): void {

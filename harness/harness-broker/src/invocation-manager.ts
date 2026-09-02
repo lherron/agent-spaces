@@ -524,6 +524,18 @@ export interface InvocationManager {
   captureRelease(req: InvocationCaptureReleaseRequest): InvocationCaptureReleaseResponse
   /** Capture-cursor state for the snapshot surface. */
   captureState(invocationId: InvocationId): CaptureStateView | undefined
+  /**
+   * Re-drive every raw record this invocation committed but never
+   * dispositioned, through its DRIVER'S own normalizer (T-07853 §7.3, §14 row
+   * 1). Returns how many records were re-normalized; 0 when there is nothing
+   * pending, when the invocation is unknown, or when its driver declares no
+   * replayable normalizer.
+   *
+   * Generic on purpose: this is the production caller Phase 1a left missing,
+   * and it belongs to whichever drivers ingest through the gate, not to one of
+   * them.
+   */
+  replayPendingCapture(invocationId: InvocationId): number
   get(invocationId: InvocationId): Invocation | undefined
   /**
    * Shared inspection read-model builder. status(), snapshot/buildSnapshot, and
@@ -2717,6 +2729,14 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
 
     captureState(invocationId: InvocationId): CaptureStateView | undefined {
       return invocations.get(invocationId)?.capture.state()
+    },
+
+    replayPendingCapture(invocationId: InvocationId): number {
+      const inv = invocations.get(invocationId)
+      if (inv === undefined) return 0
+      const normalize = inv.driver.captureNormalizer?.()
+      if (normalize === undefined) return 0
+      return inv.capture.replayPending(normalize)
     },
 
     permissionRespond(

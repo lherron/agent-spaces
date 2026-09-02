@@ -42,7 +42,14 @@ export class CodexRpcError extends Error {
 }
 
 interface RpcHandlers {
-  onNotification?: ((message: JsonRpcNotification) => void) | undefined
+  /**
+   * `rawFrame` is the VERBATIM line the provider wrote, before any re-encoding.
+   * The capture gate commits those bytes (§7.1: raw provider bytes remain
+   * verbatim) and the normalizer reads them back, so the parsed `message` here
+   * is a convenience for the transport's own routing — never the copy a
+   * committed record is derived from.
+   */
+  onNotification?: ((message: JsonRpcNotification, rawFrame: string) => void) | undefined
   onRequest?: ((message: JsonRpcRequest) => Promise<unknown>) | undefined
   onMessage?: ((message: JsonRpcMessage) => void) | undefined
   onError?: ((error: Error) => void) | undefined
@@ -145,7 +152,7 @@ export class CodexRpcClient {
     }
 
     if (this.isNotification(message)) {
-      this.handlers.onNotification?.(message)
+      this.handlers.onNotification?.(message, trimmed)
     }
   }
 

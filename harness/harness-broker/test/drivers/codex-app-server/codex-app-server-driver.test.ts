@@ -221,6 +221,11 @@ function normalizeEvent(event: InvocationEventEnvelope): InvocationEventEnvelope
     JSON.stringify(event, (key, value) => {
       if (key === 'time') return '<time>'
       if (key === 'pid') return '<pid>'
+      // The source epoch is a freshly minted uuid per JSON-RPC connection
+      // (§7.1). Its VALUE is not a contract; that every provider-observed event
+      // carries one, and that it is stable within a run, is — asserted
+      // directly in the capture tests rather than baked into a golden.
+      if (key === 'sourceEpoch') return '<epoch>'
       if (key === 'durationMs') return '<durationMs>'
       if (key === 'command' && value === Bun.execPath) return '<bun>'
       if (key === 'cwd' && value === process.cwd()) return '<cwd>'
