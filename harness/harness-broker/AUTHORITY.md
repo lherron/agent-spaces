@@ -378,7 +378,7 @@ Corpus: the three archived T-07849 sessions (835 rows, 36 turns) plus a live
 | --- | --- | --- |
 | `usage` | **promoted to native** | `message.usage` is on **155 of 155** `assistant` rows, all 155 with cache-creation/cache-read fields, plus `cost-state` roll-ups. The declaration said `native` from Phase 0 and the driver emitted NOTHING; this fulfils it. |
 | `conversation` | **promoted to native** | The hook path delivered **1** `assistant.message.completed` for **25** assistant messages on a live seat, because `MessageDisplay` is one racing hook per message and `Stop` mints only the last. The rows are complete by construction. |
-| `tool` | **promoted to native** | `tool_use`/`tool_result` pair **82/82** across the archive (49/49, 30/30, 3/3) and **17/17** live, 0 unpaired, 0 orphan — and the hook's `tool_use_id` IS the `tool_use` block id (**16/16** hook ids present in the JSONL on the first real session, 0 absent), so `permission` stays hook and still correlates onto a transcript-minted call. |
+| `tool` | **promoted to native** | `tool_use`/`tool_result` pair **82/82** across the archive (49/49, 30/30, 3/3) and **17/17** live, 0 unpaired, 0 orphan — and the hook's `tool_use_id` IS the `tool_use` block id (**16/16** hook ids present in the JSONL on the first real session, 0 absent), so `permission` stays hook and still correlates onto a transcript-minted call. Decisive on the DENY path: a rejected tool call fires `PreToolUse` and **no `PostToolUse` at all** (1 and 0 in the live deny leg's journal), so the hook path had a tool start with no completion, while the transcript carries both and reports `isError:true, "User rejected tool use"`. |
 | `turn-bracket` | **stays hook** | The transcript terminal is present for **33 of 36** turns (91.7%), **0 of 2** interrupted turns, and **2 of 3** no-successor final turns. Both promotion gates fail. |
 | `permission` | stays hook | The session JSONL has **no permission vocabulary at all** — only the `permission-mode` UI latch row, which is the mode, not a request. The `PermissionRequest`/`PermissionResolved` hooks are the only evidence there is. |
 | `harness-lifecycle` | stays hook | `SessionStart`/`SessionEnd` hooks; the transcript has no process-exit row. Promoting would leave `harness.exited` with no evidence. |
@@ -407,6 +407,28 @@ and pins them. They are still not the primary:
    and the last `assistant` row precedes the terminal row by **min 71 / p50 110
    / max 1171 ms** — before the tailer's own drain latency. A native terminal
    here is never earlier and usually later.
+
+And the same measurement LIVE, on real seats, where the raw journal holds BOTH
+sides as committed records (the `Stop` hook record and the `system` rows), so
+the ordering is observed rather than inferred:
+
+| leg | Stop hooks | `turn_duration` | prompts | terminals | final turn terminated | native observed AFTER hook, ms min/p50/max | native observed FIRST |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| idle-prompt | 2 | 2 | 2 | 2 | yes | 34 / 36 / 36 | 0 |
+| queue-operation | 3 | 3 | 3 | 3 | yes | 23 / 31 / 34 | 0 |
+| steer | 3 | 3 | 3 | 3 | yes | 28 / 31 / 31 | 0 |
+| tool-approve | 2 | 2 | 2 | 2 | yes | 28 / 39 / 39 | 0 |
+| tool-deny | 1 | 2 | 2 | 2 | yes | 28 / 28 / 28 | 0 |
+
+**0 of 13 turns saw the transcript terminal first.** `tool-deny` shows 1 Stop
+against 2 terminals because a DENIED turn ends as an interrupt, not a Stop —
+which is the same asymmetry from the other side. Two more live paths where the
+HOOK terminal is the one missing, recorded so the picture is honest in both
+directions: an API-error turn writes `turn_duration` and fires no `Stop` at all,
+and a denied-tool turn terminates through the transcript interrupt marker.
+Neither lifts gate (a) or (c) — the interrupt path still has no transcript
+terminal — but neither source is complete alone, and that is the real shape of
+this family.
 
 Two further facts from the same measurement, recorded because they would
 otherwise look like coverage: `stopReason` is non-empty in **0 of 33** rows and

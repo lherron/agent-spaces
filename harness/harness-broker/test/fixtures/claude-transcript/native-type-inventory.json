@@ -318,6 +318,19 @@
       "sessionId": "<redacted>",
       "type": "custom-title"
     },
+    "file-history-delta": {
+      "backup": {
+        "backupFileName": null,
+        "backupTime": "<redacted>",
+        "realParentDir": "<redacted>",
+        "version": 1
+      },
+      "messageId": "<redacted>",
+      "snapshotMessageId": "<redacted>",
+      "timestamp": "<redacted>",
+      "trackingPath": "<redacted>",
+      "type": "file-history-delta"
+    },
     "file-history-snapshot": {
       "isSnapshotUpdate": false,
       "messageId": "<redacted>",
@@ -496,6 +509,7 @@
     "permission-mode",
     "atis-latch",
     "file-history-snapshot",
+    "file-history-delta",
     "attachment:hook_success",
     "user:prompt",
     "attachment:deferred_tools_delta",

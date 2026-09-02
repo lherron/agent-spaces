@@ -29,8 +29,12 @@ export const CLAUDE_IGNORED_ROW_TYPES: ReadonlySet<string> = new Set([
   'permission-mode',
   'atis-latch',
   'bridge-session',
-  // Editor undo bookkeeping, not a tool result.
+  // Editor undo bookkeeping, not a tool result. `file-history-delta` is the
+  // per-write companion of the snapshot and appears only when a turn actually
+  // WRITES a file — which no archived session did, so the T-07873
+  // permission-approve live leg is what found it.
   'file-history-snapshot',
+  'file-history-delta',
   // Session title the TUI generates for its own picker. Found by the live
   // smoke, not by the archives — the archived sessions never got far enough to
   // be titled. Exactly the gap "make one real call before trusting a fixture"
