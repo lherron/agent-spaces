@@ -107,6 +107,12 @@ export interface BrokerOptions {
    */
   captureDir?: string | undefined
   /**
+   * ONE line at WARN on this process's own stderr for each unclassified
+   * `(driver, nativeType, family)` capture sees. Defaults to `process.stderr`;
+   * injectable so a test can read the operator-facing line it writes.
+   */
+  logWarn?: ((line: string) => void) | undefined
+  /**
    * Transports this broker process advertises in `broker.hello`. Defaults to
    * stdio only; the unix server entry point advertises both stdio and unix.
    */
@@ -237,6 +243,7 @@ export function createBroker(options: BrokerOptions): Broker {
     maxInputQueueDepth: options.maxInputQueueDepth,
     now,
     ...(options.captureDir !== undefined ? { captureDir: options.captureDir } : {}),
+    ...(options.logWarn !== undefined ? { logWarn: options.logWarn } : {}),
     authorizeSubmission: options.authorizeSubmission,
     isOperator: options.isOperator,
     authorizeQueueJump: options.authorizeQueueJump,
@@ -312,8 +319,9 @@ export function createBroker(options: BrokerOptions): Broker {
       },
       currentSeq,
       retentionFloorSeq,
-      // §5: the halt must be VISIBLE. A controller reading a snapshot sees the
-      // stopped cursor and the record it is stopped on, not a silent stall.
+      // §5: capture must be VISIBLE. The cursor never stops (T-07883), so what
+      // a controller reads here is `open` plus the per-key repeat counts for
+      // every unclassified native type this invocation has seen.
       ...(captureState !== undefined ? { capture: captureState } : {}),
       ...(inv.currentTurnId !== undefined ? { currentTurnId: inv.currentTurnId } : {}),
       ...(inv.continuation !== undefined ? { continuation: inv.continuation } : {}),

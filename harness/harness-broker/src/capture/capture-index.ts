@@ -4,7 +4,8 @@ import { dirname } from 'node:path'
 import type { EventFamily, RawRecordDisposition } from 'spaces-harness-broker-protocol'
 
 /**
- * Durable raw-record disposition + capture-halt state, held in the SAME
+ * Durable raw-record disposition (and the legacy capture-halt row), held in the
+ * SAME
  * broker-local SQLite index Phase 1a introduced for HRC's acknowledgement and
  * the retention floor (§8.1: "a compact broker-local SQLite WAL index persists
  * source cursors, dispositions, HRC's scalar acknowledgement and the retention
@@ -18,7 +19,8 @@ import type { EventFamily, RawRecordDisposition } from 'spaces-harness-broker-pr
  *
  * §6.1 requires EXACTLY ONE terminal disposition per committed raw record.
  * `pending` is the only non-terminal value; it means committed-but-not-yet-
- * normalized, which is precisely the state a halted cursor leaves records in.
+ * normalized — the state a record is in between its commit and its normalizer,
+ * and the state a pre-T-07883 broker's held records were left in.
  */
 export interface RawDispositionRow {
   invocationId: string
@@ -34,6 +36,12 @@ export interface RawDispositionRow {
   decidedAt?: string | undefined
 }
 
+/**
+ * The legacy halt row. Since T-07883 the broker never WRITES one: a gate that
+ * finds a row a pre-ruling broker left behind clears it and logs at WARN. The
+ * table, `block()` and `blockedOn()` stay so that clearing path has something
+ * to read, and so a test can construct the pre-ruling state.
+ */
 export interface CaptureBlockRow {
   invocationId: string
   rawRecordId: string
@@ -74,7 +82,7 @@ export function openCaptureIndex(
   const db = new Database(indexPath ?? ':memory:', { create: true })
   db.exec('PRAGMA journal_mode = WAL')
   // FULL for the same reason Phase 1a chose it: a `kill -9` must not forget
-  // which raw records were already dispositioned, or that capture is halted.
+  // which raw records were already dispositioned.
   db.exec('PRAGMA synchronous = FULL')
   // Two same-process connections to one WAL file: give the writer room rather
   // than surfacing SQLITE_BUSY on a contended disposition write.

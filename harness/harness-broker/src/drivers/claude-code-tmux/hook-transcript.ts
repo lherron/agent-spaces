@@ -584,8 +584,9 @@ export function createClaudeHookTranscriptReader(
       // Check the operation NAME here, before the mirror sees it. The mirror
       // reports what it cannot match against its buffer; only this table knows
       // what Claude has ever emitted, and turn attribution is load-bearing, so
-      // an operation outside the pinned vocabulary halts the cursor rather than
-      // being routed onward as a state change (T-07849 item 11 → law 6d04d5de).
+      // an operation outside the pinned vocabulary is reported as drift rather
+      // than routed onward as a state change (T-07849 item 11 → law 6d04d5de,
+      // as amended by T-07883: it warns loudly and the cursor advances).
       const operation = getString(entry, 'operation')
       if (operation === undefined || !CLAUDE_KNOWN_QUEUE_OPERATIONS.has(operation)) {
         return {

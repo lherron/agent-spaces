@@ -232,7 +232,12 @@ describe('codex-app-server committed-row normalization', () => {
     }
   })
 
-  test('an unknown load-bearing method halts the cursor and an operator release resumes it in order', async () => {
+  test('an unknown load-bearing method warns loudly and the rows behind it still normalize', async () => {
+    // The T-07883 shape for this driver: an unclassified `turn/…` method is the
+    // loudest warning the mapper can raise, and the turn's own usage row and
+    // terminal must still reach the stream in cursor order. Under the halt they
+    // were held until an operator released the block, which is what stalled
+    // real seats.
     const run = await runScenario('unknown-load-bearing')
 
     const warning = run.events.find((event) => event.type === 'capture.warning')
@@ -240,29 +245,11 @@ describe('codex-app-server committed-row normalization', () => {
     const raw = (warning?.payload as { raw: Record<string, unknown> }).raw
     expect(raw['nativeType']).toBe('turn/experimentalBracket')
     expect(raw['family']).toBe('turn-bracket')
-    expect(raw['cursorHalted']).toBe(true)
+    expect(raw['loadBearing']).toBe(true)
+    expect(raw['cursorHalted']).toBe(false)
 
-    // The records after the halt are committed but HELD: their facts are not on
-    // the stream yet, and the durable index says so.
-    expect(run.events.some((event) => event.type === 'usage.updated')).toBe(false)
-    expect(run.events.some((event) => event.type === 'turn.completed')).toBe(false)
-    const held = [...run.dispositions().values()].filter((row) => row.disposition === 'pending')
-    expect(held.map((row) => row.nativeType)).toEqual([
-      'thread/tokenUsage/updated',
-      'turn/completed',
-    ])
-
-    const released = await run.broker.captureRelease({
-      invocationId: run.invocationId,
-      rawRecordId: raw['rawRecordId'] as string,
-      disposition: 'ignored-known',
-      note: 'reviewed: provider experiment, no broker consumer',
-    })
-    expect(released.disposition).toBe('ignored-known')
-    expect(released.resumedRecords).toBe(2)
-    expect(released.capture.state).toBe('open')
-
-    // Resumed IN CURSOR ORDER: the usage row was committed before the terminal.
+    // Nothing was held: every later row normalized, in cursor order, and the
+    // durable index has no `pending` left.
     expect(
       run.events
         .filter((event) => event.type === 'usage.updated' || event.type === 'turn.completed')
@@ -271,6 +258,19 @@ describe('codex-app-server committed-row normalization', () => {
     for (const row of run.dispositions().values()) {
       expect(row.disposition).not.toBe('pending')
     }
+    expect(run.dispositions().get(raw['rawRecordId'] as string)?.disposition).toBe(
+      'blocked-unknown'
+    )
+
+    // The release RPC is retained and refuses: capture is open, nothing blocks.
+    await expect(
+      run.broker.captureRelease({
+        invocationId: run.invocationId,
+        rawRecordId: raw['rawRecordId'] as string,
+        disposition: 'ignored-known',
+        note: 'reviewed: provider experiment, no broker consumer',
+      })
+    ).rejects.toMatchObject({ code: -32602, data: { capture: { state: 'open' } } })
   })
 
   test('a reconnect over the same invocation mints a new epoch and restarts the cursor', async () => {

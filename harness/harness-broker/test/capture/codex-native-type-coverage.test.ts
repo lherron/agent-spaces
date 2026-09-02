@@ -53,8 +53,8 @@ process.on('exit', () => {
 interface Replay {
   dispositions: Array<{ nativeType: string; disposition: RawRecordDisposition }>
   warnings: string[]
-  /** Records that HALTED the cursor, in order. */
-  halted: string[]
+  /** Records reported in a LOAD-BEARING family, in order. */
+  loadBearing: string[]
 }
 
 /** Feed rollout lines through the real reader + a real capture gate. */
@@ -66,7 +66,7 @@ function replay(lines: string[]): Replay {
 
   const index = openCaptureIndex(join(dir, 'ledger-index.db'))
   const warnings: string[] = []
-  const halted: string[] = []
+  const loadBearing: string[] = []
   const gate = createCaptureGate({
     invocationId,
     journal: createRawJournal({ invocationId, dir }),
@@ -75,11 +75,12 @@ function replay(lines: string[]): Replay {
     now: () => new Date('2026-09-02T12:00:00.000Z'),
     emitWarning: (payload) => {
       warnings.push(payload.message)
-      if (payload.raw?.cursorHalted === true) halted.push(payload.raw.nativeType)
+      if (payload.raw?.loadBearing === true) loadBearing.push(payload.raw.nativeType)
       return warnings.length
     },
     emitReleased: () => 0,
     emitNormalizedAs: () => 0,
+    warn: () => {},
   })
 
   const reader = createCodexHookTranscriptReader({
@@ -90,26 +91,18 @@ function replay(lines: string[]): Replay {
   })
 
   reader.handleHook({ hook_event_name: 'SessionStart', transcript_path: transcript })
-  const release = (): void => {
-    const blockedOn = gate.state().blockedOn
-    if (blockedOn !== undefined) {
-      gate.release({ rawRecordId: blockedOn.rawRecordId, disposition: 'ignored-known' })
-    }
-  }
   for (const line of lines) {
     appendFileSync(transcript, `${line}\n`)
-    // One hook per row, releasing any halt, so the whole corpus is classified in
-    // a single pass rather than stopping at the first unknown.
-    release()
+    // One hook per row. Nothing has to be released between rows: since T-07883
+    // an unclassified row never stops the cursor.
     reader.handleHook({ hook_event_name: 'PostToolUse' })
   }
-  release()
 
   const dispositions = index
     .list(invocationId)
     .map((row) => ({ nativeType: row.nativeType, disposition: row.disposition }))
   index.close()
-  return { dispositions, warnings, halted }
+  return { dispositions, warnings, loadBearing }
 }
 
 /**
@@ -125,7 +118,7 @@ function replayInOneRead(lines: string[]): Replay {
   writeFileSync(transcript, '')
   const index = openCaptureIndex(join(dir, 'ledger-index.db'))
   const warnings: string[] = []
-  const halted: string[] = []
+  const loadBearing: string[] = []
   const gate = createCaptureGate({
     invocationId,
     journal: createRawJournal({ invocationId, dir }),
@@ -134,11 +127,12 @@ function replayInOneRead(lines: string[]): Replay {
     now: () => new Date('2026-09-02T12:00:00.000Z'),
     emitWarning: (payload) => {
       warnings.push(payload.message)
-      if (payload.raw?.cursorHalted === true) halted.push(payload.raw.nativeType)
+      if (payload.raw?.loadBearing === true) loadBearing.push(payload.raw.nativeType)
       return warnings.length
     },
     emitReleased: () => 0,
     emitNormalizedAs: () => 0,
+    warn: () => {},
   })
   const reader = createCodexHookTranscriptReader({
     invocationId,
@@ -153,7 +147,7 @@ function replayInOneRead(lines: string[]): Replay {
     .list(invocationId)
     .map((row) => ({ nativeType: row.nativeType, disposition: row.disposition }))
   index.close()
-  return { dispositions, warnings, halted }
+  return { dispositions, warnings, loadBearing }
 }
 
 const inventoryLines = (): string[] =>
@@ -215,47 +209,51 @@ describe('codex rollout native-type disposition coverage', () => {
     ])
   })
 
-  test('an UNKNOWN item subtype halts: its parent is pinned and load-bearing', () => {
+  test('an UNKNOWN item subtype is LOAD-BEARING drift: its parent is pinned', () => {
     // `item_completed` is where codex's paginated history mode delivers the
     // terminal answer, so a renamed or added item type there costs assistant
-    // prose. This is the codex analogue of Claude's unknown queue operation.
-    const { warnings, halted, dispositions } = replay([
+    // prose. This is the codex analogue of Claude's unknown queue operation —
+    // the loudest warning the reader can raise. It does not stop capture
+    // (T-07883): the record keeps its blocked-unknown disposition and the
+    // cursor moves on.
+    const { warnings, loadBearing, dispositions } = replay([
       JSON.stringify({
         type: 'event_msg',
         payload: { type: 'item_completed', item: { type: 'HolographicMessage' } },
       }),
     ])
     expect(warnings).toEqual(['Unknown Codex rollout item type: item_completed/HolographicMessage'])
-    expect(halted).toEqual(['event_msg:item_completed:HolographicMessage'])
-    // The replay harness releases each halt so the corpus classifies in one
-    // pass; the point is that it halted at all and named the row.
+    expect(loadBearing).toEqual(['event_msg:item_completed:HolographicMessage'])
     expect(dispositions).toEqual([
-      { nativeType: 'event_msg:item_completed:HolographicMessage', disposition: 'ignored-known' },
+      {
+        nativeType: 'event_msg:item_completed:HolographicMessage',
+        disposition: 'blocked-unknown',
+      },
     ])
   })
 
-  test('an UNKNOWN event_msg payload type warns without halting', () => {
-    const { warnings, halted } = replay([
+  test('an UNKNOWN event_msg payload type is the quieter class', () => {
+    const { warnings, loadBearing } = replay([
       JSON.stringify({ type: 'event_msg', payload: { type: 'brand_new_event' } }),
     ])
     expect(warnings).toEqual(['Unknown Codex rollout event_msg type: brand_new_event'])
-    expect(halted).toEqual([])
+    expect(loadBearing).toEqual([])
   })
 
-  test('an UNKNOWN top-level row type warns without halting', () => {
-    const { warnings, halted } = replay([
+  test('an UNKNOWN top-level row type is the quieter class', () => {
+    const { warnings, loadBearing } = replay([
       JSON.stringify({ type: 'brand_new_row_kind', payload: {} }),
     ])
     expect(warnings).toEqual(['Unknown Codex rollout row type: brand_new_row_kind'])
-    expect(halted).toEqual([])
+    expect(loadBearing).toEqual([])
   })
 
-  test('an UNKNOWN response_item payload type warns without halting', () => {
-    const { warnings, halted } = replay([
+  test('an UNKNOWN response_item payload type is the quieter class', () => {
+    const { warnings, loadBearing } = replay([
       JSON.stringify({ type: 'response_item', payload: { type: 'brand_new_item' } }),
     ])
     expect(warnings).toEqual(['Unknown Codex rollout response_item type: brand_new_item'])
-    expect(halted).toEqual([])
+    expect(loadBearing).toEqual([])
   })
 })
 

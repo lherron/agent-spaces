@@ -453,7 +453,7 @@ describe('Codex app-server driver red scenarios', () => {
     expect(events.filter((event) => event.type === 'capture.warning')).toHaveLength(0)
   })
 
-  test('blocks a turn/started record whose id differs from the turn/start response id', async () => {
+  test('reports a turn/started record whose id differs from the turn/start response id', async () => {
     const events: InvocationEventEnvelope[] = []
     const broker = createBroker({
       drivers: [createCodexAppServerDriver()],
@@ -485,7 +485,10 @@ describe('Codex app-server driver red scenarios', () => {
       raw: {
         nativeType: 'turn/started',
         family: 'turn-bracket',
-        cursorHalted: true,
+        // The loudest class — a bracket the broker cannot attribute — but the
+        // cursor advances past it (T-07883).
+        loadBearing: true,
+        cursorHalted: false,
       },
     })
   })

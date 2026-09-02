@@ -436,8 +436,9 @@ export interface Invocation {
   settledPermissions: Map<PermissionRequestId, SettledPermissionRecord>
   /**
    * This invocation's normalization cursor (T-07853 §§6.1, 7). Owns the raw
-   * ingress journal, the durable per-record disposition, and the blocked-unknown
-   * halt. Handed to the driver as `DriverContext.capture`.
+   * ingress journal and the durable per-record disposition. It never stops:
+   * a blocked-unknown warns loudly and the cursor advances (T-07883). Handed to
+   * the driver as `DriverContext.capture`.
    */
   capture: CaptureGate
 }
@@ -465,6 +466,12 @@ export interface InvocationManagerOptions {
    * mode `createEventLedger` already has for the stdio/in-process broker.
    */
   captureDir?: string | undefined
+  /**
+   * ONE line at WARN on the broker process's own log for each unclassified
+   * `(driver, nativeType, family)` a capture gate sees. Defaults to
+   * `process.stderr` — the seat's `bipc/<id>/broker.err`.
+   */
+  logWarn?: ((line: string) => void) | undefined
   authorizeSubmission?:
     | ((context: {
         invocationId: InvocationId
@@ -520,7 +527,11 @@ export interface InvocationManager {
   status(invocationId: InvocationId, opts?: InspectionSummaryOptions): InvocationStatusResponse
   dispose(req: InvocationDisposeRequest): Promise<InvocationDisposeResponse>
   permissionRespond(req: InvocationPermissionRespondRequest): InvocationPermissionRespondResponse
-  /** Operator disposition that resumes a halted normalization cursor (§6.1). */
+  /**
+   * Retained operator disposition surface (§6.1). Since T-07883 the cursor
+   * never halts, so this always answers with the typed "not the blocked-unknown
+   * record" refusal; the RPC stays on the wire for the fleet still calling it.
+   */
   captureRelease(req: InvocationCaptureReleaseRequest): InvocationCaptureReleaseResponse
   /** Capture-cursor state for the snapshot surface. */
   captureState(invocationId: InvocationId): CaptureStateView | undefined
@@ -2116,6 +2127,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         index: requireCaptureIndex(),
         normalizer: { name: driver.kind, version: driver.version },
         now,
+        ...(options.logWarn !== undefined ? { warn: options.logWarn } : {}),
         // The gate's own events are BROKER facts about capture, never provider
         // observations — so they carry broker provenance explicitly rather than
         // inheriting the `diagnostic` family's declared authority from the

@@ -14,5 +14,5 @@ io.notify('turn/started', { turnId: 'turn_different' })
 io.notify('turn/completed', {
   turnId: 'turn_different',
   status: 'completed',
-  finalOutput: 'must remain behind the blocked capture cursor',
+  finalOutput: 'a terminal for a turn id the broker never acknowledged',
 })

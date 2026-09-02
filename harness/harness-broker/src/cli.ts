@@ -318,7 +318,7 @@ function registerBrokerMethods(
     return broker.dispose(params as Parameters<typeof broker.dispose>[0])
   })
 
-  // Operator disposition for a halted normalization cursor. Mutating, so it is
+  // Retained operator disposition surface (T-07883: nothing halts). Mutating, so it is
   // registered HERE (and on the unix durability surface) and deliberately NOT
   // in registerReadMethods — the observer surface stays read-only (§8.2).
   server.register('invocation.capture.release', async ({ id, method, params }) => {
@@ -869,12 +869,13 @@ function readFlag(args: string[], flag: string): string | undefined {
 const CAPTURE_USAGE = `
 Usage: harness-broker capture <status|release> --socket <path> --invocation <id> [options]
 
-  status   Show whether an invocation's normalization cursor is running or halted,
-           and which raw record it is halted on.
+  status   Show an invocation's capture state and every unclassified native type it
+           has seen, with a repeat count per (driver, nativeType, family).
              harness-broker capture status --socket <path> --invocation <id> [--json]
 
-  release  Dispose a blocked-unknown raw record so the cursor resumes. Recorded as a
-           committed capture.released event.
+  release  RETAINED, and a no-op since T-07883: the normalization cursor never halts,
+           so no record is ever the blocked-unknown record and every release is
+           refused by naming that. Kept on the wire for the fleet still calling it.
              harness-broker capture release --socket <path> --invocation <id> \\
                --raw-record <id> --disposition ignored-known [--note <text>]
              harness-broker capture release --socket <path> --invocation <id> \\
@@ -906,8 +907,7 @@ async function captureCommand(args: string[]): Promise<void> {
   try {
     if (sub === 'status') {
       // Capture state rides the ordinary snapshot rather than a second read
-      // surface, so the operator sees the halt in the same place a controller
-      // does. `probeLiveness` is deliberately not requested: reading capture
+      // surface, so the operator sees it in the same place a controller does. `probeLiveness` is deliberately not requested: reading capture
       // state must not poke the harness process.
       const snapshot = (await call('invocation.snapshot', { invocationId })) as {
         capture?: unknown
@@ -973,20 +973,29 @@ async function captureCommand(args: string[]): Promise<void> {
 function formatCaptureState(capture: unknown): string {
   const view = capture as {
     state?: string
-    deferredCount?: number
-    blockedOn?: { rawRecordId?: string; nativeType?: string; family?: string; message?: string }
+    blockedUnknown?: Array<{
+      driver?: string
+      nativeType?: string
+      family?: string
+      loadBearing?: boolean
+      count?: number
+      message?: string
+    }>
   }
-  if (view.state !== 'blocked' || view.blockedOn === undefined) {
-    return 'capture: open'
+  // `state` is always `open` on a T-07883 broker. What an operator actually
+  // needs from this command is the unclassified types the seat has seen, which
+  // are otherwise only in broker.err and the ndjson stream.
+  const lines = [`capture: ${view.state ?? 'open'}`]
+  for (const entry of view.blockedUnknown ?? []) {
+    lines.push(
+      `  blocked_unknown x${entry.count ?? 1}${entry.loadBearing === true ? ' [load-bearing]' : ''}`,
+      `    driver:     ${entry.driver ?? '(unknown)'}`,
+      `    nativeType: ${entry.nativeType ?? '(unknown)'}`,
+      `    family:     ${entry.family ?? '(unknown)'}`,
+      `    message:    ${entry.message ?? ''}`
+    )
   }
-  return [
-    'capture: BLOCKED',
-    `  rawRecordId: ${view.blockedOn.rawRecordId ?? '(unknown)'}`,
-    `  nativeType:  ${view.blockedOn.nativeType ?? '(unknown)'}`,
-    `  family:      ${view.blockedOn.family ?? '(unknown)'}`,
-    `  message:     ${view.blockedOn.message ?? ''}`,
-    `  deferred:    ${view.deferredCount ?? 0} raw record(s) held unnormalized`,
-  ].join('\n')
+  return lines.join('\n')
 }
 
 /**

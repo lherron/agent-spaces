@@ -35,6 +35,8 @@ interface Harness {
   dir: string
   gate: ReturnType<typeof createCaptureGate>
   warnings: CaptureWarningPayload[]
+  /** Lines the gate wrote to the broker's own stderr. */
+  logged: string[]
   released: CaptureReleasedPayload[]
   minted: Array<{ type: string; provenance: EventProvenance }>
   index: ReturnType<typeof openCaptureIndex>
@@ -46,6 +48,7 @@ function harness(options: { dir?: string } = {}): Harness {
   const dir = options.dir ?? mkdtempSync(join(tmpdir(), 'capture-gate-'))
   if (options.dir === undefined) roots.push(dir)
   const warnings: CaptureWarningPayload[] = []
+  const logged: string[] = []
   const released: CaptureReleasedPayload[] = []
   const minted: Array<{ type: string; provenance: EventProvenance }> = []
   let seq = 0
@@ -79,11 +82,13 @@ function harness(options: { dir?: string } = {}): Harness {
       seq += 1
       return seq
     },
+    warn: (line) => void logged.push(line),
   })
   return {
     dir,
     gate,
     warnings,
+    logged,
     released,
     minted,
     index,
@@ -224,126 +229,176 @@ describe('capture gate: every record reaches exactly one disposition', () => {
   })
 })
 
-describe('capture gate: blocked-unknown halts the cursor until an operator releases it', () => {
-  test('a load-bearing unknown stops normalization; later records commit but are held', () => {
-    const h = harness()
-    const normalizedTypes: string[] = []
-    const record = (nativeType: string) =>
-      h.gate.ingest(row(nativeType, { nativeType }), () => {
-        normalizedTypes.push(nativeType)
-        return normalized()
+describe('capture gate: a blocked-unknown NEVER halts the cursor (T-07883)', () => {
+  // Lance, 2026-09-02: "We should never halt when an unknown event arrives.
+  // Harnesses are upgraded all the time; we don't want to hard-fail our entire
+  // fleet when we haven't handled an upgraded new event. It should warn
+  // loudly." These are the assertions that make that a behaviour, not a note.
+  for (const family of LOAD_BEARING_EVENT_FAMILIES) {
+    test(`a blocked-unknown in ${family} warns, logs at WARN, and the cursor advances`, () => {
+      const h = harness()
+      const normalizedTypes: string[] = []
+      const record = (nativeType: string) =>
+        h.gate.ingest(row(nativeType, { nativeType }), () => {
+          normalizedTypes.push(nativeType)
+          return normalized()
+        })
+
+      record('before')
+      h.gate.ingest(row('mystery-native-type', { n: 1 }), blocked(family, `unknown ${family} row`))
+      record('after_1')
+      record('after_2')
+
+      // The cursor ran straight through: nothing was held.
+      expect(normalizedTypes).toEqual(['before', 'after_1', 'after_2'])
+      expect(h.dispositions()).toEqual({
+        raw_000001: 'normalized',
+        raw_000002: 'blocked-unknown',
+        raw_000003: 'normalized',
+        raw_000004: 'normalized',
       })
 
-    record('before')
-    h.gate.ingest(
-      row('queue-operation:reprioritize', { operation: 'reprioritize' }),
-      blocked('submission-disposition', 'Unknown Claude queue operation: reprioritize')
-    )
-    record('after_1')
-    record('after_2')
+      // Evidence is still committed, and the warning still carries the detail.
+      expect(h.warnings).toHaveLength(1)
+      expect(h.warnings[0]?.kind).toBe('blocked_unknown')
+      expect(h.warnings[0]?.raw).toMatchObject({
+        rawRecordId: 'raw_000002',
+        nativeType: 'mystery-native-type',
+        family,
+        cursorHalted: false,
+        loadBearing: true,
+      })
 
-    expect(normalizedTypes).toEqual(['before'])
-    expect(h.warnings.map((w) => w.kind)).toEqual(['blocked_unknown'])
-    expect((h.warnings[0]?.raw as { cursorHalted?: boolean }).cursorHalted).toBe(true)
+      // ONE line on the broker's own log, readable without parsing ndjson.
+      expect(h.logged).toHaveLength(1)
+      expect(h.logged[0]).toBe(
+        `WARN harness-broker capture blocked_unknown invocationId=${invocationId} ` +
+          `driver=test-driver family=${family} nativeType=mystery-native-type ` +
+          `rawRecordId=raw_000002 loadBearing=true message=unknown ${family} row`
+      )
 
-    const state: CaptureStateView = h.gate.state()
-    expect(state.state).toBe('blocked')
-    expect(state.deferredCount).toBe(2)
-    expect(state.blockedOn).toMatchObject({
-      rawRecordId: 'raw_000002',
-      nativeType: 'queue-operation:reprioritize',
-      family: 'submission-disposition',
+      const state: CaptureStateView = h.gate.state()
+      expect(state.state).toBe('open')
+      expect(state.deferredCount).toBe(0)
+      expect(state.blockedOn).toBeUndefined()
+      h.close()
     })
-    // Evidence is NEVER dropped: held rows are committed and still pending.
-    expect(h.dispositions()).toEqual({
-      raw_000001: 'normalized',
-      raw_000002: 'blocked-unknown',
-      raw_000003: 'pending',
-      raw_000004: 'pending',
-    })
+  }
 
-    const outcome = h.gate.release({
-      rawRecordId: 'raw_000002',
-      disposition: 'ignored-known',
-      note: 'reviewed: cosmetic reorder',
-    })
-    expect(outcome.disposition).toBe('ignored-known')
-    expect(outcome.resumedRecords).toBe(2)
-    expect(outcome.capture.state).toBe('open')
-    expect(normalizedTypes).toEqual(['before', 'after_1', 'after_2'])
-    expect(h.released[0]).toMatchObject({
-      rawRecordId: 'raw_000002',
-      disposition: 'ignored-known',
-      family: 'submission-disposition',
-      note: 'reviewed: cosmetic reorder',
-      resumedRecords: 2,
-    })
-    expect(h.dispositions()['raw_000002']).toBe('ignored-known')
-    h.close()
-  })
-
-  test('a normalized-as release mints the operator-authored event with broker provenance', () => {
+  test('a repeated unknown type logs ONCE per (driver, nativeType, family), with a count', () => {
     const h = harness()
-    h.gate.ingest(row('queue-operation:hold', {}), blocked('submission-disposition', 'unknown op'))
-    const outcome = h.gate.release({
-      rawRecordId: 'raw_000001',
-      disposition: 'normalized-as',
-      normalizedAs: { type: 'submission.cancelled', payload: { submissionId: 's1' } },
-    })
-    expect(outcome.disposition).toBe('normalized')
-    expect(h.minted[0]?.type).toBe('submission.cancelled')
-    // The classification decision was the OPERATOR's, so the minted event is
-    // broker-authored — while still pointing at the raw bytes it came from.
-    expect(h.minted[0]?.provenance).toMatchObject({
-      sourceKind: 'broker',
-      rawRecordId: 'raw_000001',
-    })
-    expect(h.dispositions()['raw_000001']).toBe('normalized')
+    for (let n = 0; n < 5; n += 1) {
+      h.gate.ingest(row('mystery', { n }), blocked('conversation', 'Unknown Claude row: mystery'))
+    }
+    // A different family on the same type is a different key: a driver that
+    // reclassifies drift must not be silenced by the first key it hit.
+    h.gate.ingest(row('mystery', {}), blocked('diagnostic', 'Unknown Claude row: mystery'))
+    h.gate.ingest(row('other', {}), blocked('conversation', 'Unknown Claude row: other'))
+
+    // Every record still warns on the STREAM — the rate limit is on the log.
+    expect(h.warnings).toHaveLength(7)
+    expect(h.logged).toHaveLength(3)
+    expect(h.gate.state().blockedUnknown).toEqual([
+      {
+        driver: 'test-driver',
+        nativeType: 'mystery',
+        family: 'conversation',
+        loadBearing: true,
+        count: 5,
+        message: 'Unknown Claude row: mystery',
+        firstSeenIso: '2026-09-01T12:00:00.000Z',
+        lastSeenIso: '2026-09-01T12:00:00.000Z',
+      },
+      {
+        driver: 'test-driver',
+        nativeType: 'mystery',
+        family: 'diagnostic',
+        loadBearing: false,
+        count: 1,
+        message: 'Unknown Claude row: mystery',
+        firstSeenIso: '2026-09-01T12:00:00.000Z',
+        lastSeenIso: '2026-09-01T12:00:00.000Z',
+      },
+      {
+        driver: 'test-driver',
+        nativeType: 'other',
+        family: 'conversation',
+        loadBearing: true,
+        count: 1,
+        message: 'Unknown Claude row: other',
+        firstSeenIso: '2026-09-01T12:00:00.000Z',
+        lastSeenIso: '2026-09-01T12:00:00.000Z',
+      },
+    ])
     h.close()
   })
 
-  test('releasing a record that is not the blocking one is refused', () => {
+  test('the WARN line is ONE line even when the normalizer throws a multi-line error', () => {
+    const h = harness()
+    h.gate.ingest(row('exploding', {}), () => {
+      throw new Error('Invalid invocation event envelope\n  at line 1\n  at line 2')
+    })
+    expect(h.logged).toHaveLength(1)
+    expect(h.logged[0]).not.toContain('\n')
+    expect(h.logged[0]).toContain('family=diagnostic')
+    expect(h.logged[0]).toContain('Normalizer threw: Invalid invocation event envelope at line 1')
+    h.close()
+  })
+
+  test('release is refused: nothing is ever the blocked-unknown record', () => {
     const h = harness()
     h.gate.ingest(row('queue-operation:hold', {}), blocked('turn-bracket', 'unknown op'))
+    // The RPC, the CLI and the SDK types stay on the wire (T-07883 item 5); the
+    // gate answers with the existing typed refusal, and capture stays open.
     expect(() =>
-      h.gate.release({ rawRecordId: 'raw_999999', disposition: 'ignored-known' })
+      h.gate.release({ rawRecordId: 'raw_000001', disposition: 'ignored-known' })
     ).toThrow(CaptureRecordNotBlockedError)
-    expect(h.gate.state().state).toBe('blocked')
+    expect(h.released).toEqual([])
+    expect(h.gate.state().state).toBe('open')
     h.close()
   })
 
-  test('a second block inside the resumed drain halts again and holds the remainder', () => {
-    const h = harness()
-    h.gate.ingest(row('first', {}), blocked('conversation', 'unknown 1'))
-    h.gate.ingest(row('second', {}), blocked('conversation', 'unknown 2'))
-    h.gate.ingest(row('third', {}), normalized)
-
-    const outcome = h.gate.release({ rawRecordId: 'raw_000001', disposition: 'ignored-known' })
-    // The drain normalized the second record, which blocked again — so the
-    // third stays held rather than slipping past an unresolved gap.
-    expect(outcome.resumedRecords).toBe(1)
-    expect(outcome.capture.state).toBe('blocked')
-    expect(outcome.capture.blockedOn?.rawRecordId).toBe('raw_000002')
-    expect(h.dispositions()['raw_000003']).toBe('pending')
-    h.close()
-  })
-
-  test('the halt survives reopening the index: a restart does not quietly resume', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'capture-halt-'))
+  test('a halt persisted by a PRE-T-07883 broker is cleared on load, not resurrected', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'capture-legacy-halt-'))
     roots.push(dir)
+
+    // A pre-ruling broker: a blocked-unknown wrote the block row, and the
+    // records behind it were committed but left `pending`.
     const first = harness({ dir })
     first.gate.ingest(row('queue-operation:hold', {}), blocked('tool', 'unknown op'))
-    expect(first.gate.state().state).toBe('blocked')
+    first.index.block({
+      invocationId,
+      rawRecordId: 'raw_000001',
+      nativeType: 'queue-operation:hold',
+      family: 'tool',
+      message: 'unknown op',
+      sinceIso: '2026-09-02T08:21:00.000Z',
+    })
+    first.gate.ingest(row('held', {}), normalized)
+    first.index.dispose(invocationId, 'raw_000002', 'pending')
     first.close()
 
     const second = harness({ dir })
-    expect(second.gate.state().state).toBe('blocked')
-    expect(second.gate.state().blockedOn?.rawRecordId).toBe('raw_000001')
+    expect(second.gate.state()).toMatchObject({ state: 'open', deferredCount: 0 })
+    expect(second.index.blockedOn(invocationId)).toBeUndefined()
+    expect(second.logged[0]).toContain(
+      'WARN harness-broker capture halt cleared (T-07883: the cursor no longer halts)'
+    )
+    expect(second.logged[0]).toContain('rawRecordId=raw_000001')
+
+    // And the record it was holding normalizes through the ordinary replay.
+    const replayed = second.gate.replayPending(normalized)
+    expect(replayed).toBe(1)
+    expect(second.dispositions()['raw_000002']).toBe('normalized')
     second.close()
   })
 })
 
 describe('event family taxonomy', () => {
+  // Since T-07883 the taxonomy decides how LOUD a blocked-unknown is, never
+  // whether capture stops — the load-bearing regressions above are what pin
+  // that. It still has to be the right set: it is what a reader of
+  // `capture.warning.raw.loadBearing` acts on.
   test('the load-bearing set is exactly the families a consumer acts on', () => {
     expect([...LOAD_BEARING_EVENT_FAMILIES].sort()).toEqual([
       'conversation',

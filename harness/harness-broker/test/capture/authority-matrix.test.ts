@@ -92,7 +92,7 @@ describe('AUTHORITY.md matches the enforced declaration', () => {
     expect([...families].sort()).toEqual([...publishedFamilies].sort())
   })
 
-  test('the load-bearing families section lists the families that halt the cursor', () => {
+  test('the load-bearing families section lists the families and the T-07883 ruling', () => {
     const section = AUTHORITY_MD.split('## Load-bearing families')[1]?.split('\n## ')[0] ?? ''
     for (const family of [
       'turn-bracket',
@@ -104,6 +104,19 @@ describe('AUTHORITY.md matches the enforced declaration', () => {
     ]) {
       expect(section).toContain(`\`${family}\``)
     }
+    // The taxonomy survived the ruling; the halt did not. Published prose that
+    // still promised a halt would send the next operator hunting for a release
+    // command that no longer does anything, so the ruling is pinned HERE, in
+    // the section that used to carry the halt clause.
+    expect(section).toContain('T-07883')
+    expect(section).toContain(
+      '"We should never halt when an unknown event arrives. Harnesses are upgraded'
+    )
+    expect(section).toContain('**the cursor advances.**')
+    expect(section).toContain('`snapshot.capture.state` is always `open`')
+    // And nowhere in the file does a live behaviour still claim to halt.
+    expect(AUTHORITY_MD).not.toContain('stops that invocation')
+    expect(AUTHORITY_MD).not.toContain('## Operating a halt')
   })
 
   test('broker-owned families are broker for EVERY driver', () => {

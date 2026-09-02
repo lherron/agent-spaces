@@ -12,10 +12,12 @@ predicate: >
   verbatim with a source epoch, cursor, and provenance before the same
   production normalizer handles live delivery or replay; every raw row reaches
   one durable normalized, state-only, duplicate, ignored-known, or
-  blocked-unknown disposition. An unclassified load-bearing type, including a
-  queue operation used for turn attribution, warns and stops its normalization
-  cursor until an operator disposition releases it. A normalized append failure
-  prevents publication. The bounded Pi risk remains exactly the exception
+  blocked-unknown disposition. An unclassified type, including a load-bearing
+  one and a queue operation used for turn attribution, warns loudly and advances
+  its normalization cursor: it records the blocked-unknown disposition, commits
+  a capture warning, and writes one rate-limited WARN line on the broker's own
+  log, never holding later records. A normalized append failure prevents
+  publication. The bounded Pi risk remains exactly the exception
   governed by agent-spaces.harness-broker-turn-evidence: the manager-authored
   delivery-asserted turn.started owns the initial bracket, hooks correlate
   provider evidence into that bracket without reminting it, and Pi session JSONL
@@ -30,8 +32,9 @@ predicate: >
   failure to commit keeps the provider gate closed.
 authority:
   repo: agent-spaces
-  surface: Lance HCS T-07827 / Daedalus approval wrkq T-07853, 2026-09-01
+  surface: Lance HCS T-07827 / Daedalus approval wrkq T-07853, 2026-09-01; halt clause superseded by Lance operator ruling wrkq T-07883, 2026-09-02
 source:
+  - wrkq:T-07883
   - wrkq:T-07853
   - wrkq:T-07827
   - architecture/records/invariants/agent-spaces.harness-broker-turn-evidence.yaml

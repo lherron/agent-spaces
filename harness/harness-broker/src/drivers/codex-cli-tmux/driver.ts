@@ -241,7 +241,7 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
         driverKind: CODEX_CLI_TMUX_DRIVER_KIND,
         invocationId: driverCtx.invocationId,
         knownHookNames: CODEX_CLI_KNOWN_HOOK_NAMES,
-        // Warns without halting, for the same reason as pi — see
+        // Not load-bearing, for the same reason as pi — see
         // `HookCaptureSeamOptions.unknownHookFamily`.
         unknownHookFamily: 'diagnostic',
       })

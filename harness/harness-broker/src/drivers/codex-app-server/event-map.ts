@@ -215,8 +215,8 @@ export const CODEX_METHOD_CLASSIFICATION = {
 }
 
 /**
- * The event family an UNKNOWN method would have landed in, which is what
- * decides whether it halts the normalization cursor (§6.1). The mapper's
+ * The event family an UNKNOWN method lands in (§6.1), which is what decides how
+ * LOUD its warning is — capture itself always advances (T-07883). The mapper's
  * load-bearing vocabulary lives entirely under three prefixes:
  *
  *   - `turn/…`        → the turn bracket;
@@ -224,11 +224,10 @@ export const CODEX_METHOD_CLASSIFICATION = {
  *   - `thread/queue/…` → the provider queue, which is turn ATTRIBUTION.
  *
  * A novel method under any of those is something a consumer would have acted
- * on, so guessing past it is not recoverable and capture halts. Everything else
- * the provider notifies about is account/model/thread/session telemetry: it
- * still records a `blocked-unknown` disposition and raises `capture.warning`,
- * but it does not stop the cursor, because no committed broker fact depends on
- * it.
+ * on, so it is reported as load-bearing drift. Everything else the provider
+ * notifies about is account/model/thread/session telemetry: it still records a
+ * `blocked-unknown` disposition and raises `capture.warning`, but no committed
+ * broker fact depends on it.
  */
 export function codexUnknownMethodFamily(method: string): EventFamily {
   if (method.startsWith('turn/')) return 'turn-bracket'

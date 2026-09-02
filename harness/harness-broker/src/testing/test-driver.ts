@@ -52,8 +52,8 @@ export interface TestDriverController {
   /**
    * Commit one raw provider record through the invocation's capture gate and
    * report `outcome` for it — the seam that lets a test drive the normalization
-   * cursor (including a blocked-unknown halt) through the REAL broker rather
-   * than a stand-in.
+   * cursor (including a blocked-unknown) through the REAL broker rather than a
+   * stand-in.
    */
   captureRow(nativeType: string, body: unknown, outcome: NormalizeOutcome): void
   /**

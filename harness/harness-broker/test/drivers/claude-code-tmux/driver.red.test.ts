@@ -745,6 +745,124 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     }
   })
 
+  test('a plain user row mid-turn warns loudly and the turn still completes (T-07883)', async () => {
+    // The exact shape that stalled three real seats overnight: a HUMAN typing
+    // into the seat's pane (or a `wrkc` resend landing) while a turn is active
+    // writes an ordinary `user` row the disposition mirror cannot attribute.
+    // That is a load-bearing anomaly and it must stay loud — but under the halt
+    // it stopped the invocation's cursor, so the turn's own `turn.completed`
+    // never reached the stream and HRC saw the seat busy forever.
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
+    const events: InvocationEventEnvelope[] = []
+    const logged: string[] = []
+    const root = mkdtempSync(join(tmpdir(), 'claude-plain-user-mid-turn-'))
+    const transcriptPath = join(root, 'session.jsonl')
+    writeFileSync(transcriptPath, '')
+    const hookSocket = '/tmp/harness-broker/claude-hooks.sock'
+    const index = openCaptureIndex(join(root, 'capture.db'))
+    const ctx = createCtx(events, { terminalSurface: defaultLease() })
+    const capture = createCaptureGate({
+      invocationId: 'inv_claude_tmux_1' as InvocationId,
+      journal: createRawJournal({
+        invocationId: 'inv_claude_tmux_1' as InvocationId,
+        dir: join(root, 'journal'),
+      }),
+      index,
+      normalizer: { name: 'claude-code-tmux', version: 'test' },
+      now,
+      emitWarning: (payload) => ctx.emit('capture.warning', payload).seq,
+      emitReleased: (payload) => ctx.emit('capture.released', payload).seq,
+      emitNormalizedAs: () => 0,
+      warn: (line) => void logged.push(line),
+    })
+    ctx.capture = capture
+    const driver = createDriver({
+      tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
+      hooks: {
+        listen: async (handler) => {
+          hookHandler = handler as (envelope: HookEnvelope) => Promise<void>
+          return { socketPath: hookSocket, close: async () => undefined }
+        },
+      },
+      now,
+    })
+
+    try {
+      await driver.start(claudeTmuxSpec(), ctx)
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        hookData: { hook_event_name: 'SessionStart', transcript_path: transcriptPath },
+      })
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        turnId: 'turn_active',
+        hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'a long running turn' },
+      })
+
+      // Someone types into the pane while the turn is running.
+      appendFileSync(
+        transcriptPath,
+        `${JSON.stringify({
+          type: 'user',
+          message: { role: 'user', content: 'typed into the pane mid-turn' },
+        })}\n`
+      )
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        hookData: { hook_event_name: 'Notification', message: 'reading the transcript' },
+      })
+
+      // (a) It is still reported, at the loudest level, on both surfaces.
+      const warning = events.find((event) => event.type === 'capture.warning')
+      expect(warning?.payload).toMatchObject({
+        kind: 'blocked_unknown',
+        message: 'Claude plain user row arrived while a turn is active',
+      })
+      expect(
+        (warning?.payload as { raw: { family: string; loadBearing: boolean } }).raw
+      ).toMatchObject({ family: 'submission-disposition', loadBearing: true, cursorHalted: false })
+      expect(logged).toHaveLength(1)
+      expect(logged[0]).toContain('WARN harness-broker capture blocked_unknown')
+      expect(logged[0]).toContain('driver=claude-code-tmux')
+      expect(logged[0]).toContain('family=submission-disposition')
+      expect(logged[0]).toContain('message=Claude plain user row arrived while a turn is active')
+
+      // (b) The turn's own terminal still reaches the envelope stream — the
+      // thing the halt cost. Under the halt this Stop hook was DEFERRED behind
+      // the blocked record and no turn.completed was ever emitted.
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        turnId: 'turn_active',
+        hookData: { hook_event_name: 'Stop' },
+      })
+      expect(
+        events.filter((event) => event.type === 'turn.completed' && event.turnId === 'turn_active')
+      ).toHaveLength(1)
+
+      // (c) Capture never left `open`, and every raw record still reached a
+      // durable disposition — evidence is not what was traded away.
+      expect(capture.state()).toMatchObject({ state: 'open', deferredCount: 0 })
+      expect(capture.state().blockedOn).toBeUndefined()
+      expect(
+        index.list('inv_claude_tmux_1').filter((row) => row.disposition === 'pending')
+      ).toEqual([])
+    } finally {
+      index.close()
+      await driver.dispose().catch(() => undefined)
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test('transcript interrupt terminalizes the original before a dequeue-promoted successor', async () => {
     const createDriver = await loadFactory()
     const tmuxCalls: TmuxExecCall[] = []

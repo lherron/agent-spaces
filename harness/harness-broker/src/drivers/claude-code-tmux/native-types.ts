@@ -58,9 +58,9 @@ export const CLAUDE_IGNORED_ROW_TYPES: ReadonlySet<string> = new Set([
  *   1 per session in all three archived sessions.
  *
  * A subtype outside this set is `blocked-unknown` in
- * {@link CLAUDE_UNKNOWN_ROW_FAMILY} — it WARNS and does not halt, consistent
- * with the unknown-row-type law (a row we cannot place in a family cannot be
- * asserted to be load-bearing).
+ * {@link CLAUDE_UNKNOWN_ROW_FAMILY} — the quieter class, consistent with the
+ * unknown-row-type rule (a row we cannot place in a family cannot be asserted
+ * to be load-bearing).
  */
 export const CLAUDE_KNOWN_SYSTEM_SUBTYPES: ReadonlySet<string> = new Set([
   'turn_duration',
@@ -137,25 +137,24 @@ export const CLAUDE_KNOWN_HOOK_NAMES: ReadonlySet<string> = new Set([
 /**
  * Family an UNKNOWN attachment subtype is attributed to.
  *
- * Deliberately NOT `submission-disposition` (which would halt the cursor). The
- * attachment channel is overwhelmingly UI/session metadata — 125 attachments
- * across the pin-1 session, of which 5 were `queued_command` — and new cosmetic
- * subtypes appear between Claude releases (`remote_session_change` shows up
- * only in the third archived session). Halting a whole runtime's capture on
- * cosmetic noise would make the mechanism something operators route around.
+ * Deliberately NOT `submission-disposition`. The attachment channel is
+ * overwhelmingly UI/session metadata — 125 attachments across the pin-1
+ * session, of which 5 were `queued_command` — and new cosmetic subtypes appear
+ * between Claude releases (`remote_session_change` shows up only in the third
+ * archived session). Reporting cosmetic noise at the loudest level would make
+ * the mechanism something operators learn to ignore.
  *
  * Absorption evidence going missing is still caught, and caught EARLIER: under
  * T-07849 rev 10 an unresolved `remove` that reaches a disposition boundary is
- * itself blocked-unknown in `submission-disposition`, which DOES halt. So a
- * renamed absorption attachment fails loudly through the mirror rather than
- * through this table.
+ * itself blocked-unknown in `submission-disposition`. So a renamed absorption
+ * attachment reports loudly through the mirror rather than through this table.
  */
 export const CLAUDE_UNKNOWN_ATTACHMENT_FAMILY: EventFamily = 'diagnostic'
 
 /**
- * Family an UNKNOWN top-level row type is attributed to. Same reasoning: the
- * law halts on "an unclassified LOAD-BEARING type", and a row type we cannot
- * place in any family cannot be asserted to be load-bearing. It warns.
+ * Family an UNKNOWN top-level row type is attributed to. Same reasoning: a row
+ * type we cannot place in any family cannot be asserted to be load-bearing, so
+ * it takes the quieter class.
  */
 export const CLAUDE_UNKNOWN_ROW_FAMILY: EventFamily = 'diagnostic'
 
@@ -167,10 +166,11 @@ export const CLAUDE_UNKNOWN_ROW_FAMILY: EventFamily = 'diagnostic'
  * Pinned as a string because it IS one: the row is an ordinary `type:'user'`
  * row with string content, indistinguishable from an operator prompt except by
  * this prefix. Without it the disposition mirror sees a plain user row arriving
- * while a turn is active, which is a load-bearing anomaly and HALTS the cursor
- * — reproduced on `release-20260902035322961-10808` (pre-Phase-4), so this is a
- * pre-existing defect the T-07873 structured-output leg surfaced, not a
- * regression. Same shape of fact as the `[Request interrupted by user]` marker
- * the interrupt path already pins.
+ * while a turn is active and reports it as a load-bearing anomaly — which, when
+ * that anomaly still halted the cursor, stalled the invocation (reproduced on
+ * `release-20260902035322961-10808`, pre-Phase-4). The halt is gone (T-07883)
+ * and the prefix stays: a correct disposition is still better than a warning.
+ * Same shape of fact as the `[Request interrupted by user]` marker the
+ * interrupt path already pins.
  */
 export const CLAUDE_STOP_HOOK_FEEDBACK_PREFIX = 'Stop hook feedback:'

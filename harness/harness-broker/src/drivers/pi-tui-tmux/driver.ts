@@ -200,8 +200,8 @@ export function createPiTuiTmuxDriver(options: PiTuiTmuxDriverOptions): Driver {
         driverKind: PI_TUI_TMUX_DRIVER_KIND,
         invocationId: driverCtx.invocationId,
         knownHookNames: PI_KNOWN_HOOK_NAMES,
-        // Warns without halting: a hook name the normalizer does not handle
-        // mints nothing, so it cannot be shown to be load-bearing. See
+        // Not load-bearing: a hook name the normalizer does not handle mints
+        // nothing, so it cannot be shown to be load-bearing. See
         // `HookCaptureSeamOptions.unknownHookFamily` — this is the position the
         // first live pi session forced.
         unknownHookFamily: 'diagnostic',

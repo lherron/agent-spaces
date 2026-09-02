@@ -40,23 +40,19 @@ export interface HookCaptureSeamOptions {
    */
   knownHookNames: ReadonlySet<string>
   /**
-   * Family an unknown hook name is attributed to — which is what decides
-   * whether it HALTS the cursor or only warns.
+   * Family an unknown hook name is attributed to — which is what decides how
+   * LOUD the warning is. Nothing here stops capture: since T-07883 no family
+   * halts the cursor.
    *
    * Every driver passes a non-load-bearing family here, and that is a corrected
    * position, not an oversight. The original reasoning was "the broker writes
    * the harness's hook configuration, so the set of names it can receive is
    * broker-controlled, and an unregistered name is therefore load-bearing
    * drift." The first live pi-tui-tmux session falsified that premise directly:
-   * pi fired `before_agent_start` and `message_start`, the cursor halted, and
-   * 135 records piled up behind a hook the normalizer would simply have
-   * ignored. A hook whose name the normalizer does not handle mints nothing, so
-   * there is no evidence it is load-bearing — and the law halts on an
-   * unclassified LOAD-BEARING type.
-   *
-   * Unknown QUEUE OPERATIONS are the opposite case and still halt: turn
-   * attribution demonstrably depends on them (T-07849 item 11), which is
-   * exactly the example the law names.
+   * pi fired `before_agent_start` and `message_start`, the cursor halted (as it
+   * then could), and 135 records piled up behind a hook the normalizer would
+   * simply have ignored. That precedent is why the family is `diagnostic`; the
+   * halt it provoked is gone fleet-wide.
    */
   unknownHookFamily: EventFamily
 }
@@ -85,10 +81,9 @@ export function createHookCaptureSeam(options: HookCaptureSeamOptions): HookCapt
       if (capture === undefined) {
         return normalize()
       }
-      // `result` is assigned inside the normalize callback below, which the gate
-      // runs synchronously — unless the cursor is halted, in which case the
-      // record is deferred and the driver gets the undefined "no decision"
-      // answer an unhandled hook already produces today.
+      // `result` is assigned inside the normalize callback below, which the
+      // gate always runs synchronously: the cursor never defers a record, so a
+      // hook waiting on a synchronous decision always gets one.
       let result: T | undefined
       capture.ingest(
         {

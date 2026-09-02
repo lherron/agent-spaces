@@ -1,4 +1,5 @@
 import type {
+  CaptureBlockedUnknownSummary,
   CaptureReleaseNormalizedAs,
   CaptureReleasedPayload,
   CaptureStateView,
@@ -23,11 +24,23 @@ import type { RawJournal, RawJournalAppendInput } from './raw-journal'
  *   3. run the driver's normalizer, WHICH MUST RETURN A DISPOSITION;
  *   4. record that disposition durably.
  *
- * If step 3 reports `blocked-unknown` in a load-bearing family the cursor STOPS:
- * later records are still committed (evidence is never dropped) but are held
- * unnormalized until an operator `invocation.capture.release` disposes the
- * blocking record. The seat keeps running; only capture halts, and it halts
- * visibly through `snapshot.capture.state`.
+ * The cursor NEVER STOPS. A `blocked-unknown` — in any family, load-bearing
+ * included — records its disposition, emits `capture.warning{kind:
+ * 'blocked_unknown'}`, writes one WARN line on the broker's own stderr, and the
+ * cursor advances to the next record. Lance ruled it on 2026-09-02 (wrkq
+ * T-07883), superseding the halt clause of T-07849 item 11:
+ *
+ *   "We should never halt when an unknown event arrives. Harnesses are upgraded
+ *    all the time; we don't want to hard-fail our entire fleet when we haven't
+ *    handled an upgraded new event. It should warn loudly."
+ *
+ * The halt was live for one night and fired three times on real seats, every
+ * time on a KNOWN native type in an unhandled state (a plain Claude user row
+ * arriving while a turn was active) rather than on a new type. Each seat kept
+ * running while HRC saw it busy forever, and nothing reached an
+ * operator-readable log. Evidence is still never dropped: the raw journal, the
+ * per-record disposition and the provenance are exactly what they were. Only
+ * holding-later-records is gone.
  */
 export type NormalizeOutcome =
   | { disposition: 'normalized' | 'state-only' | 'duplicate' | 'ignored-known'; detail?: string }
@@ -45,11 +58,7 @@ export interface CapturedRecord {
 export type CaptureNormalizer = (captured: CapturedRecord) => NormalizeOutcome
 
 export interface CaptureGate {
-  /**
-   * Commit `input` verbatim and then normalize it — unless the cursor is
-   * halted, in which case the committed record is HELD and `normalize` runs
-   * when the block is released, in cursor order.
-   */
+  /** Commit `input` verbatim and then normalize it. */
   ingest(input: RawJournalAppendInput, normalize: CaptureNormalizer): void
   /** Mint a new source epoch: file replaced/truncated, or provider reconnected. */
   rotateEpoch(sourceKey: string): void
@@ -61,6 +70,13 @@ export interface CaptureGate {
    * export built from anything else could carry a row the journal does not.
    */
   records(): RawProviderRecord[]
+  /**
+   * Retained operator surface. Since T-07883 no record ever blocks the cursor,
+   * so every call throws {@link CaptureRecordNotBlockedError} — the same
+   * refusal an operator naming the wrong record has always received. The RPC,
+   * the `harness-broker capture release` command and the SDK types stay on the
+   * wire until the whole fleet is on a broker that cannot halt.
+   */
   release(input: {
     rawRecordId: string
     disposition: 'ignored-known' | 'normalized-as'
@@ -68,7 +84,6 @@ export interface CaptureGate {
     note?: string | undefined
   }): CaptureReleaseOutcome
   state(): CaptureStateView
-  readonly blocked: boolean
 }
 
 export interface CaptureReleaseOutcome {
@@ -94,23 +109,59 @@ export interface CaptureGateOptions {
   now: () => Date
   /** Emit a committed `capture.warning`; returns the committed seq. */
   emitWarning: (payload: CaptureWarningPayload) => number
-  /** Emit a committed `capture.released`; returns the committed seq. */
+  /**
+   * Emit a committed `capture.released`; returns the committed seq. Retained
+   * with the release surface (see {@link CaptureGate.release}) and unreachable
+   * while no record can block.
+   */
   emitReleased: (payload: CaptureReleasedPayload) => number
   /** Emit the operator-authored normalized event of a `normalized-as` release. */
   emitNormalizedAs: (spec: CaptureReleaseNormalizedAs, provenance: EventProvenance) => number
+  /**
+   * ONE line at WARN on the broker process's own log — the seat's
+   * `bipc/<id>/broker.err`. A human tailing that file must see an unclassified
+   * record without parsing ndjson, which is exactly what the halt failed to
+   * give operators. Defaults to `process.stderr`.
+   */
+  warn?: ((line: string) => void) | undefined
 }
 
-interface Deferred {
-  record: RawProviderRecord
-  normalize: CaptureNormalizer
+interface UnknownTally extends CaptureBlockedUnknownSummary {
+  count: number
+  lastSeenIso: string
 }
 
 export function createCaptureGate(options: CaptureGateOptions): CaptureGate {
   const { invocationId, journal, index, normalizer, now } = options
-  const deferred: Deferred[] = []
-  // Rehydrated from the durable index, so a broker that reopens an invocation's
-  // capture state finds the halt still in force rather than quietly resuming.
-  let blocked = index.blockedOn(invocationId)
+  const warn = options.warn ?? ((line: string) => void process.stderr.write(`${line}\n`))
+  /**
+   * Rate limit, keyed by EXACT `(driver, nativeType, family)`. A harness that
+   * starts emitting an unhandled type emits it many times per turn: one WARN
+   * line per key per invocation is loud, one per record is a flood an operator
+   * learns to ignore. The repeat count rides the snapshot instead.
+   */
+  const unknownByKey = new Map<string, UnknownTally>()
+
+  // A halt written by a PRE-T-07883 broker is cleared on load rather than
+  // resurrected: the ruling is that the fleet never halts, and a restart that
+  // silently reinstated last night's halt would be the same outage with a new
+  // start time. Records held behind it are still `pending` in the index, so the
+  // ordinary `replayPending` on warm reattach normalizes them.
+  const legacyHalt = index.blockedOn(invocationId)
+  if (legacyHalt !== undefined) {
+    index.unblock(invocationId)
+    warn(
+      logLine('capture halt cleared (T-07883: the cursor no longer halts)', {
+        invocationId,
+        driver: normalizer.name,
+        family: legacyHalt.family,
+        nativeType: legacyHalt.nativeType,
+        rawRecordId: legacyHalt.rawRecordId,
+        sinceIso: legacyHalt.sinceIso,
+        message: legacyHalt.message,
+      })
+    )
+  }
 
   function capturedFor(record: RawProviderRecord): CapturedRecord {
     return {
@@ -132,12 +183,42 @@ export function createCaptureGate(options: CaptureGateOptions): CaptureGate {
     }
   }
 
-  function brokerProvenance(rawRecordId?: string): EventProvenance {
-    return {
-      ...(rawRecordId !== undefined ? { rawRecordId } : {}),
-      sourceKind: 'broker',
-      normalizer: { ...normalizer },
+  /**
+   * Record the unclassified type, and log it if this exact key has not already
+   * been logged on this invocation.
+   */
+  function tallyUnknown(record: RawProviderRecord, family: EventFamily, message: string): void {
+    const driver = record.driverKind
+    const key = `${driver}\u0000${record.nativeType}\u0000${family}`
+    const iso = now().toISOString()
+    const existing = unknownByKey.get(key)
+    if (existing !== undefined) {
+      existing.count += 1
+      existing.lastSeenIso = iso
+      return
     }
+    const loadBearing = isLoadBearingEventFamily(family)
+    unknownByKey.set(key, {
+      driver,
+      nativeType: record.nativeType,
+      family,
+      loadBearing,
+      count: 1,
+      message,
+      firstSeenIso: iso,
+      lastSeenIso: iso,
+    })
+    warn(
+      logLine('capture blocked_unknown', {
+        invocationId,
+        driver,
+        family,
+        nativeType: record.nativeType,
+        rawRecordId: record.rawRecordId,
+        loadBearing,
+        message,
+      })
+    )
   }
 
   /** Run the normalizer and persist whatever disposition it reports. */
@@ -170,7 +251,6 @@ export function createCaptureGate(options: CaptureGateOptions): CaptureGate {
       return
     }
 
-    const halt = isLoadBearingEventFamily(outcome.family)
     index.dispose(
       invocationId,
       record.rawRecordId,
@@ -178,18 +258,7 @@ export function createCaptureGate(options: CaptureGateOptions): CaptureGate {
       outcome.message,
       'normalizer'
     )
-    if (halt) {
-      const row = {
-        invocationId,
-        rawRecordId: record.rawRecordId,
-        nativeType: record.nativeType,
-        family: outcome.family,
-        message: outcome.message,
-        sinceIso: now().toISOString(),
-      }
-      index.block(row)
-      blocked = row
-    }
+    tallyUnknown(record, outcome.family, outcome.message)
     options.emitWarning({
       kind: 'blocked_unknown',
       message: outcome.message,
@@ -200,46 +269,25 @@ export function createCaptureGate(options: CaptureGateOptions): CaptureGate {
         sourceKind: record.sourceKind,
         sourceEpoch: record.sourceEpoch,
         sourceCursor: record.sourceCursor,
-        cursorHalted: halt,
+        // Retained for a consumer pinned to the pre-ruling payload; always
+        // false now. `loadBearing` is the taxonomy fact that survived.
+        cursorHalted: false,
+        loadBearing: isLoadBearingEventFamily(outcome.family),
         native: decodeNative(record),
       },
     })
   }
 
   function stateView(): CaptureStateView {
+    const blockedUnknown = [...unknownByKey.values()]
     return {
-      state: blocked === undefined ? 'open' : 'blocked',
-      ...(blocked !== undefined
-        ? {
-            blockedOn: {
-              rawRecordId: blocked.rawRecordId,
-              nativeType: blocked.nativeType,
-              family: blocked.family,
-              message: blocked.message,
-              sinceIso: blocked.sinceIso,
-            },
-          }
-        : {}),
-      deferredCount: deferred.length,
+      state: 'open',
+      deferredCount: 0,
+      ...(blockedUnknown.length > 0 ? { blockedUnknown } : {}),
     }
-  }
-
-  function drainDeferred(): number {
-    let resumed = 0
-    while (blocked === undefined && deferred.length > 0) {
-      const next = deferred.shift()
-      if (next === undefined) break
-      resumed += 1
-      normalizeNow(next.record, next.normalize)
-    }
-    return resumed
   }
 
   return {
-    get blocked(): boolean {
-      return blocked !== undefined
-    },
-
     records(): RawProviderRecord[] {
       return journal.read()
     },
@@ -257,11 +305,6 @@ export function createCaptureGate(options: CaptureGateOptions): CaptureGate {
         sha256: record.sha256,
         disposition: 'pending',
       })
-      if (blocked !== undefined) {
-        // Cursor halted: evidence is captured, normalization is not.
-        deferred.push({ record, normalize })
-        return
-      }
       normalizeNow(record, normalize)
     },
 
@@ -280,10 +323,6 @@ export function createCaptureGate(options: CaptureGateOptions): CaptureGate {
       let replayed = 0
       for (const record of journal.read()) {
         if (!pendingIds.has(record.rawRecordId)) continue
-        if (blocked !== undefined) {
-          deferred.push({ record, normalize })
-          continue
-        }
         replayed += 1
         normalizeNow(record, normalize)
       }
@@ -291,59 +330,27 @@ export function createCaptureGate(options: CaptureGateOptions): CaptureGate {
     },
 
     release(input): CaptureReleaseOutcome {
-      const current = blocked
-      if (current === undefined || current.rawRecordId !== input.rawRecordId) {
-        throw new CaptureRecordNotBlockedError(input.rawRecordId)
-      }
-
-      let normalizedSeq: number | undefined
-      const disposition: 'ignored-known' | 'normalized' =
-        input.disposition === 'ignored-known' ? 'ignored-known' : 'normalized'
-
-      if (input.disposition === 'normalized-as') {
-        const spec = input.normalizedAs
-        if (spec === undefined) {
-          throw new CaptureRecordNotBlockedError(input.rawRecordId)
-        }
-        // The operator authors the normalized fact the broker could not derive.
-        // It carries the blocked record's provenance so the ledger still shows
-        // which raw bytes it came from, with sourceKind 'broker' because the
-        // classification decision was a broker/operator one, not the provider's.
-        normalizedSeq = options.emitNormalizedAs(spec, brokerProvenance(input.rawRecordId))
-      }
-
-      index.dispose(invocationId, input.rawRecordId, disposition, input.note, 'operator')
-      index.unblock(invocationId)
-      blocked = undefined
-
-      // Resume BEFORE committing capture.released so the released event's
-      // resumedRecords is a fact, not a prediction. Any resumed record may
-      // block again; the drain stops there and the next release resumes it.
-      const resumedRecords = drainDeferred()
-
-      const releasedSeq = options.emitReleased({
-        rawRecordId: input.rawRecordId,
-        disposition,
-        nativeType: current.nativeType,
-        family: current.family,
-        ...(input.note !== undefined ? { note: input.note } : {}),
-        ...(normalizedSeq !== undefined && input.normalizedAs !== undefined
-          ? { normalizedAs: { type: input.normalizedAs.type } }
-          : {}),
-        resumedRecords,
-      })
-
-      return {
-        disposition,
-        releasedSeq,
-        ...(normalizedSeq !== undefined ? { normalizedSeq } : {}),
-        resumedRecords,
-        capture: stateView(),
-      }
+      // Nothing blocks, so nothing can be released. The refusal is the existing
+      // typed one, which names the record and reports `capture: open`, so a
+      // `hrc capture release` against a fleet on this broker reads as "there is
+      // nothing to release" rather than as a broker fault.
+      throw new CaptureRecordNotBlockedError(input.rawRecordId)
     },
 
     state: stateView,
   }
+}
+
+/** One line, `key=value` pairs, whitespace flattened so a tail stays greppable. */
+function logLine(what: string, fields: Record<string, unknown>): string {
+  const pairs = Object.entries(fields)
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => `${key}=${flatten(String(value))}`)
+  return `WARN harness-broker ${what} ${pairs.join(' ')}`
+}
+
+function flatten(value: string): string {
+  return value.replace(/\s+/g, ' ').trim()
 }
 
 /** Message plus any structured `issues`/`data` the thrown error carries. */

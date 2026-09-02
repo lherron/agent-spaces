@@ -289,16 +289,16 @@ export function createCodexHookTranscriptReader(
    *
    *   consumed                                        -> normalized / state-only
    *   pinned, deliberately not consumed               -> ignored-known
-   *   NOT pinned, in a load-bearing family            -> blocked-unknown, HALTS
+   *   NOT pinned, in a load-bearing family            -> blocked-unknown, loud
    *   NOT pinned, not placeable in a family           -> blocked-unknown, warns
    *
-   * The only rows we can assert are load-bearing are the `item` subtypes under a
-   * PINNED item-carrying `event_msg`: their parent is known, and that parent's
-   * channel is where assistant prose arrives. A row type, `event_msg` payload
-   * type or `response_item` payload type that is not in the table cannot be
-   * placed in any family at all, so it warns rather than halting — the law halts
-   * on an unclassified LOAD-BEARING type, and the AUTHORITY.md hook-name
-   * precedent is exactly this distinction.
+   * Both blocked-unknown arms warn and ADVANCE (T-07883); the family says how
+   * loud the warning is, not whether capture stops. The only rows we can assert
+   * are load-bearing are the `item` subtypes under a PINNED item-carrying
+   * `event_msg`: their parent is known, and that parent's channel is where
+   * assistant prose arrives. A row type, `event_msg` payload type or
+   * `response_item` payload type that is not in the table cannot be placed in
+   * any family at all, so it is attributed to `diagnostic`.
    */
   const processLine = (line: string, into: InvocationEventEnvelope[]): NormalizeOutcome => {
     if (line.trim().length === 0) {

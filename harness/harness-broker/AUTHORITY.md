@@ -3,6 +3,8 @@
 **Law:** `agent-spaces.harness-broker-local-commit-observation` (`6d04d5de`)
 **Spec:** `HARNESS_BROKER_OBSERVABILITY_PROPOSAL.md` §§6, 6.1, 7 (wrkq `T-07853`)
 **Implemented by:** wrkq `T-07863` (observability Phase 0)
+**Amended by:** wrkq `T-07883` — Lance operator ruling 2026-09-02: an
+unclassified type warns loudly and the cursor advances; nothing halts.
 
 > Authority is declared per **event family**, never once per provider.
 
@@ -53,12 +55,46 @@ does not have. That is the failure this taxonomy exists to prevent.
 `turn-bracket`, `conversation`, `tool`, `input-admission`,
 `submission-disposition`, `permission`.
 
-An unclassified native type in one of these **stops that invocation's
-normalization cursor** until an operator disposition releases it. Everything
-else still records a `blocked-unknown` disposition and emits
-`capture.warning{kind:'blocked_unknown'}`, but does not halt — because the law
-halts on an unclassified *load-bearing* type, and a type we cannot place in a
-family cannot be asserted to be load-bearing.
+These are the families whose facts a consumer ACTS on. An unclassified native
+type in one of them is the **loudest** capture warning the broker can raise — a
+type we cannot place in a family at all cannot be asserted to be load-bearing,
+so it takes the quieter class. That is the whole of what the taxonomy decides.
+
+**It decides nothing about halting, because nothing halts.** Lance ruled on
+2026-09-02 (wrkq `T-07883`, operator, direct):
+
+> "We should never halt when an unknown event arrives. Harnesses are upgraded
+> all the time; we don't want to hard-fail our entire fleet when we haven't
+> handled an upgraded new event. It should warn loudly."
+
+The ruling supersedes the halt clause of law 6d04d5de / `T-07849` rev 9 item 11
+and the earlier text of this section. Every `blocked-unknown`, in every family,
+now does exactly this and nothing more:
+
+1. the raw record keeps its durable `blocked-unknown` disposition;
+2. `capture.warning{kind:'blocked_unknown'}` is committed, carrying `family`,
+   `loadBearing` and the verbatim native row (`cursorHalted` is retained on the
+   payload and is always `false`);
+3. ONE line at WARN goes to the broker process's own stderr — the seat's
+   `bipc/<id>/broker.err` — rate-limited to one per exact
+   `(driver, nativeType, family)` per invocation, with the repeat count in
+   `snapshot.capture.blockedUnknown`;
+4. **the cursor advances.**
+
+`snapshot.capture.state` is always `open` and `deferredCount` always `0`. A halt
+persisted in the SQLite index by a pre-ruling broker is cleared on load, logged
+at WARN, and its held records normalize through the ordinary replay.
+
+Why the halt went, in one paragraph: it was live for one night and fired three
+times on real seats, every time on a KNOWN native type in an unhandled state —
+a plain Claude user row arriving while a turn was active (a human typing into
+the pane, a `wrkc` resend landing mid-turn) — never on a new type. Each seat
+kept running while HRC saw it busy forever and mail queued behind it:
+`clod@agent-spaces:T-07873` lost 28 minutes, `mable@hcs:primary` halted for 17
+with 127 deferred records, two smoke seats halted until they were terminated.
+Nothing reached an operator-readable log, so operators had to bypass HRC and
+call `harness-broker capture release` on the bipc socket. This file already
+records the same mistake once, under "Unknown HOOK names" below.
 
 ## The matrix
 
@@ -226,7 +262,7 @@ The tables that decide `ignored-known` vs `blocked-unknown` are
   prefix, both found by the structured-output LIVE leg because only a blocked
   hook decision produces them. `system`
   and `cost-state` left the ignored set when they started minting; an unknown
-  `system` subtype warns rather than halting, like any unknown row type. The
+  `system` subtype is a quieter-class warning, like any unknown row type. The
   later observed
   `attachment:hook_cancelled` is `ignored-known`; its raw detail preserves
   `{hookName, hookEvent, durationMs, timedOut}` and it mints no broker event.
@@ -255,66 +291,70 @@ than being swept into `ignored-known`:
 | --- | --- |
 | consumed by the reader | `normalized` (it minted a fact) / `state-only` (it advanced held state) |
 | pinned, deliberately not consumed | `ignored-known`, carrying its type in `detail` |
-| an `item` subtype NOT in the table, under a pinned item-carrying `event_msg` | `blocked-unknown` in `conversation` — **HALTS** |
-| a row type, `event_msg` type or `response_item` type not in the table | `blocked-unknown` in `diagnostic` — warns, no halt |
+| an `item` subtype NOT in the table, under a pinned item-carrying `event_msg` | `blocked-unknown` in `conversation` — **loudest class** |
+| a row type, `event_msg` type or `response_item` type not in the table | `blocked-unknown` in `diagnostic` — quieter class |
 
-The halt is narrow on purpose. The only rows we can ASSERT are load-bearing are
-`item` subtypes whose parent is pinned: `item_completed` is where codex's
+Both classes warn and advance; the family only says how loud. The load-bearing
+attribution is narrow on purpose. The only rows we can ASSERT are load-bearing
+are `item` subtypes whose parent is pinned: `item_completed` is where codex's
 paginated history mode delivers `AgentMessage`, the terminal answer this reader
 holds, so a renamed or added item type there silently costs assistant prose.
 That is the codex analogue of Claude's unknown QUEUE OPERATION — a demonstrated
 dependency, not a guess. Anything else in the rollout cannot be placed in a
-family at all, and the law halts on an unclassified *load-bearing* type, so it
-warns instead. Same reasoning as the hook-name precedent below.
+family at all, so it takes the quieter class. Same reasoning as the hook-name
+precedent below.
 
 Two entries are worth reading as deliberate:
 
 - `agent_message_delta` / `agent_message_content_delta` are pinned even though
   the pinned source revision does not persist them, because the reader CONSUMES
   them. A type the normalizer acts on is known by construction, and leaving it
-  out would halt the moment an older codex is on PATH.
+  out would warn on every such row the moment an older codex is on PATH.
 - `exec_approval_request`, `apply_patch_approval_request`, `request_permissions`,
   `request_user_input` and `elicitation_request` are ABSENT, because
   `policy.rs::should_persist_event_msg` puts all five in the transient arm. The
   rollout carries no permission evidence at all — which is the source-side
   confirmation of the `permission` row below.
 
-### Unknown HOOK names warn; they do not halt
+### Unknown HOOK names are not load-bearing
 
 An earlier revision of this work halted the cursor on a hook name outside a
 driver's table, reasoning that the broker writes the harness's hook
 configuration and so controls the set of names it can receive. **The first live
 pi-tui-tmux session falsified that directly**: pi fired `before_agent_start` and
-`message_start`, the cursor halted, and 135 raw records piled up behind a hook
-the normalizer would simply have ignored.
+`message_start`, the cursor halted (as it then could), and 135 raw records piled
+up behind a hook the normalizer would simply have ignored.
 
 A hook whose name the normalizer does not handle mints nothing, so there is no
-evidence it is load-bearing — and the law halts on an unclassified *load-bearing*
-type. Unknown hook names are therefore `blocked-unknown` with a
-`capture.warning` and no halt. Unknown QUEUE OPERATIONS are the opposite case
-and still halt: turn attribution demonstrably depends on them, which is the
-example the law itself names.
+evidence it is load-bearing. Unknown hook names are therefore `blocked-unknown`
+in `diagnostic`, the quieter class. Unknown QUEUE OPERATIONS are the opposite
+case and take the loudest class: turn attribution demonstrably depends on them,
+which is the example the law itself names.
+
+This precedent is the narrow version of the general rule `T-07883` later made
+fleet-wide: a piled-up queue behind an unhandled type is an outage, and no
+family halts any more. Neither case stops the cursor; the difference is only how
+loudly each is reported.
 
 The hook tables are still worth keeping accurate — a warning should mean
 "something new", not "something the author failed to look up" — so
 `PI_KNOWN_HOOK_NAMES` is now enumerated from a real capture rather than read off
 the normalizer.
 
-### A named risk: unknown Claude attachment subtypes do not halt
+### A named risk: unknown Claude attachment subtypes are the quieter class
 
-An attachment subtype outside the pinned set is attributed to `diagnostic`, so
-it warns without halting. The attachment channel is overwhelmingly UI/session
-metadata — 125 attachments in the first archived session, of which 5 were
-`queued_command` — and new cosmetic subtypes appear between Claude releases
-(`remote_session_change` shows up only in the third archived session). Halting a
-whole runtime's capture on cosmetic noise would make the mechanism something
-operators route around.
+An attachment subtype outside the pinned set is attributed to `diagnostic`. The
+attachment channel is overwhelmingly UI/session metadata — 125 attachments in
+the first archived session, of which 5 were `queued_command` — and new cosmetic
+subtypes appear between Claude releases (`remote_session_change` shows up only
+in the third archived session). Reporting cosmetic noise at the loudest level
+would make the mechanism something operators learn to ignore.
 
 Absorption evidence going missing is still caught, and caught earlier: under
 T-07849 rev 10 an unresolved `remove` that reaches a disposition boundary is
-itself `blocked-unknown` in `submission-disposition`, which **does** halt. A
-renamed absorption attachment therefore fails loudly through the mirror rather
-than through this table. Unknown queue *operations* halt unconditionally.
+itself `blocked-unknown` in `submission-disposition`, the loudest class. A
+renamed absorption attachment therefore reports loudly through the mirror rather
+than through this table.
 
 ## Phase 3: what the Codex rollout can and cannot own
 
@@ -443,7 +483,7 @@ interrupt terminal's raw record now carries the id of the message it cut off,
 and the partial prose is flushed as a NON-final `assistant.message.completed`
 rather than being dropped.
 
-### Two rows a blocked hook decision writes, and a halt they used to cause
+### Two rows a blocked hook decision writes, and the stall they used to cause
 
 The `Stop` DECISION bridge is the one hook the broker BLOCKS — that is how the
 structured-output retry works. Blocking it makes Claude write TWO rows no
@@ -455,14 +495,16 @@ archived session contains, because no archived session ever blocked a hook:
 | `attachment:hook_blocking_error` | Claude's marker for the blocked hook, carrying `hookName`/`hookEvent`/`blockingError` | `ignored-known`, reason kept, `command` dropped (it carries socket paths), exactly as `hook_cancelled` |
 
 The feedback row is an ordinary user row arriving while a turn is active, which
-the disposition mirror correctly treats as a load-bearing anomaly — so it HALTED
-the cursor and stalled the invocation, which is why the first structured-output
-live leg never reached its cap. **Reproduced on `release-20260902035322961-10808`
-(pre-Phase-4) with the identical two warnings**, so it is a pre-existing defect
-this phase's leg surfaced rather than a regression, and it is fixed here:
-`CLAUDE_STOP_HOOK_FEEDBACK_PREFIX` is pinned as a behaviour string, the same
-shape of fact as the `[Request interrupted by user]` marker the interrupt path
-already pins.
+the disposition mirror correctly treats as a load-bearing anomaly — and while
+that anomaly still halted the cursor it stalled the invocation, which is why the
+first structured-output live leg never reached its cap. **Reproduced on
+`release-20260902035322961-10808` (pre-Phase-4) with the identical two
+warnings**, so it is a pre-existing defect this phase's leg surfaced rather than
+a regression, and it is fixed here: `CLAUDE_STOP_HOOK_FEEDBACK_PREFIX` is pinned
+as a behaviour string, the same shape of fact as the `[Request interrupted by
+user]` marker the interrupt path already pins. The stall itself is gone
+fleet-wide under `T-07883` — this row is a *correct disposition* on top of that,
+because a correct disposition still beats a warning.
 
 ### The one thing a transcript-primary tool family costs
 
@@ -477,21 +519,23 @@ a consumer that needs a tool-start the instant the tool starts should read the
 `PreToolUse` hook record, which is still committed, still a duplicate, and still
 the synchronous permission-decision bridge.
 
-## Operating a halt
+## Reading an unclassified type
 
 ```
-harness-broker capture status  --socket <broker.sock> --invocation <id>
-harness-broker capture release --socket <broker.sock> --invocation <id> \
-  --raw-record <raw_000123> --disposition ignored-known --note "reviewed: cosmetic"
+harness-broker capture status --socket <broker.sock> --invocation <id>
+tail -f <runtime>/bipc/<invocation>/broker.err | grep blocked_unknown
 ```
 
-`--disposition normalized-as` additionally mints the event the broker could not
-derive (`--event-type` / `--event-payload` / `--turn-id`); it is committed with
-the blocked record's `rawRecordId` and `sourceKind: 'broker'`, because the
-classification was an operator decision, not something the provider reported.
+`capture status` reports `capture: open` plus one entry per distinct
+`(driver, nativeType, family)` the invocation has seen unclassified, with its
+repeat count and whether the family is load-bearing. The same facts are on the
+event stream as `capture.warning{kind:'blocked_unknown'}` and on `broker.err` as
+a single WARN line per key.
 
-The seat keeps running while capture is halted. Only capture stops, and it stops
-visibly: `snapshot.capture.state` is `blocked` and names the record.
+`harness-broker capture release` and `invocation.capture.release` are RETAINED
+but are no-ops: no record blocks the cursor any more, so every release is
+refused by naming that. They stay on the wire until the whole fleet is on a
+broker that cannot halt, and are removed in a later cleanup.
 
 ## Changing this file
 

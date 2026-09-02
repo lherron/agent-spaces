@@ -485,8 +485,8 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       /**
        * Mirror warnings raised while normalizing the CURRENT raw record. The
        * record's normalize callback drains this into exactly one
-       * blocked-unknown disposition, so the halt and the warning come from the
-       * single place that owns both.
+       * blocked-unknown disposition, so the durable disposition and the warning
+       * come from the single place that owns both.
        */
       const unclassified: Array<{ message: string; raw: unknown }> = []
 
@@ -624,9 +624,9 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
           }
           // A mirror warning is a blocked-unknown in `submission-disposition`
           // (T-07849 item 11). Do NOT emit a bare capture.warning here — the
-          // capture gate owns that event so it can ALSO halt the cursor and
-          // record the durable disposition; emitting one here too would put two
-          // warnings on the stream for one fact.
+          // capture gate owns that event so it can ALSO record the durable
+          // disposition and the broker.err line; emitting one here too would
+          // put two warnings on the stream for one fact.
           unclassified.push({ message: action.message, raw: action.raw })
         }
         return actions.length > 0
@@ -755,8 +755,9 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
             unclassified.length = 0
             pendingUnclassifiedRaw = raw
             // Turn attribution is load-bearing, so an unclassifiable queue
-            // signal halts the cursor rather than warning and continuing
-            // (T-07849 item 11 → law 6d04d5de).
+            // signal is reported at the loudest level (T-07849 item 11 → law
+            // 6d04d5de). Since T-07883 that is a warning, not a stop: capture
+            // advances and the seat keeps being observed.
             return {
               outcome: {
                 disposition: 'blocked-unknown',
@@ -767,11 +768,11 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
             }
           }
           if (rawType === undefined || !CLAUDE_KNOWN_HOOK_NAMES.has(rawType)) {
-            // Reported, never dropped — but NOT halting. A hook name the
+            // Reported, never dropped, in the quieter class. A hook name the
             // normalizer does not handle mints nothing, so it cannot be shown
             // to be load-bearing, and the first live pi session proved the
             // "the broker registers every hook it can receive" premise wrong
-            // in general. Unknown queue OPERATIONS still halt (above).
+            // in general. Unknown queue OPERATIONS are load-bearing (above).
             return {
               outcome: {
                 disposition: 'blocked-unknown',
@@ -834,8 +835,8 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       /**
        * Warn on a blocked-unknown outcome when NO capture gate is wired (the
        * isolated driver unit harness). With a gate the gate owns this event —
-       * it is the only place that can also halt the cursor and record the
-       * durable disposition — so emitting here too would double-report it.
+       * it is the only place that also records the durable disposition and the
+       * broker.err line — so emitting here too would double-report it.
        */
       const warnWithoutCapture = (outcome: NormalizeOutcome, rawType: string): void => {
         if (outcome.disposition !== 'blocked-unknown') return
@@ -1476,8 +1477,8 @@ function classifyTranscriptUserEntry(
   if (typeof content === 'string') {
     // A hook the broker BLOCKED writes its reason back into the conversation as
     // an ordinary user row. It is harness feedback about a broker decision, not
-    // an operator prompt — routing it to the disposition mirror halts the
-    // cursor on "a plain user row arrived while a turn is active".
+    // an operator prompt — routing it to the disposition mirror would warn
+    // "a plain user row arrived while a turn is active" on every retry.
     if (content.startsWith(CLAUDE_STOP_HOOK_FEEDBACK_PREFIX)) return { kind: 'hook-feedback' }
     return content.length > 0 ? { kind: 'prompt', content } : undefined
   }

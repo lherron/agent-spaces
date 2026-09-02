@@ -2,11 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type {
-  HarnessInvocationSpec,
-  InvocationCaptureReleaseResponse,
-  InvocationEventEnvelope,
-} from 'spaces-harness-broker-protocol'
+import type { HarnessInvocationSpec, InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import { CAPTURE_RELEASE_NOT_BLOCKED, validateCommand } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../../src/broker'
 import { createEventLedger } from '../../src/event-ledger'
@@ -35,18 +31,20 @@ function durableBroker(invocationId: string) {
   const dir = mkdtempSync(join(tmpdir(), 'capture-rpc-'))
   roots.push(dir)
   const events: InvocationEventEnvelope[] = []
+  const logged: string[] = []
   const { driver, controller } = createTestDriver()
   const broker = createBroker({
     drivers: [driver],
     eventLedger: createEventLedger({ path: join(dir, 'events.ndjson') }),
     captureDir: dir,
     onEvent: (event) => events.push(event),
+    logWarn: (line) => void logged.push(line),
   })
-  return { broker, controller, events, dir, invocationId }
+  return { broker, controller, events, logged, dir, invocationId }
 }
 
-describe('invocation.capture.release (fenced control RPC)', () => {
-  test('a halted cursor is visible in snapshot and resumed by an operator release', async () => {
+describe('capture through the real broker: a blocked-unknown never stops the stream', () => {
+  test('an unclassified load-bearing row warns and every later row still reaches the stream', async () => {
     const h = durableBroker('inv_release_1')
     await h.broker.start({ spec: spec(h.invocationId) })
 
@@ -60,57 +58,44 @@ describe('invocation.capture.release (fenced control RPC)', () => {
         message: 'Unknown test queue operation: reprioritize',
       }
     )
-    h.controller.captureRow('held.row', { n: 2 }, { disposition: 'normalized' })
+    h.controller.captureRow('later.row', { n: 2 }, { disposition: 'normalized' })
 
-    // §5: the halt must be visible in `snapshot`, and the seat keeps running.
-    const blockedSnapshot = await h.broker.snapshot({ invocationId: h.invocationId })
-    expect(blockedSnapshot.capture).toMatchObject({
-      state: 'blocked',
-      deferredCount: 1,
-      blockedOn: {
-        nativeType: 'queue-operation:reprioritize',
-        family: 'submission-disposition',
-      },
+    // §5: capture state is visible in `snapshot` — and it is OPEN. The seat
+    // keeps running, and so does the normalization cursor (T-07883).
+    const snapshot = await h.broker.snapshot({ invocationId: h.invocationId })
+    expect(snapshot.capture).toMatchObject({
+      state: 'open',
+      deferredCount: 0,
+      blockedUnknown: [
+        {
+          driver: 'test-driver',
+          nativeType: 'queue-operation:reprioritize',
+          family: 'submission-disposition',
+          loadBearing: true,
+          count: 1,
+        },
+      ],
     })
-    expect(blockedSnapshot.state).toBe('ready')
+    expect(snapshot.capture?.blockedOn).toBeUndefined()
+    expect(snapshot.state).toBe('ready')
 
     const warning = h.events.find((e) => e.type === 'capture.warning')
     expect(warning?.payload).toMatchObject({ kind: 'blocked_unknown' })
-    const rawRecordId = (warning?.payload as { raw: { rawRecordId: string } }).raw.rawRecordId
+    expect((warning?.payload as { raw: { cursorHalted: boolean } }).raw.cursorHalted).toBe(false)
 
-    // The held row has NOT reached the stream while the cursor is stopped.
-    expect(h.events.filter((e) => e.type === 'diagnostic')).toHaveLength(1)
-
-    const released: InvocationCaptureReleaseResponse = await h.broker.captureRelease({
-      invocationId: h.invocationId,
-      rawRecordId,
-      disposition: 'ignored-known',
-      note: 'reviewed by operator',
-    })
-    expect(released).toMatchObject({
-      released: true,
-      disposition: 'ignored-known',
-      resumedRecords: 1,
-      capture: { state: 'open', deferredCount: 0 },
-    })
-
-    // The release is a COMMITTED fact on the ordinary normalized stream, not an
-    // RPC side effect, and the held row normalized behind it.
-    const releasedEvent = h.events.find((e) => e.type === 'capture.released')
-    expect(releasedEvent?.payload).toMatchObject({
-      rawRecordId,
-      disposition: 'ignored-known',
-      note: 'reviewed by operator',
-      resumedRecords: 1,
-    })
-    expect(releasedEvent?.seq).toBe(released.releasedSeq)
+    // The row AFTER the unclassified one reached the stream, which is the whole
+    // point: the halt used to hold it until an operator released the block.
     expect(h.events.filter((e) => e.type === 'diagnostic')).toHaveLength(2)
 
-    const openSnapshot = await h.broker.snapshot({ invocationId: h.invocationId })
-    expect(openSnapshot.capture).toMatchObject({ state: 'open', deferredCount: 0 })
+    // And a human tailing broker.err saw it without parsing ndjson.
+    expect(h.logged).toHaveLength(1)
+    expect(h.logged[0]).toContain('WARN harness-broker capture blocked_unknown')
+    expect(h.logged[0]).toContain('nativeType=queue-operation:reprioritize')
+    expect(h.logged[0]).toContain('family=submission-disposition')
+    expect(h.logged[0]).toContain(`invocationId=${h.invocationId}`)
   })
 
-  test('releasing a record that is not blocking is refused with the blocking record named', async () => {
+  test('the release RPC stays on the wire and refuses, naming that capture is open', async () => {
     const h = durableBroker('inv_release_2')
     await h.broker.start({ spec: spec(h.invocationId) })
     h.controller.captureRow(
@@ -118,17 +103,25 @@ describe('invocation.capture.release (fenced control RPC)', () => {
       {},
       { disposition: 'blocked-unknown', family: 'turn-bracket', message: 'unknown op' }
     )
+    const warning = h.events.find((e) => e.type === 'capture.warning')
+    const rawRecordId = (warning?.payload as { raw: { rawRecordId: string } }).raw.rawRecordId
 
-    await expect(
-      h.broker.captureRelease({
-        invocationId: h.invocationId,
-        rawRecordId: 'raw_999999',
-        disposition: 'ignored-known',
+    // T-07883 item 5: `hrc capture release` still resolves; the answer is that
+    // there is nothing to release, not a broker fault. Even the record that
+    // WAS the blocked-unknown is refused, because nothing blocks.
+    for (const target of [rawRecordId, 'raw_999999']) {
+      await expect(
+        h.broker.captureRelease({
+          invocationId: h.invocationId,
+          rawRecordId: target,
+          disposition: 'ignored-known',
+        })
+      ).rejects.toMatchObject({
+        code: -32602,
+        data: { reason: CAPTURE_RELEASE_NOT_BLOCKED, capture: { state: 'open' } },
       })
-    ).rejects.toMatchObject({
-      code: -32602,
-      data: { reason: CAPTURE_RELEASE_NOT_BLOCKED, capture: { state: 'blocked' } },
-    })
+    }
+    expect(h.events.find((e) => e.type === 'capture.released')).toBeUndefined()
   })
 
   test('every emitted envelope carries provenance', async () => {

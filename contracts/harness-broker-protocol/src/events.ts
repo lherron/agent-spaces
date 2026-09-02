@@ -372,10 +372,13 @@ export interface CaptureWarningPayload {
    *   the durable event ledger at startup (a crash mid-append). `raw` carries
    *   the truncation offset and byte count.
    * - `blocked_unknown` — an unclassified native type reached the normalizer.
-   *   `raw` carries `{ rawRecordId, nativeType, family, sourceKind, sourceEpoch,
-   *   cursorHalted, ... }` plus the verbatim native row. When `cursorHalted` is
-   *   true the invocation's normalization cursor has STOPPED and only an
-   *   operator `invocation.capture.release` resumes it (law 6d04d5de).
+   *   `raw` carries `{ rawRecordId, nativeType, family, loadBearing,
+   *   cursorHalted, sourceKind, sourceEpoch, ... }` plus the verbatim native
+   *   row. The cursor ADVANCES regardless (Lance ruling 2026-09-02, wrkq
+   *   T-07883): the record keeps its `blocked-unknown` disposition, the broker
+   *   logs the warning on its own stderr, and later records normalize as usual.
+   *   `cursorHalted` is retained on the payload and is always `false`;
+   *   `loadBearing` says whether the family is one a consumer acts on.
    */
   kind?: string | undefined
 }

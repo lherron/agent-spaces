@@ -62,6 +62,7 @@ function replay(lines: string[]): Replay {
     },
     emitReleased: () => 0,
     emitNormalizedAs: () => 0,
+    warn: () => {},
   })
 
   const reader = createClaudeHookTranscriptReader({
@@ -80,21 +81,9 @@ function replay(lines: string[]): Replay {
   reader.handleHook({ hook_event_name: 'SessionStart', transcript_path: transcript })
   for (const line of lines) {
     appendFileSync(transcript, `${line}\n`)
-    // One hook per row: releases any halt so the whole corpus is classified in
-    // a single pass rather than stopping at the first unknown.
-    if (gate.state().state === 'blocked') {
-      const blockedOn = gate.state().blockedOn
-      if (blockedOn !== undefined) {
-        gate.release({ rawRecordId: blockedOn.rawRecordId, disposition: 'ignored-known' })
-      }
-    }
+    // One hook per row. Nothing has to be released between rows: since T-07883
+    // an unclassified row never stops the cursor.
     reader.handleHook({ hook_event_name: 'PostToolUse' })
-  }
-  if (gate.state().state === 'blocked') {
-    const blockedOn = gate.state().blockedOn
-    if (blockedOn !== undefined) {
-      gate.release({ rawRecordId: blockedOn.rawRecordId, disposition: 'ignored-known' })
-    }
   }
 
   const dispositions = index
@@ -126,15 +115,13 @@ describe('claude native-type disposition coverage (archived T-07849 vocabulary)'
 
   test('a native type OUTSIDE the archived vocabulary is blocked, not silently dropped', () => {
     // The mutation that proves the rule can fail: an operation Claude has never
-    // emitted must halt rather than pass through as state-only.
+    // emitted must be reported rather than pass through as state-only. Since
+    // T-07883 it keeps its blocked-unknown disposition and the cursor advances.
     const { dispositions, warnings } = replay([
       JSON.stringify({ type: 'queue-operation', operation: 'reprioritize', content: 'x' }),
     ])
-    // The replay harness releases each halt so the whole corpus classifies in
-    // one pass, so the RECORDED disposition here is the operator's release —
-    // the point is that it halted at all and named the row.
     expect(dispositions).toEqual([
-      { nativeType: 'queue-operation:reprioritize', disposition: 'ignored-known' },
+      { nativeType: 'queue-operation:reprioritize', disposition: 'blocked-unknown' },
     ])
     expect(warnings).toEqual(['Unknown Claude queue operation: reprioritize'])
   })

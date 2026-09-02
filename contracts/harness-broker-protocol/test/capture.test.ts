@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type {
+  CaptureBlockedUnknownSummary,
   CaptureReleaseNormalizedAs,
   CaptureReleasedPayload,
   CaptureStateView,
@@ -262,7 +263,23 @@ describe('capture types compile against their documented shapes', () => {
     ]
     const authority: EvidenceAuthority = 'native'
     const matrix: Partial<EvidenceAuthorityMatrix> = { conversation: authority }
-    const state: CaptureStateView = { state: 'open', deferredCount: 0 }
+    // T-07883: capture is always open, and the per-key repeat counts are the
+    // only thing a snapshot reader learns about unclassified native types.
+    const blockedUnknown: CaptureBlockedUnknownSummary = {
+      driver: 'claude-code-tmux',
+      nativeType: 'queue-operation:reprioritize',
+      family: 'submission-disposition',
+      loadBearing: true,
+      count: 3,
+      message: 'Unknown Claude queue operation: reprioritize',
+      firstSeenIso: '2026-09-02T10:03:00.000Z',
+      lastSeenIso: '2026-09-02T10:20:00.000Z',
+    }
+    const state: CaptureStateView = {
+      state: 'open',
+      deferredCount: 0,
+      blockedUnknown: [blockedUnknown],
+    }
     const normalizedAs: CaptureReleaseNormalizedAs = {
       type: 'submission.cancelled',
       payload: { submissionId: 's1' },
@@ -291,5 +308,7 @@ describe('capture types compile against their documented shapes', () => {
     expect(response.released).toBe(true)
     expect(replayed).toBeUndefined()
     expect(CAPTURE_RELEASE_NOT_BLOCKED).toBe('raw_record_not_blocked')
+    expect(state.blockedUnknown?.[0]).toBe(blockedUnknown)
+    expect(blockedUnknown.loadBearing).toBe(isLoadBearingEventFamily(blockedUnknown.family))
   })
 })

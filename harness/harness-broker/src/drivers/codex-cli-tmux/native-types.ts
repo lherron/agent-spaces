@@ -110,7 +110,7 @@ export const CODEX_KNOWN_ROLLOUT_EVENT_MSG_TYPES: ReadonlySet<string> = new Set(
   // CONSUMED by this reader (the streamed-prose coalescer), from a codex shape
   // that predates the pinned source revision. A type the normalizer acts on is
   // known by construction, whatever `policy.rs` says about persisting it today —
-  // leaving it out would halt the moment an older codex is on PATH.
+  // leaving it out would warn on every row the moment an older codex is on PATH.
   'agent_message_delta',
   'agent_message_content_delta',
 ])
@@ -174,7 +174,8 @@ export const CODEX_KNOWN_ROLLOUT_ITEM_TYPES: ReadonlySet<string> = new Set([
  * `event_msg` payload types whose `item` this reader places in a LOAD-BEARING
  * family. An unknown `item.type` under one of these is not merely unplaceable —
  * its parent is pinned, and the parent's channel is where assistant prose and
- * tool evidence arrive — so it halts (`CODEX_UNKNOWN_ITEM_FAMILY`).
+ * tool evidence arrive — so it is the LOUDEST class of warning
+ * (`CODEX_UNKNOWN_ITEM_FAMILY`).
  */
 export const CODEX_ITEM_CARRYING_EVENT_MSG_TYPES: ReadonlySet<string> = new Set([
   'item_started',
@@ -183,23 +184,24 @@ export const CODEX_ITEM_CARRYING_EVENT_MSG_TYPES: ReadonlySet<string> = new Set(
 
 /**
  * Family an unknown `item` subtype is attributed to. `conversation` is
- * load-bearing, so this HALTS: the item channel is where `AgentMessage` (the
- * terminal answer this reader holds) arrives in codex's paginated history mode,
- * and a renamed or added item type there silently costs assistant prose. This
- * is the codex analogue of Claude's unknown QUEUE OPERATION, which halts for
- * the same reason — a demonstrated dependency, not a guess.
+ * load-bearing, which is what makes this the loudest warning the reader can
+ * raise: the item channel is where `AgentMessage` (the terminal answer this
+ * reader holds) arrives in codex's paginated history mode, and a renamed or
+ * added item type there silently costs assistant prose. This is the codex
+ * analogue of Claude's unknown QUEUE OPERATION — a demonstrated dependency,
+ * not a guess. Capture still advances past it (T-07883).
  */
 export const CODEX_UNKNOWN_ITEM_FAMILY: EventFamily = 'conversation'
 
 /**
  * Family an unknown top-level row type, `event_msg` payload type or
- * `response_item` payload type is attributed to: `diagnostic`, which warns
- * without halting.
+ * `response_item` payload type is attributed to: `diagnostic`, the quieter of
+ * the two blocked-unknown classes.
  *
- * The law halts on an unclassified LOAD-BEARING type, and a type we cannot
- * place in any family cannot be asserted to be load-bearing — the same
- * reasoning as `CLAUDE_UNKNOWN_ROW_FAMILY`, and the same reasoning that made
- * unknown HOOK names non-halting after the first live pi session piled 135
- * records behind a hook the normalizer would simply have ignored.
+ * A type we cannot place in any family cannot be asserted to be load-bearing —
+ * the same reasoning as `CLAUDE_UNKNOWN_ROW_FAMILY`, and the same reasoning
+ * that took unknown HOOK names out of the load-bearing set after the first live
+ * pi session piled 135 records behind a hook the normalizer would simply have
+ * ignored.
  */
 export const CODEX_UNKNOWN_ROLLOUT_FAMILY: EventFamily = 'diagnostic'

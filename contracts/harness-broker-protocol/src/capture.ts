@@ -116,16 +116,18 @@ export const EVENT_FAMILY_BY_TYPE: Record<InvocationEventType, EventFamily> = {
 }
 
 /**
- * Families for which an unclassified native type HALTS the normalization cursor
- * (law 6d04d5de: "An unclassified load-bearing type, including a queue
- * operation used for turn attribution, warns and stops its normalization cursor
- * until an operator disposition releases it").
+ * Families whose facts a consumer ACTS on: turn attribution, conversation
+ * content, tool evidence, submission disposition and permission gating. An
+ * unclassified native type in one of these is the LOUDEST kind of capture
+ * warning — but it is still only a warning.
  *
- * Turn attribution, conversation content, tool evidence, submission disposition
- * and permission gating are all facts a consumer ACTS on, so guessing past an
- * unknown type in them is not recoverable. Everything else (diagnostics, usage,
- * turn supervision, terminal-surface reports, artifact pointers) still records a
- * `blocked-unknown` disposition and emits `capture.warning`, but does not halt.
+ * This set no longer gates any halt. Lance ruled on 2026-09-02 (wrkq T-07883):
+ * "We should never halt when an unknown event arrives. Harnesses are upgraded
+ * all the time; we don't want to hard-fail our entire fleet when we haven't
+ * handled an upgraded new event. It should warn loudly." The ruling supersedes
+ * the halt clause of law 6d04d5de / T-07849 item 11. The taxonomy stays,
+ * because it still says how loud a warning is and who owns the family; it is
+ * carried on `capture.warning{kind:'blocked_unknown'}` as `loadBearing`.
  *
  * The families are split finer than the event-name prefixes precisely so that
  * each one has ONE truthful owner per driver: broker-decided admission
@@ -211,9 +213,15 @@ export type RawRecordDisposition =
   | 'ignored-known'
   | 'blocked-unknown'
 
-/** Whether an invocation's normalization cursor is running or halted. */
+/**
+ * An invocation's normalization cursor. Since T-07883 the cursor never stops,
+ * so `state` is always `open` and `deferredCount` always 0 — both are retained
+ * so a controller, CLI or SDK built against the pre-ruling contract still
+ * parses this view, and `blockedOn` is never populated.
+ */
 export interface CaptureStateView {
   state: 'open' | 'blocked'
+  /** Never set since T-07883: no record blocks the cursor. */
   blockedOn?:
     | {
         rawRecordId: string
@@ -223,8 +231,30 @@ export interface CaptureStateView {
         sinceIso: IsoTimestamp
       }
     | undefined
-  /** Raw records committed but held unnormalized behind the halt. */
+  /** Always 0 since T-07883: no record is ever held unnormalized. */
   deferredCount: number
+  /**
+   * One entry per distinct `(driver, nativeType, family)` that reached the
+   * normalizer unclassified on this invocation, with how many raw records hit
+   * it. The broker logs each key ONCE at WARN on its own stderr; the count of
+   * repeats lives here rather than in a per-record log flood.
+   */
+  blockedUnknown?: readonly CaptureBlockedUnknownSummary[] | undefined
+}
+
+/** Repeat count for one unclassified `(driver, nativeType, family)` key. */
+export interface CaptureBlockedUnknownSummary {
+  driver: string
+  nativeType: string
+  family: EventFamily
+  /** Whether the family is one a consumer acts on (loudest warnings). */
+  loadBearing: boolean
+  /** Raw records that hit this key, including the first. */
+  count: number
+  /** The message the first occurrence carried. */
+  message: string
+  firstSeenIso: IsoTimestamp
+  lastSeenIso: IsoTimestamp
 }
 
 /**
