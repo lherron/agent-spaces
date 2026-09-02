@@ -217,8 +217,20 @@ async function expectDirectStartRejects(
 }
 
 function normalizeEvent(event: InvocationEventEnvelope): InvocationEventEnvelope {
+  const stableEvent = structuredClone(event)
+  if (stableEvent.type === 'turn.started') {
+    // The delivery response and the matching native notification can win the
+    // dedupe race in either order. Both carry the same provider turn id; keep
+    // goldens focused on that contract rather than scheduling provenance.
+    stableEvent.driver = undefined
+    stableEvent.provenance = {
+      sourceKind: 'provider-jsonrpc',
+      normalizer: { name: 'codex-app-server', version: '0.1.0' },
+    }
+    stableEvent.payload = { turnId: stableEvent.turnId }
+  }
   return JSON.parse(
-    JSON.stringify(event, (key, value) => {
+    JSON.stringify(stableEvent, (key, value) => {
       if (key === 'time') return '<time>'
       if (key === 'pid') return '<pid>'
       // The source epoch is a freshly minted uuid per JSON-RPC connection
@@ -228,6 +240,9 @@ function normalizeEvent(event: InvocationEventEnvelope): InvocationEventEnvelope
       if (key === 'sourceEpoch') return '<epoch>'
       if (key === 'durationMs') return '<durationMs>'
       if (key === 'command' && value === Bun.execPath) return '<bun>'
+      if (typeof value === 'string' && value.startsWith(`${process.cwd()}/`)) {
+        return `<cwd>/${value.slice(process.cwd().length + 1)}`
+      }
       if (key === 'cwd' && value === process.cwd()) return '<cwd>'
       if (
         key === 'artifactPath' &&
@@ -244,7 +259,27 @@ function normalizeEvent(event: InvocationEventEnvelope): InvocationEventEnvelope
 }
 
 async function expectGolden(scenario: string, events: InvocationEventEnvelope[]): Promise<void> {
-  const actual = `${events.map((event) => JSON.stringify(normalizeEvent(event))).join('\n')}\n`
+  const normalized = events.map(normalizeEvent)
+  const executed = normalized.filter((event) => event.type === 'submission.executed')
+  const canonicalOrder = normalized.filter((event) => event.type !== 'submission.executed')
+  for (const disposition of executed) {
+    const bracketIndex = canonicalOrder.findIndex(
+      (event) => event.type === 'turn.started' && event.turnId === disposition.turnId
+    )
+    // A provider can flush turn/started in the same stdout batch as the
+    // turn/start response. Which process consumes its continuation first is
+    // not contractual; identity and uniqueness are. Canonicalize the broker
+    // disposition immediately behind its matching bracket for golden files.
+    canonicalOrder.splice(
+      bracketIndex >= 0 ? bracketIndex + 1 : canonicalOrder.length,
+      0,
+      disposition
+    )
+  }
+  canonicalOrder.forEach((event, index) => {
+    event.seq = index + 1
+  })
+  const actual = `${canonicalOrder.map((event) => JSON.stringify(event)).join('\n')}\n`
   const goldenPath = join(goldenDir, `${scenario}.golden.jsonl`)
   // Set UPDATE_GOLDEN=1 to regenerate fixtures after a deliberate contract change.
   if (process.env['UPDATE_GOLDEN'] === '1') {
@@ -273,6 +308,18 @@ async function runScenario(
     input: userInput,
     policy: { whenBusy: 'reject' },
   })
+  await waitFor(
+    () =>
+      events.some(
+        (event) =>
+          event.type === 'turn.completed' ||
+          event.type === 'turn.failed' ||
+          event.type === 'invocation.failed' ||
+          event.type === 'invocation.exited' ||
+          event.type === 'capture.warning'
+      ),
+    `events:\n${events.map((event) => JSON.stringify(event)).join('\n')}`
+  )
 
   return events
 }
@@ -301,7 +348,10 @@ describe('Codex app-server driver red scenarios', () => {
 
     for (const file of files) {
       const contents = await readFile(join(goldenDir, file), 'utf8')
-      if (contents.includes('/Users/lherron/praesidium/agent-spaces/')) {
+      if (
+        contents.includes('/Users/lherron/praesidium/agent-spaces/') ||
+        contents.includes('/under-construction/')
+      ) {
         checkoutSpecificFixtures.push(file)
       }
     }
@@ -367,6 +417,76 @@ describe('Codex app-server driver red scenarios', () => {
     expect(buildTurnStartParams({ ...base, input: userInput }).outputSchema).toBeNull()
   })
 
+  test('returns the turn/start response id and brackets that id on first and same-thread second turns', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createCodexAppServerDriver()],
+      onEvent: (event) => events.push(event),
+      now,
+    })
+    const spec = scenarioSpec('three-turns')
+    await broker.start({ spec })
+
+    const first = await broker.input({
+      invocationId: spec.invocationId ?? '',
+      input: userInput,
+      policy: { whenBusy: 'reject' },
+    })
+    await waitFor(
+      () => events.some((event) => event.type === 'turn.completed' && event.turnId === 'turn_1'),
+      `events:\n${events.map((event) => JSON.stringify(event)).join('\n')}`
+    )
+    const second = await broker.input({
+      invocationId: spec.invocationId ?? '',
+      input: { ...userInput, inputId: 'input_2' },
+      policy: { whenBusy: 'reject' },
+    })
+
+    expect(first.turnId).toBe('turn_1')
+    expect(second.turnId).toBe('turn_2')
+    expect(
+      events.filter((event) => event.type === 'turn.started').map((event) => event.turnId)
+    ).toEqual(['turn_1', 'turn_2'])
+    expect(events.filter((event) => event.type === 'capture.warning')).toHaveLength(0)
+  })
+
+  test('blocks a turn/started record whose id differs from the turn/start response id', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createCodexAppServerDriver()],
+      onEvent: (event) => events.push(event),
+      now,
+    })
+    const spec = scenarioSpec('turn-start-id-mismatch')
+    await broker.start({ spec })
+
+    const response = await broker.input({
+      invocationId: spec.invocationId ?? '',
+      input: userInput,
+      policy: { whenBusy: 'reject' },
+    })
+    await waitFor(
+      () => events.some((event) => event.type === 'capture.warning'),
+      `events:\n${events.map((event) => JSON.stringify(event)).join('\n')}`
+    )
+
+    expect(response.turnId).toBe('turn_acknowledged')
+    expect(
+      events.some((event) => event.type === 'turn.started' && event.turnId === 'turn_different')
+    ).toBe(false)
+    const warning = events.find((event) => event.type === 'capture.warning')
+    expect(warning?.payload).toMatchObject({
+      kind: 'blocked_unknown',
+      message:
+        'Codex turn/start response id turn_acknowledged does not match turn/started id turn_different',
+      raw: {
+        nativeType: 'turn/started',
+        family: 'turn-bracket',
+        cursorHalted: true,
+      },
+    })
+  })
+
   test('legacy no-lease start stays pure headless with no reported terminal surface', async () => {
     const events: InvocationEventEnvelope[] = []
     const broker = createBroker({
@@ -415,6 +535,10 @@ describe('Codex app-server driver red scenarios', () => {
       input: userInput,
       policy: { whenBusy: 'reject' },
     })
+    await waitFor(
+      () => events.some((event) => (event.type as string) === 'provider.transcript.reported'),
+      `events:\n${events.map((event) => JSON.stringify(event)).join('\n')}`
+    )
 
     const replay = await broker.eventsSince({
       invocationId: spec.invocationId ?? '',

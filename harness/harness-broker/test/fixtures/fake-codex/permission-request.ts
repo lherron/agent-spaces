@@ -1,8 +1,4 @@
-import {
-  expectMethod,
-  framed,
-  initializeAndReadThreadRequest,
-} from '../../../src/testing/fake-codex-app-server'
+import { framed, initializeAndReadThreadRequest } from '../../../src/testing/fake-codex-app-server'
 
 const io = framed()
 const thread = await initializeAndReadThreadRequest(io, 'thread/start')
@@ -12,8 +8,16 @@ io.respond(thread, { threadId: 'thread_permission' })
 // single invocation (e.g. answer-by-respond, then let the next request expire),
 // so loop until stdin EOF (the framed() readline exits the process on close).
 for (let turnIndex = 1; ; turnIndex++) {
-  const turn = await expectMethod(io, 'turn/start')
+  let turn = await io.read()
+  while (turn.method === 'turn/interrupt') {
+    io.respond(turn, {})
+    turn = await io.read()
+  }
+  if (turn.method !== 'turn/start') {
+    throw new Error(`expected turn/start, got ${turn.method}`)
+  }
   const turnId = `turn_permission_${turnIndex}`
+  await io.respondAndFlush(turn, { turn: { id: turnId } })
   io.notify('turn/started', { turnId })
 
   // The JSON-RPC id must be unique per request so the broker's rpc-client can
@@ -30,7 +34,12 @@ for (let turnIndex = 1; ; turnIndex++) {
     })}\n`
   )
 
-  const response = (await io.read()) as unknown as {
+  let responseFrame = await io.read()
+  while (responseFrame.method === 'turn/interrupt') {
+    io.respond(responseFrame, {})
+    responseFrame = await io.read()
+  }
+  const response = responseFrame as unknown as {
     result?: { decision?: string; message?: string }
     error?: { message?: string }
   }
@@ -59,5 +68,4 @@ for (let turnIndex = 1; ; turnIndex++) {
     status: 'completed',
     finalOutput: approved ? 'permission approved' : 'permission denied',
   })
-  io.respond(turn, { ok: true })
 }

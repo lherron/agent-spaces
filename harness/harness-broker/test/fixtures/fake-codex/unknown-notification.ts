@@ -13,10 +13,10 @@ const io = framed()
 const thread = await initializeAndReadThreadRequest(io, 'thread/start')
 io.respond(thread, { threadId: 'thread_unknown' })
 const turn = await expectMethod(io, 'turn/start')
+await io.respondAndFlush(turn, { turn: { id: 'turn_1' } })
 io.notify('turn/started', { turnId: 'turn_1' })
 io.notify('thread/experimentalSignal', {
   detail: 'not-in-the-contract',
   nested: { count: 3, items: ['a', 'b'] },
 })
 io.notify('turn/completed', { turnId: 'turn_1', status: 'completed', finalOutput: 'Done.' })
-io.respond(turn, { ok: true })

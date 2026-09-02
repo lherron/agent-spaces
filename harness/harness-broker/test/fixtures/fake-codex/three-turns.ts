@@ -14,6 +14,7 @@ for (let turnNumber = 1; turnNumber <= 3; turnNumber += 1) {
   const messageId = `msg_${turnNumber}`
   const text = `Three-turn fixture completed turn ${turnNumber}.`
 
+  await io.respondAndFlush(turn, { turn: { id: turnId } })
   io.notify('turn/started', { turnId })
   io.notify('item/started', {
     turnId,
@@ -37,5 +38,4 @@ for (let turnNumber = 1; turnNumber <= 3; turnNumber += 1) {
     status: 'completed',
     finalOutput: text,
   })
-  io.respond(turn, { ok: true })
 }

@@ -29,6 +29,7 @@ if (outputSchema === null || outputSchema === undefined) {
   throw new Error('structured-output fixture expected turn/start.outputSchema')
 }
 
+await io.respondAndFlush(turn, { turn: { id: 'turn_structured_1' } })
 io.notify('turn/started', { turnId: 'turn_structured_1' })
 io.notify('item/started', {
   turnId: 'turn_structured_1',
@@ -52,4 +53,3 @@ io.notify('turn/completed', {
   status: 'completed',
   finalOutput: JSON.stringify({ status: 'ok', marker }),
 })
-io.respond(turn, { ok: true })

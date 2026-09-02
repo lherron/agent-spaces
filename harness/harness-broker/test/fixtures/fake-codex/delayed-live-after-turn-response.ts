@@ -14,7 +14,7 @@ const thread = await initializeAndReadThreadRequest(io, 'thread/start')
 io.respond(thread, { threadId: 'thread_delayed_live_after_turn_response' })
 
 const turn = await expectMethod(io, 'turn/start')
-io.respond(turn, { ok: true })
+await io.respondAndFlush(turn, { turn: { id: 'turn_1' } })
 
 setTimeout(() => {
   completeSimpleTurn(io, 'Delayed live event complete.')

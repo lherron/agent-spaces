@@ -13,8 +13,8 @@ const thread = await initializeAndReadThreadRequest(io, 'thread/start')
 io.respond(thread, { threadId: 'thread_interrupt' })
 
 const turn = await expectMethod(io, 'turn/start')
+await io.respondAndFlush(turn, { turn: { id: 'turn_interrupt_1' } })
 io.notify('turn/started', { turnId: 'turn_interrupt_1' })
-io.respond(turn, { ok: true })
 
 const interrupt = await expectMethod(io, 'turn/interrupt')
 const params = interrupt.params as { threadId?: unknown; turnId?: unknown }

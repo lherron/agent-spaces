@@ -69,6 +69,10 @@ interface ThreadResponse {
   thread?: { id?: string | undefined } | undefined
 }
 
+interface TurnStartResponse {
+  turn?: { id?: string | undefined } | undefined
+}
+
 type ChildProcess = Awaited<ReturnType<typeof spawnHarnessProcess>>
 type DriverEventExtra = NonNullable<Parameters<DriverContext['emit']>[2]>
 
@@ -106,6 +110,10 @@ export function createCodexAppServerDriver(): Driver {
   let threadId: string | undefined
   let currentInputId: InputId | undefined
   let currentTurnId: TurnId | undefined
+  // The provider's `turn/start` response is the delivery acknowledgement. Its
+  // id is therefore the ONLY id applyInputNow may return and the native
+  // `turn/started` record may open a bracket under.
+  let acknowledgedTurnId: TurnId | undefined
   let turnActive = false
   let startedEmitted = false
   let terminalEmitted = false
@@ -455,6 +463,20 @@ export function createCodexAppServerDriver(): Driver {
       return {
         disposition: 'ignored-known',
         detail: `after-invocation-terminal:${notification.method}`,
+      }
+    }
+
+    if (notification.method === 'turn/started') {
+      const observedTurnId = turnStartedNotificationId(notification)
+      if (acknowledgedTurnId === undefined || observedTurnId !== acknowledgedTurnId) {
+        return {
+          disposition: 'blocked-unknown',
+          family: 'turn-bracket',
+          message:
+            acknowledgedTurnId === undefined
+              ? `Codex turn/started arrived without a turn/start response id (observed ${observedTurnId ?? 'missing'})`
+              : `Codex turn/start response id ${acknowledgedTurnId} does not match turn/started id ${observedTurnId ?? 'missing'}`,
+        }
       }
     }
 
@@ -913,28 +935,47 @@ export function createCodexAppServerDriver(): Driver {
         }, turnTimeoutMs)
       }
 
+      let deliveredTurnId: TurnId | undefined
       try {
-        await rpc.sendRequest(
+        acknowledgedTurnId = undefined
+        await rpc.sendRequest<TurnStartResponse>(
           'turn/start',
           buildTurnStartParams({
             threadId,
             cwd: spec.process.cwd,
             input,
             driver: driverSpec,
-          })
+          }),
+          (response, rawFrame) => {
+            const responseTurnId = turnStartResponseId(response)
+            if (responseTurnId === undefined) {
+              throw new BrokerError(
+                BrokerErrorCode.HarnessError,
+                'Codex turn/start response did not carry turn.id',
+                { rawFrame }
+              )
+            }
+            // This callback runs synchronously in the JSON-RPC response
+            // handler, before a following turn/started frame can normalize.
+            acknowledgedTurnId = responseTurnId
+            deliveredTurnId = responseTurnId
+            currentTurnId = responseTurnId
+            turnActive = true
+          }
         )
       } catch (error) {
         if (turnTimeout !== undefined) clearTimeout(turnTimeout)
         turnTimeout = undefined
         if (turnTimedOut) {
           if (stopping || terminalEmitted) {
-            return { ...(currentTurnId ? { turnId: currentTurnId } : {}) }
+            return { ...(deliveredTurnId ? { turnId: deliveredTurnId } : {}) }
           }
           throw new BrokerError(BrokerErrorCode.Timeout, 'Turn timed out')
         }
         if (terminalEmitted || turnActive || stopping) {
-          return { ...(currentTurnId ? { turnId: currentTurnId } : {}) }
+          return { ...(deliveredTurnId ? { turnId: deliveredTurnId } : {}) }
         }
+        if (error instanceof BrokerError) throw error
         throw new BrokerError(
           BrokerErrorCode.HarnessError,
           error instanceof Error ? error.message : 'Codex turn failed to start'
@@ -943,7 +984,13 @@ export function createCodexAppServerDriver(): Driver {
       if (turnTimeout !== undefined) clearTimeout(turnTimeout)
       turnTimeout = undefined
 
-      return { ...(currentTurnId ? { turnId: currentTurnId } : {}) }
+      if (deliveredTurnId === undefined) {
+        throw new BrokerError(
+          BrokerErrorCode.HarnessError,
+          'Codex turn/start response completed without a correlated turn id'
+        )
+      }
+      return { turnId: deliveredTurnId }
     },
 
     /**
@@ -1340,6 +1387,22 @@ function extractThreadId(response: ThreadResponse | undefined): string {
     )
   }
   return threadId
+}
+
+function turnStartResponseId(response: TurnStartResponse | undefined): TurnId | undefined {
+  const turnId = response?.turn?.id
+  return typeof turnId === 'string' && turnId.length > 0 ? (turnId as TurnId) : undefined
+}
+
+function turnStartedNotificationId(notification: JsonRpcNotification): TurnId | undefined {
+  if (notification.params === null || typeof notification.params !== 'object') return undefined
+  const params = notification.params as Record<string, unknown>
+  const direct = params['turnId']
+  if (typeof direct === 'string' && direct.length > 0) return direct as TurnId
+  const turn = params['turn']
+  if (turn === null || typeof turn !== 'object') return undefined
+  const nested = (turn as Record<string, unknown>)['id']
+  return typeof nested === 'string' && nested.length > 0 ? (nested as TurnId) : undefined
 }
 
 function isMissingThreadError(error: unknown): boolean {

@@ -10,8 +10,6 @@ process.on('SIGTERM', () => {
 
 const io = framed()
 const thread = await initializeAndReadThreadRequest(io, 'thread/start')
-io.respond(thread, { threadId: 'thread_stop' })
-const turn = await expectMethod(io, 'turn/start')
-await io.respondAndFlush(turn, { turn: { id: 'turn_1' } })
-io.notify('turn/started', { turnId: 'turn_1' })
+io.respond(thread, { threadId: 'thread_unacknowledged_turn' })
+await expectMethod(io, 'turn/start')
 await new Promise(() => {})

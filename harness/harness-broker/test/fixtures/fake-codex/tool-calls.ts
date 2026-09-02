@@ -8,6 +8,7 @@ const io = framed()
 const thread = await initializeAndReadThreadRequest(io, 'thread/start')
 io.respond(thread, { threadId: 'thread_tools' })
 const turn = await expectMethod(io, 'turn/start')
+await io.respondAndFlush(turn, { turn: { id: 'turn_1' } })
 
 const tools = [
   {
@@ -117,4 +118,3 @@ io.notify('turn/completed', {
   status: 'completed',
   finalOutput: 'Tools complete.',
 })
-io.respond(turn, { ok: true })

@@ -11,6 +11,7 @@ export interface JsonRpcRequestFrame {
 export interface FakeCodexIo {
   read(): Promise<JsonRpcRequestFrame>
   respond(request: JsonRpcRequestFrame, result: unknown): void
+  respondAndFlush(request: JsonRpcRequestFrame, result: unknown): Promise<void>
   reject(request: JsonRpcRequestFrame, code: number, message: string, data?: unknown): void
   notify(method: string, params?: unknown): void
   close(code?: number): never
@@ -54,6 +55,14 @@ export function framed(
     },
     respond(request: JsonRpcRequestFrame, result: unknown): void {
       write({ jsonrpc: '2.0', id: request.id, result })
+    },
+    respondAndFlush(request: JsonRpcRequestFrame, result: unknown): Promise<void> {
+      return new Promise((resolve, reject) => {
+        stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result })}\n`, (error) => {
+          if (error) reject(error)
+          else resolve()
+        })
+      })
     },
     reject(request: JsonRpcRequestFrame, code: number, message: string, data?: unknown): void {
       write({ jsonrpc: '2.0', id: request.id, error: { code, message, data } })

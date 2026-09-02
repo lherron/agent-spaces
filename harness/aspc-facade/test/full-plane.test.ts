@@ -101,15 +101,31 @@ describe('cohosted facade full plane', () => {
       expect(status.invocationId).toBe(invocationId)
       expect(await probeServed(client, 'invocation.start', {})).toBe(true)
 
+      const secondInputId = `${invocationId}_input_2`
       const input = await client.request<{ accepted: boolean }>('invocation.input', {
         invocationId,
         input: {
-          inputId: `${invocationId}_input_2`,
+          inputId: secondInputId,
           kind: 'user',
           content: [{ type: 'text', text: 'second turn' }],
         },
       })
       expect(input.accepted).toBe(true)
+
+      // turn/start now acknowledges delivery before the provider's permission
+      // and terminal notifications. Let that turn finish before probing the
+      // interrupt route so the fake provider is not asked to multiplex a
+      // second request while it is awaiting its permission response.
+      await waitFor(
+        () =>
+          permissionRequests.length > 0 &&
+          events.some(
+            (event) =>
+              (event.params as { type?: string; inputId?: string } | undefined)?.type ===
+                'turn.completed' &&
+              (event.params as { inputId?: string } | undefined)?.inputId === secondInputId
+          )
+      )
 
       const interrupt = await client.request<{ accepted: boolean }>('invocation.interrupt', {
         invocationId,

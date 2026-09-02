@@ -24,6 +24,6 @@ if (
     'Invalid request: invalid type: string "workspace-write", expected internally tagged enum SandboxPolicyDeserialize'
   )
 } else {
+  await io.respondAndFlush(turn, { turn: { id: 'turn_1' } })
   completeSimpleTurn(io, 'Sandbox policy accepted.')
-  io.respond(turn, { ok: true })
 }

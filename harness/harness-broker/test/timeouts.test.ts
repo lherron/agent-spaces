@@ -75,16 +75,16 @@ describe('Harness Broker timeout handling', () => {
     )
   })
 
-  test('turnTimeoutMs emits turn.failed with Timeout', async () => {
+  test('turnTimeoutMs rejects an unacknowledged delivery without guessing a turn id', async () => {
     const events: InvocationEventEnvelope[] = []
     const broker = createBroker({
       drivers: [createCodexAppServerDriver()],
       onEvent: (event) => events.push(event),
       now,
     })
-    const spec = scenarioSpec('slow-turn', {
+    const spec = scenarioSpec('unacknowledged-turn', {
       process: {
-        ...scenarioSpec('slow-turn').process,
+        ...scenarioSpec('unacknowledged-turn').process,
         limits: {
           startupTimeoutMs: 500,
           turnTimeoutMs: 25,
@@ -99,12 +99,8 @@ describe('Harness Broker timeout handling', () => {
     await broker.stop({ invocationId: spec.invocationId!, reason: 'test cleanup', graceMs: 25 })
 
     await expect(input).rejects.toMatchObject({ code: BrokerErrorCode.Timeout })
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: 'turn.failed',
-        payload: expect.objectContaining({ status: 'failed', code: 'Timeout' }),
-      })
-    )
+    expect(events.some((event) => event.type === 'turn.started')).toBe(false)
+    expect(events.some((event) => event.type === 'turn.failed')).toBe(false)
   })
 
   test('stopGraceMs kills a non-exiting child and emits invocation.exited', async () => {

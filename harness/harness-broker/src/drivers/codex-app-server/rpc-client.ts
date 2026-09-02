@@ -59,7 +59,11 @@ export class CodexRpcClient {
   private nextId = 1
   private readonly pending = new Map<
     JsonRpcId,
-    { resolve: (value: unknown) => void; reject: (error: Error) => void }
+    {
+      resolve: (value: unknown) => void
+      reject: (error: Error) => void
+      observeResult?: ((value: unknown, rawFrame: string) => void) | undefined
+    }
   >()
   private closed = false
   private readonly handlers: RpcHandlers
@@ -84,7 +88,11 @@ export class CodexRpcClient {
     })
   }
 
-  async sendRequest<T = unknown>(method: string, params?: unknown): Promise<T> {
+  async sendRequest<T = unknown>(
+    method: string,
+    params?: unknown,
+    observeResult?: ((value: T, rawFrame: string) => void) | undefined
+  ): Promise<T> {
     const id = this.nextId++
     const request: JsonRpcRequest = {
       jsonrpc: '2.0',
@@ -96,6 +104,9 @@ export class CodexRpcClient {
       this.pending.set(id, {
         resolve: resolve as (value: unknown) => void,
         reject,
+        ...(observeResult !== undefined
+          ? { observeResult: observeResult as (value: unknown, rawFrame: string) => void }
+          : {}),
       })
     })
     await this.writeMessage(request)
@@ -142,7 +153,7 @@ export class CodexRpcClient {
     this.handlers.onMessage?.(message)
 
     if (this.isResponse(message)) {
-      this.handleResponse(message)
+      this.handleResponse(message, trimmed)
       return
     }
 
@@ -168,7 +179,7 @@ export class CodexRpcClient {
     return 'method' in message && !('id' in message)
   }
 
-  private handleResponse(message: JsonRpcResponse): void {
+  private handleResponse(message: JsonRpcResponse, rawFrame: string): void {
     const pending = this.pending.get(message.id)
     if (!pending) {
       this.handleError(new Error(`Unexpected JSON-RPC response id: ${message.id}`))
@@ -180,6 +191,13 @@ export class CodexRpcClient {
       pending.reject(
         new CodexRpcError(message.error.code, message.error.message, message.error.data)
       )
+      return
+    }
+
+    try {
+      pending.observeResult?.(message.result, rawFrame)
+    } catch (error) {
+      pending.reject(error instanceof Error ? error : new Error(String(error)))
       return
     }
 

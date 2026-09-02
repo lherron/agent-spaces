@@ -12,6 +12,7 @@ const io = framed()
 const thread = await initializeAndReadThreadRequest(io, 'thread/start')
 io.respond(thread, { threadId: 'thread_unknown_load_bearing' })
 const turn = await expectMethod(io, 'turn/start')
+await io.respondAndFlush(turn, { turn: { id: 'turn_1' } })
 io.notify('turn/started', { turnId: 'turn_1' })
 io.notify('turn/experimentalBracket', { turnId: 'turn_1', detail: 'not-in-the-contract' })
 io.notify('thread/tokenUsage/updated', { usage: { inputTokens: 11, outputTokens: 22 } })
@@ -20,4 +21,3 @@ io.notify('turn/completed', {
   status: 'completed',
   finalOutput: 'Held then released.',
 })
-io.respond(turn, { ok: true })

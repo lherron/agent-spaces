@@ -8,6 +8,7 @@ const io = framed()
 const thread = await initializeAndReadThreadRequest(io, 'thread/start')
 io.respond(thread, { threadId: 'thread_leaky_diagnostic' })
 const turn = await expectMethod(io, 'turn/start')
+await io.respondAndFlush(turn, { turn: { id: 'turn_leaky_diagnostic' } })
 
 const secret = process.env['HB_RED_SECRET'] ?? 'missing-secret'
 const token = process.env['HB_BEARER_TOKEN'] ?? 'missing-token'
@@ -23,4 +24,3 @@ io.notify('error', {
     apiToken: `X-Api-Token: ${secret}`,
   },
 })
-io.respond(turn, { ok: true })

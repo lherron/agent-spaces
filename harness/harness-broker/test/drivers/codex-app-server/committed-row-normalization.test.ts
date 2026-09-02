@@ -81,11 +81,26 @@ async function runScenario(
   const invocationId = (options.invocationId ??
     `inv_${scenario.replaceAll('-', '_')}`) as InvocationId
   const events: InvocationEventEnvelope[] = []
+  let resolveTerminal!: () => void
+  const terminal = new Promise<void>((resolve) => {
+    resolveTerminal = resolve
+  })
   const broker = createBroker({
     drivers: [createCodexAppServerDriver()],
     eventLedger: createEventLedger({ path: join(dir, 'events.ndjson') }),
     captureDir: dir,
-    onEvent: (event) => events.push(event),
+    onEvent: (event) => {
+      events.push(event)
+      if (
+        event.type === 'turn.completed' ||
+        event.type === 'turn.failed' ||
+        event.type === 'invocation.failed' ||
+        event.type === 'invocation.exited' ||
+        event.type === 'capture.warning'
+      ) {
+        resolveTerminal()
+      }
+    },
   })
   // Keep the exported provider transcript inside the scratch root rather than
   // the shared per-user temp subtree, so parallel runs cannot collide.
@@ -96,6 +111,7 @@ async function runScenario(
     }
   )
   await broker.input({ invocationId, input: userInput, policy: { whenBusy: 'reject' } })
+  await terminal
   return {
     events,
     broker,
@@ -182,9 +198,16 @@ describe('codex-app-server committed-row normalization', () => {
         type: event.type,
         payload: event.payload,
       }))
-      expect(
-        fromCommittedBytes.map((event) => ({ type: event.type, payload: event.payload }))
-      ).toEqual(emitted)
+      // delivery-acknowledged and the matching native notification race to
+      // mint the same deduped bracket. If the response won, the committed
+      // turn/started record still normalizes successfully but emits no second
+      // event; every non-deduped mapper output remains an exact parity claim.
+      const comparable = emitted.some((event) => event.type === 'turn.started')
+        ? fromCommittedBytes
+        : fromCommittedBytes.filter((event) => event.type !== 'turn.started')
+      expect(comparable.map((event) => ({ type: event.type, payload: event.payload }))).toEqual(
+        emitted
+      )
     }
   })
 

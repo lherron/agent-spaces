@@ -8,7 +8,7 @@ const io = framed()
 const thread = await initializeAndReadThreadRequest(io, 'thread/start')
 io.respond(thread, { threadId: 'thread_error_rate_limit' })
 const turn = await expectMethod(io, 'turn/start')
-io.respond(turn, { ok: true })
+await io.respondAndFlush(turn, { turn: { id: 'turn_1' } })
 io.notify('turn/started', { turnId: 'turn_1' })
 io.notify('error', {
   threadId: 'thread_error_rate_limit',

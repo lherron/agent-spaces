@@ -20,8 +20,8 @@ const thread = await initializeAndReadThreadRequest(io, 'thread/start')
 io.respond(thread, { threadId: 'thread_steer' })
 
 const start = await expectMethod(io, 'turn/start')
+await io.respondAndFlush(start, { turn: { id: 'turn_steer_1', status: 'inProgress' } })
 io.notify('turn/started', { turnId: 'turn_steer_1' })
-io.respond(start, { turn: { id: 'turn_steer_1', status: 'inProgress' } })
 
 const steer = await expectMethod(io, 'turn/steer')
 const params = (steer.params ?? {}) as Record<string, unknown>

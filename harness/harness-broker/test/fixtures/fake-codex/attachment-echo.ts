@@ -9,6 +9,7 @@ const thread = await initializeAndReadThreadRequest(io, 'thread/start')
 io.respond(thread, { threadId: 'thread_attachment_echo' })
 const turn = await expectMethod(io, 'turn/start')
 
+await io.respondAndFlush(turn, { turn: { id: 'turn_attachment' } })
 io.notify('turn/started', { turnId: 'turn_attachment' })
 const turnParams = (turn.params ?? {}) as { input?: Array<Record<string, unknown>> }
 const localImage = (turnParams.input ?? []).find((item) => item['type'] === 'localImage')
@@ -34,4 +35,3 @@ io.notify('turn/completed', {
   status: 'completed',
   finalOutput: 'attachment observed',
 })
-io.respond(turn, { ok: true })

@@ -19,8 +19,8 @@ const thread = await initializeAndReadThreadRequest(io, 'thread/start')
 io.respond(thread, { threadId: 'thread_steer_reject' })
 
 const start = await expectMethod(io, 'turn/start')
+await io.respondAndFlush(start, { turn: { id: 'turn_steer_reject_1', status: 'inProgress' } })
 io.notify('turn/started', { turnId: 'turn_steer_reject_1' })
-io.respond(start, { turn: { id: 'turn_steer_reject_1', status: 'inProgress' } })
 
 const steer = await expectMethod(io, 'turn/steer')
 io.reject(steer, -32000, 'expectedTurnId does not match the active turn', {

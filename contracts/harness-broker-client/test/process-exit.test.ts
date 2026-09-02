@@ -62,6 +62,11 @@ describe('BrokerClient process exit handling', () => {
     // prompt lands in the transcript) before the upstream turn.started arrives.
     expect((await nextEvent(iterator)).type).toBe('user.message')
     expect((await nextEvent(iterator)).type).toBe('turn.started')
+    await expect(inputPromise).resolves.toMatchObject({
+      accepted: true,
+      turnId: 'turn_slow',
+    })
+    expect((await nextEvent(iterator)).type).toBe('submission.executed')
 
     await client.close()
 
@@ -70,9 +75,6 @@ describe('BrokerClient process exit handling', () => {
     ).resolves.toEqual({
       done: true,
       value: undefined,
-    })
-    await expect(inputPromise).rejects.toMatchObject({
-      name: expect.stringMatching(/Transport|BrokerTransport/),
     })
   })
 })
