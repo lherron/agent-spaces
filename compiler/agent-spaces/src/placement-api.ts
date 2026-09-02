@@ -57,7 +57,7 @@ export interface AgentSpacesRuntimeDependencies {
     aspHome: string
     model?: string | undefined
     prompt?: string | undefined
-    promptOverrideMode?: 'nullish' | 'truthy' | undefined
+    promptOverrideMode?: 'nullish' | 'truthy' | 'exact' | undefined
     yolo?: boolean | undefined
     interactive?: boolean | undefined
     continuationKey?: string | boolean | undefined

@@ -66,7 +66,11 @@ echo "codex shim"
   return shimPath
 }
 
-function createFixture(options: { primingPrompt?: string | undefined } = {}): {
+function createFixture(
+  options: {
+    primingPrompt?: string | undefined
+  } = {}
+): {
   agentRoot: string
   projectRoot: string
   aspHome: string
@@ -185,16 +189,25 @@ async function compile(
   identityOverrides: Partial<RuntimeCompileRequest['identity']> = {},
   continuation: RuntimeCompileRequest['continuation'] = undefined
 ): Promise<BrokerExecutionProfile> {
+  return brokerProfile(
+    await compileResponse(fixture, materialization, identityOverrides, continuation)
+  )
+}
+
+async function compileResponse(
+  fixture: Fixture,
+  materialization: Partial<RuntimeCompileRequest['materialization']> = {},
+  identityOverrides: Partial<RuntimeCompileRequest['identity']> = {},
+  continuation: RuntimeCompileRequest['continuation'] = undefined
+): Promise<RuntimeCompileResponse> {
   process.env['ASP_CODEX_PATH'] = join(fixture.aspHome, 'codex')
   process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
   const client = createAgentSpacesClient({
     aspHome: fixture.aspHome,
     runtime: compilerRuntime,
   }) as CompileClient
-  return brokerProfile(
-    await client.compileRuntimePlan(
-      compileRequest(fixture, materialization, identityOverrides, continuation)
-    )
+  return await client.compileRuntimePlan(
+    compileRequest(fixture, materialization, identityOverrides, continuation)
   )
 }
 
@@ -246,6 +259,43 @@ describe('compiled broker initial input composition', () => {
       process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = originalSkipCommon
     }
   })
+
+  for (const omitPriming of [false, true]) {
+    for (const hasCallerPrompt of [true, false]) {
+      for (const hasContinuation of [true, false]) {
+        test(`omitPriming=${omitPriming} with caller prompt ${hasCallerPrompt ? 'present' : 'absent'} and continuation ${hasContinuation ? 'present' : 'absent'}`, async () => {
+          const fixture = createFixture({
+            primingPrompt: 'Prime {{agentId}} for {{taskId}}.',
+          })
+          try {
+            const response = await compileResponse(
+              fixture,
+              {
+                omitPriming,
+                ...(hasCallerPrompt ? { initialPrompt: 'Caller {{projectId}}.' } : {}),
+              },
+              {},
+              hasContinuation ? continuation : undefined
+            )
+            expect(response.ok).toBe(true)
+            if (!response.ok) throw new Error('compile failed')
+            const profile = brokerProfile(response)
+            const selectedPriming =
+              !omitPriming && !hasContinuation ? 'Prime cody for T-01610.' : undefined
+            const callerPrompt = hasCallerPrompt ? 'Caller agent-spaces.' : undefined
+            const expectedText =
+              selectedPriming !== undefined && callerPrompt !== undefined
+                ? `${selectedPriming}\n\n${callerPrompt}`
+                : (selectedPriming ?? callerPrompt)
+            expect(textContent(profile)).toBe(expectedText)
+            expect(response.plan.omitPriming).toBe(omitPriming)
+          } finally {
+            fixture.cleanup()
+          }
+        })
+      }
+    }
+  }
 
   test('expands the priming prompt when no caller prompt is supplied', async () => {
     const fixture = createFixture({

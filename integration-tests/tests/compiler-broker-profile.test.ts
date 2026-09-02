@@ -560,10 +560,34 @@ describe('compiled broker profile field mapping', () => {
     expect(separatorIndex).toBeGreaterThanOrEqual(0)
     expect(spec.process.args.slice(separatorIndex)).toEqual([
       '--',
-      'hello interactive claude tmux broker',
+      [
+        'Agent cody handles agent-spaces task T-01610.',
+        'hello interactive claude tmux broker',
+      ].join('\n\n'),
     ])
     expect(textFromInitialInput(profile)).toBeUndefined()
     expect(profile.harnessInvocation.initialInputHash).toBeUndefined()
+  })
+
+  test('omitPriming keeps only the caller prompt in a claude-code-tmux launch and projects the flag', async () => {
+    const req = claudeTmuxCompileRequest()
+    const response = await createClient().compileRuntimePlan(
+      claudeTmuxCompileRequest({
+        materialization: {
+          ...req.materialization,
+          omitPriming: true,
+          initialPrompt: 'Handle the cold summons.',
+        },
+      })
+    )
+    const profile = brokerProfile(response)
+    const expectedPrompt = 'Handle the cold summons.'
+
+    expect(compiledSpec(profile).launch?.initialPrompt).toBe(expectedPrompt)
+    expect(compiledSpec(profile).process.args.slice(-2)).toEqual(['--', expectedPrompt])
+    expect(textFromInitialInput(profile)).toBeUndefined()
+    if (!response.ok) throw new Error('compile failed')
+    expect(response.plan.omitPriming).toBe(true)
   })
 
   test('translates the Anthropic continuation into a claude-code-tmux session resume', async () => {

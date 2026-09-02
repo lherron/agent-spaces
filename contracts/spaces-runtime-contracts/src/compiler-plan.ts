@@ -53,6 +53,8 @@ export type RuntimeCompileRequest = {
 
   materialization: {
     initialPrompt?: string | undefined
+    /** Suppresses profile priming so the caller prompt is the whole launch turn. Defaults to false. */
+    omitPriming?: boolean | undefined
     attachments?: AttachmentRef[] | undefined
     taskContext?: HrcTaskContext | undefined
     resolvedBundleHint?: ResolvedRuntimeBundle | undefined
@@ -123,6 +125,8 @@ export type CompiledRuntimePlan = {
   placement: RuntimePlacement
   agentPolicy?: CompiledAgentPolicy | undefined
   resolvedBundle: ResolvedRuntimeBundle
+  /** Whether profile priming was suppressed for this launch. */
+  omitPriming: boolean
 
   harness: {
     family: HarnessFamily

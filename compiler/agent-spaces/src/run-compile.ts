@@ -118,6 +118,7 @@ function buildRunCompileRequest(context: RunCompilerDebugContext): RuntimeCompil
     },
     materialization: {
       initialPrompt: context.materialization.initialPrompt,
+      omitPriming: context.materialization.omitPriming,
       ...(taskContext !== undefined ? { taskContext } : {}),
       resolvedBundleHint: context.materialization
         .resolvedBundleHint as RuntimeCompileRequest['materialization']['resolvedBundleHint'],

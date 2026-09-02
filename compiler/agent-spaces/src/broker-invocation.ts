@@ -13,7 +13,6 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { validateInvocationInput, validateInvocationSpec } from 'spaces-harness-broker-protocol'
 import type { ContextResolverContext } from 'spaces-runtime'
-import { expandTemplate } from 'spaces-runtime'
 import { createCanonicalHasher } from 'spaces-runtime-contracts'
 
 import {
@@ -302,10 +301,19 @@ function brokerCorrelationFromPlacement(placement: RuntimePlacement): Record<str
   return correlation
 }
 
-function combineBrokerPrompts(
+export function combineBrokerPrompts(
   primingPrompt: string | undefined,
-  callerPrompt: string | undefined
+  callerPrompt: string | undefined,
+  omitPriming = false
 ): string | undefined {
+  // An explicit empty caller prompt suppresses all launch text. This preserves
+  // the existing image-only/no-first-turn escape hatch.
+  if (callerPrompt === '') {
+    return ''
+  }
+  if (omitPriming) {
+    return callerPrompt
+  }
   if (primingPrompt !== undefined && callerPrompt !== undefined) {
     return `${primingPrompt}\n\n${callerPrompt}`
   }
@@ -319,28 +327,16 @@ function buildBrokerInitialText(
   if (req.prompt === '') {
     return undefined
   }
-
-  const expansionContext = buildPromptExpansionContext(prepared.placement)
-  // A continuation already owns its established conversation context. Profile
-  // priming is a fresh-session default only; replaying it on resume would turn
-  // it into a new user message. An explicit caller prompt still passes through
-  // below so continuation-bearing headless starts can submit their intended turn.
-  const defaultPrompt =
-    req.continuation === undefined
-      ? (prepared.runtimePlan.defaultRunOptions.prompt ??
-        prepared.placementContext.materialization.effectiveConfig?.priming)
-      : undefined
-  const primingPrompt =
-    defaultPrompt !== undefined ? expandTemplate(defaultPrompt, expansionContext) : undefined
-  const callerPrompt =
-    req.prompt !== undefined ? expandTemplate(req.prompt, expansionContext) : undefined
+  if (req.omitPriming === true && req.prompt === undefined) {
+    return undefined
+  }
 
   // Codex receives the system prompt + session reminder via the runtime-home
   // AGENTS.md (written under lock in prepareCodexRuntimeHome), read on both the
   // interactive and exec/headless routes. The broker initial input is therefore
   // the priming/caller prompt ONLY — never the system prompt/reminder — matching
   // the interactive launch and avoiding the T-03939 first-message pollution.
-  return combineBrokerPrompts(primingPrompt, callerPrompt)
+  return prepared.expandedPrompt
 }
 
 /**

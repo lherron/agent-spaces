@@ -200,6 +200,8 @@ export interface BuildProcessInvocationSpecRequest {
   artifactDir?: string | undefined
   /** Prompt text to include in the invocation argv */
   prompt?: string | undefined
+  /** Suppress profile priming so `prompt` is the whole launch turn. Defaults to false. */
+  omitPriming?: boolean | undefined
   /** Attachment refs to thread into the invocation (image attachments become CLI `-i <path>` args) */
   attachments?: AttachmentRef[] | undefined
   /** YOLO mode - skip all permission prompts (--dangerously-skip-permissions) */
@@ -234,6 +236,8 @@ export interface BuildHarnessBrokerInvocationRequest {
   yolo?: boolean | undefined
   continuation?: HarnessContinuationRef | undefined
   prompt?: string | undefined
+  /** Suppress profile priming so `prompt` is the whole launch turn. Defaults to false. */
+  omitPriming?: boolean | undefined
   attachments?: AttachmentRef[] | undefined
   lockedEnv?: Record<string, string> | undefined
   dispatchEnv?: Record<string, string> | undefined

@@ -165,6 +165,7 @@ interface AssemblePlanInput {
   compiledPlacement: CompiledRuntimePlan['placement']
   agentPolicy?: CompiledAgentPolicy | undefined
   resolvedBundle: CompiledRuntimePlan['resolvedBundle']
+  omitPriming: boolean
   harness: CompiledRuntimePlan['harness']
   model: CompiledRuntimePlan['model']
   executionProfiles: CompiledRuntimePlan['executionProfiles']
@@ -192,6 +193,7 @@ function assemblePlan(input: AssemblePlanInput): RuntimeCompileResponse {
     compiledPlacement,
     agentPolicy,
     resolvedBundle,
+    omitPriming,
     harness,
     model,
     executionProfiles,
@@ -211,6 +213,7 @@ function assemblePlan(input: AssemblePlanInput): RuntimeCompileResponse {
     placement: compiledPlacement,
     ...(agentPolicy !== undefined ? { agentPolicy } : {}),
     resolvedBundle,
+    omitPriming,
     harness,
     model,
     executionProfiles,
@@ -232,6 +235,7 @@ function assemblePlan(input: AssemblePlanInput): RuntimeCompileResponse {
       identity: hashNeutralCompileIdentity(req.identity),
       placement: hashNeutralPlacement(compiledPlacement),
       ...(agentPolicy !== undefined ? { agentPolicy } : {}),
+      omitPriming: planMaterial.omitPriming,
       harness: planMaterial.harness,
       model: planMaterial.model,
       executionProfiles: planMaterial.executionProfiles.map((profile) => ({
@@ -290,6 +294,7 @@ interface FinalizePlanInput {
    */
   disallowedToolsContext: { selectedDriver: string } | undefined
   resolvedBundleSource: PreparedResolvedBundle | undefined
+  omitPriming: boolean
   bundleIdentity: string
   placement: CompilePlacement
   agentPolicy?: CompiledAgentPolicy | undefined
@@ -349,6 +354,7 @@ function finalizePlan(input: FinalizePlanInput): RuntimeCompileResponse {
     compiledPlacement,
     ...(input.agentPolicy !== undefined ? { agentPolicy: input.agentPolicy } : {}),
     resolvedBundle,
+    omitPriming: input.omitPriming,
     harness: input.harness,
     model: input.model,
     executionProfiles: input.executionProfiles,
@@ -1037,6 +1043,7 @@ async function compileBrokerPlan(
         ? { provider: 'openai', key: req.continuation.hrc.key }
         : undefined,
     prompt: req.materialization.initialPrompt,
+    omitPriming: req.materialization.omitPriming,
     ...(req.materialization.responseFormat !== undefined
       ? { responseFormat: req.materialization.responseFormat }
       : {}),
@@ -1167,6 +1174,7 @@ async function compileBrokerPlan(
     ...hygieneWarningsInput(prepared),
     disallowedToolsContext: { selectedDriver: 'codex-app-server' },
     resolvedBundleSource: brokerInvocation.resolvedBundle,
+    omitPriming: prepared.omitPriming,
     bundleIdentity,
     placement,
     agentPolicy: prepared.placementContext.agentPolicy,
@@ -1303,6 +1311,7 @@ async function compilePiSdkBrokerPlan(
       ? { continuation: { provider, key: req.continuation.hrc.key } }
       : {}),
     prompt: req.materialization.initialPrompt,
+    omitPriming: req.materialization.omitPriming,
     ...(req.materialization.responseFormat !== undefined
       ? { responseFormat: req.materialization.responseFormat }
       : {}),
@@ -1424,6 +1433,7 @@ async function compilePiSdkBrokerPlan(
     ...hygieneWarningsInput(prepared),
     disallowedToolsContext: { selectedDriver: 'pi-sdk' },
     resolvedBundleSource: brokerInvocation.resolvedBundle,
+    omitPriming: prepared.omitPriming,
     bundleIdentity,
     placement,
     agentPolicy: prepared.placementContext.agentPolicy,
@@ -1495,6 +1505,9 @@ async function compileForegroundPlan(
         : {}),
       ...(req.materialization.initialPrompt !== undefined
         ? { prompt: req.materialization.initialPrompt }
+        : {}),
+      ...(req.materialization.omitPriming !== undefined
+        ? { omitPriming: req.materialization.omitPriming }
         : {}),
       ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
       ...(placement.env !== undefined ? { env: placement.env } : {}),
@@ -1581,6 +1594,7 @@ async function compileForegroundPlan(
       selectedDriver: `${route.frontend}:foreground-terminal`,
     },
     resolvedBundleSource: prepared.resolvedBundle,
+    omitPriming: prepared.omitPriming,
     bundleIdentity,
     placement,
     agentPolicy: prepared.placementContext.agentPolicy,
@@ -1640,6 +1654,9 @@ async function preparePiSdkSession(
       : {}),
     ...(req.materialization.initialPrompt !== undefined
       ? { prompt: req.materialization.initialPrompt }
+      : {}),
+    ...(req.materialization.omitPriming !== undefined
+      ? { omitPriming: req.materialization.omitPriming }
       : {}),
     ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
     ...(placement.env !== undefined ? { env: placement.env } : {}),
@@ -1808,6 +1825,9 @@ async function compileTmuxBrokerPlan(
         : {}),
       ...(req.materialization.initialPrompt !== undefined
         ? { prompt: req.materialization.initialPrompt }
+        : {}),
+      ...(req.materialization.omitPriming !== undefined
+        ? { omitPriming: req.materialization.omitPriming }
         : {}),
       ...(disallowedTools !== undefined ? { disallowedTools } : {}),
       ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
@@ -1985,6 +2005,7 @@ async function compileTmuxBrokerPlan(
     ...hygieneWarningsInput(prepared),
     disallowedToolsContext: honorDisallowedTools ? undefined : { selectedDriver: driverKind },
     resolvedBundleSource: prepared.resolvedBundle,
+    omitPriming: prepared.omitPriming,
     bundleIdentity,
     placement,
     agentPolicy: prepared.placementContext.agentPolicy,

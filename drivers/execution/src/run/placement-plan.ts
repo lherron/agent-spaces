@@ -48,7 +48,7 @@ export interface PlanPlacementRuntimeOptions {
   aspHome: string
   model?: string | undefined
   prompt?: string | undefined
-  promptOverrideMode?: 'nullish' | 'truthy' | undefined
+  promptOverrideMode?: 'nullish' | 'truthy' | 'exact' | undefined
   yolo?: boolean | undefined
   interactive?: boolean | undefined
   continuationKey?: string | boolean | undefined
@@ -231,9 +231,11 @@ export async function planPlacementRuntime(
       ? (defaultRunOptions.prompt ?? placementContext.materialization.effectiveConfig?.priming)
       : undefined
   const prompt =
-    options.promptOverrideMode === 'truthy'
-      ? options.prompt || defaultPrompt
-      : (options.prompt ?? defaultPrompt)
+    options.promptOverrideMode === 'exact'
+      ? options.prompt
+      : options.promptOverrideMode === 'truthy'
+        ? options.prompt || defaultPrompt
+        : (options.prompt ?? defaultPrompt)
   const yolo =
     options.yolo ?? defaultRunOptions.yolo ?? placementContext.materialization.effectiveConfig?.yolo
   const cwd = placementContext.resolvedBundle.cwd

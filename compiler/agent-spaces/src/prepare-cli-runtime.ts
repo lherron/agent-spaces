@@ -15,7 +15,11 @@ import type { AttachmentRef, ContextResolverContext } from 'spaces-runtime'
 import type { MaterializeResult } from 'spaces-runtime'
 import { expandTemplate, materializeSystemPrompt } from 'spaces-runtime'
 
-import { buildPromptExpansionContext, deriveHandleParts } from './broker-invocation.js'
+import {
+  buildPromptExpansionContext,
+  combineBrokerPrompts,
+  deriveHandleParts,
+} from './broker-invocation.js'
 import { type MaterializedSpec, materializeSpec } from './client-materialization.js'
 import {
   CODEX_CLI_FRONTEND,
@@ -47,6 +51,7 @@ export interface PreparedPlacementCliRuntime {
   materialized: MaterializedSpec
   systemPrompt?: MaterializeResult | undefined
   expandedPrompt?: string | undefined
+  omitPriming: boolean
   imageAttachmentPaths: string[]
   runOptions: HarnessRunOptions
   detection: HarnessDetection
@@ -76,6 +81,7 @@ export interface PreparePlacementCliRuntimeRequest {
   disallowedTools?: string[] | undefined
   continuation?: HarnessContinuationRef | undefined
   prompt?: string | undefined
+  omitPriming?: boolean | undefined
   attachments?: AttachmentRef[] | undefined
   lockedEnv?: Record<string, string> | undefined
   dispatchEnv?: Record<string, string> | undefined
@@ -173,17 +179,35 @@ export async function preparePlacementCliRuntime(
 
   const aspHome = req.aspHome ?? defaultAspHome ?? getAspHome()
   await sweepAspTempArtifactsWithinBudget(aspHome)
-  const runtimePlan = await runtime.planPlacementRuntime({
+  const unresolvedRuntimePlan = await runtime.planPlacementRuntime({
     placement,
     placementContext,
     frontend: req.frontend,
     aspHome,
     model: req.model,
     prompt: req.prompt,
+    promptOverrideMode: 'exact',
     yolo: req.yolo,
     interactive: req.interactionMode === 'interactive',
     continuationKey: req.continuation?.key,
   })
+  const mayPrime = req.continuation === undefined
+  const selectedLaunchPrompt = combineBrokerPrompts(
+    mayPrime
+      ? (unresolvedRuntimePlan.defaultRunOptions.prompt ??
+          placementContext.materialization.effectiveConfig?.priming)
+      : undefined,
+    req.prompt,
+    req.omitPriming ?? false
+  )
+  const runtimePlan: CompilerPlacementRuntimePlan = {
+    ...unresolvedRuntimePlan,
+    ...(selectedLaunchPrompt !== undefined ? { prompt: selectedLaunchPrompt } : {}),
+    runOptions: {
+      ...unresolvedRuntimePlan.runOptions,
+      prompt: selectedLaunchPrompt,
+    },
+  }
   if (!runtimePlan.model.ok) {
     throw new Error(
       `Model not supported for frontend ${req.frontend}: ${runtimePlan.model.modelId}`
@@ -437,6 +461,7 @@ export async function preparePlacementCliRuntime(
     materialized,
     ...(systemPrompt ? { systemPrompt } : {}),
     ...(expandedPrompt !== undefined ? { expandedPrompt } : {}),
+    omitPriming: req.omitPriming ?? false,
     imageAttachmentPaths,
     runOptions,
     detection,

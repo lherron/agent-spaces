@@ -26,6 +26,7 @@ export interface RunCompilerDebugContext {
   }
   materialization: {
     initialPrompt?: string | undefined
+    omitPriming?: boolean | undefined
     resolvedBundleHint?: Record<string, unknown> | undefined
   }
   hrcPolicy: {
