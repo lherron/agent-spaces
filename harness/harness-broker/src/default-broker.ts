@@ -17,6 +17,20 @@ export interface DefaultBrokerOptions {
   advertisedTransports?: BrokerTransportKind[] | undefined
   advertiseAttachReplay?: boolean | undefined
   eventLedger?: EventLedger | undefined
+  /**
+   * Directory the raw ingress journal and disposition index live in (T-07853
+   * §7.1, §8.1) — beside the normalized ledger. ABSENT keeps capture in memory,
+   * exactly as the ledger itself does.
+   *
+   * This MUST be forwarded. The durable unix broker is the only one that has a
+   * ledger path, so it is the only one whose capture can be durable at all; if
+   * this option is dropped here the CLI's `captureDir` reaches nothing, every
+   * production seat commits its raw evidence to memory, and `replayPending`
+   * has nothing to find after a restart — while every event still carries a
+   * plausible-looking `rawRecordId` pointing at a journal that was never
+   * written.
+   */
+  captureDir?: string | undefined
   attachIdentity?: BrokerAttachIdentity | undefined
   brokerInstanceId?: string | undefined
   /**
@@ -54,6 +68,7 @@ export function createDefaultBroker(
       ? { advertiseAttachReplay: options.advertiseAttachReplay }
       : {}),
     ...(options.eventLedger !== undefined ? { eventLedger: options.eventLedger } : {}),
+    ...(options.captureDir !== undefined ? { captureDir: options.captureDir } : {}),
     ...(options.attachIdentity !== undefined ? { attachIdentity: options.attachIdentity } : {}),
     ...(options.brokerInstanceId !== undefined
       ? { brokerInstanceId: options.brokerInstanceId }
