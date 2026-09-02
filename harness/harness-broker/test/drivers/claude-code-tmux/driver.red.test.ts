@@ -5,8 +5,12 @@ import { join } from 'node:path'
 import type {
   HarnessInvocationSpec,
   InvocationEventEnvelope,
+  InvocationId,
   InvocationInput,
 } from 'spaces-harness-broker-protocol'
+import { createCaptureGate } from '../../../src/capture/capture-gate'
+import { openCaptureIndex } from '../../../src/capture/capture-index'
+import { createRawJournal } from '../../../src/capture/raw-journal'
 import type { DriverContext } from '../../../src/drivers/driver'
 
 type TmuxExecCall = {
@@ -693,6 +697,113 @@ describe('claude-code-tmux driver RED lifecycle', () => {
         turnId: captured[1]?.turnId,
       })
     } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('Stop hook_cancelled plus adjacent late marker is ignored-known after completion', async () => {
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
+    const events: InvocationEventEnvelope[] = []
+    const root = mkdtempSync(join(tmpdir(), 'claude-stop-cancelled-driver-'))
+    const transcriptPath = join(root, 'session.jsonl')
+    writeFileSync(transcriptPath, '')
+    const archivePath = join(
+      import.meta.dir,
+      '../../fixtures/claude-preempt-stop-hook-cancelled-a3da8a7e.rows168-180.jsonl'
+    )
+    const signature = readFileSync(archivePath, 'utf8').trimEnd().split('\n').slice(3, 5)
+    const hookSocket = '/tmp/harness-broker/claude-hooks.sock'
+    const index = openCaptureIndex(join(root, 'capture.db'))
+    const ctx = createCtx(events, { terminalSurface: defaultLease() })
+    const capture = createCaptureGate({
+      invocationId: 'inv_claude_tmux_1' as InvocationId,
+      journal: createRawJournal({
+        invocationId: 'inv_claude_tmux_1' as InvocationId,
+        dir: join(root, 'journal'),
+      }),
+      index,
+      normalizer: { name: 'claude-code-tmux', version: 'test' },
+      now,
+      emitWarning: (payload) => ctx.emit('capture.warning', payload).seq,
+      emitReleased: (payload) => ctx.emit('capture.released', payload).seq,
+      emitNormalizedAs: () => 0,
+    })
+    ctx.capture = capture
+    const driver = createDriver({
+      tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
+      hooks: {
+        listen: async (handler) => {
+          hookHandler = handler as (envelope: HookEnvelope) => Promise<void>
+          return { socketPath: hookSocket, close: async () => undefined }
+        },
+      },
+      now,
+    })
+
+    try {
+      await driver.start(claudeTmuxSpec(), ctx)
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        hookData: { hook_event_name: 'SessionStart', transcript_path: transcriptPath },
+      })
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        turnId: 'turn_completed',
+        hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'completed base turn' },
+      })
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        turnId: 'turn_completed',
+        hookData: { hook_event_name: 'Stop' },
+      })
+
+      appendFileSync(transcriptPath, `${signature.join('\n')}\n`)
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        hookData: { hook_event_name: 'Notification' },
+      })
+
+      expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(1)
+      expect(events.filter((event) => event.type === 'turn.interrupted')).toHaveLength(0)
+      expect(events.filter((event) => event.type === 'capture.warning')).toHaveLength(0)
+      expect(
+        index
+          .list('inv_claude_tmux_1')
+          .filter((row) => row.sourceKind === 'provider-jsonl')
+          .map((row) => ({
+            nativeType: row.nativeType,
+            disposition: row.disposition,
+            detail: row.detail,
+          }))
+      ).toEqual([
+        {
+          nativeType: 'attachment:hook_cancelled',
+          disposition: 'ignored-known',
+          detail: JSON.stringify({
+            hookName: 'Stop',
+            hookEvent: 'Stop',
+            durationMs: 72,
+            timedOut: false,
+          }),
+        },
+        {
+          nativeType: 'user',
+          disposition: 'ignored-known',
+          detail: 'late interrupt marker; Stop hook cancelled after delivery',
+        },
+      ])
+    } finally {
+      index.close()
       rmSync(root, { recursive: true, force: true })
     }
   })

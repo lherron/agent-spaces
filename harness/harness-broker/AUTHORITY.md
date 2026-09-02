@@ -167,7 +167,10 @@ The tables that decide `ignored-known` vs `blocked-unknown` are
 
 - `src/drivers/claude-code-tmux/native-types.ts` — enumerated from the three
   archived live sessions on wrkq `T-07849`: 14 session-JSONL row types, 9
-  attachment subtypes, 4 queue operations. `test/capture/claude-native-type-
+  attachment subtypes, 4 queue operations. The later observed
+  `attachment:hook_cancelled` is `ignored-known`; its raw detail preserves
+  `{hookName, hookEvent, durationMs, timedOut}` and it mints no broker event.
+  `test/capture/claude-native-type-
   coverage.test.ts` replays those real transcripts and asserts every row reaches
   a terminal disposition with zero warnings.
 - `src/drivers/codex-cli-tmux/native-types.ts`,

@@ -3,6 +3,7 @@ import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { InvocationEventEnvelope, InvocationEventType } from 'spaces-harness-broker-protocol'
+import type { NormalizeOutcome } from '../../../src/capture/capture-gate'
 
 const invocationId = 'inv_claude_hooktx_1'
 
@@ -25,7 +26,12 @@ type ClaudeHookTranscriptReaderFactory = (options: {
   onAssistantMessageStarted?:
     | ((messageId: string, entry: Record<string, unknown>) => void)
     | undefined
-  onTranscriptEntry?: ((entry: Record<string, unknown>) => boolean | undefined) | undefined
+  onTranscriptEntry?:
+    | ((
+        entry: Record<string, unknown>,
+        context: { precededByStopHookCancelled: boolean }
+      ) => boolean | NormalizeOutcome | undefined)
+    | undefined
 }) => ClaudeHookTranscriptReader
 
 const tempRoots: string[] = []

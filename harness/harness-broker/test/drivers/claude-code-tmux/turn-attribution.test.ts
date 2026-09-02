@@ -317,6 +317,10 @@ const preemptCrossingArchive = join(
   import.meta.dir,
   '../../fixtures/claude-preempt-request-crossing-36911f19.rows23-40.jsonl'
 )
+const preemptStopHookCancelledArchive = join(
+  import.meta.dir,
+  '../../fixtures/claude-preempt-stop-hook-cancelled-a3da8a7e.rows168-180.jsonl'
+)
 const archiveTest = existsSync(archiveOne) && existsSync(archiveTwo) ? test : test.skip
 const archiveThreeTest = existsSync(archiveThree) ? test : test.skip
 
@@ -351,7 +355,10 @@ const replayRows = (
   rows: ArchiveRow[],
   actions: ClaudeAttributionAction[]
 ): void => {
+  let previousWasStopHookCancelled = false
   for (const row of rows) {
+    const precededByStopHookCancelled = previousWasStopHookCancelled
+    previousWasStopHookCancelled = false
     if (row['type'] === 'queue-operation') {
       actions.push(
         ...tracker.observeQueueOperation(row as Parameters<typeof tracker.observeQueueOperation>[0])
@@ -360,23 +367,24 @@ const replayRows = (
     }
     if (row['type'] === 'attachment') {
       const attachment = row['attachment']
-      if (
-        attachment !== null &&
-        typeof attachment === 'object' &&
-        !Array.isArray(attachment) &&
-        (attachment as ArchiveRow)['type'] === 'queued_command'
-      ) {
-        const prompt = (attachment as ArchiveRow)['prompt']
-        actions.push(
-          ...tracker.observeQueuedCommand(typeof prompt === 'string' ? prompt : undefined, row)
-        )
+      if (attachment !== null && typeof attachment === 'object' && !Array.isArray(attachment)) {
+        const attachmentRow = attachment as ArchiveRow
+        if (attachmentRow['type'] === 'hook_cancelled') {
+          previousWasStopHookCancelled = attachmentRow['hookName'] === 'Stop'
+        } else if (attachmentRow['type'] === 'queued_command') {
+          const prompt = attachmentRow['prompt']
+          actions.push(
+            ...tracker.observeQueuedCommand(typeof prompt === 'string' ? prompt : undefined, row)
+          )
+        }
       }
       continue
     }
     if (row['type'] !== 'user') continue
     const prompt = promptFromUserRow(row)
-    if (prompt === 'interrupted') actions.push(...tracker.observeInterrupt(row))
-    else if (prompt !== undefined) actions.push(...tracker.observePlainUser(prompt, row))
+    if (prompt === 'interrupted') {
+      actions.push(...tracker.observeInterrupt(row, { precededByStopHookCancelled }))
+    } else if (prompt !== undefined) actions.push(...tracker.observePlainUser(prompt, row))
   }
 }
 
@@ -600,5 +608,44 @@ describe('T-07859 archived preempt drain-boundary failure', () => {
     expect(tracker.pendingCount).toBe(1)
     expect(tracker.harnessLocalQueueDepth).toBe(0)
     expect(tracker.teardown()).toEqual([])
+  })
+
+  test('a3da8a7e Stop cancellation makes only its adjacent late marker ignored-known', () => {
+    const rows = readArchive(preemptStopHookCancelledArchive)
+    const signature = rows.slice(3, 5)
+    expect(signature).toEqual([
+      expect.objectContaining({
+        type: 'attachment',
+        attachment: expect.objectContaining({
+          type: 'hook_cancelled',
+          hookName: 'Stop',
+          hookEvent: 'Stop',
+          durationMs: 72,
+          timedOut: false,
+        }),
+      }),
+      expect.objectContaining({ type: 'user' }),
+    ])
+
+    const completed = createTracker('archive_a3da8a7e_completed')
+    completed.observeTurnStarted('turn_completed' as TurnId)
+    completed.observeTurnTerminal('turn_completed' as TurnId)
+    const completedActions: ClaudeAttributionAction[] = []
+    replayRows(completed, signature, completedActions)
+    expect(completedActions).toEqual([])
+
+    const active = createTracker('archive_a3da8a7e_active')
+    active.observeTurnStarted('turn_active' as TurnId)
+    const activeActions: ClaudeAttributionAction[] = []
+    replayRows(active, signature, activeActions)
+    expect(activeActions).toEqual([{ kind: 'interrupted', turnId: 'turn_active' }])
+
+    const unrelated = createTracker('archive_a3da8a7e_unrelated')
+    expect(unrelated.observeInterrupt(signature[1])).toEqual([
+      expect.objectContaining({
+        kind: 'warning',
+        message: 'Claude interrupt row has no active turn',
+      }),
+    ])
   })
 })

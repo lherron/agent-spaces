@@ -522,7 +522,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
             }
           )
         },
-        onTranscriptEntry: (entry) => {
+        onTranscriptEntry: (entry, context) => {
           const entryType = getString(entry, 'type')
           if (entryType === 'queue-operation') {
             const actions = turnAttribution.observeQueueOperation(
@@ -542,10 +542,18 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
           }
           const userObservation = classifyTranscriptUserEntry(entry)
           if (userObservation?.kind === 'interrupted') {
-            return emitAttributionActions(
-              turnAttribution.observeInterrupt(entry),
+            const hadActiveTurn = turnAttribution.activeTurnId !== undefined
+            const minted = emitAttributionActions(
+              turnAttribution.observeInterrupt(entry, context),
               'transcript.interrupt'
             )
+            if (!minted && !hadActiveTurn && context.precededByStopHookCancelled) {
+              return {
+                disposition: 'ignored-known',
+                detail: 'late interrupt marker; Stop hook cancelled after delivery',
+              }
+            }
+            return minted
           }
           if (userObservation?.kind === 'prompt') {
             return emitAttributionActions(

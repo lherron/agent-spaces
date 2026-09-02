@@ -40,7 +40,8 @@ export const CLAUDE_IGNORED_ROW_TYPES: ReadonlySet<string> = new Set([
 /**
  * Attachment subtypes reviewed and intentionally outside the broker vocabulary.
  * `queued_command` is deliberately ABSENT: it is the absorption signal and is
- * handled by the disposition mirror.
+ * handled by the disposition mirror. `hook_cancelled` is classified separately
+ * so its four diagnostic fields remain visible in the raw disposition detail.
  */
 export const CLAUDE_IGNORED_ATTACHMENT_TYPES: ReadonlySet<string> = new Set([
   'hook_success',

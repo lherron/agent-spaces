@@ -83,9 +83,15 @@ export type ClaudeHookTranscriptReaderOptions = {
   /**
    * Observes one queue-operation / attachment / user row. Returns TRUE when the
    * row produced a broker fact (an attribution action), FALSE when it only
-   * updated mirror state — which is how the row's raw disposition is decided.
+   * updated mirror state, or a narrow explicit disposition for a transcript
+   * signature whose meaning depends on the mirror's current turn state.
    */
-  onTranscriptEntry?: ((entry: Record<string, unknown>) => boolean) | undefined
+  onTranscriptEntry?:
+    | ((
+        entry: Record<string, unknown>,
+        context: { precededByStopHookCancelled: boolean }
+      ) => boolean | NormalizeOutcome | undefined)
+    | undefined
   onAssistantMessageStarted?:
     | ((messageId: string, entry: Record<string, unknown>) => void)
     | undefined
@@ -112,6 +118,7 @@ export function createClaudeHookTranscriptReader(
     // recorded before it address a different file (§7.1).
     onEpochChange: () => options.capture?.rotateEpoch(sourceKey),
   })
+  let previousWasStopHookCancelled = false
 
   /**
    * Extract the human-readable API-error text from an assistant row. CC nests it
@@ -187,6 +194,10 @@ export function createClaudeHookTranscriptReader(
    * known-and-ignorable, or is a vocabulary drift that must be surfaced.
    */
   const processLine = (line: string, turnIdText?: string | undefined): NormalizeOutcome => {
+    const precededByStopHookCancelled = previousWasStopHookCancelled
+    // Adjacency is literal transcript adjacency. Every row consumes the
+    // signature; only a named Stop hook_cancelled row below arms it again.
+    previousWasStopHookCancelled = false
     if (line.trim().length === 0) {
       return { disposition: 'ignored-known', detail: 'blank line' }
     }
@@ -258,8 +269,11 @@ export function createClaudeHookTranscriptReader(
     }
 
     if (entryType === 'queue-operation' || entryType === 'attachment' || entryType === 'user') {
-      const producedFact = options.onTranscriptEntry?.(entry) ?? false
-      if (producedFact) {
+      const observation = options.onTranscriptEntry?.(entry, {
+        precededByStopHookCancelled,
+      })
+      if (typeof observation === 'object') return observation
+      if (observation === true) {
         return { disposition: 'normalized' }
       }
       if (entryType === 'attachment') {
@@ -268,6 +282,26 @@ export function createClaudeHookTranscriptReader(
           attachment !== null && typeof attachment === 'object' && !Array.isArray(attachment)
             ? getString(attachment as Record<string, unknown>, 'type')
             : undefined
+        if (attachmentType === 'hook_cancelled') {
+          const attachmentRecord = attachment as Record<string, unknown>
+          const hookName = getString(attachmentRecord, 'hookName')
+          previousWasStopHookCancelled = hookName === 'Stop'
+          return {
+            disposition: 'ignored-known',
+            detail: JSON.stringify({
+              hookName: hookName ?? null,
+              hookEvent: getString(attachmentRecord, 'hookEvent') ?? null,
+              durationMs:
+                typeof attachmentRecord['durationMs'] === 'number'
+                  ? attachmentRecord['durationMs']
+                  : null,
+              timedOut:
+                typeof attachmentRecord['timedOut'] === 'boolean'
+                  ? attachmentRecord['timedOut']
+                  : null,
+            }),
+          }
+        }
         if (attachmentType !== undefined && CLAUDE_IGNORED_ATTACHMENT_TYPES.has(attachmentType)) {
           return { disposition: 'ignored-known', detail: `attachment:${attachmentType}` }
         }
@@ -363,6 +397,7 @@ export function createClaudeHookTranscriptReader(
 
     reset(): void {
       tailer.clear()
+      previousWasStopHookCancelled = false
     },
   }
 }

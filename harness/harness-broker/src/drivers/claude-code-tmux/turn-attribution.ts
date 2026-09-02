@@ -54,7 +54,10 @@ export interface ClaudeTurnAttribution {
   observeQueueOperation(operation: ClaudeTranscriptQueueOperation): ClaudeAttributionAction[]
   observeQueuedCommand(prompt: string | undefined, raw: unknown): ClaudeAttributionAction[]
   observePlainUser(content: string, raw: unknown): ClaudeAttributionAction[]
-  observeInterrupt(raw: unknown): ClaudeAttributionAction[]
+  observeInterrupt(
+    raw: unknown,
+    context?: { precededByStopHookCancelled?: boolean | undefined }
+  ): ClaudeAttributionAction[]
   observePromptHook(content: string | undefined, hintedTurnId?: TurnId): ClaudeAttributionAction[]
   settleOutstandingRemovals(raw: unknown): ClaudeAttributionAction[]
   observeTurnStarted(turnId: TurnId): void
@@ -317,7 +320,7 @@ export function createClaudeTurnAttribution(options: {
       return actions
     },
 
-    observeInterrupt(raw): ClaudeAttributionAction[] {
+    observeInterrupt(raw, context): ClaudeAttributionAction[] {
       recentDisposedPrompt = undefined
       const actions = settleOutstandingRemovals(raw)
       const expected = expectedInterrupts.shift()
@@ -329,6 +332,7 @@ export function createClaudeTurnAttribution(options: {
       }
       if (settledInterruptTargets.shift() !== undefined) return actions
       if (activeTurnId === undefined) {
+        if (context?.precededByStopHookCancelled === true) return actions
         actions.push(warning('Claude interrupt row has no active turn', raw))
         return actions
       }

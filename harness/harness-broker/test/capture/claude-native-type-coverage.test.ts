@@ -37,6 +37,7 @@ process.on('exit', () => {
 
 interface Replay {
   dispositions: Array<{ nativeType: string; disposition: RawRecordDisposition }>
+  details: Array<{ nativeType: string; detail: string | undefined }>
   warnings: string[]
 }
 
@@ -99,8 +100,11 @@ function replay(lines: string[]): Replay {
   const dispositions = index
     .list(invocationId)
     .map((r) => ({ nativeType: r.nativeType, disposition: r.disposition }))
+  const details = index
+    .list(invocationId)
+    .map((r) => ({ nativeType: r.nativeType, detail: r.detail }))
   index.close()
-  return { dispositions, warnings }
+  return { dispositions, details, warnings }
 }
 
 describe('claude native-type disposition coverage (archived T-07849 vocabulary)', () => {
@@ -145,6 +149,33 @@ describe('claude native-type disposition coverage (archived T-07849 vocabulary)'
       JSON.stringify({ type: 'attachment', attachment: { type: 'auto_mode_exit' } }),
     ])
     expect(dispositions.map((d) => d.disposition)).toEqual(['ignored-known', 'ignored-known'])
+    expect(warnings).toEqual([])
+  })
+
+  test('Stop hook cancellation is ignored-known with its four diagnostic fields', () => {
+    const { dispositions, details, warnings } = replay([
+      JSON.stringify({
+        type: 'attachment',
+        attachment: {
+          type: 'hook_cancelled',
+          hookName: 'Stop',
+          hookEvent: 'Stop',
+          durationMs: 72,
+          timedOut: false,
+          command: 'intentionally not copied into disposition detail',
+        },
+      }),
+    ])
+
+    expect(dispositions).toEqual([
+      { nativeType: 'attachment:hook_cancelled', disposition: 'ignored-known' },
+    ])
+    expect(JSON.parse(details[0]?.detail ?? 'null')).toEqual({
+      hookName: 'Stop',
+      hookEvent: 'Stop',
+      durationMs: 72,
+      timedOut: false,
+    })
     expect(warnings).toEqual([])
   })
 
