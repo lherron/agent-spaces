@@ -1067,17 +1067,35 @@ export async function runInteractiveClaudeTmuxSession(
   for (const f of ledger.requireNoDuplicates()) failures.push(f)
   for (const f of ledger.requireOnlyNormalizedEventTypes()) failures.push(f)
 
+  // The first scenario prompt must produce EXACTLY ONE `user.message` — the
+  // presence-and-no-duplicate bar this assertion has always enforced.
+  //
+  // What changed under observability Phase 4 (wrkq T-07873) is WHICH RECORD
+  // mints it. `conversation` is transcript-primary for `claude-code-tmux` now,
+  // so the prompt's own `user` row in the session JSONL is the evidence and the
+  // `UserPromptSubmit` hook's copy of the text is a duplicate. Pinning
+  // `rawType === 'UserPromptSubmit'` here would hold the certification suite to
+  // the superseded law, so the count is taken on the FACT and the SOURCE is
+  // asserted separately — which makes this stricter than before, not laxer.
   const firstScenarioPrompt = options.prompts[0]
   const firstScenarioSubmits = events.filter(
     (event) =>
-      event.type === 'user.message' &&
-      event.driver?.rawType === 'UserPromptSubmit' &&
-      asRecord(event.payload)?.['content'] === firstScenarioPrompt
+      event.type === 'user.message' && asRecord(event.payload)?.['content'] === firstScenarioPrompt
   )
   if (firstScenarioSubmits.length !== 1) {
     failures.push({
       code: 'claude_tmux_first_prompt_submit_count_invalid',
-      message: `expected exactly one UserPromptSubmit user.message for the first scenario prompt, got ${firstScenarioSubmits.length}.`,
+      message: `expected exactly one user.message for the first scenario prompt, got ${firstScenarioSubmits.length} (observed sources: ${
+        firstScenarioSubmits.map((event) => event.driver?.rawType ?? 'none').join(', ') || 'none'
+      }).`,
+      path: 'events',
+    })
+  }
+  const firstScenarioSubmitSource = firstScenarioSubmits[0]?.driver?.rawType
+  if (firstScenarioSubmits.length === 1 && firstScenarioSubmitSource !== 'transcript.user') {
+    failures.push({
+      code: 'claude_tmux_first_prompt_submit_source_invalid',
+      message: `the first prompt's user.message must be minted from the transcript \`user\` row (rawType 'transcript.user') now that conversation is transcript-primary; got '${firstScenarioSubmitSource ?? 'none'}'.`,
       path: 'events',
     })
   }
