@@ -46,6 +46,21 @@ export function excerpt(events: InvocationEventEnvelope[], limit = 24): unknown[
   }))
 }
 
+/**
+ * Every turn id these events name, on the payload or on the envelope. Shared so
+ * the set of turns the matrix ASKS the manifest RPC about is exactly the set it
+ * CHECKS — the two derivations diverging once made an unasked turn look like an
+ * unanswered one.
+ */
+export function collectTurnIds(events: InvocationEventEnvelope[]): Set<string> {
+  const turnIds = new Set<string>()
+  for (const event of events) {
+    const turnId = stringField(event, 'turnId') ?? event.turnId
+    if (typeof turnId === 'string') turnIds.add(turnId)
+  }
+  return turnIds
+}
+
 /** Every event in the slice whose payload names one of these submission ids. */
 export function forSubmissions(
   slice: InvocationEventEnvelope[],
@@ -200,11 +215,7 @@ export function checkTurnManifest(
   manifestErrors: ReadonlyMap<string, string> = new Map()
 ): Check {
   // Which turns THIS cell touched...
-  const touched = new Set<string>()
-  for (const event of slice) {
-    const turnId = stringField(event, 'turnId') ?? event.turnId
-    if (typeof turnId === 'string') touched.add(turnId)
-  }
+  const touched = collectTurnIds(slice)
   // ...but the expected membership is rebuilt from the WHOLE runtime. A turn a
   // steer joins was STARTED by an earlier submission, whose disposition sits
   // before this cell's watermark; rebuilding from the slice alone would expect

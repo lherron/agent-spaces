@@ -61,6 +61,7 @@ import {
   checkNoCaptureWarning,
   checkOneDispositionPerSubmission,
   checkTurnManifest,
+  collectTurnIds,
   excerpt,
   forSubmissions,
   terminalsBySubmission,
@@ -263,11 +264,11 @@ async function collectManifests(
   invocationId: InvocationId,
   slice: InvocationEventEnvelope[]
 ): Promise<{ manifests: Map<string, readonly string[]>; errors: Map<string, string> }> {
-  const turnIds = new Set<string>()
-  for (const event of slice) {
-    const turnId = (event.payload as { turnId?: unknown } | undefined)?.turnId
-    if (typeof turnId === 'string') turnIds.add(turnId)
-  }
+  // Derive turn ids EXACTLY as checkTurnManifest does — payload first, then the
+  // envelope. They diverged, so a turn carried only on the envelope was never
+  // queried, came back absent, and read as "the RPC would not answer" when in
+  // truth it was never asked.
+  const turnIds = collectTurnIds(slice)
   const manifests = new Map<string, readonly string[]>()
   const errors = new Map<string, string>()
   for (const turnId of turnIds) {
