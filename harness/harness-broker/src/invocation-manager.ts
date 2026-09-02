@@ -852,9 +852,35 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     })
   }
 
+  function rejectDriverBlockedHeldSubmissions(inv: Invocation): void {
+    let index = 0
+    while (index < inv.brokerQueue.length) {
+      const item = inv.brokerQueue[index]
+      if (item === undefined || item.record.terminal) {
+        index += 1
+        continue
+      }
+      const reason = inv.driver.admissionRejectionReason?.(item.record.class)
+      if (reason === undefined) {
+        index += 1
+        continue
+      }
+      inv.brokerQueue.splice(index, 1)
+      if (item.timer !== undefined) clearTimeout(item.timer)
+      rejectSubmission(inv, item.record, 'capability', reason)
+    }
+  }
+
+  function hasDriverBlockedHeldSubmission(inv: Invocation): boolean {
+    return inv.brokerQueue.some(
+      (item) =>
+        !item.record.terminal &&
+        inv.driver.admissionRejectionReason?.(item.record.class) !== undefined
+    )
+  }
+
   function scheduleAdmissionDrain(inv: Invocation): void {
     if (inv.admissionDrainPromise !== undefined) return
-    if (inv.pendingOwnTurnSubmissionId !== undefined) return
     inv.admissionDrainPromise = Promise.resolve()
       .then(() => drainAdmissionQueue(inv))
       .finally(() => {
@@ -864,10 +890,11 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
           head?.class === 'preempt' &&
           (inv.driver.probeAdmissionState?.().harnessLocalQueueDepth ?? 0) > 0
         if (
-          inv.state === 'ready' &&
-          inv.pendingOwnTurnSubmissionId === undefined &&
-          head !== undefined &&
-          !quiescenceBlocked
+          hasDriverBlockedHeldSubmission(inv) ||
+          (inv.state === 'ready' &&
+            inv.pendingOwnTurnSubmissionId === undefined &&
+            head !== undefined &&
+            !quiescenceBlocked)
         ) {
           scheduleAdmissionDrain(inv)
         }
@@ -875,6 +902,11 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   }
 
   async function drainAdmissionQueue(inv: Invocation): Promise<void> {
+    // Drivers can lose a capability after admission while a submission is
+    // broker-held. Re-evaluate those records before seat-state gates so an
+    // active turn cannot strand a preempt whose terminal is no longer
+    // observable. Unaffected classes remain held in their original order.
+    rejectDriverBlockedHeldSubmissions(inv)
     if (inv.state !== 'ready') return
     if (inv.pendingOwnTurnSubmissionId !== undefined) return
     const head = inv.brokerQueue[0]

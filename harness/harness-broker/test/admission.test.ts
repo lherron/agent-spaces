@@ -373,6 +373,75 @@ describe('broker admission API', () => {
     ).toBe('admitted')
   })
 
+  test('native wakeup degradation promptly rejects an admitted held preempt', async () => {
+    let nativeWakeupLost = false
+    const degraded = await setup('inv_admission_held_native_wakeup_lost', {
+      preemptMode: 'quiescence',
+      deferInterruptTerminal: true,
+      admissionRejectionReason: (admissionClass) =>
+        admissionClass === 'preempt' && nativeWakeupLost ? 'native_wakeup_lost' : undefined,
+    })
+
+    await degraded.broker.invoke({
+      invocationId: degraded.invocationId,
+      origin,
+      body: 'active tool turn',
+    })
+    await flush()
+    const queued = await degraded.broker.enqueue({
+      invocationId: degraded.invocationId,
+      origin,
+      body: 'unaffected queue item',
+    })
+    degraded.controller.startToolCall('tool-held-preempt')
+
+    const preempt = await degraded.broker.preempt({
+      invocationId: degraded.invocationId,
+      origin,
+      body: 'held until interrupt terminal',
+    })
+    await flush()
+    expect(preempt.admission).toBe('admitted')
+    expect(eventsFor(degraded.events, 'interrupt.landed')).toHaveLength(1)
+    expect(
+      (await degraded.broker.queueList({ invocationId: degraded.invocationId })).entries
+    ).toEqual([
+      expect.objectContaining({ submissionId: preempt.submissionId, class: 'preempt' }),
+      expect.objectContaining({ submissionId: queued.submissionId, class: 'queue' }),
+    ])
+
+    nativeWakeupLost = true
+    degraded.controller.notifyAdmissionStateChanged()
+    await flush()
+
+    expect(
+      (await degraded.broker.queueList({ invocationId: degraded.invocationId })).entries
+    ).toEqual([expect.objectContaining({ submissionId: queued.submissionId, class: 'queue' })])
+    expect(
+      eventsFor(degraded.events, 'admission.rejected').filter(
+        (event) => event.payload.submissionId === preempt.submissionId
+      )
+    ).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          class: 'preempt',
+          layer: 'capability',
+          reason: 'native_wakeup_lost',
+        }),
+      }),
+    ])
+    expect(
+      eventsFor(degraded.events, 'submission.rejected').filter(
+        (event) => event.payload.submissionId === preempt.submissionId
+      )
+    ).toHaveLength(1)
+    expect(
+      eventsFor(degraded.events, 'submission.rejected').filter(
+        (event) => event.payload.submissionId === queued.submissionId
+      )
+    ).toHaveLength(0)
+  })
+
   test('quiescence preempt waits for request evidence and accepts bounded drain slippage', async () => {
     const { broker, controller, events, invocationId } = await setup('inv_admission_quiescence', {
       preemptMode: 'quiescence',

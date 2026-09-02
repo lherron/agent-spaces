@@ -56,6 +56,7 @@ export interface TestDriverController {
   captureRow(nativeType: string, body: unknown, outcome: NormalizeOutcome): void
   setHarnessLocalQueueDepth(depth: number): void
   startHarnessLocalTurn(inputId: string): void
+  notifyAdmissionStateChanged(): void
 }
 
 export interface TestDriverOptions {
@@ -74,6 +75,7 @@ export interface TestDriverOptions {
   admissionRejectionReason?: ((admissionClass: SubmissionClass) => string | undefined) | undefined
   runtimeHealth?: Driver['runtimeHealth'] | undefined
   interruptRejectionReason?: string | undefined
+  deferInterruptTerminal?: boolean | undefined
 }
 
 export interface TestDriverHandle {
@@ -280,6 +282,10 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
       requireCtx().admissionStateChanged?.()
     },
 
+    notifyAdmissionStateChanged(): void {
+      requireCtx().admissionStateChanged?.()
+    },
+
     startHarnessLocalTurn(inputId: string): void {
       if (activeTurnId !== undefined) {
         throw new BrokerError(
@@ -371,6 +377,9 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
       }
       if (activeTurnId === undefined) {
         return { accepted: false, effect: 'no_active_turn' }
+      }
+      if (options.deferInterruptTerminal === true) {
+        return { accepted: true, effect: 'turn_interrupted' }
       }
       controller.interruptActiveTurn('driver interrupt')
       return { accepted: true, effect: 'turn_interrupted' }
