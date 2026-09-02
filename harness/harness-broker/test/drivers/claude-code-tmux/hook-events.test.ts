@@ -80,26 +80,24 @@ describe('claude-code-tmux hook event normalization', () => {
     })
   })
 
-  test('UserPromptSubmit emits turn.started then user.message carrying the typed prompt', async () => {
+  test("UserPromptSubmit emits turn.started ONLY; the prompt fact is the transcript's", async () => {
+    // T-07873 scope A: `conversation` is transcript-primary for this driver.
+    // The hook still opens the bracket (`turn-bracket` stays hook), but the
+    // prompt text it carries is a duplicate of the `user` row that records it.
     const events = (await createNormalizer()).normalizeHook({
       hook_event_name: 'UserPromptSubmit',
       turn_id: turnId,
       prompt: 'implement the broker hook substrate',
     })
 
-    expect(eventTypes(events)).toEqual(['turn.started', 'user.message'])
+    expect(eventTypes(events)).toEqual(['turn.started'])
     expect(events[0]).toMatchObject({
       invocationId,
       turnId,
       type: 'turn.started',
       payload: { turnId },
     })
-    expect(events[1]).toMatchObject({
-      invocationId,
-      turnId,
-      type: 'user.message',
-      payload: { content: 'implement the broker hook substrate', turnId },
-    })
+    expect(eventTypes(events)).not.toContain('user.message')
     expect(eventTypes(events)).not.toContain('assistant.message.delta')
   })
 
@@ -112,97 +110,46 @@ describe('claude-code-tmux hook event normalization', () => {
     expect(eventTypes(events)).toEqual(['turn.started'])
   })
 
-  test('PreToolUse emits tool.call.started with Claude tool fields mapped to broker fields', async () => {
-    const event = await single({
-      hook_event_name: 'PreToolUse',
-      turn_id: turnId,
-      tool_use_id: 'toolu_read_1',
-      tool_name: 'Read',
-      tool_input: { file_path: '/tmp/notes.md' },
-    })
+  test('PreToolUse / PostToolUse / MessageDisplay mint NOTHING: the transcript owns those facts', async () => {
+    // T-07873 scope A. These hooks are still registered and still load-bearing —
+    // `PreToolUse` is the synchronous permission-decision bridge and
+    // `MessageDisplay` drives the TUI — but `tool.call.started`,
+    // `tool.call.completed` and the assistant prose are minted from the
+    // `tool_use` / `tool_result` / `assistant` rows that ARE the evidence.
+    // Their records reach the `duplicate` disposition instead (see
+    // `CLAUDE_TRANSCRIPT_OWNED_HOOK_FACTS` and the driver's `mintOutcome`).
+    const normalizer = await createNormalizer()
 
-    expect(event).toMatchObject({
-      type: 'tool.call.started',
-      turnId,
-      payload: {
-        toolCallId: 'toolu_read_1',
-        name: 'Read',
-        input: { file_path: '/tmp/notes.md' },
-      },
-    })
-  })
+    expect(
+      normalizer.normalizeHook({
+        hook_event_name: 'PreToolUse',
+        turn_id: turnId,
+        tool_use_id: 'toolu_read_1',
+        tool_name: 'Read',
+        tool_input: { file_path: '/tmp/notes.md' },
+      })
+    ).toEqual([])
 
-  test('PostToolUse normal emits tool.call.completed with structured result', async () => {
-    const event = await single({
-      hook_event_name: 'PostToolUse',
-      turn_id: turnId,
-      tool_use_id: 'toolu_read_1',
-      tool_name: 'Read',
-      tool_input: { file_path: '/tmp/notes.md' },
-      tool_response: { content: [{ type: 'text', text: 'hello' }], line_count: 1 },
-    })
+    expect(
+      normalizer.normalizeHook({
+        hook_event_name: 'PostToolUse',
+        turn_id: turnId,
+        tool_use_id: 'toolu_read_1',
+        tool_name: 'Read',
+        tool_response: { stdout: 'contents', stderr: '', exit_code: 0 },
+      })
+    ).toEqual([])
 
-    expect(event).toMatchObject({
-      type: 'tool.call.completed',
-      payload: {
-        toolCallId: 'toolu_read_1',
-        name: 'Read',
-        isError: false,
-        result: {
-          content: [{ type: 'text', text: 'hello' }],
-          details: { content: [{ type: 'text', text: 'hello' }], line_count: 1 },
-        },
-      },
-    })
-  })
-
-  test('PostToolUse tool-result errors still emit tool.call.completed, not tool.call.failed', async () => {
-    const events = (await createNormalizer()).normalizeHook({
-      hook_event_name: 'PostToolUse',
-      turn_id: turnId,
-      tool_use_id: 'toolu_write_1',
-      tool_name: 'Write',
-      tool_input: { file_path: '/root/locked.txt', content: 'x' },
-      is_error: true,
-      tool_response: { stderr: 'permission denied', exit_code: 1 },
-    })
-
-    expect(eventTypes(events)).toEqual(['tool.call.completed'])
-    expect(events[0]).toMatchObject({
-      payload: {
-        toolCallId: 'toolu_write_1',
-        name: 'Write',
-        isError: true,
-        result: {
-          content: [{ type: 'text', text: 'permission denied' }],
-          details: { stderr: 'permission denied', exit_code: 1 },
-        },
-      },
-    })
-  })
-
-  test('Bash PostToolUse with a nonzero exit is command result data, not tool.call.failed', async () => {
-    const events = (await createNormalizer()).normalizeHook({
-      hook_event_name: 'PostToolUse',
-      turn_id: turnId,
-      tool_use_id: 'toolu_bash_1',
-      tool_name: 'Bash',
-      tool_input: { command: 'false' },
-      tool_response: { stdout: '', stderr: '', exit_code: 1 },
-    })
-
-    expect(eventTypes(events)).toEqual(['tool.call.completed'])
-    expect(events[0]).toMatchObject({
-      payload: {
-        toolCallId: 'toolu_bash_1',
-        name: 'Bash',
-        isError: false,
-        result: {
-          content: [{ type: 'text', text: '' }],
-          details: { stdout: '', stderr: '', exit_code: 1 },
-        },
-      },
-    })
+    expect(
+      normalizer.normalizeHook({
+        hook_event_name: 'MessageDisplay',
+        turn_id: turnId,
+        message_id: 'msg_1',
+        index: 0,
+        final: true,
+        delta: 'anything',
+      })
+    ).toEqual([])
   })
 
   test('tool.call.failed is reserved for driver or normalization failures with no PostToolUse result', async () => {
@@ -271,149 +218,6 @@ describe('claude-code-tmux hook event normalization', () => {
     })
   })
 
-  test('MessageDisplay emits a held interim assistant message before the next tool event', async () => {
-    const normalizer = await createNormalizer()
-
-    expect(
-      normalizer.normalizeHook({
-        hook_event_name: 'MessageDisplay',
-        turn_id: turnId,
-        message_id: 'msg_intro',
-        index: 0,
-        final: true,
-        delta: "I'll inspect the directory first.",
-      })
-    ).toEqual([])
-
-    const events = normalizer.normalizeHook({
-      hook_event_name: 'PreToolUse',
-      turn_id: turnId,
-      tool_use_id: 'toolu_ls_1',
-      tool_name: 'Bash',
-      tool_input: { command: 'ls' },
-    })
-
-    expect(eventTypes(events)).toEqual(['assistant.message.completed', 'tool.call.started'])
-    expect(events[0]).toMatchObject({
-      type: 'assistant.message.completed',
-      turnId,
-      itemId: 'msg_intro',
-      driver: { kind: 'claude-code-tmux', rawType: 'MessageDisplay' },
-      payload: {
-        messageId: 'msg_intro',
-        content: [{ type: 'text', text: "I'll inspect the directory first." }],
-        final: false,
-      },
-    })
-    expect(events[1]).toMatchObject({
-      type: 'tool.call.started',
-      payload: { toolCallId: 'toolu_ls_1', name: 'Bash' },
-    })
-  })
-
-  test('MessageDisplay chunks with the same message_id emit one terminal assistant message on Stop', async () => {
-    const normalizer = await createNormalizer()
-
-    expect(
-      normalizer.normalizeHook({
-        hook_event_name: 'MessageDisplay',
-        turn_id: turnId,
-        message_id: 'msg_summary',
-        index: 0,
-        final: false,
-        delta: 'Count: 33 entries.\n\n',
-      })
-    ).toEqual([])
-    expect(
-      normalizer.normalizeHook({
-        hook_event_name: 'MessageDisplay',
-        turn_id: turnId,
-        message_id: 'msg_summary',
-        index: 1,
-        final: false,
-        delta: '| # | Command |\n',
-      })
-    ).toEqual([])
-    expect(
-      normalizer.normalizeHook({
-        hook_event_name: 'MessageDisplay',
-        turn_id: turnId,
-        message_id: 'msg_summary',
-        index: 2,
-        final: true,
-        delta: '| 1 | ls |\n',
-      })
-    ).toEqual([])
-
-    const events = normalizer.normalizeHook({ hook_event_name: 'Stop', turn_id: turnId })
-
-    expect(eventTypes(events)).toEqual(['assistant.message.completed', 'turn.completed'])
-    expect(events[0]).toMatchObject({
-      type: 'assistant.message.completed',
-      turnId,
-      itemId: 'msg_summary',
-      payload: {
-        messageId: 'msg_summary',
-        content: [{ type: 'text', text: 'Count: 33 entries.\n\n| # | Command |\n| 1 | ls |\n' }],
-        final: true,
-      },
-    })
-    expect(events[1]).toMatchObject({
-      type: 'turn.completed',
-      payload: { turnId, status: 'completed' },
-    })
-  })
-
-  test('MessageDisplay envelope turn id overrides Claude raw turn_id', async () => {
-    const normalizer = await createNormalizer()
-    const normalizeHookEnvelope = await loadNormalizeHookEnvelope()
-
-    expect(
-      normalizeHookEnvelope(
-        {
-          invocationId,
-          generation: 1,
-          callbackSocket: '/tmp/claude-hooks.sock',
-          turnId,
-          hookData: {
-            hook_event_name: 'MessageDisplay',
-            turn_id: 'claude-code-turn-id',
-            message_id: 'msg_env',
-            index: 0,
-            final: true,
-            delta: 'broker turn id wins',
-          },
-        },
-        { normalizer }
-      )
-    ).toEqual([])
-
-    const events = normalizeHookEnvelope(
-      {
-        invocationId,
-        generation: 1,
-        callbackSocket: '/tmp/claude-hooks.sock',
-        turnId,
-        hookData: {
-          hook_event_name: 'Stop',
-          turn_id: 'claude-code-turn-id',
-        },
-      },
-      { normalizer }
-    )
-
-    expect(events[0]).toMatchObject({
-      type: 'assistant.message.completed',
-      turnId,
-      payload: { messageId: 'msg_env', final: true },
-    })
-    expect(events[1]).toMatchObject({
-      type: 'turn.completed',
-      turnId,
-      payload: { turnId, status: 'completed' },
-    })
-  })
-
   test('MessageDisplay without an envelope broker turn id does not use Claude raw turn_id', async () => {
     const normalizer = await createNormalizer()
     const normalizeHookEnvelope = await loadNormalizeHookEnvelope()
@@ -465,7 +269,7 @@ describe('claude-code-tmux hook event normalization', () => {
           prompt: 'coordinate the room',
         })
       )
-    ).toEqual(['turn.started', 'user.message'])
+    ).toEqual(['turn.started'])
     expect(
       normalizer.normalizeHook({
         hook_event_name: 'MessageDisplay',
@@ -501,16 +305,11 @@ describe('claude-code-tmux hook event normalization', () => {
       tool_name: 'Bash',
       tool_input: { command: 'wrkf-crank --task T-07315' },
     })
-    expect(eventTypes(nextParentTool)).toEqual(['assistant.message.completed', 'tool.call.started'])
-    expect(nextParentTool[0]).toMatchObject({
-      turnId,
-      payload: { final: false },
-    })
-    expect(nextParentTool[1]).toMatchObject({
-      turnId,
-      payload: { toolCallId: 'toolu_parent_next' },
-    })
+    expect(nextParentTool).toEqual([])
 
+    // The parent's own Stop still closes the bracket. The terminal prose comes
+    // from the transcript; `last_assistant_message` is only the named fallback
+    // for a turn the transcript reader had no prose for, which is this case.
     const parentStop = normalizer.normalizeHook({
       hook_event_name: 'Stop',
       last_assistant_message: 'Parent turn complete.',
@@ -629,17 +428,19 @@ describe('claude-code-tmux hook event normalization', () => {
   test('permission hooks emit requested and resolved only when Claude surfaces actionable fields', async () => {
     const normalizer = await createNormalizer()
 
+    // The PreToolUse that carries the permission subject mints no tool event of
+    // its own any more (T-07873) — but the permission events still correlate to
+    // the transcript-minted call, because the hook's `tool_use_id` and the
+    // `tool_use` block id are ONE id space (verified on a real session).
     expect(
-      eventTypes([
-        ...normalizer.normalizeHook({
-          hook_event_name: 'PreToolUse',
-          turn_id: turnId,
-          tool_use_id: 'toolu_bash_2',
-          tool_name: 'Bash',
-          tool_input: { command: 'pwd' },
-        }),
-      ])
-    ).toEqual(['tool.call.started'])
+      normalizer.normalizeHook({
+        hook_event_name: 'PreToolUse',
+        turn_id: turnId,
+        tool_use_id: 'toolu_bash_2',
+        tool_name: 'Bash',
+        tool_input: { command: 'pwd' },
+      })
+    ).toEqual([])
 
     expect(
       normalizer.normalizeHook({
@@ -727,19 +528,14 @@ describe('claude-code-tmux hook event normalization', () => {
     })
   })
 
-  test('Stop with both a held terminal MessageDisplay and last_assistant_message emits exactly one final (no double)', async () => {
+  test('Stop yields to the transcript terminal and never mints a second final', async () => {
+    // The driver flushes the transcript's held assistant message on Stop (so the
+    // message names the `assistant` row that said it) and reports that through
+    // `noteTranscriptTerminalMessage`. The hook's `last_assistant_message` must
+    // then stay silent — otherwise the turn carries two finals.
     const normalizer = await createNormalizer()
-    // Terminal MessageDisplay WON the race (arrived before Stop) and is held.
-    expect(
-      normalizer.normalizeHook({
-        hook_event_name: 'MessageDisplay',
-        turn_id: turnId,
-        message_id: 'msg_final',
-        index: 0,
-        final: true,
-        delta: 'Successfully inspected the directory.',
-      })
-    ).toEqual([])
+    normalizer.normalizeHook({ hook_event_name: 'UserPromptSubmit', turn_id: turnId })
+    normalizer.noteTranscriptTerminalMessage()
 
     const events = normalizer.normalizeHook({
       hook_event_name: 'Stop',
@@ -747,14 +543,30 @@ describe('claude-code-tmux hook event normalization', () => {
       last_assistant_message: 'Successfully inspected the directory.',
     })
 
-    const finals = events.filter(
-      (event) =>
-        event.type === 'assistant.message.completed' &&
-        (event.payload as { final?: boolean }).final === true
-    )
-    expect(finals).toHaveLength(1)
+    expect(eventTypes(events)).toEqual(['turn.completed'])
+  })
+
+  test('Stop mints the fallback final when the transcript held NOTHING for the turn', async () => {
+    // The named exception in AUTHORITY.md: a turn that really answered but whose
+    // prose the reader never saw would otherwise redden on HRC's
+    // `final_message_count`. It fires only in that case, never as a second
+    // opinion, and the claim is scoped to one turn.
+    const normalizer = await createNormalizer()
+    normalizer.normalizeHook({ hook_event_name: 'UserPromptSubmit', turn_id: turnId })
+
+    const events = normalizer.normalizeHook({
+      hook_event_name: 'Stop',
+      turn_id: turnId,
+      last_assistant_message: 'Successfully inspected the directory.',
+    })
+
     expect(eventTypes(events)).toEqual(['assistant.message.completed', 'turn.completed'])
-    expect(finals[0]).toMatchObject({ itemId: 'msg_final', payload: { messageId: 'msg_final' } })
+    expect(events[0]).toMatchObject({
+      payload: {
+        final: true,
+        content: [{ type: 'text', text: 'Successfully inspected the directory.' }],
+      },
+    })
   })
 
   test('a terminal MessageDisplay delivered AFTER Stop (race-lost) is dropped, not double-counted', async () => {

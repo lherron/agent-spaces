@@ -14,7 +14,12 @@ import type { EventFamily } from 'spaces-harness-broker-protocol'
  * Anything outside it is `blocked-unknown` and warns.
  */
 
-/** Session-JSONL row types that carry no broker-vocabulary fact. */
+/**
+ * Session-JSONL row types that carry no broker-vocabulary fact.
+ *
+ * `cost-state` and `system` LEFT this set under T-07873: both now mint
+ * (`usage.updated` and the pinned turn-terminal read respectively).
+ */
 export const CLAUDE_IGNORED_ROW_TYPES: ReadonlySet<string> = new Set([
   // Per-session UI/config state the TUI rewrites as it goes.
   'last-prompt',
@@ -23,7 +28,6 @@ export const CLAUDE_IGNORED_ROW_TYPES: ReadonlySet<string> = new Set([
   'mode',
   'permission-mode',
   'atis-latch',
-  'cost-state',
   'bridge-session',
   // Editor undo bookkeeping, not a tool result.
   'file-history-snapshot',
@@ -32,9 +36,49 @@ export const CLAUDE_IGNORED_ROW_TYPES: ReadonlySet<string> = new Set([
   // be titled. Exactly the gap "make one real call before trusting a fixture"
   // is about.
   'ai-title',
-  // Local reminders/instructions injected into the model's context; the broker
-  // reports what the model DID, not what the TUI told it.
-  'system',
+])
+
+/**
+ * `type:'system'` row subtypes and what each one is (T-07873, Phase 4).
+ *
+ * `system` was in {@link CLAUDE_IGNORED_ROW_TYPES} until Phase 4 measured the
+ * turn bracket, which lives in these rows. The row type is now pinned per
+ * SUBTYPE instead, because the three subtypes mean three different things:
+ *
+ * - `turn_duration` / `stop_hook_summary` — the transcript's turn terminal.
+ *   READ (they carry `durationMs`, `stopReason`, `preventedContinuation`) but
+ *   `duplicate`: `turn-bracket` stays `hook`, and AUTHORITY.md "Phase 4" holds
+ *   the measurement that decided it.
+ * - `bridge_status` — the `/remote-control is active …` notice. Cosmetic;
+ *   `ignored-known`. Found by MEASURING the corpus, not from the spec baseline:
+ *   1 per session in all three archived sessions.
+ *
+ * A subtype outside this set is `blocked-unknown` in
+ * {@link CLAUDE_UNKNOWN_ROW_FAMILY} — it WARNS and does not halt, consistent
+ * with the unknown-row-type law (a row we cannot place in a family cannot be
+ * asserted to be load-bearing).
+ */
+export const CLAUDE_KNOWN_SYSTEM_SUBTYPES: ReadonlySet<string> = new Set([
+  'turn_duration',
+  'stop_hook_summary',
+  'bridge_status',
+])
+
+/**
+ * Hook records whose FACT the session JSONL now owns (T-07873 scope A).
+ *
+ * These hooks still fire and are still committed — `PreToolUse`/`PostToolUse`
+ * remain synchronous CONTROLS (the permission decision bridge), and
+ * `MessageDisplay` is what makes the TUI's streaming visible — but the events
+ * they used to mint are now minted from the transcript rows that are the real
+ * evidence. Their records therefore reach the `duplicate` disposition (§6.1)
+ * rather than `state-only`: they are real evidence of a fact another record
+ * already carried, which is exactly what `duplicate` means.
+ */
+export const CLAUDE_TRANSCRIPT_OWNED_HOOK_FACTS: ReadonlyMap<string, string> = new Map([
+  ['PreToolUse', 'tool.call.started owned by the assistant row tool_use block'],
+  ['PostToolUse', 'tool.call.completed owned by the user row tool_result block'],
+  ['MessageDisplay', 'assistant prose owned by the assistant row'],
 ])
 
 /**

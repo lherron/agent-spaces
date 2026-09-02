@@ -1216,18 +1216,16 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       hookData: { hook_event_name: 'Stop' },
     })
 
+    // Since T-07873 the tool call and the prompt text come from the session
+    // JSONL, not from the hooks. This harness feeds hooks only (no transcript
+    // file), so what remains is exactly the hook-owned bracket plus the
+    // idle-path submission disposition.
     expect(events.map((event) => event.type)).toEqual(
-      expect.arrayContaining(['turn.started', 'tool.call.started', 'turn.completed'])
+      expect.arrayContaining(['turn.started', 'turn.completed'])
     )
     expect(
       events.filter((event) => event.turnId === 'turn_driver_envelope_1').map((event) => event.type)
-    ).toEqual([
-      'turn.started',
-      'user.message',
-      'submission.executed',
-      'tool.call.started',
-      'turn.completed',
-    ])
+    ).toEqual(['turn.started', 'submission.executed', 'turn.completed'])
   })
 
   test('durable hook envelopes reject mismatched generation but accept matching identity', async () => {
@@ -1278,7 +1276,6 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     })
     expect(events.slice(baseline).map((event) => event.type)).toEqual([
       'turn.started',
-      'user.message',
       'submission.executed',
     ])
   })

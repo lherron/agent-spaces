@@ -23,7 +23,27 @@ type SubmissionActionBase = {
 
 export type ClaudeAttributionAction =
   | (SubmissionActionBase & { kind: 'absorbed'; turnId: TurnId })
-  | (SubmissionActionBase & { kind: 'executed'; turnId: TurnId })
+  | (SubmissionActionBase & {
+      kind: 'executed'
+      turnId: TurnId
+      /**
+       * Whether this action is also the CONVERSATION fact for the prompt.
+       *
+       * `conversation` is transcript-primary (T-07873 scope A), so an execute
+       * decided by the `UserPromptSubmit` HOOK deliberately does not mint
+       * `user.message`: it arms the echo instead, and the prompt's own `user`
+       * row mints it as a `prompt-echo`. An execute decided by a transcript row
+       * IS the record, so it mints directly.
+       */
+      mintsConversation: boolean
+    })
+  /**
+   * The plain `user` row that echoes a prompt already disposed by the
+   * `UserPromptSubmit` hook. It carries no submission disposition — that was
+   * minted on the hook record (the documented idle-path exception) — but it IS
+   * the transcript record for the prompt text.
+   */
+  | { kind: 'prompt-echo'; content: string; turnId: TurnId }
   | (SubmissionActionBase & {
       kind: 'cancelled'
       reason: 'recalled' | 'teardown'
@@ -76,6 +96,8 @@ export function createClaudeTurnAttribution(options: {
   const expectedInterrupts: Array<{ id: number; turnId: TurnId | undefined }> = []
   const settledInterruptTargets: TurnId[] = []
   let recentDisposedPrompt: string | undefined
+  /** Whether {@link recentDisposedPrompt} was disposed on a HOOK record. */
+  let recentDisposedPromptFromHook = false
 
   const nextHumanSubmissionId = (): string => {
     submissionCounter += 1
@@ -134,13 +156,22 @@ export function createClaudeTurnAttribution(options: {
 
   const execute = (
     item: PendingSubmission,
-    rememberPromptHook: boolean
+    rememberPromptHook: boolean,
+    source: 'hook' | 'transcript'
   ): ClaudeAttributionAction => {
     const turnId = item.allocatedTurnId ?? (options.allocateTurnId() as TurnId)
     drop(item)
     activeTurnId = turnId
     recentDisposedPrompt = rememberPromptHook ? item.content : undefined
-    return { kind: 'executed', ...base(item), turnId }
+    recentDisposedPromptFromHook = rememberPromptHook && source === 'hook'
+    return {
+      kind: 'executed',
+      ...base(item),
+      turnId,
+      // Defer the conversation fact to the echo row ONLY when an echo was
+      // armed; otherwise this action is the only carrier there will be.
+      mintsConversation: source === 'transcript' || !rememberPromptHook,
+    }
   }
 
   const warning = (message: string, raw: unknown): ClaudeAttributionAction => ({
@@ -280,10 +311,20 @@ export function createClaudeTurnAttribution(options: {
     observePlainUser(content, raw): ClaudeAttributionAction[] {
       const actions = settleOutstandingRemovals(raw)
       if (content === recentDisposedPrompt) {
+        const disposedOnHookRecord = recentDisposedPromptFromHook
         recentDisposedPrompt = undefined
+        recentDisposedPromptFromHook = false
+        // The submission disposition was already minted (on the hook record for
+        // the idle path, on the `queued_command` attachment for the absorbed
+        // one). Only the idle path still owes a `user.message`, and THIS row is
+        // its record.
+        if (disposedOnHookRecord && activeTurnId !== undefined) {
+          actions.push({ kind: 'prompt-echo', content, turnId: activeTurnId })
+        }
         return actions
       }
       recentDisposedPrompt = undefined
+      recentDisposedPromptFromHook = false
       const drained = pending.find((item) => item.drainPending)
       if (drained !== undefined) {
         if (drained.content !== content) {
@@ -303,7 +344,7 @@ export function createClaudeTurnAttribution(options: {
           // opening its own truthful turn.
           if (activeTurnId !== undefined) return actions
         } else {
-          actions.push(execute(drained, true))
+          actions.push(execute(drained, true, 'transcript'))
           return actions
         }
       }
@@ -316,7 +357,7 @@ export function createClaudeTurnAttribution(options: {
       const candidate = pending.find(
         (item) => item.content === content && !item.removePending && !item.drainPending
       )
-      actions.push(execute(candidate ?? createPending(content), true))
+      actions.push(execute(candidate ?? createPending(content), true, 'transcript'))
       return actions
     },
 
@@ -345,9 +386,11 @@ export function createClaudeTurnAttribution(options: {
     observePromptHook(content, hintedTurnId): ClaudeAttributionAction[] {
       if (content !== undefined && content === recentDisposedPrompt) {
         recentDisposedPrompt = undefined
+        recentDisposedPromptFromHook = false
         return []
       }
       recentDisposedPrompt = undefined
+      recentDisposedPromptFromHook = false
 
       const candidate =
         content === undefined
@@ -371,7 +414,7 @@ export function createClaudeTurnAttribution(options: {
         const unambiguous = pending.length === 1 ? pending[0] : undefined
         if (unambiguous !== undefined) {
           unambiguous.sawPromptHook = true
-          return [execute(unambiguous, false)]
+          return [execute(unambiguous, false, 'hook')]
         }
         const turnId = hintedTurnId ?? (options.allocateTurnId() as TurnId)
         activeTurnId = turnId
@@ -380,7 +423,7 @@ export function createClaudeTurnAttribution(options: {
       const item =
         candidate ?? createPending(content, { allocatedTurnId: hintedTurnId, sawPromptHook: true })
       item.sawPromptHook = true
-      return [execute(item, true)]
+      return [execute(item, true, 'hook')]
     },
 
     settleOutstandingRemovals(raw): ClaudeAttributionAction[] {

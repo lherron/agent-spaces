@@ -65,10 +65,8 @@ describe('claude-code-tmux operator turn correlation RED', () => {
 
     expect(eventShapes(events)).toEqual([
       { invocationId, type: 'turn.started', turnId: 'turn_inv_1' },
-      { invocationId, type: 'user.message', turnId: 'turn_inv_1' },
       { invocationId, type: 'turn.completed', turnId: 'turn_inv_1' },
       { invocationId, type: 'turn.started', turnId: 'turn_inv_2' },
-      { invocationId, type: 'user.message', turnId: 'turn_inv_2' },
       { invocationId, type: 'turn.completed', turnId: 'turn_inv_2' },
     ])
   })
@@ -82,9 +80,10 @@ describe('claude-code-tmux operator turn correlation RED', () => {
       prompt: 'operator typed first',
     })
 
+    // `user.message` is not here since T-07873: this suite is about TURN-ID
+    // correlation, and `conversation` moved to the transcript row.
     expect(eventShapes(events)).toEqual([
       { invocationId, type: 'turn.started', turnId: 'turn_inv_1' },
-      { invocationId, type: 'user.message', turnId: 'turn_inv_1' },
     ])
   })
 
@@ -105,7 +104,6 @@ describe('claude-code-tmux operator turn correlation RED', () => {
 
     expect(eventShapes(events)).toEqual([
       { invocationId, type: 'turn.started', turnId: applyInputTurnId },
-      { invocationId, type: 'user.message', turnId: applyInputTurnId },
       { invocationId, type: 'turn.completed', turnId: applyInputTurnId },
     ])
   })

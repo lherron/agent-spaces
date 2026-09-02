@@ -187,13 +187,38 @@ describe('claude-code-tmux disposition mirror', () => {
     ])
   })
 
-  test('plain user transcript row dedupes turn already opened by prompt hook evidence', () => {
+  test('plain user transcript row dedupes the turn but claims the conversation fact', () => {
+    // T-07873: the hook-decided execute does NOT mint `user.message` (it sets
+    // `mintsConversation:false` and arms the echo); the prompt's own transcript
+    // row is what mints it, as a `prompt-echo`. The SUBMISSION disposition
+    // stays on the hook record — that is the documented idle-path exception —
+    // so the echo carries no submissionId.
     const tracker = createTracker()
 
     expect(tracker.observePromptHook('typed prompt')).toEqual([
-      expect.objectContaining({ kind: 'executed', content: 'typed prompt' }),
+      expect.objectContaining({
+        kind: 'executed',
+        content: 'typed prompt',
+        mintsConversation: false,
+      }),
     ])
-    expect(tracker.observePlainUser('typed prompt', { type: 'user' })).toEqual([])
+    expect(tracker.observePlainUser('typed prompt', { type: 'user' })).toEqual([
+      { kind: 'prompt-echo', content: 'typed prompt', turnId: 'turn_inv_attr_1' },
+    ])
+  })
+
+  test('an echo whose prompt was disposed by the TRANSCRIPT mints nothing twice', () => {
+    // The absorbed path already minted `user.message` from the
+    // `queued_command` attachment, so its echo must stay silent — the guard
+    // against double conversation facts.
+    const tracker = createTracker()
+    tracker.observeTurnStarted('turn_active' as TurnId)
+    tracker.observeQueueOperation(queueOp('enqueue', 'ECHO'))
+    tracker.observeQueueOperation(queueOp('remove', 'ECHO'))
+    expect(tracker.observeQueuedCommand('ECHO', { type: 'queued_command' })).toEqual([
+      expect.objectContaining({ kind: 'absorbed', content: 'ECHO' }),
+    ])
+    expect(tracker.observePlainUser('ECHO', { type: 'user' })).toEqual([])
   })
 
   test('archived round-B ordering interrupts the original before promoting the drain', () => {
@@ -404,6 +429,10 @@ describe('T-07849 archived transcript replays', () => {
     replayRows(tracker, sequence, actions)
 
     expect(actions).toEqual([
+      // The replayed slice opens with the base prompt's own `user` row. Since
+      // T-07873 that row is the CONVERSATION record for a prompt the hook
+      // disposed, so it reports `prompt-echo` instead of nothing.
+      expect.objectContaining({ kind: 'prompt-echo', turnId: 'turn_pin3_human' }),
       expect.objectContaining({
         kind: 'absorbed',
         content: 'ROUND3_DRAIN_ONE: reply exactly DRAIN_ONE',
@@ -455,6 +484,7 @@ describe('T-07849 archived transcript replays', () => {
           ...('turnId' in action ? { turnId: action.turnId } : {}),
         }))
       ).toEqual([
+        { kind: 'prompt-echo', turnId: 'turn_pin3_broker' },
         { kind: 'absorbed', submissionId: 'input_pin3_1', turnId: 'turn_pin3_broker' },
         { kind: 'absorbed', submissionId: 'input_pin3_2', turnId: 'turn_pin3_broker' },
         { kind: 'absorbed', submissionId: 'input_pin3_3', turnId: 'turn_pin3_broker' },

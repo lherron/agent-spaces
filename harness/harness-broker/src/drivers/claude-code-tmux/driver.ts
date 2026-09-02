@@ -48,7 +48,7 @@ import {
   type ClaudeHookTranscriptReader,
   createClaudeHookTranscriptReader,
 } from './hook-transcript'
-import { CLAUDE_KNOWN_HOOK_NAMES } from './native-types'
+import { CLAUDE_KNOWN_HOOK_NAMES, CLAUDE_TRANSCRIPT_OWNED_HOOK_FACTS } from './native-types'
 import {
   type ClaudeAttributionAction,
   type ClaudeTranscriptQueueOperation,
@@ -101,7 +101,10 @@ const CLAUDE_CODE_TMUX_CAPABILITIES: InvocationCapabilities = {
   events: {
     assistantDeltas: false,
     toolCalls: true,
-    usage: false,
+    // T-07873: `usage.updated` is minted from every assistant row's
+    // `message.usage` and from `cost-state` rows. Declared `native` since
+    // Phase 0 and emitting nothing until now.
+    usage: true,
     diagnostics: true,
   },
   control: {
@@ -288,9 +291,12 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
 
   /** Disposition for a record whose normalization minted (or did not mint). */
   function mintOutcome(detail: string): NormalizeOutcome {
-    return mintedForRecord > 0
-      ? { disposition: 'normalized', detail }
-      : { disposition: 'state-only', detail }
+    if (mintedForRecord > 0) return { disposition: 'normalized', detail }
+    // A hook whose FACT the transcript now owns is not "state only" — it is
+    // real evidence of a fact another record already carried (T-07873 scope A).
+    const duplicated = CLAUDE_TRANSCRIPT_OWNED_HOOK_FACTS.get(detail)
+    if (duplicated !== undefined) return { disposition: 'duplicate', detail: duplicated }
+    return { disposition: 'state-only', detail }
   }
 
   function requireCtx(): DriverContext {
@@ -492,6 +498,20 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         for (const action of actions) {
           const inputExtra =
             'inputId' in action && action.inputId !== undefined ? { inputId: action.inputId } : {}
+          if (action.kind === 'prompt-echo') {
+            // `conversation` is transcript-primary: the prompt text is minted
+            // from the `user` row, not from the hook that disposed it.
+            emitCaptured(
+              driverCtx,
+              'user.message',
+              { content: action.content, turnId: action.turnId },
+              {
+                turnId: action.turnId,
+                driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType },
+              }
+            )
+            continue
+          }
           if (action.kind === 'executed') {
             normalizer.activateTurn(action.turnId)
             emitCaptured(
@@ -508,20 +528,22 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
                 driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType },
               }
             )
-            emitCaptured(
-              driverCtx,
-              'user.message',
-              {
-                content: action.content,
-                turnId: action.turnId,
-                ...(action.inputId !== undefined ? { inputId: action.inputId } : {}),
-              },
-              {
-                turnId: action.turnId,
-                ...inputExtra,
-                driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType },
-              }
-            )
+            if (action.mintsConversation) {
+              emitCaptured(
+                driverCtx,
+                'user.message',
+                {
+                  content: action.content,
+                  turnId: action.turnId,
+                  ...(action.inputId !== undefined ? { inputId: action.inputId } : {}),
+                },
+                {
+                  turnId: action.turnId,
+                  ...inputExtra,
+                  driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType },
+                }
+              )
+            }
             emitCaptured(
               driverCtx,
               'submission.executed',
@@ -634,7 +656,12 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
           const turnId = turnAttribution.activeTurnId
           if (turnId === undefined || startedAssistantMessages.has(messageId)) return
           startedAssistantMessages.add(messageId)
-          driverCtx.emit(
+          // MUST go through `emitCaptured`: the plain `driverCtx.emit` skips the
+          // provenance stamp, and this event was reporting `sourceKind:'hook'`
+          // for a fact read out of the session JSONL — the exact falsehood §7.2
+          // exists to prevent (observed on a live seat, 25/25 events).
+          emitCaptured(
+            driverCtx,
             'assistant.message.started',
             { messageId: messageId as MessageId },
             {
@@ -702,6 +729,16 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         // normalizes each appended line before the hook's own normalization
         // continues, which is the true arrival order.
         reader.handleHook(rawHook, envelope.turnId ?? turnAttribution.activeTurnId)
+        if (rawType === 'Stop' || rawType === 'SessionEnd') {
+          // Claude writes a turn's closing `system` rows only AFTER the Stop
+          // hooks return, so nothing in the transcript will end the held
+          // message at the moment the terminal is needed. The hook is the
+          // synchronous CONTROL that says the turn is over; the flushed event
+          // still names the `assistant` row that carried the prose.
+          if (reader.flushTerminalAssistantMessage()) {
+            normalizer.noteTranscriptTerminalMessage()
+          }
+        }
 
         const finish = (decision: HookEnvelopeResult = undefined) => {
           if (unclassified.length > 0) {

@@ -71,9 +71,9 @@ family cannot be asserted to be load-bearing.
 | `submission-disposition` | **native** | broker † | broker † | broker † | broker † | broker † |
 | `turn-bracket` | hook | hook | native | hook ‡ | native | **broker** ‡ |
 | `turn-supervision` | broker | broker | broker | broker | broker | broker |
-| `conversation` | hook | **native** | native | hook | native | native |
-| `tool` | hook | hook | native | hook | native | native |
-| `usage` | native † | native † | native | hook † | native | native |
+| `conversation` | **native** | **native** | native | hook | native | native |
+| `tool` | **native** | hook | native | hook | native | native |
+| `usage` | native | native † | native | hook † | native | native |
 | `permission` | hook | hook | native | hook | native | native |
 | `diagnostic` | hook | broker | native | broker | broker | broker |
 | `terminal-surface` | broker | broker | broker | broker | broker | broker |
@@ -127,10 +127,12 @@ should show as `both`.
 
 | Family (declared) | Exception | Source of the exception |
 | --- | --- | --- |
-| `conversation` (hook) | `user.message` for a submission that entered context via the disposition mirror | session JSONL: the `remove` + `queued_command` attachment pair, or the plain `user` row |
+| `conversation` (native) | the turn's TERMINAL `assistant.message.completed` is flushed on the `Stop` hook | the hook is the synchronous CONTROL that says the turn is over; the event still names the `assistant` row that carried the prose. Claude writes a turn's closing `system` rows only AFTER the Stop hooks return, so no transcript row can end the message in time |
+| `conversation` (native) | `assistant.message.completed` from `Stop.last_assistant_message` when the transcript held NOTHING at `Stop` | a turn that answered but whose prose the reader never saw would otherwise redden on HRC's `final_message_count`. Fires only when the transcript is empty for the turn — never as a second opinion |
+| `tool` (native) | `tool.call.delta` | the `Notification` hook. The session JSONL has no in-progress tool vocabulary at all |
 | `turn-bracket` (hook) | `turn.started` for a drained submission; `turn.interrupted` from the `[Request interrupted by user]` row | session JSONL (T-07849 rev 10 items 3 and 5) |
 | `diagnostic` (hook) | the API-failure `diagnostic` | session JSONL `assistant` row with `isApiErrorMessage:true` — it never arrives via a hook (T-05092) |
-| `submission-disposition` (native) | `submission.executed` for an IDLE-path prompt | the `UserPromptSubmit` hook — an idle prompt skips the composer queue entirely, so no queue-operation evidence exists for it (T-07849 item 7) |
+| `submission-disposition` (native) | `submission.executed` for an IDLE-path prompt | the `UserPromptSubmit` hook — an idle prompt skips the composer queue entirely, so no queue-operation evidence exists for it (T-07849 item 7). Note the SPLIT after Phase 4: the disposition stays on the hook record, but the prompt's `user.message` is minted from the echoing `user` row, so `conversation` has no hook exception |
 
 Claude session-JSONL rows arrive through either the read immediately preceding
 a hook normalization or a native file-change notification (T-07849 rev 12).
@@ -140,9 +142,11 @@ double-read a row. The file watcher arms lazily on the first hook after Claude
 creates its SessionStart-named transcript; watcher loss gets one immediate
 re-arm, then degrades the invocation loudly as `native_wakeup_lost` and refuses
 preempt/interrupt rather than silently losing the no-successor terminal
-(T-07849 rev 13). Hooks remain primary for the families the hook normalizer
-produces; the transcript-primary target posture (§6) is still a Phase 4 cutover
-rather than a relabelling.
+(T-07849 rev 13). Since Phase 4 (T-07873) this driver IS the transcript-primary
+posture §6 describes: `conversation`, `tool` and `usage` are minted from the
+session JSONL, and `PreToolUse`/`PostToolUse`/`MessageDisplay` remain live
+synchronous controls whose records reach the `duplicate` disposition
+(`CLAUDE_TRANSCRIPT_OWNED_HOOK_FACTS`) rather than minting a second copy.
 
 ### codex-cli-tmux
 
@@ -216,7 +220,11 @@ The tables that decide `ignored-known` vs `blocked-unknown` are
 
 - `src/drivers/claude-code-tmux/native-types.ts` — enumerated from the three
   archived live sessions on wrkq `T-07849`: 14 session-JSONL row types, 9
-  attachment subtypes, 4 queue operations. The later observed
+  attachment subtypes, 4 queue operations, and — added by Phase 4 — 3 `system`
+  row SUBTYPES (`turn_duration`, `stop_hook_summary`, `bridge_status`). `system`
+  and `cost-state` left the ignored set when they started minting; an unknown
+  `system` subtype warns rather than halting, like any unknown row type. The
+  later observed
   `attachment:hook_cancelled` is `ignored-known`; its raw detail preserves
   `{hookName, hookEvent, durationMs, timedOut}` and it mints no broker event.
   `test/capture/claude-native-type-
@@ -351,6 +359,77 @@ the next attempt, not as a note.
 
 Useful side finding for whoever does it: rollout `turn_context.payload.turn_id`
 is the SAME id the hooks carry, so the rollout is already turn-correlatable.
+
+## Phase 4: what the Claude transcript can and cannot own
+
+Doc §6 names `claude-code-tmux` "transcript-primary with an explicit hook
+exception matrix", and Phase 4 (wrkq T-07873) is that cutover. The prerequisite
+Phase 3 named for codex — a NATIVE wakeup, so a transcript fact does not have to
+wait for a hook to trigger its read — this driver already has (T-07849 rev 12).
+So unlike Phase 3, this phase promotes.
+
+Corpus: the three archived T-07849 sessions (835 rows, 36 turns) plus a live
+`claude-code-tmux` seat measured against its own raw ingress journal.
+
+| Family | Decision | The deciding number |
+| --- | --- | --- |
+| `usage` | **promoted to native** | `message.usage` is on **155 of 155** `assistant` rows, all 155 with cache-creation/cache-read fields, plus `cost-state` roll-ups. The declaration said `native` from Phase 0 and the driver emitted NOTHING; this fulfils it. |
+| `conversation` | **promoted to native** | The hook path delivered **1** `assistant.message.completed` for **25** assistant messages on a live seat, because `MessageDisplay` is one racing hook per message and `Stop` mints only the last. The rows are complete by construction. |
+| `tool` | **promoted to native** | `tool_use`/`tool_result` pair **82/82** across the archive (49/49, 30/30, 3/3) and **17/17** live, 0 unpaired, 0 orphan — and the hook's `tool_use_id` IS the `tool_use` block id (**16/16** hook ids present in the JSONL on the first real session, 0 absent), so `permission` stays hook and still correlates onto a transcript-minted call. |
+| `turn-bracket` | **stays hook** | The transcript terminal is present for **33 of 36** turns (91.7%), **0 of 2** interrupted turns, and **2 of 3** no-successor final turns. Both promotion gates fail. |
+| `permission` | stays hook | The session JSONL has **no permission vocabulary at all** — only the `permission-mode` UI latch row, which is the mode, not a request. The `PermissionRequest`/`PermissionResolved` hooks are the only evidence there is. |
+| `harness-lifecycle` | stays hook | `SessionStart`/`SessionEnd` hooks; the transcript has no process-exit row. Promoting would leave `harness.exited` with no evidence. |
+| `continuation` | stays hook | `sessionId` is on nearly every row and would serve `continuation.updated` — but `continuation.cleared` has NO transcript row; it is minted from the user-initiated `SessionEnd` reason. The family cannot move on half its vocabulary. |
+| `diagnostic` | stays hook | `PreCompact`, `SubagentStart`/`Stop` and `Notification` are hook-only. The API-failure diagnostic remains the one transcript exception (T-05092). |
+| structured output | can never be native | There is **no structured-output row in the session JSONL at all**. The enforcement is broker-synthesized on the `Stop` decision bridge: the driver validates `last_assistant_message` against the schema and, on the third failed attempt, mints `turn.failed` itself. Nothing the provider writes could carry that fact, so this is not a deferred promotion — it is a permanent broker responsibility. |
+
+### Why `turn-bracket` stays: three independent reasons, one measurement
+
+The rows EXIST — `system:turn_duration` (33) and `system:stop_hook_summary`
+(33, carrying `stopReason` and `preventedContinuation`) — and Phase 4 now READS
+and pins them. They are still not the primary:
+
+1. **An interrupted turn mints no transcript terminal at all.** The abort lands
+   as `isAbortedMidStream:true` on the `assistant` row with `stop_reason:null`,
+   followed by a `user` row carrying `interruptedMessageId` and the
+   `[Request interrupted by user]` text. No `turn_duration`, no
+   `stop_hook_summary` — `Stop` never fires. **0 of 2** in the corpus.
+2. **The no-successor final turn may have no terminal yet.** One of the three
+   archived sessions ends on a submitted prompt whose terminal never arrived.
+   **2 of 3.** That is the exact case §13's gate (c) asks about.
+3. **The transcript terminal is written AFTER the hook terminal, by
+   construction.** `stop_hook_summary` RECORDS the Stop hooks' own `durationMs`,
+   so the row cannot exist until they have returned. Measured over the 33
+   terminals: the broker's own Stop hook takes **min 57 / p50 68 / max 1085 ms**,
+   and the last `assistant` row precedes the terminal row by **min 71 / p50 110
+   / max 1171 ms** — before the tailer's own drain latency. A native terminal
+   here is never earlier and usually later.
+
+Two further facts from the same measurement, recorded because they would
+otherwise look like coverage: `stopReason` is non-empty in **0 of 33** rows and
+`preventedContinuation` is true in **0 of 33**, so the Stop-bridge controls
+(structured-output cap → `turn.failed`, `preventedContinuation`) are not
+exercised by the archive at all. The gate in §13 asks whether those controls can
+be expressed over a NATIVE terminal without minting a second terminal; with the
+terminal itself missing for the interrupt path, the question does not arise.
+
+`isAbortedMidStream` and `interruptedMessageId` are read regardless: the
+interrupt terminal's raw record now carries the id of the message it cut off,
+and the partial prose is flushed as a NON-final `assistant.message.completed`
+rather than being dropped.
+
+### The one thing a transcript-primary tool family costs
+
+The transcript row is authored BEFORE the tool runs — the `tool_use` row's own
+timestamp precedes the `PreToolUse` hook's arrival at the broker by ~55 ms — but
+Claude flushes the JSONL in batches, so the broker OBSERVES the row later than
+the hook: **p50 161 ms** later for the start and **p50 79 ms** for the
+completion on a live seat, with a long tail (max ~9 s) when a batch is lumpy.
+Promoting `tool` therefore buys completeness and a truthful record and costs
+observation latency. It is named here rather than left for someone to discover:
+a consumer that needs a tool-start the instant the tool starts should read the
+`PreToolUse` hook record, which is still committed, still a duplicate, and still
+the synchronous permission-decision bridge.
 
 ## Operating a halt
 

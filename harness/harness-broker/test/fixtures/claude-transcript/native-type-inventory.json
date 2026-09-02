@@ -371,7 +371,7 @@
       "timestamp": "<redacted>",
       "type": "queue-operation"
     },
-    "system": {
+    "system:bridge_status": {
       "content": "<redacted>",
       "cwd": "<redacted>",
       "entrypoint": "<redacted>",
@@ -384,6 +384,54 @@
       "timestamp": "<redacted>",
       "type": "system",
       "url": "<redacted>",
+      "userType": "<redacted>",
+      "uuid": "<redacted>",
+      "version": "<redacted>"
+    },
+    "system:stop_hook_summary": {
+      "cwd": "<redacted>",
+      "entrypoint": "<redacted>",
+      "gitBranch": "<redacted>",
+      "hasOutput": false,
+      "hookAdditionalContext": [],
+      "hookCount": 2,
+      "hookErrors": [],
+      "hookInfos": [
+        {
+          "command": "<redacted>",
+          "durationMs": 1079
+        },
+        {
+          "command": "<redacted>",
+          "durationMs": 24
+        }
+      ],
+      "isSidechain": false,
+      "level": "suggestion",
+      "parentUuid": "<redacted>",
+      "preventedContinuation": false,
+      "sessionId": "<redacted>",
+      "stopReason": "",
+      "subtype": "stop_hook_summary",
+      "timestamp": "<redacted>",
+      "toolUseID": "<redacted>",
+      "type": "system",
+      "uuid": "<redacted>",
+      "version": "<redacted>"
+    },
+    "system:turn_duration": {
+      "cwd": "<redacted>",
+      "durationMs": 2892,
+      "entrypoint": "<redacted>",
+      "gitBranch": "<redacted>",
+      "isMeta": false,
+      "isSidechain": false,
+      "messageCount": 11,
+      "parentUuid": "<redacted>",
+      "sessionId": "<redacted>",
+      "subtype": "turn_duration",
+      "timestamp": "<redacted>",
+      "type": "system",
       "userType": "<redacted>",
       "uuid": "<redacted>",
       "version": "<redacted>"
@@ -457,7 +505,9 @@
     "attachment:auto_mode",
     "attachment:total_tokens_reminder",
     "bridge-session",
-    "system",
+    "system:bridge_status",
+    "system:turn_duration",
+    "system:stop_hook_summary",
     "assistant",
     "user:tool_result",
     "queue-operation:enqueue",

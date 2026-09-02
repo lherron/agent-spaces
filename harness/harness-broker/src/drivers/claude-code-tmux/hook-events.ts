@@ -9,7 +9,7 @@ import type {
   TurnId,
 } from 'spaces-harness-broker-protocol'
 import { createInvocationEventSequencer } from '../../events'
-import { asRecord as asHookRecord, getNumber, getString, unwrapHookPayload } from '../hook-json'
+import { asRecord as asHookRecord, getString, unwrapHookPayload } from '../hook-json'
 import type { MailStopDecision } from '../mail-stop-gate'
 import { USER_INITIATED_END_REASONS } from '../tmux-shared'
 
@@ -18,6 +18,13 @@ export const CLAUDE_CODE_TMUX_DRIVER_KIND = 'claude-code-tmux'
 export type ClaudeCodeHookEventNormalizer = {
   normalizeHook: (hook: Record<string, unknown>) => InvocationEventEnvelope[]
   activateTurn: (turnId: string) => void
+  /**
+   * Record that the transcript reader already emitted this turn's terminal
+   * assistant message. The driver calls this from the `Stop` flush, so the
+   * hook's `last_assistant_message` fallback stays dormant whenever the
+   * transcript — the actual evidence — had the prose.
+   */
+  noteTranscriptTerminalMessage: () => void
   normalizeInterrupted: (turnId: string) => InvocationEventEnvelope[]
   normalizeToolCallFailure: (failure: {
     turnId: string
@@ -116,13 +123,11 @@ export function createClaudeCodeHookEventNormalizer(
   const sequencer = createInvocationEventSequencer({ now: options.now })
   const completedTurns = new Set<string>()
   let activeTurnId: string | undefined
-  const messageDisplays = new Map<
-    string,
-    { messageId: string; turnId?: TurnId | undefined; chunks: Map<number, string> }
-  >()
-  let heldAssistantMessage:
-    | { messageId: string; turnId?: TurnId | undefined; content: string }
-    | undefined
+  /**
+   * Set by {@link ClaudeCodeHookEventNormalizer.noteTranscriptTerminalMessage}
+   * and consumed by the next `Stop`/`SessionEnd`.
+   */
+  let transcriptTerminalMessagePending = false
   // Fallback allocator when the shared one is not wired (one-shot envelope path
   // always carries a turn id, so it never actually mints). Mirrors the driver's
   // `turn_${invocationId}_${n}` namespace so any minted id stays consistent.
@@ -142,74 +147,13 @@ export function createClaudeCodeHookEventNormalizer(
     })
   }
 
-  const flushHeldAssistantMessage = (
-    final: boolean,
-    fallbackTurnId?: TurnId | undefined
-  ): InvocationEventEnvelope[] => {
-    if (heldAssistantMessage === undefined) return []
-    const message = heldAssistantMessage
-    heldAssistantMessage = undefined
-    return [
-      emit('MessageDisplay', {
-        type: 'assistant.message.completed',
-        payload: {
-          messageId: message.messageId as MessageId,
-          content: [{ type: 'text', text: message.content }],
-          final,
-        },
-        turnId: message.turnId ?? fallbackTurnId,
-        itemId: message.messageId,
-      }),
-    ]
-  }
-
-  const normalizeMessageDisplay = (
-    unwrapped: Record<string, unknown>,
-    turnId?: TurnId | undefined
-  ): InvocationEventEnvelope[] => {
-    const messageId = getString(unwrapped, 'message_id')
-    const delta = getString(unwrapped, 'delta')
-    const index = getNumber(unwrapped, 'index')
-    if (turnId === undefined) return []
-    if (messageId === undefined || delta === undefined || index === undefined) return []
-
-    const events: InvocationEventEnvelope[] = []
-    if (heldAssistantMessage !== undefined && heldAssistantMessage.messageId !== messageId) {
-      events.push(...flushHeldAssistantMessage(false, turnId))
-    }
-
-    const display = messageDisplays.get(messageId) ?? {
-      messageId,
-      turnId,
-      chunks: new Map<number, string>(),
-    }
-    if (display.turnId === undefined) {
-      display.turnId = turnId
-    }
-    display.chunks.set(index, delta)
-    messageDisplays.set(messageId, display)
-
-    if (unwrapped['final'] === true) {
-      const content = [...display.chunks.entries()]
-        .sort(([left], [right]) => left - right)
-        .map(([, text]) => text)
-        .join('')
-      messageDisplays.delete(messageId)
-      if (content.length > 0) {
-        heldAssistantMessage = {
-          messageId,
-          turnId: display.turnId,
-          content,
-        }
-      }
-    }
-
-    return events
-  }
-
   return {
     activateTurn(turnId: string): void {
       if (!completedTurns.has(turnId)) activeTurnId = turnId
+    },
+
+    noteTranscriptTerminalMessage(): void {
+      transcriptTerminalMessagePending = true
     },
 
     normalizeInterrupted(turnIdText: string): InvocationEventEnvelope[] {
@@ -217,8 +161,7 @@ export function createClaudeCodeHookEventNormalizer(
       const turnId = asTurnId(turnIdText)
       completedTurns.add(turnIdText)
       if (activeTurnId === turnIdText) activeTurnId = undefined
-      heldAssistantMessage = undefined
-      messageDisplays.clear()
+      transcriptTerminalMessagePending = false
       return [
         emit('transcript.interrupt', {
           type: 'turn.interrupted',
@@ -277,76 +220,22 @@ export function createClaudeCodeHookEventNormalizer(
             turnId: asTurnId(resolvedText),
           }),
         ]
-        // Carry the prompt the operator typed directly into the TUI (T-02026):
-        // the hook payload's `prompt` is the only place it appears, and without
-        // a dedicated channel it was dropped for interactive turns. Emit it as a
-        // `user.message` so HRC can record `turn.user_prompt` and the viewer can
-        // render the typed text. Skip empty prompts (no text to surface).
-        const promptText = getString(unwrapped, 'prompt')
-        if (promptText !== undefined && promptText.length > 0) {
-          events.push(
-            emit(rawType, {
-              type: 'user.message',
-              payload: { content: promptText, turnId: asTurnId(resolvedText) },
-              turnId: asTurnId(resolvedText),
-            })
-          )
-        }
+        // `user.message` is NOT minted here (T-07873 scope A): `conversation`
+        // is transcript-primary for this driver, and the prompt's own `user`
+        // row is the record that carries it. The hook's copy of the prompt text
+        // is a duplicate of that row, not the evidence for it.
         return events
       }
 
-      if (rawType === 'PreToolUse') {
-        const events = flushHeldAssistantMessage(false, turnId)
-        const toolCallId = getString(unwrapped, 'tool_use_id')
-        if (turnId === undefined || toolCallId === undefined) return events
-        events.push(
-          emit(rawType, {
-            type: 'tool.call.started',
-            payload: {
-              toolCallId: toolCallId as ToolCallId,
-              name: getString(unwrapped, 'tool_name') ?? 'tool',
-              ...(unwrapped['tool_input'] !== undefined ? { input: unwrapped['tool_input'] } : {}),
-            },
-            turnId,
-            itemId: toolCallId,
-          })
-        )
-        return events
-      }
-
-      if (rawType === 'PostToolUse') {
-        const events = flushHeldAssistantMessage(false, turnId)
-        const toolCallId = getString(unwrapped, 'tool_use_id')
-        if (turnId === undefined || toolCallId === undefined) return events
-        const name = getString(unwrapped, 'tool_name') ?? 'tool'
-        const isError = unwrapped['is_error'] === true
-        const { output, responseObject } = formatToolOutput({
-          toolName: name,
-          toolInput: unwrapped['tool_input'],
-          toolResponse: unwrapped['tool_response'],
-          isError,
-        })
-        events.push(
-          emit(rawType, {
-            type: 'tool.call.completed',
-            payload: {
-              toolCallId: toolCallId as ToolCallId,
-              name,
-              isError,
-              result: {
-                content: [{ type: 'text', text: output ?? '' }],
-                ...(responseObject !== undefined ? { details: responseObject } : {}),
-              },
-            },
-            turnId,
-            itemId: toolCallId,
-          })
-        )
-        return events
-      }
-
-      if (rawType === 'MessageDisplay') {
-        return normalizeMessageDisplay(unwrapped, turnId)
+      // `PreToolUse` / `PostToolUse` / `MessageDisplay` mint NOTHING after
+      // T-07873 scope A. They remain live and load-bearing — `PreToolUse` is
+      // the synchronous permission-decision bridge and `MessageDisplay` is what
+      // makes streaming visible in the TUI — but the tool call and the assistant
+      // prose are now minted from the `tool_use` / `tool_result` / `assistant`
+      // rows that ARE the evidence. Their records reach the `duplicate`
+      // disposition (`CLAUDE_TRANSCRIPT_OWNED_HOOK_FACTS`).
+      if (rawType === 'PreToolUse' || rawType === 'PostToolUse' || rawType === 'MessageDisplay') {
+        return []
       }
 
       if (rawType === 'Notification') {
@@ -427,29 +316,30 @@ export function createClaudeCodeHookEventNormalizer(
             )
           }
         }
-        // Terminal assistant message is sourced from Stop's authoritative
-        // `last_assistant_message`, NOT from a held MessageDisplay (T-01722
-        // Phase G flake fix). Claude fires the terminal MessageDisplay{final:true}
-        // and Stop at end-of-turn as two SEPARATE racing hook-bridge processes;
-        // the MessageDisplay was observed landing 2–44ms AFTER Stop ~40% of runs,
-        // so `flushHeldAssistantMessage(true)` found nothing held and the row went
-        // red on final_message_count=0 (the late MessageDisplay then orphaned).
-        // Stop carries the same text in `last_assistant_message`, so emit the
-        // terminal final:true straight from it — race-free. The held terminal
-        // message (present only when the MessageDisplay won the race) is discarded
-        // to avoid a double final. Fall back to the held flush only when Stop has
-        // no last_assistant_message (SessionEnd or older Claude versions).
+        // The turn's terminal prose is the TRANSCRIPT's fact (T-07873 scope A).
+        // The driver flushes the held assistant message from the session JSONL
+        // before this normalization runs and reports it through
+        // `noteTranscriptTerminalMessage`, so the message carries the provenance
+        // of the `assistant` row that actually said it.
+        //
+        // The `last_assistant_message` fallback below is a NAMED EXCEPTION, not
+        // a second opinion: it fires only when the transcript held nothing at
+        // Stop. That happens when the transcript reader has no prose for the
+        // turn at all, and HRC's `final_message_count` gate would otherwise
+        // redden a turn that really did answer. It is recorded in AUTHORITY.md.
+        const transcriptOwnsTerminalMessage = transcriptTerminalMessagePending
+        transcriptTerminalMessagePending = false
         const lastAssistantMessage = getString(unwrapped, 'last_assistant_message')?.trim()
         const turnAlreadyDone = turnIdText !== undefined && completedTurns.has(turnIdText)
-        let events: InvocationEventEnvelope[]
+        let events: InvocationEventEnvelope[] = []
         if (
+          !transcriptOwnsTerminalMessage &&
           lastAssistantMessage !== undefined &&
           lastAssistantMessage.length > 0 &&
           turnId !== undefined &&
           !turnAlreadyDone
         ) {
-          const messageId = heldAssistantMessage?.messageId ?? `${turnIdText}_final`
-          heldAssistantMessage = undefined
+          const messageId = `${turnIdText}_final`
           events = [
             emit('MessageDisplay', {
               type: 'assistant.message.completed',
@@ -462,8 +352,6 @@ export function createClaudeCodeHookEventNormalizer(
               itemId: messageId,
             }),
           ]
-        } else {
-          events = flushHeldAssistantMessage(true, turnId)
         }
         if (turnIdText === undefined || turnId === undefined || completedTurns.has(turnIdText)) {
           return [...prefix, ...events]
@@ -673,7 +561,7 @@ function compactHookDetails(hook: Record<string, unknown>): Record<string, unkno
   return Object.keys(details).length > 0 ? details : undefined
 }
 
-function formatToolOutput(options: {
+export function formatToolOutput(options: {
   toolName: string
   toolInput: unknown
   toolResponse: unknown

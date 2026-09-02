@@ -3,17 +3,20 @@ import type {
   EventProvenance,
   InvocationEventPayloadMap,
   InvocationEventType,
+  MessageId,
+  ToolCallId,
   TurnId,
 } from 'spaces-harness-broker-protocol'
 import type { NormalizeOutcome } from '../../capture/capture-gate'
 import type { CaptureGate } from '../../capture/capture-gate'
 import { getString, unwrapHookPayload } from '../hook-json'
 import { createJsonlByteOffsetTailer } from '../jsonl-byte-tailer'
-import { CLAUDE_CODE_TMUX_DRIVER_KIND } from './hook-events'
+import { CLAUDE_CODE_TMUX_DRIVER_KIND, formatToolOutput } from './hook-events'
 import {
   CLAUDE_IGNORED_ATTACHMENT_TYPES,
   CLAUDE_IGNORED_ROW_TYPES,
   CLAUDE_KNOWN_QUEUE_OPERATIONS,
+  CLAUDE_KNOWN_SYSTEM_SUBTYPES,
   CLAUDE_UNKNOWN_ATTACHMENT_FAMILY,
   CLAUDE_UNKNOWN_ROW_FAMILY,
 } from './native-types'
@@ -63,6 +66,18 @@ export type ClaudeHookTranscriptReader = {
    * prior read are not replayed.
    */
   drain: () => void
+  /**
+   * Flush the held assistant message as this turn's TERMINAL prose, stamped
+   * with the provenance of the transcript row that carried it.
+   *
+   * The Claude `Stop` hook is the synchronous CONTROL that says "the turn is
+   * over"; the assistant ROW is the evidence of what was said. Claude writes
+   * the turn's closing `system` rows only AFTER the Stop hooks return, so
+   * without this seam a transcript-primary `conversation` would have no
+   * successor row to flush against at the moment HRC needs the final message.
+   * Returns TRUE when a terminal message was emitted.
+   */
+  flushTerminalAssistantMessage: () => boolean
   reset: () => void
 }
 
@@ -135,6 +150,47 @@ export function createClaudeHookTranscriptReader(
   })
   let previousWasStopHookCancelled = false
   let transcriptPath: string | undefined
+  /**
+   * Provenance of the row currently being normalized. Held separately from
+   * `withProvenance` so a message assembled from SEVERAL rows can be flushed
+   * later against the provenance of the row that actually carried its prose
+   * (§7.2: a provider claim must name its record).
+   */
+  let currentRowProvenance: EventProvenance | undefined
+  /**
+   * The assistant message being assembled. Claude writes ONE ROW PER CONTENT
+   * BLOCK, all rows of a message sharing one `message.id` and running along an
+   * `apiBlockIndex` sequence — 155 rows carry 117 messages across the archived
+   * corpus (38 of them multi-row), and a live seat under this task reached 246
+   * rows for 137 messages, up to 3 rows each. A row is NOT a message. Rows of
+   * one message are contiguous, so the message is flushed when a row belonging
+   * to anything else arrives.
+   */
+  let heldAssistantMessage:
+    | {
+        messageId: string
+        turnId?: string | undefined
+        text: string
+        stopReason?: string | undefined
+        provenance?: EventProvenance | undefined
+      }
+    | undefined
+  /**
+   * Message ids whose usage has been reported. Every row of one message repeats
+   * the SAME `message.usage` object (155/155 rows, 0 differing, measured over
+   * the three archived sessions and one live one), so reporting per ROW would
+   * multiply a turn's token counts by its block count.
+   */
+  const usageReportedMessageIds = new Set<string>()
+  /**
+   * `tool_use_id` -> tool name. `tool.call.completed` REQUIRES a name and the
+   * `tool_result` block carries none, so the name is remembered from the
+   * `tool_use` block that opened the call. Same id space as the hooks
+   * (`PreToolUse.tool_use_id` == the `tool_use` block id, 16/16 on the first
+   * real session), which is what lets `permission` stay hook and still
+   * correlate onto a transcript-minted tool call.
+   */
+  const toolNamesById = new Map<string, string>()
 
   /**
    * Extract the human-readable API-error text from an assistant row. CC nests it
@@ -200,6 +256,258 @@ export function createClaudeHookTranscriptReader(
         driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType: 'assistant' },
       }
     )
+  }
+
+  const asRecord = (value: unknown): Record<string, unknown> | undefined =>
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : undefined
+
+  const contentBlocks = (entry: Record<string, unknown>): Record<string, unknown>[] => {
+    const content = asRecord(entry['message'])?.['content']
+    if (!Array.isArray(content)) return []
+    return content
+      .map((block) => asRecord(block))
+      .filter((block): block is Record<string, unknown> => block !== undefined)
+  }
+
+  const emitWithProvenance = (provenance: EventProvenance | undefined, body: () => void): void => {
+    if (provenance === undefined || options.withProvenance === undefined) {
+      body()
+      return
+    }
+    options.withProvenance(provenance, body)
+  }
+
+  /**
+   * Emit the held assistant message. `final` says whether this is the turn's
+   * terminal answer; when it is not supplied the row's own `stop_reason`
+   * decides (`end_turn` is the model saying it is done).
+   */
+  const flushHeldAssistantMessage = (final?: boolean): boolean => {
+    const message = heldAssistantMessage
+    heldAssistantMessage = undefined
+    if (message === undefined || message.text.length === 0) return false
+    emitWithProvenance(message.provenance, () => {
+      options.emit(
+        'assistant.message.completed',
+        {
+          messageId: message.messageId as MessageId,
+          content: [{ type: 'text', text: message.text }],
+          final: final ?? message.stopReason === 'end_turn',
+        },
+        {
+          ...(message.turnId !== undefined ? { turnId: message.turnId as TurnId } : {}),
+          driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType: 'transcript.assistant' },
+        }
+      )
+    })
+    return true
+  }
+
+  /**
+   * Normalize one `type:'assistant'` row: usage, tool starts, and the prose
+   * that accumulates into the held message. Returns TRUE when the ROW ITSELF
+   * minted (a flush of the PREVIOUS message is attributed to that message's
+   * own row, not to this one).
+   */
+  const processAssistantRow = (
+    entry: Record<string, unknown>,
+    turnIdText?: string | undefined
+  ): boolean => {
+    const message = asRecord(entry['message'])
+    const messageId =
+      (message !== undefined ? getString(message, 'id') : undefined) ?? getString(entry, 'uuid')
+    // A message STARTS on the first row that carries its id, not on every row
+    // of it — Claude writes one row per content block.
+    const startsNewMessage =
+      messageId !== undefined && heldAssistantMessage?.messageId !== messageId
+    if (startsNewMessage) {
+      flushHeldAssistantMessage()
+      options.onAssistantMessageStarted?.(messageId as string, entry)
+    }
+
+    const turnId = turnIdText !== undefined ? (turnIdText as TurnId) : undefined
+    let minted = false
+
+    const usage = message?.['usage']
+    if (usage !== undefined && messageId !== undefined && !usageReportedMessageIds.has(messageId)) {
+      usageReportedMessageIds.add(messageId)
+      options.emit(
+        'usage.updated',
+        { usage },
+        {
+          ...(turnId !== undefined ? { turnId } : {}),
+          driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType: 'transcript.assistant' },
+        }
+      )
+      minted = true
+    }
+
+    const stopReason = message !== undefined ? getString(message, 'stop_reason') : undefined
+    let text = ''
+    for (const block of contentBlocks(entry)) {
+      const blockType = getString(block, 'type')
+      if (blockType === 'text') {
+        text += getString(block, 'text') ?? ''
+        continue
+      }
+      if (blockType !== 'tool_use') continue
+      const toolCallId = getString(block, 'id')
+      if (toolCallId === undefined) continue
+      const name = getString(block, 'name') ?? 'tool'
+      toolNamesById.set(toolCallId, name)
+      options.emit(
+        'tool.call.started',
+        {
+          toolCallId: toolCallId as ToolCallId,
+          name,
+          ...(block['input'] !== undefined ? { input: block['input'] } : {}),
+        },
+        {
+          ...(turnId !== undefined ? { turnId } : {}),
+          driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType: 'transcript.assistant' },
+        }
+      )
+      minted = true
+    }
+
+    if (messageId !== undefined) {
+      const held = heldAssistantMessage ?? {
+        messageId,
+        ...(turnIdText !== undefined ? { turnId: turnIdText } : {}),
+        text: '',
+      }
+      held.text += text
+      if (stopReason !== undefined) held.stopReason = stopReason
+      if (text.length > 0) held.provenance = currentRowProvenance
+      else held.provenance ??= currentRowProvenance
+      heldAssistantMessage = held
+    }
+    return minted
+  }
+
+  /** Emit `tool.call.completed` for every `tool_result` block on a user row. */
+  const processToolResults = (
+    entry: Record<string, unknown>,
+    turnIdText?: string | undefined
+  ): boolean => {
+    const turnId = turnIdText !== undefined ? (turnIdText as TurnId) : undefined
+    let minted = false
+    for (const block of contentBlocks(entry)) {
+      if (getString(block, 'type') !== 'tool_result') continue
+      const toolCallId = getString(block, 'tool_use_id')
+      if (toolCallId === undefined) continue
+      const name = toolNamesById.get(toolCallId) ?? 'tool'
+      toolNamesById.delete(toolCallId)
+      const isError = block['is_error'] === true
+      const { output, responseObject } = formatToolOutput({
+        toolName: name,
+        toolInput: undefined,
+        // `toolUseResult` is the structured result Claude records alongside the
+        // block (stdout/stderr/interrupted/…); the block's own `content` is the
+        // text the model saw. Prefer the structured record, fall back to it.
+        toolResponse: entry['toolUseResult'] ?? block['content'],
+        isError,
+      })
+      options.emit(
+        'tool.call.completed',
+        {
+          toolCallId: toolCallId as ToolCallId,
+          name,
+          isError,
+          result: {
+            content: [{ type: 'text', text: output ?? '' }],
+            ...(responseObject !== undefined ? { details: responseObject } : {}),
+          },
+        },
+        {
+          ...(turnId !== undefined ? { turnId } : {}),
+          driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType: 'transcript.user' },
+        }
+      )
+      minted = true
+    }
+    return minted
+  }
+
+  /** Session-cumulative cost/usage roll-up (`type:'cost-state'`). */
+  const processCostStateRow = (
+    entry: Record<string, unknown>,
+    turnIdText?: string | undefined
+  ): NormalizeOutcome => {
+    // The row TYPE is carried by the raw record's provenance, so it is stripped
+    // from the body rather than smuggled into the usage shape.
+    const { type: _rowType, ...usage } = entry
+    options.emit(
+      'usage.updated',
+      { usage },
+      {
+        ...(turnIdText !== undefined ? { turnId: turnIdText as TurnId } : {}),
+        driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType: 'transcript.cost-state' },
+      }
+    )
+    return { disposition: 'normalized', detail: 'cost-state' }
+  }
+
+  /** `type:'system'` rows, dispositioned per pinned subtype (T-07873 §B). */
+  const classifySystemRow = (entry: Record<string, unknown>): NormalizeOutcome => {
+    const subtype = getString(entry, 'subtype')
+    if (subtype === undefined || !CLAUDE_KNOWN_SYSTEM_SUBTYPES.has(subtype)) {
+      return {
+        disposition: 'blocked-unknown',
+        family: CLAUDE_UNKNOWN_ROW_FAMILY,
+        message: `Unknown Claude system row subtype: ${subtype ?? '(none)'}`,
+      }
+    }
+    if (subtype === 'turn_duration' || subtype === 'stop_hook_summary') {
+      // The transcript's turn terminal. READ and pinned, but NOT the primary:
+      // `turn-bracket` stays `hook` because this row does not exist for an
+      // interrupted turn and is written only after the Stop hooks return.
+      // AUTHORITY.md "Phase 4" carries the measurement.
+      return { disposition: 'duplicate', detail: describeTurnTerminalRow(entry, subtype) }
+    }
+    return { disposition: 'ignored-known', detail: `system:${subtype}` }
+  }
+
+  /** `type:'attachment'` rows the disposition mirror did not claim. */
+  const classifyAttachmentRow = (entry: Record<string, unknown>): NormalizeOutcome => {
+    const attachment = entry['attachment']
+    const attachmentType =
+      attachment !== null && typeof attachment === 'object' && !Array.isArray(attachment)
+        ? getString(attachment as Record<string, unknown>, 'type')
+        : undefined
+    if (attachmentType === 'hook_cancelled') {
+      const attachmentRecord = attachment as Record<string, unknown>
+      const hookName = getString(attachmentRecord, 'hookName')
+      previousWasStopHookCancelled = hookName === 'Stop'
+      return {
+        disposition: 'ignored-known',
+        detail: JSON.stringify({
+          hookName: hookName ?? null,
+          hookEvent: getString(attachmentRecord, 'hookEvent') ?? null,
+          durationMs:
+            typeof attachmentRecord['durationMs'] === 'number'
+              ? attachmentRecord['durationMs']
+              : null,
+          timedOut:
+            typeof attachmentRecord['timedOut'] === 'boolean' ? attachmentRecord['timedOut'] : null,
+        }),
+      }
+    }
+    if (attachmentType !== undefined && CLAUDE_IGNORED_ATTACHMENT_TYPES.has(attachmentType)) {
+      return { disposition: 'ignored-known', detail: `attachment:${attachmentType}` }
+    }
+    if (attachmentType === 'queued_command') {
+      // Seen by the mirror but not (yet) matched to a pending submission —
+      // mirror state changed, no fact minted.
+      return { disposition: 'state-only', detail: 'attachment:queued_command' }
+    }
+    return {
+      disposition: 'blocked-unknown',
+      family: CLAUDE_UNKNOWN_ATTACHMENT_FAMILY,
+      message: `Unknown Claude attachment type: ${attachmentType ?? '(none)'}`,
+    }
   }
 
   /**
@@ -268,70 +576,58 @@ export function createClaudeHookTranscriptReader(
       }
     }
 
-    if (entryType === 'assistant') {
-      const message = entry['message']
-      const messageId =
-        message !== null && typeof message === 'object' && !Array.isArray(message)
-          ? getString(message as Record<string, unknown>, 'id')
-          : undefined
-      const fallbackId = getString(entry, 'uuid')
-      const resolvedId = messageId ?? fallbackId
-      if (resolvedId !== undefined) options.onAssistantMessageStarted?.(resolvedId, entry)
-      // Assistant prose is the HOOK path's fact for this driver (AUTHORITY.md).
-      // The row is real evidence of the same semantic fact, so it is a
-      // duplicate — not something ignored — regardless of whether it also fed
-      // the assistant-message-start observation above.
-      return { disposition: 'duplicate', detail: 'assistant prose owned by the hook path' }
+    // A message ends when a row belonging to something else arrives. Only
+    // `user` and `system` rows do that: the TUI interleaves `attachment`,
+    // `last-prompt` and friends between the block rows of ONE message, so
+    // flushing on those would split a message in two.
+    if (entryType === 'user' || entryType === 'system') {
+      flushHeldAssistantMessage()
     }
 
+    if (entryType === 'assistant') {
+      // Assistant rows are the PRIMARY evidence for `conversation`, `tool`
+      // starts and `usage` (T-07873 scope A). One row is one CONTENT BLOCK, so
+      // the prose is held and flushed when the message ends.
+      const abortedMidStream = entry['isAbortedMidStream'] === true
+      const minted = processAssistantRow(entry, turnIdText)
+      if (abortedMidStream) {
+        // The model was cut off. No `Stop` fires, so the closing `system` rows
+        // that would flush this message are never written (0 of 2 interrupted
+        // turns in the archived corpus have them). Flush what was said as a
+        // NON-final message rather than losing it, and name the record on the
+        // disposition so the interrupt terminal points at its evidence.
+        const flushed = flushHeldAssistantMessage(false)
+        return {
+          disposition: minted || flushed ? 'normalized' : 'state-only',
+          detail: 'isAbortedMidStream',
+        }
+      }
+      return minted
+        ? { disposition: 'normalized' }
+        : { disposition: 'state-only', detail: 'assistant prose held' }
+    }
+
+    if (entryType === 'cost-state') return processCostStateRow(entry, turnIdText)
+    if (entryType === 'system') return classifySystemRow(entry)
+
     if (entryType === 'queue-operation' || entryType === 'attachment' || entryType === 'user') {
+      // `tool_result` blocks are the primary evidence for `tool.call.completed`
+      // (T-07873 scope A); the `PostToolUse` hook keeps firing as the
+      // synchronous control and its fact is a duplicate.
+      const mintedToolResults = entryType === 'user' ? processToolResults(entry, turnIdText) : false
       const observation = options.onTranscriptEntry?.(entry, {
         precededByStopHookCancelled,
       })
       if (typeof observation === 'object') return observation
-      if (observation === true) {
-        return { disposition: 'normalized' }
+      if (observation === true || mintedToolResults) {
+        const interruptedMessageId = getString(entry, 'interruptedMessageId')
+        // The interrupt terminal's evidence IS this row; carrying the id of the
+        // message it cut off makes the ledger record say which one.
+        return interruptedMessageId !== undefined
+          ? { disposition: 'normalized', detail: JSON.stringify({ interruptedMessageId }) }
+          : { disposition: 'normalized' }
       }
-      if (entryType === 'attachment') {
-        const attachment = entry['attachment']
-        const attachmentType =
-          attachment !== null && typeof attachment === 'object' && !Array.isArray(attachment)
-            ? getString(attachment as Record<string, unknown>, 'type')
-            : undefined
-        if (attachmentType === 'hook_cancelled') {
-          const attachmentRecord = attachment as Record<string, unknown>
-          const hookName = getString(attachmentRecord, 'hookName')
-          previousWasStopHookCancelled = hookName === 'Stop'
-          return {
-            disposition: 'ignored-known',
-            detail: JSON.stringify({
-              hookName: hookName ?? null,
-              hookEvent: getString(attachmentRecord, 'hookEvent') ?? null,
-              durationMs:
-                typeof attachmentRecord['durationMs'] === 'number'
-                  ? attachmentRecord['durationMs']
-                  : null,
-              timedOut:
-                typeof attachmentRecord['timedOut'] === 'boolean'
-                  ? attachmentRecord['timedOut']
-                  : null,
-            }),
-          }
-        }
-        if (attachmentType !== undefined && CLAUDE_IGNORED_ATTACHMENT_TYPES.has(attachmentType)) {
-          return { disposition: 'ignored-known', detail: `attachment:${attachmentType}` }
-        }
-        if (attachmentType === 'queued_command') {
-          // Seen by the mirror but not (yet) matched to a pending submission —
-          // mirror state changed, no fact minted.
-          return { disposition: 'state-only', detail: 'attachment:queued_command' }
-        }
-        return {
-          disposition: 'blocked-unknown',
-          family: CLAUDE_UNKNOWN_ATTACHMENT_FAMILY,
-          message: `Unknown Claude attachment type: ${attachmentType ?? '(none)'}`,
-        }
-      }
+      if (entryType === 'attachment') return classifyAttachmentRow(entry)
       // A queue op or user row the mirror consumed without minting: it advanced
       // the deterministic mirror state (enqueue, dequeue, an echoed prompt).
       return { disposition: 'state-only', detail: entryType }
@@ -382,10 +678,19 @@ export function createClaudeHookTranscriptReader(
           rawBytes: Buffer.from(line, 'utf8'),
         },
         (captured) => {
-          const run = () => processLine(line, turnIdText)
+          const provenance = captured.provenance()
+          const run = () => {
+            const previous = currentRowProvenance
+            currentRowProvenance = provenance
+            try {
+              return processLine(line, turnIdText)
+            } finally {
+              currentRowProvenance = previous
+            }
+          }
           return options.withProvenance === undefined
             ? run()
-            : options.withProvenance(captured.provenance(), run)
+            : options.withProvenance(provenance, run)
         }
       )
     })
@@ -417,10 +722,18 @@ export function createClaudeHookTranscriptReader(
       readRows(options.getCurrentTurnId())
     },
 
+    flushTerminalAssistantMessage(): boolean {
+      return flushHeldAssistantMessage(true)
+    },
+
     reset(): void {
       tailer.clear()
       transcriptPath = undefined
       previousWasStopHookCancelled = false
+      currentRowProvenance = undefined
+      heldAssistantMessage = undefined
+      usageReportedMessageIds.clear()
+      toolNamesById.clear()
     },
   }
 }
@@ -500,5 +813,27 @@ function nativeTypeOf(line: string): string {
         : undefined
     return `attachment:${attachmentType ?? '(none)'}`
   }
+  if (entryType === 'system') {
+    // The subtype is what distinguishes the turn terminal from a cosmetic
+    // notice, so it belongs on the ledger's native type (T-07873).
+    return `system:${getString(entry, 'subtype') ?? '(none)'}`
+  }
   return entryType
+}
+
+/**
+ * Detail recorded on a turn-terminal `system` row's disposition. The row is a
+ * `duplicate` — the `Stop` hook owns `turn-bracket` — but the numbers it
+ * carries are why that decision was made, so they stay visible in the ledger
+ * instead of being reduced to the row's name.
+ */
+function describeTurnTerminalRow(entry: Record<string, unknown>, subtype: string): string {
+  const detail: Record<string, unknown> = { subtype }
+  if (typeof entry['durationMs'] === 'number') detail['durationMs'] = entry['durationMs']
+  if (typeof entry['messageCount'] === 'number') detail['messageCount'] = entry['messageCount']
+  if (typeof entry['stopReason'] === 'string') detail['stopReason'] = entry['stopReason']
+  if (typeof entry['preventedContinuation'] === 'boolean') {
+    detail['preventedContinuation'] = entry['preventedContinuation']
+  }
+  return JSON.stringify(detail)
 }

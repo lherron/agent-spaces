@@ -179,6 +179,63 @@ describe('claude native-type disposition coverage (archived T-07849 vocabulary)'
     expect(warnings).toEqual([])
   })
 
+  test('the pinned `system` subtypes are read, and the turn terminal keeps its numbers', () => {
+    // T-07873 §B: `system` left the ignored set so the turn bracket could be
+    // MEASURED. The rows are `duplicate` — the Stop hook still owns
+    // `turn-bracket` — but the numbers that decided it stay in the ledger.
+    const { dispositions, details, warnings } = replay([
+      JSON.stringify({
+        type: 'system',
+        subtype: 'turn_duration',
+        durationMs: 2892,
+        messageCount: 11,
+      }),
+      JSON.stringify({
+        type: 'system',
+        subtype: 'stop_hook_summary',
+        stopReason: '',
+        preventedContinuation: false,
+      }),
+      JSON.stringify({ type: 'system', subtype: 'bridge_status', content: 'x' }),
+    ])
+    expect(dispositions).toEqual([
+      { nativeType: 'system:turn_duration', disposition: 'duplicate' },
+      { nativeType: 'system:stop_hook_summary', disposition: 'duplicate' },
+      { nativeType: 'system:bridge_status', disposition: 'ignored-known' },
+    ])
+    expect(JSON.parse(details[0]?.detail ?? 'null')).toEqual({
+      subtype: 'turn_duration',
+      durationMs: 2892,
+      messageCount: 11,
+    })
+    expect(JSON.parse(details[1]?.detail ?? 'null')).toEqual({
+      subtype: 'stop_hook_summary',
+      stopReason: '',
+      preventedContinuation: false,
+    })
+    expect(warnings).toEqual([])
+  })
+
+  test('MUTATION: an unpinned `system` subtype warns and does not halt', () => {
+    // Delete `turn_duration` from CLAUDE_KNOWN_SYSTEM_SUBTYPES and this is what
+    // the reader does with it — the guard can fail, which is what makes it a
+    // guard. Same law as an unknown row type: a subtype we cannot place in a
+    // family cannot be asserted to be load-bearing, so it warns.
+    const { dispositions, warnings } = replay([
+      JSON.stringify({ type: 'system', subtype: 'brand_new_subtype' }),
+    ])
+    expect(warnings).toEqual(['Unknown Claude system row subtype: brand_new_subtype'])
+    expect(dispositions.map((d) => d.nativeType)).toEqual(['system:brand_new_subtype'])
+  })
+
+  test('`cost-state` is a usage record now, not an ignored row', () => {
+    const { dispositions, warnings } = replay([
+      JSON.stringify({ type: 'cost-state', totalCostUSD: 1.25, modelUsage: {} }),
+    ])
+    expect(dispositions).toEqual([{ nativeType: 'cost-state', disposition: 'normalized' }])
+    expect(warnings).toEqual([])
+  })
+
   test('an unknown top-level row type is reported but does NOT halt the cursor', () => {
     // We cannot assert a row type we cannot place is load-bearing, and the law
     // halts only on an unclassified LOAD-BEARING type. It still warns.

@@ -45,12 +45,15 @@ const BROKER_OWNED_BASE: EvidenceAuthorityMatrix = {
 }
 
 /**
- * Claude Code TUI. Every event ARRIVES through a hook — the session-JSONL
- * reader is a hook-driven byte-offset tail, so no hook means no transcript
- * read — which is why the hook is the declared authority for the families it
- * normalizes. The exception is the submission disposition mirror (T-07849):
- * queue operations, `queued_command` attachments and plain user rows exist
- * ONLY in the session JSONL, so that family is native today.
+ * Claude Code TUI — transcript-primary with an explicit hook exception matrix
+ * (doc §6), as of the Phase 4 cutover (T-07873).
+ *
+ * The prerequisite Phase 3 named for codex is already met here: this driver has
+ * a NATIVE wakeup (T-07849 rev 12 — a file-change notification on the same
+ * serialized drain chain as the hooks), so a session-JSONL fact is timely
+ * without a hook to trigger the read. Phase 4 promotes the three families the
+ * JSONL proves complete and leaves the rest hook with the measured gap recorded
+ * in AUTHORITY.md "Phase 4".
  */
 export const CLAUDE_CODE_TMUX_AUTHORITY: EvidenceAuthorityMatrix = {
   ...BROKER_OWNED_BASE,
@@ -62,11 +65,22 @@ export const CLAUDE_CODE_TMUX_AUTHORITY: EvidenceAuthorityMatrix = {
   diagnostic: 'hook',
   continuation: 'hook',
   'submission-disposition': 'native',
+  // MEASURED, not assumed: the transcript terminal is present for 33 of 36
+  // turns in the archived corpus and for 0 of 2 interrupted turns, and the
+  // `stop_hook_summary` row records the Stop hooks' own durations, so it is
+  // written strictly AFTER the hook terminal. Stays hook (T-07873 §B).
   'turn-bracket': 'hook',
-  conversation: 'hook',
-  tool: 'hook',
-  // Not emitted today; the session JSONL is where usage would come from.
+  // `assistant` rows carry the prose and `user` rows carry the prompt, for
+  // every path. The MessageDisplay/Stop hook copies are duplicates.
+  conversation: 'native',
+  // `tool_use` / `tool_result` blocks, paired 100% (82/82 archived, 17/17 on a
+  // live session) in the SAME id space as the hooks' `tool_use_id` — which is
+  // what lets `permission` stay hook and still correlate.
+  tool: 'native',
+  // Every `assistant` row carries `message.usage` (155/155), plus `cost-state`
+  // roll-ups. Declared native since Phase 0; actually emitting since T-07873.
   usage: 'native',
+  // No permission vocabulary exists in the session JSONL at all.
   permission: 'hook',
 }
 
