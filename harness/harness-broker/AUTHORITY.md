@@ -136,7 +136,11 @@ Claude session-JSONL rows arrive through either the read immediately preceding
 a hook normalization or a native file-change notification (T-07849 rev 12).
 Both enqueue onto one serialized drain chain and share one byte-offset tailer,
 so the earlier intake point changes neither row order nor ownership and cannot
-double-read a row. Hooks remain primary for the families the hook normalizer
+double-read a row. The file watcher arms lazily on the first hook after Claude
+creates its SessionStart-named transcript; watcher loss gets one immediate
+re-arm, then degrades the invocation loudly as `native_wakeup_lost` and refuses
+preempt/interrupt rather than silently losing the no-successor terminal
+(T-07849 rev 13). Hooks remain primary for the families the hook normalizer
 produces; the transcript-primary target posture (§6) is still a Phase 4 cutover
 rather than a relabelling.
 

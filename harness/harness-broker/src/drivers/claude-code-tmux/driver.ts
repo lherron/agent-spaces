@@ -1,4 +1,4 @@
-import { type FSWatcher, watch } from 'node:fs'
+import { type FSWatcher, existsSync, watch } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import Ajv, { type ErrorObject, type ValidateFunction } from 'ajv'
@@ -128,6 +128,12 @@ export type HookEnvelopeHandler = (
   envelope: ClaudeCodeHookEnvelope
 ) => Promise<HookEnvelopeResult> | HookEnvelopeResult
 
+export type TranscriptWatch = (
+  path: string,
+  options: { persistent: false },
+  listener: () => void
+) => FSWatcher
+
 export interface ClaudeCodeTmuxDriverOptions {
   tmux: {
     /**
@@ -154,6 +160,8 @@ export interface ClaudeCodeTmuxDriverOptions {
     bridgeCommand?: string | undefined
   }
   now?: (() => Date) | undefined
+  /** Test seam for watcher error/re-arm lifecycle; production uses node:fs. */
+  watchTranscript?: TranscriptWatch | undefined
 }
 
 interface SurfaceState {
@@ -201,6 +209,9 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
   let hookListener: HookListenerHandle | undefined
   let transcriptReader: ClaudeHookTranscriptReader | undefined
   let transcriptWatcher: FSWatcher | undefined
+  let transcriptPath: string | undefined
+  let watcherRecoveryUsed = false
+  let nativeWakeupLostReason: string | undefined
   let attribution: ClaudeTurnAttribution | undefined
   let hookDrain: Promise<HookEnvelopeResult> = Promise.resolve(undefined)
   // The runtime hands the driver a pane LEASE — `runtime.terminalSurface`
@@ -317,6 +328,86 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     }
   }
 
+  const transcriptWatch: TranscriptWatch =
+    options.watchTranscript ??
+    ((path, watchOptions, listener) => watch(path, watchOptions, listener))
+
+  function enqueueTranscriptDrain(): void {
+    const drain = (): HookEnvelopeResult => {
+      transcriptReader?.drain()
+      return undefined
+    }
+    // Native transcript notifications and hooks share ONE chain. A
+    // notification reads to EOF; a hook queued beside it then sees the
+    // byte-offset tailer already advanced (or vice versa), so rows are ordered
+    // once and never double-normalized.
+    hookDrain = hookDrain.then(drain, drain)
+  }
+
+  function describeError(error: unknown): string {
+    return error instanceof Error ? error.message : String(error)
+  }
+
+  function isEnoent(error: unknown): boolean {
+    return (
+      error !== null &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 'ENOENT'
+    )
+  }
+
+  function degradeNativeWakeup(path: string, error: unknown): void {
+    if (nativeWakeupLostReason !== undefined) return
+    const detail = describeError(error)
+    nativeWakeupLostReason = 'native_wakeup_lost'
+    transcriptWatcher?.close()
+    transcriptWatcher = undefined
+    ctx?.emit(
+      'capture.warning',
+      {
+        kind: 'native_wakeup_lost',
+        message: `Claude transcript native wakeup lost: ${detail}`,
+        raw: { transcriptPath: path, detail },
+      },
+      { driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType: 'transcript.watch' } }
+    )
+    ctx?.admissionStateChanged?.()
+  }
+
+  function armTranscriptWatcher(path: string, phase: 'session-start' | 'hook' | 'rearm'): boolean {
+    if (
+      nativeWakeupLostReason !== undefined ||
+      transcriptPath !== path ||
+      transcriptWatcher !== undefined
+    ) {
+      return transcriptWatcher !== undefined
+    }
+    try {
+      const watcher = transcriptWatch(path, { persistent: false }, enqueueTranscriptDrain)
+      transcriptWatcher = watcher
+      watcher.on('error', (error) => {
+        if (transcriptWatcher !== watcher || transcriptPath !== path) return
+        watcher.close()
+        transcriptWatcher = undefined
+        if (watcherRecoveryUsed) {
+          degradeNativeWakeup(path, error)
+          return
+        }
+        watcherRecoveryUsed = true
+        if (armTranscriptWatcher(path, 'rearm')) enqueueTranscriptDrain()
+      })
+      return true
+    } catch (error) {
+      // Claude names the eventual transcript path before creating the file.
+      // That SessionStart ENOENT is an expected lazy-arm state, not capture
+      // degradation and must never escape through the hook normalizer.
+      if (phase === 'session-start' && isEnoent(error)) return false
+      degradeNativeWakeup(path, error)
+      return false
+    }
+  }
+
   return {
     kind: CLAUDE_CODE_TMUX_DRIVER_KIND,
     version: CLAUDE_CODE_TMUX_DRIVER_VERSION,
@@ -330,7 +421,22 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       return CLAUDE_CODE_TMUX_CAPABILITIES
     },
 
+    admissionRejectionReason(admissionClass) {
+      return admissionClass === 'preempt' ? nativeWakeupLostReason : undefined
+    },
+
+    runtimeHealth() {
+      return nativeWakeupLostReason === undefined
+        ? ({ state: 'healthy' } as const)
+        : ({ state: 'degraded', reason: nativeWakeupLostReason } as const)
+    },
+
     async start(spec: HarnessInvocationSpec, driverCtx: DriverContext): Promise<DriverStartResult> {
+      transcriptWatcher?.close()
+      transcriptWatcher = undefined
+      transcriptPath = undefined
+      watcherRecoveryUsed = false
+      nativeWakeupLostReason = undefined
       // T-01725 Phase C: the driver consumes a pane LEASE supplied on the
       // dispatch envelope as `runtime.terminalSurface` (kind: 'tmux-pane',
       // ownership: 'hrc'). It reads ONLY this field — never the legacy
@@ -506,32 +612,17 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         getCurrentTurnId: () => turnAttribution.activeTurnId,
         ...(driverCtx.capture !== undefined ? { capture: driverCtx.capture } : {}),
         withProvenance,
-        onTranscriptPath: (transcriptPath) => {
+        onTranscriptPath: (selectedPath) => {
           transcriptWatcher?.close()
-          const watcher = watch(transcriptPath, { persistent: false }, () => {
-            const drain = (): HookEnvelopeResult => {
-              transcriptReader?.drain()
-              return undefined
-            }
-            // Native transcript notifications and hooks share ONE chain. A
-            // notification reads to EOF; a hook queued beside it then sees the
-            // byte-offset tailer already advanced (or vice versa), so rows are
-            // ordered once and never double-normalized.
-            hookDrain = hookDrain.then(drain, drain)
-          })
-          transcriptWatcher = watcher
-          watcher.on('error', (error) => {
-            watcher.close()
-            if (transcriptWatcher === watcher) transcriptWatcher = undefined
-            driverCtx.emit(
-              'capture.warning',
-              {
-                message: `Claude transcript watch failed: ${error.message}`,
-                raw: { transcriptPath, error: error.message },
-              },
-              { driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType: 'transcript.watch' } }
-            )
-          })
+          transcriptWatcher = undefined
+          transcriptPath = selectedPath
+          watcherRecoveryUsed = false
+          if (existsSync(selectedPath)) armTranscriptWatcher(selectedPath, 'session-start')
+        },
+        onTranscriptAvailable: (availablePath) => {
+          if (transcriptPath === availablePath && transcriptWatcher === undefined) {
+            armTranscriptWatcher(availablePath, 'hook')
+          }
         },
         emit: (type, payload, extra) => {
           emitCaptured(driverCtx, type, payload, extra)
@@ -866,6 +957,13 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     },
 
     async interrupt(_req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
+      if (nativeWakeupLostReason !== undefined) {
+        return {
+          accepted: false,
+          effect: 'unsupported',
+          reason: nativeWakeupLostReason,
+        }
+      }
       // Parity with codex-cli-tmux: a stopped driver clears `surface`, so an
       // interrupt after stop reports no_active_turn rather than firing a stray
       // C-c at a pane the driver no longer considers live.

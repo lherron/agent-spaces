@@ -18,6 +18,7 @@ import type {
   InvocationStopResponse,
   PermissionDecision,
   PermissionRequestParams,
+  SubmissionClass,
   TurnId,
 } from 'spaces-harness-broker-protocol'
 import type { CaptureGate } from '../capture/capture-gate'
@@ -74,6 +75,14 @@ export interface Driver {
   probeAdmissionState?(): {
     harnessLocalQueueDepth: number
   }
+  /**
+   * Dynamic, invocation-local capability loss. Static hello/start capabilities
+   * still describe a fresh seat; this hook rejects only the affected admission
+   * class after a runtime evidence source degrades.
+   */
+  admissionRejectionReason?(admissionClass: SubmissionClass): string | undefined
+  /** Cached driver health projected into invocation snapshots/status. */
+  runtimeHealth?(): { state: 'healthy' } | { state: 'degraded'; reason: string }
   interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse>
   stop(req: InvocationStopRequest): Promise<InvocationStopResponse>
   dispose(): Promise<void>

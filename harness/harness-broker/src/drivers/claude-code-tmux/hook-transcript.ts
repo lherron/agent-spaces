@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import type {
   EventProvenance,
   InvocationEventPayloadMap,
@@ -114,6 +115,11 @@ export type ClaudeHookTranscriptReaderOptions = {
    * tailer remains the single source of ordering and deduplication.
    */
   onTranscriptPath?: ((path: string) => void) | undefined
+  /**
+   * Announces that a hook-driven tail read found the selected transcript file.
+   * This is the lazy watcher-arm seam: it adds no wakeup of its own.
+   */
+  onTranscriptAvailable?: ((path: string) => void) | undefined
 }
 
 type ApiErrorClass = 'rate_limit' | 'overloaded' | 'server_error' | 'auth' | 'quota'
@@ -128,6 +134,7 @@ export function createClaudeHookTranscriptReader(
     onEpochChange: () => options.capture?.rotateEpoch(sourceKey),
   })
   let previousWasStopHookCancelled = false
+  let transcriptPath: string | undefined
 
   /**
    * Extract the human-readable API-error text from an assistant row. CC nests it
@@ -382,6 +389,9 @@ export function createClaudeHookTranscriptReader(
         }
       )
     })
+    if (transcriptPath !== undefined && existsSync(transcriptPath)) {
+      options.onTranscriptAvailable?.(transcriptPath)
+    }
   }
 
   return {
@@ -390,9 +400,12 @@ export function createClaudeHookTranscriptReader(
       const rawType = getString(unwrapped, 'hook_event_name')
 
       if (rawType === 'SessionStart') {
-        const transcriptPath = getString(unwrapped, 'transcript_path')
-        if (transcriptPath !== undefined && transcriptPath.length > 0) {
-          if (tailer.retarget(transcriptPath)) options.onTranscriptPath?.(transcriptPath)
+        const selectedPath = getString(unwrapped, 'transcript_path')
+        if (selectedPath !== undefined && selectedPath.length > 0) {
+          if (tailer.retarget(selectedPath)) {
+            transcriptPath = selectedPath
+            options.onTranscriptPath?.(selectedPath)
+          }
         }
         return
       }
@@ -406,6 +419,7 @@ export function createClaudeHookTranscriptReader(
 
     reset(): void {
       tailer.clear()
+      transcriptPath = undefined
       previousWasStopHookCancelled = false
     },
   }

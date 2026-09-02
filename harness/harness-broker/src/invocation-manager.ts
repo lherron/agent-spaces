@@ -742,6 +742,10 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     if (!inv.capabilities.admission.classes.includes(record.class)) {
       return rejectSubmission(inv, record, 'capability', `unsupported:${record.class}`)
     }
+    const driverRejection = inv.driver.admissionRejectionReason?.(record.class)
+    if (driverRejection !== undefined) {
+      return rejectSubmission(inv, record, 'capability', driverRejection)
+    }
     if (req.freshContext === true) {
       return rejectSubmission(inv, record, 'capability', 'fresh-context-unsupported')
     }
@@ -1891,10 +1895,11 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
    * never issues tmux/process probes it cannot truthfully perform).
    */
   function buildLivenessView(inv: Invocation): InvocationLivenessView {
+    const driverHealth = inv.driver.runtimeHealth?.()
     return {
       mode: 'cached',
       checkedAt: inv.lastActivityAt ?? inv.startedAt ?? '',
-      driver: { state: inferDriverHealth(inv.state) },
+      driver: driverHealth ?? { state: inferDriverHealth(inv.state) },
       process: {
         brokerPid: process.pid,
         ...(inv.childPid !== undefined ? { childPid: inv.childPid } : {}),
@@ -1925,7 +1930,9 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     const lifecycle = buildLifecycleView(inv)
     if (lifecycle !== undefined) summary.lifecycle = lifecycle
     if (inv.terminalSurface !== undefined) summary.terminalSurface = inv.terminalSurface
-    if (opts?.probeLiveness === true) summary.liveness = buildLivenessView(inv)
+    if (opts?.probeLiveness === true || inv.driver.runtimeHealth?.().state === 'degraded') {
+      summary.liveness = buildLivenessView(inv)
+    }
     return summary
   }
 

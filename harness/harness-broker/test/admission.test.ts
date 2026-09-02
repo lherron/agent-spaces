@@ -288,6 +288,91 @@ describe('broker admission API', () => {
     expect(atomic.controller.activeInput?.inputId).toBe(preempt.submissionId)
   })
 
+  test('native wakeup degradation is snapshot-visible and rejects only preempt/interrupt', async () => {
+    const degraded = await setup('inv_admission_native_wakeup_lost', {
+      admissionRejectionReason: (admissionClass) =>
+        admissionClass === 'preempt' ? 'native_wakeup_lost' : undefined,
+      runtimeHealth: () => ({ state: 'degraded', reason: 'native_wakeup_lost' }),
+      interruptRejectionReason: 'native_wakeup_lost',
+    })
+
+    expect(await degraded.broker.snapshot({ invocationId: degraded.invocationId })).toMatchObject({
+      liveness: { driver: { state: 'degraded', reason: 'native_wakeup_lost' } },
+    })
+
+    const invoked = await degraded.broker.invoke({
+      invocationId: degraded.invocationId,
+      origin,
+      body: 'unaffected invoke',
+    })
+    expect(invoked.admission).toBe('admitted')
+    await flush()
+    expect(
+      (
+        await degraded.broker.steer({
+          invocationId: degraded.invocationId,
+          origin,
+          body: 'unaffected steer',
+        })
+      ).admission
+    ).toBe('admitted')
+    expect(
+      (
+        await degraded.broker.enqueue({
+          invocationId: degraded.invocationId,
+          origin,
+          body: 'unaffected enqueue',
+        })
+      ).admission
+    ).toBe('admitted')
+
+    const preempt = await degraded.broker.preempt({
+      invocationId: degraded.invocationId,
+      origin,
+      body: 'must reject',
+    })
+    expect(preempt).toMatchObject({ admission: 'rejected', reason: 'native_wakeup_lost' })
+    expect(eventsFor(degraded.events, 'admission.rejected').at(-1)?.payload).toMatchObject({
+      layer: 'capability',
+      reason: 'native_wakeup_lost',
+    })
+    expect(
+      await degraded.broker.interrupt({
+        invocationId: degraded.invocationId,
+        scope: 'turn',
+      })
+    ).toEqual({
+      accepted: false,
+      effect: 'unsupported',
+      reason: 'native_wakeup_lost',
+    })
+
+    degraded.controller.completeActiveTurn()
+    await flush()
+    degraded.controller.completeActiveTurn()
+    await flush()
+    expect(
+      (
+        await degraded.broker.invoke({
+          invocationId: degraded.invocationId,
+          origin,
+          body: 'invoke remains supported',
+        })
+      ).admission
+    ).toBe('admitted')
+
+    const fresh = await setup('inv_admission_native_wakeup_fresh')
+    expect(
+      (
+        await fresh.broker.preempt({
+          invocationId: fresh.invocationId,
+          origin,
+          body: 'fresh preempt',
+        })
+      ).admission
+    ).toBe('admitted')
+  })
+
   test('quiescence preempt waits for request evidence and accepts bounded drain slippage', async () => {
     const { broker, controller, events, invocationId } = await setup('inv_admission_quiescence', {
       preemptMode: 'quiescence',

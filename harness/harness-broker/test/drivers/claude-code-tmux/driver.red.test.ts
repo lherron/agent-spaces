@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { EventEmitter } from 'node:events'
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
@@ -76,10 +77,24 @@ type ClaudeCodeTmuxDriverFactory = (options: {
     }>
   }
   now: () => Date
+  watchTranscript?:
+    | ((
+        path: string,
+        options: { persistent: false },
+        listener: () => void
+      ) => EventEmitter & { close: () => void })
+    | undefined
 }) => {
   kind: string
   start: (spec: HarnessInvocationSpec, ctx: DriverContext) => Promise<{ ok: true }>
   applyInputNow: (input: InvocationInput) => Promise<{ turnId?: string | undefined }>
+  admissionRejectionReason: (admissionClass: string) => string | undefined
+  runtimeHealth: () => { state: 'healthy' } | { state: 'degraded'; reason: string }
+  interrupt: (req: { scope: 'turn' | 'invocation' }) => Promise<{
+    accepted: boolean
+    effect: string
+    reason?: string | undefined
+  }>
   stop: (req: { reason?: string | undefined }) => Promise<{ accepted: boolean; state: string }>
   dispose: () => Promise<void>
 }
@@ -719,9 +734,9 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     const root = mkdtempSync(join(tmpdir(), 'claude-transcript-watch-driver-'))
     const firstTranscript = join(root, 'first.jsonl')
     const secondTranscript = join(root, 'second.jsonl')
-    writeFileSync(firstTranscript, '')
     writeFileSync(secondTranscript, '')
     const hookSocket = '/tmp/harness-broker/claude-hooks.sock'
+    let watchCalls = 0
     const driver = createDriver({
       tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
       hooks: {
@@ -729,6 +744,10 @@ describe('claude-code-tmux driver RED lifecycle', () => {
           hookHandler = handler as (envelope: HookEnvelope) => Promise<void>
           return { socketPath: hookSocket, close: async () => undefined }
         },
+      },
+      watchTranscript: (path, options, listener) => {
+        watchCalls += 1
+        return watch(path, options, listener)
       },
       now,
     })
@@ -745,6 +764,11 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     try {
       await driver.start(claudeTmuxSpec(), createCtx(events, { terminalSurface: defaultLease() }))
       await sessionStart(firstTranscript)
+      // MTJE0CA6: SessionStart names the eventual path before Claude creates
+      // it. Absence is an expected lazy-arm state, never a warning.
+      expect(events.filter((event) => event.type === 'capture.warning')).toHaveLength(0)
+      expect(watchCalls).toBe(0)
+      writeFileSync(firstTranscript, '')
       await hookHandler?.({
         invocationId: 'inv_claude_tmux_1',
         generation: 1,
@@ -752,6 +776,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
         turnId: 'turn_7ec78cf3',
         hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'long tool turn' },
       })
+      expect(watchCalls).toBe(1)
 
       // Exact native SHAPES from 7ec78cf3 rows 153-154: Claude writes the
       // rejected tool result and interrupt marker after PreToolUse, then emits
@@ -893,6 +918,140 @@ describe('claude-code-tmux driver RED lifecycle', () => {
         )
       ).toHaveLength(1)
       expect(events.filter((event) => event.type === 'capture.warning')).toHaveLength(0)
+    } finally {
+      await driver.dispose()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('watcher error re-arms once and drains rows appended during the gap', async () => {
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
+    const events: InvocationEventEnvelope[] = []
+    const root = mkdtempSync(join(tmpdir(), 'claude-transcript-watch-rearm-'))
+    const transcriptPath = join(root, 'session.jsonl')
+    writeFileSync(transcriptPath, '')
+    const watchers: Array<EventEmitter & { close: () => void }> = []
+    const hookSocket = '/tmp/harness-broker/claude-hooks.sock'
+    const driver = createDriver({
+      tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
+      hooks: {
+        listen: async (handler) => {
+          hookHandler = handler as (envelope: HookEnvelope) => Promise<void>
+          return { socketPath: hookSocket, close: async () => undefined }
+        },
+      },
+      watchTranscript: (_path, _options, _listener) => {
+        const watcher = new EventEmitter() as EventEmitter & { close: () => void }
+        watcher.close = () => undefined
+        watchers.push(watcher)
+        return watcher
+      },
+      now,
+    })
+
+    try {
+      await driver.start(claudeTmuxSpec(), createCtx(events, { terminalSurface: defaultLease() }))
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        hookData: { hook_event_name: 'SessionStart', transcript_path: transcriptPath },
+      })
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        turnId: 'turn_rearm_gap',
+        hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'rearm gap' },
+      })
+      expect(watchers).toHaveLength(1)
+
+      appendFileSync(
+        transcriptPath,
+        `${JSON.stringify({
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: '[Request interrupted by user]' }],
+          },
+        })}\n`
+      )
+      watchers[0]?.emit('error', new Error('injected watcher loss'))
+
+      await waitFor(
+        () =>
+          events.some(
+            (event) => event.type === 'turn.interrupted' && event.turnId === 'turn_rearm_gap'
+          ),
+        're-arm gap drain'
+      )
+      expect(watchers).toHaveLength(2)
+      expect(events.filter((event) => event.type === 'capture.warning')).toHaveLength(0)
+      expect(driver.runtimeHealth()).toEqual({ state: 'healthy' })
+    } finally {
+      await driver.dispose()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('watcher re-arm failure degrades once and refuses preempt/interrupt typed', async () => {
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
+    const events: InvocationEventEnvelope[] = []
+    const root = mkdtempSync(join(tmpdir(), 'claude-transcript-watch-degraded-'))
+    const transcriptPath = join(root, 'session.jsonl')
+    writeFileSync(transcriptPath, '')
+    const watchers: Array<EventEmitter & { close: () => void }> = []
+    const hookSocket = '/tmp/harness-broker/claude-hooks.sock'
+    let watchCalls = 0
+    const driver = createDriver({
+      tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
+      hooks: {
+        listen: async (handler) => {
+          hookHandler = handler as (envelope: HookEnvelope) => Promise<void>
+          return { socketPath: hookSocket, close: async () => undefined }
+        },
+      },
+      watchTranscript: (_path, _options, _listener) => {
+        watchCalls += 1
+        if (watchCalls === 2) throw new Error('injected re-arm failure')
+        const watcher = new EventEmitter() as EventEmitter & { close: () => void }
+        watcher.close = () => undefined
+        watchers.push(watcher)
+        return watcher
+      },
+      now,
+    })
+
+    try {
+      await driver.start(claudeTmuxSpec(), createCtx(events, { terminalSurface: defaultLease() }))
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        hookData: { hook_event_name: 'SessionStart', transcript_path: transcriptPath },
+      })
+      expect(watchers).toHaveLength(1)
+      watchers[0]?.emit('error', new Error('injected watcher loss'))
+
+      expect(events.filter((event) => event.type === 'capture.warning')).toHaveLength(1)
+      expect(events.find((event) => event.type === 'capture.warning')?.payload).toMatchObject({
+        kind: 'native_wakeup_lost',
+      })
+      expect(driver.runtimeHealth()).toEqual({
+        state: 'degraded',
+        reason: 'native_wakeup_lost',
+      })
+      expect(driver.admissionRejectionReason('preempt')).toBe('native_wakeup_lost')
+      expect(driver.admissionRejectionReason('exclusive')).toBeUndefined()
+      expect(await driver.interrupt({ scope: 'turn' })).toEqual({
+        accepted: false,
+        effect: 'unsupported',
+        reason: 'native_wakeup_lost',
+      })
     } finally {
       await driver.dispose()
       rmSync(root, { recursive: true, force: true })

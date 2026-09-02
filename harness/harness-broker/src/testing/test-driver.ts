@@ -7,6 +7,7 @@ import type {
   InvocationInterruptResponse,
   InvocationStopRequest,
   InvocationStopResponse,
+  SubmissionClass,
   ToolCallId,
   TurnId,
 } from 'spaces-harness-broker-protocol'
@@ -70,6 +71,9 @@ export interface TestDriverOptions {
   suppressTurnStarted?: boolean | undefined
   bracketMintingMode?: BracketMintingMode | undefined
   preemptMode?: import('../drivers/driver').PreemptMode | null | undefined
+  admissionRejectionReason?: ((admissionClass: SubmissionClass) => string | undefined) | undefined
+  runtimeHealth?: Driver['runtimeHealth'] | undefined
+  interruptRejectionReason?: string | undefined
 }
 
 export interface TestDriverHandle {
@@ -309,6 +313,11 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
     preemptMode,
     steerLandingEvidence: options.supportsSteer ? 'asserted' : null,
 
+    ...(options.admissionRejectionReason !== undefined
+      ? { admissionRejectionReason: options.admissionRejectionReason }
+      : {}),
+    ...(options.runtimeHealth !== undefined ? { runtimeHealth: options.runtimeHealth } : {}),
+
     probeAdmissionState() {
       return { harnessLocalQueueDepth }
     },
@@ -353,6 +362,13 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
     },
 
     async interrupt(_req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
+      if (options.interruptRejectionReason !== undefined) {
+        return {
+          accepted: false,
+          effect: 'unsupported',
+          reason: options.interruptRejectionReason,
+        }
+      }
       if (activeTurnId === undefined) {
         return { accepted: false, effect: 'no_active_turn' }
       }
