@@ -78,6 +78,25 @@ export interface ParityReport {
     detail?: string
   }>
   captureHalts: Array<{ invocationId: string; rawRecordId: string; nativeType: string }>
+  /**
+   * Events whose provenance claims a `provider-*` source but names no committed
+   * record (T-07870 §4). A provider claim nothing on disk can confirm is
+   * unfalsifiable, so this is a report FAILURE, not a note.
+   */
+  unrecordedProviderClaims: Array<{
+    invocationId: string
+    seq: number
+    type: string
+    sourceKind: EventSourceKind
+    driver?: string | undefined
+  }>
+  /** Provider-tagged events naming a record the raw journal index does not hold. */
+  danglingRecordClaims: Array<{
+    invocationId: string
+    seq: number
+    type: string
+    rawRecordId: string
+  }>
   warnings: Array<{ invocationId: string; seq: number; kind?: string; message: string }>
 }
 
@@ -208,6 +227,35 @@ export function buildReport(dir: string): ParityReport {
     invocations.add(row.invocation_id)
   }
 
+  const knownRecordIds = new Set(rows.map((row) => row.raw_record_id))
+  const unrecordedProviderClaims: ParityReport['unrecordedProviderClaims'] = []
+  const danglingRecordClaims: ParityReport['danglingRecordClaims'] = []
+  for (const event of events) {
+    const provenance = event.provenance
+    if (provenance === undefined) continue
+    if (!provenance.sourceKind.startsWith('provider-')) continue
+    if (provenance.rawRecordId === undefined) {
+      unrecordedProviderClaims.push({
+        invocationId: event.invocationId,
+        seq: event.seq,
+        type: event.type,
+        sourceKind: provenance.sourceKind,
+        ...(event.driver?.kind !== undefined ? { driver: event.driver.kind } : {}),
+      })
+      continue
+    }
+    // A named record that the index does not hold is the same lie one step
+    // further on: the reader who opens the journal finds nothing.
+    if (knownRecordIds.size > 0 && !knownRecordIds.has(provenance.rawRecordId)) {
+      danglingRecordClaims.push({
+        invocationId: event.invocationId,
+        seq: event.seq,
+        type: event.type,
+        rawRecordId: provenance.rawRecordId,
+      })
+    }
+  }
+
   const warnings = events
     .filter((event) => event.type === 'capture.warning')
     .map((event) => {
@@ -245,6 +293,8 @@ export function buildReport(dir: string): ParityReport {
         ...(r.detail !== null ? { detail: r.detail } : {}),
       })),
     captureHalts: halts,
+    unrecordedProviderClaims,
+    danglingRecordClaims,
     warnings,
   }
 }
@@ -309,6 +359,26 @@ export function renderReport(report: ParityReport): string {
       lines.push(`  ${row.invocationId} ${row.rawRecordId} ${row.nativeType}`)
     }
   }
+  if (report.unrecordedProviderClaims.length > 0) {
+    lines.push('')
+    lines.push(
+      `provider-tagged events naming NO record: ${report.unrecordedProviderClaims.length}   <-- provenance truthfulness violation`
+    )
+    for (const claim of report.unrecordedProviderClaims.slice(0, 20)) {
+      lines.push(
+        `  seq ${claim.seq} ${claim.type} [${claim.driver ?? '?'}] claims ${claim.sourceKind}`
+      )
+    }
+  }
+  if (report.danglingRecordClaims.length > 0) {
+    lines.push('')
+    lines.push(
+      `provider-tagged events naming a MISSING record: ${report.danglingRecordClaims.length}`
+    )
+    for (const claim of report.danglingRecordClaims.slice(0, 20)) {
+      lines.push(`  seq ${claim.seq} ${claim.type} -> ${claim.rawRecordId}`)
+    }
+  }
   if (report.captureHalts.length > 0) {
     lines.push('')
     lines.push('capture HALTED:')
@@ -360,6 +430,8 @@ if (import.meta.main) {
   const clean =
     report.pendingRawRecords.length === 0 &&
     report.captureHalts.length === 0 &&
+    report.unrecordedProviderClaims.length === 0 &&
+    report.danglingRecordClaims.length === 0 &&
     report.events.total === report.events.withProvenance
   process.exit(clean ? 0 : 1)
 }

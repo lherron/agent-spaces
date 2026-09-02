@@ -156,11 +156,72 @@ function raceWithTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<Rac
 }
 
 /**
- * Handle a permission request from the Codex app-server process.
+ * The permission ask, opened but not yet answered.
  *
- * Decision transport is JSON-RPC request/response (broker→client); the
- * `permission.requested` / `permission.resolved` events are audit only. There
- * is no branch where a missing default approves — default-deny everywhere.
+ * Splitting the ask from the answer is what lets the driver commit the provider's
+ * server->client request frame FIRST and mint `permission.requested` from inside
+ * that record's normalization (T-07870 §4): the ask is provider evidence and now
+ * names the record it came from, while the answer is a broker decision made
+ * later, asynchronously, and says so.
+ */
+export interface OpenedPermissionRequest {
+  permissionRequestId: PermissionRequestId
+  kind: string
+  subjectDisplay: Record<string, unknown>
+  defaultDecision: 'allow' | 'deny'
+  deadlineMs?: number | undefined
+  policy: PermissionPolicy
+  request: JsonRpcRequest
+}
+
+/**
+ * Classify and identify a permission ask WITHOUT emitting anything. Pure: the
+ * caller decides where the resulting `permission.requested` payload is emitted
+ * (and therefore what provenance it carries).
+ */
+export function openPermissionRequest(
+  request: JsonRpcRequest,
+  handlerCtx: PermissionHandlerContext
+): OpenedPermissionRequest {
+  const { ctx, driver } = handlerCtx
+  const policy = driver.permissionPolicy ?? ({ mode: 'deny' } as PermissionPolicy)
+  const policyWithDefault = policy as PermissionPolicy & { defaultDecision?: 'allow' | 'deny' }
+  const kind = permissionKind(request.method)
+  return {
+    permissionRequestId: handlerCtx.permissionRequestIds.next(ctx.invocationId),
+    kind,
+    subjectDisplay: buildSubjectDisplay(kind, request.params),
+    defaultDecision:
+      policyWithDefault.defaultDecision ?? (policy.mode === 'allow' ? 'allow' : 'deny'),
+    ...(policy.timeoutMs !== undefined ? { deadlineMs: policy.timeoutMs } : {}),
+    policy,
+    request,
+  }
+}
+
+/** The `permission.requested` audit payload for an opened ask. */
+export function permissionRequestedPayload(opened: OpenedPermissionRequest): {
+  permissionRequestId: PermissionRequestId
+  kind: string
+  subjectDisplay: Record<string, unknown>
+  defaultDecision: 'allow' | 'deny'
+  deadlineMs?: number | undefined
+} {
+  return {
+    permissionRequestId: opened.permissionRequestId,
+    kind: opened.kind,
+    subjectDisplay: opened.subjectDisplay,
+    defaultDecision: opened.defaultDecision,
+    ...(opened.deadlineMs !== undefined ? { deadlineMs: opened.deadlineMs } : {}),
+  }
+}
+
+/**
+ * Answer an opened permission ask and return the provider-facing decision.
+ *
+ * Decision transport is JSON-RPC request/response (broker->client); the
+ * `permission.resolved` event is audit only. There is no branch where a missing
+ * default approves — default-deny everywhere.
  *
  * Modes:
  * - deny: resolve deny by policy.
@@ -170,56 +231,45 @@ function raceWithTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<Rac
  *     transport is wired): emit a diagnostic and deny by policy.
  *   - otherwise ask the client via `ctx.requestPermission`, bounded by
  *     `timeoutMs`:
- *       - timeout → defaultDecision (decidedBy `timeout`)
- *       - handler error → defaultDecision (decidedBy `api`)
- *       - valid decision → the client's decision (decidedBy `user`)
+ *       - timeout -> defaultDecision (decidedBy `timeout`)
+ *       - handler error -> defaultDecision (decidedBy `api`)
+ *       - valid decision -> the client's decision (decidedBy `user`)
  *     where a missing defaultDecision means deny.
+ *
+ * `emitResolved` is supplied by the caller so the audit event carries the
+ * caller's provenance: the answer is a BROKER decision that names the committed
+ * request record it answers, never a provider-reported fact (T-07870 §4).
  */
-export async function handlePermissionRequest(
-  request: JsonRpcRequest,
-  handlerCtx: PermissionHandlerContext
+export async function resolvePermissionRequest(
+  opened: OpenedPermissionRequest,
+  handlerCtx: PermissionHandlerContext,
+  emit: {
+    resolved: (payload: {
+      permissionRequestId: PermissionRequestId
+      decision: 'allow' | 'deny'
+      decidedBy: 'policy' | 'user' | 'api' | 'timeout'
+    }) => void
+    diagnostic: (payload: { level: 'warn'; message: string; source: 'broker' }) => void
+  }
 ): Promise<unknown> {
-  const { ctx, driver } = handlerCtx
-  const policy = driver.permissionPolicy ?? ({ mode: 'deny' } as PermissionPolicy)
+  const { ctx } = handlerCtx
+  const { policy, permissionRequestId, defaultDecision } = opened
   const mode = policy.mode
-  const extra = { turnId: handlerCtx.currentTurnId, inputId: handlerCtx.currentInputId }
-
-  const policyWithDefault = policy as PermissionPolicy & { defaultDecision?: 'allow' | 'deny' }
-  const defaultDecision: 'allow' | 'deny' =
-    policyWithDefault.defaultDecision ?? (mode === 'allow' ? 'allow' : 'deny')
-
-  const kind = permissionKind(request.method)
-  const permissionRequestId = handlerCtx.permissionRequestIds.next(ctx.invocationId)
-  const subjectDisplay = buildSubjectDisplay(kind, request.params)
-  const deadlineMs = policy.timeoutMs
-
-  // Audit: a permission decision was requested.
-  ctx.emit(
-    'permission.requested',
-    {
-      permissionRequestId,
-      kind,
-      subjectDisplay,
-      defaultDecision,
-      ...(deadlineMs !== undefined ? { deadlineMs } : {}),
-    },
-    extra
-  )
 
   const resolve = (
     decision: 'allow' | 'deny',
     decidedBy: 'policy' | 'user' | 'api' | 'timeout'
   ): { decision: 'approve' | 'decline' } => {
-    ctx.emit('permission.resolved', { permissionRequestId, decision, decidedBy }, extra)
+    emit.resolved({ permissionRequestId, decision, decidedBy })
     return { decision: decision === 'allow' ? 'approve' : 'decline' }
   }
 
-  // mode: deny → decline by policy
+  // mode: deny -> decline by policy
   if (mode === 'deny') {
     return resolve('deny', 'policy')
   }
 
-  // mode: allow → approve by policy
+  // mode: allow -> approve by policy
   if (mode === 'allow') {
     return resolve('allow', 'policy')
   }
@@ -227,16 +277,12 @@ export async function handlePermissionRequest(
   // mode: ask-client
   const clientCanHandlePermissions = ctx.clientCapabilities.permissionRequests === true
   if (!clientCanHandlePermissions || !ctx.requestPermission) {
-    ctx.emit(
-      'diagnostic',
-      {
-        level: 'warn',
-        message:
-          'permissionRequests capability not negotiated by client; denying by policy (default-deny)',
-        source: 'broker',
-      },
-      extra
-    )
+    emit.diagnostic({
+      level: 'warn',
+      message:
+        'permissionRequests capability not negotiated by client; denying by policy (default-deny)',
+      source: 'broker',
+    })
     return resolve('deny', 'policy')
   }
 
@@ -244,12 +290,12 @@ export async function handlePermissionRequest(
     invocationId: ctx.invocationId,
     ...(handlerCtx.currentTurnId !== undefined ? { turnId: handlerCtx.currentTurnId } : {}),
     permissionRequestId,
-    kind,
+    kind: opened.kind,
     // The bounded display subject — the same positive projection persisted for
-    // audit. The raw native payload never crosses the broker→client boundary.
-    subject: subjectDisplay,
+    // audit. The raw native payload never crosses the broker->client boundary.
+    subject: opened.subjectDisplay,
     defaultDecision,
-    ...(deadlineMs !== undefined ? { deadlineMs } : {}),
+    ...(opened.deadlineMs !== undefined ? { deadlineMs: opened.deadlineMs } : {}),
   }
 
   // Broker-owned lifecycle (C2): the broker holds the pending request until an

@@ -160,11 +160,54 @@ reader), which is why this driver is the doc's first broad cutover candidate
 | --- | --- | --- |
 | `turn-bracket` (hook) | the INITIAL `turn.started(source:'broker-delivery')` | the broker manager, asserted at delivery — the bounded accepted risk `agent-spaces.pi-delivery-asserted-turn-start`. Every later bracket comes from pi's `turn_start`/`turn_end` hooks. |
 
-### codex-app-server, agent-harness-tmux, pi-sdk
+### codex-app-server
 
-No exceptions. app-server and agent-harness read a single native protocol
-stream; pi-sdk runs in-process with no hook channel, so its delivery-asserted
-bracket is the whole family.
+| Family (declared) | Exception | Source of the exception |
+| --- | --- | --- |
+| `permission` (native) | `permission.resolved` | the BROKER (or its client) decides it, asynchronously, after the provider's request record is dispositioned. It carries `sourceKind: 'broker'` and names the committed request record it answers, so the audit pair stays followable both ways (T-07870) |
+| `continuation` (native) | `continuation.updated` for the thread id | minted by the driver from the `thread/start` response, not read off a committed notification — `broker`, because no record backs it |
+| `diagnostic` (native) | the stderr-line and lifecycle diagnostics | minted by the driver, not normalized from a notification — `broker` |
+
+`permission.requested` IS native and now names its record: the server→client
+JSON-RPC request frame is committed exactly like a notification and the ask is
+minted from inside that record's normalization.
+
+### agent-harness-tmux, pi-sdk
+
+No exceptions. agent-harness reads a single native protocol stream; pi-sdk runs
+in-process with no hook channel, so its delivery-asserted bracket is the whole
+family.
+
+**Named gap — neither driver is capture-wired.** They commit no raw records, so
+under the provenance rule below their ledger events report `sourceKind: 'broker'`
+rather than the `native` their declaration names. The declaration is unchanged
+and still states where the evidence comes from; what is missing is a journal to
+substantiate it, exactly as the `†` cells mark families that are declared but
+not emitted.
+
+## Provenance truthfulness: a provider claim must name a record
+
+A `provider-*` `sourceKind` claims the provider's own transcript or protocol
+stream reported the fact, and §7.1 makes the committed raw record the only thing
+that can substantiate that claim. **An event that claims a provider source and
+names no `rawRecordId` is unfalsifiable** — there is nothing on disk to open.
+That is not hypothetical: it is how T-07868's in-memory-journal defect stayed
+invisible under a green suite, and T-07868 shipped seven codex-app-server events
+in exactly that state.
+
+The rule is mechanical and cross-driver:
+
+- any event whose `provenance.sourceKind` is `provider-*` MUST carry a
+  `rawRecordId` naming a committed record;
+- anything minted from a broker-side path carries `sourceKind: 'broker'`.
+
+It is enforced at `buildEventExtra` — the one seam every event passes through —
+so no driver can opt out, and a provider claim with no record is degraded to
+`broker` with its `nativeType` and normalizer preserved. The degrade is a floor,
+not a fix: `scripts/capture-parity.ts` FAILS a report that contains one (and one
+that names a record the index does not hold), and
+`test/capture/provenance-truthfulness.test.ts` drives every shipped driver's real
+declaration through the seam.
 
 ## Native-type vocabularies
 

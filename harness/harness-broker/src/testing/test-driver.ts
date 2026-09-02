@@ -2,6 +2,8 @@ import type {
   HarnessInvocationSpec,
   InputId,
   InvocationCapabilities,
+  InvocationEvent,
+  InvocationEventType,
   InvocationInput,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
@@ -54,6 +56,16 @@ export interface TestDriverController {
    * than a stand-in.
    */
   captureRow(nativeType: string, body: unknown, outcome: NormalizeOutcome): void
+  /**
+   * Emit an arbitrary driver event through the REAL manager seam. The
+   * cross-driver provenance invariant needs one event per family, and the
+   * shaped helpers above cover only the turn/tool lifecycle.
+   */
+  emitRaw(
+    type: InvocationEventType,
+    payload: unknown,
+    extra?: Parameters<DriverContext['emitEvent']>[1]
+  ): void
   setHarnessLocalQueueDepth(depth: number): void
   startHarnessLocalTurn(inputId: string): void
   notifyAdmissionStateChanged(): void
@@ -76,6 +88,15 @@ export interface TestDriverOptions {
   runtimeHealth?: Driver['runtimeHealth'] | undefined
   interruptRejectionReason?: string | undefined
   deferInterruptTerminal?: boolean | undefined
+  /**
+   * Stand in for a REAL driver's declaration. The cross-driver provenance
+   * invariant (T-07870) has to exercise every shipped driver's declared
+   * authority through the real manager seam, and those declarations are the
+   * only part of a driver that decides what provenance a bare emit gets.
+   */
+  evidenceAuthority?: Driver['evidenceAuthority'] | undefined
+  nativeSourceKind?: Driver['nativeSourceKind'] | undefined
+  kind?: string | undefined
 }
 
 export interface TestDriverHandle {
@@ -167,6 +188,12 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
   }
 
   const controller: TestDriverController = {
+    emitRaw(type, payload, extra) {
+      // The pairing of type to payload is the caller's to get right here: this
+      // seam exists so a test can emit ONE event per family without a shaped
+      // helper for each, and the envelope validator rejects a mismatch anyway.
+      requireCtx().emitEvent({ type, payload } as InvocationEvent, extra)
+    },
     inputs,
     steeredInputs,
 
@@ -311,11 +338,11 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
   }
 
   const driver: Driver = {
-    kind: 'test-driver',
+    kind: options.kind ?? 'test-driver',
     version: '0.1.0',
     bracketMintingMode: options.bracketMintingMode ?? 'delivery-asserted',
-    evidenceAuthority: BROKER_ONLY_AUTHORITY,
-    nativeSourceKind: 'provider-jsonl',
+    evidenceAuthority: options.evidenceAuthority ?? BROKER_ONLY_AUTHORITY,
+    nativeSourceKind: options.nativeSourceKind ?? 'provider-jsonl',
     preemptMode,
     steerLandingEvidence: options.supportsSteer ? 'asserted' : null,
 

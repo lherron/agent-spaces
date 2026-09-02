@@ -50,7 +50,13 @@ interface RpcHandlers {
    * committed record is derived from.
    */
   onNotification?: ((message: JsonRpcNotification, rawFrame: string) => void) | undefined
-  onRequest?: ((message: JsonRpcRequest) => Promise<unknown>) | undefined
+  /**
+   * Server->client request. The verbatim wire line is passed alongside the
+   * parsed message for the same reason `onNotification` gets it: the raw bytes
+   * are what the capture journal commits, and a re-encode is not the provider's
+   * copy (T-07870).
+   */
+  onRequest?: ((message: JsonRpcRequest, rawFrame?: string) => Promise<unknown>) | undefined
   onMessage?: ((message: JsonRpcMessage) => void) | undefined
   onError?: ((error: Error) => void) | undefined
 }
@@ -158,7 +164,7 @@ export class CodexRpcClient {
     }
 
     if (this.isRequest(message)) {
-      await this.handleRequest(message)
+      await this.handleRequest(message, trimmed)
       return
     }
 
@@ -204,7 +210,7 @@ export class CodexRpcClient {
     pending.resolve(message.result)
   }
 
-  private async handleRequest(message: JsonRpcRequest): Promise<void> {
+  private async handleRequest(message: JsonRpcRequest, rawFrame?: string): Promise<void> {
     if (!this.handlers.onRequest) {
       await this.writeMessage({
         jsonrpc: '2.0',
@@ -215,7 +221,7 @@ export class CodexRpcClient {
     }
 
     try {
-      const result = await this.handlers.onRequest(message)
+      const result = await this.handlers.onRequest(message, rawFrame)
       await this.writeMessage({
         jsonrpc: '2.0',
         id: message.id,

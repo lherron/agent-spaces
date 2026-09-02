@@ -630,6 +630,31 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       normalizer: { name: inv.driver.kind, version: inv.driver.version },
     }
   }
+
+  /**
+   * Provenance truthfulness, enforced for EVERY driver at the one seam every
+   * event passes through (T-07870, T-07853 §7.2).
+   *
+   * A `provider-*` `sourceKind` is a claim that the provider's own transcript or
+   * protocol stream reported this fact, and §7.1 makes the committed raw record
+   * the only thing that can substantiate that claim. An envelope that claims a
+   * provider source but names no record is unfalsifiable: nothing on disk can be
+   * opened to check it, which is exactly how a well-formed ledger stayed
+   * indistinguishable from a working one under T-07868.
+   *
+   * So the claim degrades to what is actually true of such an event — the broker
+   * minted it from a broker-side path — while the driver's `nativeType` and
+   * normalizer are preserved, because those ARE known. This is a floor, not a
+   * fix: the fix is to commit the record (what the codex-app-server permission
+   * path now does), and `scripts/capture-parity.ts` plus
+   * `test/capture/provenance-truthfulness.test.ts` fail on any violation rather
+   * than letting the degrade hide one.
+   */
+  function truthfulProvenance(provenance: EventProvenance): EventProvenance {
+    if (!provenance.sourceKind.startsWith('provider-')) return provenance
+    if (provenance.rawRecordId !== undefined) return provenance
+    return { ...provenance, sourceKind: 'broker' }
+  }
   const authorizeSubmission = options.authorizeSubmission ?? (() => true)
   const isOperator =
     options.isOperator ??
@@ -1512,10 +1537,11 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     // are DISPOSITIONS — on claude-code-tmux they are minted from session-JSONL
     // queue evidence (T-07849 rev 11) and carry that row's real record — so the
     // schema requires provenance on them without dictating its source.
-    const suppliedProvenance =
+    const suppliedProvenance = truthfulProvenance(
       extra?.provenance ??
-      (BROKER_DECISION_TYPES.has(type) ? BROKER_PROVENANCE : undefined) ??
-      declaredProvenance(inv, type, extra?.driver?.rawType)
+        (BROKER_DECISION_TYPES.has(type) ? BROKER_PROVENANCE : undefined) ??
+        declaredProvenance(inv, type, extra?.driver?.rawType)
+    )
     const withProvenance: InvocationEventExtra = { ...extra, provenance: suppliedProvenance }
     if (
       type !== 'turn.started' ||

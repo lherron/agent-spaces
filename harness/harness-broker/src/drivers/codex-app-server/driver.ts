@@ -48,12 +48,22 @@ import {
 } from './event-map'
 import { buildCodexInput, buildTurnStartParams } from './input'
 import {
+  type OpenedPermissionRequest,
   type PermissionHandlerContext,
   createPermissionRequestIdAllocator,
-  handlePermissionRequest,
+  openPermissionRequest,
+  permissionRequestedPayload,
+  resolvePermissionRequest,
 } from './permissions'
 import { buildRendererLaunchCommand } from './renderer'
-import { CodexRpcClient, CodexRpcError, type JsonRpcNotification } from './rpc-client'
+import {
+  CodexRpcClient,
+  CodexRpcError,
+  type JsonRpcNotification,
+  type JsonRpcRequest,
+} from './rpc-client'
+
+const CODEX_APP_SERVER_DRIVER_VERSION = '0.1.0'
 
 const bunRuntime =
   typeof Bun !== 'undefined' ? (Bun as unknown as { execPath?: string }) : undefined
@@ -169,6 +179,22 @@ export function createCodexAppServerDriver(): Driver {
     }
   }
 
+  /**
+   * Provenance for a fact this driver MINTED rather than read off a committed
+   * provider record: the stderr/lifecycle diagnostics and the thread-id
+   * continuation. Under T-07870 a `provider-*` claim must name a record, and
+   * these have none to name — the broker-side path is what produced them, so
+   * that is what they say. `rawRecordId` is carried when the mint is
+   * nevertheless traceable to a committed record (the permission resolution).
+   */
+  function selfMintedProvenance(rawRecordId?: string): EventProvenance {
+    return {
+      ...(rawRecordId !== undefined ? { rawRecordId } : {}),
+      sourceKind: 'broker',
+      normalizer: { name: CODEX_DRIVER_KIND, version: CODEX_APP_SERVER_DRIVER_VERSION },
+    }
+  }
+
   /** The driver's emit seam for facts derived from a native notification. */
   function emitCaptured<K extends InvocationEventType>(
     type: K,
@@ -178,7 +204,7 @@ export function createCodexAppServerDriver(): Driver {
     mintedForRecord += 1
     return requireCtx().emit(type, payload, {
       ...extra,
-      ...(activeProvenance !== undefined ? { provenance: activeProvenance } : {}),
+      provenance: activeProvenance ?? selfMintedProvenance(),
     })
   }
 
@@ -189,7 +215,7 @@ export function createCodexAppServerDriver(): Driver {
     mintedForRecord += 1
     return requireCtx().emitEvent(event, {
       ...extra,
-      ...(activeProvenance !== undefined ? { provenance: activeProvenance } : {}),
+      provenance: activeProvenance ?? selfMintedProvenance(),
     })
   }
 
@@ -384,6 +410,85 @@ export function createCodexAppServerDriver(): Driver {
       },
       normalizeCommittedRecord
     )
+  }
+
+  /**
+   * A server->client JSON-RPC REQUEST (T-07870 §4).
+   *
+   * These are permission asks, and until now they were the only provider input
+   * this driver answered without committing: `permission.requested` claimed a
+   * `provider-jsonrpc` source while naming no record, which is a claim nothing
+   * on disk could confirm or refute. The frame is now committed exactly like a
+   * notification, and the ask is minted from INSIDE that record's
+   * normalization, so it names the bytes it came from.
+   *
+   * The ANSWER is not provider evidence — the broker (or its client) decides it,
+   * asynchronously, after the record is dispositioned. It therefore carries
+   * `sourceKind: 'broker'` while still naming the request record it answers, so
+   * the audit pair stays followable in both directions.
+   *
+   * Note this driver answers EVERY server->client request through the permission
+   * path (pre-existing behaviour: `permissionKind` falls back to `tool`), so the
+   * record is always normalized rather than classified against a method table.
+   */
+  async function handleServerRequest(
+    request: JsonRpcRequest,
+    rawFrame: string | undefined,
+    permCtx: PermissionHandlerContext
+  ): Promise<unknown> {
+    const opened: OpenedPermissionRequest = openPermissionRequest(request, permCtx)
+    const extra = { turnId: permCtx.currentTurnId, inputId: permCtx.currentInputId }
+    const frame = rawFrame ?? JSON.stringify(canonicalRequestFrame(request))
+    const capture = ctx?.capture
+    let requestRecordId: string | undefined
+
+    if (capture === undefined) {
+      // No capture gate (isolated driver unit harness): no journal exists, so
+      // the ask has no record to name and says `broker` like every other
+      // self-minted event here.
+      ungatedFrames.push(frame)
+      requireCtx().emit('permission.requested', permissionRequestedPayload(opened), {
+        ...extra,
+        provenance: selfMintedProvenance(),
+      })
+    } else {
+      notificationSequence += 1
+      capture.ingest(
+        {
+          provider: 'openai',
+          driverKind: CODEX_DRIVER_KIND,
+          sourceKind: 'provider-jsonrpc',
+          sourceKey: captureSourceKey(),
+          sourceCursor: { nativeSequence: String(notificationSequence) },
+          nativeType: request.method,
+          nativeId: String(request.id),
+          rawBytes: Buffer.from(frame, 'utf8'),
+          ...(threadId !== undefined ? { correlationHints: { threadId } } : {}),
+        },
+        (captured) => {
+          requestRecordId = captured.record.rawRecordId
+          return withProvenance(captured.provenance(), () => {
+            emitCaptured('permission.requested', permissionRequestedPayload(opened), extra)
+            return { disposition: 'normalized', detail: request.method }
+          })
+        }
+      )
+    }
+
+    return resolvePermissionRequest(opened, permCtx, {
+      resolved: (payload) => {
+        requireCtx().emit('permission.resolved', payload, {
+          ...extra,
+          provenance: selfMintedProvenance(requestRecordId),
+        })
+      },
+      diagnostic: (payload) => {
+        requireCtx().emit('diagnostic', payload, {
+          ...extra,
+          provenance: selfMintedProvenance(requestRecordId),
+        })
+      },
+    })
   }
 
   /**
@@ -665,7 +770,7 @@ export function createCodexAppServerDriver(): Driver {
 
   return {
     kind: 'codex-app-server',
-    version: '0.1.0',
+    version: CODEX_APP_SERVER_DRIVER_VERSION,
     bracketMintingMode: 'delivery-acknowledged',
     evidenceAuthority: CODEX_APP_SERVER_AUTHORITY,
     nativeSourceKind: 'provider-jsonrpc',
@@ -788,7 +893,7 @@ export function createCodexAppServerDriver(): Driver {
 
       const rpcClient = new CodexRpcClient(proc, {
         onNotification,
-        onRequest: async (request) => {
+        onRequest: async (request, rawFrame) => {
           const permCtx: PermissionHandlerContext = {
             ctx: requireCtx(),
             driver: activeDriverSpec,
@@ -796,7 +901,7 @@ export function createCodexAppServerDriver(): Driver {
             currentInputId,
             permissionRequestIds,
           }
-          return handlePermissionRequest(request, permCtx)
+          return handleServerRequest(request, rawFrame, permCtx)
         },
         onError: (error) => {
           if (starting) {
@@ -1209,6 +1314,16 @@ function canonicalFrame(notification: JsonRpcNotification): Record<string, unkno
   return notification.params !== undefined
     ? { jsonrpc: '2.0', method: notification.method, params: notification.params }
     : { jsonrpc: '2.0', method: notification.method }
+}
+
+/** The same re-encode for a server->client REQUEST, which also carries an id. */
+function canonicalRequestFrame(request: JsonRpcRequest): Record<string, unknown> {
+  return {
+    jsonrpc: '2.0',
+    id: request.id,
+    method: request.method,
+    ...(request.params !== undefined ? { params: request.params } : {}),
+  }
 }
 
 /**

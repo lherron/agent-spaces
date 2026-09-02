@@ -11,7 +11,9 @@ import {
   type PermissionHandlerContext,
   buildSubjectDisplay,
   createPermissionRequestIdAllocator,
-  handlePermissionRequest,
+  openPermissionRequest,
+  permissionRequestedPayload,
+  resolvePermissionRequest,
 } from '../../../src/drivers/codex-app-server/permissions'
 import type { JsonRpcRequest } from '../../../src/drivers/codex-app-server/rpc-client'
 import type { DriverContext } from '../../../src/drivers/driver'
@@ -94,13 +96,24 @@ async function runPermissionScenario(options: {
     permissionPolicy: options.permissionPolicy,
   }
 
-  const response = await handlePermissionRequest(options.request ?? codexPermissionRequest, {
+  const handlerCtx: PermissionHandlerContext = {
     ctx,
     driver,
     currentTurnId: turnId,
     currentInputId: inputId,
     permissionRequestIds: options.permissionRequestIds ?? createPermissionRequestIdAllocator(),
-  } satisfies PermissionHandlerContext)
+  }
+  // The ask and the answer are separate seams under T-07870 (the driver commits
+  // the provider's request frame between them). This composes them exactly as
+  // the driver does, minus the capture gate, so the audit contract below is
+  // asserted over the same emissions a live invocation produces.
+  const extra = { turnId, inputId }
+  const opened = openPermissionRequest(options.request ?? codexPermissionRequest, handlerCtx)
+  ctx.emit('permission.requested', permissionRequestedPayload(opened), extra)
+  const response = await resolvePermissionRequest(opened, handlerCtx, {
+    resolved: (payload) => ctx.emit('permission.resolved', payload, extra),
+    diagnostic: (payload) => ctx.emit('diagnostic', payload, extra),
+  })
 
   return { response, events, permissionRequests }
 }
