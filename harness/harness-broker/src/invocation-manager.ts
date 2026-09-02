@@ -1607,10 +1607,15 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         declaredProvenance(inv, type, extra?.driver?.rawType)
     )
     const withProvenance: InvocationEventExtra = { ...extra, provenance: suppliedProvenance }
+    // Harness-evidence drivers correlate a submission only when their hook or
+    // transcript mirror supplies the inputId. A pending delivery may coexist
+    // with an unrelated harness-owned turn (for example, launch priming), so
+    // borrowing the pending id here would turn that stranger into evidence.
     if (
       type !== 'turn.started' ||
       withProvenance.inputId !== undefined ||
-      inv.pendingOwnTurnSubmissionId === undefined
+      inv.pendingOwnTurnSubmissionId === undefined ||
+      inv.driver.bracketMintingMode === 'harness-evidence'
     ) {
       return withProvenance
     }

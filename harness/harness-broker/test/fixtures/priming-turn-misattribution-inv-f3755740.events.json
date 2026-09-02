@@ -1,0 +1,235 @@
+{
+  "source": {
+    "runtimeId": "rt-2e9805fd-a8eb-4655-9d67-2faefd945cac",
+    "invocationId": "inv-f3755740-be0c-4a14-8816-60e639cd1025",
+    "submissionId": "submission_inv-f3755740-be0c-4a14-8816-60e639cd1025_1",
+    "envelopeId": "EN-03070",
+    "recordedAt": "2026-09-02T18:02:38Z",
+    "note": "Mechanically minimized from the durable broker ledger. Prompt bodies are redacted; event keys, ids, ordering, and attribution fields are preserved."
+  },
+  "deliveredContent": "[recorded EN-03070 dispatch body redacted]",
+  "events": [
+    {
+      "seq": 5,
+      "type": "admission.requested",
+      "inputId": null,
+      "turnId": null,
+      "payload": {
+        "class": "queue",
+        "origin": {
+          "envelopeId": "EN-03070",
+          "principalRef": "agent:chief",
+          "scopeRef": "chief@hcs:T-07894"
+        },
+        "submissionId": "submission_inv-f3755740-be0c-4a14-8816-60e639cd1025_1",
+        "turnPolicy": "open"
+      },
+      "driver": null,
+      "provenance": {
+        "normalizer": { "name": "harness-broker-admission", "version": "1" },
+        "sourceKind": "broker"
+      }
+    },
+    {
+      "seq": 6,
+      "type": "admission.admitted",
+      "inputId": null,
+      "turnId": null,
+      "payload": {
+        "class": "queue",
+        "submissionId": "submission_inv-f3755740-be0c-4a14-8816-60e639cd1025_1"
+      },
+      "driver": null,
+      "provenance": {
+        "normalizer": { "name": "harness-broker-admission", "version": "1" },
+        "sourceKind": "broker"
+      }
+    },
+    {
+      "seq": 7,
+      "type": "queue.enqueued",
+      "inputId": null,
+      "turnId": null,
+      "payload": {
+        "class": "queue",
+        "position": 0,
+        "submissionId": "submission_inv-f3755740-be0c-4a14-8816-60e639cd1025_1",
+        "ttlMs": 1800000
+      },
+      "driver": null,
+      "provenance": {
+        "normalizer": { "name": "harness-broker-admission", "version": "1" },
+        "sourceKind": "broker"
+      }
+    },
+    {
+      "seq": 8,
+      "type": "input.accepted",
+      "inputId": "submission_inv-f3755740-be0c-4a14-8816-60e639cd1025_1",
+      "turnId": null,
+      "payload": {
+        "disposition": "started",
+        "inputId": "submission_inv-f3755740-be0c-4a14-8816-60e639cd1025_1"
+      },
+      "driver": null,
+      "provenance": {
+        "normalizer": { "name": "harness-broker", "version": "0.1.0" },
+        "sourceKind": "broker"
+      }
+    },
+    {
+      "seq": 9,
+      "type": "continuation.updated",
+      "inputId": null,
+      "turnId": null,
+      "payload": {
+        "key": "recorded-session-key-redacted",
+        "kind": "session",
+        "provider": "anthropic"
+      },
+      "driver": { "kind": "claude-code-tmux", "rawType": "SessionStart" },
+      "provenance": {
+        "nativeType": "SessionStart",
+        "normalizer": { "name": "claude-code-tmux", "version": "0.1.0" },
+        "rawRecordId": "raw_000001",
+        "rawSha256": "22ac31c40905345153593e49c9d7b7c168d77e737e93e108ffedacd31d5c1312",
+        "sourceEpoch": "ep_df10ad28-81fa-49cd-ae5a-6af7afd7021e",
+        "sourceKind": "hook"
+      }
+    },
+    {
+      "seq": 10,
+      "type": "turn.started",
+      "inputId": "submission_inv-f3755740-be0c-4a14-8816-60e639cd1025_1",
+      "turnId": "turn_inv-f3755740-be0c-4a14-8816-60e639cd1025_2",
+      "payload": {
+        "source": "hook-observed",
+        "turnId": "turn_inv-f3755740-be0c-4a14-8816-60e639cd1025_2"
+      },
+      "driver": { "kind": "claude-code-tmux", "rawType": "UserPromptSubmit" },
+      "provenance": {
+        "nativeType": "UserPromptSubmit",
+        "normalizer": { "name": "claude-code-tmux", "version": "0.1.0" },
+        "rawRecordId": "raw_000002",
+        "rawSha256": "cb5d2a83688e3f0673b07b3c09721f3cb74490100bcdf67f98f044e992a295a6",
+        "sourceEpoch": "ep_df10ad28-81fa-49cd-ae5a-6af7afd7021e",
+        "sourceKind": "hook"
+      }
+    },
+    {
+      "seq": 11,
+      "type": "submission.executed",
+      "inputId": "submission_inv-f3755740-be0c-4a14-8816-60e639cd1025_1",
+      "turnId": "turn_inv-f3755740-be0c-4a14-8816-60e639cd1025_2",
+      "payload": {
+        "submissionId": "submission_inv-f3755740-be0c-4a14-8816-60e639cd1025_1",
+        "turnId": "turn_inv-f3755740-be0c-4a14-8816-60e639cd1025_2"
+      },
+      "driver": null,
+      "provenance": {
+        "normalizer": { "name": "harness-broker-admission", "version": "1" },
+        "sourceKind": "broker"
+      }
+    },
+    {
+      "seq": 12,
+      "type": "submission.executed",
+      "inputId": null,
+      "turnId": "turn_inv-f3755740-be0c-4a14-8816-60e639cd1025_2",
+      "payload": {
+        "submissionId": "human_submission_inv-f3755740-be0c-4a14-8816-60e639cd1025_1",
+        "turnId": "turn_inv-f3755740-be0c-4a14-8816-60e639cd1025_2"
+      },
+      "driver": { "kind": "claude-code-tmux", "rawType": "UserPromptSubmit" },
+      "provenance": {
+        "nativeType": "UserPromptSubmit",
+        "normalizer": { "name": "claude-code-tmux", "version": "0.1.0" },
+        "rawRecordId": "raw_000002",
+        "rawSha256": "cb5d2a83688e3f0673b07b3c09721f3cb74490100bcdf67f98f044e992a295a6",
+        "sourceEpoch": "ep_df10ad28-81fa-49cd-ae5a-6af7afd7021e",
+        "sourceKind": "hook"
+      }
+    },
+    {
+      "seq": 13,
+      "type": "user.message",
+      "inputId": null,
+      "turnId": "turn_inv-f3755740-be0c-4a14-8816-60e639cd1025_2",
+      "payload": {
+        "content": "You are clod in hcs working on T-07900. clod code rules the world.  Stand by",
+        "turnId": "turn_inv-f3755740-be0c-4a14-8816-60e639cd1025_2"
+      },
+      "driver": { "kind": "claude-code-tmux", "rawType": "transcript.user" },
+      "provenance": {
+        "nativeType": "user",
+        "normalizer": { "name": "claude-code-tmux", "version": "0.1.0" },
+        "rawRecordId": "raw_000013",
+        "rawSha256": "9d5d83efa215a7d011c7834ced9da59e573f688cab4bdfd3b59fded34c870d92",
+        "sourceCursor": { "byteOffset": 17441, "line": 11 },
+        "sourceEpoch": "ep_51f73141-94ed-498c-a5ad-e101a12c6d81",
+        "sourceKind": "provider-jsonl"
+      }
+    },
+    {
+      "seq": 22,
+      "type": "turn.completed",
+      "inputId": null,
+      "turnId": "turn_inv-f3755740-be0c-4a14-8816-60e639cd1025_2",
+      "payload": {
+        "status": "completed",
+        "turnId": "turn_inv-f3755740-be0c-4a14-8816-60e639cd1025_2"
+      },
+      "driver": { "kind": "claude-code-tmux", "rawType": "Stop" },
+      "provenance": {
+        "nativeType": "Stop",
+        "normalizer": { "name": "claude-code-tmux", "version": "0.1.0" },
+        "rawRecordId": "raw_000036",
+        "rawSha256": "6f3b53ba026a8080017b3413887778b8780360020c9a9d227ab916f6aeb2ec05",
+        "sourceEpoch": "ep_df10ad28-81fa-49cd-ae5a-6af7afd7021e",
+        "sourceKind": "hook"
+      }
+    },
+    {
+      "seq": 23,
+      "type": "turn.started",
+      "inputId": "submission_inv-f3755740-be0c-4a14-8816-60e639cd1025_1",
+      "turnId": "turn_inv-f3755740-be0c-4a14-8816-60e639cd1025_1",
+      "payload": {
+        "inputId": "submission_inv-f3755740-be0c-4a14-8816-60e639cd1025_1",
+        "source": "hook-observed",
+        "turnId": "turn_inv-f3755740-be0c-4a14-8816-60e639cd1025_1"
+      },
+      "driver": { "kind": "claude-code-tmux", "rawType": "transcript.user" },
+      "provenance": {
+        "nativeType": "user",
+        "normalizer": { "name": "claude-code-tmux", "version": "0.1.0" },
+        "rawRecordId": "raw_000042",
+        "rawSha256": "9b1318fcd72a84b35f1e753efc29a756983021709ab7d16df1e1c640fe3c9845",
+        "sourceCursor": { "byteOffset": 65254, "line": 37 },
+        "sourceEpoch": "ep_51f73141-94ed-498c-a5ad-e101a12c6d81",
+        "sourceKind": "provider-jsonl"
+      }
+    },
+    {
+      "seq": 24,
+      "type": "user.message",
+      "inputId": "submission_inv-f3755740-be0c-4a14-8816-60e639cd1025_1",
+      "turnId": "turn_inv-f3755740-be0c-4a14-8816-60e639cd1025_1",
+      "payload": {
+        "content": "[recorded EN-03070 dispatch body redacted]",
+        "inputId": "submission_inv-f3755740-be0c-4a14-8816-60e639cd1025_1",
+        "turnId": "turn_inv-f3755740-be0c-4a14-8816-60e639cd1025_1"
+      },
+      "driver": { "kind": "claude-code-tmux", "rawType": "transcript.user" },
+      "provenance": {
+        "nativeType": "user",
+        "normalizer": { "name": "claude-code-tmux", "version": "0.1.0" },
+        "rawRecordId": "raw_000042",
+        "rawSha256": "9b1318fcd72a84b35f1e753efc29a756983021709ab7d16df1e1c640fe3c9845",
+        "sourceCursor": { "byteOffset": 65254, "line": 37 },
+        "sourceEpoch": "ep_51f73141-94ed-498c-a5ad-e101a12c6d81",
+        "sourceKind": "provider-jsonl"
+      }
+    }
+  ]
+}
