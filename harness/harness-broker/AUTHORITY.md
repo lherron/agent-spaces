@@ -305,6 +305,53 @@ itself `blocked-unknown` in `submission-disposition`, which **does** halt. A
 renamed absorption attachment therefore fails loudly through the mirror rather
 than through this table. Unknown queue *operations* halt unconditionally.
 
+## Phase 3: what the Codex rollout can and cannot own
+
+Doc §6 names `codex-cli-tmux` "rollout-primary; first broad cutover candidate",
+and Phase 3 is that cutover. With the vocabulary pinned, the candidate families
+were measured against a real corpus rather than argued about. **Every one of them
+stays `hook`**, each for its own reason, and this section is the record — an
+honest non-promotion is a valid outcome, a silent partial promotion is not.
+
+The corpus: six real codex-cli-tmux invocations on
+`release-20260902024216362-98392` (idle prompt, tool call, permission approve,
+permission deny, interrupt, multi-turn), 250 committed raw rows, artifacts under
+`var/wrkq-artifacts/T-07870/corpus`. The source: `~/tools/codex` @
+`90ae0c4ef944bb80a3c725d15910289dfbb7db51`.
+
+| Family | Decision | The measured gap |
+| --- | --- | --- |
+| `turn-bracket` | stays `hook` | `event_msg:task_complete` for turn N is never in the reader's view at turn N's `Stop`; it is first read at turn N+1's `UserPromptSubmit`. Every invocation captured exactly (turns − 1) of them — the final turn's is missing 6/6. Promoting `turn.completed` loses one terminal per session and delays the rest by a whole idle period. |
+| `tool` | stays `hook` | Two: (a) the rollout's tool identity is the model `call_id`, the hook's is `tool_use_id`, and they share no field — `permission` stays hook by contract and correlates on a HOOK id, so a rollout-primary `tool` severs the permission↔tool join; (b) `policy.rs` puts `ItemStarted`, `ExecCommandBegin` and `McpToolCallBegin` in the not-persisted arm, so the rollout has no tool-START event at all. |
+| `harness-lifecycle` | stays `hook` | The rollout has a session-start row (`session_meta`) but no exit row: `ShutdownComplete` and `SessionConfigured` are both not-persisted. Promoting leaves `harness.exited` with no evidence. |
+| `permission` | stays `hook` (contract) | Now source-confirmed: `ExecApprovalRequest`, `ApplyPatchApprovalRequest`, `RequestPermissions`, `RequestUserInput` and `ElicitationRequest` are ALL not-persisted. The rollout carries no permission evidence whatsoever, and the corpus agrees — zero permission rows across the approve and deny legs. |
+| `continuation` | stays `hook` | `session_meta` carries `session_id` once at the head, which would serve `continuation.updated` — but `continuation.cleared` has no rollout row at all; it is minted from the synthetic `SessionEnd`. §13's condition ("the rollout carries the session/thread id on every row that needs it") is not met for the family. |
+
+### The one prerequisite behind three of these: the reader has no wakeup
+
+`turn-bracket`'s gap is not a vocabulary gap — the row IS on disk. An archived
+rollout ends `task_started, task_complete`; codex writes the terminal row after
+the `Stop` hook returns. **The rollout reader is woken only by hooks**, so it
+never reads those bytes, and for the last turn of a session no later hook ever
+comes.
+
+That generalises: a rollout-carried fact can never be more timely than the hook
+that triggers its read, because the hook IS the read. Under a hook-only wakeup,
+rollout-primary is strictly worse than hook-primary for every family the hook
+also carries — later at best, absent at worst — which is why this phase promotes
+nothing rather than relabelling the same facts.
+
+The unblocking change is a NATIVE wakeup for the rollout file, the shape
+`claude-code-tmux` already has (T-07849 rev 12: a file-change notification
+enqueued onto the same serialized drain chain as the hooks, with
+`native_wakeup_lost` degradation when the watcher dies). It is deliberately out
+of Phase 3's scope — §13's Phase 3 keeps the hook as the wakeup — and is named
+here the way Phase 0 named the vocabulary pin: as the concrete prerequisite for
+the next attempt, not as a note.
+
+Useful side finding for whoever does it: rollout `turn_context.payload.turn_id`
+is the SAME id the hooks carry, so the rollout is already turn-correlatable.
+
 ## Operating a halt
 
 ```

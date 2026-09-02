@@ -5,6 +5,10 @@ import type { EventFamily, EvidenceAuthority } from 'spaces-harness-broker-proto
 import { EVENT_FAMILY_BY_TYPE } from 'spaces-harness-broker-protocol'
 import { PI_SDK_AUTHORITY } from '../../../harness-broker-pi-sdk/src/evidence-authority'
 import {
+  CODEX_ITEM_CARRYING_EVENT_MSG_TYPES,
+  CODEX_KNOWN_ROLLOUT_EVENT_MSG_TYPES,
+} from '../../src/drivers/codex-cli-tmux/native-types'
+import {
   AGENT_HARNESS_TMUX_AUTHORITY,
   BROKER_ONLY_AUTHORITY,
   CLAUDE_CODE_TMUX_AUTHORITY,
@@ -115,5 +119,55 @@ describe('AUTHORITY.md matches the enforced declaration', () => {
       })
     }
     expect(BROKER_ONLY_AUTHORITY['conversation']).toBe('broker')
+  })
+})
+
+/**
+ * The Phase 3 authority decisions (T-07870) rest on facts about what the codex
+ * rollout CAN contain, read off `codex-rs/rollout/src/policy.rs`. A future edit
+ * that adds one of these types to the pinned table would mean codex started
+ * persisting it — which is exactly the moment the corresponding family decision
+ * has to be revisited, so it fails here rather than going unnoticed.
+ */
+describe('Phase 3: the source facts the codex-cli-tmux decisions rest on', () => {
+  test('the rollout has no permission vocabulary, so `permission` cannot leave hook', () => {
+    for (const type of [
+      'exec_approval_request',
+      'apply_patch_approval_request',
+      'request_permissions',
+      'request_user_input',
+      'elicitation_request',
+    ]) {
+      expect(CODEX_KNOWN_ROLLOUT_EVENT_MSG_TYPES.has(type)).toBe(false)
+    }
+    expect(CODEX_CLI_TMUX_AUTHORITY.permission).toBe('hook')
+  })
+
+  test('the rollout has no tool-START vocabulary, so `tool` cannot leave hook', () => {
+    for (const type of ['exec_command_begin', 'mcp_tool_call_begin', 'web_search_begin']) {
+      expect(CODEX_KNOWN_ROLLOUT_EVENT_MSG_TYPES.has(type)).toBe(false)
+    }
+    // `item_started` IS pinned (it is a real variant and shares the item
+    // channel) but `policy.rs` never persists it, so it is not tool-start
+    // evidence either — it is classified, not available.
+    expect(CODEX_ITEM_CARRYING_EVENT_MSG_TYPES.has('item_started')).toBe(true)
+    expect(CODEX_CLI_TMUX_AUTHORITY.tool).toBe('hook')
+  })
+
+  test('the rollout has no harness-exit vocabulary, so `harness-lifecycle` cannot leave hook', () => {
+    for (const type of ['shutdown_complete', 'session_configured']) {
+      expect(CODEX_KNOWN_ROLLOUT_EVENT_MSG_TYPES.has(type)).toBe(false)
+    }
+    expect(CODEX_CLI_TMUX_AUTHORITY['harness-lifecycle']).toBe('hook')
+  })
+
+  test('the turn bracket rows EXIST — this one is a wakeup gap, not a vocabulary gap', () => {
+    // Stated as a test so the distinction survives: `task_complete` is pinned
+    // and always persisted; what the reader lacks is a wakeup that reaches it
+    // after the Stop hook. See AUTHORITY.md "the reader has no wakeup".
+    for (const type of ['task_started', 'task_complete', 'turn_aborted']) {
+      expect(CODEX_KNOWN_ROLLOUT_EVENT_MSG_TYPES.has(type)).toBe(true)
+    }
+    expect(CODEX_CLI_TMUX_AUTHORITY['turn-bracket']).toBe('hook')
   })
 })
