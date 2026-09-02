@@ -238,6 +238,9 @@ function normalizeEvent(event: InvocationEventEnvelope): InvocationEventEnvelope
       // carries one, and that it is stable within a run, is — asserted
       // directly in the capture tests rather than baked into a golden.
       if (key === 'sourceEpoch') return '<epoch>'
+      // Raw frames can contain the checkout cwd. The journal hash is still
+      // asserted by capture tests; golden event projections must be portable.
+      if (key === 'rawSha256') return '<rawSha256>'
       if (key === 'durationMs') return '<durationMs>'
       if (key === 'command' && value === Bun.execPath) return '<bun>'
       if (typeof value === 'string' && value.startsWith(`${process.cwd()}/`)) {

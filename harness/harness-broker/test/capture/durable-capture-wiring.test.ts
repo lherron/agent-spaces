@@ -56,16 +56,29 @@ describe('durable capture wiring through createDefaultBroker', () => {
     scratch.push(dir)
     const invocationId = 'inv_default_broker_capture' as InvocationId
 
-    const broker = createDefaultBroker(undefined, undefined, {
-      eventLedger: createEventLedger({ path: join(dir, 'events.ndjson') }),
-      captureDir: dir,
+    let resolveTerminal!: () => void
+    const terminal = new Promise<void>((resolve) => {
+      resolveTerminal = resolve
     })
+    const broker = createDefaultBroker(
+      (event) => {
+        if (event.type === 'turn.completed' || event.type === 'turn.failed') resolveTerminal()
+      },
+      undefined,
+      {
+        eventLedger: createEventLedger({ path: join(dir, 'events.ndjson') }),
+        captureDir: dir,
+      }
+    )
     await broker.start({ spec: spec(invocationId) })
     await broker.input({
       invocationId,
       input: { inputId: 'input_1', kind: 'user', content: [{ type: 'text', text: 'go' }] },
       policy: { whenBusy: 'reject' },
     })
+    // turn/start acknowledgement now deliberately returns before trailing
+    // provider notifications; the terminal event proves capture has drained.
+    await terminal
 
     const journalPath = join(dir, 'raw', `${invocationId}.ndjson`)
     expect(existsSync(journalPath)).toBe(true)
