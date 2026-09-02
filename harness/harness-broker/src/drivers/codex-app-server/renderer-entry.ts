@@ -21,14 +21,13 @@ import {
   encodeNdjsonFrame,
 } from 'spaces-harness-broker-protocol'
 import { postEnvelope } from '../hook-bridge-transport'
+import { createPaneOutput } from './pane-output'
 import {
   type RendererDurableReadSurface,
   type RendererEventsSinceRequest,
   type RendererEventsSinceResponse,
   createCodexAppServerRendererProjection,
 } from './renderer'
-import { createStatusLine } from './status-line'
-import { createCodexStatusRow } from './transcript'
 
 /** How long a pane resize must settle before the transcript is re-rendered. */
 const RESIZE_SETTLE_MS = 120
@@ -157,24 +156,27 @@ async function main(): Promise<void> {
   // to the launch-time width for the life of the pane.
   const width = (): number | undefined => process.stdout.columns
 
-  // The live status row (T-06365). Cursor control is meaningless off a TTY, so the
-  // row is TTY-gated independently of colour: NO_COLOR asks for no colour, not for
-  // a frozen pane. All transcript output funnels through `writeLine` so the row is
+  // The ephemeral footer — the live status row (T-06365) and the queue drawer
+  // (T-07906). Cursor control is meaningless off a TTY, so it is TTY-gated
+  // independently of colour: NO_COLOR asks for no colour, not for a frozen pane.
+  // All transcript output funnels through the pane's `sink`, so the footer is
   // always erased before a line is committed and never lands in scrollback.
-  const statusRow = createCodexStatusRow({ color, width })
-  const statusLine = createStatusLine({
+  const pane = createPaneOutput({
     write: (chunk) => process.stdout.write(chunk),
-    renderRow: (frame, elapsedMs) => statusRow.running(frame, elapsedMs),
     enabled: isTty,
+    color,
+    width,
+    height: () => process.stdout.rows,
   })
 
   const projection = createCodexAppServerRendererProjection({
     invocationId,
     readSurface: surface,
-    sink: (line) => statusLine.writeLine(line),
-    onEvent: (event) => statusLine.observe(event),
+    sink: pane.sink,
+    onEvent: pane.onEvent,
     color,
     width,
+    verbose: process.env['BROKER_PANE_VERBOSE'] === '1',
   })
   await projection.start()
 
@@ -200,7 +202,7 @@ async function main(): Promise<void> {
         redrawTimer = undefined
         // Home, clear screen, clear scrollback — then rebuild from the history.
         process.stdout.write('\x1b[H\x1b[2J\x1b[3J')
-        statusLine.invalidate()
+        pane.invalidate()
         projection.redraw()
       }, RESIZE_SETTLE_MS)
     })
@@ -233,7 +235,7 @@ async function main(): Promise<void> {
         callbackSocket: controlSocketPath,
         reason: 'prompt_input_exit',
       }).catch(() => undefined)
-      statusLine.dispose()
+      pane.dispose()
       projection.close()
       close()
       process.exit(0)
@@ -244,7 +246,7 @@ async function main(): Promise<void> {
   // (or the broker connection) is torn down.
   process.on('SIGINT', () => {
     void postRendererExit(null, 'SIGINT')
-    statusLine.dispose()
+    pane.dispose()
     projection.close()
     close()
     process.exit(0)
@@ -257,7 +259,7 @@ async function main(): Promise<void> {
   // otherwise leave the operator's pane with no cursor. `dispose` is idempotent and
   // writes synchronously, which is all an `exit` handler may do.
   process.on('exit', () => {
-    statusLine.dispose()
+    pane.dispose()
   })
 }
 

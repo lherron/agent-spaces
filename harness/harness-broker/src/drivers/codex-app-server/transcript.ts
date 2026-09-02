@@ -1,4 +1,5 @@
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
+import { type QueueDrawerEntry, shortPrincipal, shortSubmissionId } from './queue-drawer'
 
 /**
  * T-04963 / T-06325 — operator transcript renderer for the Codex app-server pane.
@@ -366,6 +367,32 @@ function truncateOutput(output: string): string[] {
   ]
 }
 
+/** ` (reason)` when there is one, and nothing at all when there is not. */
+function reasonSuffix(reason: unknown): string {
+  const text = str(reason).trim()
+  return text.length > 0 ? ` · ${clip(text)}` : ''
+}
+
+/** `code=1` / `signal=SIGKILL` for a harness that died, whichever the OS gave us. */
+function exitDetail(payload: Record<string, unknown>): string {
+  const code = payload['exitCode']
+  if (typeof code === 'number') return `code=${code}`
+  const signal = str(payload['signal'])
+  return signal.length > 0 ? `signal=${signal}` : 'no exit status'
+}
+
+/**
+ * Compile-time proof that every event in the protocol's authoritative
+ * `InvocationEventPayloadMap` has been given a rendering decision — shown, or
+ * deliberately folded out. Reaching this with a real value is impossible; a NEW
+ * event type added to the contract makes it a TYPE ERROR here rather than
+ * silently leaking a raw JSON payload into the operator's pane, which is what the
+ * old `default:` arm did for thirty-four of them.
+ */
+function exhaustive(event: never): void {
+  void event
+}
+
 function shortId(id: string): string {
   const cleaned = id.replace(/^(inv-|turn-|input-)/, '')
   return cleaned.length <= 12 ? cleaned : `${cleaned.slice(0, 8)}…`
@@ -413,6 +440,14 @@ export interface CodexTranscriptModelOptions {
   emit: (line: string) => void
   color?: boolean | undefined
   width?: CodexTranscriptWidth | undefined
+  /**
+   * Echo every event as `<type> <payload>` ALONGSIDE its styled render
+   * (`BROKER_PANE_VERBOSE=1`). The debugging affordance the old raw-JSON
+   * `default:` arm provided by accident, kept deliberately and made total: it
+   * covers the events that are folded out too, which are precisely the ones a
+   * driver bug hides in.
+   */
+  verbose?: boolean | undefined
 }
 
 export interface CodexTranscriptModel {
@@ -512,8 +547,15 @@ function createStyler(color: boolean, width: CodexTranscriptWidth | undefined): 
  * known end, and a turn has no known end. Heat only says "still working".
  */
 export interface CodexStatusRow {
-  /** One frame of the running row. `frame` is taken modulo the frame count. */
-  running: (frame: number, elapsedMs: number) => string
+  /**
+   * One frame of the running row. `frame` is taken modulo the frame count.
+   *
+   * `note` is the stall annotation (T-07906). A stall is the answer to the only
+   * question this row exists to answer — "is it working or is it wedged?" — so it
+   * belongs ON the repainting row, not committed once per heartbeat into
+   * scrollback where it would flood the pane with the absence of news.
+   */
+  running: (frame: number, elapsedMs: number, note?: string | undefined) => string
 }
 
 const EMBER_CELLS = 6
@@ -529,7 +571,7 @@ export function createCodexStatusRow(options: {
 }): CodexStatusRow {
   const styler = createStyler(options.color ?? false, options.width)
   return {
-    running(frame: number, elapsedMs: number): string {
+    running(frame: number, elapsedMs: number, note?: string | undefined): string {
       const phase =
         ((frame % CODEX_STATUS_FRAME_COUNT) + CODEX_STATUS_FRAME_COUNT) % CODEX_STATUS_FRAME_COUNT
       const coal = phase < EMBER_CELLS ? phase : CODEX_STATUS_FRAME_COUNT - phase
@@ -539,11 +581,82 @@ export function createCodexStatusRow(options: {
         bold: Math.abs(i - coal) <= 1,
       }))
       const elapsed = formatLiveElapsed(elapsedMs)
+      const stalled = note !== undefined && note.length > 0
       return styler.band('forge', 'molten', [
         ...bar,
-        { text: '  running', fg: 'text', bold: true },
+        { text: stalled ? '  stalled' : '  running', fg: stalled ? 'brass' : 'text', bold: true },
         ...(elapsed.length > 0 ? [{ text: ` · ${elapsed}`, fg: 'dim' as Fg }] : []),
+        ...(stalled ? [{ text: ` · no output ${note}`, fg: 'brass' as Fg }] : []),
       ])
+    },
+  }
+}
+
+/**
+ * The queue drawer rows (T-07906).
+ *
+ * These are the submissions still WAITING, painted in the ephemeral footer under
+ * the running row. They take the violet input lane, because that is what they are:
+ * user input that has arrived at the broker and not yet reached the model. When one
+ * drains, the transcript commits the real `❯` input band above in the same lane —
+ * so a message visibly moves UP out of the drawer into history rather than
+ * appearing from nowhere.
+ *
+ * Nothing here can show the message text: no admission or queue payload carries a
+ * body (see `queue-drawer.ts`). Sender and wait are what the pane honestly knows.
+ */
+export interface CodexQueueDrawerRow {
+  rows: (entries: readonly QueueDrawerEntry[], nowMs: number) => string[]
+}
+
+/** Rows the drawer will show in full before collapsing the rest into a count. */
+const MAX_DRAWER_ENTRIES = 5
+/**
+ * Below this much TTL remaining, the countdown is shown. Above it, it is not: a
+ * live `ttl 27m` on every row is clutter that says nothing, whereas `ttl 3m` is
+ * the pane telling you this message is about to be dropped undelivered.
+ */
+const TTL_WARN_MS = 5 * 60 * 1000
+
+export function createCodexQueueDrawerRow(options: {
+  color?: boolean | undefined
+  width?: CodexTranscriptWidth | undefined
+}): CodexQueueDrawerRow {
+  const styler = createStyler(options.color ?? false, options.width)
+
+  function entryRow(entry: QueueDrawerEntry, nowMs: number): string {
+    const waited = formatLiveElapsed(nowMs - entry.enqueuedAtMs)
+    const remainingMs =
+      entry.ttlMs !== undefined ? entry.ttlMs - (nowMs - entry.enqueuedAtMs) : undefined
+    const expiring =
+      remainingMs !== undefined && remainingMs > 0 && remainingMs <= TTL_WARN_MS
+        ? formatLiveElapsed(remainingMs)
+        : ''
+    return styler.band('prompt', 'iris', [
+      { text: '  ', fg: 'dim' },
+      { text: shortSubmissionId(entry.submissionId), fg: 'text', bold: true },
+      { text: ` · ${entry.principal}`, fg: 'muted' },
+      ...(entry.class !== 'queue' ? [{ text: ` · ${entry.class}`, fg: 'brass' as Fg }] : []),
+      ...(waited.length > 0 ? [{ text: ` · ${waited}`, fg: 'dim' as Fg }] : []),
+      ...(expiring.length > 0 ? [{ text: ` · ttl ${expiring}`, fg: 'brass' as Fg }] : []),
+    ])
+  }
+
+  return {
+    rows(entries: readonly QueueDrawerEntry[], nowMs: number): string[] {
+      if (entries.length === 0) return []
+      const shown = entries.slice(0, MAX_DRAWER_ENTRIES)
+      const hidden = entries.length - shown.length
+      return [
+        styler.band('prompt', 'iris', [
+          { text: '⋯ waiting', fg: 'iris', bold: true },
+          { text: ` · ${entries.length}`, fg: 'dim' },
+        ]),
+        ...shown.map((entry) => entryRow(entry, nowMs)),
+        ...(hidden > 0
+          ? [styler.band('prompt', 'iris', [{ text: `  … ${hidden} more waiting`, fg: 'dim' }])]
+          : []),
+      ]
     },
   }
 }
@@ -558,6 +671,7 @@ export function createCodexTranscriptModel(
   options: CodexTranscriptModelOptions
 ): CodexTranscriptModel {
   const emit = options.emit
+  const verbose = options.verbose ?? false
   const { contentWidth, band, line, dimLine } = createStyler(options.color ?? false, options.width)
 
   // Per-turn rolling state.
@@ -773,6 +887,9 @@ export function createCodexTranscriptModel(
 
   function apply(event: InvocationEventEnvelope): void {
     const p = asRecord(event.payload)
+    // Verbose runs BEFORE the switch and independently of it, so the raw echo is
+    // the whole stream — including everything the pane deliberately folds out.
+    if (verbose) emit(dimLine(`${event.type} ${clip(str(event.payload))}`))
     switch (event.type) {
       // ── Startup / lifecycle (low-key, dim rail of '·' lines) ────────────
       case 'lifecycle.policy.accepted':
@@ -818,6 +935,62 @@ export function createCodexTranscriptModel(
         return
       case 'driver.notice':
         emit(line([{ text: `⚠ ${str(p['message'])}`, fg: 'brass' }]))
+        return
+      case 'invocation.stopping':
+        emit(dimLine(`stopping${reasonSuffix(p['reason'])}`))
+        return
+
+      // ── Harness generations (T-07906) ───────────────────────────────────
+      //
+      // Previously invisible in the pane, which is the worst way for it to fail: a
+      // mid-turn recycle reads exactly like the model going quiet. These rows are
+      // the difference between "it is thinking" and "it died and came back".
+      case 'harness.started':
+        // A first generation is already announced by `invocation.started`/`ready`.
+        // Only a RECYCLE is news, and it is the news that explains the silence.
+        if (str(p['mode']) !== 'recycle') return
+        emit(dimLine(`harness recycled · gen ${str(p['generation'])}`))
+        return
+      case 'harness.exited': {
+        const reason = str(p['reason'])
+        // The kill half of a recycle is not an exit the operator needs; the
+        // `harness.started` recycle row above is the fact.
+        if (reason === 'recycle-kill') return
+        if (reason === 'crash') {
+          emit(line([{ text: `✗ harness crashed · ${exitDetail(p)}`, fg: 'red', bold: true }]))
+          return
+        }
+        emit(dimLine(`harness exited (${reason})`))
+        return
+      }
+      case 'harness.recovery.started':
+        emit(line([{ text: `⚠ recovering · ${str(p['reason'])}`, fg: 'brass' }]))
+        return
+      case 'harness.recovery.completed':
+        emit(
+          line([
+            { text: '● ', fg: 'kiln', bold: true },
+            { text: 'recovered', fg: 'text', bold: true },
+            {
+              text: ` · gen ${str(p['toGeneration'])} · ${p['ready'] === true ? 'ready' : 'not ready'}`,
+              fg: 'dim',
+            },
+          ])
+        )
+        return
+      case 'harness.recovery.failed':
+        emit(line([{ text: `✗ recovery failed · ${str(p['reason'])}`, fg: 'red', bold: true }]))
+        return
+      case 'lifecycle.escalation':
+        emit(
+          line([
+            {
+              text: `✗ escalation · ${str(p['reason'])} → ${str(p['requestedAction'])}`,
+              fg: 'red',
+              bold: true,
+            },
+          ])
+        )
         return
 
       // ── Turn + message flow ─────────────────────────────────────────────
@@ -912,6 +1085,99 @@ export function createCodexTranscriptModel(
         return
       }
 
+      // ── Admission, queue + submission (T-07906) ─────────────────────────
+      //
+      // The DRAWER owns "waiting" (see queue-drawer.ts): an entry is on screen for
+      // exactly as long as the wait lasts, so nothing here commits a row about a
+      // message that is merely queued. What is left is the news — every way a
+      // message can fail to reach the model, which is otherwise silent.
+      case 'admission.rejected':
+        emit(
+          line([
+            {
+              text: `✗ rejected at ${str(p['layer'])}${reasonSuffix(p['reason'])}`,
+              fg: 'red',
+              bold: true,
+            },
+          ])
+        )
+        return
+      case 'input.rejected':
+        emit(
+          line([{ text: `✗ input rejected${reasonSuffix(p['reason'])}`, fg: 'red', bold: true }])
+        )
+        return
+      case 'queue.jumped':
+        emit(
+          dimLine(
+            `queue ${shortSubmissionId(str(p['submissionId']))} · pos ${str(p['fromPosition'])} → ${str(p['toPosition'])} (${shortPrincipal(str(p['principalRef']))})`
+          )
+        )
+        return
+      case 'queue.cancelled':
+        emit(
+          dimLine(
+            `queue cancelled ${shortSubmissionId(str(p['submissionId']))} (${shortPrincipal(str(p['principalRef']))})`
+          )
+        )
+        return
+      case 'queue.expired':
+        // Silent data loss if unrendered: someone's message hit its TTL and nobody
+        // in the pane ever learns it was not delivered.
+        emit(
+          line([
+            {
+              text: `⚠ ${shortSubmissionId(str(p['submissionId']))} expired in the queue — never delivered`,
+              fg: 'brass',
+            },
+          ])
+        )
+        return
+      case 'queue.withdrawn':
+        emit(
+          dimLine(
+            `withdrawn ${shortSubmissionId(str(p['submissionId']))}${reasonSuffix(p['reason'])}`
+          )
+        )
+        return
+      case 'submission.rejected':
+        emit(
+          line([
+            {
+              text: `✗ ${shortSubmissionId(str(p['submissionId']))} rejected${reasonSuffix(p['reason'])}`,
+              fg: 'red',
+              bold: true,
+            },
+          ])
+        )
+        return
+      case 'submission.expired':
+        emit(
+          line([{ text: `⚠ ${shortSubmissionId(str(p['submissionId']))} expired`, fg: 'brass' }])
+        )
+        return
+      case 'submission.withdrawn':
+        emit(
+          dimLine(
+            `withdrawn ${shortSubmissionId(str(p['submissionId']))}${reasonSuffix(p['reason'])}`
+          )
+        )
+        return
+      case 'submission.cancelled': {
+        const reason = str(p['reason'])
+        // Teardown cancels whatever was still held when the invocation ends; it is
+        // the shutdown, not a disposition anyone needs to read.
+        if (reason === 'teardown') return
+        emit(
+          dimLine(`cancelled ${shortSubmissionId(str(p['submissionId']))}${reasonSuffix(reason)}`)
+        )
+        return
+      }
+      case 'interrupt.failed':
+        // The only interrupt event that is news: you asked it to stop and it did not.
+        emit(line([{ text: `⚠ interrupt failed${reasonSuffix(p['reason'])}`, fg: 'brass' }]))
+        return
+
       // ── Diagnostics + telemetry ─────────────────────────────────────────
       case 'diagnostic':
         renderDiagnostic(p)
@@ -926,6 +1192,39 @@ export function createCodexTranscriptModel(
         latestTokens = last['totalTokens']
         return
       }
+      case 'turn.retry':
+        // `at-least-once` is the operator-facing half: the model may have seen this
+        // prompt already, so a repeated answer above is delivery, not confusion.
+        emit(
+          line([
+            {
+              text: `⚠ retry ${str(p['toAttempt'])} · ${str(p['reason'])} · ${str(p['semantics'])}`,
+              fg: 'brass',
+            },
+          ])
+        )
+        return
+      case 'permission.resolved':
+        // Asks are auto-answered by policy in this driver and the audit lives on the
+        // durable stream. An ALLOW is noise; a deny silently changed what the agent
+        // was able to do, which is what makes the tool behaviour above baffling.
+        if (str(p['decision']) !== 'deny') return
+        emit(
+          line([
+            {
+              text: `⚠ permission denied (${str(p['source'])})${reasonSuffix(p['reason'])}`,
+              fg: 'brass',
+            },
+          ])
+        )
+        return
+      case 'capture.warning':
+        // `blocked_unknown` fires per unclassified record, and by the T-07883 ruling
+        // it is already on the broker's own stderr and the durable ledger. In the
+        // pane it would be a normalizer's business flooding a conversation.
+        if (str(p['kind']) === 'blocked_unknown') return
+        emit(line([{ text: `⚠ capture · ${clip(str(p['message']))}`, fg: 'brass' }]))
+        return
       case 'turn.completed': {
         const elapsed = formatElapsed(parseMs(event.time) - turnStartMs)
         const stats = [
@@ -961,13 +1260,47 @@ export function createCodexTranscriptModel(
         emit(line([{ text: '◼ interrupted', fg: 'brass' }]))
         return
 
-      // Broker provenance — a sidecar-path record, not operator-facing. Kept in
-      // the durable stream for downstream consumers; folded out of the pane.
+      // ── Deliberately folded OUT of the pane ─────────────────────────────
+      //
+      // Every one of these is real, durable, and reachable with
+      // BROKER_PANE_VERBOSE=1. None is a fact an operator reads a pane for:
+      //
+      //  - the admission happy path is bookkeeping. `requested`/`admitted` are
+      //    always followed by an outcome the pane already shows, and
+      //    `executed`/`absorbed` are the submissionId→turnId join record.
+      //  - `queue.enqueued` / `input.queued` are rendered by the DRAWER, which
+      //    shows a wait for as long as it lasts instead of stamping a permanent
+      //    line into scrollback about a state that ended seconds later.
+      //  - an interrupt's request and landing are its intent; `turn.interrupted`
+      //    is the fact, and only `interrupt.failed` is news.
+      //  - `turn.stalled` annotates the live running row (status-line.ts). It is
+      //    heartbeat-driven, so a row per event would flood the pane with the one
+      //    thing it is trying to say: nothing has happened.
+      //  - permission asks are auto-answered by policy in this driver
+      //    (permissions.ts:223); only a deny is rendered, above.
+      //  - `provider.transcript.reported` and `capture.released` are sidecar-path
+      //    records for downstream consumers, not conversation.
+      case 'admission.requested':
+      case 'admission.admitted':
+      case 'submission.executed':
+      case 'submission.absorbed':
+      case 'queue.enqueued':
+      case 'input.queued':
+      case 'interrupt.requested':
+      case 'interrupt.landed':
+      case 'turn.stalled':
+      case 'invocation.disposed':
+      case 'permission.requested':
+      case 'permission.cancelled':
+      case 'capture.released':
       case 'provider.transcript.reported':
         return
 
       default:
-        emit(dimLine(`${event.type} ${clip(str(event.payload))}`))
+        // Unreachable by construction: `event` is `never` here only if every member
+        // of the protocol's event map was handled above. A new event type lands as a
+        // compile error, not as raw JSON in the operator's pane.
+        exhaustive(event)
     }
   }
 

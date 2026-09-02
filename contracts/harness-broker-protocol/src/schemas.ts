@@ -103,7 +103,14 @@ const BROKER_METHODS = [
   'seat.probe',
 ] as const satisfies readonly BrokerMethod[]
 
-const EVENT_TYPES = [
+/**
+ * The authoritative RUNTIME roster of event types, kept exhaustive against
+ * `InvocationEventType` by `_EventTypesExhaustive` below. Exported so a consumer
+ * can iterate every event the protocol defines — a renderer proving it has a
+ * decision for all of them, say — without re-listing them and re-listing them
+ * wrong (T-07906).
+ */
+export const INVOCATION_EVENT_TYPES = [
   'invocation.started',
   'invocation.ready',
   'invocation.stopping',
@@ -223,14 +230,14 @@ type AssertExhaustive<Union, Tuple extends readonly Union[]> = Exclude<
   ? true
   : never
 type _BrokerMethodsExhaustive = AssertExhaustive<BrokerMethod, typeof BROKER_METHODS>
-type _EventTypesExhaustive = AssertExhaustive<InvocationEventType, typeof EVENT_TYPES>
+type _EventTypesExhaustive = AssertExhaustive<InvocationEventType, typeof INVOCATION_EVENT_TYPES>
 const _brokerMethodsExhaustive: _BrokerMethodsExhaustive = true
 const _eventTypesExhaustive: _EventTypesExhaustive = true
 void _brokerMethodsExhaustive
 void _eventTypesExhaustive
 
 const brokerMethods: ReadonlySet<BrokerMethod> = new Set(BROKER_METHODS)
-const eventTypes: ReadonlySet<InvocationEventType> = new Set(EVENT_TYPES)
+const eventTypes: ReadonlySet<InvocationEventType> = new Set(INVOCATION_EVENT_TYPES)
 
 export function validateInvocationSpec(value: unknown): HarnessInvocationSpec {
   const issues: ValidationIssue[] = []

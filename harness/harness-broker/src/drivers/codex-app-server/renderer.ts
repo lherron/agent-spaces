@@ -93,6 +93,8 @@ export interface RendererProjectionOptions {
    * projection exists to close. Observation only: it must not emit lines.
    */
   onEvent?: ((event: InvocationEventEnvelope) => void) | undefined
+  /** Echo every event's raw type/payload alongside its styled render. */
+  verbose?: boolean | undefined
 }
 
 /**
@@ -140,6 +142,7 @@ export function createCodexAppServerRendererProjection(
       emit: pushLine,
       ...(options.color !== undefined ? { color: options.color } : {}),
       ...(options.width !== undefined ? { width: options.width } : {}),
+      ...(options.verbose !== undefined ? { verbose: options.verbose } : {}),
     })
 
   let transcript = buildTranscript()
