@@ -641,6 +641,21 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       expect(
         events.filter((event) => event.type === 'turn.started' && event.turnId === idle.turnId)
       ).toHaveLength(1)
+      // T-07873 / EN-02688 guard. HRC resolves a hook-observed turn to its run
+      // from the ENVELOPE-level inputId — `resolveRunIdForEvent` reads
+      // `envelope.inputId` and looks the run up by it. A `turn.started` that
+      // carries the id only in its PAYLOAD binds to no run, so `runs.started_at`
+      // is never stamped, no auto-reply intent is minted, the envelope stays
+      // presented and the sender's `--wait` hangs. The metadata spread is
+      // therefore load-bearing, not decoration: assert it at the envelope level
+      // and not merely inside the payload.
+      expect(
+        events.find((event) => event.type === 'turn.started' && event.turnId === idle.turnId)
+      ).toMatchObject({
+        turnId: idle.turnId,
+        inputId: 'input_executed',
+        payload: { source: 'hook-observed', inputId: 'input_executed' },
+      })
     } finally {
       await driver.dispose()
       rmSync(root, { recursive: true, force: true })
