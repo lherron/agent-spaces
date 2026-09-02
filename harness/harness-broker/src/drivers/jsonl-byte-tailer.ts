@@ -42,13 +42,22 @@ export interface JsonlByteOffsetTailer {
 
 export interface JsonlByteOffsetTailerOptions {
   /**
-   * Called when the tailer starts a NEW source epoch: a different file, or the
-   * active file shrinking below the recorded offset (replacement/truncation).
-   * Cursor comparison is valid only within one epoch (§7.1), so a capture-aware
-   * caller mints a new epoch id here.
+   * Called when the tailer starts a NEW source epoch: a different file
+   * (`retarget`), the active file shrinking below the recorded offset
+   * (`truncated`), or the bytes BEHIND the recorded offset no longer matching
+   * what was read from them (`replaced` — a truncate-and-rewrite that grew back
+   * past the offset before the next read). Cursor comparison is valid only
+   * within one epoch (§7.1), so a capture-aware caller mints a new epoch id here.
    */
-  onEpochChange?: ((reason: 'retarget' | 'truncated') => void) | undefined
+  onEpochChange?: ((reason: 'retarget' | 'truncated' | 'replaced') => void) | undefined
 }
+
+/**
+ * How many bytes immediately BEHIND the cursor are remembered to detect a file
+ * replaced under the tailer. Small enough to be a free pread, long enough that
+ * two different rollout rows cannot share it by accident.
+ */
+const REPLACEMENT_ANCHOR_BYTES = 64
 
 export function createJsonlByteOffsetTailer(
   options: JsonlByteOffsetTailerOptions = {}
@@ -59,11 +68,36 @@ export function createJsonlByteOffsetTailer(
   let offset = 0
   let partial = ''
   let lineOrdinal = 0
+  /**
+   * The last {@link REPLACEMENT_ANCHOR_BYTES} bytes this tailer actually read.
+   * `size < offset` catches a file that is still short when we next look; it
+   * does NOT catch one that was truncated and rewritten past the old offset in
+   * between, which reads as a mid-line fragment followed by silently skipped
+   * rows. Re-checking these bytes catches that, and costs one small pread per
+   * read (§14 row 5).
+   */
+  let anchor = Buffer.alloc(0)
 
   const rewind = (): void => {
     offset = 0
     partial = ''
     lineOrdinal = 0
+    anchor = Buffer.alloc(0)
+  }
+
+  /** True when the bytes behind the cursor are no longer the ones we read. */
+  const anchorBroken = (path: string): boolean => {
+    if (anchor.length === 0 || offset < anchor.length) return false
+    const fd = openSync(path, 'r')
+    try {
+      const probe = Buffer.alloc(anchor.length)
+      const read = readSync(fd, probe, 0, anchor.length, offset - anchor.length)
+      return read !== anchor.length || !probe.equals(anchor)
+    } catch {
+      return false
+    } finally {
+      closeSync(fd)
+    }
   }
 
   return {
@@ -96,6 +130,12 @@ export function createJsonlByteOffsetTailer(
           // and re-reading from 0 is a fresh read, not a duplicate.
           rewind()
           options.onEpochChange?.('truncated')
+        } else if (anchorBroken(activePath)) {
+          // Truncated and rewritten PAST the old offset before we looked. The
+          // size check cannot see this; continuing from the old offset would
+          // hand the caller a mid-line fragment and drop everything before it.
+          rewind()
+          options.onEpochChange?.('replaced')
         }
         if (stats.size === offset) return
 
@@ -106,7 +146,12 @@ export function createJsonlByteOffsetTailer(
             const bytesRead = readSync(fd, buffer, 0, bytesToRead, offset)
             if (bytesRead <= 0) break
             offset += bytesRead
-            partial += buffer.subarray(0, bytesRead).toString('utf8')
+            const chunk = buffer.subarray(0, bytesRead)
+            anchor =
+              chunk.length >= REPLACEMENT_ANCHOR_BYTES
+                ? Buffer.from(chunk.subarray(chunk.length - REPLACEMENT_ANCHOR_BYTES))
+                : Buffer.concat([anchor, chunk]).subarray(-REPLACEMENT_ANCHOR_BYTES)
+            partial += chunk.toString('utf8')
 
             let newlineIndex = partial.indexOf('\n')
             while (newlineIndex >= 0) {
