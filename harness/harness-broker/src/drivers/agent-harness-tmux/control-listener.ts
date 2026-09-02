@@ -113,40 +113,57 @@ export async function listenForAgentHarnessControl(
     active = conn
     conn.setEncoding('utf8')
     const decoder = new AgentHarnessControlDecoder()
+    // Reassembly buffer for THIS connection. A socket read boundary falls
+    // wherever the kernel put it, so a frame arrives split across `data` events
+    // whenever it exceeds one read (8KB here) or the writer outruns the reader.
+    // Splitting a raw chunk into lines and re-terminating each piece would turn
+    // one straddling frame into two malformed "complete" lines and drop it
+    // silently — which cost every turn whose final assistant message exceeded a
+    // single read its `turn.completed`, wedging the seat (T-07866). Only
+    // COMPLETE lines are classified.
+    let buffer = ''
     conn.on('data', (chunk: string) => {
-      // Ack lines never reach the frame decoder: they are not control frames.
-      const frames: string[] = []
-      for (const rawLine of chunk.split('\n')) {
+      buffer += chunk
+      let newlineIndex = buffer.indexOf('\n')
+      while (newlineIndex !== -1) {
+        const rawLine = buffer.slice(0, newlineIndex)
+        buffer = buffer.slice(newlineIndex + 1)
+        newlineIndex = buffer.indexOf('\n')
         const line = rawLine.trim()
         if (line.length === 0) continue
+        // Ack lines never reach the frame decoder: they are not control frames.
         let parsed: unknown
         try {
           parsed = JSON.parse(line)
         } catch {
-          frames.push(`${line}\n`)
+          // Not JSON at all. Hand it to the decoder so a malformed frame is
+          // reported through the one path that reports them.
+          dispatch(line)
           continue
         }
         if (isAgentHarnessControlAckLine(parsed)) {
           settle(parsed as Record<string, unknown>)
           continue
         }
-        frames.push(`${line}\n`)
-      }
-      for (const encoded of frames) {
-        for (const result of decoder.push(encoded)) {
-          if (!result.ok) {
-            drain = drain.then(() => Promise.reject(result.error)).catch(() => undefined)
-            continue
-          }
-          const frame = result.value
-          drain = drain.then(
-            () => handler(frame),
-            () => handler(frame)
-          )
-          void drain.catch(() => undefined)
-        }
+        dispatch(line)
       }
     })
+
+    /** Decode one COMPLETE line and sequence its handler call behind the drain. */
+    function dispatch(line: string): void {
+      for (const result of decoder.push(`${line}\n`)) {
+        if (!result.ok) {
+          drain = drain.then(() => Promise.reject(result.error)).catch(() => undefined)
+          continue
+        }
+        const frame = result.value
+        drain = drain.then(
+          () => handler(frame),
+          () => handler(frame)
+        )
+        void drain.catch(() => undefined)
+      }
+    }
     conn.once('close', () => {
       connections.delete(conn)
       const wasActive = active === conn
