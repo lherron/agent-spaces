@@ -1,3 +1,4 @@
+import { type FSWatcher, watch } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import Ajv, { type ErrorObject, type ValidateFunction } from 'ajv'
@@ -199,6 +200,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
   let surface: SurfaceState | undefined
   let hookListener: HookListenerHandle | undefined
   let transcriptReader: ClaudeHookTranscriptReader | undefined
+  let transcriptWatcher: FSWatcher | undefined
   let attribution: ClaudeTurnAttribution | undefined
   let hookDrain: Promise<HookEnvelopeResult> = Promise.resolve(undefined)
   // The runtime hands the driver a pane LEASE — `runtime.terminalSurface`
@@ -504,6 +506,33 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         getCurrentTurnId: () => turnAttribution.activeTurnId,
         ...(driverCtx.capture !== undefined ? { capture: driverCtx.capture } : {}),
         withProvenance,
+        onTranscriptPath: (transcriptPath) => {
+          transcriptWatcher?.close()
+          const watcher = watch(transcriptPath, { persistent: false }, () => {
+            const drain = (): HookEnvelopeResult => {
+              transcriptReader?.drain()
+              return undefined
+            }
+            // Native transcript notifications and hooks share ONE chain. A
+            // notification reads to EOF; a hook queued beside it then sees the
+            // byte-offset tailer already advanced (or vice versa), so rows are
+            // ordered once and never double-normalized.
+            hookDrain = hookDrain.then(drain, drain)
+          })
+          transcriptWatcher = watcher
+          watcher.on('error', (error) => {
+            watcher.close()
+            if (transcriptWatcher === watcher) transcriptWatcher = undefined
+            driverCtx.emit(
+              'capture.warning',
+              {
+                message: `Claude transcript watch failed: ${error.message}`,
+                raw: { transcriptPath, error: error.message },
+              },
+              { driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType: 'transcript.watch' } }
+            )
+          })
+        },
         emit: (type, payload, extra) => {
           emitCaptured(driverCtx, type, payload, extra)
         },
@@ -1230,6 +1259,8 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
   }
 
   async function closeHookListener(): Promise<void> {
+    transcriptWatcher?.close()
+    transcriptWatcher = undefined
     await hookDrain.catch(() => undefined)
     if (hookListener !== undefined) {
       const handle = hookListener

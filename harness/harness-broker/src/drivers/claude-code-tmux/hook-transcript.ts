@@ -18,7 +18,7 @@ import {
 } from './native-types'
 
 /**
- * Hook-driven Claude Code session-transcript reader (T-02027).
+ * Claude Code session-transcript reader (T-02027, T-07849 rev 12).
  *
  * The reader forwards queue operations, queued-command attachments, and plain
  * user rows to the driver's disposition mirror in strict transcript order. It
@@ -37,12 +37,14 @@ import {
  * re-reads a consumed row, no dedup is needed across hook reads and the stop()
  * drain.
  *
- * This reader mirrors the codex-cli-tmux transcript reader's synchronous,
- * hook-driven, byte-offset JSONL tailer, but is far simpler — no held-latest /
- * delta coalescing / terminal classification. The driver calls
- * {@link ClaudeHookTranscriptReader.handleHook} BEFORE `normalizeHookEnvelope`
- * and consumes the returned disposition events before the triggering hook's
- * normalized events.
+ * This reader mirrors the codex-cli-tmux transcript reader's synchronous
+ * byte-offset JSONL tailer, but is far simpler — no held-latest / delta
+ * coalescing / terminal classification. The driver calls
+ * {@link ClaudeHookTranscriptReader.handleHook} before `normalizeHookEnvelope`
+ * and also calls {@link ClaudeHookTranscriptReader.drain} from native file
+ * notifications. Both call sites share the driver's serialized hook-drain
+ * chain, preserving order while allowing a trailing interrupt marker to land
+ * when Claude emits no subsequent hook.
  */
 export type ClaudeHookTranscriptReader = {
   /**
@@ -54,10 +56,10 @@ export type ClaudeHookTranscriptReader = {
   handleHook: (hook: Record<string, unknown>, turnId?: string | undefined) => void
   /**
    * Read any transcript bytes appended since the last read WITHOUT a triggering
-   * hook, emitting the same events `handleHook` would. The driver calls this in
-   * `stop()` (before `reset()`) so a trailing API-error row that no post-error
-   * hook would surface still reaches the broker. The byte-offset tailer is the
-   * dedupe mechanism: rows already consumed by a prior read are not replayed.
+   * hook, emitting the same events `handleHook` would. The driver calls this on
+   * native file-change notifications and in `stop()` (before `reset()`). The
+   * byte-offset tailer is the dedupe mechanism: rows already consumed by a
+   * prior read are not replayed.
    */
   drain: () => void
   reset: () => void
@@ -105,6 +107,13 @@ export type ClaudeHookTranscriptReaderOptions = {
    * hook-observed — the exact falsehood §7.2 exists to prevent.
    */
   withProvenance?: (<T>(provenance: EventProvenance, body: () => T) => T) | undefined
+  /**
+   * Announces the transcript file selected by SessionStart. The driver uses
+   * this to arm native append notifications; reads themselves still flow
+   * through {@link ClaudeHookTranscriptReader.drain}, so the byte-offset
+   * tailer remains the single source of ordering and deduplication.
+   */
+  onTranscriptPath?: ((path: string) => void) | undefined
 }
 
 type ApiErrorClass = 'rate_limit' | 'overloaded' | 'server_error' | 'auth' | 'quota'
@@ -383,7 +392,7 @@ export function createClaudeHookTranscriptReader(
       if (rawType === 'SessionStart') {
         const transcriptPath = getString(unwrapped, 'transcript_path')
         if (transcriptPath !== undefined && transcriptPath.length > 0) {
-          tailer.retarget(transcriptPath)
+          if (tailer.retarget(transcriptPath)) options.onTranscriptPath?.(transcriptPath)
         }
         return
       }

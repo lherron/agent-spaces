@@ -564,6 +564,7 @@ describe('claude-code-tmux JSON Schema structured-output RED contract', () => {
         },
       })
     } finally {
+      await driver.dispose()
       await rm(root, { recursive: true, force: true })
     }
   })

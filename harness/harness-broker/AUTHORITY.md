@@ -132,10 +132,12 @@ should show as `both`.
 | `diagnostic` (hook) | the API-failure `diagnostic` | session JSONL `assistant` row with `isApiErrorMessage:true` — it never arrives via a hook (T-05092) |
 | `submission-disposition` (native) | `submission.executed` for an IDLE-path prompt | the `UserPromptSubmit` hook — an idle prompt skips the composer queue entirely, so no queue-operation evidence exists for it (T-07849 item 7) |
 
-Every Claude event ARRIVES through a hook — the session-JSONL reader is a
-hook-driven byte-offset tail, so no hook means no transcript read. That is why
-`hook` is the primary for the families the hook normalizer produces, and it is
-also why the doc's target posture (transcript-primary, §6) is a Phase 4 cutover
+Claude session-JSONL rows arrive through either the read immediately preceding
+a hook normalization or a native file-change notification (T-07849 rev 12).
+Both enqueue onto one serialized drain chain and share one byte-offset tailer,
+so the earlier intake point changes neither row order nor ownership and cannot
+double-read a row. Hooks remain primary for the families the hook normalizer
+produces; the transcript-primary target posture (§6) is still a Phase 4 cutover
 rather than a relabelling.
 
 ### codex-cli-tmux

@@ -1,11 +1,11 @@
 import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs'
 
 /**
- * Shared byte-offset JSONL tailer for the hook-driven transcript readers
- * (claude-code-tmux and codex-cli-tmux). Both readers tail an append-only
- * transcript file synchronously from hook processing: they remember a byte
- * offset, read newly appended bytes, buffer a trailing partial line, and emit
- * complete `\n`-terminated lines IN ORDER.
+ * Shared byte-offset JSONL tailer for the Claude and Codex transcript readers.
+ * Both readers tail an append-only transcript file synchronously when their
+ * serialized intake asks for a read: they remember a byte offset, read newly
+ * appended bytes, buffer a trailing partial line, and emit complete
+ * `\n`-terminated lines IN ORDER.
  *
  * Only the file-tailing mechanics are shared here. The per-line state machine
  * (what each line MEANS, and what events it produces) stays divergent and lives
