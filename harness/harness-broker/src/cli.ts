@@ -1079,6 +1079,7 @@ async function connectControlClient(
       const pending = waiting.get(frame.id)
       if (pending === undefined) continue
       waiting.delete(frame.id)
+      socket.end()
       if (frame.error !== undefined) {
         const detail = frame.error.data !== undefined ? `: ${JSON.stringify(frame.error.data)}` : ''
         pending.reject(new Error(`${frame.error.message ?? 'broker error'}${detail}`))
