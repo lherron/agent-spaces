@@ -1,0 +1,1411 @@
+{
+ "source": {
+  "corpus": "var/wrkq-artifacts/T-07870/corpus (6 real codex-cli-tmux invocations, release-20260902024216362-98392)",
+  "archive": "~/.codex/sessions (1611 rollout files)",
+  "codex": "~/tools/codex @ 90ae0c4ef944bb80a3c725d15910289dfbb7db51"
+ },
+ "observed": [
+  "compacted",
+  "event_msg:agent_message",
+  "event_msg:agent_reasoning",
+  "event_msg:context_compacted",
+  "event_msg:entered_review_mode",
+  "event_msg:exited_review_mode",
+  "event_msg:image_generation_end",
+  "event_msg:item_completed:AgentMessage",
+  "event_msg:item_completed:CollabAgentToolCall",
+  "event_msg:item_completed:CommandExecution",
+  "event_msg:item_completed:ContextCompaction",
+  "event_msg:item_completed:Extension",
+  "event_msg:item_completed:FileChange",
+  "event_msg:item_completed:ImageView",
+  "event_msg:item_completed:McpToolCall",
+  "event_msg:item_completed:Reasoning",
+  "event_msg:item_completed:SubAgentActivity",
+  "event_msg:item_completed:UserMessage",
+  "event_msg:mcp_tool_call_end",
+  "event_msg:patch_apply_end",
+  "event_msg:sub_agent_activity",
+  "event_msg:task_complete",
+  "event_msg:task_started",
+  "event_msg:thread_goal_updated",
+  "event_msg:thread_settings_applied",
+  "event_msg:token_count",
+  "event_msg:turn_aborted",
+  "event_msg:undo_completed",
+  "event_msg:user_message",
+  "event_msg:web_search_end",
+  "inter_agent_communication_metadata",
+  "response_item:agent_message",
+  "response_item:compaction",
+  "response_item:custom_tool_call",
+  "response_item:custom_tool_call_output",
+  "response_item:function_call",
+  "response_item:function_call_output",
+  "response_item:ghost_snapshot",
+  "response_item:image_generation_call",
+  "response_item:message",
+  "response_item:reasoning",
+  "response_item:tool_search_call",
+  "response_item:tool_search_output",
+  "response_item:web_search_call",
+  "session_meta",
+  "turn_context",
+  "world_state"
+ ],
+ "synthesized": [
+  "event_msg:agent_message_content_delta",
+  "event_msg:agent_message_delta",
+  "event_msg:agent_reasoning_raw_content",
+  "event_msg:item_completed:DynamicToolCall",
+  "event_msg:item_completed:EnteredReviewMode",
+  "event_msg:item_completed:ExitedReviewMode",
+  "event_msg:item_completed:FunctionCallOutput",
+  "event_msg:item_completed:HookPrompt",
+  "event_msg:item_completed:ImageGeneration",
+  "event_msg:item_completed:Plan",
+  "event_msg:item_completed:WebSearch",
+  "event_msg:item_started:AgentMessage",
+  "event_msg:item_started:CollabAgentToolCall",
+  "event_msg:item_started:CommandExecution",
+  "event_msg:item_started:ContextCompaction",
+  "event_msg:item_started:DynamicToolCall",
+  "event_msg:item_started:EnteredReviewMode",
+  "event_msg:item_started:ExitedReviewMode",
+  "event_msg:item_started:Extension",
+  "event_msg:item_started:FileChange",
+  "event_msg:item_started:FunctionCallOutput",
+  "event_msg:item_started:HookPrompt",
+  "event_msg:item_started:ImageGeneration",
+  "event_msg:item_started:ImageView",
+  "event_msg:item_started:McpToolCall",
+  "event_msg:item_started:Plan",
+  "event_msg:item_started:Reasoning",
+  "event_msg:item_started:SubAgentActivity",
+  "event_msg:item_started:UserMessage",
+  "event_msg:item_started:WebSearch",
+  "event_msg:thread_rolled_back",
+  "inter_agent_communication",
+  "realtime_item",
+  "response_item:additional_tools",
+  "response_item:compaction_trigger",
+  "response_item:context_compaction",
+  "response_item:local_shell_call",
+  "response_item:other",
+  "security_risk_score",
+  "token_usage_record"
+ ],
+ "types": [
+  "session_meta",
+  "inter_agent_communication",
+  "inter_agent_communication_metadata",
+  "compacted",
+  "turn_context",
+  "token_usage_record",
+  "world_state",
+  "security_risk_score",
+  "realtime_item",
+  "event_msg:token_count",
+  "event_msg:thread_goal_updated",
+  "event_msg:thread_rolled_back",
+  "event_msg:turn_aborted",
+  "event_msg:task_started",
+  "event_msg:task_complete",
+  "event_msg:thread_settings_applied",
+  "event_msg:user_message",
+  "event_msg:agent_message",
+  "event_msg:agent_reasoning",
+  "event_msg:agent_reasoning_raw_content",
+  "event_msg:entered_review_mode",
+  "event_msg:exited_review_mode",
+  "event_msg:patch_apply_end",
+  "event_msg:context_compacted",
+  "event_msg:mcp_tool_call_end",
+  "event_msg:web_search_end",
+  "event_msg:image_generation_end",
+  "event_msg:sub_agent_activity",
+  "event_msg:undo_completed",
+  "event_msg:agent_message_delta",
+  "event_msg:agent_message_content_delta",
+  "event_msg:item_started:UserMessage",
+  "event_msg:item_started:FunctionCallOutput",
+  "event_msg:item_started:HookPrompt",
+  "event_msg:item_started:AgentMessage",
+  "event_msg:item_started:Plan",
+  "event_msg:item_started:Reasoning",
+  "event_msg:item_started:CommandExecution",
+  "event_msg:item_started:DynamicToolCall",
+  "event_msg:item_started:CollabAgentToolCall",
+  "event_msg:item_started:SubAgentActivity",
+  "event_msg:item_started:WebSearch",
+  "event_msg:item_started:ImageView",
+  "event_msg:item_started:Extension",
+  "event_msg:item_started:ImageGeneration",
+  "event_msg:item_started:EnteredReviewMode",
+  "event_msg:item_started:ExitedReviewMode",
+  "event_msg:item_started:FileChange",
+  "event_msg:item_started:McpToolCall",
+  "event_msg:item_started:ContextCompaction",
+  "event_msg:item_completed:UserMessage",
+  "event_msg:item_completed:FunctionCallOutput",
+  "event_msg:item_completed:HookPrompt",
+  "event_msg:item_completed:AgentMessage",
+  "event_msg:item_completed:Plan",
+  "event_msg:item_completed:Reasoning",
+  "event_msg:item_completed:CommandExecution",
+  "event_msg:item_completed:DynamicToolCall",
+  "event_msg:item_completed:CollabAgentToolCall",
+  "event_msg:item_completed:SubAgentActivity",
+  "event_msg:item_completed:WebSearch",
+  "event_msg:item_completed:ImageView",
+  "event_msg:item_completed:Extension",
+  "event_msg:item_completed:ImageGeneration",
+  "event_msg:item_completed:EnteredReviewMode",
+  "event_msg:item_completed:ExitedReviewMode",
+  "event_msg:item_completed:FileChange",
+  "event_msg:item_completed:McpToolCall",
+  "event_msg:item_completed:ContextCompaction",
+  "response_item:additional_tools",
+  "response_item:message",
+  "response_item:agent_message",
+  "response_item:reasoning",
+  "response_item:local_shell_call",
+  "response_item:function_call",
+  "response_item:tool_search_call",
+  "response_item:function_call_output",
+  "response_item:custom_tool_call",
+  "response_item:custom_tool_call_output",
+  "response_item:tool_search_output",
+  "response_item:web_search_call",
+  "response_item:image_generation_call",
+  "response_item:compaction",
+  "response_item:compaction_trigger",
+  "response_item:context_compaction",
+  "response_item:other",
+  "response_item:ghost_snapshot"
+ ],
+ "rows": {
+  "session_meta": {
+   "timestamp": "<redacted>",
+   "type": "session_meta",
+   "payload": {
+    "session_id": "<redacted>",
+    "id": "<redacted>",
+    "timestamp": "<redacted>",
+    "cwd": "<redacted>",
+    "originator": "<redacted>",
+    "cli_version": "<redacted>",
+    "source": "<redacted>",
+    "thread_source": "<redacted>",
+    "model_provider": "<redacted>",
+    "base_instructions": {
+     "text": "<redacted>"
+    },
+    "history_mode": "<redacted>",
+    "context_window": {
+     "window_id": "<redacted>"
+    }
+   }
+  },
+  "inter_agent_communication": {
+   "type": "inter_agent_communication",
+   "payload": {}
+  },
+  "inter_agent_communication_metadata": {
+   "timestamp": "<redacted>",
+   "type": "inter_agent_communication_metadata",
+   "payload": {
+    "trigger_turn": false
+   }
+  },
+  "compacted": {
+   "timestamp": "<redacted>",
+   "type": "compacted",
+   "payload": {
+    "message": "<redacted>"
+   }
+  },
+  "turn_context": {
+   "timestamp": "<redacted>",
+   "type": "turn_context",
+   "payload": {
+    "turn_id": "<redacted>",
+    "cwd": "<redacted>",
+    "workspace_roots": [
+     "<redacted>"
+    ],
+    "current_date": "<redacted>",
+    "timezone": "<redacted>",
+    "approval_policy": "<redacted>",
+    "approvals_reviewer": "<redacted>",
+    "sandbox_policy": {
+     "type": "workspace-write",
+     "network_access": false,
+     "exclude_tmpdir_env_var": false,
+     "exclude_slash_tmp": false
+    },
+    "permission_profile": {
+     "type": "managed",
+     "file_system": {
+      "type": "restricted",
+      "entries": [
+       null,
+       null
+      ]
+     },
+     "network": "<redacted>"
+    },
+    "file_system_sandbox_policy": {
+     "kind": "<redacted>",
+     "entries": [
+      {
+       "path": null,
+       "access": null
+      },
+      {
+       "path": null,
+       "access": null
+      }
+     ]
+    },
+    "model": "<redacted>",
+    "comp_hash": "<redacted>",
+    "personality": "<redacted>",
+    "collaboration_mode": {
+     "mode": "<redacted>",
+     "settings": {
+      "model": "<redacted>",
+      "reasoning_effort": "<redacted>",
+      "developer_instructions": "<redacted>"
+     }
+    },
+    "multi_agent_version": "<redacted>",
+    "multi_agent_mode": "<redacted>",
+    "realtime_active": false,
+    "effort": "<redacted>",
+    "summary": "<redacted>"
+   }
+  },
+  "token_usage_record": {
+   "type": "token_usage_record",
+   "payload": {}
+  },
+  "world_state": {
+   "timestamp": "<redacted>",
+   "type": "world_state",
+   "payload": {
+    "full": true,
+    "state": {
+     "agents_md": {
+      "text": "<redacted>"
+     },
+     "apps_instructions": true,
+     "collaboration_mode": "<redacted>",
+     "environments": {
+      "environments": {
+       "local": null
+      },
+      "current_date": "<redacted>",
+      "timezone": "<redacted>",
+      "filesystem": "<redacted>"
+     },
+     "environments_instructions": false,
+     "host_skills": {
+      "body": "<redacted>",
+      "includeInstructions": true
+     },
+     "permissions": "<redacted>",
+     "plugins_instructions": false,
+     "realtime": {
+      "active": false
+     },
+     "skills": {
+      "includeInstructions": true
+     }
+    }
+   }
+  },
+  "security_risk_score": {
+   "type": "security_risk_score",
+   "payload": {}
+  },
+  "realtime_item": {
+   "type": "realtime_item",
+   "payload": {}
+  },
+  "event_msg:token_count": {
+   "timestamp": "<redacted>",
+   "type": "event_msg",
+   "payload": {
+    "type": "token_count",
+    "info": {
+     "total_token_usage": {
+      "input_tokens": 14445,
+      "cached_input_tokens": 11008,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 5,
+      "reasoning_output_tokens": 0,
+      "total_tokens": 14450
+     },
+     "last_token_usage": {
+      "input_tokens": 14445,
+      "cached_input_tokens": 11008,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 5,
+      "reasoning_output_tokens": 0,
+      "total_tokens": 14450
+     },
+     "model_context_window": 258400
+    },
+    "rate_limits": {
+     "limit_id": "<redacted>",
+     "limit_name": null,
+     "primary": {
+      "used_percent": 50.0,
+      "window_minutes": 10080,
+      "resets_at": 1788747942
+     },
+     "secondary": null,
+     "credits": {
+      "has_credits": false,
+      "unlimited": false,
+      "balance": "<redacted>"
+     },
+     "individual_limit": null,
+     "spend_control_reached": null,
+     "plan_type": "<redacted>",
+     "rate_limit_reached_type": null
+    }
+   }
+  },
+  "event_msg:thread_goal_updated": {
+   "timestamp": "<redacted>",
+   "type": "event_msg",
+   "payload": {
+    "type": "thread_goal_updated",
+    "threadId": "<redacted>",
+    "goal": {
+     "threadId": "<redacted>",
+     "objective": "<redacted>",
+     "status": "<redacted>",
+     "tokensUsed": 0,
+     "timeUsedSeconds": 0,
+     "createdAt": 1782871247,
+     "updatedAt": 1782871247
+    }
+   }
+  },
+  "event_msg:thread_rolled_back": {
+   "type": "event_msg",
+   "payload": {
+    "type": "thread_rolled_back"
+   }
+  },
+  "event_msg:turn_aborted": {
+   "timestamp": "<redacted>",
+   "type": "event_msg",
+   "payload": {
+    "type": "turn_aborted",
+    "reason": "<redacted>"
+   }
+  },
+  "event_msg:task_started": {
+   "timestamp": "<redacted>",
+   "type": "event_msg",
+   "payload": {
+    "type": "task_started",
+    "turn_id": "<redacted>",
+    "started_at": 1788317722,
+    "model_context_window": 258400,
+    "collaboration_mode_kind": "<redacted>"
+   }
+  },
+  "event_msg:task_complete": {
+   "timestamp": "<redacted>",
+   "type": "event_msg",
+   "payload": {
+    "type": "task_complete",
+    "turn_id": "<redacted>",
+    "last_agent_message": "<redacted>",
+    "started_at": 1788317722,
+    "completed_at": 1788317726,
+    "duration_ms": 4263,
+    "time_to_first_token_ms": 4002
+   }
+  },
+  "event_msg:thread_settings_applied": {
+   "timestamp": "<redacted>",
+   "type": "event_msg",
+   "payload": {
+    "type": "thread_settings_applied",
+    "thread_settings": {
+     "model": "<redacted>",
+     "model_provider_id": "<redacted>",
+     "service_tier": "<redacted>",
+     "approval_policy": "<redacted>",
+     "approvals_reviewer": "<redacted>",
+     "permission_profile": {
+      "type": "managed",
+      "file_system": {
+       "type": "restricted",
+       "entries": null
+      },
+      "network": "<redacted>"
+     },
+     "cwd": "<redacted>",
+     "reasoning_effort": "<redacted>",
+     "reasoning_summary": "<redacted>",
+     "personality": "<redacted>",
+     "collaboration_mode": {
+      "mode": "<redacted>",
+      "settings": {
+       "model": null,
+       "reasoning_effort": null,
+       "developer_instructions": null
+      }
+     }
+    }
+   }
+  },
+  "event_msg:user_message": {
+   "timestamp": "<redacted>",
+   "type": "event_msg",
+   "payload": {
+    "type": "user_message",
+    "message": "<redacted>",
+    "images": [],
+    "local_images": [],
+    "audio": [],
+    "local_audio": [],
+    "text_elements": []
+   }
+  },
+  "event_msg:agent_message": {
+   "timestamp": "<redacted>",
+   "type": "event_msg",
+   "payload": {
+    "type": "agent_message",
+    "message": "<redacted>",
+    "phase": "<redacted>",
+    "memory_citation": null
+   }
+  },
+  "event_msg:agent_reasoning": {
+   "timestamp": "<redacted>",
+   "type": "event_msg",
+   "payload": {
+    "type": "agent_reasoning",
+    "text": "<redacted>"
+   }
+  },
+  "event_msg:agent_reasoning_raw_content": {
+   "type": "event_msg",
+   "payload": {
+    "type": "agent_reasoning_raw_content"
+   }
+  },
+  "event_msg:entered_review_mode": {
+   "timestamp": "<redacted>",
+   "type": "event_msg",
+   "payload": {
+    "type": "entered_review_mode",
+    "target": {
+     "type": "custom",
+     "instructions": "<redacted>"
+    },
+    "user_facing_hint": "<redacted>"
+   }
+  },
+  "event_msg:exited_review_mode": {
+   "timestamp": "<redacted>",
+   "type": "event_msg",
+   "payload": {
+    "type": "exited_review_mode",
+    "review_output": {
+     "findings": [
+      {
+       "title": null,
+       "body": null,
+       "confidence_score": null,
+       "priority": null,
+       "code_location": null
+      }
+     ],
+     "overall_correctness": "<redacted>",
+     "overall_explanation": "<redacted>",
+     "overall_confidence_score": 0.36
+    }
+   }
+  },
+  "event_msg:patch_apply_end": {
+   "timestamp": "<redacted>",
+   "type": "event_msg",
+   "payload": {
+    "type": "patch_apply_end",
+    "call_id": "<redacted>",
+    "turn_id": "<redacted>",
+    "stdout": "<redacted>",
+    "stderr": "<redacted>",
+    "success": true,
+    "changes": {
+     "/Users/lherron/praesidium/wrkq/docs/wrkf-scheduler-runner-proposal.md": {
+      "type": "add",
+      "content": "<redacted>"
+     }
+    },
+    "status": "<redacted>"
+   }
+  },
+  "event_msg:context_compacted": {
+   "timestamp": "<redacted>",
+   "type": "event_msg",
+   "payload": {
+    "type": "context_compacted"
+   }
+  },
+  "event_msg:mcp_tool_call_end": {
+   "timestamp": "<redacted>",
+   "type": "event_msg",
+   "payload": {
+    "type": "mcp_tool_call_end",
+    "call_id": "<redacted>",
+    "invocation": {
+     "server": "<redacted>",
+     "tool": "<redacted>",
+     "arguments": {
+      "path": "<redacted>"
+     }
+    },
+    "duration": {
+     "secs": 0,
+     "nanos": 416834
+    },
+    "result": {
+     "Ok": {
+      "content": [
+       null
+      ],
+      "isError": false
+     }
+    }
+   }
+  },
+  "event_msg:web_search_end": {
+   "timestamp": "<redacted>",
+   "type": "event_msg",
+   "payload": {
+    "type": "web_search_end",
+    "call_id": "<redacted>",
+    "query": "<redacted>",
+    "action": {
+     "type": "search",
+     "query": "<redacted>",
+     "queries": [
+      "<redacted>"
+     ]
+    }
+   }
+  },
+  "event_msg:image_generation_end": {
+   "timestamp": "<redacted>",
+   "type": "event_msg",
+   "payload": {
+    "type": "image_generation_end",
+    "call_id": "<redacted>",
+    "status": "<redacted>",
+    "revised_prompt": "<redacted>",
+    "result": "<redacted>",
+    "saved_path": "<redacted>"
+   }
+  },
+  "event_msg:sub_agent_activity": {
+   "timestamp": "<redacted>",
+   "type": "event_msg",
+   "payload": {
+    "type": "sub_agent_activity",
+    "event_id": "<redacted>",
+    "occurred_at_ms": 1784033681516,
+    "agent_thread_id": "<redacted>",
+    "agent_path": "<redacted>",
+    "kind": "<redacted>"
+   }
+  },
+  "event_msg:undo_completed": {
+   "timestamp": "<redacted>",
+   "type": "event_msg",
+   "payload": {
+    "type": "undo_completed",
+    "success": true,
+    "message": "<redacted>"
+   }
+  },
+  "event_msg:agent_message_delta": {
+   "type": "event_msg",
+   "payload": {
+    "type": "agent_message_delta"
+   }
+  },
+  "event_msg:agent_message_content_delta": {
+   "type": "event_msg",
+   "payload": {
+    "type": "agent_message_content_delta"
+   }
+  },
+  "event_msg:item_started:UserMessage": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_started",
+    "item": {
+     "type": "UserMessage"
+    }
+   }
+  },
+  "event_msg:item_started:FunctionCallOutput": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_started",
+    "item": {
+     "type": "FunctionCallOutput"
+    }
+   }
+  },
+  "event_msg:item_started:HookPrompt": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_started",
+    "item": {
+     "type": "HookPrompt"
+    }
+   }
+  },
+  "event_msg:item_started:AgentMessage": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_started",
+    "item": {
+     "type": "AgentMessage"
+    }
+   }
+  },
+  "event_msg:item_started:Plan": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_started",
+    "item": {
+     "type": "Plan"
+    }
+   }
+  },
+  "event_msg:item_started:Reasoning": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_started",
+    "item": {
+     "type": "Reasoning"
+    }
+   }
+  },
+  "event_msg:item_started:CommandExecution": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_started",
+    "item": {
+     "type": "CommandExecution"
+    }
+   }
+  },
+  "event_msg:item_started:DynamicToolCall": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_started",
+    "item": {
+     "type": "DynamicToolCall"
+    }
+   }
+  },
+  "event_msg:item_started:CollabAgentToolCall": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_started",
+    "item": {
+     "type": "CollabAgentToolCall"
+    }
+   }
+  },
+  "event_msg:item_started:SubAgentActivity": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_started",
+    "item": {
+     "type": "SubAgentActivity"
+    }
+   }
+  },
+  "event_msg:item_started:WebSearch": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_started",
+    "item": {
+     "type": "WebSearch"
+    }
+   }
+  },
+  "event_msg:item_started:ImageView": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_started",
+    "item": {
+     "type": "ImageView"
+    }
+   }
+  },
+  "event_msg:item_started:Extension": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_started",
+    "item": {
+     "type": "Extension"
+    }
+   }
+  },
+  "event_msg:item_started:ImageGeneration": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_started",
+    "item": {
+     "type": "ImageGeneration"
+    }
+   }
+  },
+  "event_msg:item_started:EnteredReviewMode": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_started",
+    "item": {
+     "type": "EnteredReviewMode"
+    }
+   }
+  },
+  "event_msg:item_started:ExitedReviewMode": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_started",
+    "item": {
+     "type": "ExitedReviewMode"
+    }
+   }
+  },
+  "event_msg:item_started:FileChange": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_started",
+    "item": {
+     "type": "FileChange"
+    }
+   }
+  },
+  "event_msg:item_started:McpToolCall": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_started",
+    "item": {
+     "type": "McpToolCall"
+    }
+   }
+  },
+  "event_msg:item_started:ContextCompaction": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_started",
+    "item": {
+     "type": "ContextCompaction"
+    }
+   }
+  },
+  "event_msg:item_completed:UserMessage": {
+   "timestamp": "<redacted>",
+   "ordinal": 9,
+   "type": "event_msg",
+   "payload": {
+    "type": "item_completed",
+    "thread_id": "<redacted>",
+    "turn_id": "<redacted>",
+    "item": {
+     "type": "UserMessage",
+     "id": "<redacted>",
+     "client_id": "<redacted>",
+     "content": [
+      {
+       "type": "text",
+       "text": null,
+       "text_elements": null
+      }
+     ]
+    },
+    "started_at_ms": 1787452221261,
+    "completed_at_ms": 1787452221261
+   }
+  },
+  "event_msg:item_completed:FunctionCallOutput": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_completed",
+    "item": {
+     "type": "FunctionCallOutput"
+    }
+   }
+  },
+  "event_msg:item_completed:HookPrompt": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_completed",
+    "item": {
+     "type": "HookPrompt"
+    }
+   }
+  },
+  "event_msg:item_completed:AgentMessage": {
+   "timestamp": "<redacted>",
+   "ordinal": 12,
+   "type": "event_msg",
+   "payload": {
+    "type": "item_completed",
+    "thread_id": "<redacted>",
+    "turn_id": "<redacted>",
+    "item": {
+     "type": "AgentMessage",
+     "id": "<redacted>",
+     "content": [
+      {
+       "type": "Text",
+       "text": null
+      }
+     ],
+     "phase": "<redacted>"
+    },
+    "started_at_ms": 1787452223595,
+    "completed_at_ms": 1787452224474
+   }
+  },
+  "event_msg:item_completed:Plan": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_completed",
+    "item": {
+     "type": "Plan"
+    }
+   }
+  },
+  "event_msg:item_completed:Reasoning": {
+   "timestamp": "<redacted>",
+   "ordinal": 10,
+   "type": "event_msg",
+   "payload": {
+    "type": "item_completed",
+    "thread_id": "<redacted>",
+    "turn_id": "<redacted>",
+    "item": {
+     "type": "Reasoning",
+     "id": "<redacted>",
+     "summary_text": [],
+     "raw_content": []
+    },
+    "started_at_ms": 1787452222257,
+    "completed_at_ms": 1787452223584
+   }
+  },
+  "event_msg:item_completed:CommandExecution": {
+   "timestamp": "<redacted>",
+   "ordinal": 15,
+   "type": "event_msg",
+   "payload": {
+    "type": "item_completed",
+    "thread_id": "<redacted>",
+    "turn_id": "<redacted>",
+    "item": {
+     "type": "CommandExecution",
+     "id": "<redacted>",
+     "process_id": "<redacted>",
+     "command": [
+      "<redacted>",
+      "<redacted>"
+     ],
+     "cwd": "<redacted>",
+     "parsed_cmd": [
+      {
+       "type": "search",
+       "cmd": null,
+       "query": null,
+       "path": null
+      }
+     ],
+     "source": "<redacted>",
+     "status": "<redacted>",
+     "stdout": "<redacted>",
+     "stderr": "<redacted>",
+     "aggregated_output": "<redacted>",
+     "exit_code": 0,
+     "duration": {
+      "secs": 0,
+      "nanos": 13875
+     },
+     "formatted_output": "<redacted>"
+    },
+    "started_at_ms": 1787452226097,
+    "completed_at_ms": 1787452226097
+   }
+  },
+  "event_msg:item_completed:DynamicToolCall": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_completed",
+    "item": {
+     "type": "DynamicToolCall"
+    }
+   }
+  },
+  "event_msg:item_completed:CollabAgentToolCall": {
+   "timestamp": "<redacted>",
+   "ordinal": 100,
+   "type": "event_msg",
+   "payload": {
+    "type": "item_completed",
+    "thread_id": "<redacted>",
+    "turn_id": "<redacted>",
+    "item": {
+     "type": "CollabAgentToolCall",
+     "id": "<redacted>",
+     "tool": "<redacted>",
+     "status": "<redacted>",
+     "sender_thread_id": "<redacted>",
+     "receiver_thread_ids": [],
+     "receiver_agents": [],
+     "agents_states": {}
+    },
+    "started_at_ms": 1787661358286,
+    "completed_at_ms": 1787661368287
+   }
+  },
+  "event_msg:item_completed:SubAgentActivity": {
+   "timestamp": "<redacted>",
+   "ordinal": 67,
+   "type": "event_msg",
+   "payload": {
+    "type": "item_completed",
+    "thread_id": "<redacted>",
+    "turn_id": "<redacted>",
+    "item": {
+     "type": "SubAgentActivity",
+     "id": "<redacted>",
+     "kind": "<redacted>",
+     "agent_thread_id": "<redacted>",
+     "agent_path": "<redacted>"
+    },
+    "started_at_ms": 1787661300136,
+    "completed_at_ms": 1787661300136
+   }
+  },
+  "event_msg:item_completed:WebSearch": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_completed",
+    "item": {
+     "type": "WebSearch"
+    }
+   }
+  },
+  "event_msg:item_completed:ImageView": {
+   "timestamp": "<redacted>",
+   "ordinal": 763,
+   "type": "event_msg",
+   "payload": {
+    "type": "item_completed",
+    "thread_id": "<redacted>",
+    "turn_id": "<redacted>",
+    "item": {
+     "type": "ImageView",
+     "id": "<redacted>",
+     "path": "<redacted>"
+    },
+    "completed_at_ms": 1787454116817
+   }
+  },
+  "event_msg:item_completed:Extension": {
+   "timestamp": "<redacted>",
+   "ordinal": 21,
+   "type": "event_msg",
+   "payload": {
+    "type": "item_completed",
+    "thread_id": "<redacted>",
+    "turn_id": "<redacted>",
+    "item": {
+     "type": "Extension",
+     "kind": "<redacted>",
+     "id": "<redacted>",
+     "query": "<redacted>",
+     "action": {
+      "type": "search",
+      "query": "<redacted>",
+      "queries": null
+     },
+     "results": [
+      {
+       "type": "text_result",
+       "domain": null,
+       "ref_id": null,
+       "snippet": null,
+       "title": null,
+       "url": null
+      },
+      {
+       "type": "text_result",
+       "domain": null,
+       "ref_id": null,
+       "snippet": null,
+       "title": null,
+       "url": null
+      }
+     ]
+    },
+    "completed_at_ms": 1787623179060
+   }
+  },
+  "event_msg:item_completed:ImageGeneration": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_completed",
+    "item": {
+     "type": "ImageGeneration"
+    }
+   }
+  },
+  "event_msg:item_completed:EnteredReviewMode": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_completed",
+    "item": {
+     "type": "EnteredReviewMode"
+    }
+   }
+  },
+  "event_msg:item_completed:ExitedReviewMode": {
+   "type": "event_msg",
+   "payload": {
+    "type": "item_completed",
+    "item": {
+     "type": "ExitedReviewMode"
+    }
+   }
+  },
+  "event_msg:item_completed:FileChange": {
+   "timestamp": "<redacted>",
+   "ordinal": 236,
+   "type": "event_msg",
+   "payload": {
+    "type": "item_completed",
+    "thread_id": "<redacted>",
+    "turn_id": "<redacted>",
+    "item": {
+     "type": "FileChange",
+     "id": "<redacted>",
+     "changes": {
+      "/Users/lherron/praesidium/clients/hrc-ios/plugins/WRKQ_TASK_PLUGIN_PROPOSAL.md": {
+       "type": "add",
+       "content": null
+      }
+     },
+     "status": "<redacted>",
+     "stdout": "<redacted>",
+     "stderr": "<redacted>"
+    },
+    "completed_at_ms": 1787453323627
+   }
+  },
+  "event_msg:item_completed:McpToolCall": {
+   "timestamp": "<redacted>",
+   "ordinal": 356,
+   "type": "event_msg",
+   "payload": {
+    "type": "item_completed",
+    "thread_id": "<redacted>",
+    "turn_id": "<redacted>",
+    "item": {
+     "type": "McpToolCall",
+     "id": "<redacted>",
+     "server": "<redacted>",
+     "tool": "<redacted>",
+     "arguments": {
+      "title": "<redacted>",
+      "code": "<redacted>"
+     },
+     "readOnlyHint": true,
+     "status": "<redacted>",
+     "result": {
+      "content": [
+       null
+      ],
+      "isError": false,
+      "_meta": {
+       "codex/nodeReplExecutionDurationMs": null,
+       "codex/toolSurface": null
+      }
+     },
+     "duration": {
+      "secs": 0,
+      "nanos": 529534500
+     }
+    },
+    "started_at_ms": 1787457638874,
+    "completed_at_ms": 1787457639403
+   }
+  },
+  "event_msg:item_completed:ContextCompaction": {
+   "timestamp": "<redacted>",
+   "ordinal": 514,
+   "type": "event_msg",
+   "payload": {
+    "type": "item_completed",
+    "thread_id": "<redacted>",
+    "turn_id": "<redacted>",
+    "item": {
+     "type": "ContextCompaction",
+     "id": "<redacted>"
+    },
+    "completed_at_ms": 1787453850767
+   }
+  },
+  "response_item:additional_tools": {
+   "type": "response_item",
+   "payload": {
+    "type": "additional_tools"
+   }
+  },
+  "response_item:message": {
+   "timestamp": "<redacted>",
+   "type": "response_item",
+   "payload": {
+    "type": "message",
+    "role": "<redacted>",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "<redacted>"
+     },
+     {
+      "type": "input_text",
+      "text": "<redacted>"
+     }
+    ],
+    "internal_chat_message_metadata_passthrough": {
+     "turn_id": "<redacted>"
+    }
+   }
+  },
+  "response_item:agent_message": {
+   "timestamp": "<redacted>",
+   "type": "response_item",
+   "payload": {
+    "type": "agent_message",
+    "author": "<redacted>",
+    "recipient": "<redacted>",
+    "content": [
+     {
+      "type": "input_text",
+      "text": "<redacted>"
+     }
+    ],
+    "internal_chat_message_metadata_passthrough": {
+     "turn_id": "<redacted>"
+    }
+   }
+  },
+  "response_item:reasoning": {
+   "timestamp": "<redacted>",
+   "type": "response_item",
+   "payload": {
+    "type": "reasoning",
+    "id": "<redacted>",
+    "summary": [
+     {
+      "type": "summary_text",
+      "text": "<redacted>"
+     }
+    ],
+    "encrypted_content": "<redacted>",
+    "internal_chat_message_metadata_passthrough": {
+     "turn_id": "<redacted>"
+    }
+   }
+  },
+  "response_item:local_shell_call": {
+   "type": "response_item",
+   "payload": {
+    "type": "local_shell_call"
+   }
+  },
+  "response_item:function_call": {
+   "timestamp": "<redacted>",
+   "type": "response_item",
+   "payload": {
+    "type": "function_call",
+    "name": "<redacted>",
+    "arguments": "<redacted>",
+    "call_id": "<redacted>"
+   }
+  },
+  "response_item:tool_search_call": {
+   "timestamp": "<redacted>",
+   "type": "response_item",
+   "payload": {
+    "type": "tool_search_call",
+    "call_id": "<redacted>",
+    "status": "<redacted>",
+    "execution": "<redacted>",
+    "arguments": {
+     "query": "<redacted>",
+     "limit": 8
+    }
+   }
+  },
+  "response_item:function_call_output": {
+   "timestamp": "<redacted>",
+   "type": "response_item",
+   "payload": {
+    "type": "function_call_output",
+    "call_id": "<redacted>",
+    "output": "<redacted>"
+   }
+  },
+  "response_item:custom_tool_call": {
+   "timestamp": "<redacted>",
+   "type": "response_item",
+   "payload": {
+    "type": "custom_tool_call",
+    "id": "<redacted>",
+    "status": "<redacted>",
+    "call_id": "<redacted>",
+    "name": "<redacted>",
+    "input": "<redacted>",
+    "internal_chat_message_metadata_passthrough": {
+     "turn_id": "<redacted>"
+    }
+   }
+  },
+  "response_item:custom_tool_call_output": {
+   "timestamp": "<redacted>",
+   "type": "response_item",
+   "payload": {
+    "type": "custom_tool_call_output",
+    "call_id": "<redacted>",
+    "output": [
+     {
+      "type": "input_text",
+      "text": "<redacted>"
+     },
+     {
+      "type": "input_text",
+      "text": "<redacted>"
+     }
+    ],
+    "internal_chat_message_metadata_passthrough": {
+     "turn_id": "<redacted>"
+    }
+   }
+  },
+  "response_item:tool_search_output": {
+   "timestamp": "<redacted>",
+   "type": "response_item",
+   "payload": {
+    "type": "tool_search_output",
+    "call_id": "<redacted>",
+    "status": "<redacted>",
+    "execution": "<redacted>",
+    "tools": [
+     {
+      "type": "namespace",
+      "name": "<redacted>",
+      "description": "<redacted>",
+      "tools": [
+       null,
+       null
+      ]
+     }
+    ]
+   }
+  },
+  "response_item:web_search_call": {
+   "timestamp": "<redacted>",
+   "type": "response_item",
+   "payload": {
+    "type": "web_search_call",
+    "status": "<redacted>",
+    "action": {
+     "type": "search"
+    }
+   }
+  },
+  "response_item:image_generation_call": {
+   "timestamp": "<redacted>",
+   "type": "response_item",
+   "payload": {
+    "type": "image_generation_call",
+    "id": "<redacted>",
+    "status": "<redacted>",
+    "revised_prompt": "<redacted>",
+    "result": "<redacted>",
+    "internal_chat_message_metadata_passthrough": {
+     "turn_id": "<redacted>"
+    }
+   }
+  },
+  "response_item:compaction": {
+   "timestamp": "<redacted>",
+   "type": "response_item",
+   "payload": {
+    "type": "compaction",
+    "id": "<redacted>",
+    "encrypted_content": "<redacted>",
+    "internal_chat_message_metadata_passthrough": {
+     "turn_id": "<redacted>"
+    }
+   }
+  },
+  "response_item:compaction_trigger": {
+   "type": "response_item",
+   "payload": {
+    "type": "compaction_trigger"
+   }
+  },
+  "response_item:context_compaction": {
+   "type": "response_item",
+   "payload": {
+    "type": "context_compaction"
+   }
+  },
+  "response_item:other": {
+   "type": "response_item",
+   "payload": {
+    "type": "other"
+   }
+  },
+  "response_item:ghost_snapshot": {
+   "timestamp": "<redacted>",
+   "type": "response_item",
+   "payload": {
+    "type": "ghost_snapshot",
+    "ghost_commit": {
+     "id": "<redacted>",
+     "parent": "<redacted>",
+     "preexisting_untracked_files": [
+      "<redacted>",
+      "<redacted>"
+     ],
+     "preexisting_untracked_dirs": [
+      "<redacted>",
+      "<redacted>"
+     ]
+    }
+   }
+  }
+ }
+}

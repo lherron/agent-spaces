@@ -222,28 +222,51 @@ The tables that decide `ignored-known` vs `blocked-unknown` are
   `test/capture/claude-native-type-
   coverage.test.ts` replays those real transcripts and asserts every row reaches
   a terminal disposition with zero warnings.
-- `src/drivers/codex-cli-tmux/native-types.ts`,
-  `src/drivers/pi-tui-tmux/native-types.ts` — the hook names the broker
-  registers for each harness.
+- `src/drivers/codex-cli-tmux/native-types.ts` — the ROLLOUT vocabulary, pinned
+  under T-07870: 11 top-level row types, 25 `event_msg` payload types, 18
+  `response_item` payload types and 19 `TurnItem` subtypes. Corpus-derived from
+  six real codex-cli-tmux invocations (250 committed raw rows) plus the 1611
+  archived rollouts under `~/.codex/sessions`, then SOURCE-confirmed against
+  `~/tools/codex` @ `90ae0c4ef944bb80a3c725d15910289dfbb7db51` — in particular
+  `codex-rs/rollout/src/policy.rs`, the filter that decides what reaches a
+  rollout file at all. `test/capture/codex-native-type-coverage.test.ts` is the
+  drift guard: it classifies all 87 pinned combinations with zero warnings, and
+  replays every real corpus journal as an opt-in leg.
+- `src/drivers/pi-tui-tmux/native-types.ts` — the hook names the broker
+  registers for that harness.
 
-### A named gap: the Codex rollout vocabulary is not pinned yet
+### The Codex rollout disposition law
 
-`claude-code-tmux`'s native-type table was enumerated from three archived real
-sessions, so it can tell "reviewed and intentionally ignored" apart from "new,
-and therefore suspect". **codex-cli-tmux has no such archive.** Its rollout rows
-are now captured verbatim with cursors and dispositions, but a row the reader
-does not consume is dispositioned `ignored-known` (carrying its type in
-`detail`), never `blocked-unknown`.
+With the vocabulary pinned, a rollout row is dispositioned by this law rather
+than being swept into `ignored-known`:
 
-This is deliberate and it is a gap, not a design: inventing a known-types table
-for a vocabulary nobody has enumerated would either halt real sessions on
-ordinary rows, or — worse — give a false assurance of completeness. Capturing
-every row is what makes the table derivable, so pinning it from real captures is
-the concrete prerequisite for the Phase 3 Codex CLI authority cutover, alongside
-that phase's own parity requirement.
+| Row | Disposition |
+| --- | --- |
+| consumed by the reader | `normalized` (it minted a fact) / `state-only` (it advanced held state) |
+| pinned, deliberately not consumed | `ignored-known`, carrying its type in `detail` |
+| an `item` subtype NOT in the table, under a pinned item-carrying `event_msg` | `blocked-unknown` in `conversation` — **HALTS** |
+| a row type, `event_msg` type or `response_item` type not in the table | `blocked-unknown` in `diagnostic` — warns, no halt |
 
-`pi-tui-tmux` has no transcript reader at all (hooks only, by the accepted risk
-above), so it has no equivalent gap.
+The halt is narrow on purpose. The only rows we can ASSERT are load-bearing are
+`item` subtypes whose parent is pinned: `item_completed` is where codex's
+paginated history mode delivers `AgentMessage`, the terminal answer this reader
+holds, so a renamed or added item type there silently costs assistant prose.
+That is the codex analogue of Claude's unknown QUEUE OPERATION — a demonstrated
+dependency, not a guess. Anything else in the rollout cannot be placed in a
+family at all, and the law halts on an unclassified *load-bearing* type, so it
+warns instead. Same reasoning as the hook-name precedent below.
+
+Two entries are worth reading as deliberate:
+
+- `agent_message_delta` / `agent_message_content_delta` are pinned even though
+  the pinned source revision does not persist them, because the reader CONSUMES
+  them. A type the normalizer acts on is known by construction, and leaving it
+  out would halt the moment an older codex is on PATH.
+- `exec_approval_request`, `apply_patch_approval_request`, `request_permissions`,
+  `request_user_input` and `elicitation_request` are ABSENT, because
+  `policy.rs::should_persist_event_msg` puts all five in the transient arm. The
+  rollout carries no permission evidence at all — which is the source-side
+  confirmation of the `permission` row below.
 
 ### Unknown HOOK names warn; they do not halt
 

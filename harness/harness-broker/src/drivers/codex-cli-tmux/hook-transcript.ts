@@ -10,6 +10,15 @@ import { createInvocationEventSequencer } from '../../events'
 import { getNumber, getString } from '../hook-json'
 import { createJsonlByteOffsetTailer } from '../jsonl-byte-tailer'
 import { CODEX_CLI_TMUX_DRIVER_KIND } from './hook-events'
+import {
+  CODEX_ITEM_CARRYING_EVENT_MSG_TYPES,
+  CODEX_KNOWN_ROLLOUT_EVENT_MSG_TYPES,
+  CODEX_KNOWN_ROLLOUT_ITEM_TYPES,
+  CODEX_KNOWN_ROLLOUT_RESPONSE_ITEM_TYPES,
+  CODEX_KNOWN_ROLLOUT_ROW_TYPES,
+  CODEX_UNKNOWN_ITEM_FAMILY,
+  CODEX_UNKNOWN_ROLLOUT_FAMILY,
+} from './native-types'
 
 /**
  * Hook-driven Codex rollout transcript reader (T-01710).
@@ -275,14 +284,21 @@ export function createCodexHookTranscriptReader(
   /**
    * Normalize ONE committed rollout row and report its disposition (§6.1).
    *
-   * NOTE ON THE VOCABULARY GAP: unlike claude-code-tmux, this driver's rollout
-   * vocabulary has NOT been pinned from archived real sessions, so a row this
-   * reader does not consume is dispositioned `ignored-known` (carrying its type
-   * in `detail`) rather than `blocked-unknown`. Inventing a "known types" table
-   * without evidence would either halt real sessions on ordinary rows or give a
-   * false assurance of completeness. The raw journal now captures every row, so
-   * pinning the table from real captures is the concrete Phase-3 prerequisite —
-   * see AUTHORITY.md.
+   * THE DISPOSITION LAW (T-07870), now that the rollout vocabulary is pinned in
+   * `native-types.ts` from real captures and the codex source:
+   *
+   *   consumed                                        -> normalized / state-only
+   *   pinned, deliberately not consumed               -> ignored-known
+   *   NOT pinned, in a load-bearing family            -> blocked-unknown, HALTS
+   *   NOT pinned, not placeable in a family           -> blocked-unknown, warns
+   *
+   * The only rows we can assert are load-bearing are the `item` subtypes under a
+   * PINNED item-carrying `event_msg`: their parent is known, and that parent's
+   * channel is where assistant prose arrives. A row type, `event_msg` payload
+   * type or `response_item` payload type that is not in the table cannot be
+   * placed in any family at all, so it warns rather than halting — the law halts
+   * on an unclassified LOAD-BEARING type, and the AUTHORITY.md hook-name
+   * precedent is exactly this distinction.
    */
   const processLine = (line: string, into: InvocationEventEnvelope[]): NormalizeOutcome => {
     if (line.trim().length === 0) {
@@ -301,19 +317,57 @@ export function createCodexHookTranscriptReader(
 
     const before = into.length
     const rowType = getString(entry, 'type') ?? '(none)'
-    if (entry['type'] !== 'event_msg') {
+    if (!CODEX_KNOWN_ROLLOUT_ROW_TYPES.has(rowType)) {
+      return {
+        disposition: 'blocked-unknown',
+        family: CODEX_UNKNOWN_ROLLOUT_FAMILY,
+        message: `Unknown Codex rollout row type: ${rowType}`,
+      }
+    }
+    if (rowType === 'response_item') {
+      const itemPayload = asPayload(entry['payload'])
+      const itemType = itemPayload === undefined ? undefined : getString(itemPayload, 'type')
+      if (itemType === undefined || !CODEX_KNOWN_ROLLOUT_RESPONSE_ITEM_TYPES.has(itemType)) {
+        return {
+          disposition: 'blocked-unknown',
+          family: CODEX_UNKNOWN_ROLLOUT_FAMILY,
+          message: `Unknown Codex rollout response_item type: ${itemType ?? '(none)'}`,
+        }
+      }
+      // The model-API mirror. Every fact this reader mints comes from the
+      // `event_msg` channel, so these rows are reviewed and deliberately unused.
+      return { disposition: 'ignored-known', detail: `response_item:${itemType}` }
+    }
+    if (rowType !== 'event_msg') {
       return { disposition: 'ignored-known', detail: rowType }
     }
-    const payloadValue = entry['payload']
-    if (payloadValue === null || typeof payloadValue !== 'object' || Array.isArray(payloadValue)) {
+    const payload = asPayload(entry['payload'])
+    if (payload === undefined) {
       return { disposition: 'ignored-known', detail: 'event_msg with no payload object' }
     }
-    const payload = payloadValue as Record<string, unknown>
     const payloadType = getString(payload, 'type')
+    if (payloadType === undefined || !CODEX_KNOWN_ROLLOUT_EVENT_MSG_TYPES.has(payloadType)) {
+      return {
+        disposition: 'blocked-unknown',
+        family: CODEX_UNKNOWN_ROLLOUT_FAMILY,
+        message: `Unknown Codex rollout event_msg type: ${payloadType ?? '(none)'}`,
+      }
+    }
+    if (CODEX_ITEM_CARRYING_EVENT_MSG_TYPES.has(payloadType)) {
+      const item = asPayload(payload['item'])
+      const itemType = item === undefined ? undefined : getString(item, 'type')
+      if (itemType === undefined || !CODEX_KNOWN_ROLLOUT_ITEM_TYPES.has(itemType)) {
+        return {
+          disposition: 'blocked-unknown',
+          family: CODEX_UNKNOWN_ITEM_FAMILY,
+          message: `Unknown Codex rollout item type: ${payloadType}/${itemType ?? '(none)'}`,
+        }
+      }
+    }
     const outcome = (): NormalizeOutcome =>
       into.length > before
-        ? { disposition: 'normalized', detail: `event_msg:${payloadType ?? '(none)'}` }
-        : { disposition: 'state-only', detail: `event_msg:${payloadType ?? '(none)'}` }
+        ? { disposition: 'normalized', detail: `event_msg:${payloadType}` }
+        : { disposition: 'state-only', detail: `event_msg:${payloadType}` }
 
     if (payloadType === 'agent_message_delta') {
       const delta = getString(payload, 'delta')
@@ -452,7 +506,19 @@ export function createCodexHookTranscriptReader(
   }
 }
 
-/** Native type recorded on a rollout raw record: row type refined by payload type. */
+/** A JSON object payload, or undefined for null/array/non-object. */
+function asPayload(value: unknown): Record<string, unknown> | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  return value as Record<string, unknown>
+}
+
+/**
+ * Native type recorded on a rollout raw record. The pinned vocabulary is three
+ * levels deep (row type -> payload type -> item type), and the record has to
+ * name the level the disposition was decided at, or a `blocked-unknown` on an
+ * item subtype would present as its parent and an operator would release the
+ * wrong thing.
+ */
 function codexNativeTypeOf(line: string): string {
   let parsed: unknown
   try {
@@ -460,19 +526,19 @@ function codexNativeTypeOf(line: string): string {
   } catch {
     return 'unparsable'
   }
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return 'non-object'
-  }
-  const entry = parsed as Record<string, unknown>
+  const entry = asPayload(parsed)
+  if (entry === undefined) return 'non-object'
   const rowType = getString(entry, 'type') ?? 'untyped'
-  const payload = entry['payload']
-  if (
-    rowType === 'event_msg' &&
-    payload !== null &&
-    typeof payload === 'object' &&
-    !Array.isArray(payload)
-  ) {
-    return `event_msg:${getString(payload as Record<string, unknown>, 'type') ?? '(none)'}`
+  const payload = asPayload(entry['payload'])
+  if (payload === undefined) return rowType
+  if (rowType === 'response_item') {
+    return `response_item:${getString(payload, 'type') ?? '(none)'}`
   }
-  return rowType
+  if (rowType !== 'event_msg') return rowType
+  const payloadType = getString(payload, 'type') ?? '(none)'
+  if (!CODEX_ITEM_CARRYING_EVENT_MSG_TYPES.has(payloadType)) {
+    return `event_msg:${payloadType}`
+  }
+  const item = asPayload(payload['item'])
+  return `event_msg:${payloadType}:${item === undefined ? '(none)' : (getString(item, 'type') ?? '(none)')}`
 }
