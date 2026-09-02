@@ -1902,7 +1902,7 @@ const EVENT_PAYLOAD_VALIDATORS = {
     requireString(payload['submissionId'], 'payload.submissionId', issues)
     optionalEnum(
       payload['reason'],
-      ['recalled', 'removed', 'teardown', 'broker-cancelled'],
+      ['recalled', 'removed', 'teardown', 'broker-cancelled', 'merged-into-foreign-turn'],
       'payload.reason',
       issues
     )

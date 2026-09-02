@@ -423,6 +423,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     kind: CLAUDE_CODE_TMUX_DRIVER_KIND,
     version: CLAUDE_CODE_TMUX_DRIVER_VERSION,
     bracketMintingMode: 'harness-evidence',
+    cancelPendingOwnTurnOnForeignTurn: true,
     evidenceAuthority: CLAUDE_CODE_TMUX_AUTHORITY,
     nativeSourceKind: 'provider-jsonl',
     preemptMode: 'quiescence',

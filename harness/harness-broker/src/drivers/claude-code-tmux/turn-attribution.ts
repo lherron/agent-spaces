@@ -26,6 +26,8 @@ export type ClaudeAttributionAction =
   | (SubmissionActionBase & {
       kind: 'executed'
       turnId: TurnId
+      /** The broker text was only a substring of the submitted human prompt. */
+      absorbedIntoHumanPrompt?: true | undefined
       /**
        * Whether this action is also the CONVERSATION fact for the prompt.
        *
@@ -157,17 +159,20 @@ export function createClaudeTurnAttribution(options: {
   const execute = (
     item: PendingSubmission,
     rememberPromptHook: boolean,
-    source: 'hook' | 'transcript'
+    source: 'hook' | 'transcript',
+    observedContent = item.content
   ): ClaudeAttributionAction => {
     const turnId = item.allocatedTurnId ?? (options.allocateTurnId() as TurnId)
     drop(item)
     activeTurnId = turnId
-    recentDisposedPrompt = rememberPromptHook ? item.content : undefined
+    recentDisposedPrompt = rememberPromptHook ? observedContent : undefined
     recentDisposedPromptFromHook = rememberPromptHook && source === 'hook'
     return {
       kind: 'executed',
       ...base(item),
+      content: observedContent,
       turnId,
+      ...(observedContent !== item.content ? { absorbedIntoHumanPrompt: true as const } : {}),
       // Defer the conversation fact to the echo row ONLY when an echo was
       // armed; otherwise this action is the only carrier there will be.
       mintsConversation: source === 'transcript' || !rememberPromptHook,
@@ -179,6 +184,33 @@ export function createClaudeTurnAttribution(options: {
     message,
     raw,
   })
+
+  const promptCandidate = (
+    content: string,
+    eligible: (item: PendingSubmission) => boolean
+  ): { item: PendingSubmission; absorbedIntoHumanPrompt: boolean } | undefined => {
+    const exact = pending.find((item) => eligible(item) && item.content === content)
+    if (exact !== undefined) return { item: exact, absorbedIntoHumanPrompt: false }
+
+    // Substring attribution is deliberately broker-only. Human/local queue
+    // entries have no inputId, so fuzzy matching those would turn arbitrary
+    // operator prose into a broker disposition. With multiple broker matches,
+    // only a unique longest body is unambiguous.
+    const embedded = pending.filter(
+      (item) =>
+        eligible(item) &&
+        item.inputId !== undefined &&
+        item.content.length > 0 &&
+        content.includes(item.content)
+    )
+    if (embedded.length === 0) return undefined
+    const longestLength = Math.max(...embedded.map((item) => item.content.length))
+    const longest = embedded.filter((item) => item.content.length === longestLength)
+    const longestItem = longest.length === 1 ? longest[0] : undefined
+    return longestItem === undefined
+      ? undefined
+      : { item: longestItem, absorbedIntoHumanPrompt: true }
+  }
 
   return {
     get activeTurnId(): TurnId | undefined {
@@ -327,7 +359,8 @@ export function createClaudeTurnAttribution(options: {
       recentDisposedPromptFromHook = false
       const drained = pending.find((item) => item.drainPending)
       if (drained !== undefined) {
-        if (drained.content !== content) {
+        const drainedMatch = promptCandidate(content, (item) => item === drained)
+        if (drainedMatch === undefined) {
           if (!drained.drainWarned) {
             drained.drainWarned = true
             actions.push(
@@ -344,7 +377,7 @@ export function createClaudeTurnAttribution(options: {
           // opening its own truthful turn.
           if (activeTurnId !== undefined) return actions
         } else {
-          actions.push(execute(drained, true, 'transcript'))
+          actions.push(execute(drained, true, 'transcript', content))
           return actions
         }
       }
@@ -354,10 +387,11 @@ export function createClaudeTurnAttribution(options: {
         return actions
       }
 
-      const candidate = pending.find(
-        (item) => item.content === content && !item.removePending && !item.drainPending
+      const candidate = promptCandidate(
+        content,
+        (item) => !item.removePending && !item.drainPending
       )
-      actions.push(execute(candidate ?? createPending(content), true, 'transcript'))
+      actions.push(execute(candidate?.item ?? createPending(content), true, 'transcript', content))
       return actions
     },
 
@@ -392,10 +426,9 @@ export function createClaudeTurnAttribution(options: {
       recentDisposedPrompt = undefined
       recentDisposedPromptFromHook = false
 
-      const candidate =
-        content === undefined
-          ? undefined
-          : pending.find((item) => item.content === content && !item.sawPromptHook)
+      const match =
+        content === undefined ? undefined : promptCandidate(content, (item) => !item.sawPromptHook)
+      const candidate = match?.item
       if (candidate?.sawEnqueue === true) {
         candidate.sawPromptHook = true
         return []
@@ -423,7 +456,7 @@ export function createClaudeTurnAttribution(options: {
       const item =
         candidate ?? createPending(content, { allocatedTurnId: hintedTurnId, sawPromptHook: true })
       item.sawPromptHook = true
-      return [execute(item, true, 'hook')]
+      return [execute(item, true, 'hook', content)]
     },
 
     settleOutstandingRemovals(raw): ClaudeAttributionAction[] {

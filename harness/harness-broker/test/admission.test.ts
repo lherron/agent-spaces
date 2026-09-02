@@ -373,6 +373,89 @@ describe('broker admission API', () => {
     expect(eventsFor(events, 'submission.executed')).toHaveLength(3)
   })
 
+  test('a foreign turn terminal cancels a contested harness-evidence delivery', async () => {
+    const { broker, controller, events, invocationId } = await setup(
+      'inv_admission_evidence_foreign_turn',
+      {
+        bracketMintingMode: 'harness-evidence',
+        cancelPendingOwnTurnOnForeignTurn: true,
+        suppressTurnStarted: true,
+      }
+    )
+
+    const pending = await broker.invoke({ invocationId, origin, body: 'broker delivery' })
+    await flush()
+    expect((await broker.seatProbe({ invocationId })).seat).toEqual({ state: 'starting' })
+
+    const foreignTurnId = 'turn_foreign' as const
+    controller.emitRaw(
+      'turn.started',
+      { turnId: foreignTurnId, source: 'hook-observed' },
+      { turnId: foreignTurnId }
+    )
+    controller.emitRaw(
+      'turn.completed',
+      { turnId: foreignTurnId, status: 'completed', finalOutput: 'human turn complete' },
+      { turnId: foreignTurnId }
+    )
+    await flush()
+
+    expect(
+      eventsFor(events, 'submission.cancelled').find(
+        (event) => event.payload.submissionId === pending.submissionId
+      )
+    ).toMatchObject({
+      turnId: foreignTurnId,
+      inputId: pending.submissionId,
+      payload: {
+        submissionId: pending.submissionId,
+        reason: 'merged-into-foreign-turn',
+      },
+    })
+    expect((await broker.seatProbe({ invocationId })).seat).toEqual({ state: 'idle' })
+  })
+
+  test('non-Claude harness evidence may correlate after an unowned turn terminal', async () => {
+    const { broker, controller, events, invocationId } = await setup(
+      'inv_admission_non_claude_late_evidence',
+      {
+        bracketMintingMode: 'harness-evidence',
+        suppressTurnStarted: true,
+      }
+    )
+
+    const pending = await broker.invoke({ invocationId, origin, body: 'codex delivery' })
+    await flush()
+    controller.emitRaw(
+      'turn.started',
+      { turnId: 'turn_unowned', source: 'hook-observed' },
+      { turnId: 'turn_unowned' }
+    )
+    controller.emitRaw(
+      'turn.completed',
+      { turnId: 'turn_unowned', status: 'completed' },
+      { turnId: 'turn_unowned' }
+    )
+    await flush()
+
+    expect((await broker.seatProbe({ invocationId })).seat).toEqual({ state: 'starting' })
+    expect(
+      eventsFor(events, 'submission.cancelled').some(
+        (event) => event.payload.submissionId === pending.submissionId
+      )
+    ).toBe(false)
+
+    controller.observeActiveTurnStart()
+    controller.completeActiveTurn()
+    await flush()
+    expect(
+      eventsFor(events, 'submission.executed').some(
+        (event) => event.payload.submissionId === pending.submissionId
+      )
+    ).toBe(true)
+    expect((await broker.seatProbe({ invocationId })).seat).toEqual({ state: 'idle' })
+  })
+
   test('steer is absorbed on open turns and rejected by guarded turn policy', async () => {
     const open = await setup('inv_admission_steer_open')
     const started = await open.broker.invoke({

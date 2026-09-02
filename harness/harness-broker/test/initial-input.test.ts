@@ -157,9 +157,20 @@ describe('initialInput on InvocationStartRequest', () => {
       await sleep(50)
     }
 
-    // Both should have the same event type sequence
-    const typesWithInitial = eventsWithInitial.map((e) => e.type)
-    const typesSeparate = eventsSeparate.map((e) => e.type)
+    // The delivery-acknowledged disposition races the fake provider's terminal
+    // notification with its turn/start response, so it may land on either side
+    // of the provider events. Its cardinality is invariant; the remaining
+    // sequence must be identical for initial and separately-submitted input.
+    expect(eventsWithInitial.filter((event) => event.type === 'submission.executed')).toHaveLength(
+      1
+    )
+    expect(eventsSeparate.filter((event) => event.type === 'submission.executed')).toHaveLength(1)
+    const typesWithInitial = eventsWithInitial
+      .filter((event) => event.type !== 'submission.executed')
+      .map((event) => event.type)
+    const typesSeparate = eventsSeparate
+      .filter((event) => event.type !== 'submission.executed')
+      .map((event) => event.type)
     expect(typesWithInitial).toEqual(typesSeparate)
   })
 })

@@ -296,7 +296,13 @@ export interface SubmissionTurnDispositionPayload {
 /** A submission left the harness-local queue without entering model context. */
 export interface SubmissionCancelledPayload {
   submissionId: string
-  reason?: 'recalled' | 'removed' | 'teardown' | 'broker-cancelled' | undefined
+  reason?:
+    | 'recalled'
+    | 'removed'
+    | 'teardown'
+    | 'broker-cancelled'
+    | 'merged-into-foreign-turn'
+    | undefined
 }
 
 export interface AdmissionRequestedPayload {

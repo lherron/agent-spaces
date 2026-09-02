@@ -326,6 +326,59 @@ describe('claude-code-tmux disposition mirror', () => {
       }),
     ])
   })
+
+  test('broker content merged into a human prompt executes with honest prompt text', () => {
+    const tracker = createTracker('inv_merged_prompt')
+    tracker.trackBrokerSubmission({
+      submissionId: 'input_merged',
+      inputId: 'input_merged',
+      allocatedTurnId: 'turn_merged' as TurnId,
+      content: 'BROKER DELIVERY',
+    })
+
+    const mergedPrompt = 'human-typed prefix BROKER DELIVERY'
+    expect(tracker.observePromptHook(mergedPrompt)).toEqual([
+      expect.objectContaining({
+        kind: 'executed',
+        submissionId: 'input_merged',
+        inputId: 'input_merged',
+        turnId: 'turn_merged',
+        content: mergedPrompt,
+        mintsConversation: false,
+        absorbedIntoHumanPrompt: true,
+      }),
+    ])
+    expect(tracker.observePlainUser(mergedPrompt, { type: 'user' })).toEqual([
+      { kind: 'prompt-echo', content: mergedPrompt, turnId: 'turn_merged' },
+    ])
+    expect(tracker.pendingCount).toBe(0)
+  })
+
+  test('merged plain-user evidence chooses the longest pending broker submission', () => {
+    const tracker = createTracker('inv_merged_longest')
+    tracker.trackBrokerSubmission({
+      submissionId: 'input_short',
+      inputId: 'input_short',
+      content: 'DELIVERY',
+    })
+    tracker.trackBrokerSubmission({
+      submissionId: 'input_long',
+      inputId: 'input_long',
+      allocatedTurnId: 'turn_long' as TurnId,
+      content: 'BROKER DELIVERY',
+    })
+
+    expect(tracker.observePlainUser('typed BROKER DELIVERY suffix', { type: 'user' })).toEqual([
+      expect.objectContaining({
+        kind: 'executed',
+        submissionId: 'input_long',
+        turnId: 'turn_long',
+        content: 'typed BROKER DELIVERY suffix',
+        absorbedIntoHumanPrompt: true,
+      }),
+    ])
+    expect(tracker.pendingCount).toBe(1)
+  })
 })
 
 type ArchiveRow = Record<string, unknown>

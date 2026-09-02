@@ -1473,7 +1473,7 @@ describe('validateEventEnvelope', () => {
     'submission.withdrawn': { submissionId: 'submission_1', reason: 'envelope-acked' },
     'submission.cancelled': {
       submissionId: 'submission_1',
-      reason: 'recalled',
+      reason: 'merged-into-foreign-turn',
     } satisfies SubmissionCancelledPayload,
     'capture.warning': {
       message: 'unknown queue operation',

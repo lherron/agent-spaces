@@ -45,6 +45,12 @@ export interface Driver {
   readonly version: string
   readonly bracketMintingMode: BracketMintingMode
   /**
+   * Whether an uncorrelated turn that starts after own-turn delivery contests
+   * that reservation and cancels it at the turn terminal. Claude's paste path
+   * needs this backstop; other transcript drivers may correlate after terminal.
+   */
+  readonly cancelPendingOwnTurnOnForeignTurn?: boolean | undefined
+  /**
    * Declared per-event-family evidence authority (T-07853 §6, law
    * `agent-spaces.harness-broker-local-commit-observation`). Authority is
    * declared per FAMILY, never once per provider: `native` = the provider's own

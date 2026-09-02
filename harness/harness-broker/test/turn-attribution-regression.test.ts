@@ -92,9 +92,10 @@ function replayDriverRecord(controller: TestDriverController, event: RecordedEve
 }
 
 describe('pending submission attribution across foreign turns (T-07915)', () => {
-  test('recorded priming turn stays foreign until matching transcript evidence arrives', async () => {
+  test('a recorded foreign turn terminal releases the contested delivery before late evidence', async () => {
     const { broker, controller, events } = await setup(fixture.source.invocationId, {
       bracketMintingMode: 'harness-evidence',
+      cancelPendingOwnTurnOnForeignTurn: true,
       suppressTurnStarted: true,
     })
 
@@ -124,13 +125,19 @@ describe('pending submission attribution across foreign turns (T-07915)', () => 
       (event) =>
         event.type === 'submission.executed' && event.payload.submissionId === admitted.submissionId
     )
-    expect(deliveredExecutions).toHaveLength(1)
-    expect(deliveredExecutions[0]).toMatchObject({
+    expect(deliveredExecutions).toHaveLength(0)
+    expect(
+      events.find(
+        (event) =>
+          event.type === 'submission.cancelled' &&
+          event.payload.submissionId === admitted.submissionId
+      )
+    ).toMatchObject({
       inputId: admitted.submissionId,
-      turnId: recordedMatchingStart.turnId,
+      turnId: recordedForeignStart.turnId,
       payload: {
         submissionId: admitted.submissionId,
-        turnId: recordedMatchingStart.turnId,
+        reason: 'merged-into-foreign-turn',
       },
     })
 
@@ -145,7 +152,7 @@ describe('pending submission attribution across foreign turns (T-07915)', () => 
         invocationId: fixture.source.invocationId,
         turnId: recordedMatchingStart.turnId as TurnId,
       })
-    ).toMatchObject({ submissionIds: [admitted.submissionId] })
+    ).not.toMatchObject({ submissionIds: expect.arrayContaining([admitted.submissionId]) })
   })
 
   test('delivery-acknowledged drivers retain pending-input stamping', async () => {

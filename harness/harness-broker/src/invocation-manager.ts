@@ -380,7 +380,11 @@ export interface Invocation {
   preemptInterruptTurnId?: TurnId | undefined
   submissionCounter: number
   /** Own-turn delivery awaiting the driver's declared turn-start evidence. */
-  pendingOwnTurnSubmissionId?: string | undefined
+  pendingOwnTurnSubmissionId?: InputId | undefined
+  /** Foreign turn that started while an own-turn delivery awaited evidence. */
+  pendingOwnTurnContestedByTurnId?: TurnId | undefined
+  /** Prevent repeated diagnostics if the stale-pending invariant is breached. */
+  stalePendingProbeReported?: boolean | undefined
   admissionDrainPromise?: Promise<void> | undefined
   /** Self-clearing drain lock: set while a drain is in flight, cleared in .finally(). */
   drainPromise?: Promise<void> | undefined
@@ -1160,6 +1164,8 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         })
       }
       inv.pendingOwnTurnSubmissionId = inputId
+      inv.pendingOwnTurnContestedByTurnId = undefined
+      inv.stalePendingProbeReported = false
     }
     emit(inv, 'input.accepted', { inputId, disposition: 'started' }, { inputId })
     let result: ApplyInputResult
@@ -1168,6 +1174,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     } catch (error) {
       if (inv.pendingOwnTurnSubmissionId === inputId) {
         inv.pendingOwnTurnSubmissionId = undefined
+        inv.pendingOwnTurnContestedByTurnId = undefined
       }
       throw error
     }
@@ -1290,6 +1297,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     if (inv.pendingOwnTurnSubmissionId !== undefined) {
       const pendingId = inv.pendingOwnTurnSubmissionId
       inv.pendingOwnTurnSubmissionId = undefined
+      inv.pendingOwnTurnContestedByTurnId = undefined
       emit(inv, 'submission.cancelled', {
         submissionId: pendingId,
         reason: 'teardown',
@@ -1625,6 +1633,40 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     }
   }
 
+  function settleContestedOwnTurn(inv: Invocation, terminalTurnId?: TurnId): void {
+    if (terminalTurnId === undefined || inv.pendingOwnTurnContestedByTurnId !== terminalTurnId) {
+      return
+    }
+    const pendingSubmissionId = inv.pendingOwnTurnSubmissionId
+    inv.pendingOwnTurnSubmissionId = undefined
+    inv.pendingOwnTurnContestedByTurnId = undefined
+    if (pendingSubmissionId !== undefined && !inv.submissionDispositions.has(pendingSubmissionId)) {
+      emit(
+        inv,
+        'submission.cancelled',
+        { submissionId: pendingSubmissionId, reason: 'merged-into-foreign-turn' },
+        { turnId: terminalTurnId, inputId: pendingSubmissionId }
+      )
+    }
+    scheduleDrain(inv)
+    scheduleAdmissionDrain(inv)
+  }
+
+  function observePendingOwnTurnStart(inv: Invocation, turnId: TurnId, inputId?: InputId): void {
+    if (inputId !== undefined && inv.pendingOwnTurnSubmissionId === inputId) {
+      inv.pendingOwnTurnSubmissionId = undefined
+      inv.pendingOwnTurnContestedByTurnId = undefined
+      return
+    }
+    if (inv.driver.cancelPendingOwnTurnOnForeignTurn !== true) return
+    if (
+      inv.pendingOwnTurnSubmissionId !== undefined &&
+      inv.pendingOwnTurnContestedByTurnId === undefined
+    ) {
+      inv.pendingOwnTurnContestedByTurnId = turnId
+    }
+  }
+
   function emitEvent<K extends InvocationEventType>(
     inv: Invocation,
     descriptor: InvocationEventFor<K>,
@@ -1732,9 +1774,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         policy,
         submissionIds: [],
       })
-      if (event.inputId !== undefined && inv.pendingOwnTurnSubmissionId === event.inputId) {
-        inv.pendingOwnTurnSubmissionId = undefined
-      }
+      observePendingOwnTurnStart(inv, event.turnId, event.inputId)
     }
     if (TURN_TERMINAL_TYPES.has(event.type) && event.turnId !== undefined) {
       inv.terminalTurns.set(event.turnId, event)
@@ -1743,6 +1783,10 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       inv.submissionDispositions.set(submissionId, event)
       const record = inv.submissions.get(submissionId)
       if (record !== undefined) record.terminal = true
+      if (inv.pendingOwnTurnSubmissionId === submissionId) {
+        inv.pendingOwnTurnSubmissionId = undefined
+        inv.pendingOwnTurnContestedByTurnId = undefined
+      }
       if (
         (event.type === 'submission.absorbed' || event.type === 'submission.executed') &&
         event.payload.turnId !== undefined
@@ -1781,6 +1825,13 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     // terminal. onEvent reads only the envelope, never invocation state.
     onEvent(event)
     applyEventState(inv, event)
+
+    // A harness-evidence delivery can be pasted into text the operator was
+    // already typing. If attribution cannot prove that merge, the resulting
+    // foreign turn contests the reservation. Its terminal is the hard boundary:
+    // the delivery did not start a distinct later turn, so release the seat and
+    // give the submission an explicit terminal disposition.
+    settleContestedOwnTurn(inv, terminalTurnId)
 
     // Follow-on diagnostics (e.g. truncation notices) are emitted as their own
     // events. Their payloads are small, so they never re-trigger truncation.
@@ -2445,8 +2496,26 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
 
     seatProbe(invocationId: InvocationId): SeatProbeResponse {
       const inv = requireInvocation(invocationId)
+      const stalePending =
+        inv.state === 'ready' &&
+        inv.pendingOwnTurnSubmissionId !== undefined &&
+        inv.pendingOwnTurnContestedByTurnId !== undefined &&
+        inv.terminalTurns.has(inv.pendingOwnTurnContestedByTurnId)
+      if (stalePending && inv.stalePendingProbeReported !== true) {
+        inv.stalePendingProbeReported = true
+        emit(inv, 'diagnostic', {
+          level: 'error',
+          source: 'broker',
+          kind: 'seat_probe_stale_pending',
+          message: 'Ready seat retained an own-turn submission after a completed turn',
+          data: {
+            submissionId: inv.pendingOwnTurnSubmissionId,
+            contestedByTurnId: inv.pendingOwnTurnContestedByTurnId,
+          },
+        })
+      }
       const seat =
-        inv.state === 'ready' && inv.pendingOwnTurnSubmissionId !== undefined
+        inv.state === 'ready' && inv.pendingOwnTurnSubmissionId !== undefined && !stalePending
           ? ({ state: 'starting' } as const)
           : inv.state === 'ready'
             ? ({ state: 'idle' } as const)
