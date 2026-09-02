@@ -59,6 +59,8 @@ import type {
   SubmissionPreemptRequest,
   SubmissionResponse,
   SubmissionSteerRequest,
+  SubmissionWithdrawRequest,
+  SubmissionWithdrawResponse,
   ToolCallId,
   TurnId,
   TurnManifestResponse,
@@ -134,6 +136,7 @@ const SUBMISSION_TERMINAL_TYPES = new Set<InvocationEventType>([
   'submission.executed',
   'submission.rejected',
   'submission.expired',
+  'submission.withdrawn',
   'submission.cancelled',
 ])
 const BROKER_DECISION_TYPES = new Set<InvocationEventType>([
@@ -144,6 +147,7 @@ const BROKER_DECISION_TYPES = new Set<InvocationEventType>([
   'queue.jumped',
   'queue.cancelled',
   'queue.expired',
+  'queue.withdrawn',
   'interrupt.requested',
   'interrupt.landed',
   'interrupt.failed',
@@ -517,6 +521,7 @@ export interface InvocationManager {
   enqueue(req: SubmissionEnqueueRequest): Promise<SubmissionResponse>
   invoke(req: SubmissionInvokeRequest): Promise<SubmissionResponse>
   preempt(req: SubmissionPreemptRequest): Promise<SubmissionResponse>
+  withdraw(req: SubmissionWithdrawRequest): SubmissionWithdrawResponse
   queueList(invocationId: InvocationId): QueueListResponse
   queueJump(req: QueueJumpRequest): Promise<QueueJumpResponse>
   queueCancel(req: QueueCancelRequest): Promise<QueueCancelResponse>
@@ -870,6 +875,54 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     emit(inv, 'queue.expired', { submissionId })
     emit(inv, 'submission.expired', { submissionId })
     scheduleAdmissionDrain(inv)
+  }
+
+  function withdrawHeldSubmission(req: SubmissionWithdrawRequest): SubmissionWithdrawResponse {
+    const matches: Array<{ inv: Invocation; record: SubmissionRecord }> = []
+    for (const inv of invocations.values()) {
+      for (const record of inv.submissions.values()) {
+        if (
+          ('submissionId' in req && record.submissionId === req.submissionId) ||
+          ('envelopeId' in req && record.origin.envelopeId === req.envelopeId)
+        ) {
+          matches.push({ inv, record })
+        }
+      }
+    }
+    if (matches.length === 0) return { outcome: 'unknown' }
+
+    let withdrawn = false
+    let accepted = false
+    for (const { inv, record } of matches) {
+      if (record.terminal) continue
+      const position = inv.brokerQueue.findIndex(
+        (item) => item.record.submissionId === record.submissionId
+      )
+      if (position < 0) {
+        accepted = true
+        continue
+      }
+
+      const [item] = inv.brokerQueue.splice(position, 1)
+      if (item === undefined) {
+        accepted = true
+        continue
+      }
+      if (item.timer !== undefined) clearTimeout(item.timer)
+      emit(inv, 'queue.withdrawn', {
+        submissionId: record.submissionId,
+        reason: req.reason,
+        position,
+      })
+      emit(inv, 'submission.withdrawn', {
+        submissionId: record.submissionId,
+        reason: req.reason,
+      })
+      scheduleAdmissionDrain(inv)
+      withdrawn = true
+    }
+    if (withdrawn) return { outcome: 'withdrawn' }
+    return { outcome: 'not_held', state: accepted ? 'accepted' : 'terminal' }
   }
 
   function holdSubmission(
@@ -2306,6 +2359,10 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         else void requestPreemptInterrupt(inv, record)
       } else scheduleAdmissionDrain(inv)
       return response
+    },
+
+    withdraw(req: SubmissionWithdrawRequest): SubmissionWithdrawResponse {
+      return withdrawHeldSubmission(req)
     },
 
     queueList(invocationId: InvocationId): QueueListResponse {

@@ -18,6 +18,7 @@ import type {
   QueueJumpedPayload,
   QueueListRequest,
   QueueListResponse,
+  QueueWithdrawnPayload,
   SeatProbeRequest,
   SeatProbeResponse,
   SeatState,
@@ -30,6 +31,9 @@ import type {
   SubmissionRejectedPayload,
   SubmissionResponse,
   SubmissionSteerRequest,
+  SubmissionWithdrawRequest,
+  SubmissionWithdrawResponse,
+  SubmissionWithdrawnPayload,
   TurnManifestRequest,
   TurnManifestResponse,
   TurnPolicy,
@@ -54,6 +58,7 @@ declare const contract: {
   queueCancelled: QueueCancelledPayload
   queueEnqueued: QueueEnqueuedPayload
   queueExpired: QueueExpiredPayload
+  queueWithdrawn: QueueWithdrawnPayload
   queueJumpRequest: QueueJumpRequest
   queueJumpResponse: QueueJumpResponse
   queueJumped: QueueJumpedPayload
@@ -71,6 +76,9 @@ declare const contract: {
   submissionRejected: SubmissionRejectedPayload
   submissionResponse: SubmissionResponse
   submissionSteer: SubmissionSteerRequest
+  submissionWithdrawRequest: SubmissionWithdrawRequest
+  submissionWithdrawResponse: SubmissionWithdrawResponse
+  submissionWithdrawn: SubmissionWithdrawnPayload
   turnManifestRequest: TurnManifestRequest
   turnManifestResponse: TurnManifestResponse
   turnPolicy: TurnPolicy

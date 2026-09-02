@@ -1448,6 +1448,11 @@ describe('validateEventEnvelope', () => {
     },
     'queue.cancelled': { submissionId: 'submission_1', principalRef: 'agent:test' },
     'queue.expired': { submissionId: 'submission_1' },
+    'queue.withdrawn': {
+      submissionId: 'submission_1',
+      reason: 'envelope-acked',
+      position: 0,
+    },
     'interrupt.requested': { submissionId: 'submission_1', turnId: 'turn_1' as TurnId },
     'interrupt.landed': { submissionId: 'submission_1', turnId: 'turn_1' as TurnId },
     'interrupt.failed': {
@@ -1465,6 +1470,7 @@ describe('validateEventEnvelope', () => {
     } satisfies SubmissionTurnDispositionPayload,
     'submission.rejected': { submissionId: 'submission_1', reason: 'busy' },
     'submission.expired': { submissionId: 'submission_1' },
+    'submission.withdrawn': { submissionId: 'submission_1', reason: 'envelope-acked' },
     'submission.cancelled': {
       submissionId: 'submission_1',
       reason: 'recalled',

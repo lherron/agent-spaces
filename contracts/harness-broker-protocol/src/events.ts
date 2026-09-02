@@ -204,6 +204,7 @@ export interface InvocationEventPayloadMap {
   'queue.jumped': QueueJumpedPayload
   'queue.cancelled': QueueCancelledPayload
   'queue.expired': QueueExpiredPayload
+  'queue.withdrawn': QueueWithdrawnPayload
   'interrupt.requested': InterruptDecisionPayload
   'interrupt.landed': InterruptDecisionPayload
   'interrupt.failed': InterruptFailedPayload
@@ -211,6 +212,7 @@ export interface InvocationEventPayloadMap {
   'submission.executed': SubmissionTurnDispositionPayload
   'submission.rejected': SubmissionRejectedPayload
   'submission.expired': SubmissionExpiredPayload
+  'submission.withdrawn': SubmissionWithdrawnPayload
   'submission.cancelled': SubmissionCancelledPayload
   'capture.warning': CaptureWarningPayload
   'capture.released': CaptureReleasedPayload
@@ -340,6 +342,12 @@ export interface QueueExpiredPayload {
   submissionId: string
 }
 
+export interface QueueWithdrawnPayload {
+  submissionId: string
+  reason: string
+  position: number
+}
+
 export interface InterruptDecisionPayload {
   submissionId?: string | undefined
   turnId?: TurnId | undefined
@@ -356,6 +364,11 @@ export interface SubmissionRejectedPayload {
 
 export interface SubmissionExpiredPayload {
   submissionId: string
+}
+
+export interface SubmissionWithdrawnPayload {
+  submissionId: string
+  reason: string
 }
 
 /** Loud evidence that the behavior-pinned harness transcript vocabulary drifted. */

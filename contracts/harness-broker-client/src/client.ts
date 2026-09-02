@@ -48,6 +48,8 @@ import type {
   SubmissionPreemptRequest,
   SubmissionResponse,
   SubmissionSteerRequest,
+  SubmissionWithdrawRequest,
+  SubmissionWithdrawResponse,
   TurnManifestRequest,
   TurnManifestResponse,
 } from 'spaces-harness-broker-protocol'
@@ -291,6 +293,10 @@ export class BrokerClient {
 
   preempt(req: SubmissionPreemptRequest): Promise<SubmissionResponse> {
     return this.#transport.request('submission.preempt', req)
+  }
+
+  withdraw(req: SubmissionWithdrawRequest): Promise<SubmissionWithdrawResponse> {
+    return this.#transport.request('submission.withdraw', req)
   }
 
   queueList(req: QueueListRequest): Promise<QueueListResponse> {

@@ -97,6 +97,7 @@ export interface TestDriverOptions {
   evidenceAuthority?: Driver['evidenceAuthority'] | undefined
   nativeSourceKind?: Driver['nativeSourceKind'] | undefined
   kind?: string | undefined
+  beforeApplyInput?: ((input: InvocationInput) => Promise<void>) | undefined
 }
 
 export interface TestDriverHandle {
@@ -372,6 +373,8 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
     async applyInputNow(input: InvocationInput): Promise<ApplyInputResult> {
       const inputId = input.inputId ?? (`input_test_${inputs.length + 1}` as InputId)
       const resolved = { ...input, inputId }
+
+      await options.beforeApplyInput?.(resolved)
 
       if (failInputIds.has(inputId)) {
         throw new BrokerError(BrokerErrorCode.InputRejected, `test-driver failed input ${inputId}`)

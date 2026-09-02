@@ -49,6 +49,15 @@ export interface SubmissionResponse {
   reason?: string | undefined
 }
 
+export type SubmissionWithdrawRequest =
+  | { submissionId: string; envelopeId?: never; reason: string }
+  | { submissionId?: never; envelopeId: string; reason: string }
+
+export type SubmissionWithdrawResponse =
+  | { outcome: 'withdrawn' }
+  | { outcome: 'not_held'; state: 'accepted' | 'terminal' }
+  | { outcome: 'unknown' }
+
 export type AdmissionLayer = 'capability' | 'policy' | 'authority' | 'state'
 
 export interface BrokerQueueEntry {

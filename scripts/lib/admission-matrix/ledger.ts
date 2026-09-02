@@ -24,6 +24,7 @@ export const SUBMISSION_TERMINALS = new Set([
   'submission.absorbed',
   'submission.rejected',
   'submission.expired',
+  'submission.withdrawn',
   'submission.cancelled',
 ])
 

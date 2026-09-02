@@ -52,6 +52,8 @@ import type {
   SubmissionPreemptRequest,
   SubmissionResponse,
   SubmissionSteerRequest,
+  SubmissionWithdrawRequest,
+  SubmissionWithdrawResponse,
   TurnManifestRequest,
   TurnManifestResponse,
   TurnPolicy,
@@ -170,6 +172,7 @@ export interface Broker {
   enqueue(req: SubmissionEnqueueRequest): Promise<SubmissionResponse>
   invoke(req: SubmissionInvokeRequest): Promise<SubmissionResponse>
   preempt(req: SubmissionPreemptRequest): Promise<SubmissionResponse>
+  withdraw(req: SubmissionWithdrawRequest): Promise<SubmissionWithdrawResponse>
   queueList(req: QueueListRequest): Promise<QueueListResponse>
   queueJump(req: QueueJumpRequest): Promise<QueueJumpResponse>
   queueCancel(req: QueueCancelRequest): Promise<QueueCancelResponse>
@@ -469,6 +472,11 @@ export function createBroker(options: BrokerOptions): Broker {
     async preempt(req: SubmissionPreemptRequest): Promise<SubmissionResponse> {
       validateBrokerParams('submission.preempt', req)
       return manager.preempt(req)
+    },
+
+    async withdraw(req: SubmissionWithdrawRequest): Promise<SubmissionWithdrawResponse> {
+      validateBrokerParams('submission.withdraw', req)
+      return manager.withdraw(req)
     },
 
     async queueList(req: QueueListRequest): Promise<QueueListResponse> {

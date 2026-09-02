@@ -34,8 +34,8 @@ family has exactly **one truthful owner per driver**:
 | `invocation-lifecycle` | `invocation.*`, `lifecycle.*` | broker-owned everywhere |
 | `harness-lifecycle` | `harness.started`, `harness.exited`, `harness.recovery.*` | process facts, source varies by driver |
 | `continuation` | `continuation.updated`, `continuation.cleared` | session identity, source varies |
-| `input-admission` | `input.accepted`, `input.queued`, `input.rejected` | the broker DECIDING what to do with a submission |
-| `submission-disposition` | `submission.absorbed`, `submission.executed`, `submission.cancelled` | what the harness actually DID with it — a different owner from admission |
+| `input-admission` | `input.*`, `admission.*`, `queue.*`, `interrupt.*` | the broker DECIDING what to do with a submission |
+| `submission-disposition` | `submission.*` | terminal submission outcomes — a different owner from admission |
 | `turn-bracket` | `turn.started`, `turn.completed`, `turn.failed`, `turn.interrupted` | provider-observed turn boundaries |
 | `turn-supervision` | `turn.stalled`, `turn.retry` | broker lifecycle policy; no provider reports these |
 | `conversation` | `assistant.message.*`, `user.message` | model/user content |
@@ -132,7 +132,7 @@ is non-authoritative for both until a separately approved evidence change.
 
 `submission.absorbed`, `submission.executed` and `submission.cancelled` REQUIRE
 provenance and accept **any** `sourceKind`. `submission.rejected`,
-`submission.expired`, `admission.*`, `queue.*` and `interrupt.*` require
+`submission.expired`, `submission.withdrawn`, `admission.*`, `queue.*` and `interrupt.*` require
 `sourceKind: 'broker'`.
 
 The split is the point. A disposition reports what the harness *did* with a

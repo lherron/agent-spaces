@@ -40,6 +40,52 @@ describe('harness-broker/0.3 admission protocol', () => {
     ).toBeDefined()
   })
 
+  test('validates submission withdrawal requests and events', () => {
+    expect(
+      validateCommand(
+        request('submission.withdraw', {
+          submissionId: 'submission_1',
+          reason: 'envelope-acked',
+        })
+      )
+    ).toBeDefined()
+    expect(
+      validateCommand(
+        request('submission.withdraw', { envelopeId: 'EN-00001', reason: 'envelope-acked' })
+      )
+    ).toBeDefined()
+    expect(() =>
+      validateCommand(
+        request('submission.withdraw', {
+          submissionId: 'submission_1',
+          envelopeId: 'EN-00001',
+          reason: 'ambiguous',
+        })
+      )
+    ).toThrow()
+    expect(() =>
+      validateCommand(request('submission.withdraw', { reason: 'missing-selector' }))
+    ).toThrow()
+    for (const [type, payload] of [
+      ['queue.withdrawn', { submissionId: 'submission_1', reason: 'envelope-acked', position: 0 }],
+      ['submission.withdrawn', { submissionId: 'submission_1', reason: 'envelope-acked' }],
+    ] as const) {
+      expect(
+        validateEventEnvelope({
+          invocationId: 'inv_admission',
+          seq: 1,
+          time: '2026-09-02T12:00:00.000Z',
+          type,
+          payload,
+          provenance: {
+            sourceKind: 'broker',
+            normalizer: { name: 'harness-broker-admission', version: '1' },
+          },
+        })
+      ).toMatchObject({ type })
+    }
+  })
+
   test('steer cannot represent turn policy, wait, reply, or obligation fields', () => {
     for (const forbidden of ['turnPolicy', 'wait', 'reply', 'obligation']) {
       expect(() =>

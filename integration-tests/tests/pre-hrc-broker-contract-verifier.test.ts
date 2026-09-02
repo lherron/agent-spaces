@@ -641,6 +641,7 @@ describe('PreHrcBrokerEventLedger', () => {
       'queue.jumped',
       'queue.cancelled',
       'queue.expired',
+      'queue.withdrawn',
       'interrupt.requested',
       'interrupt.landed',
       'interrupt.failed',
@@ -648,6 +649,7 @@ describe('PreHrcBrokerEventLedger', () => {
       'submission.executed',
       'submission.rejected',
       'submission.expired',
+      'submission.withdrawn',
       'submission.cancelled',
     ] as const
 

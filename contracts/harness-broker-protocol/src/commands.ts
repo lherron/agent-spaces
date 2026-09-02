@@ -34,6 +34,7 @@ import type {
   SubmissionInvokeRequest,
   SubmissionPreemptRequest,
   SubmissionSteerRequest,
+  SubmissionWithdrawRequest,
   TurnManifestRequest,
 } from './submission'
 
@@ -63,6 +64,7 @@ export type BrokerMethodV3 =
   | 'submission.enqueue'
   | 'submission.invoke'
   | 'submission.preempt'
+  | 'submission.withdraw'
   | 'queue.list'
   | 'queue.jump'
   | 'queue.cancel'
@@ -94,6 +96,7 @@ export type BrokerCommand =
   | JsonRpcRequest<'submission.enqueue', SubmissionEnqueueRequest>
   | JsonRpcRequest<'submission.invoke', SubmissionInvokeRequest>
   | JsonRpcRequest<'submission.preempt', SubmissionPreemptRequest>
+  | JsonRpcRequest<'submission.withdraw', SubmissionWithdrawRequest>
   | JsonRpcRequest<'queue.list', QueueListRequest>
   | JsonRpcRequest<'queue.jump', QueueJumpRequest>
   | JsonRpcRequest<'queue.cancel', QueueCancelRequest>

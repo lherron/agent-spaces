@@ -12,6 +12,42 @@ export const BROKER_ADMISSION_JSON_SCHEMAS = {
   enqueueRequest: submissionRequestSchema(true, true),
   invokeRequest: submissionRequestSchema(false, true),
   preemptRequest: submissionRequestSchema(true, true),
+  withdrawRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['reason'],
+    oneOf: [{ required: ['submissionId'] }, { required: ['envelopeId'] }],
+    properties: {
+      submissionId: { type: 'string', minLength: 1 },
+      envelopeId: { type: 'string', minLength: 1 },
+      reason: { type: 'string', minLength: 1 },
+    },
+  },
+  withdrawResponse: {
+    oneOf: [
+      {
+        type: 'object',
+        additionalProperties: false,
+        required: ['outcome'],
+        properties: { outcome: { const: 'withdrawn' } },
+      },
+      {
+        type: 'object',
+        additionalProperties: false,
+        required: ['outcome', 'state'],
+        properties: {
+          outcome: { const: 'not_held' },
+          state: { enum: ['accepted', 'terminal'] },
+        },
+      },
+      {
+        type: 'object',
+        additionalProperties: false,
+        required: ['outcome'],
+        properties: { outcome: { const: 'unknown' } },
+      },
+    ],
+  },
   response: {
     type: 'object',
     additionalProperties: false,

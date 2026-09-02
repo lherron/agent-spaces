@@ -104,9 +104,11 @@ export async function runBrokerCli(options: RunBrokerCliOptions): Promise<void> 
     await validateStartRequestCommand(args.slice(1))
   } else if (command === 'capture') {
     await captureCommand(args.slice(1))
+  } else if (command === 'submission') {
+    await submissionCommand(args.slice(1))
   } else {
     process.stderr.write(
-      `Unknown command: ${command ?? '(none)'}\nUsage: harness-broker run --transport stdio\n${CAPTURE_USAGE}`
+      `Unknown command: ${command ?? '(none)'}\nUsage: harness-broker run --transport stdio\n${CAPTURE_USAGE}${SUBMISSION_USAGE}`
     )
     process.exit(1)
   }
@@ -291,6 +293,11 @@ function registerBrokerMethods(
   server.register('submission.preempt', async ({ id, method, params }) => {
     validateParams(method, id, params)
     return broker.preempt(params as Parameters<typeof broker.preempt>[0])
+  })
+
+  server.register('submission.withdraw', async ({ id, method, params }) => {
+    validateParams(method, id, params)
+    return broker.withdraw(params as Parameters<typeof broker.withdraw>[0])
   })
 
   server.register('queue.jump', async ({ id, method, params }) => {
@@ -888,6 +895,46 @@ Usage: harness-broker capture <status|release> --socket <path> --invocation <id>
                                could not derive; it is committed with the blocked
                                record's provenance.
 `
+
+const SUBMISSION_USAGE = `
+Usage: harness-broker submission withdraw <submissionId> --socket <path> --reason <text>
+       harness-broker submission withdraw --envelope <envelopeId> --socket <path> --reason <text>
+`
+
+async function submissionCommand(args: string[]): Promise<void> {
+  const sub = args[0]
+  if (sub !== 'withdraw') {
+    process.stderr.write(`Unknown submission subcommand: ${sub ?? '(none)'}\n${SUBMISSION_USAGE}`)
+    process.exit(1)
+  }
+  const submissionId = args[1]?.startsWith('--') === false ? args[1] : undefined
+  const envelopeId = readFlag(args, '--envelope')
+  const socketPath = readFlag(args, '--socket')
+  const reason = readFlag(args, '--reason')
+  if (
+    (submissionId === undefined) === (envelopeId === undefined) ||
+    socketPath === undefined ||
+    reason === undefined
+  ) {
+    process.stderr.write(
+      `submission withdraw requires exactly one selector (submissionId or --envelope), --socket, and --reason\n${SUBMISSION_USAGE}`
+    )
+    process.exit(1)
+    return
+  }
+
+  const call = await connectControlClient(socketPath)
+  try {
+    const response = await call('submission.withdraw', {
+      ...(submissionId !== undefined ? { submissionId } : { envelopeId }),
+      reason,
+    })
+    process.stdout.write(`${JSON.stringify(response, null, 2)}\n`)
+  } catch (err) {
+    process.stderr.write(`${formatError(err)}\n`)
+    process.exitCode = 1
+  }
+}
 
 async function captureCommand(args: string[]): Promise<void> {
   const sub = args[0]

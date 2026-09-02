@@ -95,6 +95,7 @@ const BROKER_METHODS = [
   'submission.enqueue',
   'submission.invoke',
   'submission.preempt',
+  'submission.withdraw',
   'queue.list',
   'queue.jump',
   'queue.cancel',
@@ -129,6 +130,7 @@ const EVENT_TYPES = [
   'queue.jumped',
   'queue.cancelled',
   'queue.expired',
+  'queue.withdrawn',
   'interrupt.requested',
   'interrupt.landed',
   'interrupt.failed',
@@ -136,6 +138,7 @@ const EVENT_TYPES = [
   'submission.executed',
   'submission.rejected',
   'submission.expired',
+  'submission.withdrawn',
   'submission.cancelled',
   'capture.warning',
   'capture.released',
@@ -191,11 +194,13 @@ const BROKER_PROVENANCE_EVENT_TYPES = new Set<InvocationEventType>([
   'queue.jumped',
   'queue.cancelled',
   'queue.expired',
+  'queue.withdrawn',
   'interrupt.requested',
   'interrupt.landed',
   'interrupt.failed',
   'submission.rejected',
   'submission.expired',
+  'submission.withdrawn',
   'capture.warning',
 ])
 
@@ -800,6 +805,30 @@ const COMMAND_PARAM_VALIDATORS: Partial<
   },
   'submission.preempt': (commandParams, issues) => {
     validateSubmissionParams(commandParams, issues, true, true)
+  },
+  'submission.withdraw': (commandParams, issues) => {
+    const allowed = new Set(['submissionId', 'envelopeId', 'reason'])
+    for (const key of Object.keys(commandParams)) {
+      if (!allowed.has(key)) {
+        issues.push(makeIssue(`params.${key}`, 'unexpected_key', `${key} is not accepted`))
+      }
+    }
+    const submissionId = commandParams['submissionId']
+    const envelopeId = commandParams['envelopeId']
+    if ((submissionId === undefined) === (envelopeId === undefined)) {
+      issues.push(
+        makeIssue(
+          'params',
+          'invalid_selector',
+          'Exactly one of submissionId or envelopeId is required'
+        )
+      )
+    } else if (submissionId !== undefined) {
+      requireString(submissionId, 'params.submissionId', issues)
+    } else {
+      requireString(envelopeId, 'params.envelopeId', issues)
+    }
+    requireString(commandParams['reason'], 'params.reason', issues)
   },
   'queue.list': (commandParams, issues) => {
     requireString(commandParams['invocationId'], 'params.invocationId', issues)
@@ -1832,6 +1861,11 @@ const EVENT_PAYLOAD_VALIDATORS = {
   'queue.expired': (payload, issues) => {
     requireString(payload['submissionId'], 'payload.submissionId', issues)
   },
+  'queue.withdrawn': (payload, issues) => {
+    requireString(payload['submissionId'], 'payload.submissionId', issues)
+    requireString(payload['reason'], 'payload.reason', issues)
+    requireNumber(payload['position'], 'payload.position', issues)
+  },
   'interrupt.requested': validateInterruptDecisionPayload,
   'interrupt.landed': validateInterruptDecisionPayload,
   'interrupt.failed': (payload, issues) => {
@@ -1852,6 +1886,10 @@ const EVENT_PAYLOAD_VALIDATORS = {
   },
   'submission.expired': (payload, issues) => {
     requireString(payload['submissionId'], 'payload.submissionId', issues)
+  },
+  'submission.withdrawn': (payload, issues) => {
+    requireString(payload['submissionId'], 'payload.submissionId', issues)
+    requireString(payload['reason'], 'payload.reason', issues)
   },
   'submission.cancelled': (payload, issues) => {
     requireString(payload['submissionId'], 'payload.submissionId', issues)
