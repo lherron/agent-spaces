@@ -27,6 +27,9 @@ export interface InvocationCapabilities {
   steer: {
     landingEvidence: 'transcript' | 'ack' | 'asserted' | null
   }
+  interrupt: {
+    landingEvidence: 'transcript' | 'ack' | 'asserted' | null
+  }
   input: {
     user: boolean
     steer: boolean

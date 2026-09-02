@@ -71,6 +71,7 @@ const CLAUDE_CODE_TMUX_CAPABILITIES: InvocationCapabilities = {
   queue: { cancelHarnessLocal: false },
   preempt: { mode: 'quiescence' },
   steer: { landingEvidence: 'transcript' },
+  interrupt: { landingEvidence: 'transcript' },
   input: {
     user: true,
     steer: false,
@@ -416,6 +417,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     nativeSourceKind: 'provider-jsonl',
     preemptMode: 'quiescence',
     steerLandingEvidence: 'transcript',
+    interruptLandingEvidence: 'transcript',
 
     capabilities(): InvocationCapabilities {
       return CLAUDE_CODE_TMUX_CAPABILITIES

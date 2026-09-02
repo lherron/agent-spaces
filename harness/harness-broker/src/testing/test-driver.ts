@@ -110,6 +110,7 @@ const TEST_CAPABILITIES: InvocationCapabilities = {
   queue: { cancelHarnessLocal: false },
   preempt: { mode: null },
   steer: { landingEvidence: null },
+  interrupt: { landingEvidence: null },
   input: {
     user: true,
     steer: false,
@@ -345,6 +346,7 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
     nativeSourceKind: options.nativeSourceKind ?? 'provider-jsonl',
     preemptMode,
     steerLandingEvidence: options.supportsSteer ? 'asserted' : null,
+    interruptLandingEvidence: null,
 
     ...(options.admissionRejectionReason !== undefined
       ? { admissionRejectionReason: options.admissionRejectionReason }

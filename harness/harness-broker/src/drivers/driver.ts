@@ -38,6 +38,7 @@ export interface ApplyInputResult {
 export type BracketMintingMode = 'delivery-acknowledged' | 'harness-evidence' | 'delivery-asserted'
 export type PreemptMode = 'quiescence' | 'atomic'
 export type SteerLandingEvidence = 'transcript' | 'ack' | 'asserted'
+export type InterruptLandingEvidence = 'transcript' | 'ack' | 'asserted'
 
 export interface Driver {
   readonly kind: string
@@ -68,6 +69,7 @@ export interface Driver {
   readonly nativeSourceKind: 'provider-jsonl' | 'provider-jsonrpc'
   readonly preemptMode: PreemptMode | null
   readonly steerLandingEvidence: SteerLandingEvidence | null
+  readonly interruptLandingEvidence: InterruptLandingEvidence | null
   capabilities(): InvocationCapabilities
   /**
    * This driver's PRODUCTION normalizer, for restart replay (T-07853 §7.3).

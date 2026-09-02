@@ -26,6 +26,7 @@ const NOOP_CAPABILITIES: InvocationCapabilities = {
   queue: { cancelHarnessLocal: false },
   preempt: { mode: null },
   steer: { landingEvidence: null },
+  interrupt: { landingEvidence: null },
   input: {
     user: true,
     steer: false,
@@ -66,6 +67,7 @@ export function createNoopDriver(options: NoopDriverOptions = {}): Driver {
     nativeSourceKind: 'provider-jsonl',
     preemptMode: null,
     steerLandingEvidence: null,
+    interruptLandingEvidence: null,
 
     capabilities(): InvocationCapabilities {
       return NOOP_CAPABILITIES

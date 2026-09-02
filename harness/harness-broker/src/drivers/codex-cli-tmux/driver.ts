@@ -66,6 +66,7 @@ const CODEX_CLI_TMUX_CAPABILITIES: InvocationCapabilities = {
   // steer path therefore reports delivery-asserted landing, rather than
   // claiming transcript evidence it does not collect.
   steer: { landingEvidence: 'asserted' },
+  interrupt: { landingEvidence: 'asserted' },
   input: {
     user: true,
     steer: false,
@@ -198,6 +199,7 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
     nativeSourceKind: 'provider-jsonl',
     preemptMode: null,
     steerLandingEvidence: 'asserted',
+    interruptLandingEvidence: 'asserted',
 
     capabilities(): InvocationCapabilities {
       return CODEX_CLI_TMUX_CAPABILITIES

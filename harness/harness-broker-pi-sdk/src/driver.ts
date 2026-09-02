@@ -51,6 +51,7 @@ const PI_SDK_CAPABILITIES: InvocationCapabilities = {
   queue: { cancelHarnessLocal: false },
   preempt: { mode: 'atomic' },
   steer: { landingEvidence: 'ack' },
+  interrupt: { landingEvidence: 'ack' },
   input: {
     user: true,
     steer: true,
@@ -248,6 +249,7 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
     nativeSourceKind: 'provider-jsonrpc',
     preemptMode: 'atomic',
     steerLandingEvidence: 'ack',
+    interruptLandingEvidence: 'ack',
 
     capabilities(): InvocationCapabilities {
       return PI_SDK_CAPABILITIES

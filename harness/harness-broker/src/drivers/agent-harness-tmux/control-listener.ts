@@ -55,7 +55,7 @@ interface PendingRequest {
  * SERVER: it creates the socket, hands the path to the TUI as
  * `--broker-control-socket`, and the TUI connects as the single client.
  *
- * Ack lines are NOT control frames (the verb set is closed to the five wire
+ * Ack lines are NOT control frames (the verb set is closed to the six wire
  * verbs), so they are correlated before frame validation: by `requestId` when
  * the child echoes it, otherwise in FIFO issue order. Both polarities correlate
  * identically — a negative ack is an ANSWER to the request, so it settles the

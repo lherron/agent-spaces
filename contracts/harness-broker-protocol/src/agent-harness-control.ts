@@ -86,23 +86,34 @@ export interface AgentHarnessControlTurnBeginFrame {
   }
 }
 
+export interface AgentHarnessControlTurnInterruptFrame {
+  verb: 'turn.interrupt'
+  /** Correlates the required acknowledgement from the TUI. */
+  requestId: string
+  payload: {
+    reason: string
+  }
+}
+
 export interface AgentHarnessControlEventFrame {
   verb: 'event'
   payload: InvocationEventEnvelope
 }
 
-/** The D2 closed set of five wire verbs. */
+/** The closed set of six wire verbs. */
 export type AgentHarnessControlFrame =
   | AgentHarnessControlHelloFrame
   | AgentHarnessControlSessionConfigFrame
   | AgentHarnessControlReadyFrame
   | AgentHarnessControlTurnBeginFrame
+  | AgentHarnessControlTurnInterruptFrame
   | AgentHarnessControlEventFrame
 
-/** The two driver-to-TUI messages for which a positive acknowledgement is mandatory. */
+/** Driver-to-TUI messages for which a positive acknowledgement is mandatory. */
 export type AgentHarnessControlRequest =
   | AgentHarnessControlSessionConfigFrame
   | AgentHarnessControlTurnBeginFrame
+  | AgentHarnessControlTurnInterruptFrame
 
 /** Frames that are legal to send without awaiting a response. */
 export type AgentHarnessControlNotification =
@@ -111,17 +122,17 @@ export type AgentHarnessControlNotification =
   | AgentHarnessControlEventFrame
 
 /**
- * The closed code set for a `turn.begin` refusal. `turn_already_active` is the
- * one condition the child can name precisely (its mapper still holds a
- * non-terminal turn); `turn_begin_failed` is the catch-all for any other
- * inability to bind the proposed turn. There is deliberately no code for a
- * `session.config` refusal: that path stays fail-closed and destroys the
+ * The closed code set for a recoverable turn-control refusal.
+ * `turn_already_active` and `turn_begin_failed` belong to `turn.begin`;
+ * `no_active_turn` belongs to `turn.interrupt`. There is deliberately no code
+ * for a `session.config` refusal: that path stays fail-closed and destroys the
  * channel, because a configuration that does not validate has no recoverable
  * continuation.
  */
 export const AGENT_HARNESS_CONTROL_NACK_CODES = [
   'turn_already_active',
   'turn_begin_failed',
+  'no_active_turn',
 ] as const
 
 export type AgentHarnessControlNackCode = (typeof AGENT_HARNESS_CONTROL_NACK_CODES)[number]
@@ -234,7 +245,7 @@ export function validateAgentHarnessSessionConfig(value: unknown): AgentHarnessS
 }
 
 /**
- * Acknowledgements are NOT control frames — the verb set is closed to the five
+ * Acknowledgements are NOT control frames — the verb set is closed to the six
  * wire verbs — so they are recognized and validated on their own path, ahead of
  * the frame decoder, by the presence of a boolean `ack`. Returns false for any
  * line that is a frame (or garbage) so the caller can hand it to the decoder.
@@ -312,6 +323,10 @@ export function validateAgentHarnessControlFrame(value: unknown): AgentHarnessCo
         requireRequestId(frame, issues)
         validateTurnBegin(frame['payload'], 'payload', issues)
         break
+      case 'turn.interrupt':
+        requireRequestId(frame, issues)
+        validateTurnInterrupt(frame['payload'], 'payload', issues)
+        break
       case 'event':
         rejectRequestId(frame, issues)
         validateEvent(frame['payload'], 'payload', issues)
@@ -384,6 +399,13 @@ function validateTurnBegin(value: unknown, basePath: string, issues: ValidationI
   if (payload['structured'] !== false) {
     issues.push(makeIssue(`${basePath}.structured`, 'invalid_literal', 'structured must be false'))
   }
+}
+
+function validateTurnInterrupt(value: unknown, basePath: string, issues: ValidationIssue[]): void {
+  const payload = requireRecord(value, basePath, issues)
+  if (!payload) return
+  rejectUnknownKeys(payload, ['reason'], basePath, issues)
+  requireNonEmptyString(payload['reason'], `${basePath}.reason`, issues)
 }
 
 function validateEvent(value: unknown, basePath: string, issues: ValidationIssue[]): void {

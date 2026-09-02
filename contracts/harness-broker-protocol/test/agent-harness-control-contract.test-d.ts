@@ -10,25 +10,29 @@ import type {
   AgentHarnessControlRequest,
   AgentHarnessControlSessionConfigFrame,
   AgentHarnessControlTurnBeginFrame,
+  AgentHarnessControlTurnInterruptFrame,
 } from '../src/index.js'
 
-// T-07565 red acceptance context: the two ack-bearing D2 verbs must be
+// Ack-bearing control verbs must be
 // requests, never members of the fire-and-forget notification surface. This
 // compile-only contract deliberately exercises the public consumer API.
 
 declare const channel: AgentHarnessControlChannel
 declare const sessionConfig: AgentHarnessControlSessionConfigFrame
 declare const turnBegin: AgentHarnessControlTurnBeginFrame
+declare const turnInterrupt: AgentHarnessControlTurnInterruptFrame
 declare const ready: AgentHarnessControlReadyFrame
 declare const event: AgentHarnessControlEventFrame
 
 const sessionConfigRequest: AgentHarnessControlRequest = sessionConfig
 const turnBeginRequest: AgentHarnessControlRequest = turnBegin
+const turnInterruptRequest: AgentHarnessControlRequest = turnInterrupt
 const readyNotification: AgentHarnessControlNotification = ready
 const eventNotification: AgentHarnessControlNotification = event
 
 const sessionConfigAck: Promise<AgentHarnessControlAck> = channel.request(sessionConfigRequest)
 const turnBeginAck: Promise<AgentHarnessControlAck> = channel.request(turnBeginRequest)
+const turnInterruptAck: Promise<AgentHarnessControlAck> = channel.request(turnInterruptRequest)
 channel.send(readyNotification)
 channel.send(eventNotification)
 
@@ -72,7 +76,10 @@ void readCodeWithoutNarrowing
 channel.send(sessionConfig)
 // @ts-expect-error EXCEPTION(T-07565): turn.begin requires an awaited ack.
 channel.send(turnBegin)
+// @ts-expect-error EXCEPTION(T-07869): turn.interrupt requires an awaited ack.
+channel.send(turnInterrupt)
 
 void sessionConfigAck
 void turnBeginAck
+void turnInterruptAck
 void narrowAck

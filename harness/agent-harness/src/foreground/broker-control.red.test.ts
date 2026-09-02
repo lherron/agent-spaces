@@ -48,6 +48,8 @@ const REFUSED_REQUEST_ID = 'turn-request-refused-07584'
 const REFUSED_TURN_ID = 'broker-turn-refused-07584'
 const RECOVERED_REQUEST_ID = 'turn-request-recovered-07584'
 const RECOVERED_TURN_ID = 'broker-turn-recovered-07584'
+const INTERRUPT_REQUEST_ID = 'turn-interrupt-07869'
+const INTERRUPT_REASON = 'submission.preempt:submission-07869'
 
 const deliveredConfig = {
   permissionPolicy: { mode: 'deny' },
@@ -275,6 +277,87 @@ describe('agent-harness TUI broker control', () => {
     expect(JSON.stringify(events)).not.toContain(REFUSED_TURN_ID)
     expect(JSON.stringify(events)).toContain('after-refusal')
   })
+
+  test('acks turn.interrupt only after aborting and terminalizes a wedged turn without agent_settled', async () => {
+    const control = await BrokerControlDouble.start('turn-handshake')
+    let aborts = 0
+    const harness = runtimeHarness({
+      onAbort() {
+        aborts += 1
+      },
+      async onInteractive() {
+        await control.waitForAck(TURN_REQUEST_ID)
+        harness.emitSessionEvent(assistantDelta('partial output before the missing settlement'))
+
+        control.sendTurnInterrupt(INTERRUPT_REQUEST_ID, INTERRUPT_REASON)
+        await control.waitForAck(INTERRUPT_REQUEST_ID)
+
+        // Recovery is real: the mapper released the old turn even though no
+        // agent_settled event ever arrived, so another broker turn can bind.
+        control.sendTurnBegin(RECOVERED_REQUEST_ID, RECOVERED_TURN_ID)
+        await control.waitForAck(RECOVERED_REQUEST_ID)
+      },
+    })
+
+    await runBrokerTui(
+      { agentId: 'smokey', brokerControlSocket: control.socketPath },
+      harness.dependencies
+    )
+
+    expect(aborts).toBe(1)
+    expect(control.acked(INTERRUPT_REQUEST_ID)).toBe(true)
+    expect(control.acked(RECOVERED_REQUEST_ID)).toBe(true)
+    const terminals = control.frames.filter(
+      (frame) => frame.verb === 'event' && frame.payload.type.startsWith('turn.')
+    )
+    expect(terminals).toContainEqual(
+      expect.objectContaining({
+        verb: 'event',
+        payload: expect.objectContaining({
+          turnId: BROKER_TURN_ID,
+          type: 'turn.interrupted',
+          payload: expect.objectContaining({
+            status: 'interrupted',
+            reason: INTERRUPT_REASON,
+          }) as unknown,
+        }) as unknown,
+      })
+    )
+    expect(
+      terminals.some((frame) => frame.verb === 'event' && frame.payload.type === 'turn.completed')
+    ).toBe(false)
+    expect(control.protocolErrors).toEqual([])
+  })
+
+  test('nacks turn.interrupt when the child has no active turn and does not abort', async () => {
+    const control = await BrokerControlDouble.start('configured')
+    let aborts = 0
+    const harness = runtimeHarness({
+      onAbort() {
+        aborts += 1
+      },
+      async onInteractive() {
+        control.sendTurnInterrupt(INTERRUPT_REQUEST_ID, INTERRUPT_REASON)
+        await control.waitForNack(INTERRUPT_REQUEST_ID)
+      },
+    })
+
+    await runBrokerTui(
+      { agentId: 'smokey', brokerControlSocket: control.socketPath },
+      harness.dependencies
+    )
+
+    expect(aborts).toBe(0)
+    expect(control.nacks).toEqual([
+      {
+        requestId: INTERRUPT_REQUEST_ID,
+        code: 'no_active_turn',
+        message: expect.stringContaining('no pi SDK turn is active') as unknown as string,
+      },
+    ])
+    expect(control.frames.some((frame) => frame.verb === 'event')).toBe(false)
+    expect(control.protocolErrors).toEqual([])
+  })
 })
 
 type ControlBehavior =
@@ -351,6 +434,12 @@ class BrokerControlDouble {
     const socket = [...this.#sockets][0]
     if (socket === undefined) throw new Error('no live agent-harness control connection')
     this.#send(socket, turnBeginFrame(requestId, turnId))
+  }
+
+  sendTurnInterrupt(requestId: string, reason: string): void {
+    const socket = [...this.#sockets][0]
+    if (socket === undefined) throw new Error('no live agent-harness control connection')
+    this.#send(socket, turnInterruptFrame(requestId, reason))
   }
 
   acked(requestId: string): boolean {
@@ -437,7 +526,11 @@ class BrokerControlDouble {
   }
 
   #send(socket: Socket, frame: AgentHarnessControlFrame): void {
-    if (frame.verb === 'session.config' || frame.verb === 'turn.begin') {
+    if (
+      frame.verb === 'session.config' ||
+      frame.verb === 'turn.begin' ||
+      frame.verb === 'turn.interrupt'
+    ) {
       this.#pendingRequestIds.push(frame.requestId)
     }
     socket.write(encodeAgentHarnessControlFrame(frame))
@@ -490,6 +583,14 @@ function turnBeginFrame(
   }
 }
 
+function turnInterruptFrame(requestId: string, reason: string): AgentHarnessControlFrame {
+  return {
+    verb: 'turn.interrupt',
+    requestId,
+    payload: { reason },
+  }
+}
+
 function constructionSentinels(): {
   calls: string[]
   dependencies: ForegroundTuiDependencies
@@ -520,6 +621,7 @@ function runtimeHarness(
     profileYolo?: boolean
     onLoad?: (options: LoadAgentOptions) => void
     onCreate?: (options: CreateAgentHarnessRuntimeOptions) => void
+    onAbort?: () => void | Promise<void>
     onInteractive?: () => void | Promise<void>
   } = {}
 ) {
@@ -527,7 +629,7 @@ function runtimeHarness(
   let toolCallHandler: ((event: ToolCallEvent) => unknown | Promise<unknown>) | undefined
   const runtime = fakeRuntime((listener) => {
     subscriber = listener
-  })
+  }, options.onAbort)
 
   return {
     dependencies: {
@@ -563,7 +665,8 @@ function runtimeHarness(
 }
 
 function fakeRuntime(
-  onSubscribe?: (listener: (event: AgentSessionEvent) => void) => void
+  onSubscribe?: (listener: (event: AgentSessionEvent) => void) => void,
+  onAbort?: () => void | Promise<void>
 ): AgentSessionRuntime {
   return {
     session: {
@@ -571,6 +674,9 @@ function fakeRuntime(
       subscribe(listener: (event: AgentSessionEvent) => void) {
         onSubscribe?.(listener)
         return () => {}
+      },
+      async abort() {
+        await onAbort?.()
       },
     },
     async dispose() {},

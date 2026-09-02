@@ -19,6 +19,10 @@ import {
 
 type CapturedEvent = Pick<InvocationEventEnvelope, 'seq' | 'type' | 'payload'>
 
+test('pi SDK declares ack-backed interrupt landing evidence', () => {
+  expect(createPiSdkDriver().capabilities().interrupt.landingEvidence).toBe('ack')
+})
+
 describe('pi SDK driver structured output', () => {
   test('re-validates tool args and synthesizes canonical JSON after one retry', async () => {
     const events: CapturedEvent[] = []

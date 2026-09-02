@@ -73,6 +73,7 @@ const AGENT_HARNESS_TMUX_CAPABILITIES: InvocationCapabilities = {
   queue: { cancelHarnessLocal: false },
   preempt: { mode: 'atomic' },
   steer: { landingEvidence: null },
+  interrupt: { landingEvidence: 'ack' },
   input: {
     user: true,
     steer: false,
@@ -513,6 +514,7 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
     nativeSourceKind: 'provider-jsonrpc',
     preemptMode: 'atomic',
     steerLandingEvidence: null,
+    interruptLandingEvidence: 'ack',
 
     capabilities(): InvocationCapabilities {
       return AGENT_HARNESS_TMUX_CAPABILITIES
@@ -621,12 +623,34 @@ export function createAgentHarnessTmuxDriver(options: AgentHarnessTmuxDriverOpti
       }
     },
 
-    async interrupt(_req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
-      if (surface === undefined || paneController === undefined) {
+    async interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
+      if (surface === undefined || channel === undefined) {
         return { accepted: false, effect: 'no_active_turn' }
       }
-      // Esc is the Pi TUI's interrupt; C-c would quit the TUI outright.
-      await paneController.sendNamedKey('Escape')
+      let ack: AgentHarnessControlAck
+      try {
+        ack = await request({
+          verb: 'turn.interrupt',
+          requestId: allocateRequestId('turn.interrupt'),
+          payload: { reason: req.reason ?? 'operator-interrupt' },
+        })
+      } catch (error) {
+        throw new BrokerError(
+          BrokerErrorCode.HarnessError,
+          error instanceof Error
+            ? error.message
+            : 'agent-harness turn.interrupt acknowledgement failed'
+        )
+      }
+      if (!ack.ack) {
+        if (ack.code === 'no_active_turn') {
+          return { accepted: false, effect: 'no_active_turn', reason: ack.message }
+        }
+        throw new BrokerError(
+          BrokerErrorCode.HarnessError,
+          `agent-harness TUI refused turn.interrupt with ${ack.code}: ${ack.message}`
+        )
+      }
       return { accepted: true, effect: 'turn_interrupted' }
     },
 

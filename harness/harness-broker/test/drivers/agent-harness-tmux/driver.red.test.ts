@@ -12,7 +12,10 @@ import type {
   InvocationEventEnvelope,
   InvocationInput,
 } from 'spaces-harness-broker-protocol'
-import { CONSERVATIVE_LIFECYCLE_CAPABILITIES } from 'spaces-harness-broker-protocol'
+import {
+  BrokerErrorCode,
+  CONSERVATIVE_LIFECYCLE_CAPABILITIES,
+} from 'spaces-harness-broker-protocol'
 import { createBroker } from '../../../src/broker'
 import type { Driver, DriverContext } from '../../../src/drivers/driver'
 
@@ -308,6 +311,34 @@ async function startDriver(
   return { driver, calls, control, events }
 }
 
+async function startBroker(control: ReturnType<typeof createControlFake>) {
+  const createDriver = await loadFactory()
+  const calls: TmuxExecCall[] = []
+  const driver = createDriver({
+    tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(calls) },
+    control: { listen: control.listen },
+    now,
+  })
+  const events: InvocationEventEnvelope[] = []
+  const broker = createBroker({ drivers: [driver], onEvent: (event) => events.push(event), now })
+  const starting = broker.start(
+    { spec: agentHarnessTmuxSpec() },
+    { ASP_PROJECT: 'agent-spaces' },
+    { terminalSurface: paneLease() }
+  )
+  await flushMicrotasks()
+  await control.receive({
+    verb: 'hello',
+    payload: { protocolVersion: 'agent-harness-control/v1' },
+  })
+  await control.receive({
+    verb: 'ready',
+    payload: { sessionFile: '/sessions/agent-harness-red.jsonl' },
+  })
+  const started = await starting
+  return { broker, calls, driver, events, started }
+}
+
 function inputWasPasted(calls: TmuxExecCall[]): boolean {
   const text = 'prove the turn handshake'
   return calls.some(
@@ -334,6 +365,19 @@ const immediateBodyEvent = (turnId: string): AgentHarnessControlFrame => ({
     inputId: 'input_agent_harness_red_1',
     type: 'assistant.message.delta',
     payload: { messageId: 'message-red-1', text: 'immediate body' },
+  },
+})
+
+const interruptedEvent = (turnId: string, reason: string): AgentHarnessControlFrame => ({
+  verb: 'event',
+  payload: {
+    invocationId,
+    seq: 92,
+    time: '2020-01-01T00:00:00.000Z',
+    turnId,
+    inputId: 'input_agent_harness_red_1',
+    type: 'turn.interrupted',
+    payload: { turnId, status: 'interrupted', reason },
   },
 })
 
@@ -474,6 +518,76 @@ describe('agent-harness-tmux driver D1/D2 acceptance reds', () => {
       continuation: { supported: true },
       control: { attach: true, driverAttachExistingSurface: false },
     })
+  })
+
+  test('returns no_active_turn and emits interrupt.failed without landed when the child nacks', async () => {
+    const control = createControlFake(async (frame) =>
+      frame.verb === 'turn.interrupt'
+        ? {
+            ack: false,
+            code: 'no_active_turn',
+            message: 'Cannot interrupt because no pi SDK turn is active',
+          }
+        : { ack: true }
+    )
+    const { broker, events, started } = await startBroker(control)
+
+    expect(started.capabilities.interrupt.landingEvidence).toBe('ack')
+
+    await expect(
+      broker.interrupt({ invocationId, scope: 'turn', reason: 'operator-interrupt' })
+    ).resolves.toMatchObject({ accepted: false, effect: 'no_active_turn' })
+    expect(control.requests.at(-1)).toMatchObject({
+      verb: 'turn.interrupt',
+      payload: { reason: 'operator-interrupt' },
+    })
+    expect(events.filter((event) => event.type === 'interrupt.failed')).toHaveLength(1)
+    expect(events.filter((event) => event.type === 'interrupt.landed')).toHaveLength(0)
+  })
+
+  test('acks an active turn interrupt, forwards its interrupted terminal, and never presses Escape', async () => {
+    const reason = 'submission.preempt:submission-red-07869'
+    const control = createControlFake(async (frame) => {
+      if (frame.verb === 'turn.interrupt') {
+        await control.receive(interruptedEvent(`turn_${invocationId}_1`, frame.payload.reason))
+      }
+      return { ack: true }
+    })
+    const { broker, calls, events } = await startBroker(control)
+    calls.length = 0
+    await broker.input({ invocationId, input: userInput() })
+
+    await expect(broker.interrupt({ invocationId, scope: 'turn', reason })).resolves.toEqual({
+      accepted: true,
+      effect: 'turn_interrupted',
+    })
+
+    expect(control.requests.at(-1)).toMatchObject({
+      verb: 'turn.interrupt',
+      payload: { reason },
+    })
+    expect(events.filter((event) => event.type === 'interrupt.landed')).toHaveLength(1)
+    expect(events.filter((event) => event.type === 'turn.interrupted')).toHaveLength(1)
+    expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(0)
+    expect(
+      calls.some((call) => call.argv.includes('send-keys') && call.argv.includes('Escape'))
+    ).toBe(false)
+  })
+
+  test('surfaces a closed control channel as HarnessError and emits failed without landed', async () => {
+    const control = createControlFake(async (frame) => {
+      if (frame.verb === 'turn.interrupt') {
+        throw new Error('agent-harness control connection closed before acknowledgement')
+      }
+      return { ack: true }
+    })
+    const { broker, events } = await startBroker(control)
+
+    await expect(
+      broker.interrupt({ invocationId, scope: 'turn', reason: 'operator-interrupt' })
+    ).rejects.toMatchObject({ code: BrokerErrorCode.HarnessError })
+    expect(events.filter((event) => event.type === 'interrupt.failed')).toHaveLength(1)
+    expect(events.filter((event) => event.type === 'interrupt.landed')).toHaveLength(0)
   })
 
   test('rejects an invalid event frame, but emits a valid frame with broker sequencing', async () => {

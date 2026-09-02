@@ -33,6 +33,7 @@ export const noopCapabilities: InvocationCapabilities = {
   queue: { cancelHarnessLocal: false },
   preempt: { mode: null },
   steer: { landingEvidence: null },
+  interrupt: { landingEvidence: null },
   input: {
     user: true,
     steer: false,

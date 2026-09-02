@@ -49,6 +49,7 @@ const PI_TUI_TMUX_CAPABILITIES: InvocationCapabilities = {
   queue: { cancelHarnessLocal: false },
   preempt: { mode: null },
   steer: { landingEvidence: 'asserted' },
+  interrupt: { landingEvidence: 'asserted' },
   input: {
     user: true,
     steer: false,
@@ -169,6 +170,7 @@ export function createPiTuiTmuxDriver(options: PiTuiTmuxDriverOptions): Driver {
     nativeSourceKind: 'provider-jsonl',
     preemptMode: null,
     steerLandingEvidence: 'asserted',
+    interruptLandingEvidence: 'asserted',
 
     capabilities(): InvocationCapabilities {
       return PI_TUI_TMUX_CAPABILITIES

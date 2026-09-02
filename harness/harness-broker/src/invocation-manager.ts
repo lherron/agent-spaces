@@ -2063,6 +2063,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         queue: { cancelHarnessLocal: false },
         preempt: { mode: driver.preemptMode },
         steer: { landingEvidence: driver.steerLandingEvidence },
+        interrupt: { landingEvidence: driver.interruptLandingEvidence },
         input: {
           ...driverCaps.input,
           // Broker-composed: the public surface reflects the composed value,

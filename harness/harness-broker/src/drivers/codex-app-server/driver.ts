@@ -776,6 +776,7 @@ export function createCodexAppServerDriver(): Driver {
     nativeSourceKind: 'provider-jsonrpc',
     preemptMode: 'atomic',
     steerLandingEvidence: 'ack',
+    interruptLandingEvidence: 'ack',
 
     capabilities(): InvocationCapabilities {
       return CODEX_CAPABILITIES

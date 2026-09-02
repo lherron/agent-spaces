@@ -24,6 +24,7 @@ import {
   type AgentHarnessControlNackCode,
   type AgentHarnessControlSessionConfigFrame,
   type AgentHarnessControlTurnBeginFrame,
+  type AgentHarnessControlTurnInterruptFrame,
   type AgentHarnessSessionConfig,
   type InputId,
   type InvocationEvent,
@@ -204,6 +205,14 @@ async function runBrokerAgentHarnessTui(
         },
       ],
     })
+    const activeRuntime = runtime
+    control.onTurnInterrupt = async (frame) => {
+      if (mapper.activeTurnId === undefined) return false
+      mapper.requestInterruption(frame.payload.reason)
+      await activeRuntime.session.abort()
+      mapper.settleRequestedTerminal()
+      return true
+    }
     // Operator-typed turns (T-07710). `beginTurn` above runs only for a
     // broker-delivered `turn.begin`; a prompt the operator types straight into
     // the pane reaches pi without one, and the mapper drops every session
@@ -347,6 +356,7 @@ function createBrokerTuiDriverContext(
 class BrokerControlConnection {
   readonly config: Promise<AgentHarnessSessionConfig>
   onTurnBegin: ((frame: AgentHarnessControlTurnBeginFrame) => void) | undefined
+  onTurnInterrupt: ((frame: AgentHarnessControlTurnInterruptFrame) => Promise<boolean>) | undefined
 
   #resolveConfig: ((config: AgentHarnessSessionConfig) => void) | undefined
   #rejectConfig: ((error: Error) => void) | undefined
@@ -455,7 +465,35 @@ class BrokerControlConnection {
       }
       return
     }
+    if (frame.verb === 'turn.interrupt') {
+      if (!this.#configured || this.onTurnInterrupt === undefined) {
+        this.#fail(new Error('Broker control socket sent turn.interrupt before the TUI was ready'))
+        return
+      }
+      void this.#receiveTurnInterrupt(frame)
+      return
+    }
     this.#fail(new Error(`Broker control socket sent unexpected ${frame.verb} frame`))
+  }
+
+  async #receiveTurnInterrupt(frame: AgentHarnessControlTurnInterruptFrame): Promise<void> {
+    try {
+      if (!(await this.onTurnInterrupt?.(frame))) {
+        this.#writeAck({
+          ack: false,
+          requestId: frame.requestId,
+          code: 'no_active_turn',
+          message: 'Cannot interrupt because no pi SDK turn is active',
+        })
+        return
+      }
+      this.#ack(frame.requestId)
+    } catch (error) {
+      // An abort failure is not a recoverable refusal: destroying the channel
+      // rejects the driver's pending request, which surfaces HarnessError and
+      // prevents an unevidenced interrupt.landed claim.
+      this.#fail(error)
+    }
   }
 
   #receiveConfig(frame: AgentHarnessControlSessionConfigFrame): void {

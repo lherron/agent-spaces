@@ -104,6 +104,11 @@ const frames = [
     },
   },
   {
+    verb: 'turn.interrupt',
+    requestId: 'request_interrupt_01',
+    payload: { reason: 'submission.preempt:submission_01' },
+  },
+  {
     verb: 'event',
     payload: eventPayload,
   },
@@ -250,7 +255,7 @@ describe('agent-harness-session-config/v1 validation', () => {
 })
 
 describe('closed verb and request validation', () => {
-  test('refuses a verb outside the five-member protocol', () => {
+  test('refuses a verb outside the six-member protocol', () => {
     const validate = requireValidator()
 
     expect(() =>
@@ -262,7 +267,10 @@ describe('closed verb and request validation', () => {
   })
 
   for (const requestFrame of frames.filter(
-    (frame) => frame.verb === 'session.config' || frame.verb === 'turn.begin'
+    (frame) =>
+      frame.verb === 'session.config' ||
+      frame.verb === 'turn.begin' ||
+      frame.verb === 'turn.interrupt'
   )) {
     test(`refuses ${requestFrame.verb} without request correlation for its required ack`, () => {
       const validate = requireValidator()
@@ -275,7 +283,7 @@ describe('closed verb and request validation', () => {
 })
 
 // T-07584: the acknowledgement widened to a result discriminated on `ack`.
-// Acks are NOT control frames — the verb set is closed to the five wire verbs —
+// Acks are NOT control frames — the verb set is closed to the six wire verbs —
 // so they are recognized and validated on their own path, ahead of the decoder.
 describe('agent-harness-control/v1 acknowledgement validation', () => {
   const isAckLine = () => protocol.isAgentHarnessControlAckLine
@@ -285,6 +293,7 @@ describe('agent-harness-control/v1 acknowledgement validation', () => {
     expect([...protocol.AGENT_HARNESS_CONTROL_NACK_CODES]).toEqual([
       'turn_already_active',
       'turn_begin_failed',
+      'no_active_turn',
     ])
   })
 

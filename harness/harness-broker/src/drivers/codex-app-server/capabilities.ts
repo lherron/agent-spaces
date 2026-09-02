@@ -14,6 +14,7 @@ export const CODEX_CAPABILITIES: InvocationCapabilities = {
   queue: { cancelHarnessLocal: false },
   preempt: { mode: 'atomic' },
   steer: { landingEvidence: 'ack' },
+  interrupt: { landingEvidence: 'ack' },
   input: {
     user: true,
     steer: false,
