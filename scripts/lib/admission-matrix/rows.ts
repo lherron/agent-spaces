@@ -180,6 +180,9 @@ export function resolvePiBin(): string | undefined {
       join(homedir(), '.local/bin/pi'),
       '/opt/homebrew/bin/pi',
       '/usr/local/bin/pi',
+      ...nvmCandidates('pi'),
+      join(homedir(), '.volta/bin/pi'),
+      join(homedir(), '.asdf/shims/pi'),
     ]) ?? onPath('pi')
   )
 }
