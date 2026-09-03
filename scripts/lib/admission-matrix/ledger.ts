@@ -26,6 +26,7 @@ export const SUBMISSION_TERMINALS = new Set([
   'submission.expired',
   'submission.withdrawn',
   'submission.cancelled',
+  'submission.lost',
 ])
 
 function payload(event: InvocationEventEnvelope): Record<string, unknown> {

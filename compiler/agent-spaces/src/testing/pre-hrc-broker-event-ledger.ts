@@ -39,6 +39,7 @@ const NORMALIZED_EVENT_TYPES = new Set<InvocationEventType>([
   'submission.expired',
   'submission.withdrawn',
   'submission.cancelled',
+  'submission.lost',
   'capture.warning',
   'turn.started',
   'turn.stalled',

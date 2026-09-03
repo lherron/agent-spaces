@@ -84,6 +84,8 @@ export interface TestDriverOptions {
   suppressTurnStarted?: boolean | undefined
   bracketMintingMode?: BracketMintingMode | undefined
   cancelPendingOwnTurnOnForeignTurn?: boolean | undefined
+  failPendingOwnTurnOnForeignTurn?: boolean | undefined
+  correlatePendingOwnTurnStart?: Driver['correlatePendingOwnTurnStart'] | undefined
   preemptMode?: import('../drivers/driver').PreemptMode | null | undefined
   admissionRejectionReason?: ((admissionClass: SubmissionClass) => string | undefined) | undefined
   runtimeHealth?: Driver['runtimeHealth'] | undefined
@@ -345,6 +347,10 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
     version: '0.1.0',
     bracketMintingMode: options.bracketMintingMode ?? 'delivery-asserted',
     cancelPendingOwnTurnOnForeignTurn: options.cancelPendingOwnTurnOnForeignTurn,
+    failPendingOwnTurnOnForeignTurn: options.failPendingOwnTurnOnForeignTurn,
+    ...(options.correlatePendingOwnTurnStart !== undefined
+      ? { correlatePendingOwnTurnStart: options.correlatePendingOwnTurnStart }
+      : {}),
     evidenceAuthority: options.evidenceAuthority ?? BROKER_ONLY_AUTHORITY,
     nativeSourceKind: options.nativeSourceKind ?? 'provider-jsonl',
     preemptMode,

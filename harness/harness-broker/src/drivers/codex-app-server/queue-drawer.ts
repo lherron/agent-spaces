@@ -98,6 +98,7 @@ const DRAIN_EVENTS = new Set([
   'submission.expired',
   'submission.withdrawn',
   'submission.cancelled',
+  'submission.lost',
   'queue.cancelled',
   'queue.expired',
   'queue.withdrawn',

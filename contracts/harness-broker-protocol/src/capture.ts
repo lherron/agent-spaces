@@ -88,6 +88,7 @@ export const EVENT_FAMILY_BY_TYPE: Record<InvocationEventType, EventFamily> = {
   'submission.absorbed': 'submission-disposition',
   'submission.executed': 'submission-disposition',
   'submission.cancelled': 'submission-disposition',
+  'submission.lost': 'submission-disposition',
   'submission.rejected': 'submission-disposition',
   'submission.expired': 'submission-disposition',
   'submission.withdrawn': 'submission-disposition',

@@ -214,6 +214,7 @@ export interface InvocationEventPayloadMap {
   'submission.expired': SubmissionExpiredPayload
   'submission.withdrawn': SubmissionWithdrawnPayload
   'submission.cancelled': SubmissionCancelledPayload
+  'submission.lost': SubmissionLostPayload
   'capture.warning': CaptureWarningPayload
   'capture.released': CaptureReleasedPayload
   'turn.started': TurnStartedPayload
@@ -303,6 +304,12 @@ export interface SubmissionCancelledPayload {
     | 'broker-cancelled'
     | 'merged-into-foreign-turn'
     | undefined
+}
+
+/** Delivery occurred, but available evidence cannot prove its execution outcome. */
+export interface SubmissionLostPayload {
+  submissionId: string
+  reason: 'turn-correlation-lost'
 }
 
 export interface AdmissionRequestedPayload {

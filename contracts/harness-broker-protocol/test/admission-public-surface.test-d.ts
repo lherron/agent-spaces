@@ -27,6 +27,7 @@ import type {
   SubmissionEnqueueRequest,
   SubmissionExpiredPayload,
   SubmissionInvokeRequest,
+  SubmissionLostPayload,
   SubmissionPreemptRequest,
   SubmissionRejectedPayload,
   SubmissionResponse,
@@ -72,6 +73,7 @@ declare const contract: {
   submissionEnqueue: SubmissionEnqueueRequest
   submissionExpired: SubmissionExpiredPayload
   submissionInvoke: SubmissionInvokeRequest
+  submissionLost: SubmissionLostPayload
   submissionPreempt: SubmissionPreemptRequest
   submissionRejected: SubmissionRejectedPayload
   submissionResponse: SubmissionResponse

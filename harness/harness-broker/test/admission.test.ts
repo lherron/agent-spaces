@@ -456,6 +456,114 @@ describe('broker admission API', () => {
     expect((await broker.seatProbe({ invocationId })).seat).toEqual({ state: 'idle' })
   })
 
+  test('Codex prompt evidence correlates and drains consecutive submissions FIFO', async () => {
+    const { broker, controller, events, invocationId } = await setup(
+      'inv_admission_codex_prompt_correlation',
+      {
+        bracketMintingMode: 'harness-evidence',
+        suppressTurnStarted: true,
+        failPendingOwnTurnOnForeignTurn: true,
+        correlatePendingOwnTurnStart: (observed, pending) =>
+          observed.prompt ===
+          pending.content.map((part) => (part.type === 'text' ? part.text : '')).join(''),
+      }
+    )
+
+    const first = await broker.enqueue({ invocationId, origin, body: 'first codex prompt' })
+    const second = await broker.enqueue({ invocationId, origin, body: 'second codex prompt' })
+    await flush()
+    expect(controller.inputs).toHaveLength(1)
+
+    const firstTurn = 'turn_codex_first' as const
+    controller.emitRaw(
+      'turn.started',
+      { turnId: firstTurn, source: 'hook-observed', prompt: 'first codex prompt' },
+      { turnId: firstTurn }
+    )
+    controller.emitRaw(
+      'turn.completed',
+      { turnId: firstTurn, status: 'completed', finalOutput: 'first done' },
+      { turnId: firstTurn }
+    )
+    await flush()
+
+    expect(controller.inputs).toHaveLength(2)
+    const secondTurn = 'turn_codex_second' as const
+    controller.emitRaw(
+      'turn.started',
+      { turnId: secondTurn, source: 'hook-observed', prompt: 'second codex prompt' },
+      { turnId: secondTurn }
+    )
+    controller.emitRaw(
+      'turn.completed',
+      { turnId: secondTurn, status: 'completed', finalOutput: 'second done' },
+      { turnId: secondTurn }
+    )
+    await flush()
+
+    expect(eventsFor(events, 'turn.started').map((event) => [event.turnId, event.inputId])).toEqual(
+      [
+        [firstTurn, first.submissionId],
+        [secondTurn, second.submissionId],
+      ]
+    )
+    expect(eventsFor(events, 'submission.executed').map((event) => event.payload)).toEqual([
+      { submissionId: first.submissionId, turnId: firstTurn },
+      { submissionId: second.submissionId, turnId: secondTurn },
+    ])
+    expect((await broker.seatProbe({ invocationId })).seat).toEqual({ state: 'idle' })
+  })
+
+  test('Codex unmatched terminal loses the submission and fails without same-seat drain', async () => {
+    const { broker, controller, events, invocationId } = await setup(
+      'inv_admission_codex_correlation_lost',
+      {
+        bracketMintingMode: 'harness-evidence',
+        suppressTurnStarted: true,
+        failPendingOwnTurnOnForeignTurn: true,
+        correlatePendingOwnTurnStart: (observed, pending) =>
+          observed.prompt ===
+          pending.content.map((part) => (part.type === 'text' ? part.text : '')).join(''),
+      }
+    )
+
+    const pending = await broker.enqueue({ invocationId, origin, body: 'broker delivery' })
+    const held = await broker.enqueue({ invocationId, origin, body: 'must use a fresh seat' })
+    await flush()
+    const foreignTurn = 'turn_codex_foreign' as const
+    controller.emitRaw(
+      'turn.started',
+      { turnId: foreignTurn, source: 'hook-observed', prompt: 'operator prompt' },
+      { turnId: foreignTurn }
+    )
+    controller.emitRaw(
+      'turn.completed',
+      { turnId: foreignTurn, status: 'completed', finalOutput: 'operator done' },
+      { turnId: foreignTurn }
+    )
+    await flush()
+
+    expect(controller.inputs).toHaveLength(1)
+    expect(eventsFor(events, 'submission.lost')).toHaveLength(1)
+    expect(eventsFor(events, 'submission.lost')[0]).toMatchObject({
+      turnId: foreignTurn,
+      inputId: pending.submissionId,
+      payload: { submissionId: pending.submissionId, reason: 'turn-correlation-lost' },
+    })
+    expect(eventsFor(events, 'invocation.failed')).toHaveLength(1)
+    expect(eventsFor(events, 'invocation.failed')[0]?.payload).toMatchObject({
+      code: 'submission_correlation_lost',
+      reason: 'submission-correlation-lost',
+      retryable: false,
+    })
+    expect(
+      eventsFor(events, 'submission.cancelled').some(
+        (event) => event.payload.submissionId === held.submissionId
+      )
+    ).toBe(true)
+    expect((await broker.seatProbe({ invocationId })).seat).toEqual({ state: 'terminal' })
+  })
+
   test('steer is absorbed on open turns and rejected by guarded turn policy', async () => {
     const open = await setup('inv_admission_steer_open')
     const started = await open.broker.invoke({

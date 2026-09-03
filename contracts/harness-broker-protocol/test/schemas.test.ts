@@ -1475,6 +1475,10 @@ describe('validateEventEnvelope', () => {
       submissionId: 'submission_1',
       reason: 'merged-into-foreign-turn',
     } satisfies SubmissionCancelledPayload,
+    'submission.lost': {
+      submissionId: 'submission_1',
+      reason: 'turn-correlation-lost',
+    },
     'capture.warning': {
       message: 'unknown queue operation',
       raw: { type: 'queue-operation', operation: 'unknown' },

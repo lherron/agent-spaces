@@ -138,6 +138,7 @@ const SUBMISSION_TERMINAL_TYPES = new Set<InvocationEventType>([
   'submission.expired',
   'submission.withdrawn',
   'submission.cancelled',
+  'submission.lost',
 ])
 const BROKER_DECISION_TYPES = new Set<InvocationEventType>([
   'admission.requested',
@@ -1594,6 +1595,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   function buildEventExtra(
     inv: Invocation,
     type: InvocationEventType,
+    payload: unknown,
     extra?: InvocationEventExtra
   ): InvocationEventExtra {
     // Provenance precedence (T-07853 §7.2):
@@ -1614,7 +1616,27 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         (BROKER_DECISION_TYPES.has(type) ? BROKER_PROVENANCE : undefined) ??
         declaredProvenance(inv, type, extra?.driver?.rawType)
     )
-    const withProvenance: InvocationEventExtra = { ...extra, provenance: suppliedProvenance }
+    let withProvenance: InvocationEventExtra = { ...extra, provenance: suppliedProvenance }
+    if (
+      type === 'turn.started' &&
+      withProvenance.inputId === undefined &&
+      inv.pendingOwnTurnSubmissionId !== undefined &&
+      inv.driver.bracketMintingMode === 'harness-evidence'
+    ) {
+      const pending = inv.submissions.get(inv.pendingOwnTurnSubmissionId)
+      if (
+        pending !== undefined &&
+        inv.driver.correlatePendingOwnTurnStart?.(
+          payload as InvocationEventPayloadMap['turn.started'],
+          pending.input
+        ) === true
+      ) {
+        withProvenance = {
+          ...withProvenance,
+          inputId: inv.pendingOwnTurnSubmissionId,
+        }
+      }
+    }
     // Harness-evidence drivers correlate a submission only when their hook or
     // transcript mirror supplies the inputId. A pending delivery may coexist
     // with an unrelated harness-owned turn (for example, launch priming), so
@@ -1638,6 +1660,25 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       return
     }
     const pendingSubmissionId = inv.pendingOwnTurnSubmissionId
+    if (
+      pendingSubmissionId !== undefined &&
+      inv.driver.failPendingOwnTurnOnForeignTurn === true &&
+      !inv.submissionDispositions.has(pendingSubmissionId)
+    ) {
+      emit(
+        inv,
+        'submission.lost',
+        { submissionId: pendingSubmissionId, reason: 'turn-correlation-lost' },
+        { turnId: terminalTurnId, inputId: pendingSubmissionId }
+      )
+      emitTerminal(inv, 'invocation.failed', {
+        message: 'Codex turn completed without evidence correlating the pending submission',
+        code: 'submission_correlation_lost',
+        reason: 'submission-correlation-lost',
+        retryable: false,
+      })
+      return
+    }
     inv.pendingOwnTurnSubmissionId = undefined
     inv.pendingOwnTurnContestedByTurnId = undefined
     if (pendingSubmissionId !== undefined && !inv.submissionDispositions.has(pendingSubmissionId)) {
@@ -1658,7 +1699,12 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       inv.pendingOwnTurnContestedByTurnId = undefined
       return
     }
-    if (inv.driver.cancelPendingOwnTurnOnForeignTurn !== true) return
+    if (
+      inv.driver.cancelPendingOwnTurnOnForeignTurn !== true &&
+      inv.driver.failPendingOwnTurnOnForeignTurn !== true
+    ) {
+      return
+    }
     if (
       inv.pendingOwnTurnSubmissionId !== undefined &&
       inv.pendingOwnTurnContestedByTurnId === undefined
@@ -1681,7 +1727,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     const disposition = submissionDispositionContext(inv, type, payload)
     if (disposition.existing !== undefined) return disposition.existing
     const submissionId = disposition.submissionId
-    const eventExtra = buildEventExtra(inv, type, extra)
+    const eventExtra = buildEventExtra(inv, type, payload, extra)
     const isTurnTerminal = TURN_TERMINAL_TYPES.has(type)
     const terminalTurnId = isTurnTerminal
       ? (eventExtra.turnId ?? (payload as { turnId?: TurnId } | undefined)?.turnId)

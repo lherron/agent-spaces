@@ -51,6 +51,10 @@ type CodexCliTmuxDriverFactory = (options: {
   now: () => Date
 }) => {
   kind: string
+  failPendingOwnTurnOnForeignTurn?: boolean | undefined
+  correlatePendingOwnTurnStart?: import(
+    '../../../src/drivers/driver'
+  ).Driver['correlatePendingOwnTurnStart']
   capabilities: () => ReturnType<import('../../../src/drivers/driver').Driver['capabilities']>
   start: (spec: HarnessInvocationSpec, ctx: DriverContext) => Promise<{ ok: true }>
   applyInputNow: (input: InvocationInput) => Promise<Record<string, never>>
@@ -243,6 +247,46 @@ const expectTargetedToPane = (calls: TmuxExecCall[], paneId: string): void => {
 }
 
 describe('codex-cli-tmux driver: runtime pane lease', () => {
+  test('correlates pending delivery only from exact non-empty prompt content', async () => {
+    const createDriver = await loadFactory()
+    const driver = createDriver({
+      tmux: {
+        socketPath: '/tmp/harness-broker/codex-tmux.sock',
+        tmuxBin: '/opt/bin/tmux',
+        exec: recordingExec([]),
+      },
+      hooks: {
+        listen: async () => ({
+          socketPath: '/tmp/harness-broker/codex-hooks.sock',
+          close: async () => undefined,
+        }),
+      },
+      now,
+    })
+    const input: InvocationInput = {
+      inputId: 'input_codex_match',
+      kind: 'user',
+      content: [{ type: 'text', text: 'the broker prompt' }],
+    }
+
+    expect(driver.failPendingOwnTurnOnForeignTurn).toBe(true)
+    expect(
+      driver.correlatePendingOwnTurnStart?.(
+        { turnId: 'turn_match', prompt: 'the broker prompt' },
+        input
+      )
+    ).toBe(true)
+    expect(
+      driver.correlatePendingOwnTurnStart?.(
+        { turnId: 'turn_priming', prompt: 'launch priming' },
+        input
+      )
+    ).toBe(false)
+    expect(driver.correlatePendingOwnTurnStart?.({ turnId: 'turn_missing_prompt' }, input)).toBe(
+      false
+    )
+  })
+
   test('advertises no live driver attach-to-existing-surface support distinct from operator attach', async () => {
     const createDriver = await loadFactory()
     const driver = createDriver({

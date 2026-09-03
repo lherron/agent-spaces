@@ -51,6 +51,21 @@ export interface Driver {
    */
   readonly cancelPendingOwnTurnOnForeignTurn?: boolean | undefined
   /**
+   * Whether an uncorrelated turn terminal makes this invocation unsafe for any
+   * later delivery. The manager records an indeterminate submission loss and
+   * fails the invocation rather than claiming cancellation or draining FIFO.
+   */
+  readonly failPendingOwnTurnOnForeignTurn?: boolean | undefined
+  /**
+   * Driver-owned evidence predicate for attaching a pending broker input to an
+   * otherwise input-ID-less observed turn. The manager supplies identity; the
+   * driver owns the provider-specific correlation rule.
+   */
+  correlatePendingOwnTurnStart?(
+    observed: InvocationEventPayloadMap['turn.started'],
+    pendingInput: InvocationInput
+  ): boolean
+  /**
    * Declared per-event-family evidence authority (T-07853 §6, law
    * `agent-spaces.harness-broker-local-commit-observation`). Authority is
    * declared per FAMILY, never once per provider: `native` = the provider's own

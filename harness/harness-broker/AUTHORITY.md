@@ -131,7 +131,7 @@ is non-authoritative for both until a separately approved evidence change.
 ## Disposition provenance: any source, never none
 
 `submission.absorbed`, `submission.executed` and `submission.cancelled` REQUIRE
-provenance and accept **any** `sourceKind`. `submission.rejected`,
+provenance and accept **any** `sourceKind`. `submission.lost`, `submission.rejected`,
 `submission.expired`, `submission.withdrawn`, `admission.*`, `queue.*` and `interrupt.*` require
 `sourceKind: 'broker'`.
 
@@ -143,6 +143,9 @@ submission, and the source of that fact varies by driver and by outcome:
   API-acknowledged;
 - `cancelled{reason:'recalled'}` is the transcript `popAll` row (provider), while
   `cancelled{reason:'teardown'}` is broker lifecycle knowledge;
+- `lost{reason:'turn-correlation-lost'}` is broker knowledge that delivery and
+  an observed turn could not be correlated truthfully. It is an indeterminate
+  outcome, never a claim that the submission executed or was cancelled;
 - an admission refusal or a TTL expiry has no provider behind it at all.
 
 `submission.absorbed`/`executed`/`cancelled` were briefly broker-only, which

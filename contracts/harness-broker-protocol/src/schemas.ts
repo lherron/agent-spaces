@@ -147,6 +147,7 @@ export const INVOCATION_EVENT_TYPES = [
   'submission.expired',
   'submission.withdrawn',
   'submission.cancelled',
+  'submission.lost',
   'capture.warning',
   'capture.released',
   'turn.started',
@@ -208,6 +209,7 @@ const BROKER_PROVENANCE_EVENT_TYPES = new Set<InvocationEventType>([
   'submission.rejected',
   'submission.expired',
   'submission.withdrawn',
+  'submission.lost',
   'capture.warning',
 ])
 
@@ -1906,6 +1908,10 @@ const EVENT_PAYLOAD_VALIDATORS = {
       'payload.reason',
       issues
     )
+  },
+  'submission.lost': (payload, issues) => {
+    requireString(payload['submissionId'], 'payload.submissionId', issues)
+    optionalEnum(payload['reason'], ['turn-correlation-lost'], 'payload.reason', issues, true)
   },
   'capture.warning': (payload, issues) => {
     requireString(payload['message'], 'payload.message', issues)

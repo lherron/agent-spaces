@@ -42,6 +42,7 @@ const PAYLOADS: Record<string, unknown> = {
   'submission.expired': { submissionId: 'submission_inv-a_7' },
   'submission.withdrawn': { submissionId: 'submission_inv-a_7', reason: 'recalled' },
   'submission.cancelled': { submissionId: 'submission_inv-a_7', reason: 'removed' },
+  'submission.lost': { submissionId: 'submission_inv-a_7', reason: 'turn-correlation-lost' },
   'submission.executed': { submissionId: 'submission_inv-a_7', turnId: 'turn-1' },
   'submission.absorbed': { submissionId: 'submission_inv-a_7', turnId: 'turn-1' },
   'interrupt.failed': { submissionId: 'submission_inv-a_7', reason: 'no active turn' },
@@ -178,6 +179,7 @@ describe('the events that mean a message did not get through are loud', () => {
   test.each([
     ['admission.rejected', '✗ rejected at authority · not a member'],
     ['submission.rejected', '✗ #7 rejected · turn is guarded'],
+    ['submission.lost', '✗ #7 delivery outcome lost · turn-correlation-lost'],
     ['input.rejected', '✗ input rejected · seat is busy'],
     ['queue.expired', '⚠ #7 expired in the queue — never delivered'],
     ['submission.expired', '⚠ #7 expired'],

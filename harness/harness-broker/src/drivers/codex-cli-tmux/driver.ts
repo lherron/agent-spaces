@@ -195,6 +195,12 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
     kind: CODEX_CLI_TMUX_DRIVER_KIND,
     version: CODEX_CLI_TMUX_DRIVER_VERSION,
     bracketMintingMode: 'harness-evidence',
+    failPendingOwnTurnOnForeignTurn: true,
+    correlatePendingOwnTurnStart(observed, pendingInput): boolean {
+      const prompt = observed.prompt
+      const delivered = extractText(pendingInput)
+      return prompt !== undefined && delivered.length > 0 && prompt === delivered
+    },
     evidenceAuthority: CODEX_CLI_TMUX_AUTHORITY,
     nativeSourceKind: 'provider-jsonl',
     preemptMode: null,

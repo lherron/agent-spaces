@@ -1173,6 +1173,17 @@ export function createCodexTranscriptModel(
         )
         return
       }
+      case 'submission.lost':
+        emit(
+          line([
+            {
+              text: `✗ ${shortSubmissionId(str(p['submissionId']))} delivery outcome lost${reasonSuffix(p['reason'])}`,
+              fg: 'red',
+              bold: true,
+            },
+          ])
+        )
+        return
       case 'interrupt.failed':
         // The only interrupt event that is news: you asked it to stop and it did not.
         emit(line([{ text: `⚠ interrupt failed${reasonSuffix(p['reason'])}`, fg: 'brass' }]))
