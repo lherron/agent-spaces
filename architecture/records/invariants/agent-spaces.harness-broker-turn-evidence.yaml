@@ -2,7 +2,7 @@ id: agent-spaces.harness-broker-turn-evidence
 kind: invariant
 status: active
 owner_project: agent-spaces
-scope: harness-broker turn brackets and claude-code-tmux submission disposition attribution
+scope: harness-broker turn brackets and external-TUI submission disposition attribution
 predicate: >
   Except for the bounded legacy risk recorded as
   agent-spaces.pi-delivery-asserted-turn-start, harness-broker turn lifecycle
@@ -12,22 +12,30 @@ predicate: >
   transcript observation. The declaration is advertised per driver and gates
   the shared delivery-time synthesis. agent-harness-tmux remains
   delivery-acknowledged so a rejected turn.begin opens turn.started before
-  turn.failed. claude-code-tmux is harness-evidence: an overlapping prompt is
-  buffered without a user.message until strict-order harness evidence resolves
-  it. A remove row alone resolves nothing; hook-driven transcript rows are
-  consumed before the triggering hook's own effects, and correlated remove and
+  turn.failed. codex-cli-tmux remains harness-evidence: state at the
+  driver/manager boundary may attach a pending broker input to an input-ID-less
+  native UserPromptSubmit only when exact or otherwise unambiguous
+  prompt-content evidence matches; priming and different operator prompts remain
+  unowned, and turn order never lends identity. An unmatched contested terminal
+  records indeterminate submission.lost followed by non-retryable
+  invocation.failed, so no later input drains into that invocation.
+  claude-code-tmux is harness-evidence: an overlapping prompt is buffered
+  without a user.message until strict-order harness evidence resolves it. A
+  remove row alone resolves nothing; hook-driven transcript rows are consumed
+  before the triggering hook's own effects, and correlated remove and
   queued_command rows join the then-live turn through submission.absorbed,
-  including batched remove-and-attachment sequences. Unresolved removal evidence
-  warns and remains pending rather than minting a terminal disposition. Dequeue
-  only marks a prompt drain-pending, the later plain user row opens an executed
-  turn, and an interrupt marker terminalizes the still-active original turn.
-  Each tracked prompt produces exactly one disposition and at most one
+  including batched remove-and-attachment sequences. Unresolved removal
+  evidence warns and remains pending rather than minting a terminal disposition.
+  Dequeue only marks a prompt drain-pending, the later plain user row opens an
+  executed turn, and an interrupt marker terminalizes the still-active original
+  turn. Each tracked prompt produces exactly one disposition and at most one
   user.message; absorption never fabricates a new turn bracket.
 authority:
   repo: agent-spaces
-  surface: wrkq T-07849 rev 11 approved by Daedalus on Lance's authority
+  surface: wrkq T-07849 rev 11 approved by Daedalus on Lance's authority; amended by Daedalus approval of wrkq T-07962 rev 3 on 2026-09-03
 source:
   - wrkq:T-07849
+  - wrkq:T-07962
   - harness/harness-broker/src/invocation-manager.ts
   - harness/harness-broker/src/drivers/claude-code-tmux/driver.ts
   - harness/harness-broker/src/drivers/claude-code-tmux/hook-transcript.ts
@@ -43,14 +51,16 @@ required_tests:
   - agent-harness-tmux negative turn.begin acknowledgement emits turn.started before turn.failed
   - pi-tui-tmux delivery-asserted regression preserves its existing observable lifecycle
   - live claude-code-tmux matrix evidence exposes one disposition per tracked prompt without transcript snooping by consumers
+  - recorded and live codex-cli-tmux cases prove two matching prompt turns, negative priming and operator controls, and fail-closed lost correlation with no later same-seat drain
 last_verified:
-  date: 2026-09-01
-  evidence: Daedalus rev-11 source verification of hook-driven transcript-before-terminal ordering, batched absorption, and the e2286881 unresolved-remove state machine; installed nominal ledger rt-22c039e1 contained 4 absorbed and 7 executed dispositions with no warning or cancellation
+  date: 2026-09-03
+  evidence: Daedalus source-grounded design approval of T-07962 rev 3 established content-evidence-only Codex attribution and indeterminate lost-correlation failure; implementation gates remain pending
 reopen_when:
   - a driver changes bracket-minting declaration or evidence moment
   - claude-code-tmux queue-operation vocabulary ordering or absorption signature changes
   - the shared applyInputNow synthesis or agent-harness turn.begin gate changes
   - a tracked prompt can emit multiple dispositions multiple user.message rows or a terminal against the wrong turn
   - submission.absorbed or the turn manifest no longer identifies the turn a steer joined
+  - codex-cli-tmux attribution borrows identity by turn order, owns a nonmatching prompt, or permits same-seat drain after lost correlation
 supersedes: []
 superseded_by: null

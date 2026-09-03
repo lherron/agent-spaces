@@ -14,22 +14,27 @@ predicate: >
   until true quiescence, then injects the held submission as its own turn while
   recording any fast completion honestly. Every submission has stable identity,
   exactly one authoritative disposition, and a turn manifest mapping each turn
-  to the submissions it carried. Obligation-bearing submissions use only queue,
-  exclusive, or preempt and originate a dedicated turn; steer carries no
-  obligation, wait, or own response and resolves only through absorbed or
-  executed disposition. Admission composes driver capability, active-turn
-  policy, and caller authority without silent class upgrades. The broker-held
-  queue is queryable, cancellable, TTL-aware, and reorderable under authority;
-  admission queue disposition interrupt and capture decisions share the broker
-  replay ledger and snapshot surface. TUI mechanics never use navigation-key
-  choreography, and unsupported capabilities remain unset. Turn evidence and
-  bracket-minting declarations remain governed by
+  to the submissions it carried. If a codex-cli-tmux own-turn delivery reaches
+  a contested turn terminal without truthful content correlation, the broker
+  records submission.lost with execution explicitly indeterminate, then records
+  a non-retryable invocation.failed before any later same-seat delivery; HRC
+  owns failed-run projection and fresh-runtime provisioning. Obligation-bearing
+  submissions use only queue, exclusive, or preempt and originate a dedicated
+  turn; steer carries no obligation, wait, or own response and resolves only
+  through absorbed or executed disposition. Admission composes driver
+  capability, active-turn policy, and caller authority without silent class
+  upgrades. The broker-held queue is queryable, cancellable, TTL-aware, and
+  reorderable under authority; admission queue disposition interrupt and
+  capture decisions share the broker replay ledger and snapshot surface. TUI
+  mechanics never use navigation-key choreography, and unsupported capabilities
+  remain unset. Turn evidence and bracket-minting declarations remain governed by
   agent-spaces.harness-broker-turn-evidence and its bounded Pi accepted risk.
 authority:
   repo: agent-spaces
-  surface: wrkq T-07843 rev 7 approved by Daedalus on Lance's authority
+  surface: wrkq T-07843 rev 7 approved by Daedalus on Lance's authority; amended by Daedalus approval of wrkq T-07962 rev 3 on 2026-09-03
 source:
   - wrkq:T-07843
+  - wrkq:T-07962
   - architecture/records/invariants/agent-spaces.harness-broker-turn-evidence.yaml
   - architecture/records/risks/agent-spaces.pi-delivery-asserted-turn-start.yaml
   - contracts/harness-broker-protocol/src/capabilities.ts
@@ -42,9 +47,10 @@ required_tests:
   - preempt with a surviving harness-local queue drives through drain-spawned turns to true quiescence with honest terminals and bounded slippage
   - every driver advertises supported admission classes and bracket-minting mode while new delivery-asserted drivers fail conformance
   - decision events replay and persist through the existing broker event stream without consumers reading harness transcripts
+  - a Codex correlation loss emits one indeterminate submission.lost followed by non-retryable invocation.failed, drains no later same-seat input, settles the HRC run failed, crashes the runtime, and causes the next submission to provision fresh
 last_verified:
-  date: 2026-09-01
-  evidence: Daedalus round-5 source-grounded architecture approval of T-07843 rev 7; implementation gates pending
+  date: 2026-09-03
+  evidence: Daedalus source-grounded design approval of T-07962 rev 3 established fail-closed Codex correlation loss and HRC fresh-runtime recovery; implementation gates remain pending
 reopen_when:
   - cross-seat scheduling or caller policy moves into the broker
   - an admission class changes own-turn obligation wait or disposition semantics
@@ -52,5 +58,6 @@ reopen_when:
   - queue identity authority cancellation TTL ordering snapshot or replay semantics change
   - a TUI mechanic requires navigation-key choreography or an unsupported capability is emulated
   - turn evidence disposition or manifest contracts change
+  - submission.lost gains definite execution meaning, permits later same-seat delivery, or stops forcing failed-run fresh-runtime recovery
 supersedes: []
 superseded_by: null
