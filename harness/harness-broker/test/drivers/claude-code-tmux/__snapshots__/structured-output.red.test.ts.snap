@@ -1,0 +1,100 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`claude-code-tmux JSON Schema structured-output RED contract 4. routes Stop and PostToolUse through the decision bridge and snapshots the overlay 1`] = `
+{
+  "hooks": {
+    "MessageDisplay": [
+      {
+        "hooks": [
+          {
+            "command": "harness-broker claude-hook --socket /tmp/harness-broker/decision.sock",
+            "type": "command",
+          },
+        ],
+      },
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "command": "harness-broker claude-hook --socket /tmp/harness-broker/decision.sock",
+            "type": "command",
+          },
+        ],
+      },
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "harness-broker claude-hook-decision --socket /tmp/harness-broker/decision.sock --legacy-command 'harness-broker claude-hook --socket /tmp/harness-broker/decision.sock'",
+            "type": "command",
+          },
+        ],
+        "matcher": "*",
+      },
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "harness-broker claude-hook --socket /tmp/harness-broker/decision.sock",
+            "type": "command",
+          },
+        ],
+        "matcher": "*",
+      },
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "command": "harness-broker claude-hook --socket /tmp/harness-broker/decision.sock",
+            "type": "command",
+          },
+        ],
+      },
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "harness-broker claude-hook --socket /tmp/harness-broker/decision.sock",
+            "type": "command",
+          },
+        ],
+      },
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "harness-broker claude-hook-decision --socket /tmp/harness-broker/decision.sock --legacy-command 'harness-broker claude-hook --socket /tmp/harness-broker/decision.sock'",
+            "type": "command",
+          },
+        ],
+      },
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "command": "harness-broker claude-hook --socket /tmp/harness-broker/decision.sock",
+            "type": "command",
+          },
+        ],
+      },
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "harness-broker claude-hook --socket /tmp/harness-broker/decision.sock",
+            "type": "command",
+          },
+        ],
+      },
+    ],
+  },
+}
+`;

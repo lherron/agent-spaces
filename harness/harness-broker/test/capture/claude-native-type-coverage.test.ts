@@ -139,6 +139,22 @@ describe('claude native-type disposition coverage (archived T-07849 vocabulary)'
     expect(warnings).toEqual([])
   })
 
+  test('real Claude 2.1.259 mail-hint attachments are non-load-bearing and warning-free', () => {
+    const lines = readFileSync(
+      join(import.meta.dir, '../fixtures/claude-transcript/mail-hint-attachments-2.1.259.jsonl'),
+      'utf8'
+    )
+      .trimEnd()
+      .split('\n')
+    const { dispositions, warnings } = replay(lines)
+
+    expect(dispositions).toEqual([
+      { nativeType: 'attachment:hook_success', disposition: 'ignored-known' },
+      { nativeType: 'attachment:hook_additional_context', disposition: 'ignored-known' },
+    ])
+    expect(warnings).toEqual([])
+  })
+
   test('Stop hook cancellation is ignored-known with its four diagnostic fields', () => {
     const { dispositions, details, warnings } = replay([
       JSON.stringify({

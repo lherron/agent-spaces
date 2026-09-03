@@ -4,10 +4,17 @@ export const HRC_MAIL_STOP_SOCKET_ENV = 'HRC_MAIL_STOP_SOCKET'
 
 const MAIL_STOP_DECISION_PATH = '/v1/internal/mail/stop-decision'
 const MAIL_STOP_QUERY_TIMEOUT_MS = 1_000
+const MAIL_HINT_DECISION_PATH = '/v1/internal/mail/hint-decision'
+const MAIL_HINT_QUERY_TIMEOUT_MS = 250
 
 export type MailStopDecision = {
   decision: 'block'
   reason: string
+}
+
+export type MailHintDecision = {
+  hint: string
+  driveAttemptId: string
 }
 
 /**
@@ -33,7 +40,12 @@ export async function queryMailStopDecision(
   }
 
   try {
-    const response = await postUnixHttpJson(socketPath, MAIL_STOP_DECISION_PATH, { runtimeId })
+    const response = await postUnixHttpJson(
+      socketPath,
+      MAIL_STOP_DECISION_PATH,
+      { runtimeId },
+      MAIL_STOP_QUERY_TIMEOUT_MS
+    )
     if (response.status !== 200) {
       return undefined
     }
@@ -50,7 +62,55 @@ export async function queryMailStopDecision(
   }
 }
 
-function getHookEventName(value: unknown): string | undefined {
+/**
+ * Ask HRC for count-only context about mail held behind this runtime's active
+ * turn. PostToolUse is synchronous in Claude Code, so this path has a strict
+ * 250 ms budget and every transport/protocol failure is silence.
+ */
+export async function queryMailHintDecision(
+  hookData: unknown,
+  env: Record<string, string | undefined>
+): Promise<MailHintDecision | undefined> {
+  if (getHookEventName(hookData) !== 'PostToolUse') {
+    return undefined
+  }
+  const socketPath = env[HRC_MAIL_STOP_SOCKET_ENV]
+  const runtimeId = env['HARNESS_BROKER_RUNTIME_ID']
+  if (
+    socketPath === undefined ||
+    socketPath.length === 0 ||
+    runtimeId === undefined ||
+    runtimeId.length === 0
+  ) {
+    return undefined
+  }
+
+  try {
+    const response = await postUnixHttpJson(
+      socketPath,
+      MAIL_HINT_DECISION_PATH,
+      { runtimeId },
+      MAIL_HINT_QUERY_TIMEOUT_MS
+    )
+    if (response.status !== 200) {
+      return undefined
+    }
+    const parsed = JSON.parse(response.body) as unknown
+    if (!isRecord(parsed)) return undefined
+    const hint = parsed['hint']
+    const driveAttemptId = parsed['driveAttemptId']
+    return typeof hint === 'string' &&
+      hint.length > 0 &&
+      typeof driveAttemptId === 'string' &&
+      driveAttemptId.length > 0
+      ? { hint, driveAttemptId }
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export function getHookEventName(value: unknown): string | undefined {
   let current = value
   for (let depth = 0; depth < 4; depth += 1) {
     if (!isRecord(current)) return undefined
@@ -64,7 +124,8 @@ function getHookEventName(value: unknown): string | undefined {
 async function postUnixHttpJson(
   socketPath: string,
   path: string,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
+  timeoutMs: number
 ): Promise<{ status: number; body: string }> {
   const payload = JSON.stringify(body)
   const request = [
@@ -86,7 +147,7 @@ async function postUnixHttpJson(
       settled = true
       conn.destroy()
       reject(new Error('HRC mail stop query timed out'))
-    }, MAIL_STOP_QUERY_TIMEOUT_MS)
+    }, timeoutMs)
     const finish = () => {
       if (settled) return
       settled = true

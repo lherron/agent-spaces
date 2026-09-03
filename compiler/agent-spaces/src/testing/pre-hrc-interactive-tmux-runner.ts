@@ -159,6 +159,8 @@ export type InteractiveTmuxRunOptions = {
   invocationId?: string | undefined
   initialInputId?: string | undefined
   idempotencyKey?: string | undefined
+  /** Additional per-invocation dispatch values carried into the harness process. */
+  dispatchEnv?: Record<string, string> | undefined
   /**
    * Operator-attach seam (matrix `claude-tmux-ghostmux` row). Invoked AFTER the
    * scripted broker-input turns and BEFORE teardown, while the tmux session is
@@ -885,6 +887,7 @@ export async function runInteractiveClaudeTmuxSession(
         request.placement as unknown as Parameters<typeof buildCorrelationEnvVars>[0]
       ),
       ...placementDispatchEnv,
+      ...options.dispatchEnv,
     }
     const dispatchEnv = deps.parseDispatchEnv(rawDispatchEnv, spec.process.lockedEnv)
 

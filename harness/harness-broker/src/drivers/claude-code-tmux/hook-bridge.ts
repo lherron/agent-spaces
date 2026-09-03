@@ -5,7 +5,7 @@ import {
   readAll,
   runHookBridgeCli,
 } from '../hook-bridge-transport'
-import { queryMailStopDecision } from '../mail-stop-gate'
+import { getHookEventName, queryMailHintDecision, queryMailStopDecision } from '../mail-stop-gate'
 import { buildHookEnvelopeFromEnv } from './hook-ingestion'
 
 /**
@@ -42,6 +42,34 @@ export async function runClaudeHookDecisionBridge(options: HookBridgeOptions): P
   const stdout = options.stdout ?? process.stdout
   const raw = await readAll(stdin)
   const hookData = parseHookJson(raw)
+  const hookEventName = getHookEventName(hookData)
+
+  if (hookEventName === 'PostToolUse') {
+    const mailHint = await queryMailHintDecision(hookData, env)
+    const envelope = buildHookEnvelopeFromEnv(hookData, env)
+    await postEnvelope(options.socketPath, {
+      ...envelope,
+      ...(mailHint !== undefined ? { mailHint } : {}),
+    })
+    if (mailHint !== undefined) {
+      stdout.write(
+        JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: 'PostToolUse',
+            additionalContext: mailHint.hint,
+          },
+        })
+      )
+    }
+    return
+  }
+
+  if (hookEventName !== 'Stop') {
+    const envelope = buildHookEnvelopeFromEnv(hookData, env)
+    await postEnvelope(options.socketPath, envelope)
+    return
+  }
+
   const mailStopDecision = await queryMailStopDecision(hookData, env)
   const envelope = buildHookEnvelopeFromEnv(hookData, env)
   const response = await postEnvelopeAndRead(options.socketPath, {

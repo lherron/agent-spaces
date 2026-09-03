@@ -9,8 +9,9 @@ import type { EventFamily } from 'spaces-harness-broker-protocol'
  * wrkq T-07849 (`e2e-enqueue-pin-transcript-73efc2a5.jsonl`,
  * `…-pin2-…-36022e44.jsonl`, `…-pin3-…-f3003503.jsonl`), which between them
  * cover 14 session-JSONL row types, 9 attachment subtypes and 4 queue
- * operations — and then EXTENDED by a live smoke, which immediately produced
- * two more (`ai-title`, `attachment:auto_mode_exit`) that no archive contained.
+ * operations — and then EXTENDED by live smokes, which produced three more
+ * (`ai-title`, `attachment:auto_mode_exit`, and
+ * `attachment:hook_additional_context`) that no archive contained.
  * Anything outside it is `blocked-unknown` and warns.
  */
 
@@ -93,6 +94,7 @@ export const CLAUDE_TRANSCRIPT_OWNED_HOOK_FACTS: ReadonlyMap<string, string> = n
  */
 export const CLAUDE_IGNORED_ATTACHMENT_TYPES: ReadonlySet<string> = new Set([
   'hook_success',
+  'hook_additional_context',
   'deferred_tools_delta',
   'agent_listing_delta',
   'mcp_instructions_delta',

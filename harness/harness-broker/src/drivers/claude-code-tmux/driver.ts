@@ -1452,7 +1452,12 @@ export function buildClaudeHookSettingsOverlay(options: {
   const hooks: Record<string, unknown> = {}
   for (const event of HOOK_EVENT_NAMES) {
     const entry: Record<string, unknown> = {
-      hooks: [{ type: 'command', command: event === 'Stop' ? decisionCommand : command }],
+      hooks: [
+        {
+          type: 'command',
+          command: event === 'Stop' || event === 'PostToolUse' ? decisionCommand : command,
+        },
+      ],
     }
     if (matchAll.includes(event)) {
       entry['matcher'] = '*'

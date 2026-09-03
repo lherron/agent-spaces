@@ -65,12 +65,14 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   readdirSync,
   rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
+import { createServer as createHttpServer } from 'node:http'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -1516,6 +1518,72 @@ export function createSparkyCodexMatrixCompileRequest(
 }
 
 type MatrixTmuxExecResult = { stdout: string; stderr: string }
+
+type FakeMailHintRequest = { path: string; body: string }
+
+async function startFakeMailHintServer(options: {
+  socketPath: string
+  hint: string
+}): Promise<{ requests: FakeMailHintRequest[]; close: () => Promise<void> }> {
+  const requests: FakeMailHintRequest[] = []
+  let hintIssued = false
+  const server = createHttpServer((request, reply) => {
+    const chunks: Buffer[] = []
+    request.on('data', (chunk: Buffer) => chunks.push(chunk))
+    request.on('end', () => {
+      const path = request.url ?? ''
+      requests.push({ path, body: Buffer.concat(chunks).toString('utf8') })
+      const response =
+        path === '/v1/internal/mail/hint-decision' && !hintIssued
+          ? {
+              hint: options.hint,
+              heldCount: 1,
+              fromDrivingParty: 1,
+              driveAttemptId: 'drive-matrix-mail-hint',
+              reason: 'first',
+            }
+          : {}
+      if (path === '/v1/internal/mail/hint-decision') hintIssued = true
+      reply.writeHead(200, { 'content-type': 'application/json' })
+      reply.end(JSON.stringify(response))
+    })
+  })
+  await new Promise<void>((resolvePromise, reject) => {
+    server.once('error', reject)
+    server.listen(options.socketPath, () => {
+      server.removeListener('error', reject)
+      resolvePromise()
+    })
+  })
+  return {
+    requests,
+    close: () => new Promise<void>((resolvePromise) => server.close(() => resolvePromise())),
+  }
+}
+
+function capturedRawRows(captureDir: string): Array<{
+  nativeType: string
+  row: Record<string, unknown>
+}> {
+  const rawDir = join(captureDir, 'raw')
+  if (!existsSync(rawDir)) return []
+  const rows: Array<{ nativeType: string; row: Record<string, unknown> }> = []
+  for (const filename of readdirSync(rawDir)) {
+    const path = join(rawDir, filename)
+    if (!statSync(path).isFile()) continue
+    for (const line of readFileSync(path, 'utf8').split('\n')) {
+      if (line.trim().length === 0) continue
+      const stored = JSON.parse(line) as { nativeType?: unknown; rawBase64?: unknown }
+      if (typeof stored.nativeType !== 'string' || typeof stored.rawBase64 !== 'string') continue
+      const decoded = JSON.parse(
+        Buffer.from(stored.rawBase64, 'base64').toString('utf8')
+      ) as unknown
+      if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded)) continue
+      rows.push({ nativeType: stored.nativeType, row: decoded as Record<string, unknown> })
+    }
+  }
+  return rows
+}
 
 function runMatrixTmux(
   tmuxBin: string,
@@ -4135,6 +4203,7 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
       const aspHome = mkdtempSync(join(tmpdir(), 'asp-matrix-claude-midturn-'))
       const artifactDir = join(aspHome, 'matrix-claude-midturn-artifacts')
       const socketPath = join(tmpdir(), `matrix-claude-midturn-${process.pid}.sock`)
+      const mailHintSocketPath = join(aspHome, 'fake-hrc-mail-hint.sock')
       // turn1 = a real Bash tool with a multi-second BUSY window (sleep 10) that
       // also prints the marker (shared floor). While it's in-flight the runner
       // types a SECOND prompt DIRECTLY into the tmux pane (tmux send-keys, NOT
@@ -4152,6 +4221,7 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
       // it mid-turn — zero queue-operation records, a deterministic miss. 10s
       // leaves several seconds of slack so the enqueue is reliably recorded.
       const midTurnMarker = `MIDTURN_${ctx.marker}`
+      const mailHintText = `MAIL_HINT_${ctx.marker}: one envelope is held for this seat.`
       const structuredMarker = `STRUCT_${ctx.marker}_CLAUDE_MIDTURN`
       const structuredPrompt = `${STRUCTURED_OUTPUT_PROMPT} ${structuredMarker}`
       const prompts = [
@@ -4171,6 +4241,10 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
         extraFailures: [],
         notes: {},
       }
+      const fakeHrc = await startFakeMailHintServer({
+        socketPath: mailHintSocketPath,
+        hint: mailHintText,
+      })
       const { result: run, events } = await runInteractiveClaudeTmuxSession(
         {
           repoRoot: ctx.repoRoot,
@@ -4196,13 +4270,14 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
           idempotencyKey: `matrix-claude-midturn-${ctx.marker}`,
           appSessionKey: `matrix-claude-midturn-${ctx.marker}`,
           taskId: 'T-02027',
+          dispatchEnv: { HRC_MAIL_STOP_SOCKET: mailHintSocketPath },
           midTurnInjection: {
             marker: `${midTurnMarker} please reply with exactly OK and nothing else.`,
             afterEvent: 'tool.call.started',
           },
         },
         interactiveDeps()
-      )
+      ).finally(async () => fakeHrc.close())
 
       const commandTurnId =
         findTurnWithToolCommandMarker(events, ctx.marker) ??
@@ -4278,6 +4353,69 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
       result.extraFailures.push(
         ...assertStructuredValidTurn(events, structuredTurnId, structuredMarker)
       )
+
+      // Mail-hint bridge gate (T-07927): the real Claude 2.1.259 process receives
+      // a one-shot fake-HRC decision on the long Bash turn's PostToolUse hook.
+      // The resulting transcript evidence must be attachment-only — never a
+      // user row or turn boundary — and must survive into the broker raw journal.
+      const rawRows = capturedRawRows(run.artifacts.captureDir)
+      const hintAttachments = rawRows.filter(
+        ({ nativeType, row }) =>
+          nativeType === 'attachment:hook_additional_context' &&
+          JSON.stringify(row).includes(mailHintText)
+      )
+      const hintSuccesses = rawRows.filter(
+        ({ nativeType, row }) =>
+          nativeType === 'attachment:hook_success' && JSON.stringify(row).includes(mailHintText)
+      )
+      const hintUserRows = rawRows.filter(
+        ({ nativeType, row }) => nativeType === 'user' && JSON.stringify(row).includes(mailHintText)
+      )
+      const hintRequests = fakeHrc.requests.filter(
+        (request) => request.path === '/v1/internal/mail/hint-decision'
+      )
+      const firstHintRequest = hintRequests[0]
+      let requestedRuntimeId: unknown
+      try {
+        requestedRuntimeId =
+          firstHintRequest === undefined
+            ? undefined
+            : (JSON.parse(firstHintRequest.body) as Record<string, unknown>)['runtimeId']
+      } catch {
+        requestedRuntimeId = undefined
+      }
+      result.notes['mailHint'] = {
+        hintRequestCount: hintRequests.length,
+        requestedRuntimeId: requestedRuntimeId ?? null,
+        hookSuccessCount: hintSuccesses.length,
+        additionalContextCount: hintAttachments.length,
+        userRowCount: hintUserRows.length,
+        versions: hintAttachments.map(({ row }) => row['version'] ?? null),
+      }
+      if (typeof requestedRuntimeId !== 'string' || requestedRuntimeId.length === 0) {
+        result.extraFailures.push({
+          code: 'mail_hint_query_missing',
+          message: 'fake HRC did not receive /v1/internal/mail/hint-decision with a runtimeId',
+        })
+      }
+      if (hintSuccesses.length !== 1 || hintAttachments.length !== 1) {
+        result.extraFailures.push({
+          code: 'mail_hint_attachment_missing',
+          message: `expected one hook_success and one hook_additional_context row carrying the hint, got ${hintSuccesses.length} and ${hintAttachments.length}`,
+        })
+      }
+      if (hintAttachments.some(({ row }) => row['version'] !== '2.1.259')) {
+        result.extraFailures.push({
+          code: 'mail_hint_claude_version',
+          message: `mail-hint row must come from Claude 2.1.259, got ${hintAttachments.map(({ row }) => String(row['version'] ?? 'missing')).join(', ')}`,
+        })
+      }
+      if (hintUserRows.length !== 0) {
+        result.extraFailures.push({
+          code: 'mail_hint_became_user_row',
+          message: `mail hint must remain attachment-only; got ${hintUserRows.length} user row(s)`,
+        })
+      }
 
       // Disposition-mirrored attribution (T-07849): enqueue only enters the
       // pending buffer. Claude's remove + queued_command pair disposes it into

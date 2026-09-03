@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createClaudeHookTranscriptReader } from '../../../src/drivers/claude-code-tmux/hook-transcript'
@@ -129,6 +129,22 @@ describe('claude-code-tmux transcript authority: usage', () => {
 })
 
 describe('claude-code-tmux transcript authority: conversation', () => {
+  test('mail-hint hook attachments never mint or attribute a turn', () => {
+    const h = harness()
+    const rows = readFileSync(
+      join(import.meta.dir, '../../fixtures/claude-transcript/mail-hint-attachments-2.1.259.jsonl'),
+      'utf8'
+    )
+      .trimEnd()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+
+    h.write(...rows)
+
+    expect(h.emitted).toEqual([])
+    expect(h.started).toEqual([])
+  })
+
   test('prose spread across several rows of one message becomes ONE completed message', () => {
     const h = harness()
     h.write(

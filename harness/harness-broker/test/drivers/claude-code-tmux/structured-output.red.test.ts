@@ -289,18 +289,21 @@ describe('claude-code-tmux JSON Schema structured-output RED contract', () => {
     })
   })
 
-  test('4. uses a Stop-only decision bridge and keeps ordinary hooks fire-and-forget', async () => {
+  test('4. routes Stop and PostToolUse through the decision bridge and snapshots the overlay', async () => {
     const overlay = buildClaudeHookSettingsOverlay({
       callbackSocket: '/tmp/harness-broker/decision.sock',
       bridgeCommand: 'harness-broker claude-hook',
     })
     const hooks = overlay.hooks as Record<string, Array<{ hooks: Array<{ command: string }> }>>
 
-    // Public settings contract: ordinary hooks keep the fire-and-forget bridge,
-    // while Stop alone invokes the stdout-capable decision bridge.
+    // Public settings contract: only Stop and PostToolUse need stdout-capable
+    // decisions; every other hook keeps the fire-and-forget bridge.
     expect(hooks['PreToolUse']?.[0]?.hooks[0]?.command).toContain('claude-hook ')
     expect(hooks['MessageDisplay']?.[0]?.hooks[0]?.command).toContain('claude-hook ')
+    expect(hooks['PostToolUse']?.[0]?.hooks[0]?.command).toContain('claude-hook-decision ')
+    expect((hooks['PostToolUse']?.[0] as { matcher?: string } | undefined)?.matcher).toBe('*')
     expect(hooks['Stop']?.[0]?.hooks[0]?.command).toContain('claude-hook-decision ')
+    expect(overlay).toMatchSnapshot()
   })
 
   test('4. decision socket protocol returns no stdout payload for no-decision and exact JSON for decisions', async () => {
