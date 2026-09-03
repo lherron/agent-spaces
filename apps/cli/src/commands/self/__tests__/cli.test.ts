@@ -129,10 +129,9 @@ describe('asp self inspect', () => {
     expect(result.stdout).toContain('source:      launch-artifact')
     expect(result.stdout).toContain('agent:       clod')
     expect(result.stdout).toContain('project:     test-proj')
-    expect(result.stdout).toContain(`${SAMPLE_PREFIX}RUNTIME_ID`)
-    expect(result.stdout).toContain('rt-TEST')
-    expect(result.stdout).not.toContain('PATH')
-    expect(result.stdout).not.toContain('/bin:/usr/bin')
+    expect(result.stdout).toContain('wrkq client')
+    expect(result.stdout).toContain('WRKQ_PRINCIPAL_REF  agent:clod')
+    expect(result.stdout).not.toContain('raw environment')
     expect(result.stdout).toContain('harness:     claude-code')
     expect(result.stdout).toContain('mode=append')
     // "test-sys-prompt" is 15 chars
@@ -146,19 +145,65 @@ describe('asp self inspect', () => {
     const parsed = JSON.parse(result.stdout) as {
       agentName: string
       envSource: string
-      harness: string
-      injectedEnv: Record<string, string>
-      systemPrompt: { content: string; mode: string }
-      derived: { systemPromptChars: number; primingPromptChars: number }
+      runtime: { harness: string }
+      collaboration: { principal: { value: string; source: string } }
+      prompt: { system: { mode: string; chars: number }; primingChars: number }
+      diagnostics: Record<string, unknown>
     }
     expect(parsed.agentName).toBe('clod')
     expect(parsed.envSource).toBe('launch-artifact')
-    expect(parsed.harness).toBe('claude-code')
-    expect(parsed.injectedEnv[`${SAMPLE_PREFIX}RUNTIME_ID`]).toBe('rt-TEST')
-    expect(parsed.injectedEnv.PATH).toBeUndefined()
-    expect(parsed.systemPrompt.mode).toBe('append')
-    expect(parsed.derived.systemPromptChars).toBe('test-sys-prompt'.length)
-    expect(parsed.derived.primingPromptChars).toBe('test-priming'.length)
+    expect(parsed.runtime.harness).toBe('claude-code')
+    expect(parsed.collaboration.principal).toEqual({
+      key: 'WRKQ_PRINCIPAL_REF',
+      value: 'agent:clod',
+      source: 'derived',
+      derivedFrom: 'AGENTCHAT_ID',
+    })
+    expect(parsed.prompt.system.mode).toBe('append')
+    expect(parsed.prompt.system.chars).toBe('test-sys-prompt'.length)
+    expect(parsed.prompt.primingChars).toBe('test-priming'.length)
+    expect(parsed.diagnostics['rawEnvironment']).toBeUndefined()
+  })
+
+  test('projects HRC authority inputs as effective wrkq client settings', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'asp-self-wrkq-'))
+    tempDirs.push(dir)
+    const result = runAsp(['self', 'inspect'], {
+      ASP_AGENT_ID: 'cody',
+      ASP_HOME: dir,
+      ASP_PROJECT: 'agent-spaces',
+      HRC_WRKQ_DB: 'rpc://canonical.example:7171',
+      HRC_WRKQD_TOKEN_FILE: '/run/secrets/wrkqd-token',
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain(
+      'WRKQ_DB             rpc://canonical.example:7171 (derived from HRC_WRKQ_DB)'
+    )
+    expect(result.stdout).toContain(
+      'WRKQD_TOKEN_FILE    /run/secrets/wrkqd-token (derived from HRC_WRKQD_TOKEN_FILE)'
+    )
+    expect(result.stdout).toContain('HRC authority source (not direct wrkq settings)')
+  })
+
+  test('redacts token values when raw diagnostics are requested', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'asp-self-redact-'))
+    tempDirs.push(dir)
+    const result = runAsp(['self', 'inspect', '--json', '--raw-env'], {
+      ASP_AGENT_ID: 'cody',
+      ASP_HOME: dir,
+      HRC_WRKQD_TOKEN_FILE: '/run/secrets/wrkqd-token',
+      HRC_TOKEN: 'do-not-print',
+    })
+    const parsed = JSON.parse(result.stdout) as {
+      diagnostics: { rawEnvironment: Record<string, string> }
+    }
+
+    expect(parsed.diagnostics.rawEnvironment['HRC_TOKEN']).toBe('<redacted>')
+    expect(parsed.diagnostics.rawEnvironment['HRC_WRKQD_TOKEN_FILE']).toBe(
+      '/run/secrets/wrkqd-token'
+    )
+    expect(result.stdout).not.toContain('do-not-print')
   })
 
   test('--target overrides inferred agent name', async () => {

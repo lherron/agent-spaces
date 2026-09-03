@@ -77,6 +77,41 @@ export interface SelfContext {
   primingPrompt: string | null
 }
 
+export type InspectionValueSource =
+  | 'canonical'
+  | 'compatibility'
+  | 'authority'
+  | 'derived'
+  | 'absent'
+
+export interface InspectionValue {
+  key: string | null
+  value: string | null
+  source: InspectionValueSource
+  derivedFrom?: string
+}
+
+export interface SelfInspection {
+  identity: {
+    agent: InspectionValue
+    project: InspectionValue
+    scope: InspectionValue
+    session: InspectionValue
+    task: InspectionValue
+    lane: InspectionValue
+  }
+  collaboration: {
+    principal: InspectionValue
+    database: InspectionValue
+    tokenFile: InspectionValue
+  }
+  authoritySource: {
+    database: InspectionValue
+    tokenFile: InspectionValue
+  }
+  compatibility: Record<string, string>
+}
+
 export interface ResolveSelfContextOptions {
   /** Override AGENT_LAUNCH_FILE. */
   launchFile?: string
@@ -228,9 +263,132 @@ function filterLiveSelfEnv(env: NodeJS.ProcessEnv): Record<string, string> {
       Object.entries(env).filter(
         ([key, value]) =>
           typeof value === 'string' &&
-          (key.startsWith('ASP_') || key.startsWith('AGENT_') || key.startsWith('HRC_'))
+          (key.startsWith('ASP_') ||
+            key.startsWith('AGENT_') ||
+            key.startsWith('HRC_') ||
+            key === 'WRKQ_PRINCIPAL_REF' ||
+            key === 'WRKQ_DB' ||
+            key === 'WRKQD_TOKEN_FILE')
       )
     ) as Record<string, string>
+  )
+}
+
+const COMPATIBILITY_ENV_KEYS = [
+  'AGENTCHAT_ID',
+  'AGENT_LANE_REF',
+  'ASP_AGENT_ID',
+  'ASP_PROJECT',
+  'ASP_SCOPE_REF',
+  'ASP_TASK_ID',
+  'HRC_SESSION_REF',
+  'HRC_RUN_ID',
+  'HRC_HOST_SESSION_ID',
+  'HRC_GENERATION',
+] as const
+
+function absentInspectionValue(): InspectionValue {
+  return { key: null, value: null, source: 'absent' }
+}
+
+function environmentInspectionValue(
+  ctx: Pick<SelfContext, 'lookup'>,
+  canonicalKey: string,
+  compatibilityKeys: readonly string[] = []
+): InspectionValue {
+  const canonicalValue = ctx.lookup(canonicalKey)
+  if (canonicalValue !== null)
+    return { key: canonicalKey, value: canonicalValue, source: 'canonical' }
+
+  for (const key of compatibilityKeys) {
+    const value = ctx.lookup(key)
+    if (value !== null) return { key, value, source: 'compatibility' }
+  }
+
+  return absentInspectionValue()
+}
+
+function derivedInspectionValue(
+  key: string,
+  value: string | null,
+  derivedFrom: string
+): InspectionValue {
+  return value === null ? absentInspectionValue() : { key, value, source: 'derived', derivedFrom }
+}
+
+function authorityInspectionValue(ctx: Pick<SelfContext, 'lookup'>, key: string): InspectionValue {
+  const value = ctx.lookup(key)
+  return value === null ? absentInspectionValue() : { key, value, source: 'authority' }
+}
+
+/**
+ * Build the stable, consumer-oriented portion of `asp self inspect`.
+ *
+ * HRC's `HRC_WRKQ_*` values are daemon authority inputs. Managed runtimes
+ * receive their client-facing `WRKQ_*` equivalents. That authority mapping
+ * overrides a local dotenv setting in HRC's managed-runtime injector, so the
+ * inspection projection applies the same precedence.
+ */
+export function buildSelfInspection(
+  ctx: Pick<SelfContext, 'lookup' | 'injectedEnv'>
+): SelfInspection {
+  const identity = {
+    agent: environmentInspectionValue(ctx, 'AGENT_ID', ['AGENTCHAT_ID', 'ASP_AGENT_ID']),
+    project: environmentInspectionValue(ctx, 'AGENT_PROJECT', ['ASP_PROJECT']),
+    scope: environmentInspectionValue(ctx, 'AGENT_SCOPE_REF', ['ASP_SCOPE_REF']),
+    session: environmentInspectionValue(ctx, 'AGENT_SESSION_REF', ['HRC_SESSION_REF']),
+    task: environmentInspectionValue(ctx, 'AGENT_TASK', ['ASP_TASK_ID']),
+    lane: environmentInspectionValue(ctx, 'AGENT_LANE', ['AGENT_LANE_REF']),
+  }
+
+  const authoritySource = {
+    database: authorityInspectionValue(ctx, 'HRC_WRKQ_DB'),
+    tokenFile: authorityInspectionValue(ctx, 'HRC_WRKQD_TOKEN_FILE'),
+  }
+  const explicitPrincipal = environmentInspectionValue(ctx, 'WRKQ_PRINCIPAL_REF')
+
+  const collaboration = {
+    principal:
+      explicitPrincipal.source === 'canonical'
+        ? explicitPrincipal
+        : derivedInspectionValue(
+            'WRKQ_PRINCIPAL_REF',
+            identity.agent.value === null ? null : `agent:${identity.agent.value}`,
+            identity.agent.key ?? 'agent identity'
+          ),
+    database:
+      authoritySource.database.value === null
+        ? environmentInspectionValue(ctx, 'WRKQ_DB')
+        : derivedInspectionValue('WRKQ_DB', authoritySource.database.value, 'HRC_WRKQ_DB'),
+    tokenFile:
+      authoritySource.tokenFile.value === null
+        ? environmentInspectionValue(ctx, 'WRKQD_TOKEN_FILE')
+        : derivedInspectionValue(
+            'WRKQD_TOKEN_FILE',
+            authoritySource.tokenFile.value,
+            'HRC_WRKQD_TOKEN_FILE'
+          ),
+  }
+
+  const compatibility = Object.fromEntries(
+    COMPATIBILITY_ENV_KEYS.flatMap((key) => {
+      const value = ctx.lookup(key)
+      return value === null ? [] : [[key, value]]
+    })
+  )
+
+  return { identity, collaboration, authoritySource, compatibility }
+}
+
+export function redactSensitiveEnvironment(env: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(env).map(([key, value]) => [
+      key,
+      /(?:^|_)(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY|API_KEY)(?:_|$)/.test(key) &&
+      !key.endsWith('_FILE')
+        ? '<redacted>'
+        : value,
+    ])
   )
 }
 
@@ -322,6 +480,7 @@ export function resolveSelfContext(options: ResolveSelfContextOptions = {}): Sel
 
   const agentName =
     options.target ??
+    lookup('AGENT_ID') ??
     lookup('AGENTCHAT_ID') ??
     lookup('ASP_AGENT_ID') ??
     inferTargetFromBundleRoot(bundleRoot ?? undefined)
@@ -335,7 +494,7 @@ export function resolveSelfContext(options: ResolveSelfContextOptions = {}): Sel
 
   return {
     agentName: agentName ?? null,
-    projectId: lookup('ASP_PROJECT'),
+    projectId: lookup('AGENT_PROJECT') ?? lookup('ASP_PROJECT'),
     envSource,
     injectedEnv,
     lookup,

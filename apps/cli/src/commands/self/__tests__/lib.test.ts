@@ -16,12 +16,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
+  buildSelfInspection,
   enumeratePaths,
   extractPrimingPrompt,
   extractSystemPrompt,
   filterInjectedEnv,
   inferTargetFromBundleRoot,
   readLaunchArtifactLite,
+  redactSensitiveEnvironment,
   resolveSelfContext,
   targetNameFromBundleRootPath,
 } from '../lib.js'
@@ -341,6 +343,92 @@ describe('resolveSelfContext', () => {
     expect(ctx.agentName).toBeNull()
     expect(ctx.projectId).toBeNull()
     expect(ctx.injectedEnv).toEqual({})
+  })
+})
+
+describe('buildSelfInspection', () => {
+  test('prefers canonical session values and HRC authority over a competing wrkq dotenv value', () => {
+    const ctx = resolveSelfContext({
+      env: {
+        AGENT_ID: 'cody',
+        AGENT_PROJECT: 'agent-spaces',
+        AGENT_SCOPE_REF: 'agent:cody:project:agent-spaces:task:T-07942',
+        AGENT_SESSION_REF: 'agent:cody:project:agent-spaces:task:T-07942/lane:main',
+        WRKQ_PRINCIPAL_REF: 'agent:cody',
+        WRKQ_DB: 'rpc://client.example:7171',
+        WRKQD_TOKEN_FILE: '/run/client-token',
+        HRC_WRKQ_DB: 'rpc://authority.example:7171',
+      },
+    })
+
+    const inspection = buildSelfInspection(ctx)
+    expect(inspection.identity.agent).toEqual({
+      key: 'AGENT_ID',
+      value: 'cody',
+      source: 'canonical',
+    })
+    expect(inspection.collaboration.principal).toEqual({
+      key: 'WRKQ_PRINCIPAL_REF',
+      value: 'agent:cody',
+      source: 'canonical',
+    })
+    expect(inspection.collaboration.database).toEqual({
+      key: 'WRKQ_DB',
+      value: 'rpc://authority.example:7171',
+      source: 'derived',
+      derivedFrom: 'HRC_WRKQ_DB',
+    })
+  })
+
+  test('derives wrkq client settings from HRC authority inputs for legacy live environments', () => {
+    const ctx = resolveSelfContext({
+      env: {
+        ASP_AGENT_ID: 'cody',
+        ASP_PROJECT: 'agent-spaces',
+        HRC_WRKQ_DB: 'rpc://authority.example:7171',
+        HRC_WRKQD_TOKEN_FILE: '/run/authority-token',
+      },
+    })
+
+    const inspection = buildSelfInspection(ctx)
+    expect(inspection.identity.agent).toEqual({
+      key: 'ASP_AGENT_ID',
+      value: 'cody',
+      source: 'compatibility',
+    })
+    expect(inspection.collaboration.database).toEqual({
+      key: 'WRKQ_DB',
+      value: 'rpc://authority.example:7171',
+      source: 'derived',
+      derivedFrom: 'HRC_WRKQ_DB',
+    })
+    expect(inspection.collaboration.tokenFile).toEqual({
+      key: 'WRKQD_TOKEN_FILE',
+      value: '/run/authority-token',
+      source: 'derived',
+      derivedFrom: 'HRC_WRKQD_TOKEN_FILE',
+    })
+    expect(inspection.authoritySource.database).toEqual({
+      key: 'HRC_WRKQ_DB',
+      value: 'rpc://authority.example:7171',
+      source: 'authority',
+    })
+  })
+})
+
+describe('redactSensitiveEnvironment', () => {
+  test('redacts secret values but preserves token-file paths', () => {
+    expect(
+      redactSensitiveEnvironment({
+        HRC_TOKEN: 'secret-token',
+        WRKQD_TOKEN_FILE: '/run/token',
+        ASP_HOME: '/tmp/asp',
+      })
+    ).toEqual({
+      HRC_TOKEN: '<redacted>',
+      WRKQD_TOKEN_FILE: '/run/token',
+      ASP_HOME: '/tmp/asp',
+    })
   })
 })
 
