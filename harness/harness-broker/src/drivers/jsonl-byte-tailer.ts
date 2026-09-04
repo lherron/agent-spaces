@@ -1,4 +1,4 @@
-import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs'
+import { closeSync, existsSync, fstatSync, openSync, readSync, statSync } from 'node:fs'
 
 /**
  * Shared byte-offset JSONL tailer for the Claude and Codex transcript readers.
@@ -23,13 +23,15 @@ export interface JsonlByteOffsetTailer {
   /** The active file path, or undefined when none is set. */
   getActivePath(): string | undefined
   /**
-   * Point the tailer at a new path and rewind offset/partial. No-op returning
-   * `false` when the path is unchanged; returns `true` when it actually changed
-   * (the caller resets its own per-line state on a true result). A real change
-   * is a source-epoch boundary: byte offsets before and after it are not
-   * comparable, so `onEpochChange` fires (§7.1).
+   * Point the tailer at a new path and rewind offset/partial. `startAtEnd`
+   * snapshots an existing file's EOF as the epoch origin, so a resumed session
+   * ignores history while retaining every row appended after this call. No-op
+   * returning `false` when the path is unchanged; returns `true` when it
+   * actually changed (the caller resets its own per-line state on a true
+   * result). A real change is a source-epoch boundary: byte offsets before and
+   * after it are not comparable, so `onEpochChange` fires (§7.1).
    */
-  retarget(path: string): boolean
+  retarget(path: string, options?: { startAtEnd?: boolean | undefined }): boolean
   /** Forget the active path and rewind offset/partial. */
   clear(): void
   /**
@@ -85,6 +87,31 @@ export function createJsonlByteOffsetTailer(
     anchor = Buffer.alloc(0)
   }
 
+  /** Snapshot the current EOF, including its replacement-detection anchor. */
+  const seekToEnd = (path: string): void => {
+    try {
+      const fd = openSync(path, 'r')
+      try {
+        // fstat the opened descriptor so the EOF and anchor come from the same
+        // file even if the path is atomically replaced during SessionStart.
+        const stats = fstatSync(fd)
+        if (!stats.isFile()) return
+        offset = stats.size
+        if (offset === 0) return
+        const anchorLength = Math.min(REPLACEMENT_ANCHOR_BYTES, offset)
+        const seededAnchor = Buffer.alloc(anchorLength)
+        const bytesRead = readSync(fd, seededAnchor, 0, anchorLength, offset - anchorLength)
+        if (bytesRead === anchorLength) anchor = seededAnchor
+      } finally {
+        closeSync(fd)
+      }
+    } catch {
+      // Match readNewLines' tolerant IO contract. A missing/unreadable resume
+      // target remains at byte zero and can still appear lazily.
+      rewind()
+    }
+  }
+
   /** True when the bytes behind the cursor are no longer the ones we read. */
   const anchorBroken = (path: string): boolean => {
     if (anchor.length === 0 || offset < anchor.length) return false
@@ -105,10 +132,11 @@ export function createJsonlByteOffsetTailer(
       return activePath
     },
 
-    retarget(path: string): boolean {
+    retarget(path: string, retargetOptions = {}): boolean {
       if (path === activePath) return false
       activePath = path
       rewind()
+      if (retargetOptions.startAtEnd === true) seekToEnd(path)
       options.onEpochChange?.('retarget')
       return true
     },

@@ -463,6 +463,66 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     expectTargetsLeasedPane(tmuxCalls, DEFAULT_LEASE_PANE)
   })
 
+  test('a continuation-backed start excludes historical transcript assistant rows', async () => {
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
+    const events: InvocationEventEnvelope[] = []
+    const root = mkdtempSync(join(tmpdir(), 'claude-resume-transcript-driver-'))
+    const transcriptPath = join(root, 'session.jsonl')
+    const assistantRow = (id: string, text: string): string =>
+      `${JSON.stringify({
+        type: 'assistant',
+        message: {
+          id,
+          role: 'assistant',
+          content: [{ type: 'text', text }],
+          stop_reason: 'end_turn',
+        },
+      })}\n`
+    writeFileSync(transcriptPath, assistantRow('msg_historical', 'historical answer'))
+    const hookSocket = join(root, 'claude-hooks.sock')
+    const driver = createDriver({
+      tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
+      hooks: {
+        listen: async (handler) => {
+          hookHandler = handler as (envelope: HookEnvelope) => Promise<void>
+          return { socketPath: hookSocket, close: async () => undefined }
+        },
+      },
+      now,
+    })
+    const spec = claudeTmuxSpec()
+    spec.continuation = { provider: 'anthropic', kind: 'session', key: 'session-existing' }
+
+    try {
+      await driver.start(spec, createCtx(events, { terminalSurface: defaultLease() }))
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        hookData: { hook_event_name: 'SessionStart', transcript_path: transcriptPath },
+      })
+      appendFileSync(transcriptPath, assistantRow('msg_current', 'current answer'))
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        turnId: 'turn_resumed',
+        hookData: { hook_event_name: 'Stop' },
+      })
+
+      expect(
+        events
+          .filter((event) => event.type === 'assistant.message.completed')
+          .map((event) => (event.payload as { content: Array<{ text: string }> }).content[0]?.text)
+      ).toEqual(['current answer'])
+    } finally {
+      await driver.dispose()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test('applyInputNow loads user text from a file, pastes it, and presses Enter', async () => {
     const createDriver = await loadFactory()
     const tmuxCalls: TmuxExecCall[] = []

@@ -639,6 +639,10 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         invocationId: driverCtx.invocationId,
         now,
         getCurrentTurnId: () => turnAttribution.activeTurnId,
+        // SessionStart names the existing JSONL when this launch resumes a
+        // Claude session. The new invocation owns only rows appended after
+        // that start boundary; fresh launches retain byte-zero capture.
+        resumeFromTranscriptEnd: spec.continuation !== undefined,
         ...(driverCtx.capture !== undefined ? { capture: driverCtx.capture } : {}),
         withProvenance,
         onTranscriptPath: (selectedPath) => {

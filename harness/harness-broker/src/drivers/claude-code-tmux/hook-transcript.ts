@@ -135,6 +135,12 @@ export type ClaudeHookTranscriptReaderOptions = {
    * This is the lazy watcher-arm seam: it adds no wakeup of its own.
    */
   onTranscriptAvailable?: ((path: string) => void) | undefined
+  /**
+   * A continuation points SessionStart at a transcript that already contains
+   * prior turns. Snapshot its EOF when SessionStart arrives so only rows from
+   * this resumed launch enter the new invocation's canonical ledger.
+   */
+  resumeFromTranscriptEnd?: boolean | undefined
 }
 
 type ApiErrorClass = 'rate_limit' | 'overloaded' | 'server_error' | 'auth' | 'quota'
@@ -728,7 +734,11 @@ export function createClaudeHookTranscriptReader(
       if (rawType === 'SessionStart') {
         const selectedPath = getString(unwrapped, 'transcript_path')
         if (selectedPath !== undefined && selectedPath.length > 0) {
-          if (tailer.retarget(selectedPath)) {
+          if (
+            tailer.retarget(selectedPath, {
+              startAtEnd: options.resumeFromTranscriptEnd === true,
+            })
+          ) {
             transcriptPath = selectedPath
             options.onTranscriptPath?.(selectedPath)
           }

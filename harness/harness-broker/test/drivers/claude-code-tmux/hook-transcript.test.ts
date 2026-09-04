@@ -16,6 +16,7 @@ const invocationId = 'inv_claude_hooktx_1'
 type ClaudeHookTranscriptReader = {
   handleHook: (hook: Record<string, unknown>) => InvocationEventEnvelope[]
   drain: () => InvocationEventEnvelope[]
+  flushTerminalAssistantMessage: () => InvocationEventEnvelope[]
   reset: () => void
 }
 
@@ -32,6 +33,8 @@ type ClaudeHookTranscriptReaderFactory = (options: {
         context: { precededByStopHookCancelled: boolean }
       ) => boolean | NormalizeOutcome | undefined)
     | undefined
+  resumeFromTranscriptEnd?: boolean | undefined
+  onTranscriptPath?: ((path: string) => void) | undefined
 }) => ClaudeHookTranscriptReader
 
 const tempRoots: string[] = []
@@ -64,6 +67,10 @@ const loadFactory = async (): Promise<ClaudeHookTranscriptReaderFactory> => {
       },
       drain: () => {
         reader.drain()
+        return take()
+      },
+      flushTerminalAssistantMessage: () => {
+        reader.flushTerminalAssistantMessage()
         return take()
       },
       reset: () => reader.reset(),
@@ -123,7 +130,12 @@ const apiError = (
 const assistantOk = (text: string): string =>
   jsonl({
     type: 'assistant',
-    message: { role: 'assistant', content: [{ type: 'text', text }] },
+    message: {
+      id: `msg_${text.replaceAll(/[^a-zA-Z0-9]+/g, '_')}`,
+      role: 'assistant',
+      content: [{ type: 'text', text }],
+      stop_reason: 'end_turn',
+    },
   })
 
 const messageOf = (event: InvocationEventEnvelope): string =>
@@ -149,6 +161,104 @@ const eventTypes = (events: InvocationEventEnvelope[]): InvocationEventType[] =>
   events.map((event) => event.type)
 
 describe('createClaudeHookTranscriptReader', () => {
+  test('resumed transcripts skip historical rows and emit only rows appended after SessionStart', async () => {
+    const create = await loadFactory()
+    const path = tempTranscript()
+    writeFileSync(path, userEntry('historical request') + assistantOk('historical answer'))
+    const observedPrompts: string[] = []
+    const reader = create({
+      now: () => new Date('2026-09-04T13:40:00.000Z'),
+      invocationId,
+      getCurrentTurnId: () => 'turn_resumed_1',
+      resumeFromTranscriptEnd: true,
+      onTranscriptEntry: (entry) => {
+        const message = entry['message'] as { content?: unknown } | undefined
+        if (typeof message?.content === 'string') observedPrompts.push(message.content)
+        return false
+      },
+    })
+
+    expect(reader.handleHook(sessionStart(path))).toEqual([])
+    appendFileSync(path, userEntry('current request') + assistantOk('current answer'))
+
+    expect(reader.handleHook(stop())).toEqual([])
+    expect(reader.flushTerminalAssistantMessage()).toEqual([
+      expect.objectContaining({
+        type: 'assistant.message.completed',
+        payload: expect.objectContaining({
+          content: [{ type: 'text', text: 'current answer' }],
+          final: true,
+        }),
+      }),
+    ])
+    expect(observedPrompts).toEqual(['current request'])
+  })
+
+  test('fresh transcripts still read from byte zero', async () => {
+    const create = await loadFactory()
+    const path = tempTranscript()
+    writeFileSync(path, userEntry('fresh request') + assistantOk('fresh answer'))
+    const observedPrompts: string[] = []
+    const reader = create({
+      now: () => new Date('2026-09-04T13:40:00.000Z'),
+      invocationId,
+      getCurrentTurnId: () => 'turn_fresh_1',
+      onTranscriptEntry: (entry) => {
+        const message = entry['message'] as { content?: unknown } | undefined
+        if (typeof message?.content === 'string') observedPrompts.push(message.content)
+        return false
+      },
+    })
+
+    expect(reader.handleHook(sessionStart(path))).toEqual([])
+    expect(reader.handleHook(stop())).toEqual([])
+    expect(reader.flushTerminalAssistantMessage()).toEqual([
+      expect.objectContaining({
+        type: 'assistant.message.completed',
+        payload: expect.objectContaining({
+          content: [{ type: 'text', text: 'fresh answer' }],
+          final: true,
+        }),
+      }),
+    ])
+    expect(observedPrompts).toEqual(['fresh request'])
+  })
+
+  test('resumed transcripts retain rows appended after SessionStart but before watcher attachment', async () => {
+    const create = await loadFactory()
+    const path = tempTranscript()
+    writeFileSync(path, userEntry('historical request') + assistantOk('historical answer'))
+    const observedPrompts: string[] = []
+    const reader = create({
+      now: () => new Date('2026-09-04T13:40:00.000Z'),
+      invocationId,
+      getCurrentTurnId: () => 'turn_resumed_race_1',
+      resumeFromTranscriptEnd: true,
+      onTranscriptPath: () => {
+        appendFileSync(path, userEntry('racing current request') + assistantOk('racing answer'))
+      },
+      onTranscriptEntry: (entry) => {
+        const message = entry['message'] as { content?: unknown } | undefined
+        if (typeof message?.content === 'string') observedPrompts.push(message.content)
+        return false
+      },
+    })
+
+    expect(reader.handleHook(sessionStart(path))).toEqual([])
+    expect(reader.drain()).toEqual([])
+    expect(reader.flushTerminalAssistantMessage()).toEqual([
+      expect.objectContaining({
+        type: 'assistant.message.completed',
+        payload: expect.objectContaining({
+          content: [{ type: 'text', text: 'racing answer' }],
+          final: true,
+        }),
+      }),
+    ])
+    expect(observedPrompts).toEqual(['racing current request'])
+    expect(reader.drain()).toEqual([])
+  })
+
   test('forwards a mid-turn queue/enqueue observation without minting a user.message', async () => {
     const create = await loadFactory()
     const path = tempTranscript()
