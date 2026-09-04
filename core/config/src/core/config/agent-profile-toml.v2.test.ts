@@ -11,6 +11,17 @@ describe('parseAgentProfile: v3 hard cutover', () => {
     }
   })
 
+  test('parses the operator capability and rejects non-boolean declarations', () => {
+    expect(parseAgentProfile('version = 3\noperator = true\n').operator).toBe(true)
+    expect(parseAgentProfile('version = 3\noperator = false\n').operator).toBe(false)
+
+    for (const rawValue of ['"yes"', '1', '[]']) {
+      expect(() => parseAgentProfile(`version = 3\noperator = ${rawValue}\n`)).toThrow(
+        ConfigValidationError
+      )
+    }
+  })
+
   test('parses identity.role as the default scope role', () => {
     const profile = parseAgentProfile(`
 version = 3

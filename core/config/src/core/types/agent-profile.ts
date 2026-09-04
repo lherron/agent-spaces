@@ -55,6 +55,8 @@ export interface AgentProfilePlacement {
 
 export interface AgentRuntimeProfile {
   version: 3
+  /** Declares that this agent may exercise operator-only host capabilities. */
+  operator?: boolean | undefined
   claims_task?: boolean | undefined
   placement?: AgentProfilePlacement | undefined
   provisioning?: ProvisioningSettings | undefined

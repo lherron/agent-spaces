@@ -528,6 +528,7 @@ export function parseAgentProfile(content: string, filePath?: string): AgentRunt
     parsed,
     [
       'version',
+      'operator',
       'claims_task',
       'placement',
       'provisioning',
@@ -553,6 +554,12 @@ export function parseAgentProfile(content: string, filePath?: string): AgentRunt
     version,
   }
 
+  if (parsed['operator'] !== undefined) {
+    if (typeof parsed['operator'] !== 'boolean') {
+      fail(source, '/operator', 'must be a boolean', 'type')
+    }
+    profile.operator = parsed['operator']
+  }
   if (parsed['claims_task'] !== undefined) {
     if (typeof parsed['claims_task'] !== 'boolean') {
       fail(source, '/claims_task', 'must be a boolean', 'type')
