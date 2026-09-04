@@ -241,3 +241,91 @@ describe('BROKER_PANE_VERBOSE echoes the whole stream', () => {
     expect(lines.join('\n')).toContain('never delivered')
   })
 })
+
+/**
+ * A turn that ran two hours ago and one that ran two minutes ago look identical
+ * on a cold pane: `✓ done · 1.2k tok · 43s` says how long it ran, never when. Both
+ * ends of the turn carry the operator's wall clock so scrollback can be read
+ * against it — and each stamp comes from its OWN envelope's time, so a replayed
+ * ledger shows the hours the turn actually spanned.
+ */
+describe('a turn is clocked at both ends with wall-clock time (T-07978)', () => {
+  type Step = readonly [type: string, time: string | undefined, payload?: unknown]
+
+  function renderSteps(steps: readonly Step[]): string[] {
+    const lines: string[] = []
+    const model = createCodexTranscriptModel({
+      invocationId: 'inv-a',
+      emit: (line) => lines.push(line),
+      width: 120,
+    })
+    steps.forEach(([type, time, payload], index) => {
+      model.apply({
+        invocationId: 'inv-a',
+        seq: index + 1,
+        ...(time === undefined ? {} : { time }),
+        type,
+        payload: payload ?? { turnId: 'turn-1' },
+      } as unknown as InvocationEventEnvelope)
+    })
+    return lines
+  }
+
+  test('a summer turn is stamped in CDT, not UTC, at both ends', () => {
+    // 02:23Z/02:24Z on Jul 15 are 09:23/09:24 PM on Jul 14 in Chicago (UTC-5
+    // under DST).
+    const lines = renderSteps([
+      ['turn.started', '2026-07-15T02:23:17.000Z'],
+      ['turn.completed', '2026-07-15T02:24:00.000Z'],
+    ])
+    expect(lines.filter((l) => l.length > 0)).toEqual([
+      '  ▶ turn 1 · 09:23 PM',
+      '▎ ✓ done · 43s · 09:24 PM',
+    ])
+  })
+
+  test('a winter turn at the same wall-clock hour is stamped in CST', () => {
+    // 03:24Z on Jan 15 is the same 09:24 PM in Chicago, off a UTC-6 offset. The
+    // two cases agreeing from DIFFERENT offsets is what proves the zone is
+    // applied rather than a hard-coded shift.
+    const lines = renderSteps([
+      ['turn.started', '2026-01-15T03:23:17.000Z'],
+      ['turn.completed', '2026-01-15T03:24:00.000Z'],
+    ])
+    expect(lines.at(-1)).toBe('▎ ✓ done · 43s · 09:24 PM')
+  })
+
+  test('the stamp is the last segment, after the tokens and the elapsed', () => {
+    const lines = renderSteps([
+      ['turn.started', '2026-07-15T02:23:17.000Z'],
+      ['usage.updated', '2026-07-15T02:23:40.000Z', { usage: { last: { totalTokens: 1234 } } }],
+      ['turn.completed', '2026-07-15T02:24:00.000Z'],
+    ])
+    expect(lines.at(-1)).toBe('▎ ✓ done · 1,234 tok · 43s · 09:24 PM')
+  })
+
+  test('a failed turn is timestamped too', () => {
+    const lines = renderSteps([
+      ['turn.started', '2026-07-15T02:23:17.000Z'],
+      ['turn.failed', '2026-07-15T02:24:00.000Z', { turnId: 'turn-1', message: 'boom' }],
+    ])
+    expect(lines.at(-1)).toBe('▎ ✗ failed  boom · 09:24 PM')
+  })
+
+  test('an absent or unparseable time omits the segment rather than inventing one', () => {
+    const untimed = renderSteps([['turn.started', undefined]])
+    expect(untimed.at(-1)).toBe('  ▶ turn 1')
+
+    const completed = renderSteps([
+      ['turn.started', '2026-07-15T02:23:17.000Z'],
+      ['turn.completed', undefined],
+    ])
+    expect(completed.at(-1)).toBe('▎ ✓ done')
+
+    const failed = renderSteps([
+      ['turn.started', '2026-07-15T02:23:17.000Z'],
+      ['turn.failed', 'not-a-time', { turnId: 'turn-1', message: 'boom' }],
+    ])
+    expect(failed.at(-1)).toBe('▎ ✗ failed  boom')
+  })
+})

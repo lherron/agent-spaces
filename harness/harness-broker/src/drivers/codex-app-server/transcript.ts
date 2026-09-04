@@ -106,6 +106,15 @@ const TAB_WIDTH = 8
 /** Stands in for a C0 control character that must never reach the terminal. */
 const CONTROL_PLACEHOLDER = '·'
 
+/**
+ * Wall-clock zone for the turn-end band. An operator returning to a cold pane
+ * reads it against the clock on their own wall, so the zone is the operator's,
+ * not the machine's — and it is fixed here rather than configurable, because a
+ * pane whose stamps mean a different hour on a different host is worse than one
+ * that is occasionally an hour off for a traveller.
+ */
+const PANE_CLOCK_TIME_ZONE = 'America/Chicago'
+
 const TOOL_GLYPH: Record<string, string> = {
   command: '$',
   file_change: '✎',
@@ -309,6 +318,26 @@ function formatElapsed(ms: number): string {
   if (s < 60) return `${Math.round(s)}s`
   const m = Math.floor(s / 60)
   return `${m}m${Math.round(s - m * 60)}s`
+}
+
+const PANE_CLOCK_FORMAT = new Intl.DateTimeFormat('en-US', {
+  timeZone: PANE_CLOCK_TIME_ZONE,
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: true,
+})
+
+/**
+ * `hh:mm AM/PM` on the operator's wall clock, from the event's OWN timestamp —
+ * never `Date.now()`, so a replayed ledger stamps the band with the hour the
+ * turn actually ended rather than the hour it was replayed. Absent or
+ * unparseable time renders nothing, the same posture as `formatElapsed`.
+ */
+function formatClock(ms: number): string {
+  if (!Number.isFinite(ms)) return ''
+  // Intl separates the day period with U+202F on modern ICU; the pane's width
+  // accounting and the tests both want an ordinary space.
+  return PANE_CLOCK_FORMAT.format(new Date(ms)).replace(/[\u202f\u00a0]/g, ' ')
 }
 
 function parseMs(time: unknown): number {
@@ -997,18 +1026,21 @@ export function createCodexTranscriptModel(
       case 'user.message':
         renderUserInput(str(p['content']))
         return
-      case 'turn.started':
+      case 'turn.started': {
         turnStartMs = parseMs(event.time)
         latestTokens = undefined
+        const startedClock = formatClock(turnStartMs)
         emit('')
         emit(
           line([
             { text: '▶ ', fg: 'molten', bold: true },
             { text: 'turn', fg: 'text', bold: true },
             { text: ` ${shortId(str(p['turnId']))}`, fg: 'dim' },
+            ...(startedClock.length > 0 ? [{ text: ` · ${startedClock}`, fg: 'dim' as Fg }] : []),
           ])
         )
         return
+      }
       case 'assistant.message.started':
         assistantBuffer = ''
         assistantOpen = true
@@ -1237,10 +1269,12 @@ export function createCodexTranscriptModel(
         emit(line([{ text: `⚠ capture · ${clip(str(p['message']))}`, fg: 'brass' }]))
         return
       case 'turn.completed': {
-        const elapsed = formatElapsed(parseMs(event.time) - turnStartMs)
+        const endedMs = parseMs(event.time)
+        const elapsed = formatElapsed(endedMs - turnStartMs)
         const stats = [
           latestTokens !== undefined ? `${formatTokens(latestTokens)} tok` : '',
           elapsed,
+          formatClock(endedMs),
         ]
           .filter((s) => s.length > 0)
           .join(' · ')
@@ -1254,7 +1288,8 @@ export function createCodexTranscriptModel(
         )
         return
       }
-      case 'turn.failed':
+      case 'turn.failed': {
+        const failedClock = formatClock(parseMs(event.time))
         emit('')
         emit(
           band('error', 'red', [
@@ -1264,9 +1299,11 @@ export function createCodexTranscriptModel(
               text: `  ${clip(str(p['message'] ?? p['finalOutput'] ?? p['code']))}`,
               fg: 'red',
             },
+            ...(failedClock.length > 0 ? [{ text: ` · ${failedClock}`, fg: 'dim' as Fg }] : []),
           ])
         )
         return
+      }
       case 'turn.interrupted':
         emit(line([{ text: '◼ interrupted', fg: 'brass' }]))
         return
