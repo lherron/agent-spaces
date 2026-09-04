@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { chmod, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, isAbsolute, join } from 'node:path'
+import { basename, isAbsolute, join, resolve } from 'node:path'
 import type {
   HarnessInvocationSpec,
   InvocationEventEnvelope,
@@ -23,6 +23,18 @@ const root = new URL('../../..', import.meta.url).pathname
 const fixtureDir = join(root, 'test/fixtures/fake-codex')
 const goldenDir = join(root, 'testdata/codex-app-server/v0')
 
+/**
+ * The anchor the goldens' `<cwd>/…` paths are relative to (T-07994).
+ *
+ * It is the REPO root resolved from this file, not `process.cwd()`: a golden
+ * redacted against the process's working directory only reproduces from the one
+ * directory it was recorded in, so `bun test` from `harness/harness-broker/`
+ * failed the ten path-bearing cases that pass from the repo root. Resolving it
+ * from `import.meta.url` makes the redaction — and the spawn cwd the goldens
+ * record — a property of the checkout rather than of how the suite was invoked.
+ */
+const repoRoot = resolve(root, '../..')
+
 const now = () => new Date('2026-05-20T18:00:00.000Z')
 
 const scenarioSpec = (
@@ -39,7 +51,7 @@ const scenarioSpec = (
   process: {
     command: Bun.execPath,
     args: [join(fixtureDir, `${scenario}.ts`), '--literal', '$NO_EXPAND', '*.ts'],
-    cwd: process.cwd(),
+    cwd: repoRoot,
     lockedEnv: {
       CODEX_HOME: '/tmp/harness-broker-codex-home',
       ASP_RED_TEST_VALUE: 'red-test-secret-value',
@@ -243,10 +255,10 @@ function normalizeEvent(event: InvocationEventEnvelope): InvocationEventEnvelope
       if (key === 'rawSha256') return '<rawSha256>'
       if (key === 'durationMs') return '<durationMs>'
       if (key === 'command' && value === Bun.execPath) return '<bun>'
-      if (typeof value === 'string' && value.startsWith(`${process.cwd()}/`)) {
-        return `<cwd>/${value.slice(process.cwd().length + 1)}`
+      if (typeof value === 'string' && value.startsWith(`${repoRoot}/`)) {
+        return `<cwd>/${value.slice(repoRoot.length + 1)}`
       }
-      if (key === 'cwd' && value === process.cwd()) return '<cwd>'
+      if (key === 'cwd' && value === repoRoot) return '<cwd>'
       if (
         key === 'artifactPath' &&
         typeof value === 'string' &&
@@ -1340,7 +1352,7 @@ describe('Codex app-server process behavior red tests', () => {
     expect(started?.payload).toMatchObject({
       command: Bun.execPath,
       args: [join(fixtureDir, 'argv-exact.ts'), '--literal', '$NO_EXPAND', '*.ts'],
-      cwd: process.cwd(),
+      cwd: repoRoot,
     })
   })
 
@@ -1354,7 +1366,7 @@ describe('Codex app-server process behavior red tests', () => {
         spec: scenarioSpec('start-fresh-turn', {
           process: {
             ...scenarioSpec('start-fresh-turn').process,
-            cwd: join(process.cwd(), 'does-not-exist-for-harness-broker-red-test'),
+            cwd: join(repoRoot, 'does-not-exist-for-harness-broker-red-test'),
           },
         }),
       })
