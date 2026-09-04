@@ -19,6 +19,8 @@ import { type QueueDrawerEntry, shortPrincipal, shortSubmissionId } from './queu
  *   - user input      → violet lane, full multi-line text, `❯` gutter
  *   - agent prose     → NO lane (the primary voice), warm off-white
  *   - agent reasoning → NO lane, quiet muted-grey echo, `∴ thinking` header
+ *   - day divider     → dim `── Thu, Sep 4 ──`, on the first stamped band and
+ *                       on every date change (a bare `08:06 PM` is ambiguous)
  *   - turn divider    → open molten `▶ turn` (the one bold hue)
  *   - tool call       → kiln-green lane, `$`/glyph gutter, grouped output
  *   - failed tool     → red lane
@@ -338,6 +340,25 @@ function formatClock(ms: number): string {
   // Intl separates the day period with U+202F on modern ICU; the pane's width
   // accounting and the tests both want an ordinary space.
   return PANE_CLOCK_FORMAT.format(new Date(ms)).replace(/[\u202f\u00a0]/g, ' ')
+}
+
+const PANE_DATE_FORMAT = new Intl.DateTimeFormat('en-US', {
+  timeZone: PANE_CLOCK_TIME_ZONE,
+  weekday: 'short',
+  month: 'short',
+  day: 'numeric',
+})
+
+/**
+ * `Thu, Sep 4` on the operator's wall calendar, from the event's OWN timestamp
+ * (T-07994). A bare `08:06 PM` is ambiguous the moment a pane's scrollback — or
+ * a replay of a recorded ledger — crosses midnight, so the calendar date is
+ * carried by a divider row. Same posture as `formatClock`: never `Date.now()`,
+ * and an absent or unparseable time renders nothing.
+ */
+function formatPaneDate(ms: number): string {
+  if (!Number.isFinite(ms)) return ''
+  return PANE_DATE_FORMAT.format(new Date(ms)).replace(/[\u202f\u00a0]/g, ' ')
 }
 
 function parseMs(time: unknown): number {
@@ -710,6 +731,29 @@ export function createCodexTranscriptModel(
   let turnStartMs = Number.NaN
   let latestTokens: unknown
   let headerShown = false
+  /** Chicago calendar date of the last divider committed, '' before the first. */
+  let lastDividerDate = ''
+
+  /**
+   * The day-divider row (T-07994), consumed at most once per calendar date.
+   *
+   * Only a STAMPED band asks for one — the bands that carry a clock are exactly
+   * the ones whose `hh:mm AM/PM` is ambiguous across midnight — and the date
+   * comes from that band's own `event.time`, so replaying a recorded ledger
+   * reproduces the recorded dates rather than the dates of the replay. The
+   * first stamped band of a pane always triggers one, so scrollback names its
+   * date once near the top and then only when the date changes.
+   *
+   * Returns the row rather than emitting it because a divider belongs INSIDE
+   * the band's own leading blank line: the caller owns that ordering, and the
+   * bands disagree about whether they open with a blank at all.
+   */
+  function takeDayDividerRow(ms: number): string | undefined {
+    const date = formatPaneDate(ms)
+    if (date.length === 0 || date === lastDividerDate) return undefined
+    lastDividerDate = date
+    return line([{ text: `── ${date} ──`, fg: 'dim' }])
+  }
 
   // ── Region renderers ───────────────────────────────────────────────────
   function flushAssistant(payload: Record<string, unknown>): void {
@@ -1030,7 +1074,9 @@ export function createCodexTranscriptModel(
         turnStartMs = parseMs(event.time)
         latestTokens = undefined
         const startedClock = formatClock(turnStartMs)
+        const startedDivider = takeDayDividerRow(turnStartMs)
         emit('')
+        if (startedDivider !== undefined) emit(startedDivider)
         emit(
           line([
             { text: '▶ ', fg: 'molten', bold: true },
@@ -1278,7 +1324,9 @@ export function createCodexTranscriptModel(
         ]
           .filter((s) => s.length > 0)
           .join(' · ')
+        const endedDivider = takeDayDividerRow(endedMs)
         emit('')
+        if (endedDivider !== undefined) emit(endedDivider)
         emit(
           band('endturn', 'kiln', [
             { text: '✓ ', fg: 'kiln', bold: true },
@@ -1289,8 +1337,11 @@ export function createCodexTranscriptModel(
         return
       }
       case 'turn.failed': {
-        const failedClock = formatClock(parseMs(event.time))
+        const failedMs = parseMs(event.time)
+        const failedClock = formatClock(failedMs)
+        const failedDivider = takeDayDividerRow(failedMs)
         emit('')
+        if (failedDivider !== undefined) emit(failedDivider)
         emit(
           band('error', 'red', [
             { text: '✗ ', fg: 'red', bold: true },
@@ -1304,9 +1355,27 @@ export function createCodexTranscriptModel(
         )
         return
       }
-      case 'turn.interrupted':
-        emit(line([{ text: '◼ interrupted', fg: 'brass' }]))
+      case 'turn.interrupted': {
+        // The one turn terminal that used to land without a time (T-07994).
+        const interruptedMs = parseMs(event.time)
+        const interruptedClock = formatClock(interruptedMs)
+        const interruptedDivider = takeDayDividerRow(interruptedMs)
+        // Unlike the other terminals this row opens no blank of its own, so a
+        // divider brings one with it rather than butting against the last row.
+        if (interruptedDivider !== undefined) {
+          emit('')
+          emit(interruptedDivider)
+        }
+        emit(
+          line([
+            { text: '◼ interrupted', fg: 'brass' },
+            ...(interruptedClock.length > 0
+              ? [{ text: ` · ${interruptedClock}`, fg: 'dim' as Fg }]
+              : []),
+          ])
+        )
         return
+      }
 
       // ── Deliberately folded OUT of the pane ─────────────────────────────
       //
