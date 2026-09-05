@@ -12,7 +12,12 @@ predicate: >
   verbatim with a source epoch, cursor, and provenance before the same
   production normalizer handles live delivery or replay; every raw row reaches
   one durable normalized, state-only, duplicate, ignored-known, or
-  blocked-unknown disposition. An unclassified type, including a load-bearing
+  blocked-unknown disposition. In codex-tui observed mode, a committed native
+  turn-start row opens the bracket without borrowing pending input identity; the
+  first committed item row attributes ownership, and a terminal reached before
+  any item attributes unknown solely from committed row order. No live queue
+  query participates, so live ingest and replay produce the same attribution,
+  terminal ordering, and row disposition. An unclassified type, including a load-bearing
   one and a queue operation used for turn attribution, warns loudly and advances
   its normalization cursor: it records the blocked-unknown disposition, commits
   a capture warning, and writes one rate-limited WARN line on the broker's own
@@ -32,11 +37,13 @@ predicate: >
   failure to commit keeps the provider gate closed.
 authority:
   repo: agent-spaces
-  surface: Lance HCS T-07827 / Daedalus approval wrkq T-07853, 2026-09-01; halt clause superseded by Lance operator ruling wrkq T-07883, 2026-09-02
+  surface: Lance HCS T-07827 / Daedalus approval wrkq T-07853, 2026-09-01; halt clause superseded by Lance operator ruling wrkq T-07883, 2026-09-02; observed Codex attribution amended by Daedalus approval of wrkq T-08097 rev 13 on 2026-09-05
 source:
   - wrkq:T-07883
   - wrkq:T-07853
   - wrkq:T-07827
+  - wrkq:T-08097
+  - architecture/records/invariants/agent-spaces.codex-tui-app-server-presentation.yaml
   - architecture/records/invariants/agent-spaces.harness-broker-turn-evidence.yaml
   - architecture/records/risks/agent-spaces.pi-delivery-asserted-turn-start.yaml
   - harness/harness-broker/src/event-ledger.ts
@@ -47,18 +54,20 @@ required_tests:
   - live and replay use one normalizer and produce one normalized identity across every crash boundary
   - every native type reaches one durable disposition and an unknown load-bearing queue operation warns and stops its cursor
   - each provider passes a real native-versus-hook authority matrix while Pi preserves its delivery-asserted bracket and non-authoritative JSONL posture
+  - codex-tui terminal-before-item attribution and disposition are byte-identical under live normalization and raw-row replay without a live queue query
   - replay-to-follow has no seam gap and a slow observer disconnects typed within fixed queue bounds
   - HRC scalar acknowledgement and retention floor survive broker restart while a below-floor read-only observer fails typed without holding retention
   - stale control connections cannot mutate or acknowledge and RPC acceptance is never reported as provider effect
   - broker timeout fallback commits requested and resolved permission facts before provider release and remains closed on commit failure
 last_verified:
-  date: 2026-09-01
-  evidence: Daedalus source-grounded approval of revised T-07853 after resolution of Pi authority, retention ownership, and permission-timeout authority flaws; implementation gates pending
+  date: 2026-09-05
+  evidence: Daedalus source-grounded approvals of revised T-07853 and T-08097 rev 13 established committed provider-input normalization including replay-stable observed Codex attribution; implementation gates pending
 reopen_when:
   - provider or event-family authority changes
   - Pi initial bracket authority or its accepted-risk boundary changes
   - live and replay normalization diverge or an uncommitted normalized event can publish
   - raw disposition, source epoch, cursor, or blocked-unknown semantics change
+  - observed attribution depends on live mutable state or differs between live ingest and replay
   - a second retention-bearing broker consumer is introduced
   - observer mutation, acknowledgement, queue bounds, or replay-floor semantics change
   - broker control fencing or explicit-versus-timeout permission ownership changes

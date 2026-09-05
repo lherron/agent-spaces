@@ -18,7 +18,15 @@ predicate: >
   a contested turn terminal without truthful content correlation, the broker
   records submission.lost with execution explicitly indeterminate, then records
   a non-retryable invocation.failed before any later same-seat delivery; HRC
-  owns failed-run projection and fresh-runtime provisioning. Obligation-bearing
+  owns failed-run projection and fresh-runtime provisioning. A codex-tui
+  codex-app-server seat advertises steer and queue only: launch and later queue
+  submissions remain in the broker-held FIFO until idle, and one head at a time
+  reaches Codex's idle-only queue with its broker input identity. A foreign human
+  or autonomous turn never contests that pending delivery. If an observed turn
+  terminalizes before any item supplies ownership evidence, the turn is unknown;
+  it contests the pending delivery and records the same indeterminate
+  submission.lost then non-retryable invocation.failed boundary before another
+  same-seat input can drain. Obligation-bearing
   submissions use only queue, exclusive, or preempt and originate a dedicated
   turn; steer carries no obligation, wait, or own response and resolves only
   through absorbed or executed disposition. Admission composes driver
@@ -31,10 +39,12 @@ predicate: >
   agent-spaces.harness-broker-turn-evidence and its bounded Pi accepted risk.
 authority:
   repo: agent-spaces
-  surface: wrkq T-07843 rev 7 approved by Daedalus on Lance's authority; amended by Daedalus approval of wrkq T-07962 rev 3 on 2026-09-03
+  surface: wrkq T-07843 rev 7 approved by Daedalus on Lance's authority; amended by Daedalus approvals of wrkq T-07962 rev 3 on 2026-09-03 and wrkq T-08097 rev 13 on 2026-09-05
 source:
   - wrkq:T-07843
   - wrkq:T-07962
+  - wrkq:T-08097
+  - architecture/records/invariants/agent-spaces.codex-tui-app-server-presentation.yaml
   - architecture/records/invariants/agent-spaces.harness-broker-turn-evidence.yaml
   - architecture/records/risks/agent-spaces.pi-delivery-asserted-turn-start.yaml
   - contracts/harness-broker-protocol/src/capabilities.ts
@@ -48,9 +58,11 @@ required_tests:
   - every driver advertises supported admission classes and bracket-minting mode while new delivery-asserted drivers fail conformance
   - decision events replay and persist through the existing broker event stream without consumers reading harness transcripts
   - a Codex correlation loss emits one indeterminate submission.lost followed by non-retryable invocation.failed, drains no later same-seat input, settles the HRC run failed, crashes the runtime, and causes the next submission to provision fresh
+  - codex-tui launch and later queue inputs stay broker-held until idle reach Codex one at a time and preserve identity under pane goal interrupt and resume races
+  - a codex-tui unknown terminal contests a pending delivery and emits lost then failed while foreign attribution never contests
 last_verified:
-  date: 2026-09-03
-  evidence: Daedalus source-grounded design approval of T-07962 rev 3 established fail-closed Codex correlation loss and HRC fresh-runtime recovery; implementation gates remain pending
+  date: 2026-09-05
+  evidence: Daedalus source-grounded approvals of T-07962 rev 3 and T-08097 rev 13 established fail-closed correlation loss for codex-cli-tmux and observed codex-tui turns, with HRC fresh-runtime recovery; implementation gates remain pending
 reopen_when:
   - cross-seat scheduling or caller policy moves into the broker
   - an admission class changes own-turn obligation wait or disposition semantics
@@ -59,5 +71,6 @@ reopen_when:
   - a TUI mechanic requires navigation-key choreography or an unsupported capability is emulated
   - turn evidence disposition or manifest contracts change
   - submission.lost gains definite execution meaning, permits later same-seat delivery, or stops forcing failed-run fresh-runtime recovery
+  - codex-tui admits exclusive bypasses broker-held FIFO delivery lets foreign attribution contest or permits drain after unknown attribution
 supersedes: []
 superseded_by: null

@@ -9,7 +9,16 @@ predicate: >
   brackets are minted only at the evidence moment declared by the driver:
   delivery-acknowledged drivers may open a bracket after an answered harness
   handshake, while harness-evidence drivers open one only from a hook or
-  transcript observation. The declaration is advertised per driver and gates
+  transcript observation. Observed drivers open from a committed native turn
+  start before ownership is known and attribute separately from the first item:
+  only a user item carrying a pending broker client id is own, null or unknown
+  client ids are foreign human input, and a non-user first item is foreign
+  autonomous input. A terminal before any item attributes unknown. Identity on
+  every turn-scoped event flows only from own attribution; foreign and unknown
+  terminals never borrow a pending input id. Unknown attribution contests a
+  pending delivery and its terminal records indeterminate submission.lost then
+  non-retryable invocation.failed, while foreign attribution never contests.
+  The declaration is advertised per driver and gates
   the shared delivery-time synthesis. agent-harness-tmux remains
   delivery-acknowledged so a rejected turn.begin opens turn.started before
   turn.failed. codex-cli-tmux remains harness-evidence: state at the
@@ -32,10 +41,12 @@ predicate: >
   user.message; absorption never fabricates a new turn bracket.
 authority:
   repo: agent-spaces
-  surface: wrkq T-07849 rev 11 approved by Daedalus on Lance's authority; amended by Daedalus approval of wrkq T-07962 rev 3 on 2026-09-03
+  surface: wrkq T-07849 rev 11 approved by Daedalus on Lance's authority; amended by Daedalus approvals of wrkq T-07962 rev 3 on 2026-09-03 and wrkq T-08097 rev 13 on 2026-09-05
 source:
   - wrkq:T-07849
   - wrkq:T-07962
+  - wrkq:T-08097
+  - architecture/records/invariants/agent-spaces.codex-tui-app-server-presentation.yaml
   - harness/harness-broker/src/invocation-manager.ts
   - harness/harness-broker/src/drivers/claude-code-tmux/driver.ts
   - harness/harness-broker/src/drivers/claude-code-tmux/hook-transcript.ts
@@ -52,9 +63,10 @@ required_tests:
   - pi-tui-tmux delivery-asserted regression preserves its existing observable lifecycle
   - live claude-code-tmux matrix evidence exposes one disposition per tracked prompt without transcript snooping by consumers
   - recorded and live codex-cli-tmux cases prove two matching prompt turns, negative priming and operator controls, and fail-closed lost correlation with no later same-seat drain
+  - recorded and live codex-tui cases prove observed start precedes output own foreign autonomous and unknown attribution never borrow identity and unknown terminal correlation fails closed
 last_verified:
-  date: 2026-09-03
-  evidence: Daedalus source-grounded design approval of T-07962 rev 3 established content-evidence-only Codex attribution and indeterminate lost-correlation failure; implementation gates remain pending
+  date: 2026-09-05
+  evidence: Daedalus source-grounded approvals of T-07962 rev 3 and T-08097 rev 13 established content-evidence codex-cli-tmux attribution plus observed codex-tui bracket and attribution semantics with indeterminate lost-correlation failure; implementation gates remain pending
 reopen_when:
   - a driver changes bracket-minting declaration or evidence moment
   - claude-code-tmux queue-operation vocabulary ordering or absorption signature changes
@@ -62,5 +74,6 @@ reopen_when:
   - a tracked prompt can emit multiple dispositions multiple user.message rows or a terminal against the wrong turn
   - submission.absorbed or the turn manifest no longer identifies the turn a steer joined
   - codex-cli-tmux attribution borrows identity by turn order, owns a nonmatching prompt, or permits same-seat drain after lost correlation
+  - an observed bracket borrows pending identity attribution follows anything but committed item evidence or an unknown terminal permits later same-seat drain
 supersedes: []
 superseded_by: null

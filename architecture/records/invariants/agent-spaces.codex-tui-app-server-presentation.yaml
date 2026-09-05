@@ -1,0 +1,56 @@
+id: agent-spaces.codex-tui-app-server-presentation
+kind: invariant
+status: active
+owner_project: agent-spaces
+scope: interactive Codex app-server runtime presentation delivery evidence and lifetime
+predicate: >
+  Interactive Codex compatibility seats compile to the codex-app-server driver
+  with codex-tui presentation and websocket-over-unix transport while headless
+  codex-app-server seats and their tmux-tui renderer remain unchanged. Each
+  interactive runtime owns exactly one app-server started beneath the HRC-leased
+  tmux pane wrapper; pane exit or teardown kills that server, so neither server
+  nor its queued work can outlive the runtime that owns its broker. The broker
+  initializes and subscribes first with the experimental API enabled; the stock
+  remote Codex TUI attaches as the second client after thread start or resume.
+  The driver advertises steer and queue only. Launch and later obligation-bearing
+  inputs enter the same broker-held FIFO and one head at a time reaches Codex via
+  thread/queue/add with clientUserMessageId; turn/start is never sent and
+  exclusive is unsupported. Resume scrubs every durable Codex queue item before
+  loading the thread, and a runtime crash has at-least-once delivery semantics
+  with the old submission failed and any resend carrying fresh identity. The RPC
+  notification stream is the sole turn evidence authority. Observed brackets and
+  attribution obey agent-spaces.harness-broker-turn-evidence, including
+  fail-closed unknown attribution before an item. Approval policy is exactly
+  never in this presentation. Stop and PostToolUse hooks are raw provenance and
+  synchronous mail-stop control only; they mint no turn events. codex-cli-tmux is
+  deprecated in place until a separate removal ruling.
+authority: Daedalus approval of wrkq T-08097 rev 13 with companion wrkq T-08098 on 2026-09-05
+source:
+  - wrkq:T-08097
+  - wrkq:T-08098
+  - architecture/records/invariants/agent-spaces.harness-broker-admission.yaml
+  - architecture/records/invariants/agent-spaces.harness-broker-turn-evidence.yaml
+  - architecture/records/invariants/agent-spaces.harness-broker-local-commit-observation.yaml
+  - compiler/agent-spaces/src/compile-runtime-plan.ts
+  - compiler/agent-spaces/src/broker-invocation.ts
+  - harness/harness-broker/src/drivers/codex-app-server/driver.ts
+  - harness/harness-broker/src/invocation-manager.ts
+required_tests:
+  - interactive Codex compilation selects codex-app-server codex-tui websocket-unix with tmux terminal while headless output stays byte-identical
+  - the pane-owned app-server dies on pane runtime and broker teardown and no queued item executes outside its owning runtime
+  - launch and later queue inputs use thread/queue/add originate distinct turns under human and goal races and preserve one disposition per submission
+  - resume deletes every stored queue item before thread/resume and records each deletion diagnostically
+  - codex-tui refuses approval policy other than never and its hooks remain raw provenance outside turn evidence
+  - real-terminal validation covers broker and human turns steer interrupt continuation pane exit and runtime cleanup
+last_verified:
+  date: 2026-09-05
+  evidence: Daedalus source-grounded approval of T-08097 rev 13 established the per-runtime two-client codex-tui route, queue-only own-turn delivery, observed attribution, fail-closed unknown terminals, approvals-off boundary, and runtime-bounded queue lifetime; implementation gates remain pending
+reopen_when:
+  - codex-tui stops using one runtime-owned app-server with broker first and stock TUI second
+  - an obligation-bearing input bypasses the broker FIFO or thread/queue/add or turn/start becomes a delivery path
+  - exclusive or an approval policy other than never is exposed in codex-tui presentation
+  - queue scrub can occur after thread load or an item can execute after its owning runtime dies
+  - hooks mint turn evidence or the RPC notification stream stops being sole evidence authority
+  - headless codex-app-server behavior or codex-cli-tmux removal enters this migration
+supersedes: []
+superseded_by: null
