@@ -571,7 +571,13 @@ exit 1
         identityKind: 'full',
       })
       expect(adapter.models.map((model) => model.id)).toEqual(
-        expect.arrayContaining(['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5'])
+        expect.arrayContaining([
+          'gpt-5.6-sol',
+          'gpt-5.6-terra',
+          'gpt-5.6-luna',
+          'gpt-6-astra',
+          'gpt-5.5',
+        ])
       )
     })
   })

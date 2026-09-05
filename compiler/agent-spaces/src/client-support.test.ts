@@ -11,7 +11,7 @@ describe('GPT-5.6 frontend support', () => {
     const codex = resolveFrontend(CODEX_CLI_FRONTEND)
 
     expect(codex.defaultModel).toBe('gpt-5.6-terra')
-    for (const model of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']) {
+    for (const model of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-6-astra']) {
       expect(resolveModel(codex, model).ok).toBe(true)
     }
   })

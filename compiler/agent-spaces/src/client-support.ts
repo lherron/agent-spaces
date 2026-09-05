@@ -24,6 +24,7 @@ export const PI_CLI_FRONTEND: HarnessFrontend = 'pi-cli'
 const PI_SDK_MODELS = PI_SDK_MODEL_CATALOG.map((model) => model.alias)
 
 const CODEX_CLI_MODELS = [
+  'gpt-6-astra',
   'gpt-5.6-sol',
   'gpt-5.6-terra',
   'gpt-5.6-luna',
