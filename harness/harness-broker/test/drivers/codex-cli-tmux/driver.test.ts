@@ -285,6 +285,38 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     expect(driver.correlatePendingOwnTurnStart?.({ turnId: 'turn_missing_prompt' }, input)).toBe(
       false
     )
+
+    // The astra@arris:primary specimen (2026-09-05): a human typed `ack han`
+    // into the same pane while mail was being pasted, so Codex observed our
+    // exact text with a stray character on each side. Under exact equality this
+    // was a foreign turn, which failed the submission and terminated four
+    // consecutive invocations even though every turn ran fine.
+    expect(
+      driver.correlatePendingOwnTurnStart?.(
+        { turnId: 'turn_interleaved', prompt: 'athe broker promptck han' },
+        input
+      )
+    ).toBe(true)
+
+    // Containment is weaker evidence on purpose, but it is not "anything goes":
+    // a prompt missing part of our delivered text is still NOT ours. This is the
+    // lossy-paste direction, which containment deliberately does not rescue.
+    expect(
+      driver.correlatePendingOwnTurnStart?.(
+        { turnId: 'turn_truncated', prompt: 'the broker pro' },
+        input
+      )
+    ).toBe(false)
+
+    // `delivered.length > 0` is load bearing: an empty delivered string is
+    // contained by every prompt, so without it containment would claim every
+    // foreign turn as ours.
+    expect(
+      driver.correlatePendingOwnTurnStart?.(
+        { turnId: 'turn_foreign', prompt: 'something unrelated' },
+        { inputId: 'input_codex_empty', kind: 'user', content: [{ type: 'text', text: '' }] }
+      )
+    ).toBe(false)
   })
 
   test('advertises no live driver attach-to-existing-surface support distinct from operator attach', async () => {

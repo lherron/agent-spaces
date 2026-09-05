@@ -196,10 +196,40 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
     version: CODEX_CLI_TMUX_DRIVER_VERSION,
     bracketMintingMode: 'harness-evidence',
     failPendingOwnTurnOnForeignTurn: true,
+    /**
+     * Correlate an observed turn to our pending submission by CONTAINMENT.
+     *
+     * Codex supplies no input id, so the delivered prompt text is the only
+     * handle we have — and it reaches the TUI through a shared tmux pane, a
+     * channel with documented loss modes (see `sendPastedLine`: a dropped
+     * paste-buffer, a swallowed Enter, a re-paste concatenating onto a stale
+     * line). Anything else writing to that pane interleaves with ours.
+     *
+     * Exact equality made every one of those a correlation failure, and a
+     * correlation failure is not cosmetic: the turn RUNS, the broker cannot
+     * prove the turn was its own, and `failPendingOwnTurnOnForeignTurn` then
+     * fails the submission and terminates the invocation. Observed live on
+     * astra@arris:primary 2026-09-05, where a human typing `ack han` into the
+     * pane while mail was being delivered produced the prompt
+     * `a<delivered>ck han` — our exact text, intact, with a stray character on
+     * each side — and killed four consecutive invocations.
+     *
+     * Containment accepts that shape. It is deliberately WEAKER evidence than
+     * equality and the trade is understood (Lance, 2026-09-05): a foreign turn
+     * whose prompt happens to contain our delivered text in full is now claimed
+     * as ours. `delivered.length > 0` is what keeps that from being every turn
+     * — an empty delivered string is contained by everything — so it is load
+     * bearing, not a tidiness check.
+     *
+     * Note it does NOT rescue a LOSSY delivery: if the pane dropped part of our
+     * paste, the observed prompt no longer contains the whole delivered text and
+     * this still returns false. The durable fix is a correlation id that does
+     * not ride the payload text.
+     */
     correlatePendingOwnTurnStart(observed, pendingInput): boolean {
       const prompt = observed.prompt
       const delivered = extractText(pendingInput)
-      return prompt !== undefined && delivered.length > 0 && prompt === delivered
+      return prompt !== undefined && delivered.length > 0 && prompt.includes(delivered)
     },
     evidenceAuthority: CODEX_CLI_TMUX_AUTHORITY,
     nativeSourceKind: 'provider-jsonl',
