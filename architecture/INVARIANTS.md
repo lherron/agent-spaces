@@ -40,4 +40,4 @@ A generated portable ASP lock records immutable space source authority only as r
 
 ## agent-spaces.verify-gate
 
-just verify is agent-spaces' local handoff gate and must include the architecture-records structure and projection-freshness check.
+just verify is agent-spaces' local handoff gate and must include the architecture-records structure and projection-freshness check. Enforcement note (T-08054): pre-push captures stdin once, replays the refs through the unchanged code-validation gate, and posts `git.push` only at the successful tail; `bun x lefthook install` supplies the executable post-commit entrypoint for the best-effort `git.commit` producer.

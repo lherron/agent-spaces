@@ -40,4 +40,14 @@ pre-push:
     code-validation:
       use_stdin: true
       # One stdin consumer is intentional: Lefthook cannot fan pre-push stdin out to commands.
-      run: bun scripts/run-if-code-changed.ts pre-push {lefthook_job_name} -- sh -c 'bun install && bun run test:fast' {files}
+      run: >-
+        sh -c 'refs=$(cat);
+        printf "%s\n" "$refs" | bun scripts/run-if-code-changed.ts pre-push {lefthook_job_name} -- sh -c '"'"'bun install && bun run test:fast'"'"' {files}; rc=$?;
+        if [ $rc -eq 0 ] && command -v wrkp >/dev/null 2>&1; then
+          printf "%s\n" "$refs" | wrkp git push "$@" || true;
+        fi; exit $rc' sh {0}
+
+post-commit:
+  commands:
+    wrkp-git-commit:
+      run: command -v wrkp >/dev/null 2>&1 && wrkp git commit || true

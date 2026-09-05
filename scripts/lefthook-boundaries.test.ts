@@ -229,14 +229,23 @@ describe('lefthook v2 configuration', () => {
   })
 
   test('uses one fail-safe pre-push stdin consumer', async () => {
-    const prePush = (await readConfig())['pre-push']
+    const config = await readConfig()
+    const prePush = config['pre-push']
     expect(prePush.files).toBe("printf 'lefthook.yml\\n'")
-    expect(prePush.commands).toEqual({
-      'code-validation': {
-        use_stdin: true,
-        run: "bun scripts/run-if-code-changed.ts pre-push {lefthook_job_name} -- sh -c 'bun install && bun run test:fast' {files}",
-      },
-    })
+    expect(Object.keys(prePush.commands)).toEqual(['code-validation'])
+    const codeValidation = prePush.commands['code-validation']
+    expect(codeValidation.use_stdin).toBeTrue()
+    expect(codeValidation.run).toContain('refs=$(cat)')
+    expect(codeValidation.run).toContain(
+      'bun scripts/run-if-code-changed.ts pre-push {lefthook_job_name} -- sh -c'
+    )
+    expect(codeValidation.run).toContain('bun install && bun run test:fast')
+    expect(codeValidation.run.indexOf('wrkp git push "$@"')).toBeGreaterThan(
+      codeValidation.run.indexOf('bun install && bun run test:fast')
+    )
+    expect(config['post-commit'].commands['wrkp-git-commit'].run).toBe(
+      'command -v wrkp >/dev/null 2>&1 && wrkp git commit || true'
+    )
   })
 })
 
