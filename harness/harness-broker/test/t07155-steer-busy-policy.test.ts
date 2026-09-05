@@ -48,10 +48,16 @@ const setup = async (
     supportsSteer?: boolean | undefined
     mode?: 'headless' | 'interactive' | undefined
     inputQueue?: 'none' | 'fifo' | undefined
+    steerRejectionReason?: string | undefined
   } = {}
 ) => {
   const events: InvocationEventEnvelope[] = []
   const { driver, controller } = createTestDriver({ supportsSteer: options.supportsSteer })
+  if (options.steerRejectionReason !== undefined) {
+    driver.applySteerNow = async () => {
+      throw new Error(options.steerRejectionReason)
+    }
+  }
   const broker = createBroker({ drivers: [driver], onEvent: (event) => events.push(event), now })
   const spec = testSpec(options.invocationId ?? 'inv_t07155', {
     mode: options.mode ?? 'headless',
@@ -155,6 +161,30 @@ describe('T-07155 whenBusy: steer', () => {
       })
     ).rejects.toMatchObject({ code: BrokerErrorCode.UnsupportedCapability })
     expect(controller.steeredInputs).toHaveLength(0)
+  })
+
+  test('a pane_not_quiescent driver rejection remains typed in the broker stream', async () => {
+    const { broker, events, invocationId } = await setup({
+      invocationId: 'inv_t08099_not_quiescent',
+      supportsSteer: true,
+      steerRejectionReason: 'pane_not_quiescent',
+    })
+    await broker.input({ invocationId, input: userInput('input_active', 'work') })
+
+    const response = await broker.input({
+      invocationId,
+      input: userInput('input_contended', 'broker steer'),
+      policy: { whenBusy: 'steer' },
+    })
+
+    expect(response).toMatchObject({
+      accepted: false,
+      disposition: 'rejected',
+      reason: 'pane_not_quiescent',
+    })
+    expect(inputEvents(events, 'submission.rejected').at(-1)).toMatchObject({
+      payload: { submissionId: 'input_contended', reason: 'pane_not_quiescent' },
+    })
   })
 
   // G4 — legacy invocation.input compatibility is unchanged. The new

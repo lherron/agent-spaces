@@ -5,7 +5,12 @@ import type { HarnessInvocationSpec, InvocationInput } from 'spaces-harness-brok
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../errors'
 import { shellQuote } from '../runtime/shell-quote'
-import { type TmuxExec, TmuxPaneController, type TmuxPaneControllerLease } from '../runtime/tmux'
+import {
+  type TmuxExec,
+  TmuxPaneController,
+  type TmuxPaneControllerLease,
+  type TmuxPaneInputSelector,
+} from '../runtime/tmux'
 import type { DriverContext } from './driver'
 
 export { shellQuote }
@@ -21,6 +26,41 @@ export function extractText(input: InvocationInput): string {
 /** Sleep helper shared by the tmux drivers' input-delivery paths. */
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+const inputFingerprint = (line: string, cursorX: number): string => `${cursorX}\0${line}`
+
+/** Codex renders dim placeholder text after an otherwise empty `› ` prompt. */
+export const selectCodexCliPaneInput: TmuxPaneInputSelector = (snapshot) => {
+  const markerIndex = snapshot.styledLine.indexOf('›')
+  const dimIndex = snapshot.styledLine.indexOf('\x1b[2m', Math.max(0, markerIndex))
+  const afterPrompt = snapshot.line.replace(/^\s*›[ \u00a0]?/u, '')
+  const placeholderOnly =
+    snapshot.cursorX === 2 && markerIndex >= 0 && dimIndex > markerIndex && afterPrompt.length > 0
+  const empty =
+    snapshot.cursorX === 2 && (/^\s*›[ \u00a0]*$/u.test(snapshot.line) || placeholderOnly)
+  return {
+    empty,
+    fingerprint: empty ? 'codex-cli:empty' : inputFingerprint(snapshot.line, snapshot.cursorX),
+  }
+}
+
+/** Claude's input box is empty when its cursor rests after the bare `❯ ` marker. */
+export const selectClaudeCodePaneInput: TmuxPaneInputSelector = (snapshot) => {
+  const empty = snapshot.cursorX === 2 && /^\s*❯[ \u00a0]*$/u.test(snapshot.line)
+  return {
+    empty,
+    fingerprint: empty ? 'claude-code:empty' : inputFingerprint(snapshot.line, snapshot.cursorX),
+  }
+}
+
+/** Pi uses an unprefixed blank editor row for an empty input buffer. */
+export const selectPiTuiPaneInput: TmuxPaneInputSelector = (snapshot) => {
+  const empty = snapshot.cursorX === 0 && snapshot.line.trim().length === 0
+  return {
+    empty,
+    fingerprint: empty ? 'pi-tui:empty' : inputFingerprint(snapshot.line, snapshot.cursorX),
+  }
 }
 
 /**

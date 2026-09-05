@@ -42,6 +42,50 @@ export type TmuxPaneControllerOptions = {
   lease: TmuxPaneControllerLease
 }
 
+export const PANE_NOT_QUIESCENT_REASON = 'pane_not_quiescent' as const
+
+export type TmuxPaneInputSnapshot = {
+  /** Plain text rendered on the row containing the pane cursor. */
+  line: string
+  /** The same row with tmux's SGR escape sequences retained. */
+  styledLine: string
+  cursorX: number
+  cursorY: number
+  paneWidth: number
+  paneHeight: number
+}
+
+export type TmuxPaneInputState = {
+  empty: boolean
+  /** Stable identity for the input state; equal empty states may land a steer. */
+  fingerprint: string
+}
+
+export type TmuxPaneInputSelector = (snapshot: TmuxPaneInputSnapshot) => TmuxPaneInputState
+
+export type TmuxSteerOptions = {
+  selectInput: TmuxPaneInputSelector
+  quiescenceTimeoutMs?: number | undefined
+  quiescencePollIntervalMs?: number | undefined
+  landingTimeoutMs?: number | undefined
+  landingPollIntervalMs?: number | undefined
+}
+
+/**
+ * Typed, fail-closed steer rejection. The broker publishes {@link reason} as
+ * the submission rejection reason so HRC can redeliver by policy.
+ */
+export class TmuxPaneNotQuiescentError extends Error {
+  readonly reason = PANE_NOT_QUIESCENT_REASON
+  readonly phase: 'before_paste' | 'after_submit'
+
+  constructor(phase: 'before_paste' | 'after_submit') {
+    super(PANE_NOT_QUIESCENT_REASON)
+    this.name = 'TmuxPaneNotQuiescentError'
+    this.phase = phase
+  }
+}
+
 export type TmuxPaneInspection = {
   paneId: string
   sessionId: string
@@ -80,6 +124,10 @@ const LEGACY_PASTE_GAP_MS = 1_000
 // needle (whitespace-stripped so terminal line-wrap inside the window never breaks
 // the match — capture-pane hard-wraps long commands at pane width).
 const COMMAND_TAIL_LEN = 60
+const STEER_QUIESCENCE_TIMEOUT_MS = 5_000
+const STEER_QUIESCENCE_POLL_INTERVAL_MS = 250
+const STEER_LANDING_TIMEOUT_MS = 1_500
+const STEER_LANDING_POLL_INTERVAL_MS = 150
 
 export class TmuxPaneController {
   private readonly socketPath: string
@@ -140,6 +188,43 @@ export class TmuxPaneController {
     await this.pasteBuffer(keys)
     await sleep(1_000)
     await this.sendEnter()
+  }
+
+  /**
+   * Guard and atomically submit a live-turn steer.
+   *
+   * A human and the broker share this pane. Before writing, require two
+   * consecutive, identical observations of an empty driver-selected input
+   * region. The body then crosses the PTY as one bracketed tmux paste followed
+   * by exactly one Enter, so operator keystrokes cannot split the body. Finally,
+   * require the input region to clear; residual text means the submission did
+   * not land safely and is rejected for policy-driven redelivery.
+   */
+  async sendSteer(text: string, options: TmuxSteerOptions): Promise<void> {
+    if (this.lease.allowedOps.capture !== true) {
+      throw new TmuxPaneNotQuiescentError('before_paste')
+    }
+
+    const quiescent = await this.waitForQuiescentInput(
+      options.selectInput,
+      options.quiescenceTimeoutMs ?? STEER_QUIESCENCE_TIMEOUT_MS,
+      options.quiescencePollIntervalMs ?? STEER_QUIESCENCE_POLL_INTERVAL_MS
+    )
+    if (!quiescent) {
+      throw new TmuxPaneNotQuiescentError('before_paste')
+    }
+
+    await this.pasteBuffer(text)
+    await this.sendEnter()
+
+    const landed = await this.waitForInputEmpty(
+      options.selectInput,
+      options.landingTimeoutMs ?? STEER_LANDING_TIMEOUT_MS,
+      options.landingPollIntervalMs ?? STEER_LANDING_POLL_INTERVAL_MS
+    )
+    if (!landed) {
+      throw new TmuxPaneNotQuiescentError('after_submit')
+    }
   }
 
   /**
@@ -280,6 +365,104 @@ export class TmuxPaneController {
     }
   }
 
+  /** Capture the cursor row, which is the active input row in supported TUIs. */
+  private async captureInputSnapshot(): Promise<TmuxPaneInputSnapshot | undefined> {
+    if (this.lease.allowedOps.capture !== true) {
+      return undefined
+    }
+    try {
+      const position = await this.exec([
+        'display-message',
+        '-p',
+        '-t',
+        this.lease.paneId,
+        '-F',
+        '#{cursor_x}\t#{cursor_y}\t#{pane_width}\t#{pane_height}',
+      ])
+      const fields = position.stdout.trim().split('\t').map(Number)
+      const [cursorX, cursorY, paneWidth, paneHeight] = fields
+      if (
+        fields.length !== 4 ||
+        cursorX === undefined ||
+        cursorY === undefined ||
+        paneWidth === undefined ||
+        paneHeight === undefined ||
+        fields.some((field) => !Number.isSafeInteger(field) || field < 0)
+      ) {
+        return undefined
+      }
+      const captured = await this.exec([
+        'capture-pane',
+        '-p',
+        '-e',
+        '-t',
+        this.lease.paneId,
+        '-S',
+        String(cursorY),
+        '-E',
+        String(cursorY),
+      ])
+      const styledLine = captured.stdout.replace(/\r?\n$/, '')
+      return {
+        line: stripAnsi(styledLine),
+        styledLine,
+        cursorX,
+        cursorY,
+        paneWidth,
+        paneHeight,
+      }
+    } catch {
+      return undefined
+    }
+  }
+
+  private async waitForQuiescentInput(
+    selectInput: TmuxPaneInputSelector,
+    timeoutMs: number,
+    intervalMs: number
+  ): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs
+    let previousEmptyFingerprint: string | undefined
+    for (;;) {
+      const snapshot = await this.captureInputSnapshot()
+      const state = snapshot === undefined ? undefined : selectInput(snapshot)
+      if (state?.empty === true) {
+        if (state.fingerprint === previousEmptyFingerprint) {
+          return true
+        }
+        previousEmptyFingerprint = state.fingerprint
+      } else {
+        previousEmptyFingerprint = undefined
+      }
+      if (Date.now() >= deadline) {
+        return false
+      }
+      // The first empty observation is immediately confirmed. Contended panes
+      // back off before their next observation.
+      if (state?.empty !== true) {
+        await sleep(intervalMs)
+      }
+    }
+  }
+
+  private async waitForInputEmpty(
+    selectInput: TmuxPaneInputSelector,
+    timeoutMs: number,
+    intervalMs: number
+  ): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      const snapshot = await this.captureInputSnapshot()
+      if (snapshot !== undefined && selectInput(snapshot).empty) {
+        return true
+      }
+      if (Date.now() >= deadline) {
+        return false
+      }
+      await sleep(intervalMs)
+    }
+  }
+
   /**
    * Poll capture-pane until `predicate` holds. Returns true on match, false on
    * timeout, or 'no-capture' when the lease cannot observe the pane.
@@ -349,6 +532,12 @@ export class TmuxPaneController {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/** Remove terminal SGR/control sequences while retaining rendered text. */
+function stripAnsi(text: string): string {
+  const csi = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g')
+  return text.replace(csi, '')
 }
 
 /**

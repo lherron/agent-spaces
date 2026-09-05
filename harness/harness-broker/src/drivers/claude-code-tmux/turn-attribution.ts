@@ -73,6 +73,8 @@ export interface ClaudeTurnAttribution {
     allocatedTurnId?: TurnId | undefined
     inputId?: InputId | undefined
   }): void
+  /** Drop a broker submission whose pane write was rejected before landing. */
+  cancelBrokerSubmission(submissionId: string): void
   observeQueueOperation(operation: ClaudeTranscriptQueueOperation): ClaudeAttributionAction[]
   observeQueuedCommand(prompt: string | undefined, raw: unknown): ClaudeAttributionAction[]
   observePlainUser(content: string, raw: unknown): ClaudeAttributionAction[]
@@ -243,6 +245,11 @@ export function createClaudeTurnAttribution(options: {
         allocatedTurnId: input.allocatedTurnId,
         inputId: input.inputId,
       })
+    },
+
+    cancelBrokerSubmission(submissionId): void {
+      const item = pending.find((candidate) => candidate.submissionId === submissionId)
+      if (item !== undefined) drop(item)
     },
 
     observeQueueOperation(operation): ClaudeAttributionAction[] {

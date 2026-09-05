@@ -27,6 +27,7 @@ import {
   extractText,
   getInvocationRuntimeId,
   listenForHookEnvelopes,
+  selectPiTuiPaneInput,
   shellQuote,
   sleep,
 } from '../tmux-shared'
@@ -305,7 +306,11 @@ export function createPiTuiTmuxDriver(options: PiTuiTmuxDriverOptions): Driver {
     },
 
     async applySteerNow(input: InvocationInput): Promise<void> {
-      await deliverInput(input)
+      requireCtx()
+      requireSurface()
+      await requirePaneController().sendSteer(extractText(input), {
+        selectInput: selectPiTuiPaneInput,
+      })
     },
 
     async interrupt(_req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {

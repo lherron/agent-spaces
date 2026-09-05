@@ -22,6 +22,25 @@ const queueOp = (operation: string, content?: string) => ({
 })
 
 describe('claude-code-tmux disposition mirror', () => {
+  test('drops attribution for a broker steer rejected before pane landing', () => {
+    const tracker = createTracker('rejected_steer')
+    tracker.trackBrokerSubmission({
+      submissionId: 'submission_rejected_steer',
+      content: 'must not remain pending',
+    })
+    expect(tracker.pendingCount).toBe(1)
+
+    tracker.cancelBrokerSubmission('submission_rejected_steer')
+
+    expect(tracker.pendingCount).toBe(0)
+    expect(tracker.observePlainUser('must not remain pending', { type: 'user' })).toEqual([
+      expect.objectContaining({
+        kind: 'executed',
+        submissionId: 'human_submission_rejected_steer_1',
+      }),
+    ])
+  })
+
   test('keeps unmediated human ids disjoint from broker-minted submission ids', () => {
     const tracker = createTracker('namespace')
     const [priming] = tracker.observePlainUser('launch priming', { type: 'user' })

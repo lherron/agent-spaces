@@ -1,8 +1,17 @@
 import { describe, expect, test } from 'bun:test'
 import { existsSync, readFileSync } from 'node:fs'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
+import {
+  selectClaudeCodePaneInput,
+  selectCodexCliPaneInput,
+  selectPiTuiPaneInput,
+} from '../../src/drivers/tmux-shared'
 import { BrokerError } from '../../src/errors'
-import { TmuxPaneController, createTmuxPaneController } from '../../src/runtime/tmux'
+import {
+  TmuxPaneController,
+  TmuxPaneNotQuiescentError,
+  createTmuxPaneController,
+} from '../../src/runtime/tmux'
 import type { TmuxPaneAllowedOps, TmuxPaneControllerLease } from '../../src/runtime/tmux'
 
 type FakeExecCall = {
@@ -104,7 +113,158 @@ function tmuxVerbs(calls: FakeExecCall[]): string[] {
   })
 }
 
+function createSteerPaneController(
+  options: {
+    initialInput?: string
+    capturedInputs?: string[]
+    submitClears?: boolean
+  } = {}
+): {
+  controller: TmuxPaneController
+  calls: FakeExecCall[]
+  submitted: string[]
+  operations: string[]
+} {
+  const calls: FakeExecCall[] = []
+  const submitted: string[] = []
+  const operations: string[] = []
+  const capturedInputs = [...(options.capturedInputs ?? [])]
+  let input = options.initialInput ?? ''
+  let loaded = ''
+  const controller = createTmuxPaneController({
+    socketPath: '/tmp/harness-broker-tmux.sock',
+    tmuxBin: '/opt/bin/tmux',
+    lease: { ...baseLease },
+    exec: async (argv, execOptions) => {
+      calls.push({ argv, env: execOptions?.env })
+      if (argv.includes('display-message')) {
+        return { stdout: `${2 + input.length}\t20\t100\t30\n`, stderr: '' }
+      }
+      if (argv.includes('capture-pane')) {
+        if (capturedInputs.length > 0) input = capturedInputs.shift() ?? ''
+        const rendered =
+          input.length === 0 ? '\x1b[1m›\x1b[0m \x1b[2mplaceholder\x1b[0m' : `› ${input}`
+        return { stdout: `${rendered}\n`, stderr: '' }
+      }
+      if (argv.includes('load-buffer')) {
+        loaded = readFileSync(argv.at(-1) ?? '', 'utf8')
+        return { stdout: '', stderr: '' }
+      }
+      if (argv.includes('paste-buffer')) {
+        input += loaded
+        operations.push(`paste:${loaded}`)
+        return { stdout: '', stderr: '' }
+      }
+      if (argv.includes('send-keys') && argv.includes('Enter')) {
+        operations.push('enter')
+        submitted.push(input)
+        if (options.submitClears !== false) input = ''
+        return { stdout: '', stderr: '' }
+      }
+      return { stdout: '', stderr: '' }
+    },
+  })
+  return { controller, calls, submitted, operations }
+}
+
 describe('TmuxPaneController', () => {
+  test('steer writes immediately after two stable empty observations', async () => {
+    const { controller, calls, submitted } = createSteerPaneController()
+
+    await controller.sendSteer('broker steer', { selectInput: selectCodexCliPaneInput })
+
+    expect(submitted).toEqual(['broker steer'])
+    expect(calls.filter((call) => call.argv.includes('capture-pane'))).toHaveLength(3)
+  })
+
+  test('steer waits for human partial input to clear before writing', async () => {
+    const { controller, submitted } = createSteerPaneController({
+      initialInput: 'human-mid-word',
+      capturedInputs: ['human-mid-word', '', ''],
+    })
+
+    await controller.sendSteer('broker steer', {
+      selectInput: selectCodexCliPaneInput,
+      quiescencePollIntervalMs: 1,
+    })
+
+    expect(submitted).toEqual(['broker steer'])
+  })
+
+  test('steer rejects a pane that never becomes quiescent with a typed reason', async () => {
+    const { controller, operations } = createSteerPaneController({
+      initialInput: 'human-mid-word',
+    })
+
+    const rejection = controller.sendSteer('broker steer', {
+      selectInput: selectCodexCliPaneInput,
+      quiescenceTimeoutMs: 0,
+    })
+    await expect(rejection).rejects.toMatchObject({
+      reason: 'pane_not_quiescent',
+      phase: 'before_paste',
+    })
+    await expect(rejection).rejects.toBeInstanceOf(TmuxPaneNotQuiescentError)
+    expect(operations).toEqual([])
+  })
+
+  test('steer body is one indivisible paste followed by one Enter', async () => {
+    const { controller, calls, operations, submitted } = createSteerPaneController()
+
+    await controller.sendSteer('atomic-body', { selectInput: selectCodexCliPaneInput })
+
+    expect(operations).toEqual(['paste:atomic-body', 'enter'])
+    expect(submitted).toEqual(['atomic-body'])
+    expect(calls.filter((call) => call.argv.includes('paste-buffer'))).toHaveLength(1)
+    expect(
+      calls.some((call) => call.argv.includes('send-keys') && call.argv.includes('atomic-body'))
+    ).toBe(false)
+  })
+
+  test('steer rejects residual prompt input after the single Enter', async () => {
+    const { controller } = createSteerPaneController({ submitClears: false })
+
+    await expect(
+      controller.sendSteer('residual-body', {
+        selectInput: selectCodexCliPaneInput,
+        landingTimeoutMs: 0,
+      })
+    ).rejects.toMatchObject({ reason: 'pane_not_quiescent', phase: 'after_submit' })
+  })
+
+  test('driver selectors distinguish empty and human-populated input regions', () => {
+    const base = {
+      cursorY: 20,
+      paneWidth: 100,
+      paneHeight: 30,
+    }
+    expect(
+      selectCodexCliPaneInput({
+        ...base,
+        cursorX: 2,
+        line: '› Ask Codex to do anything',
+        styledLine: '\x1b[1m›\x1b[0m \x1b[2mAsk Codex to do anything\x1b[0m',
+      }).empty
+    ).toBe(true)
+    expect(
+      selectCodexCliPaneInput({
+        ...base,
+        cursorX: 7,
+        line: '› human',
+        styledLine: '\x1b[1m›\x1b[0m human',
+      }).empty
+    ).toBe(false)
+    expect(
+      selectClaudeCodePaneInput({
+        ...base,
+        cursorX: 2,
+        line: '❯ ',
+        styledLine: '❯ ',
+      }).empty
+    ).toBe(true)
+    expect(selectPiTuiPaneInput({ ...base, cursorX: 0, line: '', styledLine: '' }).empty).toBe(true)
+  })
+
   test('pane operations issue only capability-safe tmux verbs', async () => {
     const { controller, calls } = createRecordingController()
 

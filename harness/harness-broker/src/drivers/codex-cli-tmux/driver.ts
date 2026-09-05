@@ -27,6 +27,7 @@ import {
   extractText,
   getInvocationRuntimeId,
   listenForHookEnvelopes,
+  selectCodexCliPaneInput,
   shellQuote,
   sleep,
 } from '../tmux-shared'
@@ -427,7 +428,11 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
     },
 
     async applySteerNow(input: InvocationInput): Promise<void> {
-      await deliverInput(input)
+      requireCtx()
+      requireSurface()
+      await requirePaneController().sendSteer(extractText(input), {
+        selectInput: selectCodexCliPaneInput,
+      })
     },
 
     async interrupt(_req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {

@@ -36,6 +36,7 @@ import {
   extractText,
   getInvocationRuntimeId,
   listenForHookEnvelopes,
+  selectClaudeCodePaneInput,
   shellQuote,
 } from '../tmux-shared'
 import {
@@ -1001,7 +1002,16 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
           : {}),
         content: text,
       })
-      await requirePaneController().sendKeys(text)
+      try {
+        await requirePaneController().sendSteer(text, {
+          selectInput: selectClaudeCodePaneInput,
+        })
+      } catch (error) {
+        if (input.inputId !== undefined) {
+          attribution?.cancelBrokerSubmission(input.inputId)
+        }
+        throw error
+      }
     },
 
     probeAdmissionState() {
