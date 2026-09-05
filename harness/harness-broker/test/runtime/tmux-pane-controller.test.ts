@@ -262,6 +262,22 @@ describe('TmuxPaneController', () => {
         styledLine: '❯ ',
       }).empty
     ).toBe(true)
+    expect(
+      selectClaudeCodePaneInput({
+        ...base,
+        cursorX: 2,
+        line: '❯ Press up to edit queued messages',
+        styledLine: '❯ \x1b[2mPress up to edit queued messages\x1b[0m',
+      }).empty
+    ).toBe(true)
+    expect(
+      selectClaudeCodePaneInput({
+        ...base,
+        cursorX: 28,
+        line: '❯ Press up to edit queued messages',
+        styledLine: '❯ Press up to edit queued messages',
+      }).empty
+    ).toBe(false)
     expect(selectPiTuiPaneInput({ ...base, cursorX: 0, line: '', styledLine: '' }).empty).toBe(true)
   })
 

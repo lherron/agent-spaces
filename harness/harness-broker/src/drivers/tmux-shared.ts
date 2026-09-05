@@ -45,9 +45,23 @@ export const selectCodexCliPaneInput: TmuxPaneInputSelector = (snapshot) => {
   }
 }
 
-/** Claude's input box is empty when its cursor rests after the bare `❯ ` marker. */
+/**
+ * Claude's input box is empty when its cursor rests after the bare `❯ ` marker.
+ * While a steer is queued, Claude renders a dim "Press up to edit queued
+ * messages" hint on that same otherwise-empty row; it is presentation text,
+ * not residual editor input.
+ */
 export const selectClaudeCodePaneInput: TmuxPaneInputSelector = (snapshot) => {
-  const empty = snapshot.cursorX === 2 && /^\s*❯[ \u00a0]*$/u.test(snapshot.line)
+  const markerIndex = snapshot.styledLine.indexOf('❯')
+  const dimIndex = snapshot.styledLine.indexOf('\x1b[2m', Math.max(0, markerIndex))
+  const afterPrompt = snapshot.line.replace(/^\s*❯[ \u00a0]?/u, '')
+  const queuedHintOnly =
+    snapshot.cursorX === 2 &&
+    markerIndex >= 0 &&
+    dimIndex > markerIndex &&
+    afterPrompt === 'Press up to edit queued messages'
+  const empty =
+    snapshot.cursorX === 2 && (/^\s*❯[ \u00a0]*$/u.test(snapshot.line) || queuedHintOnly)
   return {
     empty,
     fingerprint: empty ? 'claude-code:empty' : inputFingerprint(snapshot.line, snapshot.cursorX),
