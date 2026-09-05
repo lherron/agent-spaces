@@ -158,8 +158,9 @@ architecture-records *args:
 # fails typecheck where a warm host tree passes — room-readiness gate (T-06887).
 verify: build architecture-records check lint typecheck test
 
-# Bump the pinned pi agent SDK (@earendil-works/pi-coding-agent) across every
-# manifest that declares it, then install and read the version back off disk.
+# Bump the pinned pi agent SDK (@earendil-works/pi-coding-agent, plus the companion
+# packages pinned to its version) across every manifest that declares it, then install,
+# read the versions back off disk, and import the SDK to prove the tree actually loads.
 # No argument targets the registry's `latest`; pass a version to pin a specific
 # release. `--check` reports drift without writing; `--no-install` skips install.
 update-pi *args:

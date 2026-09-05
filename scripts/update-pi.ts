@@ -1,9 +1,9 @@
 /**
  * Bump the pinned pi agent SDK across every workspace manifest that declares it.
  *
- * `@earendil-works/pi-coding-agent` is exact-pinned (not caret-ranged) in five
- * manifests: the pi-sdk driver, the two agent-harness packages, the pi-sdk broker
- * and integration-tests. An exact pin is deliberate — a floating specifier lets bun
+ * `@earendil-works/pi-coding-agent`, and every companion package below it, is
+ * exact-pinned (not caret-ranged) in five manifests: the pi-sdk driver, the two
+ * agent-harness packages, the pi-sdk broker and integration-tests. An exact pin is deliberate — a floating specifier lets bun
  * resolve one member differently from the rest and materialise a NESTED
  * node_modules copy that shadows the root for TypeScript, which is the failure shape
  * scripts/check-dependency-pins.ts exists to prevent (T-07690). The cost of that
@@ -24,6 +24,19 @@ import { readFile, readdir, writeFile } from 'node:fs/promises'
 import { join, relative, resolve } from 'node:path'
 
 const packageName = '@earendil-works/pi-coding-agent'
+/**
+ * Companion packages that are pinned to the SAME version as the SDK itself.
+ *
+ * `@earendil-works/pi-server` is not something this workspace imports. Upstream
+ * 0.85.0 ships `dist/experimental/server.js` — reachable from the package root via
+ * `index.js -> main.js` — importing `@earendil-works/pi-server` without declaring it,
+ * so `import '@earendil-works/pi-coding-agent'` throws MODULE_NOT_FOUND on an
+ * otherwise clean install. Declaring the missing package ourselves repairs the
+ * resolution, and it lives here rather than in a hand-edited manifest because a
+ * repair pinned outside this script is a pin that drifts on the next bump.
+ */
+const companionPackages = ['@earendil-works/pi-server']
+const governedPackages = [packageName, ...companionPackages]
 const repoRoot = resolve(import.meta.dir, '..')
 const surfaceDirs = [
   'contracts',
@@ -42,7 +55,7 @@ const exactVersion = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z-.]+)?$/
  *  here, so it is left alone for the same reason the pin guard ignores it. */
 const governedSections = ['dependencies', 'devDependencies', 'overrides'] as const
 
-type Declaration = { manifest: string; section: string; specifier: string }
+type Declaration = { manifest: string; section: string; dependency: string; specifier: string }
 
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -77,9 +90,11 @@ async function declarations(): Promise<Declaration[]> {
       unknown
     >
     for (const section of governedSections) {
-      const specifier = asRecord(parsed[section])[packageName]
-      if (typeof specifier === 'string') {
-        declared.push({ manifest, section, specifier })
+      for (const dependency of governedPackages) {
+        const specifier = asRecord(parsed[section])[dependency]
+        if (typeof specifier === 'string') {
+          declared.push({ manifest, section, dependency, specifier })
+        }
       }
     }
   }
@@ -101,11 +116,15 @@ async function latestVersion(): Promise<string> {
 /** Replace only this package's specifier, leaving every other byte of the manifest
  *  untouched so the diff is one line per file. */
 function rewrite(content: string, target: string): string {
-  const declaration = new RegExp(
-    `("${packageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\s*:\\s*")[^"]*(")`,
-    'g'
-  )
-  return content.replace(declaration, `$1${target}$2`)
+  let rewritten = content
+  for (const dependency of governedPackages) {
+    const declaration = new RegExp(
+      `("${dependency.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\s*:\\s*")[^"]*(")`,
+      'g'
+    )
+    rewritten = rewritten.replace(declaration, `$1${target}$2`)
+  }
+  return rewritten
 }
 
 async function main(): Promise<number> {
@@ -132,7 +151,7 @@ async function main(): Promise<number> {
   console.log(`[update-pi] ${packageName} -> ${target}${requested ? '' : ' (latest)'}`)
   for (const entry of declared) {
     const state = entry.specifier === target ? 'ok' : `${entry.specifier} ->`
-    console.log(`  ${state.padEnd(12)} ${entry.manifest} (${entry.section})`)
+    console.log(`  ${state.padEnd(12)} ${entry.manifest} (${entry.section}) ${entry.dependency}`)
   }
 
   if (drifted.length === 0) {
@@ -171,17 +190,33 @@ async function main(): Promise<number> {
   // Readback against the real tree: a manifest edit plus a green install still leaves
   // the old copy on disk when a stale nested resolution shadows the root (T-07690),
   // so the claim "pi is at <target>" is only true if the resolved module says so.
-  const resolved = join(repoRoot, 'node_modules', packageName, 'package.json')
-  const onDisk = JSON.parse(await readFile(resolved, 'utf8')) as { version?: unknown }
-  if (onDisk.version !== target) {
-    console.error(
-      `[update-pi] ${relative(repoRoot, resolved)} is ${String(onDisk.version)}, not ${target}; run \`just doctor\``
-    )
+  for (const dependency of governedPackages) {
+    const resolved = join(repoRoot, 'node_modules', dependency, 'package.json')
+    const onDisk = JSON.parse(await readFile(resolved, 'utf8')) as { version?: unknown }
+    if (onDisk.version !== target) {
+      console.error(
+        `[update-pi] ${relative(repoRoot, resolved)} is ${String(onDisk.version)}, not ${target}; run \`just doctor\``
+      )
+      return 1
+    }
+  }
+
+  // A version readback only proves WHICH copy is on disk, not that it LOADS: 0.85.0
+  // resolved cleanly while every root import of it threw MODULE_NOT_FOUND on an
+  // undeclared transitive. Import the package for real before reporting the bump green.
+  const imported = Bun.spawnSync(['bun', '-e', `await import(${JSON.stringify(packageName)})`], {
+    cwd: repoRoot,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  if (imported.exitCode !== 0) {
+    console.error(`[update-pi] ${packageName}@${target} resolved but does not import:`)
+    console.error(new TextDecoder().decode(imported.stderr).trim())
     return 1
   }
 
   console.log(
-    `[update-pi] resolved ${packageName}@${target}; run \`just verify\` before committing`
+    `[update-pi] resolved and imported ${packageName}@${target}; run \`just verify\` before committing`
   )
   return 0
 }

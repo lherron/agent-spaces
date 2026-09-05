@@ -18,6 +18,8 @@ const piDarkForegrounds = {
   dim: '#666666',
   text: '#d4d4d4',
   thinkingText: '#808080',
+  scrollbarTrack: '#505050',
+  scrollbarThumb: '#d4d4d4',
   searchMatchText: '#d4d4d4',
   userMessageText: '#d4d4d4',
   customMessageText: '#d4d4d4',
@@ -58,7 +60,6 @@ const piDarkForegrounds = {
 
 const piDarkBackgrounds = {
   selectedBg: '#3a3a4a',
-  scrollbarThumb: '#3a3a4a',
   searchMatchBg: '#3a3a4a',
   userMessageBg: '#343541',
   customMessageBg: '#2d2838',
