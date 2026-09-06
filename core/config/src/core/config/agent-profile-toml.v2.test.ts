@@ -18,8 +18,14 @@ const LEGACY_AGENT_PROFILE_PROVISIONING_KEYS = [
 ] as const
 
 describe('parseAgentProfile: v3 hard cutover', () => {
-  test('derived provisioning membership exactly preserves the legacy parser gate', () => {
-    expect(AGENT_PROFILE_PROVISIONING_KEYS).toEqual(LEGACY_AGENT_PROFILE_PROVISIONING_KEYS)
+  test('derived provisioning membership preserves the legacy gate and adds only viewer', () => {
+    expect(AGENT_PROFILE_PROVISIONING_KEYS.filter((key) => key !== 'viewer')).toEqual(
+      LEGACY_AGENT_PROFILE_PROVISIONING_KEYS
+    )
+    expect(AGENT_PROFILE_PROVISIONING_KEYS).toHaveLength(
+      LEGACY_AGENT_PROFILE_PROVISIONING_KEYS.length + 1
+    )
+    expect(AGENT_PROFILE_PROVISIONING_KEYS).toContain('viewer')
   })
 
   test('accepts version 3 and rejects v1/v2 spellings', () => {
@@ -70,6 +76,7 @@ yolo = true
 sandbox = "workspace-write"
 approval = "never"
 remote = true
+viewer = "none"
 
 [provisioning.claude]
 permission_mode = "default"
@@ -89,6 +96,7 @@ profile = "operator"
       sandbox: 'workspace-write',
       approval: 'never',
       remote: true,
+      viewer: 'none',
       claude: { permission_mode: 'default', args: ['--verbose'] },
       codex: {
         model_reasoning_summary: 'concise',
@@ -96,6 +104,23 @@ profile = "operator"
         profile: 'operator',
       },
     })
+  })
+
+  test('viewer is absent rather than materialized when the profile omits it', () => {
+    const profile = parseAgentProfile(`
+version = 3
+[provisioning]
+harness = "codex"
+`)
+
+    expect(profile.provisioning).toEqual({ harness: 'codex' })
+    expect(Object.hasOwn(profile.provisioning ?? {}, 'viewer')).toBe(false)
+  })
+
+  test('viewer derives its string kind from the scalar table', () => {
+    expect(() => parseAgentProfile('version = 3\n[provisioning]\nviewer = true\n')).toThrow(
+      ConfigValidationError
+    )
   })
 
   test('parses provisioning default_scope_role as a validated role token', () => {

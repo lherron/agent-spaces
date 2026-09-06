@@ -36,6 +36,7 @@ import {
   PROVISIONING_SCALAR_KINDS,
   ProvisionDirectiveError,
   type ProvisionVocabulary,
+  type ProvisioningScalars,
   parseScopeHandle,
   resolveQualifiedScopeInput,
 } from '../index.js'
@@ -138,12 +139,19 @@ describe('provisioning directives: sender-side validation', () => {
       sandbox: 'string',
       approval: 'string',
       remote: 'boolean',
+      viewer: 'string',
     })
     expect(PROVISIONING_SCALAR_KEYS).toEqual(Object.keys(PROVISIONING_SCALAR_KINDS))
+
+    const typedViewer = { viewer: 'none' } satisfies ProvisioningScalars
+    expect(typedViewer).toEqual({ viewer: 'none' })
   })
 
   test('deny at sender — yolo/sandbox are DENIED_PROVISION_KEY', () => {
     expect(DENIED_PROVISION_OVERRIDE_KEYS).toEqual(['yolo', 'sandbox'])
+
+    expect(resolve('cody@hrc-runtime:T-1+viewer=none').directives).toEqual({ viewer: 'none' })
+    expect(resolve('cody@hrc-runtime:T-1+viewer=auto').directives).toEqual({ viewer: 'auto' })
 
     for (const directive of ['yolo=true', 'sandbox=danger-full-access']) {
       const err = directiveError(() => resolve(`cody@hrc-runtime:T-1+${directive}`))

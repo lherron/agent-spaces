@@ -40,6 +40,7 @@ export const PROVISIONING_SCALAR_KINDS = {
   sandbox: 'string',
   approval: 'string',
   remote: 'boolean',
+  viewer: 'string',
 } as const
 
 type ProvisioningScalarKinds = typeof PROVISIONING_SCALAR_KINDS
