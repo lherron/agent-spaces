@@ -13,6 +13,8 @@ export { parseScopeHandle, formatScopeHandle } from './scope-handle.js'
 export { parseSessionHandle, formatSessionHandle } from './session-handle.js'
 export {
   DENIED_PROVISION_OVERRIDE_KEYS,
+  PROVISIONING_SCALAR_KEYS,
+  PROVISIONING_SCALAR_KINDS,
   ProvisionDirectiveError,
   type ProvisionVocabulary,
   type ProvisioningScalars,

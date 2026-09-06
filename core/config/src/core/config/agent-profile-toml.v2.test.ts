@@ -1,9 +1,27 @@
 import { describe, expect, test } from 'bun:test'
 
 import { ConfigValidationError } from '../errors.js'
-import { parseAgentProfile } from './agent-profile-toml.js'
+import { AGENT_PROFILE_PROVISIONING_KEYS, parseAgentProfile } from './agent-profile-toml.js'
+
+const LEGACY_AGENT_PROFILE_PROVISIONING_KEYS = [
+  'harness',
+  'model',
+  'reasoning',
+  'node',
+  'yolo',
+  'sandbox',
+  'approval',
+  'remote',
+  'claude',
+  'codex',
+  'default_scope_role',
+] as const
 
 describe('parseAgentProfile: v3 hard cutover', () => {
+  test('derived provisioning membership exactly preserves the legacy parser gate', () => {
+    expect(AGENT_PROFILE_PROVISIONING_KEYS).toEqual(LEGACY_AGENT_PROFILE_PROVISIONING_KEYS)
+  })
+
   test('accepts version 3 and rejects v1/v2 spellings', () => {
     expect(parseAgentProfile('version = 3\n').version).toBe(3)
     for (const source of ['version = 1\n', 'version = 2\n', 'schemaVersion = 2\n']) {

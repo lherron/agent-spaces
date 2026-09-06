@@ -31,7 +31,7 @@
  * and are absent by construction: the grammar has no dotted keys, so a nested
  * spelling can only ever land here as an unknown key.
  */
-const PROVISIONING_SCALAR_KINDS = {
+export const PROVISIONING_SCALAR_KINDS = {
   harness: 'string',
   model: 'string',
   reasoning: 'string',

@@ -1,5 +1,5 @@
 import TOML from '@iarna/toml'
-import { validateToken } from 'agent-scope'
+import { PROVISIONING_SCALAR_KEYS, PROVISIONING_SCALAR_KINDS, validateToken } from 'agent-scope'
 
 import { ConfigParseError, ConfigValidationError } from '../errors.js'
 import type {
@@ -22,6 +22,18 @@ const CODEX_REASONING_SUMMARIES = new Set(['auto', 'concise', 'detailed', 'none'
 const NODE_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/
 const HOME_PATTERN = NODE_ID_PATTERN
 const SCOPE_PIN_PATTERN = /^[A-Za-z0-9._-]{1,64}:[A-Za-z0-9._-]{1,64}$/
+const PROFILE_ONLY_PROVISIONING_KEYS = ['claude', 'codex', 'default_scope_role'] as const
+type ProvisioningScalarKey = (typeof PROVISIONING_SCALAR_KEYS)[number]
+
+/**
+ * Every key accepted by an agent profile's `[provisioning]` table. Scalar
+ * membership comes from agent-scope's single source of truth; only the nested
+ * profile-only escape hatches and role default are local additions.
+ */
+export const AGENT_PROFILE_PROVISIONING_KEYS = [
+  ...PROVISIONING_SCALAR_KEYS,
+  ...PROFILE_ONLY_PROVISIONING_KEYS,
+] as const
 
 interface ValidationIssue {
   path: string
@@ -196,34 +208,10 @@ function parseProvisioningSettings(
     fail(source, path, 'must be a table', 'type')
   }
 
-  assertOnlyKeys(
-    value,
-    [
-      'harness',
-      'model',
-      'reasoning',
-      'node',
-      'yolo',
-      'sandbox',
-      'approval',
-      'remote',
-      'claude',
-      'codex',
-      'default_scope_role',
-    ],
-    source,
-    path
-  )
+  assertOnlyKeys(value, [...AGENT_PROFILE_PROVISIONING_KEYS], source, path)
 
   const settings: ProvisioningSettings = {}
   for (const [key, raw] of Object.entries(value)) {
-    if (key === 'yolo' || key === 'remote') {
-      if (typeof raw !== 'boolean') {
-        fail(source, `${path}/${key}`, 'must be a boolean', 'type')
-      }
-      settings[key] = raw
-      continue
-    }
     if (key === 'claude') {
       settings.claude = parseClaudeOptions(raw, source, `${path}/${key}`)
       continue
@@ -232,10 +220,10 @@ function parseProvisioningSettings(
       settings.codex = parseCodexOptions(raw, source, `${path}/${key}`)
       continue
     }
-    if (typeof raw !== 'string') {
-      fail(source, `${path}/${key}`, 'must be a string', 'type')
-    }
     if (key === 'default_scope_role') {
+      if (typeof raw !== 'string') {
+        fail(source, `${path}/${key}`, 'must be a string', 'type')
+      }
       const error = validateToken(raw, 'role')
       if (error !== undefined) {
         fail(source, `${path}/${key}`, error, 'pattern')
@@ -243,14 +231,30 @@ function parseProvisioningSettings(
       settings.default_scope_role = raw
       continue
     }
-    if (key === 'harness') {
+
+    // All remaining keys are scalars because membership was validated against
+    // AGENT_PROFILE_PROVISIONING_KEYS and every profile-only key returned above.
+    const scalarKey = key as ProvisioningScalarKey
+    const kind = PROVISIONING_SCALAR_KINDS[scalarKey]
+    if (kind === 'boolean') {
+      if (typeof raw !== 'boolean') {
+        fail(source, `${path}/${key}`, 'must be a boolean', 'type')
+      }
+      Object.assign(settings, { [scalarKey]: raw })
+      continue
+    }
+    if (typeof raw !== 'string') {
+      fail(source, `${path}/${key}`, 'must be a string', 'type')
+    }
+
+    // Semantic validation stays explicit even though membership and value kind
+    // are derived from agent-scope's kinds table.
+    if (scalarKey === 'harness') {
       if (!resolveHarnessCatalogEntry(raw)) {
         fail(source, `${path}/${key}`, `unsupported harness "${raw}"`, 'enum')
       }
-      settings.harness = raw
-      continue
     }
-    if (key === 'node' && raw === 'local') {
+    if (scalarKey === 'node' && raw === 'local') {
       fail(
         source,
         `${path}/${key}`,
@@ -258,10 +262,13 @@ function parseProvisioningSettings(
         'const'
       )
     }
-    if (key === 'node' && !NODE_ID_PATTERN.test(raw)) {
+    if (scalarKey === 'node' && !NODE_ID_PATTERN.test(raw)) {
       fail(source, `${path}/${key}`, 'must be a node id matching [A-Za-z0-9._-]{1,64}', 'pattern')
     }
-    settings[key as 'model' | 'reasoning' | 'node' | 'sandbox' | 'approval'] = raw
+
+    // Safe by the derived kind branch above. Object.assign avoids TypeScript's
+    // inability to correlate a dynamic mapped-type key with its dynamic value.
+    Object.assign(settings, { [scalarKey]: raw })
   }
   return settings
 }

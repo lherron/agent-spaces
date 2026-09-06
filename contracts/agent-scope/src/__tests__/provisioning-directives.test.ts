@@ -32,6 +32,8 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   DENIED_PROVISION_OVERRIDE_KEYS,
+  PROVISIONING_SCALAR_KEYS,
+  PROVISIONING_SCALAR_KINDS,
   ProvisionDirectiveError,
   type ProvisionVocabulary,
   parseScopeHandle,
@@ -126,6 +128,20 @@ describe('provisioning directives: grammar', () => {
 })
 
 describe('provisioning directives: sender-side validation', () => {
+  test('public scalar metadata exposes the exact parser extension contract', () => {
+    expect(PROVISIONING_SCALAR_KINDS).toEqual({
+      harness: 'string',
+      model: 'string',
+      reasoning: 'string',
+      node: 'string',
+      yolo: 'boolean',
+      sandbox: 'string',
+      approval: 'string',
+      remote: 'boolean',
+    })
+    expect(PROVISIONING_SCALAR_KEYS).toEqual(Object.keys(PROVISIONING_SCALAR_KINDS))
+  })
+
   test('deny at sender — yolo/sandbox are DENIED_PROVISION_KEY', () => {
     expect(DENIED_PROVISION_OVERRIDE_KEYS).toEqual(['yolo', 'sandbox'])
 
