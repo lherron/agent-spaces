@@ -118,6 +118,7 @@ export interface SeatProbeRequest {
 export type SeatState =
   | { state: 'idle' }
   | { state: 'turn-active'; turnId: TurnId; policy: TurnPolicy }
+  | { state: 'turn-observed'; turnId: TurnId }
   | { state: 'starting' | 'stopping' | 'terminal' }
 
 export interface SeatProbeResponse {

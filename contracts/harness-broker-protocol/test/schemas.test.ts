@@ -12,6 +12,7 @@ import type {
   SubmissionCancelledPayload,
   SubmissionTurnDispositionPayload,
   ToolCallId,
+  TurnAttributedPayload,
   TurnId,
 } from '../src'
 import { conservativeDefaultLifecyclePolicyOverlay, lifecyclePolicyHash } from '../src/lifecycle'
@@ -1483,7 +1484,13 @@ describe('validateEventEnvelope', () => {
       message: 'unknown queue operation',
       raw: { type: 'queue-operation', operation: 'unknown' },
     } satisfies CaptureWarningPayload,
-    'turn.started': { turnId: 'turn_1' as TurnId },
+    'turn.started': { turnId: 'turn_1' as TurnId, source: 'observed' },
+    'turn.attributed': {
+      turnId: 'turn_1' as TurnId,
+      ownership: 'own',
+      inputId: 'input_1' as InputId,
+      origin: 'broker',
+    } satisfies TurnAttributedPayload,
     'turn.stalled': {
       inputId: 'input_1' as InputId,
       turnId: 'turn_1' as TurnId,
@@ -1603,6 +1610,41 @@ describe('validateEventEnvelope', () => {
         code: 'required',
       })
     }
+  })
+
+  test('turn.attributed enforces ownership identity and origin literals', () => {
+    expect(
+      validateEventEnvelope(
+        envelope('turn.attributed', {
+          turnId: 'turn_foreign',
+          ownership: 'foreign',
+          origin: 'human',
+        })
+      )
+    ).toEqual(
+      envelope('turn.attributed', {
+        turnId: 'turn_foreign',
+        ownership: 'foreign',
+        origin: 'human',
+      })
+    )
+    expectInvalidEventEnvelope(
+      envelope('turn.attributed', {
+        turnId: 'turn_own',
+        ownership: 'own',
+        origin: 'broker',
+      }),
+      { path: 'payload.inputId', code: 'required' }
+    )
+    expectInvalidEventEnvelope(
+      envelope('turn.attributed', {
+        turnId: 'turn_foreign',
+        ownership: 'foreign',
+        inputId: 'input_borrowed',
+        origin: 'human',
+      }),
+      { path: 'payload.inputId', code: 'forbidden' }
+    )
   })
 
   test('accepts terminal.surface.reported with kind:tmux-pane and full tmux ids', () => {

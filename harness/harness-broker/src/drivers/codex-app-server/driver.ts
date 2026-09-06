@@ -1,4 +1,13 @@
-import { closeSync, fsyncSync, mkdirSync, openSync, writeSync } from 'node:fs'
+import {
+  chmodSync,
+  closeSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  realpathSync,
+  writeSync,
+} from 'node:fs'
+import { readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -28,8 +37,14 @@ import type { CaptureNormalizer, NormalizeOutcome } from '../../capture/capture-
 import { BrokerError } from '../../errors'
 import { spawnHarnessProcess } from '../../runtime/process-runner'
 import { terminateProcess } from '../../runtime/signals'
+import type { TmuxExec, TmuxPaneController } from '../../runtime/tmux'
+import { writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
+import type { CodexCliTmuxHookEnvelope } from '../codex-cli-tmux/hook-events'
+import { extractCodexHookRecord } from '../codex-cli-tmux/hook-events'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
 import { CODEX_APP_SERVER_AUTHORITY } from '../evidence-authority'
+import { createHookCaptureSeam } from '../hook-capture'
+import { getString } from '../hook-json'
 import {
   type HookListenerHandle,
   buildHookSocketPath,
@@ -37,8 +52,10 @@ import {
   extractText,
   getInvocationRuntimeId,
   listenForHookEnvelopes,
+  shellQuote,
 } from '../tmux-shared'
-import { CODEX_CAPABILITIES } from './capabilities'
+import { CODEX_CAPABILITIES, CODEX_TUI_CAPABILITIES } from './capabilities'
+import { resolveCodexTuiWrapperEntryPath } from './codex-tui-wrapper'
 import {
   CODEX_DRIVER_KIND,
   classifyCodexNotificationMethod,
@@ -59,8 +76,11 @@ import { buildRendererLaunchCommand } from './renderer'
 import {
   CodexRpcClient,
   CodexRpcError,
+  type CodexRpcPeer,
+  CodexUnixWebSocketRpcClient,
   type JsonRpcNotification,
   type JsonRpcRequest,
+  type RpcHandlers,
 } from './rpc-client'
 
 const CODEX_APP_SERVER_DRIVER_VERSION = '0.1.0'
@@ -111,12 +131,41 @@ type RendererControlEnvelope =
       signal?: NodeJS.Signals | string | null | undefined
     }
 
-export function createCodexAppServerDriver(): Driver {
+export interface CodexAppServerDriverOptions {
+  codexTui?: {
+    tmuxBin?: string | undefined
+    tmuxExec?: TmuxExec | undefined
+    socketDir?: string | undefined
+    connect?: ((socketPath: string, handlers: RpcHandlers) => Promise<CodexRpcPeer>) | undefined
+  }
+}
+
+export function createCodexAppServerDriver(options: CodexAppServerDriverOptions = {}): Driver {
   let ctx: DriverContext | undefined
   let spec: HarnessInvocationSpec | undefined
   let driverSpec: CodexAppServerDriverSpec | undefined
   let proc: ChildProcess | undefined
-  let rpc: CodexRpcClient | undefined
+  let rpc: CodexRpcPeer | undefined
+  let codexTui = false
+  let paneController: TmuxPaneController | undefined
+  let hookListener: HookListenerHandle | undefined
+  let attachTokenPath: string | undefined
+  let websocketSocketPath: string | undefined
+  const pendingBrokerInputs = new Set<InputId>()
+  const queuedSubmissions = new Map<InputId, string>()
+  const attributionByTurn = new Map<
+    TurnId,
+    {
+      ownership: 'own' | 'foreign' | 'unknown'
+      inputId?: InputId | undefined
+      origin: 'broker' | 'human' | 'autonomous' | 'unknown'
+    }
+  >()
+  const firstItemSeen = new Set<TurnId>()
+  const attributionWaiters = new Map<
+    InputId,
+    { resolve: (turnId: TurnId) => void; reject: (error: Error) => void }
+  >()
   let threadId: string | undefined
   let currentInputId: InputId | undefined
   let currentTurnId: TurnId | undefined
@@ -125,6 +174,10 @@ export function createCodexAppServerDriver(): Driver {
   // `turn/started` record may open a bracket under.
   let acknowledgedTurnId: TurnId | undefined
   let turnActive = false
+  // Codex pauses explicit queue execution after an interrupted turn. Preserve
+  // that state across the manager's terminal->idle drain: the next queue/add
+  // can arrive only after the interrupted notification has already returned.
+  let queuedStartRequired = false
   let startedEmitted = false
   let terminalEmitted = false
   let stopping = false
@@ -191,7 +244,10 @@ export function createCodexAppServerDriver(): Driver {
     return {
       ...(rawRecordId !== undefined ? { rawRecordId } : {}),
       sourceKind: 'broker',
-      normalizer: { name: CODEX_DRIVER_KIND, version: CODEX_APP_SERVER_DRIVER_VERSION },
+      normalizer: {
+        name: CODEX_DRIVER_KIND,
+        version: CODEX_APP_SERVER_DRIVER_VERSION,
+      },
     }
   }
 
@@ -261,7 +317,10 @@ export function createCodexAppServerDriver(): Driver {
       {
         ...(currentTurnId !== undefined ? { turnId: currentTurnId } : {}),
         ...(currentInputId !== undefined ? { inputId: currentInputId } : {}),
-        driver: { kind: 'codex-app-server', rawType: 'provider-transcript.sidecar' },
+        driver: {
+          kind: 'codex-app-server',
+          rawType: 'provider-transcript.sidecar',
+        },
       }
     )
   }
@@ -337,6 +396,7 @@ export function createCodexAppServerDriver(): Driver {
   }
 
   function activeTurnExtra(): DriverEventExtra {
+    if (codexTui && currentTurnId !== undefined) return attributionExtra(currentTurnId)
     return {
       ...(currentTurnId !== undefined ? { turnId: currentTurnId } : {}),
       ...(currentInputId !== undefined ? { inputId: currentInputId } : {}),
@@ -359,6 +419,9 @@ export function createCodexAppServerDriver(): Driver {
       },
       activeTurnExtra()
     )
+    if (codexTui && attributionByTurn.get(currentTurnId)?.ownership === 'unknown') {
+      rejectPendingAttributions(new BrokerError(BrokerErrorCode.HarnessError, failure.message))
+    }
     turnActive = false
     if (turnTimeout !== undefined) {
       clearTimeout(turnTimeout)
@@ -366,6 +429,123 @@ export function createCodexAppServerDriver(): Driver {
     }
     reportProviderTranscript()
     return true
+  }
+
+  function attributionExtra(turn: TurnId): DriverEventExtra {
+    const attribution = attributionByTurn.get(turn)
+    return {
+      turnId: turn,
+      ...(attribution?.ownership === 'own' && attribution.inputId !== undefined
+        ? { inputId: attribution.inputId }
+        : {}),
+      driver: { kind: 'codex-app-server' },
+    }
+  }
+
+  function emitAttribution(
+    turn: TurnId,
+    attribution: {
+      ownership: 'own' | 'foreign' | 'unknown'
+      inputId?: InputId | undefined
+      origin: 'broker' | 'human' | 'autonomous' | 'unknown'
+    }
+  ): void {
+    if (attributionByTurn.has(turn)) return
+    attributionByTurn.set(turn, attribution)
+    emitCaptured(
+      'turn.attributed',
+      { turnId: turn, ...attribution },
+      {
+        turnId: turn,
+        ...(attribution.ownership === 'own' && attribution.inputId !== undefined
+          ? { inputId: attribution.inputId }
+          : {}),
+        driver: { kind: 'codex-app-server' },
+      }
+    )
+    if (attribution.ownership === 'own' && attribution.inputId !== undefined) {
+      currentInputId = attribution.inputId
+      pendingBrokerInputs.delete(attribution.inputId)
+      attributionWaiters.get(attribution.inputId)?.resolve(turn)
+      attributionWaiters.delete(attribution.inputId)
+    }
+  }
+
+  function ensureUnknownAttribution(turn: TurnId | undefined): void {
+    if (!codexTui || turn === undefined || attributionByTurn.has(turn)) return
+    emitAttribution(turn, { ownership: 'unknown', origin: 'unknown' })
+  }
+
+  function rejectPendingAttributions(error: Error): void {
+    for (const waiter of attributionWaiters.values()) waiter.reject(error)
+    attributionWaiters.clear()
+    pendingBrokerInputs.clear()
+    queuedSubmissions.clear()
+  }
+
+  function attributeFirstItem(notification: JsonRpcNotification): void {
+    if (!codexTui || notification.method !== 'item/started') return
+    const params = asFrameRecord(notification.params)
+    const turn = frameString(params['turnId']) as TurnId | undefined
+    if (turn === undefined || firstItemSeen.has(turn)) return
+    firstItemSeen.add(turn)
+    const item = asFrameRecord(params['item'])
+    const itemType = frameString(item['type'])
+    const clientId = frameString(item['clientId']) as InputId | undefined
+    if (itemType === 'userMessage') {
+      if (clientId !== undefined && pendingBrokerInputs.has(clientId)) {
+        emitAttribution(turn, {
+          ownership: 'own',
+          inputId: clientId,
+          origin: 'broker',
+        })
+      } else {
+        emitAttribution(turn, { ownership: 'foreign', origin: 'human' })
+      }
+      const content = normalizeUserMessageText(item)
+      if (content.length > 0) {
+        const attribution = attributionByTurn.get(turn)
+        emitCaptured(
+          'user.message',
+          {
+            content,
+            ...(attribution?.ownership === 'own' && attribution.inputId !== undefined
+              ? { inputId: attribution.inputId }
+              : {}),
+            role: 'user',
+          },
+          attributionExtra(turn)
+        )
+      }
+      return
+    }
+    emitAttribution(turn, { ownership: 'foreign', origin: 'autonomous' })
+  }
+
+  function normalizeCodexTuiPrelude(notification: JsonRpcNotification): void {
+    if (!codexTui) return
+    if (notification.method === 'item/started') {
+      const params = asFrameRecord(notification.params)
+      const observedTurnId = frameString(params['turnId']) as TurnId | undefined
+      const alreadyAttributed = observedTurnId !== undefined && firstItemSeen.has(observedTurnId)
+      attributeFirstItem(notification)
+      if (alreadyAttributed && observedTurnId !== undefined) {
+        const item = asFrameRecord(params['item'])
+        if (frameString(item['type']) === 'userMessage') {
+          const content = normalizeUserMessageText(item)
+          if (content.length > 0) {
+            emitCaptured(
+              'user.message',
+              { content, role: 'user' },
+              { turnId: observedTurnId, driver: { kind: 'codex-app-server' } }
+            )
+          }
+        }
+      }
+    }
+    if (notification.method === 'turn/completed') {
+      ensureUnknownAttribution(turnCompletedNotificationId(notification) ?? currentTurnId)
+    }
   }
 
   /**
@@ -387,8 +567,14 @@ export function createCodexAppServerDriver(): Driver {
       if (outcome.disposition === 'blocked-unknown') {
         requireCtx().emit(
           'capture.warning',
-          { kind: 'blocked_unknown', message: outcome.message, raw: { native: frame } },
-          { driver: { kind: 'codex-app-server', rawType: notification.method } }
+          {
+            kind: 'blocked_unknown',
+            message: outcome.message,
+            raw: { native: frame },
+          },
+          {
+            driver: { kind: 'codex-app-server', rawType: notification.method },
+          }
         )
       }
       return
@@ -437,7 +623,10 @@ export function createCodexAppServerDriver(): Driver {
     permCtx: PermissionHandlerContext
   ): Promise<unknown> {
     const opened: OpenedPermissionRequest = openPermissionRequest(request, permCtx)
-    const extra = { turnId: permCtx.currentTurnId, inputId: permCtx.currentInputId }
+    const extra = {
+      turnId: permCtx.currentTurnId,
+      inputId: permCtx.currentInputId,
+    }
     const frame = rawFrame ?? JSON.stringify(canonicalRequestFrame(request))
     const capture = ctx?.capture
     let requestRecordId: string | undefined
@@ -532,6 +721,7 @@ export function createCodexAppServerDriver(): Driver {
 
   function normalizeNotification(notification: JsonRpcNotification): NormalizeOutcome {
     if (notification.method === 'error') {
+      ensureUnknownAttribution(currentTurnId)
       const error = parseCodexError(notification.params)
       emitDiagnostic('error', error.message, error.data, activeTurnExtra())
       if (
@@ -571,7 +761,7 @@ export function createCodexAppServerDriver(): Driver {
       }
     }
 
-    if (notification.method === 'turn/started') {
+    if (notification.method === 'turn/started' && !codexTui) {
       const observedTurnId = turnStartedNotificationId(notification)
       if (acknowledgedTurnId === undefined || observedTurnId !== acknowledgedTurnId) {
         return {
@@ -585,6 +775,8 @@ export function createCodexAppServerDriver(): Driver {
       }
     }
 
+    normalizeCodexTuiPrelude(notification)
+
     for (const mapped of mapCodexNotification(notification)) {
       const isTurnTerminal =
         mapped.type === 'turn.completed' ||
@@ -593,21 +785,43 @@ export function createCodexAppServerDriver(): Driver {
       // Suppress a turn terminal for a turn that already reached a terminal
       // state (e.g. a turn-timeout turn.failed followed by a late turn/completed).
       if (isTurnTerminal && !turnActive) continue
-      const extra =
-        mapped.type === 'turn.started' || isTurnTerminal
+      const mappedTurnId = mapped.extra?.turnId ?? currentTurnId
+      const extra = codexTui
+        ? mappedTurnId !== undefined
+          ? { ...mapped.extra, ...attributionExtra(mappedTurnId) }
+          : mapped.extra
+        : mapped.type === 'turn.started' || isTurnTerminal
           ? { ...mapped.extra, inputId: currentInputId }
           : mapped.extra
-      const event = emitEventCaptured(mapped, extra)
+      const effectiveMapped =
+        codexTui && mapped.type === 'turn.started'
+          ? {
+              ...mapped,
+              payload: { ...mapped.payload, source: 'observed' as const },
+            }
+          : mapped
+      const event = emitEventCaptured(effectiveMapped, extra)
       if (event.type === 'turn.started') {
         currentTurnId = event.turnId
         turnActive = true
+        if (codexTui) queuedStartRequired = false
       }
       if (
         event.type === 'turn.completed' ||
         event.type === 'turn.failed' ||
         event.type === 'turn.interrupted'
       ) {
+        if (codexTui && event.type === 'turn.interrupted') {
+          queuedStartRequired = true
+          const attribution = attributionByTurn.get(event.payload.turnId)
+          if (attribution?.ownership !== 'own') void startNextQueuedSubmission()
+        }
         turnActive = false
+        if (codexTui && attributionByTurn.get(event.payload.turnId)?.ownership === 'unknown') {
+          rejectPendingAttributions(
+            new BrokerError(BrokerErrorCode.HarnessError, 'Turn attribution was lost')
+          )
+        }
         // Clear turn timeout on any turn termination
         if (turnTimeout !== undefined) {
           clearTimeout(turnTimeout)
@@ -636,6 +850,7 @@ export function createCodexAppServerDriver(): Driver {
     }
 
     if (turnActive && currentTurnId !== undefined) {
+      ensureUnknownAttribution(currentTurnId)
       if (stopping) {
         requireCtx().emit(
           'turn.interrupted',
@@ -666,6 +881,46 @@ export function createCodexAppServerDriver(): Driver {
 
     terminalEmitted = true
     requireCtx().emit('invocation.exited', { exitCode: code, signal })
+  }
+
+  function handleRpcError(error: Error): void {
+    if (starting) {
+      rejectStartup?.(error)
+      return
+    }
+    if (terminalEmitted) return
+    ensureUnknownAttribution(currentTurnId)
+    if (codexTui) {
+      if (turnActive && currentTurnId !== undefined) {
+        if (stopping) {
+          emitCaptured(
+            'turn.interrupted',
+            { turnId: currentTurnId, status: 'interrupted' },
+            activeTurnExtra()
+          )
+          turnActive = false
+        } else {
+          const failure = classifyRpcFailure(error)
+          emitDiagnostic('error', failure.message, failure.data, activeTurnExtra())
+          failActiveTurn(failure)
+        }
+      }
+      terminalEmitted = true
+      requireCtx().emit('invocation.exited', { exitCode: null, signal: null })
+      return
+    }
+    if (stopping) return
+    const failure = classifyRpcFailure(error)
+    emitDiagnostic('error', failure.message, failure.data, activeTurnExtra())
+    failActiveTurn(failure)
+    emitTerminalFailure(
+      failure.message,
+      failure.code,
+      failure.data,
+      failure.retryable,
+      failure.reason
+    )
+    if (proc !== undefined && proc.exitCode === null) proc.kill('SIGTERM')
   }
 
   function closeRendererControlListener(): void {
@@ -702,7 +957,12 @@ export function createCodexAppServerDriver(): Driver {
     requireCtx().emit(
       'continuation.cleared',
       { reason: 'prompt_input_exit' },
-      { driver: { kind: 'codex-app-server', rawType: 'app-server-renderer.quit' } }
+      {
+        driver: {
+          kind: 'codex-app-server',
+          rawType: 'app-server-renderer.quit',
+        },
+      }
     )
     if (proc !== undefined) {
       await terminateProcess({
@@ -737,6 +997,8 @@ export function createCodexAppServerDriver(): Driver {
       return extractThreadId(await rpc.sendRequest<ThreadResponse>('thread/start', startParams))
     }
 
+    if (codexTui) await scrubQueuedInputs(resumeThreadId)
+
     try {
       return extractThreadId(
         await rpc.sendRequest<ThreadResponse>('thread/resume', {
@@ -768,18 +1030,208 @@ export function createCodexAppServerDriver(): Driver {
     }
   }
 
+  async function scrubQueuedInputs(targetThreadId: string): Promise<void> {
+    if (!rpc) return
+    const result = await rpc.sendRequest<unknown>('thread/queue/list', {
+      threadId: targetThreadId,
+    })
+    const entries = queuedEntryRecords(result)
+    for (const entry of entries) {
+      const queuedSubmissionId =
+        frameString(entry['queuedSubmissionId']) ?? frameString(entry['id'])
+      if (queuedSubmissionId === undefined) continue
+      await rpc.sendRequest('thread/queue/delete', {
+        threadId: targetThreadId,
+        queuedSubmissionId,
+      })
+      emitDiagnostic('info', 'Removed stale Codex queued input before resume', {
+        queuedSubmissionId,
+        clientUserMessageId: frameString(entry['clientUserMessageId']),
+      })
+    }
+  }
+
+  async function ensureCodexHookTrust(): Promise<void> {
+    if (!codexTui || !rpc) return
+    const result = await rpc.sendRequest<unknown>('hooks/list', {})
+    const untrusted = findUntrustedHooks(result)
+    if (untrusted.length === 0) return
+    await rpc.sendRequest('config/batchWrite', {
+      edits: untrusted.map(({ key, trustedHash }) => ({
+        keyPath: `hooks.state.${key}.trusted_hash`,
+        value: trustedHash,
+      })),
+      mergeStrategy: 'upsert',
+      reloadUserConfig: true,
+    })
+  }
+
+  async function applyQueuedInput(
+    input: InvocationInput,
+    inputId: InputId
+  ): Promise<ApplyInputResult> {
+    if (!rpc || !threadId || !driverSpec) {
+      throw new BrokerError(BrokerErrorCode.InvalidInvocationState, 'Invocation is not ready')
+    }
+    pendingBrokerInputs.add(inputId)
+    const attributed = new Promise<TurnId>((resolve, reject) => {
+      attributionWaiters.set(inputId, { resolve, reject })
+    })
+    try {
+      const response = await rpc.sendRequest<unknown>('thread/queue/add', {
+        threadId,
+        input: buildCodexInput(input, driverSpec.defaultImageAttachments),
+        clientUserMessageId: inputId,
+      })
+      const queuedSubmissionId = queueSubmissionId(response)
+      if (queuedSubmissionId === undefined) {
+        throw new BrokerError(
+          BrokerErrorCode.HarnessError,
+          'Codex thread/queue/add response did not carry queuedSubmission.id'
+        )
+      }
+      queuedSubmissions.set(inputId, queuedSubmissionId)
+      requireCtx().emit(
+        'driver.notice',
+        {
+          message: 'Codex queued input accepted',
+          code: 'codex_tui_queue_add_ack',
+          data: { queuedSubmissionId },
+        },
+        {
+          inputId,
+          driver: {
+            kind: 'codex-app-server',
+            rawType: 'thread/queue/add.response',
+          },
+        }
+      )
+      if (queuedStartRequired && !turnActive) {
+        await startQueuedSubmission(inputId, queuedSubmissionId)
+      }
+      const timeoutMs = spec?.process.limits?.turnTimeoutMs
+      const observedTurnId =
+        timeoutMs !== undefined && timeoutMs > 0
+          ? await Promise.race([
+              attributed,
+              new Promise<never>((_resolve, reject) => {
+                turnTimeout = setTimeout(() => {
+                  const timeout = new BrokerError(
+                    BrokerErrorCode.Timeout,
+                    'Turn attribution timed out'
+                  )
+                  ensureUnknownAttribution(currentTurnId)
+                  failActiveTurn({
+                    message: timeout.message,
+                    code: 'Timeout',
+                    retryable: false,
+                    reason: 'turn-timeout',
+                  })
+                  reject(timeout)
+                }, timeoutMs)
+              }),
+            ])
+          : await attributed
+      if (turnTimeout !== undefined) clearTimeout(turnTimeout)
+      turnTimeout = undefined
+      queuedSubmissions.delete(inputId)
+      return { turnId: observedTurnId }
+    } catch (error) {
+      pendingBrokerInputs.delete(inputId)
+      attributionWaiters.delete(inputId)
+      queuedSubmissions.delete(inputId)
+      if (turnTimeout !== undefined) clearTimeout(turnTimeout)
+      turnTimeout = undefined
+      throw error instanceof BrokerError
+        ? error
+        : new BrokerError(
+            BrokerErrorCode.HarnessError,
+            error instanceof Error ? error.message : 'Codex queue delivery failed'
+          )
+    }
+  }
+
+  async function startNextQueuedSubmission(): Promise<void> {
+    if (!rpc || !threadId) return
+    for (const inputId of pendingBrokerInputs) {
+      const queuedSubmissionId = queuedSubmissions.get(inputId)
+      if (queuedSubmissionId === undefined) continue
+      await startQueuedSubmission(inputId, queuedSubmissionId)
+      return
+    }
+  }
+
+  async function startQueuedSubmission(
+    _inputId: InputId,
+    queuedSubmissionId: string
+  ): Promise<void> {
+    if (!rpc || !threadId) return
+    try {
+      await rpc.sendRequest('thread/queue/start', {
+        threadId,
+        queuedSubmissionId,
+      })
+    } catch (error) {
+      emitDiagnostic('warn', 'Codex queued submission did not start after interrupted turn', {
+        queuedSubmissionId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  async function startCodexTuiHookListener(
+    driverCtx: DriverContext,
+    expectedRuntimeId: string | undefined,
+    socketDir?: string | undefined
+  ): Promise<HookListenerHandle> {
+    const socketPath = buildHookSocketPath(socketDir ?? codexTuiSocketDir(), 'codex-tui-hooks', {
+      invocationId: driverCtx.invocationId,
+      runtimeId: expectedRuntimeId,
+    })
+    const captureSeam = createHookCaptureSeam({
+      ...(driverCtx.capture !== undefined ? { capture: driverCtx.capture } : {}),
+      provider: 'openai',
+      driverKind: CODEX_DRIVER_KIND,
+      invocationId: driverCtx.invocationId,
+      knownHookNames: new Set(['Stop', 'PostToolUse']),
+      unknownHookFamily: 'diagnostic',
+    })
+    return listenForHookEnvelopes<CodexCliTmuxHookEnvelope>(socketPath, (envelope) => {
+      if (envelope.invocationId !== driverCtx.invocationId) return
+      if (expectedRuntimeId !== undefined && envelope.runtimeId !== expectedRuntimeId) return
+      if (envelope.callbackSocket !== socketPath || envelope.generation !== 1) return
+      const hook = extractCodexHookRecord(envelope)
+      return captureSeam.ingest(
+        {
+          nativeType: getString(hook, 'hook_event_name'),
+          hookData: hook,
+          ...(envelope.turnId !== undefined ? { turnId: envelope.turnId } : {}),
+        },
+        () =>
+          getString(hook, 'hook_event_name') === 'Stop' ? envelope.mailStopDecision : undefined
+      )
+    })
+  }
+
   return {
     kind: 'codex-app-server',
     version: CODEX_APP_SERVER_DRIVER_VERSION,
-    bracketMintingMode: 'delivery-acknowledged',
+    get bracketMintingMode() {
+      return codexTui ? ('observed' as const) : ('delivery-acknowledged' as const)
+    },
     evidenceAuthority: CODEX_APP_SERVER_AUTHORITY,
     nativeSourceKind: 'provider-jsonrpc',
-    preemptMode: 'atomic',
+    get preemptMode() {
+      return codexTui ? null : ('atomic' as const)
+    },
     steerLandingEvidence: 'ack',
     interruptLandingEvidence: 'ack',
 
-    capabilities(): InvocationCapabilities {
-      return CODEX_CAPABILITIES
+    capabilities(candidate?: HarnessInvocationSpec): InvocationCapabilities {
+      if (candidate?.driver.kind === 'codex-app-server') {
+        codexTui = isCodexTuiSpec(candidate.driver as CodexAppServerDriverSpec)
+      }
+      return codexTui ? CODEX_TUI_CAPABILITIES : CODEX_CAPABILITIES
     },
 
     captureNormalizer(): CaptureNormalizer {
@@ -798,6 +1250,23 @@ export function createCodexAppServerDriver(): Driver {
       spec = startSpec
       driverSpec = startSpec.driver as CodexAppServerDriverSpec
       const activeDriverSpec = driverSpec
+      codexTui = isCodexTuiSpec(activeDriverSpec)
+      if (codexTui && (activeDriverSpec.approvalPolicy ?? 'never') !== 'never') {
+        emitDiagnostic('error', 'Codex TUI cannot attach while app-server approvals are enabled', {
+          requiredApprovalPolicy: 'never',
+          requestedApprovalPolicy: activeDriverSpec.approvalPolicy,
+        })
+        throw new BrokerError(
+          BrokerErrorCode.CapabilityDenied,
+          'Codex TUI presentation requires approvalPolicy=never'
+        )
+      }
+      if (codexTui && activeDriverSpec.transport !== 'websocket-unix') {
+        throw new BrokerError(
+          BrokerErrorCode.DispatchValidationFailed,
+          'Codex TUI presentation requires transport=websocket-unix'
+        )
+      }
       const expectedRuntimeId = getInvocationRuntimeId(startSpec)
       terminalEmitted = false
       startedEmitted = false
@@ -806,11 +1275,104 @@ export function createCodexAppServerDriver(): Driver {
       rendererQuitAccepted = false
       reportedTranscriptPaths.clear()
       ungatedFrames.length = 0
+      pendingBrokerInputs.clear()
+      queuedSubmissions.clear()
+      attributionByTurn.clear()
+      firstItemSeen.clear()
+      attributionWaiters.clear()
       // A fresh app-server process is a fresh JSON-RPC stream, so its cursors
       // belong to a new epoch — never to the one a previous connection wrote.
       rotateCaptureEpoch(driverCtx)
 
-      if (
+      if (codexTui) {
+        const leased = await consumePaneLease(driverCtx, {
+          driverKind: 'codex-app-server',
+          ...(options.codexTui?.tmuxBin !== undefined ? { tmuxBin: options.codexTui.tmuxBin } : {}),
+          ...(options.codexTui?.tmuxExec !== undefined ? { exec: options.codexTui.tmuxExec } : {}),
+        })
+        paneController = leased.controller
+        emitTerminalSurface(driverCtx, leased.surface)
+        // HRC's leased tmux sockets live below a deliberately descriptive runtime
+        // hierarchy. Deriving the app-server UDS from that directory exceeds
+        // macOS SUN_LEN on real scopes, so the codex-tui transport gets a short,
+        // identity-hashed /private/tmp broker namespace (Codex rejects macOS's
+        // /tmp symlink as a socket directory). The headless renderer path below is
+        // unchanged.
+        const socketBase = buildHookSocketPath(
+          options.codexTui?.socketDir ?? codexTuiSocketDir(),
+          'hb-codex-tui',
+          {
+            invocationId: driverCtx.invocationId,
+            runtimeId: expectedRuntimeId,
+          }
+        ).replace(/\.sock$/, '')
+        const controlSocketPath = `${socketBase}.control.sock`
+        const websocketPath = `${socketBase}.app.sock`
+        websocketSocketPath = websocketPath
+        attachTokenPath = `${socketBase}.attach`
+        rendererControlListener = await listenForHookEnvelopes<RendererControlEnvelope>(
+          controlSocketPath,
+          async (envelope) => {
+            if (!rendererEnvelopeMatchesFence(envelope, expectedRuntimeId)) return
+            if (envelope.type === 'app-server-renderer.quit') {
+              if (envelope.reason !== 'prompt_input_exit') return
+              await handleRendererQuit()
+              return
+            }
+            handleRendererExited(envelope)
+          }
+        )
+        hookListener = await startCodexTuiHookListener(
+          driverCtx,
+          expectedRuntimeId,
+          options.codexTui?.socketDir
+        )
+        const hookCliPath = await writeCodexTuiHookBridgeWrapper(hookListener.socketPath)
+        const launch = await writeTmuxLaunchExecFiles(`${socketBase}.codex-tui`, {
+          argv: [
+            process.execPath,
+            resolveCodexTuiWrapperEntryPath(),
+            '--command',
+            startSpec.process.command,
+            '--socket',
+            websocketPath,
+            '--attach-token',
+            attachTokenPath,
+            '--control-socket',
+            rendererControlListener.socketPath,
+            '--invocation-id',
+            driverCtx.invocationId,
+            ...(expectedRuntimeId !== undefined ? ['--runtime-id', expectedRuntimeId] : []),
+          ],
+          cwd: startSpec.process.cwd,
+          env: {
+            ...startSpec.process.lockedEnv,
+            ...(driverCtx.dispatchEnv ?? {}),
+            HRC_LAUNCH_HOOK_CLI: hookCliPath,
+            HARNESS_BROKER_INVOCATION_ID: driverCtx.invocationId,
+            HARNESS_BROKER_CALLBACK_SOCKET: hookListener.socketPath,
+            HARNESS_BROKER_HOOK_GENERATION: '1',
+            ...(expectedRuntimeId !== undefined
+              ? { HARNESS_BROKER_RUNTIME_ID: expectedRuntimeId }
+              : {}),
+          },
+          pathPrepend: startSpec.process.pathPrepend,
+          ...(startSpec.launch !== undefined ? { prompts: startSpec.launch } : {}),
+        })
+        await leased.controller.sendPastedLine(launch.commandLine)
+        rpc = await (options.codexTui?.connect ?? connectCodexTuiRpc)(websocketPath, {
+          onNotification,
+          onRequest: async (request, rawFrame) =>
+            handleServerRequest(request, rawFrame, {
+              ctx: requireCtx(),
+              driver: activeDriverSpec,
+              currentTurnId,
+              currentInputId,
+              permissionRequestIds,
+            }),
+          onError: handleRpcError,
+        })
+      } else if (
         driverCtx.runtime?.terminalSurface !== undefined ||
         driverCtx.runtime?.terminalSurfaceRequired === true
       ) {
@@ -881,51 +1443,34 @@ export function createCodexAppServerDriver(): Driver {
       // Codex credentials live on disk (auth.json via CODEX_HOME, a lockedEnv
       // path) — the credentials channel is empty. Only the per-invocation
       // dispatchEnv rides alongside the lockedEnv from the spec.
-      proc = await spawnHarnessProcess(startSpec.process, {
-        credentials: {},
-        ...(driverCtx.dispatchEnv !== undefined ? { dispatchEnv: driverCtx.dispatchEnv } : {}),
-      })
-      proc.on('exit', onExit)
-      createInterface({ input: proc.stderr }).on('line', (line) => {
-        if (line.trim().length > 0) {
-          emitDiagnostic('info', line)
-        }
-      })
-
-      const rpcClient = new CodexRpcClient(proc, {
-        onNotification,
-        onRequest: async (request, rawFrame) => {
-          const permCtx: PermissionHandlerContext = {
-            ctx: requireCtx(),
-            driver: activeDriverSpec,
-            currentTurnId,
-            currentInputId,
-            permissionRequestIds,
-          }
-          return handleServerRequest(request, rawFrame, permCtx)
-        },
-        onError: (error) => {
-          if (starting) {
-            rejectStartup?.(error)
-            return
-          }
-          if (terminalEmitted || stopping) return
-          const failure = classifyRpcFailure(error)
-          emitDiagnostic('error', failure.message, failure.data, activeTurnExtra())
-          failActiveTurn(failure)
-          emitTerminalFailure(
-            failure.message,
-            failure.code,
-            failure.data,
-            failure.retryable,
-            failure.reason
-          )
-          if (proc !== undefined && proc.exitCode === null) {
-            proc.kill('SIGTERM')
-          }
-        },
-      })
-      rpc = rpcClient
+      if (!codexTui) {
+        proc = await spawnHarnessProcess(startSpec.process, {
+          credentials: {},
+          ...(driverCtx.dispatchEnv !== undefined ? { dispatchEnv: driverCtx.dispatchEnv } : {}),
+        })
+        proc.on('exit', onExit)
+        createInterface({ input: proc.stderr }).on('line', (line) => {
+          if (line.trim().length > 0) emitDiagnostic('info', line)
+        })
+        rpc = new CodexRpcClient(proc, {
+          onNotification,
+          onRequest: async (request, rawFrame) => {
+            const permCtx: PermissionHandlerContext = {
+              ctx: requireCtx(),
+              driver: activeDriverSpec,
+              currentTurnId,
+              currentInputId,
+              permissionRequestIds,
+            }
+            return handleServerRequest(request, rawFrame, permCtx)
+          },
+          onError: handleRpcError,
+        })
+      }
+      const rpcClient = rpc
+      if (rpcClient === undefined) {
+        throw new BrokerError(BrokerErrorCode.HarnessError, 'Codex RPC transport was not created')
+      }
 
       // Wire startup timeout — timer starts when the first RPC is written,
       // so process boot time doesn't count against the limit.
@@ -952,11 +1497,13 @@ export function createCodexAppServerDriver(): Driver {
         const initializeResult = await withStartupRace(
           rpcClient.sendRequest('initialize', {
             clientInfo: { name: 'harness-broker', version: '0.1.0' },
+            ...(codexTui ? { capabilities: { experimentalApi: true } } : {}),
           })
         )
         validateInitializeHandshake(initializeResult, emitDiagnostic)
         armStartupTimer() // re-arm after successful initialize
         await withStartupRace(rpcClient.sendNotification('initialized', {}))
+        if (codexTui) await withStartupRace(ensureCodexHookTrust())
         armStartupTimer() // re-arm after initialized notification
         startedThreadId = await withStartupRace(startThread())
         threadId = startedThreadId
@@ -969,8 +1516,9 @@ export function createCodexAppServerDriver(): Driver {
       }
       if (startupTimer !== undefined) clearTimeout(startupTimer)
 
+      const startedPid = codexTui ? await readCodexTuiPid(websocketSocketPath) : proc?.pid
       requireCtx().emit('invocation.started', {
-        pid: proc.pid,
+        ...(startedPid !== undefined ? { pid: startedPid } : {}),
         command: startSpec.process.command ?? process.execPath,
         args: startSpec.process.args,
         cwd: startSpec.process.cwd,
@@ -981,6 +1529,9 @@ export function createCodexAppServerDriver(): Driver {
         kind: 'thread',
         key: startedThreadId,
       })
+      if (codexTui && attachTokenPath !== undefined) {
+        await writeFile(attachTokenPath, `${startedThreadId}\n`, 'utf8')
+      }
       requireCtx().emit('invocation.ready', { state: 'ready' })
       starting = false
       rejectStartup = undefined
@@ -997,6 +1548,7 @@ export function createCodexAppServerDriver(): Driver {
       }
 
       const inputId = input.inputId ?? (`input_${Date.now().toString(36)}` as InputId)
+      if (codexTui) return applyQueuedInput(input, inputId)
       currentInputId = inputId
       requireCtx().emit(
         'user.message',
@@ -1005,7 +1557,10 @@ export function createCodexAppServerDriver(): Driver {
           inputId,
           role: 'user' as const,
         },
-        { inputId, driver: { kind: 'codex-app-server', rawType: 'broker.input' } }
+        {
+          inputId,
+          driver: { kind: 'codex-app-server', rawType: 'broker.input' },
+        }
       )
 
       // Wire turn timeout
@@ -1180,10 +1735,20 @@ export function createCodexAppServerDriver(): Driver {
     async stop(req: InvocationStopRequest): Promise<InvocationStopResponse> {
       stopping = true
       closeRendererControlListener()
+      if (hookListener !== undefined) {
+        const listener = hookListener
+        hookListener = undefined
+        await listener.close()
+      }
       // Clear any pending turn timeout; the stop takes precedence.
       if (turnTimeout !== undefined) {
         clearTimeout(turnTimeout)
         turnTimeout = undefined
+      }
+      if (codexTui) {
+        await paneController?.interrupt().catch(() => undefined)
+        rpc?.close()
+        return { accepted: true, state: terminalEmitted ? 'exited' : 'failed' }
       }
       if (!proc) {
         return { accepted: false, state: 'failed' }
@@ -1197,6 +1762,7 @@ export function createCodexAppServerDriver(): Driver {
 
     async dispose(): Promise<void> {
       closeRendererControlListener()
+      if (hookListener !== undefined) await hookListener.close().catch(() => undefined)
       reportedTranscriptPaths.clear()
       ungatedFrames.length = 0
       rpc?.close()
@@ -1205,6 +1771,18 @@ export function createCodexAppServerDriver(): Driver {
       driverSpec = undefined
       proc = undefined
       rpc = undefined
+      paneController = undefined
+      hookListener = undefined
+      attachTokenPath = undefined
+      websocketSocketPath = undefined
+      pendingBrokerInputs.clear()
+      queuedSubmissions.clear()
+      attributionByTurn.clear()
+      firstItemSeen.clear()
+      for (const waiter of attributionWaiters.values()) {
+        waiter.reject(new Error('Codex TUI invocation disposed'))
+      }
+      attributionWaiters.clear()
       threadId = undefined
       currentInputId = undefined
       currentTurnId = undefined
@@ -1223,6 +1801,16 @@ export function createCodexAppServerDriver(): Driver {
     work.catch(() => {})
     return Promise.race([work, startupFailure])
   }
+}
+
+function codexTuiSocketDir(): string {
+  const uid = typeof process.getuid === 'function' ? process.getuid() : 'current-user'
+  // Resolve /tmp before handing it to Codex: on macOS `/tmp` is a symlink and
+  // app-server intentionally refuses a symlink as the parent of its UDS.
+  const dir = join(realpathSync('/tmp'), `spaces-harness-broker-${uid}`)
+  mkdirSync(dir, { recursive: true, mode: 0o700 })
+  chmodSync(dir, 0o700)
+  return dir
 }
 
 /**
@@ -1244,6 +1832,148 @@ function resolveRendererObserverSocket(
     ? surface.socketPath.slice(0, surface.socketPath.lastIndexOf('/'))
     : '.'
   return `${dir}/${driverCtx.invocationId}.observer.sock`
+}
+
+function isCodexTuiSpec(driver: CodexAppServerDriverSpec): boolean {
+  return driver.presentation === 'codex-tui'
+}
+
+function emitTerminalSurface(
+  ctx: DriverContext,
+  surface: {
+    socketPath: string
+    sessionId: string
+    windowId: string
+    paneId: string
+    sessionName?: string | undefined
+    windowName?: string | undefined
+  }
+): void {
+  ctx.emit(
+    'terminal.surface.reported',
+    {
+      kind: 'tmux-pane',
+      socketPath: surface.socketPath,
+      sessionId: surface.sessionId,
+      windowId: surface.windowId,
+      paneId: surface.paneId,
+      ...(surface.sessionName !== undefined ? { sessionName: surface.sessionName } : {}),
+      ...(surface.windowName !== undefined ? { windowName: surface.windowName } : {}),
+    },
+    { driver: { kind: 'codex-app-server', rawType: 'tmux.surface' } }
+  )
+}
+
+async function connectCodexTuiRpc(
+  socketPath: string,
+  handlers: RpcHandlers
+): Promise<CodexUnixWebSocketRpcClient> {
+  const deadline = Date.now() + 30_000
+  let lastError: Error | undefined
+  while (Date.now() <= deadline) {
+    const client = new CodexUnixWebSocketRpcClient(socketPath, handlers)
+    try {
+      await client.ready()
+      return client
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error))
+      client.close()
+      await new Promise<void>((resolve) => setTimeout(resolve, 100))
+    }
+  }
+  throw lastError ?? new Error('Timed out connecting to Codex websocket')
+}
+
+async function readCodexTuiPid(socketPath: string | undefined): Promise<number | undefined> {
+  if (socketPath === undefined) return undefined
+  try {
+    const value = Number.parseInt((await readFile(`${socketPath}.pid`, 'utf8')).trim(), 10)
+    return Number.isSafeInteger(value) && value > 0 ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+
+async function writeCodexTuiHookBridgeWrapper(callbackSocket: string): Promise<string> {
+  const wrapperPath = `${callbackSocket}.codex-hook.ts`
+  const shellCommand = `harness-broker codex-hook --socket ${shellQuote(callbackSocket)}`
+  await writeFile(
+    wrapperPath,
+    [
+      '#!/usr/bin/env bun',
+      "import { spawn } from 'node:child_process'",
+      `const child = spawn('/bin/sh', ['-lc', ${JSON.stringify(`exec ${shellCommand}`)}], { stdio: 'inherit', env: process.env })`,
+      "child.on('error', () => process.exit(0))",
+      "child.on('exit', (code, signal) => signal ? process.kill(process.pid, signal) : process.exit(code ?? 0))",
+      '',
+    ].join('\n'),
+    'utf8'
+  )
+  return wrapperPath
+}
+
+function normalizeUserMessageText(item: Record<string, unknown>): string {
+  const direct = frameString(item['text']) ?? frameString(item['content'])
+  if (direct !== undefined) return direct
+  const content = item['content']
+  if (!Array.isArray(content)) return ''
+  return content
+    .flatMap((part) => {
+      const record = asFrameRecord(part)
+      const text = frameString(record['text'])
+      return text === undefined ? [] : [text]
+    })
+    .join('\n')
+}
+
+function queueSubmissionId(value: unknown): string | undefined {
+  const record = asFrameRecord(value)
+  return (
+    frameString(record['queuedSubmissionId']) ??
+    frameString(record['id']) ??
+    frameString(asFrameRecord(record['queuedSubmission'])['id']) ??
+    frameString(asFrameRecord(record['submission'])['id'])
+  )
+}
+
+function queuedEntryRecords(value: unknown): Record<string, unknown>[] {
+  if (Array.isArray(value)) return value.map(asFrameRecord)
+  const record = asFrameRecord(value)
+  for (const key of ['data', 'items', 'queue', 'submissions']) {
+    const entries = record[key]
+    if (Array.isArray(entries)) return entries.map(asFrameRecord)
+  }
+  return []
+}
+
+function findUntrustedHooks(value: unknown): Array<{ key: string; trustedHash: string }> {
+  const found: Array<{ key: string; trustedHash: string }> = []
+  const visit = (candidate: unknown): void => {
+    if (Array.isArray(candidate)) {
+      for (const entry of candidate) visit(entry)
+      return
+    }
+    const record = asFrameRecord(candidate)
+    if (Object.keys(record).length === 0) return
+    const key = frameString(record['key']) ?? frameString(record['hookKey'])
+    const trustedHash =
+      frameString(record['trustedHash']) ??
+      frameString(record['trusted_hash']) ??
+      frameString(record['hash'])
+    if (record['trusted'] === false && key !== undefined && trustedHash !== undefined) {
+      found.push({ key, trustedHash })
+    }
+    for (const nested of Object.values(record)) visit(nested)
+  }
+  visit(value)
+  return found
+}
+
+function turnCompletedNotificationId(notification: JsonRpcNotification): TurnId | undefined {
+  const params = asFrameRecord(notification.params)
+  return (frameString(params['turnId']) ?? frameString(asFrameRecord(params['turn'])['id'])) as
+    | TurnId
+    | undefined
 }
 
 function classifyRpcFailure(error: Error): TurnFailure {
@@ -1313,7 +2043,11 @@ function writeProviderTranscriptExport(path: string, rows: string[]): void {
  */
 function canonicalFrame(notification: JsonRpcNotification): Record<string, unknown> {
   return notification.params !== undefined
-    ? { jsonrpc: '2.0', method: notification.method, params: notification.params }
+    ? {
+        jsonrpc: '2.0',
+        method: notification.method,
+        params: notification.params,
+      }
     : { jsonrpc: '2.0', method: notification.method }
 }
 

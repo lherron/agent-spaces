@@ -50,3 +50,11 @@ export const CODEX_CAPABILITIES: InvocationCapabilities = {
   },
   lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 }
+
+/** Interactive stock-TUI presentation: own turns are queue-originated and observed. */
+export const CODEX_TUI_CAPABILITIES: InvocationCapabilities = {
+  ...CODEX_CAPABILITIES,
+  admission: { classes: ['steer', 'queue'] },
+  bracketMintingMode: 'observed',
+  preempt: { mode: null },
+}

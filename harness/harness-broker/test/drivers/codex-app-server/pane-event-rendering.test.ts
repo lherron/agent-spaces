@@ -35,29 +35,79 @@ const PAYLOADS: Record<string, unknown> = {
     toPosition: 0,
     principalRef: 'agent:lance',
   },
-  'queue.cancelled': { submissionId: 'submission_inv-a_7', principalRef: 'agent:lance' },
+  'queue.cancelled': {
+    submissionId: 'submission_inv-a_7',
+    principalRef: 'agent:lance',
+  },
   'queue.expired': { submissionId: 'submission_inv-a_7' },
-  'queue.withdrawn': { submissionId: 'submission_inv-a_7', reason: 'recalled', position: 0 },
-  'submission.rejected': { submissionId: 'submission_inv-a_7', reason: 'turn is guarded' },
+  'queue.withdrawn': {
+    submissionId: 'submission_inv-a_7',
+    reason: 'recalled',
+    position: 0,
+  },
+  'submission.rejected': {
+    submissionId: 'submission_inv-a_7',
+    reason: 'turn is guarded',
+  },
   'submission.expired': { submissionId: 'submission_inv-a_7' },
-  'submission.withdrawn': { submissionId: 'submission_inv-a_7', reason: 'recalled' },
-  'submission.cancelled': { submissionId: 'submission_inv-a_7', reason: 'removed' },
-  'submission.lost': { submissionId: 'submission_inv-a_7', reason: 'turn-correlation-lost' },
-  'submission.executed': { submissionId: 'submission_inv-a_7', turnId: 'turn-1' },
-  'submission.absorbed': { submissionId: 'submission_inv-a_7', turnId: 'turn-1' },
-  'interrupt.failed': { submissionId: 'submission_inv-a_7', reason: 'no active turn' },
+  'submission.withdrawn': {
+    submissionId: 'submission_inv-a_7',
+    reason: 'recalled',
+  },
+  'submission.cancelled': {
+    submissionId: 'submission_inv-a_7',
+    reason: 'removed',
+  },
+  'submission.lost': {
+    submissionId: 'submission_inv-a_7',
+    reason: 'turn-correlation-lost',
+  },
+  'submission.executed': {
+    submissionId: 'submission_inv-a_7',
+    turnId: 'turn-1',
+  },
+  'submission.absorbed': {
+    submissionId: 'submission_inv-a_7',
+    turnId: 'turn-1',
+  },
+  'interrupt.failed': {
+    submissionId: 'submission_inv-a_7',
+    reason: 'no active turn',
+  },
   'interrupt.requested': { submissionId: 'submission_inv-a_7' },
   'interrupt.landed': { submissionId: 'submission_inv-a_7' },
   'input.accepted': { inputId: 'input-1', disposition: 'started' },
-  'input.rejected': { inputId: 'input-1', disposition: 'rejected', reason: 'seat is busy' },
+  'input.rejected': {
+    inputId: 'input-1',
+    disposition: 'rejected',
+    reason: 'seat is busy',
+  },
   'input.queued': { inputId: 'input-1', disposition: 'queued' },
-  'harness.started': { generation: 2, mode: 'recycle', mechanism: 'direct-child' },
+  'harness.started': {
+    generation: 2,
+    mode: 'recycle',
+    mechanism: 'direct-child',
+  },
   'harness.exited': { generation: 2, reason: 'crash', exitCode: 1 },
-  'harness.recovery.started': { fromGeneration: 2, reason: 'stall', activeTurnDisposition: 'none' },
-  'harness.recovery.completed': { fromGeneration: 2, toGeneration: 3, ready: true },
+  'harness.recovery.started': {
+    fromGeneration: 2,
+    reason: 'stall',
+    activeTurnDisposition: 'none',
+  },
+  'harness.recovery.completed': {
+    fromGeneration: 2,
+    toGeneration: 3,
+    ready: true,
+  },
   'harness.recovery.failed': { fromGeneration: 2, reason: 'spawn-failed' },
-  'lifecycle.escalation': { reason: 'retry-exhausted', requestedAction: 'operator-attention' },
-  'lifecycle.policy.accepted': { policyId: 'policy-a', retentionMode: 'keep-alive' },
+  'lifecycle.escalation': {
+    reason: 'retry-exhausted',
+    requestedAction: 'operator-attention',
+  },
+  'lifecycle.policy.accepted': {
+    policyId: 'policy-a',
+    retentionMode: 'keep-alive',
+  },
   'turn.retry': {
     inputId: 'input-1',
     turnId: 'turn-1',
@@ -66,8 +116,13 @@ const PAYLOADS: Record<string, unknown> = {
     reason: 'harness-crashed',
     semantics: 'at-least-once',
   },
-  'turn.stalled': { inputId: 'input-1', turnId: 'turn-1', noProgressMs: 45_000 },
+  'turn.stalled': {
+    inputId: 'input-1',
+    turnId: 'turn-1',
+    noProgressMs: 45_000,
+  },
   'turn.started': { turnId: 'turn-1' },
+  'turn.attributed': { turnId: 'turn-1', ownership: 'own', inputId: 'input-1' },
   'turn.completed': { turnId: 'turn-1' },
   'turn.failed': { turnId: 'turn-1', message: 'boom' },
   'turn.interrupted': { turnId: 'turn-1' },
@@ -76,9 +131,20 @@ const PAYLOADS: Record<string, unknown> = {
     kind: 'command',
     defaultDecision: 'allow',
   },
-  'permission.resolved': { permissionRequestId: 'perm-1', decision: 'deny', source: 'policy' },
-  'permission.cancelled': { permissionRequestId: 'perm-1', reason: 'turn-failed' },
-  'capture.warning': { message: 'vocabulary drifted', raw: {}, kind: 'ledger_tail_repaired' },
+  'permission.resolved': {
+    permissionRequestId: 'perm-1',
+    decision: 'deny',
+    source: 'policy',
+  },
+  'permission.cancelled': {
+    permissionRequestId: 'perm-1',
+    reason: 'turn-failed',
+  },
+  'capture.warning': {
+    message: 'vocabulary drifted',
+    raw: {},
+    kind: 'ledger_tail_repaired',
+  },
   'capture.released': { rawRecordId: 'raw-1', disposition: 'normalized' },
   'invocation.started': { pid: 1, command: 'codex', args: [], cwd: '/tmp' },
   'invocation.ready': { state: 'ready' },
@@ -93,10 +159,22 @@ const PAYLOADS: Record<string, unknown> = {
   'assistant.message.started': {},
   'assistant.message.delta': { text: 'hi' },
   'assistant.message.completed': { text: 'hi' },
-  'tool.call.started': { toolCallId: 'tool-1', name: 'command', input: { command: 'ls' } },
-  'tool.call.delta': { toolCallId: 'tool-1', data: { stream: 'stdout' }, text: 'x' },
+  'tool.call.started': {
+    toolCallId: 'tool-1',
+    name: 'command',
+    input: { command: 'ls' },
+  },
+  'tool.call.delta': {
+    toolCallId: 'tool-1',
+    data: { stream: 'stdout' },
+    text: 'x',
+  },
   'tool.call.completed': { toolCallId: 'tool-1', result: { output: 'ok' } },
-  'tool.call.failed': { toolCallId: 'tool-1', name: 'command', result: { exitCode: 2 } },
+  'tool.call.failed': {
+    toolCallId: 'tool-1',
+    name: 'command',
+    result: { exitCode: 2 },
+  },
   'usage.updated': { usage: { last: { totalTokens: 10 } } },
   diagnostic: { level: 'info', message: 'hello' },
   'driver.notice': { message: 'notice' },
@@ -139,6 +217,7 @@ const SUPPRESSED = new Set([
   'interrupt.requested',
   'interrupt.landed',
   'turn.stalled',
+  'turn.attributed',
   'invocation.disposed',
   'permission.requested',
   'permission.cancelled',
@@ -211,7 +290,10 @@ describe('the events that mean a message did not get through are loud', () => {
 
   test('a teardown cancellation is the shutdown, not a disposition to read', () => {
     expect(
-      render('submission.cancelled', { submissionId: 'submission_inv-a_7', reason: 'teardown' })
+      render('submission.cancelled', {
+        submissionId: 'submission_inv-a_7',
+        reason: 'teardown',
+      })
     ).toEqual([])
     expect(
       render('submission.cancelled', {
@@ -223,7 +305,11 @@ describe('the events that mean a message did not get through are loud', () => {
 
   test('a per-record blocked_unknown capture warning stays out of the pane', () => {
     expect(
-      render('capture.warning', { message: 'unclassified', raw: {}, kind: 'blocked_unknown' })
+      render('capture.warning', {
+        message: 'unclassified',
+        raw: {},
+        kind: 'blocked_unknown',
+      })
     ).toEqual([])
   })
 })

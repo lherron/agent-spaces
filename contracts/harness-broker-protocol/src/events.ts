@@ -218,6 +218,7 @@ export interface InvocationEventPayloadMap {
   'capture.warning': CaptureWarningPayload
   'capture.released': CaptureReleasedPayload
   'turn.started': TurnStartedPayload
+  'turn.attributed': TurnAttributedPayload
   'turn.stalled': TurnStalledPayload
   'turn.retry': TurnRetryPayload
   'turn.completed': TurnCompletedPayload
@@ -283,9 +284,17 @@ export interface TurnStartedPayload {
   turnId: TurnId
   inputId?: InputId | undefined
   turnAttempt?: number | undefined
-  source?: 'broker-delivery' | 'hook-observed' | undefined
+  source?: 'broker-delivery' | 'hook-observed' | 'observed' | undefined
   sessionId?: string | undefined
   prompt?: string | undefined
+}
+
+/** Ownership evidence for a bracket opened from an observed provider turn. */
+export interface TurnAttributedPayload {
+  turnId: TurnId
+  ownership: 'own' | 'foreign' | 'unknown'
+  inputId?: InputId | undefined
+  origin: 'broker' | 'human' | 'autonomous' | 'unknown'
 }
 
 /** A submission joined an already-open turn or originated its own turn. */

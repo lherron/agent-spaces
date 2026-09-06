@@ -1406,6 +1406,7 @@ export function createCodexTranscriptModel(
       case 'interrupt.requested':
       case 'interrupt.landed':
       case 'turn.stalled':
+      case 'turn.attributed':
       case 'invocation.disposed':
       case 'permission.requested':
       case 'permission.cancelled':

@@ -149,8 +149,26 @@ export function validateBrokerInvocationRequest(req: BuildHarnessBrokerInvocatio
     interactionMode?: string | undefined
     brokerDriver?: string | undefined
     harnessTransport?: { kind?: string | undefined } | undefined
+    presentation?: string | undefined
+    transport?: string | undefined
   }
   const transportKind = broker.harnessTransport?.kind
+
+  if (broker.brokerDriver === 'codex-app-server' && broker.interactionMode === 'interactive') {
+    if (broker.provider !== 'openai' || broker.frontend !== CODEX_CLI_FRONTEND) {
+      throw new CodedError(
+        'codex-tui broker route requires provider "openai" and frontend "codex-cli"',
+        'unsupported_frontend'
+      )
+    }
+    if (broker.presentation !== 'codex-tui' || broker.transport !== 'websocket-unix') {
+      throw new CodedError(
+        'codex-app-server requires headless interaction mode unless codex-tui presentation uses websocket-unix',
+        'unsupported_frontend'
+      )
+    }
+    return
+  }
 
   const interactiveTmuxRoutes: Record<
     string,
@@ -526,6 +544,8 @@ export function toHarnessBrokerStartRequest(
   const codexDescriptor = buildCodexAppServerLaunchDescriptor(prepared.runOptions)
   const driver: CodexAppServerDriverSpec = {
     kind: 'codex-app-server',
+    ...(req.presentation !== undefined ? { presentation: req.presentation } : {}),
+    ...(req.transport !== undefined ? { transport: req.transport } : {}),
     ...(req.continuation?.key !== undefined ? { resumeThreadId: req.continuation.key } : {}),
     ...(codexDescriptor.model !== undefined ? { model: codexDescriptor.model } : {}),
     ...(codexDescriptor.modelReasoningEffort !== undefined
@@ -559,7 +579,7 @@ export function toHarnessBrokerStartRequest(
       limits: req.limits ?? DEFAULT_BROKER_PROCESS_LIMITS,
     },
     interaction: {
-      mode: 'headless',
+      mode: req.interactionMode,
       turnConcurrency: 'single',
       inputQueue: 'fifo',
     },

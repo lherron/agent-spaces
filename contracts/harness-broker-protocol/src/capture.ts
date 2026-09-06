@@ -93,6 +93,7 @@ export const EVENT_FAMILY_BY_TYPE: Record<InvocationEventType, EventFamily> = {
   'submission.expired': 'submission-disposition',
   'submission.withdrawn': 'submission-disposition',
   'turn.started': 'turn-bracket',
+  'turn.attributed': 'turn-bracket',
   'turn.completed': 'turn-bracket',
   'turn.failed': 'turn-bracket',
   'turn.interrupted': 'turn-bracket',

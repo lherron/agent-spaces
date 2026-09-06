@@ -151,6 +151,7 @@ export const INVOCATION_EVENT_TYPES = [
   'capture.warning',
   'capture.released',
   'turn.started',
+  'turn.attributed',
   'turn.stalled',
   'turn.retry',
   'turn.completed',
@@ -1949,9 +1950,40 @@ const EVENT_PAYLOAD_VALIDATORS = {
     requireString(payload['turnId'], 'payload.turnId', issues)
     optionalString(payload['inputId'], 'payload.inputId', issues)
     validateOptionalPositiveInteger(payload['turnAttempt'], 'payload.turnAttempt', issues)
-    optionalEnum(payload['source'], ['broker-delivery', 'hook-observed'], 'payload.source', issues)
+    optionalEnum(
+      payload['source'],
+      ['broker-delivery', 'hook-observed', 'observed'],
+      'payload.source',
+      issues
+    )
     optionalString(payload['sessionId'], 'payload.sessionId', issues)
     optionalString(payload['prompt'], 'payload.prompt', issues)
+  },
+  'turn.attributed': (payload, issues) => {
+    requireString(payload['turnId'], 'payload.turnId', issues)
+    optionalEnum(
+      payload['ownership'],
+      ['own', 'foreign', 'unknown'],
+      'payload.ownership',
+      issues,
+      true
+    )
+    optionalString(payload['inputId'], 'payload.inputId', issues)
+    optionalEnum(
+      payload['origin'],
+      ['broker', 'human', 'autonomous', 'unknown'],
+      'payload.origin',
+      issues,
+      true
+    )
+    if (payload['ownership'] === 'own' && typeof payload['inputId'] !== 'string') {
+      issues.push(makeIssue('payload.inputId', 'required', 'own attribution requires inputId'))
+    }
+    if (payload['ownership'] !== 'own' && payload['inputId'] !== undefined) {
+      issues.push(
+        makeIssue('payload.inputId', 'forbidden', 'non-own attribution must not carry inputId')
+      )
+    }
   },
   'turn.stalled': (payload, issues) => {
     requireString(payload['inputId'], 'payload.inputId', issues)
@@ -2606,6 +2638,18 @@ function validateCodexDriver(
   basePath: string,
   issues: ValidationIssue[]
 ): void {
+  optionalEnum(
+    driver['presentation'],
+    ['none', 'tmux-tui', 'codex-tui'],
+    joinPath(basePath, 'presentation'),
+    issues
+  )
+  optionalEnum(
+    driver['transport'],
+    ['jsonrpc-stdio', 'websocket-unix'],
+    joinPath(basePath, 'transport'),
+    issues
+  )
   optionalString(driver['resumeThreadId'], joinPath(basePath, 'resumeThreadId'), issues)
   optionalString(driver['model'], joinPath(basePath, 'model'), issues)
   optionalString(driver['modelReasoningEffort'], joinPath(basePath, 'modelReasoningEffort'), issues)

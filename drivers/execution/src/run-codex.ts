@@ -91,6 +91,7 @@ function computeCodexRuntimeFingerprint(input: {
   projectPath?: string | undefined
   cwd?: string | undefined
   interactive?: boolean | undefined
+  codexHookEvents?: readonly string[] | undefined
   // The exact praesidium-context block written into the home AGENTS.md. Folding
   // it into the fingerprint means a change in the materialized system prompt /
   // session reminder busts the home (rewriting only the managed files + block,
@@ -110,6 +111,7 @@ function computeCodexRuntimeFingerprint(input: {
         projectPath: input.projectPath ? resolve(input.projectPath) : undefined,
         cwd: input.cwd ? resolve(input.cwd) : undefined,
         interactive: input.interactive === true,
+        codexHookEvents: input.codexHookEvents,
         praesidiumBlock: input.praesidiumBlock,
         configHash: input.configHash,
       })
@@ -302,6 +304,7 @@ export async function prepareCodexRuntimeHome(
     projectPath,
     cwd: runOptions.cwd,
     interactive: runOptions.interactive,
+    codexHookEvents: runOptions.codexHookEvents,
     praesidiumBlock,
     configHash,
   })
@@ -326,7 +329,7 @@ export async function prepareCodexRuntimeHome(
       if (runOptions.interactive === true) {
         await writeFile(
           hooksPath,
-          `${JSON.stringify(buildHrcCodexHooksConfig(CODEX_INTERACTIVE_HOOK_EVENTS), null, 2)}\n`
+          `${JSON.stringify(buildHrcCodexHooksConfig(runOptions.codexHookEvents ?? CODEX_INTERACTIVE_HOOK_EVENTS), null, 2)}\n`
         )
       }
       if (await pathExists(configPath)) {

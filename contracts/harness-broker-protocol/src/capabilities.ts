@@ -17,7 +17,11 @@ export interface InvocationCapabilities {
   admission: {
     classes: Array<'steer' | 'queue' | 'exclusive' | 'preempt'>
   }
-  bracketMintingMode: 'delivery-acknowledged' | 'harness-evidence' | 'delivery-asserted'
+  bracketMintingMode:
+    | 'delivery-acknowledged'
+    | 'harness-evidence'
+    | 'delivery-asserted'
+    | 'observed'
   queue: {
     cancelHarnessLocal: boolean
   }

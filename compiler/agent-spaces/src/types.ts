@@ -229,6 +229,9 @@ export interface BuildHarnessBrokerInvocationRequest {
     | 'pi-sdk'
     | undefined
   harnessTransport?: { kind: 'jsonrpc-stdio' | 'pty' | 'in-process' } | undefined
+  presentation?: 'codex-tui' | undefined
+  transport?: 'websocket-unix' | undefined
+  codexHookEvents?: readonly string[] | undefined
   sdk?: HarnessSdkSpec | undefined
   aspHome?: string | undefined
   model?: string | undefined

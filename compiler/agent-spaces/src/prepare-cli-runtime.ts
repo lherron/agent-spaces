@@ -85,6 +85,7 @@ export interface PreparePlacementCliRuntimeRequest {
   attachments?: AttachmentRef[] | undefined
   lockedEnv?: Record<string, string> | undefined
   dispatchEnv?: Record<string, string> | undefined
+  codexHookEvents?: readonly string[] | undefined
   placement?: RuntimePlacement | undefined
   /** Fully pinned context resolution inputs for deterministic callers. */
   resolverContext?: ContextResolverContext | undefined
@@ -389,6 +390,7 @@ export async function preparePlacementCliRuntime(
       ...runOptions,
       aspHome,
       interactive: req.interactionMode === 'interactive',
+      ...(req.codexHookEvents !== undefined ? { codexHookEvents: req.codexHookEvents } : {}),
     })
     runOptions = { ...runOptions, codexHomeDir }
   }

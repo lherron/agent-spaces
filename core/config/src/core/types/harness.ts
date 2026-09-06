@@ -471,6 +471,8 @@ export interface HarnessRunOptions {
   featureFlags?: string[] | undefined
   /** Whether to run in interactive mode */
   interactive?: boolean | undefined
+  /** Exact Codex hook subset for a broker-owned presentation route. */
+  codexHookEvents?: readonly string[] | undefined
   /** Host launch surface for interactive runs */
   launchSurface?: 'terminal' | 'codex-app' | undefined
   /** Project directory */

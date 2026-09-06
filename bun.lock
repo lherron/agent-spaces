@@ -336,9 +336,11 @@
       "dependencies": {
         "ajv": "^8.17.1",
         "spaces-harness-broker-protocol": "workspace:*",
+        "ws": "^8.18.3",
       },
       "devDependencies": {
         "@types/bun": "1.3.14",
+        "@types/ws": "^8.18.1",
         "typescript": "^5.8.3",
       },
     },
@@ -674,6 +676,8 @@
     "@types/retry": ["@types/retry@0.12.5", "http://mini:4873/@types/retry/-/retry-0.12.5.tgz", {}, ""],
 
     "@types/semver": ["@types/semver@7.7.1", "http://mini:4873/@types/semver/-/semver-7.7.1.tgz", {}, ""],
+
+    "@types/ws": ["@types/ws@8.18.1", "http://mini:4873/@types/ws/-/ws-8.18.1.tgz", { "dependencies": { "@types/node": "*" } }, "sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg=="],
 
     "@types/yauzl": ["@types/yauzl@2.10.3", "http://mini:4873/@types/yauzl/-/yauzl-2.10.3.tgz", { "dependencies": { "@types/node": "*" } }, "sha512-oJoftv0LSuaDZE3Le4DbKX+KS9G36NzOeSap90UIK0yMA/NhKJhqlSGtNDORNRaIbQfzjXDrQa0ytJ6mNRGz/Q=="],
 

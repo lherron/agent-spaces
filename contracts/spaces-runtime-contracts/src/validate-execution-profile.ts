@@ -152,6 +152,9 @@ type BrokerProfileFacts = {
   specInteractionMode: string | undefined
   specDriverTerminalHost: unknown
   specDriverHookBridge: unknown
+  specDriverPresentation: unknown
+  specDriverTransport: unknown
+  specDriverApprovalPolicy: unknown
   isCodexAppServer: boolean
   profileClaimsClaudeCodeTmux: boolean
   isClaudeCodeTmux: boolean
@@ -179,6 +182,9 @@ function computeBrokerProfileFacts(profile: BrokerExecutionProfile): BrokerProfi
     specInteractionMode: spec.interaction?.mode,
     specDriverTerminalHost: readDriverTerminalHost(spec),
     specDriverHookBridge: readDriverHookBridge(spec),
+    specDriverPresentation: (spec.driver as Record<string, unknown>)['presentation'],
+    specDriverTransport: (spec.driver as Record<string, unknown>)['transport'],
+    specDriverApprovalPolicy: (spec.driver as Record<string, unknown>)['approvalPolicy'],
     isCodexAppServer:
       profile.brokerDriver === 'codex-app-server' || specDriverKind === 'codex-app-server',
     profileClaimsClaudeCodeTmux,
@@ -226,16 +232,37 @@ const BROKER_PROTOCOL_RULES: BrokerLegalityRule[] = [
 const CODEX_APP_SERVER_RULES: BrokerLegalityRule[] = [
   (profile, facts) =>
     facts.isCodexAppServer &&
-    (profile.interactionMode !== 'headless' ||
-      (facts.specInteractionMode !== undefined && facts.specInteractionMode !== 'headless'))
+    facts.specDriverPresentation === 'codex-tui' &&
+    facts.specDriverApprovalPolicy !== 'never'
       ? executionProfileDiagnostic(
           profile,
-          'codex_app_server_requires_headless',
-          'codex-app-server broker profiles must be headless.'
+          'codex_tui_requires_approval_never',
+          'codex-tui requires approvalPolicy never because approval requests fan out to every client.'
         )
       : undefined,
   (profile, facts) =>
-    facts.isCodexAppServer && facts.transportKind !== 'jsonrpc-stdio'
+    facts.isCodexAppServer &&
+    !(
+      (profile.interactionMode === 'headless' &&
+        (facts.specInteractionMode === undefined || facts.specInteractionMode === 'headless') &&
+        facts.transportKind === 'jsonrpc-stdio' &&
+        facts.specDriverPresentation !== 'codex-tui') ||
+      (profile.interactionMode === 'interactive' &&
+        facts.specInteractionMode === 'interactive' &&
+        facts.specDriverPresentation === 'codex-tui' &&
+        facts.specDriverTransport === 'websocket-unix' &&
+        profile.brokerTerminal?.host === 'tmux')
+    )
+      ? executionProfileDiagnostic(
+          profile,
+          'codex_app_server_requires_headless',
+          'codex-app-server must use headless jsonrpc-stdio, or the explicit interactive codex-tui websocket-unix route with tmux.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.isCodexAppServer &&
+    profile.interactionMode === 'headless' &&
+    facts.transportKind !== 'jsonrpc-stdio'
       ? executionProfileDiagnostic(
           profile,
           'codex_app_server_requires_jsonrpc_stdio',
@@ -243,7 +270,9 @@ const CODEX_APP_SERVER_RULES: BrokerLegalityRule[] = [
         )
       : undefined,
   (profile, facts) =>
-    facts.isCodexAppServer && profile.brokerTerminal !== undefined
+    facts.isCodexAppServer &&
+    profile.interactionMode === 'headless' &&
+    profile.brokerTerminal !== undefined
       ? executionProfileDiagnostic(
           profile,
           'codex_app_server_forbids_tmux_terminal',

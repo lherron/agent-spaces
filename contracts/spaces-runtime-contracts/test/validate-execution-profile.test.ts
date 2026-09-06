@@ -602,6 +602,64 @@ describe('validateBrokerExecutionProfile', () => {
     expect(diagnosticCodes(diagnostics)).toContain('codex_app_server_requires_headless')
   })
 
+  test('allows the explicit interactive codex-tui websocket-unix route', () => {
+    const diagnostics = validateBrokerExecutionProfile(
+      brokerProfile({
+        brokerDriver: 'codex-app-server',
+        harnessInvocation: {
+          startRequest: {
+            spec: {
+              harness: {
+                frontend: 'codex',
+                provider: 'openai',
+                driver: 'codex-app-server',
+              },
+              process: { harnessTransport: { kind: 'jsonrpc-stdio' } },
+              interaction: { mode: 'interactive' },
+              driver: {
+                kind: 'codex-app-server',
+                presentation: 'codex-tui',
+                transport: 'websocket-unix',
+                approvalPolicy: 'never',
+              },
+            },
+          },
+        },
+      })
+    )
+
+    expect(diagnostics).toEqual([])
+  })
+
+  test('rejects codex-tui when approvals are not never', () => {
+    const diagnostics = validateBrokerExecutionProfile(
+      brokerProfile({
+        brokerDriver: 'codex-app-server',
+        harnessInvocation: {
+          startRequest: {
+            spec: {
+              harness: {
+                frontend: 'codex',
+                provider: 'openai',
+                driver: 'codex-app-server',
+              },
+              process: { harnessTransport: { kind: 'jsonrpc-stdio' } },
+              interaction: { mode: 'interactive' },
+              driver: {
+                kind: 'codex-app-server',
+                presentation: 'codex-tui',
+                transport: 'websocket-unix',
+                approvalPolicy: 'on-request',
+              },
+            },
+          },
+        },
+      })
+    )
+
+    expect(diagnosticCodes(diagnostics)).toContain('codex_tui_requires_approval_never')
+  })
+
   test('rejects codex-app-server profiles without jsonrpc stdio process transport', () => {
     const diagnostics = validateBrokerExecutionProfile(
       codexBrokerProfile({

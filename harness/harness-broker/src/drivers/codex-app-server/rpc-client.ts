@@ -2,6 +2,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { once } from 'node:events'
 import { createInterface } from 'node:readline'
 import type { JsonRpcId } from 'spaces-harness-broker-protocol'
+import WebSocket from 'ws'
 
 export interface JsonRpcRequest {
   jsonrpc: '2.0'
@@ -41,7 +42,7 @@ export class CodexRpcError extends Error {
   }
 }
 
-interface RpcHandlers {
+export interface RpcHandlers {
   /**
    * `rawFrame` is the VERBATIM line the provider wrote, before any re-encoding.
    * The capture gate commits those bytes (§7.1: raw provider bytes remain
@@ -61,7 +62,17 @@ interface RpcHandlers {
   onError?: ((error: Error) => void) | undefined
 }
 
-export class CodexRpcClient {
+export interface CodexRpcPeer {
+  sendRequest<T = unknown>(
+    method: string,
+    params?: unknown,
+    observeResult?: ((value: T, rawFrame: string) => void) | undefined
+  ): Promise<T>
+  sendNotification(method: string, params?: unknown): Promise<void>
+  close(error?: Error): void
+}
+
+export class CodexRpcClient implements CodexRpcPeer {
   private nextId = 1
   private readonly pending = new Map<
     JsonRpcId,
@@ -256,6 +267,192 @@ export class CodexRpcClient {
     for (const pending of this.pending.values()) {
       pending.reject(error)
     }
+    this.pending.clear()
+    this.handlers.onError?.(error)
+  }
+}
+
+/** JSON-RPC peer using Codex's websocket framing over a Unix-domain socket. */
+export class CodexUnixWebSocketRpcClient implements CodexRpcPeer {
+  private nextId = 1
+  private readonly pending = new Map<
+    JsonRpcId,
+    {
+      resolve: (value: unknown) => void
+      reject: (error: Error) => void
+      observeResult?: ((value: unknown, rawFrame: string) => void) | undefined
+    }
+  >()
+  private closed = false
+  private opened = false
+  private readonly socket: WebSocket
+  private readonly readyPromise: Promise<void>
+
+  constructor(
+    socketPath: string,
+    private readonly handlers: RpcHandlers = {}
+  ) {
+    // Codex 0.153.4 rejects the extension offer emitted by Bun's built-in
+    // client. `ws` with compression disabled is the live-proven transport.
+    this.socket = new WebSocket(`ws+unix://${socketPath}:/`, {
+      perMessageDeflate: false,
+    })
+    this.readyPromise = new Promise<void>((resolve, reject) => {
+      const onOpen = () => {
+        cleanup()
+        this.opened = true
+        resolve()
+      }
+      const onError = (error: Error) => {
+        cleanup()
+        reject(error)
+      }
+      const cleanup = () => {
+        this.socket.off('open', onOpen)
+        this.socket.off('error', onError)
+      }
+      this.socket.once('open', onOpen)
+      this.socket.once('error', onError)
+    })
+    this.socket.on('message', (data) => {
+      void this.handleFrame(Buffer.isBuffer(data) ? data.toString('utf8') : String(data))
+    })
+    this.socket.on('error', (error) => this.handleError(error))
+    this.socket.on('close', (code, reason) => {
+      const detail = reason.toString().trim()
+      this.handleError(
+        new Error(
+          `Codex app-server websocket closed (${code}${detail.length > 0 ? `: ${detail}` : ''})`
+        )
+      )
+    })
+  }
+
+  ready(): Promise<void> {
+    return this.readyPromise
+  }
+
+  async sendRequest<T = unknown>(
+    method: string,
+    params?: unknown,
+    observeResult?: ((value: T, rawFrame: string) => void) | undefined
+  ): Promise<T> {
+    await this.readyPromise
+    const id = this.nextId++
+    const request: JsonRpcRequest = {
+      jsonrpc: '2.0',
+      id,
+      method,
+      ...(params !== undefined ? { params } : {}),
+    }
+    const response = new Promise<T>((resolve, reject) => {
+      this.pending.set(id, {
+        resolve: resolve as (value: unknown) => void,
+        reject,
+        ...(observeResult !== undefined
+          ? { observeResult: observeResult as (value: unknown, rawFrame: string) => void }
+          : {}),
+      })
+    })
+    this.writeMessage(request)
+    return response
+  }
+
+  async sendNotification(method: string, params?: unknown): Promise<void> {
+    await this.readyPromise
+    this.writeMessage({
+      jsonrpc: '2.0',
+      method,
+      ...(params !== undefined ? { params } : {}),
+    })
+  }
+
+  close(error: Error = new Error('JSON-RPC client is closed')): void {
+    if (this.closed) return
+    this.closed = true
+    for (const pending of this.pending.values()) pending.reject(error)
+    this.pending.clear()
+    if (this.opened && this.socket.readyState === WebSocket.OPEN) this.socket.close()
+    else this.socket.terminate()
+  }
+
+  private async handleFrame(rawFrame: string): Promise<void> {
+    const trimmed = rawFrame.trim()
+    if (trimmed.length === 0) return
+    let message: JsonRpcMessage
+    try {
+      message = JSON.parse(trimmed) as JsonRpcMessage
+    } catch (error) {
+      this.handleError(
+        new Error(
+          `Failed to parse JSON-RPC message: ${error instanceof Error ? error.message : String(error)}`
+        )
+      )
+      return
+    }
+    this.handlers.onMessage?.(message)
+    if ('id' in message && !('method' in message)) {
+      this.handleResponse(message, trimmed)
+      return
+    }
+    if ('method' in message && 'id' in message) {
+      await this.handleRequest(message, trimmed)
+      return
+    }
+    if ('method' in message) this.handlers.onNotification?.(message, trimmed)
+  }
+
+  private handleResponse(message: JsonRpcResponse, rawFrame: string): void {
+    const pending = this.pending.get(message.id)
+    if (pending === undefined) {
+      this.handleError(new Error(`Unexpected JSON-RPC response id: ${message.id}`))
+      return
+    }
+    this.pending.delete(message.id)
+    if (message.error !== undefined) {
+      pending.reject(
+        new CodexRpcError(message.error.code, message.error.message, message.error.data)
+      )
+      return
+    }
+    try {
+      pending.observeResult?.(message.result, rawFrame)
+      pending.resolve(message.result)
+    } catch (error) {
+      pending.reject(error instanceof Error ? error : new Error(String(error)))
+    }
+  }
+
+  private async handleRequest(message: JsonRpcRequest, rawFrame: string): Promise<void> {
+    if (this.handlers.onRequest === undefined) {
+      this.writeMessage({
+        jsonrpc: '2.0',
+        id: message.id,
+        error: { code: -32601, message: `Unhandled request: ${message.method}` },
+      })
+      return
+    }
+    try {
+      const result = await this.handlers.onRequest(message, rawFrame)
+      this.writeMessage({ jsonrpc: '2.0', id: message.id, result })
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error)
+      this.writeMessage({ jsonrpc: '2.0', id: message.id, error: { code: -32000, message: text } })
+      this.handleError(error instanceof Error ? error : new Error(text))
+    }
+  }
+
+  private writeMessage(message: JsonRpcMessage): void {
+    if (this.closed || this.socket.readyState !== WebSocket.OPEN) {
+      throw new Error('JSON-RPC client is closed')
+    }
+    this.socket.send(JSON.stringify(message))
+  }
+
+  private handleError(error: Error): void {
+    if (this.closed) return
+    this.closed = true
+    for (const pending of this.pending.values()) pending.reject(error)
     this.pending.clear()
     this.handlers.onError?.(error)
   }

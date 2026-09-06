@@ -933,8 +933,7 @@ type InteractiveCompileBuilder = (
 const INTERACTIVE_BROKER_BUILDERS: Partial<Record<HarnessFamily, InteractiveCompileBuilder>> = {
   'claude-code': (req, placement, options) =>
     compileTmuxBrokerPlan(req, placement, CLAUDE_TMUX_DRIVER_CONFIG, options),
-  codex: (req, placement, options) =>
-    compileTmuxBrokerPlan(req, placement, CODEX_TMUX_DRIVER_CONFIG, options),
+  codex: (req, placement, options) => compileBrokerPlan(req, placement, options, true),
   pi: (req, placement, options) =>
     compileTmuxBrokerPlan(req, placement, PI_TMUX_DRIVER_CONFIG, options),
 }
@@ -1011,9 +1010,10 @@ export async function compileRuntimePlan(
 async function compileBrokerPlan(
   req: RuntimeCompileRequest,
   placement: CompilePlacement,
-  options?: CompileRuntimePlanOptions
+  options?: CompileRuntimePlanOptions,
+  codexTui = false
 ): Promise<RuntimeCompileResponse> {
-  const routeDiagnostics = validateBrokerRoute(req)
+  const routeDiagnostics = codexTui ? [] : validateBrokerRoute(req)
   if (routeDiagnostics.length > 0) {
     return {
       schemaVersion: 'agent-runtime-compile-response/v1',
@@ -1028,14 +1028,24 @@ async function compileBrokerPlan(
   }
   const inputPolicy: BrokerInputPolicy =
     req.hrcPolicy.inputPolicy ?? DEFAULT_CODEX_BROKER_INPUT_POLICY
-  const exposurePolicy: AgentchatExposurePolicy = req.hrcPolicy.exposurePolicy ?? { mode: 'none' }
+  const exposurePolicy: AgentchatExposurePolicy = codexTui
+    ? TMUX_BROKER_EXPOSURE_POLICY
+    : (req.hrcPolicy.exposurePolicy ?? { mode: 'none' })
   const attachments = toBrokerAttachments(req.materialization.attachments)
   const taskId = req.materialization.taskContext?.taskId
   const brokerReq: BuildHarnessBrokerInvocationRequest = {
     placement,
     provider: 'openai',
     frontend: 'codex-cli',
-    interactionMode: 'headless',
+    interactionMode: codexTui ? 'interactive' : 'headless',
+    brokerDriver: 'codex-app-server',
+    ...(codexTui
+      ? {
+          presentation: 'codex-tui' as const,
+          transport: 'websocket-unix' as const,
+          codexHookEvents: ['Stop', 'PostToolUse'] as const,
+        }
+      : {}),
     model: req.requested.model,
     modelReasoningEffort: req.requested.reasoningEffort,
     continuation:
@@ -1107,7 +1117,7 @@ async function compileBrokerPlan(
     schemaVersion: 'agent-runtime-profile/v1' as const,
     profileId,
     kind: 'harness-broker' as const,
-    interactionMode: 'headless' as const,
+    interactionMode: codexTui ? ('interactive' as const) : ('headless' as const),
     expectedCapabilities: expectedCapabilities(permissionPolicy, {
       inputQueue: 'required',
       attachReplay: 'optional' as const,
@@ -1115,6 +1125,7 @@ async function compileBrokerPlan(
     brokerProtocol: 'harness-broker/0.2' as const,
     brokerDriver: 'codex-app-server',
     brokerOwnership: 'hrc-owned-process' as const,
+    ...(codexTui ? { brokerTerminal: TMUX_BROKER_TERMINAL } : {}),
     harnessInvocation: {
       startRequest,
       specHash,
@@ -1761,12 +1772,6 @@ interface TmuxBrokerDriverConfig {
 const CLAUDE_TMUX_DRIVER_CONFIG: TmuxBrokerDriverConfig = {
   driverKind: 'claude-code-tmux',
   honorDisallowedTools: true,
-}
-
-const CODEX_TMUX_DRIVER_CONFIG: TmuxBrokerDriverConfig = {
-  driverKind: 'codex-cli-tmux',
-  hookBridge: 'codex-hooks/v1',
-  honorDisallowedTools: false,
 }
 
 const PI_TMUX_DRIVER_CONFIG: TmuxBrokerDriverConfig = {

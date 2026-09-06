@@ -336,6 +336,8 @@ export interface Invocation {
   /** Manager-owned public status projection, driven by applyEventState. */
   currentTurnId?: TurnId | undefined
   currentInputId?: InputId | undefined
+  /** Observed provider turn whose first committed item has not attributed ownership yet. */
+  unattributedTurnId?: TurnId | undefined
   childPid?: number | undefined
   exitCode?: number | null | undefined
   signal?: string | null | undefined
@@ -816,6 +818,9 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     ) {
       return rejectSubmission(inv, record, 'state', 'busy')
     }
+    if (record.class === 'steer' && inv.unattributedTurnId !== undefined) {
+      return rejectSubmission(inv, record, 'state', 'unattributed-turn')
+    }
     if (
       record.class === 'steer' &&
       inv.state === 'turn_active' &&
@@ -828,7 +833,9 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       class: record.class,
       origin: record.origin,
       ...(inv.currentTurnId !== undefined ? { activeTurnId: inv.currentTurnId } : {}),
-      ...(inv.state === 'turn_active' ? { activeTurnPolicy: inv.currentTurnPolicy } : {}),
+      ...(inv.state === 'turn_active' && inv.unattributedTurnId === undefined
+        ? { activeTurnPolicy: inv.currentTurnPolicy }
+        : {}),
     })
     if (!authorized) {
       return rejectSubmission(inv, record, 'authority', 'authority-denied')
@@ -1388,7 +1395,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         return
       }
       case 'invocation.ready':
-        inv.state = 'ready'
+        if (inv.state !== 'turn_active') inv.state = 'ready'
         return
       case 'input.accepted':
         if (
@@ -1398,7 +1405,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
           return
         }
         // The input that drives the next turn — cleared when the turn ends.
-        if (event.inputId !== undefined) {
+        if (event.inputId !== undefined && inv.driver.bracketMintingMode !== 'observed') {
           inv.currentInputId = event.inputId
         }
         return
@@ -1406,6 +1413,10 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         inv.state = 'turn_active'
         if (event.turnId !== undefined) {
           inv.currentTurnId = event.turnId
+        }
+        const source = (event.payload as { source?: unknown } | undefined)?.source
+        if (source === 'observed' && event.turnId !== undefined) {
+          inv.unattributedTurnId = event.turnId
         }
         inv.currentTurnRequestInFlight = false
         // Project the active-turn summary fields (event fields first, then
@@ -1429,6 +1440,23 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
               { submissionId: record.submissionId, turnId: event.turnId },
               { turnId: event.turnId, inputId: event.inputId }
             )
+          }
+        }
+        return
+      }
+      case 'turn.attributed': {
+        const payload = event.payload
+        const turnId = event.turnId ?? payload.turnId
+        if (inv.unattributedTurnId === turnId) inv.unattributedTurnId = undefined
+        if (payload.ownership === 'own' && payload.inputId !== undefined) {
+          inv.currentInputId = payload.inputId
+          observePendingOwnTurnStart(inv, turnId, payload.inputId)
+        } else if (payload.ownership === 'unknown') {
+          if (
+            inv.pendingOwnTurnSubmissionId !== undefined &&
+            inv.pendingOwnTurnContestedByTurnId === undefined
+          ) {
+            inv.pendingOwnTurnContestedByTurnId = turnId
           }
         }
         return
@@ -1465,6 +1493,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         }
         inv.currentTurnId = undefined
         inv.currentInputId = undefined
+        inv.unattributedTurnId = undefined
         inv.currentTurnStartedAt = undefined
         inv.currentTurnRequestInFlight = false
         if (inv.state !== 'exited' && inv.state !== 'failed' && inv.state !== 'disposed') {
@@ -1486,6 +1515,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         inv.terminalReason = 'exited'
         inv.currentTurnId = undefined
         inv.currentInputId = undefined
+        inv.unattributedTurnId = undefined
         inv.currentTurnStartedAt = undefined
         const payload = event.payload as { exitCode?: unknown; signal?: unknown } | undefined
         if (payload && 'exitCode' in payload) {
@@ -1503,6 +1533,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         inv.terminalReason = 'failed'
         inv.currentTurnId = undefined
         inv.currentInputId = undefined
+        inv.unattributedTurnId = undefined
         inv.currentTurnStartedAt = undefined
         evictQueue(inv, REASON_INVOCATION_TERMINATED)
         return
@@ -1512,6 +1543,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         inv.terminalReason = 'disposed'
         inv.currentTurnId = undefined
         inv.currentInputId = undefined
+        inv.unattributedTurnId = undefined
         inv.currentTurnStartedAt = undefined
         return
       case 'continuation.updated':
@@ -1645,7 +1677,9 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       type !== 'turn.started' ||
       withProvenance.inputId !== undefined ||
       inv.pendingOwnTurnSubmissionId === undefined ||
-      inv.driver.bracketMintingMode === 'harness-evidence'
+      inv.driver.bracketMintingMode === 'harness-evidence' ||
+      inv.driver.bracketMintingMode === 'observed' ||
+      (payload as { source?: unknown } | undefined)?.source === 'observed'
     ) {
       return withProvenance
     }
@@ -1662,7 +1696,8 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     const pendingSubmissionId = inv.pendingOwnTurnSubmissionId
     if (
       pendingSubmissionId !== undefined &&
-      inv.driver.failPendingOwnTurnOnForeignTurn === true &&
+      (inv.driver.failPendingOwnTurnOnForeignTurn === true ||
+        inv.driver.bracketMintingMode === 'observed') &&
       !inv.submissionDispositions.has(pendingSubmissionId)
     ) {
       emit(
@@ -1811,16 +1846,32 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     // above and resolves back to this same envelope (T-04846).
     if (event.type === 'turn.started' && event.turnId !== undefined) {
       inv.startedTurns.set(event.turnId, event)
-      const record = event.inputId !== undefined ? inv.submissions.get(event.inputId) : undefined
+      const observed = event.payload.source === 'observed'
+      if (!observed) {
+        const record = event.inputId !== undefined ? inv.submissions.get(event.inputId) : undefined
+        const policy = record?.class === 'steer' ? 'open' : (record?.turnPolicy ?? 'open')
+        inv.currentTurnPolicy = policy
+        inv.turnManifests.set(event.turnId, {
+          invocationId: inv.invocationId,
+          turnId: event.turnId,
+          policy,
+          submissionIds: [],
+        })
+        observePendingOwnTurnStart(inv, event.turnId, event.inputId)
+      }
+    }
+    if (event.type === 'turn.attributed') {
+      const turnId = event.turnId ?? event.payload.turnId
+      const inputId = event.payload.ownership === 'own' ? event.payload.inputId : undefined
+      const record = inputId !== undefined ? inv.submissions.get(inputId) : undefined
       const policy = record?.class === 'steer' ? 'open' : (record?.turnPolicy ?? 'open')
       inv.currentTurnPolicy = policy
-      inv.turnManifests.set(event.turnId, {
+      inv.turnManifests.set(turnId, {
         invocationId: inv.invocationId,
-        turnId: event.turnId,
+        turnId,
         policy,
         submissionIds: [],
       })
-      observePendingOwnTurnStart(inv, event.turnId, event.inputId)
     }
     if (TURN_TERMINAL_TYPES.has(event.type) && event.turnId !== undefined) {
       inv.terminalTurns.set(event.turnId, event)
@@ -2196,7 +2247,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         spec.invocationId ??
         (`inv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}` as InvocationId)
 
-      const driverCaps = driver.capabilities()
+      const driverCaps = driver.capabilities(spec)
       assertLifecyclePolicySupported(lifecyclePolicy, driverCaps)
       // T-03779: reject a JSON Schema initialInput on an unsupporting driver
       // BEFORE driver.start and before the invocation is registered, so no
@@ -2370,24 +2421,32 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
             cwd: spec.process.cwd,
           })
         }
-        if (inv.state !== 'ready') {
+        if (inv.state === 'starting') {
           emit(inv, 'invocation.ready', { state: 'ready' })
         }
       }
 
-      inv.state = 'ready'
+      if (inv.state !== 'turn_active') inv.state = 'ready'
 
       // Apply initialInput through the same broker-owned path as client.input()
       if (initialInput !== undefined && !inv.terminalEmitted) {
         const inputId = resolveInputId(inv, initialInput)
         const inputWithId: InvocationInputWithId = { ...initialInput, inputId }
-        const submission = registerLegacySubmission(inv, 'exclusive', inputWithId)
+        const launchClass: SubmissionClass = capabilities.admission.classes.includes('exclusive')
+          ? 'exclusive'
+          : 'queue'
+        const submission = registerLegacySubmission(inv, launchClass, inputWithId)
         admitSubmission(inv, submission)
-        try {
-          await applyAndEmit(inv, inputWithId)
-        } catch (error) {
-          rejectAdmittedExecution(inv, submission, error)
-          throw error
+        if (launchClass === 'queue') {
+          holdSubmission(inv, submission, 'queue')
+          scheduleAdmissionDrain(inv)
+        } else {
+          try {
+            await applyAndEmit(inv, inputWithId)
+          } catch (error) {
+            rejectAdmittedExecution(inv, submission, error)
+            throw error
+          }
         }
       }
 
@@ -2530,14 +2589,18 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
 
     turnManifest(invocationId: InvocationId, turnId: TurnId): TurnManifestResponse {
       const inv = requireInvocation(invocationId)
-      return (
-        inv.turnManifests.get(turnId) ?? {
-          invocationId,
-          turnId,
-          policy: 'open',
-          submissionIds: [],
-        }
-      )
+      const manifest = inv.turnManifests.get(turnId)
+      if (manifest === undefined) {
+        throw new BrokerError(
+          BrokerErrorCode.InvalidInvocationState,
+          `Turn not attributed: ${turnId}`,
+          {
+            invocationId,
+            turnId,
+          }
+        )
+      }
+      return manifest
     },
 
     seatProbe(invocationId: InvocationId): SeatProbeResponse {
@@ -2565,17 +2628,19 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
           ? ({ state: 'starting' } as const)
           : inv.state === 'ready'
             ? ({ state: 'idle' } as const)
-            : inv.state === 'turn_active' && inv.currentTurnId !== undefined
-              ? ({
-                  state: 'turn-active',
-                  turnId: inv.currentTurnId,
-                  policy: inv.currentTurnPolicy,
-                } as const)
-              : inv.state === 'starting'
-                ? ({ state: 'starting' } as const)
-                : inv.state === 'stopping'
-                  ? ({ state: 'stopping' } as const)
-                  : ({ state: 'terminal' } as const)
+            : inv.state === 'turn_active' && inv.unattributedTurnId !== undefined
+              ? ({ state: 'turn-observed', turnId: inv.unattributedTurnId } as const)
+              : inv.state === 'turn_active' && inv.currentTurnId !== undefined
+                ? ({
+                    state: 'turn-active',
+                    turnId: inv.currentTurnId,
+                    policy: inv.currentTurnPolicy,
+                  } as const)
+                : inv.state === 'starting'
+                  ? ({ state: 'starting' } as const)
+                  : inv.state === 'stopping'
+                    ? ({ state: 'stopping' } as const)
+                    : ({ state: 'terminal' } as const)
       return { invocationId, seat, brokerHeldDepth: inv.brokerQueue.length }
     },
 

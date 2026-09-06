@@ -94,7 +94,7 @@ echo "codex shim"
     rmSync(base, { recursive: true, force: true })
   })
 
-  test('all three Sparky Codex rows override the Pi-qualified default with bare gpt-5.5', async () => {
+  test('all Sparky Codex rows override the Pi-qualified default and interactive compilation selects codex-tui', async () => {
     const client = createAgentSpacesClient({
       aspHome,
       runtime: compilerRuntimeDependencies,
@@ -116,9 +116,14 @@ echo "codex shim"
       expect(request.placement.agentRoot).toBe(agentRoot)
 
       const profile = brokerProfile(await client.compileRuntimePlan(request))
-      expect(profile.brokerDriver).toBe(
-        row === 'real-codex' ? 'codex-app-server' : 'codex-cli-tmux'
-      )
+      expect(profile.brokerDriver).toBe('codex-app-server')
+      if (row !== 'real-codex') {
+        expect(profile.harnessInvocation.startRequest.spec.driver).toMatchObject({
+          kind: 'codex-app-server',
+          presentation: 'codex-tui',
+          transport: 'websocket-unix',
+        })
+      }
       expect(profile.harnessInvocation.startRequest.spec.process.pathPrepend).toContain(toolBin)
     }
   })

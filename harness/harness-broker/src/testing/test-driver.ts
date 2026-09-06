@@ -72,6 +72,7 @@ export interface TestDriverController {
 }
 
 export interface TestDriverOptions {
+  admissionClasses?: SubmissionClass[] | undefined
   failInputIds?: Iterable<string> | undefined
   inputCapabilities?: Partial<InvocationCapabilities['input']> | undefined
   supportsSteer?: boolean | undefined
@@ -101,6 +102,7 @@ export interface TestDriverOptions {
   nativeSourceKind?: Driver['nativeSourceKind'] | undefined
   kind?: string | undefined
   beforeApplyInput?: ((input: InvocationInput) => Promise<void>) | undefined
+  onStart?: ((ctx: DriverContext) => void | Promise<void>) | undefined
 }
 
 export interface TestDriverHandle {
@@ -149,7 +151,7 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
   const capabilities: InvocationCapabilities = {
     ...TEST_CAPABILITIES,
     admission: {
-      classes: [
+      classes: options.admissionClasses ?? [
         ...(options.supportsSteer === true ? (['steer'] as const) : []),
         'queue',
         'exclusive',
@@ -375,6 +377,7 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
       driverCtx: DriverContext
     ): Promise<DriverStartResult> {
       ctx = driverCtx
+      await options.onStart?.(driverCtx)
       return { ok: true }
     },
 

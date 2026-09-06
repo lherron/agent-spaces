@@ -761,7 +761,7 @@ describe('compileRuntimePlan broker profile contract', () => {
         },
       },
       {
-        brokerDriver: 'codex-cli-tmux',
+        brokerDriver: 'codex-app-server',
         requested: {
           modelProvider: 'openai',
           model: 'gpt-5.5',
@@ -797,7 +797,9 @@ describe('compileRuntimePlan broker profile contract', () => {
       expect(profile.brokerProtocol).toBe('harness-broker/0.2')
       expect(profile.expectedCapabilities.control.attachReplay).toBe('optional')
       expect(profile.expectedCapabilities.input.queue).toBe('required')
-      expect(profile.harnessInvocation.startRequest.spec.process.harnessTransport.kind).toBe('pty')
+      expect(profile.harnessInvocation.startRequest.spec.process.harnessTransport.kind).toBe(
+        route.brokerDriver === 'codex-app-server' ? 'jsonrpc-stdio' : 'pty'
+      )
       expect(validateBrokerExecutionProfile(profile)).toEqual([])
     }
 
@@ -1011,7 +1013,7 @@ describe('compileRuntimePlan broker profile contract', () => {
   test.each([
     ['codex-app-server', () => withDisallowedTools(baseCompileRequest()), 'codex-app-server'],
     [
-      'codex-cli-tmux',
+      'codex-tui',
       () =>
         withDisallowedTools(
           interactiveCompileRequest({
@@ -1023,7 +1025,7 @@ describe('compileRuntimePlan broker profile contract', () => {
             interactionMode: 'interactive',
           })
         ),
-      'codex-cli-tmux',
+      'codex-app-server',
     ],
     [
       'foreground terminal',
@@ -1126,7 +1128,7 @@ exit 0
     }
   })
 
-  test('compiles codex-cli interactive requests to the codex-cli-tmux broker profile', async () => {
+  test('compiles codex interactive requests to the codex-tui app-server profile', async () => {
     const response = await createClient().compileRuntimePlan(
       interactiveCompileRequest({
         modelProvider: 'openai',
@@ -1142,23 +1144,32 @@ exit 0
     expect(response.ok).toBe(true)
     expect(profile.kind).toBe('harness-broker')
     expect(profile.interactionMode).toBe('interactive')
-    expect(profile.brokerDriver).toBe('codex-cli-tmux')
+    expect(profile.brokerDriver).toBe('codex-app-server')
     expect(profile.brokerTerminal).toMatchObject({
       host: 'tmux',
       turnDelivery: 'terminal-literal-input',
       operatorAttach: true,
     })
-    expect(profile.harnessInvocation.startRequest.spec.process.harnessTransport.kind).toBe('pty')
-    expect(profile.harnessInvocation.startRequest.spec.driver).toMatchObject({
-      kind: 'codex-cli-tmux',
-      terminalHost: 'tmux',
-      hookBridge: 'codex-hooks/v1',
-    })
-    expect(profile.harnessInvocation.startRequest.spec.process.args).toContain(
-      'hello foreground terminal'
+    expect(profile.harnessInvocation.startRequest.spec.process.harnessTransport.kind).toBe(
+      'jsonrpc-stdio'
     )
-    expect(profile.harnessInvocation.startRequest.initialInput).toBeUndefined()
-    expect(profile.harnessInvocation.initialInputHash).toBeUndefined()
+    expect(profile.harnessInvocation.startRequest.spec.driver).toMatchObject({
+      kind: 'codex-app-server',
+      presentation: 'codex-tui',
+      transport: 'websocket-unix',
+      approvalPolicy: 'never',
+    })
+    expect(profile.harnessInvocation.startRequest.initialInput?.content).toContainEqual({
+      type: 'text',
+      text: 'hello foreground terminal',
+    })
+    expect(profile.harnessInvocation.initialInputHash).toBeDefined()
+    const codexHome = profile.harnessInvocation.startRequest.spec.process.lockedEnv?.['CODEX_HOME']
+    expect(codexHome).toBeDefined()
+    const hooks = JSON.parse(readFileSync(join(codexHome as string, 'hooks.json'), 'utf8')) as {
+      hooks: Record<string, unknown>
+    }
+    expect(Object.keys(hooks.hooks).sort()).toEqual(['PostToolUse', 'Stop'])
   })
 
   test('compiled prompt paths use durable artifacts instead of launch overlays', async () => {

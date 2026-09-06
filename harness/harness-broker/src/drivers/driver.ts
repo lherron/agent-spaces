@@ -35,7 +35,11 @@ export interface ApplyInputResult {
  * open a broker turn bracket. The declaration is descriptive: drivers may only
  * change modes together with the corresponding verified delivery semantics.
  */
-export type BracketMintingMode = 'delivery-acknowledged' | 'harness-evidence' | 'delivery-asserted'
+export type BracketMintingMode =
+  | 'delivery-acknowledged'
+  | 'harness-evidence'
+  | 'delivery-asserted'
+  | 'observed'
 export type PreemptMode = 'quiescence' | 'atomic'
 export type SteerLandingEvidence = 'transcript' | 'ack' | 'asserted'
 export type InterruptLandingEvidence = 'transcript' | 'ack' | 'asserted'
@@ -91,7 +95,7 @@ export interface Driver {
   readonly preemptMode: PreemptMode | null
   readonly steerLandingEvidence: SteerLandingEvidence | null
   readonly interruptLandingEvidence: InterruptLandingEvidence | null
-  capabilities(): InvocationCapabilities
+  capabilities(spec?: HarnessInvocationSpec): InvocationCapabilities
   /**
    * This driver's PRODUCTION normalizer, for restart replay (T-07853 §7.3).
    *

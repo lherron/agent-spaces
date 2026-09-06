@@ -334,6 +334,8 @@ export interface ProcessLimits {
 
 export interface CodexAppServerDriverSpec {
   kind: 'codex-app-server'
+  presentation?: 'none' | 'tmux-tui' | 'codex-tui' | undefined
+  transport?: 'jsonrpc-stdio' | 'websocket-unix' | undefined
   resumeThreadId?: string | undefined
   model?: string | undefined
   modelReasoningEffort?: string | undefined

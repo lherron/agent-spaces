@@ -98,6 +98,7 @@ import {
   BrokerErrorCode,
   conservativeDefaultLifecyclePolicyOverlay,
 } from 'spaces-harness-broker-protocol'
+import { CODEX_INTERACTIVE_HOOK_EVENTS, buildHrcCodexHooksConfig } from 'spaces-harness-codex'
 import type {
   BrokerExecutionProfile,
   BrokerPermissionPolicy,
@@ -148,6 +149,7 @@ export const MATRIX_ROW_NAMES = [
   'fake-codex',
   'unix-jsonrpc-ndjson',
   'real-codex',
+  'codex-tui',
   'real-codex-tmux',
   'codex-tmux-ghostmux',
   'real-claude-tmux',
@@ -163,6 +165,7 @@ export const BROKER_MANAGED_MATRIX_ROWS = MATRIX_ROW_NAMES
 
 export const SPARKY_CODEX_MATRIX_ROWS = [
   'real-codex',
+  'codex-tui',
   'real-codex-tmux',
   'codex-tmux-ghostmux',
 ] as const
@@ -193,7 +196,13 @@ async function ghostmuxNewWithRetry(
     if (!/Surface failed to realize|libghostty API call failed/i.test(failure)) return out
     if (attempt < attempts) await sleep(1_500 * attempt)
   }
-  return last ?? { code: 1, stdout: '', stderr: 'ghostmux new failed before execution' }
+  return (
+    last ?? {
+      code: 1,
+      stdout: '',
+      stderr: 'ghostmux new failed before execution',
+    }
+  )
 }
 
 /**
@@ -626,8 +635,11 @@ function markerSatisfiedBy(
   if (turnId === undefined) return 'none'
   for (const source of sources) {
     if (
-      assertSharedCommandTurn(events, { turnId, expectedMarker: marker, markerSources: [source] })
-        .length === 0
+      assertSharedCommandTurn(events, {
+        turnId,
+        expectedMarker: marker,
+        markerSources: [source],
+      }).length === 0
     ) {
       return source
     }
@@ -776,9 +788,15 @@ function codexCompileRequest(input: {
       permissionPolicy: { mode: 'deny', audit: true },
       inputPolicy: DEFAULT_CODEX_BROKER_INPUT_POLICY,
       exposurePolicy: { mode: 'none' },
-      resourceLimits: { startupTimeoutMs: input.timeoutMs, turnTimeoutMs: input.timeoutMs },
+      resourceLimits: {
+        startupTimeoutMs: input.timeoutMs,
+        turnTimeoutMs: input.timeoutMs,
+      },
       observability: { traceId: identity.traceId },
-      capabilityPolicy: { allowDegrade: false, requireBrokerDefaultForCodexHeadless: true },
+      capabilityPolicy: {
+        allowDegrade: false,
+        requireBrokerDefaultForCodexHeadless: true,
+      },
     },
     correlation: {
       requestId: identity.requestId,
@@ -936,7 +954,10 @@ function assertStructuredValidTurn(
 ): Failure[] {
   if (turnId === undefined) {
     return [
-      { code: 'structured_turn_missing', message: 'structured-output input returned no turnId' },
+      {
+        code: 'structured_turn_missing',
+        message: 'structured-output input returned no turnId',
+      },
     ]
   }
   const scoped = events.filter((event) => event.turnId === turnId)
@@ -1071,7 +1092,12 @@ function assertRealCodexEnvEvidence(
   const failures: Failure[] = []
   const profile = result.selectedProfile
   if (profile === undefined || !result.compileResponse.ok) {
-    return [{ code: 'real_codex_no_profile', message: 'no selected broker profile / plan' }]
+    return [
+      {
+        code: 'real_codex_no_profile',
+        message: 'no selected broker profile / plan',
+      },
+    ]
   }
   const startRequest = profile.harnessInvocation.startRequest
   const processSpec = startRequest.spec.process
@@ -1095,7 +1121,10 @@ function assertRealCodexEnvEvidence(
   }
   const codexHome = lockedEnv['CODEX_HOME']
   if (codexHome === undefined) {
-    failures.push({ code: 'real_codex_codex_home', message: 'CODEX_HOME missing from lockedEnv' })
+    failures.push({
+      code: 'real_codex_codex_home',
+      message: 'CODEX_HOME missing from lockedEnv',
+    })
   } else if (!existsSync(join(codexHome, 'auth.json'))) {
     failures.push({
       code: 'real_codex_codex_auth',
@@ -1105,7 +1134,10 @@ function assertRealCodexEnvEvidence(
   // lockedEnv participates in the spec hash (de-redaction model).
   const mutatedKey = {
     ...startRequest.spec,
-    process: { ...processSpec, lockedEnv: { ...lockedEnv, ASP_MATRIX_HASH_PROBE: '1' } },
+    process: {
+      ...processSpec,
+      lockedEnv: { ...lockedEnv, ASP_MATRIX_HASH_PROBE: '1' },
+    },
   }
   if (specHashOf(mutatedKey) === baselineSpecHash) {
     failures.push({
@@ -1117,7 +1149,10 @@ function assertRealCodexEnvEvidence(
   // process.pathPrepend entry (sparky tool-bin contract case, not cody-specific).
   const expectedToolBin = join(resolve(agentRoot), 'tools', 'bin')
   if (pathPrepend.length === 0) {
-    failures.push({ code: 'real_codex_path_prepend', message: 'process.pathPrepend was empty' })
+    failures.push({
+      code: 'real_codex_path_prepend',
+      message: 'process.pathPrepend was empty',
+    })
   } else if (pathPrepend[0] !== expectedToolBin) {
     failures.push({
       code: 'real_codex_path_prepend',
@@ -1153,7 +1188,10 @@ function assertRealCodexEnvEvidence(
   // rather than testing each event in isolation (the consolidation regression).
   const assistantText = assembleAssistantText(events)
   if (!assistantText.includes(marker)) {
-    failures.push({ code: 'real_codex_marker', message: `assistant marker ${marker} missing` })
+    failures.push({
+      code: 'real_codex_marker',
+      message: `assistant marker ${marker} missing`,
+    })
   }
   return failures
 }
@@ -1256,7 +1294,10 @@ async function runCodexRow(
       lifecyclePolicy,
       timeoutMs: ctx.turnTimeoutMs,
       brokerStartAssertions: {
-        baseline: { expectInitialInputAccepted: true, expectedTerminalType: 'turn.completed' },
+        baseline: {
+          expectInitialInputAccepted: true,
+          expectedTerminalType: 'turn.completed',
+        },
       },
     })
 
@@ -1378,16 +1419,28 @@ async function runCodexAppServerStructuredScenario(options: {
     specVersion: 'harness-broker.invocation/v1',
     invocationId: `inv_structured_codex_${options.marker}` as InvocationId,
     labels: { package: 'pre-hrc-matrix', scenario: 'structured-output' },
-    harness: { frontend: 'codex', provider: 'openai', driver: 'codex-app-server' },
+    harness: {
+      frontend: 'codex',
+      provider: 'openai',
+      driver: 'codex-app-server',
+    },
     process: {
       command: options.realCodexPath ?? process.execPath,
       args: options.realCodexPath === undefined ? [fixturePath] : ['app-server'],
       cwd: options.repoRoot,
       harnessTransport: { kind: 'jsonrpc-stdio' },
-      limits: { startupTimeoutMs: 5000, turnTimeoutMs: 60_000, stopGraceMs: 100 },
+      limits: {
+        startupTimeoutMs: 5000,
+        turnTimeoutMs: 60_000,
+        stopGraceMs: 100,
+      },
       lockedEnv: { ASP_MATRIX_STRUCTURED_MARKER: marker },
     },
-    interaction: { mode: 'headless', turnConcurrency: 'single', inputQueue: 'fifo' },
+    interaction: {
+      mode: 'headless',
+      turnConcurrency: 'single',
+      inputQueue: 'fifo',
+    },
     correlation: {
       runtimeId: `runtime_structured_codex_${options.marker}`,
       hostSessionId: `host_structured_codex_${options.marker}`,
@@ -1415,6 +1468,12 @@ async function runCodexAppServerStructuredScenario(options: {
   await pollUntil(() => terminalTurnCount(events) > baselineTerminalTurns, 60_000, 250)
   const structuredTurnId = response.turnId ?? turnIdFromEventsAfter(events, baselineEventCount)
   failures.push(...assertStructuredValidTurn(events, structuredTurnId, marker))
+  await manager
+    .stop({
+      invocationId: spec.invocationId as InvocationId,
+      reason: 'matrix complete',
+    })
+    .catch(() => undefined)
   await manager.dispose({ invocationId: spec.invocationId as InvocationId }).catch(() => undefined)
   return {
     failures,
@@ -1476,10 +1535,19 @@ function codexInteractiveCompileRequest(input: {
     hrcPolicy: {
       permissionPolicy: allowPermissionPolicy(),
       inputPolicy: DEFAULT_CODEX_BROKER_INPUT_POLICY,
-      exposurePolicy: { mode: 'broker-reports-target', targetKind: 'tmux-session' },
-      resourceLimits: { startupTimeoutMs: input.timeoutMs, turnTimeoutMs: input.timeoutMs },
+      exposurePolicy: {
+        mode: 'broker-reports-target',
+        targetKind: 'tmux-session',
+      },
+      resourceLimits: {
+        startupTimeoutMs: input.timeoutMs,
+        turnTimeoutMs: input.timeoutMs,
+      },
       observability: { traceId: identity.traceId },
-      capabilityPolicy: { allowDegrade: false, requireBrokerDefaultForCodexHeadless: true },
+      capabilityPolicy: {
+        allowDegrade: false,
+        requireBrokerDefaultForCodexHeadless: true,
+      },
     },
     correlation: {
       requestId: identity.requestId,
@@ -1573,13 +1641,19 @@ function capturedRawRows(captureDir: string): Array<{
     if (!statSync(path).isFile()) continue
     for (const line of readFileSync(path, 'utf8').split('\n')) {
       if (line.trim().length === 0) continue
-      const stored = JSON.parse(line) as { nativeType?: unknown; rawBase64?: unknown }
+      const stored = JSON.parse(line) as {
+        nativeType?: unknown
+        rawBase64?: unknown
+      }
       if (typeof stored.nativeType !== 'string' || typeof stored.rawBase64 !== 'string') continue
       const decoded = JSON.parse(
         Buffer.from(stored.rawBase64, 'base64').toString('utf8')
       ) as unknown
       if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded)) continue
-      rows.push({ nativeType: stored.nativeType, row: decoded as Record<string, unknown> })
+      rows.push({
+        nativeType: stored.nativeType,
+        row: decoded as Record<string, unknown>,
+      })
     }
   }
   return rows
@@ -1595,7 +1669,10 @@ function runMatrixTmux(
     for (const [key, value] of Object.entries(env)) {
       if (value !== undefined) cleanEnv[key] = value
     }
-    const proc = spawn(tmuxBin, argv, { env: cleanEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+    const proc = spawn(tmuxBin, argv, {
+      env: cleanEnv,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
     let stdout = ''
     let stderr = ''
     proc.stdout.on('data', (chunk: Buffer) => {
@@ -1771,6 +1848,493 @@ function matrixCaptureSink(captureDir: string): (event: InvocationEventEnvelope)
   }
 }
 
+async function runCodexTuiControlScenario(options: {
+  manager: ReturnType<typeof createInvocationManager>
+  invocationId: InvocationId
+  events: InvocationEventEnvelope[]
+  marker: string
+  result: RowResult
+}): Promise<void> {
+  const { manager, invocationId, events, marker, result } = options
+  const baseline = events.length
+  const terminalBaseline = terminalTurnCount(events)
+  const submission = await manager.enqueue({
+    invocationId,
+    origin: { principalRef: 'agent:matrix', scopeRef: 'matrix@agent-spaces' },
+    body: `Run the Bash command: sleep 20; printf '${marker}_CONTROL' — then reply with exactly ${marker}_CONTROL and nothing else.`,
+  })
+  const started = await pollUntil(
+    () =>
+      events
+        .slice(baseline)
+        .some(
+          (event) =>
+            event.type === 'turn.attributed' &&
+            event.payload.ownership === 'own' &&
+            event.inputId === submission.submissionId
+        ),
+    30_000,
+    50
+  )
+  if (!started) {
+    result.extraFailures.push({
+      code: 'codex_tui_control_turn_not_started',
+      message: 'live control turn did not become attributed own before steer/interrupt',
+    })
+    return
+  }
+
+  const steer = await manager.steer({
+    invocationId,
+    origin: { principalRef: 'agent:matrix', scopeRef: 'matrix@agent-spaces' },
+    body: `Before finishing, also remember ${marker}_STEER.`,
+  })
+  const steerLanded = await pollUntil(
+    () =>
+      events
+        .slice(baseline)
+        .some(
+          (event) =>
+            event.type === 'submission.absorbed' &&
+            event.payload.submissionId === steer.submissionId
+        ),
+    10_000,
+    50
+  )
+  if (steer.admission !== 'admitted' || !steerLanded) {
+    result.extraFailures.push({
+      code: 'codex_tui_live_steer_not_absorbed',
+      message: `live steer admission=${steer.admission}, absorbed=${steerLanded}`,
+    })
+  }
+  const interrupted = await manager.interrupt({
+    invocationId,
+    scope: 'turn',
+    reason: 'matrix-control',
+  })
+  const interruptedTerminal = await pollUntil(
+    () => events.slice(baseline).some((event) => event.type === 'turn.interrupted'),
+    10_000,
+    50
+  )
+  if (!interrupted.accepted || !interruptedTerminal) {
+    result.extraFailures.push({
+      code: 'codex_tui_live_interrupt_not_terminal',
+      message: `live interrupt accepted=${interrupted.accepted}, terminal=${interruptedTerminal}`,
+    })
+  }
+  await pollUntil(
+    async () => {
+      const seat = await manager.seatProbe(invocationId)
+      return terminalTurnCount(events) > terminalBaseline && seat.seat.state === 'idle'
+    },
+    10_000,
+    50
+  )
+  const controlEvents = events.slice(baseline)
+  result.notes['liveControl'] = {
+    submissionId: submission.submissionId,
+    turnId:
+      controlEvents.find(
+        (event) =>
+          event.type === 'turn.attributed' &&
+          event.payload.ownership === 'own' &&
+          event.inputId === submission.submissionId
+      )?.turnId ?? null,
+    steerSubmissionId: steer.submissionId,
+    steerAbsorbedSeq:
+      controlEvents.find(
+        (event) =>
+          event.type === 'submission.absorbed' && event.payload.submissionId === steer.submissionId
+      )?.seq ?? null,
+    interruptRequestedSeq:
+      controlEvents.find((event) => event.type === 'interrupt.requested')?.seq ?? null,
+    interruptLandedSeq:
+      controlEvents.find((event) => event.type === 'interrupt.landed')?.seq ?? null,
+    interruptedSeq: controlEvents.find((event) => event.type === 'turn.interrupted')?.seq ?? null,
+  }
+}
+
+async function runCodexTuiRow(ctx: RowContext): Promise<RowResult> {
+  const rowName = 'codex-tui' as const
+  const codex = resolveRealCodexBin()
+  if (codex === undefined) throw new Error('real codex binary disappeared after probe')
+  const result: RowResult = {
+    name: rowName,
+    status: 'FAIL',
+    marker: ctx.marker,
+    prompt: `Run the Bash command: printf '${ctx.marker}' — then reply with exactly ${ctx.marker} and nothing else.`,
+    observedTurnIds: [],
+    compile: {},
+    floorFailures: [],
+    contractFailures: [],
+    extraFailures: [],
+    notes: {},
+  }
+  const savedCodexPath = process.env['ASP_CODEX_PATH']
+  const savedSkip = process.env['ASP_CODEX_SKIP_COMMON_PATHS']
+  process.env['ASP_CODEX_PATH'] = codex
+  process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
+  const aspHome = mkdtempSync(join(tmpdir(), 'asp-matrix-codex-tui-'))
+  const socketPath = join(tmpdir(), `matrix-codex-tui-${process.pid}.sock`)
+  const projectRoot = ctx.repoRoot
+  const agentRoot = resolve(projectRoot, '..', 'var', 'agents', 'sparky')
+  const events: InvocationEventEnvelope[] = []
+  let invocationId: InvocationId | undefined
+  let manager: ReturnType<typeof createInvocationManager> | undefined
+  let surfaceId: string | undefined
+  try {
+    ensureAspHomeRegistry(aspHome, projectRoot)
+    const response = await compileRuntimePlanForMatrix(
+      ctx,
+      aspHome,
+      createSparkyCodexMatrixCompileRequest(rowName, {
+        scopeRef: 'sparky@agent-spaces',
+        agentRoot,
+        projectRoot,
+        cwd: projectRoot,
+        prompt: result.prompt ?? '',
+        marker: ctx.marker,
+        timeoutMs: ctx.turnTimeoutMs,
+      })
+    )
+    if (!response.ok) {
+      result.contractFailures.push({
+        code: 'codex_tui_compile_failed',
+        message: JSON.stringify(response.diagnostics),
+      })
+      return result
+    }
+    const profile = response.plan.executionProfiles.find(
+      (candidate): candidate is BrokerExecutionProfile =>
+        candidate.kind === 'harness-broker' &&
+        candidate.brokerDriver === 'codex-app-server' &&
+        candidate.interactionMode === 'interactive'
+    )
+    if (profile === undefined) {
+      result.contractFailures.push({
+        code: 'codex_tui_profile_missing',
+        message: 'compileRuntimePlan did not emit the interactive codex-app-server profile',
+      })
+      return result
+    }
+    result.contractFailures.push(...verifyBrokerStartContract(profile).failures.map(toFailure))
+    result.compile = {
+      compileId: response.plan.compileId,
+      planHash: response.plan.planHash,
+      selectedProfileHash: profile.profileHash,
+      startRequestHash: profile.harnessInvocation.startRequestHash,
+    }
+    await runMatrixTmux(ctx.tmuxBin, [
+      '-S',
+      socketPath,
+      'start-server',
+      ';',
+      'set-option',
+      '-s',
+      'exit-empty',
+      'off',
+    ])
+    const allocated = await allocatePreHrcTmuxPane({
+      tmuxBin: ctx.tmuxBin,
+      socketPath,
+      sessionName: `matrix-codex-tui-${ctx.marker}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 60),
+    })
+    const captureDir = matrixCaptureDir(ctx.marker, rowName)
+    const ledger = new PreHrcBrokerEventLedger()
+    const captureSink = matrixCaptureSink(captureDir)
+    manager = createInvocationManager({
+      sequencer: createInvocationEventSequencer({ now: () => new Date() }),
+      captureDir,
+      onEvent: (event) => {
+        events.push(event)
+        ledger.append(event)
+        captureSink(event)
+      },
+    })
+    const spec = profile.harnessInvocation.startRequest.spec
+    invocationId = (spec.invocationId ?? `inv_matrix_codex_tui_${ctx.marker}`) as InvocationId
+    await manager.start(
+      spec,
+      createCodexAppServerDriver(),
+      profile.harnessInvocation.startRequest.initialInput,
+      undefined,
+      { terminalSurface: allocated.lease }
+    )
+    const firstTerminal = await waitForAdditionalTerminalTurn(events, 0, ctx.turnTimeoutMs)
+    if (!firstTerminal) {
+      result.extraFailures.push({
+        code: 'codex_tui_launch_turn_terminal',
+        message: 'queued launch input did not reach a terminal turn',
+      })
+    }
+
+    const attachCommand = `${ctx.tmuxBin} -S ${allocated.lease.socketPath} attach-session -t ${allocated.sessionName}`
+    const ghostmuxStatus = await ghostmuxAvailable('ghostmux')
+    if (!ghostmuxStatus.available) {
+      result.extraFailures.push({
+        code: 'codex_tui_ghostmux_unavailable',
+        message: ghostmuxStatus.reason,
+      })
+    } else {
+      const attached = await ghostmuxNewWithRetry('ghostmux', [
+        'new',
+        '--command',
+        attachCommand,
+        '--title',
+        'matrix-codex-tui-attach',
+        '--json',
+      ])
+      if (attached.code !== 0) {
+        result.extraFailures.push({
+          code: 'codex_tui_ghostmux_attach_failed',
+          message: attached.stderr.trim() || attached.stdout.trim(),
+        })
+      } else {
+        surfaceId = (JSON.parse(attached.stdout) as { id?: string }).id
+        if (
+          surfaceId === undefined ||
+          !(await waitForCodexPaneReady('ghostmux', surfaceId, 30_000))
+        ) {
+          result.extraFailures.push({
+            code: 'codex_tui_pane_not_ready',
+            message: 'stock Codex TUI was not stable in the Ghostty-attached leased pane',
+          })
+        } else {
+          const humanLatencies: number[] = []
+          for (let calibration = 1; calibration <= 5; calibration += 1) {
+            const marker = `${ctx.marker}_CAL_${calibration}`
+            await ghostmux('ghostmux', [
+              'send-keys',
+              '-t',
+              surfaceId,
+              '-l',
+              '--no-enter',
+              `Reply with exactly ${marker} and nothing else.`,
+            ])
+            await sleep(250)
+            const humanBaseline = events.length
+            const humanTerminalBaseline = terminalTurnCount(events)
+            const sentAt = Date.now()
+            await ghostmux('ghostmux', ['send-key', '-t', surfaceId, 'Enter'])
+            await waitForAdditionalTerminalTurn(events, humanTerminalBaseline, ctx.turnTimeoutMs)
+            const humanEvents = events.slice(humanBaseline)
+            const humanStart = humanEvents.find((event) => event.type === 'turn.started')
+            const humanAttribution = humanEvents.find(
+              (event) =>
+                event.type === 'turn.attributed' &&
+                event.payload.ownership === 'foreign' &&
+                event.payload.origin === 'human'
+            )
+            if (
+              humanStart === undefined ||
+              humanAttribution === undefined ||
+              humanAttribution.inputId !== undefined
+            ) {
+              result.extraFailures.push({
+                code: 'codex_tui_human_turn_not_foreign',
+                message: `calibration ${calibration} was not attributed foreign/human without inputId`,
+              })
+              continue
+            }
+            humanLatencies.push(Math.max(0, Date.parse(humanStart.time) - sentAt))
+          }
+
+          const sortedLatencies = [...humanLatencies].sort((left, right) => left - right)
+          const minLatency = sortedLatencies[0]
+          const medianLatency = sortedLatencies[Math.floor(sortedLatencies.length / 2)]
+          const maxLatency = sortedLatencies.at(-1)
+          result.notes['humanStartLatencyMs'] = {
+            samples: humanLatencies,
+            min: minLatency ?? null,
+            median: medianLatency ?? null,
+            max: maxLatency ?? null,
+          }
+
+          if (minLatency !== undefined && medianLatency !== undefined && maxLatency !== undefined) {
+            // The useful ordering window is typically only one millisecond
+            // wide, so spend the bounded ten attempts on adjacent leads.
+            const leadCandidates = Array.from(
+              { length: 10 },
+              (_unused, index) => Math.max(0, minLatency - 5) + index
+            )
+            let winningRace: Record<string, unknown> | undefined
+            const attempts: Array<Record<string, unknown>> = []
+            for (const [attemptIndex, leadMs] of leadCandidates.entries()) {
+              const raceMarker = `${ctx.marker}_RACE_${attemptIndex + 1}`
+              await ghostmux('ghostmux', [
+                'send-keys',
+                '-t',
+                surfaceId,
+                '-l',
+                '--no-enter',
+                `Reply with exactly ${raceMarker}_HUMAN and nothing else.`,
+              ])
+              await sleep(250)
+              const raceBaseline = events.length
+              const raceTerminalBaseline = terminalTurnCount(events)
+              const raceEnter = ghostmux('ghostmux', ['send-key', '-t', surfaceId, 'Enter'])
+              await sleep(leadMs)
+              const raceSubmission = await manager.enqueue({
+                invocationId,
+                origin: {
+                  principalRef: 'agent:matrix',
+                  scopeRef: 'matrix@agent-spaces',
+                },
+                body: `Reply with exactly ${raceMarker}_BROKER and nothing else.`,
+              })
+              await raceEnter
+              await pollUntil(
+                async () => {
+                  const seat = await manager?.seatProbe(invocationId as InvocationId)
+                  return (
+                    terminalTurnCount(events) > raceTerminalBaseline && seat?.seat.state === 'idle'
+                  )
+                },
+                ctx.turnTimeoutMs,
+                100
+              )
+              const raceEvents = events.slice(raceBaseline)
+              const acceptedIndex = raceEvents.findIndex(
+                (event) =>
+                  event.type === 'input.accepted' && event.inputId === raceSubmission.submissionId
+              )
+              const raceHumanAttribution = raceEvents.find(
+                (event) =>
+                  event.type === 'turn.attributed' &&
+                  event.payload.ownership === 'foreign' &&
+                  event.payload.origin === 'human'
+              )
+              const raceHumanTurnId = raceHumanAttribution?.turnId
+              const humanStartIndex = raceEvents.findIndex(
+                (event) => event.type === 'turn.started' && event.turnId === raceHumanTurnId
+              )
+              const queueAckIndex = raceEvents.findIndex(
+                (event) =>
+                  event.type === 'driver.notice' &&
+                  event.payload.code === 'codex_tui_queue_add_ack' &&
+                  event.inputId === raceSubmission.submissionId
+              )
+              const executed = raceEvents.find(
+                (event) =>
+                  event.type === 'submission.executed' &&
+                  event.payload.submissionId === raceSubmission.submissionId
+              )
+              const attempt = {
+                attempt: attemptIndex + 1,
+                leadMs,
+                inputAcceptedSeq: raceEvents[acceptedIndex]?.seq ?? null,
+                foreignTurnId: raceHumanTurnId ?? null,
+                foreignTurnStartedSeq: raceEvents[humanStartIndex]?.seq ?? null,
+                queueAddAckSeq: raceEvents[queueAckIndex]?.seq ?? null,
+                brokerSubmissionId: raceSubmission.submissionId,
+                brokerTurnId: executed?.payload.turnId ?? null,
+                brokerExecutedSeq: executed?.seq ?? null,
+              }
+              attempts.push(attempt)
+              if (
+                acceptedIndex >= 0 &&
+                humanStartIndex > acceptedIndex &&
+                queueAckIndex > humanStartIndex &&
+                raceHumanTurnId !== undefined &&
+                executed !== undefined &&
+                executed.payload.turnId !== raceHumanTurnId
+              ) {
+                winningRace = attempt
+                break
+              }
+            }
+            result.notes['liveRaceAttempts'] = attempts
+            if (winningRace === undefined) {
+              result.extraFailures.push({
+                code: 'codex_tui_live_race_not_observed',
+                message:
+                  'bounded latency sweep did not place a foreign turn between idle input.accepted and thread/queue/add acknowledgement',
+              })
+            } else {
+              result.notes['liveRace'] = winningRace
+            }
+          }
+
+          await runCodexTuiControlScenario({
+            manager,
+            invocationId,
+            events,
+            marker: ctx.marker,
+            result,
+          })
+        }
+      }
+    }
+    const beforeNarration = new Set(observedTurnIds(events))
+    const narrationBaseline = terminalTurnCount(events)
+    const narration = await manager.enqueue({
+      invocationId,
+      origin: { principalRef: 'agent:matrix', scopeRef: 'matrix@agent-spaces' },
+      body: NARRATION_PROMPT,
+    })
+    if (narration.admission !== 'admitted') {
+      result.extraFailures.push({
+        code: 'codex_tui_narration_rejected',
+        message: `narration admission was ${narration.admission}: ${narration.reason ?? ''}`,
+      })
+    }
+    await waitForAdditionalTerminalTurn(events, narrationBaseline, ctx.turnTimeoutMs)
+    const narrationTurnIds = observedTurnIds(events).filter((id) => !beforeNarration.has(id))
+    result.extraFailures.push(...assertIntermediateMessages(events, narrationTurnIds))
+
+    const structuredMarker = `STRUCT_${ctx.marker}_CODEX_TUI`
+    const structuredPrompt = `${STRUCTURED_OUTPUT_PROMPT} ${structuredMarker}`
+    const baseline = terminalTurnCount(events)
+    await manager.enqueue({
+      invocationId,
+      origin: { principalRef: 'agent:matrix', scopeRef: 'matrix@agent-spaces' },
+      body: structuredPrompt,
+      responseFormat: structuredResponseFormat(),
+    })
+    await waitForAdditionalTerminalTurn(events, baseline, ctx.turnTimeoutMs)
+    const structuredTurnId = observedTurnIds(events).at(-1)
+    result.extraFailures.push(
+      ...assertStructuredValidTurn(events, structuredTurnId, structuredMarker)
+    )
+    result.notes['structuredOutput'] = {
+      scenario: 'structured-output',
+      declaresJsonSchema: true,
+      structuredTurnId: structuredTurnId ?? null,
+    }
+    result.notes['captureDir'] = captureDir
+    result.notes['ledgerEventTypes'] = [...new Set(events.map((event) => event.type))]
+    result.observedTurnIds = observedTurnIds(events)
+    const commandTurnId =
+      findTurnWithToolCommandMarker(events, ctx.marker) ?? deriveCommandTurnId(events)
+    result.commandTurnId = commandTurnId
+    result.floorFailures = runSharedFloor(
+      events,
+      ctx.marker,
+      commandTurnId,
+      ctx.allowLegacyPermissionEvent,
+      CLAUDE_MARKER_SOURCES
+    )
+    result.extraFailures.push(...assertCodexContinuation(events))
+  } finally {
+    if (surfaceId !== undefined) {
+      await ghostmux('ghostmux', ['kill-surface', '-t', surfaceId]).catch(() => undefined)
+    }
+    if (manager !== undefined && invocationId !== undefined) {
+      await manager.stop({ invocationId, reason: 'matrix complete' }).catch(() => undefined)
+      await manager.dispose({ invocationId }).catch(() => undefined)
+    }
+    await runMatrixTmux(ctx.tmuxBin, ['-S', socketPath, 'kill-server']).catch(() => undefined)
+    if (!ctx.keepArtifacts) rmSync(aspHome, { recursive: true, force: true })
+    process.env['ASP_CODEX_PATH'] = savedCodexPath
+    process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = savedSkip
+  }
+  const failures =
+    result.floorFailures.length + result.contractFailures.length + result.extraFailures.length
+  result.status = failures === 0 ? 'OK' : 'FAIL'
+  return result
+}
+
 async function runCodexTmuxRow(
   ctx: RowContext,
   options: { ghostmuxOperator: boolean }
@@ -1848,12 +2412,14 @@ async function runCodexTmuxRow(
 
     const profile = response.plan.executionProfiles.find(
       (candidate): candidate is BrokerExecutionProfile =>
-        candidate.kind === 'harness-broker' && candidate.brokerDriver === 'codex-cli-tmux'
+        candidate.kind === 'harness-broker' &&
+        candidate.brokerDriver === 'codex-app-server' &&
+        candidate.interactionMode === 'interactive'
     )
     if (profile === undefined) {
       result.contractFailures.push({
         code: 'codex_tmux_profile_missing',
-        message: 'compileRuntimePlan did not emit codex-cli-tmux broker profile',
+        message: 'compileRuntimePlan did not emit the interactive Codex broker profile',
       })
       return result
     }
@@ -1868,7 +2434,16 @@ async function runCodexTmuxRow(
     }
     result.notes['brokerDriver'] = profile.brokerDriver
 
-    await runMatrixTmux(ctx.tmuxBin, ['-S', socketPath, 'start-server'])
+    await runMatrixTmux(ctx.tmuxBin, [
+      '-S',
+      socketPath,
+      'start-server',
+      ';',
+      'set-option',
+      '-s',
+      'exit-empty',
+      'off',
+    ])
     // T-01727 Phase E: harness allocates the tmux session/window/pane and
     // dispatches the codex-cli-tmux driver with a pane lease via
     // `runtime.terminalSurface`. The driver consumes the lease and never
@@ -1918,10 +2493,51 @@ async function runCodexTmuxRow(
       },
     })
 
-    const spec = profile.harnessInvocation.startRequest.spec
+    // Keep the deprecated driver in the conformance matrix after the compiler
+    // default moves to codex-tui. The compile contract above verifies the new
+    // default; this explicit legacy descriptor exercises codex-cli-tmux until
+    // its separately-governed removal.
+    const compiledSpec = profile.harnessInvocation.startRequest.spec
+    const codexHome = compiledSpec.process.lockedEnv?.['CODEX_HOME']
+    if (codexHome === undefined) {
+      throw new Error('compiled interactive Codex profile did not carry CODEX_HOME')
+    }
+    // The default compiler route now materializes the deliberately smaller
+    // codex-tui hook set. This deprecated conformance row still exercises the
+    // hook-driven codex-cli-tmux driver, so restore its own legacy hook surface
+    // in the row-private runtime home before launch. The production compiler
+    // route remains codex-tui; this is test-fixture setup only.
+    writeFileSync(
+      join(codexHome, 'hooks.json'),
+      `${JSON.stringify(buildHrcCodexHooksConfig(CODEX_INTERACTIVE_HOOK_EVENTS), null, 2)}\n`
+    )
+    const spec: HarnessInvocationSpec = {
+      ...compiledSpec,
+      process: {
+        ...compiledSpec.process,
+        harnessTransport: { kind: 'pty' },
+      },
+      interaction: {
+        mode: 'interactive',
+        turnConcurrency: 'single',
+        inputQueue: 'none',
+      },
+      harness: {
+        frontend: 'codex-cli',
+        provider: 'openai',
+        driver: 'codex-cli-tmux',
+      },
+      driver: {
+        kind: 'codex-cli-tmux',
+        terminalHost: 'tmux',
+        hookBridge: 'codex-hooks/v1',
+      },
+    }
     const invocationId = (spec.invocationId ??
       `inv_matrix_codex_tmux_${ctx.marker}`) as InvocationId
-    await manager.start(spec, driver, undefined, undefined, { terminalSurface: allocated.lease })
+    await manager.start(spec, driver, undefined, undefined, {
+      terminalSurface: allocated.lease,
+    })
 
     const surfaceEvent = events.find((event) => event.type === 'terminal.surface.reported')
     const sp = surfaceEvent?.payload as
@@ -1933,7 +2549,11 @@ async function runCodexTmuxRow(
       typeof sp.sessionName === 'string' &&
       typeof sp.paneId === 'string'
     ) {
-      surface = { socketPath: sp.socketPath, sessionName: sp.sessionName, paneId: sp.paneId }
+      surface = {
+        socketPath: sp.socketPath,
+        sessionName: sp.sessionName,
+        paneId: sp.paneId,
+      }
       result.notes['surface'] = surface
     }
 
@@ -1963,9 +2583,10 @@ async function runCodexTmuxRow(
     // sending it again races the active launch turn and correctly gets
     // `busy_rejected`.
     const initialTurnObserved = await waitForAdditionalTerminalTurn(events, 0, ctx.turnTimeoutMs)
-    const scriptedTurns: Array<{ prompt: string; terminalTurnObserved: boolean }> = [
-      { prompt: prompts[0], terminalTurnObserved: initialTurnObserved },
-    ]
+    const scriptedTurns: Array<{
+      prompt: string
+      terminalTurnObserved: boolean
+    }> = [{ prompt: prompts[0], terminalTurnObserved: initialTurnObserved }]
     let narrationTurnIds: string[] = []
     for (const prompt of prompts.slice(1)) {
       const baseline = terminalTurnCount(events)
@@ -2134,7 +2755,11 @@ async function runCodexTmuxRow(
 
     await manager.stop({ invocationId, reason: 'matrix complete' })
     await manager.dispose({ invocationId })
-    tmuxServerEvents.push({ owner: 'harness', action: 'kill-server', socketPath })
+    tmuxServerEvents.push({
+      owner: 'harness',
+      action: 'kill-server',
+      socketPath,
+    })
     result.notes['tmuxServerEvents'] = [...tmuxServerEvents]
   } finally {
     if (surfaceId !== undefined) {
@@ -2313,7 +2938,11 @@ function piTuiCompileRequest(input: {
       projectRoot: input.projectRoot,
       cwd: input.projectRoot,
       runMode: 'task',
-      bundle: { kind: 'agent-project', agentName: 'curly', projectRoot: input.projectRoot },
+      bundle: {
+        kind: 'agent-project',
+        agentName: 'curly',
+        projectRoot: input.projectRoot,
+      },
       correlation: {
         sessionRef: {
           scopeRef: 'agent:curly:project:agent-spaces:task:T-04866',
@@ -2344,10 +2973,19 @@ function piTuiCompileRequest(input: {
     hrcPolicy: {
       permissionPolicy: allowPermissionPolicy(),
       inputPolicy: DEFAULT_CODEX_BROKER_INPUT_POLICY,
-      exposurePolicy: { mode: 'broker-reports-target', targetKind: 'tmux-session' },
-      resourceLimits: { startupTimeoutMs: input.timeoutMs, turnTimeoutMs: input.timeoutMs },
+      exposurePolicy: {
+        mode: 'broker-reports-target',
+        targetKind: 'tmux-session',
+      },
+      resourceLimits: {
+        startupTimeoutMs: input.timeoutMs,
+        turnTimeoutMs: input.timeoutMs,
+      },
       observability: { traceId: identity.traceId },
-      capabilityPolicy: { allowDegrade: false, requireBrokerDefaultForCodexHeadless: true },
+      capabilityPolicy: {
+        allowDegrade: false,
+        requireBrokerDefaultForCodexHeadless: true,
+      },
     },
     correlation: {
       requestId: identity.requestId,
@@ -2399,7 +3037,12 @@ async function runPiTuiTmuxRow(
   const ledger = new PreHrcBrokerEventLedger()
   const tmuxArgv: string[][] = []
   let surface:
-    | { socketPath: string; sessionName: string; paneId: string; sessionId?: string | undefined }
+    | {
+        socketPath: string
+        sessionName: string
+        paneId: string
+        sessionId?: string | undefined
+      }
     | undefined
   let surfaceId: string | undefined
   try {
@@ -2470,7 +3113,16 @@ async function runPiTuiTmuxRow(
       })
     }
 
-    await runMatrixTmux(ctx.tmuxBin, ['-S', socketPath, 'start-server'])
+    await runMatrixTmux(ctx.tmuxBin, [
+      '-S',
+      socketPath,
+      'start-server',
+      ';',
+      'set-option',
+      '-s',
+      'exit-empty',
+      'off',
+    ])
     const allocated = await allocatePreHrcTmuxPane({
       tmuxBin: ctx.tmuxBin,
       socketPath,
@@ -2509,7 +3161,12 @@ async function runPiTuiTmuxRow(
     })
     const surfaceEvent = events.find((event) => event.type === 'terminal.surface.reported')
     const sp = surfaceEvent?.payload as
-      | { socketPath?: string; sessionName?: string; paneId?: string; sessionId?: string }
+      | {
+          socketPath?: string
+          sessionName?: string
+          paneId?: string
+          sessionId?: string
+        }
       | undefined
     if (
       sp !== undefined &&
@@ -2535,7 +3192,10 @@ async function runPiTuiTmuxRow(
       })
     }
 
-    const scriptedTurns: Array<{ prompt: string; terminalTurnObserved: boolean }> = []
+    const scriptedTurns: Array<{
+      prompt: string
+      terminalTurnObserved: boolean
+    }> = []
     let narrationTurnIds: string[] = []
     for (const prompt of prompts) {
       const baseline = terminalTurnCount(events)
@@ -2732,7 +3392,11 @@ export function piSdkBrokerCompileRequest(input: {
       projectRoot: input.projectRoot,
       cwd: input.projectRoot,
       runMode: 'task',
-      bundle: { kind: 'agent-project', agentName: 'curly', projectRoot: input.projectRoot },
+      bundle: {
+        kind: 'agent-project',
+        agentName: 'curly',
+        projectRoot: input.projectRoot,
+      },
       correlation: {
         sessionRef: {
           scopeRef: 'agent:curly:project:agent-spaces:task:T-01669',
@@ -2763,7 +3427,10 @@ export function piSdkBrokerCompileRequest(input: {
       // This real command-turn certification row is allowed to execute its
       // canonical `printf` command. Production omission remains fail-closed.
       permissionPolicy: { mode: 'allow' },
-      resourceLimits: { startupTimeoutMs: input.timeoutMs, turnTimeoutMs: input.timeoutMs },
+      resourceLimits: {
+        startupTimeoutMs: input.timeoutMs,
+        turnTimeoutMs: input.timeoutMs,
+      },
       observability: { traceId: ids.traceId },
     },
     correlation: {
@@ -2902,7 +3569,12 @@ function assertPiSdkContinuation(events: InvocationEventEnvelope[]): Failure[] {
   const continuation = events.find((event) => event.type === 'continuation.updated')
   const payload = asRecord(continuation?.payload)
   if (continuation === undefined) {
-    return [{ code: 'pi_continuation_missing', message: 'no continuation.updated event emitted' }]
+    return [
+      {
+        code: 'pi_continuation_missing',
+        message: 'no continuation.updated event emitted',
+      },
+    ]
   }
   if (payload?.['kind'] !== 'session' || typeof payload['key'] !== 'string') {
     return [
@@ -3286,16 +3958,28 @@ function unixFixtureSpec(opts: {
     specVersion: 'harness-broker.invocation/v1',
     invocationId: opts.identity.invocationId as InvocationId,
     labels: { package: 'pre-hrc-matrix', scenario: opts.scenario },
-    harness: { frontend: 'codex', provider: 'openai', driver: 'codex-app-server' },
+    harness: {
+      frontend: 'codex',
+      provider: 'openai',
+      driver: 'codex-app-server',
+    },
     process: {
       command: process.execPath,
       args: [join(fixtureDir, `${opts.scenario}.ts`)],
       cwd: opts.repoRoot,
       harnessTransport: { kind: 'jsonrpc-stdio' },
-      limits: { startupTimeoutMs: 5000, turnTimeoutMs: 15_000, stopGraceMs: 100 },
+      limits: {
+        startupTimeoutMs: 5000,
+        turnTimeoutMs: 15_000,
+        stopGraceMs: 100,
+      },
       ...(opts.marker !== undefined ? { lockedEnv: { ASP_MATRIX_FAKE_MARKER: opts.marker } } : {}),
     },
-    interaction: { mode: 'headless', turnConcurrency: 'single', inputQueue: 'none' },
+    interaction: {
+      mode: 'headless',
+      turnConcurrency: 'single',
+      inputQueue: 'none',
+    },
     correlation: {
       runtimeId: opts.identity.runtimeId,
       hostSessionId: opts.identity.hostSessionId,
@@ -3404,16 +4088,31 @@ function unixUnsupportedStructuredSpec(
   return {
     specVersion: 'harness-broker.invocation/v1',
     invocationId: identity.invocationId as InvocationId,
-    labels: { package: 'pre-hrc-matrix', scenario: 'structured-output-unsupported' },
-    harness: { frontend: 'codex', provider: 'openai', driver: 'codex-cli-tmux' },
+    labels: {
+      package: 'pre-hrc-matrix',
+      scenario: 'structured-output-unsupported',
+    },
+    harness: {
+      frontend: 'codex',
+      provider: 'openai',
+      driver: 'codex-cli-tmux',
+    },
     process: {
       command: '/bin/sleep',
       args: ['10'],
       cwd: repoRoot,
       harnessTransport: { kind: 'pty' },
-      limits: { startupTimeoutMs: 5000, turnTimeoutMs: 15_000, stopGraceMs: 100 },
+      limits: {
+        startupTimeoutMs: 5000,
+        turnTimeoutMs: 15_000,
+        stopGraceMs: 100,
+      },
     },
-    interaction: { mode: 'interactive', turnConcurrency: 'single', inputQueue: 'fifo' },
+    interaction: {
+      mode: 'interactive',
+      turnConcurrency: 'single',
+      inputQueue: 'fifo',
+    },
     correlation: {
       runtimeId: identity.runtimeId,
       hostSessionId: identity.hostSessionId,
@@ -3535,7 +4234,11 @@ async function unixAttachReplay(ctx: RowContext, result: RowResult): Promise<voi
     first = await connectUnix(handle.socketPath)
     await first.hello(unixHelloRequest)
     const started = await first.startInvocationFromRequest({
-      spec: unixFixtureSpec({ repoRoot: ctx.repoRoot, scenario: 'three-turns', identity }),
+      spec: unixFixtureSpec({
+        repoRoot: ctx.repoRoot,
+        scenario: 'three-turns',
+        identity,
+      }),
     })
     await unixCollectUntil(started.events, 'invocation.ready', ctx.turnTimeoutMs)
     const driven = await first.input({
@@ -3586,7 +4289,10 @@ async function unixAttachReplay(ctx: RowContext, result: RowResult): Promise<voi
     }
 
     // Replay the durable ledger and assert monotonic, gap-free, no-duplicate.
-    const replay = await second.eventsSince({ invocationId: identity.invocationId, afterSeq: 0 })
+    const replay = await second.eventsSince({
+      invocationId: identity.invocationId,
+      afterSeq: 0,
+    })
     const seqs = replay.events.map((e) => e.seq)
     const sorted = [...seqs].sort((a, b) => a - b)
     if (JSON.stringify(seqs) !== JSON.stringify(sorted)) {
@@ -3654,7 +4360,11 @@ async function unixInputIdempotency(ctx: RowContext, result: RowResult): Promise
     first = await connectUnix(handle.socketPath)
     await first.hello(unixHelloRequest)
     const started = await first.startInvocationFromRequest({
-      spec: unixFixtureSpec({ repoRoot: ctx.repoRoot, scenario: 'three-turns', identity }),
+      spec: unixFixtureSpec({
+        repoRoot: ctx.repoRoot,
+        scenario: 'three-turns',
+        identity,
+      }),
     })
     await unixCollectUntil(started.events, 'invocation.ready', ctx.turnTimeoutMs)
 
@@ -3662,7 +4372,10 @@ async function unixInputIdempotency(ctx: RowContext, result: RowResult): Promise
       'Idempotent payload that must survive reconnect.',
       `input_${ctx.marker}_idem`
     )
-    const original = await first.input({ invocationId: identity.invocationId, input })
+    const original = await first.input({
+      invocationId: identity.invocationId,
+      input,
+    })
 
     // Disconnect and reconnect.
     await first.close()
@@ -3688,7 +4401,10 @@ async function unixInputIdempotency(ctx: RowContext, result: RowResult): Promise
     try {
       await second.input({
         invocationId: identity.invocationId,
-        input: { ...input, content: [{ type: 'text', text: 'Conflicting retry payload.' }] },
+        input: {
+          ...input,
+          content: [{ type: 'text', text: 'Conflicting retry payload.' }],
+        },
       })
     } catch (error) {
       conflicted = (error as { code?: unknown }).code === BrokerErrorCode.DuplicateInputConflict
@@ -3780,7 +4496,10 @@ async function unixPendingPermission(ctx: RowContext, result: RowResult): Promis
       })
       return
     }
-    const surfaced = pending[0] as { permissionRequestId?: unknown; deadlineAt?: unknown }
+    const surfaced = pending[0] as {
+      permissionRequestId?: unknown
+      deadlineAt?: unknown
+    }
     if (surfaced.permissionRequestId !== permissionRequest.permissionRequestId) {
       result.extraFailures.push({
         code: 'unix_pending_permission_id_mismatch',
@@ -3830,7 +4549,11 @@ async function unixBrokerSurvivesClose(ctx: RowContext, result: RowResult): Prom
     client = await connectUnix(handle.socketPath)
     await client.hello(unixHelloRequest)
     const started = await client.startInvocationFromRequest({
-      spec: unixFixtureSpec({ repoRoot: ctx.repoRoot, scenario: 'three-turns', identity }),
+      spec: unixFixtureSpec({
+        repoRoot: ctx.repoRoot,
+        scenario: 'three-turns',
+        identity,
+      }),
     })
     await unixCollectUntil(started.events, 'invocation.ready', ctx.turnTimeoutMs)
 
@@ -3904,7 +4627,10 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
   {
     name: 'fake-codex',
     description: 'codex-app-server headless against a deterministic fixture (CI-safe)',
-    probe: async () => ({ available: true, reason: 'fake fixture is always available' }),
+    probe: async () => ({
+      available: true,
+      reason: 'fake fixture is always available',
+    }),
     run: async (ctx) => {
       const fixture = createFakeCodexFixture(ctx.repoRoot)
       try {
@@ -3948,7 +4674,10 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
         }
       }
       if (!existsSync(join(process.env['HOME'] ?? '', '.codex', 'auth.json'))) {
-        return { available: false, reason: 'codex auth (~/.codex/auth.json) not present' }
+        return {
+          available: false,
+          reason: 'codex auth (~/.codex/auth.json) not present',
+        }
       }
       return { available: true, reason: `real codex at ${codex}` }
     },
@@ -3982,6 +4711,24 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
     },
   },
   {
+    name: 'codex-tui',
+    description: 'codex-app-server websocket-unix with stock Codex TUI in a leased pane',
+    probe: async () => {
+      const codex = resolveRealCodexBin()
+      if (codex === undefined) {
+        return { available: false, reason: 'real codex binary not found' }
+      }
+      if (!existsSync(join(process.env['HOME'] ?? '', '.codex', 'auth.json'))) {
+        return {
+          available: false,
+          reason: 'codex auth (~/.codex/auth.json) not present',
+        }
+      }
+      return { available: true, reason: `real codex at ${codex}` }
+    },
+    run: runCodexTuiRow,
+  },
+  {
     name: 'real-codex-tmux',
     description: 'codex-cli-tmux interactive-tmux against the REAL codex binary',
     probe: async () => {
@@ -3994,7 +4741,10 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
         }
       }
       if (!existsSync(join(process.env['HOME'] ?? '', '.codex', 'auth.json'))) {
-        return { available: false, reason: 'codex auth (~/.codex/auth.json) not present' }
+        return {
+          available: false,
+          reason: 'codex auth (~/.codex/auth.json) not present',
+        }
       }
       if (!existsSync(resolveTmuxBin()) && resolveTmuxBin() === 'tmux') {
         return { available: false, reason: 'tmux not found' }
@@ -4016,11 +4766,17 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
         }
       }
       if (!existsSync(join(process.env['HOME'] ?? '', '.codex', 'auth.json'))) {
-        return { available: false, reason: 'codex auth (~/.codex/auth.json) not present' }
+        return {
+          available: false,
+          reason: 'codex auth (~/.codex/auth.json) not present',
+        }
       }
       const gmux = await ghostmuxAvailable('ghostmux')
       if (!gmux.available) return gmux
-      return { available: true, reason: `${gmux.reason}; real codex at ${codex}` }
+      return {
+        available: true,
+        reason: `${gmux.reason}; real codex at ${codex}`,
+      }
     },
     run: async (ctx) => runCodexTmuxRow(ctx, { ghostmuxOperator: true }),
   },
@@ -4030,7 +4786,10 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
     probe: async () => {
       const claude = resolveClaudeBin()
       if (claude === undefined) {
-        return { available: false, reason: 'claude binary not found (set ASP_CLAUDE_PATH)' }
+        return {
+          available: false,
+          reason: 'claude binary not found (set ASP_CLAUDE_PATH)',
+        }
       }
       if (!existsSync(resolveTmuxBin()) && resolveTmuxBin() === 'tmux') {
         return { available: false, reason: 'tmux not found' }
@@ -4192,7 +4951,10 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
     probe: async () => {
       const claude = resolveClaudeBin()
       if (claude === undefined) {
-        return { available: false, reason: 'claude binary not found (set ASP_CLAUDE_PATH)' }
+        return {
+          available: false,
+          reason: 'claude binary not found (set ASP_CLAUDE_PATH)',
+        }
       }
       if (!existsSync(resolveTmuxBin()) && resolveTmuxBin() === 'tmux') {
         return { available: false, reason: 'tmux not found' }
@@ -4504,11 +5266,17 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
     probe: async () => {
       const claude = resolveClaudeBin()
       if (claude === undefined) {
-        return { available: false, reason: 'claude binary not found (set ASP_CLAUDE_PATH)' }
+        return {
+          available: false,
+          reason: 'claude binary not found (set ASP_CLAUDE_PATH)',
+        }
       }
       const gmux = await ghostmuxAvailable('ghostmux')
       if (!gmux.available) return gmux
-      return { available: true, reason: `${gmux.reason}; real claude at ${claude}` }
+      return {
+        available: true,
+        reason: `${gmux.reason}; real claude at ${claude}`,
+      }
     },
     run: async (ctx) => {
       const aspHome = mkdtempSync(join(tmpdir(), 'asp-matrix-ghostmux-'))
@@ -4782,12 +5550,21 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
     probe: async () => {
       const broker = resolveHarnessBrokerPiBin()
       if (broker === undefined) {
-        return { available: false, reason: 'harness-broker-pi binary not found on PATH' }
+        return {
+          available: false,
+          reason: 'harness-broker-pi binary not found on PATH',
+        }
       }
       if (process.env['OPENAI_API_KEY'] === undefined) {
-        return { available: false, reason: 'OPENAI_API_KEY is not present for the pi SDK driver' }
+        return {
+          available: false,
+          reason: 'OPENAI_API_KEY is not present for the pi SDK driver',
+        }
       }
-      return { available: true, reason: `installed broker at ${broker}; OPENAI_API_KEY present` }
+      return {
+        available: true,
+        reason: `installed broker at ${broker}; OPENAI_API_KEY present`,
+      }
     },
     run: async (ctx) => runPiSdkDriverRow(ctx),
   },
@@ -4797,11 +5574,17 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
     probe: async () => {
       const pi = resolveRealPiBin()
       if (pi === undefined) {
-        return { available: false, reason: 'real pi binary not found (set ASP_PI_PATH)' }
+        return {
+          available: false,
+          reason: 'real pi binary not found (set ASP_PI_PATH)',
+        }
       }
       const authPath = join(process.env['HOME'] ?? '', '.pi', 'agent', 'auth.json')
       if (!existsSync(authPath)) {
-        return { available: false, reason: `pi auth (${authPath}) not present` }
+        return {
+          available: false,
+          reason: `pi auth (${authPath}) not present`,
+        }
       }
       if (!existsSync(resolveTmuxBin()) && resolveTmuxBin() === 'tmux') {
         return { available: false, reason: 'tmux not found' }
@@ -4816,11 +5599,17 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
     probe: async () => {
       const pi = resolveRealPiBin()
       if (pi === undefined) {
-        return { available: false, reason: 'real pi binary not found (set ASP_PI_PATH)' }
+        return {
+          available: false,
+          reason: 'real pi binary not found (set ASP_PI_PATH)',
+        }
       }
       const authPath = join(process.env['HOME'] ?? '', '.pi', 'agent', 'auth.json')
       if (!existsSync(authPath)) {
-        return { available: false, reason: `pi auth (${authPath}) not present` }
+        return {
+          available: false,
+          reason: `pi auth (${authPath}) not present`,
+        }
       }
       const gmux = await ghostmuxAvailable('ghostmux')
       if (!gmux.available) return gmux
@@ -4935,7 +5724,10 @@ export async function runPreHrcBrokerMatrixE2e(
         observedTurnIds: [],
         compile: {},
         floorFailures: [
-          { code: 'row_threw', message: error instanceof Error ? error.message : String(error) },
+          {
+            code: 'row_threw',
+            message: error instanceof Error ? error.message : String(error),
+          },
         ],
         contractFailures: [],
         extraFailures: [],
