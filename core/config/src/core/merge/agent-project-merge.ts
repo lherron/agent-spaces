@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { PROVISIONING_SCALAR_KEYS, type ProvisioningScalars } from 'agent-scope'
 
 import { ConfigValidationError } from '../errors.js'
 import type { ValidationError } from '../schemas/index.js'
@@ -13,6 +14,8 @@ export interface EffectiveTargetConfig {
   compose: SpaceRefString[]
   yolo: boolean
   remoteControl: boolean
+  /** Canonical scalar-keyed provisioning result; target values override agent values. */
+  provisioning: ProvisioningScalars
   harness: string
   model?: string | undefined
   reasoning?: string | undefined
@@ -21,6 +24,28 @@ export interface EffectiveTargetConfig {
   claude: ClaudeOptions
   codex: CodexOptions
   description?: string | undefined
+}
+
+function mergeProvisioningScalars(
+  agentProvisioning: AgentRuntimeProfile['provisioning'],
+  targetProvisioning: TargetDefinition['provisioning']
+): ProvisioningScalars {
+  const merged: Record<string, string | boolean> = {}
+
+  for (const key of PROVISIONING_SCALAR_KEYS) {
+    const value = targetProvisioning?.[key] ?? agentProvisioning?.[key]
+    if (value !== undefined) {
+      merged[key] = value
+    }
+  }
+
+  // These two booleans have always defaulted to false in the effective merge.
+  // Keep that per-key behavior without materializing defaults for absent scalars
+  // such as viewer, whose absence is meaningful to downstream consumers.
+  merged['yolo'] ??= false
+  merged['remote'] ??= false
+
+  return merged as ProvisioningScalars
 }
 
 function conflict(path: string, message: string): ConfigValidationError {
@@ -115,9 +140,10 @@ export function mergeAgentWithProjectTarget(
 ): EffectiveTargetConfig {
   const agentProvisioning = profile.provisioning
   const targetProvisioning = projectTarget?.provisioning
-  const reasoning = targetProvisioning?.reasoning ?? agentProvisioning?.reasoning
-  const sandbox = targetProvisioning?.sandbox ?? agentProvisioning?.sandbox
-  const approval = targetProvisioning?.approval ?? agentProvisioning?.approval
+  const provisioning = mergeProvisioningScalars(agentProvisioning, targetProvisioning)
+  const reasoning = provisioning.reasoning
+  const sandbox = provisioning.sandbox
+  const approval = provisioning.approval
   const claude = mergeClaudeOptions(agentProvisioning?.claude, targetProvisioning?.claude)
   const codex = mergeCodexOptions(agentProvisioning?.codex, targetProvisioning?.codex)
   if (reasoning !== undefined) codex.model_reasoning_effort = reasoning
@@ -127,16 +153,17 @@ export function mergeAgentWithProjectTarget(
   return {
     priming: mergePrimingPrompt(profile.priming, projectTarget),
     compose: resolveEffectiveCompose(profile, projectTarget, runMode),
-    yolo: targetProvisioning?.yolo ?? agentProvisioning?.yolo ?? false,
-    remoteControl: targetProvisioning?.remote ?? agentProvisioning?.remote ?? false,
-    harness: targetProvisioning?.harness ?? agentProvisioning?.harness ?? 'claude-code',
-    model: targetProvisioning?.model ?? agentProvisioning?.model,
+    yolo: provisioning.yolo ?? false,
+    remoteControl: provisioning.remote ?? false,
+    harness: provisioning.harness ?? 'claude-code',
+    model: provisioning.model,
     reasoning,
     sandbox,
     approval,
     claude,
     codex,
     description: projectTarget?.description,
+    provisioning,
   }
 }
 

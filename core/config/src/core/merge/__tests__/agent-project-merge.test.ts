@@ -26,6 +26,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { PROVISIONING_SCALAR_KINDS, type ProvisioningScalars } from 'agent-scope'
 
 import { ConfigValidationError } from '../../errors.js'
 import type { AgentRuntimeProfile } from '../../types/agent-profile.js'
@@ -68,6 +69,120 @@ function makeTarget(overrides: Partial<TargetDefinition> = {}): TargetDefinition
     ...overrides,
   }
 }
+
+function scalarValues(prefix: string, booleanValue: boolean): ProvisioningScalars {
+  return Object.fromEntries(
+    Object.entries(PROVISIONING_SCALAR_KINDS).map(([key, kind]) => [
+      key,
+      kind === 'boolean' ? booleanValue : `${prefix}-${key}`,
+    ])
+  ) as ProvisioningScalars
+}
+
+describe('mergeAgentWithProjectTarget: legacy projection characterization', () => {
+  test('full named-field result and override precedence stay byte-identical', () => {
+    const profile = makeProfile({
+      priming: 'Agent priming.',
+      spaces: { base: ['space:agent@dev' as SpaceRefString] },
+      provisioning: {
+        harness: 'agent-harness',
+        model: 'agent-model',
+        reasoning: 'agent-reasoning',
+        sandbox: 'read-only',
+        approval: 'on-request',
+        claude: {
+          model: 'agent-claude-model',
+          permission_mode: 'agent-permission',
+          args: ['--agent'],
+        },
+        codex: {
+          model: 'agent-codex-model',
+          model_reasoning_effort: 'low',
+          model_reasoning_summary: 'concise',
+          status_line: ['agent-status'],
+          approval_policy: 'untrusted',
+          sandbox_mode: 'read-only',
+          profile: 'agent-profile',
+        },
+      },
+    })
+    const target = makeTarget({
+      description: 'Project description.',
+      priming: 'Project priming.',
+      compose: ['space:project@dev' as SpaceRefString],
+      provisioning: {
+        harness: 'target-harness',
+        model: 'target-model',
+        reasoning: 'target-reasoning',
+        sandbox: 'danger-full-access',
+        approval: 'never',
+        claude: {
+          model: 'target-claude-model',
+          permission_mode: 'target-permission',
+          args: ['--target'],
+        },
+        codex: {
+          model: 'target-codex-model',
+          model_reasoning_effort: 'medium',
+          model_reasoning_summary: 'detailed',
+          status_line: ['target-status'],
+          approval_policy: 'on-failure',
+          sandbox_mode: 'workspace-write',
+          profile: 'target-profile',
+        },
+      },
+    })
+
+    const result = mergeAgentWithProjectTarget(profile, target, 'query')
+    const { provisioning: _provisioning, ...legacyProjection } = result
+
+    expect(JSON.stringify(legacyProjection)).toBe(
+      '{"priming":"Project priming.","compose":["space:project@dev"],"yolo":false,"remoteControl":false,"harness":"target-harness","model":"target-model","reasoning":"target-reasoning","sandbox":"danger-full-access","approval":"never","claude":{"model":"target-claude-model","permission_mode":"target-permission","args":["--target"]},"codex":{"model":"target-codex-model","model_reasoning_effort":"target-reasoning","model_reasoning_summary":"detailed","status_line":["target-status"],"approval_policy":"never","sandbox_mode":"danger-full-access","profile":"target-profile"},"description":"Project description."}'
+    )
+  })
+})
+
+describe('mergeAgentWithProjectTarget: structural provisioning scalars', () => {
+  test('carries viewer from an agent profile and preserves its absence', () => {
+    const withViewer = mergeAgentWithProjectTarget(
+      makeProfile({ provisioning: { viewer: 'none' } }),
+      undefined,
+      'query'
+    )
+    const withoutViewer = mergeAgentWithProjectTarget(
+      makeProfile({ provisioning: { harness: 'codex' } }),
+      undefined,
+      'query'
+    )
+
+    expect(withViewer.provisioning.viewer).toBe('none')
+    expect(Object.hasOwn(withoutViewer.provisioning, 'viewer')).toBe(false)
+    expect(withoutViewer.provisioning).toEqual({ harness: 'codex', yolo: false, remote: false })
+  })
+
+  test('carries node without naming that scalar in the merge implementation', () => {
+    const result = mergeAgentWithProjectTarget(
+      makeProfile({ provisioning: { node: 'agent-node' } }),
+      undefined,
+      'query'
+    )
+
+    expect(result.provisioning.node).toBe('agent-node')
+  })
+
+  test('project target wins independently for every declared scalar', () => {
+    const agentScalars = scalarValues('agent', true)
+    const targetScalars = scalarValues('target', false)
+    const result = mergeAgentWithProjectTarget(
+      makeProfile({ provisioning: agentScalars }),
+      makeTarget({ provisioning: targetScalars }),
+      'query'
+    )
+
+    expect(result.provisioning).toEqual(targetScalars)
+    expect(result.remoteControl).toBe(false)
+  })
+})
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Agent-only (no project target)
