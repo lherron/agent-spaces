@@ -55,9 +55,16 @@ predicate: >
   refusal, native recall, and definitive teardown retain their truthful
   outcomes. Teardown ends process-local tracking and proves no native removal;
   this repair establishes no live reattach or restart reconstruction.
+  An evidenced Claude start naming a pending input selects that exact identity
+  before any ordering fallback, regardless of age or allocated turn-number
+  order. Provider queue evidence may establish FIFO among identical bodies;
+  multiple unclassified identical candidates without identity or order evidence
+  remain unresolved with a diagnostic, never selected by oldest or newest age.
+  Full-body contains attribution must also be unambiguous. Ambiguity preserves
+  candidate correlations until native settlement, confirmed recall, or teardown.
 authority:
   repo: agent-spaces
-  surface: wrkq T-07849 rev 11 approved by Daedalus on Lance's authority; amended by Daedalus approvals of wrkq T-07962 rev 3 on 2026-09-03, wrkq T-08097 rev 13 on 2026-09-05, and wrkq T-08204 rev 2 (C-19934) on 2026-09-07
+  surface: wrkq T-07849 rev 11 approved by Daedalus on Lance's authority; amended by Daedalus approvals of wrkq T-07962 rev 3 on 2026-09-03, wrkq T-08097 rev 13 on 2026-09-05, and wrkq T-08204 rev 2 (C-19934) plus rev 3 attribution reconciliation on 2026-09-07
 source:
   - wrkq:T-07849
   - wrkq:T-07962
@@ -88,6 +95,7 @@ required_tests:
   - before-paste refusal paste-to-Enter failure and after-submit failure preserve truthful deliveryEvidence and possibly-written correlation through later native consumption without terminal rejection
   - an injected Claude body pending beyond 60 seconds does not fail the invocation lose its correlation or gain retry authority from elapsed time
   - real Claude matrix evidence covers delayed consumption and mid-turn absorption with native rows broker sequences and stable input identities
+  - T-08107 archived _5 and _12 sequence preserves independently named input attribution despite out-of-order turn numbers while ambiguous unclassified identical and contains candidates remain unresolved without age-based selection
 last_verified:
   date: 2026-09-05
   evidence: Daedalus source-grounded approvals of T-07962 rev 3 and T-08097 rev 13 established content-evidence codex-cli-tmux attribution plus observed codex-tui bracket and attribution semantics with indeterminate lost-correlation failure; implementation gates remain pending
@@ -101,5 +109,6 @@ reopen_when:
   - an observed bracket borrows pending identity attribution follows anything but committed item evidence or an unknown terminal permits later same-seat drain
   - a Claude admission-slot release timer or possibly-written rejection settles the input erases correlation or authorizes reinjection without native evidence
   - deliveryEvidence changes meaning or absence becomes proof of no write
+  - Claude correlation overrides a named input uses age to select ambiguous bodies or treats allocated turn-number order as provider evidence
 supersedes: []
 superseded_by: null
