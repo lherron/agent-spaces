@@ -13,7 +13,7 @@ export const CODEX_CAPABILITIES: InvocationCapabilities = {
   bracketMintingMode: 'delivery-acknowledged',
   queue: { cancelHarnessLocal: false },
   preempt: { mode: 'atomic' },
-  steer: { landingEvidence: 'ack' },
+  steer: { landingEvidence: 'transcript' },
   interrupt: { landingEvidence: 'ack' },
   input: {
     user: true,

@@ -784,7 +784,7 @@ describe('broker admission API', () => {
     ).toHaveLength(1)
   })
 
-  test('steer is absorbed on open turns and rejected by guarded turn policy', async () => {
+  test('steer stays pending until evidence on open turns and is rejected by guarded policy', async () => {
     const open = await setup('inv_admission_steer_open')
     const started = await open.broker.invoke({
       invocationId: open.invocationId,
@@ -799,15 +799,18 @@ describe('broker admission API', () => {
     })
     await flush()
     expect(steered.admission).toBe('admitted')
-    expect(eventsFor(open.events, 'submission.absorbed').at(-1)?.payload).toMatchObject({
-      submissionId: steered.submissionId,
+    expect(eventsFor(open.events, 'input.accepted').at(-1)?.payload).toMatchObject({
+      inputId: steered.submissionId,
+      disposition: 'attempted_steer',
     })
-    const turnId = (
-      eventsFor(open.events, 'submission.absorbed').at(-1)?.payload as
-        | { turnId?: string }
-        | undefined
-    )?.turnId
+    expect(eventsFor(open.events, 'submission.absorbed')).toHaveLength(0)
+    const turnId = open.controller.activeTurnId
     expect(turnId).toBeDefined()
+    open.controller.emitRaw(
+      'submission.absorbed',
+      { submissionId: steered.submissionId, turnId: turnId! },
+      { turnId: turnId!, inputId: steered.submissionId }
+    )
     expect(
       await open.broker.turnManifest({ invocationId: open.invocationId, turnId: turnId! })
     ).toMatchObject({
@@ -832,6 +835,31 @@ describe('broker admission API', () => {
       layer: 'policy',
     })
   })
+
+  test.each(['ack', 'asserted', null] as const)(
+    'does not infer steer absorption from %s landing evidence',
+    async (landingEvidence) => {
+      const run = await setup(`inv_no_inferred_absorption_${landingEvidence ?? 'none'}`, {
+        steerLandingEvidence: landingEvidence,
+      })
+      await run.broker.invoke({ invocationId: run.invocationId, origin, body: 'active' })
+      await flush()
+
+      const steered = await run.broker.steer({
+        invocationId: run.invocationId,
+        origin,
+        body: 'accepted but not evidenced',
+      })
+      await flush()
+
+      expect(steered.admission).toBe('admitted')
+      expect(
+        eventsFor(run.events, 'submission.absorbed').filter(
+          (event) => event.payload.submissionId === steered.submissionId
+        )
+      ).toHaveLength(0)
+    }
+  )
 
   test('authority rejection is typed and preempt atomic interrupts then starts its own turn', async () => {
     const denied = await setup('inv_admission_authority', {}, { authorizeSubmission: () => false })

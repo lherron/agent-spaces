@@ -76,6 +76,7 @@ export interface TestDriverOptions {
   failInputIds?: Iterable<string> | undefined
   inputCapabilities?: Partial<InvocationCapabilities['input']> | undefined
   supportsSteer?: boolean | undefined
+  steerLandingEvidence?: Driver['steerLandingEvidence'] | undefined
   /**
    * When true, `applyInputNow` returns the allocated turnId but does NOT emit
    * its own `turn.started` — modelling a claude-code-tmux idle dispatch where
@@ -160,7 +161,14 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
     },
     bracketMintingMode: options.bracketMintingMode ?? 'delivery-asserted',
     preempt: { mode: preemptMode },
-    steer: { landingEvidence: options.supportsSteer === true ? 'asserted' : null },
+    steer: {
+      landingEvidence:
+        options.steerLandingEvidence !== undefined
+          ? options.steerLandingEvidence
+          : options.supportsSteer === true
+            ? 'asserted'
+            : null,
+    },
     input: {
       ...TEST_CAPABILITIES.input,
       ...options.inputCapabilities,
@@ -356,7 +364,12 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
     evidenceAuthority: options.evidenceAuthority ?? BROKER_ONLY_AUTHORITY,
     nativeSourceKind: options.nativeSourceKind ?? 'provider-jsonl',
     preemptMode,
-    steerLandingEvidence: options.supportsSteer ? 'asserted' : null,
+    steerLandingEvidence:
+      options.steerLandingEvidence !== undefined
+        ? options.steerLandingEvidence
+        : options.supportsSteer
+          ? 'asserted'
+          : null,
     interruptLandingEvidence: null,
 
     ...(options.admissionRejectionReason !== undefined

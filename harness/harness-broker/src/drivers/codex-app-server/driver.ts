@@ -41,7 +41,13 @@ import type { TmuxExec, TmuxPaneController } from '../../runtime/tmux'
 import { writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
 import type { CodexCliTmuxHookEnvelope } from '../codex-cli-tmux/hook-events'
 import { extractCodexHookRecord } from '../codex-cli-tmux/hook-events'
-import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
+import {
+  type ApplyInputResult,
+  type Driver,
+  type DriverContext,
+  type DriverStartResult,
+  withDeliveryEvidence,
+} from '../driver'
 import { CODEX_APP_SERVER_AUTHORITY } from '../evidence-authority'
 import { createHookCaptureSeam } from '../hook-capture'
 import { getString } from '../hook-json'
@@ -103,6 +109,17 @@ interface TurnStartResponse {
   turn?: { id?: string | undefined } | undefined
 }
 
+interface TurnSteerResponse {
+  turnId?: string | undefined
+}
+
+interface PendingSteer {
+  inputId: InputId
+  threadId: string
+  turnId: TurnId
+  nativeObserved: boolean
+}
+
 type ChildProcess = Awaited<ReturnType<typeof spawnHarnessProcess>>
 type DriverEventExtra = NonNullable<Parameters<DriverContext['emit']>[2]>
 
@@ -152,6 +169,8 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
   let attachTokenPath: string | undefined
   let websocketSocketPath: string | undefined
   const pendingBrokerInputs = new Set<InputId>()
+  const pendingSteers = new Map<InputId, PendingSteer>()
+  const observedUserItems = new Set<string>()
   const queuedSubmissions = new Map<InputId, string>()
   const attributionByTurn = new Map<
     TurnId,
@@ -386,6 +405,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
   ): void {
     if (terminalEmitted) return
     terminalEmitted = true
+    pendingSteers.clear()
     emitCaptured('invocation.failed', {
       message,
       ...(code !== undefined ? { code } : {}),
@@ -483,12 +503,19 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
     queuedSubmissions.clear()
   }
 
-  function attributeFirstItem(notification: JsonRpcNotification): void {
-    if (!codexTui || notification.method !== 'item/started') return
+  function attributeFirstItem(
+    notification: JsonRpcNotification,
+    pendingSteer: PendingSteer | undefined
+  ): boolean {
+    if (!codexTui || notification.method !== 'item/started') return false
     const params = asFrameRecord(notification.params)
     const turn = frameString(params['turnId']) as TurnId | undefined
-    if (turn === undefined || firstItemSeen.has(turn)) return
+    if (turn === undefined || firstItemSeen.has(turn)) return false
     firstItemSeen.add(turn)
+    // A context-entry item can never initiate or re-own the turn it joins.
+    // Even in a provider-ordering anomaly where it is the first observed item,
+    // leave attribution unresolved rather than turning a steer into execution.
+    if (pendingSteer !== undefined) return true
     const item = asFrameRecord(params['item'])
     const itemType = frameString(item['type'])
     const clientId = frameString(item['clientId']) as InputId | undefined
@@ -502,48 +529,107 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
       } else {
         emitAttribution(turn, { ownership: 'foreign', origin: 'human' })
       }
+      return true
+    }
+    emitAttribution(turn, { ownership: 'foreign', origin: 'autonomous' })
+    return true
+  }
+
+  function normalizeCodexPrelude(notification: JsonRpcNotification): void {
+    if (notification.method === 'item/started') {
+      const params = asFrameRecord(notification.params)
+      const observedThreadId = frameString(params['threadId'])
+      const observedTurnId = frameString(params['turnId']) as TurnId | undefined
+      const item = asFrameRecord(params['item'])
+      const itemId = frameString(item['id'])
+      const clientId = frameString(item['clientId']) as InputId | undefined
+      const pendingSteer = clientId === undefined ? undefined : pendingSteers.get(clientId)
+      const exactPendingSteer =
+        pendingSteer !== undefined &&
+        observedThreadId === pendingSteer.threadId &&
+        observedTurnId === pendingSteer.turnId
+          ? pendingSteer
+          : undefined
+      const wasFirst = attributeFirstItem(notification, exactPendingSteer)
+
+      if (frameString(item['type']) !== 'userMessage') return
+      if (observedThreadId === undefined || observedTurnId === undefined || itemId === undefined) {
+        emitDiagnostic('warn', 'Codex user-message item lacks correlation identity', {
+          threadId: observedThreadId ?? null,
+          turnId: observedTurnId ?? null,
+          itemId: itemId ?? null,
+          clientId: clientId ?? null,
+        })
+        return
+      }
+
+      const observedKey = `${observedThreadId}\u0000${observedTurnId}\u0000${itemId}`
+      if (observedUserItems.has(observedKey)) return
+      observedUserItems.add(observedKey)
+
+      if (pendingSteer !== undefined && exactPendingSteer === undefined) {
+        emitDiagnostic(
+          'warn',
+          'Codex steered user-message arrived on an unexpected thread or turn',
+          {
+            inputId: pendingSteer.inputId,
+            expectedThreadId: pendingSteer.threadId,
+            observedThreadId,
+            expectedTurnId: pendingSteer.turnId,
+            observedTurnId,
+            itemId,
+          },
+          { turnId: observedTurnId, driver: { kind: 'codex-app-server' } }
+        )
+      }
+
       const content = normalizeUserMessageText(item)
-      if (content.length > 0) {
-        const attribution = attributionByTurn.get(turn)
+      if (exactPendingSteer !== undefined) {
+        exactPendingSteer.nativeObserved = true
+        emitCaptured(
+          'user.message',
+          { content, inputId: exactPendingSteer.inputId, role: 'user' },
+          {
+            turnId: observedTurnId,
+            inputId: exactPendingSteer.inputId,
+            driver: { kind: 'codex-app-server', rawType: 'item/started' },
+          }
+        )
+        emitCaptured(
+          'submission.absorbed',
+          { submissionId: exactPendingSteer.inputId, turnId: observedTurnId },
+          {
+            turnId: observedTurnId,
+            inputId: exactPendingSteer.inputId,
+            driver: { kind: 'codex-app-server', rawType: 'item/started' },
+          }
+        )
+        pendingSteers.delete(exactPendingSteer.inputId)
+        return
+      }
+
+      // Headless turns already mint their initiating user.message at delivery.
+      // Only native steer confirmations add a later headless user row. TUI
+      // turns, by contrast, are observed and expose every native user item.
+      if (codexTui) {
+        const attribution = wasFirst ? attributionByTurn.get(observedTurnId) : undefined
+        const inputId = attribution?.ownership === 'own' ? attribution.inputId : undefined
         emitCaptured(
           'user.message',
           {
             content,
-            ...(attribution?.ownership === 'own' && attribution.inputId !== undefined
-              ? { inputId: attribution.inputId }
-              : {}),
+            ...(inputId !== undefined ? { inputId } : {}),
             role: 'user',
           },
-          attributionExtra(turn)
+          {
+            turnId: observedTurnId,
+            ...(inputId !== undefined ? { inputId } : {}),
+            driver: { kind: 'codex-app-server', rawType: 'item/started' },
+          }
         )
       }
-      return
     }
-    emitAttribution(turn, { ownership: 'foreign', origin: 'autonomous' })
-  }
-
-  function normalizeCodexTuiPrelude(notification: JsonRpcNotification): void {
-    if (!codexTui) return
-    if (notification.method === 'item/started') {
-      const params = asFrameRecord(notification.params)
-      const observedTurnId = frameString(params['turnId']) as TurnId | undefined
-      const alreadyAttributed = observedTurnId !== undefined && firstItemSeen.has(observedTurnId)
-      attributeFirstItem(notification)
-      if (alreadyAttributed && observedTurnId !== undefined) {
-        const item = asFrameRecord(params['item'])
-        if (frameString(item['type']) === 'userMessage') {
-          const content = normalizeUserMessageText(item)
-          if (content.length > 0) {
-            emitCaptured(
-              'user.message',
-              { content, role: 'user' },
-              { turnId: observedTurnId, driver: { kind: 'codex-app-server' } }
-            )
-          }
-        }
-      }
-    }
-    if (notification.method === 'turn/completed') {
+    if (codexTui && notification.method === 'turn/completed') {
       ensureUnknownAttribution(turnCompletedNotificationId(notification) ?? currentTurnId)
     }
   }
@@ -775,7 +861,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
       }
     }
 
-    normalizeCodexTuiPrelude(notification)
+    normalizeCodexPrelude(notification)
 
     for (const mapped of mapCodexNotification(notification)) {
       const isTurnTerminal =
@@ -879,6 +965,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
       }
     }
 
+    pendingSteers.clear()
     terminalEmitted = true
     requireCtx().emit('invocation.exited', { exitCode: code, signal })
   }
@@ -889,6 +976,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
       return
     }
     if (terminalEmitted) return
+    pendingSteers.clear()
     ensureUnknownAttribution(currentTurnId)
     if (codexTui) {
       if (turnActive && currentTurnId !== undefined) {
@@ -1224,7 +1312,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
     get preemptMode() {
       return codexTui ? null : ('atomic' as const)
     },
-    steerLandingEvidence: 'ack',
+    steerLandingEvidence: 'transcript',
     interruptLandingEvidence: 'ack',
 
     capabilities(candidate?: HarnessInvocationSpec): InvocationCapabilities {
@@ -1276,6 +1364,8 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
       reportedTranscriptPaths.clear()
       ungatedFrames.length = 0
       pendingBrokerInputs.clear()
+      pendingSteers.clear()
+      observedUserItems.clear()
       queuedSubmissions.clear()
       attributionByTurn.clear()
       firstItemSeen.clear()
@@ -1671,42 +1761,100 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
      */
     async applySteerNow(input: InvocationInput): Promise<void> {
       if (!rpc || !spec || !driverSpec || !threadId) {
-        throw new BrokerError(BrokerErrorCode.InvalidInvocationState, 'Invocation is not ready')
+        throw withDeliveryEvidence(
+          new BrokerError(BrokerErrorCode.InvalidInvocationState, 'Invocation is not ready'),
+          'not_written'
+        )
       }
       if (!turnActive || currentTurnId === undefined) {
-        throw new BrokerError(
-          BrokerErrorCode.InvalidInvocationState,
-          'Codex steer requires an active turn'
+        throw withDeliveryEvidence(
+          new BrokerError(
+            BrokerErrorCode.InvalidInvocationState,
+            'Codex steer requires an active turn'
+          ),
+          'not_written'
         )
       }
+      if (input.inputId === undefined) {
+        throw withDeliveryEvidence(
+          new BrokerError(
+            BrokerErrorCode.DispatchValidationFailed,
+            'Codex steer requires a broker input id'
+          ),
+          'not_written'
+        )
+      }
+      const steerInputId = input.inputId
+      const steerThreadId = threadId
       const steerTurnId = currentTurnId
+      const pendingSteer: PendingSteer = {
+        inputId: steerInputId,
+        threadId: steerThreadId,
+        turnId: steerTurnId,
+        nativeObserved: false,
+      }
+      pendingSteers.set(steerInputId, pendingSteer)
       try {
-        await rpc.sendRequest('turn/steer', {
-          threadId,
+        const response = await rpc.sendRequest<TurnSteerResponse>('turn/steer', {
+          threadId: steerThreadId,
           expectedTurnId: steerTurnId,
+          clientUserMessageId: steerInputId,
           input: buildCodexInput(input, driverSpec.defaultImageAttachments),
         })
+        if (response?.turnId !== steerTurnId) {
+          emitDiagnostic(
+            'error',
+            'Codex turn/steer response conflicts with the armed turn identity',
+            {
+              inputId: steerInputId,
+              threadId: steerThreadId,
+              expectedTurnId: steerTurnId,
+              responseTurnId: response?.turnId ?? null,
+              nativeContextEntryObserved: pendingSteer.nativeObserved,
+            },
+            {
+              turnId: steerTurnId,
+              inputId: steerInputId,
+              driver: { kind: 'codex-app-server', rawType: 'turn/steer' },
+            }
+          )
+          throw withDeliveryEvidence(
+            new BrokerError(
+              BrokerErrorCode.HarnessError,
+              'Codex turn/steer response did not match the armed turn'
+            ),
+            'possibly_written'
+          )
+        }
       } catch (error) {
-        throw new BrokerError(
-          BrokerErrorCode.HarnessError,
-          error instanceof Error ? error.message : 'Codex turn/steer failed'
+        if (pendingSteer.nativeObserved) {
+          emitDiagnostic(
+            'error',
+            'Codex turn/steer RPC failed after native context entry',
+            {
+              inputId: steerInputId,
+              threadId: steerThreadId,
+              turnId: steerTurnId,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            {
+              turnId: steerTurnId,
+              inputId: steerInputId,
+              driver: { kind: 'codex-app-server', rawType: 'turn/steer' },
+            }
+          )
+        }
+        if (error !== null && typeof error === 'object' && 'deliveryEvidence' in error) {
+          throw error
+        }
+        throw withDeliveryEvidence(
+          new BrokerError(
+            BrokerErrorCode.HarnessError,
+            error instanceof Error ? error.message : 'Codex turn/steer failed'
+          ),
+          'possibly_written'
         )
       }
-      // Mirror applyInputNow's user.message emission so the steered text is in
-      // the transcript on the turn it actually joined, not a turn of its own.
-      requireCtx().emit(
-        'user.message',
-        {
-          content: extractText(input),
-          inputId: input.inputId,
-          role: 'user' as const,
-        },
-        {
-          turnId: steerTurnId,
-          ...(input.inputId === undefined ? {} : { inputId: input.inputId }),
-          driver: { kind: 'codex-app-server', rawType: 'broker.steer' },
-        }
-      )
     },
 
     async interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
@@ -1734,6 +1882,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
 
     async stop(req: InvocationStopRequest): Promise<InvocationStopResponse> {
       stopping = true
+      pendingSteers.clear()
       closeRendererControlListener()
       if (hookListener !== undefined) {
         const listener = hookListener
@@ -1776,6 +1925,8 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
       attachTokenPath = undefined
       websocketSocketPath = undefined
       pendingBrokerInputs.clear()
+      pendingSteers.clear()
+      observedUserItems.clear()
       queuedSubmissions.clear()
       attributionByTurn.clear()
       firstItemSeen.clear()

@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import { join } from 'node:path'
-import type { HarnessInvocationSpec, InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
+import type {
+  HarnessInvocationSpec,
+  InvocationEventEnvelope,
+  SubmissionOrigin,
+} from 'spaces-harness-broker-protocol'
 import { createBroker } from '../../src/broker'
 import { createCodexAppServerDriver } from '../../src/drivers/codex-app-server/driver'
 
@@ -16,6 +20,10 @@ import { createCodexAppServerDriver } from '../../src/drivers/codex-app-server/d
 const root = new URL('../..', import.meta.url).pathname
 const fixtureDir = join(root, 'test/fixtures/fake-codex')
 const now = () => new Date('2026-08-10T15:00:00.000Z')
+const origin: SubmissionOrigin = {
+  principalRef: 'agent:codex-steer-test',
+  scopeRef: 'codex-steer-test@agent-spaces',
+}
 
 const scenarioSpec = (scenario: string, invocationId: string): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
@@ -76,19 +84,22 @@ describe('T-07155 codex-app-server steer', () => {
     await broker.input({ invocationId, input: userInput('input_active', 'do the long thing') })
     await waitFor(() => events.some((event) => event.type === 'turn.started'))
 
-    const response = await broker.input({
+    const response = await broker.steer({
       invocationId,
-      input: userInput('input_urgent', 'STOP - do not push'),
-      policy: { whenBusy: 'steer' },
+      origin,
+      body: 'STOP - do not push',
     })
 
     expect(response).toMatchObject({
-      inputId: 'input_urgent',
-      accepted: true,
-      disposition: 'attempted_steer',
+      admission: 'admitted',
     })
-    // No turn of its own: the order joined the running turn.
-    expect(response.turnId).toBeUndefined()
+    await waitFor(() =>
+      events.some(
+        (event) =>
+          event.type === 'submission.absorbed' &&
+          event.payload.submissionId === response.submissionId
+      )
+    )
 
     // The fixture echoes the exact params the driver sent, so the precondition
     // and payload are asserted from the wire rather than the driver's internals.
@@ -100,6 +111,22 @@ describe('T-07155 codex-app-server steer', () => {
     const echo = echoOf()
     expect(echo).toContain('turn_steer_1')
     expect(echo).toContain('STOP - do not push')
+    expect(echo).toContain(response.submissionId)
+
+    const userMessages = events.filter((event) => event.type === 'user.message')
+    expect(userMessages).toHaveLength(2)
+    expect(userMessages[0]).toMatchObject({
+      inputId: 'input_active',
+      payload: { content: 'do the long thing', inputId: 'input_active' },
+      driver: { rawType: 'broker.input' },
+    })
+    expect(userMessages[1]).toMatchObject({
+      turnId: 'turn_steer_1',
+      inputId: response.submissionId,
+      payload: { content: 'STOP - do not push', inputId: response.submissionId },
+      driver: { rawType: 'item/started' },
+      provenance: { sourceKind: 'provider-jsonrpc' },
+    })
 
     await broker.stop({ invocationId })
   })

@@ -21,10 +21,37 @@ io.respond(thread, { threadId: 'thread_steer' })
 
 const start = await expectMethod(io, 'turn/start')
 await io.respondAndFlush(start, { turn: { id: 'turn_steer_1', status: 'inProgress' } })
-io.notify('turn/started', { turnId: 'turn_steer_1' })
+io.notify('turn/started', {
+  threadId: 'thread_steer',
+  turn: { id: 'turn_steer_1', status: 'inProgress', items: [] },
+})
+// Codex also reports the initiating user item natively. Headless mode already
+// minted that row at delivery, so observing this one must not duplicate it.
+io.notify('item/started', {
+  threadId: 'thread_steer',
+  turnId: 'turn_steer_1',
+  item: {
+    type: 'userMessage',
+    id: 'user_initial',
+    clientId: 'input_active',
+    content: [{ type: 'text', text: 'do the long thing', text_elements: [] }],
+  },
+})
 
 const steer = await expectMethod(io, 'turn/steer')
 const params = (steer.params ?? {}) as Record<string, unknown>
+const clientUserMessageId = params['clientUserMessageId']
+io.respond(steer, { turnId: 'turn_steer_1' })
+io.notify('item/started', {
+  threadId: 'thread_steer',
+  turnId: 'turn_steer_1',
+  item: {
+    type: 'userMessage',
+    id: 'user_steer',
+    clientId: clientUserMessageId,
+    content: params['input'],
+  },
+})
 // Surface what the driver actually sent so the test can assert the precondition
 // and payload without reaching into the driver's internals.
 io.notify('item/completed', {
@@ -34,6 +61,7 @@ io.notify('item/completed', {
     text: JSON.stringify({
       threadId: params['threadId'],
       expectedTurnId: params['expectedTurnId'],
+      clientUserMessageId,
       input: params['input'],
     }),
     phase: 'final_answer',
@@ -41,7 +69,6 @@ io.notify('item/completed', {
   threadId: 'thread_steer',
   turnId: 'turn_steer_1',
 })
-io.respond(steer, { turnId: 'turn_steer_1' })
 
 io.notify('turn/completed', {
   threadId: 'thread_steer',

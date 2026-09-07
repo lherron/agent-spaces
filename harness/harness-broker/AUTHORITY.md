@@ -138,9 +138,8 @@ provenance and accept **any** `sourceKind`. `submission.lost`, `submission.rejec
 The split is the point. A disposition reports what the harness *did* with a
 submission, and the source of that fact varies by driver and by outcome:
 
-- on an evidence driver, `absorbed`/`executed` are minted from the session JSONL
-  and nothing else (T-07849 rev 11); on a headless driver they may be broker- or
-  API-acknowledged;
+- `absorbed`/`executed` are minted only from native context-entry or turn
+  evidence. Transport/API acknowledgement is acceptance, not landing;
 - `cancelled{reason:'recalled'}` is the transcript `popAll` row (provider), while
   `cancelled{reason:'teardown'}` is broker lifecycle knowledge;
 - `lost{reason:'turn-correlation-lost'}` is broker knowledge that delivery and

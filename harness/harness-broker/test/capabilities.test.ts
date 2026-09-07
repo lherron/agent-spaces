@@ -13,7 +13,7 @@ const CODEX_APP_SERVER_V0_CAPABILITIES: InvocationCapabilities = {
   bracketMintingMode: 'delivery-acknowledged',
   queue: { cancelHarnessLocal: false },
   preempt: { mode: 'atomic' },
-  steer: { landingEvidence: 'ack' },
+  steer: { landingEvidence: 'transcript' },
   interrupt: { landingEvidence: 'ack' },
   input: {
     user: true,

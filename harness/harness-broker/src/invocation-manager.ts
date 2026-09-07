@@ -1303,18 +1303,6 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
           { inputId: input.inputId, disposition: 'attempted_steer' },
           { inputId: input.inputId }
         )
-        if (
-          inv.submissions.has(input.inputId) &&
-          inv.currentTurnId !== undefined &&
-          inv.driver.steerLandingEvidence !== 'transcript'
-        ) {
-          emit(
-            inv,
-            'submission.absorbed',
-            { submissionId: input.inputId, turnId: inv.currentTurnId },
-            { turnId: inv.currentTurnId, inputId: input.inputId }
-          )
-        }
         return {
           inputId: input.inputId,
           accepted: true,

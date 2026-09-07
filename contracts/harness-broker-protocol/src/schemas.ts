@@ -185,9 +185,8 @@ export const INVOCATION_EVENT_TYPES = [
  * in this set and have been REMOVED (mable's ruling on wrkq T-07863, recorded
  * there and on T-07860). They are DISPOSITIONS, and a disposition reports what
  * the harness did with a submission:
- *   - on an evidence driver, `absorbed`/`executed` are minted from the session
- *     JSONL and nothing else (T-07849 rev 11), and on a headless driver they may
- *     be broker- or API-acknowledged;
+ *   - `absorbed`/`executed` are minted only from native context-entry or turn
+ *     evidence. Transport/API acknowledgement is acceptance, not landing;
  *   - `cancelled{reason:'recalled'}` is the transcript `popAll` row (provider),
  *     while `cancelled{reason:'teardown'}` is broker lifecycle knowledge.
  * Requiring `sourceKind:'broker'` on them forced the emitter to overwrite a true

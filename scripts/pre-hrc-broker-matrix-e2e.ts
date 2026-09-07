@@ -1861,7 +1861,7 @@ async function runCodexTuiControlScenario(options: {
   const submission = await manager.enqueue({
     invocationId,
     origin: { principalRef: 'agent:matrix', scopeRef: 'matrix@agent-spaces' },
-    body: `Run the Bash command: sleep 20; printf '${marker}_CONTROL' — then reply with exactly ${marker}_CONTROL and nothing else.`,
+    body: `Run the Bash command: sleep 5; printf '${marker}_CONTROL' — then reply with exactly ${marker}_CONTROL and nothing else.`,
   })
   const started = await pollUntil(
     () =>
@@ -1898,13 +1898,43 @@ async function runCodexTuiControlScenario(options: {
             event.type === 'submission.absorbed' &&
             event.payload.submissionId === steer.submissionId
         ),
-    10_000,
+    20_000,
     50
   )
   if (steer.admission !== 'admitted' || !steerLanded) {
     result.extraFailures.push({
       code: 'codex_tui_live_steer_not_absorbed',
       message: `live steer admission=${steer.admission}, absorbed=${steerLanded}`,
+    })
+  }
+  const controlBeforeInterrupt = events.slice(baseline)
+  const ownerAttribution = controlBeforeInterrupt.find(
+    (event) =>
+      event.type === 'turn.attributed' &&
+      event.payload.ownership === 'own' &&
+      event.inputId === submission.submissionId
+  )
+  const nativeSteerMessage = controlBeforeInterrupt.find(
+    (event) => event.type === 'user.message' && event.inputId === steer.submissionId
+  )
+  if (
+    nativeSteerMessage === undefined ||
+    nativeSteerMessage.turnId !== ownerAttribution?.turnId ||
+    nativeSteerMessage.provenance.sourceKind !== 'provider-jsonrpc'
+  ) {
+    result.extraFailures.push({
+      code: 'codex_tui_live_steer_missing_native_context_entry',
+      message: `native message turn=${nativeSteerMessage?.turnId ?? 'missing'}, owner turn=${ownerAttribution?.turnId ?? 'missing'}, source=${nativeSteerMessage?.provenance.sourceKind ?? 'missing'}`,
+    })
+  }
+  if (
+    controlBeforeInterrupt.filter(
+      (event) => event.type === 'turn.attributed' && event.turnId === ownerAttribution?.turnId
+    ).length !== 1
+  ) {
+    result.extraFailures.push({
+      code: 'codex_tui_live_steer_reattributed_owner',
+      message: 'native steer context entry changed or duplicated initiating turn attribution',
     })
   }
   const interrupted = await manager.interrupt({
@@ -1942,6 +1972,10 @@ async function runCodexTuiControlScenario(options: {
           event.inputId === submission.submissionId
       )?.turnId ?? null,
     steerSubmissionId: steer.submissionId,
+    steerUserMessageSeq:
+      controlEvents.find(
+        (event) => event.type === 'user.message' && event.inputId === steer.submissionId
+      )?.seq ?? null,
     steerAbsorbedSeq:
       controlEvents.find(
         (event) =>
