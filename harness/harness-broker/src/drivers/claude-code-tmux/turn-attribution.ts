@@ -61,6 +61,11 @@ export type ClaudeTranscriptQueueOperation = {
   [key: string]: unknown
 }
 
+type PromptCandidateResult =
+  | { kind: 'match'; item: PendingSubmission; absorbedIntoHumanPrompt: boolean }
+  | { kind: 'ambiguous'; matchKind: 'exact' | 'contains'; candidates: PendingSubmission[] }
+  | undefined
+
 export interface ClaudeTurnAttribution {
   readonly activeTurnId: TurnId | undefined
   readonly pendingCount: number
@@ -84,7 +89,7 @@ export interface ClaudeTurnAttribution {
   ): ClaudeAttributionAction[]
   observePromptHook(content: string | undefined, hintedTurnId?: TurnId): ClaudeAttributionAction[]
   settleOutstandingRemovals(raw: unknown): ClaudeAttributionAction[]
-  observeTurnStarted(turnId: TurnId): void
+  observeTurnStarted(turnId: TurnId, inputId?: InputId | undefined): void
   observeTurnTerminal(turnId: TurnId): void
   teardown(): ClaudeAttributionAction[]
 }
@@ -187,12 +192,44 @@ export function createClaudeTurnAttribution(options: {
     raw,
   })
 
+  /**
+   * Resolve which pending submission a native body belongs to.
+   *
+   * Identity and provider-queue ORDER are the only tiebreakers (T-08204 rev 3).
+   * Elapsed time is not evidence: an input can sit in Claude's queue for
+   * minutes (207.9s observed on inv-d604db0e) and still execute, so neither the
+   * oldest nor the newest candidate may be guessed. When several equally
+   * plausible candidates remain, the honest result is `ambiguous`: the caller
+   * leaves every candidate pending and records a diagnostic.
+   */
   const promptCandidate = (
     content: string,
     eligible: (item: PendingSubmission) => boolean
-  ): { item: PendingSubmission; absorbedIntoHumanPrompt: boolean } | undefined => {
-    const exact = pending.find((item) => eligible(item) && item.content === content)
-    if (exact !== undefined) return { item: exact, absorbedIntoHumanPrompt: false }
+  ): PromptCandidateResult => {
+    // Positive Claude queue evidence fixes FIFO identity among identical
+    // bodies. That is the provider's own ordering, not a broker inference.
+    const queueEvidenced = (item: PendingSubmission): boolean =>
+      item.sawEnqueue || item.drainPending || item.removePending
+    const decide = (
+      candidates: PendingSubmission[],
+      matchKind: 'exact' | 'contains',
+      absorbedIntoHumanPrompt: boolean
+    ): PromptCandidateResult => {
+      if (candidates.length === 0) return undefined
+      // Provider queue evidence carries Claude's OWN ordering, so among
+      // queue-evidenced duplicates the FIFO head is evidenced, not guessed.
+      const evidenced = candidates.filter(queueEvidenced)
+      const fifoHead = evidenced[0]
+      if (fifoHead !== undefined) return { kind: 'match', item: fifoHead, absorbedIntoHumanPrompt }
+      const only = candidates.length === 1 ? candidates[0] : undefined
+      // No identity and no provider ordering: refuse to guess by age.
+      return only !== undefined
+        ? { kind: 'match', item: only, absorbedIntoHumanPrompt }
+        : { kind: 'ambiguous', matchKind, candidates }
+    }
+
+    const exactMatches = pending.filter((item) => eligible(item) && item.content === content)
+    if (exactMatches.length > 0) return decide(exactMatches, 'exact', false)
 
     // Substring attribution is deliberately broker-only. Human/local queue
     // entries have no inputId, so fuzzy matching those would turn arbitrary
@@ -207,11 +244,36 @@ export function createClaudeTurnAttribution(options: {
     )
     if (embedded.length === 0) return undefined
     const longestLength = Math.max(...embedded.map((item) => item.content.length))
-    const longest = embedded.filter((item) => item.content.length === longestLength)
-    const longestItem = longest.length === 1 ? longest[0] : undefined
-    return longestItem === undefined
-      ? undefined
-      : { item: longestItem, absorbedIntoHumanPrompt: true }
+    return decide(
+      embedded.filter((item) => item.content.length === longestLength),
+      'contains',
+      true
+    )
+  }
+
+  /**
+   * Consume a candidate, turning unresolved ambiguity into a diagnostic.
+   * Every candidate stays pending so a later named start, queue operation,
+   * recall or teardown can still settle it truthfully.
+   */
+  const takeCandidate = (
+    result: PromptCandidateResult,
+    actions: ClaudeAttributionAction[],
+    raw: unknown
+  ): { item: PendingSubmission; absorbedIntoHumanPrompt: boolean } | undefined => {
+    if (result === undefined) return undefined
+    if (result.kind === 'ambiguous') {
+      actions.push(
+        warning('Claude native body matches multiple pending submissions; attribution unresolved', {
+          kind: 'claude.ambiguous-submission-attribution',
+          matchKind: result.matchKind,
+          candidateSubmissionIds: result.candidates.map((item) => item.submissionId),
+          observed: raw,
+        })
+      )
+      return undefined
+    }
+    return { item: result.item, absorbedIntoHumanPrompt: result.absorbedIntoHumanPrompt }
   }
 
   return {
@@ -366,7 +428,11 @@ export function createClaudeTurnAttribution(options: {
       recentDisposedPromptFromHook = false
       const drained = pending.find((item) => item.drainPending)
       if (drained !== undefined) {
-        const drainedMatch = promptCandidate(content, (item) => item === drained)
+        const drainedMatch = takeCandidate(
+          promptCandidate(content, (item) => item === drained),
+          actions,
+          raw
+        )
         if (drainedMatch === undefined) {
           if (!drained.drainWarned) {
             drained.drainWarned = true
@@ -394,9 +460,12 @@ export function createClaudeTurnAttribution(options: {
         return actions
       }
 
-      const candidate = promptCandidate(
-        content,
-        (item) => !item.removePending && !item.drainPending
+      // An ambiguous body still opens its real turn, but claims no broker
+      // submission: every candidate stays pending for later native evidence.
+      const candidate = takeCandidate(
+        promptCandidate(content, (item) => !item.removePending && !item.drainPending),
+        actions,
+        raw
       )
       actions.push(execute(candidate?.item ?? createPending(content), true, 'transcript', content))
       return actions
@@ -433,12 +502,19 @@ export function createClaudeTurnAttribution(options: {
       recentDisposedPrompt = undefined
       recentDisposedPromptFromHook = false
 
+      const actions: ClaudeAttributionAction[] = []
       const match =
-        content === undefined ? undefined : promptCandidate(content, (item) => !item.sawPromptHook)
+        content === undefined
+          ? undefined
+          : takeCandidate(
+              promptCandidate(content, (item) => !item.sawPromptHook),
+              actions,
+              { kind: 'claude.prompt-hook', content }
+            )
       const candidate = match?.item
       if (candidate?.sawEnqueue === true) {
         candidate.sawPromptHook = true
-        return []
+        return actions
       }
       if (activeTurnId !== undefined) {
         const item =
@@ -447,30 +523,37 @@ export function createClaudeTurnAttribution(options: {
             ? createPending(content, { allocatedTurnId: hintedTurnId, sawPromptHook: true })
             : undefined)
         if (item !== undefined) item.sawPromptHook = true
-        return []
+        return actions
       }
 
       if (content === undefined || content.length === 0) {
         const unambiguous = pending.length === 1 ? pending[0] : undefined
         if (unambiguous !== undefined) {
           unambiguous.sawPromptHook = true
-          return [execute(unambiguous, false, 'hook')]
+          actions.push(execute(unambiguous, false, 'hook'))
+          return actions
         }
         const turnId = hintedTurnId ?? (options.allocateTurnId() as TurnId)
         activeTurnId = turnId
-        return [{ kind: 'started', turnId }]
+        actions.push({ kind: 'started', turnId })
+        return actions
       }
       const item =
         candidate ?? createPending(content, { allocatedTurnId: hintedTurnId, sawPromptHook: true })
       item.sawPromptHook = true
-      return [execute(item, true, 'hook', content)]
+      actions.push(execute(item, true, 'hook', content))
+      return actions
     },
 
     settleOutstandingRemovals(raw): ClaudeAttributionAction[] {
       return settleOutstandingRemovals(raw)
     },
 
-    observeTurnStarted(turnId): void {
+    observeTurnStarted(turnId, inputId): void {
+      if (inputId !== undefined) {
+        const named = pending.find((item) => item.inputId === inputId)
+        if (named !== undefined) drop(named)
+      }
       // If an interrupt-target turn completed before its C-c produced a marker,
       // the next turn start proves that marker will not arrive at this boundary.
       settledInterruptTargets.length = 0

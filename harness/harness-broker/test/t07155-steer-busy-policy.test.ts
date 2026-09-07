@@ -49,13 +49,21 @@ const setup = async (
     mode?: 'headless' | 'interactive' | undefined
     inputQueue?: 'none' | 'fifo' | undefined
     steerRejectionReason?: string | undefined
+    steerRejectionEvidence?: 'not_written' | 'possibly_written' | undefined
   } = {}
 ) => {
   const events: InvocationEventEnvelope[] = []
   const { driver, controller } = createTestDriver({ supportsSteer: options.supportsSteer })
   if (options.steerRejectionReason !== undefined) {
     driver.applySteerNow = async () => {
-      throw new Error(options.steerRejectionReason)
+      const error = new Error(options.steerRejectionReason)
+      if (options.steerRejectionEvidence !== undefined) {
+        Object.defineProperty(error, 'deliveryEvidence', {
+          value: options.steerRejectionEvidence,
+          enumerable: false,
+        })
+      }
+      throw error
     }
   }
   const broker = createBroker({ drivers: [driver], onEvent: (event) => events.push(event), now })
@@ -168,6 +176,8 @@ describe('T-07155 whenBusy: steer', () => {
       invocationId: 'inv_t08099_not_quiescent',
       supportsSteer: true,
       steerRejectionReason: 'pane_not_quiescent',
+      // A real before_paste quiescence refusal happens before any write.
+      steerRejectionEvidence: 'not_written',
     })
     await broker.input({ invocationId, input: userInput('input_active', 'work') })
 
@@ -185,6 +195,44 @@ describe('T-07155 whenBusy: steer', () => {
     expect(inputEvents(events, 'submission.rejected').at(-1)).toMatchObject({
       payload: { submissionId: 'input_contended', reason: 'pane_not_quiescent' },
     })
+    expect(inputEvents(events, 'input.rejected').at(-1)).toMatchObject({
+      payload: { inputId: 'input_contended', deliveryEvidence: 'not_written' },
+    })
+  })
+
+  test('a possibly-written steer failure is not terminally rejected (T-08204)', async () => {
+    const { broker, events, invocationId } = await setup({
+      invocationId: 'inv_t08204_possibly_written',
+      supportsSteer: true,
+      // after_submit, or any untyped failure: the paste may already have landed.
+      steerRejectionReason: 'pane_not_quiescent',
+    })
+    await broker.input({ invocationId, input: userInput('input_active', 'work') })
+
+    const response = await broker.input({
+      invocationId,
+      input: userInput('input_maybe', 'broker steer'),
+      policy: { whenBusy: 'steer' },
+    })
+
+    expect(response).toMatchObject({ accepted: false, disposition: 'rejected' })
+    // The attempt is reported with explicit write evidence...
+    expect(inputEvents(events, 'input.rejected').at(-1)).toMatchObject({
+      payload: { inputId: 'input_maybe', deliveryEvidence: 'possibly_written' },
+    })
+    // ...but the submission stays UNDISPOSED so a late native user row can
+    // still report this body consumed.
+    expect(
+      inputEvents(events, 'submission.rejected').filter(
+        (event) => (event.payload as { submissionId?: string }).submissionId === 'input_maybe'
+      )
+    ).toHaveLength(0)
+    // ...reported exactly once, not once per rejection path.
+    expect(
+      inputEvents(events, 'input.rejected').filter(
+        (event) => (event.payload as { inputId?: string }).inputId === 'input_maybe'
+      )
+    ).toHaveLength(1)
   })
 
   // G4 — legacy invocation.input compatibility is unchanged. The new

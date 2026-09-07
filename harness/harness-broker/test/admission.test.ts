@@ -522,7 +522,7 @@ describe('broker admission API', () => {
     expect(eventsFor(events, 'submission.executed')).toHaveLength(3)
   })
 
-  test('a foreign turn terminal cancels a contested harness-evidence delivery', async () => {
+  test('a foreign turn terminal releases the slot without settling the input', async () => {
     const { broker, controller, events, invocationId } = await setup(
       'inv_admission_evidence_foreign_turn',
       {
@@ -549,19 +549,35 @@ describe('broker admission API', () => {
     )
     await flush()
 
+    // T-08204: the terminal of an uncorrelated turn is evidence about THAT
+    // turn, never about our body. Claude queues an injected input while a turn
+    // runs and executes it later, so nothing may be settled here.
     expect(
-      eventsFor(events, 'submission.cancelled').find(
+      eventsFor(events, 'submission.cancelled').filter(
         (event) => event.payload.submissionId === pending.submissionId
       )
-    ).toMatchObject({
-      turnId: foreignTurnId,
-      inputId: pending.submissionId,
-      payload: {
-        submissionId: pending.submissionId,
-        reason: 'merged-into-foreign-turn',
-      },
-    })
+    ).toHaveLength(0)
+    expect(
+      eventsFor(events, 'submission.lost').filter(
+        (event) => event.payload.submissionId === pending.submissionId
+      )
+    ).toHaveLength(0)
+    // The admission slot IS released, so the seat keeps accepting input.
     expect((await broker.seatProbe({ invocationId })).seat).toEqual({ state: 'idle' })
+
+    // ...and the still-undisposed input can be settled by its own later
+    // native evidence.
+    controller.emitRaw(
+      'submission.executed',
+      { submissionId: pending.submissionId, turnId: 'turn_own' },
+      { turnId: 'turn_own', inputId: pending.submissionId }
+    )
+    await flush()
+    expect(
+      eventsFor(events, 'submission.executed').filter(
+        (event) => event.payload.submissionId === pending.submissionId
+      )
+    ).toHaveLength(1)
   })
 
   test('non-Claude harness evidence may correlate after an unowned turn terminal', async () => {

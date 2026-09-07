@@ -23,8 +23,16 @@ import {
 import type { NormalizeOutcome } from '../../capture/capture-gate'
 import { BrokerError } from '../../errors'
 import type { TmuxExec, TmuxPaneController } from '../../runtime/tmux'
+import { TmuxPaneNotQuiescentError } from '../../runtime/tmux'
 import { writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
-import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
+import type {
+  ApplyInputResult,
+  DeliveryEvidence,
+  Driver,
+  DriverContext,
+  DriverStartResult,
+} from '../driver'
+import { withDeliveryEvidence } from '../driver'
 import { CLAUDE_CODE_TMUX_AUTHORITY } from '../evidence-authority'
 import { asRecord as asHookRecord, getString } from '../hook-json'
 import {
@@ -69,6 +77,21 @@ const CLAUDE_CODE_TMUX_DRIVER_VERSION = '0.1.0'
  * bump this; envelopes carrying a stale generation are rejected (T-01794 Phase D).
  */
 const CLAUDE_HOOK_GENERATION = 1
+
+/**
+ * Classify what a failed `sendSteer` proves about the body.
+ *
+ * `sendSteer` refuses before pasting when the lease forbids capture or the
+ * input region never goes quiet; both raise `before_paste`, and nothing has
+ * crossed the PTY. Every other outcome — `after_submit`, or any untyped
+ * failure — happens at or after the paste, so the body may already be in the
+ * harness and the attempt is only ever `possibly_written`.
+ */
+function claudeSteerWriteEvidence(error: unknown): DeliveryEvidence {
+  return error instanceof TmuxPaneNotQuiescentError && error.phase === 'before_paste'
+    ? 'not_written'
+    : 'possibly_written'
+}
 
 const CLAUDE_CODE_TMUX_CAPABILITIES: InvocationCapabilities = {
   admission: { classes: ['steer', 'queue', 'exclusive', 'preempt'] },
@@ -820,7 +843,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
             ...(event.driver !== undefined ? { driver: event.driver } : {}),
           })
           if (event.type === 'turn.started' && event.turnId !== undefined) {
-            turnAttribution.observeTurnStarted(event.turnId)
+            turnAttribution.observeTurnStarted(event.turnId, event.inputId)
           } else if (
             event.type === 'turn.completed' ||
             event.type === 'turn.failed' ||
@@ -988,7 +1011,14 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       // terminal-literal-input turn delivery: literal text, a short TUI-friendly
       // pause, then Enter so shell expansion / key interpretation never mangles
       // the prompt and Claude reliably submits it.
-      await requirePaneController().sendKeys(prompt)
+      try {
+        await requirePaneController().sendKeys(prompt)
+      } catch (error) {
+        // sendKeys pastes the body and only then sends Enter. Any failure from
+        // here on may have left the body in the pane, so the correlation is
+        // RETAINED and the attempt is reported as possibly written.
+        throw withDeliveryEvidence(error, 'possibly_written')
+      }
       return { turnId: turnId as ApplyInputResult['turnId'] }
     },
 
@@ -1007,10 +1037,16 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
           selectInput: selectClaudeCodePaneInput,
         })
       } catch (error) {
-        if (input.inputId !== undefined) {
+        // Only a refusal raised BEFORE the first paste proves nothing was
+        // written; that one may release its correlation. A failure after the
+        // paste began — including `after_submit` — may have left the body in
+        // the TUI, so the pending identity is RETAINED for later native
+        // evidence rather than cancelled (T-08204 rev 3 §5).
+        const evidence = claudeSteerWriteEvidence(error)
+        if (evidence === 'not_written' && input.inputId !== undefined) {
           attribution?.cancelBrokerSubmission(input.inputId)
         }
-        throw error
+        throw withDeliveryEvidence(error, evidence)
       }
     },
 

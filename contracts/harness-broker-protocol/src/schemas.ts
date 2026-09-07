@@ -2203,6 +2203,12 @@ function validateInputDispositionPayload(payload: SchemaRecord, issues: Validati
     issues
   )
   optionalString(payload['reason'], 'payload.reason', issues)
+  optionalEnum(
+    payload['deliveryEvidence'],
+    ['not_written', 'possibly_written'],
+    'payload.deliveryEvidence',
+    issues
+  )
 }
 
 function validateInterruptDecisionPayload(payload: SchemaRecord, issues: ValidationIssue[]): void {

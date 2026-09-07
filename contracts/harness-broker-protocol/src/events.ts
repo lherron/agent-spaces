@@ -586,6 +586,21 @@ export interface InputDispositionPayload {
   inputId: InputId
   disposition?: 'started' | 'queued' | 'attempted_steer' | 'rejected' | undefined
   reason?: string | undefined
+  /**
+   * Evidence about the BODY, not about model consumption (T-08204 rev 3 §4).
+   *
+   * `not_written` is a positive claim that nothing crossed the PTY: a
+   * broker-local admission refusal raised before any driver attempt, or a
+   * driver refusal raised before its first write. `possibly_written` means a
+   * write had begun when the failure surfaced, so the body may be sitting in
+   * the harness even though the request failed — including a failure between
+   * the body and its Enter, or after submit.
+   *
+   * Emitted on `input.rejected`. Omission is contract-compatible and conveys NO
+   * no-write guarantee; a consumer that cannot see this field must treat the
+   * attempt as possibly written. Carrying it emits no success receipt.
+   */
+  deliveryEvidence?: 'not_written' | 'possibly_written' | undefined
 }
 
 export interface UsageUpdatedPayload {

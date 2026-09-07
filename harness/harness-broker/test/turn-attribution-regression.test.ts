@@ -92,7 +92,7 @@ function replayDriverRecord(controller: TestDriverController, event: RecordedEve
 }
 
 describe('pending submission attribution across foreign turns (T-07915)', () => {
-  test('a recorded foreign turn terminal releases the contested delivery before late evidence', async () => {
+  test('a recorded foreign turn terminal releases the slot and keeps the late evidence', async () => {
     const { broker, controller, events } = await setup(fixture.source.invocationId, {
       bracketMintingMode: 'harness-evidence',
       cancelPendingOwnTurnOnForeignTurn: true,
@@ -121,38 +121,125 @@ describe('pending submission attribution across foreign turns (T-07915)', () => 
     )
     expect(foreignStart?.inputId).toBeUndefined()
 
-    const deliveredExecutions = events.filter(
-      (event) =>
-        event.type === 'submission.executed' && event.payload.submissionId === admitted.submissionId
-    )
-    expect(deliveredExecutions).toHaveLength(0)
+    // T-08204 corrected projection: the unrelated turn's terminal settles
+    // NOTHING, and the delivery's own later native evidence survives to
+    // dispose it exactly once.
     expect(
-      events.find(
+      events.filter(
         (event) =>
           event.type === 'submission.cancelled' &&
           event.payload.submissionId === admitted.submissionId
       )
-    ).toMatchObject({
-      inputId: admitted.submissionId,
-      turnId: recordedForeignStart.turnId,
-      payload: {
-        submissionId: admitted.submissionId,
-        reason: 'merged-into-foreign-turn',
-      },
-    })
+    ).toHaveLength(0)
+    const deliveredExecutions = events.filter(
+      (event) =>
+        event.type === 'submission.executed' && event.payload.submissionId === admitted.submissionId
+    )
+    expect(deliveredExecutions).toHaveLength(1)
 
+    // The foreign turn never claims the body...
     expect(
       await broker.turnManifest({
         invocationId: fixture.source.invocationId,
         turnId: recordedForeignStart.turnId as TurnId,
       })
     ).not.toMatchObject({ submissionIds: expect.arrayContaining([admitted.submissionId]) })
+    // ...and the turn that actually ran it does.
     expect(
       await broker.turnManifest({
         invocationId: fixture.source.invocationId,
         turnId: recordedMatchingStart.turnId as TurnId,
       })
-    ).not.toMatchObject({ submissionIds: expect.arrayContaining([admitted.submissionId]) })
+    ).toMatchObject({ submissionIds: expect.arrayContaining([admitted.submissionId]) })
+  })
+
+  /**
+   * T-08204 — the pipelined-cancellation defect, in the exact recorded order.
+   *
+   * PROVENANCE: transcribed from wrkq comment C-19923, which recorded this
+   * window verbatim from the durable ledger of
+   * inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6 (native session f0a873b3, runtime
+   * bipc 1ad39b1a6611). That runtime's bipc directory has since been reaped, so
+   * this is a transcription of the recorded sequence, NOT a mechanical
+   * extraction from a surviving ndjson. Sequence numbers, turn ids and the
+   * 207.9s wall-clock gap are as recorded:
+   *
+   *   811 input.accepted       _10                       12:10:38.624
+   *   862 submission.cancelled _10 merged-into-foreign-turn (turn _17)
+   *                                                      12:14:06.590
+   *   867 turn.started         inputId=_10 (turn _16)    12:14:08.105
+   *
+   * The cancellation at 862 is what this task removes: the terminal of turn
+   * _17 says nothing about _10's body, and _10 executed 1.5s later. The
+   * defect cascaded — the turn contesting submission N was the turn submission
+   * N-1 had started (_10/_11/_12/_13 at 862/875/888/949).
+   */
+  test('T-08204: an uncorrelated turn terminal neither cancels nor loses the pending input', async () => {
+    const invocationId = 'inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6'
+    const { broker, controller, events } = await setup(invocationId, {
+      bracketMintingMode: 'harness-evidence',
+      cancelPendingOwnTurnOnForeignTurn: true,
+      suppressTurnStarted: true,
+    })
+
+    const admitted = await broker.enqueue({
+      invocationId,
+      origin,
+      body: 'injected body that Claude queued behind a human turn',
+    })
+    await flush()
+
+    // seq 862's cause: a turn the broker cannot correlate to _10 terminates
+    // while _10 is still sitting in Claude's native queue.
+    const foreignTurnId = `turn_${invocationId}_17`
+    controller.emitRaw(
+      'turn.started',
+      { turnId: foreignTurnId, source: 'hook-observed' },
+      { turnId: foreignTurnId }
+    )
+    controller.emitRaw(
+      'turn.completed',
+      { turnId: foreignTurnId, status: 'completed', finalOutput: 'human turn complete' },
+      { turnId: foreignTurnId }
+    )
+    await flush()
+
+    // Nothing may be settled by that terminal — no cancellation, and no
+    // elapsed-time loss either.
+    const settledAtForeignTerminal = events.filter(
+      (event) =>
+        (event.type === 'submission.cancelled' || event.type === 'submission.lost') &&
+        (event.payload as { submissionId?: string }).submissionId === admitted.submissionId
+    )
+    expect(settledAtForeignTerminal).toHaveLength(0)
+    // The seat is free again, so a later input is never blocked.
+    expect((await broker.seatProbe({ invocationId })).seat).toEqual({ state: 'idle' })
+
+    // seq 867: Claude dequeues the body and names it. Its own evidence settles
+    // it exactly once, and is no longer suppressed by a first guess.
+    const ownTurnId = `turn_${invocationId}_16`
+    controller.emitRaw(
+      'turn.started',
+      { turnId: ownTurnId, source: 'hook-observed', inputId: admitted.submissionId },
+      { turnId: ownTurnId, inputId: admitted.submissionId }
+    )
+    controller.emitRaw(
+      'submission.executed',
+      { submissionId: admitted.submissionId, turnId: ownTurnId },
+      { turnId: ownTurnId, inputId: admitted.submissionId }
+    )
+    await flush()
+
+    expect(
+      events.filter(
+        (event) =>
+          event.type === 'submission.executed' &&
+          event.payload.submissionId === admitted.submissionId
+      )
+    ).toHaveLength(1)
+    expect(await broker.turnManifest({ invocationId, turnId: ownTurnId as TurnId })).toMatchObject({
+      submissionIds: expect.arrayContaining([admitted.submissionId]),
+    })
   })
 
   test('delivery-acknowledged drivers retain pending-input stamping', async () => {

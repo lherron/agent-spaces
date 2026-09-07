@@ -31,6 +31,45 @@ export interface ApplyInputResult {
 }
 
 /**
+ * Evidence about the BODY carried out of a failed delivery (T-08204 rev 3 §4).
+ *
+ * `not_written` is a positive claim that nothing crossed the PTY. It is only
+ * legitimate for a refusal raised BEFORE the first write — a lease refusal or a
+ * pre-paste quiescence refusal. Once a paste or send-keys has begun, every
+ * failure is `possibly_written`, including one between the body and its Enter
+ * and one raised after submit, because the body may already be in the harness.
+ */
+export type DeliveryEvidence = 'not_written' | 'possibly_written'
+
+/** An error annotated by a driver with what its failure proves about the body. */
+export interface DeliveryEvidenceCarrier {
+  readonly deliveryEvidence: DeliveryEvidence
+}
+
+/**
+ * Read a driver's typed write evidence off an error. Reason TEXT is never
+ * sufficient, so an unannotated error returns undefined and the caller applies
+ * its own default — `possibly_written` for anything a driver already touched.
+ */
+export function deliveryEvidenceOf(error: unknown): DeliveryEvidence | undefined {
+  if (typeof error !== 'object' || error === null) return undefined
+  const evidence = (error as Partial<DeliveryEvidenceCarrier>).deliveryEvidence
+  return evidence === 'not_written' || evidence === 'possibly_written' ? evidence : undefined
+}
+
+/** Annotate an error in place with the write evidence its failure carries. */
+export function withDeliveryEvidence<T>(error: T, evidence: DeliveryEvidence): T {
+  if (typeof error === 'object' && error !== null && deliveryEvidenceOf(error) === undefined) {
+    Object.defineProperty(error, 'deliveryEvidence', {
+      value: evidence,
+      enumerable: false,
+      configurable: true,
+    })
+  }
+  return error
+}
+
+/**
  * Declares what makes an applyInputNow-returned turn id sufficient evidence to
  * open a broker turn bracket. The declaration is descriptive: drivers may only
  * change modes together with the corresponding verified delivery semantics.

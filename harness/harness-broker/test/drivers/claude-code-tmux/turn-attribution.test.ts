@@ -398,6 +398,119 @@ describe('claude-code-tmux disposition mirror', () => {
     ])
     expect(tracker.pendingCount).toBe(1)
   })
+
+  test('T-08107 specimen: a stale identical body makes the later prompt ambiguous, not lost', () => {
+    // ledger-slice-rt-f15103ba: _5 admitted 13:04, still unsettled when _12
+    // was admitted 13:35 with the SAME body. Allocated turn order was
+    // out-of-order (turn_10 before turn_9), so it cannot pick a winner, and
+    // elapsed time is not evidence. Both stay pending; nothing is lost.
+    const tracker = createTracker('t08107_specimen')
+    const repeatedEnvelope = '[T-08094] same envelope body redelivered'
+    for (const suffix of ['5', '12']) {
+      tracker.trackBrokerSubmission({
+        submissionId: `submission_${suffix}`,
+        inputId: `submission_${suffix}`,
+        allocatedTurnId: `turn_${suffix}` as TurnId,
+        content: repeatedEnvelope,
+      })
+    }
+
+    const actions = tracker.observePromptHook(repeatedEnvelope)
+
+    // The turn is real and still opens, but it claims NEITHER identity.
+    expect(actions).toEqual([
+      expect.objectContaining({
+        kind: 'warning',
+        message: expect.stringContaining('multiple pending submissions'),
+      }),
+      expect.objectContaining({ kind: 'executed' }),
+    ])
+    expect(actions.find((action) => action.kind === 'executed')).not.toHaveProperty('inputId')
+    // Nothing was lost, and neither identity was consumed by a guess.
+    expect(actions.some((action) => action.kind === 'lost')).toBe(false)
+    expect(tracker.pendingCount).toBe(2)
+  })
+
+  test('a stale unclassified input never steals a later independently named turn', () => {
+    const tracker = createTracker('stale_never_steals')
+    const body = 'same envelope body'
+    for (const suffix of ['5', '12']) {
+      tracker.trackBrokerSubmission({
+        submissionId: `submission_${suffix}`,
+        inputId: `submission_${suffix}`,
+        allocatedTurnId: `turn_${suffix}` as TurnId,
+        content: body,
+      })
+    }
+
+    // Native evidence names _12 explicitly: identity beats age and order.
+    tracker.observeTurnStarted('turn_named' as TurnId, 'submission_12')
+    tracker.observeTurnTerminal('turn_named' as TurnId)
+
+    // The remaining body is now unambiguous and settles as itself.
+    expect(tracker.observePromptHook(body)).toEqual([
+      expect.objectContaining({ kind: 'executed', submissionId: 'submission_5' }),
+    ])
+  })
+
+  test('an ambiguous human prompt still opens its turn without claiming a submission', () => {
+    const tracker = createTracker('ambiguous_absorption')
+    for (const suffix of ['a', 'b']) {
+      tracker.trackBrokerSubmission({
+        submissionId: `submission_${suffix}`,
+        inputId: `submission_${suffix}`,
+        content: 'shared body',
+      })
+    }
+
+    const actions = tracker.observePlainUser('shared body', { type: 'user' })
+
+    expect(actions).toEqual([
+      expect.objectContaining({ kind: 'warning' }),
+      expect.objectContaining({ kind: 'executed' }),
+    ])
+    // The turn is real, but it carries no broker identity and consumed none.
+    const executed = actions.find((action) => action.kind === 'executed')
+    expect(executed).not.toHaveProperty('inputId')
+    expect(tracker.pendingCount).toBe(2)
+  })
+
+  test('positive provider queue evidence preserves FIFO across duplicate bodies', () => {
+    const tracker = createTracker('provider_fifo_duplicate')
+    for (const suffix of ['old', 'new']) {
+      tracker.trackBrokerSubmission({
+        submissionId: `submission_${suffix}`,
+        inputId: `submission_${suffix}`,
+        content: 'same queued body',
+      })
+      tracker.observeQueueOperation(queueOp('enqueue', 'same queued body'))
+    }
+
+    expect(tracker.observePromptHook('same queued body')).toEqual([])
+    tracker.observeQueueOperation(queueOp('dequeue'))
+    expect(tracker.observePlainUser('same queued body', { type: 'user' })).toEqual([
+      expect.objectContaining({ kind: 'executed', submissionId: 'submission_old' }),
+    ])
+  })
+
+  test('an observed start naming an input removes that exact candidate regardless of age', () => {
+    const tracker = createTracker('named_input')
+    for (const suffix of ['old', 'new']) {
+      tracker.trackBrokerSubmission({
+        submissionId: `submission_${suffix}`,
+        inputId: `submission_${suffix}`,
+        content: 'duplicate',
+      })
+    }
+
+    tracker.observeTurnStarted('turn_named' as TurnId, 'submission_old')
+
+    expect(tracker.pendingCount).toBe(1)
+    tracker.observeTurnTerminal('turn_named' as TurnId)
+    expect(tracker.observePromptHook('duplicate')).toEqual([
+      expect.objectContaining({ kind: 'executed', submissionId: 'submission_new' }),
+    ])
+  })
 })
 
 type ArchiveRow = Record<string, unknown>

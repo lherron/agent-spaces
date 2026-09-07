@@ -78,7 +78,8 @@ import type { CaptureGate } from './capture/capture-gate'
 import { CaptureRecordNotBlockedError, createCaptureGate } from './capture/capture-gate'
 import { type CaptureIndex, openCaptureIndex } from './capture/capture-index'
 import { createRawJournal } from './capture/raw-journal'
-import type { ApplyInputResult, Driver, DriverContext } from './drivers/driver'
+import type { ApplyInputResult, DeliveryEvidence, Driver, DriverContext } from './drivers/driver'
+import { deliveryEvidenceOf } from './drivers/driver'
 import { BrokerError } from './errors'
 import { stableJsonStringify } from './event-ledger'
 import type { InvocationEventExtra, InvocationEventSequencer } from './events'
@@ -282,6 +283,8 @@ interface SubmissionRecord {
   origin: SubmissionOrigin
   input: InvocationInputWithId
   turnPolicy: TurnPolicy
+  /** Typed write evidence from the driver's most recent failed delivery. */
+  deliveryEvidence?: DeliveryEvidence | undefined
   terminal: boolean
 }
 
@@ -854,7 +857,13 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   function rejectAdmittedExecution(
     inv: Invocation,
     record: SubmissionRecord,
-    error: unknown
+    error: unknown,
+    options?: {
+      /** Typed evidence from a caller that already classified the failure. */
+      deliveryEvidence?: DeliveryEvidence | undefined
+      /** Set when the caller already emitted input.rejected for this attempt. */
+      inputRejectedEmitted?: boolean | undefined
+    }
   ): void {
     const heldIndex = inv.brokerQueue.findIndex(
       (item) => item.record.submissionId === record.submissionId
@@ -863,9 +872,29 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       const [held] = inv.brokerQueue.splice(heldIndex, 1)
       if (held?.timer !== undefined) clearTimeout(held.timer)
     }
+    const reason = error instanceof Error ? error.message : String(error)
+    // A driver that already began writing may have left the body in the
+    // harness. Reason text alone cannot express that, so the driver's TYPED
+    // evidence decides; anything a driver touched defaults to possibly-written
+    // (T-08204 rev 3 §4/§5).
+    const evidence = options?.deliveryEvidence ?? deliveryEvidenceOf(error) ?? 'possibly_written'
+    if (evidence === 'possibly_written') {
+      // No terminal submission.rejected: a late native user row must still be
+      // able to report this body consumed. The submission stays undisposed and
+      // the attempt is reported once, with its explicit write evidence.
+      if (options?.inputRejectedEmitted !== true) {
+        emit(
+          inv,
+          'input.rejected',
+          { inputId: record.submissionId as InputId, reason, deliveryEvidence: evidence },
+          { inputId: record.submissionId as InputId }
+        )
+      }
+      return
+    }
     emit(inv, 'submission.rejected', {
       submissionId: record.submissionId,
-      reason: error instanceof Error ? error.message : String(error),
+      reason,
     })
   }
 
@@ -1227,7 +1256,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   ): Promise<InvocationInputResponse> {
     const applySteerNow = inv.driver.applySteerNow
     if (applySteerNow === undefined) {
-      return rejectQueueInput(inv, input.inputId, REASON_STEER_NOT_SUPPORTED)
+      return rejectQueueInput(inv, input.inputId, REASON_STEER_NOT_SUPPORTED, 'not_written')
     }
 
     // Serialize pane writes only. This does not create a broker-owned pending
@@ -1239,10 +1268,17 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         try {
           await applySteerNow.call(inv.driver, input)
         } catch (err) {
+          // The driver says what its failure proves about the body. A refusal
+          // raised before the first paste is a real no-write; everything from
+          // the paste onward may have landed.
+          const evidence = deliveryEvidenceOf(err) ?? 'possibly_written'
+          const failed = inv.submissions.get(input.inputId)
+          if (failed !== undefined) failed.deliveryEvidence = evidence
           return rejectQueueInput(
             inv,
             input.inputId,
-            String(err instanceof Error ? err.message : err)
+            String(err instanceof Error ? err.message : err),
+            evidence
           )
         }
 
@@ -1287,9 +1323,19 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   function rejectQueueInput(
     inv: Invocation,
     inputId: InputId,
-    reason: string
+    reason: string,
+    deliveryEvidence?: DeliveryEvidence | undefined
   ): InvocationInputResponse {
-    emit(inv, 'input.rejected', { inputId, reason }, { inputId })
+    emit(
+      inv,
+      'input.rejected',
+      {
+        inputId,
+        reason,
+        ...(deliveryEvidence !== undefined ? { deliveryEvidence } : {}),
+      },
+      { inputId }
+    )
     return {
       inputId,
       accepted: false,
@@ -1314,7 +1360,12 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     while (inv.pending.length > 0) {
       const item = inv.pending.shift()
       if (item === undefined) return
-      emit(inv, 'input.rejected', { inputId: item.inputId, reason }, { inputId: item.inputId })
+      emit(
+        inv,
+        'input.rejected',
+        { inputId: item.inputId, reason, deliveryEvidence: 'not_written' },
+        { inputId: item.inputId }
+      )
       emit(inv, 'submission.cancelled', {
         submissionId: item.inputId,
         reason: 'teardown',
@@ -1714,16 +1765,17 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       })
       return
     }
+    // T-08204: releasing an admission slot is INDEPENDENT of settling its
+    // input. The terminal of a turn we could not correlate to this submission
+    // is evidence about that turn, never about our body — Claude queues an
+    // injected input while a turn runs and executes it on a LATER turn, so this
+    // moment is when the body is closest to executing, not lost. Proven on
+    // inv-d604db0e: _10 was cancelled here at seq 862 and natively started at
+    // seq 867. The slot is freed so the seat keeps accepting input; the
+    // submission stays UNDISPOSED until its own native evidence (executed,
+    // absorbed, recall or teardown) settles it exactly once.
     inv.pendingOwnTurnSubmissionId = undefined
     inv.pendingOwnTurnContestedByTurnId = undefined
-    if (pendingSubmissionId !== undefined && !inv.submissionDispositions.has(pendingSubmissionId)) {
-      emit(
-        inv,
-        'submission.cancelled',
-        { submissionId: pendingSubmissionId, reason: 'merged-into-foreign-turn' },
-        { turnId: terminalTurnId, inputId: pendingSubmissionId }
-      )
-    }
     scheduleDrain(inv)
     scheduleAdmissionDrain(inv)
   }
@@ -2472,8 +2524,12 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         )
       } else {
         void attemptSteerAndEmit(inv, record.input).then((result) => {
-          if (!result.accepted)
-            rejectAdmittedExecution(inv, record, result.reason ?? 'steer-failed')
+          if (!result.accepted) {
+            rejectAdmittedExecution(inv, record, result.reason ?? 'steer-failed', {
+              deliveryEvidence: record.deliveryEvidence,
+              inputRejectedEmitted: true,
+            })
+          }
         })
       }
       return response
@@ -2816,7 +2872,12 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       }
       admitSubmission(inv, submission)
       const response = await attemptSteerAndEmit(inv, input)
-      if (!response.accepted) rejectAdmittedExecution(inv, submission, response.reason)
+      if (!response.accepted) {
+        rejectAdmittedExecution(inv, submission, response.reason, {
+          deliveryEvidence: submission.deliveryEvidence,
+          inputRejectedEmitted: true,
+        })
+      }
       recordDisposition(inv, req, response)
       return response
     },
