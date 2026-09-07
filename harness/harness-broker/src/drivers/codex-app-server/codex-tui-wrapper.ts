@@ -3,6 +3,7 @@ import { type ChildProcess, spawn } from 'node:child_process'
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { connect } from 'node:net'
 import { dirname, extname, join } from 'node:path'
+import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 
 export interface AttachAttemptResult {
@@ -137,15 +138,28 @@ async function run(): Promise<void> {
   process.on('SIGHUP', () => void terminate('SIGHUP'))
   process.on('SIGTERM', () => void terminate('SIGTERM'))
 
+  // The app-server's stderr carries codex's tracing output (ERROR level by
+  // default). This wrapper runs inside the leased tmux `tui` pane, so an
+  // inherited stderr would be the pane tty the codex TUI is painting on raw-mode:
+  // every codex log line landed as a bare-`\n` staircase over the frame
+  // (T-08232). Pipe it instead and hand each line to the driver over the control
+  // socket, where it becomes an `info` diagnostic on the durable stream — the
+  // same treatment the headless path gives app-server stderr.
   const appServer = spawn(
     options.command,
     ['app-server', '--listen', `unix://${options.socketPath}`],
     {
       cwd: process.cwd(),
       env: process.env,
-      stdio: ['ignore', 'ignore', 'inherit'],
+      stdio: ['ignore', 'ignore', 'pipe'],
     }
   )
+  if (appServer.stderr) {
+    createInterface({ input: appServer.stderr }).on('line', (line) => {
+      if (line.trim().length === 0) return
+      void postControl(options, { type: 'app-server-renderer.stderr', line })
+    })
+  }
   await writeFile(`${options.socketPath}.pid`, `${appServer.pid ?? ''}\n`, 'utf8')
   const serverExit = new Promise<never>((_resolve, reject) => {
     appServer?.once('error', reject)

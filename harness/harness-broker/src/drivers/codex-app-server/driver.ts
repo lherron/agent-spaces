@@ -147,6 +147,13 @@ type RendererControlEnvelope =
       exitCode?: number | null | undefined
       signal?: NodeJS.Signals | string | null | undefined
     }
+  | {
+      type: 'app-server-renderer.stderr'
+      invocationId?: string | undefined
+      runtimeId?: string | undefined
+      callbackSocket?: string | undefined
+      line?: string | undefined
+    }
 
 export interface CodexAppServerDriverOptions {
   codexTui?: {
@@ -1061,6 +1068,20 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
     setTimeout(closeRendererControlListener, 0)
   }
 
+  /**
+   * codex-tui presentation: the wrapper pipes the app-server's stderr (codex
+   * tracing, ERROR by default) and forwards it line by line so it lands on the
+   * durable stream instead of the TUI pane. Same disposition as the headless
+   * stderr relay below (T-08232).
+   */
+  function handleAppServerStderr(
+    envelope: Extract<RendererControlEnvelope, { type: 'app-server-renderer.stderr' }>
+  ): void {
+    const line = envelope.line?.trim() ?? ''
+    if (line.length === 0) return
+    emitDiagnostic('info', line)
+  }
+
   function handleRendererExited(
     envelope: Extract<RendererControlEnvelope, { type: 'app-server-renderer.exited' }>
   ): void {
@@ -1407,6 +1428,10 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
             if (envelope.type === 'app-server-renderer.quit') {
               if (envelope.reason !== 'prompt_input_exit') return
               await handleRendererQuit()
+              return
+            }
+            if (envelope.type === 'app-server-renderer.stderr') {
+              handleAppServerStderr(envelope)
               return
             }
             handleRendererExited(envelope)

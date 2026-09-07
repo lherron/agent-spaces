@@ -451,6 +451,67 @@ describe('codex-tui transport', () => {
     }
   })
 
+  test('forwards app-server stderr lines from the wrapper as info diagnostics (T-08232)', async () => {
+    const rpc = new FakeCodexRpc()
+    const invocationId = 'inv_codex_tui_stderr_relay'
+    const run = await setupDriver(rpc, invocationId)
+    try {
+      await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
+      let controlSocket: string | undefined
+      await waitFor(async () => {
+        const entry = (await readdir(run.socketDir)).find(
+          (name) => name.includes('hb-codex-tui') && name.endsWith('.control.sock')
+        )
+        if (entry !== undefined) controlSocket = join(run.socketDir, entry)
+        return controlSocket !== undefined
+      }, 'codex-tui renderer control listener should bind its socket')
+      const post = (envelope: Record<string, unknown>) =>
+        new Promise<void>((resolve, reject) => {
+          const socket = connect(controlSocket as string, () => {
+            socket.end(JSON.stringify(envelope))
+          })
+          socket.once('error', reject)
+          socket.once('close', () => resolve())
+        })
+      const codexLine =
+        '2026-09-07T20:46:22.558245Z ERROR codex_models_manager::manager: failed to refresh available models: timeout waiting for child process to exit'
+      const isRelay = (event: InvocationEventEnvelope) =>
+        event.type === 'diagnostic' && (event.payload as { message?: string }).message === codexLine
+
+      // Fence-mismatched envelope (wrong invocation) must be dropped, not relayed.
+      await post({
+        type: 'app-server-renderer.stderr',
+        invocationId: 'inv_someone_else',
+        callbackSocket: controlSocket,
+        line: codexLine,
+      })
+      // Matching envelope becomes an info diagnostic on the durable stream.
+      await post({
+        type: 'app-server-renderer.stderr',
+        invocationId,
+        callbackSocket: controlSocket,
+        line: codexLine,
+      })
+      await waitFor(
+        () => run.events.some(isRelay),
+        `expected a diagnostic carrying the app-server stderr line:\n${run.events
+          .map((event) => JSON.stringify(event))
+          .join('\n')}`
+      )
+      const relayed = run.events.filter(isRelay)
+      expect(relayed).toHaveLength(1)
+      expect(relayed[0]?.payload).toMatchObject({
+        level: 'info',
+        source: 'harness',
+        message: codexLine,
+      })
+    } finally {
+      await run.broker.stop({ invocationId, reason: 'test cleanup' })
+      await run.broker.dispose({ invocationId })
+      await rm(run.socketDir, { recursive: true, force: true })
+    }
+  })
+
   test('handshakes experimentally and attributes two queued inputs without turn/start', async () => {
     const rpc = new FakeCodexRpc()
     let turnNumber = 0
