@@ -1,0 +1,769 @@
+{
+  "source": {
+    "invocationId": "inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6",
+    "submissionId": "submission_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_10",
+    "runtimeId": "rt-4e0d5e80-3e4c-4255-934c-bb617a8a2ebb",
+    "nativeSessionId": "f0a873b3-2947-4b0c-99ca-a1f579fc6282",
+    "foreignTurnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+    "ownTurnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_16",
+    "origin": "HRC-RETAINED broker envelopes",
+    "note": "Mechanically extracted by clod from the HRC-retained broker envelopes exported by Astra (wrkq artifact inv-d604db0e-hrc-broker-events.ndjson, 1136 rows seq 1-1136, read-only from HRC SQLite broker_invocation_events). These are HRC-RETAINED projections, NOT the broker raw capture directory (var/run/hrc/bipc/1ad39b1a6611), which was reaped on 2026-09-07 and no longer exists. Native bodies cross-check against the Claude session JSONL exported alongside as f0a873b3-native-claude.jsonl. `events` are the DRIVER-emitted rows replayed by the test; `recordedWindow` is the full broker-side window seq 806-876 for audit and is NOT replayed. The recorded seq 862 submission.cancelled(merged-into-foreign-turn) is the DEFECT and is deliberately absent from `events`: it is broker output, not driver input. Per Astra, the old attribution in this recording is not independent proof of input ownership."
+  },
+  "deliveredContent": "[hrc-runtime/turn-consolidation \u00b7 cody@hrc-runtime:T-08201 (gen 1) \u2192 you]\nHALT acknowledged. Current state: reproduction finished only; source tree untouched (`git status --short` is empty). No edit, commit, install, or restart occurred, and I will not re-dispatch the terminated smoke seat.\n\nFresh specimen on `agent:cody:project:hrc-runtime:task:T-08201:role:smoke` / `rt-e8f93ecc`:\n- original run `run-6d4a341b-ed5e-4e8c-91fe-6799e6d7df04`: `turn.started` at hrc_seq 1831414;\n- steer run `run-9e9c26c5-8b2c-484c-be29-0410ca4a1d92`: `turn.accepted` at 1831500, with broker diagnostics door/admissionClass `steer`, handed to harness, no turn start;\n- semantic `turn.completed` at 1831765 was attributed to the steer run, not the original. Because you terminated the specimen, the raw broker terminal was `turn.interrupted`; this confirms the shared interrupted terminal path has the same theft. The original `hrc turn --stacked 20s --stall-after 2m` observer exited 1 on stall while filtered on run-6d4a.\nI recorded the full discriminator in T-08201 comment C-19850.\n\nRead-only trace: `turn-dispatch-handlers.ts:418` mints a fresh run for every door; the headless/interactive broker handlers insert it as accepted and bind the returned submission id. `event-mapper.ts:753-755` prefers disposition-turn lookup; `findRunByDispositionTurnId` at 1037-1050 maps `submission.absorbed(turnId=<active turn>)` to the steer submission's run. The shared completed/failed/interrupted projection then terminalizes/emits against that resolved steer run.\n\nAdmission spec: `hrc-runtime.harness-broker-admission-client` explicitly says steer has no wait, obligation, or own-response option and resolves only via truthful `absorbed` or `executed`. That agrees with active-turn `absorbed`; I found no conflict. It does not dictate whether HRC omits the auxiliary run or marks it coalesced.",
+  "events": [
+    {
+      "seq": 812,
+      "type": "turn.started",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "payload": {
+        "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+        "source": "hook-observed"
+      },
+      "driver": {
+        "kind": "claude-code-tmux",
+        "rawType": "UserPromptSubmit"
+      },
+      "provenance": {
+        "rawRecordId": "raw_001592",
+        "sourceKind": "hook",
+        "sourceEpoch": "ep_bd3a2b90-1042-4539-afa4-66c4fab1a459",
+        "nativeType": "UserPromptSubmit",
+        "rawSha256": "8710c2ab98b68fc26786724868132125f1bb14495145bb0a2d2dd62ac5792cf8",
+        "normalizer": {
+          "name": "claude-code-tmux",
+          "version": "0.1.0"
+        }
+      }
+    },
+    {
+      "seq": 813,
+      "type": "submission.executed",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "payload": {
+        "submissionId": "human_submission_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_12",
+        "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17"
+      },
+      "driver": {
+        "kind": "claude-code-tmux",
+        "rawType": "UserPromptSubmit"
+      },
+      "provenance": {
+        "rawRecordId": "raw_001592",
+        "sourceKind": "hook",
+        "sourceEpoch": "ep_bd3a2b90-1042-4539-afa4-66c4fab1a459",
+        "nativeType": "UserPromptSubmit",
+        "rawSha256": "8710c2ab98b68fc26786724868132125f1bb14495145bb0a2d2dd62ac5792cf8",
+        "normalizer": {
+          "name": "claude-code-tmux",
+          "version": "0.1.0"
+        }
+      }
+    },
+    {
+      "seq": 814,
+      "type": "user.message",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "payload": {
+        "content": "When we have steering enabled, we can't reliably assign runIds to specific envelopes.  This is c",
+        "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17"
+      },
+      "driver": {
+        "kind": "claude-code-tmux",
+        "rawType": "transcript.user"
+      },
+      "provenance": {
+        "rawRecordId": "raw_001594",
+        "sourceKind": "provider-jsonl",
+        "sourceEpoch": "ep_4384490d-1fa9-454c-b112-71b4b290da2b",
+        "sourceCursor": {
+          "byteOffset": 2786366,
+          "line": 1187
+        },
+        "nativeType": "user",
+        "rawSha256": "2a08d24baa73678e2eb30bd5103bc494a5510c618a6d62d17833a3759da4730c",
+        "normalizer": {
+          "name": "claude-code-tmux",
+          "version": "0.1.0"
+        }
+      }
+    },
+    {
+      "seq": 861,
+      "type": "turn.completed",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "payload": {
+        "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+        "status": "completed"
+      },
+      "driver": {
+        "kind": "claude-code-tmux",
+        "rawType": "Stop"
+      },
+      "provenance": {
+        "rawRecordId": "raw_001814",
+        "sourceKind": "hook",
+        "sourceEpoch": "ep_bd3a2b90-1042-4539-afa4-66c4fab1a459",
+        "nativeType": "Stop",
+        "rawSha256": "f0ab05f390d1286b04419c68da986f6dad07ec12dd2470120917d871e4300dbd",
+        "normalizer": {
+          "name": "claude-code-tmux",
+          "version": "0.1.0"
+        }
+      }
+    },
+    {
+      "seq": 867,
+      "type": "turn.started",
+      "inputId": "submission_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_10",
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_16",
+      "payload": {
+        "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_16",
+        "source": "hook-observed",
+        "inputId": "submission_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_10"
+      },
+      "driver": {
+        "kind": "claude-code-tmux",
+        "rawType": "UserPromptSubmit"
+      },
+      "provenance": {
+        "rawRecordId": "raw_001819",
+        "sourceKind": "hook",
+        "sourceEpoch": "ep_bd3a2b90-1042-4539-afa4-66c4fab1a459",
+        "nativeType": "UserPromptSubmit",
+        "rawSha256": "01b060175921fd09ecc2a25913ffa89ad50046f6334d9efe7945514ee7920a19",
+        "normalizer": {
+          "name": "claude-code-tmux",
+          "version": "0.1.0"
+        }
+      }
+    },
+    {
+      "seq": 868,
+      "type": "user.message",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_16",
+      "payload": {
+        "content": "[hrc-runtime/turn-consolidation \u00b7 cody@hrc-runtime:T-08201 (gen 1) \u2192 you]\nHALT acknowledged. Current state: reproduction finished only; source tree untouched (`git status --short` is empty). No edit, commit, install, or restart occurred, and I will not re-dispatch the terminated smoke seat.\n\nFresh specimen on `agent:cody:project:hrc-runtime:task:T-08201:role:smoke` / `rt-e8f93ecc`:\n- original run `run-6d4a341b-ed5e-4e8c-91fe-6799e6d7df04`: `turn.started` at hrc_seq 1831414;\n- steer run `run-9e9c26c5-8b2c-484c-be29-0410ca4a1d92`: `turn.accepted` at 1831500, with broker diagnostics door/admissionClass `steer`, handed to harness, no turn start;\n- semantic `turn.completed` at 1831765 was attributed to the steer run, not the original. Because you terminated the specimen, the raw broker terminal was `turn.interrupted`; this confirms the shared interrupted terminal path has the same theft. The original `hrc turn --stacked 20s --stall-after 2m` observer exited 1 on stall while filtered on run-6d4a.\nI recorded the full discriminator in T-08201 comment C-19850.\n\nRead-only trace: `turn-dispatch-handlers.ts:418` mints a fresh run for every door; the headless/interactive broker handlers insert it as accepted and bind the returned submission id. `event-mapper.ts:753-755` prefers disposition-turn lookup; `findRunByDispositionTurnId` at 1037-1050 maps `submission.absorbed(turnId=<active turn>)` to the steer submission's run. The shared completed/failed/interrupted projection then terminalizes/emits against that resolved steer run.\n\nAdmission spec: `hrc-runtime.harness-broker-admission-client` explicitly says steer has no wait, obligation, or own-response option and resolves only via truthful `absorbed` or `executed`. That agrees with active-turn `absorbed`; I found no conflict. It does not dictate whether HRC omits the auxiliary run or marks it coalesced.",
+        "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_16"
+      },
+      "driver": {
+        "kind": "claude-code-tmux",
+        "rawType": "transcript.user"
+      },
+      "provenance": {
+        "rawRecordId": "raw_001821",
+        "sourceKind": "provider-jsonl",
+        "sourceEpoch": "ep_4384490d-1fa9-454c-b112-71b4b290da2b",
+        "sourceCursor": {
+          "byteOffset": 2927150,
+          "line": 1266
+        },
+        "nativeType": "user",
+        "rawSha256": "b40b284bee71960a5cb0a1576140a2f4c98f6b7d67baf89e76fcaa17faea7894",
+        "normalizer": {
+          "name": "claude-code-tmux",
+          "version": "0.1.0"
+        }
+      }
+    },
+    {
+      "seq": 874,
+      "type": "turn.completed",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_16",
+      "payload": {
+        "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_16",
+        "status": "completed"
+      },
+      "driver": {
+        "kind": "claude-code-tmux",
+        "rawType": "Stop"
+      },
+      "provenance": {
+        "rawRecordId": "raw_001849",
+        "sourceKind": "hook",
+        "sourceEpoch": "ep_bd3a2b90-1042-4539-afa4-66c4fab1a459",
+        "nativeType": "Stop",
+        "rawSha256": "256debc2867244101d957ea6c9ed1cf039a13b75c91eeb4bcc4bd66d83508c16",
+        "normalizer": {
+          "name": "claude-code-tmux",
+          "version": "0.1.0"
+        }
+      }
+    }
+  ],
+  "recordedWindow": [
+    {
+      "seq": 806,
+      "type": "turn.completed",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_15",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 807,
+      "type": "driver.notice",
+      "inputId": null,
+      "turnId": null,
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 808,
+      "type": "admission.requested",
+      "inputId": null,
+      "turnId": null,
+      "reason": null,
+      "submissionId": "submission_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_10"
+    },
+    {
+      "seq": 809,
+      "type": "admission.admitted",
+      "inputId": null,
+      "turnId": null,
+      "reason": null,
+      "submissionId": "submission_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_10"
+    },
+    {
+      "seq": 810,
+      "type": "queue.enqueued",
+      "inputId": null,
+      "turnId": null,
+      "reason": null,
+      "submissionId": "submission_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_10"
+    },
+    {
+      "seq": 811,
+      "type": "input.accepted",
+      "inputId": "submission_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_10",
+      "turnId": null,
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 812,
+      "type": "turn.started",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 813,
+      "type": "submission.executed",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": "human_submission_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_12"
+    },
+    {
+      "seq": 814,
+      "type": "user.message",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 815,
+      "type": "capture.warning",
+      "inputId": null,
+      "turnId": null,
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 816,
+      "type": "assistant.message.started",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 817,
+      "type": "usage.updated",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 818,
+      "type": "tool.call.started",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 819,
+      "type": "assistant.message.completed",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 820,
+      "type": "tool.call.completed",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 821,
+      "type": "tool.call.started",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 822,
+      "type": "tool.call.completed",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 823,
+      "type": "capture.warning",
+      "inputId": null,
+      "turnId": null,
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 824,
+      "type": "assistant.message.started",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 825,
+      "type": "usage.updated",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 826,
+      "type": "tool.call.started",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 827,
+      "type": "tool.call.completed",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 828,
+      "type": "capture.warning",
+      "inputId": null,
+      "turnId": null,
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 829,
+      "type": "tool.call.started",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 830,
+      "type": "tool.call.started",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 831,
+      "type": "tool.call.completed",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 832,
+      "type": "capture.warning",
+      "inputId": null,
+      "turnId": null,
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 833,
+      "type": "tool.call.completed",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 834,
+      "type": "capture.warning",
+      "inputId": null,
+      "turnId": null,
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 835,
+      "type": "capture.warning",
+      "inputId": null,
+      "turnId": null,
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 836,
+      "type": "driver.notice",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 837,
+      "type": "driver.notice",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 838,
+      "type": "assistant.message.started",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 839,
+      "type": "usage.updated",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 840,
+      "type": "tool.call.started",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 841,
+      "type": "tool.call.completed",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 842,
+      "type": "capture.warning",
+      "inputId": null,
+      "turnId": null,
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 843,
+      "type": "tool.call.started",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 844,
+      "type": "tool.call.completed",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 845,
+      "type": "capture.warning",
+      "inputId": null,
+      "turnId": null,
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 846,
+      "type": "capture.warning",
+      "inputId": null,
+      "turnId": null,
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 847,
+      "type": "driver.notice",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 848,
+      "type": "assistant.message.started",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 849,
+      "type": "usage.updated",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 850,
+      "type": "tool.call.started",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 851,
+      "type": "tool.call.completed",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 852,
+      "type": "capture.warning",
+      "inputId": null,
+      "turnId": null,
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 853,
+      "type": "tool.call.started",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 854,
+      "type": "tool.call.completed",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 855,
+      "type": "capture.warning",
+      "inputId": null,
+      "turnId": null,
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 856,
+      "type": "capture.warning",
+      "inputId": null,
+      "turnId": null,
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 857,
+      "type": "driver.notice",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 858,
+      "type": "assistant.message.started",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 859,
+      "type": "usage.updated",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 860,
+      "type": "assistant.message.completed",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 861,
+      "type": "turn.completed",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 862,
+      "type": "submission.cancelled",
+      "inputId": "submission_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_10",
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_17",
+      "reason": "merged-into-foreign-turn",
+      "submissionId": "submission_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_10"
+    },
+    {
+      "seq": 863,
+      "type": "admission.requested",
+      "inputId": null,
+      "turnId": null,
+      "reason": null,
+      "submissionId": "submission_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_11"
+    },
+    {
+      "seq": 864,
+      "type": "admission.admitted",
+      "inputId": null,
+      "turnId": null,
+      "reason": null,
+      "submissionId": "submission_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_11"
+    },
+    {
+      "seq": 865,
+      "type": "queue.enqueued",
+      "inputId": null,
+      "turnId": null,
+      "reason": null,
+      "submissionId": "submission_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_11"
+    },
+    {
+      "seq": 866,
+      "type": "input.accepted",
+      "inputId": "submission_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_11",
+      "turnId": null,
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 867,
+      "type": "turn.started",
+      "inputId": "submission_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_10",
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_16",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 868,
+      "type": "user.message",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_16",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 869,
+      "type": "driver.notice",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_16",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 870,
+      "type": "driver.notice",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_16",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 871,
+      "type": "assistant.message.started",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_16",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 872,
+      "type": "usage.updated",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_16",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 873,
+      "type": "assistant.message.completed",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_16",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 874,
+      "type": "turn.completed",
+      "inputId": null,
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_16",
+      "reason": null,
+      "submissionId": null
+    },
+    {
+      "seq": 875,
+      "type": "submission.cancelled",
+      "inputId": "submission_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_11",
+      "turnId": "turn_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_16",
+      "reason": "merged-into-foreign-turn",
+      "submissionId": "submission_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_11"
+    },
+    {
+      "seq": 876,
+      "type": "admission.requested",
+      "inputId": null,
+      "turnId": null,
+      "reason": null,
+      "submissionId": "submission_inv-d604db0e-8b54-4c86-96e2-23c80b95b4a6_12"
+    }
+  ]
+}

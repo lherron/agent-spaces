@@ -1092,7 +1092,12 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
           reason: result.reason ?? result.effect,
         })
         if (inv.preemptInterruptTurnId === turnId) inv.preemptInterruptTurnId = undefined
-        rejectAdmittedExecution(inv, record, result.reason ?? result.effect)
+        // The preempt body is still broker-held: the interrupt was a
+        // precondition for writing it, so a failed interrupt means nothing
+        // reached the harness and the refusal stays terminal.
+        rejectAdmittedExecution(inv, record, result.reason ?? result.effect, {
+          deliveryEvidence: 'not_written',
+        })
         return
       }
       emit(inv, 'interrupt.landed', {
@@ -1107,7 +1112,9 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         reason: error instanceof Error ? error.message : String(error),
       })
       if (inv.preemptInterruptTurnId === turnId) inv.preemptInterruptTurnId = undefined
-      rejectAdmittedExecution(inv, record, error)
+      // Same boundary as above: the interrupt threw before the held body was
+      // ever written.
+      rejectAdmittedExecution(inv, record, error, { deliveryEvidence: 'not_written' })
     }
   }
 
@@ -1256,6 +1263,14 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   ): Promise<InvocationInputResponse> {
     const applySteerNow = inv.driver.applySteerNow
     if (applySteerNow === undefined) {
+      // Reachable from the public steer RPC: admission.classes is a driver
+      // DECLARATION and is not cross-checked against applySteerNow presence
+      // (only input.busyPolicies is), so a driver can admit a steer it cannot
+      // execute. Record the evidence so the admitted-execution rejection stays
+      // a truthful TERMINAL refusal instead of defaulting to possibly-written
+      // and leaving a submission that never reached a driver undisposed.
+      const refused = inv.submissions.get(input.inputId)
+      if (refused !== undefined) refused.deliveryEvidence = 'not_written'
       return rejectQueueInput(inv, input.inputId, REASON_STEER_NOT_SUPPORTED, 'not_written')
     }
 
@@ -2839,7 +2854,15 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
           admitSubmission(inv, submission)
           const response = await attemptSteerAndEmit(inv, input)
           if (!response.accepted) {
-            rejectAdmittedExecution(inv, submission, response.reason ?? REASON_STEER_NOT_SUPPORTED)
+            // attemptSteerAndEmit already classified the failure and emitted
+            // input.rejected; reuse that evidence so a not_written refusal
+            // stays terminal and a possible write is reported only once.
+            rejectAdmittedExecution(
+              inv,
+              submission,
+              response.reason ?? REASON_STEER_NOT_SUPPORTED,
+              { deliveryEvidence: submission.deliveryEvidence, inputRejectedEmitted: true }
+            )
           }
           recordDisposition(inv, req, response)
           return response

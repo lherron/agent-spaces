@@ -729,6 +729,61 @@ describe('broker admission API', () => {
     expect((await broker.seatProbe({ invocationId })).seat).toEqual({ state: 'terminal' })
   })
 
+  test('a failed preempt interrupt terminally rejects its unwritten submission', async () => {
+    // The preempt body is broker-held; the interrupt is a precondition for
+    // delivering it. If the interrupt fails, nothing was ever written, so the
+    // refusal must stay terminal rather than defaulting to possibly-written.
+    const { broker, events, invocationId } = await setup('inv_admission_preempt_interrupt_fail', {
+      admissionClasses: ['steer', 'queue', 'exclusive', 'preempt'],
+      interruptRejectionReason: 'interrupt refused by harness',
+    })
+    await broker.invoke({ invocationId, origin, body: 'active' })
+    await flush()
+    expect((await broker.seatProbe({ invocationId })).seat.state).toBe('turn-active')
+
+    const preempted = await broker.preempt({ invocationId, origin, body: 'never written' })
+    await flush()
+
+    expect(eventsFor(events, 'interrupt.failed')).not.toHaveLength(0)
+    expect(
+      eventsFor(events, 'submission.rejected').filter(
+        (event) => event.payload.submissionId === preempted.submissionId
+      )
+    ).toHaveLength(1)
+  })
+
+  test('a pre-driver steer refusal is terminally rejected as not_written', async () => {
+    // admission.classes is a deliberate driver DECLARATION and is not
+    // cross-checked against applySteerNow presence (only input.busyPolicies is),
+    // so a driver can admit a steer it cannot execute. That refusal happens
+    // before any driver attempt: it must stay a truthful terminal rejection and
+    // must not be mistaken for a possible write.
+    const { broker, events, invocationId } = await setup('inv_admission_steer_unsupported', {
+      supportsSteer: false,
+      admissionClasses: ['steer', 'queue', 'exclusive'],
+    })
+    // A turn must be active, otherwise the steer is applied as a normal input.
+    await broker.invoke({ invocationId, origin, body: 'active' })
+    await flush()
+    expect((await broker.seatProbe({ invocationId })).seat.state).toBe('turn-active')
+
+    const refused = await broker.steer({ invocationId, origin, body: 'cannot be written' })
+    await flush()
+
+    expect(
+      eventsFor(events, 'input.rejected').filter(
+        (event) => (event.payload as { inputId?: string }).inputId === refused.submissionId
+      )
+    ).toMatchObject([{ payload: { deliveryEvidence: 'not_written' } }])
+    // Nothing reached a driver, so the submission is DISPOSED, not left
+    // dangling as a possible write.
+    expect(
+      eventsFor(events, 'submission.rejected').filter(
+        (event) => event.payload.submissionId === refused.submissionId
+      )
+    ).toHaveLength(1)
+  })
+
   test('steer is absorbed on open turns and rejected by guarded turn policy', async () => {
     const open = await setup('inv_admission_steer_open')
     const started = await open.broker.invoke({

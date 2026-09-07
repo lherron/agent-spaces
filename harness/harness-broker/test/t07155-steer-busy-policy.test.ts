@@ -235,6 +235,68 @@ describe('T-07155 whenBusy: steer', () => {
     ).toHaveLength(1)
   })
 
+  // The legacy whenBusy:'queue' branch on an interactive, steer-capable driver
+  // routes through attemptSteerAndEmit too, and reports its failure through a
+  // THIRD rejectAdmittedExecution call site (T-08204 followup).
+  test('legacy queue-steer keeps a not_written refusal terminal', async () => {
+    const { broker, events, invocationId } = await setup({
+      invocationId: 'inv_t08204_legacy_queue_not_written',
+      supportsSteer: true,
+      mode: 'interactive',
+      inputQueue: 'fifo',
+      steerRejectionReason: 'pane_not_quiescent',
+      steerRejectionEvidence: 'not_written',
+    })
+    await broker.input({ invocationId, input: userInput('input_active', 'work') })
+
+    await broker.input({
+      invocationId,
+      input: userInput('input_legacy_queue', 'broker steer'),
+      policy: { whenBusy: 'queue' },
+    })
+
+    expect(
+      inputEvents(events, 'input.rejected').filter(
+        (event) => (event.payload as { inputId?: string }).inputId === 'input_legacy_queue'
+      )
+    ).toMatchObject([{ payload: { deliveryEvidence: 'not_written' } }])
+    expect(
+      inputEvents(events, 'submission.rejected').filter(
+        (event) =>
+          (event.payload as { submissionId?: string }).submissionId === 'input_legacy_queue'
+      )
+    ).toHaveLength(1)
+  })
+
+  test('legacy queue-steer reports a possibly-written failure exactly once', async () => {
+    const { broker, events, invocationId } = await setup({
+      invocationId: 'inv_t08204_legacy_queue_possibly',
+      supportsSteer: true,
+      mode: 'interactive',
+      inputQueue: 'fifo',
+      steerRejectionReason: 'pane_not_quiescent',
+    })
+    await broker.input({ invocationId, input: userInput('input_active', 'work') })
+
+    await broker.input({
+      invocationId,
+      input: userInput('input_legacy_maybe', 'broker steer'),
+      policy: { whenBusy: 'queue' },
+    })
+
+    expect(
+      inputEvents(events, 'input.rejected').filter(
+        (event) => (event.payload as { inputId?: string }).inputId === 'input_legacy_maybe'
+      )
+    ).toMatchObject([{ payload: { deliveryEvidence: 'possibly_written' } }])
+    expect(
+      inputEvents(events, 'submission.rejected').filter(
+        (event) =>
+          (event.payload as { submissionId?: string }).submissionId === 'input_legacy_maybe'
+      )
+    ).toHaveLength(0)
+  })
+
   // G4 — legacy invocation.input compatibility is unchanged. The new
   // submission.enqueue RPC is the explicit broker-held queue door.
   test('G4: whenBusy queue still enqueues on headless', async () => {
