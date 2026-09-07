@@ -62,14 +62,48 @@ predicate: >
   remain unresolved with a diagnostic, never selected by oldest or newest age.
   Full-body contains attribution must also be unambiguous. Ambiguity preserves
   candidate correlations until native settlement, confirmed recall, or teardown.
+  Codex app-server steering, in TUI and headless modes, confirms context entry
+  only from a committed item/started userMessage whose clientId matches a
+  pending steer and whose threadId and turnId match the identities snapshotted
+  before the RPC. Correlation is armed before sending clientUserMessageId with
+  expectedTurnId. The observer examines every user item and deduplicates by
+  thread, turn, and item identity; item/completed is not a second landing.
+  A match emits native-provenance user.message then submission.absorbed for
+  that exact input and turn once. It never establishes initiating attribution,
+  replaces currentInputId or the turn owner, or resolves a queue-initiator waiter.
+  Unmatched later human items remain visible without broker input identity;
+  headless initial-message behavior remains free of duplicate native rows.
+  RPC success reports input.accepted only. The shared manager never synthesizes
+  submission.absorbed from ack, asserted, or null landing evidence, and the
+  Codex driver never fabricates a broker.steer user.message on acknowledgement.
+  Legacy asserted and Pi SDK ack steering remain available at their declared
+  strength without inferred confirmation; agent-harness false/null stays intact.
+  A matching native item before the RPC response wins: a later response
+  conflict is diagnostic and neither retracts the disposition nor fails an
+  otherwise live invocation solely to dispose the input. Before native evidence,
+  missing, mismatched, or failed responses preserve possible-write uncertainty
+  and correlation rather than terminally rejecting the submission. Only a
+  documented pre-write rejection guarantee permits not_written.
+  Tool gaps, unrelated items, turn terminal, and interrupt infer no absorption
+  or loss; a late exact native match may settle its original turn. Definitive
+  teardown or withdrawal remains terminal and later conversation evidence cannot
+  reopen it. Controller reconnect preserves correlation in a surviving driver;
+  committed replay uses the same idempotent observer. Driver disposal clears
+  process-local tracking and establishes no process-persistent reconstruction.
+  A provider missing clientId retains steering and diagnosed uncertainty, never
+  falls back to asserted absorption. Shared inference removal and native emission
+  ship coherently; consumer no-reinject behavior precedes activation.
 authority:
   repo: agent-spaces
-  surface: wrkq T-07849 rev 11 approved by Daedalus on Lance's authority; amended by Daedalus approvals of wrkq T-07962 rev 3 on 2026-09-03, wrkq T-08097 rev 13 on 2026-09-05, and wrkq T-08204 rev 2 (C-19934) plus rev 3 attribution reconciliation on 2026-09-07
+  surface: wrkq T-07849 rev 11 approved by Daedalus on Lance's authority; amended by Daedalus approvals of wrkq T-07962 rev 3 on 2026-09-03, wrkq T-08097 rev 13 on 2026-09-05, wrkq T-08204 rev 2 (C-19934) plus rev 3 attribution reconciliation, and wrkq T-08206 rev 2 (C-19948) on 2026-09-07
 source:
   - wrkq:T-07849
   - wrkq:T-07962
   - wrkq:T-08097
   - wrkq:T-08204
+  - wrkq:T-08206
+  - harness/harness-broker/src/drivers/codex-app-server/driver.ts
+  - harness/harness-broker/src/drivers/codex-app-server/capabilities.ts
   - architecture/records/invariants/agent-spaces.codex-tui-app-server-presentation.yaml
   - harness/harness-broker/src/invocation-manager.ts
   - harness/harness-broker/src/drivers/claude-code-tmux/driver.ts
@@ -96,6 +130,11 @@ required_tests:
   - an injected Claude body pending beyond 60 seconds does not fail the invocation lose its correlation or gain retry authority from elapsed time
   - real Claude matrix evidence covers delayed consumption and mid-turn absorption with native rows broker sequences and stable input identities
   - T-08107 archived _5 and _12 sequence preserves independently named input attribution despite out-of-order turn numbers while ambiguous unclassified identical and contains candidates remain unresolved without age-based selection
+  - Codex native steer captures cover exact thread turn item and client identity, identical input bodies, human items, started/completed duplicates, initiating queue ownership, and headless initial-message deduplication
+  - Codex native-before-response and response failure or mismatch before and after evidence preserve one truthful disposition without failing an otherwise live invocation solely to dispose uncertainty
+  - delayed native steer evidence survives tool gaps turn terminal interrupt and surviving-driver reconnect, while teardown never reopens terminal submissions or advertises process-persistent recovery
+  - shared manager emits no inferred absorption for ack asserted or null sibling drivers while their existing delivery capabilities remain intact
+  - installed Codex TUI and Claude CLI native-to-broker-to-HRC receipt evidence preserves exact submission identity and original turn ownership with no presentation on acknowledgement
 last_verified:
   date: 2026-09-05
   evidence: Daedalus source-grounded approvals of T-07962 rev 3 and T-08097 rev 13 established content-evidence codex-cli-tmux attribution plus observed codex-tui bracket and attribution semantics with indeterminate lost-correlation failure; implementation gates remain pending
@@ -110,5 +149,8 @@ reopen_when:
   - a Claude admission-slot release timer or possibly-written rejection settles the input erases correlation or authorizes reinjection without native evidence
   - deliveryEvidence changes meaning or absence becomes proof of no write
   - Claude correlation overrides a named input uses age to select ambiguous bodies or treats allocated turn-number order as provider evidence
+  - Codex steer confirmation loses native identity or provenance, rewrites initiating ownership, or uses RPC acknowledgement as context-entry proof
+  - late RPC conflict retracts native evidence or possible-write uncertainty loses its correlation before settlement or teardown
+  - shared ack absorption returns, unsupported native client identity is guessed, or process-persistent steer recovery is claimed
 supersedes: []
 superseded_by: null

@@ -6,7 +6,13 @@ scope: interactive Codex app-server runtime presentation delivery evidence and l
 predicate: >
   Interactive Codex compatibility seats compile to the codex-app-server driver
   with codex-tui presentation and websocket-over-unix transport while headless
-  codex-app-server seats and their tmux-tui renderer remain unchanged. Each
+  codex-app-server seats and their tmux-tui renderer retain existing initial-turn
+  behavior. Both presentations use native steering confirmation under
+  agent-spaces.harness-broker-turn-evidence: turn/steer carries the pending
+  client identity, and only its matching committed native user item confirms
+  context entry without replacing initiating ownership. The transcript landing
+  evidence enum denotes asynchronous provider evidence here; nativeSourceKind
+  remains provider-jsonrpc. Each
   interactive runtime owns exactly one app-server started beneath the HRC-leased
   tmux pane wrapper; pane exit or teardown kills that server, so neither server
   nor its queued work can outlive the runtime that owns its broker. The broker
@@ -24,10 +30,11 @@ predicate: >
   never in this presentation. Stop and PostToolUse hooks are raw provenance and
   synchronous mail-stop control only; they mint no turn events. codex-cli-tmux is
   deprecated in place until a separate removal ruling.
-authority: Daedalus approval of wrkq T-08097 rev 13 with companion wrkq T-08098 on 2026-09-05
+authority: Daedalus approval of wrkq T-08097 rev 13 with companion wrkq T-08098 on 2026-09-05; native steering evidence amended by wrkq T-08206 rev 2 (C-19948) on 2026-09-07
 source:
   - wrkq:T-08097
   - wrkq:T-08098
+  - wrkq:T-08206
   - architecture/records/invariants/agent-spaces.harness-broker-admission.yaml
   - architecture/records/invariants/agent-spaces.harness-broker-turn-evidence.yaml
   - architecture/records/invariants/agent-spaces.harness-broker-local-commit-observation.yaml
@@ -42,6 +49,7 @@ required_tests:
   - resume deletes every stored queue item before thread/resume and records each deletion diagnostically
   - codex-tui refuses approval policy other than never and its hooks remain raw provenance outside turn evidence
   - real-terminal validation covers broker and human turns steer interrupt continuation pane exit and runtime cleanup
+  - TUI and headless Codex steering confirm only the exact native user item, preserve initiating ownership and queue waiters, and never duplicate the headless initial user message
 last_verified:
   date: 2026-09-05
   evidence: Daedalus source-grounded approval of T-08097 rev 13 established the per-runtime two-client codex-tui route, queue-only own-turn delivery, observed attribution, fail-closed unknown terminals, approvals-off boundary, and runtime-bounded queue lifetime; implementation gates remain pending
@@ -51,6 +59,6 @@ reopen_when:
   - exclusive or an approval policy other than never is exposed in codex-tui presentation
   - queue scrub can occur after thread load or an item can execute after its owning runtime dies
   - hooks mint turn evidence or the RPC notification stream stops being sole evidence authority
-  - headless codex-app-server behavior or codex-cli-tmux removal enters this migration
+  - headless codex-app-server behavior beyond shared native steering confirmation or codex-cli-tmux removal enters this migration
 supersedes: []
 superseded_by: null
