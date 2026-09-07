@@ -39,13 +39,30 @@ predicate: >
   executed turn, and an interrupt marker terminalizes the still-active original
   turn. Each tracked prompt produces exactly one disposition and at most one
   user.message; absorption never fabricates a new turn bracket.
+  For Claude, releasing a contested admission slot does not settle the pending
+  input: an unrelated turn terminal or elapsed time cannot cancel, lose, or
+  erase its native correlation or authorize reinjection. Correlated native
+  evidence settles it once, without a last-wins disposition override. The
+  additive optional input.rejected.deliveryEvidence field distinguishes
+  not_written from possibly_written; omission and untyped driver failures
+  convey uncertainty, never a no-write guarantee. Only a refusal before any
+  body write attempt may claim not_written. Once paste or send-keys begins,
+  failures including paste-to-Enter and after-submit failures are
+  possibly_written. A possibly-written Claude failure retains the pending
+  correlation and undisposed submission, emits diagnostic input.rejected, and
+  cannot emit terminal submission.rejected merely because the write operation
+  threw; later native evidence may still report consumption. Proven no-write
+  refusal, native recall, and definitive teardown retain their truthful
+  outcomes. Teardown ends process-local tracking and proves no native removal;
+  this repair establishes no live reattach or restart reconstruction.
 authority:
   repo: agent-spaces
-  surface: wrkq T-07849 rev 11 approved by Daedalus on Lance's authority; amended by Daedalus approvals of wrkq T-07962 rev 3 on 2026-09-03 and wrkq T-08097 rev 13 on 2026-09-05
+  surface: wrkq T-07849 rev 11 approved by Daedalus on Lance's authority; amended by Daedalus approvals of wrkq T-07962 rev 3 on 2026-09-03, wrkq T-08097 rev 13 on 2026-09-05, and wrkq T-08204 rev 2 (C-19934) on 2026-09-07
 source:
   - wrkq:T-07849
   - wrkq:T-07962
   - wrkq:T-08097
+  - wrkq:T-08204
   - architecture/records/invariants/agent-spaces.codex-tui-app-server-presentation.yaml
   - harness/harness-broker/src/invocation-manager.ts
   - harness/harness-broker/src/drivers/claude-code-tmux/driver.ts
@@ -53,6 +70,9 @@ source:
   - harness/harness-broker/src/drivers/claude-code-tmux/hook-events.ts
   - harness/harness-broker/src/drivers/claude-code-tmux/turn-attribution.ts
   - harness/harness-broker/src/drivers/agent-harness-tmux/driver.ts
+  - harness/harness-broker/src/runtime/tmux.ts
+  - contracts/harness-broker-protocol/src/events.ts
+  - contracts/harness-broker-protocol/src/schemas.ts
   - architecture/records/invariants/agent-spaces.agent-harness-runtime-boundary.yaml
 required_tests:
   - archived Claude queue-operation replays preserve strict dequeue interrupt and user-row ordering
@@ -64,6 +84,10 @@ required_tests:
   - live claude-code-tmux matrix evidence exposes one disposition per tracked prompt without transcript snooping by consumers
   - recorded and live codex-cli-tmux cases prove two matching prompt turns, negative priming and operator controls, and fail-closed lost correlation with no later same-seat drain
   - recorded and live codex-tui cases prove observed start precedes output own foreign autonomous and unknown attribution never borrow identity and unknown terminal correlation fails closed
+  - recorded Claude unrelated-terminal then delayed native-start replay emits no inferred cancellation and exactly one executed disposition while preserving absorption contains matching distinct identical inputs duplicate-record suppression recall and teardown
+  - before-paste refusal paste-to-Enter failure and after-submit failure preserve truthful deliveryEvidence and possibly-written correlation through later native consumption without terminal rejection
+  - an injected Claude body pending beyond 60 seconds does not fail the invocation lose its correlation or gain retry authority from elapsed time
+  - real Claude matrix evidence covers delayed consumption and mid-turn absorption with native rows broker sequences and stable input identities
 last_verified:
   date: 2026-09-05
   evidence: Daedalus source-grounded approvals of T-07962 rev 3 and T-08097 rev 13 established content-evidence codex-cli-tmux attribution plus observed codex-tui bracket and attribution semantics with indeterminate lost-correlation failure; implementation gates remain pending
@@ -75,5 +99,7 @@ reopen_when:
   - submission.absorbed or the turn manifest no longer identifies the turn a steer joined
   - codex-cli-tmux attribution borrows identity by turn order, owns a nonmatching prompt, or permits same-seat drain after lost correlation
   - an observed bracket borrows pending identity attribution follows anything but committed item evidence or an unknown terminal permits later same-seat drain
+  - a Claude admission-slot release timer or possibly-written rejection settles the input erases correlation or authorizes reinjection without native evidence
+  - deliveryEvidence changes meaning or absence becomes proof of no write
 supersedes: []
 superseded_by: null
