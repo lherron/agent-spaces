@@ -616,7 +616,7 @@ describe('codex-desktop observation driver', () => {
     expect(native.adds).toEqual([first.submissionId, second.submissionId])
   })
 
-  test('recovers a lost add ACK through every queue page and restart without a duplicate write', async () => {
+  test('carries a native fence across fresh invocation and capture identities until matching execution', async () => {
     const dir = tempDir()
     const path = join(dir, 'lost-ack.jsonl')
     const nativeAttemptStorePath = join(dir, 'stable-observer-state', 'native-attempts.db')
@@ -645,25 +645,25 @@ describe('codex-desktop observation driver', () => {
       },
       close() {},
     })
-    const invocationId = 'inv-desktop-lost-ack' as InvocationId
-    const events: InvocationEventEnvelope[] = []
+    const firstInvocationId = 'inv-desktop-lost-ack-a' as InvocationId
+    const firstEvents: InvocationEventEnvelope[] = []
     const first = createBroker({
       drivers: [
         createCodexDesktopDriver({ openQueueHelper, watchFile: false, pollIntervalMs: 10 }),
       ],
-      onEvent: (event) => events.push(event),
+      onEvent: (event) => firstEvents.push(event),
       captureDir: join(dir, 'first-capture'),
     })
     await first.start({
-      spec: withDriver(spec(path, invocationId), { nativeAttemptStorePath }),
+      spec: withDriver(spec(path, firstInvocationId), { nativeAttemptStorePath }),
     })
     const admitted = await first.enqueue({
-      invocationId,
+      invocationId: firstInvocationId,
       origin: { principalRef: 'agent:sender', envelopeId: 'EN-lost-ack' },
       body: 'lost ack',
     })
     await waitFor(() =>
-      events.some(
+      firstEvents.some(
         (event) =>
           event.type === 'driver.notice' &&
           event.payload.code === 'CODEX_DESKTOP_NATIVE_ATTEMPT_RECONCILED_QUEUED'
@@ -671,29 +671,77 @@ describe('codex-desktop observation driver', () => {
     )
     expect(adds).toBe(1)
     expect(cursors).toContain('page-2')
-    await first.stop({ invocationId, reason: 'restart fault injection' })
-    await first.dispose({ invocationId })
+    await first.stop({ invocationId: firstInvocationId, reason: 'restart fault injection' })
+    await first.dispose({ invocationId: firstInvocationId })
 
+    const secondInvocationId = 'inv-desktop-lost-ack-b' as InvocationId
+    const secondEvents: InvocationEventEnvelope[] = []
     const second = createBroker({
       drivers: [
         createCodexDesktopDriver({ openQueueHelper, watchFile: false, pollIntervalMs: 10 }),
       ],
+      onEvent: (event) => secondEvents.push(event),
       captureDir: join(dir, 'replacement-capture'),
     })
     await second.start({
-      spec: withDriver(spec(path, invocationId), { nativeAttemptStorePath }),
+      spec: withDriver(spec(path, secondInvocationId), {
+        nativeAttemptStorePath,
+        recoveryBoundary: { committedProjections: [], appliedThroughSeq: 0, empty: true },
+      }),
     })
+    const expiring = await second.enqueue({
+      invocationId: secondInvocationId,
+      origin: { principalRef: 'agent:sender', envelopeId: 'EN-expiring' },
+      body: 'expires behind the native fence',
+      ttlMs: 5,
+    })
+    await waitFor(() =>
+      secondEvents.some(
+        (event) =>
+          event.type === 'submission.expired' &&
+          event.payload.submissionId === expiring.submissionId
+      )
+    )
+    const withdrawn = await second.enqueue({
+      invocationId: secondInvocationId,
+      origin: { principalRef: 'agent:sender', envelopeId: 'EN-withdrawn' },
+      body: 'withdrawn behind the native fence',
+    })
+    expect(
+      await second.withdraw({ submissionId: withdrawn.submissionId, reason: 'outer terminal' })
+    ).toEqual({ outcome: 'withdrawn' })
     const later = await second.enqueue({
-      invocationId,
+      invocationId: secondInvocationId,
       origin: { principalRef: 'agent:sender', envelopeId: 'EN-later' },
       body: 'must remain local',
     })
     await Bun.sleep(30)
     expect(adds).toBe(1)
     expect(
-      (await second.queueList({ invocationId })).entries.map((entry) => entry.submissionId)
+      (await second.queueList({ invocationId: secondInvocationId })).entries.map(
+        (entry) => entry.submissionId
+      )
     ).toEqual([later.submissionId])
-    expect(admitted.submissionId).toBe('submission_inv-desktop-lost-ack_1')
+    expect(admitted.submissionId).toBe('submission_inv-desktop-lost-ack-a_1')
+
+    queued = undefined
+    appendFileSync(path, ownTurnRows('thread-desktop', 'turn-old-executed', admitted.submissionId))
+    await waitFor(() => adds === 2)
+    expect(adds).toBe(2)
+    expect(
+      secondEvents.filter(
+        (event) =>
+          event.type === 'submission.executed' &&
+          event.payload.submissionId === admitted.submissionId
+      )
+    ).toHaveLength(1)
+    expect(
+      secondEvents.some(
+        (event) =>
+          event.type === 'submission.executed' && event.payload.submissionId === later.submissionId
+      )
+    ).toBe(false)
+    expect(queued?.clientUserMessageId).toBe(later.submissionId)
   })
 
   test('fences an absent possibly-written attempt and retries only a definitive rejection', async () => {
