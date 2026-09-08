@@ -119,6 +119,18 @@ export const CODEX_APP_SERVER_AUTHORITY: EvidenceAuthorityMatrix = {
 }
 
 /**
+ * Codex desktop observer. The desktop rollout is the sole authority for work
+ * that actually ran; the broker owns admission and observer lifecycle only.
+ */
+export const CODEX_DESKTOP_AUTHORITY: EvidenceAuthorityMatrix = {
+  ...BROKER_OWNED_BASE,
+  'turn-bracket': 'native',
+  conversation: 'native',
+  tool: 'native',
+  usage: 'native',
+}
+
+/**
  * Pi TUI. `turn-bracket` is `hook`, corrected from `broker` by the live parity
  * report: pi's `turn_start`/`turn_end` hooks mint most of the brackets in a real
  * session (3 hook-observed against 1 broker-authored in the smoke). The

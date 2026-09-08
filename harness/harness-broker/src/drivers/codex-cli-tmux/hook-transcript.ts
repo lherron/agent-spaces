@@ -7,18 +7,14 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import type { CaptureGate, NormalizeOutcome } from '../../capture/capture-gate'
 import { createInvocationEventSequencer } from '../../events'
+import {
+  classifyCodexRolloutLine,
+  codexContentText,
+  codexNativeTypeOf,
+} from '../codex-rollout/native'
 import { getNumber, getString } from '../hook-json'
 import { createJsonlByteOffsetTailer } from '../jsonl-byte-tailer'
 import { CODEX_CLI_TMUX_DRIVER_KIND } from './hook-events'
-import {
-  CODEX_ITEM_CARRYING_EVENT_MSG_TYPES,
-  CODEX_KNOWN_ROLLOUT_EVENT_MSG_TYPES,
-  CODEX_KNOWN_ROLLOUT_ITEM_TYPES,
-  CODEX_KNOWN_ROLLOUT_RESPONSE_ITEM_TYPES,
-  CODEX_KNOWN_ROLLOUT_ROW_TYPES,
-  CODEX_UNKNOWN_ITEM_FAMILY,
-  CODEX_UNKNOWN_ROLLOUT_FAMILY,
-} from './native-types'
 
 /**
  * Hook-driven Codex rollout transcript reader (T-01710).
@@ -269,15 +265,8 @@ export function createCodexHookTranscriptReader(
     }
     const item = itemValue as Record<string, unknown>
     if (getString(item, 'type') !== 'AgentMessage') return undefined
-    const content = item['content']
-    if (!Array.isArray(content)) return undefined
-    const message = content
-      .flatMap((part) => {
-        if (part === null || typeof part !== 'object' || Array.isArray(part)) return []
-        const text = getString(part as Record<string, unknown>, 'text')
-        return text === undefined ? [] : [text]
-      })
-      .join('')
+    const message = codexContentText(item['content'])
+    if (message.length === 0) return undefined
     return { item, message, phase: getString(item, 'phase') }
   }
 
@@ -301,69 +290,10 @@ export function createCodexHookTranscriptReader(
    * any family at all, so it is attributed to `diagnostic`.
    */
   const processLine = (line: string, into: InvocationEventEnvelope[]): NormalizeOutcome => {
-    if (line.trim().length === 0) {
-      return { disposition: 'ignored-known', detail: 'blank line' }
-    }
-    let entry: Record<string, unknown>
-    try {
-      const parsed = JSON.parse(line) as unknown
-      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        return { disposition: 'ignored-known', detail: 'non-object row' }
-      }
-      entry = parsed as Record<string, unknown>
-    } catch {
-      return { disposition: 'ignored-known', detail: 'unparsable row' }
-    }
-
     const before = into.length
-    const rowType = getString(entry, 'type') ?? '(none)'
-    if (!CODEX_KNOWN_ROLLOUT_ROW_TYPES.has(rowType)) {
-      return {
-        disposition: 'blocked-unknown',
-        family: CODEX_UNKNOWN_ROLLOUT_FAMILY,
-        message: `Unknown Codex rollout row type: ${rowType}`,
-      }
-    }
-    if (rowType === 'response_item') {
-      const itemPayload = asPayload(entry['payload'])
-      const itemType = itemPayload === undefined ? undefined : getString(itemPayload, 'type')
-      if (itemType === undefined || !CODEX_KNOWN_ROLLOUT_RESPONSE_ITEM_TYPES.has(itemType)) {
-        return {
-          disposition: 'blocked-unknown',
-          family: CODEX_UNKNOWN_ROLLOUT_FAMILY,
-          message: `Unknown Codex rollout response_item type: ${itemType ?? '(none)'}`,
-        }
-      }
-      // The model-API mirror. Every fact this reader mints comes from the
-      // `event_msg` channel, so these rows are reviewed and deliberately unused.
-      return { disposition: 'ignored-known', detail: `response_item:${itemType}` }
-    }
-    if (rowType !== 'event_msg') {
-      return { disposition: 'ignored-known', detail: rowType }
-    }
-    const payload = asPayload(entry['payload'])
-    if (payload === undefined) {
-      return { disposition: 'ignored-known', detail: 'event_msg with no payload object' }
-    }
-    const payloadType = getString(payload, 'type')
-    if (payloadType === undefined || !CODEX_KNOWN_ROLLOUT_EVENT_MSG_TYPES.has(payloadType)) {
-      return {
-        disposition: 'blocked-unknown',
-        family: CODEX_UNKNOWN_ROLLOUT_FAMILY,
-        message: `Unknown Codex rollout event_msg type: ${payloadType ?? '(none)'}`,
-      }
-    }
-    if (CODEX_ITEM_CARRYING_EVENT_MSG_TYPES.has(payloadType)) {
-      const item = asPayload(payload['item'])
-      const itemType = item === undefined ? undefined : getString(item, 'type')
-      if (itemType === undefined || !CODEX_KNOWN_ROLLOUT_ITEM_TYPES.has(itemType)) {
-        return {
-          disposition: 'blocked-unknown',
-          family: CODEX_UNKNOWN_ITEM_FAMILY,
-          message: `Unknown Codex rollout item type: ${payloadType}/${itemType ?? '(none)'}`,
-        }
-      }
-    }
+    const classified = classifyCodexRolloutLine(line)
+    if ('outcome' in classified) return classified.outcome
+    const { entry, payload, payloadType } = classified
     const outcome = (): NormalizeOutcome =>
       into.length > before
         ? { disposition: 'normalized', detail: `event_msg:${payloadType}` }
@@ -504,41 +434,4 @@ export function createCodexHookTranscriptReader(
       resetState()
     },
   }
-}
-
-/** A JSON object payload, or undefined for null/array/non-object. */
-function asPayload(value: unknown): Record<string, unknown> | undefined {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
-  return value as Record<string, unknown>
-}
-
-/**
- * Native type recorded on a rollout raw record. The pinned vocabulary is three
- * levels deep (row type -> payload type -> item type), and the record has to
- * name the level the disposition was decided at, or a `blocked-unknown` on an
- * item subtype would present as its parent and an operator would release the
- * wrong thing.
- */
-function codexNativeTypeOf(line: string): string {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(line) as unknown
-  } catch {
-    return 'unparsable'
-  }
-  const entry = asPayload(parsed)
-  if (entry === undefined) return 'non-object'
-  const rowType = getString(entry, 'type') ?? 'untyped'
-  const payload = asPayload(entry['payload'])
-  if (payload === undefined) return rowType
-  if (rowType === 'response_item') {
-    return `response_item:${getString(payload, 'type') ?? '(none)'}`
-  }
-  if (rowType !== 'event_msg') return rowType
-  const payloadType = getString(payload, 'type') ?? '(none)'
-  if (!CODEX_ITEM_CARRYING_EVENT_MSG_TYPES.has(payloadType)) {
-    return `event_msg:${payloadType}`
-  }
-  const item = asPayload(payload['item'])
-  return `event_msg:${payloadType}:${item === undefined ? '(none)' : (getString(item, 'type') ?? '(none)')}`
 }

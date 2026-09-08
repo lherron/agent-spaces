@@ -31,7 +31,10 @@ export interface JsonlByteOffsetTailer {
    * result). A real change is a source-epoch boundary: byte offsets before and
    * after it are not comparable, so `onEpochChange` fires (§7.1).
    */
-  retarget(path: string, options?: { startAtEnd?: boolean | undefined }): boolean
+  retarget(
+    path: string,
+    options?: { startAtEnd?: boolean | undefined; startAtOffset?: number | undefined }
+  ): boolean
   /** Forget the active path and rewind offset/partial. */
   clear(): void
   /**
@@ -112,6 +115,27 @@ export function createJsonlByteOffsetTailer(
     }
   }
 
+  /** Resume at a durable byte cursor while seeding replacement detection. */
+  const seekToOffset = (path: string, requestedOffset: number): void => {
+    try {
+      const fd = openSync(path, 'r')
+      try {
+        const stats = fstatSync(fd)
+        if (!stats.isFile()) return
+        offset = Math.min(Math.max(0, requestedOffset), stats.size)
+        if (offset === 0) return
+        const anchorLength = Math.min(REPLACEMENT_ANCHOR_BYTES, offset)
+        const seededAnchor = Buffer.alloc(anchorLength)
+        const bytesRead = readSync(fd, seededAnchor, 0, anchorLength, offset - anchorLength)
+        if (bytesRead === anchorLength) anchor = seededAnchor
+      } finally {
+        closeSync(fd)
+      }
+    } catch {
+      rewind()
+    }
+  }
+
   /** True when the bytes behind the cursor are no longer the ones we read. */
   const anchorBroken = (path: string): boolean => {
     if (anchor.length === 0 || offset < anchor.length) return false
@@ -136,7 +160,11 @@ export function createJsonlByteOffsetTailer(
       if (path === activePath) return false
       activePath = path
       rewind()
-      if (retargetOptions.startAtEnd === true) seekToEnd(path)
+      if (retargetOptions.startAtOffset !== undefined) {
+        seekToOffset(path, retargetOptions.startAtOffset)
+      } else if (retargetOptions.startAtEnd === true) {
+        seekToEnd(path)
+      }
       options.onEpochChange?.('retarget')
       return true
     },

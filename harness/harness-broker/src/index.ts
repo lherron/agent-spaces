@@ -59,6 +59,14 @@ export { createNoopDriver } from './drivers/noop-driver'
 export { CLAUDE_CODE_TMUX_DRIVER_KIND } from './drivers/claude-code-tmux/hook-events'
 export { CODEX_DRIVER_KIND } from './drivers/codex-app-server/event-map'
 export {
+  CODEX_DESKTOP_DRIVER_KIND,
+  createCodexDesktopDriver,
+} from './drivers/codex-desktop/driver'
+export type {
+  CodexDesktopDriverOptions,
+  CodexDesktopDriverSpec,
+} from './drivers/codex-desktop/driver'
+export {
   CODEX_CLI_TMUX_DRIVER_KIND,
   createCodexCliTmuxHookEventNormalizer,
 } from './drivers/codex-cli-tmux/hook-events'

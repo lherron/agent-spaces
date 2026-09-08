@@ -98,22 +98,22 @@ records the same mistake once, under "Unknown HOOK names" below.
 
 ## The matrix
 
-| Family | claude-code-tmux | codex-cli-tmux | codex-app-server | pi-tui-tmux | agent-harness-tmux | pi-sdk |
-| --- | --- | --- | --- | --- | --- | --- |
-| `invocation-lifecycle` | broker | broker | broker | broker | broker | broker |
-| `harness-lifecycle` | hook | hook | broker | hook | native | broker |
-| `continuation` | hook | hook | native | hook | native | native |
-| `input-admission` | broker | broker | broker | broker | broker | broker |
-| `submission-disposition` | **native** | broker † | broker † | broker † | broker † | broker † |
-| `turn-bracket` | hook | hook | native | hook ‡ | native | **broker** ‡ |
-| `turn-supervision` | broker | broker | broker | broker | broker | broker |
-| `conversation` | **native** | **native** | native | hook | native | native |
-| `tool` | **native** | hook | native | hook | native | native |
-| `usage` | native | native † | native | hook † | native | native |
-| `permission` | hook | hook | native | hook | native | native |
-| `diagnostic` | hook | broker | native | broker | broker | broker |
-| `terminal-surface` | broker | broker | broker | broker | broker | broker |
-| `provider-artifact` | broker | broker | broker | broker | broker | broker |
+| Family | claude-code-tmux | codex-cli-tmux | codex-app-server | codex-desktop | pi-tui-tmux | agent-harness-tmux | pi-sdk |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `invocation-lifecycle` | broker | broker | broker | broker | broker | broker | broker |
+| `harness-lifecycle` | hook | hook | broker | broker | hook | native | broker |
+| `continuation` | hook | hook | native | broker | hook | native | native |
+| `input-admission` | broker | broker | broker | broker | broker | broker | broker |
+| `submission-disposition` | **native** | broker † | broker † | broker † | broker † | broker † | broker † |
+| `turn-bracket` | hook | hook | native | native | hook ‡ | native | **broker** ‡ |
+| `turn-supervision` | broker | broker | broker | broker | broker | broker | broker |
+| `conversation` | **native** | **native** | native | native | hook | native | native |
+| `tool` | **native** | hook | native | native | hook | native | native |
+| `usage` | native | native † | native | native | hook † | native | native |
+| `permission` | hook | hook | native | broker | hook | native | native |
+| `diagnostic` | hook | broker | native | broker | broker | broker | broker |
+| `terminal-surface` | broker | broker | broker | broker | broker | broker | broker |
+| `provider-artifact` | broker | broker | broker | broker | broker | broker | broker |
 
 † **Declared but not emitted today.** The value names the source that *would*
 own the family, so a later cutover has a stated starting point. The parity
@@ -213,6 +213,13 @@ reader), which is why this driver is the doc's first broad cutover candidate
 `permission.requested` IS native and now names its record: the server→client
 JSON-RPC request frame is committed exactly like a notification and the ask is
 minted from inside that record's normalization.
+
+### codex-desktop
+
+Native rollout JSONL owns observed turns, user/assistant content, completed tool
+records and usage. Broker admission remains broker-owned. Observer health and
+release are helper facts, never evidence that the desktop process or thread
+ended; no desktop lifecycle operation is implemented by this driver.
 
 ### agent-harness-tmux, pi-sdk
 

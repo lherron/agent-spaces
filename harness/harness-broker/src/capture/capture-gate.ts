@@ -8,6 +8,7 @@ import type {
   EventProvenance,
   InvocationId,
   RawProviderRecord,
+  RawRecordDisposition,
 } from 'spaces-harness-broker-protocol'
 import { isLoadBearingEventFamily } from 'spaces-harness-broker-protocol'
 import type { CaptureIndex } from './capture-index'
@@ -70,6 +71,8 @@ export interface CaptureGate {
    * export built from anything else could carry a row the journal does not.
    */
   records(): RawProviderRecord[]
+  /** Durable disposition for restart reconstruction; absent means no index row. */
+  disposition(rawRecordId: string): RawRecordDisposition | undefined
   /**
    * Retained operator surface. Since T-07883 no record ever blocks the cursor,
    * so every call throws {@link CaptureRecordNotBlockedError} — the same
@@ -290,6 +293,10 @@ export function createCaptureGate(options: CaptureGateOptions): CaptureGate {
   return {
     records(): RawProviderRecord[] {
       return journal.read()
+    },
+
+    disposition(rawRecordId): RawRecordDisposition | undefined {
+      return index.get(invocationId, rawRecordId)?.disposition
     },
 
     ingest(input, normalize): void {
