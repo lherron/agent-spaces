@@ -805,11 +805,16 @@ process.stdout.write(
  *    not happen is a normal state (guardian thread, rollout not yet persisted,
  *    daemon restarting) and none of those are Lance's problem mid-turn.
  *
- * `UserPromptSubmit` is the fallback for a conversation that was already open
- * when the overlay was installed: SessionStart fires on startup/resume, so a
- * loaded thread nobody reloads would otherwise never register. Contract §4:
+ * `UserPromptSubmit` carries two jobs, and the second is the one that is easy to
+ * optimise away. It is the fallback for a conversation that was already open
+ * when the overlay was installed — SessionStart fires on startup/resume, so a
+ * loaded thread nobody reloads would otherwise never register (contract §4:
  * "A conversation open before overlay installation registers on its next
- * supported hook."
+ * supported hook"). It is ALSO the only recovery trigger available to a
+ * conversation that stays open: if HRC's observer dies under a live desktop
+ * window, re-registration is what reattaches it, and no SessionStart will fire
+ * without a close/reopen. So it calls the helper on EVERY prompt, cache or no
+ * cache. Registration is idempotent by native key and returns the same scope.
  */
 function buildDiscoveryHookScript(agentId: string, aspHome: string): string {
   const escapedAgentId = JSON.stringify(agentId)
@@ -896,13 +901,16 @@ const event = input.hook_event_name
 if (event !== 'SessionStart' && event !== 'UserPromptSubmit') process.exit(0)
 if (typeof input.session_id !== 'string' || input.session_id.length === 0) process.exit(0)
 
-// Already established and nothing new to report: say the address and stop
-// before spending a callback. A registration is idempotent, but this hook runs
-// in front of EVERY prompt on the fallback event.
+// The cache is read for the FALLBACK below, never as a reason to skip the
+// callback. An earlier cut returned here when a cache existed and the event was
+// UserPromptSubmit, to save a spawn in front of every prompt. That was wrong in
+// a way the file cannot see: the cache is an IDENTITY projection and says
+// nothing about whether HRC is still observing this conversation. If the
+// observer broker dies while the desktop stays open, re-registration is the door
+// that reattaches it, SessionStart cannot fire without a close/reopen, and the
+// shortcut closed the only remaining path. Registration is idempotent and
+// bounded; a spawn per prompt is the cost of that door staying open.
 const cached = readEstablishedScope(input.session_id)
-if (cached !== undefined && event === 'UserPromptSubmit') {
-  emit(event, 'HRC: this conversation is ' + cached.scopeRef + ' (project ' + cached.projectId + ').')
-}
 
 const result = await runHelper(
   {

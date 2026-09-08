@@ -14,7 +14,7 @@
  */
 import { describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -217,6 +217,87 @@ describe('codex desktop registration discovery hook', () => {
       ) as { stdin: Record<string, unknown> }
       // The hook source desktop did not supply is the one this event IS.
       expect(seen.stdin['source']).toBe('user-prompt-submit')
+    } finally {
+      await rm(overlay.root, { recursive: true, force: true })
+    }
+  })
+
+  test('a valid cache does NOT skip the callback — it is identity, not health', async () => {
+    const overlay = await buildOverlay()
+    try {
+      // Establish the cache exactly as a real first registration would.
+      installHelperStub(overlay, 'registered')
+      runHook(overlay, overlay.discovery, sessionStart)
+      expect(existsSync(join(overlay.cacheDir, `${NATIVE_THREAD_ID}.json`))).toBe(true)
+      rmSync(join(overlay.cacheDir, 'helper-invocation.json'))
+
+      // A LATER prompt in the same still-open conversation.
+      const { stdout } = runHook(overlay, overlay.discovery, {
+        hook_event_name: 'UserPromptSubmit',
+        session_id: NATIVE_THREAD_ID,
+        transcript_path: sessionStart.transcript_path,
+        cwd: sessionStart.cwd,
+      })
+
+      // The regression: an earlier cut answered from the cache and exited before
+      // spawning the helper, which saved a spawn and closed the only door that
+      // reattaches a dead observer under a desktop nobody reopens. The cache
+      // answers "who am I", never "is HRC still watching".
+      expect(existsSync(join(overlay.cacheDir, 'helper-invocation.json'))).toBe(true)
+      const seen = JSON.parse(
+        readFileSync(join(overlay.cacheDir, 'helper-invocation.json'), 'utf8')
+      ) as { stdin: Record<string, unknown> }
+      expect(seen.stdin['session_id']).toBe(NATIVE_THREAD_ID)
+      expect(hookContext(stdout)).toContain(CANONICAL_SCOPE)
+    } finally {
+      await rm(overlay.root, { recursive: true, force: true })
+    }
+  })
+
+  test('with a cache present and HRC down, identity still answers from the cache', async () => {
+    const overlay = await buildOverlay()
+    try {
+      installHelperStub(overlay, 'registered')
+      runHook(overlay, overlay.discovery, sessionStart)
+
+      // HRC is now unreachable. The callback is still attempted — that is the
+      // point of the previous case — but the answer must not regress to
+      // "integration pending" for a conversation that already has an address.
+      installHelperStub(overlay, 'pending')
+      const { stdout } = runHook(overlay, overlay.discovery, {
+        hook_event_name: 'UserPromptSubmit',
+        session_id: NATIVE_THREAD_ID,
+        transcript_path: sessionStart.transcript_path,
+        cwd: sessionStart.cwd,
+      })
+      const context = hookContext(stdout)
+      expect(context).toContain(CANONICAL_SCOPE)
+      expect(context).not.toContain('integration pending')
+    } finally {
+      await rm(overlay.root, { recursive: true, force: true })
+    }
+  })
+
+  test('a hung helper with a cache present still answers with the address, bounded', async () => {
+    const overlay = await buildOverlay()
+    try {
+      installHelperStub(overlay, 'registered')
+      runHook(overlay, overlay.discovery, sessionStart)
+
+      installHelperStub(overlay, 'hang')
+      const { stdout, ms } = runHook(
+        overlay,
+        overlay.discovery,
+        {
+          hook_event_name: 'UserPromptSubmit',
+          session_id: NATIVE_THREAD_ID,
+          transcript_path: sessionStart.transcript_path,
+          cwd: sessionStart.cwd,
+        },
+        { timeoutMs: 20_000 }
+      )
+      expect(ms).toBeLessThan(12_000)
+      expect(hookContext(stdout)).toContain(CANONICAL_SCOPE)
     } finally {
       await rm(overlay.root, { recursive: true, force: true })
     }
