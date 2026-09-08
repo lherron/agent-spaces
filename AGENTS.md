@@ -57,9 +57,9 @@ After changing agent source files, run the ASP overlay recipe from this repo:
 just overlay-codex
 ```
 
-This runs `scripts/sync-agent-to-codex-default.ts --install-hooks --apply`,
+This overlays **stella**, the dedicated Codex desktop-app agent (cody stays the HRC-managed CLI worker). It runs `scripts/sync-agent-to-codex-default.ts --install-hooks --apply`,
 updates the managed block in `~/.codex/AGENTS.md`, syncs managed skills into
-`~/.codex/skills`, and leaves unmanaged Codex config/skills alone.
+`~/.codex/skills`, retires any previous agent's managed block/skills/manifest from that home, and leaves unmanaged Codex config/skills alone.
 
 ## Build & deploy
 

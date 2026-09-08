@@ -7,6 +7,9 @@
  * - ~/.codex/AGENTS.md is updated only inside this script's managed block.
  * - Existing unmanaged skill directories win. Collisions warn and are skipped.
  * - Managed skill directories carry a marker and are replaced only when clean.
+ * - The default Codex home hosts exactly one agent. Managed state left behind by a
+ *   previous agent (its AGENTS.md block, clean managed skills, manifest) is retired
+ *   on the next sync; dirty foreign skills are kept and warned about.
  */
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
@@ -33,7 +36,7 @@ import { materializeSystemPrompt } from 'spaces-runtime'
 const PROJECT_ID = 'praesidium'
 const TASK_ID = 'primary'
 const RUN_MODE: RunMode = 'query'
-const DEFAULT_AGENT = 'cody'
+const DEFAULT_AGENT = 'stella'
 const DEFAULT_PROJECT_ROOT = join(homedir(), 'praesidium')
 const DEFAULT_ASP_HOME = join(homedir(), 'praesidium/var/spaces-repo')
 const DEFAULT_AGENTS_ROOT = join(homedir(), 'praesidium/var/agents')
@@ -67,6 +70,17 @@ export interface SkillPlan {
   destPath: string
   action: 'copy' | 'update' | 'skip-collision' | 'skip-dirty-managed'
   reason?: string | undefined
+  /** Set when the destination held a clean managed skill from a previous agent. */
+  retiresAgent?: string | undefined
+}
+
+export interface RetirePlan {
+  /** Previous agents whose managed state is retired from this Codex home. */
+  agents: string[]
+  /** Managed skills (from previous agents) removed because they are not in the current source. */
+  skills: string[]
+  /** `.asp-agent-sync/<agent>.json` manifests removed. */
+  manifests: string[]
 }
 
 export interface AgentsPlan {
@@ -111,6 +125,7 @@ export interface SyncPlan {
   skills: SkillPlan[]
   hooks: HooksPlan
   staleManagedSkills: string[]
+  retire: RetirePlan
   warnings: string[]
 }
 
@@ -263,6 +278,31 @@ function managedBlockMarkers(agentId: string): { begin: string; end: string } {
     begin: `<!-- BEGIN ${AGENT_BLOCK_PREFIX} agent=${agentId} -->`,
     end: `<!-- END ${AGENT_BLOCK_PREFIX} agent=${agentId} -->`,
   }
+}
+
+const MANAGED_BLOCK_BEGIN_RE = new RegExp(
+  `<!-- BEGIN ${AGENT_BLOCK_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} agent=([^ >]+) -->`,
+  'gu'
+)
+
+function managedBlockAgents(content: string): string[] {
+  return dedupe(
+    Array.from(content.matchAll(MANAGED_BLOCK_BEGIN_RE), (match) => match[1] ?? '')
+  ).filter((agentId) => agentId.length > 0)
+}
+
+function removeManagedBlock(existing: string, agentId: string): string {
+  const markers = managedBlockMarkers(agentId)
+  const beginIndex = existing.indexOf(markers.begin)
+  if (beginIndex === -1) return existing
+  const endIndex = existing.indexOf(markers.end, beginIndex)
+  if (endIndex === -1) {
+    throw new Error(`Found ${markers.begin} without matching ${markers.end}`)
+  }
+  const before = existing.slice(0, beginIndex).trimEnd()
+  const after = existing.slice(endIndex + markers.end.length).trimStart()
+  const joined = [before, after].filter((part) => part.length > 0).join('\n\n')
+  return joined.length > 0 ? `${joined}\n` : ''
 }
 
 function stripOuterGeneratedHeader(content: string): string {
@@ -912,12 +952,19 @@ async function readManagedSkillState(
   skillDir: string,
   agentId: string
 ): Promise<ManagedSkillState | undefined> {
+  const state = await readAnyManagedSkillState(skillDir)
+  return state && state.marker.agentId === agentId ? state : undefined
+}
+
+/** Read a managed-skill marker regardless of which agent stamped it. */
+async function readAnyManagedSkillState(skillDir: string): Promise<ManagedSkillState | undefined> {
   const markerPath = join(skillDir, SKILL_MARKER_FILE)
   try {
     const parsed = JSON.parse(await readFile(markerPath, 'utf8')) as Record<string, unknown>
     if (parsed['owner'] !== 'agent-spaces') return undefined
-    if (parsed['agentId'] !== agentId) return undefined
+    if (typeof parsed['agentId'] !== 'string' || parsed['agentId'].length === 0) return undefined
     if (parsed['kind'] !== 'codex-skill' && parsed['kind'] !== 'skill') return undefined
+    const agentId = parsed['agentId']
 
     const marker: SkillMarker = {
       schemaVersion: 1,
@@ -953,12 +1000,36 @@ async function planSkills(input: {
   destSkillsDir: string
   agentId: string
   previousManifest?: SyncManifest | undefined
-}): Promise<{ skills: SkillPlan[]; staleManagedSkills: string[]; warnings: string[] }> {
+}): Promise<{
+  skills: SkillPlan[]
+  staleManagedSkills: string[]
+  retiredSkills: string[]
+  retiredAgents: string[]
+  warnings: string[]
+}> {
   const warnings: string[] = []
   const sourceNames = await listSkillDirs(input.sourceSkillsDir)
   const previousManaged = new Set(input.previousManifest?.managedSkills ?? [])
   const sourceSet = new Set(sourceNames)
   const staleManagedSkills = [...previousManaged].filter((name) => !sourceSet.has(name)).sort()
+
+  // Managed skills stamped by a previous agent of this Codex home: clean ones in the
+  // source are replaced (copy), clean ones not in the source are retired, dirty ones stay.
+  const retiredSkills: string[] = []
+  const retiredAgents: string[] = []
+  for (const name of await listSkillDirs(input.destSkillsDir)) {
+    if (sourceSet.has(name)) continue
+    const foreign = await readAnyManagedSkillState(join(input.destSkillsDir, name))
+    if (!foreign || foreign.marker.agentId === input.agentId) continue
+    if (foreign.dirty) {
+      warnings.push(
+        `skill "${name}" was managed for agent "${foreign.marker.agentId}" and has local edits; leaving it in place`
+      )
+      continue
+    }
+    retiredSkills.push(name)
+    retiredAgents.push(foreign.marker.agentId)
+  }
 
   const skills: SkillPlan[] = []
   for (const name of sourceNames) {
@@ -970,7 +1041,26 @@ async function planSkills(input: {
       continue
     }
 
-    const managed = await readManagedSkillState(destPath, input.agentId)
+    const managed = await readAnyManagedSkillState(destPath)
+    if (managed && managed.marker.agentId !== input.agentId) {
+      if (managed.dirty) {
+        const reason = `skill "${name}" was managed for agent "${managed.marker.agentId}" and has local edits; leaving existing skill unchanged`
+        warnings.push(reason)
+        skills.push({ name, sourcePath, destPath, action: 'skip-dirty-managed', reason })
+        continue
+      }
+      retiredAgents.push(managed.marker.agentId)
+      skills.push({
+        name,
+        sourcePath,
+        destPath,
+        action: 'copy',
+        reason: `replacing skill previously managed for agent "${managed.marker.agentId}"`,
+        retiresAgent: managed.marker.agentId,
+      })
+      continue
+    }
+
     if (managed && !managed.dirty) {
       skills.push({ name, sourcePath, destPath, action: 'update' })
       continue
@@ -988,7 +1078,28 @@ async function planSkills(input: {
     skills.push({ name, sourcePath, destPath, action: 'skip-collision', reason })
   }
 
-  return { skills, staleManagedSkills, warnings }
+  return {
+    skills,
+    staleManagedSkills,
+    retiredSkills: retiredSkills.sort(),
+    retiredAgents: dedupe(retiredAgents).sort(),
+    warnings,
+  }
+}
+
+async function listForeignManifests(codexHome: string, agentId: string): Promise<string[]> {
+  const dir = join(codexHome, '.asp-agent-sync')
+  if (!(await pathExists(dir))) return []
+  const names = await readdir(dir)
+  const foreign: string[] = []
+  for (const name of names) {
+    if (!name.endsWith('.json')) continue
+    const manifest = await loadManifest(join(dir, name))
+    if (!manifest || manifest.owner !== 'agent-spaces') continue
+    if (manifest.agentId === agentId) continue
+    foreign.push(name.slice(0, -'.json'.length))
+  }
+  return foreign.sort()
 }
 
 async function materializeAgent(input: {
@@ -1077,7 +1188,14 @@ async function buildPlan(args: SyncAgentToCodexDefaultOptions): Promise<SyncPlan
   })
   const agentsPath = join(args.codexHome, 'AGENTS.md')
   const existingAgents = (await pathExists(agentsPath)) ? await readFile(agentsPath, 'utf8') : ''
-  const nextAgents = replaceManagedBlock(existingAgents, managedBlock, args.agentId)
+  const foreignBlockAgents = managedBlockAgents(existingAgents).filter(
+    (agentId) => agentId !== args.agentId
+  )
+  const retiredAgentsContent = foreignBlockAgents.reduce(
+    (content, agentId) => removeManagedBlock(content, agentId),
+    existingAgents
+  )
+  const nextAgents = replaceManagedBlock(retiredAgentsContent, managedBlock, args.agentId)
   const agentsAction: AgentsPlan['action'] =
     existingAgents.length === 0 ? 'create' : nextAgents === existingAgents ? 'unchanged' : 'update'
 
@@ -1095,6 +1213,12 @@ async function buildPlan(args: SyncAgentToCodexDefaultOptions): Promise<SyncPlan
     aspHome: args.aspHome,
     installHooks: args.installHooks,
   })
+  const foreignManifests = await listForeignManifests(args.codexHome, args.agentId)
+  const retire: RetirePlan = {
+    agents: dedupe([...foreignBlockAgents, ...skillPlan.retiredAgents, ...foreignManifests]).sort(),
+    skills: skillPlan.retiredSkills,
+    manifests: foreignManifests,
+  }
 
   return {
     agentId: args.agentId,
@@ -1113,6 +1237,7 @@ async function buildPlan(args: SyncAgentToCodexDefaultOptions): Promise<SyncPlan
     skills: skillPlan.skills,
     hooks: hooksPlan,
     staleManagedSkills: skillPlan.staleManagedSkills,
+    retire,
     warnings: skillPlan.warnings,
   }
 }
@@ -1199,10 +1324,29 @@ async function applyPlan(plan: SyncPlan): Promise<void> {
     ? await readFile(plan.agents.path, 'utf8')
     : ''
   await assertWritableTarget(plan.agents.path, plan.codexHome)
-  await writeFile(plan.agents.path, replaceManagedBlock(existingAgents, block, plan.agentId))
+  const retiredAgentsContent = plan.retire.agents.reduce(
+    (content, agentId) =>
+      agentId === plan.agentId ? content : removeManagedBlock(content, agentId),
+    existingAgents
+  )
+  await writeFile(plan.agents.path, replaceManagedBlock(retiredAgentsContent, block, plan.agentId))
 
   for (const name of plan.staleManagedSkills) {
     await removeManagedSkillIfSafe(plan.codexHome, plan.agentId, name)
+  }
+
+  for (const name of plan.retire.skills) {
+    const destPath = join(plan.codexHome, 'skills', name)
+    const foreign = await readAnyManagedSkillState(destPath)
+    if (!foreign || foreign.marker.agentId === plan.agentId || foreign.dirty) continue
+    await assertWritableTarget(destPath, plan.codexHome)
+    await rm(destPath, { recursive: true, force: true })
+  }
+
+  for (const agentId of plan.retire.manifests) {
+    const manifestPath = join(plan.codexHome, '.asp-agent-sync', `${agentId}.json`)
+    await assertWritableTarget(manifestPath, plan.codexHome)
+    await rm(manifestPath, { force: true })
   }
 
   for (const skill of plan.skills) {
@@ -1273,6 +1417,12 @@ function renderHuman(result: SyncResult): void {
   )
   if (plan.staleManagedSkills.length > 0) {
     console.log(`stale:        ${plan.staleManagedSkills.join(', ')}`)
+  }
+  if (plan.retire.agents.length > 0) {
+    const replaced = plan.skills.filter((skill) => skill.retiresAgent !== undefined).length
+    console.log(
+      `retire:       agents=${plan.retire.agents.join(', ')} skills-replaced=${replaced} skills-removed=${plan.retire.skills.length} manifests=${plan.retire.manifests.length}`
+    )
   }
   for (const warning of plan.warnings) {
     console.warn(`warning: ${warning}`)

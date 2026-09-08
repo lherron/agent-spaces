@@ -142,7 +142,7 @@ check:
     bun scripts/check-doc-reachability.ts
     bun scripts/check-rule-authoring.ts
 
-# Overlay Cody into the default Codex home and install managed Praesidium CLI hooks
+# Overlay the Codex desktop-app agent (stella) into the default Codex home and install managed Praesidium CLI hooks
 overlay-codex *args:
     bun scripts/sync-agent-to-codex-default.ts --install-hooks --apply {{args}}
 
