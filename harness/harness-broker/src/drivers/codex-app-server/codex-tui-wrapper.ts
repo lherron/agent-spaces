@@ -125,6 +125,15 @@ async function killChild(child: ChildProcess | undefined): Promise<void> {
 
 async function run(): Promise<void> {
   const options = parseArgs()
+  // Paint one line the instant we start. The broker submits the launch command
+  // with a confirm loop that re-presses Enter every 1.5s (up to five times)
+  // until the pane no longer ends with the command text, and that loop cannot
+  // tell a silent program from a swallowed Enter. This wrapper stays silent for
+  // seconds (app-server spawn, broker thread/start, attach token) while every
+  // extra Enter queues in the pane tty and lands as blank lines in the codex
+  // TUI's input box once it takes the terminal. Advancing the pane here is
+  // what every other tmux harness does by printing its banner.
+  process.stdout.write('\x1b[2mcodex tui: starting app-server\u2026\x1b[0m\n')
   await rm(options.socketPath, { force: true }).catch(() => undefined)
   let tui: ChildProcess | undefined
   let terminating = false
