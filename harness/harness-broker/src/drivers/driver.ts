@@ -164,6 +164,14 @@ export interface Driver {
     harnessLocalQueueDepth: number
   }
   /**
+   * Whether driver-owned durable work must drain before the broker hands over
+   * another input. Desktop native-attempt fencing uses this; ordinary harness
+   * queues continue to follow their existing admission semantics.
+   */
+  readonly blocksAdmissionWhileHarnessLocalQueued?: boolean | undefined
+  /** Attribution is this driver's first proof that a queued submission executed. */
+  readonly confirmsSubmissionExecutionOnOwnAttribution?: boolean | undefined
+  /**
    * Dynamic, invocation-local capability loss. Static hello/start capabilities
    * still describe a fresh seat; this hook rejects only the affected admission
    * class after a runtime evidence source degrades.

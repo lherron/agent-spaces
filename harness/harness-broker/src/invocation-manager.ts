@@ -1046,6 +1046,13 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     )
   }
 
+  function hasDriverOwnedAdmissionFence(inv: Invocation): boolean {
+    return (
+      inv.driver.blocksAdmissionWhileHarnessLocalQueued === true &&
+      (inv.driver.probeAdmissionState?.().harnessLocalQueueDepth ?? 0) > 0
+    )
+  }
+
   function scheduleAdmissionDrain(inv: Invocation): void {
     if (inv.admissionDrainPromise !== undefined) return
     inv.admissionDrainPromise = Promise.resolve()
@@ -1056,8 +1063,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         const quiescenceBlocked =
           head?.class === 'preempt' &&
           (inv.driver.probeAdmissionState?.().harnessLocalQueueDepth ?? 0) > 0
-        const driverQueueBlocked =
-          (inv.driver.probeAdmissionState?.().harnessLocalQueueDepth ?? 0) > 0
+        const driverQueueBlocked = hasDriverOwnedAdmissionFence(inv)
         if (
           hasDriverBlockedHeldSubmission(inv) ||
           (inv.state === 'ready' &&
@@ -1079,7 +1085,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     rejectDriverBlockedHeldSubmissions(inv)
     if (inv.state !== 'ready') return
     if (inv.pendingOwnTurnSubmissionId !== undefined) return
-    if ((inv.driver.probeAdmissionState?.().harnessLocalQueueDepth ?? 0) > 0) return
+    if (hasDriverOwnedAdmissionFence(inv)) return
     const head = inv.brokerQueue[0]
     if (head === undefined) return
     if (
@@ -1535,7 +1541,10 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
           inv.currentInputId = payload.inputId
           observePendingOwnTurnStart(inv, turnId, payload.inputId)
           const record = inv.submissions.get(payload.inputId)
-          if (record === undefined || !record.terminal) {
+          if (
+            inv.driver.confirmsSubmissionExecutionOnOwnAttribution === true &&
+            (record === undefined || !record.terminal)
+          ) {
             emit(
               inv,
               'submission.executed',
@@ -2798,7 +2807,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       const seatBusy =
         inv.state === 'turn_active' ||
         inv.pendingOwnTurnSubmissionId !== undefined ||
-        (inv.driver.probeAdmissionState?.().harnessLocalQueueDepth ?? 0) > 0
+        hasDriverOwnedAdmissionFence(inv)
       const admissionClass: SubmissionClass = seatBusy
         ? req.policy?.whenBusy === 'queue'
           ? 'queue'
@@ -2869,7 +2878,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       if (
         inv.state === 'ready' &&
         inv.pendingOwnTurnSubmissionId === undefined &&
-        (inv.driver.probeAdmissionState?.().harnessLocalQueueDepth ?? 0) === 0
+        !hasDriverOwnedAdmissionFence(inv)
       ) {
         admitSubmission(inv, submission)
         let result: ApplyInputResult

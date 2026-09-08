@@ -578,6 +578,8 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
     preemptMode: null,
     steerLandingEvidence: null,
     interruptLandingEvidence: null,
+    blocksAdmissionWhileHarnessLocalQueued: true,
+    confirmsSubmissionExecutionOnOwnAttribution: true,
 
     capabilities(): InvocationCapabilities {
       return CODEX_DESKTOP_CAPABILITIES
