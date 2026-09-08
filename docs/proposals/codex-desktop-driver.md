@@ -1,6 +1,6 @@
 # Codex desktop participation in ASP and HRC
 
-Revision 1 — 2026-09-08. Status: proposed; awaiting narrow architecture verification.
+Revision 1 — 2026-09-08. Status: APPROVED by Daedalus in EN-08387, room R-00071. No requested changes, conditions or public-contract changes.
 Owner: Astra. Product authority: Lance. Implementation projects: agent-spaces and hrc-runtime.
 
 ## 1. Authorized outcome and verification boundary
@@ -85,3 +85,16 @@ C. agent-spaces: bundled queue helper and durable native-attempt reconciliation 
 D. hrc-runtime: mail routing/landing/recovery, install hook plumbing and produce the desktop scope cache. Depends on A, B and C. Include required agent-spaces overlay source edits as coordinated cross-repo integration in this task; one worker owns the cutover so producer versions and hook behavior agree.
 
 D performs installed end-to-end grading before the campaign completes. No implementation starts before architecture verification. Campaign/task filing follows verification. Implementation dispatch is a separate next action; this preparation does not silently launch workers.
+
+## Filing record (not a design amendment)
+
+Campaign: P-00502 `agent-spaces/codex-desktop-fleet`.
+
+| Leg | Task | Project | Prerequisites |
+| --- | --- | --- | --- |
+| A | T-08293 codex-desktop-observation | agent-spaces | Approved design |
+| B | T-08294 codex-desktop-registration | hrc-runtime | Approved design; consumes A for final attachment proof |
+| C | T-08295 codex-desktop-queue-recovery | agent-spaces | A |
+| D | T-08296 codex-desktop-mail-cutover | hrc-runtime, coordinated ASP overlay edits | A, B, C |
+
+Review: APPROVE EN-08387 in R-00071. Source design 8159a01; additional hook evidence a7996b3. No rejection, scope expansion or public contract amendment. Tasks are specified and dependency-linked, not implementation-dispatched. The existing project-mismatch issue T-07514 is related to D and remains open pending actual fix validation.
