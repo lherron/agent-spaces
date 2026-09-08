@@ -36,11 +36,21 @@ export function parseHookJson(raw: string): unknown {
   }
 }
 
-/** Connect to the broker callback socket and write the serialized envelope. */
+/**
+ * Connect to the broker callback socket and write the serialized envelope.
+ *
+ * The broker answers every envelope with a short body (`ok` or a decision).
+ * This fire-and-forget path ignores the body but MUST drain it: a paused
+ * readable never reaches `end`, so `close` never fires and the bridge hangs
+ * until Claude's hook timeout (bun >= 1.4 busy-spins at 100% CPU on that
+ * half-closed socket; bun 1.3 only appeared to work because it lost the
+ * server's response bytes on a `conn.end(data)` client).
+ */
 export async function postEnvelope(socketPath: string, envelope: unknown): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const conn = connect(socketPath)
     conn.on('error', reject)
+    conn.resume()
     conn.on('connect', () => {
       conn.end(JSON.stringify(envelope))
     })
