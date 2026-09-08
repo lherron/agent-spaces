@@ -531,7 +531,7 @@ export interface InvocationManager {
   enqueue(req: SubmissionEnqueueRequest): Promise<SubmissionResponse>
   invoke(req: SubmissionInvokeRequest): Promise<SubmissionResponse>
   preempt(req: SubmissionPreemptRequest): Promise<SubmissionResponse>
-  withdraw(req: SubmissionWithdrawRequest): SubmissionWithdrawResponse
+  withdraw(req: SubmissionWithdrawRequest): Promise<SubmissionWithdrawResponse>
   queueList(invocationId: InvocationId): QueueListResponse
   queueJump(req: QueueJumpRequest): Promise<QueueJumpResponse>
   queueCancel(req: QueueCancelRequest): Promise<QueueCancelResponse>
@@ -918,7 +918,9 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     scheduleAdmissionDrain(inv)
   }
 
-  function withdrawHeldSubmission(req: SubmissionWithdrawRequest): SubmissionWithdrawResponse {
+  async function withdrawHeldSubmission(
+    req: SubmissionWithdrawRequest
+  ): Promise<SubmissionWithdrawResponse> {
     const matches: Array<{ inv: Invocation; record: SubmissionRecord }> = []
     for (const inv of invocations.values()) {
       for (const record of inv.submissions.values()) {
@@ -940,6 +942,29 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         (item) => item.record.submissionId === record.submissionId
       )
       if (position < 0) {
+        if (inv.driver.cancelInput !== undefined) {
+          const result = await inv.driver.cancelInput(record.submissionId as InputId, req.reason)
+          if (result.outcome === 'cancelled') {
+            emit(inv, 'submission.withdrawn', {
+              submissionId: record.submissionId,
+              reason: req.reason,
+            })
+            if (inv.pendingOwnTurnSubmissionId === record.submissionId) {
+              inv.pendingOwnTurnSubmissionId = undefined
+            }
+            scheduleAdmissionDrain(inv)
+            withdrawn = true
+            continue
+          }
+          if (result.outcome === 'executed' && result.turnId !== undefined) {
+            emit(
+              inv,
+              'submission.executed',
+              { submissionId: record.submissionId, turnId: result.turnId },
+              { turnId: result.turnId, inputId: record.submissionId as InputId }
+            )
+          }
+        }
         accepted = true
         continue
       }
@@ -1031,12 +1056,15 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         const quiescenceBlocked =
           head?.class === 'preempt' &&
           (inv.driver.probeAdmissionState?.().harnessLocalQueueDepth ?? 0) > 0
+        const driverQueueBlocked =
+          (inv.driver.probeAdmissionState?.().harnessLocalQueueDepth ?? 0) > 0
         if (
           hasDriverBlockedHeldSubmission(inv) ||
           (inv.state === 'ready' &&
             inv.pendingOwnTurnSubmissionId === undefined &&
             head !== undefined &&
-            !quiescenceBlocked)
+            !quiescenceBlocked &&
+            !driverQueueBlocked)
         ) {
           scheduleAdmissionDrain(inv)
         }
@@ -1051,6 +1079,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     rejectDriverBlockedHeldSubmissions(inv)
     if (inv.state !== 'ready') return
     if (inv.pendingOwnTurnSubmissionId !== undefined) return
+    if ((inv.driver.probeAdmissionState?.().harnessLocalQueueDepth ?? 0) > 0) return
     const head = inv.brokerQueue[0]
     if (head === undefined) return
     if (
@@ -1505,6 +1534,15 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         if (payload.ownership === 'own' && payload.inputId !== undefined) {
           inv.currentInputId = payload.inputId
           observePendingOwnTurnStart(inv, turnId, payload.inputId)
+          const record = inv.submissions.get(payload.inputId)
+          if (record === undefined || !record.terminal) {
+            emit(
+              inv,
+              'submission.executed',
+              { submissionId: payload.inputId, turnId },
+              { turnId, inputId: payload.inputId }
+            )
+          }
         } else if (payload.ownership === 'unknown') {
           if (
             inv.pendingOwnTurnSubmissionId !== undefined &&
@@ -2427,6 +2465,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         ...(dispatchEnv !== undefined ? { dispatchEnv } : {}),
         ...(runtime !== undefined ? { runtime } : {}),
         capture: inv.capture,
+        ...(options.captureDir !== undefined ? { durableStateDir: options.captureDir } : {}),
         emit<K extends InvocationEventType>(
           type: K,
           payload: InvocationEventPayloadMap[K],
@@ -2581,7 +2620,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       return response
     },
 
-    withdraw(req: SubmissionWithdrawRequest): SubmissionWithdrawResponse {
+    withdraw(req: SubmissionWithdrawRequest): Promise<SubmissionWithdrawResponse> {
       return withdrawHeldSubmission(req)
     },
 
@@ -2625,7 +2664,34 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       const index = inv.brokerQueue.findIndex(
         (item) => item.record.submissionId === req.submissionId
       )
-      if (index < 0) return { cancelled: false, reason: 'not-broker-held' }
+      if (index < 0) {
+        const record = inv.submissions.get(req.submissionId)
+        if (
+          record === undefined ||
+          (record.origin.principalRef !== req.principalRef && !isOperator(req.principalRef))
+        ) {
+          return {
+            cancelled: false,
+            reason: record === undefined ? 'not-broker-held' : 'authority-denied',
+          }
+        }
+        const result = await inv.driver.cancelInput?.(
+          record.submissionId as InputId,
+          'queue.cancel'
+        )
+        if (result?.outcome !== 'cancelled') {
+          return { cancelled: false, reason: result?.outcome ?? 'not-broker-held' }
+        }
+        emit(inv, 'submission.cancelled', {
+          submissionId: record.submissionId,
+          reason: 'broker-cancelled',
+        })
+        if (inv.pendingOwnTurnSubmissionId === record.submissionId) {
+          inv.pendingOwnTurnSubmissionId = undefined
+        }
+        scheduleAdmissionDrain(inv)
+        return { cancelled: true }
+      }
       const item = inv.brokerQueue[index]
       if (
         item === undefined ||
@@ -2729,7 +2795,10 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       const rawInput = req.input
       const inputId = resolveInputId(inv, rawInput)
       const input: InvocationInputWithId = { ...rawInput, inputId }
-      const seatBusy = inv.state === 'turn_active' || inv.pendingOwnTurnSubmissionId !== undefined
+      const seatBusy =
+        inv.state === 'turn_active' ||
+        inv.pendingOwnTurnSubmissionId !== undefined ||
+        (inv.driver.probeAdmissionState?.().harnessLocalQueueDepth ?? 0) > 0
       const admissionClass: SubmissionClass = seatBusy
         ? req.policy?.whenBusy === 'queue'
           ? 'queue'
@@ -2797,7 +2866,11 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       }
 
       // --- State: ready → apply immediately ---
-      if (inv.state === 'ready' && inv.pendingOwnTurnSubmissionId === undefined) {
+      if (
+        inv.state === 'ready' &&
+        inv.pendingOwnTurnSubmissionId === undefined &&
+        (inv.driver.probeAdmissionState?.().harnessLocalQueueDepth ?? 0) === 0
+      ) {
         admitSubmission(inv, submission)
         let result: ApplyInputResult
         try {

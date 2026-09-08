@@ -8,7 +8,9 @@ import type {
   InvocationId,
 } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../../../src/broker'
+import { CodexRpcError } from '../../../src/drivers/codex-app-server/rpc-client'
 import { createCodexDesktopDriver } from '../../../src/drivers/codex-desktop/driver'
+import type { CodexDesktopQueueHelper } from '../../../src/drivers/codex-desktop/driver'
 import { createEventLedger } from '../../../src/event-ledger'
 
 const cleanups: Array<() => void> = []
@@ -72,6 +74,59 @@ async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<voi
     if (Date.now() > deadline) throw new Error('timed out waiting for observer')
     await Bun.sleep(10)
   }
+}
+
+type NativeQueueRow = { id: string; clientUserMessageId: string }
+
+function queueHarness(
+  options: {
+    pages?: (cursor?: string) => { data: NativeQueueRow[]; nextCursor?: string }
+    onAdd?: (clientUserMessageId: string) => unknown
+  } = {}
+) {
+  const queue: NativeQueueRow[] = []
+  const adds: string[] = []
+  const deletes: string[] = []
+  const openQueueHelper = async (): Promise<CodexDesktopQueueHelper> => ({
+    async list(_threadId, cursor) {
+      return options.pages?.(cursor) ?? { data: [...queue], nextCursor: null }
+    },
+    async add(_threadId, _input, clientUserMessageId) {
+      adds.push(clientUserMessageId)
+      const result = options.onAdd?.(clientUserMessageId)
+      if (result instanceof Error) throw result
+      if (result !== undefined) return result
+      const row = { id: `native-${clientUserMessageId}`, clientUserMessageId }
+      queue.push(row)
+      return { queuedSubmission: row }
+    },
+    async delete(_threadId, queuedSubmissionId) {
+      deletes.push(queuedSubmissionId)
+      const index = queue.findIndex((row) => row.id === queuedSubmissionId)
+      if (index >= 0) queue.splice(index, 1)
+      return { deleted: index >= 0 }
+    },
+    close() {},
+  })
+  return { queue, adds, deletes, openQueueHelper }
+}
+
+function ownTurnRows(threadId: string, turnId: string, inputId: string, ordinal = 10): string {
+  return [
+    row({ type: 'task_started', turn_id: turnId }, ordinal),
+    itemRow(
+      threadId,
+      turnId,
+      {
+        type: 'UserMessage',
+        id: `user-${turnId}`,
+        client_id: inputId,
+        content: [{ type: 'text', text: 'broker delivery' }],
+      },
+      ordinal + 1
+    ),
+    row({ type: 'task_complete', turn_id: turnId }, ordinal + 2),
+  ].join('')
 }
 
 describe('codex-desktop observation driver', () => {
@@ -305,5 +360,354 @@ describe('codex-desktop observation driver', () => {
         (event) => event.type === 'turn.started' && event.turnId === ('turn-replacement' as never)
       )
     ).toHaveLength(1)
+  })
+
+  test('queues one native write, preserves human interleaving, and executes only on client-id rollout evidence', async () => {
+    const dir = tempDir()
+    const path = join(dir, 'queue.jsonl')
+    writeFileSync(path, '')
+    const native = queueHarness()
+    const events: InvocationEventEnvelope[] = []
+    const invocationId = 'inv-desktop-queue' as InvocationId
+    const broker = createBroker({
+      drivers: [
+        createCodexDesktopDriver({
+          watchFile: false,
+          pollIntervalMs: 10,
+          openQueueHelper: native.openQueueHelper,
+        }),
+      ],
+      onEvent: (event) => events.push(event),
+      captureDir: dir,
+    })
+    await broker.start({ spec: spec(path, invocationId) })
+    const origin = {
+      principalRef: 'agent:sender',
+      scopeRef: 'sender@agent-spaces:primary',
+      envelopeId: 'EN-desktop-queue',
+    }
+    const first = await broker.enqueue({ invocationId, origin, body: 'first' })
+    await waitFor(() => native.adds.length === 1)
+    expect(
+      events.find(
+        (event) =>
+          event.type === 'driver.notice' &&
+          event.payload.code === 'CODEX_DESKTOP_NATIVE_ATTEMPT_QUEUED'
+      )?.payload.data
+    ).toMatchObject({
+      inputId: first.submissionId,
+      clientUserMessageId: first.submissionId,
+      nativeThreadId: 'thread-desktop',
+      envelopeId: 'EN-desktop-queue',
+      queuedSubmissionId: `native-${first.submissionId}`,
+      attemptState: 'queued',
+    })
+    const second = await broker.enqueue({ invocationId, origin, body: 'second' })
+    const listed = await broker.queueList({ invocationId })
+    expect(listed.entries.map((entry) => entry.submissionId)).toEqual([second.submissionId])
+
+    const humanTurn = [
+      row({ type: 'task_started', turn_id: 'turn-human' }, 1),
+      itemRow(
+        'thread-desktop',
+        'turn-human',
+        {
+          type: 'UserMessage',
+          id: 'user-human',
+          client_id: 'human-client',
+          content: [{ type: 'text', text: 'human interleaving' }],
+        },
+        2
+      ),
+      row({ type: 'task_complete', turn_id: 'turn-human' }, 3),
+    ].join('')
+    appendFileSync(path, humanTurn)
+    await waitFor(() =>
+      events.some(
+        (event) => event.type === 'turn.completed' && event.turnId === ('turn-human' as never)
+      )
+    )
+    expect(
+      events.some(
+        (event) =>
+          event.type === 'submission.executed' && event.payload.submissionId === first.submissionId
+      )
+    ).toBe(false)
+    expect(native.adds).toHaveLength(1)
+
+    native.queue.splice(0, 1)
+    appendFileSync(path, ownTurnRows('thread-desktop', 'turn-owned', first.submissionId, 10))
+    await waitFor(() =>
+      events.some(
+        (event) =>
+          event.type === 'submission.executed' && event.payload.submissionId === first.submissionId
+      )
+    )
+    await waitFor(() => native.adds.length === 2)
+    expect(native.adds).toEqual([first.submissionId, second.submissionId])
+  })
+
+  test('recovers a lost add ACK through every queue page and restart without a duplicate write', async () => {
+    const dir = tempDir()
+    const path = join(dir, 'lost-ack.jsonl')
+    writeFileSync(path, '')
+    let queued: NativeQueueRow | undefined
+    let adds = 0
+    const cursors: Array<string | undefined> = []
+    const openQueueHelper = async (): Promise<CodexDesktopQueueHelper> => ({
+      async list(_threadId, cursor) {
+        cursors.push(cursor)
+        if (cursor === undefined) {
+          return {
+            data: [{ id: 'human-native', clientUserMessageId: 'human-client' }],
+            nextCursor: 'page-2',
+          }
+        }
+        return { data: queued === undefined ? [] : [queued], nextCursor: null }
+      },
+      async add(_threadId, _input, clientUserMessageId) {
+        adds += 1
+        queued = { id: 'native-lost-ack', clientUserMessageId }
+        throw new Error('fault injection: helper died after native insert')
+      },
+      async delete() {
+        return { deleted: false }
+      },
+      close() {},
+    })
+    const invocationId = 'inv-desktop-lost-ack' as InvocationId
+    const events: InvocationEventEnvelope[] = []
+    const first = createBroker({
+      drivers: [
+        createCodexDesktopDriver({ openQueueHelper, watchFile: false, pollIntervalMs: 10 }),
+      ],
+      onEvent: (event) => events.push(event),
+      captureDir: dir,
+    })
+    await first.start({ spec: spec(path, invocationId) })
+    const admitted = await first.enqueue({
+      invocationId,
+      origin: { principalRef: 'agent:sender', envelopeId: 'EN-lost-ack' },
+      body: 'lost ack',
+    })
+    await waitFor(() =>
+      events.some(
+        (event) =>
+          event.type === 'driver.notice' &&
+          event.payload.code === 'CODEX_DESKTOP_NATIVE_ATTEMPT_RECONCILED_QUEUED'
+      )
+    )
+    expect(adds).toBe(1)
+    expect(cursors).toContain('page-2')
+    await first.stop({ invocationId, reason: 'restart fault injection' })
+    await first.dispose({ invocationId })
+
+    const second = createBroker({
+      drivers: [
+        createCodexDesktopDriver({ openQueueHelper, watchFile: false, pollIntervalMs: 10 }),
+      ],
+      captureDir: dir,
+    })
+    await second.start({ spec: spec(path, invocationId) })
+    const later = await second.enqueue({
+      invocationId,
+      origin: { principalRef: 'agent:sender', envelopeId: 'EN-later' },
+      body: 'must remain local',
+    })
+    await Bun.sleep(30)
+    expect(adds).toBe(1)
+    expect(
+      (await second.queueList({ invocationId })).entries.map((entry) => entry.submissionId)
+    ).toEqual([later.submissionId])
+    expect(admitted.submissionId).toBe('submission_inv-desktop-lost-ack_1')
+  })
+
+  test('fences an absent possibly-written attempt and retries only a definitive rejection', async () => {
+    const run = async (kind: 'indeterminate' | 'rejected') => {
+      const dir = tempDir()
+      const path = join(dir, `${kind}.jsonl`)
+      writeFileSync(path, '')
+      let adds = 0
+      const openQueueHelper = async (): Promise<CodexDesktopQueueHelper> => ({
+        async list() {
+          return { data: [], nextCursor: null }
+        },
+        async add() {
+          adds += 1
+          if (kind === 'rejected' && adds === 1) {
+            throw new CodexRpcError(-32602, 'native queue rejected')
+          }
+          if (kind === 'indeterminate') {
+            throw new Error('fault injection: disconnected after write')
+          }
+          return { queuedSubmission: { id: 'native-retry' } }
+        },
+        async delete() {
+          return { deleted: false }
+        },
+        close() {},
+      })
+      const invocationId = `inv-desktop-${kind}` as InvocationId
+      const events: InvocationEventEnvelope[] = []
+      const broker = createBroker({
+        drivers: [
+          createCodexDesktopDriver({ openQueueHelper, watchFile: false, pollIntervalMs: 10 }),
+        ],
+        onEvent: (event) => events.push(event),
+        captureDir: dir,
+      })
+      await broker.start({ spec: spec(path, invocationId) })
+      await broker.enqueue({
+        invocationId,
+        origin: { principalRef: 'agent:sender' },
+        body: kind,
+      })
+      await waitFor(() => adds === 1)
+      const second = await broker.enqueue({
+        invocationId,
+        origin: { principalRef: 'agent:sender' },
+        body: 'second',
+      })
+      if (kind === 'rejected') await waitFor(() => adds === 2)
+      else await Bun.sleep(30)
+      return { adds, events, broker, invocationId, second }
+    }
+
+    const indeterminate = await run('indeterminate')
+    expect(indeterminate.adds).toBe(1)
+    expect(
+      indeterminate.events.some(
+        (event) => event.payload.code === 'CODEX_DESKTOP_NATIVE_ATTEMPT_INDETERMINATE'
+      )
+    ).toBe(true)
+    expect(
+      (await indeterminate.broker.queueList({ invocationId: indeterminate.invocationId })).entries
+    ).toHaveLength(1)
+
+    const rejected = await run('rejected')
+    expect(rejected.adds).toBe(2)
+    expect(
+      rejected.events.some(
+        (event) => event.payload.code === 'CODEX_DESKTOP_NATIVE_ATTEMPT_REJECTED'
+      )
+    ).toBe(true)
+  })
+
+  test('withdraw deletes only the owned native id while broker-local TTL expires independently', async () => {
+    const dir = tempDir()
+    const path = join(dir, 'cancel.jsonl')
+    writeFileSync(path, '')
+    const native = queueHarness()
+    const events: InvocationEventEnvelope[] = []
+    const invocationId = 'inv-desktop-cancel' as InvocationId
+    const broker = createBroker({
+      drivers: [
+        createCodexDesktopDriver({
+          openQueueHelper: native.openQueueHelper,
+          watchFile: false,
+          pollIntervalMs: 10,
+        }),
+      ],
+      onEvent: (event) => events.push(event),
+      captureDir: dir,
+    })
+    await broker.start({ spec: spec(path, invocationId) })
+    const first = await broker.enqueue({
+      invocationId,
+      origin: { principalRef: 'agent:sender', envelopeId: 'EN-cancel' },
+      body: 'owned',
+    })
+    await waitFor(() => native.adds.length === 1)
+    native.queue.push({ id: 'human-native', clientUserMessageId: 'human-client' })
+    const expiring = await broker.enqueue({
+      invocationId,
+      origin: { principalRef: 'agent:sender' },
+      body: 'expires broker-local',
+      ttlMs: 5,
+    })
+    await waitFor(() =>
+      events.some(
+        (event) =>
+          event.type === 'submission.expired' &&
+          event.payload.submissionId === expiring.submissionId
+      )
+    )
+    expect(native.adds).toHaveLength(1)
+    expect(
+      await broker.withdraw({ submissionId: first.submissionId, reason: 'envelope-terminal' })
+    ).toEqual({
+      outcome: 'withdrawn',
+    })
+    expect(native.deletes).toEqual([`native-${first.submissionId}`])
+    expect(native.queue).toEqual([{ id: 'human-native', clientUserMessageId: 'human-client' }])
+
+    appendFileSync(path, ownTurnRows('thread-desktop', 'turn-delete-race', first.submissionId, 20))
+    await waitFor(() =>
+      events.some(
+        (event) =>
+          event.type === 'turn.attributed' &&
+          event.turnId === ('turn-delete-race' as never) &&
+          event.payload.ownership === 'own'
+      )
+    )
+    expect(
+      events.some(
+        (event) =>
+          event.type === 'submission.executed' && event.payload.submissionId === first.submissionId
+      )
+    ).toBe(false)
+    expect(
+      events.some(
+        (event) =>
+          event.type === 'driver.notice' &&
+          event.payload.code === 'CODEX_DESKTOP_NATIVE_ATTEMPT_EXECUTED'
+      )
+    ).toBe(true)
+  })
+
+  test('surfaces bundled helper incompatibility and never falls back or writes', async () => {
+    const dir = tempDir()
+    const path = join(dir, 'incompatible.jsonl')
+    writeFileSync(path, '')
+    let opens = 0
+    const events: InvocationEventEnvelope[] = []
+    const invocationId = 'inv-desktop-incompatible' as InvocationId
+    const broker = createBroker({
+      drivers: [
+        createCodexDesktopDriver({
+          watchFile: false,
+          openQueueHelper: async () => {
+            opens += 1
+            throw new Error('experimental queue methods unavailable in bundled server')
+          },
+        }),
+      ],
+      onEvent: (event) => events.push(event),
+      captureDir: dir,
+    })
+    await broker.start({ spec: spec(path, invocationId) })
+    await broker.enqueue({
+      invocationId,
+      origin: { principalRef: 'agent:sender' },
+      body: 'must not fall back',
+    })
+    await waitFor(() =>
+      events.some(
+        (event) =>
+          event.type === 'driver.notice' && event.payload.code === 'CODEX_DESKTOP_DELIVERY_DEGRADED'
+      )
+    )
+    await waitFor(() => events.some((event) => event.type === 'submission.rejected'))
+    expect(opens).toBe(1)
+    expect(
+      events.some(
+        (event) =>
+          event.type === 'submission.rejected' &&
+          String(event.payload.reason).includes('bundled server')
+      )
+    ).toBe(true)
+    expect(
+      (await broker.status({ invocationId, probeLiveness: true })).liveness?.driver
+    ).toMatchObject({ state: 'degraded' })
   })
 })

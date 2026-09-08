@@ -30,6 +30,12 @@ export interface ApplyInputResult {
   rejectionReason?: string | undefined
 }
 
+export type CancelInputResult =
+  | { outcome: 'cancelled' }
+  | { outcome: 'executed'; turnId?: TurnId | undefined }
+  | { outcome: 'indeterminate'; reason: string }
+  | { outcome: 'not_owned' }
+
 /**
  * Evidence about the BODY carried out of a failed delivery (T-08204 rev 3 §4).
  *
@@ -151,6 +157,8 @@ export interface Driver {
   captureNormalizer?(): CaptureNormalizer
   start(spec: HarnessInvocationSpec, ctx: DriverContext): Promise<DriverStartResult>
   applyInputNow(input: InvocationInput): Promise<ApplyInputResult>
+  /** Driver-private cancellation for an input already handed beyond the broker-local queue. */
+  cancelInput?(inputId: InputId, reason: string): Promise<CancelInputResult>
   applySteerNow?(input: InvocationInput): Promise<void>
   probeAdmissionState?(): {
     harnessLocalQueueDepth: number
@@ -195,6 +203,8 @@ export interface DriverContext {
    * capture pipeline; when absent the driver normalizes directly, as before.
    */
   capture?: CaptureGate | undefined
+  /** Private broker-owned durable state root. Never sent on the public wire. */
+  durableStateDir?: string | undefined
   emit<K extends InvocationEventType>(
     type: K,
     payload: InvocationEventPayloadMap[K],
