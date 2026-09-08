@@ -1,6 +1,14 @@
 import { spawn } from 'node:child_process'
-import { type FSWatcher, accessSync, closeSync, openSync, readSync, watch } from 'node:fs'
-import { dirname, join } from 'node:path'
+import {
+  type FSWatcher,
+  accessSync,
+  closeSync,
+  openSync,
+  readFileSync,
+  readSync,
+  watch,
+} from 'node:fs'
+import { dirname, isAbsolute, join } from 'node:path'
 import type {
   EventProvenance,
   HarnessInvocationSpec,
@@ -58,7 +66,40 @@ export interface CodexDesktopDriverSpec {
   sqliteHome: string
   threadId: string
   rolloutPath: string
+  recoveryBoundary?: CodexDesktopRecoveryBoundary | undefined
+  nativeAttemptStorePath?: string | undefined
+  /** Legacy producer-EOF hint. Unsafe for recovery and deliberately ignored. */
   adoptionWatermark?: { byteOffset: number } | undefined
+}
+
+export interface CodexDesktopRecoveryBoundary {
+  sourceKind?: string | undefined
+  sourceEpoch?: string | undefined
+  furthestCommittedRecord?:
+    | {
+        rawRecordId: string
+        byteOffset: number
+        line?: number | undefined
+        rawSha256?: string | undefined
+        nativeType?: string | undefined
+      }
+    | undefined
+  earliestPendingRecord?:
+    | {
+        rawRecordId: string
+        byteOffset: number
+      }
+    | undefined
+  committedProjections: readonly {
+    seq: number
+    type: string
+    turnId?: string | undefined
+    itemId?: string | undefined
+    nativeId?: string | undefined
+    rawRecordId?: string | undefined
+  }[]
+  appliedThroughSeq: number
+  empty: boolean
 }
 
 export interface CodexDesktopDriverOptions {
@@ -539,6 +580,57 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
     })
   }
 
+  function recoveryNotice(code: string, message: string, data: Record<string, unknown>): void {
+    requireCtx().emit('driver.notice', { code, message, data })
+  }
+
+  function freshRecoveryOffset(parsed: CodexDesktopDriverSpec): number {
+    const boundary = parsed.recoveryBoundary
+    if (boundary === undefined) return 0
+    // HRC can prove which projections it committed, but no nonzero cursor can
+    // prove that every earlier projection reached it. The former broker may
+    // have died with an immediate projection in flight or normalization still
+    // buffered locally. Replay the complete source; HRC suppresses only the
+    // projection identities it durably committed.
+    let replaySnapshot: Record<string, number> = {}
+    try {
+      const bytes = readFileSync(parsed.rolloutPath)
+      let completeRecordCount = 0
+      let lastCompleteByte = 0
+      for (let index = 0; index < bytes.length; index += 1) {
+        if (bytes[index] !== 0x0a) continue
+        completeRecordCount += 1
+        lastCompleteByte = index + 1
+      }
+      replaySnapshot = {
+        replaySnapshotBytes: bytes.length,
+        replaySnapshotCompleteRecords: completeRecordCount,
+        replaySnapshotTrailingPartialBytes: bytes.length - lastCompleteByte,
+      }
+    } catch {
+      // readRows owns the visible observer-health error. Recovery still starts
+      // losslessly at zero if the rollout materializes after this snapshot.
+    }
+    recoveryNotice(
+      'CODEX_DESKTOP_RECOVERY_BOUNDARY_APPLIED',
+      'Codex desktop recovery is replaying from byte zero against durable committed projections',
+      {
+        replayByteOffset: 0,
+        ...replaySnapshot,
+        appliedThroughSeq: boundary.appliedThroughSeq,
+        committedProjectionCount: boundary.committedProjections.length,
+        empty: boundary.empty,
+        ...(boundary.furthestCommittedRecord === undefined
+          ? {}
+          : { furthestCommittedByteOffset: boundary.furthestCommittedRecord.byteOffset }),
+        ...(boundary.earliestPendingRecord === undefined
+          ? {}
+          : { earliestPendingByteOffset: boundary.earliestPendingRecord.byteOffset }),
+      }
+    )
+    return 0
+  }
+
   function scheduleRead(): void {
     if (stopped) return
     drain = drain
@@ -619,9 +711,10 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
       resetParserState()
       attemptStore?.close()
       attemptStore = openCodexDesktopNativeAttemptStore(
-        driverCtx.durableStateDir === undefined
-          ? undefined
-          : join(driverCtx.durableStateDir, 'codex-desktop-native-attempts.db')
+        parsed.nativeAttemptStorePath ??
+          (driverCtx.durableStateDir === undefined
+            ? undefined
+            : join(driverCtx.durableStateDir, 'codex-desktop-native-attempts.db'))
       )
       installationKey = desktopInstallationKey(parsed)
       for (const attempt of attemptStore.list(installationKey)) {
@@ -641,7 +734,13 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
       }
       // Re-drive the crash window before moving the physical file cursor.
       driverCtx.capture?.replayPending((captured) => normalizeRecord(captured))
-      const resumeOffset = durableResumeOffset(parsed.rolloutPath, records)
+      const resumeOffset = records.some(
+        (record) =>
+          record.driverKind === CODEX_DESKTOP_DRIVER_KIND &&
+          typeof record.sourceCursor['byteOffset'] === 'number'
+      )
+        ? durableResumeOffset(parsed.rolloutPath, records)
+        : freshRecoveryOffset(parsed)
       tailer.retarget(parsed.rolloutPath, { startAtOffset: resumeOffset })
       readRows()
       const unresolved = attemptStore.unresolved(installationKey)
@@ -969,7 +1068,74 @@ function parseDesktopSpec(spec: HarnessInvocationSpec): CodexDesktopDriverSpec {
       'codex-desktop driver.adoptionWatermark.byteOffset must be a non-negative number'
     )
   }
+  const attemptStorePath = value['nativeAttemptStorePath']
+  if (
+    attemptStorePath !== undefined &&
+    (typeof attemptStorePath !== 'string' ||
+      attemptStorePath.length === 0 ||
+      !isAbsolute(attemptStorePath))
+  ) {
+    throw new BrokerError(
+      BrokerErrorCode.DispatchValidationFailed,
+      'codex-desktop driver.nativeAttemptStorePath must be an absolute non-empty path'
+    )
+  }
+  const boundary = asCodexRecord(value['recoveryBoundary'])
+  if (value['recoveryBoundary'] !== undefined && boundary === undefined) {
+    throw new BrokerError(
+      BrokerErrorCode.DispatchValidationFailed,
+      'codex-desktop driver.recoveryBoundary must be an object'
+    )
+  }
+  if (boundary !== undefined) validateRecoveryBoundary(boundary)
   return value as unknown as CodexDesktopDriverSpec
+}
+
+function validateRecoveryBoundary(boundary: Record<string, unknown>): void {
+  const projections = boundary['committedProjections']
+  const appliedThroughSeq = boundary['appliedThroughSeq']
+  if (
+    typeof boundary['empty'] !== 'boolean' ||
+    !Array.isArray(projections) ||
+    typeof appliedThroughSeq !== 'number' ||
+    !Number.isSafeInteger(appliedThroughSeq) ||
+    appliedThroughSeq < 0
+  ) {
+    throw new BrokerError(
+      BrokerErrorCode.DispatchValidationFailed,
+      'codex-desktop driver.recoveryBoundary has invalid summary fields'
+    )
+  }
+  for (const projection of projections) {
+    const value = asCodexRecord(projection)
+    if (
+      value === undefined ||
+      typeof value['seq'] !== 'number' ||
+      !Number.isSafeInteger(value['seq']) ||
+      typeof value['type'] !== 'string'
+    ) {
+      throw new BrokerError(
+        BrokerErrorCode.DispatchValidationFailed,
+        'codex-desktop driver.recoveryBoundary has an invalid committed projection'
+      )
+    }
+  }
+  for (const name of ['furthestCommittedRecord', 'earliestPendingRecord']) {
+    const record = asCodexRecord(boundary[name])
+    if (
+      boundary[name] !== undefined &&
+      (record === undefined ||
+        typeof record['rawRecordId'] !== 'string' ||
+        typeof record['byteOffset'] !== 'number' ||
+        !Number.isSafeInteger(record['byteOffset']) ||
+        record['byteOffset'] < 0)
+    ) {
+      throw new BrokerError(
+        BrokerErrorCode.DispatchValidationFailed,
+        `codex-desktop driver.recoveryBoundary has an invalid ${name}`
+      )
+    }
+  }
 }
 
 function sourceKey(spec: CodexDesktopDriverSpec): string {

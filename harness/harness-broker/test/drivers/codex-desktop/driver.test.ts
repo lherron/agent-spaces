@@ -68,6 +68,13 @@ function spec(
   }
 }
 
+function withDriver(
+  base: HarnessInvocationSpec,
+  extra: Record<string, unknown>
+): HarnessInvocationSpec {
+  return { ...base, driver: { ...base.driver, ...extra } }
+}
+
 async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (!predicate()) {
@@ -315,6 +322,168 @@ describe('codex-desktop observation driver', () => {
     secondLedger.close()
   })
 
+  test('fresh recovery replays all records so HRC can dedupe committed projection identities', async () => {
+    const dir = tempDir()
+    const path = join(dir, 'fresh-recovery.jsonl')
+    const threadId = 'thread-desktop'
+    const prefix = row({ type: 'task_started', turn_id: 'turn-crossing' }, 1)
+    const boundary = itemRow(
+      threadId,
+      'turn-crossing',
+      {
+        type: 'UserMessage',
+        id: 'user-boundary',
+        client_id: 'human-boundary',
+        content: [{ type: 'text', text: 'boundary input' }],
+      },
+      2
+    )
+    const tail =
+      itemRow(
+        threadId,
+        'turn-crossing',
+        {
+          type: 'AgentMessage',
+          id: 'assistant-after-boundary',
+          phase: 'final_answer',
+          content: [{ type: 'text', text: 'recovered' }],
+        },
+        3
+      ) + row({ type: 'task_complete', turn_id: 'turn-crossing' }, 4)
+    const trailingPartial = '{"timestamp"'
+    writeFileSync(path, prefix + boundary + tail + trailingPartial)
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createCodexDesktopDriver({ watchFile: false, pollIntervalMs: 10 })],
+      onEvent: (event) => events.push(event),
+      captureDir: join(dir, 'replacement-capture'),
+    })
+    await broker.start({
+      spec: withDriver(spec(path, 'inv-desktop-fresh-recovery'), {
+        recoveryBoundary: {
+          sourceKind: 'provider-jsonl',
+          sourceEpoch: 'prior-capture-epoch',
+          furthestCommittedRecord: {
+            rawRecordId: 'prior-raw-boundary',
+            byteOffset: Buffer.byteLength(prefix),
+            line: 2,
+            rawSha256: 'prior-capture-hash',
+            nativeType: 'event_msg:item_completed',
+          },
+          committedProjections: [
+            { seq: 8, type: 'user.message', turnId: 'turn-crossing', itemId: 'user-boundary' },
+          ],
+          appliedThroughSeq: 8,
+          empty: false,
+        },
+      }),
+    })
+    await waitFor(() => events.some((event) => event.type === 'turn.completed'))
+
+    expect(events.filter((event) => event.type === 'turn.started')).toHaveLength(1)
+    expect(events.filter((event) => event.type === 'user.message')).toHaveLength(1)
+    expect(events.filter((event) => event.type === 'turn.attributed')).toHaveLength(1)
+    expect(events.filter((event) => event.type === 'assistant.message.completed')).toHaveLength(1)
+    expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(1)
+    expect(
+      events.find(
+        (event) =>
+          event.type === 'driver.notice' &&
+          event.payload.code === 'CODEX_DESKTOP_RECOVERY_BOUNDARY_APPLIED'
+      )?.payload.data
+    ).toMatchObject({
+      replayByteOffset: 0,
+      replaySnapshotBytes: Buffer.byteLength(prefix + boundary + tail + trailingPartial),
+      replaySnapshotCompleteRecords: 4,
+      replaySnapshotTrailingPartialBytes: Buffer.byteLength(trailingPartial),
+      furthestCommittedByteOffset: Buffer.byteLength(prefix),
+      committedProjectionCount: 1,
+    })
+  })
+
+  test('never treats the legacy producer EOF watermark as a committed recovery boundary', async () => {
+    const dir = tempDir()
+    const path = join(dir, 'unsafe-producer-eof.jsonl')
+    const history =
+      row({ type: 'task_started', turn_id: 'turn-below-producer-eof' }, 1) +
+      row({ type: 'task_complete', turn_id: 'turn-below-producer-eof' }, 2)
+    writeFileSync(path, history)
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createCodexDesktopDriver({ watchFile: false, pollIntervalMs: 10 })],
+      onEvent: (event) => events.push(event),
+      captureDir: dir,
+    })
+    await broker.start({
+      spec: withDriver(spec(path, 'inv-desktop-unsafe-eof'), {
+        adoptionWatermark: { byteOffset: Buffer.byteLength(history) },
+      }),
+    })
+    await waitFor(() => events.some((event) => event.type === 'turn.completed'))
+    expect(events.filter((event) => event.type === 'turn.started')).toHaveLength(1)
+    expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(1)
+  })
+
+  test('fresh recovery republishes delayed output carrying an earlier boundary provenance', async () => {
+    const dir = tempDir()
+    const path = join(dir, 'delayed-projection-recovery.jsonl')
+    const prefix = row({ type: 'task_started', turn_id: 'turn-delayed-projection' }, 1)
+    const held = itemRow(
+      'thread-desktop',
+      'turn-delayed-projection',
+      {
+        type: 'AgentMessage',
+        id: 'assistant-delayed-projection',
+        phase: 'final_answer',
+        content: [{ type: 'text', text: 'delayed projection' }],
+      },
+      2
+    )
+    const laterApplied = row({ type: 'token_count', info: { total_tokens: 42 } }, 3)
+    const terminal = row({ type: 'task_complete', turn_id: 'turn-delayed-projection' }, 4)
+    writeFileSync(path, prefix + held + laterApplied + terminal)
+    const events: InvocationEventEnvelope[] = []
+    const boundaryOffset = Buffer.byteLength(prefix)
+    const broker = createBroker({
+      drivers: [createCodexDesktopDriver({ watchFile: false, pollIntervalMs: 10 })],
+      onEvent: (event) => events.push(event),
+      captureDir: join(dir, 'replacement-capture'),
+    })
+    await broker.start({
+      spec: withDriver(spec(path, 'inv-desktop-delayed-projection'), {
+        recoveryBoundary: {
+          sourceKind: 'provider-jsonl',
+          furthestCommittedRecord: {
+            rawRecordId: 'prior-raw-later-applied',
+            byteOffset: Buffer.byteLength(prefix + held),
+            rawSha256: 'prior-capture-hash',
+          },
+          earliestPendingRecord: {
+            rawRecordId: 'prior-raw-pending-after-held',
+            byteOffset: Buffer.byteLength(prefix + held + laterApplied),
+          },
+          committedProjections: [{ seq: 12, type: 'usage.updated', rawRecordId: 'raw-later' }],
+          appliedThroughSeq: 12,
+          empty: false,
+        },
+      }),
+    })
+    await waitFor(() => events.some((event) => event.type === 'turn.completed'))
+
+    const assistant = events.find((event) => event.type === 'assistant.message.completed')
+    expect(assistant?.payload).toMatchObject({ final: true })
+    expect(assistant?.provenance.sourceCursor).toMatchObject({ byteOffset: boundaryOffset })
+    expect(events.filter((event) => event.type === 'usage.updated')).toHaveLength(1)
+    expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(1)
+    expect(
+      events.find(
+        (event) =>
+          event.type === 'driver.notice' &&
+          event.payload.code === 'CODEX_DESKTOP_RECOVERY_BOUNDARY_APPLIED'
+      )?.payload.data
+    ).toMatchObject({ replayByteOffset: 0, committedProjectionCount: 1 })
+  })
+
   test('detects a same-path replacement and observes the replacement epoch once', async () => {
     const dir = tempDir()
     const path = join(dir, 'replacement.jsonl')
@@ -450,6 +619,7 @@ describe('codex-desktop observation driver', () => {
   test('recovers a lost add ACK through every queue page and restart without a duplicate write', async () => {
     const dir = tempDir()
     const path = join(dir, 'lost-ack.jsonl')
+    const nativeAttemptStorePath = join(dir, 'stable-observer-state', 'native-attempts.db')
     writeFileSync(path, '')
     let queued: NativeQueueRow | undefined
     let adds = 0
@@ -482,9 +652,11 @@ describe('codex-desktop observation driver', () => {
         createCodexDesktopDriver({ openQueueHelper, watchFile: false, pollIntervalMs: 10 }),
       ],
       onEvent: (event) => events.push(event),
-      captureDir: dir,
+      captureDir: join(dir, 'first-capture'),
     })
-    await first.start({ spec: spec(path, invocationId) })
+    await first.start({
+      spec: withDriver(spec(path, invocationId), { nativeAttemptStorePath }),
+    })
     const admitted = await first.enqueue({
       invocationId,
       origin: { principalRef: 'agent:sender', envelopeId: 'EN-lost-ack' },
@@ -506,9 +678,11 @@ describe('codex-desktop observation driver', () => {
       drivers: [
         createCodexDesktopDriver({ openQueueHelper, watchFile: false, pollIntervalMs: 10 }),
       ],
-      captureDir: dir,
+      captureDir: join(dir, 'replacement-capture'),
     })
-    await second.start({ spec: spec(path, invocationId) })
+    await second.start({
+      spec: withDriver(spec(path, invocationId), { nativeAttemptStorePath }),
+    })
     const later = await second.enqueue({
       invocationId,
       origin: { principalRef: 'agent:sender', envelopeId: 'EN-later' },
