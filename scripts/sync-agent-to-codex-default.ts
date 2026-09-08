@@ -46,7 +46,30 @@ const CODEX_HOOKS_FILE = 'hooks.json'
 const CODEX_CONFIG_FILE = 'config.toml'
 const PRE_TOOL_USE_HOOK_FILENAME = 'pre-tool-use-praesidium-env.mjs'
 const PRE_TOOL_USE_STATUS = 'injecting Praesidium command env'
+const DISCOVERY_HOOK_FILENAME = 'desktop-registration-discovery.mjs'
+const DISCOVERY_STATUS = 'registering this conversation with HRC'
+const DISCOVERY_HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit'] as const
 const CODEX_APP_OVERLAY_ENV = 'ASP_CODEX_APP_OVERLAY'
+
+/**
+ * Installed name of HRC's desktop registration hook helper (P-00502 §3/§4).
+ *
+ * Bare, not absolute: the desktop app's hook execution inherits an ordinary
+ * login PATH, and hard-coding a release path would pin the overlay to one
+ * install generation. When it is absent the hooks degrade to "integration
+ * pending" and the PreToolUse hook keeps its previous UUID-style behavior,
+ * which is exactly the contract's stated fallback.
+ */
+const HRC_DESKTOP_HOOK_BIN = 'hrc-desktop-hook'
+/**
+ * Hard ceiling on the discovery callback, measured from the overlay side.
+ *
+ * The helper carries its own 1.5 s socket deadline; this is the outer bound on
+ * the whole spawn, because a helper that never exits would otherwise sit in
+ * front of a turn Lance is waiting on. Contract §4: hooks have "bounded
+ * callback time".
+ */
+const DISCOVERY_TIMEOUT_MS = 4_000
 
 export interface SyncAgentToCodexDefaultOptions {
   agentId: string
@@ -93,9 +116,12 @@ export interface HooksPlan {
   hooksPath: string
   configPath: string
   scriptPath: string
+  /** The SessionStart / UserPromptSubmit registration-discovery hook (P-00502 §4). */
+  discoveryScriptPath: string
   hooksAction: 'create' | 'update' | 'unchanged' | 'skip'
   configAction: 'create' | 'update' | 'unchanged' | 'skip'
   scriptAction: 'create' | 'update' | 'unchanged' | 'skip'
+  discoveryScriptAction: 'create' | 'update' | 'unchanged' | 'skip'
 }
 
 export interface SyncManifest {
@@ -369,20 +395,7 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`
 }
 
-function buildPreToolUseHookScript(agentId: string, aspHome: string): string {
-  const escapedAgentId = JSON.stringify(agentId)
-  const escapedAspHome = JSON.stringify(aspHome)
-  return `#!/usr/bin/env node
-import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
-import { basename, dirname, join, resolve } from 'node:path'
-import { homedir } from 'node:os'
-
-const AGENT_ID = ${escapedAgentId}
-const DEFAULT_ASP_HOME = ${escapedAspHome}
-const PRAESIDIUM_COMMANDS = new Set(['asp', 'wrkq', 'wrkf', 'hrc', 'hrcchat', 'acp'])
-
-function readStdin() {
+const HOOK_SHARED_PRELUDE = `function readStdin() {
   return new Promise((resolveText) => {
     let data = ''
     process.stdin.setEncoding('utf8')
@@ -488,7 +501,72 @@ function resolveAspHome(cwd) {
   return readEnvLocalAspHome(cwd) || process.env.ASP_HOME || DEFAULT_ASP_HOME
 }
 
-function splitShellSegments(command) {
+function codexHomeDir() {
+  return process.env.CODEX_HOME || join(homedir(), '.codex')
+}
+
+/**
+ * The projection of HRC's allocation for this native thread, or undefined.
+ *
+ * READ ONLY, and never a fallback allocator: contract §4 is explicit that
+ * "the cache is not an independent allocator", so a missing or unreadable file
+ * means "not registered yet", never "mint something locally".
+ */
+function readEstablishedScope(threadId) {
+  if (!threadId) return undefined
+  const dir = process.env.HRC_DESKTOP_CACHE_DIR || join(codexHomeDir(), 'hrc-desktop-scopes')
+  try {
+    const parsed = JSON.parse(readFileSync(join(resolve(dir), threadId + '.json'), 'utf8'))
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+    if (typeof parsed.scopeRef !== 'string' || parsed.scopeRef.length === 0) return undefined
+    return parsed
+  } catch {
+    return undefined
+  }
+}
+
+/** The UUID-style address this conversation used before registration. */
+function legacyTaskId(sessionId) {
+  const id = String(sessionId || 'codex-app')
+  return id.startsWith('codex-') ? id : 'codex-' + id
+}
+
+function legacyScopeRef(input) {
+  const project = resolveProject(input.cwd || process.cwd())
+  return (
+    'agent:' + AGENT_ID + ':project:' + project + ':task:' + legacyTaskId(input.session_id)
+  )
+}
+
+`
+
+function buildPreToolUseHookScript(agentId: string, aspHome: string): string {
+  const escapedAgentId = JSON.stringify(agentId)
+  const escapedAspHome = JSON.stringify(aspHome)
+  return `#!/usr/bin/env node
+import { execFileSync } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
+import { basename, dirname, join, resolve } from 'node:path'
+import { homedir } from 'node:os'
+
+const AGENT_ID = ${escapedAgentId}
+const DEFAULT_ASP_HOME = ${escapedAspHome}
+// wrkc and wrkp were missing, which is why a desktop conversation could read
+// its mail through a presentation but not answer it: \`wrkc say\` ran with no
+// ASP_SCOPE_REF and therefore no identity (contract \u00a74, "the current command
+// allowlist is incomplete").
+const PRAESIDIUM_COMMANDS = new Set([
+  'asp',
+  'wrkq',
+  'wrkc',
+  'wrkf',
+  'wrkp',
+  'hrc',
+  'hrcchat',
+  'acp',
+])
+
+${HOOK_SHARED_PRELUDE}function splitShellSegments(command) {
   const segments = []
   let current = ''
   let quote = undefined
@@ -616,10 +694,38 @@ function usesPraesidiumCommand(command) {
 
 function resolvedScope(input) {
   const cwd = input.cwd || process.cwd()
+  // The ESTABLISHED registration wins over everything computed locally, and it
+  // is the only source of a readable Stella address. Its project is FROZEN at
+  // registration, which is also the fix for the cwd/ScopeRef disagreement
+  // (T-07514): a conversation whose workspace sits under one repo no longer
+  // reports a project resolved from whatever ancestor directory it was in.
+  const established = readEstablishedScope(input.session_id)
+  if (established !== undefined) {
+    const canonical = {
+      ASP_AGENT_ID: established.agentId || AGENT_ID,
+      ASP_HOME: resolveAspHome(established.projectRoot || cwd),
+      ASP_PROJECT: established.projectId,
+      ASP_TASK_ID: established.slotToken,
+      ASP_SCOPE_REF: established.scopeRef,
+      HRC_SESSION_REF: \`\${established.scopeRef}/lane:\${established.laneRef || 'main'}\`,
+    }
+    return {
+      project: canonical.ASP_PROJECT,
+      aspHome: canonical.ASP_HOME,
+      taskId: canonical.ASP_TASK_ID,
+      scopeRef: canonical.ASP_SCOPE_REF,
+      sessionRef: canonical.HRC_SESSION_REF,
+      registration: 'established',
+      exportsLine:
+        'export ' +
+        Object.entries(canonical)
+          .map(([key, value]) => \`\${key}=\${shellQuote(value)}\`)
+          .join(' '),
+    }
+  }
   const project = resolveProject(cwd)
   const aspHome = resolveAspHome(cwd)
-  const sessionId = String(input.session_id || 'codex-app')
-  const taskId = sessionId.startsWith('codex-') ? sessionId : \`codex-\${sessionId}\`
+  const taskId = legacyTaskId(input.session_id)
   const scopeRef = \`agent:\${AGENT_ID}:project:\${project}:task:\${taskId}\`
   const sessionRef = \`\${scopeRef}/lane:main\`
   const entries = {
@@ -635,7 +741,18 @@ function resolvedScope(input) {
     Object.entries(entries)
       .map(([key, value]) => \`\${key}=\${shellQuote(value)}\`)
       .join(' ')
-  return { project, aspHome, taskId, scopeRef, sessionRef, exportsLine }
+  // Pre-registration behavior is UNCHANGED and deliberately so: contract \u00a74
+  // says to "retain the existing UUID-style hook behavior and clearly report
+  // integration pending; do not mint a friendly name locally".
+  return {
+    project,
+    aspHome,
+    taskId,
+    scopeRef,
+    sessionRef,
+    registration: 'pending',
+    exportsLine,
+  }
 }
 
 const raw = await readStdin()
@@ -664,12 +781,185 @@ process.stdout.write(
     hookSpecificOutput: {
       hookEventName: 'PreToolUse',
       permissionDecision: 'allow',
-      additionalContext: \`Praesidium env: ASP_PROJECT=\${scope.project}, ASP_HOME=\${scope.aspHome}, ASP_SCOPE_REF=\${scope.scopeRef}\`,
+      additionalContext: \`Praesidium env: ASP_PROJECT=\${scope.project}, ASP_HOME=\${scope.aspHome}, ASP_SCOPE_REF=\${scope.scopeRef} (HRC registration: \${scope.registration})\`,
       updatedInput: { command: updatedCommand },
     },
   })
 )
 `
+}
+
+/**
+ * The SessionStart / UserPromptSubmit registration-discovery hook (P-00502 §4).
+ *
+ * Its whole job is to hand HRC the three facts only desktop's own process knows
+ * — native thread id, transcript path, workspace — and to cache whatever
+ * permanent address HRC allocates. It is deliberately incapable of doing
+ * anything else:
+ *
+ *  - it never mints a name. With no daemon and no cache the answer is
+ *    `integration_pending`, and the PreToolUse hook keeps its UUID behavior;
+ *  - it is BOUNDED and can only ever delay a turn by {@link DISCOVERY_TIMEOUT_MS},
+ *    after which the helper is killed and the turn proceeds;
+ *  - it never fails a turn. Every path exits 0, because a registration that did
+ *    not happen is a normal state (guardian thread, rollout not yet persisted,
+ *    daemon restarting) and none of those are Lance's problem mid-turn.
+ *
+ * `UserPromptSubmit` is the fallback for a conversation that was already open
+ * when the overlay was installed: SessionStart fires on startup/resume, so a
+ * loaded thread nobody reloads would otherwise never register. Contract §4:
+ * "A conversation open before overlay installation registers on its next
+ * supported hook."
+ */
+function buildDiscoveryHookScript(agentId: string, aspHome: string): string {
+  const escapedAgentId = JSON.stringify(agentId)
+  const escapedAspHome = JSON.stringify(aspHome)
+  const escapedBin = JSON.stringify(HRC_DESKTOP_HOOK_BIN)
+  return `#!/usr/bin/env node
+import { spawn } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
+import { basename, dirname, join, resolve } from 'node:path'
+import { homedir } from 'node:os'
+
+const AGENT_ID = ${escapedAgentId}
+const DEFAULT_ASP_HOME = ${escapedAspHome}
+const HELPER_BIN = ${escapedBin}
+const TIMEOUT_MS = ${DISCOVERY_TIMEOUT_MS}
+const HRC_RUN_DIR = join(homedir(), 'praesidium', 'var', 'run', 'hrc')
+
+${HOOK_SHARED_PRELUDE}
+function emit(event, context) {
+  if (context) {
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: { hookEventName: event, additionalContext: context },
+      })
+    )
+  }
+  process.exit(0)
+}
+
+function runHelper(payload, env) {
+  return new Promise((resolveResult) => {
+    let child
+    try {
+      child = spawn(HELPER_BIN, [], { stdio: ['pipe', 'pipe', 'ignore'], env })
+    } catch {
+      resolveResult(undefined)
+      return
+    }
+    let out = ''
+    let settled = false
+    const finish = (value) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolveResult(value)
+    }
+    const timer = setTimeout(() => {
+      try {
+        child.kill('SIGKILL')
+      } catch {}
+      finish(undefined)
+    }, TIMEOUT_MS)
+    child.on('error', () => finish(undefined))
+    child.stdout.on('data', (chunk) => {
+      out += String(chunk)
+    })
+    child.on('close', () => {
+      try {
+        finish(JSON.parse(out.trim().split('\\n').filter(Boolean).pop() || ''))
+      } catch {
+        finish(undefined)
+      }
+    })
+    try {
+      child.stdin.end(JSON.stringify(payload))
+    } catch {
+      finish(undefined)
+    }
+  })
+}
+
+const raw = await readStdin()
+if (raw.trim().length === 0) process.exit(0)
+
+let input
+try {
+  input = JSON.parse(raw)
+} catch {
+  process.exit(0)
+}
+
+const event = input.hook_event_name
+if (event !== 'SessionStart' && event !== 'UserPromptSubmit') process.exit(0)
+if (typeof input.session_id !== 'string' || input.session_id.length === 0) process.exit(0)
+
+// Already established and nothing new to report: say the address and stop
+// before spending a callback. A registration is idempotent, but this hook runs
+// in front of EVERY prompt on the fallback event.
+const cached = readEstablishedScope(input.session_id)
+if (cached !== undefined && event === 'UserPromptSubmit') {
+  emit(event, 'HRC: this conversation is ' + cached.scopeRef + ' (project ' + cached.projectId + ').')
+}
+
+const result = await runHelper(
+  {
+    session_id: input.session_id,
+    transcript_path: input.transcript_path,
+    cwd: input.cwd,
+    source: input.source || (event === 'UserPromptSubmit' ? 'user-prompt-submit' : undefined),
+  },
+  {
+    ...process.env,
+    HRC_CALLBACK_SOCKET: process.env.HRC_CALLBACK_SOCKET || join(HRC_RUN_DIR, 'hrc.sock'),
+    HRC_SPOOL_DIR: process.env.HRC_SPOOL_DIR || join(HRC_RUN_DIR, 'spool'),
+    HRC_DESKTOP_LEGACY_SCOPE_REF: legacyScopeRef(input),
+    CODEX_HOME: codexHomeDir(),
+  }
+)
+
+if (result && result.status === 'registered' && result.cache && result.cache.scopeRef) {
+  emit(
+    event,
+    'HRC: this conversation is ' +
+      result.cache.scopeRef +
+      ' (project ' +
+      result.cache.projectId +
+      '). Praesidium commands run under that address; reply to wrkc mail with wrkc say.'
+  )
+}
+
+const fallback = cached || readEstablishedScope(input.session_id)
+if (fallback !== undefined) {
+  emit(event, 'HRC: this conversation is ' + fallback.scopeRef + ' (project ' + fallback.projectId + ').')
+}
+emit(
+  event,
+  'HRC integration pending for this conversation (' +
+    ((result && result.reason) || 'hrc_unreachable') +
+    '); Praesidium commands keep the provisional address ' +
+    legacyScopeRef(input) +
+    '.'
+)
+`
+}
+
+function buildManagedDiscoveryHookGroup(
+  scriptPath: string,
+  event: (typeof DISCOVERY_HOOK_EVENTS)[number]
+): Record<string, unknown> {
+  return {
+    matcher: '',
+    hooks: [
+      {
+        type: 'command',
+        command: hookCommand(scriptPath),
+        statusMessage: `${DISCOVERY_STATUS} (${event})`,
+      },
+    ],
+  }
 }
 
 function buildManagedPreToolUseHookGroup(scriptPath: string): Record<string, unknown> {
@@ -703,9 +993,16 @@ function handlerCommand(handler: unknown): string | undefined {
     : undefined
 }
 
-function removeManagedPreToolUseHook(
+/**
+ * Drop every handler this overlay owns from one event's groups.
+ *
+ * Keyed on the exact command string, so an unmanaged hook a person added to the
+ * same event survives untouched — the overlay's standing promise that existing
+ * desktop config is preserved.
+ */
+function removeManagedHook(
   groups: unknown,
-  managedCommand: string
+  managedCommands: readonly string[]
 ): Array<Record<string, unknown>> {
   if (!Array.isArray(groups)) {
     return []
@@ -715,25 +1012,38 @@ function removeManagedPreToolUseHook(
   for (const group of groups) {
     if (!isRecord(group)) continue
     const handlers = Array.isArray(group['hooks']) ? group['hooks'] : []
-    const nextHandlers = handlers.filter((handler) => handlerCommand(handler) !== managedCommand)
+    const nextHandlers = handlers.filter((handler) => {
+      const command = handlerCommand(handler)
+      return command === undefined || !managedCommands.includes(command)
+    })
     if (nextHandlers.length === 0) continue
     nextGroups.push({ ...group, hooks: nextHandlers })
   }
   return nextGroups
 }
 
-function mergeManagedHooksConfig(existing: string, scriptPath: string): string {
+function mergeManagedHooksConfig(
+  existing: string,
+  scriptPath: string,
+  discoveryScriptPath: string
+): string {
   let parsed: unknown = {}
   if (existing.trim().length > 0) {
     parsed = JSON.parse(existing) as unknown
   }
   const config = normalizeHooksConfig(parsed)
   const hooks = config['hooks'] as Record<string, unknown>
-  const managedCommand = hookCommand(scriptPath)
+  const managed = [hookCommand(scriptPath), hookCommand(discoveryScriptPath)]
   hooks['PreToolUse'] = [
-    ...removeManagedPreToolUseHook(hooks['PreToolUse'], managedCommand),
+    ...removeManagedHook(hooks['PreToolUse'], managed),
     buildManagedPreToolUseHookGroup(scriptPath),
   ]
+  for (const event of DISCOVERY_HOOK_EVENTS) {
+    hooks[event] = [
+      ...removeManagedHook(hooks[event], managed),
+      buildManagedDiscoveryHookGroup(discoveryScriptPath, event),
+    ]
+  }
   return `${JSON.stringify(config, null, 2)}\n`
 }
 
@@ -823,6 +1133,7 @@ async function buildHooksPlan(input: {
   const hooksPath = join(input.codexHome, CODEX_HOOKS_FILE)
   const configPath = join(input.codexHome, CODEX_CONFIG_FILE)
   const scriptPath = join(input.codexHome, '.asp-agent-sync', PRE_TOOL_USE_HOOK_FILENAME)
+  const discoveryScriptPath = join(input.codexHome, '.asp-agent-sync', DISCOVERY_HOOK_FILENAME)
 
   if (!input.installHooks) {
     return {
@@ -830,16 +1141,22 @@ async function buildHooksPlan(input: {
       hooksPath,
       configPath,
       scriptPath,
+      discoveryScriptPath,
       hooksAction: 'skip',
       configAction: 'skip',
       scriptAction: 'skip',
+      discoveryScriptAction: 'skip',
     }
   }
 
   const existingHooks = (await pathExists(hooksPath)) ? await readFile(hooksPath, 'utf8') : ''
-  const nextHooks = mergeManagedHooksConfig(existingHooks, scriptPath)
+  const nextHooks = mergeManagedHooksConfig(existingHooks, scriptPath, discoveryScriptPath)
   const existingScript = (await pathExists(scriptPath)) ? await readFile(scriptPath, 'utf8') : ''
   const nextScript = buildPreToolUseHookScript(input.agentId, input.aspHome)
+  const existingDiscovery = (await pathExists(discoveryScriptPath))
+    ? await readFile(discoveryScriptPath, 'utf8')
+    : ''
+  const nextDiscovery = buildDiscoveryHookScript(input.agentId, input.aspHome)
   const existingConfig = (await pathExists(configPath)) ? await readFile(configPath, 'utf8') : ''
   const nextConfig = upsertTrustedHookState(existingConfig, hooksPath, nextHooks)
 
@@ -848,6 +1165,13 @@ async function buildHooksPlan(input: {
     hooksPath,
     configPath,
     scriptPath,
+    discoveryScriptPath,
+    discoveryScriptAction:
+      existingDiscovery.length === 0
+        ? 'create'
+        : existingDiscovery === nextDiscovery
+          ? 'unchanged'
+          : 'update',
     hooksAction:
       existingHooks.length === 0 ? 'create' : existingHooks === nextHooks ? 'unchanged' : 'update',
     configAction:
@@ -1270,20 +1594,27 @@ async function applyHooksPlan(plan: SyncPlan): Promise<void> {
   }
 
   const hookScript = buildPreToolUseHookScript(plan.agentId, plan.aspHome)
+  const discoveryScript = buildDiscoveryHookScript(plan.agentId, plan.aspHome)
   const existingHooks = (await pathExists(plan.hooks.hooksPath))
     ? await readFile(plan.hooks.hooksPath, 'utf8')
     : ''
-  const hooksJson = mergeManagedHooksConfig(existingHooks, plan.hooks.scriptPath)
+  const hooksJson = mergeManagedHooksConfig(
+    existingHooks,
+    plan.hooks.scriptPath,
+    plan.hooks.discoveryScriptPath
+  )
   const existingConfig = (await pathExists(plan.hooks.configPath))
     ? await readFile(plan.hooks.configPath, 'utf8')
     : ''
   const configToml = upsertTrustedHookState(existingConfig, plan.hooks.hooksPath, hooksJson)
 
   await assertWritableTarget(plan.hooks.scriptPath, plan.codexHome)
+  await assertWritableTarget(plan.hooks.discoveryScriptPath, plan.codexHome)
   await assertWritableTarget(plan.hooks.hooksPath, plan.codexHome)
   await assertWritableTarget(plan.hooks.configPath, plan.codexHome)
   await mkdir(dirname(plan.hooks.scriptPath), { recursive: true })
   await writeFile(plan.hooks.scriptPath, hookScript, { mode: 0o755 })
+  await writeFile(plan.hooks.discoveryScriptPath, discoveryScript, { mode: 0o755 })
   await writeFile(plan.hooks.hooksPath, hooksJson)
   await writeFile(plan.hooks.configPath, configToml)
 }
@@ -1412,7 +1743,7 @@ function renderHuman(result: SyncResult): void {
   )
   console.log(
     plan.hooks.enabled
-      ? `hooks:        hooks.json=${plan.hooks.hooksAction} script=${plan.hooks.scriptAction}`
+      ? `hooks:        hooks.json=${plan.hooks.hooksAction} script=${plan.hooks.scriptAction} discovery=${plan.hooks.discoveryScriptAction}`
       : 'hooks:        skipped'
   )
   if (plan.staleManagedSkills.length > 0) {
