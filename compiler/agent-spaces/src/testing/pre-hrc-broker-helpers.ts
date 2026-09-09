@@ -30,6 +30,11 @@ import {
 
 import type { ContractHarnessFailure } from './pre-hrc-broker-contract-types.js'
 
+export {
+  createControlledParticipantAdapter,
+  type ControlledParticipantAdapterOptions,
+} from './controlled-participant-adapter.js'
+
 // ---------------------------------------------------------------------------
 // Structured failure (thrown by the selection helper)
 // ---------------------------------------------------------------------------

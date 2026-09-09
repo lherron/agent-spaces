@@ -77,7 +77,12 @@ export type BrokerExecutionProfile = RuntimeExecutionProfileBase & {
 
   brokerProtocol: 'harness-broker/0.2'
   brokerDriver: 'codex-app-server' | 'claude-code-tmux' | string
-  brokerOwnership: 'hrc-owned-process'
+  /**
+   * `hrc-owned-process` is the existing managed/direct default. A
+   * participant-served broker is deliberately distinct: its process belongs to
+   * the participant even though HRC still owns dispatch and lifecycle policy.
+   */
+  brokerOwnership: 'hrc-owned-process' | 'participant-owned-process'
   brokerTerminal?: BrokerTerminalSurface | undefined
 
   harnessInvocation: {
