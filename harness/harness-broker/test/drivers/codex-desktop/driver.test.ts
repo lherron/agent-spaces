@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type {
@@ -777,27 +778,6 @@ describe('codex-desktop observation driver', () => {
         exitCode: 0,
       },
     ])
-    const frozenOldCompletion = {
-      type: 'tool.call.completed',
-      itemId: 'exec-4517c5b9-be5d-440a-808a-97d8e79cfa7b',
-      provenance: {
-        nativeId: 'exec-4517c5b9-be5d-440a-808a-97d8e79cfa7b',
-        rawSha256: 'e4b81dbcdd1ea3c6db64f3087042e6446681c4fdec12f5ed629d0450032f13bd',
-      },
-    }
-    const replayedSameNativeRecord = {
-      ...childCompletions[0],
-      provenance: {
-        ...childCompletions[0]?.provenance,
-        rawSha256: frozenOldCompletion.provenance.rawSha256,
-      },
-    }
-    expect(childCompletions[0]?.itemId).toBe(frozenOldCompletion.itemId)
-    expect(childCompletions[0]?.payload.toolCallId).toBe(frozenOldCompletion.itemId)
-    expect(desktopProjectionIdentityForTest(replayedSameNativeRecord)).toBe(
-      desktopProjectionIdentityForTest(frozenOldCompletion)
-    )
-
     const rendered: string[] = []
     const transcript = createCodexTranscriptModel({
       invocationId: 'inv-desktop-quasar-frozen',
@@ -817,6 +797,66 @@ describe('codex-desktop observation driver', () => {
     expect(rendered.join('\n')).toContain('orchestration 1')
     expect(rendered.join('\n')).toContain('result 1')
     expect(events.filter((event) => event.type === 'assistant.message.started')).toHaveLength(0)
+  })
+
+  test('replays the exact frozen command record with its old committed projection identity', async () => {
+    const frozenPath = join(
+      import.meta.dir,
+      '../../fixtures/codex-desktop-quasar-command-exec-4517.jsonl'
+    )
+    const exactFrozenFile = readFileSync(frozenPath, 'utf8')
+    expect(exactFrozenFile.endsWith('\n')).toBe(true)
+    expect(exactFrozenFile.indexOf('\n')).toBe(exactFrozenFile.length - 1)
+    const exactFrozenRecord = exactFrozenFile.slice(0, -1)
+    expect(createHash('sha256').update(exactFrozenRecord).digest('hex')).toBe(
+      'e4b81dbcdd1ea3c6db64f3087042e6446681c4fdec12f5ed629d0450032f13bd'
+    )
+
+    const dir = tempDir()
+    const path = join(dir, 'exact-frozen-command.jsonl')
+    writeFileSync(path, exactFrozenFile)
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createCodexDesktopDriver({ watchFile: false, pollIntervalMs: 10 })],
+      onEvent: (event) => events.push(event),
+      captureDir: dir,
+    })
+    await broker.start({
+      spec: spec(path, 'inv-desktop-exact-frozen-command', '01a086af-b567-7ea3-9812-de81aab2ec42'),
+    })
+    await waitFor(() => events.some((event) => event.type === 'tool.call.completed'))
+
+    const emitted = events.find((event) => event.type === 'tool.call.completed')
+    expect(emitted).toMatchObject({
+      type: 'tool.call.completed',
+      turnId: '01a086af-db07-7e72-94c1-a0ce9557496f',
+      itemId: 'exec-4517c5b9-be5d-440a-808a-97d8e79cfa7b',
+      payload: {
+        toolCallId: 'exec-4517c5b9-be5d-440a-808a-97d8e79cfa7b',
+        name: 'command',
+      },
+      provenance: {
+        sourceCursor: { byteOffset: 0, line: 1 },
+        nativeType: 'event_msg:item_completed:CommandExecution',
+        nativeId: 'exec-4517c5b9-be5d-440a-808a-97d8e79cfa7b',
+        rawSha256: 'e4b81dbcdd1ea3c6db64f3087042e6446681c4fdec12f5ed629d0450032f13bd',
+      },
+    })
+
+    // Extracted from frozen HRC invocation inv-2c2d... seq 6. HRC's
+    // desktopProjectionIdentity ignores source epoch/cursor and keys the
+    // durable native content as rawSha256|type|itemId.
+    const oldCommittedEnvelope = {
+      type: 'tool.call.completed',
+      itemId: 'exec-4517c5b9-be5d-440a-808a-97d8e79cfa7b',
+      provenance: {
+        nativeId: 'exec-4517c5b9-be5d-440a-808a-97d8e79cfa7b',
+        rawSha256: 'e4b81dbcdd1ea3c6db64f3087042e6446681c4fdec12f5ed629d0450032f13bd',
+      },
+    }
+    expect(desktopProjectionIdentityForTest(emitted ?? {})).toBe(
+      desktopProjectionIdentityForTest(oldCommittedEnvelope)
+    )
   })
 
   test('replacement and observer restart retain native dedupe and append only new history', async () => {
