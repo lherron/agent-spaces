@@ -9,6 +9,7 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../../../src/broker'
 import { CodexRpcError } from '../../../src/drivers/codex-app-server/rpc-client'
+import { createCodexTranscriptModel } from '../../../src/drivers/codex-app-server/transcript'
 import { createCodexDesktopDriver } from '../../../src/drivers/codex-desktop/driver'
 import type { CodexDesktopQueueHelper } from '../../../src/drivers/codex-desktop/driver'
 import { createEventLedger } from '../../../src/event-ledger'
@@ -51,6 +52,48 @@ function responseItemRow(
   })}\n`
 }
 
+function customToolStartRow(
+  turnId: string,
+  callId: string,
+  input: string,
+  ordinal: number,
+  timestamp = new Date(ordinal * 1000).toISOString()
+): string {
+  return responseItemRow(
+    {
+      type: 'custom_tool_call',
+      id: `ctc-${callId}`,
+      status: 'completed',
+      call_id: callId,
+      name: 'exec',
+      input,
+      internal_chat_message_metadata_passthrough: { turn_id: turnId },
+    },
+    ordinal,
+    timestamp
+  )
+}
+
+function customToolOutputRow(
+  turnId: string,
+  callId: string,
+  output: unknown,
+  ordinal: number,
+  timestamp = new Date(ordinal * 1000).toISOString()
+): string {
+  return responseItemRow(
+    {
+      type: 'custom_tool_call_output',
+      id: `ctco-${callId}`,
+      call_id: callId,
+      output,
+      internal_chat_message_metadata_passthrough: { turn_id: turnId },
+    },
+    ordinal,
+    timestamp
+  )
+}
+
 function itemRowAt(
   threadId: string,
   turnId: string,
@@ -69,16 +112,10 @@ function itemRowAt(
 function toolTurnRows(threadId: string, turnId: string, ordinal: number): string {
   return (
     row({ type: 'task_started', turn_id: turnId }, ordinal) +
-    responseItemRow(
-      {
-        type: 'custom_tool_call',
-        id: `ctc-${turnId}`,
-        status: 'completed',
-        call_id: `call-${turnId}`,
-        name: 'exec',
-        input: `text(await tools.exec_command({cmd:"echo ${turnId}"}));\n`,
-        internal_chat_message_metadata_passthrough: { turn_id: turnId },
-      },
+    customToolStartRow(
+      turnId,
+      `call-${turnId}`,
+      `text(await tools.exec_command({cmd:"echo ${turnId}"}));\n`,
       ordinal + 1
     ) +
     itemRow(
@@ -95,7 +132,13 @@ function toolTurnRows(threadId: string, turnId: string, ordinal: number): string
       },
       ordinal + 2
     ) +
-    row({ type: 'task_complete', turn_id: turnId }, ordinal + 3)
+    customToolOutputRow(
+      turnId,
+      `call-${turnId}`,
+      [{ type: 'input_text', text: `${turnId}\n` }],
+      ordinal + 3
+    ) +
+    row({ type: 'task_complete', turn_id: turnId }, ordinal + 4)
   )
 }
 
@@ -134,6 +177,22 @@ function withDriver(
   extra: Record<string, unknown>
 ): HarnessInvocationSpec {
   return { ...base, driver: { ...base.driver, ...extra } }
+}
+
+function desktopProjectionIdentityForTest(event: {
+  type?: unknown
+  itemId?: unknown
+  turnId?: unknown
+  provenance?: { rawSha256?: unknown; nativeId?: unknown }
+}): string | undefined {
+  const rawSha256 = event.provenance?.rawSha256
+  if (typeof rawSha256 !== 'string' || typeof event.type !== 'string') return undefined
+  const sibling =
+    (typeof event.itemId === 'string' ? event.itemId : undefined) ??
+    (typeof event.provenance?.nativeId === 'string' ? event.provenance.nativeId : undefined) ??
+    (typeof event.turnId === 'string' ? event.turnId : undefined) ??
+    ''
+  return `${rawSha256}|${event.type}|${sibling}`
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
@@ -255,6 +314,12 @@ describe('codex-desktop observation driver', () => {
           },
           5
         ),
+        customToolOutputRow(
+          turnId,
+          'call-native-1',
+          [{ type: 'input_text', text: 'Script completed\n' }],
+          6
+        ),
         itemRow(
           threadId,
           turnId,
@@ -264,11 +329,11 @@ describe('codex-desktop observation driver', () => {
             phase: 'final_answer',
             content: [{ type: 'text', text: 'done' }],
           },
-          6
+          7
         ),
         `${JSON.stringify({ type: 'response_item', payload: { type: 'agent_message', id: 'assistant-final' } })}\n`,
-        row({ type: 'token_count', info: { last_token_usage: { total_tokens: 12 } } }, 7),
-        row({ type: 'task_complete', turn_id: turnId, last_agent_message: 'done' }, 8),
+        row({ type: 'token_count', info: { last_token_usage: { total_tokens: 12 } } }, 8),
+        row({ type: 'task_complete', turn_id: turnId, last_agent_message: 'done' }, 9),
       ].join('')
     )
 
@@ -296,14 +361,14 @@ describe('codex-desktop observation driver', () => {
     const toolStarted = observed.filter((event) => event.type === 'tool.call.started')
     const toolCompleted = observed.filter((event) => event.type === 'tool.call.completed')
     expect(toolStarted).toHaveLength(1)
-    expect(toolCompleted).toHaveLength(1)
+    expect(toolCompleted).toHaveLength(2)
     expect(toolStarted[0]).toMatchObject({
       turnId,
       itemId: 'call-native-1',
       payload: {
         toolCallId: 'call-native-1',
-        name: 'command',
-        input: 'text(await tools.exec_command({cmd:"echo ok"}));\n',
+        name: 'exec/orchestration',
+        input: { codeMode: 'text(await tools.exec_command({cmd:"echo ok"}));\n' },
       },
       provenance: {
         sourceKind: 'provider-jsonl',
@@ -311,11 +376,11 @@ describe('codex-desktop observation driver', () => {
         nativeId: 'call-native-1',
       },
     })
-    expect(toolCompleted[0]).toMatchObject({
+    expect(toolCompleted.find((event) => event.payload.name === 'command')).toMatchObject({
       turnId,
-      itemId: 'call-native-1',
+      itemId: 'tool-1',
       payload: {
-        toolCallId: 'call-native-1',
+        toolCallId: 'tool-1',
         name: 'command',
         result: { stdout: 'ok\n', stderr: '', exitCode: 0 },
       },
@@ -325,8 +390,32 @@ describe('codex-desktop observation driver', () => {
         nativeId: 'tool-1',
       },
     })
+    expect(
+      toolCompleted.find((event) => event.payload.name === 'exec/orchestration')
+    ).toMatchObject({
+      turnId,
+      itemId: 'call-native-1',
+      payload: {
+        toolCallId: 'call-native-1',
+        name: 'exec/orchestration',
+        result: {
+          output: '[exec/orchestration output]\nScript completed\n',
+          codeModeOutput: [{ type: 'input_text', text: 'Script completed\n' }],
+        },
+      },
+      provenance: {
+        sourceKind: 'provider-jsonl',
+        nativeType: 'response_item:custom_tool_call_output',
+        nativeId: 'call-native-1',
+      },
+    })
     expect(toolStarted[0]?.time).toBe('1970-01-01T00:00:04.000Z')
-    expect(toolCompleted[0]?.time).toBe('1970-01-01T00:00:05.000Z')
+    expect(toolCompleted.find((event) => event.payload.name === 'command')?.time).toBe(
+      '1970-01-01T00:00:05.000Z'
+    )
+    expect(toolCompleted.find((event) => event.payload.name === 'exec/orchestration')?.time).toBe(
+      '1970-01-01T00:00:06.000Z'
+    )
     expect(observed.filter((event) => event.type === 'assistant.message.started')).toHaveLength(0)
     expect(observed.filter((event) => event.type === 'usage.updated')).toHaveLength(1)
     expect(observed.filter((event) => event.type === 'turn.completed')).toHaveLength(1)
@@ -423,6 +512,108 @@ describe('codex-desktop observation driver', () => {
     expect(events.filter((event) => event.type === 'assistant.message.started')).toHaveLength(0)
   })
 
+  test('pairs orchestration output by call_id across zero, multiple, and interleaved child commands', async () => {
+    const dir = tempDir()
+    const path = join(dir, 'orchestration-children.jsonl')
+    const threadId = 'thread-desktop'
+    const turnId = 'turn-orchestration'
+    writeFileSync(
+      path,
+      [
+        row({ type: 'task_started', turn_id: turnId }, 1),
+        customToolStartRow(turnId, 'call-zero', 'text("no child");\n', 2),
+        customToolStartRow(turnId, 'call-one', 'text(await tools.exec_command({cmd:"one"}));\n', 3),
+        customToolOutputRow(turnId, 'call-zero', [{ type: 'input_text', text: 'zero' }], 4),
+        customToolStartRow(
+          turnId,
+          'call-parallel',
+          'const [a,b] = await Promise.all([tools.exec_command({cmd:"a"}), tools.exec_command({cmd:"b"})]); text(a); text(b);\n',
+          5
+        ),
+        itemRow(
+          threadId,
+          turnId,
+          {
+            type: 'CommandExecution',
+            id: 'exec-parallel-b',
+            command: ['b'],
+            status: 'completed',
+            stdout: 'b\n',
+            stderr: '',
+            exit_code: 0,
+          },
+          6
+        ),
+        itemRow(
+          threadId,
+          turnId,
+          {
+            type: 'CommandExecution',
+            id: 'exec-one',
+            command: ['one'],
+            status: 'completed',
+            stdout: 'one\n',
+            stderr: '',
+            exit_code: 0,
+          },
+          7
+        ),
+        itemRow(
+          threadId,
+          turnId,
+          {
+            type: 'CommandExecution',
+            id: 'exec-parallel-a',
+            command: ['a'],
+            status: 'completed',
+            stdout: 'a\n',
+            stderr: '',
+            exit_code: 0,
+          },
+          8
+        ),
+        customToolOutputRow(turnId, 'call-one', [{ type: 'input_text', text: 'one' }], 9),
+        customToolOutputRow(
+          turnId,
+          'call-parallel',
+          [{ type: 'input_text', text: 'a then b' }],
+          10
+        ),
+        row({ type: 'task_complete', turn_id: turnId }, 11),
+      ].join('')
+    )
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createCodexDesktopDriver({ watchFile: false, pollIntervalMs: 10 })],
+      onEvent: (event) => events.push(event),
+      captureDir: dir,
+    })
+    await broker.start({ spec: spec(path, 'inv-desktop-orchestration') })
+    await waitFor(() => events.some((event) => event.type === 'turn.completed'))
+
+    const parents = events.filter(
+      (event) => event.type === 'tool.call.completed' && event.payload.name === 'exec/orchestration'
+    )
+    const children = events.filter(
+      (event) => event.type === 'tool.call.completed' && event.payload.name === 'command'
+    )
+    expect(parents.map((event) => event.payload.toolCallId)).toEqual([
+      'call-zero',
+      'call-one',
+      'call-parallel',
+    ])
+    expect(children.map((event) => event.payload.toolCallId)).toEqual([
+      'exec-parallel-b',
+      'exec-one',
+      'exec-parallel-a',
+    ])
+    expect(children.map((event) => event.itemId)).toEqual([
+      'exec-parallel-b',
+      'exec-one',
+      'exec-parallel-a',
+    ])
+  })
+
   test('reproduces and repairs the frozen quasar three-start identity and timing gap', async () => {
     const dir = tempDir()
     const path = join(dir, 'quasar-native-starts.jsonl')
@@ -432,29 +623,35 @@ describe('codex-desktop observation driver', () => {
         turnId: '01a086af-db07-7e72-94c1-a0ce9557496f',
         callId: 'call_8hqG3YgCD59dMKH6SHb8GMsF',
         responseId: 'ctc_0e97c5bf0985e03e016aa174b6c22487d1a8dc0afb91d4c778',
+        outputId: 'ctco_01a086af-ebba-76a1-8c88-99f416bee0e5',
         completionId: 'exec-4517c5b9-be5d-440a-808a-97d8e79cfa7b',
         input: 'text(await tools.exec_command({cmd:"wrkq ls",max_output_tokens:6000}));\n',
         start: '2026-09-09T15:01:11.057Z',
-        complete: '2026-09-09T15:01:11.223Z',
+        childComplete: '2026-09-09T15:01:11.223Z',
+        output: '2026-09-09T15:01:11.227Z',
       },
       {
         turnId: '01a086b0-2bf7-7f01-bbb1-228a42d84b9d',
         callId: 'call_uiQQd0C6KrurU94n7vD7UpSn',
         responseId: 'ctc_0e97c5bf0985e03e016aa174ca72ac87d1926b6a9cebe90402',
+        outputId: 'ctco_01a086b0-3a8e-7392-8201-b5be3cc1e773',
         completionId: 'exec-5fea113d-b18e-489b-9992-0aa1dec854b1',
         input: 'text(await tools.exec_command({cmd:"asp self inspect",max_output_tokens:2000}));\n',
         start: '2026-09-09T15:01:30.770Z',
-        complete: '2026-09-09T15:01:31.404Z',
+        childComplete: '2026-09-09T15:01:31.404Z',
+        output: '2026-09-09T15:01:31.406Z',
       },
       {
         turnId: '01a086b0-a649-77e3-930a-adf923d1ebeb',
         callId: 'call_o8viX5NqfTUyBNPYYKBRUOMf',
         responseId: 'ctc_0e97c5bf0985e03e016aa174ec2fb487d18d799cc7926c04e6',
+        outputId: 'ctco_01a086b0-bf3d-7162-834a-6de26573ce4f',
         completionId: 'exec-a0d9991d-b2cf-4c12-9df8-52c94ee233ad',
         input:
           'text(await tools.exec_command({cmd:"wrkc say EN-08655 --to astra@agent-spaces:primary"}));\n',
         start: '2026-09-09T15:02:05.238Z',
-        complete: '2026-09-09T15:02:05.371Z',
+        childComplete: '2026-09-09T15:02:05.371Z',
+        output: '2026-09-09T15:02:05.373Z',
       },
     ] as const
     writeFileSync(
@@ -487,12 +684,24 @@ describe('codex-desktop observation driver', () => {
                 status: 'completed',
                 stdout: `result ${index + 1}\n`,
                 stderr: '',
+                aggregated_output: `result ${index + 1}\n`,
                 exit_code: 0,
               },
               ordinal + 2,
-              sample.complete
+              sample.childComplete
             ),
-            row({ type: 'task_complete', turn_id: sample.turnId }, ordinal + 3),
+            responseItemRow(
+              {
+                type: 'custom_tool_call_output',
+                id: sample.outputId,
+                call_id: sample.callId,
+                output: [{ type: 'input_text', text: `orchestration ${index + 1}\n` }],
+                internal_chat_message_metadata_passthrough: { turn_id: sample.turnId },
+              },
+              ordinal + 3,
+              sample.output
+            ),
+            row({ type: 'task_complete', turn_id: sample.turnId }, ordinal + 4),
           ]
         })
         .join('')
@@ -509,22 +718,104 @@ describe('codex-desktop observation driver', () => {
     )
 
     const starts = events.filter((event) => event.type === 'tool.call.started')
-    const completions = events.filter((event) => event.type === 'tool.call.completed')
+    const parentCompletions = events.filter(
+      (event) => event.type === 'tool.call.completed' && event.payload.name === 'exec/orchestration'
+    )
+    const childCompletions = events.filter(
+      (event) => event.type === 'tool.call.completed' && event.payload.name === 'command'
+    )
     expect(starts.map((event) => event.payload.toolCallId)).toEqual(
       specimens.map((sample) => sample.callId)
     )
-    expect(completions.map((event) => event.payload.toolCallId)).toEqual(
+    expect(parentCompletions.map((event) => event.payload.toolCallId)).toEqual(
       specimens.map((sample) => sample.callId)
     )
     expect(starts.map((event) => event.time)).toEqual(specimens.map((sample) => sample.start))
-    expect(completions.map((event) => event.time)).toEqual(
-      specimens.map((sample) => sample.complete)
+    expect(parentCompletions.map((event) => event.time)).toEqual(
+      specimens.map((sample) => sample.output)
     )
-    expect(completions.map((event) => event.payload.result)).toEqual([
-      { status: 'completed', stdout: 'result 1\n', stderr: '', exitCode: 0 },
-      { status: 'completed', stdout: 'result 2\n', stderr: '', exitCode: 0 },
-      { status: 'completed', stdout: 'result 3\n', stderr: '', exitCode: 0 },
+    expect(parentCompletions.map((event) => event.payload.result)).toEqual([
+      {
+        output: '[exec/orchestration output]\norchestration 1\n',
+        codeModeOutput: [{ type: 'input_text', text: 'orchestration 1\n' }],
+      },
+      {
+        output: '[exec/orchestration output]\norchestration 2\n',
+        codeModeOutput: [{ type: 'input_text', text: 'orchestration 2\n' }],
+      },
+      {
+        output: '[exec/orchestration output]\norchestration 3\n',
+        codeModeOutput: [{ type: 'input_text', text: 'orchestration 3\n' }],
+      },
     ])
+    expect(childCompletions.map((event) => event.payload.toolCallId)).toEqual(
+      specimens.map((sample) => sample.completionId)
+    )
+    expect(childCompletions.map((event) => event.time)).toEqual(
+      specimens.map((sample) => sample.childComplete)
+    )
+    expect(childCompletions.map((event) => event.payload.result)).toEqual([
+      {
+        status: 'completed',
+        stdout: 'result 1\n',
+        stderr: '',
+        output: 'result 1\n',
+        exitCode: 0,
+      },
+      {
+        status: 'completed',
+        stdout: 'result 2\n',
+        stderr: '',
+        output: 'result 2\n',
+        exitCode: 0,
+      },
+      {
+        status: 'completed',
+        stdout: 'result 3\n',
+        stderr: '',
+        output: 'result 3\n',
+        exitCode: 0,
+      },
+    ])
+    const frozenOldCompletion = {
+      type: 'tool.call.completed',
+      itemId: 'exec-4517c5b9-be5d-440a-808a-97d8e79cfa7b',
+      provenance: {
+        nativeId: 'exec-4517c5b9-be5d-440a-808a-97d8e79cfa7b',
+        rawSha256: 'e4b81dbcdd1ea3c6db64f3087042e6446681c4fdec12f5ed629d0450032f13bd',
+      },
+    }
+    const replayedSameNativeRecord = {
+      ...childCompletions[0],
+      provenance: {
+        ...childCompletions[0]?.provenance,
+        rawSha256: frozenOldCompletion.provenance.rawSha256,
+      },
+    }
+    expect(childCompletions[0]?.itemId).toBe(frozenOldCompletion.itemId)
+    expect(childCompletions[0]?.payload.toolCallId).toBe(frozenOldCompletion.itemId)
+    expect(desktopProjectionIdentityForTest(replayedSameNativeRecord)).toBe(
+      desktopProjectionIdentityForTest(frozenOldCompletion)
+    )
+
+    const rendered: string[] = []
+    const transcript = createCodexTranscriptModel({
+      invocationId: 'inv-desktop-quasar-frozen',
+      emit: (line) => rendered.push(line),
+      color: false,
+    })
+    const firstRenderedPair = events.filter(
+      (event) =>
+        (event.type === 'tool.call.started' || event.type === 'tool.call.completed') &&
+        (event.payload.toolCallId === specimens[0]?.callId ||
+          event.payload.toolCallId === specimens[0]?.completionId)
+    )
+    for (const event of firstRenderedPair) transcript.apply(event)
+    expect(rendered.join('\n')).toContain('exec/orchestration')
+    expect(rendered.join('\n')).toContain('tools.exec_command')
+    expect(rendered.join('\n')).toContain('[exec/orchestration output]')
+    expect(rendered.join('\n')).toContain('orchestration 1')
+    expect(rendered.join('\n')).toContain('result 1')
     expect(events.filter((event) => event.type === 'assistant.message.started')).toHaveLength(0)
   })
 
@@ -596,7 +887,7 @@ describe('codex-desktop observation driver', () => {
       secondEvents.filter(
         (event) => event.type === 'tool.call.completed' && event.turnId === ('turn-2' as never)
       )
-    ).toHaveLength(1)
+    ).toHaveLength(2)
     secondLedger.close()
   })
 

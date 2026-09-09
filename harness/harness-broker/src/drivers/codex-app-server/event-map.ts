@@ -7,6 +7,7 @@ import type {
   ToolCallId,
   TurnId,
 } from 'spaces-harness-broker-protocol'
+import { codexNativeToolIdentity } from '../codex-tool-identity'
 import type { JsonRpcNotification } from './rpc-client'
 
 export type MappedEventFor<K extends InvocationEventType> = InvocationEventFor<K> & {
@@ -543,18 +544,9 @@ function mapCodexNotificationInner(
       }
 
       if (TOOL_TYPES.has(itemType)) {
-        const input = normalizeToolInput(itemType, item)
         return [
           ...flushHeldAssistantCompletion(heldAssistantCompletions, turnId, false),
-          {
-            type: 'tool.call.started',
-            payload: {
-              toolCallId: asToolCallId(itemId),
-              name: TOOL_NAMES[itemType] ?? itemType,
-              ...(input !== undefined ? { input } : {}),
-            },
-            extra: { turnId: asTurnId(turnId), itemId },
-          },
+          mapToolItemStarted(itemType, item, turnId, itemId),
         ]
       }
       return []
@@ -986,6 +978,33 @@ function normalizeToolInput(itemType: string, item: Record<string, unknown>): un
   }
 }
 
+function mapToolItemStarted(
+  itemType: string,
+  item: Record<string, unknown>,
+  turnId: string,
+  itemId: string
+): MappedEventFor<'tool.call.started'> {
+  const identity = codexNativeToolIdentity(
+    itemType,
+    item,
+    itemType === 'commandExecution' ? itemType : (TOOL_NAMES[itemType] ?? itemType)
+  ) ?? {
+    itemId,
+    toolCallId: asToolCallId(itemId),
+    name: TOOL_NAMES[itemType] ?? itemType,
+  }
+  const input = normalizeToolInput(itemType, item)
+  return {
+    type: 'tool.call.started',
+    payload: {
+      toolCallId: identity.toolCallId,
+      name: identity.name,
+      ...(input !== undefined ? { input } : {}),
+    },
+    extra: { turnId: asTurnId(turnId), itemId: identity.itemId },
+  }
+}
+
 function normalizeToolResult(itemType: string, item: Record<string, unknown>): unknown {
   const explicitResult = item['result']
 
@@ -1072,8 +1091,18 @@ function mapToolItemCompleted(
 ): MappedEvent {
   const result = normalizeToolResult(itemType, item)
   const durationMs = numberValue(item['durationMs'])
-  const name = stringValue(item['name']) ?? TOOL_NAMES[itemType] ?? itemType
-  const extra = { turnId: asTurnId(turnId), itemId }
+  const identity = codexNativeToolIdentity(
+    itemType,
+    item,
+    stringValue(item['name']) ??
+      (itemType === 'commandExecution' ? itemType : (TOOL_NAMES[itemType] ?? itemType))
+  ) ?? {
+    itemId,
+    toolCallId: asToolCallId(itemId),
+    name: stringValue(item['name']) ?? TOOL_NAMES[itemType] ?? itemType,
+  }
+  const name = identity.name
+  const extra = { turnId: asTurnId(turnId), itemId: identity.itemId }
   const outcome = classifyToolOutcome(itemType, item)
 
   if (outcome.kind === 'failed') {
@@ -1081,7 +1110,7 @@ function mapToolItemCompleted(
     return {
       type: 'tool.call.failed',
       payload: {
-        toolCallId: asToolCallId(itemId),
+        toolCallId: identity.toolCallId,
         name,
         message: outcome.message,
         code: outcome.code,
@@ -1094,7 +1123,7 @@ function mapToolItemCompleted(
   return {
     type: 'tool.call.completed',
     payload: {
-      toolCallId: asToolCallId(itemId),
+      toolCallId: identity.toolCallId,
       name,
       ...(result !== undefined ? { result } : {}),
       // isError reports a DOMAIN error signal only. Codex surfaces none on a

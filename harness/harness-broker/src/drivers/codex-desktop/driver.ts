@@ -40,6 +40,7 @@ import {
   codexResponseItemOf,
   parseCodexRolloutLine,
 } from '../codex-rollout/native'
+import { codexNativeToolIdentity } from '../codex-tool-identity'
 import type {
   ApplyInputResult,
   CancelInputResult,
@@ -163,7 +164,7 @@ type HeldAssistant = {
   provenance?: EventProvenance | undefined
 }
 
-type NativeToolStart = {
+type NativeOrchestration = {
   callId: ToolCallId
   turnId: TurnId
 }
@@ -190,7 +191,8 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
   const attributedTurns = new Set<string>()
   const contentTurns = new Set<string>()
   const seenToolStarts = new Set<string>()
-  const pendingToolStarts = new Map<string, NativeToolStart[]>()
+  const seenToolTerminals = new Set<string>()
+  const nativeOrchestrations = new Map<string, NativeOrchestration>()
   const ownedInputIds = new Set<string>()
   let attemptStore: CodexDesktopNativeAttemptStore | undefined
   let installationKey = ''
@@ -260,7 +262,8 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
     attributedTurns.clear()
     contentTurns.clear()
     seenToolStarts.clear()
-    pendingToolStarts.clear()
+    seenToolTerminals.clear()
+    nativeOrchestrations.clear()
     ownedInputIds.clear()
   }
 
@@ -363,16 +366,10 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
   function normalizeRecord(captured: CapturedRecord, publish = true): NormalizeOutcome {
     const line = Buffer.from(captured.record.rawBytes).toString('utf8')
     const responseItem = codexResponseItemOf(line)
-    if (responseItem?.itemType === 'custom_tool_call') {
-      // Frozen Desktop evidence proves `exec` pairs FIFO with that turn's
-      // CommandExecution completion. Do not invent pairing rules for other
-      // custom tools until their native completion identity is observed.
-      if (getString(responseItem.payload, 'name') !== 'exec') {
-        return {
-          disposition: 'ignored-known',
-          detail: 'response_item:custom_tool_call without proven completion pairing',
-        }
-      }
+    if (
+      responseItem?.itemType === 'custom_tool_call' ||
+      responseItem?.itemType === 'custom_tool_call_output'
+    ) {
       const metadata = asCodexRecord(
         responseItem.payload['internal_chat_message_metadata_passthrough']
       )
@@ -381,25 +378,70 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
       if (turnId === undefined || callId === undefined) {
         return {
           disposition: 'ignored-known',
-          detail: 'response_item:custom_tool_call without stable turn/call identity',
+          detail: `${responseItem.itemType} without stable turn/call identity`,
+        }
+      }
+      lastNativeActivity = captured.record.observedAt
+
+      if (responseItem.itemType === 'custom_tool_call_output') {
+        const orchestration = nativeOrchestrations.get(callId)
+        if (orchestration === undefined || orchestration.turnId !== turnId) {
+          return {
+            disposition: 'ignored-known',
+            detail: 'custom_tool_call_output without matching exec orchestration',
+          }
+        }
+        if (seenToolTerminals.has(callId)) {
+          return { disposition: 'duplicate', detail: 'response_item:custom_tool_call_output' }
+        }
+        seenToolTerminals.add(callId)
+        contentTurns.add(turnId)
+        const codeModeOutput = responseItem.payload['output']
+        const outputText =
+          typeof codeModeOutput === 'string' ? codeModeOutput : codexContentText(codeModeOutput)
+        if (publish) {
+          emit(
+            'tool.call.completed',
+            {
+              toolCallId: callId,
+              name: 'exec/orchestration',
+              ...(codeModeOutput !== undefined
+                ? {
+                    result: {
+                      output: `[exec/orchestration output]${outputText.length > 0 ? `\n${outputText}` : ''}`,
+                      codeModeOutput,
+                    },
+                  }
+                : {}),
+            },
+            stampExtra(captured, turnId, undefined, callId, true)
+          )
+        }
+        return { disposition: 'normalized', detail: 'response_item:custom_tool_call_output' }
+      }
+
+      // The response item is a code-mode orchestration boundary, not evidence
+      // that any one child CommandExecution started at this timestamp.
+      if (getString(responseItem.payload, 'name') !== 'exec') {
+        return {
+          disposition: 'ignored-known',
+          detail: 'response_item:custom_tool_call without proven completion pairing',
         }
       }
       if (seenToolStarts.has(callId)) {
         return { disposition: 'duplicate', detail: 'response_item:custom_tool_call' }
       }
       seenToolStarts.add(callId)
-      const pending = pendingToolStarts.get(turnId) ?? []
-      pending.push({ callId, turnId })
-      pendingToolStarts.set(turnId, pending)
+      nativeOrchestrations.set(callId, { callId, turnId })
       contentTurns.add(turnId)
       if (publish) {
         emit(
           'tool.call.started',
           {
             toolCallId: callId,
-            name: 'command',
+            name: 'exec/orchestration',
             ...(responseItem.payload['input'] !== undefined
-              ? { input: responseItem.payload['input'] }
+              ? { input: { codeMode: responseItem.payload['input'] } }
               : {}),
           },
           stampExtra(captured, turnId, undefined, callId, true)
@@ -511,19 +553,25 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
       } else if (isRecordedTool(itemType) && !seenItems.has(itemId)) {
         seenItems.add(itemId)
         contentTurns.add(turnId)
-        const pairedStart =
-          itemType === 'CommandExecution' ? pendingToolStarts.get(turnId)?.shift() : undefined
-        const toolCallId = pairedStart?.callId ?? (itemId as ToolCallId)
+        const identity = codexNativeToolIdentity(
+          itemType ?? '',
+          item,
+          toolName(itemType, item)
+        ) ?? {
+          itemId,
+          toolCallId: itemId as ToolCallId,
+          name: toolName(itemType, item),
+        }
         if (publish) {
           emit(
             'tool.call.completed',
             {
-              toolCallId,
-              name: toolName(itemType, item),
+              toolCallId: identity.toolCallId,
+              name: identity.name,
               result: recordedToolResult(itemType, item),
               ...(item['is_error'] === true ? { isError: true } : {}),
             },
-            stampExtra(captured, turnId, undefined, toolCallId, pairedStart !== undefined)
+            stampExtra(captured, turnId, undefined, identity.itemId, true)
           )
         }
       }
@@ -1291,11 +1339,7 @@ function isRecordedTool(itemType: string | undefined): boolean {
 }
 
 function toolName(itemType: string | undefined, item: Record<string, unknown>): string {
-  return (
-    getString(item, 'tool') ??
-    getString(item, 'name') ??
-    (itemType === 'CommandExecution' ? 'command' : (itemType ?? 'recorded-tool'))
-  )
+  return getString(item, 'tool') ?? getString(item, 'name') ?? itemType ?? 'recorded-tool'
 }
 
 function recordedToolResult(itemType: string | undefined, item: Record<string, unknown>): unknown {
