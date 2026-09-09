@@ -103,7 +103,25 @@ function profile(input: ParticipantAdapterPreparationRequest): BrokerExecutionPr
       },
     },
   } as BrokerExecutionProfile
-  return { ...value, profileHash: neutralBrokerExecutionProfileHash(value) }
+  const profileHash = neutralBrokerExecutionProfileHash(value)
+  return {
+    ...value,
+    profileHash,
+    harnessInvocation: {
+      ...value.harnessInvocation,
+      startRequest: {
+        ...startRequest,
+        spec: {
+          ...startRequest.spec,
+          correlation: {
+            ...startRequest.spec.correlation,
+            startRequestHash: value.harnessInvocation.startRequestHash,
+            selectedProfileHash: profileHash,
+          },
+        },
+      },
+    },
+  }
 }
 
 describe('participant adapter contract', () => {
@@ -197,5 +215,34 @@ describe('participant adapter contract', () => {
     expect(rejected).toMatchObject({ ok: false })
     if (rejected.ok) return
     expect(rejected.issues.map((issue) => issue.path)).toContain('profile.brokerOwnership')
+  })
+
+  test('refuses prepared output whose correlation cannot satisfy installed identity', () => {
+    const input = request()
+    const prepared = profile(input)
+    const rejected = validateParticipantAdapterPreparation(input, {
+      status: 'prepared',
+      profile: {
+        ...prepared,
+        harnessInvocation: {
+          ...prepared.harnessInvocation,
+          startRequest: {
+            ...prepared.harnessInvocation.startRequest,
+            spec: {
+              ...prepared.harnessInvocation.startRequest.spec,
+              correlation: {
+                ...prepared.harnessInvocation.startRequest.spec.correlation,
+                startRequestHash: 'wrong-start-request-hash',
+              },
+            },
+          },
+        },
+      },
+    })
+    expect(rejected).toMatchObject({ ok: false })
+    if (rejected.ok) return
+    expect(rejected.issues.map((issue) => issue.path)).toContain(
+      'profile.harnessInvocation.startRequest.spec.correlation.startRequestHash'
+    )
   })
 })

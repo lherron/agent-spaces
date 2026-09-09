@@ -275,6 +275,18 @@ export function validateParticipantAdapterPreparation(
       )
     }
   }
+  for (const [key, expected] of [
+    ['startRequestHash', invocation.startRequestHash],
+    ['selectedProfileHash', profile.profileHash],
+  ] as const) {
+    if (correlation?.[key] !== expected) {
+      pushIssue(
+        issues,
+        `profile.harnessInvocation.startRequest.spec.correlation.${key}`,
+        `Start request correlation ${key} must match the prepared profile.`
+      )
+    }
+  }
   if (
     request.identity.initialInputId !== undefined &&
     startRequest.initialInput !== undefined &&

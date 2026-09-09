@@ -3,7 +3,10 @@ import {
   validateParticipantAdapterAdmission,
   validateParticipantAdapterPreparation,
 } from 'spaces-runtime-contracts'
-import { createControlledParticipantAdapter as createControlledAdapter } from '../testing/controlled-participant-adapter.js'
+import {
+  type ControlledParticipantContinuityEvidence,
+  createControlledParticipantAdapter as createControlledAdapter,
+} from '../testing/controlled-participant-adapter.js'
 
 const identity = {
   requestId: 'request:controlled-adapter' as never,
@@ -56,6 +59,29 @@ describe('controlled participant adapter', () => {
       )
       expect('runtime' in prepared).toBe(false)
       expect('lifecyclePolicy' in prepared).toBe(false)
+      expect(prepared.profile.harnessInvocation.startRequest.spec.correlation).toMatchObject({
+        startRequestHash: prepared.profile.harnessInvocation.startRequestHash,
+        selectedProfileHash: prepared.profile.profileHash,
+      })
     }
+  })
+
+  test('replays only explicit opaque controlled continuity evidence', async () => {
+    const adapter = createControlledAdapter({ workspaceCwd: process.cwd() })
+    for (const token of ['first', 'same', 'changed', 'unknown'] as const) {
+      const evidence = {
+        kind: 'controlled-continuity/v1',
+        token,
+      } satisfies ControlledParticipantContinuityEvidence
+      const admitted = await adapter.admit({
+        classId: 'controlled',
+        join: 'participant-served',
+        evidence,
+      })
+      expect(admitted).toMatchObject({ status: 'admitted', continuityEvidence: evidence })
+    }
+    expect(
+      await adapter.admit({ classId: 'controlled', join: 'participant-served' })
+    ).not.toHaveProperty('continuityEvidence')
   })
 })

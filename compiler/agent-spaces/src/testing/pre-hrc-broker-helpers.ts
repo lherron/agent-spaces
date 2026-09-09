@@ -32,6 +32,8 @@ import type { ContractHarnessFailure } from './pre-hrc-broker-contract-types.js'
 
 export {
   createControlledParticipantAdapter,
+  type ControlledParticipantAdapterDriver,
+  type ControlledParticipantContinuityEvidence,
   type ControlledParticipantAdapterOptions,
 } from './controlled-participant-adapter.js'
 

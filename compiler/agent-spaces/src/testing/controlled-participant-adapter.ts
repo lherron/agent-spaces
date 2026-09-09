@@ -9,11 +9,28 @@ import {
   neutralStartRequestHash,
 } from 'spaces-runtime-contracts'
 
+/**
+ * Explicit fixture-only continuity evidence accepted by the controlled adapter.
+ *
+ * The token is deliberately opaque to product code: a consumer persists and
+ * replays this exact JSON value so a test can distinguish first, same, changed,
+ * and unknown evidence. It is not a claim about a native harness signal.
+ */
+export type ControlledParticipantContinuityEvidence = {
+  kind: 'controlled-continuity/v1'
+  token: 'first' | 'same' | 'changed' | 'unknown'
+}
+
+/** The controlled helper's explicit driver choice; production callers get Codex. */
+export type ControlledParticipantAdapterDriver = 'codex-app-server' | 'noop-driver'
+
 export type ControlledParticipantAdapterOptions = {
   /** Required because admission has no workspace field to infer from. */
   workspaceCwd: string
   adapterId?: string | undefined
   dispatchEnv?: Record<string, string> | undefined
+  /** Test-only hermetic driver selection; defaults to the published Codex profile. */
+  driver?: ControlledParticipantAdapterDriver | undefined
 }
 
 function stableId(prefix: 'profile' | 'compatibility', value: unknown): string {
@@ -28,33 +45,55 @@ function controlledPreparation(input: ParticipantAdapterAdmissionRequest): Recor
   }
 }
 
+function controlledContinuityEvidence(
+  evidence: ParticipantAdapterAdmissionRequest['evidence']
+): ControlledParticipantContinuityEvidence | undefined {
+  if (evidence === undefined) return undefined
+  if (
+    typeof evidence === 'object' &&
+    evidence !== null &&
+    !Array.isArray(evidence) &&
+    evidence['kind'] === 'controlled-continuity/v1' &&
+    (evidence['token'] === 'first' ||
+      evidence['token'] === 'same' ||
+      evidence['token'] === 'changed' ||
+      evidence['token'] === 'unknown') &&
+    Object.keys(evidence).length === 2
+  ) {
+    return evidence as ControlledParticipantContinuityEvidence
+  }
+  return undefined
+}
+
 function buildProfile(
   adapterId: string,
-  request: ParticipantAdapterPreparationRequest
+  request: ParticipantAdapterPreparationRequest,
+  driver: ControlledParticipantAdapterDriver
 ): BrokerExecutionProfile {
+  const isNoop = driver === 'noop-driver'
   const startRequest = {
     spec: {
       specVersion: 'harness-broker.invocation/v1' as const,
       invocationId: request.identity.invocationId,
       labels: { adapter: adapterId, participantClass: request.classId },
       harness: {
-        frontend: 'codex',
-        provider: 'openai',
-        driver: 'codex-app-server',
+        frontend: isNoop ? 'test' : 'codex',
+        provider: isNoop ? 'test' : 'openai',
+        driver,
       },
       process: {
-        command: 'codex',
-        args: ['app-server'],
+        command: isNoop ? 'noop-driver' : 'codex',
+        args: isNoop ? [] : ['app-server'],
         cwd: request.workspaceCwd,
         lockedEnv: {},
-        harnessTransport: { kind: 'jsonrpc-stdio' as const },
+        harnessTransport: { kind: isNoop ? ('pipes' as const) : ('jsonrpc-stdio' as const) },
       },
       interaction: {
         mode: 'headless' as const,
         turnConcurrency: 'single' as const,
-        inputQueue: 'fifo' as const,
+        inputQueue: isNoop ? ('none' as const) : ('fifo' as const),
       },
-      driver: { kind: 'codex-app-server' as const },
+      driver: { kind: driver },
       correlation: {
         runtimeId: String(request.identity.runtimeId),
         hostSessionId: String(request.identity.hostSessionId),
@@ -113,7 +152,7 @@ function buildProfile(
       },
     },
     brokerProtocol: 'harness-broker/0.2',
-    brokerDriver: 'codex-app-server',
+    brokerDriver: driver,
     brokerOwnership:
       request.join === 'participant-served' ? 'participant-owned-process' : 'hrc-owned-process',
     harnessInvocation: {
@@ -144,7 +183,26 @@ function buildProfile(
       },
     },
   }
-  return { ...profile, profileHash: neutralBrokerExecutionProfileHash(profile) }
+  const profileHash = neutralBrokerExecutionProfileHash(profile)
+  const startRequestHash = profile.harnessInvocation.startRequestHash
+  return {
+    ...profile,
+    profileHash,
+    harnessInvocation: {
+      ...profile.harnessInvocation,
+      startRequest: {
+        ...startRequest,
+        spec: {
+          ...startRequest.spec,
+          correlation: {
+            ...startRequest.spec.correlation,
+            startRequestHash,
+            selectedProfileHash: profileHash,
+          },
+        },
+      },
+    },
+  }
 }
 
 /**
@@ -156,6 +214,7 @@ export function createControlledParticipantAdapter(
   options: ControlledParticipantAdapterOptions
 ): ParticipantAdapter {
   const adapterId = options.adapterId ?? 'controlled-participant-adapter/v1'
+  const driver = options.driver ?? 'codex-app-server'
   return {
     adapterId,
     admit(input) {
@@ -164,11 +223,13 @@ export function createControlledParticipantAdapter(
         participantKey: input.participantKey ?? `controlled:${input.classId}`,
         workspaceCwd: options.workspaceCwd,
         preparation: controlledPreparation(input),
-        continuityEvidence: { adapterId, classId: input.classId },
+        ...(controlledContinuityEvidence(input.evidence) === undefined
+          ? {}
+          : { continuityEvidence: controlledContinuityEvidence(input.evidence) }),
       }
     },
     prepare(input) {
-      const profile = buildProfile(adapterId, input)
+      const profile = buildProfile(adapterId, input, driver)
       if (options.dispatchEnv === undefined) {
         return {
           status: 'prepared',
