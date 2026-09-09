@@ -13,10 +13,15 @@ export type { InvocationEventSequencer, EventSequencerOptions } from './events'
 export { BrokerError, toJsonRpcError } from './errors'
 
 export { createEnsureReceiptStore, ENSURE_RECEIPT_JOURNAL_FILENAME } from './ensure-receipt-store'
-export type { EnsureReceiptStore, EnsureReceiptStoreOptions } from './ensure-receipt-store'
+export type {
+  EnsureReceiptStore,
+  EnsureReceiptStoreOptions,
+  EnsureReceiptTailRepair,
+} from './ensure-receipt-store'
 
 export {
   BOOTSTRAP_REFUSAL_MESSAGE,
+  PreDriverEntryRefusal,
   createParticipantEstablishment,
 } from './participant-establishment'
 export type {

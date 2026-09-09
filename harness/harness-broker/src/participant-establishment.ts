@@ -22,6 +22,26 @@ import { BrokerError } from './errors'
  * the installed identity, and a durable receipt that makes a retry safe.
  */
 
+/**
+ * Wraps a start refusal that is PROVEN to precede driver entry — dispatch
+ * validation, or no driver registered for the requested kind. It is the only
+ * rejection `ensureInvocation` may classify as a definitive `failed`.
+ *
+ * Everything else stays `indeterminate`, because `manager.start` rethrows a
+ * `driver.start` throw (`invocation-manager.ts`, the `await driver.start`
+ * try/catch): by the time the wrapper sees a rejected promise, the driver may
+ * already have produced a native effect, and nothing in the rejection says so.
+ */
+export class PreDriverEntryRefusal extends Error {
+  readonly refusal: unknown
+
+  constructor(refusal: unknown) {
+    super(refusal instanceof Error ? refusal.message : String(refusal))
+    this.name = 'PreDriverEntryRefusal'
+    this.refusal = refusal
+  }
+}
+
 export const BOOTSTRAP_REFUSAL_MESSAGE =
   'Broker bootstrap: only broker.installIdentity is served until an identity is installed'
 
@@ -48,7 +68,13 @@ export interface ParticipantEstablishmentOptions {
   onIdentityInstalled: (identity: BrokerRuntimeIdentity) => void
   /** Whether a resident manager invocation currently exists. */
   hasResidentInvocation: (invocationId: InvocationId) => boolean
-  /** The ORDINARY start path. Must be the same one `invocation.start` uses. */
+  /**
+   * The ORDINARY start path. Must be the same one `invocation.start` uses.
+   *
+   * Rejects with a {@link PreDriverEntryRefusal} ONLY when the refusal is
+   * proven to precede driver entry; any other rejection is treated as an
+   * unknown outcome.
+   */
   startInvocation: (request: BrokerEnsureInvocationRequest) => Promise<unknown>
   now: () => Date
   faults?: ParticipantEstablishmentFaults | undefined
@@ -253,9 +279,19 @@ export function createParticipantEstablishment(
     try {
       await options.startInvocation(req)
     } catch (error) {
+      const failure = { message: error instanceof Error ? error.message : String(error) }
+      // Definitive ONLY when the refusal provably precedes driver entry.
+      if (error instanceof PreDriverEntryRefusal) {
+        return receiptStore.put(receipt(req, digest, 'failed', { failure }))
+      }
+      // Otherwise the outcome is unknown, and saying so is the whole point: a
+      // driver can write to its native surface and then throw, so reading a
+      // rejected promise as "nothing happened" is exactly the inference that
+      // produces a double-start on retry (§C.4).
       return receiptStore.put(
-        receipt(req, digest, 'failed', {
-          failure: { message: error instanceof Error ? error.message : String(error) },
+        receipt(req, digest, 'indeterminate', {
+          indeterminateReason: 'start_outcome_unclassified',
+          failure,
         })
       )
     }

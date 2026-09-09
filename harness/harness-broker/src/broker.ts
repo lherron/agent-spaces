@@ -85,6 +85,7 @@ import type {
 } from './participant-establishment'
 import {
   BOOTSTRAP_REFUSAL_MESSAGE,
+  PreDriverEntryRefusal,
   createParticipantEstablishment,
 } from './participant-establishment'
 import type { DispatchEnv } from './runtime/env'
@@ -334,6 +335,45 @@ export function createBroker(options: BrokerOptions): Broker {
   }
 
   /**
+   * Everything the ordinary start does BEFORE the invocation manager is
+   * entered: dispatch-env parsing, dispatch validation, driver resolution.
+   *
+   * PURE — it reads the request and the driver registry and mutates nothing —
+   * which is what lets `broker.ensureInvocation` ask it whether a refusal
+   * precedes driver entry without duplicating the dispatch itself, and without
+   * a second copy of these rules that could drift from this one.
+   */
+  function resolveOrdinaryStart(
+    req: InvocationStartRequest,
+    dispatchEnv?: Record<string, string> | undefined,
+    runtime?: InvocationRuntimeContext | undefined,
+    lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
+  ): { driver: Driver; parsedDispatchEnv: DispatchEnv | undefined } {
+    const parsedDispatchEnv = parseDispatchEnv(dispatchEnv, req.spec.process.lockedEnv)
+    try {
+      validateInvocationDispatchRequest({
+        startRequest: req,
+        ...(parsedDispatchEnv !== undefined ? { dispatchEnv: parsedDispatchEnv } : {}),
+        ...(runtime !== undefined ? { runtime } : {}),
+        ...(lifecyclePolicy !== undefined ? { lifecyclePolicy } : {}),
+      })
+    } catch (err) {
+      throw toInvalidParamsBrokerError(err) ?? err
+    }
+
+    const driverKind = req.spec.harness.driver
+    const driver = registry.get(driverKind)
+    if (!driver) {
+      throw new BrokerError(
+        BrokerErrorCode.DriverUnavailable,
+        `No driver registered for kind: ${driverKind}`,
+        { driverKind }
+      )
+    }
+    return { driver, parsedDispatchEnv }
+  }
+
+  /**
    * The ORDINARY start path, extracted so `broker.ensureInvocation` reaches
    * exactly the same validation, driver resolution and `manager.start` that
    * `invocation.start` does. Nothing about ensure is a parallel start.
@@ -344,33 +384,11 @@ export function createBroker(options: BrokerOptions): Broker {
     runtime?: InvocationRuntimeContext | undefined,
     lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
   ): Promise<InvocationStartResponse> {
-    let parsedDispatchEnv: DispatchEnv | undefined
+    let resolved: { driver: Driver; parsedDispatchEnv: DispatchEnv | undefined }
     try {
-      parsedDispatchEnv = parseDispatchEnv(dispatchEnv, req.spec.process.lockedEnv)
+      resolved = resolveOrdinaryStart(req, dispatchEnv, runtime, lifecyclePolicy)
     } catch (err) {
       return Promise.reject(err)
-    }
-    try {
-      validateInvocationDispatchRequest({
-        startRequest: req,
-        ...(parsedDispatchEnv !== undefined ? { dispatchEnv: parsedDispatchEnv } : {}),
-        ...(runtime !== undefined ? { runtime } : {}),
-        ...(lifecyclePolicy !== undefined ? { lifecyclePolicy } : {}),
-      })
-    } catch (err) {
-      return Promise.reject(toInvalidParamsBrokerError(err) ?? err)
-    }
-
-    const driverKind = req.spec.harness.driver
-    const driver = registry.get(driverKind)
-    if (!driver) {
-      return Promise.reject(
-        new BrokerError(
-          BrokerErrorCode.DriverUnavailable,
-          `No driver registered for kind: ${driverKind}`,
-          { driverKind }
-        )
-      )
     }
 
     // Non-async wrapper: the returned promise has a no-op catch pre-attached
@@ -378,9 +396,9 @@ export function createBroker(options: BrokerOptions): Broker {
     // the startup timeout fires before the caller awaits.
     const result = manager.start(
       req.spec,
-      driver,
+      resolved.driver,
       req.initialInput,
-      parsedDispatchEnv,
+      resolved.parsedDispatchEnv,
       runtime,
       lifecyclePolicy
     )
@@ -407,13 +425,31 @@ export function createBroker(options: BrokerOptions): Broker {
       }
     },
     hasResidentInvocation: (invocationId) => manager.get(invocationId) !== undefined,
-    startInvocation: (request) =>
-      startOrdinaryInvocation(
+    startInvocation: (request) => {
+      // Ask the SAME pre-entry resolver the ordinary path asks, so a refusal
+      // that provably precedes driver entry is reported as one. It is pure, so
+      // asking it twice costs a validation pass and cannot drift from the
+      // dispatch that follows — which a second private copy of these rules
+      // would. Anything that rejects AFTER this point is an unknown outcome,
+      // because `manager.start` rethrows a `driver.start` throw and a native
+      // effect may already exist.
+      try {
+        resolveOrdinaryStart(
+          request.startRequest,
+          request.dispatchEnv,
+          request.runtime,
+          request.lifecyclePolicy
+        )
+      } catch (error) {
+        return Promise.reject(new PreDriverEntryRefusal(error))
+      }
+      return startOrdinaryInvocation(
         request.startRequest,
         request.dispatchEnv,
         request.runtime,
         request.lifecyclePolicy
-      ),
+      )
+    },
     now,
     ...(options.participantFaults !== undefined ? { faults: options.participantFaults } : {}),
   })

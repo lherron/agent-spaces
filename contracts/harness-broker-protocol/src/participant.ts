@@ -66,10 +66,19 @@ export interface BrokerInstallIdentityResponse {
  * - `starting`   — persisted BEFORE `driver.start`, so a crash in the start
  *                  window is always visible as "a side effect may exist".
  * - `started`    — a resident manager invocation was established.
- * - `failed`     — definitive failure; the attempt did not establish.
+ * - `failed`     — DEFINITIVE failure, reached only when the refusal is proven
+ *                  to precede driver entry (dispatch validation, or no driver
+ *                  registered for the requested kind). A rejection from the
+ *                  start itself is NOT definitive and never lands here: a
+ *                  driver may produce a native effect and then throw, and the
+ *                  wrapper cannot tell that apart from a rejection before any
+ *                  effect. Even `failed` is not proof that a writer retired —
+ *                  writer retirement is established by evidence (§C.4), never
+ *                  inferred from a receipt state.
  * - `indeterminate` — the outcome is genuinely unknown (a `starting` receipt
- *                  found after a restart, or a `started` receipt whose resident
- *                  invocation is gone). Absorbing for this operation: it never
+ *                  found after a restart, a `started` receipt whose resident
+ *                  invocation is gone, or a start that rejected once driver
+ *                  entry was possible). Absorbing for this operation: it never
  *                  authorizes a fresh `driver.start`, because doing so is how a
  *                  double-start happens (§C.4).
  */
@@ -83,6 +92,12 @@ export type BrokerEnsureInvocationState =
 export type BrokerEnsureInvocationIndeterminateReason =
   | 'restart_while_starting'
   | 'resident_invocation_absent'
+  /**
+   * The start rejected after driver entry was possible. `manager.start`
+   * rethrows a `driver.start` throw, so the rejection alone cannot say whether
+   * a native effect exists; the truthful answer is that it is unknown.
+   */
+  | 'start_outcome_unclassified'
 
 export interface BrokerEnsureInvocationRequest {
   /** Idempotency key. One durable attempt, one receipt, one `driver.start`. */
@@ -109,7 +124,12 @@ export interface BrokerEnsureInvocationReceipt {
   /** The broker incarnation that last wrote this receipt. */
   brokerInstanceId: string
   updatedAt: string
-  /** Present only for `failed`; the definitive failure this attempt hit. */
+  /**
+   * The error observed while starting, when there was one. For `failed` it IS
+   * the definitive failure. For `indeterminate` it is diagnostic only: it says
+   * what was seen, and deliberately claims nothing about whether a native
+   * effect exists.
+   */
   failure?: { message: string } | undefined
   /** Present only for `indeterminate`; why the outcome is unknown. */
   indeterminateReason?: BrokerEnsureInvocationIndeterminateReason | undefined

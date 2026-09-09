@@ -41,6 +41,7 @@ const states: BrokerEnsureInvocationState[] = [
 const reasons: BrokerEnsureInvocationIndeterminateReason[] = [
   'restart_while_starting',
   'resident_invocation_absent',
+  'start_outcome_unclassified',
 ]
 
 // Both new methods are members of the negotiated broker method union.

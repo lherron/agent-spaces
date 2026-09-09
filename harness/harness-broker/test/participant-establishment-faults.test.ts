@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,7 +10,10 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../src/broker'
-import { ENSURE_RECEIPT_JOURNAL_FILENAME } from '../src/ensure-receipt-store'
+import {
+  ENSURE_RECEIPT_JOURNAL_FILENAME,
+  createEnsureReceiptStore,
+} from '../src/ensure-receipt-store'
 import { createTestDriver } from '../src/testing/test-driver'
 
 /**
@@ -210,5 +213,128 @@ describe('T-08346 prepared-before-starting crash window', () => {
     })
     expect(hello.protocolVersion).toBe('harness-broker/0.3')
     expect((await broker.health({})).status).toBe('ok')
+  })
+})
+
+describe('T-08346 durable receipt journal maintenance', () => {
+  // Astra grade, defect 1: dropping a torn trailing record in MEMORY only left
+  // the fragment on disk, so the next append concatenated onto it and produced
+  // a complete-looking line that no later open could parse — bricking the
+  // restart path the receipt exists to serve. Reproduced before the fix as:
+  //   put(prepared); append '{"startAttemptId":' with no newline;
+  //   reopen => prepared; put(starting); reopen => SyntaxError.
+  const receiptFor = (startAttemptId: string, state: string) =>
+    ({
+      startAttemptId,
+      invocationId: 'inv_journal',
+      attachEpoch: 1,
+      state,
+      requestDigest: 'digest_journal',
+      brokerInstanceId: 'broker_journal',
+      updatedAt: '2026-09-09T00:00:00.000Z',
+    }) as unknown as BrokerEnsureInvocationReceipt
+
+  test('a torn trailing record is repaired at owner-open, so reopen -> append -> reopen survives', () => {
+    const dir = scratchDir()
+    const journal = join(dir, ENSURE_RECEIPT_JOURNAL_FILENAME)
+    const warnings: string[] = []
+
+    createEnsureReceiptStore({ dir, logWarn: (line) => warnings.push(line) }).put(
+      receiptFor('attempt_journal', 'prepared')
+    )
+    // A crash mid-append: bytes on disk, no newline, fsync never returned.
+    appendFileSync(journal, '{"startAttemptId":')
+
+    const reopened = createEnsureReceiptStore({ dir, logWarn: (line) => warnings.push(line) })
+    expect(reopened.get('attempt_journal')?.state).toBe('prepared')
+    expect(reopened.tailRepair()).toMatchObject({ truncatedBytes: 18 })
+    expect(warnings.at(-1)).toMatch(/tail repaired/)
+
+    // The append that used to corrupt the journal.
+    reopened.put(receiptFor('attempt_journal', 'starting'))
+
+    const final = createEnsureReceiptStore({ dir, logWarn: (line) => warnings.push(line) })
+    expect(final.get('attempt_journal')?.state).toBe('starting')
+    // Repaired once; the second open finds an intact tail and repairs nothing.
+    expect(final.tailRepair()).toBeUndefined()
+    expect(final.list().map((entry) => entry.state)).toEqual(['starting'])
+  })
+
+  test('interior corruption is reported, not silently dropped', () => {
+    const dir = scratchDir()
+    // A COMPLETE, newline-terminated record that will not parse is damage
+    // behind our back: dropping it could resurrect a superseded state.
+    writeFileSync(
+      join(dir, ENSURE_RECEIPT_JOURNAL_FILENAME),
+      `${JSON.stringify(receiptFor('a', 'prepared'))}\nnot-json\n${JSON.stringify(receiptFor('a', 'started'))}\n`
+    )
+    expect(() => createEnsureReceiptStore({ dir, logWarn: () => {} })).toThrow(
+      /Corrupt ensure-receipt journal/
+    )
+  })
+})
+
+describe('T-08346 start-failure classification', () => {
+  // Astra grade, defect 2: every rejection from the start was written as
+  // `failed`, but `manager.start` rethrows a `driver.start` throw AFTER the
+  // driver ran. A rejected promise therefore cannot mean "no native effect".
+  test('a driver that produces an effect and then throws is indeterminate, never failed', async () => {
+    const dir = scratchDir()
+    const attempt = 'attempt_effect_then_throw'
+    let starts = 0
+    const broker = createBroker({
+      drivers: [
+        createTestDriver({
+          kind: 't08346-fault-driver',
+          onStart() {
+            starts += 1
+            throw new Error('native effect produced, then failed')
+          },
+        }).driver,
+      ],
+      receiptDir: dir,
+      participantBootstrap: true,
+    })
+    await broker.installIdentity(IDENTITY)
+
+    const receipt = (await broker.ensureInvocation(ensureRequest(attempt))).receipt
+    expect(starts).toBe(1)
+    expect(receipt.state).toBe('indeterminate')
+    expect(receipt.indeterminateReason).toBe('start_outcome_unclassified')
+    // Diagnostic only: it says what was seen, not that nothing happened.
+    expect(receipt.failure?.message).toMatch(/native effect produced/)
+
+    // Absorbing: the retry reports the same unknown and never starts again.
+    const retried = (await broker.ensureInvocation(ensureRequest(attempt))).receipt
+    expect(retried).toEqual(receipt)
+    expect(starts).toBe(1)
+    expect(await journalStates(dir, attempt)).toEqual(['prepared', 'starting', 'indeterminate'])
+  })
+
+  test('a refusal proven to precede driver entry is definitively failed', async () => {
+    const dir = scratchDir()
+    const attempt = 'attempt_no_driver'
+    let starts = 0
+    // Positive control for `failed`: driver resolution refuses before the
+    // manager is entered, so no driver could have produced anything.
+    const broker = createBroker({
+      drivers: [
+        createTestDriver({
+          kind: 'a-different-driver',
+          onStart() {
+            starts += 1
+          },
+        }).driver,
+      ],
+      receiptDir: dir,
+      participantBootstrap: true,
+    })
+    await broker.installIdentity(IDENTITY)
+
+    const receipt = (await broker.ensureInvocation(ensureRequest(attempt))).receipt
+    expect(receipt.state).toBe('failed')
+    expect(receipt.failure?.message).toMatch(/No driver registered/)
+    expect(starts).toBe(0)
+    expect(await journalStates(dir, attempt)).toEqual(['prepared', 'starting', 'failed'])
   })
 })
