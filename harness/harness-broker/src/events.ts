@@ -31,6 +31,8 @@ export interface InvocationEventExtra {
   driver?: { kind: string; rawType?: string | undefined } | undefined
   harnessGeneration?: number | undefined
   turnAttempt?: number | undefined
+  /** Provider-authored time for a native record; sequence remains broker-owned. */
+  sourceTime?: string | undefined
   /**
    * Where this normalized event came from (T-07853 §7.2). Supplied by an
    * emitter that normalized a committed raw provider record; the invocation
@@ -77,7 +79,7 @@ export function createInvocationEventSequencer(
     const envelopeMetadata: InvocationEventEnvelopeBase & { type: InvocationEventType } = {
       invocationId,
       seq,
-      time: now().toISOString(),
+      time: extra?.sourceTime ?? now().toISOString(),
       type: event.type,
     }
     applyExtra(envelopeMetadata, extra, correlation)
@@ -99,7 +101,7 @@ export function createInvocationEventSequencer(
       const envelopeMetadata: InvocationEventEnvelopeBase & { type: K } = {
         invocationId,
         seq,
-        time: now().toISOString(),
+        time: extra?.sourceTime ?? now().toISOString(),
         type,
       }
       applyExtra(envelopeMetadata, extra, correlation)

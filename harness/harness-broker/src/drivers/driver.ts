@@ -223,6 +223,8 @@ export interface DriverContext {
       driver?: { kind: string; rawType?: string | undefined } | undefined
       harnessGeneration?: number | undefined
       turnAttempt?: number | undefined
+      /** Provider-authored time for a native record; sequence remains broker-owned. */
+      sourceTime?: string | undefined
       provenance?: EventProvenance | undefined
     }
   ): InvocationEventEnvelope<K>
@@ -235,6 +237,8 @@ export interface DriverContext {
       driver?: { kind: string; rawType?: string | undefined } | undefined
       harnessGeneration?: number | undefined
       turnAttempt?: number | undefined
+      /** Provider-authored time for a native record; sequence remains broker-owned. */
+      sourceTime?: string | undefined
       provenance?: EventProvenance | undefined
     }
   ): InvocationEventEnvelope

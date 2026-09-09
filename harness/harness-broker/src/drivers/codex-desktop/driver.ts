@@ -37,6 +37,8 @@ import {
   classifyCodexRolloutLine,
   codexContentText,
   codexNativeTypeOf,
+  codexResponseItemOf,
+  parseCodexRolloutLine,
 } from '../codex-rollout/native'
 import type {
   ApplyInputResult,
@@ -161,6 +163,11 @@ type HeldAssistant = {
   provenance?: EventProvenance | undefined
 }
 
+type NativeToolStart = {
+  callId: ToolCallId
+  turnId: TurnId
+}
+
 /** Observe one desktop-owned rollout. This driver never starts or signals Codex. */
 export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}): Driver {
   const pollIntervalMs = options.pollIntervalMs ?? 250
@@ -182,6 +189,8 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
   const seenTurnTerminals = new Set<string>()
   const attributedTurns = new Set<string>()
   const contentTurns = new Set<string>()
+  const seenToolStarts = new Set<string>()
+  const pendingToolStarts = new Map<string, NativeToolStart[]>()
   const ownedInputIds = new Set<string>()
   let attemptStore: CodexDesktopNativeAttemptStore | undefined
   let installationKey = ''
@@ -250,6 +259,8 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
     seenTurnTerminals.clear()
     attributedTurns.clear()
     contentTurns.clear()
+    seenToolStarts.clear()
+    pendingToolStarts.clear()
     ownedInputIds.clear()
   }
 
@@ -305,12 +316,14 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
     captured: CapturedRecord,
     turnId?: TurnId,
     inputId?: InputId,
-    itemId?: string
+    itemId?: string,
+    preserveSourceTime = false
   ) {
     return {
       ...(turnId !== undefined ? { turnId } : {}),
       ...(inputId !== undefined ? { inputId } : {}),
       ...(itemId !== undefined ? { itemId } : {}),
+      ...(preserveSourceTime ? { sourceTime: sourceTimeOf(captured) } : {}),
       driver: { kind: CODEX_DESKTOP_DRIVER_KIND, rawType: captured.record.nativeType },
       provenance: captured.provenance(),
     }
@@ -349,6 +362,51 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: native vocabulary mapper
   function normalizeRecord(captured: CapturedRecord, publish = true): NormalizeOutcome {
     const line = Buffer.from(captured.record.rawBytes).toString('utf8')
+    const responseItem = codexResponseItemOf(line)
+    if (responseItem?.itemType === 'custom_tool_call') {
+      // Frozen Desktop evidence proves `exec` pairs FIFO with that turn's
+      // CommandExecution completion. Do not invent pairing rules for other
+      // custom tools until their native completion identity is observed.
+      if (getString(responseItem.payload, 'name') !== 'exec') {
+        return {
+          disposition: 'ignored-known',
+          detail: 'response_item:custom_tool_call without proven completion pairing',
+        }
+      }
+      const metadata = asCodexRecord(
+        responseItem.payload['internal_chat_message_metadata_passthrough']
+      )
+      const turnId = getString(metadata ?? {}, 'turn_id') as TurnId | undefined
+      const callId = getString(responseItem.payload, 'call_id') as ToolCallId | undefined
+      if (turnId === undefined || callId === undefined) {
+        return {
+          disposition: 'ignored-known',
+          detail: 'response_item:custom_tool_call without stable turn/call identity',
+        }
+      }
+      if (seenToolStarts.has(callId)) {
+        return { disposition: 'duplicate', detail: 'response_item:custom_tool_call' }
+      }
+      seenToolStarts.add(callId)
+      const pending = pendingToolStarts.get(turnId) ?? []
+      pending.push({ callId, turnId })
+      pendingToolStarts.set(turnId, pending)
+      contentTurns.add(turnId)
+      if (publish) {
+        emit(
+          'tool.call.started',
+          {
+            toolCallId: callId,
+            name: 'command',
+            ...(responseItem.payload['input'] !== undefined
+              ? { input: responseItem.payload['input'] }
+              : {}),
+          },
+          stampExtra(captured, turnId, undefined, callId, true)
+        )
+      }
+      return { disposition: 'normalized', detail: 'response_item:custom_tool_call' }
+    }
     const classified = classifyCodexRolloutLine(line)
     if ('outcome' in classified) return classified.outcome
     const { payload, payloadType, item } = classified
@@ -453,16 +511,19 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
       } else if (isRecordedTool(itemType) && !seenItems.has(itemId)) {
         seenItems.add(itemId)
         contentTurns.add(turnId)
+        const pairedStart =
+          itemType === 'CommandExecution' ? pendingToolStarts.get(turnId)?.shift() : undefined
+        const toolCallId = pairedStart?.callId ?? (itemId as ToolCallId)
         if (publish) {
           emit(
             'tool.call.completed',
             {
-              toolCallId: itemId as ToolCallId,
+              toolCallId,
               name: toolName(itemType, item),
               result: recordedToolResult(itemType, item),
               ...(item['is_error'] === true ? { isError: true } : {}),
             },
-            stampExtra(captured, turnId, undefined, itemId)
+            stampExtra(captured, turnId, undefined, toolCallId, pairedStart !== undefined)
           )
         }
       }
@@ -1143,11 +1204,21 @@ function sourceKey(spec: CodexDesktopDriverSpec): string {
 }
 
 function nativeIdOf(line: string): string | undefined {
+  const responseItem = codexResponseItemOf(line)
+  if (responseItem !== undefined) {
+    return getString(responseItem.payload, 'call_id') ?? getString(responseItem.payload, 'id')
+  }
   const classified = classifyCodexRolloutLine(line)
   if ('outcome' in classified) return undefined
   const turnId = getString(classified.payload, 'turn_id')
   const itemId = classified.item === undefined ? undefined : getString(classified.item, 'id')
   return itemId ?? turnId
+}
+
+function sourceTimeOf(captured: CapturedRecord): string | undefined {
+  const entry = parseCodexRolloutLine(Buffer.from(captured.record.rawBytes).toString('utf8'))
+  const timestamp = getString(entry ?? {}, 'timestamp')
+  return timestamp !== undefined && !Number.isNaN(Date.parse(timestamp)) ? timestamp : undefined
 }
 
 function capturedRecord(record: RawProviderRecord): CapturedRecord {

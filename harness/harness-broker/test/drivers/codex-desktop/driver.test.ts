@@ -38,6 +38,67 @@ function itemRow(
   return row({ type: 'item_completed', thread_id: threadId, turn_id: turnId, item }, ordinal)
 }
 
+function responseItemRow(
+  payload: Record<string, unknown>,
+  ordinal: number,
+  timestamp = new Date(ordinal * 1000).toISOString()
+): string {
+  return `${JSON.stringify({
+    timestamp,
+    ordinal,
+    type: 'response_item',
+    payload,
+  })}\n`
+}
+
+function itemRowAt(
+  threadId: string,
+  turnId: string,
+  item: Record<string, unknown>,
+  ordinal: number,
+  timestamp: string
+): string {
+  return `${JSON.stringify({
+    timestamp,
+    ordinal,
+    type: 'event_msg',
+    payload: { type: 'item_completed', thread_id: threadId, turn_id: turnId, item },
+  })}\n`
+}
+
+function toolTurnRows(threadId: string, turnId: string, ordinal: number): string {
+  return (
+    row({ type: 'task_started', turn_id: turnId }, ordinal) +
+    responseItemRow(
+      {
+        type: 'custom_tool_call',
+        id: `ctc-${turnId}`,
+        status: 'completed',
+        call_id: `call-${turnId}`,
+        name: 'exec',
+        input: `text(await tools.exec_command({cmd:"echo ${turnId}"}));\n`,
+        internal_chat_message_metadata_passthrough: { turn_id: turnId },
+      },
+      ordinal + 1
+    ) +
+    itemRow(
+      threadId,
+      turnId,
+      {
+        type: 'CommandExecution',
+        id: `exec-${turnId}`,
+        command: ['echo', turnId],
+        status: 'completed',
+        stdout: `${turnId}\n`,
+        stderr: '',
+        exit_code: 0,
+      },
+      ordinal + 2
+    ) +
+    row({ type: 'task_complete', turn_id: turnId }, ordinal + 3)
+  )
+}
+
 function spec(
   path: string,
   invocationId: string,
@@ -168,6 +229,18 @@ describe('codex-desktop observation driver', () => {
           },
           3
         ),
+        responseItemRow(
+          {
+            type: 'custom_tool_call',
+            id: 'ctc-native-1',
+            status: 'completed',
+            call_id: 'call-native-1',
+            name: 'exec',
+            input: 'text(await tools.exec_command({cmd:"echo ok"}));\n',
+            internal_chat_message_metadata_passthrough: { turn_id: turnId },
+          },
+          4
+        ),
         itemRow(
           threadId,
           turnId,
@@ -180,7 +253,7 @@ describe('codex-desktop observation driver', () => {
             stderr: '',
             exit_code: 0,
           },
-          4
+          5
         ),
         itemRow(
           threadId,
@@ -191,11 +264,11 @@ describe('codex-desktop observation driver', () => {
             phase: 'final_answer',
             content: [{ type: 'text', text: 'done' }],
           },
-          5
+          6
         ),
         `${JSON.stringify({ type: 'response_item', payload: { type: 'agent_message', id: 'assistant-final' } })}\n`,
-        row({ type: 'token_count', info: { last_token_usage: { total_tokens: 12 } } }, 6),
-        row({ type: 'task_complete', turn_id: turnId, last_agent_message: 'done' }, 7),
+        row({ type: 'token_count', info: { last_token_usage: { total_tokens: 12 } } }, 7),
+        row({ type: 'task_complete', turn_id: turnId, last_agent_message: 'done' }, 8),
       ].join('')
     )
 
@@ -220,8 +293,41 @@ describe('codex-desktop observation driver', () => {
         .filter((event) => event.type === 'assistant.message.completed')
         .map((event) => event.payload.final)
     ).toEqual([false, true])
-    expect(observed.filter((event) => event.type === 'tool.call.completed')).toHaveLength(1)
-    expect(observed.filter((event) => event.type === 'tool.call.started')).toHaveLength(0)
+    const toolStarted = observed.filter((event) => event.type === 'tool.call.started')
+    const toolCompleted = observed.filter((event) => event.type === 'tool.call.completed')
+    expect(toolStarted).toHaveLength(1)
+    expect(toolCompleted).toHaveLength(1)
+    expect(toolStarted[0]).toMatchObject({
+      turnId,
+      itemId: 'call-native-1',
+      payload: {
+        toolCallId: 'call-native-1',
+        name: 'command',
+        input: 'text(await tools.exec_command({cmd:"echo ok"}));\n',
+      },
+      provenance: {
+        sourceKind: 'provider-jsonl',
+        nativeType: 'response_item:custom_tool_call',
+        nativeId: 'call-native-1',
+      },
+    })
+    expect(toolCompleted[0]).toMatchObject({
+      turnId,
+      itemId: 'call-native-1',
+      payload: {
+        toolCallId: 'call-native-1',
+        name: 'command',
+        result: { stdout: 'ok\n', stderr: '', exitCode: 0 },
+      },
+      provenance: {
+        sourceKind: 'provider-jsonl',
+        nativeType: 'event_msg:item_completed:CommandExecution',
+        nativeId: 'tool-1',
+      },
+    })
+    expect(toolStarted[0]?.time).toBe('1970-01-01T00:00:04.000Z')
+    expect(toolCompleted[0]?.time).toBe('1970-01-01T00:00:05.000Z')
+    expect(observed.filter((event) => event.type === 'assistant.message.started')).toHaveLength(0)
     expect(observed.filter((event) => event.type === 'usage.updated')).toHaveLength(1)
     expect(observed.filter((event) => event.type === 'turn.completed')).toHaveLength(1)
     expect(observed.every((event) => event.provenance.rawRecordId !== undefined)).toBe(true)
@@ -266,12 +372,166 @@ describe('codex-desktop observation driver', () => {
     })
   })
 
+  test('does not fabricate a start when native call identity or turn identity is incomplete', async () => {
+    const dir = tempDir()
+    const path = join(dir, 'unreliable-start.jsonl')
+    const threadId = 'thread-desktop'
+    const turnId = 'turn-unreliable'
+    writeFileSync(
+      path,
+      row({ type: 'task_started', turn_id: turnId }, 1) +
+        responseItemRow(
+          {
+            type: 'custom_tool_call',
+            id: 'ctc-without-turn',
+            call_id: 'call-without-turn',
+            name: 'exec',
+            input: 'text(await tools.exec_command({cmd:"pwd"}));\n',
+          },
+          2
+        ) +
+        itemRow(
+          threadId,
+          turnId,
+          {
+            type: 'CommandExecution',
+            id: 'exec-unpaired',
+            command: ['pwd'],
+            status: 'completed',
+            stdout: '/tmp\n',
+            stderr: '',
+            exit_code: 0,
+          },
+          3
+        ) +
+        row({ type: 'task_complete', turn_id: turnId }, 4)
+    )
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createCodexDesktopDriver({ watchFile: false, pollIntervalMs: 10 })],
+      onEvent: (event) => events.push(event),
+      captureDir: dir,
+    })
+    await broker.start({ spec: spec(path, 'inv-desktop-unreliable') })
+    await waitFor(() => events.some((event) => event.type === 'turn.completed'))
+
+    expect(events.filter((event) => event.type === 'tool.call.started')).toHaveLength(0)
+    expect(events.find((event) => event.type === 'tool.call.completed')).toMatchObject({
+      itemId: 'exec-unpaired',
+      payload: { toolCallId: 'exec-unpaired' },
+    })
+    expect(events.filter((event) => event.type === 'assistant.message.started')).toHaveLength(0)
+  })
+
+  test('reproduces and repairs the frozen quasar three-start identity and timing gap', async () => {
+    const dir = tempDir()
+    const path = join(dir, 'quasar-native-starts.jsonl')
+    const threadId = '01a086af-b567-7ea3-9812-de81aab2ec42'
+    const specimens = [
+      {
+        turnId: '01a086af-db07-7e72-94c1-a0ce9557496f',
+        callId: 'call_8hqG3YgCD59dMKH6SHb8GMsF',
+        responseId: 'ctc_0e97c5bf0985e03e016aa174b6c22487d1a8dc0afb91d4c778',
+        completionId: 'exec-4517c5b9-be5d-440a-808a-97d8e79cfa7b',
+        input: 'text(await tools.exec_command({cmd:"wrkq ls",max_output_tokens:6000}));\n',
+        start: '2026-09-09T15:01:11.057Z',
+        complete: '2026-09-09T15:01:11.223Z',
+      },
+      {
+        turnId: '01a086b0-2bf7-7f01-bbb1-228a42d84b9d',
+        callId: 'call_uiQQd0C6KrurU94n7vD7UpSn',
+        responseId: 'ctc_0e97c5bf0985e03e016aa174ca72ac87d1926b6a9cebe90402',
+        completionId: 'exec-5fea113d-b18e-489b-9992-0aa1dec854b1',
+        input: 'text(await tools.exec_command({cmd:"asp self inspect",max_output_tokens:2000}));\n',
+        start: '2026-09-09T15:01:30.770Z',
+        complete: '2026-09-09T15:01:31.404Z',
+      },
+      {
+        turnId: '01a086b0-a649-77e3-930a-adf923d1ebeb',
+        callId: 'call_o8viX5NqfTUyBNPYYKBRUOMf',
+        responseId: 'ctc_0e97c5bf0985e03e016aa174ec2fb487d18d799cc7926c04e6',
+        completionId: 'exec-a0d9991d-b2cf-4c12-9df8-52c94ee233ad',
+        input:
+          'text(await tools.exec_command({cmd:"wrkc say EN-08655 --to astra@agent-spaces:primary"}));\n',
+        start: '2026-09-09T15:02:05.238Z',
+        complete: '2026-09-09T15:02:05.371Z',
+      },
+    ] as const
+    writeFileSync(
+      path,
+      specimens
+        .flatMap((sample, index) => {
+          const ordinal = index * 4 + 1
+          return [
+            row({ type: 'task_started', turn_id: sample.turnId }, ordinal),
+            responseItemRow(
+              {
+                type: 'custom_tool_call',
+                id: sample.responseId,
+                status: 'completed',
+                call_id: sample.callId,
+                name: 'exec',
+                input: sample.input,
+                internal_chat_message_metadata_passthrough: { turn_id: sample.turnId },
+              },
+              ordinal + 1,
+              sample.start
+            ),
+            itemRowAt(
+              threadId,
+              sample.turnId,
+              {
+                type: 'CommandExecution',
+                id: sample.completionId,
+                command: ['/bin/zsh', '-lc', sample.input],
+                status: 'completed',
+                stdout: `result ${index + 1}\n`,
+                stderr: '',
+                exit_code: 0,
+              },
+              ordinal + 2,
+              sample.complete
+            ),
+            row({ type: 'task_complete', turn_id: sample.turnId }, ordinal + 3),
+          ]
+        })
+        .join('')
+    )
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createCodexDesktopDriver({ watchFile: false, pollIntervalMs: 10 })],
+      onEvent: (event) => events.push(event),
+      captureDir: dir,
+    })
+    await broker.start({ spec: spec(path, 'inv-desktop-quasar-frozen', threadId) })
+    await waitFor(
+      () => events.filter((event) => event.type === 'turn.completed').length === specimens.length
+    )
+
+    const starts = events.filter((event) => event.type === 'tool.call.started')
+    const completions = events.filter((event) => event.type === 'tool.call.completed')
+    expect(starts.map((event) => event.payload.toolCallId)).toEqual(
+      specimens.map((sample) => sample.callId)
+    )
+    expect(completions.map((event) => event.payload.toolCallId)).toEqual(
+      specimens.map((sample) => sample.callId)
+    )
+    expect(starts.map((event) => event.time)).toEqual(specimens.map((sample) => sample.start))
+    expect(completions.map((event) => event.time)).toEqual(
+      specimens.map((sample) => sample.complete)
+    )
+    expect(completions.map((event) => event.payload.result)).toEqual([
+      { status: 'completed', stdout: 'result 1\n', stderr: '', exitCode: 0 },
+      { status: 'completed', stdout: 'result 2\n', stderr: '', exitCode: 0 },
+      { status: 'completed', stdout: 'result 3\n', stderr: '', exitCode: 0 },
+    ])
+    expect(events.filter((event) => event.type === 'assistant.message.started')).toHaveLength(0)
+  })
+
   test('replacement and observer restart retain native dedupe and append only new history', async () => {
     const dir = tempDir()
     const path = join(dir, 'restart.jsonl')
-    const turn1 =
-      row({ type: 'task_started', turn_id: 'turn-1' }, 1) +
-      row({ type: 'task_complete', turn_id: 'turn-1' }, 2)
+    const turn1 = toolTurnRows('thread-desktop', 'turn-1', 1)
     writeFileSync(path, turn1)
     const ledgerPath = join(dir, 'events.ndjson')
     const firstLedger = createEventLedger({ path: ledgerPath })
@@ -291,9 +551,7 @@ describe('codex-desktop observation driver', () => {
     firstLedger.close()
 
     // Same native history plus a new turn: replay must not remint turn-1.
-    const turn2 =
-      row({ type: 'task_started', turn_id: 'turn-2' }, 3) +
-      row({ type: 'task_complete', turn_id: 'turn-2' }, 4)
+    const turn2 = toolTurnRows('thread-desktop', 'turn-2', 5)
     writeFileSync(path, turn1 + turn2)
     const secondLedger = createEventLedger({ path: ledgerPath })
     const secondEvents: InvocationEventEnvelope[] = []
@@ -317,6 +575,26 @@ describe('codex-desktop observation driver', () => {
     expect(
       secondEvents.filter(
         (event) => event.type === 'turn.started' && event.turnId === ('turn-2' as never)
+      )
+    ).toHaveLength(1)
+    expect(
+      secondEvents.filter(
+        (event) => event.type === 'tool.call.started' && event.turnId === ('turn-1' as never)
+      )
+    ).toHaveLength(0)
+    expect(
+      secondEvents.filter(
+        (event) => event.type === 'tool.call.completed' && event.turnId === ('turn-1' as never)
+      )
+    ).toHaveLength(0)
+    expect(
+      secondEvents.filter(
+        (event) => event.type === 'tool.call.started' && event.turnId === ('turn-2' as never)
+      )
+    ).toHaveLength(1)
+    expect(
+      secondEvents.filter(
+        (event) => event.type === 'tool.call.completed' && event.turnId === ('turn-2' as never)
       )
     ).toHaveLength(1)
     secondLedger.close()

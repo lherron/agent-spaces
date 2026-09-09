@@ -34,6 +34,25 @@ export function parseCodexRolloutLine(line: string): Record<string, unknown> | u
   }
 }
 
+export interface CodexResponseItem {
+  entry: Record<string, unknown>
+  payload: Record<string, unknown>
+  itemType: string
+}
+
+/** Return a pinned response_item without changing the shared event-msg classifier contract. */
+export function codexResponseItemOf(line: string): CodexResponseItem | undefined {
+  const entry = parseCodexRolloutLine(line)
+  if (getString(entry ?? {}, 'type') !== 'response_item') return undefined
+  const payload = asCodexRecord(entry?.['payload'])
+  if (entry === undefined || payload === undefined) return undefined
+  const itemType = getString(payload, 'type')
+  if (itemType === undefined || !CODEX_KNOWN_ROLLOUT_RESPONSE_ITEM_TYPES.has(itemType)) {
+    return undefined
+  }
+  return { entry, payload, itemType }
+}
+
 /** Three-level native identity shared by hook and desktop capture. */
 export function codexNativeTypeOf(line: string): string {
   const entry = parseCodexRolloutLine(line)

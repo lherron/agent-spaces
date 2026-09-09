@@ -64,6 +64,22 @@ describe('invocation event sequencing', () => {
     })
   })
 
+  test('a native source time overrides observation time without changing broker sequencing', () => {
+    const sequencer = createInvocationEventSequencer({ now })
+    const event = sequencer.next(
+      'inv_native_time',
+      'tool.call.started',
+      { toolCallId: 'call_1', name: 'command' },
+      { sourceTime: '2026-05-20T17:59:59.125Z' }
+    )
+
+    expect(event).toMatchObject({
+      seq: 1,
+      time: '2026-05-20T17:59:59.125Z',
+      type: 'tool.call.started',
+    })
+  })
+
   test('correlation is echoed verbatim and never interpreted', () => {
     const correlation = {
       'client.session': 'runtime-123',
