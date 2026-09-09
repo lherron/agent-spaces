@@ -25,6 +25,7 @@ import type {
 } from './invocation'
 import type { JsonRpcRequest } from './jsonrpc'
 import type { AcceptedLifecyclePolicy, BrokerLifecyclePolicyOverlay } from './lifecycle'
+import type { BrokerEnsureInvocationRequest, BrokerInstallIdentityRequest } from './participant'
 import type {
   QueueCancelRequest,
   QueueJumpRequest,
@@ -71,7 +72,14 @@ export type BrokerMethodV3 =
   | 'turn.manifest'
   | 'seat.probe'
 
-export type BrokerMethod = BrokerMethodV3
+/**
+ * Participant bootstrap + resident-invocation establishment (DESIGN rev6
+ * §C.5/§C.5.1). Additive: no existing method changed shape, so the negotiated
+ * protocol version is unchanged and an older controller keeps working.
+ */
+export type BrokerMethodV4 = BrokerMethodV3 | 'broker.installIdentity' | 'broker.ensureInvocation'
+
+export type BrokerMethod = BrokerMethodV4
 
 export type BrokerToClientRequestMethod = 'invocation.permission.request'
 export type BrokerNotificationMethod = 'invocation.event'
@@ -102,6 +110,8 @@ export type BrokerCommand =
   | JsonRpcRequest<'queue.cancel', QueueCancelRequest>
   | JsonRpcRequest<'turn.manifest', TurnManifestRequest>
   | JsonRpcRequest<'seat.probe', SeatProbeRequest>
+  | JsonRpcRequest<'broker.installIdentity', BrokerInstallIdentityRequest>
+  | JsonRpcRequest<'broker.ensureInvocation', BrokerEnsureInvocationRequest>
 
 export type {
   InvocationCurrentTurnSummary,

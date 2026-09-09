@@ -77,8 +77,11 @@ const CANONICAL_JSON_CENSUS_EXCLUSIONS = new Map([
     'live broker structured-response canonicalization; not compiled artifact bytes, and already codepoint-ordered',
   ],
   [
-    'contracts/harness-broker-protocol/src/lifecycle.ts#canonicalizeJson',
-    'broker lifecycle/resume-token hashing over live process events; not compiled artifact bytes',
+    // T-08346 relocated this out of lifecycle.ts so the participant
+    // start-attempt digest (DESIGN rev6 C.5.1) hashes the SAME bytes as the
+    // lifecycle-policy hash instead of carrying a second private canonicalizer.
+    'contracts/harness-broker-protocol/src/canonical-json.ts#canonicalizeJson',
+    'broker lifecycle/resume-token and participant start-attempt hashing over live process events; not compiled artifact bytes',
   ],
   [
     'harness/harness-broker/src/event-ledger.ts#sortJson',

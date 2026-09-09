@@ -1,10 +1,14 @@
 import type {
   BrokerAttachRequest,
   BrokerAttachResponse,
+  BrokerEnsureInvocationRequest,
+  BrokerEnsureInvocationResponse,
   BrokerHealthRequest,
   BrokerHealthResponse,
   BrokerHelloRequest,
   BrokerHelloResponse,
+  BrokerInstallIdentityRequest,
+  BrokerInstallIdentityResponse,
   BrokerLifecyclePolicyOverlay,
   BrokerListInvocationsRequest,
   BrokerListInvocationsResponse,
@@ -342,6 +346,27 @@ export class BrokerClient {
 
   attach(req: BrokerAttachRequest): Promise<BrokerAttachResponse> {
     return this.#transport.request('broker.attach', req)
+  }
+
+  /**
+   * Install this attempt's runtime identity (DESIGN rev6 C.5). On a
+   * participant-served broker this is the ONLY call that succeeds before an
+   * identity exists; an exact replay for the recorded epoch returns the same
+   * acknowledgement, and a different epoch is refused.
+   */
+  installIdentity(req: BrokerInstallIdentityRequest): Promise<BrokerInstallIdentityResponse> {
+    return this.#transport.request('broker.installIdentity', req)
+  }
+
+  /**
+   * Establish the resident invocation this attempt attaches to (C.5.1).
+   * Retry-safe: repeating the SAME `startAttemptId` with the SAME immutable
+   * request returns the same durable receipt and never repeats `driver.start`.
+   * A receipt whose state is `indeterminate` means the outcome is genuinely
+   * unknown — never that a fresh start is authorized.
+   */
+  ensureInvocation(req: BrokerEnsureInvocationRequest): Promise<BrokerEnsureInvocationResponse> {
+    return this.#transport.request('broker.ensureInvocation', req)
   }
 
   /**

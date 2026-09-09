@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { canonicalizeJson } from './canonical-json.js'
 import type { InputId, PermissionRequestId, TurnId } from './ids.js'
 
 export type LifecyclePolicyId = string
@@ -238,35 +239,4 @@ export function acceptedLifecyclePolicy(
     harnessRecoveryMode: policy.harnessRecovery.mode,
     turnRetryMode: policy.turnRetry.mode,
   }
-}
-
-function canonicalizeJson(value: unknown): string {
-  if (value === null) return 'null'
-  const valueType = typeof value
-  if (valueType === 'string') return JSON.stringify(value)
-  if (valueType === 'boolean') return value ? 'true' : 'false'
-  if (valueType === 'number') {
-    if (!Number.isFinite(value)) {
-      throw new RangeError('canonical lifecycle policy hash forbids non-finite number')
-    }
-    return JSON.stringify(value)
-  }
-  if (valueType === 'undefined' || valueType === 'function' || valueType === 'symbol') {
-    return 'null'
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => canonicalizeJson(item)).join(',')}]`
-  }
-  if (typeof value !== 'object') {
-    return JSON.stringify(String(value))
-  }
-
-  const record = value as Record<string, unknown>
-  const parts: string[] = []
-  for (const key of Object.keys(record).sort()) {
-    const child = record[key]
-    if (child === undefined) continue
-    parts.push(`${JSON.stringify(key)}:${canonicalizeJson(child)}`)
-  }
-  return `{${parts.join(',')}}`
 }

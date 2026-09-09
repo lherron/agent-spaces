@@ -12,6 +12,19 @@ export type { InvocationEventSequencer, EventSequencerOptions } from './events'
 
 export { BrokerError, toJsonRpcError } from './errors'
 
+export { createEnsureReceiptStore, ENSURE_RECEIPT_JOURNAL_FILENAME } from './ensure-receipt-store'
+export type { EnsureReceiptStore, EnsureReceiptStoreOptions } from './ensure-receipt-store'
+
+export {
+  BOOTSTRAP_REFUSAL_MESSAGE,
+  createParticipantEstablishment,
+} from './participant-establishment'
+export type {
+  ParticipantEstablishment,
+  ParticipantEstablishmentFaults,
+  ParticipantEstablishmentOptions,
+} from './participant-establishment'
+
 export { createEventLedger, replayBelowFloorError } from './event-ledger'
 export type {
   EventLedger,

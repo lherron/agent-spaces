@@ -387,6 +387,19 @@ async function runUnix(args: string[], options: RunBrokerCliOptions): Promise<vo
 
   const eventLedger = ledgerPath !== undefined ? createEventLedger({ path: ledgerPath }) : undefined
 
+  // Participant-served startup posture (DESIGN rev6 C.5). EXPLICIT on purpose:
+  // a unix broker launched without identity flags is an existing supported
+  // non-participant route, so bootstrap posture is declared by the launcher and
+  // never inferred from the absence of `--runtime-id`.
+  const joinRaw = readFlag(args, '--join') ?? 'hrc-hosted'
+  if (joinRaw !== 'hrc-hosted' && joinRaw !== 'participant-served') {
+    process.stderr.write(
+      `Unsupported --join ${JSON.stringify(joinRaw)}; expected "hrc-hosted" or "participant-served"\n`
+    )
+    process.exit(1)
+  }
+  const participantBootstrap = joinRaw === 'participant-served'
+
   let attachIdentity: BrokerAttachIdentity | undefined
   if (
     runtimeId !== undefined &&
@@ -460,6 +473,9 @@ async function runUnix(args: string[], options: RunBrokerCliOptions): Promise<vo
       // exactly as the ledger itself does.
       ...(ledgerPath !== undefined ? { captureDir: dirname(ledgerPath) } : {}),
       ...(attachIdentity !== undefined ? { attachIdentity } : {}),
+      // Durable start-attempt receipts live beside the ledger they explain.
+      ...(ledgerPath !== undefined ? { receiptDir: dirname(ledgerPath) } : {}),
+      ...(participantBootstrap ? { participantBootstrap: true } : {}),
     }
   )
 
@@ -536,6 +552,18 @@ async function runUnix(args: string[], options: RunBrokerCliOptions): Promise<vo
     server.register('invocation.capture.release', async ({ params }) =>
       broker.captureRelease(params as Parameters<typeof broker.captureRelease>[0])
     )
+    // Participant bootstrap + resident-invocation establishment (C.5/C.5.1).
+    // Registered HERE, with `broker.attach`, because they are the durable
+    // runtime's establishment surface: the stdio child never attaches, has no
+    // durable ledger, and therefore has no durable attempt to make retry-safe.
+    server.register('broker.installIdentity', async ({ id, method, params }) => {
+      validateParams(method, id, params)
+      return broker.installIdentity(params as Parameters<typeof broker.installIdentity>[0])
+    })
+    server.register('broker.ensureInvocation', async ({ id, method, params }) => {
+      validateParams(method, id, params)
+      return broker.ensureInvocation(params as Parameters<typeof broker.ensureInvocation>[0])
+    })
   }
 
   const netServer = createServer((socket) => {

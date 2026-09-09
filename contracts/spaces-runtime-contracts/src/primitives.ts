@@ -20,6 +20,12 @@ export type HarnessRuntime =
   | 'claude-code-cli'
   | 'claude-agent-sdk'
   | 'codex-cli'
+  // Codex Desktop, observed through the `codex-desktop` broker driver. It is a
+  // real runtime under the `codex` family, not a variant of `codex-cli`: HRC
+  // does not launch it and it is joined as an external participant. Declared
+  // here so consumers stop widening the field with a cast to name it
+  // (T-08344 rev6 Phase 1); the cast deletions themselves are HRC-side work.
+  | 'codex-desktop'
   | 'pi-cli'
   | 'pi-sdk'
 

@@ -18,6 +18,32 @@ import { brokerProcessEnv } from './helpers'
  * inspect or seed private receipt storage: a restart is accepted only by what
  * the public ensure RPC reports and by the controlled driver's on-disk effect
  * count. This keeps the durable ledger seam load-bearing across refactors.
+ *
+ * Three GREEN-phase adjustments, each recorded with its reason:
+ *
+ * 1. A participant broker is launched with an explicit `--join
+ *    participant-served`. A unix broker started without identity flags is an
+ *    EXISTING supported non-participant route (`cli.test.ts`'s long-lived
+ *    socket server, and the client package's transport suites all run one), so
+ *    inferring bootstrap posture from the absence of `--runtime-id` would break
+ *    that route to satisfy this fixture. The posture is declared, not inferred.
+ *
+ * 2. The hosted route installs identity too. DESIGN rev6 C.5.1 states that
+ *    BOTH join directions execute INSTALL -> HELLO -> ENSURE_INVOCATION ->
+ *    ATTACH; the launch flags carry runtimeId/hostSessionId/generation/token
+ *    but cannot carry the attach epoch or the attempt's allocated invocation
+ *    id, which is precisely what `ensureInvocation` must be validated against.
+ *    A hosted install is a CONFIRMATION: it is refused unless it matches the
+ *    launch identity. The legacy `invocation.start` guard deliberately does NOT
+ *    install, proving the old managed route is untouched.
+ *
+ * 3. The distinct-attempt negative control runs on a SEPARATELY installed
+ *    broker identity (Astra's red correction, C-21203). Changing
+ *    invocationId/start/profile hashes under one installed identity is not an
+ *    independent attempt — it is a bypass of the incumbent identity fence. An
+ *    unrelated attempt is independently valid in its OWN authorized identity
+ *    context, so that is where it is exercised; the same-attempt digest
+ *    conflicts stay on the incumbent broker.
  */
 
 type RpcId = string | number
@@ -228,6 +254,8 @@ async function startBroker(options: {
     socketPath,
     '--event-ledger',
     ledgerPath,
+    '--join',
+    hosted ? 'hrc-hosted' : 'participant-served',
   ]
   if (hosted) {
     args.push(
@@ -275,11 +303,22 @@ async function waitForSocket(broker: BrokerProcess): Promise<void> {
       throw new Error(`broker exited before socket bind: ${stderr.trim()}`)
     }
     try {
-      return (await stat(broker.socketPath)).isSocket()
+      if (!(await stat(broker.socketPath)).isSocket()) return false
     } catch {
       return false
     }
-  }, 'broker Unix socket was not created')
+    // Readiness is a socket that ANSWERS, not a socket node that exists. A
+    // SIGKILLed broker leaves its node behind, and the replacement unlinks it
+    // during its own bind — so a node-existence check can hand back a path that
+    // is deleted a millisecond later.
+    try {
+      const probe = await RpcConnection.connect(broker.socketPath)
+      probe.destroy()
+      return true
+    } catch {
+      return false
+    }
+  }, 'broker Unix socket did not accept a connection')
 }
 
 async function waitUntil(check: () => boolean | Promise<boolean>, message: string): Promise<void> {
@@ -423,6 +462,17 @@ describe('T-08346 participant bootstrap and resident invocation acceptance', () 
     const who = identity('hosted_fresh')
     const rpc = await RpcConnection.connect(broker.socketPath)
 
+    // Hosted install CONFIRMS the launch identity and adds the two facts a
+    // launch flag cannot carry: the attach epoch and the attempt's allocated
+    // invocation id. A non-matching confirmation is refused.
+    expectError(
+      await rpc.request(
+        'broker.installIdentity',
+        installParams({ ...who, attachToken: 'not-the-launch-token' })
+      ),
+      /identity|conflict/i
+    )
+    await install(rpc, who)
     expectResult(await rpc.request('broker.hello', helloParams))
     expectError(
       await rpc.request('broker.attach', attachParams(who, 'hosted-before-resident')),
@@ -444,6 +494,7 @@ describe('T-08346 participant bootstrap and resident invocation acceptance', () 
     const who = identity('concurrent')
     const first = await RpcConnection.connect(broker.socketPath)
     const second = await RpcConnection.connect(broker.socketPath)
+    await install(first, who)
     const attempt = 'attempt_concurrent'
 
     const [left, right] = await Promise.all([
@@ -473,6 +524,7 @@ describe('T-08346 participant bootstrap and resident invocation acceptance', () 
     // deliberate response-loss path; current-red evidence must never be a
     // timeout caused merely by sending an unknown method.
     expectMethodRegistered(await canary.request('broker.ensureInvocation', {}))
+    await install(canary, who)
     canary.destroy()
 
     const lost = await RpcConnection.connect(broker.socketPath)
@@ -496,59 +548,80 @@ describe('T-08346 participant bootstrap and resident invocation acceptance', () 
     expect(await effectCount(broker.effectsPath)).toBe(1)
   })
 
-  test('same-attempt request/options conflicts refuse while a distinct attempt remains independent', async () => {
+  test('same-attempt request/options conflicts refuse under the installed identity', async () => {
     const broker = await startBroker({ suffix: 'conflict', hosted: true })
-    const firstIdentity = identity('conflict')
+    const who = identity('conflict')
     const rpc = await RpcConnection.connect(broker.socketPath)
-    const firstAttempt = 'attempt_conflict'
+    await install(rpc, who)
+    const attempt = 'attempt_conflict'
 
-    expectReceipt(
-      await rpc.request('broker.ensureInvocation', ensureParams(firstAttempt, firstIdentity)),
-      {
-        startAttemptId: firstAttempt,
-        invocationId: firstIdentity.invocationId,
-        state: 'started',
-      }
-    )
+    expectReceipt(await rpc.request('broker.ensureInvocation', ensureParams(attempt, who)), {
+      startAttemptId: attempt,
+      invocationId: who.invocationId,
+      state: 'started',
+    })
     expectError(
       await rpc.request(
         'broker.ensureInvocation',
-        ensureParams(firstAttempt, firstIdentity, { label: 'changed-request' })
+        ensureParams(attempt, who, { label: 'changed-request' })
       ),
       /conflict|immutable|digest/i
     )
     expectError(
       await rpc.request(
         'broker.ensureInvocation',
-        ensureParams(firstAttempt, firstIdentity, { dispatchEnv: { T08346_VALUE: 'changed' } })
+        ensureParams(attempt, who, { dispatchEnv: { T08346_VALUE: 'changed' } })
       ),
       /conflict|immutable|digest/i
     )
     expect(await effectCount(broker.effectsPath)).toBe(1)
 
-    await stopAndDispose(rpc, firstIdentity.invocationId)
-    const secondIdentity = {
-      ...firstIdentity,
-      invocationId: 'inv_t08346_conflict_independent',
-      startRequestHash: 'start_hash_t08346_conflict_independent',
-      selectedProfileHash: 'profile_hash_t08346_conflict_independent',
+    // Identity fence, not merely a digest fence: a DIFFERENT invocation
+    // identity presented to THIS broker is refused even under a brand new
+    // startAttemptId, and even after the incumbent invocation is disposed.
+    await stopAndDispose(rpc, who.invocationId)
+    const stranger = {
+      ...who,
+      invocationId: 'inv_t08346_conflict_stranger',
+      startRequestHash: 'start_hash_t08346_conflict_stranger',
+      selectedProfileHash: 'profile_hash_t08346_conflict_stranger',
     }
-    const secondAttempt = 'attempt_conflict_independent'
+    expectError(
+      await rpc.request(
+        'broker.ensureInvocation',
+        ensureParams('attempt_conflict_stranger', stranger)
+      ),
+      /identity|conflict/i
+    )
+    expect(await effectCount(broker.effectsPath)).toBe(1)
+  })
+
+  test('an unrelated attempt is independently valid in its own authorized identity', async () => {
+    // Astra's red correction (C-21203): an independent attempt is not a
+    // different request under the incumbent identity, it is a different
+    // authorized identity. So it gets its own broker, its own installed
+    // identity, and its own driver-effect ledger.
+    const broker = await startBroker({ suffix: 'independent', hosted: true })
+    const who = identity('independent')
+    const rpc = await RpcConnection.connect(broker.socketPath)
+    await install(rpc, who)
+    const attempt = 'attempt_independent'
+
     expectReceipt(
       await rpc.request(
         'broker.ensureInvocation',
-        ensureParams(secondAttempt, secondIdentity, {
+        ensureParams(attempt, who, {
           label: 'changed-request',
           dispatchEnv: { T08346_VALUE: 'changed' },
         })
       ),
       {
-        startAttemptId: secondAttempt,
-        invocationId: secondIdentity.invocationId,
+        startAttemptId: attempt,
+        invocationId: who.invocationId,
         state: 'started',
       }
     )
-    expect(await effectCount(broker.effectsPath)).toBe(2)
+    expect(await effectCount(broker.effectsPath)).toBe(1)
   })
 
   test('restart after starting was persisted reports indeterminate and never starts again', async () => {
@@ -557,6 +630,7 @@ describe('T-08346 participant bootstrap and resident invocation acceptance', () 
     const rpc = await RpcConnection.connect(broker.socketPath)
 
     expectMethodRegistered(await rpc.request('broker.ensureInvocation', {}))
+    await install(rpc, who)
     rpc.sendAndForget('broker.ensureInvocation', ensureParams('attempt_crash_starting', who))
     await waitUntil(
       async () => (await effectCount(broker.effectsPath)) === 1,
@@ -571,6 +645,9 @@ describe('T-08346 participant bootstrap and resident invocation acceptance', () 
       reuse: broker,
     })
     const retry = await RpcConnection.connect(restarted.socketPath)
+    // The epoch fence is broker-incarnation scoped, so a restarted broker
+    // re-installs. The RECEIPT is what survives, not the in-memory identity.
+    await install(retry, who)
     expectReceipt(
       await retry.request('broker.ensureInvocation', ensureParams('attempt_crash_starting', who)),
       {
@@ -586,6 +663,7 @@ describe('T-08346 participant bootstrap and resident invocation acceptance', () 
     const broker = await startBroker({ suffix: 'missing_resident', hosted: true })
     const who = identity('missing_resident')
     const rpc = await RpcConnection.connect(broker.socketPath)
+    await install(rpc, who)
     const attempt = 'attempt_missing_resident'
 
     expectReceipt(await rpc.request('broker.ensureInvocation', ensureParams(attempt, who)), {
@@ -602,6 +680,7 @@ describe('T-08346 participant bootstrap and resident invocation acceptance', () 
       reuse: broker,
     })
     const retry = await RpcConnection.connect(restarted.socketPath)
+    await install(retry, who)
     expectReceipt(await retry.request('broker.ensureInvocation', ensureParams(attempt, who)), {
       startAttemptId: attempt,
       invocationId: who.invocationId,

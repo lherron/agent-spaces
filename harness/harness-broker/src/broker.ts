@@ -1,10 +1,14 @@
 import type {
   BrokerAttachRequest,
   BrokerAttachResponse,
+  BrokerEnsureInvocationRequest,
+  BrokerEnsureInvocationResponse,
   BrokerHealthRequest,
   BrokerHealthResponse,
   BrokerHelloRequest,
   BrokerHelloResponse,
+  BrokerInstallIdentityRequest,
+  BrokerInstallIdentityResponse,
   BrokerLifecyclePolicyOverlay,
   BrokerListInvocationsRequest,
   BrokerListInvocationsResponse,
@@ -66,6 +70,8 @@ import {
 } from 'spaces-harness-broker-protocol'
 import type { Driver } from './drivers/driver'
 import { createDriverRegistry } from './drivers/registry'
+import type { EnsureReceiptStore } from './ensure-receipt-store'
+import { createEnsureReceiptStore } from './ensure-receipt-store'
 import { BrokerError, toInvalidParamsBrokerError } from './errors'
 import type { EventLedger } from './event-ledger'
 import { replayBelowFloorError } from './event-ledger'
@@ -73,6 +79,14 @@ import { createInvocationEventSequencer } from './events'
 import { createInvocationManager } from './invocation-manager'
 import type { CommittedEventPublisher } from './ledger-commit'
 import { createCommittedEventPublisher } from './ledger-commit'
+import type {
+  ParticipantEstablishment,
+  ParticipantEstablishmentFaults,
+} from './participant-establishment'
+import {
+  BOOTSTRAP_REFUSAL_MESSAGE,
+  createParticipantEstablishment,
+} from './participant-establishment'
 import type { DispatchEnv } from './runtime/env'
 import { parseDispatchEnv } from './runtime/env'
 import { HARNESS_BROKER_VERSION } from './version'
@@ -135,6 +149,31 @@ export interface BrokerOptions {
    * Present only for the durable unix runtime.
    */
   attachIdentity?: BrokerAttachIdentity | undefined
+  /**
+   * Participant-served bootstrap posture (DESIGN rev6 §C.5). When true and no
+   * launch `attachIdentity` was supplied, this broker serves ONLY
+   * `broker.installIdentity` until an identity is installed.
+   *
+   * Opt-in on purpose: a unix broker started without identity flags is an
+   * EXISTING supported non-participant route (the CLI's own long-lived-socket
+   * tests, and the client package's transport suites all run one). Inferring
+   * bootstrap posture from "no identity" would break that route to satisfy a
+   * fixture; declaring the posture explicitly distinguishes the two.
+   */
+  participantBootstrap?: boolean | undefined
+  /**
+   * Directory the durable start-attempt receipt journal lives in (§C.5.1).
+   * Defaults to `captureDir` — the durable broker's ledger directory — so the
+   * receipts land beside the events they explain. Absent keeps receipts in
+   * memory, exactly as a pathless ledger keeps events in memory.
+   */
+  receiptDir?: string | undefined
+  /**
+   * TEST-ONLY fault seams for the establishment path. Not reachable from any
+   * CLI flag or environment variable; a test injects one by constructing the
+   * broker in-process.
+   */
+  participantFaults?: ParticipantEstablishmentFaults | undefined
   /** Stable id reported in `broker.attach` responses. */
   brokerInstanceId?: string | undefined
   authorizeSubmission?:
@@ -184,6 +223,19 @@ export interface Broker {
   listInvocations(req: BrokerListInvocationsRequest): Promise<BrokerListInvocationsResponse>
   dispose(req: InvocationDisposeRequest): Promise<InvocationDisposeResponse>
   // --- Durability control surface (durable/unix runtime only) ---
+  /**
+   * Install this attempt's runtime identity (§C.5). The ONLY method a
+   * participant-served broker answers before an identity exists. An exact
+   * replay for the recorded epoch returns the same ack; a different epoch or
+   * identity is refused.
+   */
+  installIdentity(req: BrokerInstallIdentityRequest): Promise<BrokerInstallIdentityResponse>
+  /**
+   * Establish the resident invocation this attempt will attach to (§C.5.1).
+   * Wraps the ORDINARY start with a durable, retry-safe receipt keyed by
+   * `startAttemptId`; never a second driver execution path.
+   */
+  ensureInvocation(req: BrokerEnsureInvocationRequest): Promise<BrokerEnsureInvocationResponse>
   attach(req: BrokerAttachRequest): Promise<BrokerAttachResponse>
   snapshot(req: InvocationSnapshotRequest): Promise<InvocationSnapshot>
   eventsSince(req: InvocationEventsSinceRequest): Promise<InvocationEventsSinceResponse>
@@ -213,7 +265,10 @@ export function createBroker(options: BrokerOptions): Broker {
       ? { resumeSeq: (invocationId: InvocationId) => eventLedger.currentSeq(invocationId) }
       : {}),
   })
-  const attachIdentity = options.attachIdentity
+  // MUTABLE: `broker.installIdentity` publishes the attempt's identity onto the
+  // same gate the launch flags fill for an HRC-hosted broker, so both join
+  // directions reach one attach validation, not two.
+  let attachIdentity = options.attachIdentity
   const brokerInstanceId = options.brokerInstanceId ?? `broker_${process.pid}`
   const baseOnEvent = options.onEvent ?? (() => {})
   // Commit before publish, fail closed. `commitAndPublish` durably appends
@@ -278,6 +333,91 @@ export function createBroker(options: BrokerOptions): Broker {
     return inv
   }
 
+  /**
+   * The ORDINARY start path, extracted so `broker.ensureInvocation` reaches
+   * exactly the same validation, driver resolution and `manager.start` that
+   * `invocation.start` does. Nothing about ensure is a parallel start.
+   */
+  function startOrdinaryInvocation(
+    req: InvocationStartRequest,
+    dispatchEnv?: Record<string, string> | undefined,
+    runtime?: InvocationRuntimeContext | undefined,
+    lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
+  ): Promise<InvocationStartResponse> {
+    let parsedDispatchEnv: DispatchEnv | undefined
+    try {
+      parsedDispatchEnv = parseDispatchEnv(dispatchEnv, req.spec.process.lockedEnv)
+    } catch (err) {
+      return Promise.reject(err)
+    }
+    try {
+      validateInvocationDispatchRequest({
+        startRequest: req,
+        ...(parsedDispatchEnv !== undefined ? { dispatchEnv: parsedDispatchEnv } : {}),
+        ...(runtime !== undefined ? { runtime } : {}),
+        ...(lifecyclePolicy !== undefined ? { lifecyclePolicy } : {}),
+      })
+    } catch (err) {
+      return Promise.reject(toInvalidParamsBrokerError(err) ?? err)
+    }
+
+    const driverKind = req.spec.harness.driver
+    const driver = registry.get(driverKind)
+    if (!driver) {
+      return Promise.reject(
+        new BrokerError(
+          BrokerErrorCode.DriverUnavailable,
+          `No driver registered for kind: ${driverKind}`,
+          { driverKind }
+        )
+      )
+    }
+
+    // Non-async wrapper: the returned promise has a no-op catch pre-attached
+    // so that bun's test runner doesn't flag it as an unhandled rejection when
+    // the startup timeout fires before the caller awaits.
+    const result = manager.start(
+      req.spec,
+      driver,
+      req.initialInput,
+      parsedDispatchEnv,
+      runtime,
+      lifecyclePolicy
+    )
+    result.catch(() => {})
+    return result
+  }
+
+  const receiptStore: EnsureReceiptStore = createEnsureReceiptStore({
+    ...((options.receiptDir ?? options.captureDir) !== undefined
+      ? { dir: options.receiptDir ?? options.captureDir }
+      : {}),
+  })
+
+  const establishment: ParticipantEstablishment = createParticipantEstablishment({
+    brokerInstanceId,
+    receiptStore,
+    ...(options.attachIdentity !== undefined ? { launchIdentity: options.attachIdentity } : {}),
+    onIdentityInstalled: (identity) => {
+      attachIdentity = {
+        runtimeId: identity.runtimeId,
+        hostSessionId: identity.hostSessionId,
+        generation: identity.generation,
+        attachToken: identity.attachToken,
+      }
+    },
+    hasResidentInvocation: (invocationId) => manager.get(invocationId) !== undefined,
+    startInvocation: (request) =>
+      startOrdinaryInvocation(
+        request.startRequest,
+        request.dispatchEnv,
+        request.runtime,
+        request.lifecyclePolicy
+      ),
+    now,
+    ...(options.participantFaults !== undefined ? { faults: options.participantFaults } : {}),
+  })
+
   async function buildSnapshot(
     invocationId: InvocationId,
     opts?: { probeLiveness?: boolean | undefined }
@@ -331,7 +471,7 @@ export function createBroker(options: BrokerOptions): Broker {
     }
   }
 
-  return {
+  const facade: Broker = {
     async hello(req: BrokerHelloRequest): Promise<BrokerHelloResponse> {
       validateBrokerParams('broker.hello', req)
 
@@ -385,55 +525,7 @@ export function createBroker(options: BrokerOptions): Broker {
       }
     },
 
-    start(
-      req: InvocationStartRequest,
-      dispatchEnv?: Record<string, string> | undefined,
-      runtime?: InvocationRuntimeContext | undefined,
-      lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
-    ): Promise<InvocationStartResponse> {
-      let parsedDispatchEnv: DispatchEnv | undefined
-      try {
-        parsedDispatchEnv = parseDispatchEnv(dispatchEnv, req.spec.process.lockedEnv)
-      } catch (err) {
-        return Promise.reject(err)
-      }
-      try {
-        validateInvocationDispatchRequest({
-          startRequest: req,
-          ...(parsedDispatchEnv !== undefined ? { dispatchEnv: parsedDispatchEnv } : {}),
-          ...(runtime !== undefined ? { runtime } : {}),
-          ...(lifecyclePolicy !== undefined ? { lifecyclePolicy } : {}),
-        })
-      } catch (err) {
-        return Promise.reject(toInvalidParamsBrokerError(err) ?? err)
-      }
-
-      const driverKind = req.spec.harness.driver
-      const driver = registry.get(driverKind)
-      if (!driver) {
-        return Promise.reject(
-          new BrokerError(
-            BrokerErrorCode.DriverUnavailable,
-            `No driver registered for kind: ${driverKind}`,
-            { driverKind }
-          )
-        )
-      }
-
-      // Non-async wrapper: the returned promise has a no-op catch pre-attached
-      // so that bun's test runner doesn't flag it as an unhandled rejection when
-      // the startup timeout fires before the caller awaits.
-      const result = manager.start(
-        req.spec,
-        driver,
-        req.initialInput,
-        parsedDispatchEnv,
-        runtime,
-        lifecyclePolicy
-      )
-      result.catch(() => {})
-      return result
-    },
+    start: startOrdinaryInvocation,
 
     input(req: InvocationInputRequest): Promise<InvocationInputResponse> {
       try {
@@ -533,6 +625,20 @@ export function createBroker(options: BrokerOptions): Broker {
     async dispose(req: InvocationDisposeRequest): Promise<InvocationDisposeResponse> {
       validateBrokerParams('invocation.dispose', req)
       return manager.dispose(req)
+    },
+
+    async installIdentity(
+      req: BrokerInstallIdentityRequest
+    ): Promise<BrokerInstallIdentityResponse> {
+      validateBrokerParams('broker.installIdentity', req)
+      return establishment.installIdentity(req)
+    },
+
+    async ensureInvocation(
+      req: BrokerEnsureInvocationRequest
+    ): Promise<BrokerEnsureInvocationResponse> {
+      validateBrokerParams('broker.ensureInvocation', req)
+      return establishment.ensureInvocation(req)
     },
 
     async attach(req: BrokerAttachRequest): Promise<BrokerAttachResponse> {
@@ -686,6 +792,44 @@ export function createBroker(options: BrokerOptions): Broker {
       return manager.captureRelease(req)
     },
   }
+
+  if (options.participantBootstrap !== true) {
+    return facade
+  }
+  return guardParticipantBootstrap(facade, () => establishment.installedIdentity() === undefined)
+}
+
+/**
+ * Bootstrap posture (§C.5): a participant-served broker serves ONLY
+ * `broker.installIdentity` until an identity exists.
+ *
+ * The refusal covers the WHOLE surface, not just attach, because with
+ * `attachIdentity` undefined `broker.attach` validates nothing — so anything
+ * this broker answers before an identity is installed is answered to a caller
+ * it cannot authenticate. Applied here rather than at the transport so both the
+ * general method registration and the unix durability registration are gated by
+ * one decision.
+ */
+function guardParticipantBootstrap(broker: Broker, bootstrapPending: () => boolean): Broker {
+  const guarded: Record<string, unknown> = {}
+  for (const [name, member] of Object.entries(broker)) {
+    if (name === 'installIdentity' || typeof member !== 'function') {
+      guarded[name] = member
+      continue
+    }
+    const method = member as (...args: unknown[]) => unknown
+    guarded[name] = (...args: unknown[]): unknown => {
+      if (bootstrapPending()) {
+        return Promise.reject(
+          new BrokerError(BrokerErrorCode.BrokerBootstrapRequired, BOOTSTRAP_REFUSAL_MESSAGE, {
+            method: name,
+          })
+        )
+      }
+      return method(...args)
+    }
+  }
+  return guarded as unknown as Broker
 }
 
 /**

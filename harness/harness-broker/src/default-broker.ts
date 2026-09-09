@@ -33,6 +33,14 @@ export interface DefaultBrokerOptions {
    */
   captureDir?: string | undefined
   attachIdentity?: BrokerAttachIdentity | undefined
+  /**
+   * Participant-served bootstrap posture. Forwarded verbatim: a dropped
+   * forward here would silently leave a participant broker serving its whole
+   * surface with nothing to validate an attach against.
+   */
+  participantBootstrap?: boolean | undefined
+  /** Directory the durable start-attempt receipt journal lives in. */
+  receiptDir?: string | undefined
   brokerInstanceId?: string | undefined
   /**
    * Runtime-scoped IPC directory (the durable broker's `--socket` parent →
@@ -72,6 +80,10 @@ export function createDefaultBroker(
     ...(options.eventLedger !== undefined ? { eventLedger: options.eventLedger } : {}),
     ...(options.captureDir !== undefined ? { captureDir: options.captureDir } : {}),
     ...(options.attachIdentity !== undefined ? { attachIdentity: options.attachIdentity } : {}),
+    ...(options.participantBootstrap !== undefined
+      ? { participantBootstrap: options.participantBootstrap }
+      : {}),
+    ...(options.receiptDir !== undefined ? { receiptDir: options.receiptDir } : {}),
     ...(options.brokerInstanceId !== undefined
       ? { brokerInstanceId: options.brokerInstanceId }
       : {}),

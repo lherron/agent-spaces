@@ -101,6 +101,8 @@ const BROKER_METHODS = [
   'queue.cancel',
   'turn.manifest',
   'seat.probe',
+  'broker.installIdentity',
+  'broker.ensureInvocation',
 ] as const satisfies readonly BrokerMethod[]
 
 /**
@@ -702,6 +704,18 @@ const COMMAND_PARAM_VALIDATORS: Partial<
       issues
     )
   },
+  'broker.installIdentity': (commandParams, issues) => {
+    validateRuntimeIdentityShape(commandParams, 'params', issues)
+  },
+  'broker.ensureInvocation': (commandParams, issues) => {
+    requireNonEmptyString(commandParams['startAttemptId'], 'params.startAttemptId', issues)
+    requireNonEmptyString(commandParams['invocationId'], 'params.invocationId', issues)
+    requireNumber(commandParams['attachEpoch'], 'params.attachEpoch', issues)
+    // The start request and its dispatch options are the ORDINARY dispatch
+    // envelope, validated by the ordinary validator — `ensureInvocation` wraps
+    // `invocation.start`, it does not define a parallel start shape.
+    validateInvocationDispatchRequestShape(commandParams, 'params', issues)
+  },
   'broker.listInvocations': (commandParams, issues) => {
     optionalBoolean(commandParams['includeDisposed'], 'params.includeDisposed', issues)
     optionalBoolean(commandParams['probeLiveness'], 'params.probeLiveness', issues)
@@ -975,6 +989,40 @@ function validatePermissionRequestParamsShape(
     true
   )
   optionalNumber(params['deadlineMs'], joinPath(basePath, 'deadlineMs'), issues)
+}
+
+/**
+ * The eight-field runtime identity `broker.installIdentity` carries (§C.5).
+ * Structural only: whether the identity is ADMISSIBLE — matching the launch
+ * identity, and not conflicting with one already installed — is the broker's
+ * decision, not the wire schema's.
+ */
+function validateRuntimeIdentityShape(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
+  const identity = asRecord(value)
+  if (!identity) {
+    issues.push(makeIssue(basePath, 'invalid_type', 'Runtime identity must be an object'))
+    return
+  }
+  requireNonEmptyString(identity['runtimeId'], joinPath(basePath, 'runtimeId'), issues)
+  requireNonEmptyString(identity['hostSessionId'], joinPath(basePath, 'hostSessionId'), issues)
+  requireNumber(identity['generation'], joinPath(basePath, 'generation'), issues)
+  requireNumber(identity['attachEpoch'], joinPath(basePath, 'attachEpoch'), issues)
+  requireNonEmptyString(identity['invocationId'], joinPath(basePath, 'invocationId'), issues)
+  requireNonEmptyString(
+    identity['startRequestHash'],
+    joinPath(basePath, 'startRequestHash'),
+    issues
+  )
+  requireNonEmptyString(
+    identity['selectedProfileHash'],
+    joinPath(basePath, 'selectedProfileHash'),
+    issues
+  )
+  requireNonEmptyString(identity['attachToken'], joinPath(basePath, 'attachToken'), issues)
 }
 
 function validateInvocationDispatchRequestShape(

@@ -127,6 +127,27 @@ export enum BrokerErrorCode {
   PermissionResponseConflict = -32017,
   PermissionResponseExpired = -32018,
   UnknownPermissionRequest = -32019,
+  /**
+   * A participant-served broker was asked for anything other than
+   * `broker.installIdentity` while it is still in bootstrap posture. With no
+   * installed identity `broker.attach` validates nothing, so refusing the whole
+   * surface — not just attach — is what keeps an unvalidated control path
+   * closed until identity exists (DESIGN rev6 C.5).
+   */
+  BrokerBootstrapRequired = -32020,
+  /**
+   * `broker.installIdentity` presented an identity that conflicts with the one
+   * already installed on this broker incarnation (a different epoch, or a
+   * different identity field). An exact replay for the recorded epoch is NOT a
+   * conflict: it returns the same acknowledgement.
+   */
+  IdentityInstallConflict = -32021,
+  /**
+   * `broker.ensureInvocation` reused a `startAttemptId` with a different
+   * immutable start request, different dispatch options, or a different
+   * invocation identity/epoch. The attempt is refused rather than joined.
+   */
+  StartAttemptConflict = -32022,
 }
 
 export function createJsonRpcError(code: number, message: string, data?: unknown): JsonRpcError {
