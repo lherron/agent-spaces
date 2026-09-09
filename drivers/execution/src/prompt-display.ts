@@ -20,6 +20,14 @@ const PROMPT_FLAGS = new Set(['--system-prompt', '--append-system-prompt'])
  * `'<N chars>'` so a long inlined prompt doesn't flood the displayed command.
  */
 const LONG_ARG_THRESHOLD = 200
+/**
+ * How the context resolver joins reminder and prompt sections
+ * (`SECTION_SEPARATOR` in `core/runtime/src/context-resolver.ts`). Mirrored
+ * here so the display layer can address one section at a time; a section that
+ * is not decoded is passed through byte-for-byte, so a separator that ever
+ * drifted would cost readability, never fidelity.
+ */
+const SECTION_SEPARATOR = '\n\n---\n\n'
 
 export interface PromptSection {
   title: string
@@ -37,11 +45,70 @@ export interface PromptBudget {
 }
 
 /**
+ * Decode a `{"content": "…"}` envelope to the markdown it carries.
+ *
+ * Some reminder sections are produced by TTY-gated commands — `wrkq info`
+ * emits markdown on a terminal and the Claude Code SessionStart hook shape,
+ * `{"content": "…"}`, when piped. That envelope is correct at creation time
+ * (the hook consumer parses `content`) but it reaches a `--dry-run` preview as
+ * one ~11KB line of escaped JSON, where every newline is a literal `\n` and
+ * every `<` a `\u003c`. A human reading the preview wants what it decodes to.
+ *
+ * Returns the decoded string only for that exact shape: a JSON object whose
+ * sole key is `content`, holding a string. Anything else returns `undefined`
+ * and is rendered verbatim — never guess at arbitrary JSON.
+ */
+function decodeContentEnvelope(section: string): string | undefined {
+  const trimmed = section.trim()
+  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
+    return undefined
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(trimmed)
+  } catch {
+    return undefined
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return undefined
+  }
+  const keys = Object.keys(parsed)
+  if (keys.length !== 1 || keys[0] !== 'content') {
+    return undefined
+  }
+  const content = (parsed as { content: unknown }).content
+  return typeof content === 'string' ? content : undefined
+}
+
+/**
+ * Decode `{"content": "…"}` envelopes in a prompt body, for DISPLAY ONLY.
+ *
+ * Splits on the resolver's separator so each section is judged on its own, and
+ * passes through anything that is not the exact envelope shape. Content that
+ * carries no envelope therefore round-trips unchanged.
+ *
+ * Callers must keep measuring the UNDECODED string: section-size footers and
+ * the context-budget totals are compared against `asp run`, so they report the
+ * bytes the harness actually receives, not the size of this rendering.
+ */
+export function decodeForDisplay(content: string): string {
+  return content
+    .split(SECTION_SEPARATOR)
+    .map((section) => decodeContentEnvelope(section) ?? section)
+    .join(SECTION_SEPARATOR)
+}
+
+/**
  * Render a single framed prompt section to lines.
  */
 export function renderSection(section: PromptSection): string[] {
   const { title, content, color, sectionSizes } = section
+  // Measure what the harness receives, render what a human can read: the
+  // footer reports the real section size while the body shows any decoded
+  // envelope. Measuring the decode instead would silently move the budget
+  // numbers this preview exists to compare.
   const chars = content.length
+  const displayContent = decodeForDisplay(content)
   const lines: string[] = []
 
   const titleSegment = `─ ${title} `
@@ -50,7 +117,7 @@ export function renderSection(section: PromptSection): string[] {
   lines.push(color(`┌${titleSegment}`) + chalk.dim(topRule))
 
   lines.push(chalk.dim('│'))
-  for (const line of content.split('\n')) {
+  for (const line of displayContent.split('\n')) {
     lines.push(chalk.dim('│  ') + line)
   }
   lines.push(chalk.dim('│'))
