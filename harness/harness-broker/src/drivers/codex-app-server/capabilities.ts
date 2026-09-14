@@ -57,4 +57,10 @@ export const CODEX_TUI_CAPABILITIES: InvocationCapabilities = {
   admission: { classes: ['steer', 'queue'] },
   bracketMintingMode: 'observed',
   preempt: { mode: null },
+  finalResponse: {
+    jsonSchema: false,
+    perTurn: true,
+    strict: true,
+    parsedResult: false,
+  },
 }

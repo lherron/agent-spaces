@@ -11,6 +11,7 @@ import type {
   InvocationRuntimeContext,
   SubmissionOrigin,
 } from 'spaces-harness-broker-protocol'
+import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { WebSocketServer } from 'ws'
 import { createBroker } from '../../../src/broker'
 import {
@@ -265,6 +266,46 @@ describe('codex-tui transport', () => {
   afterEach(async () => {
     await new Promise<void>((resolve) => server?.close(() => resolve()) ?? resolve())
     if (directory !== undefined) await rm(directory, { recursive: true, force: true })
+  })
+
+  test('spec-aware cold admission rejects JSON Schema before starting the TUI driver', async () => {
+    const rpc = new FakeCodexRpc()
+    const run = await setupDriver(rpc, 'inv_codex_tui_cold_schema')
+    try {
+      // A specless hello summary remains the headless descriptor. The actual
+      // cold gate must ask the driver with the candidate TUI spec.
+      expect(run.driver.capabilities().finalResponse?.jsonSchema).toBe(true)
+      expect(run.driver.capabilities(run.invocationSpec).finalResponse?.jsonSchema).toBe(false)
+
+      await expect(
+        run.broker.start(
+          {
+            spec: run.invocationSpec,
+            initialInput: {
+              inputId: 'input_codex_tui_cold_schema',
+              kind: 'user',
+              content: [{ type: 'text', text: 'return json' }],
+              responseFormat: {
+                kind: 'json_schema',
+                schema: { type: 'object', properties: { ok: { type: 'boolean' } } },
+              },
+            },
+          },
+          {},
+          { terminalSurface: lease() }
+        )
+      ).rejects.toMatchObject({
+        code: BrokerErrorCode.UnsupportedCapability,
+        message: 'UnsupportedCapability: finalResponse.jsonSchema',
+      })
+
+      expect(rpc.requests).toHaveLength(0)
+      expect(run.tmux.launched).toHaveLength(0)
+      expect(run.events).toHaveLength(0)
+    } finally {
+      await run.broker.stop({ invocationId: 'inv_codex_tui_cold_schema' }).catch(() => undefined)
+      await rm(run.socketDir, { recursive: true, force: true })
+    }
   })
 
   test('uses websocket framing over a unix socket without compression', async () => {
