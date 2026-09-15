@@ -1093,6 +1093,67 @@ describe('codex-desktop observation driver', () => {
     ).toMatchObject({ replayByteOffset: 0, committedProjectionCount: 1 })
   })
 
+  test('T-08430: usage borrows the model its turn_context named', async () => {
+    const dir = tempDir()
+    const path = join(dir, 'usage-model.jsonl')
+    writeFileSync(
+      path,
+      [
+        row({ type: 'task_started', turn_id: 'turn-model' }, 1),
+        // A rollout `turn_context` row: not an event_msg, dispositioned
+        // ignored-known by the shared classifier, yet the only place the
+        // rollout names the model Codex resolved for the turn.
+        `${JSON.stringify({
+          timestamp: new Date(2000).toISOString(),
+          ordinal: 2,
+          type: 'turn_context',
+          payload: { turn_id: 'turn-model', model: 'gpt-5.6-sol', effort: 'medium' },
+        })}\n`,
+        row({ type: 'token_count', turn_id: 'turn-model', info: { total_tokens: 42 } }, 3),
+        row({ type: 'task_complete', turn_id: 'turn-model' }, 4),
+      ].join('')
+    )
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createCodexDesktopDriver({ watchFile: false, pollIntervalMs: 10 })],
+      onEvent: (event) => events.push(event),
+      captureDir: dir,
+    })
+    await broker.start({ spec: spec(path, 'inv-desktop-usage-model') })
+    await waitFor(() => events.some((event) => event.type === 'turn.completed'))
+
+    const usage = events.filter((event) => event.type === 'usage.updated')
+    expect(usage).toHaveLength(1)
+    expect(usage[0]?.payload).toMatchObject({
+      model: { id: 'gpt-5.6-sol', source: 'provider-response' },
+    })
+  })
+
+  test('T-08430: usage carries no model when the rollout never named one', async () => {
+    const dir = tempDir()
+    const path = join(dir, 'usage-no-model.jsonl')
+    writeFileSync(
+      path,
+      [
+        row({ type: 'task_started', turn_id: 'turn-nomodel' }, 1),
+        row({ type: 'token_count', turn_id: 'turn-nomodel', info: { total_tokens: 42 } }, 2),
+        row({ type: 'task_complete', turn_id: 'turn-nomodel' }, 3),
+      ].join('')
+    )
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createCodexDesktopDriver({ watchFile: false, pollIntervalMs: 10 })],
+      onEvent: (event) => events.push(event),
+      captureDir: dir,
+    })
+    await broker.start({ spec: spec(path, 'inv-desktop-usage-no-model') })
+    await waitFor(() => events.some((event) => event.type === 'turn.completed'))
+
+    const usage = events.filter((event) => event.type === 'usage.updated')
+    expect(usage).toHaveLength(1)
+    expect(usage[0]?.payload['model']).toBeUndefined()
+  })
+
   test('detects a same-path replacement and observes the replacement epoch once', async () => {
     const dir = tempDir()
     const path = join(dir, 'replacement.jsonl')

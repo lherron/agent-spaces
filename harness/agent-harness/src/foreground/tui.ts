@@ -145,6 +145,7 @@ async function runBrokerAgentHarnessTui(
       provider: config.auth.providerId,
       sessionFile: () => runtime?.session.sessionFile,
       driverKind: AGENT_HARNESS_DRIVER_KIND,
+      configuredModelId: config.sdk.modelId,
     })
     control.onTurnBegin = (frame) => {
       mapper.beginTurn({

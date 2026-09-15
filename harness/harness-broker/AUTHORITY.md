@@ -528,6 +528,50 @@ a consumer that needs a tool-start the instant the tool starts should read the
 `PreToolUse` hook record, which is still committed, still a duplicate, and still
 the synchronous permission-decision bridge.
 
+## Model identity on `usage.updated` (T-08430)
+
+Every `usage.updated` payload may carry one shared field naming the model the
+usage is accounted to:
+
+```ts
+model?: { id: string; source: 'provider-response' | 'harness-config' }
+```
+
+The field is the SAME shape and name across every driver, so a consumer reads
+it once whatever harness produced the row. Token counters, request boundaries,
+and cache accounting are unchanged.
+
+`source` is the load-bearing half. `provider-response` means the provider's own
+record of the served request named this model — it is what actually ran, and it
+is the only value that can be priced as evidence. `harness-config` means no
+provider record named a model, so the value is the one the harness asked for; a
+provider that substitutes or reroutes silently is invisible in that case.
+
+Where each driver gets it:
+
+| Driver | Source of the id | Marker |
+| --- | --- | --- |
+| `claude-code-tmux` (assistant row) | `message.model` on the transcript row that carries the usage | `provider-response` |
+| `claude-code-tmux` (`cost-state` row) | the sole key of `modelUsage` | `provider-response` |
+| `codex-app-server` | the `thread/start` / `thread/resume` response `model`, moved by `model/rerouted` | `provider-response` |
+| `codex-app-server` (no provider model) | driver spec `model` | `harness-config` |
+| `codex-desktop` | the turn's rollout `turn_context.model` | `provider-response` |
+| `agent-harness` / `agent-harness-tmux` / `pi-sdk` | settled message `responseModel`, else `model` | `provider-response` |
+| `agent-harness` / `agent-harness-tmux` / `pi-sdk` (no message model) | `spec.sdk.modelId` | `harness-config` |
+
+The field is OPTIONAL on the wire and a driver with no truthful source omits it
+rather than inventing one. Two omissions are deliberate and permanent:
+
+- A Claude Code `cost-state` snapshot whose `modelUsage` spans more than one
+  model names no single model. Picking one would be a guess; the per-model
+  breakdown survives untouched inside the usage body.
+- Claude Code resolves its own model inside the CLI and the broker never
+  configures one, so a `claude-code-tmux` row whose transcript carries no
+  `message.model` has no fallback to fall back to.
+
+Omission carries NO claim about which model ran. A consumer that needs a model
+must treat an absent field as unknown, never as "the previous one".
+
 ## Reading an unclassified type
 
 ```

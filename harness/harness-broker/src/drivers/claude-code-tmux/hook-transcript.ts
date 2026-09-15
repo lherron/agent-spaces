@@ -339,9 +339,18 @@ export function createClaudeHookTranscriptReader(
     const usage = message?.['usage']
     if (usage !== undefined && messageId !== undefined && !usageReportedMessageIds.has(messageId)) {
       usageReportedMessageIds.add(messageId)
+      // T-08430 — the assistant row names the model that served this request;
+      // Claude Code resolves the model inside the CLI, so this row is the ONLY
+      // truthful source and there is no harness-config fallback to fall back to.
+      const model = message !== undefined ? getString(message, 'model') : undefined
       options.emit(
         'usage.updated',
-        { usage },
+        {
+          usage,
+          ...(model !== undefined && model.length > 0
+            ? { model: { id: model, source: 'provider-response' as const } }
+            : {}),
+        },
         {
           ...(turnId !== undefined ? { turnId } : {}),
           driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType: 'transcript.assistant' },
@@ -445,9 +454,20 @@ export function createClaudeHookTranscriptReader(
     // The row TYPE is carried by the raw record's provenance, so it is stripped
     // from the body rather than smuggled into the usage shape.
     const { type: _rowType, ...usage } = entry
+    // T-08430 — a cost-state snapshot is already broken out per model under
+    // `modelUsage`. It names ONE model only when that map has a single key; a
+    // session that spanned two models has no single identity and the field is
+    // omitted rather than picking a winner (the per-model detail survives in
+    // the usage body either way).
+    const model = soleModelUsageKey(usage['modelUsage'])
     options.emit(
       'usage.updated',
-      { usage },
+      {
+        usage,
+        ...(model !== undefined
+          ? { model: { id: model, source: 'provider-response' as const } }
+          : {}),
+      },
       {
         ...(turnIdText !== undefined ? { turnId: turnIdText as TurnId } : {}),
         driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType: 'transcript.cost-state' },
@@ -867,4 +887,15 @@ function describeTurnTerminalRow(entry: Record<string, unknown>, subtype: string
     detail['preventedContinuation'] = entry['preventedContinuation']
   }
   return JSON.stringify(detail)
+}
+
+/**
+ * The single model named by a `cost-state` row's `modelUsage` map, or
+ * `undefined` when the map is absent, empty, or spans more than one model
+ * (T-08430).
+ */
+function soleModelUsageKey(value: unknown): string | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const keys = Object.keys(value as Record<string, unknown>)
+  return keys.length === 1 && keys[0] !== undefined && keys[0].length > 0 ? keys[0] : undefined
 }

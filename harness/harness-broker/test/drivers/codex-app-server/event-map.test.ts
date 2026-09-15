@@ -1233,3 +1233,38 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
     })
   })
 })
+
+describe('usage model identity (T-08430)', () => {
+  test('usage carries the model the driver resolved for the thread', () => {
+    const map = createCodexNotificationMapper({
+      modelIdentity: () => ({ id: 'gpt-5.6-sol', source: 'provider-response' }),
+    })
+    const events = map(note('thread/tokenUsage/updated', { usage: { totalTokens: 7 } }))
+    expect(events).toHaveLength(1)
+    expect(events[0]?.payload).toEqual({
+      usage: { totalTokens: 7 },
+      model: { id: 'gpt-5.6-sol', source: 'provider-response' },
+    })
+  })
+
+  test('identity is read per event, so a mid-thread reroute lands on the next usage', () => {
+    let identity = { id: 'gpt-5.6-sol', source: 'provider-response' as const }
+    const map = createCodexNotificationMapper({ modelIdentity: () => identity })
+    const before = map(note('thread/tokenUsage/updated', { usage: { totalTokens: 1 } }))
+    identity = { id: 'gpt-5.6-codex-mini', source: 'provider-response' }
+    const after = map(note('thread/tokenUsage/updated', { usage: { totalTokens: 2 } }))
+
+    expect((before[0]?.payload as Record<string, unknown>)['model']).toMatchObject({
+      id: 'gpt-5.6-sol',
+    })
+    expect((after[0]?.payload as Record<string, unknown>)['model']).toMatchObject({
+      id: 'gpt-5.6-codex-mini',
+    })
+  })
+
+  test('a mapper with no identity source omits the field rather than guessing', () => {
+    const map = createCodexNotificationMapper()
+    const events = map(note('thread/tokenUsage/updated', { usage: { totalTokens: 7 } }))
+    expect(events[0]?.payload).toEqual({ usage: { totalTokens: 7 } })
+  })
+})

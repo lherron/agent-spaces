@@ -295,6 +295,7 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
         provider: auth.providerId,
         sessionFile: () => session?.sessionFile,
         driverKind,
+        ...(nextSpec.sdk?.modelId !== undefined ? { configuredModelId: nextSpec.sdk.modelId } : {}),
       })
       const permissionPolicy = readPermissionPolicy(nextSpec)
       const permissionBridge = createPiSdkPermissionBridge({

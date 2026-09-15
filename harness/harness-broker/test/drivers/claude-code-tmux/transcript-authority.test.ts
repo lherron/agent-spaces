@@ -126,6 +126,59 @@ describe('claude-code-tmux transcript authority: usage', () => {
     // into the usage body.
     expect(usage[0]?.payload['usage']).not.toHaveProperty('type')
   })
+
+  test('T-08430: an assistant row names its model as provider evidence', () => {
+    const h = harness()
+    h.write(assistantRow({ type: 'text', text: 'done' }))
+
+    const usage = h.emitted.filter((event) => event.type === 'usage.updated')
+    expect(usage[0]?.payload['model']).toEqual({
+      id: 'claude-opus-5',
+      source: 'provider-response',
+    })
+  })
+
+  test('T-08430: an assistant row with no model carries none', () => {
+    const h = harness()
+    h.write(assistantRow({ type: 'text', text: 'done' }, { message: { model: undefined } }))
+
+    const usage = h.emitted.filter((event) => event.type === 'usage.updated')
+    expect(usage).toHaveLength(1)
+    expect(usage[0]?.payload['model']).toBeUndefined()
+  })
+
+  test('T-08430: a single-model cost-state names that model', () => {
+    const h = harness()
+    h.write({
+      type: 'cost-state',
+      sessionId: 'sess_1',
+      modelUsage: { 'claude-opus-5': { inputTokens: 4562, outputTokens: 7459 } },
+    })
+
+    const usage = h.emitted.filter((event) => event.type === 'usage.updated')
+    expect(usage[0]?.payload['model']).toEqual({
+      id: 'claude-opus-5',
+      source: 'provider-response',
+    })
+  })
+
+  test('T-08430: a cost-state spanning two models picks no winner', () => {
+    const h = harness()
+    h.write({
+      type: 'cost-state',
+      sessionId: 'sess_1',
+      modelUsage: {
+        'claude-opus-5': { inputTokens: 4562 },
+        'claude-haiku-4-5-20251001': { inputTokens: 12 },
+      },
+    })
+
+    const usage = h.emitted.filter((event) => event.type === 'usage.updated')
+    expect(usage).toHaveLength(1)
+    expect(usage[0]?.payload['model']).toBeUndefined()
+    // The per-model detail is not lost — it stays in the usage body.
+    expect(usage[0]?.payload['usage']).toHaveProperty('modelUsage')
+  })
 })
 
 describe('claude-code-tmux transcript authority: conversation', () => {

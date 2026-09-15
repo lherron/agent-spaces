@@ -27,6 +27,7 @@ import type {
   InvocationStopResponse,
   RawProviderRecord,
   TurnId,
+  UsageModelIdentity,
 } from 'spaces-harness-broker-protocol'
 import {
   BrokerErrorCode,
@@ -102,7 +103,9 @@ if (bunRuntime !== undefined && bunRuntime.execPath === undefined) {
 
 interface ThreadResponse {
   threadId?: string | undefined
-  thread?: { id?: string | undefined } | undefined
+  thread?: { id?: string | undefined; model?: string | undefined } | undefined
+  /** Codex reports the RESOLVED model here, including when `model: null` was sent. */
+  model?: string | undefined
 }
 
 interface TurnStartResponse {
@@ -226,7 +229,18 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
    * appends here (asserted by the driver tests).
    */
   const ungatedFrames: string[] = []
-  const mapCodexNotification = createCodexNotificationMapper()
+  /**
+   * T-08430 — the model serving the thread. Codex's `thread/tokenUsage/updated`
+   * names no model, so identity is carried here instead: the `thread/start` (or
+   * `thread/resume`) response reports the model Codex actually resolved — even
+   * when the spec asked for `null` — and `model/rerouted` reports a provider
+   * substitution mid-thread. Only if Codex names neither does the configured
+   * `driver.model` stand in, marked as configuration rather than evidence.
+   */
+  let threadModel: UsageModelIdentity | undefined
+  const mapCodexNotification = createCodexNotificationMapper({
+    modelIdentity: () => threadModel,
+  })
   const permissionRequestIds = createPermissionRequestIdAllocator()
   /**
    * Provenance of the committed raw record currently being normalized, stamped
@@ -869,6 +883,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
     }
 
     normalizeCodexPrelude(notification)
+    observeModelReroute(notification)
 
     for (const mapped of mapCodexNotification(notification)) {
       const isTurnTerminal =
@@ -1092,6 +1107,34 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
     })
   }
 
+  /**
+   * Accept a `thread/start` / `thread/resume` response: record the model Codex
+   * resolved for the thread (T-08430), then return its id.
+   */
+  function acceptThread(response: ThreadResponse | undefined): string {
+    const reported = response?.model ?? response?.thread?.model
+    if (typeof reported === 'string' && reported.length > 0) {
+      threadModel = { id: reported, source: 'provider-response' }
+    } else if (driverSpec?.model !== undefined && driverSpec.model.length > 0) {
+      threadModel = { id: driverSpec.model, source: 'harness-config' }
+    }
+    return extractThreadId(response)
+  }
+
+  /**
+   * `model/rerouted` says the provider swapped the model out from under the
+   * thread. It maps to an operator notice elsewhere; here it also moves thread
+   * identity so the NEXT usage event is priced against what actually served it
+   * (T-08430).
+   */
+  function observeModelReroute(notification: JsonRpcNotification): void {
+    if (notification.method !== 'model/rerouted') return
+    const toModel = frameString(asFrameRecord(notification.params)['toModel'])
+    if (toModel !== undefined) {
+      threadModel = { id: toModel, source: 'provider-response' }
+    }
+  }
+
   async function startThread(): Promise<string> {
     if (!rpc || !spec || !driverSpec) {
       throw new BrokerError(BrokerErrorCode.InvalidInvocationState, 'Driver is not initialized')
@@ -1103,13 +1146,13 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
 
     const startParams = buildThreadStartParams(spec, driverSpec)
     if (!resumeThreadId) {
-      return extractThreadId(await rpc.sendRequest<ThreadResponse>('thread/start', startParams))
+      return acceptThread(await rpc.sendRequest<ThreadResponse>('thread/start', startParams))
     }
 
     if (codexTui) await scrubQueuedInputs(resumeThreadId)
 
     try {
-      return extractThreadId(
+      return acceptThread(
         await rpc.sendRequest<ThreadResponse>('thread/resume', {
           ...startParams,
           threadId: resumeThreadId,
@@ -1135,7 +1178,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
         code: 'resume_fallback_start_fresh',
         data: { missingThreadId: resumeThreadId },
       })
-      return extractThreadId(await rpc.sendRequest<ThreadResponse>('thread/start', startParams))
+      return acceptThread(await rpc.sendRequest<ThreadResponse>('thread/start', startParams))
     }
   }
 

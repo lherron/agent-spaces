@@ -1,6 +1,12 @@
 import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent'
 import type { DriverContext } from 'spaces-harness-broker'
-import type { InputId, MessageId, ToolCallId, TurnId } from 'spaces-harness-broker-protocol'
+import type {
+  InputId,
+  MessageId,
+  ToolCallId,
+  TurnId,
+  UsageModelIdentity,
+} from 'spaces-harness-broker-protocol'
 
 export type PiSdkSettlementAction = 'retry' | 'terminal'
 
@@ -14,6 +20,12 @@ export interface PiSdkTurnEventMapperOptions {
   provider: string
   sessionFile: () => string | undefined
   driverKind?: string | undefined
+  /**
+   * The model id the session was CONFIGURED with (`spec.sdk.modelId`). Used on
+   * `usage.updated` only when the settled assistant message names no model of
+   * its own, and marked `harness-config` when it is (T-08430).
+   */
+  configuredModelId?: string | undefined
 }
 
 /**
@@ -44,6 +56,7 @@ export class PiSdkTurnEventMapper {
   readonly #provider: string
   readonly #sessionFile: () => string | undefined
   readonly #driverKind: string
+  readonly #configuredModelId: string | undefined
 
   #turnId: TurnId | undefined
   #inputId: InputId | undefined
@@ -71,6 +84,33 @@ export class PiSdkTurnEventMapper {
     this.#provider = options.provider
     this.#sessionFile = options.sessionFile
     this.#driverKind = options.driverKind ?? 'pi-sdk'
+    this.#configuredModelId = options.configuredModelId
+  }
+
+  /**
+   * Model identity for a `usage.updated` payload (T-08430).
+   *
+   * pi stamps every settled assistant message with the model it asked for
+   * (`model`) and, when the provider named a different one in the response,
+   * with `responseModel`. The response's own name wins; both are provider
+   * evidence. Only when the message carries neither does the configured model
+   * stand in, marked as configuration rather than evidence.
+   */
+  #modelIdentity(message: {
+    model?: unknown
+    responseModel?: unknown
+  }): { model: UsageModelIdentity } | Record<string, never> {
+    const reported =
+      nonEmptyString(message.responseModel) ??
+      nonEmptyString((message as { model?: unknown }).model)
+    if (reported !== undefined) {
+      return { model: { id: reported, source: 'provider-response' } }
+    }
+    const configured = nonEmptyString(this.#configuredModelId)
+    if (configured !== undefined) {
+      return { model: { id: configured, source: 'harness-config' } }
+    }
+    return {}
   }
 
   beginTurn(options: {
@@ -187,7 +227,11 @@ export class PiSdkTurnEventMapper {
         this.#lastAssistantText = content
         this.#assistantBuffer = ''
         this.#activeMessageId = undefined
-        this.#ctx.emit('usage.updated', { usage: event.message.usage }, this.#extra())
+        this.#ctx.emit(
+          'usage.updated',
+          { usage: event.message.usage, ...this.#modelIdentity(event.message) },
+          this.#extra()
+        )
         if (event.message.stopReason === 'error') {
           this.#assistantFailure = event.message.errorMessage ?? 'pi model turn failed'
         }
@@ -459,4 +503,8 @@ function assistantText(content: unknown): string {
     )
     .map((part) => part.text)
     .join('')
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined
 }

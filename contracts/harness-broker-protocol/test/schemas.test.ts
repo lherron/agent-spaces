@@ -14,6 +14,9 @@ import type {
   ToolCallId,
   TurnAttributedPayload,
   TurnId,
+  UsageModelIdentity,
+  UsageModelSource,
+  UsageUpdatedPayload,
 } from '../src'
 import { conservativeDefaultLifecyclePolicyOverlay, lifecyclePolicyHash } from '../src/lifecycle'
 import {
@@ -1566,6 +1569,46 @@ describe('validateEventEnvelope', () => {
     for (const [type, payload] of Object.entries(eventPayloads)) {
       expect(validateEventEnvelope(envelope(type, payload))).toEqual(envelope(type, payload))
     }
+  })
+
+  test('T-08430: usage.updated accepts a complete model identity from either source', () => {
+    // Both members of UsageModelSource are accepted; the enum is exactly these
+    // two, so an added member shows up here as an unused-case type error.
+    const sources: UsageModelSource[] = ['provider-response', 'harness-config']
+    for (const source of sources) {
+      const model: UsageModelIdentity = { id: 'claude-opus-5', source }
+      const payload: UsageUpdatedPayload = { usage: { inputTokens: 1 }, model }
+      expect(validateEventEnvelope(envelope('usage.updated', payload))).toEqual(
+        envelope('usage.updated', payload)
+      )
+    }
+  })
+
+  test('T-08430: the model field is optional, so a driver may omit it', () => {
+    const payload: UsageUpdatedPayload = { usage: { inputTokens: 1 } }
+    expect(validateEventEnvelope(envelope('usage.updated', payload))).toEqual(
+      envelope('usage.updated', payload)
+    )
+  })
+
+  test('T-08430: usage.updated rejects a half model identity', () => {
+    // An id with no source would read as provider evidence it is not.
+    expectInvalidEventEnvelope(
+      envelope('usage.updated', { usage: {}, model: { id: 'claude-opus-5' } }),
+      { path: 'payload.model.source', code: 'required' }
+    )
+    expectInvalidEventEnvelope(
+      envelope('usage.updated', { usage: {}, model: { source: 'provider-response' } }),
+      { path: 'payload.model.id', code: 'required' }
+    )
+    expectInvalidEventEnvelope(
+      envelope('usage.updated', { usage: {}, model: { id: 'x', source: 'guessed' } }),
+      { path: 'payload.model.source', code: 'invalid_literal' }
+    )
+    expectInvalidEventEnvelope(envelope('usage.updated', { usage: {}, model: 'claude-opus-5' }), {
+      path: 'payload.model',
+      code: 'invalid_type',
+    })
   })
 
   test('rejects unsupported event types', () => {

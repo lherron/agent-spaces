@@ -6,6 +6,7 @@ import type {
   MessageId,
   ToolCallId,
   TurnId,
+  UsageModelIdentity,
 } from 'spaces-harness-broker-protocol'
 import { codexNativeToolIdentity } from '../codex-tool-identity'
 import type { JsonRpcNotification } from './rpc-client'
@@ -343,27 +344,46 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
   )
 }
 
-export function createCodexNotificationMapper(): (
-  notification: JsonRpcNotification
-) => MappedEvent[] {
+export interface CodexNotificationMapperOptions {
+  /**
+   * The model serving this thread (T-08430). Codex's usage notification carries
+   * no model of its own, so the driver — which sees the `thread/start` response
+   * and every `model/rerouted` — supplies it. Read at emit time, not at
+   * construction, so a reroute mid-thread lands on the next usage event.
+   */
+  modelIdentity?: (() => UsageModelIdentity | undefined) | undefined
+}
+
+export function createCodexNotificationMapper(
+  options: CodexNotificationMapperOptions = {}
+): (notification: JsonRpcNotification) => MappedEvent[] {
   const heldAssistantCompletions: HeldAssistantCompletions = new Map()
   const lastDiffSignatures: LastDiffSignatures = new Map()
   return (notification) =>
-    mapCodexNotificationWithState(notification, heldAssistantCompletions, lastDiffSignatures)
+    mapCodexNotificationWithState(
+      notification,
+      heldAssistantCompletions,
+      lastDiffSignatures,
+      options.modelIdentity
+    )
 }
 
 function mapCodexNotificationWithState(
   notification: JsonRpcNotification,
   heldAssistantCompletions: HeldAssistantCompletions,
-  lastDiffSignatures: LastDiffSignatures
+  lastDiffSignatures: LastDiffSignatures,
+  modelIdentity?: (() => UsageModelIdentity | undefined) | undefined
 ): MappedEvent[] {
   const driver = { kind: CODEX_DRIVER_KIND, rawType: notification.method }
-  return mapCodexNotificationInner(notification, heldAssistantCompletions, lastDiffSignatures).map(
-    (event) => ({
-      ...event,
-      extra: { ...event.extra, driver: event.extra?.driver ?? driver },
-    })
-  )
+  return mapCodexNotificationInner(
+    notification,
+    heldAssistantCompletions,
+    lastDiffSignatures,
+    modelIdentity
+  ).map((event) => ({
+    ...event,
+    extra: { ...event.extra, driver: event.extra?.driver ?? driver },
+  }))
 }
 
 /**
@@ -457,7 +477,8 @@ function mapTerminalInteraction(
 function mapCodexNotificationInner(
   notification: JsonRpcNotification,
   heldAssistantCompletions: HeldAssistantCompletions,
-  lastDiffSignatures: LastDiffSignatures
+  lastDiffSignatures: LastDiffSignatures,
+  modelIdentity?: (() => UsageModelIdentity | undefined) | undefined
 ): MappedEvent[] {
   const params = asRecord(notification.params)
   const notice = mapCodexNotice(notification.method, params)
@@ -480,7 +501,10 @@ function mapCodexNotificationInner(
 
     case 'thread/tokenUsage/updated': {
       const usage = params['usage'] ?? params['tokenUsage'] ?? params['token_usage']
-      return [{ type: 'usage.updated', payload: { usage } }]
+      const model = modelIdentity?.()
+      return [
+        { type: 'usage.updated', payload: { usage, ...(model !== undefined ? { model } : {}) } },
+      ]
     }
 
     case 'turn/plan/updated': {

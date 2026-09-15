@@ -603,8 +603,39 @@ export interface InputDispositionPayload {
   deliveryEvidence?: 'not_written' | 'possibly_written' | undefined
 }
 
+/**
+ * Where a usage event's model identifier came from (T-08430).
+ *
+ * - `provider-response`: the provider's own record of the served request named
+ *   this model — a Claude transcript assistant row, a Codex rollout turn
+ *   context, a Codex app-server thread response. It is what actually ran.
+ * - `harness-config`: no provider record named a model, so the value is the one
+ *   the harness was configured to ask for. A provider that silently substitutes
+ *   or reroutes will not be visible here.
+ *
+ * The distinction is load-bearing for pricing: only `provider-response` is
+ * evidence of the model that served the request.
+ */
+export type UsageModelSource = 'provider-response' | 'harness-config'
+
+/**
+ * Model identity for a usage event. One shape across every driver, so a
+ * consumer reads the same field whatever harness produced the row.
+ */
+export interface UsageModelIdentity {
+  /** Provider-native model identifier, e.g. `claude-opus-5`, `gpt-5.6-sol`. */
+  id: string
+  source: UsageModelSource
+}
+
 export interface UsageUpdatedPayload {
   usage: unknown
+  /**
+   * The model this usage is accounted to (T-08430). Omitted — never guessed —
+   * when the driver has no truthful source for it; omission carries no claim
+   * about which model ran.
+   */
+  model?: UsageModelIdentity | undefined
 }
 
 export interface DriverNoticePayload {

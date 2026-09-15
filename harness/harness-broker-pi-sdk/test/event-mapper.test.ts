@@ -130,6 +130,63 @@ describe('PiSdkTurnEventMapper', () => {
     })
     expect(events.filter((event) => event.type === 'turn.failed')).toHaveLength(1)
   })
+  test('T-08430: usage carries the response model as provider evidence', () => {
+    const { ctx, events } = createContext()
+    const mapper = new PiSdkTurnEventMapper({
+      ctx,
+      provider: 'anthropic',
+      sessionFile: () => '/tmp/pi-session.jsonl',
+      configuredModelId: 'claude-opus-5',
+    })
+    mapper.beginTurn({ turnId: 'turn-1' as TurnId, structured: false })
+    mapper.handle(
+      piEvent({
+        type: 'message_end',
+        message: {
+          ...(assistantMessage('done') as Record<string, unknown>),
+          model: 'claude-opus-5',
+          responseModel: 'claude-opus-5-20260501',
+        },
+      })
+    )
+
+    const usage = events.find((event) => event.type === 'usage.updated')
+    expect(usage?.payload).toMatchObject({
+      model: { id: 'claude-opus-5-20260501', source: 'provider-response' },
+    })
+  })
+
+  test('T-08430: usage falls back to the configured model, marked as configuration', () => {
+    const { ctx, events } = createContext()
+    const mapper = new PiSdkTurnEventMapper({
+      ctx,
+      provider: 'anthropic',
+      sessionFile: () => '/tmp/pi-session.jsonl',
+      configuredModelId: 'claude-opus-5',
+    })
+    mapper.beginTurn({ turnId: 'turn-1' as TurnId, structured: false })
+    mapper.handle(piEvent({ type: 'message_end', message: assistantMessage('done') }))
+
+    const usage = events.find((event) => event.type === 'usage.updated')
+    expect(usage?.payload).toMatchObject({
+      model: { id: 'claude-opus-5', source: 'harness-config' },
+    })
+  })
+
+  test('T-08430: no model is invented when neither source names one', () => {
+    const { ctx, events } = createContext()
+    const mapper = new PiSdkTurnEventMapper({
+      ctx,
+      provider: 'anthropic',
+      sessionFile: () => '/tmp/pi-session.jsonl',
+    })
+    mapper.beginTurn({ turnId: 'turn-1' as TurnId, structured: false })
+    mapper.handle(piEvent({ type: 'message_end', message: assistantMessage('done') }))
+
+    const usage = events.find((event) => event.type === 'usage.updated')
+    expect(usage).toBeDefined()
+    expect((usage?.payload as Record<string, unknown>)['model']).toBeUndefined()
+  })
 })
 
 function emitAssistant(mapper: PiSdkTurnEventMapper, text: string): void {

@@ -53,6 +53,28 @@ export function codexResponseItemOf(line: string): CodexResponseItem | undefined
   return { entry, payload, itemType }
 }
 
+/**
+ * The model a `turn_context` row names for its turn (T-08430). Codex's usage
+ * rows carry no model, but every turn opens with a `turn_context` that does —
+ * the model the CLI actually resolved, not the one anything asked for.
+ *
+ * A separate line-level accessor like {@link codexResponseItemOf}, so the
+ * shared event-msg classifier contract (which dispositions `turn_context` as
+ * ignored-known) does not change.
+ */
+export function codexTurnContextModel(
+  line: string
+): { turnId: string | undefined; model: string } | undefined {
+  if (!line.includes('"turn_context"')) return undefined
+  const entry = parseCodexRolloutLine(line)
+  if (entry === undefined || getString(entry, 'type') !== 'turn_context') return undefined
+  const payload = asCodexRecord(entry['payload'])
+  if (payload === undefined) return undefined
+  const model = getString(payload, 'model')
+  if (model === undefined || model.length === 0) return undefined
+  return { turnId: getString(payload, 'turn_id'), model }
+}
+
 /** Three-level native identity shared by hook and desktop capture. */
 export function codexNativeTypeOf(line: string): string {
   const entry = parseCodexRolloutLine(line)

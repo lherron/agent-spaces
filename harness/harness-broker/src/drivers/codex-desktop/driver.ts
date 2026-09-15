@@ -38,6 +38,7 @@ import {
   codexContentText,
   codexNativeTypeOf,
   codexResponseItemOf,
+  codexTurnContextModel,
   parseCodexRolloutLine,
 } from '../codex-rollout/native'
 import { codexNativeToolIdentity } from '../codex-tool-identity'
@@ -193,6 +194,14 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
   const seenToolStarts = new Set<string>()
   const seenToolTerminals = new Set<string>()
   const nativeOrchestrations = new Map<string, NativeOrchestration>()
+  /**
+   * Model named by each turn's `turn_context` row (T-08430). Codex's
+   * `token_count` rows carry no model, so usage borrows the identity its turn
+   * opened with; `lastTurnModel` covers a usage row whose turn id is unknown,
+   * which can only be the turn currently in flight.
+   */
+  const turnModels = new Map<string, string>()
+  let lastTurnModel: string | undefined
   const ownedInputIds = new Set<string>()
   let attemptStore: CodexDesktopNativeAttemptStore | undefined
   let installationKey = ''
@@ -449,6 +458,13 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
       }
       return { disposition: 'normalized', detail: 'response_item:custom_tool_call' }
     }
+    const turnContextModel = codexTurnContextModel(line)
+    if (turnContextModel !== undefined) {
+      lastTurnModel = turnContextModel.model
+      if (turnContextModel.turnId !== undefined) {
+        turnModels.set(turnContextModel.turnId, turnContextModel.model)
+      }
+    }
     const classified = classifyCodexRolloutLine(line)
     if ('outcome' in classified) return classified.outcome
     const { payload, payloadType, item } = classified
@@ -591,7 +607,15 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
     } else if (payloadType === 'token_count') {
       const usage = payload['info']
       if (usage !== undefined && publish) {
-        emit('usage.updated', { usage }, stampExtra(captured, turnId))
+        const model = (turnId !== undefined ? turnModels.get(turnId) : undefined) ?? lastTurnModel
+        emit(
+          'usage.updated',
+          {
+            usage,
+            ...(model !== undefined ? { model: { id: model, source: 'provider-response' } } : {}),
+          },
+          stampExtra(captured, turnId)
+        )
       }
     } else if (payloadType === 'task_complete') {
       const completedTurn = turnIdOf(payload) ?? currentTurnId

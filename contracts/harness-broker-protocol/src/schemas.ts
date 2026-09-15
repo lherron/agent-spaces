@@ -2146,10 +2146,29 @@ const EVENT_PAYLOAD_VALIDATORS = {
     requireString(payload['message'], 'payload.message', issues)
     requireString(payload['code'], 'payload.code', issues)
   },
+  // T-08430 — `model` is OPTIONAL on the wire (a driver with no truthful source
+  // omits it), but when carried it must be complete: an identifier AND the
+  // marker saying whether the provider or the harness config named it. A half
+  // model — an id with no source — would read as provider evidence it is not.
   'usage.updated': (payload, issues) => {
     if (!Object.hasOwn(payload, 'usage')) {
       issues.push(makeIssue('payload.usage', 'required', 'usage is required'))
     }
+    const model = payload['model']
+    if (model === undefined) return
+    const record = asRecord(model)
+    if (record === undefined) {
+      issues.push(makeIssue('payload.model', 'invalid_type', 'payload.model must be an object'))
+      return
+    }
+    requireNonEmptyString(record['id'], 'payload.model.id', issues)
+    optionalEnum(
+      record['source'],
+      ['provider-response', 'harness-config'],
+      'payload.model.source',
+      issues,
+      true
+    )
   },
   diagnostic: (payload, issues) => {
     optionalEnum(
