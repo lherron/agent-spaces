@@ -221,7 +221,9 @@ function buildProfile(
         diagnostics: 'required',
       },
       control: {
-        stop: preparation.lifecycleOwner === 'hrc-managed' ? 'optional' : 'forbidden',
+        // Broker stop detaches its bridge. Host stop authority is a separate,
+        // explicit managed-host control and is never inferred from this driver.
+        stop: 'optional',
         dispose: 'required',
         reconcile: 'required',
         attachReplay: 'required',

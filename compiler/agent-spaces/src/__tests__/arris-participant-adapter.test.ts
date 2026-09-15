@@ -174,4 +174,50 @@ describe('Arris participant adapter', () => {
       })
     ).toEqual({ status: 'pending', reason: 'arris_participant_key_required' })
   })
+
+  test('accepts an explicit future managed binding without inferring host ownership', async () => {
+    const managed = await fixture()
+    ;(managed['lifecycle'] as Record<string, unknown>) = {
+      host_lifecycle_owner: 'hrc-managed',
+      launch_id: 'launch:managed-1',
+      accepts_managed_stop: true,
+    }
+    const descriptorPath = await writeDescriptor(managed)
+    const adapter = createArrisParticipantAdapter({
+      workspaceCwd: process.cwd(),
+      participantKey: 'arris:managed',
+    })
+    const admission = await adapter.admit({
+      classId: 'arris-resident',
+      join: 'hrc-hosted',
+      evidence: { schema: 'arris.participant-evidence/1', descriptorPath },
+    })
+    if (admission.status !== 'admitted') throw new Error('managed fixture was not admitted')
+    const prepared = await adapter.prepare({
+      classId: 'arris-resident',
+      join: 'hrc-hosted',
+      participantKey: admission.participantKey,
+      workspaceCwd: admission.workspaceCwd,
+      preparation: admission.preparation,
+      identity,
+      scopeRef: 'arris@arris:managed',
+      laneRef: 'main',
+      attachEpoch: 1,
+    })
+    if (prepared.status !== 'prepared') throw new Error('managed fixture was not prepared')
+    expect(prepared.profile).toMatchObject({
+      brokerOwnership: 'hrc-owned-process',
+      expectedCapabilities: { control: { stop: 'optional' } },
+      harnessInvocation: {
+        startRequest: {
+          spec: {
+            driver: {
+              hostLifecycleOwner: 'hrc-managed',
+              launchId: 'launch:managed-1',
+            },
+          },
+        },
+      },
+    })
+  })
 })
