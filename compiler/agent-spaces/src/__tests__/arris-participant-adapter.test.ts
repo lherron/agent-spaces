@@ -3,7 +3,10 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { validateArrisHostDescriptor } from 'spaces-harness-broker-protocol'
+import {
+  validateArrisHostDescriptor,
+  validateInvocationStartRequest,
+} from 'spaces-harness-broker-protocol'
 import {
   validateParticipantAdapterAdmission,
   validateParticipantAdapterPreparation,
@@ -96,6 +99,56 @@ describe('Arris participant adapter', () => {
       startRequestHash: prepared.profile.harnessInvocation.startRequestHash,
       selectedProfileHash: prepared.profile.profileHash,
     })
+  })
+
+  // The wire gap that hid T-08518: T-08503's real-host smoke drove `createBroker`
+  // and `broker.start` in process, which never runs the JSON-RPC wire validator.
+  // This asserts the composed profile through the REAL exported validator the
+  // published broker's `broker.ensureInvocation` calls — never a local copy.
+  test.each([
+    ['participant-served', 'participant-served' as const],
+    ['hrc-hosted', 'hrc-hosted' as const],
+  ])('composes a %s start request the broker wire validator admits', async (_name, join) => {
+    const descriptorPath = await writeDescriptor(await fixture())
+    const adapter = createArrisParticipantAdapter({
+      workspaceCwd: process.cwd(),
+      participantKey: 'arris:primary',
+    })
+    const admission = await adapter.admit({
+      classId: 'arris-resident',
+      join,
+      evidence: { schema: 'arris.participant-evidence/1', descriptorPath },
+    })
+    if (admission.status !== 'admitted') throw new Error('fixture was not admitted')
+    const prepared = await adapter.prepare({
+      classId: 'arris-resident',
+      join,
+      participantKey: admission.participantKey,
+      workspaceCwd: admission.workspaceCwd,
+      preparation: admission.preparation,
+      identity,
+      scopeRef: 'arris@arris:primary',
+      laneRef: 'main',
+      attachEpoch: 2,
+    })
+    if (prepared.status !== 'prepared') throw new Error('fixture was not prepared')
+
+    const startRequest = prepared.profile.harnessInvocation.startRequest
+    // The profile really does declare in-process transport; if that ever
+    // changes the validator assertion below stops covering this defect.
+    expect(startRequest).toMatchObject({
+      spec: {
+        harness: { driver: ARRIS_RESIDENT_DRIVER_KIND },
+        process: {
+          command: 'arris-resident-external',
+          harnessTransport: { kind: 'in-process' },
+        },
+      },
+    })
+    expect(Object.hasOwn(startRequest.spec, 'sdk')).toBe(false)
+
+    expect(() => validateInvocationStartRequest(startRequest)).not.toThrow()
+    expect(validateInvocationStartRequest(startRequest)).toEqual(startRequest)
   })
 
   test('accepts null control socket as valid startup state and holds admission pending', async () => {

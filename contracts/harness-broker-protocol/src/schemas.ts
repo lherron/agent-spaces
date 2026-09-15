@@ -559,6 +559,13 @@ function validateSdkContract(
   const driverKind = harness?.['driver']
   const carriesSdkBlock =
     driverKind === 'pi-sdk' || driverKind === 'agent-harness' || driverKind === 'agent-harness-tmux'
+  // Eligibility for `in-process` transport is a DISTINCT predicate from carrying
+  // an `sdk` block. A driver that runs inside the broker process and opens its
+  // own transport — `arris-resident` dials the Arris control socket itself, so
+  // the broker spawns nothing — is truthfully in-process without being Pi
+  // SDK-backed, and must not be forced to carry an SDK block it never uses.
+  const allowsInProcessTransport =
+    driverKind === 'pi-sdk' || driverKind === 'agent-harness' || driverKind === 'arris-resident'
   const requiresInProcessHost = driverKind === 'pi-sdk' || driverKind === 'agent-harness'
   const sdk = asRecord(spec['sdk'])
 
@@ -566,12 +573,15 @@ function validateSdkContract(
     if (Object.hasOwn(spec, 'sdk')) {
       issues.push(makeIssue(sdkPath, 'forbidden', 'sdk is only supported by Pi SDK-backed drivers'))
     }
-    if (asRecord(process?.['harnessTransport'])?.['kind'] === 'in-process') {
+    if (
+      !allowsInProcessTransport &&
+      asRecord(process?.['harnessTransport'])?.['kind'] === 'in-process'
+    ) {
       issues.push(
         makeIssue(
           joinPath(prefix, 'process.harnessTransport.kind'),
           'forbidden',
-          'in-process transport is only supported by the pi-sdk driver'
+          'in-process transport is only supported by the pi-sdk, agent-harness and arris-resident drivers'
         )
       )
     }

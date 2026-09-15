@@ -158,6 +158,38 @@ const piSdkSpec = {
   },
 }
 
+// Shaped exactly like the profile `createArrisParticipantAdapter().prepare()`
+// composes: an in-process driver that opens the Arris control socket itself,
+// keeps a real command string (the broker spawns nothing from it) and carries
+// no `sdk` block.
+const arrisResidentSpec = {
+  specVersion: 'harness-broker.invocation/v1',
+  harness: {
+    frontend: 'arris',
+    provider: 'openai',
+    driver: 'arris-resident',
+  },
+  process: {
+    command: 'arris-resident-external',
+    args: [],
+    cwd: '/workspace/project',
+    lockedEnv: {},
+    harnessTransport: { kind: 'in-process' },
+  },
+  interaction: {
+    mode: 'headless',
+    turnConcurrency: 'single',
+    inputQueue: 'fifo',
+  },
+  driver: {
+    kind: 'arris-resident',
+    descriptorPath: '/private/tmp/arris/run/federation/host-descriptor.json',
+    hostIncarnationId: 'host-incarnation:0fff54f7-f6f7-473b-8776-1ba07803f87d',
+    hostLifecycleOwner: 'external',
+    launchId: null,
+  },
+}
+
 const expectInvalidSpec = (value: unknown, expectedIssue: { path: string; code: string }) => {
   expect(() => validateInvocationSpec(value)).toThrow(
     expect.objectContaining({
@@ -541,6 +573,42 @@ describe('validateInvocationSpec', () => {
       code: 'forbidden',
     })
   })
+
+  test('accepts an arris-resident in-process spec with no sdk block', () => {
+    expect(validateInvocationSpec(arrisResidentSpec)).toEqual(arrisResidentSpec)
+  })
+
+  test('still forbids an sdk block on the arris-resident driver', () => {
+    const invalid = structuredClone(arrisResidentSpec) as typeof arrisResidentSpec & {
+      sdk?: typeof piSdkSpec.sdk
+    }
+    invalid.sdk = structuredClone(piSdkSpec.sdk)
+
+    expectInvalidSpec(invalid, { path: 'sdk', code: 'forbidden' })
+  })
+
+  test.each([
+    ['codex-app-server', 'codex-app-server'],
+    ['noop-driver', 'noop-driver'],
+    ['an unknown driver', 'totally-unknown-driver'],
+  ])('still rejects in-process transport for %s', (_name, driverKind) => {
+    const invalid = structuredClone(specSection62Example) as Record<string, any>
+    invalid.harness.driver = driverKind
+    invalid.driver.kind = driverKind
+    invalid.process.harnessTransport.kind = 'in-process'
+
+    expectInvalidSpec(invalid, {
+      path: 'process.harnessTransport.kind',
+      code: 'forbidden',
+    })
+  })
+
+  test('does not relax the pi-sdk in-process host requirements', () => {
+    const invalid = structuredClone(piSdkSpec)
+    invalid.process.command = 'arris-resident-external'
+
+    expectInvalidSpec(invalid, { path: 'process.command', code: 'invalid_literal' })
+  })
 })
 
 describe('validateInvocationInput', () => {
@@ -778,6 +846,19 @@ describe('validateInvocationStartRequest', () => {
     const invalidSpec = structuredClone(specSection19InvocationStartSpec)
     mutate(invalidSpec)
     expectInvalidStartRequest({ spec: invalidSpec }, expectedIssue)
+  })
+
+  test('accepts an arris-resident in-process start request', () => {
+    const request = { spec: arrisResidentSpec }
+    expect(validateInvocationStartRequest(request)).toEqual(request)
+  })
+
+  test('rejects an arris-resident start request carrying an sdk block', () => {
+    const invalidSpec = structuredClone(arrisResidentSpec) as typeof arrisResidentSpec & {
+      sdk?: typeof piSdkSpec.sdk
+    }
+    invalidSpec.sdk = structuredClone(piSdkSpec.sdk)
+    expectInvalidStartRequest({ spec: invalidSpec }, { path: 'spec.sdk', code: 'forbidden' })
   })
 })
 
