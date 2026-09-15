@@ -296,6 +296,12 @@ interface BrokerHeldSubmission {
   timer?: ReturnType<typeof setTimeout> | undefined
 }
 
+interface RetryableNotWrittenCarrier {
+  readonly retryableNotWritten: true
+  readonly deliveryEvidence: 'not_written'
+  readonly receipt?: unknown
+}
+
 type InvocationInputWithId = InvocationInput & { inputId: InputId }
 
 /** Per-invocation in-memory record of a resolved input disposition. */
@@ -1053,6 +1059,41 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     )
   }
 
+  function retryableNotWrittenOf(error: unknown): RetryableNotWrittenCarrier | undefined {
+    if (typeof error !== 'object' || error === null) return undefined
+    const candidate = error as Partial<RetryableNotWrittenCarrier>
+    return candidate.retryableNotWritten === true && candidate.deliveryEvidence === 'not_written'
+      ? (candidate as RetryableNotWrittenCarrier)
+      : undefined
+  }
+
+  function reholdRetryableNotWritten(
+    inv: Invocation,
+    item: BrokerHeldSubmission,
+    error: RetryableNotWrittenCarrier
+  ): void {
+    item.record.deliveryEvidence = 'not_written'
+    inv.brokerQueue.unshift(item)
+    if (item.expiresAt !== undefined) {
+      const remaining = item.expiresAt - now().getTime()
+      if (remaining <= 0) {
+        expireHeldSubmission(inv, item.record.submissionId)
+        return
+      }
+      item.timer = setTimeout(() => expireHeldSubmission(inv, item.record.submissionId), remaining)
+    }
+    emit(inv, 'diagnostic', {
+      level: 'info',
+      source: 'broker',
+      kind: 'submission_retryable_not_written',
+      message: 'Driver proved the held submission was not written and remains retryable',
+      data: {
+        submissionId: item.record.submissionId,
+        ...(error.receipt === undefined ? {} : { receipt: error.receipt }),
+      },
+    })
+  }
+
   function scheduleAdmissionDrain(inv: Invocation): void {
     if (inv.admissionDrainPromise !== undefined) return
     inv.admissionDrainPromise = Promise.resolve()
@@ -1100,7 +1141,13 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     if (head.timer !== undefined) clearTimeout(head.timer)
     try {
       await applyAndEmit(inv, head.record.input)
+      head.timer = undefined
     } catch (error) {
+      const retryable = retryableNotWrittenOf(error)
+      if (retryable !== undefined && hasDriverOwnedAdmissionFence(inv)) {
+        reholdRetryableNotWritten(inv, head, retryable)
+        return
+      }
       rejectAdmittedExecution(inv, head.record, error)
     }
   }
@@ -2569,7 +2616,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       const rejection = await checkAdmission(inv, record, req)
       if (rejection !== undefined) return rejection
       const response = admitSubmission(inv, record)
-      if (inv.state === 'ready') {
+      if (inv.state === 'ready' && inv.driver.steerNeverStartsTurn !== true) {
         void applyAndEmit(inv, record.input).catch((error) =>
           rejectAdmittedExecution(inv, record, error)
         )

@@ -139,6 +139,8 @@ export interface Driver {
   readonly nativeSourceKind: 'provider-jsonl' | 'provider-jsonrpc'
   readonly preemptMode: PreemptMode | null
   readonly steerLandingEvidence: SteerLandingEvidence | null
+  /** A steer is always a steer, even while idle; it must never fall back to starting a turn. */
+  readonly steerNeverStartsTurn?: boolean | undefined
   readonly interruptLandingEvidence: InterruptLandingEvidence | null
   capabilities(spec?: HarnessInvocationSpec): InvocationCapabilities
   /**

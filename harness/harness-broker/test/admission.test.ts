@@ -41,7 +41,7 @@ async function setup(
     authorizeSubmission: brokerOptions.authorizeSubmission,
   })
   await broker.start({ spec: spec(invocationId) })
-  return { broker, controller, events, invocationId }
+  return { broker, controller, driver, events, invocationId }
 }
 
 function eventsFor(events: InvocationEventEnvelope[], type: InvocationEventEnvelope['type']) {
@@ -150,6 +150,56 @@ describe('broker admission API', () => {
     )
     await flush()
     expect(controller.inputs).toHaveLength(0)
+  })
+
+  test('retryable not-written keeps the same submission held until the driver signals', async () => {
+    let attempts = 0
+    const holder: { controller?: ReturnType<typeof createTestDriver>['controller'] } = {}
+    const run = await setup('inv_retryable_not_written', {
+      bracketMintingMode: 'observed',
+      admissionClasses: ['queue', 'steer'],
+      beforeApplyInput: async () => {
+        attempts += 1
+        if (attempts !== 1) return
+        holder.controller?.setHarnessLocalQueueDepth(1)
+        const error = Object.assign(new Error('host_busy'), {
+          retryableNotWritten: true as const,
+          deliveryEvidence: 'not_written' as const,
+          receipt: { receipt_id: 'control-receipt:busy', attempts_seen: [1] },
+        })
+        throw error
+      },
+    })
+    holder.controller = run.controller
+    Object.defineProperty(run.driver, 'blocksAdmissionWhileHarnessLocalQueued', {
+      value: true,
+    })
+
+    const admitted = await run.broker.enqueue({
+      invocationId: run.invocationId,
+      origin,
+      body: 'same logical input',
+    })
+    await flush()
+    expect(attempts).toBe(1)
+    expect(await run.broker.queueList({ invocationId: run.invocationId })).toEqual({
+      entries: [expect.objectContaining({ submissionId: admitted.submissionId })],
+    })
+    expect(eventsFor(run.events, 'submission.rejected')).toHaveLength(0)
+    expect(eventsFor(run.events, 'diagnostic').at(-1)?.payload).toMatchObject({
+      kind: 'submission_retryable_not_written',
+      data: {
+        submissionId: admitted.submissionId,
+        receipt: { receipt_id: 'control-receipt:busy', attempts_seen: [1] },
+      },
+    })
+
+    run.controller.setHarnessLocalQueueDepth(0)
+    run.controller.notifyAdmissionStateChanged()
+    await flush()
+    expect(attempts).toBe(2)
+    expect(run.controller.inputs.map((input) => input.inputId)).toEqual([admitted.submissionId])
+    expect((await run.broker.queueList({ invocationId: run.invocationId })).entries).toHaveLength(0)
   })
 
   test('unknown attribution contests a pending observed delivery and fails closed at terminal', async () => {
@@ -782,6 +832,28 @@ describe('broker admission API', () => {
         (event) => event.payload.submissionId === refused.submissionId
       )
     ).toHaveLength(1)
+  })
+
+  test('an idle steer never starts a turn when the driver requires strict steer semantics', async () => {
+    const run = await setup('inv_strict_idle_steer')
+    Object.defineProperty(run.driver, 'steerNeverStartsTurn', { value: true })
+
+    const steered = await run.broker.steer({
+      invocationId: run.invocationId,
+      origin,
+      body: 'do not start a turn',
+    })
+    await flush()
+
+    expect(run.controller.inputs).toHaveLength(0)
+    expect(run.controller.steeredInputs.map((input) => input.inputId)).toEqual([
+      steered.submissionId,
+    ])
+    expect(eventsFor(run.events, 'turn.started')).toHaveLength(0)
+    expect(eventsFor(run.events, 'input.accepted').at(-1)?.payload).toMatchObject({
+      inputId: steered.submissionId,
+      disposition: 'attempted_steer',
+    })
   })
 
   test('steer stays pending until evidence on open turns and is rejected by guarded policy', async () => {
