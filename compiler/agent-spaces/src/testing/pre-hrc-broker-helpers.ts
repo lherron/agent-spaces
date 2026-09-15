@@ -35,6 +35,7 @@ export {
   type ControlledParticipantAdapterDriver,
   type ControlledParticipantContinuityEvidence,
   type ControlledParticipantAdapterOptions,
+  type ControlledParticipantWriterEvidence,
 } from './controlled-participant-adapter.js'
 
 // ---------------------------------------------------------------------------

@@ -3,6 +3,11 @@ import {
   type ParticipantAdapter,
   type ParticipantAdapterAdmissionRequest,
   type ParticipantAdapterPreparationRequest,
+  type PriorRecovery,
+  type WriterEvidence,
+  type WriterLiveness,
+  type WriterPathState,
+  type WriterRef,
   createCanonicalHasher,
   neutralBrokerExecutionProfileHash,
   neutralSpecHash,
@@ -24,6 +29,14 @@ export type ControlledParticipantContinuityEvidence = {
 /** The controlled helper's explicit driver choice; production callers get Codex. */
 export type ControlledParticipantAdapterDriver = 'codex-app-server' | 'noop-driver'
 
+/** Deterministic writer-owner observations exposed by the shipped reference adapter. */
+export type ControlledParticipantWriterEvidence = {
+  observedAt?: string | undefined
+  writePath: { state: WriterPathState; reason?: string | undefined }
+  liveness: { state: WriterLiveness; reason?: string | undefined }
+  priorRecovery: { state: PriorRecovery; reason?: string | undefined }
+}
+
 export type ControlledParticipantAdapterOptions = {
   /** Required because admission has no workspace field to infer from. */
   workspaceCwd: string
@@ -31,6 +44,40 @@ export type ControlledParticipantAdapterOptions = {
   dispatchEnv?: Record<string, string> | undefined
   /** Test-only hermetic driver selection; defaults to the published Codex profile. */
   driver?: ControlledParticipantAdapterDriver | undefined
+  /** Test-controlled independent writer axes; defaults to honest unknowns. */
+  writerEvidence?: ControlledParticipantWriterEvidence | undefined
+}
+
+const unknownWriterEvidence = {
+  observedAt: '2000-01-01T00:00:00.000Z',
+  writePath: { state: 'unknown', reason: 'controlled write path not configured' },
+  liveness: { state: 'unknown', reason: 'controlled liveness not configured' },
+  priorRecovery: { state: 'unknown', reason: 'controlled recovery not configured' },
+} satisfies Required<ControlledParticipantWriterEvidence>
+
+function controlledWriterEvidence(
+  writerRef: WriterRef,
+  configured: ControlledParticipantWriterEvidence | undefined
+): WriterEvidence {
+  const evidence = configured ?? unknownWriterEvidence
+  return {
+    schemaVersion: 'writer-evidence/v1',
+    writerRef: { ...writerRef },
+    observedAt: evidence.observedAt ?? unknownWriterEvidence.observedAt,
+    writePath: {
+      state: evidence.writePath.state,
+      reason: evidence.writePath.reason ?? `controlled writePath=${evidence.writePath.state}`,
+    },
+    liveness: {
+      state: evidence.liveness.state,
+      reason: evidence.liveness.reason ?? `controlled liveness=${evidence.liveness.state}`,
+    },
+    priorRecovery: {
+      state: evidence.priorRecovery.state,
+      reason:
+        evidence.priorRecovery.reason ?? `controlled priorRecovery=${evidence.priorRecovery.state}`,
+    },
+  }
 }
 
 function stableId(prefix: 'profile' | 'compatibility', value: unknown): string {
@@ -241,6 +288,12 @@ export function createControlledParticipantAdapter(
         profile,
         dispatchEnv: options.dispatchEnv,
       }
+    },
+    retireWriter(input) {
+      return controlledWriterEvidence(input.writerRef, options.writerEvidence)
+    },
+    inspectWriter(input) {
+      return controlledWriterEvidence(input.writerRef, options.writerEvidence)
     },
   }
 }
