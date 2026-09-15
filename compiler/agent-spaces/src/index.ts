@@ -36,7 +36,10 @@ export type {
   TurnExecutor,
 } from './types.js'
 
-export type { RuntimeCompileRequest, RuntimeCompileResponse } from 'spaces-runtime-contracts'
+export type {
+  RuntimeCompileRequest,
+  RuntimeCompileResponse,
+} from 'spaces-runtime-contracts'
 
 export type {
   AgentSpacesClientOptions,
@@ -47,6 +50,16 @@ export type {
 } from './placement-api.js'
 
 export { buildCorrelationEnvVars } from './placement-api.js'
+
+export {
+  ARRIS_PARTICIPANT_ADAPTER_ID,
+  ARRIS_RESIDENT_DRIVER_KIND,
+  createArrisParticipantAdapter,
+  type ArrisParticipantAdapterOptions,
+  type ArrisParticipantContinuityEvidence,
+  type ArrisParticipantEvidence,
+  type ArrisParticipantPreparation,
+} from './arris-participant-adapter.js'
 
 export { createAgentSpacesClient } from './client.js'
 

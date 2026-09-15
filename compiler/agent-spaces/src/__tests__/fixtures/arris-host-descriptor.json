@@ -1,0 +1,77 @@
+{
+  "schema": "arris.host-descriptor/1",
+  "host_incarnation": {
+    "host_incarnation_id": "host-incarnation:0fff54f7-f6f7-473b-8776-1ba07803f87d",
+    "process": {
+      "pid": 67137,
+      "executable": "/Users/lherron/praesidium/under-construction/codex-prototype-install-T-08502/bin/arris-codex-prototype",
+      "os_started_at": "Tue Sep 15 12:31:49 2026",
+      "observed_at_ms": 1789493510011
+    }
+  },
+  "readiness": {
+    "state": "ready",
+    "since_ms": 1789493517270,
+    "accepts_input": true
+  },
+  "lifecycle": {
+    "host_lifecycle_owner": "external",
+    "launch_id": null,
+    "accepts_managed_stop": false
+  },
+  "control": {
+    "socket_path": "/private/tmp/t08502-r1/run/federation/control.sock",
+    "admission_classes": ["queue", "steer"],
+    "unsupported_classes": [
+      "interrupt",
+      "preempt",
+      "exclusive",
+      "thread-management"
+    ]
+  },
+  "events": {
+    "format": "application/x-ndjson",
+    "path": "/private/tmp/t08502-r1/run/federation/events-0fff54f7-f6f7-473b-8776-1ba07803f87d.jsonl",
+    "host_incarnation_id": "host-incarnation:0fff54f7-f6f7-473b-8776-1ba07803f87d",
+    "first_sequence": 1,
+    "last_sequence_at_publish": 374,
+    "tail_is_authoritative_in": "the journal file itself",
+    "dropped_records": 0,
+    "cursor_field": "sequence"
+  },
+  "helpers": [
+    {
+      "kind": "control_client",
+      "id": "connection:1",
+      "first_seen_ms": 1789493517405
+    },
+    {
+      "kind": "control_client",
+      "id": "connection:2",
+      "first_seen_ms": 1789493517452
+    },
+    {
+      "kind": "attached_client",
+      "id": "connection:0",
+      "first_seen_ms": 1789493729390
+    },
+    {
+      "kind": "attached_client",
+      "id": "connection:1",
+      "first_seen_ms": 1789493730948
+    },
+    {
+      "kind": "control_client",
+      "id": "connection:3",
+      "first_seen_ms": 1789493730959
+    }
+  ],
+  "resident_binding": {
+    "visibility": "host-private",
+    "thread_id": "01a0a61f-ff4d-7210-a823-37cddf95bfbf",
+    "rollout_path": "/Users/lherron/praesidium/under-construction/codex-scratch/t08502-r1/codex-home/sessions/2026/09/15/rollout-2026-09-15T12-31-49-01a0a61f-ff4d-7210-a823-37cddf95bfbf.jsonl",
+    "model_id": "gpt-5.6-sol",
+    "rebind_count": 0,
+    "bound_at_ms": 1789493510011
+  }
+}
