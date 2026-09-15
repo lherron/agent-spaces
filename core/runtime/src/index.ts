@@ -12,6 +12,7 @@ export {
   inspectAgentSystemPrompt,
   materializeSystemPrompt,
 } from './system-prompt.js'
+export { interpolateVariables } from './template-vars.js'
 export type { ContextTemplate, SectionWrap } from './context-template.js'
 export type {
   ContextResolverContext,

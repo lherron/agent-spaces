@@ -28,10 +28,10 @@ import { homedir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 
 import type { AgentRuntimeProfile, RunMode, SpaceRefString } from 'spaces-config'
-import { PathResolver, parseAgentProfile } from 'spaces-config'
+import { PathResolver, parseAgentProfile, resolveAgentPrimingPrompt } from 'spaces-config'
 import { detectAgentLocalComponents, materializeFromRefs } from 'spaces-execution'
 import { buildCodexHookTrustState } from 'spaces-harness-codex'
-import { materializeSystemPrompt } from 'spaces-runtime'
+import { interpolateVariables, materializeSystemPrompt } from 'spaces-runtime'
 
 const PROJECT_ID = 'praesidium'
 const TASK_ID = 'primary'
@@ -137,6 +137,35 @@ export interface SyncManifest {
   agentsPath: 'AGENTS.md'
 }
 
+/**
+ * The agent's priming prompt, rendered, and where it was read from.
+ *
+ * An embedder that runs this overlay to build a Codex home needs the same seed
+ * turn text the launcher would submit, and it must not re-derive it: parsing a
+ * second copy of agent-profile.toml is how two renderings of `{{agentId}}`
+ * start to disagree. The overlay already reads the profile, so it renders the
+ * value once here and reports it.
+ *
+ * `present: false` carries the reason instead of a value, so a caller that
+ * requires priming can refuse by name rather than inventing a fallback.
+ */
+export type PrimingPlan =
+  | {
+      present: true
+      /** Rendered text: template variables such as `{{agentId}}` are expanded. */
+      text: string
+      /** File the unrendered value was read from. */
+      sourcePath: string
+      /** Profile key the value came from. */
+      sourceField: 'priming' | 'priming_file'
+    }
+  | {
+      present: false
+      reason: string
+      /** Profile consulted, so a refusal can name the file that lacks the field. */
+      sourcePath: string
+    }
+
 export interface SyncPlan {
   agentId: string
   agentRoot: string
@@ -152,6 +181,8 @@ export interface SyncPlan {
   hooks: HooksPlan
   staleManagedSkills: string[]
   retire: RetirePlan
+  /** Rendered priming prompt for this agent; see {@link PrimingPlan}. */
+  priming: PrimingPlan
   warnings: string[]
 }
 
@@ -284,6 +315,60 @@ function isWithinPath(path: string, parent: string): boolean {
 
 function dedupe<T>(items: T[]): T[] {
   return Array.from(new Set(items))
+}
+
+/**
+ * Renders the agent's priming prompt with the same template variables the
+ * launcher uses, so an embedder gets the text a launched seat would receive.
+ *
+ * Only the identity variables this overlay actually pins are supplied
+ * (`agentId`, `projectId`, `taskId`, and the roots); an unknown `{{...}}` is
+ * left as written rather than silently blanked, which keeps a typo visible in
+ * the seed turn instead of turning it into an empty string.
+ */
+function buildPrimingPlan(
+  profile: AgentRuntimeProfile,
+  agentRoot: string,
+  agentId: string,
+  projectRoot: string,
+  agentsRoot: string
+): PrimingPlan {
+  const profilePath = join(agentRoot, 'agent-profile.toml')
+  let raw: string | undefined
+  try {
+    raw = resolveAgentPrimingPrompt(profile, agentRoot)
+  } catch (error) {
+    return {
+      present: false,
+      reason: `priming_file could not be read: ${error instanceof Error ? error.message : String(error)}`,
+      sourcePath: profilePath,
+    }
+  }
+  if (raw === undefined) {
+    return {
+      present: false,
+      reason: 'profile declares neither priming nor priming_file',
+      sourcePath: profilePath,
+    }
+  }
+  const sourceField = profile.priming ? 'priming' : 'priming_file'
+  const sourcePath =
+    sourceField === 'priming_file' && profile.priming_file
+      ? join(agentRoot, profile.priming_file)
+      : profilePath
+  const text = interpolateVariables(raw, {
+    agentRoot,
+    agentsRoot,
+    projectRoot,
+    projectId: PROJECT_ID,
+    agentId,
+    taskId: TASK_ID,
+    runMode: RUN_MODE,
+  })
+  if (text.trim().length === 0) {
+    return { present: false, reason: 'priming rendered to empty text', sourcePath }
+  }
+  return { present: true, text, sourcePath, sourceField }
 }
 
 function refsForProfile(profile: AgentRuntimeProfile): SpaceRefString[] {
@@ -1450,6 +1535,7 @@ async function materializeAgent(input: {
   skillsDir: string
   systemPrompt: string
   reminderContent?: string | undefined
+  priming: PrimingPlan
 }> {
   process.env['ASP_HOME'] = input.aspHome
   const paths = new PathResolver({ aspHome: input.aspHome })
@@ -1492,6 +1578,13 @@ async function materializeAgent(input: {
     skillsDir: join(codexHome, 'skills'),
     systemPrompt: systemPrompt?.content ?? '',
     reminderContent: systemPrompt?.reminderContent,
+    priming: buildPrimingPlan(
+      profile,
+      input.agentRoot,
+      input.agentId,
+      input.projectRoot,
+      input.agentsRoot
+    ),
   }
 }
 
@@ -1570,6 +1663,7 @@ async function buildPlan(args: SyncAgentToCodexDefaultOptions): Promise<SyncPlan
     hooks: hooksPlan,
     staleManagedSkills: skillPlan.staleManagedSkills,
     retire,
+    priming: materialized.priming,
     warnings: skillPlan.warnings,
   }
 }
@@ -1753,6 +1847,11 @@ function renderHuman(result: SyncResult): void {
     plan.hooks.enabled
       ? `hooks:        hooks.json=${plan.hooks.hooksAction} script=${plan.hooks.scriptAction} discovery=${plan.hooks.discoveryScriptAction}`
       : 'hooks:        skipped'
+  )
+  console.log(
+    plan.priming.present
+      ? `priming:      ${plan.priming.sourceField} from ${plan.priming.sourcePath} (${plan.priming.text.length} chars)`
+      : `priming:      absent (${plan.priming.reason})`
   )
   if (plan.staleManagedSkills.length > 0) {
     console.log(`stale:        ${plan.staleManagedSkills.join(', ')}`)
