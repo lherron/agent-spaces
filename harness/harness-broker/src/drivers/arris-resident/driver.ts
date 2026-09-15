@@ -226,7 +226,10 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
     nextAttempts.set(receipt.identity.input_id, maximumAttempt + 1)
     if (receipt.outcome.outcome === 'written') {
       currentNeutralTurnId = receipt.outcome.neutral_turn_id
-      inputByNeutralTurn.set(receipt.outcome.neutral_turn_id, receipt.identity.input_id as InputId)
+      const brokerInputId = brokerInputByHostInput.get(receipt.identity.input_id)
+      if (brokerInputId !== undefined) {
+        inputByNeutralTurn.set(receipt.outcome.neutral_turn_id, brokerInputId)
+      }
       if (receipt.outcome.codex_turn_id !== null) {
         neutralByCodexTurn.set(receipt.outcome.codex_turn_id, receipt.outcome.neutral_turn_id)
       }
@@ -391,7 +394,9 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
       return { disposition: 'normalized', detail: record.kind }
     }
     if (record.kind === 'control_input_presented') {
-      const inputId = stringValue(detail['input_id']) as InputId | undefined
+      const hostInputId = stringValue(detail['input_id'])
+      const inputId =
+        hostInputId === undefined ? undefined : brokerInputByHostInput.get(hostInputId)
       const codex = stringValue(detail['codex_turn_id'])
       const neutral =
         (codex === undefined ? undefined : neutralByCodexTurn.get(codex)) ?? currentNeutralTurnId

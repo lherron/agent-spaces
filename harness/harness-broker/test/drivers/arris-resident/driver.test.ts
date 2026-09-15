@@ -246,6 +246,9 @@ describe('Arris resident driver control seam', () => {
       },
     ])
     expect(events.filter((event) => event.type === 'driver.notice')).toHaveLength(2)
+    expect(
+      events.filter((event) => event.type === 'driver.notice').map((event) => event.inputId)
+    ).toEqual(['submission-1', 'submission-2'])
     await driver.dispose()
   })
 
