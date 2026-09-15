@@ -9,6 +9,14 @@ import type {
   ParticipantAdapterPreparationResult,
   ParticipantAdapterValidationIssue,
   ParticipantAdapterValidationResult,
+  PriorRecovery,
+  WriterEvidence,
+  WriterInspectionRequest,
+  WriterLiveness,
+  WriterPathState,
+  WriterRef,
+  WriterRetirementRequest,
+  WriterSubject,
 } from '../src/index'
 import {
   neutralBrokerExecutionProfileHash,
@@ -16,6 +24,7 @@ import {
   neutralStartRequestHash,
   validateParticipantAdapterAdmission,
   validateParticipantAdapterPreparation,
+  validateWriterEvidence,
 } from '../src/index'
 
 function request(): ParticipantAdapterPreparationRequest {
@@ -44,7 +53,11 @@ function profile(input: ParticipantAdapterPreparationRequest): BrokerExecutionPr
     spec: {
       specVersion: 'harness-broker.invocation/v1' as const,
       invocationId: input.identity.invocationId,
-      harness: { frontend: 'test', provider: 'test', driver: 'controlled-driver' },
+      harness: {
+        frontend: 'test',
+        provider: 'test',
+        driver: 'controlled-driver',
+      },
       process: {
         command: 'controlled-driver',
         args: [],
@@ -143,7 +156,10 @@ describe('participant adapter contract', () => {
       admit: () => admissionResult,
       prepare: () => preparationResult,
     }
-    const issue: ParticipantAdapterValidationIssue = { path: 'status', message: 'example' }
+    const issue: ParticipantAdapterValidationIssue = {
+      path: 'status',
+      message: 'example',
+    }
     const validation: ParticipantAdapterValidationResult<ParticipantAdapterAdmissionResult> = {
       ok: true,
       value: admissionResult,
@@ -156,6 +172,103 @@ describe('participant adapter contract', () => {
       true,
       'hrc-hosted',
     ])
+  })
+
+  test('exports the writer evidence surface without requiring it on legacy adapters', () => {
+    const subject: WriterSubject = 'bridge'
+    const writePath: WriterPathState = 'retired'
+    const liveness: WriterLiveness = 'live'
+    const priorRecovery: PriorRecovery = 'unknown'
+    const writerRef: WriterRef = {
+      subject,
+      classId: 'controlled',
+      participantKey: 'participant:controlled',
+      attemptId: 'attempt:1',
+      invocationId: 'invocation:1' as never,
+      attachEpoch: 2,
+      brokerInstanceId: 'broker:1',
+    }
+    const retirement: WriterRetirementRequest = {
+      writerRef,
+      reason: 'successor requested',
+    }
+    const inspection: WriterInspectionRequest = { writerRef }
+    const evidence: WriterEvidence = {
+      schemaVersion: 'writer-evidence/v1',
+      writerRef,
+      observedAt: '2026-09-15T15:00:00.000Z',
+      writePath: { state: writePath, reason: 'closed' },
+      liveness: { state: liveness, reason: 'still serving reads' },
+      priorRecovery: { state: priorRecovery, reason: 'not inspected' },
+    }
+    expect(validateWriterEvidence(retirement, evidence)).toEqual({
+      ok: true,
+      value: evidence,
+    })
+    expect(validateWriterEvidence(inspection, evidence)).toEqual({
+      ok: true,
+      value: evidence,
+    })
+  })
+
+  test('rejects malformed writer axes and a response for a different identity', () => {
+    const writerRef: WriterRef = {
+      subject: 'host',
+      classId: 'controlled',
+      participantKey: 'participant:controlled',
+      attemptId: 'attempt:1',
+      invocationId: 'invocation:1' as never,
+      attachEpoch: 2,
+      hostIncarnationId: 'host-incarnation:1',
+    }
+    const rejected = validateWriterEvidence(
+      { writerRef },
+      {
+        schemaVersion: 'writer-evidence/v1',
+        writerRef: { ...writerRef, attemptId: 'attempt:other' },
+        observedAt: 'not-a-timestamp',
+        writePath: { state: 'closed', reason: '' },
+        liveness: { state: 'live', reason: 'observed', detail: BigInt(1) },
+        priorRecovery: { state: 'reconciled', reason: 'wrong vocabulary' },
+      }
+    )
+    expect(rejected.ok).toBe(false)
+    if (rejected.ok) return
+    expect(rejected.issues.map((issue) => issue.path)).toEqual(
+      expect.arrayContaining([
+        'writerRef',
+        'observedAt',
+        'writePath.state',
+        'writePath.reason',
+        'liveness.detail',
+        'priorRecovery.state',
+      ])
+    )
+  })
+
+  test('requires explicit bridge identity and preserves unknown as a valid axis state', () => {
+    const writerRef = {
+      subject: 'bridge',
+      classId: 'controlled',
+      participantKey: 'participant:controlled',
+      attemptId: 'attempt:1',
+      invocationId: 'invocation:1',
+      attachEpoch: 0,
+    } as unknown as WriterRef
+    const result = validateWriterEvidence(
+      { writerRef },
+      {
+        schemaVersion: 'writer-evidence/v1',
+        writerRef,
+        observedAt: '2026-09-15T10:00:00-05:00',
+        writePath: { state: 'unknown', reason: 'not observed' },
+        liveness: { state: 'unknown', reason: 'not observed' },
+        priorRecovery: { state: 'unknown', reason: 'not observed' },
+      }
+    )
+    expect(result).toMatchObject({ ok: false })
+    if (result.ok) return
+    expect(result.issues.map((issue) => issue.path)).toContain('writerRef.brokerInstanceId')
   })
 
   test('accepts opaque JSON admission and refuses non-JSON evidence', () => {

@@ -54,6 +54,50 @@ export type ParticipantAdapterPreparationResult =
       dispatchEnv?: InvocationDispatchRequest['dispatchEnv']
     }
 
+/** The writer kind whose native write path is being inspected or retired. */
+export type WriterSubject = 'host' | 'bridge'
+
+/** Product-neutral identity of the exact writer an evidence receipt describes. */
+export type WriterRef = {
+  subject: WriterSubject
+  classId: string
+  participantKey: string
+  attemptId: string
+  invocationId: InvocationId
+  attachEpoch: number
+  brokerInstanceId?: string | undefined
+  hostIncarnationId?: string | undefined
+}
+
+export type WriterPathState = 'retired' | 'writable' | 'unknown'
+export type WriterLiveness = 'dead' | 'live' | 'unknown'
+export type PriorRecovery = 'recovered' | 'outstanding' | 'unknown'
+
+/** Independent point-in-time observations made by the writer's owner. */
+export type WriterEvidence = {
+  schemaVersion: 'writer-evidence/v1'
+  writerRef: WriterRef
+  observedAt: string
+  writePath: {
+    state: WriterPathState
+    reason: string
+    detail?: JsonValue | undefined
+  }
+  liveness: {
+    state: WriterLiveness
+    reason: string
+    detail?: JsonValue | undefined
+  }
+  priorRecovery: {
+    state: PriorRecovery
+    reason: string
+    detail?: JsonValue | undefined
+  }
+}
+
+export type WriterRetirementRequest = { writerRef: WriterRef; reason: string }
+export type WriterInspectionRequest = { writerRef: WriterRef }
+
 /** A trusted, locally composed adapter; it has no dynamic loading contract. */
 export interface ParticipantAdapter {
   readonly adapterId: string
@@ -63,6 +107,10 @@ export interface ParticipantAdapter {
   prepare(
     request: ParticipantAdapterPreparationRequest
   ): Promise<ParticipantAdapterPreparationResult> | ParticipantAdapterPreparationResult
+  /** Idempotently close native write paths owned by this adapter, then report state. */
+  retireWriter?(request: WriterRetirementRequest): Promise<WriterEvidence> | WriterEvidence
+  /** Inspect the exact writer without changing it. */
+  inspectWriter?(request: WriterInspectionRequest): Promise<WriterEvidence> | WriterEvidence
 }
 
 export type ParticipantAdapterValidationIssue = {
@@ -106,6 +154,125 @@ function pushIssue(
   issues.push({ path, message })
 }
 
+const writerRefKeys = [
+  'subject',
+  'classId',
+  'participantKey',
+  'attemptId',
+  'invocationId',
+  'attachEpoch',
+  'brokerInstanceId',
+  'hostIncarnationId',
+] as const
+
+function validateWriterRef(value: unknown, issues: ParticipantAdapterValidationIssue[]): void {
+  if (!isRecord(value)) {
+    pushIssue(issues, 'writerRef', 'Writer evidence requires a writerRef object.')
+    return
+  }
+  if (!hasOnlyKeys(value, writerRefKeys)) {
+    pushIssue(issues, 'writerRef', 'Writer reference has extra fields.')
+  }
+  if (value['subject'] !== 'host' && value['subject'] !== 'bridge') {
+    pushIssue(issues, 'writerRef.subject', 'Writer subject must be host or bridge.')
+  }
+  for (const key of ['classId', 'participantKey', 'attemptId', 'invocationId'] as const) {
+    if (typeof value[key] !== 'string' || value[key].length === 0) {
+      pushIssue(issues, `writerRef.${key}`, `Writer reference requires a non-empty ${key}.`)
+    }
+  }
+  if (!Number.isInteger(value['attachEpoch']) || (value['attachEpoch'] as number) < 0) {
+    pushIssue(issues, 'writerRef.attachEpoch', 'Writer reference attachEpoch must be non-negative.')
+  }
+  for (const key of ['brokerInstanceId', 'hostIncarnationId'] as const) {
+    if (value[key] !== undefined && (typeof value[key] !== 'string' || value[key].length === 0)) {
+      pushIssue(issues, `writerRef.${key}`, `${key} must be non-empty when present.`)
+    }
+  }
+  if (value['subject'] === 'bridge' && typeof value['brokerInstanceId'] !== 'string') {
+    pushIssue(issues, 'writerRef.brokerInstanceId', 'Bridge writers require brokerInstanceId.')
+  }
+}
+
+function writerRefsMatch(expected: WriterRef, actual: Record<string, unknown>): boolean {
+  return writerRefKeys.every((key) => expected[key] === actual[key])
+}
+
+function validateWriterAxis(
+  value: unknown,
+  path: 'writePath' | 'liveness' | 'priorRecovery',
+  states: readonly string[],
+  issues: ParticipantAdapterValidationIssue[]
+): void {
+  if (!isRecord(value)) {
+    pushIssue(issues, path, `${path} must be an object.`)
+    return
+  }
+  if (!hasOnlyKeys(value, ['state', 'reason', 'detail'])) {
+    pushIssue(issues, path, `${path} has extra fields.`)
+  }
+  if (typeof value['state'] !== 'string' || !states.includes(value['state'])) {
+    pushIssue(issues, `${path}.state`, `${path} has an invalid state.`)
+  }
+  if (typeof value['reason'] !== 'string' || value['reason'].length === 0) {
+    pushIssue(issues, `${path}.reason`, `${path} requires a non-empty reason.`)
+  }
+  if (value['detail'] !== undefined && !isJsonValue(value['detail'])) {
+    pushIssue(issues, `${path}.detail`, `${path} detail must be JSON-serializable.`)
+  }
+}
+
+/** Validate a writer receipt and bind it to the exact requested writer identity. */
+export function validateWriterEvidence(
+  request: WriterRetirementRequest | WriterInspectionRequest,
+  value: unknown
+): ParticipantAdapterValidationResult<WriterEvidence> {
+  const issues: ParticipantAdapterValidationIssue[] = []
+  if (!isRecord(value)) {
+    return {
+      ok: false,
+      issues: [{ path: '', message: 'Writer evidence must be an object.' }],
+    }
+  }
+  if (
+    !hasOnlyKeys(value, [
+      'schemaVersion',
+      'writerRef',
+      'observedAt',
+      'writePath',
+      'liveness',
+      'priorRecovery',
+    ])
+  ) {
+    pushIssue(issues, '', 'Writer evidence has extra fields.')
+  }
+  if (value['schemaVersion'] !== 'writer-evidence/v1') {
+    pushIssue(issues, 'schemaVersion', 'Writer evidence schemaVersion must be writer-evidence/v1.')
+  }
+  validateWriterRef(value['writerRef'], issues)
+  if (isRecord(value['writerRef']) && !writerRefsMatch(request.writerRef, value['writerRef'])) {
+    pushIssue(issues, 'writerRef', 'Writer evidence must match the requested writerRef exactly.')
+  }
+  if (
+    typeof value['observedAt'] !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(
+      value['observedAt']
+    ) ||
+    Number.isNaN(Date.parse(value['observedAt']))
+  ) {
+    pushIssue(issues, 'observedAt', 'Writer evidence observedAt must be an ISO-8601 timestamp.')
+  }
+  validateWriterAxis(value['writePath'], 'writePath', ['retired', 'writable', 'unknown'], issues)
+  validateWriterAxis(value['liveness'], 'liveness', ['dead', 'live', 'unknown'], issues)
+  validateWriterAxis(
+    value['priorRecovery'],
+    'priorRecovery',
+    ['recovered', 'outstanding', 'unknown'],
+    issues
+  )
+  return issues.length === 0 ? { ok: true, value: value as WriterEvidence } : { ok: false, issues }
+}
+
 /**
  * Reproduces the existing compiler's profile projection material. It keeps the
  * neutral start request and generation-only observability correlation used by
@@ -121,7 +288,9 @@ export function neutralBrokerExecutionProfileHash(profile: BrokerExecutionProfil
           ...harnessInvocation,
           startRequest: hashNeutralStartRequest(harnessInvocation.startRequest),
         },
-        observability: { correlation: { generation: observability.correlation.generation } },
+        observability: {
+          correlation: { generation: observability.correlation.generation },
+        },
       },
       'profile'
     ) as { profileHash: string }
@@ -137,7 +306,10 @@ export function validateParticipantAdapterAdmission(
 ): ParticipantAdapterValidationResult<ParticipantAdapterAdmissionResult> {
   const issues: ParticipantAdapterValidationIssue[] = []
   if (!isRecord(value) || typeof value['status'] !== 'string') {
-    return { ok: false, issues: [{ path: '', message: 'Admission result must be an object.' }] }
+    return {
+      ok: false,
+      issues: [{ path: '', message: 'Admission result must be an object.' }],
+    }
   }
 
   if (value['status'] === 'pending' || value['status'] === 'rejected') {
@@ -190,7 +362,10 @@ export function validateParticipantAdapterPreparation(
 ): ParticipantAdapterValidationResult<ParticipantAdapterPreparationResult> {
   const issues: ParticipantAdapterValidationIssue[] = []
   if (!isRecord(value) || typeof value['status'] !== 'string') {
-    return { ok: false, issues: [{ path: '', message: 'Preparation result must be an object.' }] }
+    return {
+      ok: false,
+      issues: [{ path: '', message: 'Preparation result must be an object.' }],
+    }
   }
 
   if (value['status'] === 'pending' || value['status'] === 'rejected') {
@@ -209,7 +384,10 @@ export function validateParticipantAdapterPreparation(
     return {
       ok: false,
       issues: [
-        { path: 'status', message: 'Preparation status must be pending, rejected, or prepared.' },
+        {
+          path: 'status',
+          message: 'Preparation status must be pending, rejected, or prepared.',
+        },
       ],
     }
   }
@@ -358,8 +536,9 @@ export function validateParticipantAdapterPreparation(
   const actualInitialInputHash =
     startRequest.initialInput === undefined
       ? undefined
-      : createCanonicalHasher().hash(startRequest.initialInput, { timestampMode: 'omit-ephemeral' })
-          .value
+      : createCanonicalHasher().hash(startRequest.initialInput, {
+          timestampMode: 'omit-ephemeral',
+        }).value
   if (invocation.initialInputHash !== actualInitialInputHash) {
     pushIssue(
       issues,
