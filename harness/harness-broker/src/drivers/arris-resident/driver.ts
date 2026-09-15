@@ -156,6 +156,7 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
   let spec: ArrisResidentDriverSpec | undefined
   let descriptor: ArrisHostDescriptor | undefined
   let control: ArrisControlClient | undefined
+  let controlSocketPath: string | undefined
   let poller: ReturnType<typeof setInterval> | undefined
   let stopped = true
   let healthReason: string | undefined
@@ -163,6 +164,7 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
   let retryHold = false
   const nextAttempts = new Map<string, number>()
   const receiptByInput = new Map<string, ArrisControlReceipt>()
+  const brokerInputByHostInput = new Map<string, InputId>()
   const inputByNeutralTurn = new Map<string, InputId>()
   const neutralByCodexTurn = new Map<string, string>()
   const assistantText = new Map<string, string>()
@@ -208,7 +210,9 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
         'not_written'
       )
     }
-    const inputId = input.inputId
+    const brokerInputId = input.inputId
+    const inputId = input.metadata?.['envelopeId'] ?? brokerInputId
+    brokerInputByHostInput.set(inputId, brokerInputId)
     return {
       platform: 'hrc',
       input_id: inputId,
@@ -232,6 +236,7 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
         neutralByCodexTurn.set(receipt.outcome.codex_turn_id, receipt.outcome.neutral_turn_id)
       }
     }
+    const brokerInputId = brokerInputByHostInput.get(receipt.identity.input_id)
     requireCtx().emit(
       'driver.notice',
       {
@@ -240,7 +245,7 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
         data: receipt,
       },
       {
-        inputId: receipt.identity.input_id as InputId,
+        ...(brokerInputId !== undefined ? { inputId: brokerInputId } : {}),
         driver: { kind: ARRIS_RESIDENT_DRIVER_KIND, rawType: 'control.receipt' },
       }
     )
@@ -272,6 +277,40 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
     // in_flight, indeterminate and written-before-presentation all keep the
     // broker's pending-own-turn fence. Journal evidence settles the attempt.
     return {}
+  }
+
+  async function reconcileBeforeWrite(
+    identity: ArrisInputIdentity
+  ): Promise<ApplyInputResult | undefined> {
+    const prior = receiptByInput.get(identity.input_id)
+    if (
+      prior === undefined ||
+      (prior.outcome.outcome === 'not_written' && prior.outcome.eligible_for_retry)
+    ) {
+      return undefined
+    }
+    const reconciled = await activeControl().lookup(prior.identity)
+    if (reconciled === null) {
+      if (prior.outcome.outcome === 'indeterminate' || prior.outcome.outcome === 'in_flight') {
+        rememberReceipt(prior)
+        return {}
+      }
+      throw new BrokerError(
+        BrokerErrorCode.HarnessError,
+        `Arris lost the durable receipt for ${identity.input_id}`,
+        { receipt: prior }
+      )
+    }
+    if (reconciled.outcome.outcome === 'not_written' && reconciled.outcome.eligible_for_retry) {
+      rememberReceipt(reconciled)
+      return undefined
+    }
+    return receiptResult(reconciled)
+  }
+
+  async function reconcileUnresolved(): Promise<void> {
+    if (control === undefined) return
+    for (const receipt of await control.unresolved()) rememberReceipt(receipt)
   }
 
   // EXCEPTION(T-08503): one auditable switch keeps the closed Arris journal vocabulary and its stateful correlations together.
@@ -506,7 +545,14 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
     if (parsed.value.events.dropped_records > 0)
       healthReason = `Arris host dropped ${parsed.value.events.dropped_records} event record(s)`
     const socketPath = parsed.value.control.socket_path
-    control = socketPath === null ? undefined : openControl(socketPath)
+    if (socketPath === null) {
+      control = undefined
+      controlSocketPath = undefined
+    } else if (socketPath !== controlSocketPath) {
+      control = openControl(socketPath)
+      controlSocketPath = socketPath
+      await reconcileUnresolved()
+    }
     tailer.retarget(parsed.value.events.path)
   }
 
@@ -548,6 +594,10 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
       healthReason = undefined
       currentNeutralTurnId = undefined
       retryHold = false
+      controlSocketPath = undefined
+      receiptByInput.clear()
+      brokerInputByHostInput.clear()
+      nextAttempts.clear()
       seenSequences.clear()
       for (const record of driverCtx.capture?.records() ?? []) {
         if (record.driverKind !== ARRIS_RESIDENT_DRIVER_KIND) continue
@@ -592,6 +642,8 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
     async applyInputNow(input: InvocationInput): Promise<ApplyInputResult> {
       await refreshDescriptor()
       const identity = identityFor(input)
+      const reconciled = await reconcileBeforeWrite(identity)
+      if (reconciled !== undefined) return reconciled
       return receiptResult(await activeControl().queue(identity, inputText(input)))
     },
 
@@ -631,6 +683,7 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
       cleanup()
       tailer.clear()
       control = undefined
+      controlSocketPath = undefined
       descriptor = undefined
       ctx = undefined
       spec = undefined

@@ -89,7 +89,7 @@ function receipt(
   return {
     receipt_id: `receipt:${inputId}`,
     host_incarnation_id: hostId,
-    identity: { platform: 'hrc', input_id: inputId, envelope_id: 'EN-1', attempt: 1 },
+    identity: { platform: 'hrc', input_id: inputId, envelope_id: inputId, attempt: 1 },
     kind: 'queue',
     target_neutral_turn_id: null,
     recorded_at_ms: 1,
@@ -153,7 +153,7 @@ describe('Arris resident driver control seam', () => {
     const control = client({
       async queue(identity) {
         queueIdentities.push(identity)
-        return receipt('submission-1', identity.attempt, {
+        return receipt(identity.input_id, identity.attempt, {
           outcome: 'written',
           neutral_turn_id: 'turn:neutral-1',
           codex_turn_id: 'turn-codex-1',
@@ -162,7 +162,7 @@ describe('Arris resident driver control seam', () => {
       async steer(identity, target) {
         steerTargets.push({ identity, target })
         return {
-          ...receipt('submission-2', identity.attempt, {
+          ...receipt(identity.input_id, identity.attempt, {
             outcome: 'written',
             neutral_turn_id: 'turn:neutral-1',
             codex_turn_id: 'turn-codex-1',
@@ -195,13 +195,13 @@ describe('Arris resident driver control seam', () => {
     })
 
     expect(queueIdentities).toEqual([
-      { platform: 'hrc', input_id: 'submission-1', envelope_id: 'EN-1', attempt: 1 },
+      { platform: 'hrc', input_id: 'EN-1', envelope_id: 'EN-1', attempt: 1 },
     ])
     expect(steerTargets).toEqual([
       {
         identity: {
           platform: 'hrc',
-          input_id: 'submission-2',
+          input_id: 'EN-2',
           envelope_id: 'EN-2',
           attempt: 1,
         },
@@ -271,5 +271,52 @@ describe('Arris resident driver control seam', () => {
     await expect(driver.start(spec(), context([]))).rejects.toMatchObject({
       code: BrokerErrorCode.IdentityInstallConflict,
     })
+  })
+
+  test('reconciles an unresolved lost acknowledgement after bridge restart without replay', async () => {
+    const indeterminate = receipt('EN-lost', 1, {
+      outcome: 'indeterminate',
+      code: 'acknowledgement_lost',
+      message: 'write acknowledgement was lost',
+    })
+    let queueCalls = 0
+    let lookupCalls = 0
+    const control = client({
+      async unresolved() {
+        return [indeterminate]
+      },
+      async lookup(identity) {
+        lookupCalls += 1
+        expect(identity).toEqual(indeterminate.identity)
+        return indeterminate
+      },
+      async queue() {
+        queueCalls += 1
+        throw new Error('indeterminate input must not be replayed')
+      },
+    })
+    const driver = createArrisResidentDriver({
+      pollIntervalMs: 60_000,
+      readDescriptor: async () => descriptor(),
+      createControlClient: () => control,
+    })
+    const events: InvocationEventEnvelope[] = []
+    await driver.start(spec(), context(events))
+
+    await expect(
+      driver.applyInputNow({
+        inputId: 'new-broker-submission' as never,
+        kind: 'user',
+        content: [{ type: 'text', text: 'do not replay me' }],
+        metadata: { envelopeId: 'EN-lost' },
+      })
+    ).resolves.toEqual({})
+
+    expect(lookupCalls).toBe(1)
+    expect(queueCalls).toBe(0)
+    expect(events.findLast((event) => event.type === 'driver.notice')?.inputId).toBe(
+      'new-broker-submission'
+    )
+    await driver.dispose()
   })
 })
