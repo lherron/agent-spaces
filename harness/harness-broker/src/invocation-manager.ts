@@ -395,6 +395,13 @@ export interface Invocation {
   pendingOwnTurnSubmissionId?: InputId | undefined
   /** Foreign turn that started while an own-turn delivery awaited evidence. */
   pendingOwnTurnContestedByTurnId?: TurnId | undefined
+  /**
+   * Observed-source turn that started while an own-turn delivery awaited
+   * evidence. `observePendingOwnTurnStart` is skipped for an observed start, so
+   * such a turn can neither correlate the delivery nor record a contest — its
+   * terminal is the only boundary that can release the reservation (T-08514).
+   */
+  pendingOwnTurnUncorrelatableTurnId?: TurnId | undefined
   /** Prevent repeated diagnostics if the stale-pending invariant is breached. */
   stalePendingProbeReported?: boolean | undefined
   admissionDrainPromise?: Promise<void> | undefined
@@ -1291,6 +1298,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       }
       inv.pendingOwnTurnSubmissionId = inputId
       inv.pendingOwnTurnContestedByTurnId = undefined
+      inv.pendingOwnTurnUncorrelatableTurnId = undefined
       inv.stalePendingProbeReported = false
     }
     emit(inv, 'input.accepted', { inputId, disposition: 'started' }, { inputId })
@@ -1837,13 +1845,31 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     }
   }
 
-  function settleContestedOwnTurn(inv: Invocation, terminalTurnId?: TurnId): void {
-    if (terminalTurnId === undefined || inv.pendingOwnTurnContestedByTurnId !== terminalTurnId) {
-      return
-    }
+  function settleOwnTurnAtTerminal(inv: Invocation, terminalTurnId?: TurnId): void {
+    if (terminalTurnId === undefined) return
     const pendingSubmissionId = inv.pendingOwnTurnSubmissionId
+    if (pendingSubmissionId === undefined) return
+    // T-08514: an OBSERVED-source turn can neither correlate this delivery nor
+    // record a contest, because observePendingOwnTurnStart is skipped for it.
+    // `codex-app-server` in TUI mode mints `observed` and declares neither
+    // cancel/failPendingOwnTurnOnForeignTurn, so it could never satisfy the
+    // contested gate — and both recovery paths required it. A queued delivery
+    // whose turn was attributed `foreign` then pinned the seat at `starting`
+    // permanently (astra@hrc-runtime:primary, 84 minutes, every delivery
+    // refused by seatCanDispatch). Its terminal is the hard boundary.
+    //
+    // This stays distinct from the harness-evidence hold: those drivers DO get
+    // observePendingOwnTurnStart, so a delivery may still correlate on a later
+    // turn and its reservation must survive an unrelated terminal.
+    //
+    // A healthy delivery never reaches here at all: submission.executed is
+    // emitted synchronously in applyAndEmit and clears the marker through the
+    // disposition path long before the turn terminal.
+    const contested = inv.pendingOwnTurnContestedByTurnId === terminalTurnId
+    const uncorrelatable = inv.pendingOwnTurnUncorrelatableTurnId === terminalTurnId
+    if (!contested && !uncorrelatable) return
     if (
-      pendingSubmissionId !== undefined &&
+      contested &&
       (inv.driver.failPendingOwnTurnOnForeignTurn === true ||
         inv.driver.bracketMintingMode === 'observed') &&
       !inv.submissionDispositions.has(pendingSubmissionId)
@@ -1873,8 +1899,23 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     // absorbed, recall or teardown) settles it exactly once.
     inv.pendingOwnTurnSubmissionId = undefined
     inv.pendingOwnTurnContestedByTurnId = undefined
+    inv.pendingOwnTurnUncorrelatableTurnId = undefined
     scheduleDrain(inv)
     scheduleAdmissionDrain(inv)
+  }
+
+  /**
+   * T-08514: an observed-source turn.started never reaches
+   * `observePendingOwnTurnStart`, so it can neither correlate a pending
+   * delivery nor mark it contested. Remember the first such turn so its
+   * terminal can release the reservation — otherwise the seat reports
+   * `starting` forever and `seatCanDispatch` refuses every delivery to the
+   * scope.
+   */
+  function observeUncorrelatableOwnTurnStart(inv: Invocation, turnId: TurnId): void {
+    if (inv.pendingOwnTurnSubmissionId === undefined) return
+    if (inv.pendingOwnTurnUncorrelatableTurnId !== undefined) return
+    inv.pendingOwnTurnUncorrelatableTurnId = turnId
   }
 
   function observePendingOwnTurnStart(inv: Invocation, turnId: TurnId, inputId?: InputId): void {
@@ -2007,6 +2048,8 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
           submissionIds: [],
         })
         observePendingOwnTurnStart(inv, event.turnId, event.inputId)
+      } else {
+        observeUncorrelatableOwnTurnStart(inv, event.turnId)
       }
     }
     if (event.type === 'turn.attributed') {
@@ -2076,8 +2119,12 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     // already typing. If attribution cannot prove that merge, the resulting
     // foreign turn contests the reservation. Its terminal is the hard boundary:
     // the delivery did not start a distinct later turn, so release the seat and
-    // give the submission an explicit terminal disposition.
-    settleContestedOwnTurn(inv, terminalTurnId)
+    // give the submission an explicit terminal disposition. An OBSERVED-source
+    // turn records no contest and can never correlate, so its terminal releases
+    // the reservation too (T-08514). A harness-evidence delivery still holds
+    // across an unrelated terminal, because its evidence may arrive on a later
+    // turn.
+    settleOwnTurnAtTerminal(inv, terminalTurnId)
 
     // Follow-on diagnostics (e.g. truncation notices) are emitted as their own
     // events. Their payloads are small, so they never re-trigger truncation.
