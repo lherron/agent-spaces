@@ -1,12 +1,16 @@
 import { describe, expect, test } from 'bun:test'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import type {
   ArrisControlReceipt,
   ArrisHostDescriptor,
   HarnessInvocationSpec,
   InvocationEventEnvelope,
   InvocationId,
+  RawProviderRecord,
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
+import type { CapturedRecord } from '../../../src/capture/capture-gate'
 import type { ArrisControlClient } from '../../../src/drivers/arris-resident/control-client'
 import {
   ArrisRetryableNotWrittenError,
@@ -14,7 +18,7 @@ import {
 } from '../../../src/drivers/arris-resident/driver'
 import type { DriverContext } from '../../../src/drivers/driver'
 
-const hostId = 'host-incarnation:test-host'
+const hostId = 'host-incarnation:0fff54f7-f6f7-473b-8776-1ba07803f87d'
 
 function descriptor(overrides: Partial<ArrisHostDescriptor> = {}): ArrisHostDescriptor {
   return {
@@ -142,6 +146,39 @@ function client(overrides: Partial<ArrisControlClient>): ArrisControlClient {
     lookup: async () => null,
     unresolved: async () => [],
     ...overrides,
+  }
+}
+
+function captured(sequence: number, kind: string, detail: Record<string, unknown>): CapturedRecord {
+  const row = {
+    host_incarnation_id: hostId,
+    sequence,
+    at_ms: sequence,
+    kind,
+    detail,
+  }
+  const record: RawProviderRecord = {
+    rawRecordId: `raw-${sequence}`,
+    invocationId: 'inv-arris' as InvocationId,
+    provider: 'openai',
+    driverKind: 'arris-resident',
+    sourceKind: 'provider-jsonl',
+    sourceEpoch: hostId,
+    sourceCursor: { nativeSequence: String(sequence) },
+    nativeType: kind,
+    observedAt: new Date(sequence).toISOString(),
+    sha256: `fixture-${sequence}`,
+    rawBytes: Buffer.from(JSON.stringify(row)),
+  }
+  return {
+    record,
+    provenance: () => ({
+      rawRecordId: record.rawRecordId,
+      sourceKind: record.sourceKind,
+      sourceEpoch: record.sourceEpoch,
+      sourceCursor: record.sourceCursor,
+      nativeType: kind,
+    }),
   }
 }
 
@@ -317,6 +354,131 @@ describe('Arris resident driver control seam', () => {
     expect(events.findLast((event) => event.type === 'driver.notice')?.inputId).toBe(
       'new-broker-submission'
     )
+    await driver.dispose()
+  })
+
+  test('maps root output and host-admitted tools while preserving child activity as provenance', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const driver = createArrisResidentDriver({
+      pollIntervalMs: 60_000,
+      readDescriptor: async () => descriptor(),
+      createControlClient: () => client({}),
+    })
+    await driver.start(spec(), context(events))
+    const normalize = driver.captureNormalizer?.()
+    if (normalize === undefined) throw new Error('Arris normalizer missing')
+
+    expect(
+      normalize(
+        captured(1, 'turn_started', {
+          origin: 'control',
+          codex_turn_id: 'codex-root',
+          neutral_turn_id: 'turn:root',
+        })
+      ).disposition
+    ).toBe('normalized')
+    normalize(
+      captured(2, 'item_observed', {
+        phase: 'completed',
+        item_type: 'sub_agent_activity',
+        event_source: 'internal_child',
+        codex_turn_id: 'codex-root',
+        thread_id: 'child-1',
+        from_child_thread: true,
+        observed_child: true,
+        spawned_children: [],
+        mints_identity: false,
+      })
+    )
+    normalize(
+      captured(3, 'dynamic_tool_call_answered', {
+        responder: 'arris_host',
+        event_source: 'arris_host_admitted',
+        from_child_thread: true,
+        child_thread_id: 'child-1',
+        caller_attribution: 'own_turn_caller',
+        mints_identity: false,
+        tool: 'render_diagram',
+        codex_turn_id: 'codex-root',
+        action_id: 'action-1',
+        success: true,
+      })
+    )
+    normalize(captured(4, 'assistant_text_delta', { codex_turn_id: 'codex-root', delta: 'Done' }))
+    normalize(
+      captured(5, 'child_turn_completed_ignored', {
+        child_thread_id: 'child-1',
+        codex_turn_id: 'codex-child',
+        status: 'Completed',
+        root_turn_closed: false,
+        host_turn_transitioned: false,
+      })
+    )
+    normalize(
+      captured(6, 'turn_completed', {
+        origin: 'control',
+        codex_turn_id: 'codex-root',
+        neutral_turn_id: 'turn:root',
+        status: 'Completed',
+        host_state: 'Finished',
+      })
+    )
+
+    expect(events.filter((event) => event.type === 'turn.started')).toHaveLength(1)
+    expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(1)
+    expect(events.find((event) => event.type === 'driver.notice')?.payload).toMatchObject({
+      code: 'ARRIS_ITEM_OBSERVED',
+      data: { event_source: 'internal_child', mints_identity: false },
+    })
+    expect(events.filter((event) => event.type === 'tool.call.started')).toHaveLength(1)
+    expect(events.filter((event) => event.type === 'tool.call.completed')).toHaveLength(1)
+    expect(events.find((event) => event.type === 'turn.completed')?.payload).toMatchObject({
+      finalOutput: 'Done',
+      producedContent: true,
+    })
+    await driver.dispose()
+  })
+
+  test('replays the pinned ca7e110 root-turn journal fixture to one final response', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const driver = createArrisResidentDriver({
+      pollIntervalMs: 60_000,
+      readDescriptor: async () => descriptor(),
+      createControlClient: () => client({}),
+    })
+    await driver.start(spec(), context(events))
+    const normalize = driver.captureNormalizer?.()
+    if (normalize === undefined) throw new Error('Arris normalizer missing')
+    const fixture = await readFile(
+      join(import.meta.dir, '../../fixtures/arris/events.root-turn.ca7e110.jsonl'),
+      'utf8'
+    )
+    const rows = fixture.trim().split('\n')
+    for (const line of rows) {
+      const row = JSON.parse(line) as {
+        sequence: number
+        kind: string
+        detail: Record<string, unknown>
+      }
+      expect(normalize(captured(row.sequence, row.kind, row.detail)).disposition).not.toBe(
+        'blocked-unknown'
+      )
+    }
+    for (const line of rows) {
+      const row = JSON.parse(line) as {
+        sequence: number
+        kind: string
+        detail: Record<string, unknown>
+      }
+      expect(normalize(captured(row.sequence, row.kind, row.detail)).disposition).toBe('duplicate')
+    }
+
+    expect(events.filter((event) => event.type === 'turn.started')).toHaveLength(1)
+    expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(1)
+    expect(events.find((event) => event.type === 'turn.completed')?.payload).toMatchObject({
+      finalOutput: 'Ready',
+      producedContent: true,
+    })
     await driver.dispose()
   })
 })

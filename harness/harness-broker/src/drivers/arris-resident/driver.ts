@@ -14,6 +14,7 @@ import type {
   InvocationStopRequest,
   InvocationStopResponse,
   MessageId,
+  ToolCallId,
   TurnId,
 } from 'spaces-harness-broker-protocol'
 import {
@@ -133,19 +134,13 @@ const KNOWN_IGNORED_EVENTS = new Set([
   'priming_turn_seeded',
   'host_turn_admitted',
   'resumable_confirmed',
-  'helper_observed',
   'control_request',
   'control_input_admitted',
   'control_input_reopened',
   'control_input_converged',
   'control_outcome',
   'control_input_turn_completed',
-  'control_submission_fenced',
-  'uncertain_bound_to_turn',
-  'uncertain_resolved',
-  'dynamic_tool_call_answered',
-  'native_approval_offered',
-  'resident_rebound',
+  'child_turn_completed_ignored',
 ])
 
 export function createArrisResidentDriver(options: ArrisResidentDriverOptions = {}): Driver {
@@ -480,19 +475,72 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
     if (record.kind === 'event_gap') {
       healthReason = 'Arris runtime event stream reported a gap'
       requireCtx().emit(
-        'diagnostic',
+        'capture.warning',
         {
-          level: 'warn',
-          source: 'harness',
           message: healthReason,
           kind: 'arris_event_gap',
+          raw: detail,
+        },
+        extra
+      )
+      return { disposition: 'normalized', detail: record.kind }
+    }
+    if (record.kind === 'item_observed') {
+      requireCtx().emit(
+        'driver.notice',
+        {
+          code: 'ARRIS_ITEM_OBSERVED',
+          message: `Arris observed ${stringValue(detail['item_type']) ?? 'native item'}`,
+          data: detail,
+        },
+        {
+          ...extra,
+          ...(currentNeutralTurnId !== undefined ? { turnId: currentNeutralTurnId as TurnId } : {}),
+        }
+      )
+      return { disposition: 'normalized', detail: record.kind }
+    }
+    if (record.kind === 'dynamic_tool_call_answered') {
+      const toolCallId = (stringValue(detail['action_id']) ??
+        `arris-action:${record.sequence}`) as ToolCallId
+      const name = stringValue(detail['tool']) ?? 'dynamic_tool'
+      const turnExtra = {
+        ...extra,
+        ...(currentNeutralTurnId !== undefined ? { turnId: currentNeutralTurnId as TurnId } : {}),
+        itemId: toolCallId,
+      }
+      requireCtx().emit('tool.call.started', { toolCallId, name, input: detail }, turnExtra)
+      requireCtx().emit(
+        'tool.call.completed',
+        {
+          toolCallId,
+          name,
+          result: detail,
+          isError: detail['success'] !== true,
+        },
+        turnExtra
+      )
+      return { disposition: 'normalized', detail: record.kind }
+    }
+    if (
+      record.kind === 'native_approval_offered' ||
+      record.kind === 'helper_observed' ||
+      record.kind === 'resident_rebound' ||
+      record.kind === 'control_submission_fenced' ||
+      record.kind === 'uncertain_bound_to_turn' ||
+      record.kind === 'uncertain_resolved'
+    ) {
+      requireCtx().emit(
+        'driver.notice',
+        {
+          code: `ARRIS_${record.kind.toUpperCase()}`,
+          message: `Arris ${record.kind.replaceAll('_', ' ')}`,
           data: detail,
         },
         extra
       )
       return { disposition: 'normalized', detail: record.kind }
     }
-    if (record.kind === 'item_observed') return { disposition: 'state-only', detail: record.kind }
     if (KNOWN_IGNORED_EVENTS.has(record.kind))
       return { disposition: 'ignored-known', detail: record.kind }
     return {
@@ -608,6 +656,13 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
       }
       await refreshDescriptor()
       const active = activeDescriptor()
+      if (active.events.dropped_records > 0) {
+        driverCtx.emit('capture.warning', {
+          kind: 'arris_journal_records_dropped',
+          message: `Arris host dropped ${active.events.dropped_records} journal record(s)`,
+          raw: { dropped_records: active.events.dropped_records },
+        })
+      }
       driverCtx.emit(
         'invocation.started',
         {
