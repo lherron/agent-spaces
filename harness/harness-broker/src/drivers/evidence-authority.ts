@@ -130,6 +130,19 @@ export const CODEX_DESKTOP_AUTHORITY: EvidenceAuthorityMatrix = {
   usage: 'native',
 }
 
+/** Arris resident host journal and control receipts own native execution facts. */
+export const ARRIS_RESIDENT_AUTHORITY: EvidenceAuthorityMatrix = {
+  ...BROKER_OWNED_BASE,
+  continuation: 'native',
+  'submission-disposition': 'native',
+  'turn-bracket': 'native',
+  conversation: 'native',
+  tool: 'native',
+  usage: 'native',
+  permission: 'native',
+  diagnostic: 'native',
+}
+
 /**
  * Pi TUI. `turn-bracket` is `hook`, corrected from `broker` by the live parity
  * report: pi's `turn_start`/`turn_end` hooks mint most of the brackets in a real

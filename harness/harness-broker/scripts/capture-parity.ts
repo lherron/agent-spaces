@@ -32,6 +32,7 @@ import type {
 import { EVENT_FAMILY_BY_TYPE } from 'spaces-harness-broker-protocol'
 import {
   AGENT_HARNESS_TMUX_AUTHORITY,
+  ARRIS_RESIDENT_AUTHORITY,
   BROKER_ONLY_AUTHORITY,
   CLAUDE_CODE_TMUX_AUTHORITY,
   CODEX_APP_SERVER_AUTHORITY,
@@ -45,6 +46,7 @@ const DECLARED: Record<string, Record<EventFamily, EvidenceAuthority>> = {
   'codex-cli-tmux': CODEX_CLI_TMUX_AUTHORITY,
   'codex-app-server': CODEX_APP_SERVER_AUTHORITY,
   'codex-desktop': CODEX_DESKTOP_AUTHORITY,
+  'arris-resident': ARRIS_RESIDENT_AUTHORITY,
   'pi-tui-tmux': PI_TUI_TMUX_AUTHORITY,
   'agent-harness-tmux': AGENT_HARNESS_TMUX_AUTHORITY,
 }

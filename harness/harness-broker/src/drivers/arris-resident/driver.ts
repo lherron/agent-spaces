@@ -5,7 +5,6 @@ import type {
   ArrisHostDescriptor,
   ArrisInputIdentity,
   ArrisJournalRecord,
-  EvidenceAuthorityMatrix,
   HarnessInvocationSpec,
   InputId,
   InvocationCapabilities,
@@ -26,6 +25,7 @@ import type { CapturedRecord, NormalizeOutcome } from '../../capture/capture-gat
 import { BrokerError } from '../../errors'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
 import { withDeliveryEvidence } from '../driver'
+import { ARRIS_RESIDENT_AUTHORITY } from '../evidence-authority'
 import { createJsonlByteOffsetTailer } from '../jsonl-byte-tailer'
 import { type ArrisControlClient, createArrisControlClient } from './control-client'
 
@@ -124,23 +124,6 @@ const ARRIS_CAPABILITIES: InvocationCapabilities = {
     driverAttachExistingSurface: true,
   },
   lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
-}
-
-const ARRIS_AUTHORITY: EvidenceAuthorityMatrix = {
-  'invocation-lifecycle': 'broker',
-  'harness-lifecycle': 'broker',
-  continuation: 'native',
-  'input-admission': 'broker',
-  'submission-disposition': 'native',
-  'turn-bracket': 'native',
-  'turn-supervision': 'broker',
-  conversation: 'native',
-  tool: 'native',
-  usage: 'native',
-  permission: 'native',
-  diagnostic: 'native',
-  'terminal-surface': 'broker',
-  'provider-artifact': 'broker',
 }
 
 const KNOWN_IGNORED_EVENTS = new Set([
@@ -537,7 +520,7 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
     kind: ARRIS_RESIDENT_DRIVER_KIND,
     version: ARRIS_RESIDENT_DRIVER_VERSION,
     bracketMintingMode: 'observed',
-    evidenceAuthority: ARRIS_AUTHORITY,
+    evidenceAuthority: ARRIS_RESIDENT_AUTHORITY,
     nativeSourceKind: 'provider-jsonl',
     preemptMode: null,
     steerLandingEvidence: 'transcript',

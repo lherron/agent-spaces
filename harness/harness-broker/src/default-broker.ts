@@ -5,6 +5,7 @@ import type {
   PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
 import { type BrokerAttachIdentity, createBroker } from './broker'
+import { createArrisResidentDriver } from './drivers/arris-resident/driver'
 import { createDefaultClaudeCodeTmuxDriver } from './drivers/claude-code-tmux/driver'
 import { createCodexAppServerDriver } from './drivers/codex-app-server/driver'
 import { createDefaultCodexCliTmuxDriver } from './drivers/codex-cli-tmux/driver'
@@ -64,6 +65,7 @@ export function createDefaultBroker(
     drivers: [
       createCodexAppServerDriver(),
       createCodexDesktopDriver(),
+      createArrisResidentDriver(),
       createDefaultClaudeCodeTmuxDriver(options.hookIpcDir),
       createDefaultCodexCliTmuxDriver(options.hookIpcDir),
       createDefaultPiTuiTmuxDriver(options.hookIpcDir),

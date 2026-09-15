@@ -7,7 +7,7 @@ describe('composable broker CLI', () => {
     expect(runBrokerCli).toBeFunction()
   })
 
-  test('adds driver factories after the four built-in drivers', async () => {
+  test('adds driver factories after the built-in drivers', async () => {
     let factoryCalls = 0
     const broker = createDefaultBroker(undefined, undefined, {
       additionalDrivers: [
@@ -27,6 +27,7 @@ describe('composable broker CLI', () => {
     expect(hello.drivers.map((driver) => driver.kind)).toEqual([
       'codex-app-server',
       'codex-desktop',
+      'arris-resident',
       'claude-code-tmux',
       'codex-cli-tmux',
       'pi-tui-tmux',

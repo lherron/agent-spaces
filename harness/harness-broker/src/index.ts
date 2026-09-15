@@ -74,6 +74,23 @@ export { createDriverRegistry } from './drivers/registry'
 export type { DriverRegistry } from './drivers/registry'
 
 export { createNoopDriver } from './drivers/noop-driver'
+export {
+  ARRIS_RESIDENT_DRIVER_KIND,
+  ArrisIndeterminateDeliveryError,
+  ArrisNotWrittenError,
+  ArrisRetryableNotWrittenError,
+  createArrisResidentDriver,
+} from './drivers/arris-resident/driver'
+export type {
+  ArrisResidentDriverOptions,
+  ArrisResidentDriverSpec,
+} from './drivers/arris-resident/driver'
+export {
+  ArrisControlError,
+  createArrisControlClient,
+  readArrisHostDescriptor,
+} from './drivers/arris-resident/control-client'
+export type { ArrisControlClient } from './drivers/arris-resident/control-client'
 export { CLAUDE_CODE_TMUX_DRIVER_KIND } from './drivers/claude-code-tmux/hook-events'
 export { CODEX_DRIVER_KIND } from './drivers/codex-app-server/event-map'
 export {

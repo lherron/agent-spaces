@@ -98,22 +98,22 @@ records the same mistake once, under "Unknown HOOK names" below.
 
 ## The matrix
 
-| Family | claude-code-tmux | codex-cli-tmux | codex-app-server | codex-desktop | pi-tui-tmux | agent-harness-tmux | pi-sdk |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `invocation-lifecycle` | broker | broker | broker | broker | broker | broker | broker |
-| `harness-lifecycle` | hook | hook | broker | broker | hook | native | broker |
-| `continuation` | hook | hook | native | broker | hook | native | native |
-| `input-admission` | broker | broker | broker | broker | broker | broker | broker |
-| `submission-disposition` | **native** | broker † | broker † | broker † | broker † | broker † | broker † |
-| `turn-bracket` | hook | hook | native | native | hook ‡ | native | **broker** ‡ |
-| `turn-supervision` | broker | broker | broker | broker | broker | broker | broker |
-| `conversation` | **native** | **native** | native | native | hook | native | native |
-| `tool` | **native** | hook | native | native | hook | native | native |
-| `usage` | native | native † | native | native | hook † | native | native |
-| `permission` | hook | hook | native | broker | hook | native | native |
-| `diagnostic` | hook | broker | native | broker | broker | broker | broker |
-| `terminal-surface` | broker | broker | broker | broker | broker | broker | broker |
-| `provider-artifact` | broker | broker | broker | broker | broker | broker | broker |
+| Family | claude-code-tmux | codex-cli-tmux | codex-app-server | codex-desktop | arris-resident | pi-tui-tmux | agent-harness-tmux | pi-sdk |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `invocation-lifecycle` | broker | broker | broker | broker | broker | broker | broker | broker |
+| `harness-lifecycle` | hook | hook | broker | broker | broker | hook | native | broker |
+| `continuation` | hook | hook | native | broker | native | hook | native | native |
+| `input-admission` | broker | broker | broker | broker | broker | broker | broker | broker |
+| `submission-disposition` | **native** | broker † | broker † | broker † | native | broker † | broker † | broker † |
+| `turn-bracket` | hook | hook | native | native | native | hook ‡ | native | **broker** ‡ |
+| `turn-supervision` | broker | broker | broker | broker | broker | broker | broker | broker |
+| `conversation` | **native** | **native** | native | native | native | hook | native | native |
+| `tool` | **native** | hook | native | native | native | hook | native | native |
+| `usage` | native | native † | native | native | native | hook † | native | native |
+| `permission` | hook | hook | native | broker | native | hook | native | native |
+| `diagnostic` | hook | broker | native | broker | native | broker | broker | broker |
+| `terminal-surface` | broker | broker | broker | broker | broker | broker | broker | broker |
+| `provider-artifact` | broker | broker | broker | broker | broker | broker | broker | broker |
 
 † **Declared but not emitted today.** The value names the source that *would*
 own the family, so a later cutover has a stated starting point. The parity
