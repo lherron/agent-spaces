@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-
 import {
   catalogAgentsForContext,
   createAgentSpacesClient,
@@ -28,6 +26,7 @@ import type {
   RuntimeCompileRequest,
   RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
+import packageManifest from '../package.json'
 import {
   type AspcInspectionAuthorityOptions,
   createAspcInspectionAuthority,
@@ -35,21 +34,7 @@ import {
 import { DIAGNOSTIC_CODES, compilerDiagnostic, errorDetails, formatError } from './diagnostics.js'
 import { selectBrokerProfile } from './profileSelector.js'
 
-type PackageManifest = {
-  version?: unknown
-}
-
-function readPackageVersion(): string {
-  const manifest = JSON.parse(
-    readFileSync(new URL('../package.json', import.meta.url), 'utf8')
-  ) as PackageManifest
-  if (typeof manifest.version !== 'string') {
-    throw new Error('spaces-aspc package.json is missing a string version')
-  }
-  return manifest.version
-}
-
-const ASPC_FACADE_VERSION = readPackageVersion()
+const ASPC_FACADE_VERSION: string = packageManifest.version
 
 const ASPC_COMPILE_HARNESS_INVOCATION_SCHEMA = 'aspc-compile-harness-invocation-response/v1'
 const RUNTIME_COMPILE_RESPONSE_SCHEMA = 'agent-runtime-compile-response/v1'
