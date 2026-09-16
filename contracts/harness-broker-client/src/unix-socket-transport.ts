@@ -1,4 +1,4 @@
-import { type Socket, connect } from 'node:net'
+import { Socket } from 'node:net'
 import {
   BrokerErrorCode,
   encodeNdjsonFrame,
@@ -55,8 +55,16 @@ export class UnixSocketTransport extends JsonRpcFramedChannel {
   static async connect(options: UnixSocketTransportConnectOptions): Promise<UnixSocketTransport> {
     assertSocketPathWithinBudget(options.socketPath)
 
-    const socket = connect({ path: options.socketPath })
-    await UnixSocketTransport.#awaitConnect(socket, options.socketPath, options.timeoutMs)
+    // Listeners attach before connect(): inside a Bun.serve handler Bun reports a
+    // missing socket synchronously, and an unobserved `error` kills the host.
+    const socket = new Socket()
+    const connected = UnixSocketTransport.#awaitConnect(
+      socket,
+      options.socketPath,
+      options.timeoutMs
+    )
+    socket.connect({ path: options.socketPath })
+    await connected
 
     return new UnixSocketTransport(socket, options.debug)
   }
