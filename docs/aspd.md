@@ -47,7 +47,14 @@ directory. `worker.protocol` is the selected profile's own `brokerProtocol`
 `worker.argvPrefix` is `["run", "--transport", "unix"]`; the remaining flags are
 the existing broker CLI hosting contract HRC already realizes (`--socket`,
 `--event-ledger`, `--runtime-id`, `--host-session-id`, `--generation`,
-`--attach-token-file`).
+`--attach-token-file`, and for a tmux-tui viewer
+`--experimental-observer-socket`).
+
+A release worker that hosts the codex-app-server viewer launches its renderer
+through its own payload (`<releaseRoot>/libexec/harness-broker renderer …`),
+passed explicitly by the release entrypoint, so the viewer always runs from the
+same release as the worker. A checkout broker keeps `bun <renderer-entry>`
+(T-08554).
 
 ## Preparation → hosting → start
 
