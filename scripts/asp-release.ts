@@ -32,6 +32,9 @@ type ExecutableName = keyof typeof EXECUTABLES
 /** Executables every retained release has carried since T-08535. `aspd` joined in T-08539. */
 const REQUIRED_EXECUTABLES: readonly ExecutableName[] = ['aspc-facade', 'harness-broker']
 
+/** Executables whose entrypoints report the compiled-in release identity over RPC. */
+const IDENTITY_BOUND_EXECUTABLES: ReadonlySet<ExecutableName> = new Set(['aspd', 'harness-broker'])
+
 type ReleaseExecutable = {
   launcher: string
   launcherSha256: string
@@ -366,7 +369,7 @@ async function buildRelease(outputRootInput: string): Promise<ReleaseInspection>
         payload: `libexec/${name}`,
         payloadSha256: sha256(payload),
         runtimeClosure: 'bun-compiled',
-        embeddedIdentity: true,
+        ...(IDENTITY_BOUND_EXECUTABLES.has(name) ? { embeddedIdentity: true as const } : {}),
       }
     }
 
