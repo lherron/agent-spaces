@@ -285,7 +285,7 @@ describe('unix server and retirement', () => {
     const late = idleConn.compileHarnessInvocation(compileRequest())
     const lateOutcome = late.then(
       () => 'answered',
-      () => 'closed-unanswered'
+      (error: { code?: string }) => error.code
     )
     await Bun.sleep(20)
     expect(calls).toBe(1)
@@ -295,7 +295,7 @@ describe('unix server and retirement', () => {
     if (!answered.ok) throw new Error('expected ok')
     expect(answered.executionRelease?.releaseId).toBe(IDENTITY.releaseId)
     await retired
-    expect(await lateOutcome).toBe('closed-unanswered')
+    expect(await lateOutcome).toBe('aspc_connection_closed')
     expect(calls).toBe(1)
     await inflightConn.close()
     await idleConn.close()

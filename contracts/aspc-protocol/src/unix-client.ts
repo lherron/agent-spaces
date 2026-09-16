@@ -42,6 +42,23 @@ export class AspcServiceUnavailableError extends Error {
   }
 }
 
+/**
+ * The connection closed before this request was answered. The transport cannot
+ * tell whether the service acted on it; the client does not retry.
+ */
+export class AspcConnectionClosedError extends Error {
+  readonly code = 'aspc_connection_closed'
+  readonly method: string
+
+  constructor(method: string, causeError: unknown) {
+    super(
+      `ASPC connection closed before ${method} was answered (${causeError instanceof Error ? causeError.message : String(causeError)})`
+    )
+    this.name = 'AspcConnectionClosedError'
+    this.method = method
+  }
+}
+
 /** The service answered hello with a protocol this client does not speak. */
 export class AspcProtocolIncompatibleError extends Error {
   readonly code = 'aspc_protocol_incompatible'
@@ -105,31 +122,40 @@ export class AspcUnixClient {
   }
 
   compileRuntimePlan(req: AspcCompileRuntimePlanRequest): Promise<RuntimeCompileResponse> {
-    return this.#transport.request('aspc.compileRuntimePlan', req)
+    return this.#request('aspc.compileRuntimePlan', req)
   }
 
   compileHarnessInvocation(
     req: AspcCompileHarnessInvocationRequest
   ): Promise<AspcCompileHarnessInvocationResponse> {
-    return this.#transport.request('aspc.compileHarnessInvocation', req)
+    return this.#request('aspc.compileHarnessInvocation', req)
   }
 
   catalogAgents(req: AspcCatalogAgentsRequest): Promise<AspcCatalogAgentsResponse> {
-    return this.#transport.request('aspc.catalogAgents', req)
+    return this.#request('aspc.catalogAgents', req)
   }
 
   inspectAgent(req: AspcInspectAgentRequest): Promise<AspcInspectAgentResponse> {
-    return this.#transport.request('aspc.inspectAgent', req)
+    return this.#request('aspc.inspectAgent', req)
   }
 
   catalogAgentInspection(
     req: AspcCatalogAgentInspectionRequest = {}
   ): Promise<AspcAgentInspectionCatalogResponse> {
-    return this.#transport.request('aspc.catalogAgentInspection', req)
+    return this.#request('aspc.catalogAgentInspection', req)
   }
 
   inspectAgentSelection(req: AspcInspectAgentSelectionRequest): Promise<AspcInspectAgentResponse> {
-    return this.#transport.request('aspc.inspectAgentSelection', req)
+    return this.#request('aspc.inspectAgentSelection', req)
+  }
+
+  async #request<T>(method: string, params: unknown): Promise<T> {
+    try {
+      return await this.#transport.request<T>(method, params)
+    } catch (error) {
+      if (error instanceof BrokerTransportError) throw new AspcConnectionClosedError(method, error)
+      throw error
+    }
   }
 
   onClose(handler: CloseHandler): void {

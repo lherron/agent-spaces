@@ -41,7 +41,7 @@ const evidence = resolve(flag('evidence'))
 const releaseA = flag('release-a')
 const releaseB = flag('release-b')
 const spec = {
-  scopeRef: 'aspd-pilot@aspd-pilot',
+  scopeRef: 'agent:aspd-pilot:project:aspd-pilot',
   agentName: basename(resolve(flag('agent-root'))),
   agentRoot: resolve(flag('agent-root')),
   projectRoot: resolve(flag('project-root')),
@@ -287,8 +287,13 @@ async function main(): Promise<void> {
   )
   check(
     'pre-activation connection admitted no work after cutover',
-    !lateResult.ok && !existsSync(join(clientState, 'w', 'late', 'preparation.json')),
-    lateResult.error
+    lateResult.error?.code === 'aspc_connection_closed' &&
+      !existsSync(join(clientState, 'w', 'late', 'preparation.json')) &&
+      readFileSync(aLog, 'utf8').includes('request.refused-retiring'),
+    {
+      error: lateResult.error,
+      refusedInALog: readFileSync(aLog, 'utf8').includes('request.refused-retiring'),
+    }
   )
   const lateAgain = await client.send('prepare', { attempt: 'late2', conn: 'idle', spec })
   check('closed pre-activation connection cannot be reused', !lateAgain.ok, lateAgain.error)

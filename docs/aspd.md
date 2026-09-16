@@ -140,6 +140,33 @@ activating or rolling back `aspd` never signals them. A prepared payload stays
 runnable while another release is active or no daemon is running. Releases are
 retained; there is no automated deletion.
 
+## Commands
+
+```bash
+# Build, stage and inspect immutable releases (each from a clean, recorded commit)
+just build-asp-release <abs-build-root>
+just install-asp-release <abs-build-root>/<releaseId> <ns>/releases
+just inspect-asp-release <ns>/releases/<releaseId>
+
+# Service lifecycle in one isolated namespace
+just aspd-init <ns> <abs-codex-path>
+just aspd-activate <ns> <releaseId>     # retire → select → start → hello readback
+just aspd-status <ns>                   # installed / selected / serving identity
+just aspd-stop <ns>
+just aspd-start <ns>
+just aspd-restart <ns>
+
+# Pilot client artifact (closure verified from the build metafile) and acceptance
+just build-aspd-pilot-client <abs-output-root>
+bun scripts/aspd-pilot/scenario.ts --ns <ns> --client <client> --evidence <dir> \
+  --release-a <idA> --release-b <idB> --agent-root <agent> --project-root <project>
+```
+
+The pilot client speaks NDJSON commands on stdin (`connect`, `prepare`,
+`launch`, `turn`, `worker-hello`, `stop-worker`, `exit`) and records every
+preparation, hosting intent, binding, worker hello, start outcome and turn under
+its `--state` directory.
+
 ## External inputs
 
 Native Codex executable (`ASP_CODEX_PATH`, frozen into the compiled start
