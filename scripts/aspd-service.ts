@@ -10,6 +10,13 @@
  * daemon answers `aspc.hello` with the target identity.
  *
  * Workers are never touched: they are not children of this lifecycle.
+ *
+ * Supervision: by default `start` spawns a detached daemon. `supervise` hands
+ * the service lifetime to a per-user launchd job instead; the same verbs then
+ * act through launchd, which owns the one `aspd` process (no second
+ * supervisor). The job runs a generated launch script that `exec`s the selected
+ * release with a literal environment, so the job pid IS the daemon and
+ * launchd's SIGTERM is the existing graceful retire.
  */
 import { spawn, spawnSync } from 'node:child_process'
 import {
@@ -25,7 +32,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { isAbsolute, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import type { AspcHelloResponse } from 'spaces-aspc-protocol'
 import { AspcServiceUnavailableError, AspcUnixClient } from 'spaces-aspc-protocol/unix-client'
 import { inspectRelease } from './asp-release.ts'
@@ -36,12 +43,21 @@ const DEFAULT_INHERITED_ENV = ['HOME', 'PATH', 'USER', 'LOGNAME', 'SHELL', 'TMPD
 const RETIRE_TIMEOUT_MS = 180_000
 const READY_TIMEOUT_MS = 30_000
 
+type LaunchdSupervisor = {
+  kind: 'launchd'
+  label: string
+  plistPath: string
+  launchScript: string
+}
+
 type ServiceConfig = {
   schemaVersion: typeof CONFIG_SCHEMA
   socketPath: string
   /** Explicit external inputs for preparation (ASP_HOME, ASP_CODEX_PATH, …). */
   env: Record<string, string>
   inheritEnv: string[]
+  /** Present once `supervise` has handed the service lifetime to launchd. */
+  supervisor?: LaunchdSupervisor | undefined
 }
 
 type ActiveSelection = {
@@ -75,6 +91,7 @@ function paths(nsInput: string) {
     activations: join(ns, 'service', 'activations.ndjson'),
     running: join(ns, 'run', 'aspd.json'),
     logs: join(ns, 'logs'),
+    launchScript: join(ns, 'service', 'launchd-run.sh'),
   }
 }
 
@@ -181,12 +198,8 @@ async function start(nsInput: string): Promise<Record<string, unknown>> {
     fail(`release ${active.releaseId} does not contain an identity-bound aspd`)
   }
 
-  const env: Record<string, string> = {}
-  for (const key of config.inheritEnv) {
-    const value = process.env[key]
-    if (value !== undefined) env[key] = value
-  }
-  Object.assign(env, config.env)
+  if (config.supervisor !== undefined) return startSupervised(p, config, active)
+  const env = serviceEnv(config)
   const startedAt = new Date().toISOString()
   const logPath = join(p.logs, `aspd-${active.releaseId}-${startedAt.replace(/[:.]/g, '')}.log`)
   const logFd = openSync(logPath, 'a')
@@ -208,27 +221,293 @@ async function start(nsInput: string): Promise<Record<string, unknown>> {
   }
   writeJsonAtomic(p.running, record)
 
+  const serving = await awaitServing(config.socketPath, active.releaseId, () => {
+    if (!pidAlive(child.pid as number)) fail(`aspd did not become ready; see ${logPath}`)
+  })
+  return { started: record, serving, readyAt: new Date().toISOString() }
+}
+
+function serviceEnv(config: ServiceConfig): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const key of config.inheritEnv) {
+    const value = process.env[key]
+    if (value !== undefined) env[key] = value
+  }
+  Object.assign(env, config.env)
+  return env
+}
+
+/** Wait for the socket to answer as `releaseId`; a different identity is a failure. */
+async function awaitServing(
+  socketPath: string,
+  releaseId: string,
+  check: () => void = () => undefined
+): Promise<AspcHelloResponse> {
   const deadline = Date.now() + READY_TIMEOUT_MS
   for (;;) {
-    const hello = await readback(config.socketPath)
+    const hello = await readback(socketPath)
     if (!('unavailable' in hello)) {
-      if (hello.release?.releaseId !== active.releaseId) {
+      if (hello.release?.releaseId !== releaseId) {
         fail(
-          `socket answered as ${hello.release?.releaseId ?? '(unidentified)'}, expected ${active.releaseId}`
+          `socket answered as ${hello.release?.releaseId ?? '(unidentified)'}, expected ${releaseId}`
         )
       }
-      return { started: record, serving: hello, readyAt: new Date().toISOString() }
+      return hello
     }
-    if (!pidAlive(child.pid) || Date.now() > deadline) {
-      fail(`aspd did not become ready; see ${logPath}`)
-    }
+    check()
+    if (Date.now() > deadline)
+      fail(`aspd did not answer as ${releaseId} within ${READY_TIMEOUT_MS}ms`)
     await Bun.sleep(100)
   }
+}
+
+const shellQuote = (value: string): string => `'${value.replaceAll("'", `'\\''`)}'`
+
+const xmlEscape = (value: string): string =>
+  value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+
+/**
+ * The launchd job's program. Everything is literal: the selected release, the
+ * socket and the complete environment (`env -i`), so nothing ambient from
+ * launchd reaches the daemon. `exec` keeps the job pid as the daemon pid.
+ */
+export function renderLaunchdScript(input: {
+  ns: string
+  socketPath: string
+  releaseId: string
+  releasePath: string
+  env: Record<string, string>
+  logPath: string
+}): string {
+  // printf fills the pid and start time; every literal sits inside one quoted format.
+  const format = `${JSON.stringify({
+    pid: 0,
+    releaseId: input.releaseId,
+    releasePath: input.releasePath,
+    startedAt: '',
+    logPath: input.logPath,
+  })
+    .replaceAll('%', '%%')
+    .replace('"pid":0', '"pid":%s')
+    .replace('"startedAt":""', '"startedAt":"%s"')}\\n`
+  const env = Object.keys(input.env)
+    .sort()
+    .map((key) => shellQuote(`${key}=${input.env[key]}`))
+    .join(' ')
+  return [
+    '#!/bin/sh',
+    '# Generated by agent-spaces scripts/aspd-service.ts on activation; do not edit.',
+    'set -eu',
+    `cd ${shellQuote(input.ns)}`,
+    'started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)',
+    `printf ${shellQuote(format)} "$$" "$started_at" >${shellQuote(join(input.ns, 'run', 'aspd.json.tmp'))}`,
+    `mv ${shellQuote(join(input.ns, 'run', 'aspd.json.tmp'))} ${shellQuote(join(input.ns, 'run', 'aspd.json'))}`,
+    `exec /usr/bin/env -i ${env} ${shellQuote(join(input.releasePath, 'aspd'))} serve --socket ${shellQuote(input.socketPath)}`,
+    '',
+  ].join('\n')
+}
+
+export function renderLaunchdPlist(input: {
+  label: string
+  launchScript: string
+  logPath: string
+}): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${xmlEscape(input.label)}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>${xmlEscape(input.launchScript)}</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ExitTimeOut</key>
+  <integer>${Math.ceil(RETIRE_TIMEOUT_MS / 1000)}</integer>
+  <key>StandardOutPath</key>
+  <string>${xmlEscape(input.logPath)}</string>
+  <key>StandardErrorPath</key>
+  <string>${xmlEscape(input.logPath)}</string>
+</dict>
+</plist>
+`
+}
+
+function launchctl(args: string[]): { status: number; output: string } {
+  const result = spawnSync('launchctl', args, { encoding: 'utf8' })
+  return { status: result.status ?? 1, output: `${result.stdout}${result.stderr}` }
+}
+
+function launchdTarget(label: string): string {
+  return `gui/${process.getuid?.() ?? fail('launchd supervision needs a uid')}/${label}`
+}
+
+function launchdPid(label: string): number | undefined {
+  const printed = launchctl(['print', launchdTarget(label)])
+  if (printed.status !== 0) return undefined
+  const match = /^\s*pid = (\d+)$/m.exec(printed.output)
+  return match ? Number(match[1]) : undefined
+}
+
+function launchdLoaded(label: string): boolean {
+  return launchctl(['print', launchdTarget(label)]).status === 0
+}
+
+/** Regenerate the launch script for the current selection (atomic write). */
+function writeLaunchScript(
+  p: ReturnType<typeof paths>,
+  config: ServiceConfig,
+  active: ActiveSelection
+): string {
+  const logPath = join(p.logs, 'aspd-launchd.log')
+  const script = renderLaunchdScript({
+    ns: p.ns,
+    socketPath: config.socketPath,
+    releaseId: active.releaseId,
+    releasePath: active.releasePath,
+    env: serviceEnv(config),
+    logPath,
+  })
+  const tmp = `${p.launchScript}.tmp-${process.pid}`
+  writeFileSync(tmp, script, { mode: 0o700 })
+  renameSync(tmp, p.launchScript)
+  return logPath
+}
+
+async function awaitPidExit(pid: number | undefined): Promise<void> {
+  if (pid === undefined) return
+  const deadline = Date.now() + RETIRE_TIMEOUT_MS + 5_000
+  while (pidAlive(pid)) {
+    if (Date.now() > deadline) fail(`previous aspd pid ${pid} did not exit`)
+    await Bun.sleep(50)
+  }
+}
+
+/** Start (or confirm) the supervised daemon on the current selection. */
+async function startSupervised(
+  p: ReturnType<typeof paths>,
+  config: ServiceConfig,
+  active: ActiveSelection
+): Promise<Record<string, unknown>> {
+  const supervisor = config.supervisor as LaunchdSupervisor
+  writeLaunchScript(p, config, active)
+  if (!launchdLoaded(supervisor.label)) {
+    const booted = launchctl([
+      'bootstrap',
+      launchdTarget(supervisor.label).replace(/\/[^/]+$/, ''),
+      supervisor.plistPath,
+    ])
+    if (booted.status !== 0) fail(`launchctl bootstrap failed: ${booted.output.trim()}`)
+  } else if (launchdPid(supervisor.label) === undefined) {
+    const kicked = launchctl(['kickstart', launchdTarget(supervisor.label)])
+    if (kicked.status !== 0) fail(`launchctl kickstart failed: ${kicked.output.trim()}`)
+  }
+  const serving = await awaitServing(config.socketPath, active.releaseId)
+  return {
+    supervisor,
+    launchdPid: launchdPid(supervisor.label) ?? null,
+    running: runningDaemon(p) ?? null,
+    serving,
+    readyAt: new Date().toISOString(),
+  }
+}
+
+/** Retire the supervised daemon and start the current selection through launchd. */
+async function restartSupervised(
+  p: ReturnType<typeof paths>,
+  config: ServiceConfig,
+  active: ActiveSelection
+): Promise<Record<string, unknown>> {
+  const supervisor = config.supervisor as LaunchdSupervisor
+  if (!launchdLoaded(supervisor.label)) return startSupervised(p, config, active)
+  writeLaunchScript(p, config, active)
+  const previousPid = launchdPid(supervisor.label)
+  const signalledAt = new Date().toISOString()
+  const kicked = launchctl(['kickstart', '-k', launchdTarget(supervisor.label)])
+  if (kicked.status !== 0) fail(`launchctl kickstart -k failed: ${kicked.output.trim()}`)
+  await awaitPidExit(previousPid)
+  const retiredAt = new Date().toISOString()
+  const serving = await awaitServing(config.socketPath, active.releaseId)
+  const pid = launchdPid(supervisor.label)
+  if (pid === undefined || pid === previousPid) fail('launchd did not start a new aspd process')
+  return {
+    supervisor,
+    previousPid: previousPid ?? null,
+    signalledAt,
+    retiredAt,
+    launchdPid: pid,
+    running: runningDaemon(p) ?? null,
+    serving,
+    readyAt: new Date().toISOString(),
+  }
+}
+
+async function stopSupervised(
+  p: ReturnType<typeof paths>,
+  config: ServiceConfig
+): Promise<Record<string, unknown>> {
+  const supervisor = config.supervisor as LaunchdSupervisor
+  const pid = launchdPid(supervisor.label)
+  const signalledAt = new Date().toISOString()
+  if (launchdLoaded(supervisor.label)) {
+    const booted = launchctl(['bootout', launchdTarget(supervisor.label)])
+    if (booted.status !== 0) fail(`launchctl bootout failed: ${booted.output.trim()}`)
+  }
+  await awaitPidExit(pid)
+  rmSync(p.running, { force: true })
+  return {
+    stopped: pid !== undefined,
+    supervisor,
+    pid: pid ?? null,
+    signalledAt,
+    exitedAt: new Date().toISOString(),
+    socketAfterStop: await readback(config.socketPath),
+  }
+}
+
+/**
+ * Hand the service lifetime to a per-user launchd job. Requires a selection.
+ * An unsupervised daemon is retired first so there is never a second owner.
+ */
+async function supervise(nsInput: string, label: string): Promise<Record<string, unknown>> {
+  const p = paths(nsInput)
+  const config = requireConfig(p)
+  const active = selectedRelease(p)
+  if (!/^[A-Za-z0-9.-]+$/.test(label)) fail(`invalid launchd label: ${label}`)
+  const home = process.env.HOME ?? fail('HOME is required to place the launchd plist')
+  const plistPath = join(home, 'Library', 'LaunchAgents', `${label}.plist`)
+  const previous = config.supervisor
+  if (previous !== undefined && previous.label !== label) {
+    fail(`namespace is already supervised by ${previous.label}`)
+  }
+  const retired =
+    previous === undefined ? await stop(nsInput) : { stopped: false, reason: 'already supervised' }
+  const supervisor: LaunchdSupervisor = {
+    kind: 'launchd',
+    label,
+    plistPath,
+    launchScript: p.launchScript,
+  }
+  const supervised: ServiceConfig = { ...config, supervisor }
+  const logPath = writeLaunchScript(p, supervised, active)
+  mkdirSync(dirname(plistPath), { recursive: true })
+  const plistTmp = `${plistPath}.tmp-${process.pid}`
+  writeFileSync(plistTmp, renderLaunchdPlist({ label, launchScript: p.launchScript, logPath }))
+  renameSync(plistTmp, plistPath)
+  writeJsonAtomic(p.config, supervised)
+  const started = await startSupervised(p, supervised, active)
+  return { supervised: supervisor, retired, started }
 }
 
 async function stop(nsInput: string): Promise<Record<string, unknown>> {
   const p = paths(nsInput)
   const config = requireConfig(p)
+  if (config.supervisor !== undefined) return stopSupervised(p, config)
   const record = runningDaemon(p)
   if (record === undefined) {
     rmSync(p.running, { force: true })
@@ -267,6 +546,31 @@ async function activate(nsInput: string, releaseId: string): Promise<Record<stri
   }
   const previous = readJson<ActiveSelection>(p.active)
   const beganAt = new Date().toISOString()
+  const config = requireConfig(p)
+  if (config.supervisor !== undefined) {
+    // Same order as the unsupervised path: retire, select, start. `bootout`
+    // unloads the job, so KeepAlive cannot respawn anything while the selection
+    // changes; `bootstrap` then starts only the newly selected release.
+    const retired = await stopSupervised(p, config)
+    const selection: ActiveSelection = {
+      schemaVersion: ACTIVE_SCHEMA,
+      releaseId,
+      releasePath,
+      activatedAt: new Date().toISOString(),
+      previousReleaseId: previous?.releaseId ?? null,
+    }
+    writeJsonAtomic(p.active, selection)
+    const started = await startSupervised(p, config, selection)
+    const result = {
+      activation: selection,
+      beganAt,
+      retired,
+      started,
+      completedAt: new Date().toISOString(),
+    }
+    appendFileSync(p.activations, `${JSON.stringify(result)}\n`)
+    return result
+  }
   const retired = await stop(nsInput)
   const selection: ActiveSelection = {
     schemaVersion: ACTIVE_SCHEMA,
@@ -303,6 +607,9 @@ async function status(nsInput: string): Promise<Record<string, unknown>> {
   return {
     namespace: p.ns,
     socketPath: config.socketPath,
+    supervisor: config.supervisor ?? null,
+    launchdPid:
+      config.supervisor !== undefined ? (launchdPid(config.supervisor.label) ?? null) : null,
     installedReleases: installed,
     selectedRelease: selected,
     runningProcess: running,
@@ -313,7 +620,9 @@ async function status(nsInput: string): Promise<Record<string, unknown>> {
 
 export async function main(args: string[]): Promise<void> {
   const [command, ns, arg] = args
-  if (ns === undefined) fail('usage: <init|start|stop|restart|activate|status> <namespace> [arg]')
+  if (ns === undefined) {
+    fail('usage: <init|start|stop|restart|activate|supervise|status> <namespace> [arg]')
+  }
   let result: unknown
   switch (command) {
     case 'init':
@@ -325,8 +634,18 @@ export async function main(args: string[]): Promise<void> {
     case 'stop':
       result = await stop(ns)
       break
-    case 'restart':
-      result = { stop: await stop(ns), start: await start(ns) }
+    case 'restart': {
+      const p = paths(ns)
+      const config = requireConfig(p)
+      result =
+        config.supervisor !== undefined
+          ? await restartSupervised(p, config, selectedRelease(p))
+          : { stop: await stop(ns), start: await start(ns) }
+      break
+    }
+    case 'supervise':
+      if (arg === undefined) fail('supervise requires a launchd label')
+      result = await supervise(ns, arg)
       break
     case 'activate':
       if (arg === undefined) fail('activate requires a release id')
