@@ -16,6 +16,7 @@ info:
     @echo "  just test      - Run tests"
     @echo "  just lint      - Run biome linter"
     @echo "  just verify    - Run lint + typecheck + test"
+    @echo "  just build-asp-release - Build an immutable standalone ASP artifact"
 
 # Build all packages
 build:
@@ -181,6 +182,33 @@ clean:
 # Rebuild from scratch
 rebuild:
     bun run rebuild
+
+# Build the preparation facade and broker with their Bun runtime dependency
+# closure. This does not install/activate anything or touch downstream repos.
+build-asp-release output_root="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    destination="{{ output_root }}"
+    if [ -z "$destination" ]; then
+      destination="${ASP_RELEASE_BUILD_ROOT:-$HOME/.local/state/praesidium/asp-release-builds}"
+    fi
+    bun scripts/asp-release.ts build --output-root "$destination"
+
+# Copy one already-built immutable release into a retained release root. There
+# is deliberately no current symlink: installation is distinct from activation.
+install-asp-release artifact release_root="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    destination="{{ release_root }}"
+    if [ -z "$destination" ]; then
+      destination="${ASP_RELEASE_INSTALL_ROOT:-$HOME/.local/share/praesidium/asp-releases}"
+    fi
+    bun scripts/asp-release.ts install --artifact "{{ artifact }}" --release-root "$destination"
+
+# Verify identity, immutability, content digests, and in-artifact executable
+# resolution for a retained standalone release.
+inspect-asp-release release:
+    bun scripts/asp-release.ts inspect --release "{{ release }}"
 
 # Install dependencies
 # Pass no-sync=1 to skip syncing the downstream consumer repo (hrc-runtime).
