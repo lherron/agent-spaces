@@ -1,4 +1,5 @@
 import type {
+  AspReleaseIdentity,
   BrokerAttachRequest,
   BrokerAttachResponse,
   BrokerEnsureInvocationRequest,
@@ -177,6 +178,12 @@ export interface BrokerOptions {
   participantFaults?: ParticipantEstablishmentFaults | undefined
   /** Stable id reported in `broker.attach` responses. */
   brokerInstanceId?: string | undefined
+  /**
+   * The immutable ASP release this process was built into, reported in
+   * `broker.hello` (T-08539). Supplied by the release entrypoint from identity
+   * compiled into the executable; absent for checkout runs.
+   */
+  releaseIdentity?: AspReleaseIdentity | undefined
   authorizeSubmission?:
     | ((context: {
         invocationId: InvocationId
@@ -550,6 +557,9 @@ export function createBroker(options: BrokerOptions): Broker {
           },
         },
         drivers: registry.summaries(),
+        ...(options.releaseIdentity !== undefined
+          ? { release: { ...options.releaseIdentity } }
+          : {}),
       }
     },
 

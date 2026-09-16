@@ -15,12 +15,20 @@
       "bun": "./src/agent-inspection.ts",
       "types": "./dist/agent-inspection.d.ts",
       "import": "./dist/agent-inspection.js"
+    },
+    "./unix-client": {
+      "bun": "./src/unix-client.ts",
+      "types": "./dist/unix-client.d.ts",
+      "import": "./dist/unix-client.js"
     }
   },
   "typesVersions": {
     "*": {
       "agent-inspection": [
         "dist/agent-inspection.d.ts"
+      ],
+      "unix-client": [
+        "dist/unix-client.d.ts"
       ]
     }
   },
@@ -35,6 +43,7 @@
     "postpack": "git checkout HEAD -- package.json"
   },
   "dependencies": {
+    "spaces-harness-broker-client": "workspace:*",
     "spaces-harness-broker-protocol": "workspace:*",
     "spaces-runtime-contracts": "workspace:*"
   },

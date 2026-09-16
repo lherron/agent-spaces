@@ -210,6 +210,34 @@ install-asp-release artifact release_root="":
 inspect-asp-release release:
     bun scripts/asp-release.ts inspect --release "{{ release }}"
 
+# Isolated aspd preparation-service lifecycle (T-08539, docs/aspd.md). Every
+# recipe takes an explicit absolute namespace root; nothing global is touched.
+# Install releases with `just install-asp-release <artifact> <ns>/releases`.
+aspd-init ns codex_path="":
+    bun scripts/aspd-service.ts init "{{ ns }}" "{{ codex_path }}"
+
+# Retire the running daemon, select the release, and start it on the same socket.
+aspd-activate ns release_id:
+    bun scripts/aspd-service.ts activate "{{ ns }}" "{{ release_id }}"
+
+aspd-start ns:
+    bun scripts/aspd-service.ts start "{{ ns }}"
+
+aspd-stop ns:
+    bun scripts/aspd-service.ts stop "{{ ns }}"
+
+aspd-restart ns:
+    bun scripts/aspd-service.ts restart "{{ ns }}"
+
+# Installed releases, selected release, and the running service identity read back over RPC.
+aspd-status ns:
+    bun scripts/aspd-service.ts status "{{ ns }}"
+
+# Build the standalone aspd pilot client (the HRC stand-in) and verify its
+# bundled closure is contracts/framing/transport only.
+build-aspd-pilot-client output_root:
+    bun scripts/aspd-pilot/build-client.ts "{{ output_root }}"
+
 # Install dependencies
 # Pass no-sync=1 to skip syncing the downstream consumer repo (hrc-runtime).
 # Linked Git worktrees auto-disable downstream sync and wrapper linking unless force-sync=1

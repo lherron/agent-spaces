@@ -3,6 +3,7 @@ import { mkdir, readFile, unlink } from 'node:fs/promises'
 import { type Socket, connect, createServer } from 'node:net'
 import { dirname, join } from 'node:path'
 import type {
+  AspReleaseIdentity,
   BrokerAttachRequest,
   BrokerAttachResponse,
   HarnessInvocationSpec,
@@ -56,6 +57,11 @@ interface ObserverClient {
 
 export interface RunBrokerCliOptions {
   additionalDrivers?: Array<() => Driver> | undefined
+  /**
+   * Identity of the immutable ASP release this executable was built into
+   * (T-08539). Reported in `broker.hello` on every transport.
+   */
+  releaseIdentity?: AspReleaseIdentity | undefined
 }
 
 export async function runBrokerCli(options: RunBrokerCliOptions): Promise<void> {
@@ -78,6 +84,7 @@ export async function runBrokerCli(options: RunBrokerCliOptions): Promise<void> 
     const json = args.includes('--json')
     const broker = createDefaultBroker(undefined, undefined, {
       additionalDrivers: options.additionalDrivers,
+      releaseIdentity: options.releaseIdentity,
     })
     const hello = await broker.hello({
       clientInfo: { name: 'harness-broker-cli' },
@@ -155,7 +162,11 @@ async function runStdio(args: string[], options: RunBrokerCliOptions): Promise<v
     // Stdio broker event replay is ephemeral and process-local: it backs
     // inspection reads only. The path-backed, controller-fenced durable ledger
     // remains exclusive to the unix transport.
-    { eventLedger, additionalDrivers: options.additionalDrivers }
+    {
+      eventLedger,
+      additionalDrivers: options.additionalDrivers,
+      releaseIdentity: options.releaseIdentity,
+    }
   )
 
   if (observerSocketPath !== undefined) {
@@ -467,6 +478,7 @@ async function runUnix(args: string[], options: RunBrokerCliOptions): Promise<vo
       // sockets under it (never the global tmpdir socket two runtimes share).
       hookIpcDir: join(dirname(socketPath), 'hooks'),
       additionalDrivers: options.additionalDrivers,
+      releaseIdentity: options.releaseIdentity,
       ...(eventLedger !== undefined ? { eventLedger } : {}),
       // Raw ingress journal + disposition index live beside the normalized
       // ledger (§7.1, §8.1). Without a ledger path capture stays in memory,

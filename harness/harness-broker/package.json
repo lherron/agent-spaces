@@ -49,6 +49,7 @@
   "devDependencies": {
     "@types/bun": "1.3.14",
     "@types/ws": "^8.18.1",
+    "spaces-harness-broker-client": "workspace:*",
     "typescript": "^5.8.3"
   }
 }

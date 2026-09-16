@@ -24,9 +24,13 @@ const RELEASE_SCHEMA = 'asp-standalone-release/v1' as const
 const EXECUTABLES = {
   'aspc-facade': 'scripts/asp-release/entries/aspc-facade.ts',
   'harness-broker': 'scripts/asp-release/entries/harness-broker.ts',
+  aspd: 'scripts/asp-release/entries/aspd.ts',
 } as const
 
 type ExecutableName = keyof typeof EXECUTABLES
+
+/** Executables every retained release has carried since T-08535. `aspd` joined in T-08539. */
+const REQUIRED_EXECUTABLES: readonly ExecutableName[] = ['aspc-facade', 'harness-broker']
 
 type ReleaseExecutable = {
   launcher: string
@@ -34,6 +38,8 @@ type ReleaseExecutable = {
   payload: string
   payloadSha256: string
   runtimeClosure: 'bun-compiled'
+  /** The payload was compiled with its release identity (T-08539). */
+  embeddedIdentity?: true | undefined
 }
 
 export type AspReleaseManifest = {
@@ -43,7 +49,7 @@ export type AspReleaseManifest = {
   builtAt: string
   platform: string
   architecture: string
-  executables: Record<ExecutableName, ReleaseExecutable>
+  executables: Partial<Record<ExecutableName, ReleaseExecutable>>
 }
 
 export type ReleaseInspection = {
@@ -55,9 +61,17 @@ export type ReleaseInspection = {
   platform: string
   architecture: string
   immutable: true
-  executableResolution: Record<
-    ExecutableName,
-    { launcher: string; payload: string; observedReleaseId: string; observedSourceCommit: string }
+  executableResolution: Partial<
+    Record<
+      ExecutableName,
+      {
+        launcher: string
+        payload: string
+        observedReleaseId: string
+        observedSourceCommit: string
+        embeddedIdentity: boolean
+      }
+    >
   >
   runtimeClosure: 'bun-compiled'
   mutableCheckoutReferences: false
@@ -223,7 +237,13 @@ export function inspectRelease(inputPath: string): ReleaseInspection {
   }
   visit(releasePath)
 
-  for (const name of Object.keys(EXECUTABLES) as ExecutableName[]) {
+  for (const name of Object.keys(manifest.executables)) {
+    if (!(name in EXECUTABLES)) fail(`unknown release executable: ${name}`)
+  }
+  for (const name of REQUIRED_EXECUTABLES) {
+    if (manifest.executables[name] === undefined) fail(`missing required executable: ${name}`)
+  }
+  for (const name of Object.keys(manifest.executables) as ExecutableName[]) {
     const executable = manifest.executables[name]
     if (executable?.runtimeClosure !== 'bun-compiled') fail(`invalid runtime closure for ${name}`)
     const launcher = resolve(releasePath, executable.launcher)
@@ -239,6 +259,15 @@ export function inspectRelease(inputPath: string): ReleaseInspection {
     if (sha256(launcher) !== executable.launcherSha256) fail(`${name} launcher digest mismatch`)
     if (sha256(payload) !== executable.payloadSha256) fail(`${name} payload digest mismatch`)
     const payloadBytes = readFileSync(payload)
+    if (
+      executable.embeddedIdentity === true &&
+      !(
+        payloadBytes.includes(Buffer.from(manifest.releaseId)) &&
+        payloadBytes.includes(Buffer.from(manifest.sourceCommit))
+      )
+    ) {
+      fail(`${name} payload does not embed its release identity`)
+    }
     for (const mutableRoot of [REPO_ROOT, resolve(REPO_ROOT, '..', 'hrc-runtime')]) {
       if (payloadBytes.includes(Buffer.from(mutableRoot))) {
         fail(`${name} payload retains mutable checkout reference: ${mutableRoot}`)
@@ -272,6 +301,7 @@ export function inspectRelease(inputPath: string): ReleaseInspection {
       payload,
       observedReleaseId: manifest.releaseId,
       observedSourceCommit: manifest.sourceCommit,
+      embeddedIdentity: executable.embeddedIdentity === true,
     }
   }
 
@@ -315,7 +345,18 @@ async function buildRelease(outputRootInput: string): Promise<ReleaseInspection>
     for (const name of Object.keys(EXECUTABLES) as ExecutableName[]) {
       const payload = join(staging, 'libexec', name)
       const entry = join(REPO_ROOT, EXECUTABLES[name])
-      run(['bun', 'build', '--compile', '--target=bun', '--outfile', payload, entry])
+      const embeddedIdentity = JSON.stringify({ releaseId: id, sourceCommit, builtAt })
+      run([
+        'bun',
+        'build',
+        '--compile',
+        '--target=bun',
+        '--define',
+        `ASP_RELEASE_EMBEDDED_IDENTITY=${embeddedIdentity}`,
+        '--outfile',
+        payload,
+        entry,
+      ])
       chmodSync(payload, 0o755)
       const launcher = join(staging, name)
       writeFileSync(launcher, launcherScript(name, id, sourceCommit, builtAt), { mode: 0o755 })
@@ -325,6 +366,7 @@ async function buildRelease(outputRootInput: string): Promise<ReleaseInspection>
         payload: `libexec/${name}`,
         payloadSha256: sha256(payload),
         runtimeClosure: 'bun-compiled',
+        embeddedIdentity: true,
       }
     }
 

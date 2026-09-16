@@ -1,5 +1,7 @@
 import type {
+  AspReleaseIdentity,
   BrokerLifecyclePolicyOverlay,
+  BrokerProtocolVersion,
   InvocationDispatchRequest,
   InvocationRuntimeContext,
   InvocationStartResponse,
@@ -97,9 +99,35 @@ export interface AspcHelloResponse {
     compileHarnessInvocation: true
     compileAndStart: boolean
     cohostedBroker: boolean
-    transports: ['stdio-jsonrpc-ndjson']
+    transports: AspcTransportKind[]
   }
   brokerProtocol?: 'harness-broker/0.2' | 'harness-broker/0.3' | undefined
+  /**
+   * The immutable ASP release serving this connection (T-08539). Absent when
+   * the compile plane is not running from a release (checkout/stdio facade).
+   */
+  release?: AspReleaseIdentity | undefined
+}
+
+export type AspcTransportKind = 'stdio-jsonrpc-ndjson' | 'unix-jsonrpc-ndjson'
+
+/**
+ * Release binding for a compiled harness invocation (T-08539). Names the
+ * release that prepared it and the worker executable inside that release, so a
+ * host launches the worker without choosing a binary by driver name or through
+ * PATH. The remaining worker flags are the existing broker CLI hosting
+ * contract (`--socket`, `--event-ledger`, identity flags).
+ */
+export interface AspcExecutionRelease extends AspReleaseIdentity {
+  /** Canonical absolute directory of the release. */
+  releaseRoot: string
+  worker: {
+    /** The selected profile's broker protocol; the worker hello must negotiate it. */
+    protocol: BrokerProtocolVersion
+    /** Absolute `harness-broker` launcher inside `releaseRoot`. */
+    executable: string
+    argvPrefix: string[]
+  }
 }
 
 export interface AspcCompileRuntimePlanRequest {
@@ -145,6 +173,8 @@ export type AspcCompileHarnessInvocationResponse =
       startRequest: BrokerExecutionProfile['harnessInvocation']['startRequest']
       dispatchRequest: InvocationDispatchRequest
       diagnostics: CompileDiagnostic[]
+      /** Present when the compile plane serves from an immutable release. */
+      executionRelease?: AspcExecutionRelease | undefined
     }
   | {
       schemaVersion: typeof ASPC_COMPILE_HARNESS_INVOCATION_RESPONSE_VERSION

@@ -1,4 +1,5 @@
 import type {
+  AspReleaseIdentity,
   BrokerTransportKind,
   InvocationEventEnvelope,
   PermissionDecision,
@@ -52,6 +53,8 @@ export interface DefaultBrokerOptions {
    * default.
    */
   hookIpcDir?: string | undefined
+  /** Release identity reported in `broker.hello` (T-08539). */
+  releaseIdentity?: AspReleaseIdentity | undefined
 }
 
 export function createDefaultBroker(
@@ -89,5 +92,6 @@ export function createDefaultBroker(
     ...(options.brokerInstanceId !== undefined
       ? { brokerInstanceId: options.brokerInstanceId }
       : {}),
+    ...(options.releaseIdentity !== undefined ? { releaseIdentity: options.releaseIdentity } : {}),
   })
 }

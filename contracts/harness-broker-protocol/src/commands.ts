@@ -130,6 +130,17 @@ export interface BrokerHelloRequest {
   capabilities?: ClientCapabilities | undefined
 }
 
+/**
+ * Identity of the immutable ASP release an executable was built into
+ * (T-08539). Compiled into the executable when the release is built, so it
+ * names the code actually running rather than a launcher path or environment.
+ */
+export interface AspReleaseIdentity {
+  releaseId: string
+  sourceCommit: string
+  builtAt: string
+}
+
 export interface BrokerHelloResponse {
   brokerInfo: {
     name: 'harness-broker'
@@ -138,6 +149,11 @@ export interface BrokerHelloResponse {
   protocolVersion: BrokerProtocolVersion
   capabilities: BrokerCapabilities
   drivers: DriverSummary[]
+  /**
+   * The release this broker process is executing. Absent for a broker that
+   * was not built into an immutable ASP release (checkout/workspace runs).
+   */
+  release?: AspReleaseIdentity | undefined
 }
 
 export interface BrokerHealthRequest {
