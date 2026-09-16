@@ -211,3 +211,13 @@ pilot client artifact and process (`scripts/aspd-pilot`), evidence under
    protocol, identity-mismatched release, executable outside the release and a
    withheld (unavailable) release are refused before launch; a worker whose
    hello identity differs is refused before `invocation.start`.
+
+## Pilot evidence layout
+
+T-08539 retains its installed acceptance under
+`var/wrkq-artifacts/T-08539/` (outside every checkout): `releases-build/` (built
+A/B artifacts), `ns/` (the isolated service namespace with installed releases,
+activation history and daemon logs), `client/` (the fixed pilot client artifact
+and its closure manifest), `ev/` (scenario record, client state: preparations,
+hosting intents, bindings, worker hellos, start outcomes, turn events) and
+`gates/` (verify, matrix smoke, build outputs).
