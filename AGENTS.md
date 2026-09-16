@@ -100,6 +100,29 @@ Client defaults after the ruling:
 
 Enqueue-then-steer ordering (T-08532) was cancelled as a non-scenario: a steer the broker delivers before its own queue starts the turn and the queue follows behind, which is the ruling's semantics.
 
+## aspd operations
+
+`aspd` is an explicitly namespaced service; there is no global lifecycle or
+status command. Use the Justfile service surface first, not `pgrep`,
+`launchctl`, or broad filesystem searches:
+
+```bash
+just aspd-status <absolute-namespace>
+just aspd-start <absolute-namespace>
+just aspd-stop <absolute-namespace>
+just aspd-restart <absolute-namespace>
+```
+
+The completed T-08539 pilot namespaces are
+`/Users/lherron/praesidium/var/wrkq-artifacts/T-08539/ns` and
+`/Users/lherron/praesidium/var/wrkq-artifacts/T-08539/astra-grade/ns`. They are
+retained evidence namespaces and were deliberately stopped at pilot closeout;
+do not assume either is the active production namespace. In `aspd-status`, an
+installed or selected release does not mean the daemon is live. Treat
+`runningProcess`, the RPC `serving` readback, and `runningEqualsSelected` as the
+authoritative running-state evidence. See [docs/aspd.md](docs/aspd.md) for the
+namespace layout and activation contract.
+
 ## Project Structure
 
 Directory names under the six workspace roots differ from published package names
