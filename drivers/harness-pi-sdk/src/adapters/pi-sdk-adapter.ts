@@ -284,19 +284,16 @@ export class PiSdkAdapter implements HarnessAdapter {
       }
     }
 
-    try {
-      await import('@mariozechner/pi-coding-agent')
-      return {
-        available: true,
-        version: 'unknown',
-        path: 'bun',
-        capabilities: ['sdk'],
-      }
-    } catch (error) {
-      return {
-        available: false,
-        error: error instanceof Error ? error.message : String(error),
-      }
+    // The SDK is a pinned runtime dependency of this adapter package. Detection
+    // is preparation-only: loading the execution SDK here pulled its optional
+    // native image stack into compiler processes and made standalone compiler
+    // bundles retain a build-checkout fallback path. The worker remains the
+    // authority that loads and validates the execution SDK when a run starts.
+    return {
+      available: true,
+      version: 'unknown',
+      path: 'bun',
+      capabilities: ['sdk'],
     }
   }
 
