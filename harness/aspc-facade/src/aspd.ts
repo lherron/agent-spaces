@@ -172,11 +172,16 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
           try {
             return await handler(request)
           } finally {
-            inFlight -= 1
-            log(
-              `aspd request.answered conn=${connectionId} id=${String(request.id)} method=${method}`
-            )
-            if (inFlight === 0) drained?.()
+            // Count the request as in flight until the protocol server has
+            // written its reply frame (it does so in a microtask after this
+            // handler settles), so retirement never closes ahead of the reply.
+            setImmediate(() => {
+              inFlight -= 1
+              log(
+                `aspd request.answered conn=${connectionId} id=${String(request.id)} method=${method}`
+              )
+              if (inFlight === 0) drained?.()
+            })
           }
         })
       },
@@ -213,18 +218,33 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
       } catch {
         // Already gone.
       }
-      for (const socket of connections.keys()) socket.pause()
       if (inFlight > 0) {
         await new Promise<void>((resolve) => {
           drained = resolve
         })
       }
-      // Let the final replies flush before the sockets close.
-      await new Promise((resolve) => setImmediate(resolve))
-      for (const [socket, server] of connections) {
-        await server.close()
-        socket.end()
-      }
+      // Half-close every connection and wait until its buffered replies have
+      // flushed and the peer is gone: the process exits when this resolves.
+      await Promise.all(
+        [...connections].map(
+          ([socket, server]) =>
+            new Promise<void>((resolve) => {
+              const done = (): void => {
+                clearTimeout(timer)
+                void server.close().then(() => resolve())
+              }
+              const timer = setTimeout(() => {
+                socket.destroy()
+              }, 10_000)
+              if (socket.destroyed) {
+                done()
+                return
+              }
+              socket.once('close', done)
+              socket.end()
+            })
+        )
+      )
       log('aspd retire.drained')
     },
   }

@@ -301,6 +301,37 @@ describe('unix server and retirement', () => {
     await idleConn.close()
   })
 
+  test('a daemon that exits right after retirement still delivers the in-flight reply', async () => {
+    const socketPath = join(tempBase(), 's.sock')
+    const child = Bun.spawn({
+      cmd: ['bun', join(import.meta.dir, 'fixtures', 'aspd-exit-after-retire.ts'), socketPath],
+      stdout: 'ignore',
+      stderr: 'pipe',
+    })
+    const stderr: string[] = []
+    const decoder = new TextDecoder()
+    void (async () => {
+      for await (const chunk of child.stderr) stderr.push(decoder.decode(chunk))
+    })()
+    const waitForLog = async (needle: string): Promise<void> => {
+      const deadline = Date.now() + 10_000
+      while (!stderr.join('').includes(needle)) {
+        if (Date.now() > deadline) throw new Error(`timed out waiting for ${needle}`)
+        await Bun.sleep(10)
+      }
+    }
+    await waitForLog('ready')
+    const conn = await AspcUnixClient.connect({ socketPath, clientInfo: { name: 't' } })
+    const inflight = conn.compileHarnessInvocation(compileRequest())
+    await waitForLog('method=aspc.compileHarnessInvocation')
+    child.kill('SIGTERM')
+    const answered = await inflight
+    expect(answered.diagnostics).toHaveLength(4000)
+    expect(await child.exited).toBe(0)
+    expect(stderr.join('')).toContain('retire.begin inFlight=1')
+    await conn.close()
+  })
+
   test('refuses to take over a socket a live listener still serves', async () => {
     const socketPath = join(tempBase(), 's.sock')
     const first = await startAspdServer({ socketPath, service: fakeService(), log: () => {} })
