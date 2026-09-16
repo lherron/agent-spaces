@@ -82,8 +82,14 @@ describe('broker admission API', () => {
     await expect(broker.turnManifest({ invocationId, turnId: foreignTurn })).rejects.toThrow(
       /not attributed/
     )
-    const steer = await broker.steer({ invocationId, origin, body: 'not yet' })
-    expect(steer).toMatchObject({ admission: 'rejected', reason: 'unattributed-turn' })
+    // T-08527: a steer is a mid-turn action; an unattributed running turn is
+    // still a running turn, so it is injected rather than refused.
+    const steer = await broker.steer({ invocationId, origin, body: 'mid-turn' })
+    expect(steer).toMatchObject({ admission: 'admitted' })
+    await flush()
+    expect(controller.steeredInputs.map((input) => input.inputId)).toEqual([
+      steer.submissionId as never,
+    ])
 
     controller.emitRaw(
       'turn.attributed',

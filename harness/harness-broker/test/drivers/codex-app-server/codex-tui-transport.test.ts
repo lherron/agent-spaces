@@ -1838,9 +1838,9 @@ describe('codex-tui transport', () => {
         await run.broker.steer({
           invocationId: 'inv_codex_tui_attribution',
           origin,
-          body: 'too early',
+          body: 'mid-turn before attribution',
         })
-      ).toMatchObject({ admission: 'rejected', reason: 'unattributed-turn' })
+      ).toMatchObject({ admission: 'admitted' })
       rpc.emit('item/started', {
         threadId: 'thread_test',
         turnId: 'turn_goal',

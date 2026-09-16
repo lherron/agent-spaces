@@ -288,16 +288,6 @@ interface SubmissionRecord {
   terminal: boolean
 }
 
-interface PendingOwnTurnSteer {
-  record: SubmissionRecord
-  /** The own-turn delivery whose turn this steer is waiting to land in. */
-  pendingSubmissionId: InputId
-  /** Set once that delivery's turn attributed to it. */
-  attributed: boolean
-  /** Why that delivery ended before attributing; names the steer's rejection. */
-  deadCause?: string | undefined
-}
-
 interface BrokerHeldSubmission {
   record: SubmissionRecord
   class: 'queue' | 'preempt'
@@ -412,15 +402,6 @@ export interface Invocation {
    * terminal is the only boundary that can release the reservation (T-08514).
    */
   pendingOwnTurnUncorrelatableTurnId?: TurnId | undefined
-  /**
-   * Admitted steers that arrived while an own-turn delivery awaited its
-   * turn-start evidence (T-08527). Steer is best effort: rather than refusing
-   * `busy` in that window, the broker holds each one against the pending
-   * submission and applies it through the in-flight steer path once that
-   * submission attributes, or rejects it if the pending turn dies first.
-   */
-  pendingOwnTurnSteers: PendingOwnTurnSteer[]
-  pendingOwnTurnSteerReleaseScheduled?: boolean | undefined
   /** Prevent repeated diagnostics if the stale-pending invariant is breached. */
   stalePendingProbeReported?: boolean | undefined
   admissionDrainPromise?: Promise<void> | undefined
@@ -847,13 +828,11 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     if (inv.state !== 'ready' && inv.state !== 'turn_active') {
       return rejectSubmission(inv, record, 'state', `invalid-state:${inv.state}`)
     }
-    // A steer in the pending-own-turn window is held, not refused (T-08527);
-    // exclusive is not best effort and keeps its busy refusal.
+    // A steer exists to land mid-turn: to a busy harness (a delivery awaiting
+    // its turn, or a turn still unattributed) it is injected immediately, never
+    // held or refused (T-08527). Exclusive is not best effort and stays busy.
     if (inv.pendingOwnTurnSubmissionId !== undefined && record.class === 'exclusive') {
       return rejectSubmission(inv, record, 'state', 'busy')
-    }
-    if (record.class === 'steer' && inv.unattributedTurnId !== undefined) {
-      return rejectSubmission(inv, record, 'state', 'unattributed-turn')
     }
     if (
       record.class === 'steer' &&
@@ -969,18 +948,6 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     let accepted = false
     for (const { inv, record } of matches) {
       if (record.terminal) continue
-      const heldSteer = inv.pendingOwnTurnSteers.findIndex(
-        (held) => held.record.submissionId === record.submissionId
-      )
-      if (heldSteer >= 0) {
-        inv.pendingOwnTurnSteers.splice(heldSteer, 1)
-        emit(inv, 'submission.withdrawn', {
-          submissionId: record.submissionId,
-          reason: req.reason,
-        })
-        withdrawn = true
-        continue
-      }
       const position = inv.brokerQueue.findIndex(
         (item) => item.record.submissionId === record.submissionId
       )
@@ -1060,115 +1027,6 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       position,
       ...(ttlMs !== undefined ? { ttlMs } : {}),
     })
-  }
-
-  function dispatchAdmittedSteer(inv: Invocation, record: SubmissionRecord): void {
-    if (inv.state === 'ready' && inv.driver.steerNeverStartsTurn !== true) {
-      void applyAndEmit(inv, record.input).catch((error) =>
-        rejectAdmittedExecution(inv, record, error)
-      )
-      return
-    }
-    void attemptSteerAndEmit(inv, record.input).then((result) => {
-      if (!result.accepted) {
-        rejectAdmittedExecution(inv, record, result.reason ?? 'steer-failed', {
-          deliveryEvidence: record.deliveryEvidence,
-          inputRejectedEmitted: true,
-        })
-      }
-    })
-  }
-
-  function holdSteerForPendingOwnTurn(
-    inv: Invocation,
-    record: SubmissionRecord,
-    pendingSubmissionId: InputId
-  ): void {
-    inv.pendingOwnTurnSteers.push({ record, pendingSubmissionId, attributed: false })
-    emit(inv, 'diagnostic', {
-      level: 'info',
-      source: 'broker',
-      kind: 'steer_held_for_pending_own_turn',
-      message: 'Steer held until the pending own-turn delivery attributes its turn',
-      data: { submissionId: record.submissionId, pendingSubmissionId },
-    })
-  }
-
-  /** The pending delivery started its own turn: held steers may now land in it. */
-  function markPendingOwnTurnSteersAttributed(inv: Invocation, pendingSubmissionId: string): void {
-    for (const held of inv.pendingOwnTurnSteers) {
-      if (held.pendingSubmissionId === pendingSubmissionId) held.attributed = true
-    }
-  }
-
-  function markPendingOwnTurnSteersDead(
-    inv: Invocation,
-    pendingSubmissionId: string,
-    cause: string
-  ): void {
-    for (const held of inv.pendingOwnTurnSteers) {
-      if (held.pendingSubmissionId === pendingSubmissionId && !held.attributed) {
-        held.deadCause ??= cause
-      }
-    }
-  }
-
-  function scheduleHeldSteerRelease(inv: Invocation): void {
-    if (inv.pendingOwnTurnSteers.length === 0) return
-    if (inv.pendingOwnTurnSteerReleaseScheduled === true) return
-    inv.pendingOwnTurnSteerReleaseScheduled = true
-    // Deferred so the event cascade that settled the pending delivery (start,
-    // attribution, execution disposition) has fully projected before a held
-    // steer is judged against the seat.
-    queueMicrotask(() => {
-      inv.pendingOwnTurnSteerReleaseScheduled = false
-      releaseHeldSteers(inv)
-    })
-  }
-
-  function releaseHeldSteers(inv: Invocation): void {
-    const remaining: PendingOwnTurnSteer[] = []
-    const ready: PendingOwnTurnSteer[] = []
-    for (const held of inv.pendingOwnTurnSteers) {
-      if (held.record.terminal) continue
-      if (
-        held.deadCause === undefined &&
-        inv.pendingOwnTurnSubmissionId === held.pendingSubmissionId
-      ) {
-        remaining.push(held)
-        continue
-      }
-      ready.push(held)
-    }
-    inv.pendingOwnTurnSteers = remaining
-    for (const held of ready) {
-      const { record } = held
-      if (!held.attributed) {
-        rejectAdmittedExecution(inv, record, `busy:pending-turn-${held.deadCause ?? 'released'}`, {
-          deliveryEvidence: 'not_written',
-        })
-        continue
-      }
-      // The pending turn attributed, and a later delivery is already awaiting
-      // its own turn: this steer is again in a pending window, so keep holding.
-      if (inv.pendingOwnTurnSubmissionId !== undefined) {
-        holdSteerForPendingOwnTurn(inv, record, inv.pendingOwnTurnSubmissionId)
-        continue
-      }
-      const reason =
-        inv.state !== 'ready' && inv.state !== 'turn_active'
-          ? `invalid-state:${inv.state}`
-          : inv.unattributedTurnId !== undefined
-            ? 'unattributed-turn'
-            : inv.state === 'turn_active' && inv.currentTurnPolicy === 'guarded'
-              ? 'guarded'
-              : undefined
-      if (reason !== undefined) {
-        rejectAdmittedExecution(inv, record, reason, { deliveryEvidence: 'not_written' })
-        continue
-      }
-      dispatchAdmittedSteer(inv, record)
-    }
   }
 
   function rejectDriverBlockedHeldSubmissions(inv: Invocation): void {
@@ -1446,8 +1304,6 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       result = await inv.driver.applyInputNow(input)
     } catch (error) {
       if (inv.pendingOwnTurnSubmissionId === inputId) {
-        markPendingOwnTurnSteersDead(inv, inputId, 'delivery-failed')
-        scheduleHeldSteerRelease(inv)
         inv.pendingOwnTurnSubmissionId = undefined
         inv.pendingOwnTurnContestedByTurnId = undefined
       }
@@ -1582,12 +1438,6 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   // Queue eviction — reject all pending when invocation terminates or stops
   // ---------------------------------------------------------------------------
   function evictQueue(inv: Invocation, reason: string): void {
-    for (const held of inv.pendingOwnTurnSteers.splice(0)) {
-      emit(inv, 'submission.cancelled', {
-        submissionId: held.record.submissionId,
-        reason: 'teardown',
-      })
-    }
     if (inv.pendingOwnTurnSubmissionId !== undefined) {
       const pendingId = inv.pendingOwnTurnSubmissionId
       inv.pendingOwnTurnSubmissionId = undefined
@@ -2044,7 +1894,6 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     // seq 867. The slot is freed so the seat keeps accepting input; the
     // submission stays UNDISPOSED until its own native evidence (executed,
     // absorbed, recall or teardown) settles it exactly once.
-    markPendingOwnTurnSteersDead(inv, pendingSubmissionId, 'uncorrelated')
     inv.pendingOwnTurnSubmissionId = undefined
     inv.pendingOwnTurnContestedByTurnId = undefined
     inv.pendingOwnTurnUncorrelatableTurnId = undefined
@@ -2068,7 +1917,6 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
 
   function observePendingOwnTurnStart(inv: Invocation, turnId: TurnId, inputId?: InputId): void {
     if (inputId !== undefined && inv.pendingOwnTurnSubmissionId === inputId) {
-      markPendingOwnTurnSteersAttributed(inv, inputId)
       inv.pendingOwnTurnSubmissionId = undefined
       inv.pendingOwnTurnContestedByTurnId = undefined
       return
@@ -2221,11 +2069,6 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       inv.submissionDispositions.set(submissionId, event)
       const record = inv.submissions.get(submissionId)
       if (record !== undefined) record.terminal = true
-      if (event.type === 'submission.absorbed' || event.type === 'submission.executed') {
-        markPendingOwnTurnSteersAttributed(inv, submissionId)
-      } else {
-        markPendingOwnTurnSteersDead(inv, submissionId, event.type.slice('submission.'.length))
-      }
       if (inv.pendingOwnTurnSubmissionId === submissionId) {
         inv.pendingOwnTurnSubmissionId = undefined
         inv.pendingOwnTurnContestedByTurnId = undefined
@@ -2279,7 +2122,6 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     // across an unrelated terminal, because its evidence may arrive on a later
     // turn.
     settleOwnTurnAtTerminal(inv, terminalTurnId)
-    scheduleHeldSteerRelease(inv)
 
     // Follow-on diagnostics (e.g. truncation notices) are emitted as their own
     // events. Their payloads are small, so they never re-trigger truncation.
@@ -2660,7 +2502,6 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         disposedEmitted: false,
         pending: [],
         brokerQueue: [],
-        pendingOwnTurnSteers: [],
         submissions: new Map(),
         submissionDispositions: new Map(),
         turnManifests: new Map(),
@@ -2819,10 +2660,23 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       const rejection = await checkAdmission(inv, record, req)
       if (rejection !== undefined) return rejection
       const response = admitSubmission(inv, record)
-      if (inv.pendingOwnTurnSubmissionId !== undefined) {
-        holdSteerForPendingOwnTurn(inv, record, inv.pendingOwnTurnSubmissionId)
+      if (
+        inv.state === 'ready' &&
+        inv.pendingOwnTurnSubmissionId === undefined &&
+        inv.driver.steerNeverStartsTurn !== true
+      ) {
+        void applyAndEmit(inv, record.input).catch((error) =>
+          rejectAdmittedExecution(inv, record, error)
+        )
       } else {
-        dispatchAdmittedSteer(inv, record)
+        void attemptSteerAndEmit(inv, record.input).then((result) => {
+          if (!result.accepted) {
+            rejectAdmittedExecution(inv, record, result.reason ?? 'steer-failed', {
+              deliveryEvidence: record.deliveryEvidence,
+              inputRejectedEmitted: true,
+            })
+          }
+        })
       }
       return response
     },
