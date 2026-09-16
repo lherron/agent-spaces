@@ -60,6 +60,7 @@ export type ReleaseInspection = {
     { launcher: string; payload: string; observedReleaseId: string; observedSourceCommit: string }
   >
   runtimeClosure: 'bun-compiled'
+  mutableCheckoutReferences: false
 }
 
 function fail(message: string): never {
@@ -237,6 +238,12 @@ export function inspectRelease(inputPath: string): ReleaseInspection {
     accessSync(payload, constants.X_OK)
     if (sha256(launcher) !== executable.launcherSha256) fail(`${name} launcher digest mismatch`)
     if (sha256(payload) !== executable.payloadSha256) fail(`${name} payload digest mismatch`)
+    const payloadBytes = readFileSync(payload)
+    for (const mutableRoot of [REPO_ROOT, resolve(REPO_ROOT, '..', 'hrc-runtime')]) {
+      if (payloadBytes.includes(Buffer.from(mutableRoot))) {
+        fail(`${name} payload retains mutable checkout reference: ${mutableRoot}`)
+      }
+    }
     const identityResult = Bun.spawnSync({
       cmd: [launcher, '--release-info'],
       cwd: releasePath,
@@ -279,6 +286,7 @@ export function inspectRelease(inputPath: string): ReleaseInspection {
     immutable: true,
     executableResolution: resolution,
     runtimeClosure: 'bun-compiled',
+    mutableCheckoutReferences: false,
   }
 }
 

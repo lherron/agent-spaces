@@ -79,6 +79,7 @@ describe('standalone ASP release inspection', () => {
     expect(result.ok).toBe(true)
     expect(result.immutable).toBe(true)
     expect(result.runtimeClosure).toBe('bun-compiled')
+    expect(result.mutableCheckoutReferences).toBe(false)
     expect(result.executableResolution['aspc-facade'].payload.startsWith(`${release}/`)).toBe(true)
     expect(result.executableResolution['harness-broker'].payload.startsWith(`${release}/`)).toBe(
       true
