@@ -37,7 +37,14 @@ function fixture(): string {
   mkdirSync(join(release, 'libexec'), { recursive: true })
   const executables = {} as AspReleaseManifest['executables']
   for (const name of ['aspc-facade', 'harness-broker'] as const) {
-    const launcher = '#!/bin/sh\nexit 0\n'
+    const launcher = `#!/bin/sh
+printf '%s\\n' '${JSON.stringify({
+      releaseId: id,
+      sourceCommit: '0123456789abcdef0123456789abcdef01234567',
+      executable: name,
+      runtimeClosure: 'bun-compiled',
+    })}'
+`
     const payload = '#!/bin/sh\nexit 0\n'
     writeFileSync(join(release, name), launcher, { mode: 0o555 })
     writeFileSync(join(release, 'libexec', name), payload, { mode: 0o555 })
@@ -75,6 +82,9 @@ describe('standalone ASP release inspection', () => {
     expect(result.executableResolution['aspc-facade'].payload.startsWith(`${release}/`)).toBe(true)
     expect(result.executableResolution['harness-broker'].payload.startsWith(`${release}/`)).toBe(
       true
+    )
+    expect(result.executableResolution['aspc-facade'].observedReleaseId).toBe(
+      'asp-0123456789ab-20260916T120000Z-abcdef'
     )
   })
 

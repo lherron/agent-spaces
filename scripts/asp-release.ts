@@ -55,7 +55,10 @@ export type ReleaseInspection = {
   platform: string
   architecture: string
   immutable: true
-  executableResolution: Record<ExecutableName, { launcher: string; payload: string }>
+  executableResolution: Record<
+    ExecutableName,
+    { launcher: string; payload: string; observedReleaseId: string; observedSourceCommit: string }
+  >
   runtimeClosure: 'bun-compiled'
 }
 
@@ -234,7 +237,35 @@ export function inspectRelease(inputPath: string): ReleaseInspection {
     accessSync(payload, constants.X_OK)
     if (sha256(launcher) !== executable.launcherSha256) fail(`${name} launcher digest mismatch`)
     if (sha256(payload) !== executable.payloadSha256) fail(`${name} payload digest mismatch`)
-    resolution[name] = { launcher, payload }
+    const identityResult = Bun.spawnSync({
+      cmd: [launcher, '--release-info'],
+      cwd: releasePath,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    if (identityResult.exitCode !== 0) {
+      fail(`${name} release identity probe failed: ${identityResult.stderr.toString().trim()}`)
+    }
+    let identity: Record<string, unknown>
+    try {
+      identity = JSON.parse(identityResult.stdout.toString()) as Record<string, unknown>
+    } catch {
+      fail(`${name} release identity probe returned invalid JSON`)
+    }
+    if (
+      identity['releaseId'] !== manifest.releaseId ||
+      identity['sourceCommit'] !== manifest.sourceCommit ||
+      identity['executable'] !== name ||
+      identity['runtimeClosure'] !== 'bun-compiled'
+    ) {
+      fail(`${name} release identity does not match the manifest`)
+    }
+    resolution[name] = {
+      launcher,
+      payload,
+      observedReleaseId: manifest.releaseId,
+      observedSourceCommit: manifest.sourceCommit,
+    }
   }
 
   return {
