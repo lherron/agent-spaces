@@ -6,7 +6,7 @@ explicitly selected artifact. This release path is intentionally separate from
 current release, synchronize a consumer, or touch HRC/ACP.
 
 ```bash
-just build-asp-release output_root=/absolute/build-root
+just build-asp-release /absolute/build-root
 just install-asp-release /absolute/build-root/<release-id> /absolute/install-root
 just inspect-asp-release /absolute/install-root/<release-id>
 ```
@@ -27,3 +27,14 @@ Installation is staging only. Consumers must select the absolute release path
 explicitly; there is no `current` link or activation/rollback protocol in this
 step. Native harness binaries, authentication, mutable ASP configuration, and
 per-run state remain intentional external inputs.
+
+The real broker matrix can select one release without changing shared links:
+
+```bash
+ASP_MATRIX_ASPC_FACADE_BIN=/absolute/release/aspc-facade \
+ASP_MATRIX_HARNESS_BROKER_BIN=/absolute/release/harness-broker \
+bun run smoke:matrix:aspc --config real-codex --keep-artifacts
+```
+
+The matrix report records both selected executable paths. Its compile RPC runs
+through the release facade and its command turn runs through the release broker.

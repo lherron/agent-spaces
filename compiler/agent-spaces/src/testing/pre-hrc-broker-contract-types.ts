@@ -136,6 +136,18 @@ export type PreHrcBrokerContractHarnessInput = {
    */
   allowLegacyPermissionEvent?: boolean | undefined
   lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
+  /**
+   * Explicit broker process for standalone-release validation. Omitted callers
+   * retain the checkout broker used by the normal contract harness.
+   */
+  brokerProcess?:
+    | {
+        command: string
+        args: string[]
+        cwd: string
+        env?: Record<string, string> | undefined
+      }
+    | undefined
   /** Narrow profile selection by id/hash (forwarded to selectBrokerProfile). */
   profileSelector?: { profileId?: string | undefined; profileHash?: string | undefined } | undefined
   brokerStartAssertions?:

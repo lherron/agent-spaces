@@ -430,9 +430,13 @@ async function compileRuntimePlanForMatrix(
     return client.compileRuntimePlan(req)
   }
 
+  const releaseFacade = process.env['ASP_MATRIX_ASPC_FACADE_BIN']
   const client = await AspcClient.start({
-    command: process.execPath,
-    args: ['harness/aspc-facade/bin/aspc-facade.js', 'run', '--transport', 'stdio'],
+    command: releaseFacade ?? process.execPath,
+    args:
+      releaseFacade === undefined
+        ? ['harness/aspc-facade/bin/aspc-facade.js', 'run', '--transport', 'stdio']
+        : ['run', '--transport', 'stdio'],
     cwd: ctx.repoRoot,
   })
   try {
@@ -1252,6 +1256,10 @@ async function runCodexRow(
     extraFailures: [],
     notes: {},
   }
+  const releaseFacade = process.env['ASP_MATRIX_ASPC_FACADE_BIN']
+  const releaseBroker = process.env['ASP_MATRIX_HARNESS_BROKER_BIN']
+  if (releaseFacade !== undefined) result.notes['aspcFacadeBinary'] = releaseFacade
+  if (releaseBroker !== undefined) result.notes['brokerBinary'] = releaseBroker
 
   const savedCodexPath = process.env['ASP_CODEX_PATH']
   const savedSkip = process.env['ASP_CODEX_SKIP_COMMON_PATHS']
@@ -1293,6 +1301,15 @@ async function runCodexRow(
       allowLegacyPermissionEvent: ctx.allowLegacyPermissionEvent,
       lifecyclePolicy,
       timeoutMs: ctx.turnTimeoutMs,
+      ...(releaseBroker !== undefined
+        ? {
+            brokerProcess: {
+              command: releaseBroker,
+              args: ['run', '--transport', 'stdio'],
+              cwd: options.projectRoot,
+            },
+          }
+        : {}),
       brokerStartAssertions: {
         baseline: {
           expectInitialInputAccepted: true,

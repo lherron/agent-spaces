@@ -922,7 +922,8 @@ async function startBrokerInvocation(
   lifecyclePolicy: BrokerLifecyclePolicyOverlay | undefined,
   hrcPolicy: HrcCapabilityPolicy | undefined,
   timeoutMs: number,
-  allowLegacyPermissionEvent: boolean
+  allowLegacyPermissionEvent: boolean,
+  brokerProcess: PreHrcBrokerContractHarnessInput['brokerProcess']
 ): Promise<{
   brokerStart: NonNullable<PreHrcBrokerContractHarnessResult['brokerStart']>
   failures: ContractHarnessFailure[]
@@ -932,12 +933,14 @@ async function startBrokerInvocation(
   const permissionAudit: Array<{ permissionRequestId: string; kind: string; decision: 'deny' }> = []
 
   try {
-    brokerClient = await BrokerClient.start({
-      command: 'bun',
-      args: ['harness/harness-broker/bin/harness-broker.js', 'run', '--transport', 'stdio'],
-      cwd: repoRoot(),
-      env: brokerEnvOverrides() as Record<string, string>,
-    })
+    brokerClient = await BrokerClient.start(
+      brokerProcess ?? {
+        command: 'bun',
+        args: ['harness/harness-broker/bin/harness-broker.js', 'run', '--transport', 'stdio'],
+        cwd: repoRoot(),
+        env: brokerEnvOverrides() as Record<string, string>,
+      }
+    )
     const hello = await brokerClient.hello({
       clientInfo: { name: 'pre-hrc-broker-contract-harness', version: '0.1.0' },
       protocolVersions: ['harness-broker/0.2'],
@@ -1486,7 +1489,8 @@ export async function runPreHrcBrokerContractHarness(
       input.lifecyclePolicy,
       input.compileRequest.hrcPolicy.capabilityPolicy,
       input.timeoutMs ?? selectedProfile.policy.resourceLimits?.turnTimeoutMs ?? 10_000,
-      input.allowLegacyPermissionEvent === true
+      input.allowLegacyPermissionEvent === true,
+      input.brokerProcess
     )
     brokerStart = brokerResult.brokerStart
     brokerEvents =
