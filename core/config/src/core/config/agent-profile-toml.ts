@@ -9,7 +9,7 @@ import type {
   RunMode,
 } from '../types/agent-profile.js'
 import { type AgentIdentity, ROSTER_SLOT_TOKENS } from '../types/agent-profile.js'
-import { resolveHarnessCatalogEntry } from '../types/harness.js'
+import { HARNESS_IDS, resolveHarnessCatalogEntry } from '../types/harness.js'
 import { type SpaceRefString, isSpaceRefString } from '../types/refs.js'
 import type { ClaudeOptions, CodexOptions, ProvisioningSettings } from '../types/targets.js'
 import { normalizeJobExecutionNodes } from './job-execution-nodes.js'
@@ -251,7 +251,12 @@ function parseProvisioningSettings(
     // are derived from agent-scope's kinds table.
     if (scalarKey === 'harness') {
       if (!resolveHarnessCatalogEntry(raw)) {
-        fail(source, `${path}/${key}`, `unsupported harness "${raw}"`, 'enum')
+        fail(
+          source,
+          `${path}/${key}`,
+          `unsupported harness "${raw}"; valid harness ids: ${HARNESS_IDS.join(', ')}`,
+          'enum'
+        )
       }
     }
     if (scalarKey === 'node' && raw === 'local') {

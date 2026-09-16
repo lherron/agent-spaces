@@ -106,6 +106,14 @@ profile = "operator"
     })
   })
 
+  test('rejects a removed harness with the valid catalog ids', () => {
+    expect(() =>
+      parseAgentProfile('version = 3\n[provisioning]\nharness = "agent-harness"\n')
+    ).toThrow(
+      'unsupported harness "agent-harness"; valid harness ids: claude, claude-agent-sdk, pi, pi-sdk, codex'
+    )
+  })
+
   test('viewer is absent rather than materialized when the profile omits it', () => {
     const profile = parseAgentProfile(`
 version = 3

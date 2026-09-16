@@ -557,16 +557,14 @@ function validateSdkContract(
 ): void {
   const sdkPath = joinPath(prefix, 'sdk')
   const driverKind = harness?.['driver']
-  const carriesSdkBlock =
-    driverKind === 'pi-sdk' || driverKind === 'agent-harness' || driverKind === 'agent-harness-tmux'
+  const carriesSdkBlock = driverKind === 'pi-sdk'
   // Eligibility for `in-process` transport is a DISTINCT predicate from carrying
   // an `sdk` block. A driver that runs inside the broker process and opens its
   // own transport — `arris-resident` dials the Arris control socket itself, so
   // the broker spawns nothing — is truthfully in-process without being Pi
   // SDK-backed, and must not be forced to carry an SDK block it never uses.
-  const allowsInProcessTransport =
-    driverKind === 'pi-sdk' || driverKind === 'agent-harness' || driverKind === 'arris-resident'
-  const requiresInProcessHost = driverKind === 'pi-sdk' || driverKind === 'agent-harness'
+  const allowsInProcessTransport = driverKind === 'pi-sdk' || driverKind === 'arris-resident'
+  const requiresInProcessHost = driverKind === 'pi-sdk'
   const sdk = asRecord(spec['sdk'])
 
   if (!carriesSdkBlock) {
@@ -581,7 +579,7 @@ function validateSdkContract(
         makeIssue(
           joinPath(prefix, 'process.harnessTransport.kind'),
           'forbidden',
-          'in-process transport is only supported by the pi-sdk, agent-harness and arris-resident drivers'
+          'in-process transport is only supported by the pi-sdk and arris-resident drivers'
         )
       )
     }
@@ -625,18 +623,6 @@ function validateSdkContract(
         joinPath(prefix, 'process.args'),
         'invalid_literal',
         'pi-sdk requires an empty args array'
-      )
-    )
-  }
-  if (
-    driverKind === 'agent-harness-tmux' &&
-    asRecord(process['harnessTransport'])?.['kind'] !== 'pty'
-  ) {
-    issues.push(
-      makeIssue(
-        joinPath(prefix, 'process.harnessTransport.kind'),
-        'invalid_literal',
-        'agent-harness-tmux requires pty transport'
       )
     )
   }
@@ -1525,8 +1511,7 @@ function validateDispatchRuntime(
   if (
     driverKind !== 'claude-code-tmux' &&
     driverKind !== 'codex-cli-tmux' &&
-    driverKind !== 'pi-tui-tmux' &&
-    driverKind !== 'agent-harness-tmux'
+    driverKind !== 'pi-tui-tmux'
   ) {
     return
   }
@@ -2318,8 +2303,7 @@ function validateTerminalSurfaceReportedPayload(
   const requiresPaneKind =
     driverKind === 'claude-code-tmux' ||
     driverKind === 'codex-cli-tmux' ||
-    driverKind === 'pi-tui-tmux' ||
-    driverKind === 'agent-harness-tmux'
+    driverKind === 'pi-tui-tmux'
 
   if (payload['kind'] === 'tmux-pane') {
     requireString(payload['socketPath'], 'payload.socketPath', issues)

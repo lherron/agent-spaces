@@ -8,7 +8,10 @@ import type {
   InvocationEvent,
   InvocationEventEnvelope,
 } from 'spaces-harness-broker-protocol'
-import { validateAgentHarnessControlFrame } from 'spaces-harness-broker-protocol'
+import {
+  validateAgentHarnessControlFrame,
+  validateAgentHarnessSessionConfig,
+} from 'spaces-harness-broker-protocol'
 import { createAgentHarnessTmuxDriver } from '../../../src/drivers/agent-harness-tmux/driver'
 import type { DriverContext } from '../../../src/drivers/driver'
 
@@ -146,6 +149,7 @@ describe('agent-harness-tmux session.config continuation projection', () => {
     expect(JSON.stringify(frame)).not.toContain('continuation')
     // The projection must still be a legal frame with continuation absent.
     expect(() => validateAgentHarnessControlFrame(frame)).not.toThrow()
+    expect(() => validateAgentHarnessSessionConfig(frame?.payload)).not.toThrow()
   })
 
   test('projects the spec key verbatim when one is present — resume', async () => {

@@ -85,7 +85,7 @@ describe('mergeAgentWithProjectTarget: legacy projection characterization', () =
       priming: 'Agent priming.',
       spaces: { base: ['space:agent@dev' as SpaceRefString] },
       provisioning: {
-        harness: 'agent-harness',
+        harness: 'pi-sdk',
         model: 'agent-model',
         reasoning: 'agent-reasoning',
         sandbox: 'read-only',

@@ -7,6 +7,12 @@ import type {
   AgentHarnessControlFrame,
   AgentHarnessControlRequest,
 } from 'spaces-harness-broker-protocol'
+import {
+  AGENT_HARNESS_CONTROL_NACK_CODES,
+  AgentHarnessControlDecoder,
+  isAgentHarnessControlAckLine,
+  validateAgentHarnessControlAck,
+} from 'spaces-harness-broker-protocol'
 import { listenForAgentHarnessControl } from '../../../src/drivers/agent-harness-tmux/control-listener'
 import type { AgentHarnessControlListenerHandle } from '../../../src/drivers/agent-harness-tmux/control-listener'
 
@@ -80,6 +86,29 @@ function readLines(socket: Socket, onLine: (line: Record<string, unknown>) => vo
 }
 
 describe('agent-harness control listener ack correlation', () => {
+  test('retained public control primitives decode and validate the driver wire shapes', () => {
+    expect(AGENT_HARNESS_CONTROL_NACK_CODES).toEqual([
+      'turn_already_active',
+      'turn_begin_failed',
+      'no_active_turn',
+    ])
+    const decoder = new AgentHarnessControlDecoder()
+    expect(
+      decoder.push(
+        `${JSON.stringify({ verb: 'hello', payload: { protocolVersion: 'agent-harness-control/v1' } })}\n`
+      )
+    ).toEqual([
+      {
+        ok: true,
+        value: { verb: 'hello', payload: { protocolVersion: 'agent-harness-control/v1' } },
+      },
+    ])
+    expect(isAgentHarnessControlAckLine({ ack: true, requestId: 'req-1' })).toBe(true)
+    expect(validateAgentHarnessControlAck({ ack: true, requestId: 'req-1' })).toEqual({
+      ack: true,
+    })
+  })
+
   test('settles the matching request when the child echoes requestId, out of order', async () => {
     const { handle, connect } = await startListener()
     const socket = await connect()
