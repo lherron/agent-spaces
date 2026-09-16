@@ -79,7 +79,7 @@ import {
   permissionRequestedPayload,
   resolvePermissionRequest,
 } from './permissions'
-import { buildRendererLaunchCommand } from './renderer'
+import { type RendererLauncher, buildRendererLaunchCommand } from './renderer'
 import {
   CodexRpcClient,
   CodexRpcError,
@@ -159,6 +159,8 @@ type RendererControlEnvelope =
     }
 
 export interface CodexAppServerDriverOptions {
+  /** T-08554: how the viewer renderer is launched; absent keeps `bun <entry>`. */
+  rendererLauncher?: RendererLauncher | undefined
   codexTui?: {
     tmuxBin?: string | undefined
     tmuxExec?: TmuxExec | undefined
@@ -1588,6 +1590,9 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
             observerSocketPath,
             controlSocketPath: rendererControlListener.socketPath,
             ...(expectedRuntimeId !== undefined ? { runtimeId: expectedRuntimeId } : {}),
+            ...(options.rendererLauncher !== undefined
+              ? { launcher: options.rendererLauncher }
+              : {}),
           })
         )
       }

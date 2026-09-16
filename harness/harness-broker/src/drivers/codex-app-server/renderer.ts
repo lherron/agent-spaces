@@ -251,6 +251,18 @@ export interface RendererLaunchOptions {
   controlSocketPath: string
   runtimeId?: string | undefined
   rendererEntryPath?: string | undefined
+  /**
+   * T-08554: launch the renderer through an executable that carries it (a
+   * standalone ASP release worker's own payload, `<executable> renderer`)
+   * instead of `bun <entry file>`, which does not exist inside a compiled release.
+   */
+  launcher?: RendererLauncher | undefined
+}
+
+/** An executable that runs the renderer as `command ...args <renderer flags>`. */
+export interface RendererLauncher {
+  command: string
+  args: string[]
 }
 
 /**
@@ -262,10 +274,12 @@ export interface RendererLaunchOptions {
  * harness transport.
  */
 export function buildRendererLaunchCommand(options: RendererLaunchOptions): string {
-  const entry = options.rendererEntryPath ?? resolveRendererEntryPath()
+  const launch =
+    options.launcher !== undefined
+      ? [shellQuote(options.launcher.command), ...options.launcher.args.map(shellQuote)]
+      : ['bun', shellQuote(options.rendererEntryPath ?? resolveRendererEntryPath())]
   return [
-    'exec bun',
-    shellQuote(entry),
+    `exec ${launch.join(' ')}`,
     '--driver codex-app-server',
     `--invocation-id ${shellQuote(options.invocationId)}`,
     `--observer-socket ${shellQuote(options.observerSocketPath)}`,

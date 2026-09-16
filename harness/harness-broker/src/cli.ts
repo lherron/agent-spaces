@@ -28,6 +28,7 @@ import {
   runClaudeHookBridgeCli,
   runClaudeHookDecisionBridgeCli,
 } from './drivers/claude-code-tmux/hook-bridge'
+import type { RendererLauncher } from './drivers/codex-app-server/renderer'
 import { runCodexHookBridgeCli } from './drivers/codex-cli-tmux/hook-bridge'
 import type { Driver } from './drivers/driver'
 import { runPiHookBridgeCli } from './drivers/pi-tui-tmux/hook-bridge'
@@ -62,6 +63,12 @@ export interface RunBrokerCliOptions {
    * (T-08539). Reported in `broker.hello` on every transport.
    */
   releaseIdentity?: AspReleaseIdentity | undefined
+  /**
+   * T-08554: how this executable's codex-app-server viewer launches its renderer.
+   * A standalone release passes its own payload (`<execPath> renderer`) so the
+   * viewer runs from the same release as the worker.
+   */
+  rendererLauncher?: RendererLauncher | undefined
 }
 
 export async function runBrokerCli(options: RunBrokerCliOptions): Promise<void> {
@@ -85,6 +92,7 @@ export async function runBrokerCli(options: RunBrokerCliOptions): Promise<void> 
     const broker = createDefaultBroker(undefined, undefined, {
       additionalDrivers: options.additionalDrivers,
       releaseIdentity: options.releaseIdentity,
+      rendererLauncher: options.rendererLauncher,
     })
     const hello = await broker.hello({
       clientInfo: { name: 'harness-broker-cli' },
@@ -109,6 +117,9 @@ export async function runBrokerCli(options: RunBrokerCliOptions): Promise<void> 
     await runOnce(args.slice(1), options)
   } else if (command === 'validate-start-request') {
     await validateStartRequestCommand(args.slice(1))
+  } else if (command === 'renderer') {
+    const { runRendererEntry } = await import('./drivers/codex-app-server/renderer-entry.js')
+    await runRendererEntry(args.slice(1))
   } else if (command === 'capture') {
     await captureCommand(args.slice(1))
   } else if (command === 'submission') {
@@ -166,6 +177,7 @@ async function runStdio(args: string[], options: RunBrokerCliOptions): Promise<v
       eventLedger,
       additionalDrivers: options.additionalDrivers,
       releaseIdentity: options.releaseIdentity,
+      rendererLauncher: options.rendererLauncher,
     }
   )
 
@@ -479,6 +491,7 @@ async function runUnix(args: string[], options: RunBrokerCliOptions): Promise<vo
       hookIpcDir: join(dirname(socketPath), 'hooks'),
       additionalDrivers: options.additionalDrivers,
       releaseIdentity: options.releaseIdentity,
+      rendererLauncher: options.rendererLauncher,
       ...(eventLedger !== undefined ? { eventLedger } : {}),
       // Raw ingress journal + disposition index live beside the normalized
       // ledger (§7.1, §8.1). Without a ledger path capture stays in memory,

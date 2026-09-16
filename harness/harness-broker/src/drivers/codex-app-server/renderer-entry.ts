@@ -141,10 +141,9 @@ function connectReadSurface(socketPath: string): {
   }
 }
 
-async function main(): Promise<void> {
-  const { invocationId, observerSocketPath, controlSocketPath, runtimeId } = parseArgs(
-    process.argv.slice(2)
-  )
+/** Run the renderer with its flags (`harness-broker renderer …` or the entry file). */
+export async function runRendererEntry(argv: string[]): Promise<void> {
+  const { invocationId, observerSocketPath, controlSocketPath, runtimeId } = parseArgs(argv)
   const { surface, close } = connectReadSurface(observerSocketPath)
   // The renderer writes into a real tmux pane (a TTY): enable colour unless the
   // operator opted out via NO_COLOR, and wrap/fill to the pane width.
@@ -264,5 +263,5 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.main) {
-  await main()
+  await runRendererEntry(process.argv.slice(2))
 }
