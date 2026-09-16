@@ -485,3 +485,174 @@ describe('Arris resident driver control seam', () => {
     await driver.dispose()
   })
 })
+
+/**
+ * T-08522 §2. Two host-state facts a consumer cannot otherwise see.
+ *
+ * `awaiting_approval` (arris T-08520) is a real readiness state, not a flavour
+ * of `ready`: a native Codex approval was offered to an attached client and is
+ * unanswered, and the turn that raised it cannot end until somebody answers.
+ * The host publishes `accepts_input: false` with it, so this driver already
+ * withholds `invocation.ready` -- the gap was that nothing SAID why, leaving
+ * "waiting on a person" indistinguishable from "wedged".
+ *
+ * `control.mail_reply` (arris T-08521) says whether the host publishes
+ * `arris.mail.reply` to its resident at all. False means no participant
+ * identity was configured and the capability is ABSENT, not refusing.
+ */
+describe('Arris resident driver surfaces host readiness and mail-reply state', () => {
+  function notices(events: InvocationEventEnvelope[], code: string): InvocationEventEnvelope[] {
+    return events.filter(
+      (event) =>
+        event.type === 'driver.notice' &&
+        (event.payload as { code?: string } | undefined)?.code === code
+    )
+  }
+
+  function awaitingDescriptor(): ArrisHostDescriptor {
+    const base = descriptor()
+    return {
+      ...base,
+      // The producer's readiness enum is internally tagged, so the state's own
+      // data rides as a sibling of `state`. Kept here on purpose: this shape is
+      // what a real host publishes, and the validator must admit it.
+      readiness: {
+        state: 'awaiting_approval',
+        class: 'command_execution',
+        since_ms: 5,
+        accepts_input: false,
+      } as ArrisHostDescriptor['readiness'],
+      control: {
+        ...base.control,
+        approval_responder: 'attached_client',
+        pending_approvals: [
+          { class: 'command_execution', codex_turn_id: 'turn-codex-9', offered_at_ms: 6 },
+        ],
+      },
+    }
+  }
+
+  test('reports awaiting_approval as a not-ready notice and withholds invocation.ready', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const driver = createArrisResidentDriver({
+      pollIntervalMs: 60_000,
+      readDescriptor: async () => awaitingDescriptor(),
+      createControlClient: () => client({}),
+    })
+    await driver.start(spec(), context(events))
+
+    expect(events.filter((event) => event.type === 'invocation.ready')).toHaveLength(0)
+    const [notice] = notices(events, 'ARRIS_AWAITING_APPROVAL')
+    expect(notice).toBeDefined()
+    expect(notice?.payload).toMatchObject({
+      message: expect.stringContaining('not ready'),
+      data: {
+        accepts_input: false,
+        approval_responder: 'attached_client',
+        pending_approvals: [expect.objectContaining({ class: 'command_execution' })],
+      },
+    })
+    // The notice must follow the invocation it describes.
+    const startedIndex = events.findIndex((event) => event.type === 'invocation.started')
+    expect(startedIndex).toBeGreaterThanOrEqual(0)
+    expect(events.indexOf(notice as InvocationEventEnvelope)).toBeGreaterThan(startedIndex)
+  })
+
+  test('announces the readiness transition once, not once per descriptor poll', async () => {
+    const events: InvocationEventEnvelope[] = []
+    let ready = false
+    const driver = createArrisResidentDriver({
+      pollIntervalMs: 60_000,
+      readDescriptor: async () => (ready ? descriptor() : awaitingDescriptor()),
+      createControlClient: () => client({}),
+    })
+    await driver.start(spec(), context(events))
+    await driver
+      .applyInputNow?.({
+        inputId: 'input-1' as never,
+        text: 'noop',
+      } as never)
+      .catch(() => undefined)
+    await driver
+      .applyInputNow?.({
+        inputId: 'input-2' as never,
+        text: 'noop',
+      } as never)
+      .catch(() => undefined)
+
+    expect(notices(events, 'ARRIS_AWAITING_APPROVAL')).toHaveLength(1)
+    expect(notices(events, 'ARRIS_APPROVAL_CLEARED')).toHaveLength(0)
+
+    ready = true
+    await driver
+      .applyInputNow?.({
+        inputId: 'input-3' as never,
+        text: 'noop',
+      } as never)
+      .catch(() => undefined)
+
+    const [cleared] = notices(events, 'ARRIS_APPROVAL_CLEARED')
+    expect(cleared?.payload).toMatchObject({ message: expect.stringContaining('ready') })
+  })
+
+  test('reports a host with no ledger identity as unable to answer mail', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const base = descriptor()
+    const driver = createArrisResidentDriver({
+      pollIntervalMs: 60_000,
+      readDescriptor: async () => ({
+        ...base,
+        identity: { participant: null },
+        control: { ...base.control, mail_reply: false },
+      }),
+      createControlClient: () => client({}),
+    })
+    await driver.start(spec(), context(events))
+
+    const [notice] = notices(events, 'ARRIS_MAIL_REPLY')
+    expect(notice?.payload).toMatchObject({
+      message: expect.stringContaining('not published'),
+      data: { mail_reply: false, participant: null },
+    })
+  })
+
+  test('reports the participant a mail-capable host answers as', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const base = descriptor()
+    const participant = { principal_ref: 'agent:arris', scope_ref: 'arris@arris:primary' }
+    const driver = createArrisResidentDriver({
+      pollIntervalMs: 60_000,
+      readDescriptor: async () => ({
+        ...base,
+        identity: { participant },
+        control: { ...base.control, mail_reply: true },
+      }),
+      createControlClient: () => client({}),
+    })
+    await driver.start(spec(), context(events))
+
+    const [notice] = notices(events, 'ARRIS_MAIL_REPLY')
+    expect(notice?.payload).toMatchObject({
+      message: expect.stringContaining('agent:arris'),
+      data: { mail_reply: true, participant },
+    })
+  })
+
+  /**
+   * A host published before arris T-08521 has no `mail_reply` key at all.
+   * Saying "this host cannot answer mail" about it would be an invention: the
+   * field is absent, not false. Silence is the correct report.
+   */
+  test('says nothing about mail for a host published before the field existed', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const driver = createArrisResidentDriver({
+      pollIntervalMs: 60_000,
+      readDescriptor: async () => descriptor(),
+      createControlClient: () => client({}),
+    })
+    await driver.start(spec(), context(events))
+
+    expect(notices(events, 'ARRIS_MAIL_REPLY')).toHaveLength(0)
+    expect(events.filter((event) => event.type === 'invocation.ready')).toHaveLength(1)
+  })
+})

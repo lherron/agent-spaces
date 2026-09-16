@@ -1,5 +1,51 @@
 export type ArrisHostLifecycleOwner = 'external' | 'hrc-managed'
 
+/**
+ * Readiness states this consumer recognizes by name.
+ *
+ * The producer's enum is internally tagged (`#[serde(tag = "state")]`), so a
+ * state carrying data publishes that data as SIBLING keys of `state` inside the
+ * `readiness` block -- `awaiting_approval` adds `class`, `failed` adds `code`
+ * and `message`. That is why `readiness` tolerates unknown keys: refusing them
+ * would refuse a host for entering a state it is entitled to enter.
+ *
+ * The union is documentation and autocompletion, not a closed set: the runtime
+ * check is "a non-empty string", so a state added by a future producer is read,
+ * not refused.
+ */
+export type ArrisKnownReadinessState =
+  | 'starting'
+  | 'priming'
+  | 'ready'
+  | 'rebinding'
+  | 'draining'
+  | 'awaiting_approval'
+  | 'stopped'
+  | 'failed'
+
+/** Who answers a native Codex approval right now (`arris.host-descriptor/1`). */
+export type ArrisApprovalResponder = 'arris_host' | 'attached_client'
+
+/** A native approval deferred to an attached client, and therefore unanswered. */
+export type ArrisPendingApproval = {
+  class: string
+  codex_turn_id: string
+  offered_at_ms: number
+}
+
+/**
+ * The ledger identity this host answers mail as.
+ *
+ * Top-level rather than inside `host_incarnation` because a name on a ledger
+ * outlives every process. `null` when the host was started without
+ * `--participant-principal`/`--participant-scope`, in which case
+ * `control.mail_reply` is false and `arris.mail.reply` is not published at all.
+ */
+export type ArrisParticipantIdentity = {
+  principal_ref: string
+  scope_ref: string
+}
+
 export type ArrisHostDescriptor = {
   schema: 'arris.host-descriptor/1'
   host_incarnation: {
@@ -11,8 +57,10 @@ export type ArrisHostDescriptor = {
       observed_at_ms: number
     }
   }
+  /** Added by arris T-08521; absent on hosts published before it. */
+  identity?: { participant: ArrisParticipantIdentity | null }
   readiness: {
-    state: string
+    state: ArrisKnownReadinessState | (string & {})
     since_ms: number
     accepts_input: boolean
   }
@@ -25,6 +73,12 @@ export type ArrisHostDescriptor = {
     socket_path: string | null
     admission_classes: string[]
     unsupported_classes: string[]
+    /** Added by arris T-08520; absent on hosts published before it. */
+    approval_responder?: ArrisApprovalResponder
+    /** Added by arris T-08520; absent on hosts published before it. */
+    pending_approvals?: ArrisPendingApproval[]
+    /** Added by arris T-08521; absent on hosts published before it. */
+    mail_reply?: boolean
   }
   events: {
     format: 'application/x-ndjson'
@@ -108,15 +162,15 @@ function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function validateKeys(
-  value: Record<string, unknown>,
-  allowed: readonly string[],
-  path: string,
-  issues: ArrisFederationValidationIssue[]
-): void {
-  for (const key of Object.keys(value)) {
-    if (!allowed.includes(key)) issues.push({ path: `${path}.${key}`, message: 'unknown field' })
-  }
+/**
+ * Whether a key is present at all, as opposed to present and wrong.
+ *
+ * Every `control`/`identity` field added after the first published host is
+ * checked through this: absent means "a host from before that field existed",
+ * which is admitted; present means the declared type is enforced.
+ */
+function present(parent: Record<string, unknown>, key: string): boolean {
+  return Object.hasOwn(parent, key)
 }
 
 function objectAt(
@@ -199,27 +253,42 @@ function stringArrayAt(
   }
 }
 
-/** Strict parser for the published `arris.host-descriptor/1` fixture. */
+/**
+ * Additive parser for the published `arris.host-descriptor/1` document.
+ *
+ * ADDITIVE, not exact-key. Every block validates the keys this consumer reads
+ * and ignores the ones it does not, so a field the producer adds under an
+ * unchanged schema string cannot refuse a host.
+ *
+ * That is not a style preference; it is the defect this function was rewritten
+ * to stop. The previous version refused every unknown key. arris T-08520 added
+ * `control.approval_responder` and `control.pending_approvals`, and T-08521
+ * added `control.mail_reply` and the top-level `identity` block -- all under
+ * the same `arris.host-descriptor/1` -- and every current host stopped being
+ * joinable, each new key on its own enough to refuse (T-08505 bisect).
+ *
+ * Nothing is loosened about the fields this consumer depends on: a required
+ * field that is absent or mistyped still fails by path, and a misspelled known
+ * key fails as the absence of the key it misspells. Only genuinely extra keys
+ * are ignored. The `readiness` block in particular MUST tolerate them: the
+ * producer's readiness enum is internally tagged, so `awaiting_approval`
+ * publishes a sibling `class` key and `failed` publishes `code`/`message`.
+ *
+ * This loosening is scoped to the descriptor, which is a document the PRODUCER
+ * authors. The wire messages this consumer itself constructs -- the invocation
+ * start request it composes, the control requests it writes -- are validated
+ * elsewhere and are untouched here; an unrecognized key in one of those is the
+ * author's mistake, not a producer's new capability. Measured while making this
+ * change, and recorded so nobody relies on the opposite: `validateInvocationStartRequest`
+ * is not exact-key either today -- it accepts an unknown key at the top level
+ * and at `spec.driver`. That is a separate gap, not something this rewrite
+ * created or closed.
+ */
 export function validateArrisHostDescriptor(
   value: unknown
 ): ArrisFederationValidationResult<ArrisHostDescriptor> {
   const issues: ArrisFederationValidationIssue[] = []
   if (!record(value)) return { ok: false, issues: [{ path: '$', message: 'must be an object' }] }
-  validateKeys(
-    value,
-    [
-      'schema',
-      'host_incarnation',
-      'readiness',
-      'lifecycle',
-      'control',
-      'events',
-      'helpers',
-      'resident_binding',
-    ],
-    '$',
-    issues
-  )
   if (value['schema'] !== 'arris.host-descriptor/1') {
     issues.push({
       path: '$.schema',
@@ -229,16 +298,9 @@ export function validateArrisHostDescriptor(
 
   const incarnation = objectAt(value, 'host_incarnation', '$', issues)
   if (incarnation !== undefined) {
-    validateKeys(incarnation, ['host_incarnation_id', 'process'], '$.host_incarnation', issues)
     stringAt(incarnation, 'host_incarnation_id', '$.host_incarnation', issues)
     const process = objectAt(incarnation, 'process', '$.host_incarnation', issues)
     if (process !== undefined) {
-      validateKeys(
-        process,
-        ['pid', 'executable', 'os_started_at', 'observed_at_ms'],
-        '$.host_incarnation.process',
-        issues
-      )
       integerAt(process, 'pid', '$.host_incarnation.process', issues, 1)
       stringAt(process, 'executable', '$.host_incarnation.process', issues)
       stringAt(process, 'os_started_at', '$.host_incarnation.process', issues)
@@ -246,9 +308,30 @@ export function validateArrisHostDescriptor(
     }
   }
 
+  // arris T-08521. Absent on every host published before it, so the block is
+  // optional; present, it must say who the host is or say plainly that it is
+  // nobody. `null` is the identity-less host -- the one whose `mail_reply` is
+  // false and whose `arris.mail.reply` capability is not published at all.
+  if (present(value, 'identity')) {
+    const identity = objectAt(value, 'identity', '$', issues)
+    if (identity !== undefined) {
+      const participant = identity['participant']
+      if (participant === null) {
+        // Identity-less host, stated rather than implied. Nothing to check.
+      } else if (!record(participant)) {
+        issues.push({
+          path: '$.identity.participant',
+          message: 'must be an object or null',
+        })
+      } else {
+        stringAt(participant, 'principal_ref', '$.identity.participant', issues)
+        stringAt(participant, 'scope_ref', '$.identity.participant', issues)
+      }
+    }
+  }
+
   const readiness = objectAt(value, 'readiness', '$', issues)
   if (readiness !== undefined) {
-    validateKeys(readiness, ['state', 'since_ms', 'accepts_input'], '$.readiness', issues)
     stringAt(readiness, 'state', '$.readiness', issues)
     finiteAt(readiness, 'since_ms', '$.readiness', issues)
     booleanAt(readiness, 'accepts_input', '$.readiness', issues)
@@ -256,12 +339,6 @@ export function validateArrisHostDescriptor(
 
   const lifecycle = objectAt(value, 'lifecycle', '$', issues)
   if (lifecycle !== undefined) {
-    validateKeys(
-      lifecycle,
-      ['host_lifecycle_owner', 'launch_id', 'accepts_managed_stop'],
-      '$.lifecycle',
-      issues
-    )
     if (
       lifecycle['host_lifecycle_owner'] !== 'external' &&
       lifecycle['host_lifecycle_owner'] !== 'hrc-managed'
@@ -282,12 +359,6 @@ export function validateArrisHostDescriptor(
 
   const control = objectAt(value, 'control', '$', issues)
   if (control !== undefined) {
-    validateKeys(
-      control,
-      ['socket_path', 'admission_classes', 'unsupported_classes'],
-      '$.control',
-      issues
-    )
     if (control['socket_path'] !== null && typeof control['socket_path'] !== 'string') {
       issues.push({
         path: '$.control.socket_path',
@@ -296,25 +367,45 @@ export function validateArrisHostDescriptor(
     }
     stringArrayAt(control, 'admission_classes', '$.control', issues)
     stringArrayAt(control, 'unsupported_classes', '$.control', issues)
+    // arris T-08520: who answers a native Codex approval right now.
+    if (
+      present(control, 'approval_responder') &&
+      control['approval_responder'] !== 'arris_host' &&
+      control['approval_responder'] !== 'attached_client'
+    ) {
+      issues.push({
+        path: '$.control.approval_responder',
+        message: 'must be arris_host or attached_client',
+      })
+    }
+    // arris T-08520: the approvals deferred to an attached client. Empty is the
+    // ordinary case; a non-empty list is why `readiness.state` is not `ready`.
+    if (present(control, 'pending_approvals')) {
+      const pending = control['pending_approvals']
+      if (!Array.isArray(pending)) {
+        issues.push({
+          path: '$.control.pending_approvals',
+          message: 'must be an array',
+        })
+      } else {
+        for (const [index, entry] of pending.entries()) {
+          const path = `$.control.pending_approvals[${index}]`
+          if (!record(entry)) {
+            issues.push({ path, message: 'must be an object' })
+            continue
+          }
+          stringAt(entry, 'class', path, issues)
+          stringAt(entry, 'codex_turn_id', path, issues)
+          finiteAt(entry, 'offered_at_ms', path, issues)
+        }
+      }
+    }
+    // arris T-08521: whether `arris.mail.reply` is published to the resident.
+    if (present(control, 'mail_reply')) booleanAt(control, 'mail_reply', '$.control', issues)
   }
 
   const events = objectAt(value, 'events', '$', issues)
   if (events !== undefined) {
-    validateKeys(
-      events,
-      [
-        'format',
-        'path',
-        'host_incarnation_id',
-        'first_sequence',
-        'last_sequence_at_publish',
-        'tail_is_authoritative_in',
-        'dropped_records',
-        'cursor_field',
-      ],
-      '$.events',
-      issues
-    )
     if (events['format'] !== 'application/x-ndjson') {
       issues.push({
         path: '$.events.format',
@@ -350,7 +441,6 @@ export function validateArrisHostDescriptor(
         issues.push({ path, message: 'must be an object' })
         continue
       }
-      validateKeys(helper, ['kind', 'id', 'first_seen_ms'], path, issues)
       stringAt(helper, 'kind', path, issues)
       stringAt(helper, 'id', path, issues)
       finiteAt(helper, 'first_seen_ms', path, issues)
@@ -359,12 +449,6 @@ export function validateArrisHostDescriptor(
 
   const binding = objectAt(value, 'resident_binding', '$', issues)
   if (binding !== undefined) {
-    validateKeys(
-      binding,
-      ['visibility', 'thread_id', 'rollout_path', 'model_id', 'rebind_count', 'bound_at_ms'],
-      '$.resident_binding',
-      issues
-    )
     if (binding['visibility'] !== 'host-private') {
       issues.push({
         path: '$.resident_binding.visibility',

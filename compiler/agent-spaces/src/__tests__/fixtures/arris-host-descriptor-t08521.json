@@ -1,0 +1,86 @@
+{
+  "schema": "arris.host-descriptor/1",
+  "host_incarnation": {
+    "host_incarnation_id": "host-incarnation:1207195b-e1bc-4ed7-9e9c-51275a5bae24",
+    "process": {
+      "pid": 99712,
+      "executable": "/Users/lherron/praesidium/under-construction/codex-prototype-install-T-08521/bin/arris-codex-prototype",
+      "os_started_at": "Wed Sep 16 01:30:53 2026",
+      "observed_at_ms": 1789540253832
+    }
+  },
+  "identity": {
+    "participant": null
+  },
+  "readiness": {
+    "state": "ready",
+    "since_ms": 1789540257833,
+    "accepts_input": true
+  },
+  "lifecycle": {
+    "host_lifecycle_owner": "external",
+    "launch_id": null,
+    "accepts_managed_stop": false
+  },
+  "control": {
+    "socket_path": "/private/tmp/t08521-fedctl/run/federation/control.sock",
+    "admission_classes": [
+      "queue",
+      "steer"
+    ],
+    "unsupported_classes": [
+      "interrupt",
+      "preempt",
+      "exclusive",
+      "thread-management"
+    ],
+    "approval_responder": "attached_client",
+    "pending_approvals": [],
+    "mail_reply": false
+  },
+  "events": {
+    "format": "application/x-ndjson",
+    "path": "/private/tmp/t08521-fedctl/run/federation/events-1207195b-e1bc-4ed7-9e9c-51275a5bae24.jsonl",
+    "host_incarnation_id": "host-incarnation:1207195b-e1bc-4ed7-9e9c-51275a5bae24",
+    "first_sequence": 1,
+    "last_sequence_at_publish": 409,
+    "tail_is_authoritative_in": "the journal file itself",
+    "dropped_records": 0,
+    "cursor_field": "sequence"
+  },
+  "helpers": [
+    {
+      "kind": "control_client",
+      "id": "connection:1",
+      "first_seen_ms": 1789540257947
+    },
+    {
+      "kind": "control_client",
+      "id": "connection:2",
+      "first_seen_ms": 1789540257997
+    },
+    {
+      "kind": "attached_client",
+      "id": "connection:0",
+      "first_seen_ms": 1789540487914
+    },
+    {
+      "kind": "attached_client",
+      "id": "connection:1",
+      "first_seen_ms": 1789540489448
+    },
+    {
+      "kind": "control_client",
+      "id": "connection:3",
+      "first_seen_ms": 1789540489454
+    }
+  ],
+  "resident_binding": {
+    "visibility": "host-private",
+    "thread_id": "01a0a8e9-407a-7ca1-93d9-3d35230b926e",
+    "rollout_path": "/Users/lherron/praesidium/under-construction/codex-scratch/t08521-fedctl/codex-home/sessions/2026/09/16/rollout-2026-09-16T01-30-53-01a0a8e9-407a-7ca1-93d9-3d35230b926e.jsonl",
+    "model_id": "gpt-5.6-sol",
+    "rebind_count": 0,
+    "bound_at_ms": 1789540253832
+  }
+}
