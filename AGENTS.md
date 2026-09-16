@@ -81,6 +81,25 @@ Run these after implementing to get immediate feedback:
 - Pack smoke for `@lherron/agent-spaces` (`cd apps/cli; bun scripts/smoke-test-pack.ts`) — required after packaging changes → see [apps/cli/AGENTS.md](apps/cli/AGENTS.md)
 - Pi harness env/runtime flags (`--harness pi`: `PI_CODING_AGENT_DIR`, `--no-skills`, hooks-scripts) → see [drivers/harness-pi/AGENTS.md](drivers/harness-pi/AGENTS.md)
 
+## Broker Injection Doors
+
+Ruled by Lance 2026-09-16 (H-00440, T-08533 hrc-runtime, T-08534 arris): **steer = send now, enqueue = send after.** A steer joins the running turn; if no turn is running it STARTS one. Never spec "steer has no turn of its own" again. A client that enqueues its first message is wrong, not the host.
+
+| Broker state | Steer | Enqueue |
+|---|---|---|
+| **Idle** (warm, no turn running) | **Starts a turn.** Steer text is the turn's input; response carries the new turn identity. Live on tmux (typing into an idle harness); Arris host via T-08534. | **Starts a turn.** Own turn, own run, receipt, waitable. Live. |
+| **Busy** (turn running) | **Joins the running turn.** Injected immediately, best effort, no turn of its own; response carries the running turn's identity. Refused only for exclusive, guarded, or capability (T-08527 removed busy/unattributed refusals). Live. | **Queues a distinct turn behind the running one.** Never dropped, waitable on its own final. Live. |
+| **Busy, admitted not started** | **Held and written into that turn** once it starts (Arris host, T-08529). | Queues behind it. Live. |
+| **Cold** (not yet born) | **Rides the birth turn** with the priming (T-08531). | **Rides the birth turn** with the priming (T-08531). |
+
+Client defaults after the ruling:
+
+- **Mail kicker**: steer on idle and busy steer-capable seats. Enqueue only for seats that are not steer-capable, seats that permanently refused steer, and as the fallback when a busy seat refuses a steer for exclusive/guarded/capability. Preempt for authorized holds unchanged. (T-08533)
+- **hrc turn**: steer by default, `--wait` allowed with it; an explicit flag selects enqueue. (T-08533)
+- **ACP and agent-loop**: invoke through `/v1/turns`, neither door. Untouched.
+
+Enqueue-then-steer ordering (T-08532) was cancelled as a non-scenario: a steer the broker delivers before its own queue starts the turn and the queue follows behind, which is the ruling's semantics.
+
 ## Project Structure
 
 Directory names under the six workspace roots differ from published package names
