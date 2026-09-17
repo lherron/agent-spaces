@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -498,6 +498,116 @@ describe('desktop-join write-ahead resume', () => {
         slotToken: 'primary-comet',
         laneRef: 'main',
       })
+    } finally {
+      stop()
+    }
+  })
+})
+
+describe('desktop-join stale socket reap', () => {
+  test('unlinks dead-pid sibling sockets, keeps live ones and other files', async () => {
+    const { reapStaleSiblingSockets } = await import('../src/desktop-join.js')
+    const dir = await mkdtemp('/tmp/djreap-')
+    const dead = join(dir, 'broker-999999919.sock')
+    const live = join(dir, `broker-${process.pid}.sock`)
+    const other = join(dir, 'join.json')
+    const odd = join(dir, 'broker-abc.sock')
+    await writeFile(dead, '')
+    await writeFile(live, '')
+    await writeFile(other, '{}')
+    await writeFile(odd, '')
+    const reaped = reapStaleSiblingSockets(dir)
+    expect(reaped).toEqual(['broker-999999919.sock'])
+    expect(existsSync(dead)).toBe(false)
+    expect(existsSync(live)).toBe(true)
+    expect(existsSync(other)).toBe(true)
+    expect(existsSync(odd)).toBe(true)
+  })
+
+  test('runDesktopJoin reaps a dead predecessor socket at startup', async () => {
+    const { runDesktopJoin, threadPaths } = await import('../src/desktop-join.js')
+    const dir = await mkdtemp('/tmp/djrun-')
+    const codexHome = join(dir, 'codex-home')
+    const rolloutDir = join(codexHome, 'sessions')
+    mkdirSync(rolloutDir, { recursive: true })
+    const threadId = '0199abcd-1234-5678-9abc-def012345678'
+    const rolloutPath = join(rolloutDir, `${threadId}.jsonl`)
+    await writeFile(
+      rolloutPath,
+      `${JSON.stringify({
+        type: 'session_meta',
+        payload: {
+          session_id: threadId,
+          source: 'vscode',
+          thread_source: 'user',
+          originator: 'codex-desktop',
+          cwd: join(dir, 'workspace'),
+        },
+      })}\n`
+    )
+    const bundle = join(dir, 'codex-bundle')
+    await writeFile(bundle, '#!/bin/sh\n')
+    const paths = threadPaths(codexHome, threadId)
+    mkdirSync(paths.threadDir, { recursive: true, mode: 0o700 })
+    const stale = join(paths.threadDir, 'broker-999999918.sock')
+    await writeFile(stale, '')
+    const seen: string[] = []
+    const { sock, stop } = stubHrc((path, body) => {
+      if (path === '/v1/participants/register') {
+        seen.push((body as any).requestedSessionRef)
+        return {
+          status: 200,
+          body: {
+            status: 'registered',
+            scopeRef: (body as any).requestedSessionRef,
+            hostSessionId: 'hs_1',
+            generation: 1,
+            created: true,
+            resumed: false,
+            observation: { state: 'attachment_pending', detail: 'ok' },
+            identity: {
+              registrationId: 'reg_s',
+              laneRef: 'main',
+              runtimeId: 'rt_s',
+              attemptId: 'att_s',
+              invocationId: 'inv_s',
+              attachEpoch: 1,
+              requestId: 'req_s',
+              operationId: 'op_s',
+            },
+          },
+        }
+      }
+      return {
+        status: 200,
+        body: {
+          status: 'attached',
+          registrationId: 'reg_s',
+          attemptId: 'att_s',
+          attachEpoch: 1,
+          prepared: true,
+          observation: { state: 'attached', detail: 'ok' },
+        },
+      }
+    })
+    try {
+      const outcome = await runDesktopJoin(
+        {
+          threadId,
+          codexHome,
+          rolloutPath,
+          hrcSocketPath: sock,
+          projectRoot: join(dir, 'workspace'),
+          reportedBundleExecutable: bundle,
+        },
+        {
+          serve: (async () => ({ broker: {}, socketPath: 'x', close: async () => {} })) as never,
+          blockForever: (async () => {}) as never,
+        }
+      )
+      expect(outcome).toMatchObject({ exit: 0 })
+      expect(existsSync(stale)).toBe(false)
+      expect(seen[0]).toBe('agent:stella:project:workspace:task:primary-nova')
     } finally {
       stop()
     }

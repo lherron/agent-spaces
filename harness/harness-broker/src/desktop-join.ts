@@ -1,4 +1,11 @@
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -356,6 +363,37 @@ function processAlive(pid: number): boolean {
   }
 }
 
+/**
+ * Reap stale per-process broker sockets in the thread dir: entries named
+ * `broker-<pid>.sock` whose pid is not alive (kill -9 skips the SIGTERM/SIGINT
+ * unlink in `closeBroker`). A socket whose pid is alive — including our own —
+ * is never touched: liveness is the only criterion, never age or name order.
+ * Returns the reaped paths for the join log.
+ */
+export function reapStaleSiblingSockets(threadDir: string): string[] {
+  let entries: string[]
+  try {
+    entries = readdirSync(threadDir)
+  } catch {
+    return []
+  }
+  const reaped: string[] = []
+  for (const entry of entries) {
+    const match = /^broker-(\d+)\.sock$/.exec(entry)
+    if (match?.[1] === undefined) continue
+    const pid = Number(match[1])
+    if (!Number.isSafeInteger(pid) || pid < 1 || processAlive(pid)) continue
+    try {
+      unlinkSync(join(threadDir, entry))
+      reaped.push(entry)
+    } catch {
+      // Lost a race with its owner or another reaper; the liveness probe
+      // treats a surviving file the same way.
+    }
+  }
+  return reaped
+}
+
 function readJoinFile(joinFile: string): Record<string, unknown> | undefined {
   try {
     const parsed: unknown = JSON.parse(readFileSync(joinFile, 'utf8'))
@@ -461,6 +499,11 @@ export async function runDesktopJoin(
       return { exit: 0, reason: 'already-serving' }
     }
     writeFileSync(paths.pidFile, `${process.pid}\n`, { mode: 0o600 })
+  }
+
+  const reaped = reapStaleSiblingSockets(paths.threadDir)
+  if (reaped.length > 0) {
+    log('reaped-stale-sockets', { sockets: reaped })
   }
 
   const prior = readJoinFile(paths.joinFile)
