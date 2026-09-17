@@ -100,6 +100,96 @@ function sumCounts(pages: any[]): Record<string, number> {
 }
 
 describe('T-08565 offline provider comparison oracle', () => {
+  test('real Codex app-server notifications without a JSON-RPC discriminator remain observable across pages', async () => {
+    // Exact native shape retained by the broker's provider transcript: Codex
+    // app-server notifications carry method/params but no jsonrpc member.
+    const artifactPath = artifact('codex-app-server-native.jsonl', [
+      {
+        method: 'thread/status/changed',
+        params: { threadId: 'thread-real', status: { type: 'active', activeFlags: [] } },
+        emittedAtMs: 1789624934805,
+      },
+      {
+        method: 'item/started',
+        params: {
+          item: {
+            type: 'commandExecution',
+            id: 'call-real-native',
+            command: '/bin/zsh -lc pwd',
+            cwd: '/workspace',
+            status: 'inProgress',
+          },
+          threadId: 'thread-real',
+          turnId: 'turn-real',
+        },
+        emittedAtMs: 1789624939180,
+      },
+      {
+        method: 'item/completed',
+        params: {
+          item: {
+            type: 'commandExecution',
+            id: 'call-real-native',
+            command: '/bin/zsh -lc pwd',
+            cwd: '/workspace',
+            status: 'completed',
+            aggregatedOutput: '/workspace\n',
+            exitCode: 0,
+          },
+          threadId: 'thread-real',
+          turnId: 'turn-real',
+        },
+        emittedAtMs: 1789624939181,
+      },
+    ])
+
+    const pages: any[] = []
+    let afterLine = 0
+    let snapshot: unknown
+    while (true) {
+      const page = await runProvider({
+        artifactPath,
+        afterLine,
+        limit: 1,
+        ...(snapshot === undefined ? {} : { snapshot }),
+      })
+      expect(page.exitCode).toBe(0)
+      expect(page.response.provider).toBe('codex')
+      pages.push(page.response)
+      snapshot = page.response.snapshot
+      if (!page.response.page.hasMore) break
+      expect(page.response.page.scannedThroughLine).toBeGreaterThan(afterLine)
+      afterLine = page.response.page.scannedThroughLine
+    }
+
+    const whole = await runProvider({ artifactPath, afterLine: 0, limit: 100 })
+    expect(whole.exitCode).toBe(0)
+    expect(whole.response.provider).toBe('codex')
+    expect(pages.flatMap((page) => page.observations)).toEqual(whole.response.observations)
+    expect(whole.response.observations).toEqual([
+      expect.objectContaining({
+        line: 2,
+        type: 'tool.call.started',
+        correlationKey: 'call-real-native',
+      }),
+      expect.objectContaining({
+        line: 3,
+        type: 'tool.call.completed',
+        correlationKey: 'call-real-native',
+      }),
+    ])
+    expect(sumCounts(pages)).toEqual(sumCounts([whole.response]))
+    expect(whole.response.counts).toMatchObject({
+      lines: 3,
+      parsedRecords: 3,
+      applicableObservations: 2,
+      ignoredRecords: 1,
+      unsupportedRecords: 0,
+      unknownRecords: 0,
+    })
+    expect(whole.response.warnings).toEqual([])
+  })
+
   test('Codex and Claude tool pairs split across pages equal one-page parsing', async () => {
     const corpora = [
       artifact('codex.jsonl', [
