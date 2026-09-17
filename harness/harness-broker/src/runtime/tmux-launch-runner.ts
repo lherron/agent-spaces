@@ -219,9 +219,10 @@ export async function runTmuxLaunch(launchFilePath: string): Promise<never> {
   })
 }
 
-async function main(): Promise<void> {
-  const flagIndex = process.argv.indexOf('--launch-file')
-  const launchFilePath = flagIndex === -1 ? undefined : process.argv[flagIndex + 1]
+/** Run the launch runner with its flags (`harness-broker tmux-launch …` or the module file). */
+export async function runTmuxLaunchCli(argv: readonly string[]): Promise<void> {
+  const flagIndex = argv.indexOf('--launch-file')
+  const launchFilePath = flagIndex === -1 ? undefined : argv[flagIndex + 1]
   if (!launchFilePath) {
     process.stderr.write('harness-broker tmux launch: missing --launch-file\n')
     process.exit(1)
@@ -230,5 +231,5 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.main) {
-  await main()
+  await runTmuxLaunchCli(process.argv.slice(2))
 }

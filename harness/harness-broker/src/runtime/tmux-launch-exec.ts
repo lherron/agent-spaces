@@ -29,6 +29,17 @@ export type TmuxLaunchExecInput = TmuxLaunchExecArtifact & {
   pathPrepend?: string[] | undefined
 }
 
+/**
+ * T-08556: an executable that runs the launch runner as `command ...args
+ * --launch-file <json>`. A standalone ASP release passes its own payload
+ * (`<execPath> tmux-launch`); inside a bun-compiled release the runner module
+ * file does not exist (`/$bunfs/root/tmux-launch-runner`).
+ */
+export type TmuxLaunchRunner = {
+  command: string
+  args: string[]
+}
+
 export type TmuxLaunchExecFiles = {
   launchFilePath: string
   /** Absolute path to the real launch-runner module the command line invokes. */
@@ -74,7 +85,8 @@ function resolveRunnerPath(): string {
  */
 export async function writeTmuxLaunchExecFiles(
   basePath: string,
-  input: TmuxLaunchExecInput
+  input: TmuxLaunchExecInput,
+  options: { runner?: TmuxLaunchRunner | undefined } = {}
 ): Promise<TmuxLaunchExecFiles> {
   const { pathPrepend, ...artifact } = input
   const persistedArtifact: TmuxLaunchExecArtifact = {
@@ -84,6 +96,14 @@ export async function writeTmuxLaunchExecFiles(
   const launchFilePath = `${basePath}.launch.json`
   await mkdir(dirname(basePath), { recursive: true })
   await writeFile(launchFilePath, `${JSON.stringify(persistedArtifact, null, 2)}\n`, 'utf8')
+  if (options.runner !== undefined) {
+    const launch = [options.runner.command, ...options.runner.args].map(shellQuote).join(' ')
+    return {
+      launchFilePath,
+      runnerPath: options.runner.command,
+      commandLine: `exec ${launch} --launch-file ${shellQuote(launchFilePath)}`,
+    }
+  }
   const runnerPath = resolveRunnerPath()
   return {
     launchFilePath,

@@ -125,6 +125,9 @@ export async function runBrokerCli(options: RunBrokerCliOptions): Promise<void> 
     await runOnce(args.slice(1), options)
   } else if (command === 'validate-start-request') {
     await validateStartRequestCommand(args.slice(1))
+  } else if (command === 'tmux-launch') {
+    const { runTmuxLaunchCli } = await import('./runtime/tmux-launch-runner.js')
+    await runTmuxLaunchCli(args.slice(1))
   } else if (command === 'codex-tui-wrapper') {
     const { runCodexTuiWrapper } = await import('./drivers/codex-app-server/codex-tui-wrapper.js')
     await runCodexTuiWrapper(args.slice(1)).catch((error) => {

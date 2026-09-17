@@ -58,7 +58,8 @@ same release as the worker. A checkout broker keeps `bun <renderer-entry>`
 
 A release worker that hosts the interactive codex-app-server TUI (`codexTui`
 presentation, HRC's `hrc run` door) launches its codex-tui wrapper as
-`<releaseRoot>/libexec/harness-broker codex-tui-wrapper …` and its generated hook
+`<releaseRoot>/libexec/harness-broker codex-tui-wrapper …` through the tmux launch
+runner `<releaseRoot>/libexec/harness-broker tmux-launch --launch-file …`, and its generated hook
 bridge calls `<releaseRoot>/libexec/harness-broker codex-hook …`, both passed
 explicitly by the release entrypoint, so the TUI wrapper and hook receiver run
 from the same release as the worker. A checkout broker keeps `<execPath>

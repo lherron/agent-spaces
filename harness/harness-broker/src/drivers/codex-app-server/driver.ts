@@ -1500,36 +1500,43 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
           hookListener.socketPath,
           options.codexTuiLauncher
         )
-        const launch = await writeTmuxLaunchExecFiles(`${socketBase}.codex-tui`, {
-          argv: [
-            ...buildCodexTuiWrapperArgvPrefix(options.codexTuiLauncher),
-            '--command',
-            startSpec.process.command,
-            '--socket',
-            websocketPath,
-            '--attach-token',
-            attachTokenPath,
-            '--control-socket',
-            rendererControlListener.socketPath,
-            '--invocation-id',
-            driverCtx.invocationId,
-            ...(expectedRuntimeId !== undefined ? ['--runtime-id', expectedRuntimeId] : []),
-          ],
-          cwd: startSpec.process.cwd,
-          env: {
-            ...startSpec.process.lockedEnv,
-            ...(driverCtx.dispatchEnv ?? {}),
-            HRC_LAUNCH_HOOK_CLI: hookCliPath,
-            HARNESS_BROKER_INVOCATION_ID: driverCtx.invocationId,
-            HARNESS_BROKER_CALLBACK_SOCKET: hookListener.socketPath,
-            HARNESS_BROKER_HOOK_GENERATION: '1',
-            ...(expectedRuntimeId !== undefined
-              ? { HARNESS_BROKER_RUNTIME_ID: expectedRuntimeId }
-              : {}),
+        const launch = await writeTmuxLaunchExecFiles(
+          `${socketBase}.codex-tui`,
+          {
+            argv: [
+              ...buildCodexTuiWrapperArgvPrefix(options.codexTuiLauncher),
+              '--command',
+              startSpec.process.command,
+              '--socket',
+              websocketPath,
+              '--attach-token',
+              attachTokenPath,
+              '--control-socket',
+              rendererControlListener.socketPath,
+              '--invocation-id',
+              driverCtx.invocationId,
+              ...(expectedRuntimeId !== undefined ? ['--runtime-id', expectedRuntimeId] : []),
+            ],
+            cwd: startSpec.process.cwd,
+            env: {
+              ...startSpec.process.lockedEnv,
+              ...(driverCtx.dispatchEnv ?? {}),
+              HRC_LAUNCH_HOOK_CLI: hookCliPath,
+              HARNESS_BROKER_INVOCATION_ID: driverCtx.invocationId,
+              HARNESS_BROKER_CALLBACK_SOCKET: hookListener.socketPath,
+              HARNESS_BROKER_HOOK_GENERATION: '1',
+              ...(expectedRuntimeId !== undefined
+                ? { HARNESS_BROKER_RUNTIME_ID: expectedRuntimeId }
+                : {}),
+            },
+            pathPrepend: startSpec.process.pathPrepend,
+            ...(startSpec.launch !== undefined ? { prompts: startSpec.launch } : {}),
           },
-          pathPrepend: startSpec.process.pathPrepend,
-          ...(startSpec.launch !== undefined ? { prompts: startSpec.launch } : {}),
-        })
+          // T-08556: a release worker runs the launch runner from its own payload.
+          options.codexTuiLauncher !== undefined
+            ? { runner: { command: options.codexTuiLauncher.command, args: ['tmux-launch'] } }
+            : {}
+        )
         await leased.controller.sendPastedLine(launch.commandLine)
         rpc = await (options.codexTui?.connect ?? connectCodexTuiRpc)(websocketPath, {
           onNotification,
