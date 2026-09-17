@@ -1384,21 +1384,24 @@ describe('Codex app-server process behavior red tests', () => {
 describe('buildThreadStartParams driver-spec field handling (H6)', () => {
   const baseSpec = scenarioSpec('start-fresh-turn')
 
-  test('forwards model, approvalPolicy, sandboxMode and profile', () => {
+  test('forwards model, approvalPolicy and sandboxMode', () => {
     const params = buildThreadStartParams(baseSpec, {
       kind: 'codex-app-server',
       model: 'gpt-5-codex',
       approvalPolicy: 'on-request',
       sandboxMode: 'workspace-write',
-      profile: 'review',
     })
     expect(params).toMatchObject({
       model: 'gpt-5-codex',
       approvalPolicy: 'on-request',
       sandbox: 'workspace-write',
-      profile: 'review',
       cwd: baseSpec.process.cwd,
     })
+  })
+
+  test('sends no profile: Codex app-server thread/start has no profile field (T-08582)', () => {
+    const params = buildThreadStartParams(baseSpec, { kind: 'codex-app-server' })
+    expect(Object.hasOwn(params, 'profile')).toBe(false)
   })
 
   test('forwards modelReasoningEffort as a thread-scope config override', () => {
@@ -1413,7 +1416,6 @@ describe('buildThreadStartParams driver-spec field handling (H6)', () => {
     const params = buildThreadStartParams(baseSpec, { kind: 'codex-app-server' })
     expect(params).toMatchObject({
       model: null,
-      profile: null,
       sandbox: null,
       config: null,
       approvalPolicy: 'never',

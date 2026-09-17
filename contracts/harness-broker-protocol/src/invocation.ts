@@ -341,7 +341,6 @@ export interface CodexAppServerDriverSpec {
   modelReasoningEffort?: string | undefined
   approvalPolicy?: 'untrusted' | 'on-failure' | 'on-request' | 'never' | undefined
   sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access' | undefined
-  profile?: string | undefined
   defaultImageAttachments?: string[] | undefined
   permissionPolicy?: DriverPermissionPolicy | undefined
   resumeFallback?: 'start-fresh' | 'fail' | undefined

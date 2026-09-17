@@ -875,7 +875,6 @@ function buildCompatibilityMaterial(
           modelReasoningEffort: driver.modelReasoningEffort,
           approvalPolicy: driver.approvalPolicy,
           sandboxMode: driver.sandboxMode,
-          profile: driver.profile,
           permissionPolicy: driver.permissionPolicy,
           resumeFallback: driver.resumeFallback,
         }

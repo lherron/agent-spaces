@@ -2447,7 +2447,6 @@ export function validateInitializeHandshake(
  * Build `thread/start` params from the driver spec. Every driver-spec field is
  * either forwarded to the native call or deliberately handled elsewhere:
  *  - model / approvalPolicy / sandboxMode: forwarded here.
- *  - profile: forwarded here (Codex app-server selects a config profile).
  *  - modelReasoningEffort: forwarded as a thread-scope `config` override here
  *    AND applied per-turn in buildTurnStartParams(effort).
  *  - defaultImageAttachments: applied per-turn in buildTurnStartParams.
@@ -2461,7 +2460,6 @@ export function buildThreadStartParams(
   return {
     model: driver.model ?? null,
     modelProvider: null,
-    profile: driver.profile ?? null,
     cwd: spec.process.cwd,
     approvalPolicy: driver.approvalPolicy ?? 'never',
     sandbox: driver.sandboxMode ?? null,

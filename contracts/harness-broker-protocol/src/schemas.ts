@@ -2719,7 +2719,6 @@ function validateCodexDriver(
   optionalString(driver['resumeThreadId'], joinPath(basePath, 'resumeThreadId'), issues)
   optionalString(driver['model'], joinPath(basePath, 'model'), issues)
   optionalString(driver['modelReasoningEffort'], joinPath(basePath, 'modelReasoningEffort'), issues)
-  optionalString(driver['profile'], joinPath(basePath, 'profile'), issues)
   optionalStringArray(
     driver['defaultImageAttachments'],
     joinPath(basePath, 'defaultImageAttachments'),
