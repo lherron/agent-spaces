@@ -37,6 +37,11 @@ max_chars = 10000
 name = "runtime"
 type = "inline"
 content = "present={{env.RUNTIME_PROMPT_VALUE}}"
+
+[[reminder]]
+name = "runtime-reminder"
+type = "inline"
+content = "remember"
 `
   )
   await writeFile(join(agentsRoot, 'invalid-prompt', 'context-template.toml'), 'schema_version = [')
@@ -129,6 +134,16 @@ describe('T-08563 ASPC runtime observation service', () => {
     })
     expect(response.prompt.value.promptTotalChars).toBeGreaterThan(0)
     expect(response.prompt.value.totalContextChars).toBeGreaterThan(0)
+    expect(response.prompt.value.promptSectionSizes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: expect.any(String), chars: expect.any(Number) }),
+      ])
+    )
+    expect(response.prompt.value.reminderSectionSizes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: expect.any(String), chars: expect.any(Number) }),
+      ])
+    )
     expect(response.inspection.schemaVersion).toBe('agent-inspection/v1')
     expect(response.effectiveEnvironmentHash).toEqual(expect.any(String))
   })
