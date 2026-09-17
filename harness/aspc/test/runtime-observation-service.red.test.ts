@@ -1,6 +1,6 @@
 /** T-08563 rev 5 service/registration and placement-prompt behavior reds. */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { RuntimeCompileResponse } from 'spaces-runtime-contracts'
@@ -193,6 +193,79 @@ describe('T-08563 ASPC runtime observation service', () => {
     expect(changed.prompt.value.systemPrompt).toContain('present=B')
     expect(changed.effectiveEnvironmentHash).not.toBe(first.effectiveEnvironmentHash)
   })
+
+  test('routes invalid profile observations and target-only results through the service', async () => {
+    const fixtures = [
+      ['parse-invalid', 'version = [not valid'],
+      ['schema-invalid', 'version = 3\nunknown_key = true\n'],
+    ] as const
+    for (const [agentId, profile] of fixtures) {
+      const agentRoot = join(agentsRoot, agentId)
+      await mkdir(agentRoot, { recursive: true })
+      await writeFile(join(agentRoot, 'agent-profile.toml'), profile)
+    }
+    await writeFile(
+      join(projectRoot, 'asp-targets.toml'),
+      `schema = 1
+
+[targets.parse-invalid]
+[targets.parse-invalid.provisioning]
+harness = "codex"
+model = "gpt-5.6-sol"
+
+[targets.schema-invalid]
+[targets.schema-invalid.provisioning]
+harness = "codex"
+model = "gpt-5.6-sol"
+`
+    )
+
+    const service = dynamicService()
+    for (const [agentId] of fixtures) {
+      const agentRoot = join(agentsRoot, agentId)
+      const targetOnly = await service.resolveRuntimeDeclaration(
+        declarationRequest(agentId, agentRoot, {
+          mode: 'root',
+          projectRoot,
+          projectId: 'agent-spaces',
+        })
+      )
+      expect(targetOnly).toMatchObject({
+        ok: true,
+        source: {
+          agentProfile: {
+            state: 'invalid',
+            diagnostics: [
+              {
+                code: 'agent_profile_invalid',
+                path: join(await realpath(agentRoot), 'agent-profile.toml'),
+              },
+            ],
+          },
+          projectTargets: { state: 'valid', code: 'parsed' },
+          selectedTarget: { state: 'valid', code: 'parsed' },
+        },
+        baselineProvisioning: {
+          scalars: { harness: 'codex', model: 'gpt-5.6-sol' },
+          effectiveHarness: 'codex',
+          provider: 'openai',
+        },
+      })
+    }
+
+    const invalidWithoutTarget = await service.resolveRuntimeDeclaration(
+      declarationRequest('parse-invalid', join(agentsRoot, 'parse-invalid'), { mode: 'none' })
+    )
+    expect(invalidWithoutTarget).toMatchObject({
+      ok: false,
+      source: {
+        agentProfile: { state: 'invalid' },
+        projectTargets: { state: 'absent', code: 'not_declared' },
+        selectedTarget: { state: 'absent', code: 'not_declared' },
+      },
+      resolution: { state: 'invalid', code: 'agent_profile_invalid' },
+    })
+  })
 })
 
 function dynamicService(): DynamicService {
@@ -220,6 +293,24 @@ function inspectRequest(agentId: string, dispatchEnv?: Record<string, string>) {
       agentSources: { agentsRoot },
     },
     ...(dispatchEnv ? { dispatchEnv } : {}),
+  }
+}
+
+function declarationRequest(
+  agentId: string,
+  agentRoot: string,
+  project: { mode: 'root'; projectRoot: string; projectId: string } | { mode: 'none' }
+) {
+  return {
+    schemaVersion: 'aspc-resolve-runtime-declaration-request/v1',
+    context: {
+      agentId,
+      agentRoot,
+      project,
+      cwd: projectRoot,
+      runMode: 'task',
+      agentSources: { agentsRoot },
+    },
   }
 }
 

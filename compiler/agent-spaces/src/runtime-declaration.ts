@@ -161,6 +161,7 @@ export async function resolveRuntimeDeclaration(
   const profilePath = join(agentRoot, 'agent-profile.toml')
   let profileContent: string | undefined
   let profile: ReturnType<typeof parseAgentProfile>
+  let profileDiagnostic: Diagnostic | undefined
   if (existsSync(profilePath)) {
     try {
       profileContent = readFileSync(profilePath, 'utf8')
@@ -170,19 +171,17 @@ export async function resolveRuntimeDeclaration(
     try {
       profile = parseAgentProfile(profileContent, profilePath)
     } catch (error) {
-      return declarationInvalid('agent_profile_invalid', 'agent-profile', error, {
-        agentSources,
-        markerProjectId,
-        searchedAgentRoots,
-        source: emptySources(),
-      })
+      profileDiagnostic = diagnostic('agent_profile_invalid', 'agent-profile', error, profilePath)
+      profile = parseAgentProfile('version = 3', profilePath)
     }
   } else {
     profile = parseAgentProfile('version = 3', profilePath)
   }
-  const observedProfileSource = profileContent
-    ? profileSource(profileContent, profile.provisioning?.harness)
-    : ({ state: 'absent', code: 'not_declared' } as const)
+  const observedProfileSource = profileDiagnostic
+    ? ({ state: 'invalid', diagnostics: [profileDiagnostic] } as const)
+    : profileContent !== undefined
+      ? profileSource(profileContent, profile.provisioning?.harness)
+      : ({ state: 'absent', code: 'not_declared' } as const)
 
   const targetsPath = projectRoot ? join(projectRoot, 'asp-targets.toml') : undefined
   let targetSource: SourceObservation = { state: 'absent', code: 'not_declared' }
@@ -212,6 +211,20 @@ export async function resolveRuntimeDeclaration(
         },
       })
     }
+  }
+
+  if (profileDiagnostic && !target) {
+    return invalidDeclaration('agent_profile_invalid', profileDiagnostic, {
+      agentSources,
+      ...(markerProjectId ? { markerProjectId } : {}),
+      searchedAgentRoots,
+      source: {
+        agentProfile: observedProfileSource,
+        projectTargets: targetSource,
+        selectedTarget: selectedTargetSource,
+        priming: { state: 'absent', code: 'not_declared' },
+      },
+    })
   }
 
   let priming: string | undefined
@@ -255,17 +268,18 @@ export async function resolveRuntimeDeclaration(
   const finalProvisioning = provisioning(finalScalars, profile.provisioning?.harness, finalHarness)
   if ('failure' in finalProvisioning) return finalProvisioning.failure
 
-  const bundle = profileContent
-    ? buildRuntimeBundleRef({
-        agentName: context.agentId,
-        agentRoot,
-        ...(projectRoot ? { projectRoot } : {}),
-      })
-    : {
-        kind: 'agent-project' as const,
-        agentName: context.agentId,
-        ...(projectRoot ? { projectRoot } : {}),
-      }
+  const bundle =
+    profileContent !== undefined
+      ? buildRuntimeBundleRef({
+          agentName: context.agentId,
+          agentRoot,
+          ...(projectRoot ? { projectRoot } : {}),
+        })
+      : {
+          kind: 'agent-project' as const,
+          agentName: context.agentId,
+          ...(projectRoot ? { projectRoot } : {}),
+        }
   const placement = {
     agentRoot,
     ...(projectRoot ? { projectRoot } : {}),
@@ -307,7 +321,7 @@ export async function resolveRuntimeDeclaration(
       : {}),
     placement,
     bundle: { ref: bundle, identity: hasher.hash(bundle).value },
-    diagnostics: [],
+    diagnostics: profileDiagnostic ? [profileDiagnostic] : [],
   }
 }
 
@@ -500,13 +514,21 @@ function declarationInvalid(
   fields: Record<string, unknown>
 ): Record<string, unknown> {
   const item = diagnostic(code, sourceName, error)
+  return invalidDeclaration(code, item, fields)
+}
+
+function invalidDeclaration(
+  code: string,
+  item: Diagnostic,
+  fields: Record<string, unknown>
+): Record<string, unknown> {
   return {
     schemaVersion: RESOLVE_RUNTIME_DECLARATION_RESPONSE_VERSION,
     ok: false,
     ...fields,
     source: fields['source'] ?? {
       ...emptySources(),
-      [sourceName === 'agent-profile' ? 'agentProfile' : 'projectTargets']: {
+      [item.source === 'agent-profile' ? 'agentProfile' : 'projectTargets']: {
         state: 'invalid',
         diagnostics: [item],
       },
@@ -515,8 +537,13 @@ function declarationInvalid(
   }
 }
 
-function diagnostic(code: string, source: Diagnostic['source'], error: unknown): Diagnostic {
-  return { severity: 'error', code, message: formatError(error), source }
+function diagnostic(
+  code: string,
+  source: Diagnostic['source'],
+  error: unknown,
+  path?: string
+): Diagnostic {
+  return { severity: 'error', code, message: formatError(error), source, ...(path ? { path } : {}) }
 }
 
 function failure(kind: 'unavailable' | 'incompatible', code: string, message: string) {

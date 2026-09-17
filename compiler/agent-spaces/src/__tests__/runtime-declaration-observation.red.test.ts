@@ -221,6 +221,168 @@ describe('T-08563 runtime declaration observation', () => {
     })
   })
 
+  test.each([
+    ['malformed TOML', 'version = [not valid'],
+    ['schema-invalid TOML', 'version = 3\nunknown_key = true\n'],
+  ])(
+    'keeps target-only resolution available for an invalid profile: %s',
+    async (_case, invalidProfile) => {
+      const profilePath = join(agentRoot, 'agent-profile.toml')
+      await writeFile(profilePath, invalidProfile)
+
+      const response = await operation()(request(), daemonDefaults())
+      const canonicalProfilePath = join(await realpath(agentRoot), 'agent-profile.toml')
+
+      expect(response).toMatchObject({
+        ok: true,
+        source: {
+          agentProfile: {
+            state: 'invalid',
+            diagnostics: [
+              {
+                severity: 'error',
+                code: 'agent_profile_invalid',
+                source: 'agent-profile',
+                path: canonicalProfilePath,
+              },
+            ],
+          },
+          projectTargets: { state: 'valid', code: 'parsed' },
+          selectedTarget: { state: 'valid', code: 'parsed' },
+        },
+        baselineProvisioning: {
+          scalars: { harness: 'codex', model: 'gpt-5.6-sol' },
+          effectiveHarness: 'codex',
+          provider: 'openai',
+        },
+        provisioning: {
+          scalars: { harness: 'codex', model: 'gpt-5.6-sol' },
+          effectiveHarness: 'codex',
+          provider: 'openai',
+        },
+        diagnostics: [
+          {
+            severity: 'error',
+            code: 'agent_profile_invalid',
+            source: 'agent-profile',
+            path: canonicalProfilePath,
+          },
+        ],
+      })
+      expect(response.source.agentProfile).not.toHaveProperty('declaredHarness')
+      expect(response.source.agentProfile).not.toHaveProperty('declaredProvider')
+      expect(response.baselineProvisioning).not.toHaveProperty('declaredHarness')
+      expect(response.provisioning).not.toHaveProperty('declaredHarness')
+      expect(response.placement.projectRoot).toBe(await realpath(projectRoot))
+      expect(response.bundle.ref).toEqual(response.placement.bundle)
+    }
+  )
+
+  test.each([
+    [
+      'malformed TOML / mode none',
+      'version = [not valid',
+      () => request({ project: { mode: 'none' } }),
+      'absent',
+    ],
+    [
+      'schema-invalid TOML / mode none',
+      'version = 3\nunknown_key = true\n',
+      () => request({ project: { mode: 'none' } }),
+      'absent',
+    ],
+    [
+      'malformed TOML / valid targets without a selected agent',
+      'version = [not valid',
+      () => request({ agentId: 'not-targeted', agentRoot }),
+      'valid',
+    ],
+    [
+      'schema-invalid TOML / valid targets without a selected agent',
+      'version = 3\nunknown_key = true\n',
+      () => request({ agentId: 'not-targeted', agentRoot }),
+      'valid',
+    ],
+  ])(
+    'keeps an invalid profile on the invalid arm without a valid target: %s',
+    async (_case, invalidProfile, makeRequest, expectedTargetState) => {
+      const profilePath = join(agentRoot, 'agent-profile.toml')
+      await writeFile(profilePath, invalidProfile)
+
+      const response = await operation()(makeRequest(), daemonDefaults())
+      const canonicalProfilePath = join(await realpath(agentRoot), 'agent-profile.toml')
+
+      expect(response).toMatchObject({
+        ok: false,
+        source: {
+          agentProfile: {
+            state: 'invalid',
+            diagnostics: [
+              {
+                code: 'agent_profile_invalid',
+                source: 'agent-profile',
+                path: canonicalProfilePath,
+              },
+            ],
+          },
+          selectedTarget: { state: 'absent', code: 'not_declared' },
+        },
+        resolution: {
+          state: 'invalid',
+          code: 'agent_profile_invalid',
+          diagnostics: [
+            {
+              code: 'agent_profile_invalid',
+              source: 'agent-profile',
+              path: canonicalProfilePath,
+            },
+          ],
+        },
+      })
+      expect(response.source.projectTargets).toMatchObject(
+        expectedTargetState === 'valid'
+          ? { state: 'valid', code: 'parsed' }
+          : { state: 'absent', code: 'not_declared' }
+      )
+      expect(response).not.toHaveProperty('baselineProvisioning')
+      expect(response).not.toHaveProperty('provisioning')
+      expect(response).not.toHaveProperty('placement')
+      expect(response).not.toHaveProperty('bundle')
+    }
+  )
+
+  test('keeps valid-profile output byte-identical across an invalid-profile observation', async () => {
+    const resolveDeclaration = operation()
+    const fixedOptions = {
+      ...daemonDefaults(),
+      now: () => new Date('2026-09-17T08:00:00.000Z'),
+    }
+    const validProfile = await readFile(join(agentRoot, 'agent-profile.toml'), 'utf8')
+    const before = await resolveDeclaration(request(), fixedOptions)
+
+    await writeFile(join(agentRoot, 'agent-profile.toml'), 'version = [not valid')
+    await resolveDeclaration(request(), fixedOptions)
+    await writeFile(join(agentRoot, 'agent-profile.toml'), validProfile)
+
+    expect(await resolveDeclaration(request(), fixedOptions)).toEqual(before)
+    expect(before).toMatchObject({
+      ok: true,
+      source: {
+        agentProfile: {
+          state: 'valid',
+          code: 'parsed',
+          declaredHarness: 'claude',
+          declaredProvider: 'anthropic',
+        },
+      },
+      baselineProvisioning: {
+        declaredHarness: 'claude',
+        effectiveHarness: 'codex',
+        provider: 'openai',
+      },
+    })
+  })
+
   test('distinguishes declaration absent/invalid from unavailable/incompatible evidence', async () => {
     const resolveDeclaration = operation()
     const absent = await resolveDeclaration(
