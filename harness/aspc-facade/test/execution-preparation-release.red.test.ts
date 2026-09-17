@@ -103,45 +103,10 @@ const DIRECT_SUCCESS: UnknownRecord = {
   diagnostics: [],
 }
 
-const DESKTOP_SUCCESS: UnknownRecord = {
-  schemaVersion: 'aspc-prepare-desktop-observer-response/v1',
-  ok: true,
-  plan: { planHash: 'plan-t08577' },
-  selectedProfile: {
-    brokerProtocol: 'harness-broker/0.2',
-    profileHash: 'profile-t08577',
-  },
-  startRequest: { spec: { invocationId: 'inv-t08577' } },
-  dispatchRequest: { startRequest: { spec: { invocationId: 'inv-t08577' } }, dispatchEnv: {} },
-  diagnostics: [],
-}
-
-const IDENTITY_RESPONSE: UnknownRecord = {
-  schemaVersion: 'aspc-resolve-desktop-identity-response/v1',
-  ok: true,
-  identity: {
-    nativeThreadId: '018f0f3e-7d65-7c19-a2bd-5a43c86c72ab',
-    homeIdentity: '/codex-home',
-    sqliteHome: '/codex-home',
-    registrationKey: 'd'.repeat(64),
-    homeBasis: 'reported-home',
-  },
-}
-
-const ADMISSION_RESPONSE: UnknownRecord = {
-  schemaVersion: 'aspc-admit-desktop-registration-response/v1',
-  ok: true,
-  verdict: 'pending',
-  pending: { reason: 'native_metadata_unavailable', detail: 'rollout not written yet' },
-}
-
 function fakeService(
   input: {
     capabilities?: UnknownRecord
     prepareProcessInvocation?: DynamicMethod
-    prepareDesktopObserver?: DynamicMethod
-    resolveDesktopIdentity?: DynamicMethod
-    admitDesktopRegistration?: DynamicMethod
   } = {}
 ): UnknownService {
   return {
@@ -181,9 +146,6 @@ function fakeService(
       diagnostics: [],
     }),
     prepareProcessInvocation: input.prepareProcessInvocation ?? (async () => DIRECT_SUCCESS),
-    prepareDesktopObserver: input.prepareDesktopObserver ?? (async () => DESKTOP_SUCCESS),
-    resolveDesktopIdentity: input.resolveDesktopIdentity ?? (async () => IDENTITY_RESPONSE),
-    admitDesktopRegistration: input.admitDesktopRegistration ?? (async () => ADMISSION_RESPONSE),
   } as unknown as UnknownService
 }
 
@@ -336,22 +298,6 @@ describe('release-bound preparation service (T-08577)', () => {
     }
   })
 
-  test('control: Desktop identity and admission responses remain byte-transparent', async () => {
-    const underlying = fakeService()
-    const bound = createReleaseBoundAspcService(underlying, binding('a'))
-
-    expect(
-      await method(bound, 'resolveDesktopIdentity').call(bound, {
-        schemaVersion: 'aspc-resolve-desktop-identity-request/v1',
-      })
-    ).toBe(IDENTITY_RESPONSE)
-    expect(
-      await method(bound, 'admitDesktopRegistration').call(bound, {
-        schemaVersion: 'aspc-admit-desktop-registration-request/v1',
-      })
-    ).toBe(ADMISSION_RESPONSE)
-  })
-
   test('H3: direct preparation binds the serving release without fabricating a worker', async () => {
     const selected = binding('a')
     const bound = createReleaseBoundAspcService(fakeService(), selected)
@@ -369,32 +315,7 @@ describe('release-bound preparation service (T-08577)', () => {
     expect(rest).toEqual(DIRECT_SUCCESS)
   })
 
-  test('E6/H2: Desktop success freezes the selected protocol and release worker', async () => {
-    const selected = binding('a')
-    const bound = createReleaseBoundAspcService(fakeService(), selected)
-    const response = (await method(bound, 'prepareDesktopObserver').call(bound, {
-      schemaVersion: 'aspc-prepare-desktop-observer-request/v1',
-    })) as UnknownRecord
-
-    expect(response['executionRelease']).toEqual({
-      ...selected.identity,
-      releaseRoot: selected.releaseRoot,
-      worker: {
-        protocol: 'harness-broker/0.2',
-        executable: selected.workers['codex-app-server']?.executable,
-        argvPrefix: ['run', '--transport', 'unix'],
-      },
-    })
-    const { executionRelease: _added, ...rest } = response
-    expect(rest).toEqual(DESKTOP_SUCCESS)
-  })
-
   test('B8/E3: every non-success arm is inhabitable and passes through without invented release evidence', async () => {
-    const notPrepared: UnknownRecord = {
-      schemaVersion: 'aspc-prepare-desktop-observer-response/v1',
-      ok: false,
-      notPrepared: { code: 'rollout_unavailable', detail: 'not readable' },
-    }
     const directFailures: UnknownRecord[] = [
       {
         schemaVersion: 'aspc-prepare-process-invocation-response/v1',
@@ -436,17 +357,11 @@ describe('release-bound preparation service (T-08577)', () => {
     let directIndex = 0
     const bound = createReleaseBoundAspcService(
       fakeService({
-        prepareDesktopObserver: async () => notPrepared,
         prepareProcessInvocation: async () => directFailures[directIndex++] as UnknownRecord,
       }),
       binding('a')
     )
 
-    expect(
-      await method(bound, 'prepareDesktopObserver').call(bound, {
-        schemaVersion: 'aspc-prepare-desktop-observer-request/v1',
-      })
-    ).toBe(notPrepared)
     for (const directFailure of directFailures) {
       expect(await method(bound, 'prepareProcessInvocation').call(bound, directRequest())).toBe(
         directFailure
@@ -463,10 +378,6 @@ describe('release-bound preparation service (T-08577)', () => {
       boundA,
       directRequest()
     )) as UnknownRecord
-    const desktopA = (await method(boundA, 'prepareDesktopObserver').call(boundA, {
-      schemaVersion: 'aspc-prepare-desktop-observer-request/v1',
-    })) as UnknownRecord
-
     const boundB = createReleaseBoundAspcService(service, releaseB)
     const directB = (await method(boundB, 'prepareProcessInvocation').call(
       boundB,
@@ -474,12 +385,8 @@ describe('release-bound preparation service (T-08577)', () => {
     )) as UnknownRecord
 
     expect(directA['release']).toBeDefined()
-    expect(desktopA['executionRelease']).toBeDefined()
     expect(directB['release']).toBeDefined()
     expect((directA['release'] as UnknownRecord | undefined)?.['releaseId']).toBe(
-      releaseA.identity.releaseId
-    )
-    expect((desktopA['executionRelease'] as UnknownRecord | undefined)?.['releaseId']).toBe(
       releaseA.identity.releaseId
     )
     expect((directB['release'] as UnknownRecord | undefined)?.['releaseId']).toBe(

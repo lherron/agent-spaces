@@ -25,8 +25,11 @@ predicate: >
   evidence. Consumers may preserve the proven legacy codex-app-server binding,
   but any non-Codex aspd launch admitted on release hosting evidence must require
   hostedDrivers to contain the selected broker driver. HRC retains worker
-  hosting, lifecycle, placement, and routing authority.
-authority: Daedalus approval of wrkq T-08561 revision de063d73 and Pi SDK scope-narrowing amendment c6d821ce on 2026-09-16
+  hosting, lifecycle, placement, and routing authority, except the
+  participant-owned codex-desktop broker (T-08594, 2026-09-17, ruled by Lance,
+  recorded hrc-runtime T-08567 C-23749): hook-started from the active release
+  and served in-process, never HRC-hosted.
+authority: Daedalus approval of wrkq T-08561 revision de063d73 and Pi SDK scope-narrowing amendment c6d821ce on 2026-09-16; T-08594 Desktop amendment under Lance ruling (hrc-runtime T-08567 C-23749)
 named_gap: >
   The Pi SDK release binding is deferred. At implementation commits c96bbd46
   and d219b1d3 the release closure gate rejected the compiled Pi worker because
@@ -37,6 +40,7 @@ named_gap: >
   off the aspd route or refuse it explicitly. The existing non-aspd Pi SDK path
   is unchanged.
 source:
+  - wrkq:T-08594
   - wrkq:T-08561
   - commit:c6d821ce
   - docs/proposals/aspd-release-supported-claude-pi-workers.md
@@ -58,6 +62,7 @@ last_verified:
   date: 2026-09-17
   evidence: T-08561 isolated release A/B matrix built and inspected binding-aware releases, completed real Claude Pi TUI and Codex turns from immutable workers, observed Pi SDK and compiled unhosted-driver refusal before executionRelease, proved helper and statusline closure plus MCP neutrality, preserved a retained pre-binding Codex rollback, and kept live A/B workers controllable through activation and aspd outage; evidence retained under var/wrkq-artifacts/T-08561/implementation
 reopen_when:
+  - the participant-owned Desktop broker changes ownership or hosting
   - release worker selection stops deriving from the inspected binding table
   - hostedDrivers is inferred from registry inventory or changes from positive per-executable binding evidence
   - an unbound driver can receive executionRelease or cause a hosting effect

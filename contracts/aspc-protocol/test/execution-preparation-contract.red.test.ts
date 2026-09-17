@@ -1,10 +1,12 @@
 /**
- * T-08577 protocol reds for the four additive ASPC preparation operations.
+ * T-08577 protocol reds for the ASPC preparation operations.
  *
  * The protocol module already exists and loads normally. Future exports are
  * reached through its public namespace so today's failures are collected
  * behavioral assertions (`typeof validator === 'function'`, closed validation,
  * and exact method/schema membership), never missing-import failures.
+ * T-08594 retired the three Desktop preparation ops from the RPC surface; only
+ * prepareProcessInvocation remains.
  */
 import { describe, expect, test } from 'bun:test'
 import * as protocol from '../src/index.js'
@@ -40,69 +42,6 @@ const DIRECT_REQUEST = {
     prompt: 'prepare only',
   },
   dispatchEnv: { CALLER_FLAG: 'preserved' },
-}
-
-const IDENTITY_REQUEST = {
-  schemaVersion: 'aspc-resolve-desktop-identity-request/v1',
-  nativeThreadId: '018f0f3e-7d65-7c19-a2bd-5a43c86c72ab',
-  reported: {
-    codexHome: '/tmp/t08577/codex-home',
-    sqliteHome: '/tmp/t08577/sqlite-home',
-    rolloutPath:
-      '/tmp/t08577/codex-home/sessions/2026/09/17/rollout-018f0f3e-7d65-7c19-a2bd-5a43c86c72ab.jsonl',
-  },
-  fallbackHomeDir: '/tmp/t08577/fallback',
-}
-
-const IDENTITY = {
-  nativeThreadId: IDENTITY_REQUEST.nativeThreadId,
-  homeIdentity: '/tmp/t08577/codex-home',
-  sqliteHome: '/tmp/t08577/sqlite-home',
-  registrationKey: 'a'.repeat(64),
-  homeBasis: 'reported-home',
-}
-
-const ADMISSION_REQUEST = {
-  schemaVersion: 'aspc-admit-desktop-registration-request/v1',
-  identity: IDENTITY,
-  rolloutPath: IDENTITY_REQUEST.reported.rolloutPath,
-  reportedWorkspaceCwd: '/tmp/t08577/project',
-}
-
-const OBSERVER_REQUEST = {
-  schemaVersion: 'aspc-prepare-desktop-observer-request/v1',
-  registration: {
-    registrationKey: IDENTITY.registrationKey,
-    agentId: 'stella',
-    projectId: 'agent-spaces',
-    projectRoot: '/tmp/t08577/project',
-    scopeRef: 'agent:stella:project:agent-spaces',
-    laneRef: 'main',
-    hostSessionId: 'hsid-t08577',
-    generation: 7,
-    nativeThreadId: IDENTITY.nativeThreadId,
-    homeIdentity: IDENTITY.homeIdentity,
-    sqliteHome: IDENTITY.sqliteHome,
-    rolloutPath: IDENTITY_REQUEST.reported.rolloutPath,
-    reportedBundleExecutable: '/tmp/t08577/ChatGPT.app/Contents/Resources/codex',
-  },
-  hostingIdentity: {
-    runtimeId: 'runtime-t08577',
-    runId: 'run-t08577',
-    hostSessionId: 'hsid-t08577',
-    generation: 7,
-  },
-  identity: {
-    requestId: 'request-t08577',
-    operationId: 'operation-t08577',
-    invocationId: 'invocation-t08577',
-  },
-  recoveryBoundary: {
-    committedProjections: [],
-    appliedThroughSeq: 0,
-    empty: true,
-  },
-  nativeAttemptStorePath: '/tmp/t08577/state/native-attempts.db',
 }
 
 function requireValidator(name: string): Validator {
@@ -141,22 +80,28 @@ describe('ASPC execution-preparation contract (T-08577)', () => {
     ).toThrow(protocol.AspcCommandValidationError)
   })
 
-  test('A2: the canonical method set contains exactly the four additive preparation methods', () => {
+  test('A2: the canonical method set contains exactly the one remaining preparation method', () => {
     const preparationMethods = protocol.ASPC_METHODS.filter((method) =>
-      [
-        'aspc.prepareProcessInvocation',
-        'aspc.resolveDesktopIdentity',
-        'aspc.admitDesktopRegistration',
-        'aspc.prepareDesktopObserver',
-      ].includes(method)
+      ['aspc.prepareProcessInvocation'].includes(method)
     )
 
-    expect(preparationMethods).toEqual([
-      'aspc.prepareProcessInvocation',
+    expect(preparationMethods).toEqual(['aspc.prepareProcessInvocation'])
+  })
+
+  test('A2/retired: the three Desktop methods are gone from the method set and fail closed', () => {
+    for (const method of [
       'aspc.resolveDesktopIdentity',
       'aspc.admitDesktopRegistration',
       'aspc.prepareDesktopObserver',
-    ])
+    ]) {
+      expect(protocol.ASPC_METHODS.includes(method as never)).toBe(false)
+      expect(() =>
+        protocol.validateAspcCommand({ jsonrpc: '2.0', id: 'retired', method, params: {} })
+      ).toThrow(protocol.AspcCommandValidationError)
+    }
+    expect(namespace['validateAspcResolveDesktopIdentityRequest']).toBeUndefined()
+    expect(namespace['validateAspcAdmitDesktopRegistrationRequest']).toBeUndefined()
+    expect(namespace['validateAspcPrepareDesktopObserverRequest']).toBeUndefined()
   })
 
   test('B3/B8: direct preparation has a closed v1 request and required optional-member correlation object', () => {
@@ -185,37 +130,14 @@ describe('ASPC execution-preparation contract (T-08577)', () => {
     ).toThrow()
   })
 
-  test('D1/D2: Desktop identity has a closed v1 request validator', () => {
-    expectClosedV1Validator('validateAspcResolveDesktopIdentityRequest', IDENTITY_REQUEST)
-    expectCommand('aspc.resolveDesktopIdentity', IDENTITY_REQUEST)
-  })
-
-  test('D4/D5: Desktop admission has a closed v1 request validator', () => {
-    expectClosedV1Validator('validateAspcAdmitDesktopRegistrationRequest', ADMISSION_REQUEST)
-    expectCommand('aspc.admitDesktopRegistration', ADMISSION_REQUEST)
-  })
-
-  test('E3/E4: Desktop observer has a closed v1 request and accepts no initial input', () => {
-    expectClosedV1Validator('validateAspcPrepareDesktopObserverRequest', OBSERVER_REQUEST)
-    expectCommand('aspc.prepareDesktopObserver', OBSERVER_REQUEST)
-
-    const validate = requireValidator('validateAspcPrepareDesktopObserverRequest')
-    expect(() =>
-      validate({ ...OBSERVER_REQUEST, initialInput: { text: 'must never apply' } })
-    ).toThrow()
-  })
-
-  test('B8: all response discriminators are distinct exact v1 literals', () => {
+  test('B8: the remaining response discriminator is the exact v1 literal', () => {
     expect({
       direct: namespace['ASPC_PREPARE_PROCESS_INVOCATION_RESPONSE_VERSION'],
-      identity: namespace['ASPC_RESOLVE_DESKTOP_IDENTITY_RESPONSE_VERSION'],
-      admission: namespace['ASPC_ADMIT_DESKTOP_REGISTRATION_RESPONSE_VERSION'],
-      observer: namespace['ASPC_PREPARE_DESKTOP_OBSERVER_RESPONSE_VERSION'],
     }).toEqual({
       direct: 'aspc-prepare-process-invocation-response/v1',
-      identity: 'aspc-resolve-desktop-identity-response/v1',
-      admission: 'aspc-admit-desktop-registration-response/v1',
-      observer: 'aspc-prepare-desktop-observer-response/v1',
     })
+    expect(namespace['ASPC_RESOLVE_DESKTOP_IDENTITY_RESPONSE_VERSION']).toBeUndefined()
+    expect(namespace['ASPC_ADMIT_DESKTOP_REGISTRATION_RESPONSE_VERSION']).toBeUndefined()
+    expect(namespace['ASPC_PREPARE_DESKTOP_OBSERVER_RESPONSE_VERSION']).toBeUndefined()
   })
 })

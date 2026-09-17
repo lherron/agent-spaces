@@ -4,6 +4,15 @@ status: active
 owner_project: agent-spaces
 scope: Praesidium-owned agent harness composition and live-launch authority
 predicate: >
+  Amendment T-08594 (2026-09-17, ruled by Lance, recorded hrc-runtime T-08567
+  C-23749; Daedalus overruled on the premise): the Desktop observer clauses
+  below are superseded. The codex-desktop broker is participant-owned:
+  hook-started from the active aspd release, it joins HRC itself as a
+  participant-served participant through the client-agnostic participant door.
+  HRC retains address/placement claim authority and the participant door;
+  Desktop launch, supervision, worker hosting, and durable reattach authority
+  move to the participant. The aspc Desktop preparation ops are retired from
+  the RPC surface; the compiler functions stay as the in-process library.
   Amendment T-08563: this record's earlier description of agent-harness as the
   default path is historical and grants no current default-selection authority.
   Runtime harness/provider/frontend selection is interpreted from mutable ASP
@@ -65,8 +74,9 @@ predicate: >
   credential transport beyond that binding, broker wire/process topology, and
   support for additional resource categories remain implementation choices
   unless another active contract fixes them.
-authority: T-08563 revision 5 approved by daedalus EN-13318; prior authority hrcchat#21059
+authority: T-08563 revision 5 approved by daedalus EN-13318; prior authority hrcchat#21059; T-08594 Desktop amendment under Lance ruling (hrc-runtime T-08567 C-23749)
 source:
+  - wrkq:T-08594
   - wrkq:T-08563 revision 5
   - wrkq:EN-13318
   - hrcchat#21059
@@ -121,6 +131,7 @@ last_verified:
   date: 2026-09-17
   evidence: T-08563 amendment approved by daedalus EN-13318; remaining execution-lowering law retains hrcchat#21059 evidence
 reopen_when:
+  - the participant door or Desktop broker ownership changes
   - shared ASP semantics split into independent direct and compatibility implementations
   - broker-mediated interactive tool approval is required on the HRC-launched interactive TUI surface
   - a fourth outer surface consumes the direct runtime factory

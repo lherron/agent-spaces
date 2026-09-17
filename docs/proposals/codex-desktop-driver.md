@@ -31,6 +31,16 @@ HRC retains external lifecycle ownership for the desktop thread. It can stop/res
 
 No second always-on service is required. The existing HRC daemon supervises desktop observers. HRC restart recovers durable mappings and observation/submission state; an observer restart is not proof that the desktop runtime ended. One desktop app-server may host many threads; thread identity, not app-server PID, partitions invocations.
 
+> **Revision note (2026-09-17, T-08594, ruled by Lance — Daedalus overruled,
+> recorded hrc-runtime T-08567 C-23749):** the clause above is superseded. The
+> `codex-desktop` broker lives in ASP as a participant-owned process: it is
+> started by the Codex SessionStart hook from the active aspd release, observes
+> Desktop, injects through the Codex queue (queue-only), and joins HRC itself
+> as a participant-served participant. HRC keeps one client-agnostic
+> participant door and retains no Desktop launch, supervision, or durable
+> reattach authority. Steer against Desktop is impossible and stays a known
+> limitation HRC fails open on.
+
 ## 4. Thread registration, readable scopes and migration
 
 The registration key is `(local desktop installation/home identity, native thread UUID)`. HRC stores a durable unique mapping to Stella, project, readable scope, rollout path and integration runtime linkage. Installation identity resolves the real Codex home and effective SQLite home; helpers must use the same storage resolution as desktop. Binary version is compatibility metadata, not part of conversation identity.

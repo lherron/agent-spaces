@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -300,6 +301,203 @@ describe('desktop-join scope loop', () => {
       })
       expect(seen).toEqual(['agent:stella:project:demo:task:primary-nova', HELD])
       expect(outcome.exit).toBe('joined')
+    } finally {
+      stop()
+    }
+  })
+})
+
+describe('desktop-join write-ahead resume', () => {
+  test('resumeFromScope is tried before the slot sequence', async () => {
+    const seen: string[] = []
+    const HELD = 'agent:stella:project:demo:task:primary-comet'
+    const candidates: string[] = []
+    const { sock, stop } = stubHrc((path, body) => {
+      if (path === '/v1/participants/register') {
+        seen.push((body as any).requestedSessionRef)
+        return {
+          status: 200,
+          body: {
+            status: 'registered',
+            scopeRef: (body as any).requestedSessionRef,
+            hostSessionId: 'hs_1',
+            generation: 1,
+            created: true,
+            resumed: false,
+            observation: { state: 'attachment_pending', detail: 'ok' },
+            identity: {
+              registrationId: 'reg_w',
+              laneRef: 'main',
+              runtimeId: 'rt_w',
+              attemptId: 'att_w',
+              invocationId: 'inv_w',
+              attachEpoch: 1,
+              requestId: 'req_w',
+              operationId: 'op_w',
+            },
+          },
+        }
+      }
+      return {
+        status: 200,
+        body: {
+          status: 'attached',
+          registrationId: 'reg_w',
+          attemptId: 'att_w',
+          attachEpoch: 1,
+          prepared: true,
+          observation: { state: 'attached', detail: 'ok' },
+        },
+      }
+    })
+    try {
+      const { chooseScopeAndJoin: choose } = await import('../src/desktop-join.js')
+      const outcome = await choose({
+        hrcSocketPath: sock,
+        projectId: 'demo',
+        hostIncarnationId: 'host-incarnation:test',
+        socketPath: '/tmp/desktop-broker.sock',
+        classId: 'codex-desktop',
+        preparation: { schema: 'x' },
+        participantKey: 'rk',
+        workspaceCwd: '/tmp/ws',
+        resumeFromScope: HELD,
+        onCandidateScope: (scope) => {
+          candidates.push(scope)
+        },
+        adapter: {
+          adapterId: 'test/1',
+          admit: () => ({ status: 'rejected' as const, reason: 'unused' }),
+          prepare: () => ({ status: 'prepared' as const, profile: { kind: 'p' } as never }),
+        },
+      })
+      expect(seen).toEqual([HELD])
+      expect(candidates).toEqual([HELD])
+      expect(outcome.exit).toBe('joined')
+    } finally {
+      stop()
+    }
+  })
+
+  test('runDesktopJoin resumes a registering write-ahead instead of restarting at nova', async () => {
+    const { runDesktopJoin, threadPaths, admitDesktopThread } = await import(
+      '../src/desktop-join.js'
+    )
+    const { desktopHostIncarnationId } = await import('../src/desktop-project.js')
+    const dir = await mkdtemp('/tmp/djr-')
+    const codexHome = join(dir, 'codex-home')
+    const rolloutDir = join(codexHome, 'sessions')
+    mkdirSync(rolloutDir, { recursive: true })
+    const threadId = '0199abcd-1234-5678-9abc-def012345678'
+    const rolloutPath = join(rolloutDir, `${threadId}.jsonl`)
+    await writeFile(
+      rolloutPath,
+      `${JSON.stringify({
+        type: 'session_meta',
+        payload: {
+          session_id: threadId,
+          source: 'vscode',
+          thread_source: 'user',
+          originator: 'codex-desktop',
+          cwd: join(dir, 'workspace'),
+        },
+      })}\n`
+    )
+    const bundle = join(dir, 'codex-bundle')
+    await writeFile(bundle, '#!/bin/sh\n')
+    const admission = await admitDesktopThread({
+      threadId,
+      codexHome,
+      rolloutPath,
+      workspaceCwd: join(dir, 'workspace'),
+      fallbackHomeDir: dir,
+      reportedBundleExecutable: bundle,
+      projectRoot: join(dir, 'workspace'),
+      nativeAttemptStorePath: join(dir, 'attempts.db'),
+    })
+    if (!admission.admitted) throw new Error('fixture was not admitted')
+    const incarnation = desktopHostIncarnationId(admission.homeIdentity, threadId)
+    const paths = threadPaths(codexHome, threadId)
+    mkdirSync(paths.threadDir, { recursive: true, mode: 0o700 })
+    const HELD = 'agent:stella:project:demo:task:primary-comet'
+    await writeFile(
+      paths.joinFile,
+      JSON.stringify({
+        phase: 'registering',
+        candidateScope: HELD,
+        hostIncarnationId: incarnation,
+        pid: 1,
+      })
+    )
+    const seen: string[] = []
+    const { sock, stop } = stubHrc((path, body) => {
+      if (path === '/v1/participants/register') {
+        seen.push((body as any).requestedSessionRef)
+        return {
+          status: 200,
+          body: {
+            status: 'registered',
+            scopeRef: (body as any).requestedSessionRef,
+            hostSessionId: 'hs_1',
+            generation: 1,
+            created: true,
+            resumed: false,
+            observation: { state: 'attachment_pending', detail: 'ok' },
+            identity: {
+              registrationId: 'reg_r',
+              laneRef: 'main',
+              runtimeId: 'rt_r',
+              attemptId: 'att_r',
+              invocationId: 'inv_r',
+              attachEpoch: 1,
+              requestId: 'req_r',
+              operationId: 'op_r',
+            },
+          },
+        }
+      }
+      return {
+        status: 200,
+        body: {
+          status: 'attached',
+          registrationId: 'reg_r',
+          attemptId: 'att_r',
+          attachEpoch: 1,
+          prepared: true,
+          observation: { state: 'attached', detail: 'ok' },
+        },
+      }
+    })
+    try {
+      const outcome = await runDesktopJoin(
+        {
+          threadId,
+          codexHome,
+          rolloutPath,
+          hrcSocketPath: sock,
+          projectRoot: join(dir, 'workspace'),
+          reportedBundleExecutable: bundle,
+        },
+        {
+          serve: (async () => ({ broker: {}, socketPath: 'x', close: async () => {} })) as never,
+          blockForever: (async () => {}) as never,
+        }
+      )
+      expect(seen[0]).toBe(HELD)
+      expect(outcome).toMatchObject({ exit: 0 })
+      const written = JSON.parse(readFileSync(paths.joinFile, 'utf8'))
+      expect(written.phase).toBe('joined')
+      expect(written.scopeRef).toBe(HELD)
+      const cache = JSON.parse(
+        readFileSync(join(codexHome, 'hrc-desktop-scopes', `${threadId}.json`), 'utf8')
+      )
+      expect(cache).toMatchObject({
+        scopeRef: HELD,
+        agentId: 'stella',
+        projectId: 'workspace',
+        slotToken: 'primary-comet',
+        laneRef: 'main',
+      })
     } finally {
       stop()
     }

@@ -1,20 +1,23 @@
 /**
- * The desktop cutover half of the Codex overlay (campaign P-00502 leg D).
+ * The desktop hook half of the Codex overlay (campaign P-00502 leg D, reworked
+ * by T-08594 for self-join).
  *
  * These cases exist because the failure they guard is silent in every direction
  * that matters. The generated hooks are strings produced by a template inside
  * another template: a mis-escaped interpolation still WRITES a file, Codex still
  * runs it, and the only symptom is a hook that quietly does nothing in front of
- * a turn — which is indistinguishable from a conversation that is simply not
- * registered yet. So each case runs the REAL generated script through node with
- * a real hook payload, rather than asserting on the source that produced it.
+ * a turn. So each case runs the REAL generated script through node with a real
+ * hook payload, rather than asserting on the source that produced it.
  *
- * The helper is stubbed on PATH, not mocked in-process, because the seam under
- * test IS the spawn: env plumbing, stdin framing, and the bounded wait.
+ * The discovery-hook half now lives in
+ * sync-agent-to-codex-desktop-self-join.red.test.ts: the hook spawns
+ * `harness-broker desktop-join` detached and the broker owns the join. What
+ * remains here is the PreToolUse injection against a broker-written scope
+ * cache, plus managed hook installation.
  */
 import { describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -75,41 +78,6 @@ async function buildOverlay(): Promise<Overlay> {
  * `mode` selects the three answers the overlay must survive: a registration,
  * a daemon that is not there, and a helper that never returns.
  */
-function installHelperStub(overlay: Overlay, mode: 'registered' | 'pending' | 'hang'): void {
-  const path = join(overlay.binDir, 'hrc-desktop-hook')
-  writeFileSync(
-    path,
-    `#!/usr/bin/env node
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
-const raw = readFileSync(0, 'utf8')
-const dir = process.env.HRC_DESKTOP_CACHE_DIR
-mkdirSync(dir, { recursive: true })
-writeFileSync(join(dir, 'helper-invocation.json'), JSON.stringify({
-  stdin: JSON.parse(raw || '{}'),
-  legacyScopeRef: process.env.HRC_DESKTOP_LEGACY_SCOPE_REF,
-  callbackSocket: process.env.HRC_CALLBACK_SOCKET,
-  spoolDir: process.env.HRC_SPOOL_DIR,
-}))
-if (${JSON.stringify(mode)} === 'hang') { setInterval(() => {}, 1000); }
-else if (${JSON.stringify(mode)} === 'pending') {
-  process.stdout.write(JSON.stringify({ status: 'integration_pending', reason: 'hrc_unreachable', detail: '' }) + '\\n')
-} else {
-  const cache = {
-    scopeRef: ${JSON.stringify(CANONICAL_SCOPE)},
-    agentId: 'stella', projectId: 'hrc-ios', slotToken: 'primary-nova', laneRef: 'main',
-    hostSessionId: 'hsid-test', nativeThreadId: JSON.parse(raw).session_id,
-    homeIdentity: '/Users/lherron/.codex', projectRoot: '/Users/lherron/praesidium/clients/hrc-ios',
-    registeredAt: '2026-09-08T18:31:10.820Z', cachedAt: new Date().toISOString(),
-  }
-  writeFileSync(join(dir, cache.nativeThreadId + '.json'), JSON.stringify(cache))
-  process.stdout.write(JSON.stringify({ status: 'registered', source: 'hrc', cache }) + '\\n')
-}
-`,
-    { mode: 0o755 }
-  )
-  chmodSync(path, 0o755)
-}
 
 function runHook(
   overlay: Overlay,
@@ -172,174 +140,32 @@ describe('codex desktop registration discovery hook', () => {
     }
   })
 
-  test('SessionStart registers, caches the scope, and reports the readable address', async () => {
-    const overlay = await buildOverlay()
-    try {
-      installHelperStub(overlay, 'registered')
-      const { stdout } = runHook(overlay, overlay.discovery, sessionStart)
-      expect(hookContext(stdout)).toContain(CANONICAL_SCOPE)
-
-      // The helper received desktop's own evidence, the internal socket, and the
-      // legacy address — never an instruction about what the name should be.
-      const seen = JSON.parse(
-        readFileSync(join(overlay.cacheDir, 'helper-invocation.json'), 'utf8')
-      ) as {
-        stdin: Record<string, unknown>
-        legacyScopeRef: string
-        callbackSocket: string
-        spoolDir: string
-      }
-      expect(seen.stdin['session_id']).toBe(NATIVE_THREAD_ID)
-      expect(seen.stdin['transcript_path']).toBe(sessionStart.transcript_path)
-      expect(seen.stdin['source']).toBe('startup')
-      expect(seen.legacyScopeRef).toContain(`task:codex-${NATIVE_THREAD_ID}`)
-      expect(seen.callbackSocket).toContain('/var/run/hrc/hrc.sock')
-      expect(seen.spoolDir).toContain('/var/run/hrc/spool')
-      expect(existsSync(join(overlay.cacheDir, `${NATIVE_THREAD_ID}.json`))).toBe(true)
-    } finally {
-      await rm(overlay.root, { recursive: true, force: true })
-    }
-  })
-
-  test('UserPromptSubmit is the fallback for an already-open conversation', async () => {
-    const overlay = await buildOverlay()
-    try {
-      installHelperStub(overlay, 'registered')
-      const { stdout } = runHook(overlay, overlay.discovery, {
-        hook_event_name: 'UserPromptSubmit',
-        session_id: NATIVE_THREAD_ID,
-        transcript_path: sessionStart.transcript_path,
-        cwd: sessionStart.cwd,
-      })
-      expect(hookContext(stdout)).toContain(CANONICAL_SCOPE)
-      const seen = JSON.parse(
-        readFileSync(join(overlay.cacheDir, 'helper-invocation.json'), 'utf8')
-      ) as { stdin: Record<string, unknown> }
-      // The hook source desktop did not supply is the one this event IS.
-      expect(seen.stdin['source']).toBe('user-prompt-submit')
-    } finally {
-      await rm(overlay.root, { recursive: true, force: true })
-    }
-  })
-
-  test('a valid cache does NOT skip the callback — it is identity, not health', async () => {
-    const overlay = await buildOverlay()
-    try {
-      // Establish the cache exactly as a real first registration would.
-      installHelperStub(overlay, 'registered')
-      runHook(overlay, overlay.discovery, sessionStart)
-      expect(existsSync(join(overlay.cacheDir, `${NATIVE_THREAD_ID}.json`))).toBe(true)
-      rmSync(join(overlay.cacheDir, 'helper-invocation.json'))
-
-      // A LATER prompt in the same still-open conversation.
-      const { stdout } = runHook(overlay, overlay.discovery, {
-        hook_event_name: 'UserPromptSubmit',
-        session_id: NATIVE_THREAD_ID,
-        transcript_path: sessionStart.transcript_path,
-        cwd: sessionStart.cwd,
-      })
-
-      // The regression: an earlier cut answered from the cache and exited before
-      // spawning the helper, which saved a spawn and closed the only door that
-      // reattaches a dead observer under a desktop nobody reopens. The cache
-      // answers "who am I", never "is HRC still watching".
-      expect(existsSync(join(overlay.cacheDir, 'helper-invocation.json'))).toBe(true)
-      const seen = JSON.parse(
-        readFileSync(join(overlay.cacheDir, 'helper-invocation.json'), 'utf8')
-      ) as { stdin: Record<string, unknown> }
-      expect(seen.stdin['session_id']).toBe(NATIVE_THREAD_ID)
-      expect(hookContext(stdout)).toContain(CANONICAL_SCOPE)
-    } finally {
-      await rm(overlay.root, { recursive: true, force: true })
-    }
-  })
-
-  test('with a cache present and HRC down, identity still answers from the cache', async () => {
-    const overlay = await buildOverlay()
-    try {
-      installHelperStub(overlay, 'registered')
-      runHook(overlay, overlay.discovery, sessionStart)
-
-      // HRC is now unreachable. The callback is still attempted — that is the
-      // point of the previous case — but the answer must not regress to
-      // "integration pending" for a conversation that already has an address.
-      installHelperStub(overlay, 'pending')
-      const { stdout } = runHook(overlay, overlay.discovery, {
-        hook_event_name: 'UserPromptSubmit',
-        session_id: NATIVE_THREAD_ID,
-        transcript_path: sessionStart.transcript_path,
-        cwd: sessionStart.cwd,
-      })
-      const context = hookContext(stdout)
-      expect(context).toContain(CANONICAL_SCOPE)
-      expect(context).not.toContain('integration pending')
-    } finally {
-      await rm(overlay.root, { recursive: true, force: true })
-    }
-  })
-
-  test('a hung helper with a cache present still answers with the address, bounded', async () => {
-    const overlay = await buildOverlay()
-    try {
-      installHelperStub(overlay, 'registered')
-      runHook(overlay, overlay.discovery, sessionStart)
-
-      installHelperStub(overlay, 'hang')
-      const { stdout, ms } = runHook(
-        overlay,
-        overlay.discovery,
-        {
-          hook_event_name: 'UserPromptSubmit',
-          session_id: NATIVE_THREAD_ID,
-          transcript_path: sessionStart.transcript_path,
-          cwd: sessionStart.cwd,
-        },
-        { timeoutMs: 20_000 }
-      )
-      expect(ms).toBeLessThan(12_000)
-      expect(hookContext(stdout)).toContain(CANONICAL_SCOPE)
-    } finally {
-      await rm(overlay.root, { recursive: true, force: true })
-    }
-  })
-
-  test('an unreachable daemon reports integration pending and mints no name', async () => {
-    const overlay = await buildOverlay()
-    try {
-      installHelperStub(overlay, 'pending')
-      const { stdout } = runHook(overlay, overlay.discovery, sessionStart)
-      const context = hookContext(stdout)
-      expect(context).toContain('integration pending')
-      expect(context).not.toContain('primary-')
-      expect(existsSync(join(overlay.cacheDir, `${NATIVE_THREAD_ID}.json`))).toBe(false)
-    } finally {
-      await rm(overlay.root, { recursive: true, force: true })
-    }
-  })
-
-  test('a helper that never returns is killed, and the turn proceeds', async () => {
-    const overlay = await buildOverlay()
-    try {
-      installHelperStub(overlay, 'hang')
-      const { stdout, ms } = runHook(overlay, overlay.discovery, sessionStart, {
-        timeoutMs: 20_000,
-      })
-      // The bound is 4s inside the hook; anything near the node-level timeout
-      // would mean the hook is holding the turn rather than releasing it.
-      expect(ms).toBeLessThan(12_000)
-      expect(hookContext(stdout)).toContain('integration pending')
-    } finally {
-      await rm(overlay.root, { recursive: true, force: true })
-    }
-  })
+  // The HRC-callback discovery contract these tests covered (helper spawn,
+  // address cache writes, additionalContext) was deleted by T-08594: the hook
+  // now spawns `harness-broker desktop-join` detached and the broker owns the
+  // join. Covered in sync-agent-to-codex-desktop-self-join.red.test.ts.
 })
-
 describe('codex desktop command env injection', () => {
   test('an established registration supplies the canonical Stella identity', async () => {
     const overlay = await buildOverlay()
     try {
-      installHelperStub(overlay, 'registered')
-      runHook(overlay, overlay.discovery, sessionStart)
+      // The broker (not the hook) writes this file after a successful join;
+      // the shape below is the writer/reader contract (desktop-join.ts).
+      writeFileSync(
+        join(overlay.cacheDir, `${NATIVE_THREAD_ID}.json`),
+        JSON.stringify({
+          scopeRef: CANONICAL_SCOPE,
+          agentId: 'stella',
+          projectId: 'hrc-ios',
+          slotToken: 'primary-nova',
+          laneRef: 'main',
+          registrationId: 'participant-registration-test',
+          hostIncarnationId: 'host-incarnation:test',
+          threadId: NATIVE_THREAD_ID,
+          projectRoot: '/Users/lherron/praesidium/clients/hrc-ios',
+          updatedAt: new Date().toISOString(),
+        })
+      )
 
       const { stdout } = runHook(overlay, overlay.preToolUse, {
         hook_event_name: 'PreToolUse',
@@ -361,8 +187,16 @@ describe('codex desktop command env injection', () => {
   test('wrkc and wrkp are injected, closing the allowlist gap that broke replies', async () => {
     const overlay = await buildOverlay()
     try {
-      installHelperStub(overlay, 'registered')
-      runHook(overlay, overlay.discovery, sessionStart)
+      writeFileSync(
+        join(overlay.cacheDir, `${NATIVE_THREAD_ID}.json`),
+        JSON.stringify({
+          scopeRef: CANONICAL_SCOPE,
+          agentId: 'stella',
+          projectId: 'hrc-ios',
+          slotToken: 'primary-nova',
+          laneRef: 'main',
+        })
+      )
       for (const command of ['wrkc inbox', 'wrkp status', 'wrkq ls']) {
         const { stdout } = runHook(overlay, overlay.preToolUse, {
           hook_event_name: 'PreToolUse',

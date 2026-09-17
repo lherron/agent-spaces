@@ -125,6 +125,8 @@ export type ScopeJoinInput = {
   scopeRef?: string | undefined
   adapter?: ParticipantAdapter | undefined
   maxSlots?: number | undefined
+  resumeFromScope?: string | undefined
+  onCandidateScope?: ((scopeRef: string) => void) | undefined
 }
 
 export type ScopeJoinOutcome =
@@ -151,15 +153,16 @@ export type ScopeJoinOutcome =
  * `host_binding_conflict` → ADVANCE; `*_bound_elsewhere` /
  * `*_birth_designated_elsewhere` → redirect without advancing; `pending` →
  * hold for the next hook. A caller-supplied `scopeRef` (respawn) pins the
- * loop to one address with `expectedPredecessor`.
+ * loop to one address with `expectedPredecessor`. A `resumeFromScope` seed
+ * (from a write-ahead join.json, component 3(v)) is tried before the sequence.
  */
 /**
  * The address our own incarnation already holds, when HRC names it in an
  * `participant_host_incarnation_bound_elsewhere` refusal. HRC checks the
  * incarnation binding before address occupancy, so a slot loop that restarts
- * at `primary-nova` after a crash between register and join.json can never
- * reach its own held slot by advancing — it must jump to the named address,
- * where the same-incarnation register replays the existing attempt.
+ * at `primary-nova` can never reach its own held slot by advancing — it jumps
+ * to the named address, where the same-incarnation register replays. This is
+ * the fallback for the crash window the write-ahead record does not cover.
  */
 export function heldScopeFromIncarnationRefusal(detail: string): string | undefined {
   const match = /already holds (agent:[^;\s]+);/.exec(detail)
@@ -173,7 +176,10 @@ export async function chooseScopeAndJoin(input: ScopeJoinInput): Promise<ScopeJo
       ? scopeRefsForPinned(input.scopeRef)
       : scopeRefsFor(input.projectId, input.maxSlots)
   const tried = new Set<string>()
-  const queue: string[] = []
+  const queue: string[] =
+    input.resumeFromScope !== undefined && input.scopeRef === undefined
+      ? [input.resumeFromScope]
+      : []
   const next = (): string | undefined => {
     for (;;) {
       const fromQueue = queue.shift()
@@ -191,7 +197,7 @@ export async function chooseScopeAndJoin(input: ScopeJoinInput): Promise<ScopeJo
   while (scopeRef !== undefined) {
     tried.add(scopeRef)
     examined += 1
-    examined += 1
+    input.onCandidateScope?.(scopeRef)
     const register = await registerParticipant(input.hrcSocketPath, {
       registrationMode: 'direct',
       requestedSessionRef: scopeRef,
@@ -506,8 +512,9 @@ export async function runDesktopJoin(
   }
 
   const serve = deps.serve ?? serveUnixBroker
+  let closeBroker: (() => Promise<void>) | undefined
   try {
-    await serve({
+    const served = await serve({
       socketPath,
       cliOptions: {},
       participantBootstrap: true,
@@ -515,9 +522,54 @@ export async function runDesktopJoin(
         writeJoinLog(paths.joinLog, 'server-error', { message: error.message })
       },
     })
+    closeBroker = served.close
   } catch (error) {
     log('serve-failed', { message: error instanceof Error ? error.message : String(error) })
     return { exit: 0, reason: 'serve-failed' }
+  }
+  // Serve until killed: release the socket and ledger handles on a clean
+  // signal so a SIGTERM respawn starts from a dead socket, not a stale file.
+  // A kill -9 skips this; the next hook's liveness probe covers that path.
+  const shutdown = (): void => {
+    void Promise.resolve()
+      .then(() => closeBroker?.())
+      .catch(() => {})
+      .then(() => process.exit(0))
+  }
+  process.once('SIGTERM', shutdown)
+  process.once('SIGINT', shutdown)
+
+  // Write-ahead resume (component 3(v), primary): a previous run persisted
+  // its candidate scope with phase 'registering' before calling register. Resume
+  // the loop there instead of restarting at primary-nova, so a crash between
+  // register and completion converges without parsing refusal text.
+  const writeAhead =
+    prior !== undefined &&
+    prior['phase'] === 'registering' &&
+    typeof prior['candidateScope'] === 'string' &&
+    prior['hostIncarnationId'] === hostIncarnationId
+      ? { resumeFromScope: prior['candidateScope'] as string }
+      : undefined
+
+  const writeCandidate = (scopeRef: string): void => {
+    try {
+      writeFileSync(
+        paths.joinFile,
+        `${JSON.stringify(
+          {
+            phase: 'registering',
+            candidateScope: scopeRef,
+            hostIncarnationId,
+            pid: process.pid,
+          },
+          null,
+          2
+        )}\n`,
+        { mode: 0o600 }
+      )
+    } catch {
+      // A missed write-ahead only loses the resume shortcut; the join proceeds.
+    }
   }
 
   const respawn =
@@ -567,6 +619,8 @@ export async function runDesktopJoin(
         nativeAttemptStorePath: join(paths.threadDir, 'native-attempts.db'),
       },
       ...(respawn === undefined ? {} : respawn),
+      ...(writeAhead === undefined ? {} : writeAhead),
+      onCandidateScope: writeCandidate,
     })
   } catch (error) {
     log('join-transport-error', { message: error instanceof Error ? error.message : String(error) })
@@ -583,6 +637,7 @@ export async function runDesktopJoin(
     paths.joinFile,
     `${JSON.stringify(
       {
+        phase: 'joined',
         registrationId: outcome.registrationId,
         attemptId: outcome.attemptId,
         attachEpoch: outcome.attachEpoch,
@@ -599,16 +654,26 @@ export async function runDesktopJoin(
     )}\n`,
     { mode: 0o600 }
   )
+  // The address cache the overlay's PreToolUse hook reads
+  // (readEstablishedScope): same path and same shape the hook expects —
+  // scopeRef plus the parsed agent/project/slot identity it injects.
+  const slotToken = outcome.scopeRef.includes(':task:')
+    ? outcome.scopeRef.slice(outcome.scopeRef.lastIndexOf(':task:') + ':task:'.length)
+    : outcome.scopeRef
   mkdirSync(dirname(paths.scopeCacheFile), { recursive: true, mode: 0o700 })
   writeFileSync(
     paths.scopeCacheFile,
     `${JSON.stringify(
       {
         scopeRef: outcome.scopeRef,
+        agentId: DESKTOP_AGENT_ID,
+        projectId: project.bound.projectId,
+        slotToken,
         laneRef: DESKTOP_LANE_REF,
         registrationId: outcome.registrationId,
         hostIncarnationId,
         threadId: input.threadId,
+        projectRoot: admission.workspaceCwd,
         updatedAt: new Date().toISOString(),
       },
       null,

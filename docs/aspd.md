@@ -251,17 +251,16 @@ agent sources.
 
 ## Execution preparation operations
 
-The additive `aspc/0.1` preparation plane exposes four pure operations:
-`aspc.prepareProcessInvocation`, `aspc.resolveDesktopIdentity`,
-`aspc.admitDesktopRegistration`, and `aspc.prepareDesktopObserver`. Preparation
+The additive `aspc/0.1` preparation plane exposes one pure operation:
+`aspc.prepareProcessInvocation`. Preparation
 may resolve and materialize ASP-owned inputs but never starts a native command or
 applies input. Direct preparation preserves the existing placement builder result
 and adds mandatory structured system/priming content plus the serving release.
-Desktop identity resolution is deliberately separate from new-registration
-admission so an established registration can be looked up without re-reading its
-rollout header. Fresh Desktop observers receive a queue-only broker profile whose
-native Desktop process remains externally owned; durable reattach retains its
-existing invocation, cursor, and release.
+The Desktop preparation ops (`aspc.resolveDesktopIdentity`,
+`aspc.admitDesktopRegistration`, `aspc.prepareDesktopObserver`) were retired
+from the RPC surface by T-08594: a Codex Desktop thread joins HRC itself through
+`harness-broker desktop-join` (hook-started, participant-served), and the
+compiler functions stay as the in-process library behind that flow.
 
 The thin Unix client refuses a missing advertised operation before sending it.
 An aspd node must be configured and ready before consumers migrate to these

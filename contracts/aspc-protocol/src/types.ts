@@ -51,12 +51,6 @@ export const ASPC_OBSERVE_CONTINUATION_ARTIFACT_RESPONSE_VERSION =
   'aspc-observe-continuation-artifact-response/v1' as const
 export const ASPC_PREPARE_PROCESS_INVOCATION_RESPONSE_VERSION =
   'aspc-prepare-process-invocation-response/v1' as const
-export const ASPC_RESOLVE_DESKTOP_IDENTITY_RESPONSE_VERSION =
-  'aspc-resolve-desktop-identity-response/v1' as const
-export const ASPC_ADMIT_DESKTOP_REGISTRATION_RESPONSE_VERSION =
-  'aspc-admit-desktop-registration-response/v1' as const
-export const ASPC_PREPARE_DESKTOP_OBSERVER_RESPONSE_VERSION =
-  'aspc-prepare-desktop-observer-response/v1' as const
 
 /**
  * Single source of truth for the set of `aspc.*` methods. `AspcMethod`, the
@@ -76,9 +70,6 @@ export const ASPC_METHODS = [
   'aspc.observeRuntimeCapability',
   'aspc.observeContinuationArtifact',
   'aspc.prepareProcessInvocation',
-  'aspc.resolveDesktopIdentity',
-  'aspc.admitDesktopRegistration',
-  'aspc.prepareDesktopObserver',
   'aspc.compileAndStart',
 ] as const
 
@@ -97,9 +88,6 @@ export type AspcCommand =
   | JsonRpcRequest<'aspc.observeRuntimeCapability', AspcObserveRuntimeCapabilityRequest>
   | JsonRpcRequest<'aspc.observeContinuationArtifact', AspcObserveContinuationArtifactRequest>
   | JsonRpcRequest<'aspc.prepareProcessInvocation', AspcPrepareProcessInvocationRequest>
-  | JsonRpcRequest<'aspc.resolveDesktopIdentity', AspcResolveDesktopIdentityRequest>
-  | JsonRpcRequest<'aspc.admitDesktopRegistration', AspcAdmitDesktopRegistrationRequest>
-  | JsonRpcRequest<'aspc.prepareDesktopObserver', AspcPrepareDesktopObserverRequest>
   | JsonRpcRequest<'aspc.compileAndStart', AspcCompileAndStartRequest>
 
 export interface AspcHelloRequest {
@@ -123,9 +111,6 @@ export interface AspcHelloRequest {
         observeContinuationArtifact?: boolean | undefined
         compileAndStart?: boolean | undefined
         prepareProcessInvocation?: boolean | undefined
-        resolveDesktopIdentity?: boolean | undefined
-        admitDesktopRegistration?: boolean | undefined
-        prepareDesktopObserver?: boolean | undefined
       }
     | undefined
 }
@@ -151,9 +136,6 @@ export interface AspcHelloResponse {
     observeContinuationArtifact: true
     compileAndStart: boolean
     prepareProcessInvocation: true
-    resolveDesktopIdentity: true
-    admitDesktopRegistration: true
-    prepareDesktopObserver: true
     cohostedBroker: boolean
     transports: AspcTransportKind[]
   }
@@ -193,94 +175,6 @@ export type AspcPrepareProcessInvocationRequest = {
   artifactDir?: string
 }
 
-export type AspcResolveDesktopIdentityRequest = {
-  schemaVersion: 'aspc-resolve-desktop-identity-request/v1'
-  nativeThreadId: string
-  reported: { codexHome?: string; sqliteHome?: string; rolloutPath?: string }
-  fallbackHomeDir: string
-}
-
-export type AspcAdmitDesktopRegistrationRequest = {
-  schemaVersion: 'aspc-admit-desktop-registration-request/v1'
-  identity: {
-    nativeThreadId: string
-    homeIdentity: string
-    sqliteHome: string
-    registrationKey: string
-    homeBasis: string
-  }
-  rolloutPath?: string
-  reportedWorkspaceCwd?: string
-}
-
-export type DesktopAdmissionPendingReason =
-  | 'archived_history'
-  | 'native_metadata_unavailable'
-  | 'native_metadata_unparsable'
-  | 'native_thread_mismatch'
-  | 'spawned_subagent'
-  | 'non_desktop_source'
-  | 'non_user_thread'
-  | 'non_desktop_originator'
-  | 'workspace_unknown'
-
-export type DesktopRecoveryBoundary = {
-  sourceKind?: string
-  sourceEpoch?: string
-  furthestCommittedRecord?: {
-    rawRecordId: string
-    byteOffset: number
-    line?: number
-    rawSha256?: string
-    nativeType?: string
-  }
-  earliestPendingRecord?: { rawRecordId: string; byteOffset: number }
-  committedProjections: Array<{
-    seq: number
-    type: string
-    turnId?: string
-    itemId?: string
-    nativeId?: string
-    rawRecordId?: string
-  }>
-  appliedThroughSeq: number
-  empty: boolean
-}
-
-export type AspcPrepareDesktopObserverRequest = {
-  schemaVersion: 'aspc-prepare-desktop-observer-request/v1'
-  registration: {
-    registrationKey: string
-    agentId: string
-    projectId: string
-    projectRoot: string
-    scopeRef: string
-    laneRef: string
-    hostSessionId: string
-    generation: number
-    nativeThreadId: string
-    homeIdentity: string
-    sqliteHome: string
-    rolloutPath?: string
-    reportedBundleExecutable?: string
-  }
-  operatorBundleExecutable?: string
-  hostingIdentity: {
-    runtimeId: string
-    runId: string
-    hostSessionId: string
-    generation: number
-  }
-  identity: {
-    requestId: string
-    operationId: string
-    invocationId: string
-    traceId?: string | undefined
-  }
-  recoveryBoundary?: DesktopRecoveryBoundary
-  nativeAttemptStorePath: string
-}
-
 export type AspcPreparationFailure = {
   kind: 'incompatible' | 'unavailable' | 'invalid'
   code: string
@@ -307,81 +201,6 @@ export type AspcPrepareProcessInvocationResponse =
   | (Omit<AspcDeclarationResolutionFailure, 'schemaVersion'> & {
       schemaVersion: typeof ASPC_PREPARE_PROCESS_INVOCATION_RESPONSE_VERSION
     })
-
-export type AspcDesktopIdentity = AspcAdmitDesktopRegistrationRequest['identity']
-export type AspcResolveDesktopIdentityResponse =
-  | {
-      schemaVersion: typeof ASPC_RESOLVE_DESKTOP_IDENTITY_RESPONSE_VERSION
-      ok: true
-      identity: AspcDesktopIdentity
-    }
-  | {
-      schemaVersion: typeof ASPC_RESOLVE_DESKTOP_IDENTITY_RESPONSE_VERSION
-      ok: false
-      pending: { reason: 'home_unresolved'; detail: string }
-    }
-  | {
-      schemaVersion: typeof ASPC_RESOLVE_DESKTOP_IDENTITY_RESPONSE_VERSION
-      ok: false
-      failure: AspcPreparationFailure
-    }
-export type AspcAdmitDesktopRegistrationResponse =
-  | {
-      schemaVersion: typeof ASPC_ADMIT_DESKTOP_REGISTRATION_RESPONSE_VERSION
-      ok: true
-      verdict: 'admitted'
-      admitted: {
-        nativeThreadId: string
-        rolloutPath: string
-        workspaceCwd: string
-        metadata: {
-          cliVersion?: string
-          source: 'vscode'
-          threadSource: 'user'
-          originator: string
-        }
-      }
-    }
-  | {
-      schemaVersion: typeof ASPC_ADMIT_DESKTOP_REGISTRATION_RESPONSE_VERSION
-      ok: true
-      verdict: 'pending'
-      pending: { reason: DesktopAdmissionPendingReason; detail: string }
-    }
-  | {
-      schemaVersion: typeof ASPC_ADMIT_DESKTOP_REGISTRATION_RESPONSE_VERSION
-      ok: false
-      failure: AspcPreparationFailure
-    }
-export type DesktopObserverNotPreparedCode =
-  | 'rollout_unavailable'
-  | 'rollout_archived'
-  | 'rollout_home_mismatch'
-  | 'native_metadata_unparsable'
-  | 'native_thread_mismatch'
-  | 'bundle_unresolved'
-  | 'observer_plan_invalid'
-export type AspcPrepareDesktopObserverResponse =
-  | {
-      schemaVersion: typeof ASPC_PREPARE_DESKTOP_OBSERVER_RESPONSE_VERSION
-      ok: true
-      plan: CompiledRuntimePlan
-      selectedProfile: BrokerExecutionProfile
-      startRequest: InvocationStartRequest
-      dispatchRequest: InvocationDispatchRequest
-      diagnostics: CompileDiagnostic[]
-      executionRelease?: AspcExecutionRelease | undefined
-    }
-  | {
-      schemaVersion: typeof ASPC_PREPARE_DESKTOP_OBSERVER_RESPONSE_VERSION
-      ok: false
-      notPrepared: { code: DesktopObserverNotPreparedCode; detail: string }
-    }
-  | {
-      schemaVersion: typeof ASPC_PREPARE_DESKTOP_OBSERVER_RESPONSE_VERSION
-      ok: false
-      failure: AspcPreparationFailure
-    }
 
 /**
  * Release binding for a compiled harness invocation (T-08539). Names the

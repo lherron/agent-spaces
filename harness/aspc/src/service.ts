@@ -1,18 +1,13 @@
 import {
-  admitDesktopRegistration,
   catalogAgentsForContext,
   createAgentSpacesClient,
   inspectAgentForContext,
   inspectRuntimePlacement,
   observeContinuationArtifact,
   observeRuntimeCapability,
-  prepareDesktopObserver,
-  resolveDesktopIdentity,
   resolveRuntimeDeclaration,
 } from 'agent-spaces'
 import type {
-  AspcAdmitDesktopRegistrationRequest,
-  AspcAdmitDesktopRegistrationResponse,
   AspcAgentInspectionCatalogResponse,
   AspcCatalogAgentInspectionRequest,
   AspcCatalogAgentsRequest,
@@ -31,12 +26,8 @@ import type {
   AspcObserveContinuationArtifactResponse,
   AspcObserveRuntimeCapabilityRequest,
   AspcObserveRuntimeCapabilityResponse,
-  AspcPrepareDesktopObserverRequest,
-  AspcPrepareDesktopObserverResponse,
   AspcPrepareProcessInvocationRequest,
   AspcPrepareProcessInvocationResponse,
-  AspcResolveDesktopIdentityRequest,
-  AspcResolveDesktopIdentityResponse,
   AspcResolveRuntimeDeclarationRequest,
   AspcResolveRuntimeDeclarationResponse,
 } from 'spaces-aspc-protocol'
@@ -105,15 +96,6 @@ export interface AspcService {
   prepareProcessInvocation(
     req: AspcPrepareProcessInvocationRequest
   ): Promise<AspcPrepareProcessInvocationResponse>
-  resolveDesktopIdentity(
-    req: AspcResolveDesktopIdentityRequest
-  ): Promise<AspcResolveDesktopIdentityResponse>
-  admitDesktopRegistration(
-    req: AspcAdmitDesktopRegistrationRequest
-  ): Promise<AspcAdmitDesktopRegistrationResponse>
-  prepareDesktopObserver(
-    req: AspcPrepareDesktopObserverRequest
-  ): Promise<AspcPrepareDesktopObserverResponse>
 }
 
 export function createAspcService(options: AspcServiceOptions = {}): AspcService {
@@ -158,9 +140,6 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
           observeContinuationArtifact: true,
           compileAndStart: false,
           prepareProcessInvocation: true,
-          resolveDesktopIdentity: true,
-          admitDesktopRegistration: true,
-          prepareDesktopObserver: true,
           cohostedBroker: false,
           transports: ['stdio-jsonrpc-ndjson'],
         },
@@ -177,18 +156,6 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
         runtime: options.runtimeDependencies,
       })
       return client.prepareProcessInvocation(req) as Promise<AspcPrepareProcessInvocationResponse>
-    },
-
-    async resolveDesktopIdentity(req) {
-      return resolveDesktopIdentity(req) as Promise<AspcResolveDesktopIdentityResponse>
-    },
-
-    async admitDesktopRegistration(req) {
-      return admitDesktopRegistration(req) as Promise<AspcAdmitDesktopRegistrationResponse>
-    },
-
-    async prepareDesktopObserver(req) {
-      return prepareDesktopObserver(req) as Promise<AspcPrepareDesktopObserverResponse>
     },
 
     async catalogAgents(req: AspcCatalogAgentsRequest): Promise<AspcCatalogAgentsResponse> {

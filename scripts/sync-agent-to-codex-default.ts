@@ -52,15 +52,16 @@ const DISCOVERY_HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit'] as const
 const CODEX_APP_OVERLAY_ENV = 'ASP_CODEX_APP_OVERLAY'
 
 /**
- * Installed name of HRC's desktop registration hook helper (P-00502 §3/§4).
+ * Location of the aspd service activation record (T-08594 component 5).
  *
- * Bare, not absolute: the desktop app's hook execution inherits an ordinary
- * login PATH, and hard-coding a release path would pin the overlay to one
- * install generation. When it is absent the hooks degrade to "integration
- * pending" and the PreToolUse hook keeps its previous UUID-style behavior,
- * which is exactly the contract's stated fallback.
+ * The discovery hook reads this file AT HOOK RUN TIME and spawns
+ * `<releasePath>/harness-broker` from the release it names, so an aspd
+ * activation changes which release new brokers run without reinstalling the
+ * overlay. Only this path is embedded; there is no aspd namespace in the
+ * overlay and never a checkout path, a bunfs path, or a PATH lookup.
+ * `ASPD_ACTIVE_JSON` overrides it (test seam and operator escape hatch).
  */
-const HRC_DESKTOP_HOOK_BIN = 'hrc-desktop-hook'
+const ASPD_ACTIVE_JSON_PATH = join(homedir(), 'praesidium', 'var', 'aspd', 'service', 'active.json')
 /**
  * Hard ceiling on the discovery callback, measured from the overlay side.
  *
@@ -875,102 +876,96 @@ process.stdout.write(
 }
 
 /**
- * The SessionStart / UserPromptSubmit registration-discovery hook (P-00502 §4).
+ * The SessionStart / UserPromptSubmit self-join hook (T-08594 component 5).
  *
- * Its whole job is to hand HRC the three facts only desktop's own process knows
- * — native thread id, transcript path, workspace — and to cache whatever
- * permanent address HRC allocates. It is deliberately incapable of doing
- * anything else:
+ * It does not call HRC and it waits for nothing. On either event it resolves
+ * the active ASP release AT HOOK RUN TIME from the aspd activation record,
+ * spawns `harness-broker desktop-join` for this thread detached, and exits 0:
  *
- *  - it never mints a name. With no daemon and no cache the answer is
- *    `integration_pending`, and the PreToolUse hook keeps its UUID behavior;
- *  - it is BOUNDED and can only ever delay a turn by {@link DISCOVERY_TIMEOUT_MS},
- *    after which the helper is killed and the turn proceeds;
- *  - it never fails a turn. Every path exits 0, because a registration that did
- *    not happen is a normal state (guardian thread, rollout not yet persisted,
- *    daemon restarting) and none of those are Lance's problem mid-turn.
+ *  - the broker (not the hook) admits the thread, joins HRC, observes the
+ *    rollout, and owns the address cache the PreToolUse hook reads;
+ *  - a missing/unreadable activation, a release mismatch, a refused admission,
+ *    and every other non-join is a typed line in the thread's join.log and an
+ *    exit 0 — a join that did not happen is normal state (subagent thread,
+ *    daemon restarting), never a hook failure and never a failed turn;
+ *  - malformed stdin is the only exit 1.
  *
- * `UserPromptSubmit` carries two jobs, and the second is the one that is easy to
- * optimise away. It is the fallback for a conversation that was already open
- * when the overlay was installed — SessionStart fires on startup/resume, so a
- * loaded thread nobody reloads would otherwise never register (contract §4:
- * "A conversation open before overlay installation registers on its next
- * supported hook"). It is ALSO the only recovery trigger available to a
- * conversation that stays open: if HRC's observer dies under a live desktop
- * window, re-registration is what reattaches it, and no SessionStart will fire
- * without a close/reopen. So it calls the helper on EVERY prompt, cache or no
- * cache. Registration is idempotent by native key and returns the same scope.
+ * `UserPromptSubmit` fires on EVERY prompt (never skipped on a cache hit): it
+ * is the respawn door for a conversation that stays open while its broker
+ * dies — no SessionStart fires without a close/reopen, and the broker's
+ * pid+socket idempotency makes a redundant spawn a no-op exit 0.
  */
 function buildDiscoveryHookScript(agentId: string, aspHome: string): string {
   const escapedAgentId = JSON.stringify(agentId)
   const escapedAspHome = JSON.stringify(aspHome)
-  const escapedBin = JSON.stringify(HRC_DESKTOP_HOOK_BIN)
+  const escapedActiveJson = JSON.stringify(ASPD_ACTIVE_JSON_PATH)
   return `#!/usr/bin/env node
 import { spawn } from 'node:child_process'
-import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
-import { basename, dirname, join, resolve } from 'node:path'
+import { appendFileSync, mkdirSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 
 const AGENT_ID = ${escapedAgentId}
 const DEFAULT_ASP_HOME = ${escapedAspHome}
-const HELPER_BIN = ${escapedBin}
+const ACTIVE_JSON = process.env.ASPD_ACTIVE_JSON || ${escapedActiveJson}
 const TIMEOUT_MS = ${DISCOVERY_TIMEOUT_MS}
-const HRC_RUN_DIR = join(homedir(), 'praesidium', 'var', 'run', 'hrc')
 
 ${HOOK_SHARED_PRELUDE}
-function emit(event, context) {
-  if (context) {
-    process.stdout.write(
-      JSON.stringify({
-        hookSpecificOutput: { hookEventName: event, additionalContext: context },
-      })
-    )
-  }
-  process.exit(0)
+function codexHome() {
+  return process.env.CODEX_HOME || join(homedir(), '.codex')
 }
 
-function runHelper(payload, env) {
-  return new Promise((resolveResult) => {
-    let child
-    try {
-      child = spawn(HELPER_BIN, [], { stdio: ['pipe', 'pipe', 'ignore'], env })
-    } catch {
-      resolveResult(undefined)
-      return
-    }
-    let out = ''
-    let settled = false
-    const finish = (value) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      resolveResult(value)
-    }
-    const timer = setTimeout(() => {
-      try {
-        child.kill('SIGKILL')
-      } catch {}
-      finish(undefined)
-    }, TIMEOUT_MS)
-    child.on('error', () => finish(undefined))
-    child.stdout.on('data', (chunk) => {
-      out += String(chunk)
-    })
-    child.on('close', () => {
-      try {
-        finish(JSON.parse(out.trim().split('\\n').filter(Boolean).pop() || ''))
-      } catch {
-        finish(undefined)
-      }
-    })
-    try {
-      child.stdin.end(JSON.stringify(payload))
-    } catch {
-      finish(undefined)
-    }
-  })
+function joinLogPath(threadId) {
+  return join(codexHome(), 'hrc-desktop', String(threadId), 'join.log')
 }
+
+function logJoin(threadId, event, detail) {
+  try {
+    const path = joinLogPath(threadId)
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
+    appendFileSync(
+      path,
+      JSON.stringify({ at: new Date().toISOString(), pid: process.pid, hook: 'discovery', event, ...detail }) + '\\n'
+    )
+  } catch {}
+}
+
+function resolveBrokerBin() {
+  let activation
+  try {
+    activation = JSON.parse(readFileSync(ACTIVE_JSON, 'utf8'))
+  } catch {
+    return { error: 'activation-unreadable' }
+  }
+  if (
+    !activation ||
+    typeof activation !== 'object' ||
+    activation.schemaVersion !== 'aspd-service-activation/v1' ||
+    typeof activation.releaseId !== 'string' ||
+    typeof activation.releasePath !== 'string'
+  ) {
+    return { error: 'no-active-release' }
+  }
+  let release
+  try {
+    release = JSON.parse(readFileSync(join(activation.releasePath, 'release.json'), 'utf8'))
+  } catch {
+    return { error: 'release-unreadable' }
+  }
+  if (!release || release.releaseId !== activation.releaseId) {
+    return {
+      error: 'release-mismatch',
+      expected: activation.releaseId,
+      found: release && release.releaseId,
+    }
+  }
+  return { bin: join(activation.releasePath, 'harness-broker') }
+}
+
+// Backstop only: the spawn below returns immediately, but a hook that never
+// exits would sit in front of a turn. Unref'd so the fast path is unaffected.
+const backstop = setTimeout(() => process.exit(0), TIMEOUT_MS)
+backstop.unref()
 
 const raw = await readStdin()
 if (raw.trim().length === 0) process.exit(0)
@@ -979,63 +974,49 @@ let input
 try {
   input = JSON.parse(raw)
 } catch {
-  process.exit(0)
+  process.exit(1)
 }
 
 const event = input.hook_event_name
 if (event !== 'SessionStart' && event !== 'UserPromptSubmit') process.exit(0)
 if (typeof input.session_id !== 'string' || input.session_id.length === 0) process.exit(0)
 
-// The cache is read for the FALLBACK below, never as a reason to skip the
-// callback. An earlier cut returned here when a cache existed and the event was
-// UserPromptSubmit, to save a spawn in front of every prompt. That was wrong in
-// a way the file cannot see: the cache is an IDENTITY projection and says
-// nothing about whether HRC is still observing this conversation. If the
-// observer broker dies while the desktop stays open, re-registration is the door
-// that reattaches it, SessionStart cannot fire without a close/reopen, and the
-// shortcut closed the only remaining path. Registration is idempotent and
-// bounded; a spawn per prompt is the cost of that door staying open.
-const cached = readEstablishedScope(input.session_id)
-
-const result = await runHelper(
-  {
-    session_id: input.session_id,
-    transcript_path: input.transcript_path,
-    cwd: input.cwd,
-    source: input.source || (event === 'UserPromptSubmit' ? 'user-prompt-submit' : undefined),
-  },
-  {
-    ...process.env,
-    HRC_CALLBACK_SOCKET: process.env.HRC_CALLBACK_SOCKET || join(HRC_RUN_DIR, 'hrc.sock'),
-    HRC_SPOOL_DIR: process.env.HRC_SPOOL_DIR || join(HRC_RUN_DIR, 'spool'),
-    HRC_DESKTOP_LEGACY_SCOPE_REF: legacyScopeRef(input),
-    CODEX_HOME: codexHomeDir(),
-  }
-)
-
-if (result && result.status === 'registered' && result.cache && result.cache.scopeRef) {
-  emit(
-    event,
-    'HRC: this conversation is ' +
-      result.cache.scopeRef +
-      ' (project ' +
-      result.cache.projectId +
-      '). Praesidium commands run under that address; reply to wrkc mail with wrkc say.'
-  )
+const threadId = input.session_id
+const resolved = resolveBrokerBin()
+if (resolved.error) {
+  logJoin(threadId, resolved.error, { activeJson: ACTIVE_JSON })
+  process.exit(0)
 }
 
-const fallback = cached || readEstablishedScope(input.session_id)
-if (fallback !== undefined) {
-  emit(event, 'HRC: this conversation is ' + fallback.scopeRef + ' (project ' + fallback.projectId + ').')
+const args = ['desktop-join', '--thread', threadId]
+if (typeof input.transcript_path === 'string' && input.transcript_path.length > 0) {
+  args.push('--rollout', input.transcript_path)
 }
-emit(
-  event,
-  'HRC integration pending for this conversation (' +
-    ((result && result.reason) || 'hrc_unreachable') +
-    '); Praesidium commands keep the provisional address ' +
-    legacyScopeRef(input) +
-    '.'
-)
+if (typeof input.cwd === 'string' && input.cwd.length > 0) {
+  args.push('--cwd', input.cwd)
+}
+const source =
+  typeof input.source === 'string' && input.source.length > 0
+    ? input.source
+    : event === 'UserPromptSubmit'
+      ? 'user-prompt-submit'
+      : 'startup'
+args.push('--source', source)
+
+// The 4 s timer covers only this spawn call: detached + unref'd, the broker
+// outlives the hook and the hook exits 0 the moment the spawn returns.
+try {
+  const child = spawn(resolved.bin, args, {
+    detached: true,
+    stdio: 'ignore',
+    env: { ...process.env, CODEX_HOME: codexHome() },
+  })
+  child.unref()
+} catch (error) {
+  logJoin(threadId, 'spawn-failed', { message: error instanceof Error ? error.message : String(error) })
+}
+clearTimeout(backstop)
+process.exit(0)
 `
 }
 

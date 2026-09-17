@@ -6,7 +6,6 @@ import {
   validateAgentInspectionRequest,
 } from 'spaces-runtime-contracts'
 import type {
-  AspcAdmitDesktopRegistrationRequest,
   AspcCatalogAgentInspectionRequest,
   AspcCatalogAgentsRequest,
   AspcCommand,
@@ -20,9 +19,7 @@ import type {
   AspcMethod,
   AspcObserveContinuationArtifactRequest,
   AspcObserveRuntimeCapabilityRequest,
-  AspcPrepareDesktopObserverRequest,
   AspcPrepareProcessInvocationRequest,
-  AspcResolveDesktopIdentityRequest,
   AspcResolveRuntimeDeclarationRequest,
 } from './types.js'
 import { ASPC_METHODS, ASPC_PROTOCOL_VERSION } from './types.js'
@@ -432,177 +429,6 @@ const validatePrepareProcessParams: ParamsValidator = (value, base, issues) => {
   }
 }
 
-const validateResolveDesktopIdentityParams: ParamsValidator = (value, base, issues) => {
-  const request = validatePreparationEnvelope(
-    value,
-    base,
-    issues,
-    'aspc-resolve-desktop-identity-request/v1',
-    ['schemaVersion', 'nativeThreadId', 'reported', 'fallbackHomeDir'],
-    ['nativeThreadId', 'reported', 'fallbackHomeDir']
-  )
-  if (request) {
-    requireString(request['nativeThreadId'], path(base, 'nativeThreadId'), issues)
-    requireString(request['fallbackHomeDir'], path(base, 'fallbackHomeDir'), issues)
-    const reported = requireRecord(request['reported'], path(base, 'reported'), issues)
-    if (reported) {
-      optionalString(reported['codexHome'], path(base, 'reported.codexHome'), issues)
-      optionalString(reported['sqliteHome'], path(base, 'reported.sqliteHome'), issues)
-      optionalString(reported['rolloutPath'], path(base, 'reported.rolloutPath'), issues)
-      rejectUnknownParams(
-        reported,
-        new Set(['codexHome', 'sqliteHome', 'rolloutPath']),
-        path(base, 'reported'),
-        issues
-      )
-    }
-  }
-}
-
-const validateAdmitDesktopRegistrationParams: ParamsValidator = (value, base, issues) => {
-  const request = validatePreparationEnvelope(
-    value,
-    base,
-    issues,
-    'aspc-admit-desktop-registration-request/v1',
-    ['schemaVersion', 'identity', 'rolloutPath', 'reportedWorkspaceCwd'],
-    ['identity']
-  )
-  if (request) {
-    const identity = requireRecord(request['identity'], path(base, 'identity'), issues)
-    if (identity) {
-      for (const field of [
-        'nativeThreadId',
-        'homeIdentity',
-        'sqliteHome',
-        'registrationKey',
-        'homeBasis',
-      ]) {
-        requireString(identity[field], path(base, `identity.${field}`), issues)
-      }
-      rejectUnknownParams(
-        identity,
-        new Set(['nativeThreadId', 'homeIdentity', 'sqliteHome', 'registrationKey', 'homeBasis']),
-        path(base, 'identity'),
-        issues
-      )
-    }
-    optionalString(request['rolloutPath'], path(base, 'rolloutPath'), issues)
-    optionalString(request['reportedWorkspaceCwd'], path(base, 'reportedWorkspaceCwd'), issues)
-  }
-}
-
-const validatePrepareDesktopObserverParams: ParamsValidator = (value, base, issues) => {
-  const request = validatePreparationEnvelope(
-    value,
-    base,
-    issues,
-    'aspc-prepare-desktop-observer-request/v1',
-    [
-      'schemaVersion',
-      'registration',
-      'operatorBundleExecutable',
-      'hostingIdentity',
-      'identity',
-      'recoveryBoundary',
-      'nativeAttemptStorePath',
-    ],
-    ['registration', 'hostingIdentity', 'identity', 'nativeAttemptStorePath']
-  )
-  if (!request) return
-  const registration = requireRecord(request['registration'], path(base, 'registration'), issues)
-  if (registration) {
-    for (const field of [
-      'registrationKey',
-      'agentId',
-      'projectId',
-      'projectRoot',
-      'scopeRef',
-      'laneRef',
-      'hostSessionId',
-      'nativeThreadId',
-      'homeIdentity',
-      'sqliteHome',
-    ]) {
-      requireString(registration[field], path(base, `registration.${field}`), issues)
-    }
-    optionalString(registration['rolloutPath'], path(base, 'registration.rolloutPath'), issues)
-    optionalString(
-      registration['reportedBundleExecutable'],
-      path(base, 'registration.reportedBundleExecutable'),
-      issues
-    )
-    requireNumber(registration['generation'], path(base, 'registration.generation'), issues)
-    rejectUnknownParams(
-      registration,
-      new Set([
-        'registrationKey',
-        'agentId',
-        'projectId',
-        'projectRoot',
-        'scopeRef',
-        'laneRef',
-        'hostSessionId',
-        'generation',
-        'nativeThreadId',
-        'homeIdentity',
-        'sqliteHome',
-        'rolloutPath',
-        'reportedBundleExecutable',
-      ]),
-      path(base, 'registration'),
-      issues
-    )
-  }
-  optionalString(
-    request['operatorBundleExecutable'],
-    path(base, 'operatorBundleExecutable'),
-    issues
-  )
-  const hostingIdentity = requireRecord(
-    request['hostingIdentity'],
-    path(base, 'hostingIdentity'),
-    issues
-  )
-  if (hostingIdentity) {
-    for (const field of ['runtimeId', 'runId', 'hostSessionId']) {
-      requireString(hostingIdentity[field], path(base, `hostingIdentity.${field}`), issues)
-    }
-    requireNumber(hostingIdentity['generation'], path(base, 'hostingIdentity.generation'), issues)
-    rejectUnknownParams(
-      hostingIdentity,
-      new Set(['runtimeId', 'runId', 'hostSessionId', 'generation']),
-      path(base, 'hostingIdentity'),
-      issues
-    )
-  }
-  const callerIdentity = requireRecord(request['identity'], path(base, 'identity'), issues)
-  if (callerIdentity) {
-    for (const field of ['requestId', 'operationId', 'invocationId']) {
-      requireString(callerIdentity[field], path(base, `identity.${field}`), issues)
-    }
-    optionalString(callerIdentity['traceId'], path(base, 'identity.traceId'), issues)
-    rejectUnknownParams(
-      callerIdentity,
-      new Set(['requestId', 'operationId', 'invocationId', 'traceId']),
-      path(base, 'identity'),
-      issues
-    )
-  }
-  if (request['recoveryBoundary'] !== undefined) {
-    requireRecord(request['recoveryBoundary'], path(base, 'recoveryBoundary'), issues)
-  }
-  requireString(request['nativeAttemptStorePath'], path(base, 'nativeAttemptStorePath'), issues)
-}
-
-function requireNumber(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  if (value === undefined) {
-    issues.push(issue(basePath, ISSUE_CODE.required, `${basePath} is required`))
-  } else if (typeof value !== 'number' || !Number.isFinite(value)) {
-    issues.push(issue(basePath, ISSUE_CODE.invalidType, `${basePath} must be a finite number`))
-  }
-}
-
 function optionalNumber(value: unknown, basePath: string, issues: ValidationIssue[]): void {
   if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value))) {
     issues.push(issue(basePath, ISSUE_CODE.invalidType, `${basePath} must be a finite number`))
@@ -622,24 +448,6 @@ export const validateAspcPrepareProcessInvocationRequest = (value: unknown) =>
     value,
     'aspc.prepareProcessInvocation',
     validatePrepareProcessParams
-  )
-export const validateAspcResolveDesktopIdentityRequest = (value: unknown) =>
-  validatePreparationRequest<AspcResolveDesktopIdentityRequest>(
-    value,
-    'aspc.resolveDesktopIdentity',
-    validateResolveDesktopIdentityParams
-  )
-export const validateAspcAdmitDesktopRegistrationRequest = (value: unknown) =>
-  validatePreparationRequest<AspcAdmitDesktopRegistrationRequest>(
-    value,
-    'aspc.admitDesktopRegistration',
-    validateAdmitDesktopRegistrationParams
-  )
-export const validateAspcPrepareDesktopObserverRequest = (value: unknown) =>
-  validatePreparationRequest<AspcPrepareDesktopObserverRequest>(
-    value,
-    'aspc.prepareDesktopObserver',
-    validatePrepareDesktopObserverParams
   )
 
 type ParamsValidator = (value: unknown, basePath: string, issues: ValidationIssue[]) => void
@@ -698,9 +506,6 @@ const ASPC_PARAMS_VALIDATORS: Record<AspcMethod, ParamsValidator> = {
   },
   'aspc.observeContinuationArtifact': validateContinuationObservation,
   'aspc.prepareProcessInvocation': validatePrepareProcessParams,
-  'aspc.resolveDesktopIdentity': validateResolveDesktopIdentityParams,
-  'aspc.admitDesktopRegistration': validateAdmitDesktopRegistrationParams,
-  'aspc.prepareDesktopObserver': validatePrepareDesktopObserverParams,
   'aspc.compileAndStart': validateCompileHarnessInvocation,
 }
 
