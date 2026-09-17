@@ -1,0 +1,26 @@
+{
+  "specVersion": "harness-broker.invocation/v1",
+  "harness": {
+    "frontend": "muse-cli",
+    "provider": "meta",
+    "driver": "muse-serve"
+  },
+  "process": {
+    "command": "muse",
+    "args": ["serve", "--trust-workspace"],
+    "cwd": "/workspace/project",
+    "harnessTransport": { "kind": "jsonrpc-stdio" }
+  },
+  "interaction": {
+    "mode": "headless",
+    "turnConcurrency": "single",
+    "inputQueue": "none"
+  },
+  "driver": {
+    "kind": "muse-serve",
+    "workspace": "/workspace/project",
+    "approvalMode": "onRequest",
+    "resumeFallback": "start-fresh",
+    "permissionPolicy": { "mode": "ask-client" }
+  }
+}
