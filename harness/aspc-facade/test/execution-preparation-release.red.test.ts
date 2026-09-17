@@ -9,24 +9,43 @@
  * method request.
  */
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
-import type { AspcService } from 'spaces-aspc'
+import { type AspcService, createAspcService } from 'spaces-aspc'
 import { AspcUnixClient } from 'spaces-aspc-protocol/unix-client'
 import type { AspReleaseIdentity } from 'spaces-harness-broker-protocol'
+import * as aspdModule from '../src/aspd.js'
 import {
   type AspdReleaseBinding,
   createReleaseBoundAspcService,
   startAspdServer,
 } from '../src/aspd.js'
+import { createRuntimeCompiler } from '../src/runtime-compiler.js'
 
 type UnknownRecord = Record<string, unknown>
 type UnknownService = AspcService & UnknownRecord
 type DynamicMethod = (request: UnknownRecord) => unknown | Promise<unknown>
 
 const roots: string[] = []
+const originalAspHome = process.env['ASP_HOME']
+const originalCodexPath = process.env['ASP_CODEX_PATH']
+const originalSkipCommon = process.env['ASP_CODEX_SKIP_COMMON_PATHS']
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+  if (originalAspHome === undefined) process.env['ASP_HOME'] = undefined
+  else process.env['ASP_HOME'] = originalAspHome
+  if (originalCodexPath === undefined) process.env['ASP_CODEX_PATH'] = undefined
+  else process.env['ASP_CODEX_PATH'] = originalCodexPath
+  if (originalSkipCommon === undefined) process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = undefined
+  else process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = originalSkipCommon
 })
 
 function tempRoot(): string {
@@ -188,7 +207,110 @@ function directRequest(): UnknownRecord {
   }
 }
 
+function realDirectFixture(): {
+  socketPath: string
+  request: UnknownRecord
+  canonicalSources: UnknownRecord
+} {
+  const root = tempRoot()
+  const realAspHome = join(root, 'real-asp-home')
+  const realAgentsRoot = join(realAspHome, 'agents')
+  const realAgentRoot = join(realAgentsRoot, 'cody')
+  const linkedAspHome = join(root, 'linked-asp-home')
+  const linkedAgentsRoot = join(root, 'linked-agents')
+  const projectRoot = join(root, 'project')
+  const daemonDefault = join(root, 'conflicting-daemon-default')
+  mkdirSync(realAgentRoot, { recursive: true })
+  mkdirSync(projectRoot, { recursive: true })
+  mkdirSync(daemonDefault, { recursive: true })
+  symlinkSync(realAspHome, linkedAspHome)
+  symlinkSync(realAgentsRoot, linkedAgentsRoot)
+  writeFileSync(
+    join(realAgentRoot, 'agent-profile.toml'),
+    `version = 3
+priming = "Prepared by {{handle}}."
+
+[spaces]
+base = []
+
+[provisioning]
+harness = "codex"
+
+[provisioning.codex]
+model = "gpt-5.3-codex"
+`,
+    'utf8'
+  )
+  writeFileSync(join(realAgentRoot, 'SOUL.md'), '# Production service prompt\n')
+  const codex = join(root, 'codex')
+  writeFileSync(
+    codex,
+    '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "codex 999.0.0"; exit 0; fi\nif [ "$1" = "app-server" ] && [ "$2" = "--help" ]; then echo app-server; exit 0; fi\nexit 97\n',
+    'utf8'
+  )
+  chmodSync(codex, 0o755)
+  process.env['ASP_HOME'] = daemonDefault
+  process.env['ASP_CODEX_PATH'] = codex
+  process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
+  return {
+    socketPath: join(root, 'aspd.sock'),
+    canonicalSources: {
+      aspHome: realpathSync.native(realAspHome),
+      agentsRoot: realpathSync.native(realAgentsRoot),
+      provenance: 'caller-agent-root',
+    },
+    request: {
+      schemaVersion: 'aspc-prepare-process-invocation-request/v1',
+      context: {
+        agentId: 'cody',
+        agentRoot: realAgentRoot,
+        project: { mode: 'root', projectRoot, projectId: 'agent-spaces' },
+        cwd: projectRoot,
+        runMode: 'task',
+        agentSources: { aspHome: linkedAspHome, agentsRoot: linkedAgentsRoot },
+      },
+      preparationCorrelation: {},
+      expected: { provider: 'openai', frontend: 'codex-cli' },
+      launch: { interactionMode: 'headless', ioMode: 'pipes' },
+    },
+  }
+}
+
 describe('release-bound preparation service (T-08577)', () => {
+  test('production composition root prepares through Unix with canonical caller sources', async () => {
+    const fixture = realDirectFixture()
+    const selected = binding('a')
+    const candidate = (aspdModule as UnknownRecord)['createAspdService']
+    const service =
+      typeof candidate === 'function'
+        ? (candidate as (value: AspdReleaseBinding) => AspcService)(selected)
+        : createReleaseBoundAspcService(
+            createAspcService({
+              compiler: createRuntimeCompiler({
+                claudeStatuslineSource: selected.claudeStatuslineSource,
+              }),
+            }),
+            selected
+          )
+    const server = await startAspdServer({ socketPath: fixture.socketPath, service, log: () => {} })
+    const client = await AspcUnixClient.connect({
+      socketPath: fixture.socketPath,
+      clientInfo: { name: 't08574-production-composition' },
+    })
+    try {
+      const response = await client.prepareProcessInvocation(fixture.request as never)
+      expect(response).toMatchObject({
+        schemaVersion: 'aspc-prepare-process-invocation-response/v1',
+        ok: true,
+        declaration: { agentSources: fixture.canonicalSources },
+        release: { releaseId: selected.identity.releaseId },
+      })
+    } finally {
+      await client.close()
+      await server.retire()
+    }
+  })
+
   test('control: Desktop identity and admission responses remain byte-transparent', async () => {
     const underlying = fakeService()
     const bound = createReleaseBoundAspcService(underlying, binding('a'))
