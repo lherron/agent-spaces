@@ -258,51 +258,61 @@ function readEvents(
   const candidates = rows.filter((event) => event.seq > request.afterSeq)
   const selected: InvocationEventEnvelope[] = []
   let nextAfterSeq = request.afterSeq
-  for (const event of candidates) {
-    if (types !== undefined && !types.has(event.type)) {
-      nextAfterSeq = event.seq
-      continue
-    }
-    if (selected.length >= limit) break
-    const proposed = [...selected, event]
-    const response = eventSuccess(
+  let response = eventSuccess(
+    release,
+    selected,
+    currentSeq,
+    state.retentionFloorSeq,
+    nextAfterSeq,
+    candidates.length > 0,
+    { ledger: ledgerBefore, index: indexIdentity },
+    parsed.integrity
+  )
+  for (const [index, event] of candidates.entries()) {
+    const included = types === undefined || types.has(event.type)
+    if (included && selected.length >= limit) break
+    const proposed = included ? [...selected, event] : selected
+    const proposedResponse = eventSuccess(
       release,
       proposed,
       currentSeq,
       state.retentionFloorSeq,
-      nextAfterSeq,
-      true,
+      event.seq,
+      index < candidates.length - 1,
       {
         ledger: ledgerBefore,
         index: indexIdentity,
       },
       parsed.integrity
     )
-    if (encodedBytes(response) > maxBytes) {
-      if (selected.length === 0) {
+    if (encodedBytes(proposedResponse) > maxBytes) {
+      if (included && selected.length === 0) {
         throw new OfflineFailure('offline_record_too_large', 'one event exceeds maxBytes', {
           kind: 'event',
           seq: event.seq,
-          bytes: encodedBytes(response),
+          bytes: encodedBytes(proposedResponse),
           maxBytes,
         })
       }
+      if (!included && selected.length === 0) {
+        throw new OfflineFailure(
+          'offline_record_too_large',
+          'filtered cursor response exceeds maxBytes',
+          {
+            kind: 'filtered_cursor',
+            seq: event.seq,
+            bytes: encodedBytes(proposedResponse),
+            maxBytes,
+          }
+        )
+      }
       break
     }
-    selected.push(event)
+    if (included) selected.push(event)
     nextAfterSeq = event.seq
+    response = proposedResponse
   }
-  const hasMore = candidates.some((event) => event.seq > nextAfterSeq)
-  return eventSuccess(
-    release,
-    selected,
-    currentSeq,
-    state.retentionFloorSeq,
-    nextAfterSeq,
-    hasMore,
-    { ledger: ledgerBefore, index: indexIdentity },
-    parsed.integrity
-  )
+  return response
 }
 
 function eventSuccess(

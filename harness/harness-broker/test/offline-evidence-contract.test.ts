@@ -229,6 +229,95 @@ describe('offline evidence integrity contract', () => {
     })
   })
 
+  test('event maxBytes applies to the exact newline-terminated final response', async () => {
+    const root = scratch()
+    const ledgerPath = join(root, 'events.ndjson')
+    const indexPath = join(root, 'ledger-index.db')
+    const ledger = createEventLedger({ path: ledgerPath, indexPath })
+    await ledger.append(event('inv_exact_cap', 10, 'x'.repeat(100_000)))
+    ledger.close()
+
+    const unbounded = await runReader({
+      ledgerPath,
+      indexPath,
+      request: {
+        schema: SCHEMA,
+        operation: 'eventsSince',
+        invocationId: 'inv_exact_cap',
+        afterSeq: 9,
+        maxBytes: 200_000,
+      },
+    })
+    const exactBytes = Buffer.byteLength(unbounded.stdout)
+    expect(unbounded.response).toMatchObject({ ok: true, hasMore: false, nextAfterSeq: 10 })
+
+    const exact = await runReader({
+      ledgerPath,
+      indexPath,
+      request: {
+        schema: SCHEMA,
+        operation: 'eventsSince',
+        invocationId: 'inv_exact_cap',
+        afterSeq: 9,
+        maxBytes: exactBytes,
+      },
+    })
+    expect(exact.exitCode).toBe(0)
+    expect(Buffer.byteLength(exact.stdout)).toBe(exactBytes)
+    expect(exact.response).toMatchObject({ ok: true, hasMore: false, nextAfterSeq: 10 })
+
+    const oneByteShort = await runReader({
+      ledgerPath,
+      indexPath,
+      request: {
+        schema: SCHEMA,
+        operation: 'eventsSince',
+        invocationId: 'inv_exact_cap',
+        afterSeq: 9,
+        maxBytes: exactBytes - 1,
+      },
+    })
+    expect(oneByteShort.exitCode).toBe(2)
+    expect(oneByteShort.response).toMatchObject({
+      ok: false,
+      error: {
+        code: 'offline_record_too_large',
+        data: { kind: 'event', seq: 10, bytes: exactBytes, maxBytes: exactBytes - 1 },
+      },
+    })
+  })
+
+  test('filtered EOF advances across a cursor digit boundary within maxBytes', async () => {
+    const root = scratch()
+    const ledgerPath = join(root, 'events.ndjson')
+    const indexPath = join(root, 'ledger-index.db')
+    const ledger = createEventLedger({ path: ledgerPath, indexPath })
+    await ledger.append(event('inv_filtered_digits', 9))
+    await ledger.append(event('inv_filtered_digits', 10))
+    ledger.close()
+
+    const run = await runReader({
+      ledgerPath,
+      indexPath,
+      request: {
+        schema: SCHEMA,
+        operation: 'eventsSince',
+        invocationId: 'inv_filtered_digits',
+        afterSeq: 8,
+        types: ['turn.completed'],
+        maxBytes: 65_536,
+      },
+    })
+    expect(run.exitCode).toBe(0)
+    expect(Buffer.byteLength(run.stdout)).toBeLessThanOrEqual(65_536)
+    expect(run.response).toMatchObject({
+      ok: true,
+      result: { events: [] },
+      hasMore: false,
+      nextAfterSeq: 10,
+    })
+  })
+
   test('invalid, unsupported, unknown, and mixed-provider rows remain comparison-only', async () => {
     const root = scratch()
     const artifactPath = join(root, 'mixed.jsonl')
