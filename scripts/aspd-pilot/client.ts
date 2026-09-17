@@ -121,6 +121,18 @@ function compileRequest(
   const agentRoot = String(spec['agentRoot'])
   const projectRoot = String(spec['projectRoot'])
   const agentName = String(spec['agentName'])
+  const requested =
+    typeof spec['requested'] === 'object' && spec['requested'] !== null
+      ? (spec['requested'] as Record<string, unknown>)
+      : {}
+  const materialization =
+    typeof spec['materialization'] === 'object' && spec['materialization'] !== null
+      ? (spec['materialization'] as Record<string, unknown>)
+      : {}
+  const hrcPolicy =
+    typeof spec['hrcPolicy'] === 'object' && spec['hrcPolicy'] !== null
+      ? (spec['hrcPolicy'] as Record<string, unknown>)
+      : {}
   const identity = {
     requestId: `request_${suffix}`,
     operationId: `runtimeOperation_${suffix}`,
@@ -154,11 +166,13 @@ function compileRequest(
         interactionMode: 'headless',
         ...(typeof spec['model'] === 'string' ? { model: spec['model'] } : {}),
         reasoningEffort: 'low',
+        ...requested,
       },
-      materialization: { omitPriming: true },
+      materialization: { omitPriming: true, ...materialization },
       hrcPolicy: {
         permissionPolicy: { mode: 'deny', audit: true },
         capabilityPolicy: { allowDegrade: false, requireBrokerDefaultForCodexHeadless: true },
+        ...hrcPolicy,
       },
       correlation: {
         requestId: identity.requestId,
@@ -437,9 +451,13 @@ async function launch(cmd: Command): Promise<unknown> {
     writeJson(join(dispatchMarker(dir)), { submittedAt: now(), startAttempt: `${attempt}-start-1` })
     let startResponse: unknown
     try {
+      const runtime =
+        typeof cmd['runtime'] === 'object' && cmd['runtime'] !== null
+          ? (cmd['runtime'] as NonNullable<typeof dispatch.runtime>)
+          : dispatch.runtime
       const result = await client.startInvocationFromRequest(dispatch.startRequest, {
         dispatchEnv: dispatch.dispatchEnv,
-        runtime: dispatch.runtime,
+        runtime,
         lifecyclePolicy: dispatch.lifecyclePolicy,
       })
       startResponse = result.response
