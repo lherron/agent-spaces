@@ -1,0 +1,57 @@
+id: agent-spaces.aspd-release-worker-hosting
+kind: invariant
+status: active
+owner_project: agent-spaces
+scope: immutable ASP release worker selection, helper closure, and positive hosting evidence
+predicate: >
+  A binding-aware standalone ASP release declares each release-supported broker
+  driver's worker executable and each required ASP-owned asset in its immutable release
+  manifest. Inspection proves every declared worker is identity-bound, resolves
+  inside that release, advertises every driver bound to it, and matches its
+  recorded digests. That release's compiled aspd selects a worker only through
+  the declared binding, freezes the selected executable in the existing
+  per-preparation executionRelease.worker.executable, and emits optional
+  executionRelease.worker.hostedDrivers as the sorted set of manifest bindings
+  assigned to that executable. hostedDrivers is positive hosting evidence, not
+  an inference from extra registered drivers; a missing selected-driver binding
+  returns release_worker_driver_unavailable on the existing compile failure
+  envelope before executionRelease or any hosting effect. ASP-owned Claude and
+  Pi hook and tmux helpers execute through the selected release payload, and the
+  verified Claude statusline asset is copied into the materialized bundle so no
+  durable helper reference depends on PATH, import.meta, a checkout, or a
+  retired release. Retained pre-binding v1 releases remain valid immutable
+  rollback targets with their own compiled behavior and may omit both binding
+  metadata and hostedDrivers; absence is not positive non-Codex hosting
+  evidence. Consumers may preserve the proven legacy codex-app-server binding,
+  but any non-Codex aspd launch admitted on release hosting evidence must require
+  hostedDrivers to contain the selected broker driver. HRC retains worker
+  hosting, lifecycle, placement, and routing authority.
+authority: Daedalus approval of wrkq T-08561 revision de063d73 on 2026-09-16
+source:
+  - wrkq:T-08561
+  - docs/proposals/aspd-release-supported-claude-pi-workers.md
+  - scripts/asp-release.ts
+  - harness/aspc-facade/src/aspd.ts
+  - contracts/aspc-protocol/src/types.ts
+  - architecture/records/invariants/agent-spaces.harness-broker-admission.yaml
+  - architecture/records/invariants/agent-spaces.harness-broker-turn-evidence.yaml
+  - architecture/records/invariants/agent-spaces.codex-tui-app-server-presentation.yaml
+required_tests:
+  - new release build and inspection validate worker bindings driver inventories identity and payload and asset digests
+  - newly built releases prepare and complete real Claude Pi TUI Pi SDK and Codex turns with the selected release worker and hostedDrivers containing the selected driver
+  - an unbound selected driver returns release_worker_driver_unavailable before executionRelease and creates no worker pane or native harness
+  - generated Claude and Pi settings wrappers launch descriptions panes and process trees resolve ASP-owned helpers beneath the selected immutable release and the Claude bundle carries the verified statusline bytes
+  - retained pre-binding v1 release inspection activation and Codex rollback preserve its compiled behavior with hostedDrivers absent and do not claim non-Codex hosting evidence
+  - binding-aware A to B activation outage and saved-preparation proofs preserve frozen worker identity and live old-worker control
+last_verified:
+  date: 2026-09-16
+  evidence: Daedalus source-grounded approval of T-08561 revision de063d73 established the binding-aware producer contract and historical-release boundary; implementation gates remain pending
+reopen_when:
+  - release worker selection stops deriving from the inspected binding table
+  - hostedDrivers is inferred from registry inventory or changes from positive per-executable binding evidence
+  - an unbound driver can receive executionRelease or cause a hosting effect
+  - a release worker resolves an ASP-owned Claude or Pi helper or required statusline asset outside its immutable release payload
+  - a retained pre-binding release is rewritten rejected as a rollback target or treated as positive non-Codex hosting evidence
+  - worker hosting lifecycle placement or routing authority moves from HRC
+supersedes: []
+superseded_by: null
