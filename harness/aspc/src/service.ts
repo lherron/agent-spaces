@@ -153,6 +153,7 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
           compileHarnessInvocation: true,
           resolveRuntimeDeclaration: true,
           inspectRuntimePlacement: true,
+          inspectRuntimePlacementPreparationCorrelation: true,
           observeRuntimeCapability: true,
           observeContinuationArtifact: true,
           compileAndStart: false,
@@ -334,6 +335,9 @@ async function compileHarnessInvocation(
     startRequest: selected.profile.harnessInvocation.startRequest,
     dispatchRequest,
     diagnostics: compileResponse.diagnostics,
+    ...(compileResponse.effectiveEnvironmentHash !== undefined
+      ? { effectiveEnvironmentHash: compileResponse.effectiveEnvironmentHash }
+      : {}),
   }
 }
 

@@ -306,6 +306,12 @@ interface FinalizePlanInput {
   lockHash?: string | undefined
   lockedEnvKeys: string[]
   /**
+   * Canonical hash of the preparation execution environment (T-08579). Carried
+   * on the compile response, never in plan material, so plan identity is
+   * unchanged.
+   */
+  effectiveEnvironmentHash: string
+  /**
    * Pinned wall-clock instant (ISO-8601) from the compile context. When omitted
    * the compiler stamps real time. `createdAt` is NOT part of the plan-hash
    * material, so this affects only the emitted stamp, never plan identity.
@@ -347,7 +353,7 @@ function finalizePlan(input: FinalizePlanInput): RuntimeCompileResponse {
   const createdAt = input.nowIso ?? new Date().toISOString()
   const resolvedBundle = toResolvedBundle(input.resolvedBundleSource, input.bundleIdentity)
   const compiledPlacement = toCompiledPlacement(input.placement)
-  return assemblePlan({
+  const response = assemblePlan({
     req: input.req,
     compileId,
     createdAt,
@@ -365,6 +371,9 @@ function finalizePlan(input: FinalizePlanInput): RuntimeCompileResponse {
     lockedEnvKeys: input.lockedEnvKeys,
     diagnostics,
   })
+  return response.ok
+    ? { ...response, effectiveEnvironmentHash: input.effectiveEnvironmentHash }
+    : response
 }
 
 function compileError(code: string, message: string, details?: unknown): CompileDiagnostic {
@@ -1183,6 +1192,7 @@ async function compileBrokerPlan(
     profileId,
     preparedWarnings: brokerInvocation.warnings,
     ...hygieneWarningsInput(prepared),
+    effectiveEnvironmentHash: prepared.preparation.effectiveEnvironmentHash,
     disallowedToolsContext: { selectedDriver: 'codex-app-server' },
     resolvedBundleSource: brokerInvocation.resolvedBundle,
     omitPriming: prepared.omitPriming,
@@ -1442,6 +1452,7 @@ async function compilePiSdkBrokerPlan(
     profileId,
     preparedWarnings: brokerInvocation.warnings,
     ...hygieneWarningsInput(prepared),
+    effectiveEnvironmentHash: prepared.preparation.effectiveEnvironmentHash,
     disallowedToolsContext: { selectedDriver: 'pi-sdk' },
     resolvedBundleSource: brokerInvocation.resolvedBundle,
     omitPriming: prepared.omitPriming,
@@ -1601,6 +1612,7 @@ async function compileForegroundPlan(
     profileId,
     preparedWarnings: prepared.warnings,
     ...hygieneWarningsInput(prepared),
+    effectiveEnvironmentHash: prepared.preparation.effectiveEnvironmentHash,
     disallowedToolsContext: {
       selectedDriver: `${route.frontend}:foreground-terminal`,
     },
@@ -2008,6 +2020,7 @@ async function compileTmuxBrokerPlan(
     profileId,
     preparedWarnings: prepared.warnings,
     ...hygieneWarningsInput(prepared),
+    effectiveEnvironmentHash: prepared.preparation.effectiveEnvironmentHash,
     disallowedToolsContext: honorDisallowedTools ? undefined : { selectedDriver: driverKind },
     resolvedBundleSource: prepared.resolvedBundle,
     omitPriming: prepared.omitPriming,

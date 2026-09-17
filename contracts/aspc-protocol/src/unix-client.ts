@@ -182,6 +182,15 @@ export class AspcUnixClient {
   inspectRuntimePlacement(
     req: AspcInspectRuntimePlacementRequest
   ): Promise<AspcInspectRuntimePlacementResponse> {
+    // T-08579: never send preparationCorrelation to a producer that did not
+    // advertise it; the caller must fail closed rather than inspect uncorrelated.
+    if (req.preparationCorrelation !== undefined) {
+      return this.#capabilityRequest(
+        'inspectRuntimePlacementPreparationCorrelation',
+        'aspc.inspectRuntimePlacement',
+        req
+      )
+    }
     return this.#request('aspc.inspectRuntimePlacement', req)
   }
 

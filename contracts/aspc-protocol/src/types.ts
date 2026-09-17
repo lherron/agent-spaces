@@ -118,6 +118,7 @@ export interface AspcHelloRequest {
         compileHarnessInvocation?: boolean | undefined
         resolveRuntimeDeclaration?: boolean | undefined
         inspectRuntimePlacement?: boolean | undefined
+        inspectRuntimePlacementPreparationCorrelation?: boolean | undefined
         observeRuntimeCapability?: boolean | undefined
         observeContinuationArtifact?: boolean | undefined
         compileAndStart?: boolean | undefined
@@ -144,6 +145,8 @@ export interface AspcHelloResponse {
     compileHarnessInvocation: true
     resolveRuntimeDeclaration: true
     inspectRuntimePlacement: true
+    /** T-08579: inspect accepts `preparationCorrelation`; parity consumers require it. */
+    inspectRuntimePlacementPreparationCorrelation: true
     observeRuntimeCapability: true
     observeContinuationArtifact: true
     compileAndStart: boolean
@@ -438,6 +441,8 @@ export type AspcCompileHarnessInvocationResponse =
       startRequest: BrokerExecutionProfile['harnessInvocation']['startRequest']
       dispatchRequest: InvocationDispatchRequest
       diagnostics: CompileDiagnostic[]
+      /** Canonical hash of the preparation execution environment (T-08579). */
+      effectiveEnvironmentHash?: string | undefined
       /** Present when the compile plane serves from an immutable release. */
       executionRelease?: AspcExecutionRelease | undefined
     }
@@ -472,6 +477,12 @@ export type AspcResolveRuntimeDeclarationRequest = {
 export type AspcInspectRuntimePlacementRequest = {
   schemaVersion: 'aspc-inspect-runtime-placement-request/v1'
   context: AspcRuntimeDeclarationContext
+  /**
+   * The placement correlation the paired preparation compiled (T-08579). Send
+   * only when hello advertises `inspectRuntimePlacementPreparationCorrelation`.
+   */
+  preparationCorrelation?: AspcPrepareProcessInvocationRequest['preparationCorrelation'] | undefined
+  /** Accepted for parity with preparation; never a prompt input (T-08563 rev 5.2). */
   dispatchEnv?: Record<string, string> | undefined
 }
 

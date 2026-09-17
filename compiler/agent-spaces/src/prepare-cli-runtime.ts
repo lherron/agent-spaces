@@ -33,7 +33,14 @@ import type {
   AgentSpacesRuntimeDependencies,
   CompilerPlacementRuntimePlan,
 } from './placement-api.js'
-import { buildCorrelationEnvVars } from './placement-api.js'
+import {
+  type PreparationExecutionContext,
+  type PreparationIdentityHints,
+  type PreparationPromptSources,
+  buildPreparationExecutionContext,
+  promptSourcesForCompile,
+  resolvePreparationIdentity,
+} from './preparation-execution-context.js'
 import type {
   BuildProcessInvocationSpecRequest,
   BuildProcessInvocationSpecResponse,
@@ -67,6 +74,8 @@ export interface PreparedPlacementCliRuntime {
   displayCommand: string
   continuation?: HarnessContinuationRef | undefined
   codexAppServer?: ProcessInvocationSpec['codexAppServer'] | undefined
+  /** The one preparation execution context this launch was prepared under (T-08579). */
+  preparation: PreparationExecutionContext
   warnings: string[]
 }
 
@@ -89,6 +98,13 @@ export interface PreparePlacementCliRuntimeRequest {
   placement?: RuntimePlacement | undefined
   /** Fully pinned context resolution inputs for deterministic callers. */
   resolverContext?: ContextResolverContext | undefined
+  /**
+   * Prompt-source authority for a context surface (T-08579 §5.3). Absent, the
+   * compile arm applies: explicit aspHome when supplied, else ambient.
+   */
+  promptSources?: PreparationPromptSources | undefined
+  /** Context identity hints for a context surface (T-08579 §4.1). */
+  identityHints?: PreparationIdentityHints | undefined
 }
 
 function extractImageAttachmentPaths(attachments: AttachmentRef[] | undefined): string[] {
@@ -155,6 +171,8 @@ export async function preparePlacementCliRuntime(
   }
   const placement = req.placement as RuntimePlacement
   const warnings: string[] = []
+  // Refuse a contradictory identity before any preparation side effect.
+  resolvePreparationIdentity(placement, req.identityHints)
 
   const frontendDef = resolveFrontend(req.frontend)
 
@@ -261,20 +279,14 @@ export async function preparePlacementCliRuntime(
       : undefined
 
   // Context-template exec sections run while the launch is compiled, before
-  // the final adapter environment is composed. Give them the same canonical
-  // principal/project identity the launched session will receive, while
-  // retaining ambient tool discovery (PATH, HOME, credentials, and *_FILE
-  // indirection) required by commands such as wrkq.
-  const contextTemplateEnv: Record<string, string | undefined> = {
-    ...process.env,
-    ...buildCorrelationEnvVars(placement),
-    AGENTCHAT_ID: basename(placement.agentRoot),
-    ...(handleParts.projectId !== undefined
-      ? { ASP_PROJECT: handleParts.projectId }
-      : placement.projectRoot
-        ? { ASP_PROJECT: basename(resolve(placement.projectRoot)) }
-        : {}),
-  }
+  // the final adapter environment is composed. The one preparation execution
+  // context gives them the canonical principal/project identity the launched
+  // session will receive plus ambient tool discovery (PATH, HOME, credentials,
+  // and *_FILE indirection). dispatchEnv is deliberately absent (T-08579).
+  const preparation = buildPreparationExecutionContext(placement, {
+    promptSources: req.promptSources ?? promptSourcesForCompile(req.aspHome ?? defaultAspHome),
+    identityHints: req.identityHints,
+  })
 
   // Unified materialization: use the shared placement context, then materialize the resolved spec.
   const materialized = await materializeSpec(spec, aspHome, runtimePlan.harnessId, {
@@ -292,12 +304,7 @@ export async function preparePlacementCliRuntime(
   let systemPrompt: MaterializeResult | undefined
   try {
     const materializedSystemPrompt = await materializeSystemPrompt(launchOverlayDir, {
-      ...placement,
-      ...(handleParts.agentId !== undefined ? { agentId: handleParts.agentId } : {}),
-      ...(handleParts.projectId !== undefined ? { projectId: handleParts.projectId } : {}),
-      ...(handleParts.taskId !== undefined ? { taskId: handleParts.taskId } : {}),
-      ...(handleParts.lane !== undefined ? { lane: handleParts.lane } : {}),
-      env: contextTemplateEnv,
+      ...preparation.promptInput,
       ...(req.resolverContext !== undefined ? { resolverContext: req.resolverContext } : {}),
     })
     systemPrompt =
@@ -478,6 +485,7 @@ export async function preparePlacementCliRuntime(
     ...(continuation ? { continuation } : {}),
     displayCommand,
     ...(codexAppServer ? { codexAppServer } : {}),
+    preparation,
     warnings,
   }
 }

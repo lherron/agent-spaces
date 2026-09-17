@@ -259,9 +259,10 @@ export function validateAspcInspectRuntimePlacementRequest(
     )
     if (request) {
       validateOptionalStringRecord(request['dispatchEnv'], path(base, 'dispatchEnv'), issues)
+      validatePreparationCorrelation(request['preparationCorrelation'], base, issues, false)
       rejectUnknownParams(
         request,
-        new Set(['schemaVersion', 'context', 'dispatchEnv']),
+        new Set(['schemaVersion', 'context', 'dispatchEnv', 'preparationCorrelation']),
         base,
         issues
       )
@@ -319,31 +320,14 @@ function validatePreparationEnvelope(
   return request
 }
 
-const validatePrepareProcessParams: ParamsValidator = (value, base, issues) => {
-  const request = validatePreparationEnvelope(
-    value,
-    base,
-    issues,
-    'aspc-prepare-process-invocation-request/v1',
-    [
-      'schemaVersion',
-      'context',
-      'preparationCorrelation',
-      'expected',
-      'launch',
-      'dispatchEnv',
-      'lockedEnv',
-      'artifactDir',
-    ],
-    ['context', 'preparationCorrelation', 'expected', 'launch']
-  )
-  if (!request) return
-  validateRuntimeObservation(value, base, issues, 'aspc-prepare-process-invocation-request/v1')
-  const correlation = requireRecord(
-    request['preparationCorrelation'],
-    path(base, 'preparationCorrelation'),
-    issues
-  )
+function validatePreparationCorrelation(
+  value: unknown,
+  base: string,
+  issues: ValidationIssue[],
+  required: boolean
+): void {
+  if (!required && value === undefined) return
+  const correlation = requireRecord(value, path(base, 'preparationCorrelation'), issues)
   if (correlation) {
     optionalString(
       correlation['hostSessionId'],
@@ -386,6 +370,29 @@ const validatePrepareProcessParams: ParamsValidator = (value, base, issues) => {
       issues
     )
   }
+}
+
+const validatePrepareProcessParams: ParamsValidator = (value, base, issues) => {
+  const request = validatePreparationEnvelope(
+    value,
+    base,
+    issues,
+    'aspc-prepare-process-invocation-request/v1',
+    [
+      'schemaVersion',
+      'context',
+      'preparationCorrelation',
+      'expected',
+      'launch',
+      'dispatchEnv',
+      'lockedEnv',
+      'artifactDir',
+    ],
+    ['context', 'preparationCorrelation', 'expected', 'launch']
+  )
+  if (!request) return
+  validateRuntimeObservation(value, base, issues, 'aspc-prepare-process-invocation-request/v1')
+  validatePreparationCorrelation(request['preparationCorrelation'], base, issues, true)
   const expected = requireRecord(request['expected'], path(base, 'expected'), issues)
   if (expected) {
     requireEnum(
@@ -654,9 +661,10 @@ const ASPC_PARAMS_VALIDATORS: Record<AspcMethod, ParamsValidator> = {
     )
     if (request) {
       validateOptionalStringRecord(request['dispatchEnv'], path(base, 'dispatchEnv'), issues)
+      validatePreparationCorrelation(request['preparationCorrelation'], base, issues, false)
       rejectUnknownParams(
         request,
-        new Set(['schemaVersion', 'context', 'dispatchEnv']),
+        new Set(['schemaVersion', 'context', 'dispatchEnv', 'preparationCorrelation']),
         base,
         issues
       )

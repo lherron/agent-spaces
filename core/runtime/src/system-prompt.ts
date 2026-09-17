@@ -44,10 +44,21 @@ export interface MaterializeSystemPromptInput {
   env?: Record<string, string | undefined> | undefined
   agentRootSearchPath?: string[] | undefined
   /**
+   * Explicit source configuration for the project-overlay branch of the shared
+   * agent-root search path (T-08579 §5.3). When set, the canonical roster root
+   * is resolved only from these options; when absent, from ambient config.
+   */
+  sharedRootOptions?: SharedRootOptions | undefined
+  /**
    * Fully pinned resolver inputs for deterministic materialization. This is
    * passed through unchanged to the shared inspection/resolution seam.
    */
   resolverContext?: ContextResolverContext | undefined
+}
+
+export interface SharedRootOptions {
+  aspHome: string
+  env: Record<string, string | undefined>
 }
 
 export interface TemplateDiscoveryProfile {
@@ -68,6 +79,7 @@ export interface DiscoverContextTemplateInput {
   aspHome?: string | undefined
   projectRoot?: string | undefined
   agentRootSearchPath?: string[] | undefined
+  sharedRootOptions?: SharedRootOptions | undefined
 }
 
 export interface DiscoveredContextTemplate {
@@ -133,6 +145,7 @@ export function discoverContextTemplate(
     projectRoot: input.projectRoot,
     agentsRootWasProvided: input.agentsRoot !== undefined,
     agentRootSearchPath: input.agentRootSearchPath,
+    sharedRootOptions: input.sharedRootOptions,
   })
   const agentRootSearchPath = searchRoots.roots
   const profile = loadTemplateDiscoveryProfile(input.agentRoot)
@@ -202,6 +215,7 @@ export async function inspectAgentSystemPrompt(
     aspHome: input.aspHome,
     projectRoot: input.projectRoot,
     agentRootSearchPath: input.agentRootSearchPath,
+    sharedRootOptions: input.sharedRootOptions,
   })
   const { agentsRoot, agentRootSearchPath, profile, templateSource } = discovered
 
@@ -400,6 +414,7 @@ function resolveSharedAgentRootSearchPath(input: {
   projectRoot?: string | undefined
   agentsRootWasProvided?: boolean | undefined
   agentRootSearchPath?: string[] | undefined
+  sharedRootOptions?: SharedRootOptions | undefined
 }): { roots: string[]; records: AgentCompilationProvenanceRecord[] } {
   const roots = resolveInitialSharedAgentRoots(input)
   return dedupeRoots([...roots, input.agentsRoot, dirname(resolve(input.agentRoot))])
@@ -410,13 +425,14 @@ function resolveInitialSharedAgentRoots(input: {
   projectRoot?: string | undefined
   agentsRootWasProvided?: boolean | undefined
   agentRootSearchPath?: string[] | undefined
+  sharedRootOptions?: SharedRootOptions | undefined
 }): string[] {
   if (input.agentRootSearchPath?.length) {
     return input.agentRootSearchPath
   }
 
   if (input.projectRoot && !input.agentsRootWasProvided) {
-    const searchPath = getAgentRootSearchPathForProject(input.projectRoot)
+    const searchPath = getAgentRootSearchPathForProject(input.projectRoot, input.sharedRootOptions)
     const hasProjectOverlay = searchPath.entries.some((entry) => entry.kind === 'project')
     if (hasProjectOverlay) {
       return searchPath.roots

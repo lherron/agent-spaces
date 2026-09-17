@@ -93,6 +93,11 @@ export type RuntimeCompileResponse =
       ok: true
       plan: CompiledRuntimePlan
       diagnostics: CompileDiagnostic[]
+      /**
+       * Canonical hash of the preparation execution environment (T-08579).
+       * Present when the compile prepared a placement; never echoes values.
+       */
+      effectiveEnvironmentHash?: string | undefined
     }
   | {
       schemaVersion: 'agent-runtime-compile-response/v1'

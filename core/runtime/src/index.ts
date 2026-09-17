@@ -37,6 +37,7 @@ export type {
   InspectedSystemPromptZone,
   InspectAgentSystemPromptInput,
   MaterializeSystemPromptInput,
+  SharedRootOptions,
   TemplateDiscoveryProfile,
 } from './system-prompt.js'
 export type { MaterializeResult } from './materialize-io.js'

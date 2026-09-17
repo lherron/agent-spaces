@@ -1,8 +1,14 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 
-import { buildRuntimeBundleRef, parseAgentProfile, resolveHarnessCatalogEntry } from 'spaces-config'
 import {
+  type RuntimePlacement,
+  buildRuntimeBundleRef,
+  parseAgentProfile,
+  resolveHarnessCatalogEntry,
+} from 'spaces-config'
+import {
+  type InspectAgentSystemPromptInput,
   type ResolvedContextSection,
   inspectAgentSystemPrompt,
   normalizeAgentInspectionEvaluationContext,
@@ -26,6 +32,12 @@ import {
 } from 'spaces-runtime-contracts'
 
 import { compileRuntimePlan } from './compile-runtime-plan.js'
+import {
+  PreparationContextMismatchError,
+  buildPreparationExecutionContext,
+  placementFromDeclaration,
+  promptSourcesForDeclaration,
+} from './preparation-execution-context.js'
 import {
   type RuntimeDeclarationContext,
   type RuntimeDeclarationOptions,
@@ -75,6 +87,11 @@ type CompileRuntimePlan = (
 
 export type InspectAgentForContextOptions = {
   compileRuntimePlan?: CompileRuntimePlan | undefined
+  /**
+   * Runtime-placement inspection only: the preparation execution context's
+   * prompt input, so parts render exactly as launch preparation renders.
+   */
+  promptInput?: InspectAgentSystemPromptInput | undefined
 }
 
 export type InspectRuntimePlacementOptions = RuntimeDeclarationOptions & {
@@ -118,49 +135,77 @@ export async function inspectRuntimePlacement(
   }
 
   const context = request['context'] as RuntimeDeclarationContext
-  const placement = declaration['placement'] as Record<string, unknown>
+  const resolvedPlacement = declaration['placement'] as RuntimePlacement
   const sources = declaration['agentSources'] as Record<string, unknown>
   const provisioning = declaration['provisioning'] as {
     effectiveHarness: string
     frontend: string
   }
-  const environment = effectiveEnvironment(
-    options.environment,
-    request['dispatchEnv'] as Record<string, string> | undefined
+  const placement = placementFromDeclaration(
+    {
+      ...resolvedPlacement,
+      ...(resolvedPlacement.scaffoldPackets === undefined && options.scaffoldPackets
+        ? { scaffoldPackets: options.scaffoldPackets as RuntimePlacement['scaffoldPackets'] }
+        : {}),
+    },
+    context,
+    (request['preparationCorrelation'] as RuntimePlacement['correlation']) ?? {}
   )
+  let preparation: ReturnType<typeof buildPreparationExecutionContext>
+  try {
+    preparation = buildPreparationExecutionContext(placement, {
+      promptSources: promptSourcesForDeclaration(sources, options.environment),
+      ambientEnv: options.environment,
+      identityHints: {
+        agentId: context.agentId,
+        projectId: declaration['markerProjectId'] as string | undefined,
+        taskId: context.taskId,
+      },
+    })
+  } catch (error) {
+    if (error instanceof PreparationContextMismatchError) {
+      return {
+        schemaVersion: 'aspc-inspect-runtime-placement-response/v1',
+        ok: false,
+        declaration: {
+          schemaVersion: 'aspc-resolve-runtime-declaration-response/v1',
+          ok: false,
+          failure: { kind: 'incompatible', code: error.code, message: error.message },
+        },
+      }
+    }
+    throw error
+  }
+  const environment = preparation.execEnv
   const nowIso = (options.now?.() ?? new Date()).toISOString()
-  const projectRoot = (placement['projectRoot'] as string | undefined) ?? (context['cwd'] as string)
-  const projectId =
-    (declaration['markerProjectId'] as string | undefined) ??
-    ('projectId' in context.project ? context.project.projectId : undefined) ??
-    basename(projectRoot)
+  const projectRoot = placement.projectRoot ?? context.cwd
+  const projectId = preparation.identity.projectId ?? basename(projectRoot)
   const identifiers = {
     agentId: context['agentId'],
     agentName: context['agentId'],
     projectId,
     mode: context['runMode'],
     scope: `agent:${context['agentId']}:project:${projectId}`,
-    ...(context['taskId'] ? { taskId: context['taskId'] } : {}),
-    lane: context['taskId'] ?? 'primary',
+    ...(preparation.identity.taskId ? { taskId: preparation.identity.taskId } : {}),
+    lane: preparation.identity.lane ?? 'primary',
     harness: provisioning['effectiveHarness'],
     frontend: provisioning['frontend'],
     interaction: 'interactive',
   }
-  const profilePath = join(placement['agentRoot'] as string, 'agent-profile.toml')
+  const profilePath = join(placement.agentRoot, 'agent-profile.toml')
   const evaluationContext: AgentInspectionEvaluationContext = {
     schemaVersion: 'agent-inspection-evaluation-context/v1',
     identifiers,
     paths: {
-      agentRoot: placement['agentRoot'] as string,
-      agentsRoot:
-        (sources['agentsRoot'] as string | undefined) ?? dirname(placement['agentRoot'] as string),
+      agentRoot: placement.agentRoot,
+      agentsRoot: (sources['agentsRoot'] as string | undefined) ?? dirname(placement.agentRoot),
       projectRoot,
       cwd: context['cwd'],
     },
     nowIso,
     environment,
     predicateInputs: { cwd: context['cwd'], environment },
-    execInputs: { cwd: context['cwd'], environment },
+    execInputs: { cwd: placement.agentRoot, environment },
     serviceProbeInputs: { responses: options.serviceProbeResponses ?? [] },
     scaffoldPackets: options.scaffoldPackets ?? [],
     agentProfile: (existsSync(profilePath)
@@ -182,7 +227,7 @@ export async function inspectRuntimePlacement(
       },
       evaluationContext,
     },
-    { compileRuntimePlan: options.compileRuntimePlan }
+    { compileRuntimePlan: options.compileRuntimePlan, promptInput: preparation.promptInput }
   )
   if (!inspectionOutcome.ok) {
     return {
@@ -202,21 +247,7 @@ export async function inspectRuntimePlacement(
 
   let prompt: Record<string, unknown>
   try {
-    const inspected = await inspectAgentSystemPrompt({
-      agentRoot: evaluationContext.paths.agentRoot,
-      agentsRoot: evaluationContext.paths.agentsRoot,
-      aspHome:
-        (sources['aspHome'] as string | undefined) ?? dirname(evaluationContext.paths.agentsRoot),
-      projectRoot: placement['projectRoot'] as string | undefined,
-      projectId,
-      agentId: context['agentId'],
-      taskId: context['taskId'],
-      lane: identifiers.lane,
-      runMode: context['runMode'],
-      scaffoldPackets: evaluationContext.scaffoldPackets,
-      env: environment,
-      agentRootSearchPath: [evaluationContext.paths.agentRoot, evaluationContext.paths.agentsRoot],
-    })
+    const inspected = await inspectAgentSystemPrompt(preparation.promptInput)
     prompt = inspected
       ? {
           state: 'present',
@@ -259,7 +290,7 @@ export async function inspectRuntimePlacement(
     declaration,
     inspection: inspectionOutcome.inspection,
     prompt,
-    effectiveEnvironmentHash: stableHash(environment),
+    effectiveEnvironmentHash: preparation.effectiveEnvironmentHash,
   }
 }
 
@@ -273,17 +304,6 @@ function normalizeSectionSizes(values: string[]): Array<{ name: string; chars: n
     }
     return { name, chars }
   })
-}
-
-function effectiveEnvironment(
-  ambient: Record<string, string | undefined> | undefined,
-  dispatch: Record<string, string> | undefined
-): Record<string, string> {
-  const result: Record<string, string> = {}
-  for (const [key, value] of Object.entries(ambient ?? process.env)) {
-    if (value !== undefined) result[key] = value
-  }
-  return { ...result, ...(dispatch ?? {}) }
 }
 
 const RUNTIME_PLAN_PROVENANCE: AgentInspectionProvenance = {
@@ -342,24 +362,26 @@ export async function inspectAgentForContext(
   let promptSections: ResolvedContextSection[] = []
   let initialPrompt = ''
   try {
-    const inspected = await inspectAgentSystemPrompt({
-      agentRoot: normalized.evaluationContext.paths.agentRoot,
-      agentsRoot: normalized.evaluationContext.paths.agentsRoot,
-      aspHome: dirname(normalized.evaluationContext.paths.agentsRoot),
-      projectRoot: normalized.evaluationContext.paths.projectRoot,
-      projectId: request.identifiers.projectId,
-      agentId: request.identifiers.agentId,
-      taskId: request.identifiers.taskId,
-      lane: request.identifiers.lane,
-      runMode: asRunMode(request.identifiers.mode),
-      scaffoldPackets: normalized.evaluationContext.scaffoldPackets,
-      env: normalized.evaluationContext.environment,
-      agentRootSearchPath: [
-        normalized.evaluationContext.paths.agentRoot,
-        normalized.evaluationContext.paths.agentsRoot,
-      ],
-      resolverContext: normalized.resolverContext,
-    })
+    const inspected = await inspectAgentSystemPrompt(
+      options.promptInput ?? {
+        agentRoot: normalized.evaluationContext.paths.agentRoot,
+        agentsRoot: normalized.evaluationContext.paths.agentsRoot,
+        aspHome: dirname(normalized.evaluationContext.paths.agentsRoot),
+        projectRoot: normalized.evaluationContext.paths.projectRoot,
+        projectId: request.identifiers.projectId,
+        agentId: request.identifiers.agentId,
+        taskId: request.identifiers.taskId,
+        lane: request.identifiers.lane,
+        runMode: asRunMode(request.identifiers.mode),
+        scaffoldPackets: normalized.evaluationContext.scaffoldPackets,
+        env: normalized.evaluationContext.environment,
+        agentRootSearchPath: [
+          normalized.evaluationContext.paths.agentRoot,
+          normalized.evaluationContext.paths.agentsRoot,
+        ],
+        resolverContext: normalized.resolverContext,
+      }
+    )
     if (inspected !== undefined) {
       promptSections = [...inspected.prompt.sections, ...inspected.reminder.sections]
       initialPrompt = inspected.prompt.content

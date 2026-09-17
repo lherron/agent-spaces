@@ -7,7 +7,6 @@ import {
   normalizeAgentSdkModel,
 } from 'spaces-config'
 import type { RuntimePlacement } from 'spaces-config'
-import { createCanonicalHasher } from 'spaces-runtime-contracts'
 import {
   toHarnessBrokerStartRequest,
   validateBrokerInvocationRequest,
@@ -32,7 +31,17 @@ import {
 import { compileRuntimePlan } from './compile-runtime-plan.js'
 import type { AgentSpacesClientOptions } from './placement-api.js'
 import { requireAgentSpacesRuntime } from './placement-api.js'
-import { preparePlacementCliRuntime, toProcessInvocationSpec } from './prepare-cli-runtime.js'
+import {
+  PreparationContextMismatchError,
+  placementFromDeclaration,
+  promptSourcesForDeclaration,
+  resolvePreparationIdentity,
+} from './preparation-execution-context.js'
+import {
+  type PreparePlacementCliRuntimeRequest,
+  preparePlacementCliRuntime,
+  toProcessInvocationSpec,
+} from './prepare-cli-runtime.js'
 import { resolveRuntimeDeclaration } from './runtime-declaration.js'
 import type {
   AgentSpacesClient,
@@ -103,6 +112,7 @@ type SuccessfulDeclaration = {
   }
   placement: RuntimePlacement
   agentSources: Record<string, unknown>
+  markerProjectId?: string | undefined
 }
 
 async function withAspHome<T>(aspHome: string, fn: () => Promise<T>): Promise<T> {
@@ -150,27 +160,31 @@ export function createAgentSpacesClient(
       const resolved = declaration as unknown as SuccessfulDeclaration
       const provider = resolved.provisioning.provider
       const frontend = resolved.provisioning.frontend
+      const placement = placementFromDeclaration(
+        resolved.placement,
+        req.context,
+        req.preparationCorrelation
+      )
+      const identityHints = {
+        agentId: req.context.agentId,
+        projectId: resolved.markerProjectId,
+        taskId: typeof req.context['taskId'] === 'string' ? req.context['taskId'] : undefined,
+      }
       try {
-        const invocation = await this.buildProcessInvocationSpec({
-          placement: {
-            ...resolved.placement,
-            ...(req.context.agentRoot ? { agentRoot: req.context.agentRoot } : {}),
-            ...(req.context.project?.mode === 'root'
-              ? { projectRoot: req.context.project.projectRoot }
-              : {}),
-            ...(resolved.placement.bundle.kind === 'agent-project'
-              ? {
-                  bundle: {
-                    ...resolved.placement.bundle,
-                    ...(req.context.project?.mode === 'root'
-                      ? { projectRoot: req.context.project.projectRoot }
-                      : {}),
-                  },
-                }
-              : {}),
-            cwd: req.context.cwd,
-            correlation: req.preparationCorrelation,
-          },
+        resolvePreparationIdentity(placement, identityHints)
+      } catch (error) {
+        if (error instanceof PreparationContextMismatchError) {
+          return {
+            schemaVersion: 'aspc-prepare-process-invocation-response/v1',
+            ok: false,
+            failure: { kind: 'incompatible', code: error.code, message: error.message },
+          }
+        }
+        throw error
+      }
+      try {
+        const invocationRequest = {
+          placement,
           provider,
           frontend,
           interactionMode: req.launch.interactionMode,
@@ -189,7 +203,17 @@ export function createAgentSpacesClient(
           ...(req.dispatchEnv !== undefined ? { dispatchEnv: req.dispatchEnv } : {}),
           ...(req.lockedEnv !== undefined ? { lockedEnv: req.lockedEnv } : {}),
           ...(req.artifactDir !== undefined ? { artifactDir: req.artifactDir } : {}),
-        } as BuildProcessInvocationSpecRequest)
+          promptSources: promptSourcesForDeclaration(resolved.agentSources),
+          identityHints,
+        } as unknown as BuildProcessInvocationSpecRequest &
+          Pick<PreparePlacementCliRuntimeRequest, 'promptSources' | 'identityHints'>
+        const prepared = await preparePlacementCliRuntime(
+          invocationRequest,
+          clientAspHome,
+          clientRegistryPath,
+          requireAgentSpacesRuntime(clientRuntime)
+        )
+        const invocation = toProcessInvocationSpec(prepared, invocationRequest)
         if (req.expected?.provider !== provider || req.expected?.frontend !== frontend) {
           return {
             schemaVersion: 'aspc-prepare-process-invocation-response/v1',
@@ -210,9 +234,7 @@ export function createAgentSpacesClient(
             frontend,
             agentSources: resolved.agentSources,
           },
-          effectiveEnvironmentHash: createCanonicalHasher().hash(invocation.spec.env, {
-            timestampMode: 'omit-ephemeral',
-          }).value,
+          effectiveEnvironmentHash: prepared.preparation.effectiveEnvironmentHash,
           diagnostics: [],
         }
       } catch (error) {
