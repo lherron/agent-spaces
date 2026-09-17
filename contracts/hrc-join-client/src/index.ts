@@ -1,0 +1,26 @@
+export type {
+  ExpectedPredecessor,
+  HrcSocketPath,
+  JoinArgs,
+  JoinAttachAttached,
+  JoinAttachRefused,
+  JoinAttachRequest,
+  JoinAttachResult,
+  JoinPrepareInput,
+  JoinRegisterRefused,
+  JoinRegisterRegistered,
+  JoinRegisterRequest,
+  JoinResult,
+  RegisteredIdentity,
+} from './types'
+export {
+  attachParticipant,
+  isAttachConflict,
+  isAttachEpochStale,
+  isHostBindingConflict,
+  isIncarnationBoundElsewhere,
+  isRedirect,
+  isScopeOccupied,
+  joinAsParticipant,
+  registerParticipant,
+} from './client'

@@ -271,6 +271,12 @@ export type AspcPrepareDesktopObserverRequest = {
     hostSessionId: string
     generation: number
   }
+  identity: {
+    requestId: string
+    operationId: string
+    invocationId: string
+    traceId?: string | undefined
+  }
   recoveryBoundary?: DesktopRecoveryBoundary
   nativeAttemptStorePath: string
 }

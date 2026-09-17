@@ -42,9 +42,13 @@
     "postpack": "git checkout HEAD -- package.json"
   },
   "dependencies": {
+    "agent-spaces": "workspace:*",
     "ajv": "^8.17.1",
+    "spaces-config": "workspace:*",
     "spaces-harness-broker-protocol": "workspace:*",
     "spaces-harness-muse": "*",
+    "spaces-hrc-join-client": "workspace:*",
+    "spaces-runtime-contracts": "workspace:*",
     "ws": "^8.18.3"
   },
   "devDependencies": {

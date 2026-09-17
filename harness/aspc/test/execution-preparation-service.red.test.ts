@@ -126,6 +126,11 @@ function desktopFixture(): {
         hostSessionId: 'hsid-t08577',
         generation: 11,
       },
+      identity: {
+        requestId: 'request-t08577',
+        operationId: 'operation-t08577',
+        invocationId: 'invocation-t08577',
+      },
       recoveryBoundary: {
         sourceKind: 'provider-jsonl',
         sourceEpoch: 'epoch-t08577',
@@ -306,14 +311,13 @@ describe('ASPC Desktop observer preparation (T-08577)', () => {
       exposurePolicy: { mode: 'none' },
     })
     expect(profile.observability.correlation).toEqual({
-      requestId: expect.any(String),
-      operationId: expect.any(String),
+      requestId: 'request-t08577',
+      operationId: 'operation-t08577',
       hostSessionId: 'hsid-t08577',
       generation: 11,
       runtimeId: 'runtime-t08577',
       runId: 'run-t08577',
-      invocationId: startRequest.spec.invocationId,
-      traceId: expect.any(String),
+      invocationId: 'invocation-t08577',
     })
     expect(spec['driver']).toMatchObject({
       kind: 'codex-desktop',

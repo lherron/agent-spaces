@@ -92,6 +92,11 @@ const OBSERVER_REQUEST = {
     hostSessionId: 'hsid-t08577',
     generation: 7,
   },
+  identity: {
+    requestId: 'request-t08577',
+    operationId: 'operation-t08577',
+    invocationId: 'invocation-t08577',
+  },
   recoveryBoundary: {
     committedProjections: [],
     appliedThroughSeq: 0,

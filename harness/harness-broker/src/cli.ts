@@ -98,6 +98,9 @@ export async function runBrokerCli(options: RunBrokerCliOptions): Promise<void> 
       process.stderr.write(`Unknown or missing transport: ${transport ?? '(none)'}\n`)
       process.exit(1)
     }
+  } else if (command === 'desktop-join') {
+    const { runDesktopJoinCli } = await import('./desktop-join.js')
+    await runDesktopJoinCli(args.slice(1))
   } else if (command === 'drivers') {
     const json = args.includes('--json')
     const broker = createDefaultBroker(undefined, undefined, {
@@ -400,71 +403,59 @@ function registerBrokerObserverMethods(server: ProtocolServer, broker: Broker): 
  * durable event ledger, attach identity gate, latest-valid-attach-wins fencing,
  * and the eventsSince/ackEvents/snapshot replay surface.
  */
-async function runUnix(args: string[], options: RunBrokerCliOptions): Promise<void> {
-  const socketPath = readFlag(args, '--socket')
-  if (!socketPath) {
-    process.stderr.write('Usage: harness-broker run --transport unix --socket <path>\n')
-    process.exit(1)
-  }
-  const observerSocketPath =
-    readFlag(args, '--experimental-observer-socket') ??
-    process.env['HARNESS_BROKER_OBSERVER_SOCKET']
-  const observerMode =
-    readFlag(args, '--experimental-observer-mode') ??
-    process.env['HARNESS_BROKER_OBSERVER_MODE'] ??
-    'observe'
+export type ServeUnixBrokerOptions = {
+  socketPath: string
+  cliOptions: RunBrokerCliOptions
+  ledgerPath?: string | undefined
+  observerSocketPath?: string | undefined
+  observerMode?: string | undefined
+  participantBootstrap: boolean
+  attachIdentity?: BrokerAttachIdentity | undefined
+  onServerError?: ((error: Error) => void) | undefined
+}
+
+export type ServedUnixBroker = {
+  broker: Broker
+  socketPath: string
+  close: () => Promise<void>
+}
+
+async function readAttachIdentityFile(attachTokenFile: string): Promise<string> {
+  return (await readFile(attachTokenFile, 'utf8')).trim()
+}
+
+/**
+ * Start the durable unix broker listener in this process with the given
+ * posture. Extracted from `runUnix` so `desktop-join` serves the same
+ * participant bootstrap posture in-process (T-08594): the ONLY difference is
+ * who owns the process lifetime. Resolves once the socket is bound; rejects
+ * when the bind fails. Post-bind server errors go to `onServerError`.
+ */
+export async function serveUnixBroker(
+  serveOptions: ServeUnixBrokerOptions
+): Promise<ServedUnixBroker> {
+  const {
+    socketPath,
+    cliOptions: options,
+    ledgerPath,
+    observerSocketPath,
+    observerMode = 'observe',
+    participantBootstrap,
+    attachIdentity,
+    onServerError,
+  } = serveOptions
   if (observerSocketPath !== undefined && observerMode !== 'observe') {
-    process.stderr.write(
-      `Unsupported --experimental-observer-mode ${JSON.stringify(observerMode)}; only "observe" is implemented\n`
+    throw new Error(
+      `Unsupported observer mode ${JSON.stringify(observerMode)}; only "observe" is implemented`
     )
-    process.exit(1)
   }
 
   // Hazard (a): refuse over-long socket paths up front with a readable error
   // instead of surfacing a low-level sockaddr_un bind failure.
-  try {
-    assertSocketPathWithinBudget(socketPath)
-  } catch (err) {
-    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
-    process.exit(1)
-  }
+  assertSocketPathWithinBudget(socketPath)
 
   // Durability wiring (Phase C1): on-disk event ledger + attach identity gate.
-  const ledgerPath = readFlag(args, '--event-ledger')
-  const runtimeId = readFlag(args, '--runtime-id')
-  const hostSessionId = readFlag(args, '--host-session-id')
-  const generationRaw = readFlag(args, '--generation')
-  const attachTokenFile = readFlag(args, '--attach-token-file')
-
   const eventLedger = ledgerPath !== undefined ? createEventLedger({ path: ledgerPath }) : undefined
-
-  // Participant-served startup posture (DESIGN rev6 C.5). EXPLICIT on purpose:
-  // a unix broker launched without identity flags is an existing supported
-  // non-participant route, so bootstrap posture is declared by the launcher and
-  // never inferred from the absence of `--runtime-id`.
-  const joinRaw = readFlag(args, '--join') ?? 'hrc-hosted'
-  if (joinRaw !== 'hrc-hosted' && joinRaw !== 'participant-served') {
-    process.stderr.write(
-      `Unsupported --join ${JSON.stringify(joinRaw)}; expected "hrc-hosted" or "participant-served"\n`
-    )
-    process.exit(1)
-  }
-  const participantBootstrap = joinRaw === 'participant-served'
-
-  let attachIdentity: BrokerAttachIdentity | undefined
-  if (
-    runtimeId !== undefined &&
-    hostSessionId !== undefined &&
-    generationRaw !== undefined &&
-    attachTokenFile !== undefined
-  ) {
-    attachIdentity = {
-      runtimeId,
-      hostSessionId,
-      generation: Number(generationRaw),
-      attachToken: (await readFile(attachTokenFile, 'utf8')).trim(),
-    }
-  }
 
   await mkdir(dirname(socketPath), { recursive: true, mode: 0o700 })
 
@@ -655,27 +646,114 @@ async function runUnix(args: string[], options: RunBrokerCliOptions): Promise<vo
     socket.once('error', cleanup)
   })
 
-  const shutdown = (): void => {
+  const close = async (): Promise<void> => {
     netServer.close()
     // Release the durable consumer-state index handle. Its contents are already
     // fsync'd per write (synchronous=FULL), so a `kill -9` that skips this loses
     // nothing — this only avoids leaving a WAL open on a clean exit.
     eventLedger?.close()
-    void Promise.all([observer?.close(), unlink(socketPath).catch(() => {})]).then(() => {
+    await Promise.all([observer?.close(), unlink(socketPath).catch(() => {})])
+  }
+
+  const reportServerError =
+    onServerError ??
+    ((err: Error): void => {
+      process.stderr.write(`Broker unix server error: ${err.message}\n`)
+      void (observer?.close() ?? Promise.resolve()).finally(() => process.exit(1))
+    })
+  netServer.on('error', reportServerError)
+
+  await new Promise<void>((resolve, reject) => {
+    netServer.once('error', reject)
+    netServer.once('listening', () => {
+      netServer.removeListener('error', reject)
+      resolve()
+    })
+    netServer.listen(socketPath)
+  })
+
+  return { broker, socketPath, close }
+}
+
+async function runUnix(args: string[], options: RunBrokerCliOptions): Promise<void> {
+  const socketPath = readFlag(args, '--socket')
+  if (!socketPath) {
+    process.stderr.write('Usage: harness-broker run --transport unix --socket <path>\n')
+    process.exit(1)
+  }
+  const observerSocketPath =
+    readFlag(args, '--experimental-observer-socket') ??
+    process.env['HARNESS_BROKER_OBSERVER_SOCKET']
+  const observerMode =
+    readFlag(args, '--experimental-observer-mode') ??
+    process.env['HARNESS_BROKER_OBSERVER_MODE'] ??
+    'observe'
+  if (observerSocketPath !== undefined && observerMode !== 'observe') {
+    process.stderr.write(
+      `Unsupported --experimental-observer-mode ${JSON.stringify(observerMode)}; only "observe" is implemented\n`
+    )
+    process.exit(1)
+  }
+
+  // Durability wiring (Phase C1): on-disk event ledger + attach identity gate.
+  const ledgerPath = readFlag(args, '--event-ledger')
+  const runtimeId = readFlag(args, '--runtime-id')
+  const hostSessionId = readFlag(args, '--host-session-id')
+  const generationRaw = readFlag(args, '--generation')
+  const attachTokenFile = readFlag(args, '--attach-token-file')
+
+  let attachIdentity: BrokerAttachIdentity | undefined
+  if (
+    runtimeId !== undefined &&
+    hostSessionId !== undefined &&
+    generationRaw !== undefined &&
+    attachTokenFile !== undefined
+  ) {
+    attachIdentity = {
+      runtimeId,
+      hostSessionId,
+      generation: Number(generationRaw),
+      attachToken: await readAttachIdentityFile(attachTokenFile),
+    }
+  }
+
+  // Participant-served startup posture (DESIGN rev6 C.5). EXPLICIT on purpose:
+  // a unix broker launched without identity flags is an existing supported
+  // non-participant route, so bootstrap posture is declared by the launcher and
+  // never inferred from the absence of `--runtime-id`.
+  const joinRaw = readFlag(args, '--join') ?? 'hrc-hosted'
+  if (joinRaw !== 'hrc-hosted' && joinRaw !== 'participant-served') {
+    process.stderr.write(
+      `Unsupported --join ${JSON.stringify(joinRaw)}; expected "hrc-hosted" or "participant-served"\n`
+    )
+    process.exit(1)
+  }
+
+  let served: ServedUnixBroker
+  try {
+    served = await serveUnixBroker({
+      socketPath,
+      cliOptions: options,
+      ...(ledgerPath === undefined ? {} : { ledgerPath }),
+      ...(observerSocketPath === undefined ? {} : { observerSocketPath }),
+      observerMode,
+      participantBootstrap: joinRaw === 'participant-served',
+      ...(attachIdentity === undefined ? {} : { attachIdentity }),
+    })
+  } catch (err) {
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+    process.exit(1)
+  }
+
+  const shutdown = (): void => {
+    void served.close().then(() => {
       process.exit(0)
     })
   }
   process.on('SIGTERM', shutdown)
   process.on('SIGINT', shutdown)
 
-  netServer.on('error', (err) => {
-    process.stderr.write(
-      `Broker unix server error: ${err instanceof Error ? err.message : String(err)}\n`
-    )
-    void (observer?.close() ?? Promise.resolve()).finally(() => process.exit(1))
-  })
-
-  netServer.listen(socketPath)
+  await new Promise<void>(() => {})
 }
 
 async function startBrokerObserverSocket(options: {

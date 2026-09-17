@@ -64,6 +64,19 @@ export {
 export { createAgentSpacesClient } from './client.js'
 
 export { admitDesktopRegistration, resolveDesktopIdentity } from './desktop-native-identity.js'
+export {
+  CODEX_DESKTOP_PARTICIPANT_ADAPTER_ID,
+  CODEX_DESKTOP_PARTICIPANT_CLASS,
+  createCodexDesktopParticipantAdapter,
+  type CodexDesktopParticipantContinuityEvidence,
+  type CodexDesktopParticipantEvidence,
+  type CodexDesktopParticipantPreparation,
+} from './codex-desktop-participant-adapter.js'
+export type {
+  CodexDesktopObserverIdentity,
+  CodexDesktopObserverProfileFailure,
+  CodexDesktopObserverProfileRequest,
+} from './desktop-observer-preparation.js'
 export { prepareDesktopObserver } from './desktop-observer-preparation.js'
 
 export {

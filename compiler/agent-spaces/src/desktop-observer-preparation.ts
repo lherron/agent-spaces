@@ -40,7 +40,58 @@ type DesktopRecoveryBoundary = {
   empty: boolean
 }
 
+export type CodexDesktopObserverIdentity = {
+  requestId: string
+  operationId: string
+  invocationId: string
+  runtimeId: string
+  hostSessionId: string
+  generation: number
+  runId?: string | undefined
+  traceId?: string | undefined
+}
+
+export type CodexDesktopObserverProfileRequest = {
+  registration: {
+    registrationKey: string
+    homeIdentity: string
+    rolloutPath?: string
+    nativeThreadId: string
+    reportedBundleExecutable?: string
+    projectRoot: string
+    sqliteHome: string
+  }
+  operatorBundleExecutable?: string
+  identity: CodexDesktopObserverIdentity
+  brokerOwnership: BrokerExecutionProfile['brokerOwnership']
+  recoveryBoundary?: DesktopRecoveryBoundary
+  nativeAttemptStorePath: string
+}
+
+export type CodexDesktopObserverProfileBuilt = {
+  profile: BrokerExecutionProfile
+  startRequest: InvocationStartRequest
+}
+
+export type CodexDesktopObserverProfileFailure = {
+  code:
+    | 'rollout_unavailable'
+    | 'rollout_archived'
+    | 'rollout_home_mismatch'
+    | 'native_metadata_unparsable'
+    | 'native_thread_mismatch'
+    | 'bundle_unresolved'
+    | 'observer_plan_invalid'
+  detail: string
+}
+
 type DesktopObserverRequest = {
+  identity: {
+    requestId: string
+    operationId: string
+    invocationId: string
+    traceId?: string | undefined
+  }
   registration: {
     registrationKey: string
     agentId: string
@@ -104,10 +155,21 @@ function firstLine(path: string): string {
   }
 }
 
-export async function prepareDesktopObserver(request: DesktopObserverRequest) {
+export function buildCodexDesktopObserverProfile(request: CodexDesktopObserverProfileRequest):
+  | {
+      ok: true
+      profile: BrokerExecutionProfile
+      startRequest: InvocationStartRequest
+      bundleExecutable: string
+    }
+  | { ok: false; code: CodexDesktopObserverProfileFailure['code']; detail: string } {
   const registration = request.registration
   if (!registration.rolloutPath) {
-    return notPrepared('rollout_unavailable', 'No Desktop rollout path is recorded')
+    return {
+      ok: false as const,
+      code: 'rollout_unavailable',
+      detail: 'No Desktop rollout path is recorded',
+    }
   }
   let home: string
   let rollout: string
@@ -115,16 +177,25 @@ export async function prepareDesktopObserver(request: DesktopObserverRequest) {
     home = realpathSync(registration.homeIdentity)
     rollout = realpathSync(registration.rolloutPath)
   } catch (error) {
-    return notPrepared(
-      'rollout_unavailable',
-      error instanceof Error ? error.message : String(error)
-    )
+    return {
+      ok: false as const,
+      code: 'rollout_unavailable',
+      detail: error instanceof Error ? error.message : String(error),
+    }
   }
   if (rollout !== home && !rollout.startsWith(`${home}${sep}`)) {
-    return notPrepared('rollout_home_mismatch', 'Rollout is outside the registered Desktop home')
+    return {
+      ok: false as const,
+      code: 'rollout_home_mismatch',
+      detail: 'Rollout is outside the registered Desktop home',
+    }
   }
   if (rollout.includes(`${sep}archived_sessions${sep}`)) {
-    return notPrepared('rollout_archived', 'Archived Desktop history cannot be observed')
+    return {
+      ok: false as const,
+      code: 'rollout_archived',
+      detail: 'Archived Desktop history cannot be observed',
+    }
   }
   try {
     const metadata = JSON.parse(firstLine(rollout))
@@ -133,13 +204,18 @@ export async function prepareDesktopObserver(request: DesktopObserverRequest) {
       typeof metadataThreadId !== 'string' ||
       metadataThreadId.toLowerCase() !== registration.nativeThreadId.toLowerCase()
     ) {
-      return notPrepared('native_thread_mismatch', 'Rollout thread does not match registration')
+      return {
+        ok: false as const,
+        code: 'native_thread_mismatch',
+        detail: 'Rollout thread does not match registration',
+      }
     }
   } catch (error) {
-    return notPrepared(
-      'native_metadata_unparsable',
-      error instanceof Error ? error.message : String(error)
-    )
+    return {
+      ok: false as const,
+      code: 'native_metadata_unparsable',
+      detail: error instanceof Error ? error.message : String(error),
+    }
   }
   const bundleExecutable = [
     registration.reportedBundleExecutable,
@@ -147,13 +223,21 @@ export async function prepareDesktopObserver(request: DesktopObserverRequest) {
     DEFAULT_DESKTOP_BUNDLE,
   ].find((candidate): candidate is string => typeof candidate === 'string' && existsSync(candidate))
   if (!bundleExecutable) {
-    return notPrepared('bundle_unresolved', 'Desktop bundle executable is unavailable')
+    return {
+      ok: false as const,
+      code: 'bundle_unresolved',
+      detail: 'Desktop bundle executable is unavailable',
+    }
   }
   if (!isAbsolute(request.nativeAttemptStorePath)) {
-    return notPrepared('observer_plan_invalid', 'Native attempt store path must be absolute')
+    return {
+      ok: false as const,
+      code: 'observer_plan_invalid',
+      detail: 'Native attempt store path must be absolute',
+    }
   }
 
-  const invocationId = stable('invocation', request) as NonNullable<
+  const invocationId = request.identity.invocationId as NonNullable<
     InvocationStartRequest['spec']['invocationId']
   >
   const startRequest: InvocationStartRequest = {
@@ -180,28 +264,24 @@ export async function prepareDesktopObserver(request: DesktopObserverRequest) {
         recoveryBoundary: request.recoveryBoundary,
       },
       correlation: {
-        runtimeId: request.hostingIdentity.runtimeId,
-        runId: request.hostingIdentity.runId,
-        hostSessionId: request.hostingIdentity.hostSessionId,
-        generation: String(request.hostingIdentity.generation),
+        runtimeId: request.identity.runtimeId,
+        ...(request.identity.runId === undefined ? {} : { runId: request.identity.runId }),
+        hostSessionId: request.identity.hostSessionId,
+        generation: String(request.identity.generation),
         invocationId,
       },
     },
   }
   const specHash = neutralSpecHash(startRequest.spec)
   const startRequestHash = neutralStartRequestHash(startRequest)
-  const requestId = stable(
-    'request',
-    request
-  ) as BrokerExecutionProfile['observability']['correlation']['requestId']
-  const operationId = stable(
-    'operation',
-    request
-  ) as BrokerExecutionProfile['observability']['correlation']['operationId']
-  const traceId = stable('trace', request) as NonNullable<
-    BrokerExecutionProfile['observability']['correlation']['traceId']
-  >
-  const selectedProfile: BrokerExecutionProfile = {
+  const requestId = request.identity
+    .requestId as BrokerExecutionProfile['observability']['correlation']['requestId']
+  const operationId = request.identity
+    .operationId as BrokerExecutionProfile['observability']['correlation']['operationId']
+  const traceId = request.identity.traceId as
+    | BrokerExecutionProfile['observability']['correlation']['traceId']
+    | undefined
+  const unhashedProfile: BrokerExecutionProfile = {
     schemaVersion: 'agent-runtime-profile/v1',
     profileId: `profile_${hashValue({
       driver: 'codex-desktop',
@@ -249,7 +329,7 @@ export async function prepareDesktopObserver(request: DesktopObserverRequest) {
     },
     brokerProtocol: 'harness-broker/0.2',
     brokerDriver: 'codex-desktop',
-    brokerOwnership: 'hrc-owned-process',
+    brokerOwnership: request.brokerOwnership,
     harnessInvocation: {
       startRequest,
       specHash,
@@ -268,20 +348,93 @@ export async function prepareDesktopObserver(request: DesktopObserverRequest) {
       correlation: {
         requestId,
         operationId,
+        hostSessionId: request.identity
+          .hostSessionId as BrokerExecutionProfile['observability']['correlation']['hostSessionId'],
+        generation: request.identity.generation,
+        runtimeId: request.identity
+          .runtimeId as BrokerExecutionProfile['observability']['correlation']['runtimeId'],
         invocationId,
-        traceId,
-        ...request.hostingIdentity,
-      } as BrokerExecutionProfile['observability']['correlation'],
+        ...(request.identity.runId === undefined
+          ? {}
+          : {
+              runId: request.identity.runId as NonNullable<
+                BrokerExecutionProfile['observability']['correlation']['runId']
+              >,
+            }),
+        ...(traceId === undefined ? {} : { traceId }),
+      },
     },
   }
-  selectedProfile.profileHash = neutralBrokerExecutionProfileHash(selectedProfile)
+  const profileHash = neutralBrokerExecutionProfileHash(unhashedProfile)
+  const patchStartRequestHash = unhashedProfile.harnessInvocation.startRequestHash
+  const patchedStartRequest: InvocationStartRequest = {
+    ...startRequest,
+    spec: {
+      ...startRequest.spec,
+      correlation: {
+        ...startRequest.spec.correlation,
+        startRequestHash: patchStartRequestHash,
+        selectedProfileHash: profileHash,
+      },
+    },
+  }
+  const selectedProfile: BrokerExecutionProfile = {
+    ...unhashedProfile,
+    profileHash,
+    harnessInvocation: {
+      ...unhashedProfile.harnessInvocation,
+      startRequest: patchedStartRequest,
+    },
+  }
   const profileFindings = validateBrokerExecutionProfile(selectedProfile)
   if (profileFindings.length > 0) {
-    return notPrepared(
-      'observer_plan_invalid',
-      profileFindings.map((finding) => finding.message).join('; ')
-    )
+    return {
+      ok: false as const,
+      code: 'observer_plan_invalid',
+      detail: profileFindings.map((finding) => finding.message).join('; '),
+    }
   }
+  return {
+    ok: true as const,
+    profile: selectedProfile,
+    startRequest: patchedStartRequest,
+    bundleExecutable,
+  }
+}
+
+export async function prepareDesktopObserver(request: DesktopObserverRequest) {
+  const built = buildCodexDesktopObserverProfile({
+    registration: request.registration,
+    ...(request.operatorBundleExecutable === undefined
+      ? {}
+      : { operatorBundleExecutable: request.operatorBundleExecutable }),
+    identity: {
+      requestId: request.identity.requestId,
+      operationId: request.identity.operationId,
+      invocationId: request.identity.invocationId,
+      runtimeId: request.hostingIdentity.runtimeId,
+      hostSessionId: request.hostingIdentity.hostSessionId,
+      generation: request.hostingIdentity.generation,
+      ...(request.hostingIdentity.runId === undefined
+        ? {}
+        : { runId: request.hostingIdentity.runId }),
+      ...(request.identity.traceId === undefined ? {} : { traceId: request.identity.traceId }),
+    },
+    brokerOwnership: 'hrc-owned-process',
+    ...(request.recoveryBoundary === undefined
+      ? {}
+      : { recoveryBoundary: request.recoveryBoundary }),
+    nativeAttemptStorePath: request.nativeAttemptStorePath,
+  })
+  if (!built.ok) return notPrepared(built.code, built.detail)
+  const { profile: selectedProfile, startRequest, bundleExecutable } = built
+  const registration = request.registration
+  const traceId = request.identity.traceId as
+    | BrokerExecutionProfile['observability']['correlation']['traceId']
+    | undefined
+  const invocationId = request.identity.invocationId as NonNullable<
+    InvocationStartRequest['spec']['invocationId']
+  >
 
   const identity: CompiledRuntimePlan['identity'] = {
     requestId: selectedProfile.observability.correlation.requestId,

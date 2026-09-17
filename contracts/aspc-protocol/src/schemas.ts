@@ -503,10 +503,11 @@ const validatePrepareDesktopObserverParams: ParamsValidator = (value, base, issu
       'registration',
       'operatorBundleExecutable',
       'hostingIdentity',
+      'identity',
       'recoveryBoundary',
       'nativeAttemptStorePath',
     ],
-    ['registration', 'hostingIdentity', 'nativeAttemptStorePath']
+    ['registration', 'hostingIdentity', 'identity', 'nativeAttemptStorePath']
   )
   if (!request) return
   const registration = requireRecord(request['registration'], path(base, 'registration'), issues)
@@ -572,6 +573,19 @@ const validatePrepareDesktopObserverParams: ParamsValidator = (value, base, issu
       hostingIdentity,
       new Set(['runtimeId', 'runId', 'hostSessionId', 'generation']),
       path(base, 'hostingIdentity'),
+      issues
+    )
+  }
+  const callerIdentity = requireRecord(request['identity'], path(base, 'identity'), issues)
+  if (callerIdentity) {
+    for (const field of ['requestId', 'operationId', 'invocationId']) {
+      requireString(callerIdentity[field], path(base, `identity.${field}`), issues)
+    }
+    optionalString(callerIdentity['traceId'], path(base, 'identity.traceId'), issues)
+    rejectUnknownParams(
+      callerIdentity,
+      new Set(['requestId', 'operationId', 'invocationId', 'traceId']),
+      path(base, 'identity'),
       issues
     )
   }
