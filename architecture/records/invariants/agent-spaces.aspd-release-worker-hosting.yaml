@@ -55,8 +55,8 @@ required_tests:
   - retained pre-binding v1 release inspection activation and Codex rollback preserve its compiled behavior with hostedDrivers absent and do not claim non-Codex hosting evidence
   - binding-aware A to B activation outage and saved-preparation proofs preserve frozen worker identity and live old-worker control
 last_verified:
-  date: 2026-09-16
-  evidence: Daedalus source-grounded approval of T-08561 amendment c6d821ce narrowed the release-bound set to codex-app-server, claude-code-tmux, and pi-tui-tmux, with Pi SDK explicitly unbound and refused; implementation gates remain pending
+  date: 2026-09-17
+  evidence: T-08561 isolated release A/B matrix built and inspected binding-aware releases, completed real Claude Pi TUI and Codex turns from immutable workers, observed Pi SDK and compiled unhosted-driver refusal before executionRelease, proved helper and statusline closure plus MCP neutrality, preserved a retained pre-binding Codex rollback, and kept live A/B workers controllable through activation and aspd outage; evidence retained under var/wrkq-artifacts/T-08561/implementation
 reopen_when:
   - release worker selection stops deriving from the inspected binding table
   - hostedDrivers is inferred from registry inventory or changes from positive per-executable binding evidence
