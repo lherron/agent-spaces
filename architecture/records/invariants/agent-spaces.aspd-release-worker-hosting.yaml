@@ -27,6 +27,15 @@ predicate: >
   hostedDrivers to contain the selected broker driver. HRC retains worker
   hosting, lifecycle, placement, and routing authority.
 authority: Daedalus approval of wrkq T-08561 revision de063d73 on 2026-09-16
+named_gap: >
+  The Pi SDK release binding is deferred. At implementation commits c96bbd46
+  and d219b1d3 the release closure gate rejected the compiled Pi worker because
+  transitive @silvia-odwyer/photon-node and esbuild modules under the Pi SDK
+  package root retained build-host absolute paths. A hermetic release-specific
+  Pi SDK compilation surface remains required. Until then new releases leave
+  pi-sdk unbound and refuse it before executionRelease; T-08562 must keep Pi SDK
+  off the aspd route or refuse it explicitly. The existing non-aspd Pi SDK path
+  is unchanged.
 source:
   - wrkq:T-08561
   - docs/proposals/aspd-release-supported-claude-pi-workers.md
@@ -38,7 +47,8 @@ source:
   - architecture/records/invariants/agent-spaces.codex-tui-app-server-presentation.yaml
 required_tests:
   - new release build and inspection validate worker bindings driver inventories identity and payload and asset digests
-  - newly built releases prepare and complete real Claude Pi TUI Pi SDK and Codex turns with the selected release worker and hostedDrivers containing the selected driver
+  - newly built releases prepare and complete real Claude Pi TUI and Codex turns with the selected release worker and hostedDrivers containing the selected driver
+  - Pi SDK remains unbound until its transitive build-host absolute paths have a hermetic release compilation surface and new releases refuse Pi SDK before executionRelease
   - an unbound selected driver returns release_worker_driver_unavailable before executionRelease and creates no worker pane or native harness
   - generated Claude and Pi settings wrappers launch descriptions panes and process trees resolve ASP-owned helpers beneath the selected immutable release and the Claude bundle carries the verified statusline bytes
   - retained pre-binding v1 release inspection activation and Codex rollback preserve its compiled behavior with hostedDrivers absent and do not claim non-Codex hosting evidence

@@ -12,10 +12,10 @@ just inspect-asp-release /absolute/install-root/<release-id>
 ```
 
 The release root contains `aspc-facade`, `aspd`, `harness-broker`,
-`harness-broker-pi`, `release.json`, immutable assets, and the Bun-compiled
-payloads under `libexec/`. The launchers export the selected release identity
-and source commit, then execute only the sibling payload. Every identity-bound
-launcher supports `--release-info`; both workers also support `drivers --json`.
+`release.json`, immutable assets, and the Bun-compiled payloads under
+`libexec/`. The launchers export the selected release identity and source
+commit, then execute only the sibling payload. Every identity-bound launcher
+supports `--release-info`; the worker also supports `drivers --json`.
 
 Builds require a clean checkout so `sourceCommit` names the exact input. The
 builder installs no dependencies and the compiled payloads embed their runtime
@@ -40,7 +40,8 @@ ASP_MATRIX_HARNESS_BROKER_BIN=/absolute/release/harness-broker \
 bun run smoke:matrix:aspc --config real-codex --keep-artifacts
 ```
 
-Select the worker recorded in each preparation: Codex, Claude, and Pi TUI use
-`harness-broker`; Pi SDK uses `harness-broker-pi`. Matrix/evidence reports record
-the selected executable and `hostedDrivers`. Compile RPCs run through the
-release facade/aspd and command turns through the selected release worker.
+Codex, Claude, and Pi TUI preparations select `harness-broker`; matrix/evidence
+reports record the selected executable and `hostedDrivers`. Pi SDK remains
+unbound pending a hermetic release compilation surface, so binding-aware aspd
+refuses it before `executionRelease`. Compile RPCs run through the release
+facade/aspd and command turns through the selected release worker.

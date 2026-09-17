@@ -167,18 +167,16 @@ describe('standalone ASP release inspection', () => {
 
   test('validates identity-bound worker bindings against driver inventories and assets', () => {
     const release = fixture({
-      names: ['aspc-facade', 'harness-broker', 'harness-broker-pi', 'aspd'],
+      names: ['aspc-facade', 'harness-broker', 'aspd'],
       embeddedIdentity: true,
       payload: (_name, id, sourceCommit) => `#!/bin/sh\n# ${id} ${sourceCommit}\nexit 0\n`,
       workerBindings: {
         'codex-app-server': 'harness-broker',
         'claude-code-tmux': 'harness-broker',
         'pi-tui-tmux': 'harness-broker',
-        'pi-sdk': 'harness-broker-pi',
       },
       driverInventories: {
         'harness-broker': ['codex-app-server', 'claude-code-tmux', 'pi-tui-tmux'],
-        'harness-broker-pi': ['pi-sdk'],
       },
       statusline: '#!/bin/sh\necho ready\n',
     })
@@ -187,7 +185,6 @@ describe('standalone ASP release inspection', () => {
       'codex-app-server': 'harness-broker',
       'claude-code-tmux': 'harness-broker',
       'pi-tui-tmux': 'harness-broker',
-      'pi-sdk': 'harness-broker-pi',
     })
     expect(result.assetResolution?.['claude-statusline']?.path).toBe(
       join(release, 'assets', 'claude', 'statusline.sh')

@@ -13,10 +13,11 @@ it never starts a harness. Workers are selected from the release's inspected
 driver-to-executable binding table, hosted by the client, and controlled
 directly over their own Unix sockets with the existing broker protocol.
 
-Binding-aware releases support `codex-app-server`, `claude-code-tmux`,
-`pi-tui-tmux`, and in-process `pi-sdk`. The first three use
-`harness-broker`; `pi-sdk` uses the separately identity-bound
-`harness-broker-pi`. HRC remains the worker host and lifecycle authority.
+Binding-aware releases support `codex-app-server`, `claude-code-tmux`, and
+`pi-tui-tmux` through `harness-broker`. `pi-sdk` remains on its current
+non-aspd path pending a hermetic release compilation surface; selecting it
+against a binding-aware release is refused before `executionRelease`. HRC
+remains the worker host and lifecycle authority.
 
 ## Protocol: existing verbs, additive metadata only
 
@@ -223,7 +224,10 @@ agent sources.
   release; the client's pre-launch and handshake checks enforce the binding.
 - No durable start receipt / lost-reply retry on this path (above).
 - Binding-aware producer support includes headless/interactive Codex,
-  `claude-code-tmux`, `pi-tui-tmux`, and `pi-sdk`. HRC route migration and its
+  `claude-code-tmux`, and `pi-tui-tmux`. `pi-sdk` is deliberately unbound after
+  its compiled worker failed the release closure gate on build-host paths from
+  transitive `@silvia-odwyer/photon-node` and `esbuild`; T-08562 must keep it off
+  the aspd route or refuse it explicitly. HRC route migration and its
   positive-evidence admission rule are separate consumer work (T-08562).
 - `codex-cli-tmux` remains registered and deprecated, with no release binding;
   `codex-desktop` and `arris-resident` are not newly bound here.

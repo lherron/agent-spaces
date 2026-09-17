@@ -24,7 +24,6 @@ const RELEASE_SCHEMA = 'asp-standalone-release/v1' as const
 const EXECUTABLES = {
   'aspc-facade': 'scripts/asp-release/entries/aspc-facade.ts',
   'harness-broker': 'scripts/asp-release/entries/harness-broker.ts',
-  'harness-broker-pi': 'scripts/asp-release/entries/harness-broker-pi.ts',
   aspd: 'scripts/asp-release/entries/aspd.ts',
 } as const
 
@@ -34,17 +33,12 @@ type ExecutableName = keyof typeof EXECUTABLES
 const REQUIRED_EXECUTABLES: readonly ExecutableName[] = ['aspc-facade', 'harness-broker']
 
 /** Executables whose entrypoints report the compiled-in release identity over RPC. */
-const IDENTITY_BOUND_EXECUTABLES: ReadonlySet<ExecutableName> = new Set([
-  'aspd',
-  'harness-broker',
-  'harness-broker-pi',
-])
+const IDENTITY_BOUND_EXECUTABLES: ReadonlySet<ExecutableName> = new Set(['aspd', 'harness-broker'])
 
 const WORKER_BINDINGS = {
   'codex-app-server': 'harness-broker',
   'claude-code-tmux': 'harness-broker',
   'pi-tui-tmux': 'harness-broker',
-  'pi-sdk': 'harness-broker-pi',
 } as const satisfies Record<string, ExecutableName>
 
 const RELEASE_ASSETS = {
