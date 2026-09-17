@@ -159,7 +159,8 @@ function adaptCodexRecord(
   line: number,
   ignoredCallIds: Set<string>
 ): AdapterResult | undefined {
-  if (record['jsonrpc'] === '2.0' && typeof record['method'] === 'string') {
+  const jsonRpc = record['jsonrpc']
+  if (typeof record['method'] === 'string' && (jsonRpc === undefined || jsonRpc === '2.0')) {
     if (record['method'] !== 'item/started' && record['method'] !== 'item/completed') {
       return { provider: 'codex', disposition: 'ignored' }
     }

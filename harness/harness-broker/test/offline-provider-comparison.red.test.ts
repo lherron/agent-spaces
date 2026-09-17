@@ -103,7 +103,7 @@ describe('T-08565 offline provider comparison oracle', () => {
   test('real Codex app-server notifications without a JSON-RPC discriminator remain observable across pages', async () => {
     // Exact native shape retained by the broker's provider transcript: Codex
     // app-server notifications carry method/params but no jsonrpc member.
-    const artifactPath = artifact('codex-app-server-native.jsonl', [
+    const nativeRows = [
       {
         method: 'thread/status/changed',
         params: { threadId: 'thread-real', status: { type: 'active', activeFlags: [] } },
@@ -141,7 +141,8 @@ describe('T-08565 offline provider comparison oracle', () => {
         },
         emittedAtMs: 1789624939181,
       },
-    ])
+    ]
+    const artifactPath = artifact('codex-app-server-native.jsonl', nativeRows)
 
     const pages: any[] = []
     let afterLine = 0
@@ -188,6 +189,22 @@ describe('T-08565 offline provider comparison oracle', () => {
       unknownRecords: 0,
     })
     expect(whole.response.warnings).toEqual([])
+
+    // The discriminator-free provider transcript must retain the accepted
+    // verifier semantics of the same notifications in JSON-RPC envelopes.
+    const jsonRpc = await runProvider({
+      artifactPath: artifact(
+        'codex-app-server-jsonrpc.jsonl',
+        nativeRows.map((row) => ({ ...row, jsonrpc: '2.0' }))
+      ),
+      afterLine: 0,
+      limit: 100,
+    })
+    expect(jsonRpc.exitCode).toBe(0)
+    expect(jsonRpc.response.provider).toBe(whole.response.provider)
+    expect(jsonRpc.response.observations).toEqual(whole.response.observations)
+    expect(jsonRpc.response.counts).toEqual(whole.response.counts)
+    expect(jsonRpc.response.warnings).toEqual(whole.response.warnings)
   })
 
   test('Codex and Claude tool pairs split across pages equal one-page parsing', async () => {
