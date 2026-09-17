@@ -229,8 +229,10 @@ export async function inspectRuntimePlacement(
             ...((declaration['priming'] as { content?: string } | undefined)?.content
               ? { primingPrompt: (declaration['priming'] as { content: string }).content }
               : {}),
-            promptSectionSizes: inspected.diagnostics.prompt.sectionSizes,
-            reminderSectionSizes: inspected.diagnostics.reminder.sectionSizes,
+            promptSectionSizes: normalizeSectionSizes(inspected.diagnostics.prompt.sectionSizes),
+            reminderSectionSizes: normalizeSectionSizes(
+              inspected.diagnostics.reminder.sectionSizes
+            ),
             promptTotalChars: inspected.prompt.totalChars,
             reminderTotalChars: inspected.reminder.totalChars,
             totalContextChars: inspected.diagnostics.totalChars,
@@ -259,6 +261,18 @@ export async function inspectRuntimePlacement(
     prompt,
     effectiveEnvironmentHash: stableHash(environment),
   }
+}
+
+function normalizeSectionSizes(values: string[]): Array<{ name: string; chars: number }> {
+  return values.map((value) => {
+    const separator = value.lastIndexOf('=')
+    const name = value.slice(0, separator)
+    const chars = Number(value.slice(separator + 1))
+    if (separator <= 0 || !Number.isSafeInteger(chars) || chars < 0) {
+      throw new Error(`Invalid prompt section size diagnostic: ${value}`)
+    }
+    return { name, chars }
+  })
 }
 
 function effectiveEnvironment(
