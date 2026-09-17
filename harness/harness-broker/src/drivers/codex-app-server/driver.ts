@@ -62,7 +62,11 @@ import {
   shellQuote,
 } from '../tmux-shared'
 import { CODEX_CAPABILITIES, CODEX_TUI_CAPABILITIES } from './capabilities'
-import { resolveCodexTuiWrapperEntryPath } from './codex-tui-wrapper'
+import {
+  type CodexTuiLauncher,
+  buildCodexTuiHookReceiverArgv,
+  buildCodexTuiWrapperArgvPrefix,
+} from './codex-tui-wrapper'
 import {
   CODEX_DRIVER_KIND,
   classifyCodexNotificationMethod,
@@ -161,6 +165,11 @@ type RendererControlEnvelope =
 export interface CodexAppServerDriverOptions {
   /** T-08554: how the viewer renderer is launched; absent keeps `bun <entry>`. */
   rendererLauncher?: RendererLauncher | undefined
+  /**
+   * T-08556: the executable that runs the codex-tui wrapper and codex hook
+   * receiver; absent keeps `<execPath> <wrapper entry>` and PATH `harness-broker`.
+   */
+  codexTuiLauncher?: CodexTuiLauncher | undefined
   codexTui?: {
     tmuxBin?: string | undefined
     tmuxExec?: TmuxExec | undefined
@@ -1487,11 +1496,13 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
           expectedRuntimeId,
           options.codexTui?.socketDir
         )
-        const hookCliPath = await writeCodexTuiHookBridgeWrapper(hookListener.socketPath)
+        const hookCliPath = await writeCodexTuiHookBridgeWrapper(
+          hookListener.socketPath,
+          options.codexTuiLauncher
+        )
         const launch = await writeTmuxLaunchExecFiles(`${socketBase}.codex-tui`, {
           argv: [
-            process.execPath,
-            resolveCodexTuiWrapperEntryPath(),
+            ...buildCodexTuiWrapperArgvPrefix(options.codexTuiLauncher),
             '--command',
             startSpec.process.command,
             '--socket',
@@ -2118,9 +2129,14 @@ async function readCodexTuiPid(socketPath: string | undefined): Promise<number |
   }
 }
 
-async function writeCodexTuiHookBridgeWrapper(callbackSocket: string): Promise<string> {
+async function writeCodexTuiHookBridgeWrapper(
+  callbackSocket: string,
+  launcher: CodexTuiLauncher | undefined
+): Promise<string> {
   const wrapperPath = `${callbackSocket}.codex-hook.ts`
-  const shellCommand = `harness-broker codex-hook --socket ${shellQuote(callbackSocket)}`
+  const shellCommand = buildCodexTuiHookReceiverArgv(launcher, callbackSocket)
+    .map(shellQuote)
+    .join(' ')
   await writeFile(
     wrapperPath,
     [

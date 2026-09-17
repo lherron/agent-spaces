@@ -56,6 +56,15 @@ passed explicitly by the release entrypoint, so the viewer always runs from the
 same release as the worker. A checkout broker keeps `bun <renderer-entry>`
 (T-08554).
 
+A release worker that hosts the interactive codex-app-server TUI (`codexTui`
+presentation, HRC's `hrc run` door) launches its codex-tui wrapper as
+`<releaseRoot>/libexec/harness-broker codex-tui-wrapper …` and its generated hook
+bridge calls `<releaseRoot>/libexec/harness-broker codex-hook …`, both passed
+explicitly by the release entrypoint, so the TUI wrapper and hook receiver run
+from the same release as the worker. A checkout broker keeps `<execPath>
+<codex-tui-wrapper entry>` and PATH `harness-broker codex-hook` (T-08556). The
+wire, the compile and `worker.argvPrefix` are unchanged.
+
 ## Preparation → hosting → start
 
 1. **Prepare.** The client connects, calls `aspc.hello` (every connection), then
@@ -192,6 +201,10 @@ does not freeze mutable agent sources.
 - No durable start receipt / lost-reply retry on this path (above).
 - One route: headless `codex-app-server`. Other harnesses, participant-served
   workers, offline journal readers and HRC integration are out of scope.
+  [HRC later hosts headless codex-app-server with and without the renderer viewer
+  (T-08542–T-08555) and the interactive `codexTui` birth of its `hrc run` door
+  (T-08556); the release payload carries the renderer, codex-tui wrapper and
+  codex hook receiver for those.]
 
 ## Acceptance plan
 

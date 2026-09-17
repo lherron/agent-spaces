@@ -8,6 +8,7 @@ import type {
 import { type BrokerAttachIdentity, createBroker } from './broker'
 import { createArrisResidentDriver } from './drivers/arris-resident/driver'
 import { createDefaultClaudeCodeTmuxDriver } from './drivers/claude-code-tmux/driver'
+import type { CodexTuiLauncher } from './drivers/codex-app-server/codex-tui-wrapper'
 import { createCodexAppServerDriver } from './drivers/codex-app-server/driver'
 import type { RendererLauncher } from './drivers/codex-app-server/renderer'
 import { createDefaultCodexCliTmuxDriver } from './drivers/codex-cli-tmux/driver'
@@ -58,6 +59,8 @@ export interface DefaultBrokerOptions {
   releaseIdentity?: AspReleaseIdentity | undefined
   /** T-08554: renderer launcher for the codex-app-server viewer. */
   rendererLauncher?: RendererLauncher | undefined
+  /** T-08556: codex-tui wrapper / hook receiver launcher for the codex-app-server TUI. */
+  codexTuiLauncher?: CodexTuiLauncher | undefined
 }
 
 export function createDefaultBroker(
@@ -69,9 +72,14 @@ export function createDefaultBroker(
 ) {
   return createBroker({
     drivers: [
-      createCodexAppServerDriver(
-        options.rendererLauncher !== undefined ? { rendererLauncher: options.rendererLauncher } : {}
-      ),
+      createCodexAppServerDriver({
+        ...(options.rendererLauncher !== undefined
+          ? { rendererLauncher: options.rendererLauncher }
+          : {}),
+        ...(options.codexTuiLauncher !== undefined
+          ? { codexTuiLauncher: options.codexTuiLauncher }
+          : {}),
+      }),
       createCodexDesktopDriver(),
       createArrisResidentDriver(),
       createDefaultClaudeCodeTmuxDriver(options.hookIpcDir),

@@ -48,6 +48,35 @@ export function resolveCodexTuiWrapperEntryPath(): string {
   return join(dirname(self), `codex-tui-wrapper${extname(self)}`)
 }
 
+/**
+ * T-08556: an executable that carries the codex-tui wrapper and the codex hook
+ * receiver as subcommands. A standalone ASP release passes its own payload
+ * (`<execPath>`) so the TUI wrapper and hook receiver run from the same release
+ * as the worker; inside a bun-compiled release the wrapper entry file does not
+ * exist (`/$bunfs/root/codex-tui-wrapper`).
+ */
+export interface CodexTuiLauncher {
+  command: string
+}
+
+/** The argv prefix that runs the wrapper: `<launcher> codex-tui-wrapper` or `<execPath> <entry>`. */
+export function buildCodexTuiWrapperArgvPrefix(
+  launcher: CodexTuiLauncher | undefined,
+  execPath: string = process.execPath
+): string[] {
+  return launcher !== undefined
+    ? [launcher.command, 'codex-tui-wrapper']
+    : [execPath, resolveCodexTuiWrapperEntryPath()]
+}
+
+/** The shell command the generated hook bridge runs to reach the codex hook receiver. */
+export function buildCodexTuiHookReceiverArgv(
+  launcher: CodexTuiLauncher | undefined,
+  callbackSocket: string
+): string[] {
+  return [launcher?.command ?? 'harness-broker', 'codex-hook', '--socket', callbackSocket]
+}
+
 interface WrapperArgs {
   command: string
   socketPath: string
@@ -57,12 +86,11 @@ interface WrapperArgs {
   runtimeId?: string | undefined
 }
 
-function flag(name: string): string | undefined {
-  const index = process.argv.indexOf(name)
-  return index >= 0 ? process.argv[index + 1] : undefined
-}
-
-function parseArgs(): WrapperArgs {
+function parseArgs(argv: readonly string[]): WrapperArgs {
+  const flag = (name: string): string | undefined => {
+    const index = argv.indexOf(name)
+    return index >= 0 ? argv[index + 1] : undefined
+  }
   const command = flag('--command')
   const socketPath = flag('--socket')
   const attachTokenPath = flag('--attach-token')
@@ -123,8 +151,9 @@ async function killChild(child: ChildProcess | undefined): Promise<void> {
   if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
 }
 
-async function run(): Promise<void> {
-  const options = parseArgs()
+/** Run the wrapper with its flags (`harness-broker codex-tui-wrapper …` or the entry file). */
+export async function runCodexTuiWrapper(argv: readonly string[]): Promise<void> {
+  const options = parseArgs(argv)
   // Paint one line the instant we start. The broker submits the launch command
   // with a confirm loop that re-presses Enter every 1.5s (up to five times)
   // until the pane no longer ends with the command text, and that loop cannot
@@ -217,7 +246,7 @@ async function run(): Promise<void> {
 }
 
 if (import.meta.main) {
-  await run().catch((error) => {
+  await runCodexTuiWrapper(process.argv.slice(2)).catch((error) => {
     process.stderr.write(
       `codex-tui wrapper failed: ${error instanceof Error ? error.message : String(error)}\n`
     )

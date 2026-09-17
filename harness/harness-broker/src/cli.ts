@@ -28,6 +28,7 @@ import {
   runClaudeHookBridgeCli,
   runClaudeHookDecisionBridgeCli,
 } from './drivers/claude-code-tmux/hook-bridge'
+import type { CodexTuiLauncher } from './drivers/codex-app-server/codex-tui-wrapper'
 import type { RendererLauncher } from './drivers/codex-app-server/renderer'
 import { runCodexHookBridgeCli } from './drivers/codex-cli-tmux/hook-bridge'
 import type { Driver } from './drivers/driver'
@@ -69,6 +70,12 @@ export interface RunBrokerCliOptions {
    * viewer runs from the same release as the worker.
    */
   rendererLauncher?: RendererLauncher | undefined
+  /**
+   * T-08556: how this executable's codex-app-server TUI launches its codex-tui
+   * wrapper and codex hook receiver. A standalone release passes its own payload
+   * so both run from the same release as the worker.
+   */
+  codexTuiLauncher?: CodexTuiLauncher | undefined
 }
 
 export async function runBrokerCli(options: RunBrokerCliOptions): Promise<void> {
@@ -93,6 +100,7 @@ export async function runBrokerCli(options: RunBrokerCliOptions): Promise<void> 
       additionalDrivers: options.additionalDrivers,
       releaseIdentity: options.releaseIdentity,
       rendererLauncher: options.rendererLauncher,
+      codexTuiLauncher: options.codexTuiLauncher,
     })
     const hello = await broker.hello({
       clientInfo: { name: 'harness-broker-cli' },
@@ -117,6 +125,14 @@ export async function runBrokerCli(options: RunBrokerCliOptions): Promise<void> 
     await runOnce(args.slice(1), options)
   } else if (command === 'validate-start-request') {
     await validateStartRequestCommand(args.slice(1))
+  } else if (command === 'codex-tui-wrapper') {
+    const { runCodexTuiWrapper } = await import('./drivers/codex-app-server/codex-tui-wrapper.js')
+    await runCodexTuiWrapper(args.slice(1)).catch((error) => {
+      process.stderr.write(
+        `codex-tui wrapper failed: ${error instanceof Error ? error.message : String(error)}\n`
+      )
+      process.exit(1)
+    })
   } else if (command === 'renderer') {
     const { runRendererEntry } = await import('./drivers/codex-app-server/renderer-entry.js')
     await runRendererEntry(args.slice(1))
@@ -178,6 +194,7 @@ async function runStdio(args: string[], options: RunBrokerCliOptions): Promise<v
       additionalDrivers: options.additionalDrivers,
       releaseIdentity: options.releaseIdentity,
       rendererLauncher: options.rendererLauncher,
+      codexTuiLauncher: options.codexTuiLauncher,
     }
   )
 
@@ -492,6 +509,7 @@ async function runUnix(args: string[], options: RunBrokerCliOptions): Promise<vo
       additionalDrivers: options.additionalDrivers,
       releaseIdentity: options.releaseIdentity,
       rendererLauncher: options.rendererLauncher,
+      codexTuiLauncher: options.codexTuiLauncher,
       ...(eventLedger !== undefined ? { eventLedger } : {}),
       // Raw ingress journal + disposition index live beside the normalized
       // ledger (§7.1, §8.1). Without a ledger path capture stays in memory,
