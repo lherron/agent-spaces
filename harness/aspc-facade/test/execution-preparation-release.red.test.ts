@@ -210,6 +210,7 @@ function directRequest(): UnknownRecord {
 function realDirectFixture(): {
   socketPath: string
   request: UnknownRecord
+  conflictingAgentsRoot: string
   canonicalSources: UnknownRecord
 } {
   const root = tempRoot()
@@ -220,9 +221,15 @@ function realDirectFixture(): {
   const linkedAgentsRoot = join(root, 'linked-agents')
   const projectRoot = join(root, 'project')
   const daemonDefault = join(root, 'conflicting-daemon-default')
+  const conflictingAgentsRoot = join(root, 'conflicting-agents')
   mkdirSync(realAgentRoot, { recursive: true })
   mkdirSync(projectRoot, { recursive: true })
   mkdirSync(daemonDefault, { recursive: true })
+  mkdirSync(conflictingAgentsRoot, { recursive: true })
+  writeFileSync(
+    join(realAspHome, 'config.toml'),
+    `agents-root = ${JSON.stringify(realAgentsRoot)}\n`
+  )
   symlinkSync(realAspHome, linkedAspHome)
   symlinkSync(realAgentsRoot, linkedAgentsRoot)
   writeFileSync(
@@ -254,6 +261,7 @@ model = "gpt-5.3-codex"
   process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
   return {
     socketPath: join(root, 'aspd.sock'),
+    conflictingAgentsRoot,
     canonicalSources: {
       aspHome: realpathSync.native(realAspHome),
       agentsRoot: realpathSync.native(realAgentsRoot),
@@ -305,6 +313,23 @@ describe('release-bound preparation service (T-08577)', () => {
         declaration: { agentSources: fixture.canonicalSources },
         release: { releaseId: selected.identity.releaseId },
       })
+      const context = fixture.request['context'] as UnknownRecord
+      const conflicting = await client.prepareProcessInvocation({
+        ...fixture.request,
+        context: {
+          ...context,
+          agentSources: {
+            ...((context['agentSources'] as UnknownRecord | undefined) ?? {}),
+            agentsRoot: fixture.conflictingAgentsRoot,
+          },
+        },
+      } as never)
+      expect(conflicting).toMatchObject({
+        schemaVersion: 'aspc-prepare-process-invocation-response/v1',
+        ok: false,
+        failure: { kind: 'incompatible', code: 'configured_context_mismatch' },
+      })
+      expect(Object.hasOwn(conflicting, 'spec')).toBe(false)
     } finally {
       await client.close()
       await server.retire()

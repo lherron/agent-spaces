@@ -14,6 +14,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -50,7 +51,7 @@ afterEach(() => {
 })
 
 function fixture(): Fixture {
-  const base = mkdtempSync(join(tmpdir(), 't08577-direct-'))
+  const base = realpathSync.native(mkdtempSync(join(tmpdir(), 't08577-direct-')))
   const agentsRoot = join(base, 'agents')
   const agentRoot = join(agentsRoot, 'cody')
   const projectRoot = join(base, 'agent-spaces')
@@ -59,6 +60,7 @@ function fixture(): Fixture {
   mkdirSync(agentRoot, { recursive: true })
   mkdirSync(projectRoot, { recursive: true })
   mkdirSync(aspHome, { recursive: true })
+  writeFileSync(join(aspHome, 'config.toml'), `agents-root = ${JSON.stringify(agentsRoot)}\n`)
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
     `version = 3
