@@ -15,7 +15,12 @@ import {
 } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../../errors'
 import type { TmuxExec, TmuxPaneController } from '../../runtime/tmux'
-import { writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
+import {
+  type TmuxHelperLauncher,
+  tmuxHelperCommand,
+  tmuxHelperRunner,
+  writeTmuxLaunchExecFiles,
+} from '../../runtime/tmux-launch-exec'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
 import { PI_TUI_TMUX_AUTHORITY } from '../evidence-authority'
 import { createHookCaptureSeam } from '../hook-capture'
@@ -98,6 +103,8 @@ export interface PiTuiTmuxDriverOptions {
     tmuxBin?: string | undefined
     exec?: TmuxExec | undefined
   }
+  /** Same-payload launcher for release-owned hook and tmux helpers. */
+  helperLauncher?: TmuxHelperLauncher | undefined
   hooks: {
     listen: (
       handler: PiHookEnvelopeHandler,
@@ -292,6 +299,7 @@ export function createPiTuiTmuxDriver(options: PiTuiTmuxDriverOptions): Driver {
       const launchCommand = await buildLaunchCommandLine(spec, driverCtx, {
         callbackSocket: hookListener.socketPath,
         hookCliPath,
+        helperLauncher: options.helperLauncher,
         ...(expectedRuntimeId !== undefined ? { runtimeId: expectedRuntimeId } : {}),
       })
       await paneController.sendPastedLine(launchCommand)
@@ -349,7 +357,12 @@ export function createPiTuiTmuxDriver(options: PiTuiTmuxDriverOptions): Driver {
 async function buildLaunchCommandLine(
   spec: HarnessInvocationSpec,
   ctx: DriverContext,
-  hookEnv: { callbackSocket: string; hookCliPath: string; runtimeId?: string | undefined }
+  hookEnv: {
+    callbackSocket: string
+    hookCliPath: string
+    runtimeId?: string | undefined
+    helperLauncher?: TmuxHelperLauncher | undefined
+  }
 ): Promise<string> {
   const env = {
     ...spec.process.lockedEnv,
@@ -360,13 +373,19 @@ async function buildLaunchCommandLine(
     HARNESS_BROKER_HOOK_GENERATION: String(PI_HOOK_GENERATION),
     ...(hookEnv.runtimeId !== undefined ? { HARNESS_BROKER_RUNTIME_ID: hookEnv.runtimeId } : {}),
   }
-  const launch = await writeTmuxLaunchExecFiles(`${hookEnv.callbackSocket}.pi`, {
-    argv: [spec.process.command, ...spec.process.args],
-    cwd: spec.process.cwd,
-    env,
-    pathPrepend: spec.process.pathPrepend,
-    ...(spec.launch !== undefined ? { prompts: spec.launch } : {}),
-  })
+  const launch = await writeTmuxLaunchExecFiles(
+    `${hookEnv.callbackSocket}.pi`,
+    {
+      argv: [spec.process.command, ...spec.process.args],
+      cwd: spec.process.cwd,
+      env,
+      pathPrepend: spec.process.pathPrepend,
+      ...(spec.launch !== undefined ? { prompts: spec.launch } : {}),
+    },
+    hookEnv.helperLauncher !== undefined
+      ? { runner: tmuxHelperRunner(hookEnv.helperLauncher, 'tmux-launch') }
+      : {}
+  )
   return launch.commandLine
 }
 
@@ -407,16 +426,21 @@ async function writePiHookBridgeWrapper(options: {
 }
 
 export function createDefaultPiTuiTmuxDriver(
-  socketDir: string = join(tmpdir(), 'harness-broker')
+  socketDir: string = join(tmpdir(), 'harness-broker'),
+  helperLauncher?: TmuxHelperLauncher | undefined
 ): Driver {
   return createPiTuiTmuxDriver({
     tmux: {},
+    ...(helperLauncher !== undefined ? { helperLauncher } : {}),
     hooks: {
       listen: (handler, context) =>
         listenForHookEnvelopes<PiTuiTmuxHookEnvelope>(
           buildPiHookSocketPath(socketDir, context),
           handler
         ),
+      ...(helperLauncher !== undefined
+        ? { bridgeCommand: tmuxHelperCommand(helperLauncher, 'pi-hook') }
+        : {}),
     },
   })
 }

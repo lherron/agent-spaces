@@ -129,11 +129,19 @@ a unix socket (`harness-broker run --transport stdio` or `--transport unix --soc
 `unix-jsonrpc-ndjson`). It manages invocations through pluggable drivers
 under `packages/harness-broker/src/drivers/`:
 
-- `claude-code-tmux`
 - `codex-app-server`
+- `codex-desktop`
+- `arris-resident`
+- `claude-code-tmux`
 - `codex-cli-tmux`
 - `pi-tui-tmux`
-- `noop`
+
+Test compositions may add `noop`; the separately composed
+`harness-broker-pi` adds `pi-sdk`. Binding-aware standalone releases select
+that identity-bound worker only for compiler-produced Pi SDK preparations via
+the existing per-preparation worker executable. The stock worker remains the
+release binding for Codex app-server, Claude tmux, and Pi TUI. Registry presence
+alone is not a release binding, and deprecated `codex-cli-tmux` remains unbound.
 
 The broker emits a normalized event vocabulary
 (`invocation.started`/`invocation.ready`, `turn.completed`,
@@ -149,8 +157,9 @@ bind (`packages/harness-broker/src/socket-path.ts`).
 `agent-harness` composes this broker surface with the Pi SDK driver and
 `agent-harness-runtime`. The broker protocol is integration scaffolding: HRC still
 owns placement, lifecycle, supervision, and durable messaging, while the SDK
-owns ASP-aware Pi session construction. The older `harness-broker-pi` binary
-remains available for compiler-produced Pi invocation specs during migration.
+owns ASP-aware Pi session construction. The compatibility `harness-broker-pi`
+composition is also packaged as an identity-bound immutable-release worker and
+selected per preparation for compiler-produced Pi SDK invocation specs.
 Profiles select this first-party path with `harness = "agent-harness"`.
 `harness = "pi-sdk"` remains a compatibility alias for existing profiles and
 callers.

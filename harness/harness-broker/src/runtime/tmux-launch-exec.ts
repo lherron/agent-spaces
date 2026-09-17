@@ -40,6 +40,30 @@ export type TmuxLaunchRunner = {
   args: string[]
 }
 
+/**
+ * Executing payload used for every ASP-owned tmux helper in a standalone
+ * release. The release passes `process.execPath`; drivers append the selected
+ * helper subcommand without consulting PATH or import.meta.
+ */
+export type TmuxHelperLauncher = {
+  command: string
+  args?: string[] | undefined
+}
+
+export function tmuxHelperCommand(launcher: TmuxHelperLauncher, subcommand: string): string {
+  return [launcher.command, ...(launcher.args ?? []), subcommand].map(shellQuote).join(' ')
+}
+
+export function tmuxHelperRunner(
+  launcher: TmuxHelperLauncher,
+  subcommand: string
+): TmuxLaunchRunner {
+  return {
+    command: launcher.command,
+    args: [...(launcher.args ?? []), subcommand],
+  }
+}
+
 export type TmuxLaunchExecFiles = {
   launchFilePath: string
   /** Absolute path to the real launch-runner module the command line invokes. */

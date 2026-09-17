@@ -1,6 +1,7 @@
 import { createAgentSpacesClient } from 'agent-spaces'
 import type { AspcCompiler } from 'spaces-aspc'
 import {
+  ClaudeAdapter,
   detectAgentLocalComponents,
   harnessRegistry,
   planPlacementRuntime,
@@ -8,22 +9,49 @@ import {
   prepareCodexRuntimeHome,
 } from 'spaces-execution'
 
-export const runtimeDependencies = {
-  getHarnessAdapter: (harnessId: Parameters<typeof harnessRegistry.getOrThrow>[0]) =>
-    harnessRegistry.getOrThrow(harnessId),
-  detectAgentLocalComponents,
-  planPlacementRuntime,
-  prepareCodexRuntimeHome,
-  prepareAgentToolRuntime,
+export interface RuntimeCompilerOptions {
+  claudeStatuslineSource?:
+    | {
+        path: string
+        sha256: string
+        required: true
+      }
+    | undefined
 }
 
-export const runtimeCompiler: AspcCompiler = async (req, options) => {
-  const client = createAgentSpacesClient({
-    ...(options?.aspHome !== undefined ? { aspHome: options.aspHome } : {}),
-    runtime: runtimeDependencies,
-  })
-  return client.compileRuntimePlan(
-    req,
-    options?.compileContext !== undefined ? { compileContext: options.compileContext } : undefined
-  )
+function createRuntimeDependencies(options: RuntimeCompilerOptions = {}) {
+  const releaseClaudeAdapter =
+    options.claudeStatuslineSource === undefined
+      ? undefined
+      : new ClaudeAdapter({ statuslineSource: options.claudeStatuslineSource })
+  return {
+    getHarnessAdapter: (harnessId: Parameters<typeof harnessRegistry.getOrThrow>[0]) =>
+      harnessId === 'claude' && releaseClaudeAdapter !== undefined
+        ? releaseClaudeAdapter
+        : harnessRegistry.getOrThrow(harnessId),
+    detectAgentLocalComponents,
+    planPlacementRuntime,
+    prepareCodexRuntimeHome,
+    prepareAgentToolRuntime,
+  }
 }
+
+export const runtimeDependencies = createRuntimeDependencies()
+
+export function createRuntimeCompiler(options: RuntimeCompilerOptions = {}): AspcCompiler {
+  const dependencies = createRuntimeDependencies(options)
+  return async (req, compileOptions) => {
+    const client = createAgentSpacesClient({
+      ...(compileOptions?.aspHome !== undefined ? { aspHome: compileOptions.aspHome } : {}),
+      runtime: dependencies,
+    })
+    return client.compileRuntimePlan(
+      req,
+      compileOptions?.compileContext !== undefined
+        ? { compileContext: compileOptions.compileContext }
+        : undefined
+    )
+  }
+}
+
+export const runtimeCompiler = createRuntimeCompiler()

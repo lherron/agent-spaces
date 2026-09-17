@@ -11,17 +11,21 @@ just install-asp-release /absolute/build-root/<release-id> /absolute/install-roo
 just inspect-asp-release /absolute/install-root/<release-id>
 ```
 
-The release root contains `aspc-facade`, `harness-broker`, `release.json`, and
-the Bun-compiled payloads under `libexec/`. The launchers export the selected
-release identity and source commit, then execute only the sibling payload. Use
-`<release>/aspc-facade --release-info` or
-`<release>/harness-broker --release-info` to read the identity bound to either
-executable.
+The release root contains `aspc-facade`, `aspd`, `harness-broker`,
+`harness-broker-pi`, `release.json`, immutable assets, and the Bun-compiled
+payloads under `libexec/`. The launchers export the selected release identity
+and source commit, then execute only the sibling payload. Every identity-bound
+launcher supports `--release-info`; both workers also support `drivers --json`.
 
 Builds require a clean checkout so `sourceCommit` names the exact input. The
 builder installs no dependencies and the compiled payloads embed their runtime
-module closure. The inspector rejects symlinks, writable content, digest drift,
-path escape, or a directory name that does not match `releaseId`.
+module closure. `release.json` binds supported broker drivers to workers and
+records the Claude statusline asset digest. The inspector rejects symlinks,
+writable content, executable/asset digest drift, path escape, identity mismatch,
+bindings to non-identity-bound or missing executables, and bindings absent from
+the selected worker's compiled `drivers --json` inventory. Historical v1
+releases may omit the additive binding/asset metadata and retain their compiled
+semantics.
 
 Installation is staging only. Consumers must select the absolute release path
 explicitly; there is no `current` link or activation/rollback protocol in this
@@ -36,5 +40,7 @@ ASP_MATRIX_HARNESS_BROKER_BIN=/absolute/release/harness-broker \
 bun run smoke:matrix:aspc --config real-codex --keep-artifacts
 ```
 
-The matrix report records both selected executable paths. Its compile RPC runs
-through the release facade and its command turn runs through the release broker.
+Select the worker recorded in each preparation: Codex, Claude, and Pi TUI use
+`harness-broker`; Pi SDK uses `harness-broker-pi`. Matrix/evidence reports record
+the selected executable and `hostedDrivers`. Compile RPCs run through the
+release facade/aspd and command turns through the selected release worker.

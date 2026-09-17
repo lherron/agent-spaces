@@ -24,7 +24,12 @@ import type { NormalizeOutcome } from '../../capture/capture-gate'
 import { BrokerError } from '../../errors'
 import type { TmuxExec, TmuxPaneController } from '../../runtime/tmux'
 import { TmuxPaneNotQuiescentError } from '../../runtime/tmux'
-import { writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
+import {
+  type TmuxHelperLauncher,
+  tmuxHelperCommand,
+  tmuxHelperRunner,
+  writeTmuxLaunchExecFiles,
+} from '../../runtime/tmux-launch-exec'
 import type {
   ApplyInputResult,
   DeliveryEvidence,
@@ -179,6 +184,8 @@ export interface ClaudeCodeTmuxDriverOptions {
     tmuxBin?: string | undefined
     exec?: TmuxExec | undefined
   }
+  /** Same-payload launcher for release-owned hook and tmux helpers. */
+  helperLauncher?: TmuxHelperLauncher | undefined
   hooks: {
     listen: (
       handler: HookEnvelopeHandler,
@@ -979,6 +986,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         ...(expectedRuntimeId !== undefined ? { runtimeId: expectedRuntimeId } : {}),
         callbackSocket: hookListener.socketPath,
         bridgeCommand: options.hooks.bridgeCommand,
+        helperLauncher: options.helperLauncher,
       })
       // Deliver the launch via the hardened paste-confirm-submit path (T-01747),
       // matching codex-cli-tmux: (re)paste until the command renders at the
@@ -1562,6 +1570,7 @@ async function buildLaunchCommandLine(
     runtimeId?: string | undefined
     callbackSocket: string
     bridgeCommand?: string | undefined
+    helperLauncher?: TmuxHelperLauncher | undefined
   }
 ): Promise<string> {
   const env = {
@@ -1574,13 +1583,19 @@ async function buildLaunchCommandLine(
     ...(hookEnv.runtimeId !== undefined ? { HARNESS_BROKER_RUNTIME_ID: hookEnv.runtimeId } : {}),
   }
   const launchArgs = await buildArgsWithMergedSettings(spec.process.args, hookEnv)
-  const launch = await writeTmuxLaunchExecFiles(`${hookEnv.callbackSocket}.claude`, {
-    argv: [spec.process.command, ...launchArgs],
-    cwd: spec.process.cwd,
-    env,
-    pathPrepend: spec.process.pathPrepend,
-    ...(spec.launch !== undefined ? { prompts: spec.launch } : {}),
-  })
+  const launch = await writeTmuxLaunchExecFiles(
+    `${hookEnv.callbackSocket}.claude`,
+    {
+      argv: [spec.process.command, ...launchArgs],
+      cwd: spec.process.cwd,
+      env,
+      pathPrepend: spec.process.pathPrepend,
+      ...(spec.launch !== undefined ? { prompts: spec.launch } : {}),
+    },
+    hookEnv.helperLauncher !== undefined
+      ? { runner: tmuxHelperRunner(hookEnv.helperLauncher, 'tmux-launch') }
+      : {}
+  )
   return launch.commandLine
 }
 
@@ -1645,16 +1660,21 @@ async function writeMergedSettingsFile(
  * pane lease (`runtime.terminalSurface`) supplies it on start.
  */
 export function createDefaultClaudeCodeTmuxDriver(
-  socketDir: string = join(tmpdir(), 'harness-broker')
+  socketDir: string = join(tmpdir(), 'harness-broker'),
+  helperLauncher?: TmuxHelperLauncher | undefined
 ): Driver {
   return createClaudeCodeTmuxDriver({
     tmux: {},
+    ...(helperLauncher !== undefined ? { helperLauncher } : {}),
     hooks: {
       listen: (handler, context) =>
         listenForHookEnvelopes<ClaudeCodeHookEnvelope>(
           buildClaudeHookSocketPath(socketDir, context),
           handler
         ),
+      ...(helperLauncher !== undefined
+        ? { bridgeCommand: tmuxHelperCommand(helperLauncher, 'claude-hook') }
+        : {}),
     },
   })
 }

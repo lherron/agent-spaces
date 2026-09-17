@@ -1,19 +1,22 @@
 # aspd: independent ASP preparation daemon (pilot)
 
-Status: pilot contract for T-08539. Governing design:
+Status: release-bound preparation contract established by T-08539 and extended
+to supported compiler-backed Claude/Pi workers by T-08561. Governing designs:
 `hrc-runtime/asp-hrc-split-proposal.md` at `bf3e539e` (Daedalus APPROVE,
-EN-12789). Scope decisions: EN-12854 / EN-12856 (T-08539 room).
+EN-12789) and `agent-spaces.aspd-release-worker-hosting` (Daedalus APPROVE,
+EN-13188).
 
 `aspd` is the existing ASPC compile plane — the seven `aspc.*` methods bound by
 `registerAspcCompileMethods` — served by a long-lived process on a stable,
 explicitly configured Unix socket, from one immutable ASP release. It prepares;
-it never starts a harness. Workers are the existing `harness-broker` from the
-same release, hosted by the client and controlled directly over their own Unix
-sockets with the existing broker protocol.
+it never starts a harness. Workers are selected from the release's inspected
+driver-to-executable binding table, hosted by the client, and controlled
+directly over their own Unix sockets with the existing broker protocol.
 
-The bounded supported path is HRC-hosted headless Codex (`codex-app-server`)
-with durable worker IPC and no operator viewer. A standalone pilot client stands
-in for HRC; HRC is not changed or activated.
+Binding-aware releases support `codex-app-server`, `claude-code-tmux`,
+`pi-tui-tmux`, and in-process `pi-sdk`. The first three use
+`harness-broker`; `pi-sdk` uses the separately identity-bound
+`harness-broker-pi`. HRC remains the worker host and lifecycle authority.
 
 ## Protocol: existing verbs, additive metadata only
 
@@ -23,7 +26,7 @@ broker's `harness-broker/0.2|0.3` negotiation are unchanged.
 | Surface | Change | Why |
 | --- | --- | --- |
 | `aspc.hello` (W1) | `capabilities.transports` may report `unix-jsonrpc-ndjson`; optional `release: {releaseId, sourceCommit, builtAt}` | Accurate transport reporting; the serving release is proven by the reply, not by a path |
-| `aspc.compileHarnessInvocation` ok response (W2) | optional `executionRelease: {releaseId, sourceCommit, builtAt, releaseRoot, worker: {protocol, executable, argvPrefix}}` | The client launches the worker from the selected release without choosing a binary by driver name or through PATH/`current` |
+| `aspc.compileHarnessInvocation` ok response (W2) | optional `executionRelease: {releaseId, sourceCommit, builtAt, releaseRoot, worker: {protocol, executable, hostedDrivers?, argvPrefix}}` | The client launches the selected worker without PATH/`current`; `hostedDrivers` is positive evidence from bindings assigned to that executable |
 | `broker.hello` (W3) | optional `release: {releaseId, sourceCommit, builtAt}` | The worker reports the release actually executing, at handshake |
 | Thin Unix client (W4) | `spaces-aspc-protocol/unix-client` | Wire types + NDJSON framing + transport only |
 
@@ -41,9 +44,11 @@ refuses to serve without one.
 
 `executionRelease.releaseRoot` is the canonical directory of the release that
 contains the running `aspd` payload, verified against its `release.json`.
-`worker.executable` is the absolute `harness-broker` launcher inside that
-directory. `worker.protocol` is the selected profile's own `brokerProtocol`
-(headless Codex selects `harness-broker/0.2`); it is reported, not raised.
+`worker.executable` is the absolute selected worker launcher inside that
+directory. `worker.hostedDrivers`, when present, is the sorted set of manifest
+bindings assigned to that executable; extra registered drivers are not
+evidence. `worker.protocol` is the selected profile's own `brokerProtocol`; it
+is reported, not raised.
 `worker.argvPrefix` is `["run", "--transport", "unix"]`; the remaining flags are
 the existing broker CLI hosting contract HRC already realizes (`--socket`,
 `--event-ledger`, `--runtime-id`, `--host-session-id`, `--generation`,
@@ -66,6 +71,20 @@ from the same release as the worker. A checkout broker keeps `<execPath>
 <codex-tui-wrapper entry>` and PATH `harness-broker codex-hook` (T-08556). The
 wire, the compile and `worker.argvPrefix` are unchanged.
 
+Release workers hosting `claude-code-tmux` or `pi-tui-tmux` also run their hook
+bridges and tmux launch runner through the selected compiled payload:
+`<payload> claude-hook`, `<payload> claude-hook-decision`, `<payload> pi-hook`,
+and `<payload> tmux-launch`. Claude's statusline source is a digested release
+asset; compilation verifies and copies it into the materialized bundle, whose
+settings point only at the bundle-local copy. Checkout/package compositions
+retain their existing source/PATH and best-effort statusline fallbacks.
+
+If a binding-aware release selects a profile whose `brokerDriver` has no
+binding, aspd returns `release_worker_driver_unavailable` on the existing
+`ok:false` compile envelope before `executionRelease` or any hosting effect.
+Retained pre-binding v1 releases keep their own compiled behavior and may omit
+both the binding table and `hostedDrivers`; inspection does not retrofit them.
+
 ## Preparation → hosting → start
 
 1. **Prepare.** The client connects, calls `aspc.hello` (every connection), then
@@ -84,6 +103,10 @@ wire, the compile and `worker.argvPrefix` are unchanged.
    (`release_unavailable`, `release_identity_mismatch`,
    `worker_executable_outside_release`, `unsupported_worker_protocol`) and
    nothing is launched.
+   T-08562 adds the HRC admission rule that every non-`codex-app-server` aspd
+   launch must also have `worker.hostedDrivers` containing the selected
+   `brokerDriver`. Its absence remains accepted for the proven legacy Codex
+   binding only.
 4. **Realize resources.** The client allocates the worker IPC directory, socket
    path, event-ledger path and attach-token file, persists them
    (`bindings.json`), then launches `worker.executable argvPrefix… flags` as a
@@ -186,11 +209,10 @@ its `--state` directory.
 
 ## External inputs
 
-Native Codex executable (`ASP_CODEX_PATH`, frozen into the compiled start
-request), Codex authentication, agent/project configuration roots, and the ASP
-home used for materialization are explicit external inputs recorded in
-`service/config.json` and in the preparation request. The execution-code pin
-does not freeze mutable agent sources.
+Native Codex (`ASP_CODEX_PATH`), Claude, and Pi executables, their credentials,
+agent/project configuration roots, and the ASP home used for materialization
+remain explicit external inputs. The execution-code pin does not freeze mutable
+agent sources.
 
 ## Pilot limitations
 
@@ -200,12 +222,11 @@ does not freeze mutable agent sources.
 - The broker does not itself refuse a start whose payload came from another
   release; the client's pre-launch and handshake checks enforce the binding.
 - No durable start receipt / lost-reply retry on this path (above).
-- One route: headless `codex-app-server`. Other harnesses, participant-served
-  workers, offline journal readers and HRC integration are out of scope.
-  [HRC later hosts headless codex-app-server with and without the renderer viewer
-  (T-08542–T-08555) and the interactive `codexTui` birth of its `hrc run` door
-  (T-08556); the release payload carries the renderer, codex-tui wrapper and
-  codex hook receiver for those.]
+- Binding-aware producer support includes headless/interactive Codex,
+  `claude-code-tmux`, `pi-tui-tmux`, and `pi-sdk`. HRC route migration and its
+  positive-evidence admission rule are separate consumer work (T-08562).
+- `codex-cli-tmux` remains registered and deprecated, with no release binding;
+  `codex-desktop` and `arris-resident` are not newly bound here.
 
 ## Acceptance plan
 
@@ -232,6 +253,13 @@ pilot client artifact and process (`scripts/aspd-pilot`), evidence under
    protocol, identity-mismatched release, executable outside the release and a
    withheld (unavailable) release are refused before launch; a worker whose
    hello identity differs is refused before `invocation.start`.
+8. For every binding-aware worker, inspect `drivers --json`, assert the selected
+   driver appears in `hostedDrivers`, and prove worker/helper argv stays under
+   the immutable release. Verify the release statusline digest equals the
+   bundle copy and an unbound selected driver receives
+   `release_worker_driver_unavailable` with no worker, pane, or native process.
+9. Activate a retained pre-binding release and complete a Codex rollback turn
+   with `hostedDrivers` absent; do not claim or launch a legacy non-Codex route.
 
 ## Pilot evidence layout
 

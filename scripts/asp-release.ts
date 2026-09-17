@@ -24,6 +24,7 @@ const RELEASE_SCHEMA = 'asp-standalone-release/v1' as const
 const EXECUTABLES = {
   'aspc-facade': 'scripts/asp-release/entries/aspc-facade.ts',
   'harness-broker': 'scripts/asp-release/entries/harness-broker.ts',
+  'harness-broker-pi': 'scripts/asp-release/entries/harness-broker-pi.ts',
   aspd: 'scripts/asp-release/entries/aspd.ts',
 } as const
 
@@ -33,7 +34,27 @@ type ExecutableName = keyof typeof EXECUTABLES
 const REQUIRED_EXECUTABLES: readonly ExecutableName[] = ['aspc-facade', 'harness-broker']
 
 /** Executables whose entrypoints report the compiled-in release identity over RPC. */
-const IDENTITY_BOUND_EXECUTABLES: ReadonlySet<ExecutableName> = new Set(['aspd', 'harness-broker'])
+const IDENTITY_BOUND_EXECUTABLES: ReadonlySet<ExecutableName> = new Set([
+  'aspd',
+  'harness-broker',
+  'harness-broker-pi',
+])
+
+const WORKER_BINDINGS = {
+  'codex-app-server': 'harness-broker',
+  'claude-code-tmux': 'harness-broker',
+  'pi-tui-tmux': 'harness-broker',
+  'pi-sdk': 'harness-broker-pi',
+} as const satisfies Record<string, ExecutableName>
+
+const RELEASE_ASSETS = {
+  'claude-statusline': {
+    source: 'drivers/harness-claude/assets/statusline.sh',
+    path: 'assets/claude/statusline.sh',
+  },
+} as const
+
+type ReleaseAssetName = keyof typeof RELEASE_ASSETS
 
 type ReleaseExecutable = {
   launcher: string
@@ -45,6 +66,11 @@ type ReleaseExecutable = {
   embeddedIdentity?: true | undefined
 }
 
+type ReleaseAsset = {
+  path: string
+  sha256: string
+}
+
 export type AspReleaseManifest = {
   schemaVersion: typeof RELEASE_SCHEMA
   releaseId: string
@@ -53,6 +79,10 @@ export type AspReleaseManifest = {
   platform: string
   architecture: string
   executables: Partial<Record<ExecutableName, ReleaseExecutable>>
+  /** Additive in v1. Historical releases omit this and retain their compiled semantics. */
+  workerBindings?: Record<string, ExecutableName> | undefined
+  /** Additive in v1. Historical releases may not carry release-owned assets. */
+  assets?: Partial<Record<ReleaseAssetName, ReleaseAsset>> | undefined
 }
 
 export type ReleaseInspection = {
@@ -76,6 +106,8 @@ export type ReleaseInspection = {
       }
     >
   >
+  workerBindings?: Record<string, ExecutableName> | undefined
+  assetResolution?: Partial<Record<ReleaseAssetName, { path: string; sha256: string }>> | undefined
   runtimeClosure: 'bun-compiled'
   mutableCheckoutReferences: false
 }
@@ -220,6 +252,109 @@ function readManifest(releasePath: string): AspReleaseManifest {
   return manifest as AspReleaseManifest
 }
 
+function inspectAssets(
+  manifest: AspReleaseManifest,
+  releasePath: string,
+  canonicalRoot: string
+): NonNullable<ReleaseInspection['assetResolution']> {
+  const resolution = {} as NonNullable<ReleaseInspection['assetResolution']>
+  if (manifest.assets === undefined) return resolution
+  if (
+    typeof manifest.assets !== 'object' ||
+    manifest.assets === null ||
+    Array.isArray(manifest.assets)
+  ) {
+    fail('invalid release asset manifest')
+  }
+  for (const name of Object.keys(manifest.assets)) {
+    if (!(name in RELEASE_ASSETS)) fail(`unknown release asset: ${name}`)
+  }
+  for (const [name, asset] of Object.entries(manifest.assets) as Array<
+    [ReleaseAssetName, ReleaseAsset | undefined]
+  >) {
+    if (
+      asset === undefined ||
+      typeof asset.path !== 'string' ||
+      typeof asset.sha256 !== 'string' ||
+      !/^[0-9a-f]{64}$/.test(asset.sha256)
+    ) {
+      fail(`invalid release asset metadata: ${name}`)
+    }
+    const assetPath = resolve(releasePath, asset.path)
+    assertWithin(releasePath, assetPath)
+    if (!realpathSync(assetPath).startsWith(`${canonicalRoot}${sep}`)) {
+      fail(`${name} asset escapes release`)
+    }
+    if (sha256(assetPath) !== asset.sha256) fail(`${name} asset digest mismatch`)
+    resolution[name] = { path: assetPath, sha256: asset.sha256 }
+  }
+  return resolution
+}
+
+function readDriverInventory(launcher: string, executableName: ExecutableName, cwd: string) {
+  const result = Bun.spawnSync({
+    cmd: [launcher, 'drivers', '--json'],
+    cwd,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  if (result.exitCode !== 0) {
+    fail(`worker ${executableName} driver inventory failed: ${result.stderr.toString().trim()}`)
+  }
+  let drivers: unknown
+  try {
+    drivers = JSON.parse(result.stdout.toString())
+  } catch {
+    fail(`worker ${executableName} driver inventory returned invalid JSON`)
+  }
+  if (!Array.isArray(drivers)) fail(`worker ${executableName} driver inventory is not an array`)
+  return new Set(
+    drivers.flatMap((entry) => {
+      if (typeof entry !== 'object' || entry === null) return []
+      const kind = (entry as Record<string, unknown>)['kind']
+      return typeof kind === 'string' ? [kind] : []
+    })
+  )
+}
+
+function inspectWorkerBindings(
+  manifest: AspReleaseManifest,
+  resolution: ReleaseInspection['executableResolution'],
+  releasePath: string
+): void {
+  const workerBindings = manifest.workerBindings
+  if (workerBindings === undefined) return
+  if (
+    typeof workerBindings !== 'object' ||
+    workerBindings === null ||
+    Array.isArray(workerBindings)
+  ) {
+    fail('invalid worker binding table')
+  }
+  const inventories = new Map<ExecutableName, Set<string>>()
+  for (const [driver, executableName] of Object.entries(workerBindings)) {
+    if (
+      driver.length === 0 ||
+      typeof executableName !== 'string' ||
+      !(executableName in EXECUTABLES)
+    ) {
+      fail(`invalid worker binding: ${driver}`)
+    }
+    const name = executableName as ExecutableName
+    const executable = manifest.executables[name]
+    if (executable === undefined) fail(`worker binding ${driver} names missing executable: ${name}`)
+    if (executable.embeddedIdentity !== true || !IDENTITY_BOUND_EXECUTABLES.has(name)) {
+      fail(`worker binding ${driver} names non-identity-bound executable: ${name}`)
+    }
+    const launcher = resolution[name]?.launcher
+    if (launcher === undefined)
+      fail(`worker binding ${driver} has no inspected executable: ${name}`)
+    const inventory = inventories.get(name) ?? readDriverInventory(launcher, name, releasePath)
+    inventories.set(name, inventory)
+    if (!inventory.has(driver)) fail(`worker ${name} does not advertise bound driver: ${driver}`)
+  }
+}
+
 export function inspectRelease(inputPath: string): ReleaseInspection {
   const releasePath = assertAbsolute(inputPath, 'release path')
   const rootStat = lstatSync(releasePath)
@@ -308,6 +443,13 @@ export function inspectRelease(inputPath: string): ReleaseInspection {
     }
   }
 
+  const workerBindings = manifest.workerBindings
+  const assetResolution = inspectAssets(manifest, releasePath, canonicalRoot)
+  if (workerBindings !== undefined && assetResolution['claude-statusline'] === undefined) {
+    fail('binding-aware release is missing required asset: claude-statusline')
+  }
+  inspectWorkerBindings(manifest, resolution, releasePath)
+
   return {
     ok: true,
     releasePath,
@@ -318,6 +460,8 @@ export function inspectRelease(inputPath: string): ReleaseInspection {
     architecture: manifest.architecture,
     immutable: true,
     executableResolution: resolution,
+    ...(workerBindings !== undefined ? { workerBindings: { ...workerBindings } } : {}),
+    ...(manifest.assets !== undefined ? { assetResolution } : {}),
     runtimeClosure: 'bun-compiled',
     mutableCheckoutReferences: false,
   }
@@ -344,6 +488,18 @@ async function buildRelease(outputRootInput: string): Promise<ReleaseInspection>
   mkdirSync(join(staging, 'libexec'), { recursive: true, mode: 0o755 })
 
   try {
+    const assets = {} as NonNullable<AspReleaseManifest['assets']>
+    for (const [name, definition] of Object.entries(RELEASE_ASSETS) as Array<
+      [ReleaseAssetName, (typeof RELEASE_ASSETS)[ReleaseAssetName]]
+    >) {
+      const source = join(REPO_ROOT, definition.source)
+      const destination = join(staging, definition.path)
+      mkdirSync(dirname(destination), { recursive: true, mode: 0o755 })
+      copyFileSync(source, destination, constants.COPYFILE_EXCL)
+      chmodSync(destination, 0o755)
+      assets[name] = { path: definition.path, sha256: sha256(destination) }
+    }
+
     const executables = {} as AspReleaseManifest['executables']
     for (const name of Object.keys(EXECUTABLES) as ExecutableName[]) {
       const payload = join(staging, 'libexec', name)
@@ -381,6 +537,8 @@ async function buildRelease(outputRootInput: string): Promise<ReleaseInspection>
       platform: process.platform,
       architecture: process.arch,
       executables,
+      workerBindings: { ...WORKER_BINDINGS },
+      assets,
     }
     writeFileSync(join(staging, 'release.json'), `${JSON.stringify(manifest, null, 2)}\n`, {
       mode: 0o644,

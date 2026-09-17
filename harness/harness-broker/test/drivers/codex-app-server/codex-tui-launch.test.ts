@@ -15,7 +15,11 @@ import {
   buildCodexTuiWrapperArgvPrefix,
   resolveCodexTuiWrapperEntryPath,
 } from '../../../src/drivers/codex-app-server/codex-tui-wrapper'
-import { writeTmuxLaunchExecFiles } from '../../../src/runtime/tmux-launch-exec'
+import {
+  tmuxHelperCommand,
+  tmuxHelperRunner,
+  writeTmuxLaunchExecFiles,
+} from '../../../src/runtime/tmux-launch-exec'
 
 const repoRoot = new URL('../../../../..', import.meta.url).pathname
 
@@ -76,6 +80,20 @@ describe('codex-app-server codex-tui launch (T-08556)', () => {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
+  })
+
+  test('one release helper launcher derives quoted hook and tmux subcommands', () => {
+    const launcher = { command: '/rel/B/libexec/harness broker', args: ['--embedded'] }
+    expect(tmuxHelperCommand(launcher, 'claude-hook')).toBe(
+      "'/rel/B/libexec/harness broker' --embedded claude-hook"
+    )
+    expect(tmuxHelperCommand(launcher, 'pi-hook')).toBe(
+      "'/rel/B/libexec/harness broker' --embedded pi-hook"
+    )
+    expect(tmuxHelperRunner(launcher, 'tmux-launch')).toEqual({
+      command: '/rel/B/libexec/harness broker',
+      args: ['--embedded', 'tmux-launch'],
+    })
   })
 
   test('the broker CLI tmux-launch subcommand runs the launch runner', () => {

@@ -5,7 +5,7 @@
  * existing functionality from spaces-claude and spaces-materializer.
  */
 
-import { randomBytes, randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { chmod, copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -76,6 +76,18 @@ const STATUSLINE_ASSET_PATH = join(
  * a headless run does not block forever on an unanswered dialog.
  */
 const ASK_USER_QUESTION_TIMEOUT = '2m'
+
+export interface ClaudeAdapterOptions {
+  statuslineSource?:
+    | {
+        path: string
+        /** Required for an immutable release; omitted for package-relative compatibility. */
+        required?: boolean | undefined
+        /** When present, the bytes must match before materialization. */
+        sha256?: string | undefined
+      }
+    | undefined
+}
 /**
  * ClaudeAdapter implements the HarnessAdapter interface for Claude Code.
  *
@@ -87,6 +99,8 @@ const ASK_USER_QUESTION_TIMEOUT = '2m'
 export class ClaudeAdapter implements HarnessAdapter {
   readonly id: HarnessId = 'claude'
   readonly name: string = 'Claude Code'
+
+  constructor(private readonly options: ClaudeAdapterOptions = {}) {}
 
   readonly models: HarnessModelInfo[] = [
     { id: CLAUDE_FABLE_5, name: 'Claude Fable 5', identityKind: 'full' },
@@ -401,7 +415,8 @@ export class ClaudeAdapter implements HarnessAdapter {
       outputDir,
       options.publishedOutputPath ?? outputDir,
       settingsOutputPath,
-      composedSettings
+      composedSettings,
+      this.options.statuslineSource
     )
     if (statuslineWarning) {
       warnings.push({ code: 'W_STATUSLINE', message: statuslineWarning })
@@ -564,12 +579,21 @@ async function installStatusline(
   outputDir: string,
   commandOutputDir: string,
   settingsOutputPath: string,
-  composedSettings: ComposedSettings
+  composedSettings: ComposedSettings,
+  source?: ClaudeAdapterOptions['statuslineSource']
 ): Promise<string | undefined> {
   const statuslineDestPath = join(outputDir, 'statusline.sh')
   const statuslineCommandPath = join(commandOutputDir, 'statusline.sh')
   try {
-    const statuslineSrc = await readFile(STATUSLINE_ASSET_PATH)
+    const statuslineSrc = await readFile(source?.path ?? STATUSLINE_ASSET_PATH)
+    if (source?.sha256 !== undefined) {
+      const observed = createHash('sha256').update(statuslineSrc).digest('hex')
+      if (observed !== source.sha256) {
+        throw new Error(
+          `statusline asset digest mismatch: expected ${source.sha256}, got ${observed}`
+        )
+      }
+    }
     await writeFile(statuslineDestPath, statuslineSrc)
     await chmod(statuslineDestPath, 0o755)
 
@@ -581,6 +605,7 @@ async function installStatusline(
     await writeFile(settingsOutputPath, JSON.stringify(composedSettings, null, 2))
     return undefined
   } catch (error) {
+    if (source?.required === true) throw error
     // Statusline is best-effort - don't fail composition if asset is missing,
     // but surface the failure as an observable warning.
     const reason = error instanceof Error ? error.message : String(error)

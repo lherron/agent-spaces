@@ -52,14 +52,32 @@ function tempBase(): string {
 function fakeRelease(base: string, manifestOverrides: Record<string, unknown> = {}): string {
   const root = join(base, IDENTITY.releaseId)
   mkdirSync(join(root, 'libexec'), { recursive: true })
+  mkdirSync(join(root, 'assets', 'claude'), { recursive: true })
   writeFileSync(join(root, 'libexec', 'aspd'), '#!/bin/sh\n', { mode: 0o555 })
   writeFileSync(join(root, 'harness-broker'), '#!/bin/sh\n', { mode: 0o555 })
+  writeFileSync(join(root, 'harness-broker-pi'), '#!/bin/sh\n', { mode: 0o555 })
+  writeFileSync(join(root, 'assets', 'claude', 'statusline.sh'), '#!/bin/sh\n')
   writeFileSync(
     join(root, 'release.json'),
     JSON.stringify({
       releaseId: IDENTITY.releaseId,
       sourceCommit: IDENTITY.sourceCommit,
-      executables: { 'harness-broker': { launcher: 'harness-broker' } },
+      executables: {
+        'harness-broker': { launcher: 'harness-broker' },
+        'harness-broker-pi': { launcher: 'harness-broker-pi' },
+      },
+      workerBindings: {
+        'codex-app-server': 'harness-broker',
+        'claude-code-tmux': 'harness-broker',
+        'pi-tui-tmux': 'harness-broker',
+        'pi-sdk': 'harness-broker-pi',
+      },
+      assets: {
+        'claude-statusline': {
+          path: 'assets/claude/statusline.sh',
+          sha256: '0'.repeat(64),
+        },
+      },
       ...manifestOverrides,
     })
   )
@@ -69,16 +87,41 @@ function fakeRelease(base: string, manifestOverrides: Record<string, unknown> = 
 const binding: AspdReleaseBinding = {
   identity: IDENTITY,
   releaseRoot: '/releases/asp-x',
-  workerExecutable: '/releases/asp-x/harness-broker',
+  workers: {
+    'codex-app-server': {
+      executable: '/releases/asp-x/harness-broker',
+      hostedDrivers: ['claude-code-tmux', 'codex-app-server', 'pi-tui-tmux'],
+    },
+    'claude-code-tmux': {
+      executable: '/releases/asp-x/harness-broker',
+      hostedDrivers: ['claude-code-tmux', 'codex-app-server', 'pi-tui-tmux'],
+    },
+    'pi-tui-tmux': {
+      executable: '/releases/asp-x/harness-broker',
+      hostedDrivers: ['claude-code-tmux', 'codex-app-server', 'pi-tui-tmux'],
+    },
+    'pi-sdk': {
+      executable: '/releases/asp-x/harness-broker-pi',
+      hostedDrivers: ['pi-sdk'],
+    },
+  },
+  claudeStatuslineSource: {
+    path: '/releases/asp-x/assets/claude/statusline.sh',
+    sha256: '0'.repeat(64),
+    required: true,
+  },
 }
 
-function okCompile(brokerProtocol: string): AspcCompileHarnessInvocationResponse {
+function okCompile(
+  brokerProtocol: string,
+  brokerDriver = 'codex-app-server'
+): AspcCompileHarnessInvocationResponse {
   return {
     schemaVersion: 'aspc-compile-harness-invocation-response/v1',
     ok: true,
     compileResponse: {} as never,
     plan: {} as never,
-    selectedProfile: { brokerProtocol, profileHash: 'p' } as never,
+    selectedProfile: { brokerProtocol, brokerDriver, profileHash: 'p' } as never,
     startRequest: { spec: { invocationId: 'inv_1' } } as never,
     dispatchRequest: {
       startRequest: { spec: { invocationId: 'inv_1' } },
@@ -144,7 +187,15 @@ describe('release binding', () => {
     const root = fakeRelease(tempBase())
     const resolved = resolveAspdReleaseBinding(IDENTITY, join(root, 'libexec', 'aspd'))
     expect(resolved.releaseRoot.endsWith(IDENTITY.releaseId)).toBe(true)
-    expect(resolved.workerExecutable).toBe(join(resolved.releaseRoot, 'harness-broker'))
+    expect(resolved.workers['codex-app-server']?.executable).toBe(
+      join(resolved.releaseRoot, 'harness-broker')
+    )
+    expect(resolved.workers['pi-sdk']?.executable).toBe(
+      join(resolved.releaseRoot, 'harness-broker-pi')
+    )
+    expect(resolved.claudeStatuslineSource.path).toBe(
+      join(resolved.releaseRoot, 'assets', 'claude', 'statusline.sh')
+    )
   })
 
   test('refuses a manifest naming another source commit', () => {
@@ -195,7 +246,8 @@ describe('release-bound service (W1/W2)', () => {
         releaseRoot: binding.releaseRoot,
         worker: {
           protocol,
-          executable: binding.workerExecutable,
+          executable: binding.workers['codex-app-server']!.executable,
+          hostedDrivers: ['claude-code-tmux', 'codex-app-server', 'pi-tui-tmux'],
           argvPrefix: ['run', '--transport', 'unix'],
         },
       }
@@ -203,6 +255,60 @@ describe('release-bound service (W1/W2)', () => {
       const { executionRelease: _added, ...rest } = response
       expect(rest).toEqual(underlying)
     }
+  })
+
+  test('selects the Pi SDK worker from the release binding table', async () => {
+    const service = createReleaseBoundAspcService(
+      fakeService({
+        compileHarnessInvocation: async () => okCompile('harness-broker/0.2', 'pi-sdk'),
+      }),
+      binding
+    )
+    const response = await service.compileHarnessInvocation(compileRequest())
+    if (!response.ok) throw new Error('expected ok')
+    expect(response.executionRelease?.worker).toEqual({
+      protocol: 'harness-broker/0.2',
+      executable: '/releases/asp-x/harness-broker-pi',
+      hostedDrivers: ['pi-sdk'],
+      argvPrefix: ['run', '--transport', 'unix'],
+    })
+  })
+
+  test('refuses a selected driver missing from the release binding table', async () => {
+    const service = createReleaseBoundAspcService(
+      fakeService({
+        compileHarnessInvocation: async () => okCompile('harness-broker/0.2', 'unhosted-probe'),
+      }),
+      binding
+    )
+    const response = await service.compileHarnessInvocation(compileRequest())
+    expect(response).toEqual({
+      schemaVersion: 'aspc-compile-harness-invocation-response/v1',
+      ok: false,
+      compileResponse: {
+        schemaVersion: 'agent-runtime-compile-response/v1',
+        ok: false,
+        diagnostics: [
+          {
+            level: 'error',
+            code: 'release_worker_driver_unavailable',
+            message: 'Selected broker driver is not hosted by this ASP release',
+            plane: 'asp-compiler',
+            details: { releaseId: IDENTITY.releaseId, brokerDriver: 'unhosted-probe' },
+          },
+        ],
+      },
+      diagnostics: [
+        {
+          level: 'error',
+          code: 'release_worker_driver_unavailable',
+          message: 'Selected broker driver is not hosted by this ASP release',
+          plane: 'asp-compiler',
+          details: { releaseId: IDENTITY.releaseId, brokerDriver: 'unhosted-probe' },
+        },
+      ],
+    })
+    expect('executionRelease' in response).toBe(false)
   })
 
   test('failed compiles pass through without a release binding', async () => {

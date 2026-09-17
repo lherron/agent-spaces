@@ -14,7 +14,7 @@
 import { constants, accessSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { unlink } from 'node:fs/promises'
 import { type Server, type Socket, connect, createServer } from 'node:net'
-import { basename, dirname, join, sep } from 'node:path'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 import type { AspcMethodServer, AspcService } from 'spaces-aspc'
 import { createAspcService, registerAspcCompileMethods } from 'spaces-aspc'
 import type {
@@ -26,7 +26,7 @@ import type {
 } from 'spaces-aspc-protocol'
 import type { AspReleaseIdentity } from 'spaces-harness-broker-protocol'
 import { type ProtocolServer, createProtocolServer } from 'spaces-harness-broker/protocol-server'
-import { runtimeCompiler } from './runtime-compiler.js'
+import { createRuntimeCompiler } from './runtime-compiler.js'
 
 export const ASPD_WORKER_ARGV_PREFIX = ['run', '--transport', 'unix'] as const
 
@@ -34,7 +34,8 @@ export const ASPD_WORKER_ARGV_PREFIX = ['run', '--transport', 'unix'] as const
 export interface AspdReleaseBinding {
   identity: AspReleaseIdentity
   releaseRoot: string
-  workerExecutable: string
+  workers: Record<string, { executable: string; hostedDrivers: string[] }>
+  claudeStatuslineSource: { path: string; sha256: string; required: true }
 }
 
 /**
@@ -58,6 +59,8 @@ export function resolveAspdReleaseBinding(
     releaseId?: unknown
     sourceCommit?: unknown
     executables?: Record<string, { launcher?: unknown } | undefined>
+    workerBindings?: Record<string, unknown> | undefined
+    assets?: Record<string, { path?: unknown; sha256?: unknown } | undefined> | undefined
   }
   if (
     manifest.releaseId !== identity.releaseId ||
@@ -65,16 +68,49 @@ export function resolveAspdReleaseBinding(
   ) {
     throw new Error(`release manifest does not match compiled-in identity ${identity.releaseId}`)
   }
-  const launcher = manifest.executables?.['harness-broker']?.launcher
-  if (typeof launcher !== 'string') {
-    throw new Error(`release ${identity.releaseId} has no harness-broker worker`)
+  if (
+    typeof manifest.workerBindings !== 'object' ||
+    manifest.workerBindings === null ||
+    Array.isArray(manifest.workerBindings)
+  ) {
+    throw new Error(`release ${identity.releaseId} has no worker binding table`)
   }
-  const workerExecutable = realpathSync(join(releaseRoot, launcher))
-  if (!workerExecutable.startsWith(`${releaseRoot}${sep}`)) {
-    throw new Error(`worker executable escapes release ${identity.releaseId}`)
+  const workers: AspdReleaseBinding['workers'] = {}
+  const hostedByExecutable = new Map<string, string[]>()
+  for (const [driver, executableName] of Object.entries(manifest.workerBindings)) {
+    if (typeof executableName !== 'string') {
+      throw new Error(`release ${identity.releaseId} has invalid worker binding for ${driver}`)
+    }
+    const launcher = manifest.executables?.[executableName]?.launcher
+    if (typeof launcher !== 'string') {
+      throw new Error(`release ${identity.releaseId} binding ${driver} has no worker executable`)
+    }
+    const workerExecutable = realpathSync(join(releaseRoot, launcher))
+    if (!workerExecutable.startsWith(`${releaseRoot}${sep}`)) {
+      throw new Error(`worker executable escapes release ${identity.releaseId}`)
+    }
+    accessSync(workerExecutable, constants.X_OK)
+    const hostedDrivers = hostedByExecutable.get(workerExecutable) ?? []
+    hostedDrivers.push(driver)
+    hostedByExecutable.set(workerExecutable, hostedDrivers)
+    workers[driver] = { executable: workerExecutable, hostedDrivers }
   }
-  accessSync(workerExecutable, constants.X_OK)
-  return { identity: { ...identity }, releaseRoot, workerExecutable }
+  for (const hostedDrivers of hostedByExecutable.values()) hostedDrivers.sort()
+
+  const statusline = manifest.assets?.['claude-statusline']
+  if (typeof statusline?.path !== 'string' || typeof statusline.sha256 !== 'string') {
+    throw new Error(`release ${identity.releaseId} has no Claude statusline asset`)
+  }
+  const statuslinePath = resolve(releaseRoot, statusline.path)
+  if (!statuslinePath.startsWith(`${releaseRoot}${sep}`)) {
+    throw new Error(`Claude statusline asset escapes release ${identity.releaseId}`)
+  }
+  return {
+    identity: { ...identity },
+    releaseRoot,
+    workers,
+    claudeStatuslineSource: { path: statuslinePath, sha256: statusline.sha256, required: true },
+  }
 }
 
 /**
@@ -106,12 +142,35 @@ export function createReleaseBoundAspcService(
     ): Promise<AspcCompileHarnessInvocationResponse> {
       const response = await service.compileHarnessInvocation(req)
       if (!response.ok) return response
+      const brokerDriver = response.selectedProfile.brokerDriver
+      const worker = binding.workers[brokerDriver]
+      if (worker === undefined) {
+        const diagnostic = {
+          level: 'error' as const,
+          code: 'release_worker_driver_unavailable',
+          message: 'Selected broker driver is not hosted by this ASP release',
+          plane: 'asp-compiler' as const,
+          details: { releaseId: binding.identity.releaseId, brokerDriver },
+        }
+        const diagnostics = [...response.diagnostics, diagnostic]
+        return {
+          schemaVersion: response.schemaVersion,
+          ok: false,
+          compileResponse: {
+            schemaVersion: 'agent-runtime-compile-response/v1',
+            ok: false,
+            diagnostics,
+          },
+          diagnostics,
+        }
+      }
       const executionRelease: AspcExecutionRelease = {
         ...binding.identity,
         releaseRoot: binding.releaseRoot,
         worker: {
           protocol: response.selectedProfile.brokerProtocol,
-          executable: binding.workerExecutable,
+          executable: worker.executable,
+          hostedDrivers: [...worker.hostedDrivers],
           argvPrefix: [...ASPD_WORKER_ARGV_PREFIX],
         },
       }
@@ -287,7 +346,9 @@ export async function runAspdCli(args: string[], options: RunAspdCliOptions): Pr
   }
   const binding = resolveAspdReleaseBinding(options.releaseIdentity, process.execPath)
   const service = createReleaseBoundAspcService(
-    createAspcService({ compiler: runtimeCompiler }),
+    createAspcService({
+      compiler: createRuntimeCompiler({ claudeStatuslineSource: binding.claudeStatuslineSource }),
+    }),
     binding
   )
   const server = await startAspdServer({ socketPath, service })

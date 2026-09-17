@@ -1,11 +1,12 @@
-// Release entrypoint: bypass the checkout-friendly source/dist probe in the
-// package bin and compile the broker implementation plus dependency closure.
+// Release entrypoint: the ordinary broker composition plus the in-process Pi
+// SDK driver. It remains a distinct worker so the stock worker does not absorb
+// the Pi SDK/session dependency closure.
+import { createPiSdkDriver } from '../../../harness/harness-broker-pi-sdk/src/driver.js'
 import { runBrokerCli } from '../../../harness/harness-broker/src/cli.js'
 import { embeddedReleaseIdentity } from './embedded-identity.js'
 
-// T-08554: the viewer renderer runs from this same compiled payload.
-// T-08556: so do the interactive codex-tui wrapper and the codex hook receiver.
 await runBrokerCli({
+  additionalDrivers: [createPiSdkDriver],
   releaseIdentity: embeddedReleaseIdentity,
   rendererLauncher: { command: process.execPath, args: ['renderer'] },
   codexTuiLauncher: { command: process.execPath },

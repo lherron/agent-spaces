@@ -124,8 +124,10 @@ export interface AspcExecutionRelease extends AspReleaseIdentity {
   worker: {
     /** The selected profile's broker protocol; the worker hello must negotiate it. */
     protocol: BrokerProtocolVersion
-    /** Absolute `harness-broker` launcher inside `releaseRoot`. */
+    /** Absolute selected release worker launcher inside `releaseRoot`. */
     executable: string
+    /** Sorted manifest bindings assigned to this executable (positive hosting evidence). */
+    hostedDrivers?: string[] | undefined
     argvPrefix: string[]
   }
 }

@@ -36,6 +36,7 @@ import { runPiHookBridgeCli } from './drivers/pi-tui-tmux/hook-bridge'
 import { BrokerError } from './errors'
 import { createEventLedger } from './event-ledger'
 import { type ProtocolServer, createProtocolServer } from './protocol-server'
+import type { TmuxHelperLauncher } from './runtime/tmux-launch-exec'
 import { assertSocketPathWithinBudget } from './socket-path'
 
 interface BrokerMethodOptions {
@@ -76,6 +77,8 @@ export interface RunBrokerCliOptions {
    * so both run from the same release as the worker.
    */
   codexTuiLauncher?: CodexTuiLauncher | undefined
+  /** T-08561: same compiled payload for Claude/Pi hook and tmux helpers. */
+  tmuxHelperLauncher?: TmuxHelperLauncher | undefined
 }
 
 export async function runBrokerCli(options: RunBrokerCliOptions): Promise<void> {
@@ -101,6 +104,7 @@ export async function runBrokerCli(options: RunBrokerCliOptions): Promise<void> 
       releaseIdentity: options.releaseIdentity,
       rendererLauncher: options.rendererLauncher,
       codexTuiLauncher: options.codexTuiLauncher,
+      tmuxHelperLauncher: options.tmuxHelperLauncher,
     })
     const hello = await broker.hello({
       clientInfo: { name: 'harness-broker-cli' },
@@ -198,6 +202,7 @@ async function runStdio(args: string[], options: RunBrokerCliOptions): Promise<v
       releaseIdentity: options.releaseIdentity,
       rendererLauncher: options.rendererLauncher,
       codexTuiLauncher: options.codexTuiLauncher,
+      tmuxHelperLauncher: options.tmuxHelperLauncher,
     }
   )
 
@@ -513,6 +518,7 @@ async function runUnix(args: string[], options: RunBrokerCliOptions): Promise<vo
       releaseIdentity: options.releaseIdentity,
       rendererLauncher: options.rendererLauncher,
       codexTuiLauncher: options.codexTuiLauncher,
+      tmuxHelperLauncher: options.tmuxHelperLauncher,
       ...(eventLedger !== undefined ? { eventLedger } : {}),
       // Raw ingress journal + disposition index live beside the normalized
       // ledger (§7.1, §8.1). Without a ledger path capture stays in memory,
@@ -871,7 +877,10 @@ async function runOnce(args: string[], options: RunBrokerCliOptions): Promise<vo
       }
     },
     undefined,
-    { additionalDrivers: options.additionalDrivers }
+    {
+      additionalDrivers: options.additionalDrivers,
+      tmuxHelperLauncher: options.tmuxHelperLauncher,
+    }
   )
 
   // Same path the BrokerClient drives: a single InvocationStartRequest with its

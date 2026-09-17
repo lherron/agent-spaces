@@ -1,7 +1,7 @@
 # T-08561 — Package supported Claude and Pi workers in immutable ASP releases
 
-Status: Mable-accepted specification, pending Daedalus review. This file does
-not change the draft task record or its specification field.
+Status: Daedalus-approved specification (EN-13188); implementation opened as
+T-08561. The task specification field is the implementation contract.
 
 ## 1. Outcome and boundary
 

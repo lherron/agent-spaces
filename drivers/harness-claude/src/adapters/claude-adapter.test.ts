@@ -7,6 +7,7 @@
  */
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
+import { createHash } from 'node:crypto'
 import { chmod, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -605,6 +606,53 @@ allow = ["/tmp"]
         )
         expect(settings.statusLine.command).not.toContain(outputDir)
       }
+    })
+
+    test('requires and verifies an injected release statusline asset', async () => {
+      const sourcePath = join(tmpDir, 'release-statusline.sh')
+      const sourceBytes = '#!/bin/sh\necho release-statusline\n'
+      await writeFile(sourcePath, sourceBytes)
+      const releaseAdapter = new ClaudeAdapter({
+        statuslineSource: {
+          path: sourcePath,
+          sha256: createHash('sha256').update(sourceBytes).digest('hex'),
+          required: true,
+        },
+      })
+      const input = {
+        targetName: 'test-target',
+        compose: ['space1' as any],
+        roots: ['space1@abc' as SpaceKey],
+        loadOrder: ['space1@abc' as SpaceKey],
+        artifacts: [
+          {
+            spaceKey: 'space1@abc' as SpaceKey,
+            spaceId: 'space1',
+            artifactPath: artifact1Dir,
+            pluginName: 'plugin1',
+          },
+        ],
+        settingsInputs: [],
+      }
+
+      await releaseAdapter.composeTarget(input, outputDir, {})
+      expect(await Bun.file(join(outputDir, 'statusline.sh')).text()).toBe(sourceBytes)
+
+      const mismatch = new ClaudeAdapter({
+        statuslineSource: { path: sourcePath, sha256: '0'.repeat(64), required: true },
+      })
+      await expect(mismatch.composeTarget(input, outputDir, { clean: true })).rejects.toThrow(
+        'statusline asset digest mismatch'
+      )
+
+      const missing = new ClaudeAdapter({
+        statuslineSource: {
+          path: join(tmpDir, 'missing-statusline.sh'),
+          sha256: '0'.repeat(64),
+          required: true,
+        },
+      })
+      await expect(missing.composeTarget(input, outputDir, { clean: true })).rejects.toThrow()
     })
 
     test('merges permissions.toml into settings', async () => {

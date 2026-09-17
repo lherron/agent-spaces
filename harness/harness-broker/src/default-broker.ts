@@ -16,6 +16,7 @@ import { createCodexDesktopDriver } from './drivers/codex-desktop/driver'
 import type { Driver } from './drivers/driver'
 import { createDefaultPiTuiTmuxDriver } from './drivers/pi-tui-tmux/driver'
 import type { EventLedger } from './event-ledger'
+import type { TmuxHelperLauncher } from './runtime/tmux-launch-exec'
 
 export interface DefaultBrokerOptions {
   additionalDrivers?: Array<() => Driver> | undefined
@@ -61,6 +62,8 @@ export interface DefaultBrokerOptions {
   rendererLauncher?: RendererLauncher | undefined
   /** T-08556: codex-tui wrapper / hook receiver launcher for the codex-app-server TUI. */
   codexTuiLauncher?: CodexTuiLauncher | undefined
+  /** Release-owned Claude/Pi hook bridges and tmux runner launcher (T-08561). */
+  tmuxHelperLauncher?: TmuxHelperLauncher | undefined
 }
 
 export function createDefaultBroker(
@@ -82,9 +85,9 @@ export function createDefaultBroker(
       }),
       createCodexDesktopDriver(),
       createArrisResidentDriver(),
-      createDefaultClaudeCodeTmuxDriver(options.hookIpcDir),
+      createDefaultClaudeCodeTmuxDriver(options.hookIpcDir, options.tmuxHelperLauncher),
       createDefaultCodexCliTmuxDriver(options.hookIpcDir),
-      createDefaultPiTuiTmuxDriver(options.hookIpcDir),
+      createDefaultPiTuiTmuxDriver(options.hookIpcDir, options.tmuxHelperLauncher),
       ...(options.additionalDrivers?.map((createDriver) => createDriver()) ?? []),
     ],
     ...(onEvent !== undefined ? { onEvent } : {}),
