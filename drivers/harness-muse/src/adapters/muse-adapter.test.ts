@@ -90,6 +90,7 @@ describe('MuseAdapter', () => {
     }
     expect(museAdapter.buildRunArgs(bundle, runOptions())).toEqual([
       'exec',
+      '--trust-workspace',
       '--workspace',
       '/project',
       'do the thing',
@@ -101,6 +102,7 @@ describe('MuseAdapter', () => {
       )
     ).toEqual([
       'exec',
+      '--trust-workspace',
       '--workspace',
       '/project',
       '--model',

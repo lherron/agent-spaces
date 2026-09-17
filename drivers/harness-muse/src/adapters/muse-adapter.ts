@@ -306,7 +306,14 @@ export class MuseAdapter implements HarnessAdapter {
 }
 
 function buildExecArgs(bundle: ComposedTargetBundle, options: HarnessRunOptions): string[] {
-  const args = ['exec', '--workspace', options.cwd ?? options.projectPath ?? bundle.rootDir]
+  // Trusted by default: matches `serve --trust-workspace` so project rules
+  // (AGENTS.md) and delegation load on the exec path too.
+  const args = [
+    'exec',
+    '--trust-workspace',
+    '--workspace',
+    options.cwd ?? options.projectPath ?? bundle.rootDir,
+  ]
   if (options.model) {
     args.push('--model', options.model)
   }
