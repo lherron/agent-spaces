@@ -30,6 +30,7 @@ import {
   resolveAgentRunDefaultsFromProfile,
   resolveProfileHarnessForRun,
 } from './agent-profile.js'
+import { resolveSpaceCodexConfigModel } from './space-codex-model.js'
 
 export type PlacementRuntimeModelResolution = ContractPlacementRuntimeModelResolution
 type PlacementRuntimeModelInfo = Extract<PlacementRuntimeModelResolution, { ok: true }>['info']
@@ -94,7 +95,8 @@ function resolvePlacementRuntimeModel(
   adapter: HarnessAdapter,
   requestedModel: string | undefined,
   defaultRunOptions: Partial<HarnessRunOptions>,
-  effectiveConfig: ResolvedPlacementContext['materialization']['effectiveConfig']
+  effectiveConfig: ResolvedPlacementContext['materialization']['effectiveConfig'],
+  spaceCodexConfigModel: string | undefined
 ): PlacementRuntimeModelResolution {
   const defaultModelId =
     adapter.models.find((model) => model.default)?.id ?? adapter.models[0]?.id ?? requestedModel
@@ -104,6 +106,15 @@ function resolvePlacementRuntimeModel(
     requestedModel ??
     defaultRunOptions.model ??
     (effectiveModel !== undefined ? effectiveModel : undefined)
+  // A space `[codex.config] model` is what Codex runs from the generated
+  // config.toml. It is reported, not launched, and is not in the adapter catalog.
+  if (explicitModel === undefined && spaceCodexConfigModel !== undefined) {
+    const info = parsePlacementRuntimeModelId(spaceCodexConfigModel)
+    return info
+      ? { ok: true, info: { ...info, explicit: false } }
+      : { ok: false, modelId: spaceCodexConfigModel }
+  }
+
   const candidateModel = explicitModel ?? defaultModelId
 
   if (!candidateModel || !supportedModels.has(candidateModel)) {
@@ -216,11 +227,24 @@ export async function planPlacementRuntime(
           placement.bundle.agentName
         )
       : {}
+  const { materialization } = placementContext
+  const spaceCodexConfigModel =
+    frontendEntry.id === 'codex'
+      ? await resolveSpaceCodexConfigModel({
+          compose:
+            materialization.effectiveConfig?.compose ??
+            (materialization.spec?.kind === 'spaces' ? materialization.spec.spaces : undefined),
+          aspHome,
+          agentRoot: placement.agentRoot,
+          projectRoot: placement.projectRoot,
+        })
+      : undefined
   const model = resolvePlacementRuntimeModel(
     adapter,
     options.model,
     defaultRunOptions,
-    placementContext.materialization.effectiveConfig
+    materialization.effectiveConfig,
+    spaceCodexConfigModel
   )
   // Profile/default prompts prime a new conversation. A continuation already
   // owns its conversation context, so applying this fallback would append the

@@ -131,9 +131,6 @@ export class CodexSession implements UnifiedSession {
     try {
       const command = this.config.appServerCommand ?? 'codex'
       const args: string[] = []
-      if (this.config.profile) {
-        args.push('-c', `profile="${this.config.profile}"`)
-      }
       for (const feature of this.config.featureFlags ?? []) {
         args.push('--enable', feature)
       }

@@ -9,7 +9,6 @@ export interface CodexAppServerLaunchDescriptor {
   modelReasoningEffort?: string | undefined
   approvalPolicy?: 'untrusted' | 'on-failure' | 'on-request' | 'never' | undefined
   sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access' | undefined
-  profile?: string | undefined
   imageAttachments?: string[] | undefined
   featureFlags?: string[] | undefined
   extraArgs?: string[] | undefined
@@ -31,7 +30,6 @@ export function buildCodexAppServerLaunchDescriptor(
       : {}),
     approvalPolicy: 'never',
     ...(sandboxMode !== undefined ? { sandboxMode } : {}),
-    ...(options.profile !== undefined ? { profile: options.profile } : {}),
     ...(options.imageAttachments !== undefined
       ? { imageAttachments: options.imageAttachments }
       : {}),

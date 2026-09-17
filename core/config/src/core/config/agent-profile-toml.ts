@@ -460,7 +460,6 @@ function parseCodexOptions(value: unknown, source: string, path: string): CodexO
       'status_line',
       'approval_policy',
       'sandbox_mode',
-      'profile',
     ],
     source,
     path
@@ -513,10 +512,6 @@ function parseCodexOptions(value: unknown, source: string, path: string): CodexO
   )
   if (sandboxMode !== undefined) {
     options.sandbox_mode = sandboxMode as CodexOptions['sandbox_mode']
-  }
-  const profile = parseOptionalString(value, 'profile', source, path)
-  if (profile !== undefined) {
-    options.profile = profile
   }
   return options
 }

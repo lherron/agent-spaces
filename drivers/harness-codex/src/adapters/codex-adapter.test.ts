@@ -336,6 +336,51 @@ exit 1
       await rm(tmpDir, { recursive: true, force: true })
     })
 
+    test('renders nested space codex.config tables and never a profile key (T-08581)', async () => {
+      await writeFile(
+        join(artifact2Dir, 'codex.config.json'),
+        JSON.stringify({
+          model: 'muse-spark-1.3-contributor',
+          model_providers: {
+            meta: {
+              name: 'Meta Model API',
+              auth: { command: '/usr/bin/security', args: ['find-generic-password', '-w'] },
+            },
+          },
+          apps: { connector_x: { enabled: false } },
+        })
+      )
+      const input = {
+        targetName: 'test-target',
+        compose: [],
+        roots: [],
+        loadOrder: [],
+        artifacts: [
+          {
+            spaceKey: 'space2@def' as SpaceKey,
+            spaceId: 'space2',
+            artifactPath: artifact2Dir,
+            pluginName: 'space2',
+            pluginVersion: '2.0.0',
+          },
+        ],
+        settingsInputs: [],
+        codexOptions: { profile: 'meta' } as Record<string, unknown>,
+      }
+
+      await adapter.composeTarget(input, outputDir, { clean: true })
+      const raw = await readFile(join(outputDir, 'codex.home', 'config.toml'), 'utf-8')
+      const config = TOML.parse(raw) as Record<string, any>
+      expect(config['model']).toBe('muse-spark-1.3-contributor')
+      expect(config['model_providers']['meta']['auth']).toEqual({
+        command: '/usr/bin/security',
+        args: ['find-generic-password', '-w'],
+      })
+      expect(config['apps']['connector_x']).toEqual({ enabled: false })
+      expect(raw).toContain('[model_providers.meta]')
+      expect(config['profile']).toBeUndefined()
+    })
+
     test('composes codex.home with overrides and merged content', async () => {
       const input = {
         targetName: 'test-target',
@@ -366,7 +411,6 @@ exit 1
           status_line: ['model', 'context-remaining', 'git-branch'],
           approval_policy: 'on-request',
           sandbox_mode: 'danger-full-access',
-          profile: 'default',
         },
       }
 
@@ -394,7 +438,6 @@ exit 1
       expect(parsed['model']).toBe('gpt-5.3-codex')
       expect(parsed['model_reasoning_effort']).toBe('medium')
       expect(parsed['model_reasoning_summary']).toBe('none')
-      expect(parsed['profile']).toBe('default')
       expect((parsed['features'] as Record<string, unknown>)['hooks']).toBe(true)
       expect((parsed['tui'] as Record<string, unknown>)['status_line']).toEqual([
         'model',
@@ -515,6 +558,19 @@ exit 1
       })
 
       expect(args).toContain('--no-alt-screen')
+    })
+
+    test('never emits a Codex profile selector (T-08581)', () => {
+      const withProfile = { profile: 'meta' } as Record<string, unknown>
+      for (const options of [
+        { interactive: false, ...withProfile },
+        { interactive: true, ...withProfile },
+        { interactive: true, continuationKey: 'codex-session-123', ...withProfile },
+      ]) {
+        const args = adapter.buildRunArgs(bundle, options)
+        expect(args).not.toContain('--profile')
+        expect(args.some((arg) => arg.startsWith('profile='))).toBe(false)
+      }
     })
 
     test('uses app-server mode in non-interactive runs', () => {

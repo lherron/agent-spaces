@@ -104,7 +104,6 @@ model = "gpt-5.3-codex"
 model_reasoning_effort = "medium"
 approval_policy = "on-failure"
 sandbox_mode = "workspace-write"
-profile = "workbench"
 `,
     'utf8'
   )

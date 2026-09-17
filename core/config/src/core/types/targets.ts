@@ -44,8 +44,6 @@ export interface CodexOptions {
   approval_policy?: 'untrusted' | 'on-failure' | 'on-request' | 'never' | undefined
   /** Sandbox mode */
   sandbox_mode?: 'read-only' | 'workspace-write' | 'danger-full-access' | undefined
-  /** Profile name */
-  profile?: string | undefined
 }
 
 /**
@@ -156,7 +154,6 @@ export function mergeCodexOptions(
     status_line: overrides.status_line ?? defaults.status_line,
     approval_policy: overrides.approval_policy ?? defaults.approval_policy,
     sandbox_mode: overrides.sandbox_mode ?? defaults.sandbox_mode,
-    profile: overrides.profile ?? defaults.profile,
   }
 }
 

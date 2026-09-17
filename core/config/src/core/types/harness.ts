@@ -437,8 +437,6 @@ export interface HarnessRunOptions {
   approvalPolicy?: 'untrusted' | 'on-failure' | 'on-request' | 'never' | undefined
   /** Codex sandbox mode override */
   sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access' | undefined
-  /** Codex profile override */
-  profile?: string | undefined
   /** Claude permission mode override */
   permissionMode?: string | undefined
   /** Claude tool deny-list (`--disallowedTools <tools...>`) */

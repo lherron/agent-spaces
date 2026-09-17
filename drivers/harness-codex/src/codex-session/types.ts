@@ -57,7 +57,6 @@ export interface CodexSessionConfig {
   modelReasoningEffort?: string | undefined
   approvalPolicy?: CodexApprovalPolicy | undefined
   sandboxMode?: CodexSandboxMode | undefined
-  profile?: string | undefined
   featureFlags?: string[] | undefined
   extraArgs?: string[] | undefined
   resumeThreadId?: string | undefined

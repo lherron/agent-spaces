@@ -85,7 +85,6 @@ args = ["--verbose"]
 [provisioning.codex]
 model_reasoning_summary = "concise"
 status_line = ["model", "cwd"]
-profile = "operator"
 `)
     expect(profile.provisioning).toEqual({
       harness: 'codex',
@@ -101,7 +100,6 @@ profile = "operator"
       codex: {
         model_reasoning_summary: 'concise',
         status_line: ['model', 'cwd'],
-        profile: 'operator',
       },
     })
   })
@@ -246,5 +244,13 @@ version = 3
 research-nova = "svc"
 `)
     expect(profile.placement?.homes).toEqual({ 'research-nova': 'svc' })
+  })
+})
+
+describe('parseAgentProfile: codex profile selector removed (T-08581)', () => {
+  test('rejects [provisioning.codex] profile', () => {
+    expect(() =>
+      parseAgentProfile('version = 3\n[provisioning.codex]\nprofile = "meta"\n')
+    ).toThrow(ConfigValidationError)
   })
 })

@@ -60,7 +60,6 @@ model = "gpt-5.3-codex"
 model_reasoning_effort = "medium"
 approval_policy = "on-failure"
 sandbox_mode = "workspace-write"
-profile = "workbench"
 `,
     'utf8'
   )
@@ -148,13 +147,7 @@ describe('buildProcessInvocationSpec characterization', () => {
       })
 
       expect(response.spec.argv[0]).toBe(codexShim)
-      expect(response.spec.argv.slice(1)).toEqual([
-        '-c',
-        'profile="workbench"',
-        '--enable',
-        'goals',
-        'app-server',
-      ])
+      expect(response.spec.argv.slice(1)).toEqual(['--enable', 'goals', 'app-server'])
       expect(response.spec.displayCommand).toContain(codexShim)
       expect(response.spec.displayCommand).toContain('app-server')
 
@@ -175,7 +168,6 @@ describe('buildProcessInvocationSpec characterization', () => {
         modelReasoningEffort: 'medium',
         approvalPolicy: 'never',
         sandboxMode: 'danger-full-access',
-        profile: 'workbench',
         imageAttachments: [fixture.imagePath],
         featureFlags: ['goals'],
       })

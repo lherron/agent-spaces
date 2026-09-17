@@ -197,7 +197,6 @@ schema = 1
 model = "gpt-5.3-codex"
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"
-profile = "default"
 
 [targets.default]
 compose = ["space:my-space@stable"]
@@ -206,18 +205,26 @@ compose = ["space:my-space@stable"]
 model = "gpt-5.1-codex-mini"
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
-profile = "dev"
 `
       const result = parseTargetsToml(toml)
 
       expect(result.codex?.model).toBe('gpt-5.3-codex')
       expect(result.codex?.approval_policy).toBe('on-request')
       expect(result.codex?.sandbox_mode).toBe('workspace-write')
-      expect(result.codex?.profile).toBe('default')
       expect(result.targets.default.provisioning?.codex?.model).toBe('gpt-5.1-codex-mini')
       expect(result.targets.default.provisioning?.codex?.approval_policy).toBe('never')
       expect(result.targets.default.provisioning?.codex?.sandbox_mode).toBe('danger-full-access')
-      expect(result.targets.default.provisioning?.codex?.profile).toBe('dev')
+    })
+
+    test('rejects a codex profile selector (T-08581)', () => {
+      expect(() => parseTargetsToml('schema = 1\n[codex]\nprofile = "meta"\n[targets]\n')).toThrow(
+        ConfigValidationError
+      )
+      expect(() =>
+        parseTargetsToml(
+          'schema = 1\n[targets.default]\ncompose = []\n[targets.default.provisioning.codex]\nprofile = "meta"\n'
+        )
+      ).toThrow(ConfigValidationError)
     })
 
     test('parses manifest with target-specific claude options', () => {

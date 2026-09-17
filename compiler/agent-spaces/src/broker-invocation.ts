@@ -555,7 +555,6 @@ export function toHarnessBrokerStartRequest(
     ...(codexDescriptor.sandboxMode !== undefined
       ? { sandboxMode: codexDescriptor.sandboxMode }
       : {}),
-    ...(codexDescriptor.profile !== undefined ? { profile: codexDescriptor.profile } : {}),
     permissionPolicy: req.permissionPolicy ?? { mode: 'deny' },
     resumeFallback: req.resumeFallback ?? 'start-fresh',
   }

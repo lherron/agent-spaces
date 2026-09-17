@@ -48,8 +48,7 @@
         "sandbox_mode": {
           "type": "string",
           "enum": ["read-only", "workspace-write", "danger-full-access"]
-        },
-        "profile": { "type": "string" }
+        }
       }
     },
 
@@ -121,8 +120,7 @@
                 "sandbox_mode": {
                   "type": "string",
                   "enum": ["read-only", "workspace-write", "danger-full-access"]
-                },
-                "profile": { "type": "string" }
+                }
               }
             }
           }

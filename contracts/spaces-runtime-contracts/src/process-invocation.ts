@@ -60,7 +60,6 @@ export type ProcessInvocationSpec = {
         modelReasoningEffort?: string | undefined
         approvalPolicy?: 'untrusted' | 'on-failure' | 'on-request' | 'never' | undefined
         sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access' | undefined
-        profile?: string | undefined
         imageAttachments?: string[] | undefined
         featureFlags?: string[] | undefined
         extraArgs?: string[] | undefined

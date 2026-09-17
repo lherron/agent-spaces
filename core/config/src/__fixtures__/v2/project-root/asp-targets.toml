@@ -7,7 +7,6 @@ model = "claude-sonnet-4-5"
 model = "gpt-5.5"
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"
-profile = "workspace"
 
 [targets.default]
 description = "Default project-local fixture target"
@@ -33,4 +32,3 @@ compose = [ "space:project:task-scaffolds" ]
   approval = "never"
 
     [targets.codex-fast.provisioning.codex]
-    profile = "fast"

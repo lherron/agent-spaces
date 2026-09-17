@@ -248,9 +248,6 @@ function appendDefaultFeatureFlags(args: string[], options: HarnessRunOptions): 
 /** Non-interactive (headless) launch: `codex app-server` over JSON-RPC. */
 function buildExecArgs(options: HarnessRunOptions): string[] {
   const args: string[] = []
-  if (options.profile) {
-    args.push('-c', `profile="${options.profile}"`)
-  }
   appendDefaultFeatureFlags(args, options)
   args.push('app-server')
   if (options.extraArgs) {
@@ -286,9 +283,6 @@ function appendInteractiveCommonFlags(args: string[], options: HarnessRunOptions
   // Interactive-only: the headless path runs `codex app-server` over
   // JSON-RPC and gets events natively, never via TUI hooks.
   args.push('--dangerously-bypass-hook-trust')
-  if (options.profile) {
-    args.push('--profile', options.profile)
-  }
 
   if (options.imageAttachments && options.imageAttachments.length > 0) {
     for (const imagePath of options.imageAttachments) {
@@ -599,7 +593,6 @@ export class CodexAdapter implements HarnessAdapter {
         ['status_line', 'tui.status_line'],
         ['approval_policy', 'approval_policy'],
         ['sandbox_mode', 'sandbox_mode'],
-        ['profile', 'profile'],
       ]
       for (const [field, tomlKey] of overrideKeyMap) {
         const value = codexOptions[field]
@@ -757,7 +750,6 @@ export class CodexAdapter implements HarnessAdapter {
       modelReasoningEffort: codexOptions.model_reasoning_effort,
       approvalPolicy: codexOptions.approval_policy,
       sandboxMode: codexOptions.sandbox_mode,
-      profile: codexOptions.profile,
       prompt: target?.priming,
     }
 

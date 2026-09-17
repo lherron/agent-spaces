@@ -102,7 +102,6 @@ describe('mergeAgentWithProjectTarget: legacy projection characterization', () =
           status_line: ['agent-status'],
           approval_policy: 'untrusted',
           sandbox_mode: 'read-only',
-          profile: 'agent-profile',
         },
       },
     })
@@ -128,7 +127,6 @@ describe('mergeAgentWithProjectTarget: legacy projection characterization', () =
           status_line: ['target-status'],
           approval_policy: 'on-failure',
           sandbox_mode: 'workspace-write',
-          profile: 'target-profile',
         },
       },
     })
@@ -137,7 +135,7 @@ describe('mergeAgentWithProjectTarget: legacy projection characterization', () =
     const { provisioning: _provisioning, ...legacyProjection } = result
 
     expect(JSON.stringify(legacyProjection)).toBe(
-      '{"priming":"Project priming.","compose":["space:project@dev"],"yolo":false,"remoteControl":false,"harness":"target-harness","model":"target-model","reasoning":"target-reasoning","sandbox":"danger-full-access","approval":"never","claude":{"model":"target-claude-model","permission_mode":"target-permission","args":["--target"]},"codex":{"model":"target-codex-model","model_reasoning_effort":"target-reasoning","model_reasoning_summary":"detailed","status_line":["target-status"],"approval_policy":"never","sandbox_mode":"danger-full-access","profile":"target-profile"},"description":"Project description."}'
+      '{"priming":"Project priming.","compose":["space:project@dev"],"yolo":false,"remoteControl":false,"harness":"target-harness","model":"target-model","reasoning":"target-reasoning","sandbox":"danger-full-access","approval":"never","claude":{"model":"target-claude-model","permission_mode":"target-permission","args":["--target"]},"codex":{"model":"target-codex-model","model_reasoning_effort":"target-reasoning","model_reasoning_summary":"detailed","status_line":["target-status"],"approval_policy":"never","sandbox_mode":"danger-full-access"},"description":"Project description."}'
     )
   })
 })

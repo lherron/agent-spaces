@@ -91,7 +91,6 @@ model = "gpt-5.5"
 model_reasoning_effort = "medium"
 approval_policy = "on-failure"
 sandbox_mode = "workspace-write"
-profile = "workbench"
 `,
     'utf8'
   )

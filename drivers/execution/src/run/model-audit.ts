@@ -23,11 +23,13 @@ import {
   resolveProfileHarnessForRun,
 } from './agent-profile.js'
 import { planProjectTargetRuntime } from './placement-plan.js'
+import { resolveSpaceCodexConfigModel } from './space-codex-model.js'
 
 export type ModelAuditSourceMode =
   | 'explicit_profile'
   | 'project_target'
   | 'materialized_effective_config'
+  | 'space_codex_config'
   | 'adapter_default'
   | 'cli_override'
 
@@ -93,6 +95,7 @@ function selectTargetModelSource(args: {
   target: TargetDefinition | undefined
   agentProfile: LoadedAgentProfile | undefined
   defaultRunOptionsModel?: string | undefined
+  spaceCodexConfigModel?: string | undefined
   adapter: HarnessAdapter
 }): SelectedModelSource {
   if (args.cliModel !== undefined) {
@@ -124,9 +127,18 @@ function selectTargetModelSource(args: {
     return { sourceModel: args.defaultRunOptionsModel, sourceMode: 'project_target' }
   }
 
+  if (args.spaceCodexConfigModel !== undefined) {
+    return { sourceModel: args.spaceCodexConfigModel, sourceMode: 'space_codex_config' }
+  }
+
   const defaultModel =
     args.adapter.models.find((model) => model.default)?.id ?? args.adapter.models[0]?.id
   return { sourceModel: defaultModel, sourceMode: 'adapter_default' }
+}
+
+/** Adapter defaults and space config models are governed by config, not argv. */
+function isLaunchedModelSource(sourceMode: ModelAuditSourceMode): boolean {
+  return sourceMode !== 'adapter_default' && sourceMode !== 'space_codex_config'
 }
 
 function profilePath(agentProfile: LoadedAgentProfile): string {
@@ -196,6 +208,15 @@ export async function auditProjectModels(
       target: runtimePlan.target,
       agentProfile: runtimePlan.agentProfile,
       defaultRunOptionsModel: runtimePlan.defaultRunOptions.model,
+      spaceCodexConfigModel:
+        harnessId === 'codex'
+          ? await resolveSpaceCodexConfigModel({
+              compose: runtimePlan.effectiveCompose,
+              aspHome: options.aspHome,
+              agentRoot: runtimePlan.agentProfile.agentRoot,
+              projectRoot: options.projectPath,
+            })
+          : undefined,
       adapter,
     })
     if (!selected.sourceModel) {
@@ -208,9 +229,15 @@ export async function auditProjectModels(
       harnessId,
       frontend,
       sourceModel: selected.sourceModel,
-      launchModel: selected.sourceMode === 'adapter_default' ? undefined : selected.sourceModel,
+      launchModel: isLaunchedModelSource(selected.sourceMode) ? selected.sourceModel : undefined,
       sourceMode: selected.sourceMode,
-      ...classifyModel(selected.sourceModel, adapter),
+      ...(selected.sourceMode === 'space_codex_config'
+        ? {
+            resolvedModel: selected.sourceModel,
+            identityMode: 'full' as const,
+            status: 'ok' as const,
+          }
+        : classifyModel(selected.sourceModel, adapter)),
     })
   }
 
