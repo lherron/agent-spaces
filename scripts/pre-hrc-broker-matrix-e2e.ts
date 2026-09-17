@@ -182,6 +182,11 @@ export const compilerRuntimeDependencies = {
   prepareAgentToolRuntime,
 }
 
+function resolveMatrixAgentRoot(projectRoot: string, agentId: string): string {
+  const configuredRoot = process.env['ASP_AGENTS_ROOT']
+  return join(configuredRoot ?? resolve(projectRoot, '..', 'var', 'agents'), agentId)
+}
+
 async function ghostmuxNewWithRetry(
   bin: string,
   args: string[],
@@ -2029,7 +2034,7 @@ async function runCodexTuiRow(ctx: RowContext): Promise<RowResult> {
   const aspHome = mkdtempSync(join(tmpdir(), 'asp-matrix-codex-tui-'))
   const socketPath = join(tmpdir(), `matrix-codex-tui-${process.pid}.sock`)
   const projectRoot = ctx.repoRoot
-  const agentRoot = resolve(projectRoot, '..', 'var', 'agents', 'sparky')
+  const agentRoot = resolveMatrixAgentRoot(projectRoot, 'sparky')
   const events: InvocationEventEnvelope[] = []
   let invocationId: InvocationId | undefined
   let manager: ReturnType<typeof createInvocationManager> | undefined
@@ -2431,7 +2436,7 @@ async function runCodexTmuxRow(
   const hookSocketPath = `${socketPath}.hooks`
   const projectRoot = ctx.repoRoot
   const scopeRef = 'sparky@agent-spaces'
-  const agentRoot = resolve(projectRoot, '..', 'var', 'agents', 'sparky')
+  const agentRoot = resolveMatrixAgentRoot(projectRoot, 'sparky')
   const events: InvocationEventEnvelope[] = []
   const ledger = new PreHrcBrokerEventLedger()
   const tmuxArgv: string[][] = []
@@ -4745,7 +4750,7 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
       // can verify. cody@agent-spaces has NO tools/bin, so pointing the row there
       // (matrix-setup divergence from the smoke) left pathPrepend legitimately empty.
       const scopeRef = 'sparky@agent-spaces'
-      const agentRoot = resolve(projectRoot, '..', 'var', 'agents', 'sparky')
+      const agentRoot = resolveMatrixAgentRoot(projectRoot, 'sparky')
       try {
         return await runCodexRow(ctx, {
           real: true,
