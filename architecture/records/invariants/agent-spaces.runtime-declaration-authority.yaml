@@ -2,7 +2,7 @@ id: agent-spaces.runtime-declaration-authority
 kind: invariant
 status: active
 owner_project: agent-spaces
-scope: placement-bound runtime declaration interpretation and read-only node observations
+scope: placement-bound runtime declaration interpretation, preparation context, and read-only node observations
 predicate: >
   Agent Spaces alone interprets mutable agent profiles, project targets,
   provisioning overlays, priming, harness/provider/frontend mappings, prompt
@@ -14,8 +14,22 @@ predicate: >
   applicable sources on every request; an exact caller agentRoot is read without
   roster search or substitution, project mode none reads no marker or target,
   and caller agent-source configuration is canonicalized, echoed, and never
-  silently replaced by daemon configuration. Declaration absent and invalid
-  remain distinct from producer unavailable and protocol/context incompatible.
+  silently replaced by daemon configuration. Runtime-placement inspection,
+  direct preparation, and launch preparation project one ASP-owned preparation
+  execution context. Template exec, predicate, and interpolation evaluation use
+  the aspd ambient environment plus producer-derived placement correlation;
+  dispatchEnv remains launch-process and dispatch input only and never enters
+  that prompt environment or its canonical hash. Inspection correlation is an
+  additive input behind the exact
+  inspectRuntimePlacementPreparationCorrelation capability; a consumer that
+  requires parity fails closed when the capability is absent rather than
+  presenting an uncorrelated inspection. Explicit prompt-source authority is
+  exclusive: compile uses request aspHome, context surfaces use validated caller
+  agentSources, and ambient home and roots apply only when that surface has no
+  explicit source; explicit and ambient source arms are never merged. A
+  sessionRef identity that contradicts explicit context identity is refused as
+  configured_context_mismatch. Declaration absent and invalid remain distinct
+  from producer unavailable and protocol/context incompatible.
   observeRuntimeCapability performs only bounded read-only detection and never
   reports a failed, timed-out, or over-limit probe as positive capability.
   observeContinuationArtifact uses key-bound frozen provider-home evidence for
@@ -30,11 +44,12 @@ predicate: >
   preparation, and the native Desktop lifecycle stays external. The thin ASPC protocol/client closure carries DTOs, validation,
   framing, and transport only, never configuration, compiler, adapter, or
   provider implementations.
-authority: T-08563 revision 5 approved by daedalus EN-13318; T-08574 preparation amendment approved EN-13542
+authority: T-08563 revision 5 approved by daedalus EN-13318; T-08574 preparation amendment approved EN-13542; T-08579 revision 5 preparation-context amendment approved by daedalus on 2026-09-17
 source:
   - wrkq:T-08563 revision 5
   - wrkq:T-08563 ACCEPTANCE revision 5
   - wrkq:EN-13318
+  - "wrkq:T-08579 revision 5 sha256:1620ecf811a00633123a502d59e4a60471cd6580b3e383dfaa5e5a9b72c567cf"
   - compiler/agent-spaces/src/runtime-declaration.ts
   - compiler/agent-spaces/src/runtime-capability.ts
   - compiler/agent-spaces/src/continuation-probe.ts
@@ -50,6 +65,10 @@ required_tests:
   - repeated requests observe mutable profile and target changes without daemon restart
   - declaration absent invalid unavailable and incompatible retain distinct typed result arms
   - prompt present absent and invalid retain compiled inspection facts and share the preparation environment rule
+  - compile inspection and direct preparation derive prompt identity correlation environment and effectiveEnvironmentHash from one preparation execution context while dispatchEnv changes neither prompt facts nor that hash
+  - inspect preparation correlation is advertised by the exact capability and consumers requiring parity fail closed when it is absent
+  - explicit compile aspHome and validated caller agentSources exclusively anchor prompt discovery while ambient source arms apply only when no explicit source exists and the arms are never merged
+  - conflicting sessionRef and explicit context agent project or task identity returns configured_context_mismatch before materialization
   - capability detection is fresh bounded read-only and failed probes are never positive
   - key-bound frozen continuation evidence may return missing while unbound recorded placement returns present or unknown only
   - standalone aspd advertises and serves all four operations over its immutable release identity
@@ -65,5 +84,8 @@ reopen_when:
   - capability observation starts an agent process applies input or materializes an invocation
   - continuation absence is inferred from an unbound or newly selected provider home
   - thin protocol clients acquire implementation dependencies
+  - inspection direct preparation and launch preparation stop sharing one preparation execution context
+  - dispatchEnv becomes a template exec predicate interpolation or preparation-environment-hash input
+  - explicit and ambient prompt-source authority are merged or silently substituted
 supersedes: []
 superseded_by: null
