@@ -107,6 +107,8 @@ describe('T-08565 frozen release offline-reader preflight', () => {
   })
 
   test('legacy unsupported and declared-but-failed remain distinct without guessing a spawn', () => {
+    // This demonstrates the ASP manifest preflight seam a consumer can use; it
+    // does not claim to test HRC's production refusal/reader adapter.
     const legacy = inspectRelease(releaseFixture({ readerExit: 7 }))
     const declaredPath = releaseFixture({ capabilities: [CAPABILITY], readerExit: 7 })
     const declared = inspectRelease(declaredPath)
