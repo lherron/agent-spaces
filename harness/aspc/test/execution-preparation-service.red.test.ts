@@ -8,10 +8,16 @@
  * mock profile.
  */
 import { afterEach, describe, expect, test } from 'bun:test'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { validateBrokerExecutionProfile } from 'spaces-runtime-contracts'
+import {
+  hashNeutralStartRequest,
+  neutralSpecHash,
+  neutralStartRequestHash,
+  validateBrokerExecutionProfile,
+} from 'spaces-runtime-contracts'
 import { createAspcService, registerAspcCompileMethods } from '../src/index.js'
 
 type UnknownRecord = Record<string, unknown>
@@ -207,6 +213,11 @@ describe('ASPC Desktop observer preparation (T-08577)', () => {
     const service = createAspcService()
     const prepare = operation(service, 'prepareDesktopObserver')
     const response = (await prepare.call(service, fixture.request)) as UnknownRecord
+    const startRequest = response['startRequest'] as Parameters<typeof neutralStartRequestHash>[0]
+    const hashValue = (value: unknown) =>
+      createHash('sha256')
+        .update(JSON.stringify(value) ?? 'null')
+        .digest('hex')
 
     expect(response).toMatchObject({
       schemaVersion: 'aspc-prepare-desktop-observer-response/v1',
@@ -220,21 +231,14 @@ describe('ASPC Desktop observer preparation (T-08577)', () => {
         interactionMode: 'headless',
         brokerProtocol: 'harness-broker/0.2',
         brokerDriver: 'codex-desktop',
-        expectedCapabilities: {
-          input: {
-            user: 'required',
-            queue: 'required',
-            steer: 'forbidden',
-            appendContext: 'forbidden',
-          },
-        },
-        policy: { permissionPolicy: { mode: 'deny' } },
       },
     })
 
     const profile = response['selectedProfile'] as Parameters<
       typeof validateBrokerExecutionProfile
     >[0]
+    const start = startRequest as unknown as UnknownRecord
+    const spec = start['spec'] as UnknownRecord
     expect(validateBrokerExecutionProfile(profile)).toEqual([])
     expect(
       validateBrokerExecutionProfile({
@@ -242,9 +246,75 @@ describe('ASPC Desktop observer preparation (T-08577)', () => {
         brokerProtocol: 'not-a-broker-protocol',
       } as never).length
     ).toBeGreaterThan(0)
+    expect(JSON.stringify(response)).not.toContain('initialInput')
+    expect(existsSync(fixture.executionMarker)).toBe(false)
 
-    const start = response['startRequest'] as UnknownRecord
-    const spec = start['spec'] as UnknownRecord
+    expect(profile.profileId).toBe(
+      `profile_${hashValue({
+        driver: 'codex-desktop',
+        startRequest: hashNeutralStartRequest(startRequest),
+      }).slice(0, 32)}`
+    )
+    expect(profile.compatibilityHash).toBe(
+      hashValue({ driver: 'codex-desktop', threadId: THREAD, codexHome: fixture.home })
+    )
+    expect(profile.expectedCapabilities).toEqual({
+      input: {
+        user: 'required',
+        steer: 'forbidden',
+        appendContext: 'forbidden',
+        localImages: 'forbidden',
+        fileRefs: 'forbidden',
+        queue: 'required',
+      },
+      turns: { concurrency: 'single', interrupt: 'forbidden' },
+      continuation: 'optional',
+      permissions: 'none',
+      events: {
+        assistantDeltas: 'optional',
+        toolCalls: 'required',
+        usage: 'optional',
+        diagnostics: 'optional',
+      },
+      control: {
+        stop: 'optional',
+        dispose: 'optional',
+        reconcile: 'optional',
+        attachReplay: 'optional',
+      },
+      lifecycle: {
+        runtimeRetention: ['keep-alive'],
+        harnessRecovery: ['none'],
+        turnRetry: ['none'],
+        generationFencing: 'forbidden',
+        permissionCancellation: 'forbidden',
+      },
+    })
+    expect(profile.harnessInvocation).toEqual({
+      startRequest,
+      specHash: neutralSpecHash(startRequest.spec),
+      startRequestHash: neutralStartRequestHash(startRequest),
+    })
+    expect(profile.policy).toEqual({
+      permissionPolicy: { mode: 'deny', audit: true },
+      inputPolicy: {
+        readyInput: 'start-turn',
+        busy: { whenBusy: 'reject' },
+        supportedKinds: ['user'],
+        attachmentPolicy: { localImages: false, fileRefs: false },
+      },
+      exposurePolicy: { mode: 'none' },
+    })
+    expect(profile.observability.correlation).toEqual({
+      requestId: expect.any(String),
+      operationId: expect.any(String),
+      hostSessionId: 'hsid-t08577',
+      generation: 11,
+      runtimeId: 'runtime-t08577',
+      runId: 'run-t08577',
+      invocationId: startRequest.spec.invocationId,
+      traceId: expect.any(String),
+    })
     expect(spec['driver']).toMatchObject({
       kind: 'codex-desktop',
       bundleExecutable: fixture.bundle,
@@ -260,8 +330,6 @@ describe('ASPC Desktop observer preparation (T-08577)', () => {
       args: [],
       harnessTransport: { kind: 'pipes' },
     })
-    expect(JSON.stringify(response)).not.toContain('initialInput')
-    expect(existsSync(fixture.executionMarker)).toBe(false)
   })
 
   test('E3: refreshed rollout outside the registered home is not prepared and leaves no partial plan', async () => {
