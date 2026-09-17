@@ -17,6 +17,7 @@ const DEV_PUBLISH_PACKAGES = [
   'drivers/execution',
   'contracts/harness-broker-protocol',
   'contracts/harness-broker-client',
+  'contracts/hrc-join-client',
   'harness/harness-broker',
   'harness/harness-broker-pi-sdk',
   'harness/agent-harness-runtime',
