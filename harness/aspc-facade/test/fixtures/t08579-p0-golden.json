@@ -1,0 +1,40 @@
+{
+  "pov/projplain/nodispatch/ambient-home": {
+    "systemPrompt": "# pov soul\n\n---\n\nMOTD=roster\n\n---\n\nIDENT agent=pov project=projplain task=T-08579 lane=main\n\n---\n\nINTERP=\n\n---\n\nPROBE=unset\n\n---\n\nAGENT_ID=pov;AGENT_LANE=main;AGENT_LANE_REF=main;AGENT_PROJECT=projplain;AGENT_PROJECT_ROOT=<ROOT>/projplain;AGENT_SCOPE_REF=agent:pov:project:projplain:task:T-08579;AGENT_SESSION_REF=agent:pov:project:projplain:task:T-08579/lane:main;AGENT_TASK=T-08579;AGENT_ACTOR=pov;WRKQ_PRINCIPAL_REF=agent:pov;AGENTCHAT_ID=pov;ASP_PROJECT=projplain;HRC_SESSION_REF=agent:pov:project:projplain:task:T-08579/lane:main;",
+    "dispatchEnv": null
+  },
+  "pov/projplain/dispatch/ambient-home": {
+    "systemPrompt": "# pov soul\n\n---\n\nMOTD=roster\n\n---\n\nIDENT agent=pov project=projplain task=T-08579 lane=main\n\n---\n\nINTERP=\n\n---\n\nPROBE=unset\n\n---\n\nAGENT_ID=pov;AGENT_LANE=main;AGENT_LANE_REF=main;AGENT_PROJECT=projplain;AGENT_PROJECT_ROOT=<ROOT>/projplain;AGENT_SCOPE_REF=agent:pov:project:projplain:task:T-08579;AGENT_SESSION_REF=agent:pov:project:projplain:task:T-08579/lane:main;AGENT_TASK=T-08579;AGENT_ACTOR=pov;WRKQ_PRINCIPAL_REF=agent:pov;AGENTCHAT_ID=pov;ASP_PROJECT=projplain;HRC_SESSION_REF=agent:pov:project:projplain:task:T-08579/lane:main;",
+    "dispatchEnv": {
+      "T08579_PARITY_PROBE": "caller-value",
+      "HRC_TASK_ID": "T-08579"
+    }
+  },
+  "pov/projoverlay/dispatch/ambient-home": {
+    "systemPrompt": "# pov soul\n\n---\n\nMOTD=project-overlay\n\n---\n\nIDENT agent=pov project=projoverlay task=T-08579 lane=main\n\n---\n\nINTERP=\n\n---\n\nPROBE=unset\n\n---\n\nAGENT_ID=pov;AGENT_LANE=main;AGENT_LANE_REF=main;AGENT_PROJECT=projoverlay;AGENT_PROJECT_ROOT=<ROOT>/projoverlay;AGENT_SCOPE_REF=agent:pov:project:projoverlay:task:T-08579;AGENT_SESSION_REF=agent:pov:project:projoverlay:task:T-08579/lane:main;AGENT_TASK=T-08579;AGENT_ACTOR=pov;WRKQ_PRINCIPAL_REF=agent:pov;AGENTCHAT_ID=pov;ASP_PROJECT=projoverlay;HRC_SESSION_REF=agent:pov:project:projoverlay:task:T-08579/lane:main;",
+    "dispatchEnv": {
+      "T08579_PARITY_PROBE": "caller-value",
+      "HRC_TASK_ID": "T-08579"
+    }
+  },
+  "pov/projplain/nodispatch/ambient-home/nosession": {
+    "systemPrompt": "# pov soul\n\n---\n\nMOTD=roster\n\n---\n\nIDENT agent=pov project=projplain task= lane=\n\n---\n\nINTERP=\n\n---\n\nPROBE=unset\n\n---\n\nAGENT_ID=;AGENT_LANE=;AGENT_LANE_REF=;AGENT_PROJECT=;AGENT_PROJECT_ROOT=<ROOT>/projplain;AGENT_SCOPE_REF=;AGENT_SESSION_REF=;AGENT_TASK=;AGENT_ACTOR=;WRKQ_PRINCIPAL_REF=;AGENTCHAT_ID=pov;ASP_PROJECT=projplain;HRC_SESSION_REF=;",
+    "dispatchEnv": null
+  },
+  "pov2/projplain/nodispatch/ambient-home": {
+    "systemPrompt": "TPL=ambient-home",
+    "dispatchEnv": null
+  },
+  "pov2/projoverlay/nodispatch/ambient-home": {
+    "systemPrompt": "TPL=ambient-roster\n\n---\n\nUSER=ambient",
+    "dispatchEnv": null
+  },
+  "pov2/projoverlay/nodispatch/none": {
+    "systemPrompt": "TPL=ambient-roster\n\n---\n\nUSER=ambient",
+    "dispatchEnv": null
+  },
+  "pov2/projplain/nodispatch/none": {
+    "systemPrompt": "TPL=ambient-home",
+    "dispatchEnv": null
+  }
+}

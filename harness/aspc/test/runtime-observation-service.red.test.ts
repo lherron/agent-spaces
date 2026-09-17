@@ -124,11 +124,13 @@ describe('T-08563 ASPC runtime observation service', () => {
       })
     )
     expect(response.ok).toBe(true)
+    // T-08579 (T-08563 rev 5.2): dispatchEnv is launch-process input only and
+    // never a template interpolation input, so the ambient value renders.
     expect(response.prompt).toMatchObject({
       state: 'present',
       value: {
         systemPromptMode: 'replace',
-        systemPrompt: expect.stringContaining('present=from-dispatch'),
+        systemPrompt: expect.stringContaining('present=ambient'),
         nearMaxChars: false,
       },
     })
@@ -177,7 +179,7 @@ describe('T-08563 ASPC runtime observation service', () => {
     expect(JSON.stringify(response.inspection)).toContain('plan_runtime_observation_red')
   })
 
-  test('uses one ambient-plus-dispatch seam and hashes dispatch changes explicitly', async () => {
+  test('T-08579: dispatchEnv changes neither prompt facts nor the environment hash', async () => {
     const service = dynamicService()
     const first = await service.inspectRuntimePlacement(
       inspectRequest('prompted', { RUNTIME_PROMPT_VALUE: 'A' })
@@ -190,8 +192,9 @@ describe('T-08563 ASPC runtime observation service', () => {
     )
     expect(repeat.prompt).toEqual(first.prompt)
     expect(repeat.effectiveEnvironmentHash).toBe(first.effectiveEnvironmentHash)
-    expect(changed.prompt.value.systemPrompt).toContain('present=B')
-    expect(changed.effectiveEnvironmentHash).not.toBe(first.effectiveEnvironmentHash)
+    expect(changed.prompt).toEqual(first.prompt)
+    expect(changed.prompt.value.systemPrompt).toContain('present=ambient')
+    expect(changed.effectiveEnvironmentHash).toBe(first.effectiveEnvironmentHash)
   })
 
   test('routes invalid profile observations and target-only results through the service', async () => {
