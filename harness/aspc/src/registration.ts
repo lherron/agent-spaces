@@ -17,6 +17,10 @@ import {
   validateAspcHelloRequest,
   validateAspcInspectAgentRequest,
   validateAspcInspectAgentSelectionRequest,
+  validateAspcInspectRuntimePlacementRequest,
+  validateAspcObserveContinuationArtifactRequest,
+  validateAspcObserveRuntimeCapabilityRequest,
+  validateAspcResolveRuntimeDeclarationRequest,
 } from 'spaces-aspc-protocol'
 import type { AspcService } from './service.js'
 import { createAspcService } from './service.js'
@@ -32,6 +36,10 @@ export const ASPC_COMPILE_METHODS = {
   catalogAgentInspection: 'aspc.catalogAgentInspection',
   inspectAgentSelection: 'aspc.inspectAgentSelection',
   compileHarnessInvocation: 'aspc.compileHarnessInvocation',
+  resolveRuntimeDeclaration: 'aspc.resolveRuntimeDeclaration',
+  inspectRuntimePlacement: 'aspc.inspectRuntimePlacement',
+  observeRuntimeCapability: 'aspc.observeRuntimeCapability',
+  observeContinuationArtifact: 'aspc.observeContinuationArtifact',
 } as const
 
 export type AspcMethodRequest = {
@@ -121,4 +129,66 @@ export function registerAspcCompileMethods(
     validateAspcCompileHarnessInvocationRequest,
     (req) => service.compileHarnessInvocation(req)
   )
+  registerAspcObservationMethod(
+    server,
+    ASPC_COMPILE_METHODS.resolveRuntimeDeclaration,
+    validateAspcResolveRuntimeDeclarationRequest,
+    (req) => service.resolveRuntimeDeclaration(req)
+  )
+  registerAspcObservationMethod(
+    server,
+    ASPC_COMPILE_METHODS.inspectRuntimePlacement,
+    validateAspcInspectRuntimePlacementRequest,
+    (req) => service.inspectRuntimePlacement(req)
+  )
+  registerAspcObservationMethod(
+    server,
+    ASPC_COMPILE_METHODS.observeRuntimeCapability,
+    validateAspcObserveRuntimeCapabilityRequest,
+    (req) => service.observeRuntimeCapability(req)
+  )
+  registerAspcObservationMethod(
+    server,
+    ASPC_COMPILE_METHODS.observeContinuationArtifact,
+    validateAspcObserveContinuationArtifactRequest,
+    (req) => service.observeContinuationArtifact(req)
+  )
+}
+
+function registerAspcObservationMethod<Params, Result>(
+  server: AspcMethodServer,
+  method: string,
+  validateRequest: (params: unknown) => Params,
+  handle: (req: Params) => Promise<Result>
+): void {
+  server.register(method, async ({ id, params }) => {
+    try {
+      validateAspcCommand({ jsonrpc: JSONRPC_VERSION, id, method, params })
+      return handle(validateRequest(params))
+    } catch (error) {
+      const schema =
+        typeof params === 'object' && params !== null
+          ? (params as Record<string, unknown>)['schemaVersion']
+          : undefined
+      if (typeof schema === 'string' && schema !== expectedObservationSchema(method)) {
+        return handle(params as Params)
+      }
+      throw error
+    }
+  })
+}
+
+function expectedObservationSchema(method: string): string {
+  switch (method) {
+    case ASPC_COMPILE_METHODS.resolveRuntimeDeclaration:
+      return 'aspc-resolve-runtime-declaration-request/v1'
+    case ASPC_COMPILE_METHODS.inspectRuntimePlacement:
+      return 'aspc-inspect-runtime-placement-request/v1'
+    case ASPC_COMPILE_METHODS.observeRuntimeCapability:
+      return 'aspc-observe-runtime-capability-request/v1'
+    case ASPC_COMPILE_METHODS.observeContinuationArtifact:
+      return 'aspc-observe-continuation-artifact-request/v1'
+    default:
+      return ''
+  }
 }

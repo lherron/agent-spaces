@@ -13,6 +13,9 @@ const ENV_KEYS = [
   'ASP_PI_PATH',
   'ASP_CODEX_PATH',
   'ASP_CODEX_SKIP_COMMON_PATHS',
+  'ANTHROPIC_API_KEY',
+  'OPENAI_API_KEY',
+  'HOME',
   'PATH',
 ] as const
 let savedEnv: Record<string, string | undefined> = {}
@@ -21,6 +24,7 @@ let root = ''
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'runtime-capability-red-'))
   savedEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]))
+  process.env.ANTHROPIC_API_KEY = 'test-only-capability-presence'
 })
 
 afterEach(async () => {
@@ -90,6 +94,27 @@ describe('T-08563 runtime capability observation', () => {
     expect(over.diagnostics).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: 'probe_output_limit' })])
     )
+  }, 10_000)
+
+  test('keeps the deadline through inherited pipe drain and kills the probe group', async () => {
+    const childPidPath = join(root, 'inherited-pipe-child.pid')
+    const shim = await executable(
+      'claude-inherited-pipe',
+      `const child = Bun.spawn(['sh', '-c', 'trap "" TERM; sleep 30'], { stdout: 'inherit', stderr: 'inherit' }); await Bun.write(${JSON.stringify(childPidPath)}, String(child.pid)); console.log('claude 9.9.9')`
+    )
+    process.env.ASP_CLAUDE_PATH = shim
+    const started = Date.now()
+    const response = await operation()(request('claude'))
+    expect(Date.now() - started).toBeLessThan(4_500)
+    expect(response.nativeRuntime).toEqual({ state: 'unknown', code: 'detection_failed' })
+    expect(response.preparation).toEqual({ state: 'unknown', code: 'preparation_unknown' })
+    expect(response.diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'probe_timeout' })])
+    )
+
+    const childPid = Number(await readFile(childPidPath, 'utf8'))
+    await Bun.sleep(25)
+    expect(() => process.kill(childPid, 0)).toThrow()
   }, 10_000)
 
   test('limits Codex to eight existing candidates and a failed probe is never capable', async () => {
@@ -177,6 +202,27 @@ describe('T-08563 runtime capability observation', () => {
       'app-server --help',
     ])
     expect(JSON.stringify(response)).not.toMatch(/invocation|materializ|initialInput/i)
+  })
+
+  test('re-reads Pi credential presence from the node-local auth source', async () => {
+    const shim = await executable(
+      'pi-credentials',
+      `if (process.argv.includes('--version')) console.log('pi 1.0.0'); else console.log('--extension --skill')`
+    )
+    process.env.ASP_PI_PATH = shim
+    process.env.HOME = root
+    Reflect.deleteProperty(process.env, 'ANTHROPIC_API_KEY')
+    Reflect.deleteProperty(process.env, 'OPENAI_API_KEY')
+
+    const absent = await operation()(request('pi'))
+    expect(absent.credentials).toEqual({ state: 'absent', code: 'credentials_missing' })
+    expect(absent.preparation).toEqual({ state: 'absent', code: 'credentials_missing' })
+
+    await mkdir(join(root, '.pi', 'agent'), { recursive: true })
+    await writeFile(join(root, '.pi', 'agent', 'auth.json'), '{}')
+    const present = await operation()(request('pi'))
+    expect(present.credentials).toEqual({ state: 'present', code: 'credentials_present' })
+    expect(present.preparation).toEqual({ state: 'present', code: 'preparation_ready' })
   })
 })
 

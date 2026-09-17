@@ -1,8 +1,8 @@
 /** T-08563 rev 5 real Unix JSON-RPC routing reds for standalone aspd. */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { AspcService } from 'spaces-aspc'
+import { type AspcService, createAspcService } from 'spaces-aspc'
 import { UnixSocketTransport } from 'spaces-harness-broker-client'
 import type { AspReleaseIdentity } from 'spaces-harness-broker-protocol'
 import { type AspdServer, createReleaseBoundAspcService, startAspdServer } from '../src/aspd.js'
@@ -11,6 +11,21 @@ const IDENTITY: AspReleaseIdentity = {
   releaseId: 'asp-runtime-observation-red',
   sourceCommit: '90dd75083a32a78f07c8dc2358175db799e94475',
   builtAt: '2026-09-17T04:00:00.000Z',
+}
+const RELEASE_BINDING = {
+  identity: IDENTITY,
+  releaseRoot: '/releases/asp-runtime-observation-red',
+  workers: {
+    'codex-app-server': {
+      executable: '/releases/asp-runtime-observation-red/harness-broker',
+      hostedDrivers: ['claude-code-tmux', 'codex-app-server', 'pi-tui-tmux'],
+    },
+  },
+  claudeStatuslineSource: {
+    path: '/releases/asp-runtime-observation-red/libexec/claude-statusline.cjs',
+    sha256: 'runtime-observation-test',
+    required: true as const,
+  },
 }
 const CONTEXT = {
   agentId: 'smokey',
@@ -28,11 +43,10 @@ let calls: string[] = []
 beforeEach(async () => {
   base = await mkdtemp('/tmp/aspd-observation-red-')
   calls = []
-  const service = createReleaseBoundAspcService(fakeObservationService() as AspcService, {
-    identity: IDENTITY,
-    releaseRoot: '/releases/asp-runtime-observation-red',
-    workerExecutable: '/releases/asp-runtime-observation-red/harness-broker',
-  })
+  const service = createReleaseBoundAspcService(
+    fakeObservationService() as AspcService,
+    RELEASE_BINDING
+  )
   server = await startAspdServer({ socketPath: join(base, 'a.sock'), service, log: () => {} })
   transport = await UnixSocketTransport.connect({ socketPath: join(base, 'a.sock') })
 })
@@ -126,6 +140,53 @@ describe('T-08563 standalone aspd runtime observations', () => {
       observeContinuationArtifact: true,
     })
     expect(hello.release.releaseId).toBe(IDENTITY.releaseId)
+  })
+
+  test('routes an actual producer response rather than only an injected observation double', async () => {
+    const actualRoot = join(base, 'actual')
+    const actualAgents = join(actualRoot, 'agents')
+    const actualAgent = join(actualAgents, 'smokey')
+    await mkdir(actualAgent, { recursive: true })
+    await writeFile(
+      join(actualAgent, 'agent-profile.toml'),
+      'version = 3\n[identity]\nrole = "actual-producer"\n[provisioning]\nharness = "claude"\n'
+    )
+    const actualService = createReleaseBoundAspcService(
+      createAspcService({
+        agentsRoot: actualAgents,
+        environment: { ASP_AGENTS_ROOT: actualAgents, HOME: actualRoot },
+      }),
+      RELEASE_BINDING
+    )
+    const actualServer = await startAspdServer({
+      socketPath: join(base, 'actual.sock'),
+      service: actualService,
+      log: () => {},
+    })
+    const actualTransport = await UnixSocketTransport.connect({
+      socketPath: join(base, 'actual.sock'),
+    })
+    try {
+      const response = await actualTransport.request('aspc.resolveRuntimeDeclaration', {
+        schemaVersion: 'aspc-resolve-runtime-declaration-request/v1',
+        context: {
+          agentId: 'smokey',
+          project: { mode: 'none' },
+          cwd: actualRoot,
+          runMode: 'task',
+          agentSources: { agentsRoot: actualAgents },
+        },
+      })
+      expect(response).toMatchObject({
+        ok: true,
+        identity: { role: 'actual-producer' },
+        provisioning: { effectiveHarness: 'claude', provider: 'anthropic' },
+        agentSources: { provenance: 'caller' },
+      })
+    } finally {
+      await actualTransport.close()
+      await actualServer.retire()
+    }
   })
 })
 

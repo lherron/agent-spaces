@@ -25,6 +25,14 @@ import type {
   AspcInspectAgentRequest,
   AspcInspectAgentResponse,
   AspcInspectAgentSelectionRequest,
+  AspcInspectRuntimePlacementRequest,
+  AspcInspectRuntimePlacementResponse,
+  AspcObserveContinuationArtifactRequest,
+  AspcObserveContinuationArtifactResponse,
+  AspcObserveRuntimeCapabilityRequest,
+  AspcObserveRuntimeCapabilityResponse,
+  AspcResolveRuntimeDeclarationRequest,
+  AspcResolveRuntimeDeclarationResponse,
 } from './types.js'
 import { ASPC_PROTOCOL_VERSION } from './types.js'
 
@@ -147,6 +155,30 @@ export class AspcUnixClient {
 
   inspectAgentSelection(req: AspcInspectAgentSelectionRequest): Promise<AspcInspectAgentResponse> {
     return this.#request('aspc.inspectAgentSelection', req)
+  }
+
+  resolveRuntimeDeclaration(
+    req: AspcResolveRuntimeDeclarationRequest
+  ): Promise<AspcResolveRuntimeDeclarationResponse> {
+    return this.#request('aspc.resolveRuntimeDeclaration', req)
+  }
+
+  inspectRuntimePlacement(
+    req: AspcInspectRuntimePlacementRequest
+  ): Promise<AspcInspectRuntimePlacementResponse> {
+    return this.#request('aspc.inspectRuntimePlacement', req)
+  }
+
+  observeRuntimeCapability(
+    req: AspcObserveRuntimeCapabilityRequest
+  ): Promise<AspcObserveRuntimeCapabilityResponse> {
+    return this.#request('aspc.observeRuntimeCapability', req)
+  }
+
+  observeContinuationArtifact(
+    req: AspcObserveContinuationArtifactRequest
+  ): Promise<AspcObserveContinuationArtifactResponse> {
+    return this.#request('aspc.observeContinuationArtifact', req)
   }
 
   async #request<T>(method: string, params: unknown): Promise<T> {

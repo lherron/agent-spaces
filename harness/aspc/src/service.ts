@@ -2,6 +2,10 @@ import {
   catalogAgentsForContext,
   createAgentSpacesClient,
   inspectAgentForContext,
+  inspectRuntimePlacement,
+  observeContinuationArtifact,
+  observeRuntimeCapability,
+  resolveRuntimeDeclaration,
 } from 'agent-spaces'
 import type {
   AspcAgentInspectionCatalogResponse,
@@ -16,6 +20,14 @@ import type {
   AspcInspectAgentRequest,
   AspcInspectAgentResponse,
   AspcInspectAgentSelectionRequest,
+  AspcInspectRuntimePlacementRequest,
+  AspcInspectRuntimePlacementResponse,
+  AspcObserveContinuationArtifactRequest,
+  AspcObserveContinuationArtifactResponse,
+  AspcObserveRuntimeCapabilityRequest,
+  AspcObserveRuntimeCapabilityResponse,
+  AspcResolveRuntimeDeclarationRequest,
+  AspcResolveRuntimeDeclarationResponse,
 } from 'spaces-aspc-protocol'
 import { ASPC_PROTOCOL_VERSION } from 'spaces-aspc-protocol'
 import type { InvocationDispatchRequest } from 'spaces-harness-broker-protocol'
@@ -48,7 +60,7 @@ export interface AspcServiceOptions {
   compiler?: AspcCompiler | undefined
   agentsRoot?: AspcInspectionAuthorityOptions['agentsRoot']
   resolveProjectRoot?: AspcInspectionAuthorityOptions['resolveProjectRoot']
-  environment?: AspcInspectionAuthorityOptions['environment']
+  environment?: AspcInspectionAuthorityOptions['environment'] | Record<string, string | undefined>
   now?: AspcInspectionAuthorityOptions['now']
   serviceProbeResponses?: AspcInspectionAuthorityOptions['serviceProbeResponses']
   scaffoldPackets?: AspcInspectionAuthorityOptions['scaffoldPackets']
@@ -66,11 +78,39 @@ export interface AspcService {
   compileHarnessInvocation(
     req: AspcCompileHarnessInvocationRequest
   ): Promise<AspcCompileHarnessInvocationResponse>
+  resolveRuntimeDeclaration(
+    req: AspcResolveRuntimeDeclarationRequest
+  ): Promise<AspcResolveRuntimeDeclarationResponse>
+  inspectRuntimePlacement(
+    req: AspcInspectRuntimePlacementRequest
+  ): Promise<AspcInspectRuntimePlacementResponse>
+  observeRuntimeCapability(
+    req: AspcObserveRuntimeCapabilityRequest
+  ): Promise<AspcObserveRuntimeCapabilityResponse>
+  observeContinuationArtifact(
+    req: AspcObserveContinuationArtifactRequest
+  ): Promise<AspcObserveContinuationArtifactResponse>
 }
 
 export function createAspcService(options: AspcServiceOptions = {}): AspcService {
   const compiler = options.compiler ?? defaultCompiler
-  const inspectionAuthority = createAspcInspectionAuthority(compiler, options)
+  const inspectionAuthority = createAspcInspectionAuthority(compiler, {
+    ...(options.agentsRoot ? { agentsRoot: options.agentsRoot } : {}),
+    ...(options.resolveProjectRoot ? { resolveProjectRoot: options.resolveProjectRoot } : {}),
+    ...(options.now ? { now: options.now } : {}),
+    ...(options.serviceProbeResponses
+      ? { serviceProbeResponses: options.serviceProbeResponses }
+      : {}),
+    ...(options.scaffoldPackets ? { scaffoldPackets: options.scaffoldPackets } : {}),
+    ...(options.environment
+      ? {
+          environment:
+            typeof options.environment === 'function'
+              ? options.environment
+              : () => options.environment as Record<string, string | undefined>,
+        }
+      : {}),
+  })
 
   return {
     async hello(_req: AspcHelloRequest): Promise<AspcHelloResponse> {
@@ -87,6 +127,10 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
           catalogAgentInspection: true,
           inspectAgentSelection: true,
           compileHarnessInvocation: true,
+          resolveRuntimeDeclaration: true,
+          inspectRuntimePlacement: true,
+          observeRuntimeCapability: true,
+          observeContinuationArtifact: true,
           compileAndStart: false,
           cohostedBroker: false,
           transports: ['stdio-jsonrpc-ndjson'],
@@ -128,7 +172,55 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
     ): Promise<AspcCompileHarnessInvocationResponse> {
       return compileHarnessInvocation(compiler, req)
     },
+
+    async resolveRuntimeDeclaration(req) {
+      return resolveRuntimeDeclaration(
+        req,
+        runtimeDeclarationOptions(options)
+      ) as Promise<AspcResolveRuntimeDeclarationResponse>
+    },
+
+    async inspectRuntimePlacement(req) {
+      const serviceProbeResponses = options.serviceProbeResponses?.()
+      const scaffoldPackets = options.scaffoldPackets?.()
+      return inspectRuntimePlacement(req, {
+        ...runtimeDeclarationOptions(options),
+        ...(serviceProbeResponses ? { serviceProbeResponses } : {}),
+        ...(scaffoldPackets ? { scaffoldPackets } : {}),
+        compileRuntimePlan: (
+          compileRequest: RuntimeCompileRequest,
+          compileOptions?: { compileContext?: CompileContext | undefined }
+        ) => compiler(compileRequest, { compileContext: compileOptions?.compileContext }),
+      }) as Promise<AspcInspectRuntimePlacementResponse>
+    },
+
+    async observeRuntimeCapability(req) {
+      return observeRuntimeCapability(req) as Promise<AspcObserveRuntimeCapabilityResponse>
+    },
+
+    async observeContinuationArtifact(req) {
+      const environment = serviceEnvironment(options)
+      return observeContinuationArtifact(req, {
+        ...(environment?.['ASP_HOME'] ? { aspHome: environment['ASP_HOME'] } : {}),
+      }) as Promise<AspcObserveContinuationArtifactResponse>
+    },
   }
+}
+
+function runtimeDeclarationOptions(options: AspcServiceOptions) {
+  const environment = serviceEnvironment(options)
+  return {
+    ...(options.agentsRoot ? { agentsRoot: options.agentsRoot } : {}),
+    ...(environment['ASP_HOME'] ? { aspHome: environment['ASP_HOME'] } : {}),
+    environment,
+    ...(options.now ? { now: () => new Date(options.now?.() ?? new Date().toISOString()) } : {}),
+  }
+}
+
+function serviceEnvironment(options: AspcServiceOptions): Record<string, string | undefined> {
+  return typeof options.environment === 'function'
+    ? options.environment()
+    : (options.environment ?? process.env)
 }
 
 async function defaultCompiler(

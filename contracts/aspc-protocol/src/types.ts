@@ -4,18 +4,21 @@ import type {
   BrokerProtocolVersion,
   InvocationDispatchRequest,
   InvocationRuntimeContext,
+  InvocationStartRequest,
   InvocationStartResponse,
   JsonRpcRequest,
 } from 'spaces-harness-broker-protocol'
 import type {
   AgentInspectionEvaluationContext,
   AgentInspectionRequest,
+  AgentInspectionResult,
   BrokerExecutionProfile,
   CompileContext,
   CompileDiagnostic,
   CompiledRuntimePlan,
   RuntimeCompileRequest,
   RuntimeCompileResponse,
+  RuntimePlacement,
 } from 'spaces-runtime-contracts'
 import type {
   AspcCatalogAgentInspectionRequest,
@@ -36,6 +39,14 @@ export type AspcProtocolVersion = typeof ASPC_PROTOCOL_VERSION
 export const ASPC_COMPILE_HARNESS_INVOCATION_RESPONSE_VERSION =
   'aspc-compile-harness-invocation-response/v1' as const
 export const ASPC_COMPILE_AND_START_RESPONSE_VERSION = 'aspc-compile-and-start-response/v1' as const
+export const ASPC_RESOLVE_RUNTIME_DECLARATION_RESPONSE_VERSION =
+  'aspc-resolve-runtime-declaration-response/v1' as const
+export const ASPC_INSPECT_RUNTIME_PLACEMENT_RESPONSE_VERSION =
+  'aspc-inspect-runtime-placement-response/v1' as const
+export const ASPC_OBSERVE_RUNTIME_CAPABILITY_RESPONSE_VERSION =
+  'aspc-observe-runtime-capability-response/v1' as const
+export const ASPC_OBSERVE_CONTINUATION_ARTIFACT_RESPONSE_VERSION =
+  'aspc-observe-continuation-artifact-response/v1' as const
 
 /**
  * Single source of truth for the set of `aspc.*` methods. `AspcMethod`, the
@@ -50,6 +61,10 @@ export const ASPC_METHODS = [
   'aspc.catalogAgentInspection',
   'aspc.inspectAgentSelection',
   'aspc.compileHarnessInvocation',
+  'aspc.resolveRuntimeDeclaration',
+  'aspc.inspectRuntimePlacement',
+  'aspc.observeRuntimeCapability',
+  'aspc.observeContinuationArtifact',
   'aspc.compileAndStart',
 ] as const
 
@@ -63,6 +78,10 @@ export type AspcCommand =
   | JsonRpcRequest<'aspc.catalogAgentInspection', AspcCatalogAgentInspectionRequest>
   | JsonRpcRequest<'aspc.inspectAgentSelection', AspcInspectAgentSelectionRequest>
   | JsonRpcRequest<'aspc.compileHarnessInvocation', AspcCompileHarnessInvocationRequest>
+  | JsonRpcRequest<'aspc.resolveRuntimeDeclaration', AspcResolveRuntimeDeclarationRequest>
+  | JsonRpcRequest<'aspc.inspectRuntimePlacement', AspcInspectRuntimePlacementRequest>
+  | JsonRpcRequest<'aspc.observeRuntimeCapability', AspcObserveRuntimeCapabilityRequest>
+  | JsonRpcRequest<'aspc.observeContinuationArtifact', AspcObserveContinuationArtifactRequest>
   | JsonRpcRequest<'aspc.compileAndStart', AspcCompileAndStartRequest>
 
 export interface AspcHelloRequest {
@@ -79,6 +98,10 @@ export interface AspcHelloRequest {
         catalogAgentInspection?: boolean | undefined
         inspectAgentSelection?: boolean | undefined
         compileHarnessInvocation?: boolean | undefined
+        resolveRuntimeDeclaration?: boolean | undefined
+        inspectRuntimePlacement?: boolean | undefined
+        observeRuntimeCapability?: boolean | undefined
+        observeContinuationArtifact?: boolean | undefined
         compileAndStart?: boolean | undefined
       }
     | undefined
@@ -97,6 +120,10 @@ export interface AspcHelloResponse {
     catalogAgentInspection: true
     inspectAgentSelection: true
     compileHarnessInvocation: true
+    resolveRuntimeDeclaration: true
+    inspectRuntimePlacement: true
+    observeRuntimeCapability: true
+    observeContinuationArtifact: true
     compileAndStart: boolean
     cohostedBroker: boolean
     transports: AspcTransportKind[]
@@ -186,6 +213,330 @@ export type AspcCompileHarnessInvocationResponse =
     }
 
 export type AspcCompileAndStartRequest = AspcCompileHarnessInvocationRequest
+
+export type AspcRuntimeDeclarationContext = {
+  agentId: string
+  agentRoot?: string | undefined
+  project:
+    | { mode: 'root'; projectRoot: string; projectId?: string | undefined }
+    | { mode: 'infer-from-cwd' }
+    | { mode: 'none' }
+  cwd: string
+  runMode: 'query' | 'heartbeat' | 'task' | 'maintenance'
+  taskId?: string | undefined
+  agentSources?: { aspHome?: string | undefined; agentsRoot?: string | undefined } | undefined
+  provisionDirectives?: Record<string, string | number | boolean> | undefined
+}
+
+export type AspcResolveRuntimeDeclarationRequest = {
+  schemaVersion: 'aspc-resolve-runtime-declaration-request/v1'
+  context: AspcRuntimeDeclarationContext
+}
+
+export type AspcInspectRuntimePlacementRequest = {
+  schemaVersion: 'aspc-inspect-runtime-placement-request/v1'
+  context: AspcRuntimeDeclarationContext
+  dispatchEnv?: Record<string, string> | undefined
+}
+
+export type AspcObserveRuntimeCapabilityRequest = {
+  schemaVersion: 'aspc-observe-runtime-capability-request/v1'
+  harness: string
+  context: AspcRuntimeDeclarationContext
+}
+
+export type AspcHistoricalExecutionEvidence = {
+  frozenStartRequest?:
+    | {
+        keyBinding: 'runtime-continuation'
+        placement: RuntimePlacement
+        startRequest: InvocationStartRequest
+        brokerDriver?:
+          | 'codex-app-server'
+          | 'claude-code-tmux'
+          | 'codex-cli-tmux'
+          | 'pi-tui-tmux'
+          | 'pi-sdk'
+          | undefined
+        compileId?: string | undefined
+        planHash?: string | undefined
+        selectedProfileHash?: string | undefined
+        startRequestHash?: string | undefined
+        executionRelease?: AspcExecutionRelease | undefined
+      }
+    | undefined
+  recordedPlacement?:
+    | {
+        placement: RuntimePlacement
+        bundle: RuntimePlacement['bundle']
+        aspHome?: string | undefined
+        compileId?: string | undefined
+        planHash?: string | undefined
+        selectedProfileHash?: string | undefined
+      }
+    | undefined
+}
+
+export type AspcObserveContinuationArtifactRequest = {
+  schemaVersion: 'aspc-observe-continuation-artifact-request/v1'
+  continuation: {
+    provider: string
+    key: string
+    artifactFormat?: 'claude' | 'codex' | 'pi' | undefined
+  }
+  historicalExecution?: AspcHistoricalExecutionEvidence | undefined
+}
+
+export type AspcObservationFailure<Code extends string> = {
+  kind: 'unavailable' | 'incompatible'
+  code: Code
+  message: string
+  diagnostics?: Array<Record<string, unknown>> | undefined
+}
+
+export type AspcDeclarationDiagnostic = {
+  severity: 'info' | 'warning' | 'error'
+  code:
+    | 'agent_profile_invalid'
+    | 'project_targets_invalid'
+    | 'selected_target_invalid'
+    | 'priming_invalid'
+    | 'source_read_failed'
+    | 'unsupported_directive'
+  message: string
+  source: 'agent-profile' | 'project-targets' | 'selected-target' | 'priming' | 'directive'
+  path?: string | undefined
+}
+
+export type AspcDeclarationSourceObservation =
+  | { state: 'absent'; code: 'not_declared' }
+  | { state: 'valid'; code: 'parsed'; contentHash: string }
+  | { state: 'invalid'; diagnostics: AspcDeclarationDiagnostic[] }
+
+export type AspcAgentProfileSourceObservation =
+  | { state: 'absent'; code: 'not_declared' }
+  | {
+      state: 'valid'
+      code: 'parsed'
+      contentHash: string
+      declaredHarness?: string | undefined
+      declaredProvider?: 'anthropic' | 'openai' | undefined
+    }
+  | { state: 'invalid'; diagnostics: AspcDeclarationDiagnostic[] }
+
+export type AspcResolvedCallerAgentSources = {
+  aspHome?: string | undefined
+  agentsRoot?: string | undefined
+  provenance:
+    | 'caller-agent-root'
+    | 'caller'
+    | 'caller-asp-home-config'
+    | 'project-marker'
+    | 'daemon-default'
+}
+
+export type AspcRuntimeDeclarationSources = {
+  agentProfile: AspcAgentProfileSourceObservation
+  projectTargets: AspcDeclarationSourceObservation
+  selectedTarget: AspcDeclarationSourceObservation
+  priming: AspcDeclarationSourceObservation
+}
+
+export type AspcProvisioningObservation = {
+  scalars: Record<string, string | number | boolean>
+  declaredHarness?: string | undefined
+  effectiveHarness: string
+  frontend: string
+  provider: 'anthropic' | 'openai'
+  family: string
+  runtime: string
+}
+
+export type AspcResolvedRuntimePlacement = RuntimePlacement & {
+  agentRoot: string
+  projectRoot?: string | undefined
+  cwd: string
+  runMode: AspcRuntimeDeclarationContext['runMode']
+  bundle: NonNullable<RuntimePlacement['bundle']>
+}
+
+type AspcDeclarationResolutionFailure = {
+  schemaVersion: typeof ASPC_RESOLVE_RUNTIME_DECLARATION_RESPONSE_VERSION
+  ok: false
+  agentSources: AspcResolvedCallerAgentSources
+  markerProjectId?: string | undefined
+  searchedAgentRoots: string[]
+  source: AspcRuntimeDeclarationSources
+  resolution: {
+    state: 'absent' | 'invalid'
+    code:
+      | 'agent_not_found'
+      | 'agent_profile_invalid'
+      | 'project_targets_invalid'
+      | 'selected_target_invalid'
+      | 'priming_invalid'
+    message: string
+    diagnostics: AspcDeclarationDiagnostic[]
+  }
+}
+
+export type AspcResolveRuntimeDeclarationResponse =
+  | {
+      schemaVersion: typeof ASPC_RESOLVE_RUNTIME_DECLARATION_RESPONSE_VERSION
+      ok: true
+      evaluatedAt: string
+      contextHash: string
+      agentSources: AspcResolvedCallerAgentSources
+      markerProjectId?: string | undefined
+      searchedAgentRoots: string[]
+      source: AspcRuntimeDeclarationSources
+      identity: { role?: string | undefined; operator: boolean }
+      policy: {
+        claimsTask: boolean
+        provisioningNode?: string | undefined
+        placement: { pins: Record<string, string>; homes: Record<string, string> }
+      }
+      baselineProvisioning: AspcProvisioningObservation
+      provisioning: AspcProvisioningObservation
+      priming?: { content: string; source: string } | undefined
+      placement: AspcResolvedRuntimePlacement
+      bundle: { ref: AspcResolvedRuntimePlacement['bundle']; identity: string }
+      diagnostics: AspcDeclarationDiagnostic[]
+    }
+  | AspcDeclarationResolutionFailure
+  | {
+      schemaVersion: typeof ASPC_RESOLVE_RUNTIME_DECLARATION_RESPONSE_VERSION
+      ok: false
+      failure: AspcObservationFailure<
+        | 'configured_source_unavailable'
+        | 'source_read_unavailable'
+        | 'configured_context_mismatch'
+        | 'unsupported_schema'
+        | 'unsupported_harness'
+        | 'unsupported_directive'
+      >
+    }
+
+export type AspcRuntimePromptObservation =
+  | {
+      state: 'present'
+      value: {
+        systemPrompt: string
+        systemPromptMode: 'append' | 'replace'
+        reminderContent?: string | undefined
+        primingPrompt?: string | undefined
+        promptSectionSizes: Array<{ name: string; chars: number }>
+        reminderSectionSizes: Array<{ name: string; chars: number }>
+        promptTotalChars: number
+        reminderTotalChars: number
+        totalContextChars: number
+        maxChars?: number | undefined
+        nearMaxChars: boolean
+      }
+    }
+  | { state: 'absent'; code: 'prompt_not_declared' }
+  | {
+      state: 'invalid'
+      code: 'prompt_resolution_failed'
+      message: string
+      diagnostics: Array<Record<string, unknown>>
+    }
+
+export type AspcInspectRuntimePlacementResponse =
+  | {
+      schemaVersion: typeof ASPC_INSPECT_RUNTIME_PLACEMENT_RESPONSE_VERSION
+      ok: true
+      declaration: Extract<AspcResolveRuntimeDeclarationResponse, { ok: true }>
+      inspection: AgentInspectionResult
+      prompt: AspcRuntimePromptObservation
+      effectiveEnvironmentHash: string
+    }
+  | {
+      schemaVersion: typeof ASPC_INSPECT_RUNTIME_PLACEMENT_RESPONSE_VERSION
+      ok: false
+      declaration: Extract<AspcResolveRuntimeDeclarationResponse, { ok: false }>
+    }
+
+export type AspcCapabilityFactResponse = {
+  schemaVersion: typeof ASPC_OBSERVE_RUNTIME_CAPABILITY_RESPONSE_VERSION
+  ok: true
+  harness: { requested: string; frontend?: string | undefined; provider?: 'anthropic' | 'openai' }
+  registration:
+    | { state: 'present'; code: 'registered' }
+    | { state: 'absent'; code: 'not_registered' }
+  nativeRuntime:
+    | { state: 'present'; code: 'native_available' }
+    | { state: 'absent'; code: 'native_unavailable' }
+    | { state: 'unknown'; code: 'detection_failed' }
+  credentials:
+    | { state: 'present'; code: 'credentials_present' | 'credentials_not_required' }
+    | { state: 'absent'; code: 'credentials_missing' }
+    | { state: 'unknown'; code: 'credential_source_unreadable' }
+  preparation:
+    | { state: 'present'; code: 'preparation_ready' }
+    | {
+        state: 'absent'
+        code: 'not_registered' | 'native_unavailable' | 'credentials_missing' | 'driver_unhosted'
+      }
+    | { state: 'unknown'; code: 'preparation_unknown' }
+  diagnostics: Array<{
+    code:
+      | 'probe_timeout'
+      | 'probe_output_limit'
+      | 'probe_exit_nonzero'
+      | 'probe_failed'
+      | 'version_below_minimum'
+    probe: 'version' | 'help' | 'app-server-help'
+    message: string
+    candidate?: string | undefined
+  }>
+}
+
+export type AspcObserveRuntimeCapabilityResponse =
+  | AspcCapabilityFactResponse
+  | {
+      schemaVersion: typeof ASPC_OBSERVE_RUNTIME_CAPABILITY_RESPONSE_VERSION
+      ok: false
+      failure: AspcObservationFailure<
+        | 'configured_context_mismatch'
+        | 'unsupported_schema'
+        | 'unsupported_harness'
+        | 'observation_failed'
+      >
+    }
+
+export type AspcArtifactObservation =
+  | { state: 'present'; code: 'artifact_present' }
+  | { state: 'missing'; code: 'artifact_missing' }
+  | {
+      state: 'unknown'
+      code:
+        | 'context_unavailable'
+        | 'home_not_historical'
+        | 'home_unreadable'
+        | 'artifact_format_ambiguous'
+        | 'key_not_absolute'
+        | 'provider_not_observable'
+    }
+
+export type AspcObserveContinuationArtifactResponse =
+  | {
+      schemaVersion: typeof ASPC_OBSERVE_CONTINUATION_ARTIFACT_RESPONSE_VERSION
+      ok: true
+      requested: AspcObserveContinuationArtifactRequest['continuation']
+      executionProvider?: 'anthropic' | 'openai' | undefined
+      artifactFormat: 'claude' | 'codex' | 'pi' | 'unknown'
+      artifact: AspcArtifactObservation
+      basis: 'frozen-home' | 'recorded-placement-rule' | 'absolute-key' | 'none'
+      diagnostics: Array<{ code: 'historical_evidence_disagrees'; message: string }>
+    }
+  | {
+      schemaVersion: typeof ASPC_OBSERVE_CONTINUATION_ARTIFACT_RESPONSE_VERSION
+      ok: false
+      failure: AspcObservationFailure<
+        'unsupported_schema' | 'unsupported_provider' | 'evidence_invalid' | 'observation_failed'
+      >
+    }
 
 export type AspcCompileAndStartResponse =
   | {

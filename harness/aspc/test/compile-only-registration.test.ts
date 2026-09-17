@@ -4,8 +4,8 @@
  * `spaces-aspc` no longer builds its own JSON-RPC transport (that lived in
  * `spaces-harness-broker`); it exposes a registration entrypoint that binds the
  * ASPC compile plane onto a caller-supplied server object. It must register
- * exactly the seven compile methods — no `aspc.compileAndStart`, no `broker.*`,
- * no `invocation.*` — and report its capabilities honestly.
+ * exactly the eleven read/compile methods — no `aspc.compileAndStart`, no
+ * `broker.*`, no `invocation.*` — and report its capabilities honestly.
  *
  * The cohosted direction of every capability flag asserted here is pinned in
  * harness/aspc-facade/test/facade.test.ts (AC-8).
@@ -29,6 +29,10 @@ const COMPILE_METHODS = [
   'aspc.hello',
   'aspc.inspectAgent',
   'aspc.inspectAgentSelection',
+  'aspc.inspectRuntimePlacement',
+  'aspc.observeContinuationArtifact',
+  'aspc.observeRuntimeCapability',
+  'aspc.resolveRuntimeDeclaration',
 ]
 
 const EXCLUDED_METHODS = [
@@ -58,7 +62,7 @@ function recordingServer(): {
 }
 
 describe('compile-only ASPC registration', () => {
-  test('AC-3: registers exactly the seven compile methods on the injected server', () => {
+  test('AC-3: registers exactly the eleven read/compile methods on the injected server', () => {
     const server = recordingServer()
     registerAspcCompileMethods(server)
 
@@ -98,5 +102,9 @@ describe('compile-only ASPC registration', () => {
     expect(response.capabilities.catalogAgentInspection).toBe(true)
     expect(response.capabilities.inspectAgentSelection).toBe(true)
     expect(response.capabilities.compileHarnessInvocation).toBe(true)
+    expect(response.capabilities.resolveRuntimeDeclaration).toBe(true)
+    expect(response.capabilities.inspectRuntimePlacement).toBe(true)
+    expect(response.capabilities.observeRuntimeCapability).toBe(true)
+    expect(response.capabilities.observeContinuationArtifact).toBe(true)
   })
 })

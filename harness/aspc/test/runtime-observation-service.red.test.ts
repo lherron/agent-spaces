@@ -92,11 +92,22 @@ describe('T-08563 ASPC runtime observation service', () => {
         method,
         params: { schemaVersion: 'not-v1' },
       })
-      expect(response).toMatchObject({
-        ok: false,
-        failure: { kind: 'incompatible', code: 'unsupported_schema' },
-      })
-      expect(response).not.toHaveProperty('resolution')
+      if (method === 'aspc.inspectRuntimePlacement') {
+        // Rev 5's inspection failure arm embeds the declaration failure.
+        expect(response).toMatchObject({
+          ok: false,
+          declaration: {
+            ok: false,
+            failure: { kind: 'incompatible', code: 'unsupported_schema' },
+          },
+        })
+      } else {
+        expect(response).toMatchObject({
+          ok: false,
+          failure: { kind: 'incompatible', code: 'unsupported_schema' },
+        })
+        expect(response).not.toHaveProperty('resolution')
+      }
     }
   })
 

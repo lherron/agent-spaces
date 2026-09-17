@@ -123,11 +123,61 @@ describe('T-08563 runtime declaration observation', () => {
     expect(rootMode.baselineProvisioning.effectiveHarness).toBe('codex')
     expect(inferred.ok).toBe(true)
     expect(inferred.markerProjectId).toBe('project')
-    expect(inferred.searchedAgentRoots.length).toBeGreaterThan(0)
+    // K6: an exact caller agentRoot performs no roster search or substitution.
+    expect(inferred.searchedAgentRoots).toEqual([])
     expect(none.ok).toBe(true)
     expect(none.placement).not.toHaveProperty('projectRoot')
     expect(none.source.projectTargets).toEqual({ state: 'absent', code: 'not_declared' })
     expect(none.baselineProvisioning.effectiveHarness).toBe('claude')
+  })
+
+  test('anchors caller-root searches without leaking daemon source configuration', async () => {
+    const wrongAgentsRoot = join(root, 'wrong-daemon-agents')
+    await mkdir(join(wrongAgentsRoot, 'smokey'), { recursive: true })
+    await writeProfile(join(wrongAgentsRoot, 'smokey'), 'wrong-daemon', 'pi')
+    await writeFile(join(aspHome, 'config.toml'), `agents-root = ${JSON.stringify(agentsRoot)}\n`)
+    const options = {
+      aspHome: join(root, 'wrong-daemon-home'),
+      agentsRoot: wrongAgentsRoot,
+      environment: {
+        ASP_HOME: join(root, 'wrong-daemon-home'),
+        ASP_AGENTS_ROOT: wrongAgentsRoot,
+        ASP_PROJECT_ROOT_OVERRIDE: join(root, 'wrong-project'),
+      },
+    }
+    const canonicalAgentRoot = await realpath(agentRoot)
+
+    for (const project of [
+      { mode: 'root' as const, projectRoot },
+      { mode: 'infer-from-cwd' as const },
+      { mode: 'none' as const },
+    ]) {
+      const response = await operation()(
+        request({ agentRoot: undefined, project, agentSources: { agentsRoot } }),
+        options
+      )
+      expect(response.ok).toBe(true)
+      expect(await realpath(response.placement.agentRoot)).toBe(canonicalAgentRoot)
+      expect(response.identity.role).toBe('verify')
+      expect(response.searchedAgentRoots).toEqual([canonicalAgentRoot])
+      expect(response.agentSources).toMatchObject({
+        agentsRoot: await realpath(agentsRoot),
+        provenance: 'caller',
+      })
+    }
+
+    const aspHomeOnly = await operation()(
+      request({ agentRoot: undefined, agentSources: { aspHome } }),
+      options
+    )
+    expect(aspHomeOnly.ok).toBe(true)
+    expect(await realpath(aspHomeOnly.placement.agentRoot)).toBe(await realpath(agentRoot))
+    expect(aspHomeOnly.identity.role).toBe('verify')
+    expect(aspHomeOnly.agentSources).toMatchObject({
+      aspHome: await realpath(aspHome),
+      agentsRoot: await realpath(agentsRoot),
+      provenance: 'caller-asp-home-config',
+    })
   })
 
   test('re-reads mutable profile and project sources on every call', async () => {
@@ -148,6 +198,27 @@ describe('T-08563 runtime declaration observation', () => {
     expect(third.source.projectTargets.contentHash).not.toBe(
       first.source.projectTargets.contentHash
     )
+  })
+
+  test('keeps an existing agent root distinct from an absent profile declaration', async () => {
+    await rm(join(agentRoot, 'agent-profile.toml'))
+
+    const targetOnly = await operation()(request(), daemonDefaults())
+    expect(targetOnly).toMatchObject({
+      ok: true,
+      source: { agentProfile: { state: 'absent', code: 'not_declared' } },
+      baselineProvisioning: { effectiveHarness: 'codex', provider: 'openai' },
+    })
+
+    const defaultOnly = await operation()(request({ project: { mode: 'none' } }), daemonDefaults())
+    expect(defaultOnly).toMatchObject({
+      ok: true,
+      source: {
+        agentProfile: { state: 'absent', code: 'not_declared' },
+        projectTargets: { state: 'absent', code: 'not_declared' },
+      },
+      baselineProvisioning: { effectiveHarness: 'claude', provider: 'anthropic' },
+    })
   })
 
   test('distinguishes declaration absent/invalid from unavailable/incompatible evidence', async () => {

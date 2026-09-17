@@ -4,6 +4,13 @@ status: active
 owner_project: agent-spaces
 scope: Praesidium-owned agent harness composition and live-launch authority
 predicate: >
+  Amendment T-08563: this record's earlier description of agent-harness as the
+  default path is historical and grants no current default-selection authority.
+  Runtime harness/provider/frontend selection is interpreted from mutable ASP
+  declarations through agent-spaces.runtime-declaration-authority; HRC consumes
+  that result while retaining placement, authorization, and lifecycle. Q5's
+  owner ruling is not implemented or broadened by this amendment. Subject to
+  that correction,
   Praesidium has two supported execution lowerings from one ASP-owned semantic
   resolution boundary. The default agent-harness path constructs and operates a
   Pi AgentSessionRuntime through agent-harness-runtime. A custom Pi
@@ -54,8 +61,10 @@ predicate: >
   credential transport beyond that binding, broker wire/process topology, and
   support for additional resource categories remain implementation choices
   unless another active contract fixes them.
-authority: hrcchat#21059
+authority: T-08563 revision 5 approved by daedalus EN-13318; prior authority hrcchat#21059
 source:
+  - wrkq:T-08563 revision 5
+  - wrkq:EN-13318
   - hrcchat#21059
   - hrcchat#21058
   - hrcchat#21057
@@ -103,8 +112,8 @@ required_tests:
   - an agent-harness-tmux profile carrying an sdk block with pty transport is admitted while the same profile with in-process transport is refused
   - agent-harness-tmux is a required row in the harness-agnostic driver certification matrix with no scenario or event exemptions
 last_verified:
-  date: 2026-08-25
-  evidence: hrcchat#21059 approved by daedalus against the revised negative-ack design preserving accepted-input idempotency through an ordered broker turn.failed terminal while keeping session.config fail-closed
+  date: 2026-09-17
+  evidence: T-08563 amendment approved by daedalus EN-13318; remaining execution-lowering law retains hrcchat#21059 evidence
 reopen_when:
   - shared ASP semantics split into independent direct and compatibility implementations
   - broker-mediated interactive tool approval is required on the HRC-launched interactive TUI surface

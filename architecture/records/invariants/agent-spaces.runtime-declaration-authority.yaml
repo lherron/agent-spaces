@@ -1,0 +1,58 @@
+id: agent-spaces.runtime-declaration-authority
+kind: invariant
+status: active
+owner_project: agent-spaces
+scope: placement-bound runtime declaration interpretation and read-only node observations
+predicate: >
+  Agent Spaces alone interprets mutable agent profiles, project targets,
+  provisioning overlays, priming, harness/provider/frontend mappings, prompt
+  composition, node-local harness capability, and historical continuation
+  artifact format. HRC supplies its already-decided placement context and keeps
+  project registry, task-worktree selection, home-node placement,
+  authorization, continuation selection, launch, attachment, and lifecycle
+  authority. resolveRuntimeDeclaration and inspectRuntimePlacement re-read
+  applicable sources on every request; an exact caller agentRoot is read without
+  roster search or substitution, project mode none reads no marker or target,
+  and caller agent-source configuration is canonicalized, echoed, and never
+  silently replaced by daemon configuration. Declaration absent and invalid
+  remain distinct from producer unavailable and protocol/context incompatible.
+  observeRuntimeCapability performs only bounded read-only detection and never
+  reports a failed, timed-out, or over-limit probe as positive capability.
+  observeContinuationArtifact uses key-bound frozen provider-home evidence for
+  positive missing; unbound recorded placement may prove presence but absence
+  remains unknown/home_not_historical. No unusable continuation silently starts
+  fresh. The thin ASPC protocol/client closure carries DTOs, validation,
+  framing, and transport only, never configuration, compiler, adapter, or
+  provider implementations.
+authority: T-08563 revision 5 approved by daedalus EN-13318
+source:
+  - wrkq:T-08563 revision 5
+  - wrkq:T-08563 ACCEPTANCE revision 5
+  - wrkq:EN-13318
+  - compiler/agent-spaces/src/runtime-declaration.ts
+  - compiler/agent-spaces/src/runtime-capability.ts
+  - compiler/agent-spaces/src/continuation-probe.ts
+  - compiler/agent-spaces/src/agent-inspection.ts
+  - harness/aspc/src/service.ts
+  - contracts/aspc-protocol/src/types.ts
+required_tests:
+  - caller source roots are canonical and echoed while exact agent roots perform no search or substitution
+  - root infer-from-cwd and none project modes remain distinct and none reads no project declaration
+  - repeated requests observe mutable profile and target changes without daemon restart
+  - declaration absent invalid unavailable and incompatible retain distinct typed result arms
+  - prompt present absent and invalid retain compiled inspection facts and share the preparation environment rule
+  - capability detection is fresh bounded read-only and failed probes are never positive
+  - key-bound frozen continuation evidence may return missing while unbound recorded placement returns present or unknown only
+  - standalone aspd advertises and serves all four operations over its immutable release identity
+last_verified:
+  date: 2026-09-17
+  evidence: T-08563 revision 5 approved by daedalus EN-13318
+reopen_when:
+  - declaration interpretation moves into HRC or another consumer
+  - a daemon cache prevents request-time source reload
+  - HRC project registry or task-worktree policy moves into aspd
+  - capability observation starts an agent process applies input or materializes an invocation
+  - continuation absence is inferred from an unbound or newly selected provider home
+  - thin protocol clients acquire implementation dependencies
+supersedes: []
+superseded_by: null

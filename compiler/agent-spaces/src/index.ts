@@ -65,10 +65,18 @@ export { createAgentSpacesClient } from './client.js'
 
 export {
   checkContinuationArtifact,
+  observeContinuationArtifact,
   type CheckContinuationArtifactOptions,
   type ContinuationArtifactRef,
   type ContinuationArtifactResult,
 } from './continuation-probe.js'
+
+export {
+  resolveRuntimeDeclaration,
+  type RuntimeDeclarationOptions,
+} from './runtime-declaration.js'
+
+export { observeRuntimeCapability } from './runtime-capability.js'
 
 export {
   composeForegroundEnv,
@@ -89,9 +97,11 @@ export {
   catalogAgentsForContext,
   catalogAgentSources,
   inspectAgentForContext,
+  inspectRuntimePlacement,
   type AgentCatalogDiagnostic,
   type AgentCatalogResult,
   type AgentCatalogRow,
   type AgentInspectionOperationOutcome,
   type InspectAgentForContextOptions,
+  type InspectRuntimePlacementOptions,
 } from './agent-inspection.js'

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 
 import { buildRuntimeBundleRef, parseAgentProfile, resolveHarnessCatalogEntry } from 'spaces-config'
 import {
@@ -26,6 +26,11 @@ import {
 } from 'spaces-runtime-contracts'
 
 import { compileRuntimePlan } from './compile-runtime-plan.js'
+import {
+  type RuntimeDeclarationContext,
+  type RuntimeDeclarationOptions,
+  resolveRuntimeDeclaration,
+} from './runtime-declaration.js'
 
 export type AgentCatalogDiagnostic = {
   severity: 'info' | 'warning' | 'error'
@@ -70,6 +75,201 @@ type CompileRuntimePlan = (
 
 export type InspectAgentForContextOptions = {
   compileRuntimePlan?: CompileRuntimePlan | undefined
+}
+
+export type InspectRuntimePlacementOptions = RuntimeDeclarationOptions & {
+  compileRuntimePlan?: CompileRuntimePlan | undefined
+  serviceProbeResponses?: AgentInspectionEvaluationContext['serviceProbeInputs']['responses']
+  scaffoldPackets?: AgentInspectionEvaluationContext['scaffoldPackets']
+}
+
+export async function inspectRuntimePlacement(
+  request: Record<string, unknown>,
+  options: InspectRuntimePlacementOptions = {}
+): Promise<Record<string, unknown>> {
+  if (request['schemaVersion'] !== 'aspc-inspect-runtime-placement-request/v1') {
+    return {
+      schemaVersion: 'aspc-inspect-runtime-placement-response/v1',
+      ok: false,
+      declaration: {
+        schemaVersion: 'aspc-resolve-runtime-declaration-response/v1',
+        ok: false,
+        failure: {
+          kind: 'incompatible',
+          code: 'unsupported_schema',
+          message: 'Unsupported runtime placement inspection schema',
+        },
+      },
+    }
+  }
+  const declaration = await resolveRuntimeDeclaration(
+    {
+      schemaVersion: 'aspc-resolve-runtime-declaration-request/v1',
+      context: request['context'] as RuntimeDeclarationContext,
+    },
+    options
+  )
+  if (declaration['ok'] !== true) {
+    return {
+      schemaVersion: 'aspc-inspect-runtime-placement-response/v1',
+      ok: false,
+      declaration,
+    }
+  }
+
+  const context = request['context'] as RuntimeDeclarationContext
+  const placement = declaration['placement'] as Record<string, unknown>
+  const sources = declaration['agentSources'] as Record<string, unknown>
+  const provisioning = declaration['provisioning'] as {
+    effectiveHarness: string
+    frontend: string
+  }
+  const environment = effectiveEnvironment(
+    options.environment,
+    request['dispatchEnv'] as Record<string, string> | undefined
+  )
+  const nowIso = (options.now?.() ?? new Date()).toISOString()
+  const projectRoot = (placement['projectRoot'] as string | undefined) ?? (context['cwd'] as string)
+  const projectId =
+    (declaration['markerProjectId'] as string | undefined) ??
+    ('projectId' in context.project ? context.project.projectId : undefined) ??
+    basename(projectRoot)
+  const identifiers = {
+    agentId: context['agentId'],
+    agentName: context['agentId'],
+    projectId,
+    mode: context['runMode'],
+    scope: `agent:${context['agentId']}:project:${projectId}`,
+    ...(context['taskId'] ? { taskId: context['taskId'] } : {}),
+    lane: context['taskId'] ?? 'primary',
+    harness: provisioning['effectiveHarness'],
+    frontend: provisioning['frontend'],
+    interaction: 'interactive',
+  }
+  const profilePath = join(placement['agentRoot'] as string, 'agent-profile.toml')
+  const evaluationContext: AgentInspectionEvaluationContext = {
+    schemaVersion: 'agent-inspection-evaluation-context/v1',
+    identifiers,
+    paths: {
+      agentRoot: placement['agentRoot'] as string,
+      agentsRoot:
+        (sources['agentsRoot'] as string | undefined) ?? dirname(placement['agentRoot'] as string),
+      projectRoot,
+      cwd: context['cwd'],
+    },
+    nowIso,
+    environment,
+    predicateInputs: { cwd: context['cwd'], environment },
+    execInputs: { cwd: context['cwd'], environment },
+    serviceProbeInputs: { responses: options.serviceProbeResponses ?? [] },
+    scaffoldPackets: options.scaffoldPackets ?? [],
+    agentProfile: (existsSync(profilePath)
+      ? parseAgentProfile(readFileSync(profilePath, 'utf8'), profilePath)
+      : parseAgentProfile('version = 3', profilePath)) as unknown as Record<string, unknown>,
+    declaredOverrides: {},
+    compileContext: {
+      nowIso,
+      idSalt: stableHash({ identifiers, environment }),
+      toolchainManifest: { schemaVersion: 'agent-inspection-toolchain/v1', tools: [] },
+    },
+  }
+  const inspectionOutcome = await inspectAgentForContext(
+    {
+      request: {
+        schemaVersion: 'agent-inspection-request/v1',
+        identifiers,
+        declaredOverrides: {},
+      },
+      evaluationContext,
+    },
+    { compileRuntimePlan: options.compileRuntimePlan }
+  )
+  if (!inspectionOutcome.ok) {
+    return {
+      schemaVersion: 'aspc-inspect-runtime-placement-response/v1',
+      ok: false,
+      declaration: {
+        schemaVersion: 'aspc-resolve-runtime-declaration-response/v1',
+        ok: false,
+        failure: {
+          kind: 'unavailable',
+          code: 'inspection_failed',
+          message: inspectionOutcome.diagnostics.map((item) => item.message).join('; '),
+        },
+      },
+    }
+  }
+
+  let prompt: Record<string, unknown>
+  try {
+    const inspected = await inspectAgentSystemPrompt({
+      agentRoot: evaluationContext.paths.agentRoot,
+      agentsRoot: evaluationContext.paths.agentsRoot,
+      aspHome:
+        (sources['aspHome'] as string | undefined) ?? dirname(evaluationContext.paths.agentsRoot),
+      projectRoot: placement['projectRoot'] as string | undefined,
+      projectId,
+      agentId: context['agentId'],
+      taskId: context['taskId'],
+      lane: identifiers.lane,
+      runMode: context['runMode'],
+      scaffoldPackets: evaluationContext.scaffoldPackets,
+      env: environment,
+      agentRootSearchPath: [evaluationContext.paths.agentRoot, evaluationContext.paths.agentsRoot],
+    })
+    prompt = inspected
+      ? {
+          state: 'present',
+          value: {
+            systemPrompt: inspected.prompt.content,
+            systemPromptMode: inspected.prompt.mode,
+            ...(inspected.reminder.content !== undefined
+              ? { reminderContent: inspected.reminder.content }
+              : {}),
+            ...((declaration['priming'] as { content?: string } | undefined)?.content
+              ? { primingPrompt: (declaration['priming'] as { content: string }).content }
+              : {}),
+            promptSectionSizes: inspected.diagnostics.prompt.sectionSizes,
+            reminderSectionSizes: inspected.diagnostics.reminder.sectionSizes,
+            promptTotalChars: inspected.prompt.totalChars,
+            reminderTotalChars: inspected.reminder.totalChars,
+            totalContextChars: inspected.diagnostics.totalChars,
+            ...(inspected.template.maxChars !== undefined
+              ? { maxChars: inspected.template.maxChars }
+              : {}),
+            nearMaxChars: inspected.diagnostics.nearMaxChars,
+          },
+        }
+      : { state: 'absent', code: 'prompt_not_declared' }
+  } catch (error) {
+    prompt = {
+      state: 'invalid',
+      code: 'prompt_resolution_failed',
+      message: formatError(error),
+      diagnostics: inspectionOutcome.inspection.diagnostics.filter(
+        (item) => item.code === 'prompt_resolution_failed'
+      ),
+    }
+  }
+  return {
+    schemaVersion: 'aspc-inspect-runtime-placement-response/v1',
+    ok: true,
+    declaration,
+    inspection: inspectionOutcome.inspection,
+    prompt,
+    effectiveEnvironmentHash: stableHash(environment),
+  }
+}
+
+function effectiveEnvironment(
+  ambient: Record<string, string | undefined> | undefined,
+  dispatch: Record<string, string> | undefined
+): Record<string, string> {
+  const result: Record<string, string> = {}
+  for (const [key, value] of Object.entries(ambient ?? process.env)) {
+    if (value !== undefined) result[key] = value
+  }
+  return { ...result, ...(dispatch ?? {}) }
 }
 
 const RUNTIME_PLAN_PROVENANCE: AgentInspectionProvenance = {

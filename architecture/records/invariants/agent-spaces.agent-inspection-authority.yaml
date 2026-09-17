@@ -14,9 +14,16 @@ predicate: >
   freshly resolved context, and returns only the shared public DTO. A
   project-neutral catalog never invents a project or emits project-contextual
   compile options, and lower-level context-taking primitives remain internal to
-  the producer boundary for external consumers.
-authority: hrcchat#20422
+  the producer boundary for external consumers. The separately named
+  resolveRuntimeDeclaration and inspectRuntimePlacement preparation operations
+  are governed by agent-spaces.runtime-declaration-authority and accept only
+  their exact placement context DTOs; they do not add paths, roots, environment,
+  or placement inputs to identifier-only catalogAgentInspection or
+  inspectAgentSelection.
+authority: T-08563 revision 5 approved by daedalus EN-13318
 source:
+  - wrkq:T-08563 revision 5
+  - wrkq:EN-13318
   - hrcchat#20422
   - harness/aspc/src/service.ts
   - contracts/aspc-protocol/src/types.ts
@@ -27,11 +34,11 @@ required_tests:
   - project-neutral catalog behavior is independent of process cwd and ambient environment
   - project-neutral catalog emits no fabricated project or project-contextual compile options
 last_verified:
-  date: 2026-08-23
-  evidence: hrcchat#20422 revision 2 approved by daedalus
+  date: 2026-09-17
+  evidence: T-08563 revision 5 approved by daedalus EN-13318
 reopen_when:
   - agent roster discovery or inspection-context authority moves outside Agent Spaces
-  - a consumer-facing operation accepts producer context rather than identifiers
+  - an identifier-only catalog or selection operation accepts producer context rather than identifiers
   - project-neutral catalog semantics change
   - evaluation context becomes part of the public DTO or transport contract
 supersedes: []

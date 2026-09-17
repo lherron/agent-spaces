@@ -15,7 +15,11 @@ import type {
   AspcHelloRequest,
   AspcInspectAgentRequest,
   AspcInspectAgentSelectionRequest,
+  AspcInspectRuntimePlacementRequest,
   AspcMethod,
+  AspcObserveContinuationArtifactRequest,
+  AspcObserveRuntimeCapabilityRequest,
+  AspcResolveRuntimeDeclarationRequest,
 } from './types.js'
 import { ASPC_METHODS, ASPC_PROTOCOL_VERSION } from './types.js'
 import type { SchemaRecord } from './validation-primitives.js'
@@ -135,6 +139,14 @@ export class AspcCommandValidationError extends AspcValidationError {
   }
 }
 
+export class AspcRuntimeObservationRequestValidationError extends AspcValidationError {
+  readonly code = 'INVALID_ASPC_RUNTIME_OBSERVATION_REQUEST'
+
+  constructor(method: string, issues: ValidationIssue[]) {
+    super('AspcRuntimeObservationRequestValidationError', `Invalid ${method} request`, issues)
+  }
+}
+
 export function validateAspcHelloRequest(value: unknown): AspcHelloRequest {
   const issues: ValidationIssue[] = []
   validateHello(value, 'params', issues)
@@ -202,6 +214,88 @@ export function validateAspcCompileAndStartRequest(value: unknown): AspcCompileA
   return validateAspcCompileHarnessInvocationRequest(value)
 }
 
+function validateObservationRequest<T>(
+  value: unknown,
+  method: string,
+  validate: ParamsValidator
+): T {
+  const issues: ValidationIssue[] = []
+  validate(value, 'params', issues)
+  if (issues.length > 0) throw new AspcRuntimeObservationRequestValidationError(method, issues)
+  return value as T
+}
+
+export function validateAspcResolveRuntimeDeclarationRequest(
+  value: unknown
+): AspcResolveRuntimeDeclarationRequest {
+  return validateObservationRequest(
+    value,
+    'aspc.resolveRuntimeDeclaration',
+    (item, base, issues) => {
+      const request = validateRuntimeObservation(
+        item,
+        base,
+        issues,
+        'aspc-resolve-runtime-declaration-request/v1'
+      )
+      if (request) rejectUnknownParams(request, new Set(['schemaVersion', 'context']), base, issues)
+    }
+  )
+}
+
+export function validateAspcInspectRuntimePlacementRequest(
+  value: unknown
+): AspcInspectRuntimePlacementRequest {
+  return validateObservationRequest(value, 'aspc.inspectRuntimePlacement', (item, base, issues) => {
+    const request = validateRuntimeObservation(
+      item,
+      base,
+      issues,
+      'aspc-inspect-runtime-placement-request/v1'
+    )
+    if (request) {
+      validateOptionalStringRecord(request['dispatchEnv'], path(base, 'dispatchEnv'), issues)
+      rejectUnknownParams(
+        request,
+        new Set(['schemaVersion', 'context', 'dispatchEnv']),
+        base,
+        issues
+      )
+    }
+  })
+}
+
+export function validateAspcObserveRuntimeCapabilityRequest(
+  value: unknown
+): AspcObserveRuntimeCapabilityRequest {
+  return validateObservationRequest(
+    value,
+    'aspc.observeRuntimeCapability',
+    (item, base, issues) => {
+      const request = validateRuntimeObservation(
+        item,
+        base,
+        issues,
+        'aspc-observe-runtime-capability-request/v1'
+      )
+      if (request) {
+        requireString(request['harness'], path(base, 'harness'), issues)
+        rejectUnknownParams(request, new Set(['schemaVersion', 'context', 'harness']), base, issues)
+      }
+    }
+  )
+}
+
+export function validateAspcObserveContinuationArtifactRequest(
+  value: unknown
+): AspcObserveContinuationArtifactRequest {
+  return validateObservationRequest(
+    value,
+    'aspc.observeContinuationArtifact',
+    validateContinuationObservation
+  )
+}
+
 type ParamsValidator = (value: unknown, basePath: string, issues: ValidationIssue[]) => void
 
 /**
@@ -217,7 +311,309 @@ const ASPC_PARAMS_VALIDATORS: Record<AspcMethod, ParamsValidator> = {
   'aspc.catalogAgentInspection': validateCatalogAgentInspection,
   'aspc.inspectAgentSelection': validateInspectAgentSelection,
   'aspc.compileHarnessInvocation': validateCompileHarnessInvocation,
+  'aspc.resolveRuntimeDeclaration': (value, base, issues) => {
+    const request = validateRuntimeObservation(
+      value,
+      base,
+      issues,
+      'aspc-resolve-runtime-declaration-request/v1'
+    )
+    if (request) rejectUnknownParams(request, new Set(['schemaVersion', 'context']), base, issues)
+  },
+  'aspc.inspectRuntimePlacement': (value, base, issues) => {
+    const request = validateRuntimeObservation(
+      value,
+      base,
+      issues,
+      'aspc-inspect-runtime-placement-request/v1'
+    )
+    if (request) {
+      validateOptionalStringRecord(request['dispatchEnv'], path(base, 'dispatchEnv'), issues)
+      rejectUnknownParams(
+        request,
+        new Set(['schemaVersion', 'context', 'dispatchEnv']),
+        base,
+        issues
+      )
+    }
+  },
+  'aspc.observeRuntimeCapability': (value, base, issues) => {
+    const request = validateRuntimeObservation(
+      value,
+      base,
+      issues,
+      'aspc-observe-runtime-capability-request/v1'
+    )
+    if (request) {
+      requireString(request['harness'], path(base, 'harness'), issues)
+      rejectUnknownParams(request, new Set(['schemaVersion', 'context', 'harness']), base, issues)
+    }
+  },
+  'aspc.observeContinuationArtifact': validateContinuationObservation,
   'aspc.compileAndStart': validateCompileHarnessInvocation,
+}
+
+function validateRuntimeObservation(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[],
+  version: string
+): SchemaRecord | undefined {
+  const request = requireRecord(value, basePath, issues)
+  if (!request) return undefined
+  requireLiteral(request['schemaVersion'], version, path(basePath, 'schemaVersion'), issues)
+  const context = requireRecord(request['context'], path(basePath, 'context'), issues)
+  if (context) {
+    requireString(context['agentId'], path(basePath, 'context.agentId'), issues)
+    optionalString(context['agentRoot'], path(basePath, 'context.agentRoot'), issues)
+    requireString(context['cwd'], path(basePath, 'context.cwd'), issues)
+    requireEnum(
+      context['runMode'],
+      ['query', 'heartbeat', 'task', 'maintenance'],
+      path(basePath, 'context.runMode'),
+      issues
+    )
+    optionalString(context['taskId'], path(basePath, 'context.taskId'), issues)
+    const project = requireRecord(context['project'], path(basePath, 'context.project'), issues)
+    if (project) {
+      requireEnum(
+        project['mode'],
+        ['root', 'infer-from-cwd', 'none'],
+        path(basePath, 'context.project.mode'),
+        issues
+      )
+      if (project['mode'] === 'root') {
+        requireString(project['projectRoot'], path(basePath, 'context.project.projectRoot'), issues)
+        optionalString(project['projectId'], path(basePath, 'context.project.projectId'), issues)
+        rejectUnknownParams(
+          project,
+          new Set(['mode', 'projectRoot', 'projectId']),
+          path(basePath, 'context.project'),
+          issues
+        )
+      } else {
+        rejectUnknownParams(project, new Set(['mode']), path(basePath, 'context.project'), issues)
+      }
+    }
+    const agentSources = optionalRecordValue(
+      context['agentSources'],
+      path(basePath, 'context.agentSources'),
+      issues
+    )
+    if (agentSources) {
+      optionalString(
+        agentSources['aspHome'],
+        path(basePath, 'context.agentSources.aspHome'),
+        issues
+      )
+      optionalString(
+        agentSources['agentsRoot'],
+        path(basePath, 'context.agentSources.agentsRoot'),
+        issues
+      )
+      rejectUnknownParams(
+        agentSources,
+        new Set(['aspHome', 'agentsRoot']),
+        path(basePath, 'context.agentSources'),
+        issues
+      )
+    }
+    validateOptionalProvisionDirectives(
+      context['provisionDirectives'],
+      path(basePath, 'context.provisionDirectives'),
+      issues
+    )
+    rejectUnknownParams(
+      context,
+      new Set([
+        'agentId',
+        'agentRoot',
+        'project',
+        'cwd',
+        'runMode',
+        'taskId',
+        'agentSources',
+        'provisionDirectives',
+      ]),
+      path(basePath, 'context'),
+      issues
+    )
+  }
+  return request
+}
+
+function validateContinuationObservation(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
+  const request = requireRecord(value, basePath, issues)
+  if (!request) return
+  requireLiteral(
+    request['schemaVersion'],
+    'aspc-observe-continuation-artifact-request/v1',
+    path(basePath, 'schemaVersion'),
+    issues
+  )
+  const continuation = requireRecord(
+    request['continuation'],
+    path(basePath, 'continuation'),
+    issues
+  )
+  if (continuation) {
+    requireString(continuation['provider'], path(basePath, 'continuation.provider'), issues)
+    requireString(continuation['key'], path(basePath, 'continuation.key'), issues)
+    if (continuation['artifactFormat'] !== undefined) {
+      requireEnum(
+        continuation['artifactFormat'],
+        ['claude', 'codex', 'pi'],
+        path(basePath, 'continuation.artifactFormat'),
+        issues
+      )
+    }
+    rejectUnknownParams(
+      continuation,
+      new Set(['provider', 'key', 'artifactFormat']),
+      path(basePath, 'continuation'),
+      issues
+    )
+  }
+  const historical = optionalRecordValue(
+    request['historicalExecution'],
+    path(basePath, 'historicalExecution'),
+    issues
+  )
+  if (historical) {
+    const frozen = optionalRecordValue(
+      historical['frozenStartRequest'],
+      path(basePath, 'historicalExecution.frozenStartRequest'),
+      issues
+    )
+    if (frozen) {
+      requireLiteral(
+        frozen['keyBinding'],
+        'runtime-continuation',
+        path(basePath, 'historicalExecution.frozenStartRequest.keyBinding'),
+        issues
+      )
+      requireRecord(
+        frozen['placement'],
+        path(basePath, 'historicalExecution.frozenStartRequest.placement'),
+        issues
+      )
+      requireRecord(
+        frozen['startRequest'],
+        path(basePath, 'historicalExecution.frozenStartRequest.startRequest'),
+        issues
+      )
+      if (frozen['brokerDriver'] !== undefined) {
+        requireEnum(
+          frozen['brokerDriver'],
+          ['codex-app-server', 'claude-code-tmux', 'codex-cli-tmux', 'pi-tui-tmux', 'pi-sdk'],
+          path(basePath, 'historicalExecution.frozenStartRequest.brokerDriver'),
+          issues
+        )
+      }
+      for (const field of ['compileId', 'planHash', 'selectedProfileHash', 'startRequestHash']) {
+        optionalString(
+          frozen[field],
+          path(basePath, `historicalExecution.frozenStartRequest.${field}`),
+          issues
+        )
+      }
+      optionalRecord(
+        frozen['executionRelease'],
+        path(basePath, 'historicalExecution.frozenStartRequest.executionRelease'),
+        issues
+      )
+    }
+    const recorded = optionalRecordValue(
+      historical['recordedPlacement'],
+      path(basePath, 'historicalExecution.recordedPlacement'),
+      issues
+    )
+    if (recorded) {
+      requireRecord(
+        recorded['placement'],
+        path(basePath, 'historicalExecution.recordedPlacement.placement'),
+        issues
+      )
+      requireRecord(
+        recorded['bundle'],
+        path(basePath, 'historicalExecution.recordedPlacement.bundle'),
+        issues
+      )
+      optionalString(
+        recorded['aspHome'],
+        path(basePath, 'historicalExecution.recordedPlacement.aspHome'),
+        issues
+      )
+      for (const field of ['compileId', 'planHash', 'selectedProfileHash']) {
+        optionalString(
+          recorded[field],
+          path(basePath, `historicalExecution.recordedPlacement.${field}`),
+          issues
+        )
+      }
+    }
+    rejectUnknownParams(
+      historical,
+      new Set(['frozenStartRequest', 'recordedPlacement']),
+      path(basePath, 'historicalExecution'),
+      issues
+    )
+  }
+  rejectUnknownParams(
+    request,
+    new Set(['schemaVersion', 'continuation', 'historicalExecution']),
+    basePath,
+    issues
+  )
+}
+
+function requireEnum(
+  value: unknown,
+  allowed: readonly string[],
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
+  if (typeof value !== 'string' || !allowed.includes(value)) {
+    issues.push(
+      issue(
+        basePath,
+        ISSUE_CODE.invalidLiteral,
+        `${basePath} must be one of: ${allowed.join(', ')}`
+      )
+    )
+  }
+}
+
+function optionalRecordValue(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[]
+): SchemaRecord | undefined {
+  return value === undefined ? undefined : requireRecord(value, basePath, issues)
+}
+
+function validateOptionalProvisionDirectives(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
+  const directives = optionalRecordValue(value, basePath, issues)
+  if (!directives) return
+  for (const [key, item] of Object.entries(directives)) {
+    if (typeof item !== 'string' && typeof item !== 'number' && typeof item !== 'boolean') {
+      issues.push(
+        issue(
+          path(basePath, key),
+          ISSUE_CODE.invalidType,
+          `${path(basePath, key)} must be a string, number, or boolean`
+        )
+      )
+    }
+  }
 }
 
 const INSPECTION_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@-]*$/

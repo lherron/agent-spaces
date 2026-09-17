@@ -20,7 +20,7 @@ let h2 = ''
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'historical-continuation-red-'))
   aspHome = join(root, 'asp-home')
-  h1 = join(root, 'frozen-H1')
+  h1 = join(aspHome, 'codex-homes', 'r1_smokey')
   h2 = join(root, 'newer-unbound-H2')
   await Promise.all([mkdir(h1, { recursive: true }), mkdir(h2, { recursive: true })])
 })
