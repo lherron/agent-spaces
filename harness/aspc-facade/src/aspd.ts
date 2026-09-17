@@ -32,7 +32,7 @@ import { BrokerError } from 'spaces-harness-broker'
 import type { AspReleaseIdentity } from 'spaces-harness-broker-protocol'
 import type { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { type ProtocolServer, createProtocolServer } from 'spaces-harness-broker/protocol-server'
-import { createRuntimeCompiler } from './runtime-compiler.js'
+import { createRuntimeCompiler, runtimeDependencies } from './runtime-compiler.js'
 
 export const ASPD_WORKER_ARGV_PREFIX = ['run', '--transport', 'unix'] as const
 
@@ -221,6 +221,17 @@ export function createReleaseBoundAspcService(
   }
 }
 
+/** Compose the standalone daemon's compiler and execution dependencies once. */
+export function createAspdService(binding: AspdReleaseBinding): AspcService {
+  return createReleaseBoundAspcService(
+    createAspcService({
+      compiler: createRuntimeCompiler({ claudeStatuslineSource: binding.claudeStatuslineSource }),
+      runtimeDependencies,
+    }),
+    binding
+  )
+}
+
 export interface AspdServerOptions {
   socketPath: string
   service: AspcService
@@ -395,12 +406,7 @@ export async function runAspdCli(args: string[], options: RunAspdCliOptions): Pr
     process.exit(1)
   }
   const binding = resolveAspdReleaseBinding(options.releaseIdentity, process.execPath)
-  const service = createReleaseBoundAspcService(
-    createAspcService({
-      compiler: createRuntimeCompiler({ claudeStatuslineSource: binding.claudeStatuslineSource }),
-    }),
-    binding
-  )
+  const service = createAspdService(binding)
   const server = await startAspdServer({ socketPath, service })
   process.stderr.write(
     `aspd serving release=${binding.identity.releaseId} sourceCommit=${binding.identity.sourceCommit} socket=${socketPath} pid=${process.pid}\n`

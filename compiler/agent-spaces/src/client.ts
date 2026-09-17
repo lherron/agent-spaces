@@ -129,22 +129,10 @@ export function createAgentSpacesClient(
 
   const client: CompilerImplementation = {
     async prepareProcessInvocation(req) {
-      const resolutionContext = {
-        ...req.context,
-        ...(req.context?.agentSources
-          ? {
-              agentSources: {
-                ...(req.context.agentSources.agentsRoot
-                  ? { agentsRoot: req.context.agentSources.agentsRoot }
-                  : {}),
-              },
-            }
-          : {}),
-      }
       const declaration = (await resolveRuntimeDeclaration(
         {
           schemaVersion: 'aspc-resolve-runtime-declaration-request/v1',
-          context: resolutionContext,
+          context: req.context,
         },
         {
           ...(clientAspHome ? { aspHome: clientAspHome } : {}),
@@ -220,11 +208,7 @@ export function createAgentSpacesClient(
           declaration: {
             provider,
             frontend,
-            agentSources: {
-              ...resolved.agentSources,
-              ...req.context.agentSources,
-              provenance: 'caller-agent-root',
-            },
+            agentSources: resolved.agentSources,
           },
           effectiveEnvironmentHash: createCanonicalHasher().hash(invocation.spec.env, {
             timestampMode: 'omit-ephemeral',

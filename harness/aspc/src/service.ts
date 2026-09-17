@@ -75,6 +75,7 @@ export interface AspcServiceOptions {
   now?: AspcInspectionAuthorityOptions['now']
   serviceProbeResponses?: AspcInspectionAuthorityOptions['serviceProbeResponses']
   scaffoldPackets?: AspcInspectionAuthorityOptions['scaffoldPackets']
+  runtimeDependencies?: NonNullable<Parameters<typeof createAgentSpacesClient>[0]>['runtime']
 }
 
 export interface AspcService {
@@ -172,6 +173,7 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
     async prepareProcessInvocation(req) {
       const client = createAgentSpacesClient({
         aspHome: req.context.agentSources?.aspHome ?? serviceEnvironment(options)['ASP_HOME'],
+        runtime: options.runtimeDependencies,
       })
       return client.prepareProcessInvocation(req) as Promise<AspcPrepareProcessInvocationResponse>
     },
