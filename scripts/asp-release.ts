@@ -136,12 +136,60 @@ function requiredFlag(flags: Map<string, string>, name: string): string {
 }
 
 function run(command: string[], cwd = REPO_ROOT): string {
-  const result = Bun.spawnSync({ cmd: command, cwd, stdout: 'pipe', stderr: 'pipe' })
+  const result = Bun.spawnSync({
+    cmd: command,
+    cwd,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
   if (result.exitCode !== 0) {
     const stderr = result.stderr.toString().trim()
     fail(`command failed (${command.join(' ')}): ${stderr || `exit ${result.exitCode}`}`)
   }
   return result.stdout.toString().trim()
+}
+
+async function compileExecutable(
+  name: ExecutableName,
+  entry: string,
+  payload: string,
+  embeddedIdentity: string
+): Promise<void> {
+  if (name !== 'harness-broker-pi') {
+    run([
+      'bun',
+      'build',
+      '--compile',
+      '--target=bun',
+      '--define',
+      `ASP_RELEASE_EMBEDDED_IDENTITY=${embeddedIdentity}`,
+      '--outfile',
+      payload,
+      entry,
+    ])
+    return
+  }
+
+  const piRuntime = join(REPO_ROOT, 'scripts/asp-release/pi-coding-agent-runtime.js')
+  const result = await Bun.build({
+    entrypoints: [entry],
+    target: 'bun',
+    compile: { outfile: payload },
+    define: { ASP_RELEASE_EMBEDDED_IDENTITY: embeddedIdentity },
+    plugins: [
+      {
+        name: 'asp-release-pi-sdk-runtime',
+        setup(build) {
+          build.onResolve({ filter: /^@earendil-works\/pi-coding-agent$/ }, () => ({
+            path: piRuntime,
+          }))
+        },
+      },
+    ],
+  })
+  if (!result.success) {
+    fail(`command failed (compile ${name}): ${result.logs.map((log) => log.message).join('; ')}`)
+  }
 }
 
 function sha256(path: string): string {
@@ -504,21 +552,17 @@ async function buildRelease(outputRootInput: string): Promise<ReleaseInspection>
     for (const name of Object.keys(EXECUTABLES) as ExecutableName[]) {
       const payload = join(staging, 'libexec', name)
       const entry = join(REPO_ROOT, EXECUTABLES[name])
-      const embeddedIdentity = JSON.stringify({ releaseId: id, sourceCommit, builtAt })
-      run([
-        'bun',
-        'build',
-        '--compile',
-        '--target=bun',
-        '--define',
-        `ASP_RELEASE_EMBEDDED_IDENTITY=${embeddedIdentity}`,
-        '--outfile',
-        payload,
-        entry,
-      ])
+      const embeddedIdentity = JSON.stringify({
+        releaseId: id,
+        sourceCommit,
+        builtAt,
+      })
+      await compileExecutable(name, entry, payload, embeddedIdentity)
       chmodSync(payload, 0o755)
       const launcher = join(staging, name)
-      writeFileSync(launcher, launcherScript(name, id, sourceCommit, builtAt), { mode: 0o755 })
+      writeFileSync(launcher, launcherScript(name, id, sourceCommit, builtAt), {
+        mode: 0o755,
+      })
       executables[name] = {
         launcher: name,
         launcherSha256: sha256(launcher),
