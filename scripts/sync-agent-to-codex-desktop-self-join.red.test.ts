@@ -96,21 +96,46 @@ function runDiscovery(
   return { result, elapsedMs: Date.now() - startedAt }
 }
 
-function brokerAlive(seenFile: string): number | undefined {
+function spawnedPids(seenFile: string): number[] {
   for (let i = 0; i < 30; i++) {
     if (existsSync(seenFile)) break
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
   }
-  if (!existsSync(seenFile)) return undefined
-  const last = readFileSync(seenFile, 'utf8').trim().split('\n').filter(Boolean).pop()
-  if (!last) return undefined
-  const pid = (JSON.parse(last) as { pid: number }).pid
+  if (!existsSync(seenFile)) return []
+  const pids: number[] = []
+  for (const line of readFileSync(seenFile, 'utf8').trim().split('\n').filter(Boolean)) {
+    const pid = (JSON.parse(line) as { pid: number }).pid
+    if (Number.isInteger(pid) && !pids.includes(pid)) pids.push(pid)
+  }
+  return pids
+}
+
+function pidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0)
-    return pid
+    return true
   } catch {
-    return undefined
+    return false
   }
+}
+
+/**
+ * Reap every stub broker a test spawned and prove none outlives the test.
+ * Called in a finally so a failing assertion cannot leak a lingering
+ * detached child into $TMPDIR (or max3, under a suite rerun).
+ */
+function reapSpawned(seenFile: string): void {
+  const survivors: number[] = []
+  for (const pid of spawnedPids(seenFile)) {
+    try {
+      process.kill(pid, 'SIGKILL')
+    } catch {}
+    for (let i = 0; i < 50 && pidAlive(pid); i++) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
+    }
+    if (pidAlive(pid)) survivors.push(pid)
+  }
+  expect(survivors).toEqual([])
 }
 
 describe('desktop self-join discovery hook', () => {
@@ -118,44 +143,52 @@ describe('desktop self-join discovery hook', () => {
     const overlay = await buildOverlay()
     const root = await mkdtemp(join(tmpdir(), 'self-join-release-'))
     const release = installRelease(root, 'asp-test-1')
-    const { result, elapsedMs } = runDiscovery(
-      overlay.discovery,
-      overlay.codexHome,
-      JSON.stringify(sessionStartPayload()),
-      { ASPD_ACTIVE_JSON: release.activeJson }
-    )
-    expect(result.status).toBe(0)
-    expect(elapsedMs).toBeLessThan(4000)
-    expect(result.stdout).toBe('')
-    const pid = brokerAlive(release.seenFile)
-    expect(pid).toBeDefined()
-    const seen = JSON.parse(
-      readFileSync(release.seenFile, 'utf8').trim().split('\n').filter(Boolean).pop() as string
-    ) as { argv: string[] }
-    expect(seen.argv[0]).toBe('desktop-join')
-    expect(seen.argv).toContain('--thread')
-    expect(seen.argv).toContain(THREAD_ID)
-    if (pid !== undefined) process.kill(pid, 'SIGKILL')
+    try {
+      const { result, elapsedMs } = runDiscovery(
+        overlay.discovery,
+        overlay.codexHome,
+        JSON.stringify(sessionStartPayload()),
+        { ASPD_ACTIVE_JSON: release.activeJson }
+      )
+      expect(result.status).toBe(0)
+      expect(elapsedMs).toBeLessThan(4000)
+      expect(result.stdout).toBe('')
+      const pids = spawnedPids(release.seenFile)
+      expect(pids.length).toBeGreaterThan(0)
+      for (const pid of pids) expect(pidAlive(pid)).toBe(true)
+      const seen = JSON.parse(
+        readFileSync(release.seenFile, 'utf8').trim().split('\n').filter(Boolean).pop() as string
+      ) as { argv: string[] }
+      expect(seen.argv[0]).toBe('desktop-join')
+      expect(seen.argv).toContain('--thread')
+      expect(seen.argv).toContain(THREAD_ID)
+    } finally {
+      reapSpawned(release.seenFile)
+    }
   })
 
   test('UserPromptSubmit also spawns (the respawn fallback)', async () => {
     const overlay = await buildOverlay()
     const root = await mkdtemp(join(tmpdir(), 'self-join-release-'))
     const release = installRelease(root, 'asp-test-1')
-    const { result } = runDiscovery(
-      overlay.discovery,
-      overlay.codexHome,
-      JSON.stringify({
-        ...sessionStartPayload(),
-        hook_event_name: 'UserPromptSubmit',
-        source: 'user-prompt-submit',
-      }),
-      { ASPD_ACTIVE_JSON: release.activeJson }
-    )
-    expect(result.status).toBe(0)
-    const pid = brokerAlive(release.seenFile)
-    expect(pid).toBeDefined()
-    if (pid !== undefined) process.kill(pid, 'SIGKILL')
+    try {
+      const { result } = runDiscovery(
+        overlay.discovery,
+        overlay.codexHome,
+        JSON.stringify({
+          ...sessionStartPayload(),
+          hook_event_name: 'UserPromptSubmit',
+          source: 'user-prompt-submit',
+        }),
+        { ASPD_ACTIVE_JSON: release.activeJson }
+      )
+      expect(result.status).toBe(0)
+      const pids = spawnedPids(release.seenFile)
+      expect(pids.length).toBeGreaterThan(0)
+      for (const pid of pids) expect(pidAlive(pid)).toBe(true)
+    } finally {
+      reapSpawned(release.seenFile)
+    }
   })
 
   test('absent activation spawns nothing, exits 0, names it in join.log', async () => {
