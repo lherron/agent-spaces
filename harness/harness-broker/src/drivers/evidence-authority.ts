@@ -119,6 +119,23 @@ export const CODEX_APP_SERVER_AUTHORITY: EvidenceAuthorityMatrix = {
 }
 
 /**
+ * Muse serve (T-08589, campaign P-00522). Same shape as codex-app-server: the
+ * native MSP JSON-RPC stream owns everything the model does; the broker owns
+ * only its own decisions. Declared here so the driver file stays lifecycle
+ * code; AUTHORITY.md prose (T-08592) must agree with this matrix.
+ */
+export const MUSE_SERVE_AUTHORITY: EvidenceAuthorityMatrix = {
+  ...BROKER_OWNED_BASE,
+  continuation: 'native',
+  'turn-bracket': 'native',
+  conversation: 'native',
+  tool: 'native',
+  usage: 'native',
+  permission: 'native',
+  diagnostic: 'native',
+}
+
+/**
  * Codex desktop observer. The desktop rollout is the sole authority for work
  * that actually ran; the broker owns admission and observer lifecycle only.
  */

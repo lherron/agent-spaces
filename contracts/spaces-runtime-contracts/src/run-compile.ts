@@ -11,16 +11,17 @@ export interface RunCompilerDebugContext {
   registryPath?: string | undefined
   placement: Record<string, unknown>
   requested: {
-    modelProvider?: 'anthropic' | 'openai' | undefined
+    modelProvider?: 'anthropic' | 'openai' | 'meta' | undefined
     model?: string | undefined
     reasoningEffort?: string | undefined
-    harnessFamily?: 'claude-code' | 'codex' | 'pi' | undefined
+    harnessFamily?: 'claude-code' | 'codex' | 'pi' | 'muse' | undefined
     preferredHarnessRuntime?:
       | 'claude-code-cli'
       | 'claude-agent-sdk'
       | 'codex-cli'
       | 'pi-cli'
       | 'pi-sdk'
+      | 'muse-cli'
       | undefined
     interactionMode?: 'interactive' | 'headless' | 'nonInteractive' | undefined
   }

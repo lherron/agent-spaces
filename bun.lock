@@ -188,6 +188,7 @@
         "spaces-config": "*",
         "spaces-harness-claude": "*",
         "spaces-harness-codex": "*",
+        "spaces-harness-muse": "*",
         "spaces-harness-pi": "*",
         "spaces-harness-pi-sdk": "*",
         "spaces-runtime": "*",
@@ -216,6 +217,19 @@
       "version": "0.1.1",
       "dependencies": {
         "@iarna/toml": "^2.2.5",
+        "spaces-config": "*",
+        "spaces-runtime": "*",
+        "spaces-runtime-contracts": "*",
+      },
+      "devDependencies": {
+        "@types/bun": "1.3.14",
+        "typescript": "^5.8.3",
+      },
+    },
+    "drivers/harness-muse": {
+      "name": "spaces-harness-muse",
+      "version": "0.1.1",
+      "dependencies": {
         "spaces-config": "*",
         "spaces-runtime": "*",
         "spaces-runtime-contracts": "*",
@@ -338,6 +352,7 @@
       "dependencies": {
         "ajv": "^8.17.1",
         "spaces-harness-broker-protocol": "workspace:*",
+        "spaces-harness-muse": "*",
         "ws": "^8.18.3",
       },
       "devDependencies": {
@@ -1019,6 +1034,8 @@
     "spaces-harness-claude": ["spaces-harness-claude@workspace:drivers/harness-claude"],
 
     "spaces-harness-codex": ["spaces-harness-codex@workspace:drivers/harness-codex"],
+
+    "spaces-harness-muse": ["spaces-harness-muse@workspace:drivers/harness-muse"],
 
     "spaces-harness-pi": ["spaces-harness-pi@workspace:drivers/harness-pi"],
 

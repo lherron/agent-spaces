@@ -27,6 +27,7 @@ describe('composable broker CLI', () => {
     expect(hello.drivers.map((driver) => driver.kind)).toEqual([
       'codex-app-server',
       'codex-desktop',
+      'muse-serve',
       'arris-resident',
       'claude-code-tmux',
       'codex-cli-tmux',

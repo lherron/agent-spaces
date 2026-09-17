@@ -515,6 +515,8 @@ function validateSpec(value: unknown, issues: ValidationIssue[], prefix = ''): v
     }
     if (driver['kind'] === 'codex-app-server') {
       validateCodexDriver(driver, joinPath(prefix, 'driver'), issues)
+    } else if (driver['kind'] === 'muse-serve') {
+      validateMuseDriver(driver, joinPath(prefix, 'driver'), issues)
     }
   }
 
@@ -2736,6 +2738,59 @@ function validateCodexDriver(
     joinPath(basePath, 'sandboxMode'),
     issues
   )
+  optionalEnum(
+    driver['resumeFallback'],
+    ['start-fresh', 'fail'],
+    joinPath(basePath, 'resumeFallback'),
+    issues
+  )
+
+  if (driver['permissionPolicy'] !== undefined) {
+    const policy = asRecord(driver['permissionPolicy'])
+    if (!policy) {
+      issues.push(
+        makeIssue(
+          joinPath(basePath, 'permissionPolicy'),
+          'invalid_type',
+          'permissionPolicy must be an object'
+        )
+      )
+    } else {
+      optionalEnum(
+        policy['mode'],
+        ['deny', 'allow', 'ask-client'],
+        joinPath(basePath, 'permissionPolicy.mode'),
+        issues,
+        true
+      )
+      optionalNumber(policy['timeoutMs'], joinPath(basePath, 'permissionPolicy.timeoutMs'), issues)
+      optionalEnum(
+        policy['defaultDecision'],
+        ['allow', 'deny'],
+        joinPath(basePath, 'permissionPolicy.defaultDecision'),
+        issues
+      )
+    }
+  }
+}
+
+function validateMuseDriver(
+  driver: SchemaRecord,
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
+  optionalString(driver['serveBin'], joinPath(basePath, 'serveBin'), issues)
+  optionalString(driver['workspace'], joinPath(basePath, 'workspace'), issues)
+  optionalEnum(driver['homeMode'], ['isolated', 'operator'], joinPath(basePath, 'homeMode'), issues)
+  optionalString(driver['model'], joinPath(basePath, 'model'), issues)
+  optionalString(driver['reasoningEffort'], joinPath(basePath, 'reasoningEffort'), issues)
+  optionalEnum(
+    driver['approvalMode'],
+    ['allowAll', 'promptUnmatched', 'onRequest', 'denyUnmatched'],
+    joinPath(basePath, 'approvalMode'),
+    issues
+  )
+  optionalString(driver['resumeSessionId'], joinPath(basePath, 'resumeSessionId'), issues)
   optionalEnum(
     driver['resumeFallback'],
     ['start-fresh', 'fail'],

@@ -2,11 +2,7 @@ import { dirname, extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import { shellQuote } from '../tmux-shared'
-import {
-  type CodexTranscriptModel,
-  type CodexTranscriptWidth,
-  createCodexTranscriptModel,
-} from './transcript'
+import { type CodexTranscriptWidth, createCodexTranscriptModel } from './transcript'
 
 /**
  * T-04906 / T-04909 Phase B — the Codex app-server operator renderer.
@@ -71,9 +67,27 @@ export interface RendererProjection {
   close: () => void
 }
 
+/**
+ * Structural transcript-model contract for the durable-read projection.
+ * CodexTranscriptModel satisfies this structurally; muse-serve supplies its
+ * own model (T-08590) through RendererProjectionOptions.buildTranscript while
+ * the seq-ordering/bootstrap/dedup machinery stays shared.
+ */
+export interface RendererTranscriptModel {
+  /** Fold one durable broker event into the transcript, emitting styled lines. */
+  apply: (event: InvocationEventEnvelope) => void
+  /** Surface a durable-read failure visibly (never silently dropped). */
+  readFailure: (text: string) => void
+}
+
 export interface RendererProjectionOptions {
   invocationId: string
   readSurface: RendererDurableReadSurface
+  /**
+   * Transcript model factory. Defaults to the codex model (existing callers
+   * unchanged); muse-serve passes createMuseTranscriptModel.
+   */
+  buildTranscript?: ((emit: (line: string) => void) => RendererTranscriptModel) | undefined
   /** Optional side-channel for each rendered line (e.g. write to the pane). */
   sink?: (line: string) => void
   /** Emit ANSI colour (default false — enable on a TTY pane). */
@@ -136,7 +150,8 @@ export function createCodexAppServerRendererProjection(
   // hrcchat-turn-style transcript (palette + glyphs + rail, assistant deltas
   // coalesced, tool calls grouped). The projection owns ordering/dedup; the
   // model owns styling.
-  const buildTranscript = (): CodexTranscriptModel =>
+  const buildTranscript = (): RendererTranscriptModel =>
+    options.buildTranscript?.(pushLine) ??
     createCodexTranscriptModel({
       invocationId,
       emit: pushLine,

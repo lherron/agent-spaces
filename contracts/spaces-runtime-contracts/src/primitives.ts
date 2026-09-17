@@ -14,12 +14,15 @@ export type SchemaVersion =
   | 'runtime-public-view/v1'
   | 'harness-broker.invocation/v1'
 
-export type ProviderDomain = 'anthropic' | 'openai'
-export type HarnessFamily = 'claude-code' | 'codex' | 'pi'
+export type ProviderDomain = 'anthropic' | 'openai' | 'meta'
+export type HarnessFamily = 'claude-code' | 'codex' | 'pi' | 'muse'
 export type HarnessRuntime =
   | 'claude-code-cli'
   | 'claude-agent-sdk'
   | 'codex-cli'
+  // Muse CLI, served through the `muse-serve` broker driver over MSP stdio
+  // (campaign P-00522): a real CLI runtime under the `muse` family.
+  | 'muse-cli'
   // Codex Desktop, observed through the `codex-desktop` broker driver. It is a
   // real runtime under the `codex` family, not a variant of `codex-cli`: HRC
   // does not launch it and it is joined as an external participant. Declared

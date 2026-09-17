@@ -857,6 +857,9 @@ function requestedHarness(
       provider: entry.provider,
     }
   }
+  if (entry?.id === 'muse') {
+    return { family: 'muse', runtime: 'muse-cli', provider: entry.provider }
+  }
   return { family: 'codex', runtime: 'codex-cli', provider: entry?.provider ?? 'openai' }
 }
 

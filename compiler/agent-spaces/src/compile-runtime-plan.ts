@@ -563,12 +563,19 @@ const FOREGROUND_ROUTES: Record<HarnessFamily, ForegroundRoute> = {
     runtime: 'pi-cli',
     provider: 'openai',
   },
+  muse: {
+    frontend: 'muse-cli',
+    family: 'muse',
+    runtime: 'muse-cli',
+    provider: 'meta',
+  },
 }
 
 const RUNTIME_TO_FAMILY: Partial<Record<HarnessRuntime, HarnessFamily>> = {
   'claude-code-cli': 'claude-code',
   'codex-cli': 'codex',
   'pi-cli': 'pi',
+  'muse-cli': 'muse',
 }
 
 /**
@@ -604,7 +611,7 @@ function resolveForegroundRoute(
     diagnostics.push(
       compileError(
         'unsupported_harness',
-        'interactive compile requires a foreground-capable harness family (claude-code, codex, or pi)',
+        'interactive compile requires a foreground-capable harness family (claude-code, codex, pi, or muse)',
         { requested: req.requested }
       )
     )

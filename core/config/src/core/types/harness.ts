@@ -16,13 +16,19 @@ import type { CodexOptions, ProjectManifest } from './targets.js'
 // ============================================================================
 
 /** Supported harness identifiers */
-export type HarnessId = 'claude' | 'claude-agent-sdk' | 'pi' | 'pi-sdk' | 'codex'
+export type HarnessId = 'claude' | 'claude-agent-sdk' | 'pi' | 'pi-sdk' | 'codex' | 'muse'
 
 /** Provider family for a harness. */
-export type HarnessProvider = 'anthropic' | 'openai'
+export type HarnessProvider = 'anthropic' | 'openai' | 'meta'
 
 /** Provider-facing frontend identifier used by placement/runtime APIs. */
-export type HarnessFrontend = 'agent-sdk' | 'pi-sdk' | 'claude-code' | 'codex-cli' | 'pi-cli'
+export type HarnessFrontend =
+  | 'agent-sdk'
+  | 'pi-sdk'
+  | 'claude-code'
+  | 'codex-cli'
+  | 'pi-cli'
+  | 'muse-cli'
 
 /** Runtime transport family for a harness. */
 export type HarnessTransport = 'cli' | 'sdk'
@@ -43,6 +49,7 @@ export const HARNESS_IDS: readonly HarnessId[] = [
   'pi',
   'pi-sdk',
   'codex',
+  'muse',
 ] as const
 
 /** Frontends that can be used via placement/runtime APIs. */
@@ -52,10 +59,15 @@ export const HARNESS_FRONTENDS: readonly HarnessFrontend[] = [
   'claude-code',
   'codex-cli',
   'pi-cli',
+  'muse-cli',
 ] as const
 
 /** Known provider families. */
-export const HARNESS_PROVIDERS: readonly HarnessProvider[] = ['anthropic', 'openai'] as const
+export const HARNESS_PROVIDERS: readonly HarnessProvider[] = [
+  'anthropic',
+  'openai',
+  'meta',
+] as const
 
 /** Canonical harness metadata shared across config, runtime, and CLIs. */
 export const HARNESS_CATALOG: readonly HarnessCatalogEntry[] = [
@@ -93,6 +105,13 @@ export const HARNESS_CATALOG: readonly HarnessCatalogEntry[] = [
     provider: 'openai',
     transport: 'cli',
     frontend: 'codex-cli',
+  },
+  {
+    id: 'muse',
+    aliases: ['muse-cli'],
+    provider: 'meta',
+    transport: 'cli',
+    frontend: 'muse-cli',
   },
 ] as const
 
@@ -414,6 +433,20 @@ export interface ComposedTargetBundle {
     skillsDir: string
     /** Path to codex.home/prompts */
     promptsDir: string
+  }
+
+  // Muse-specific fields (populated by MuseAdapter, T-08591)
+  muse?: {
+    /** Path to the muse.workspace directory */
+    workspaceDir: string
+    /** Path to muse.workspace/AGENTS.md */
+    agentsPath: string
+    /** Path to muse.workspace/skills */
+    skillsDir: string
+    /** Path to muse.workspace/settings.json */
+    settingsPath: string
+    /** Path to muse.workspace/manifest.json */
+    manifestPath: string
   }
 }
 

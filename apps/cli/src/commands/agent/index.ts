@@ -34,7 +34,10 @@ type RunMode = (typeof VALID_MODES)[number]
 type ExecuteMode = Exclude<RunMode, 'resolve'>
 
 /** Map display names and aliases to internal HarnessId values */
-function normalizeHarness(input: string): { frontend: string; provider: 'anthropic' | 'openai' } {
+function normalizeHarness(input: string): {
+  frontend: string
+  provider: 'anthropic' | 'openai' | 'meta'
+} {
   const frontend = resolveHarnessFrontendName(input)
   const provider = resolveHarnessProvider(input)
   if (!frontend || !provider) {
@@ -291,7 +294,10 @@ async function handleExecute(
   const placement = buildPlacement(canonicalRef, runMode, options, laneId)
   const continuation =
     options.continueProvider && options.continueKey
-      ? { provider: options.continueProvider as 'anthropic' | 'openai', key: options.continueKey }
+      ? {
+          provider: options.continueProvider as 'anthropic' | 'openai' | 'meta',
+          key: options.continueKey,
+        }
       : undefined
   const envVars = parseEnvFlags(options.env)
 
@@ -321,8 +327,8 @@ function missingAgentRootError(options: AgentCommandOptions): Error {
  */
 interface FrontendExecContext {
   placement: RuntimePlacement
-  provider: 'anthropic' | 'openai'
-  continuation: { provider: 'anthropic' | 'openai'; key: string } | undefined
+  provider: 'anthropic' | 'openai' | 'meta'
+  continuation: { provider: 'anthropic' | 'openai' | 'meta'; key: string } | undefined
   envVars: Record<string, string> | undefined
   prompt: string | undefined
   options: AgentCommandOptions

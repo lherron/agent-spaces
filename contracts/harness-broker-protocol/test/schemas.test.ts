@@ -276,6 +276,48 @@ describe('validateInvocationSpec', () => {
     )
   })
 
+  test('accepts the muse-serve start-fresh fixture (T-08588)', () => {
+    const fixture = JSON.parse(
+      readFileSync(
+        join(import.meta.dir, '..', 'src', 'fixtures', 'muse-serve', 'start-fresh.spec.json'),
+        'utf-8'
+      )
+    )
+    expect(validateInvocationSpec(fixture)).toEqual(fixture)
+  })
+
+  test('rejects a muse-serve approvalMode outside the MSP closed enum', () => {
+    const fixture = JSON.parse(
+      readFileSync(
+        join(import.meta.dir, '..', 'src', 'fixtures', 'muse-serve', 'start-fresh.spec.json'),
+        'utf-8'
+      )
+    )
+    const invalid = structuredClone(fixture)
+    invalid.driver.approvalMode = 'never'
+
+    expectInvalidSpec(invalid, {
+      path: 'driver.approvalMode',
+      code: 'invalid_literal',
+    })
+  })
+
+  test('rejects a mismatched harness.driver and muse-serve driver.kind', () => {
+    const fixture = JSON.parse(
+      readFileSync(
+        join(import.meta.dir, '..', 'src', 'fixtures', 'muse-serve', 'start-fresh.spec.json'),
+        'utf-8'
+      )
+    )
+    const invalid = structuredClone(fixture)
+    invalid.harness.driver = 'codex-app-server'
+
+    expectInvalidSpec(invalid, {
+      path: 'harness.driver',
+      code: 'invalid_driver',
+    })
+  })
+
   test('rejects a spec missing process.command with a stable validation code', () => {
     const invalid = structuredClone(specSection62Example)
     Reflect.deleteProperty(invalid.process, 'command')

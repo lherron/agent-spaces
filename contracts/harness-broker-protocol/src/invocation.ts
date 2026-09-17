@@ -234,7 +234,7 @@ export interface HarnessInvocationSpec {
   process: HarnessProcessSpec
   interaction?: InteractionSpec | undefined
   continuation?: ContinuationSpec | undefined
-  driver: CodexAppServerDriverSpec | UnknownDriverSpec
+  driver: CodexAppServerDriverSpec | MuseServeDriverSpec | UnknownDriverSpec
   sdk?: HarnessSdkSpec | undefined
   /** Semantic ASP identity consumed by the first-party agent-harness composition. */
   agent?: AgentHarnessSpec | undefined
@@ -279,7 +279,7 @@ export interface HarnessLaunchSpec {
 export interface HarnessDescriptor {
   frontend: string
   provider?: string | undefined
-  driver: 'codex-app-server' | string
+  driver: 'codex-app-server' | 'muse-serve' | string
 }
 
 export interface HarnessProcessSpec {
@@ -343,6 +343,37 @@ export interface CodexAppServerDriverSpec {
   sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access' | undefined
   defaultImageAttachments?: string[] | undefined
   permissionPolicy?: DriverPermissionPolicy | undefined
+  resumeFallback?: 'start-fresh' | 'fail' | undefined
+}
+
+/**
+ * Muse serve broker driver spec (T-08588, campaign P-00522).
+ *
+ * Mirrors CodexAppServerDriverSpec, adjusted for live MSP wire findings
+ * (spikes 2-7, muse 1.3.0): serve takes no `--workspace` flag (workspace
+ * travels as `session/start.workspaceRoot`), no approval flag (wire-side
+ * `session/setApprovalMode`), and no TUI (no presentation/transport choice —
+ * stdio only). `approvalMode` uses MSP's own closed enum
+ * (allowAll|promptUnmatched|onRequest|denyUnmatched), not codex's
+ * approvalPolicy values. Continuation is a ContinuationSpec with
+ * provider 'muse', kind 'session'; resumeSessionId carries the session key.
+ */
+export interface MuseServeDriverSpec {
+  kind: 'muse-serve'
+  serveBin?: string | undefined
+  workspace?: string | undefined
+  /**
+   * HOME posture for the serve child. 'isolated' (default) points $HOME plus
+   * both XDG dirs at a fresh per-invocation dir. 'operator' keeps $HOME on
+   * the operator home (required for model calls under keychain-bound oauth
+   * credentials) while XDG_CONFIG_HOME/XDG_DATA_HOME stay disposable.
+   */
+  homeMode?: 'isolated' | 'operator' | undefined
+  model?: string | undefined
+  reasoningEffort?: string | undefined
+  approvalMode?: 'allowAll' | 'promptUnmatched' | 'onRequest' | 'denyUnmatched' | undefined
+  permissionPolicy?: DriverPermissionPolicy | undefined
+  resumeSessionId?: string | undefined
   resumeFallback?: 'start-fresh' | 'fail' | undefined
 }
 

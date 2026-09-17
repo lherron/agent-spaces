@@ -98,22 +98,22 @@ records the same mistake once, under "Unknown HOOK names" below.
 
 ## The matrix
 
-| Family | claude-code-tmux | codex-cli-tmux | codex-app-server | codex-desktop | arris-resident | pi-tui-tmux | agent-harness-tmux | pi-sdk |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `invocation-lifecycle` | broker | broker | broker | broker | broker | broker | broker | broker |
-| `harness-lifecycle` | hook | hook | broker | broker | broker | hook | native | broker |
-| `continuation` | hook | hook | native | broker | native | hook | native | native |
-| `input-admission` | broker | broker | broker | broker | broker | broker | broker | broker |
-| `submission-disposition` | **native** | broker † | broker † | broker † | native | broker † | broker † | broker † |
-| `turn-bracket` | hook | hook | native | native | native | hook ‡ | native | **broker** ‡ |
-| `turn-supervision` | broker | broker | broker | broker | broker | broker | broker | broker |
-| `conversation` | **native** | **native** | native | native | native | hook | native | native |
-| `tool` | **native** | hook | native | native | native | hook | native | native |
-| `usage` | native | native † | native | native | native | hook † | native | native |
-| `permission` | hook | hook | native | broker | native | hook | native | native |
-| `diagnostic` | hook | broker | native | broker | native | broker | broker | broker |
-| `terminal-surface` | broker | broker | broker | broker | broker | broker | broker | broker |
-| `provider-artifact` | broker | broker | broker | broker | broker | broker | broker | broker |
+| Family | claude-code-tmux | codex-cli-tmux | codex-app-server | muse-serve | codex-desktop | arris-resident | pi-tui-tmux | agent-harness-tmux | pi-sdk |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `invocation-lifecycle` | broker | broker | broker | broker | broker | broker | broker | broker | broker |
+| `harness-lifecycle` | hook | hook | broker | broker | broker | broker | hook | native | broker |
+| `continuation` | hook | hook | native | native | broker | native | hook | native | native |
+| `input-admission` | broker | broker | broker | broker | broker | broker | broker | broker | broker |
+| `submission-disposition` | **native** | broker † | broker † | broker † | broker † | native | broker † | broker † | broker † |
+| `turn-bracket` | hook | hook | native | native | native | native | hook ‡ | native | **broker** ‡ |
+| `turn-supervision` | broker | broker | broker | broker | broker | broker | broker | broker | broker |
+| `conversation` | **native** | **native** | native | native | native | native | hook | native | native |
+| `tool` | **native** | hook | native | native | native | native | hook | native | native |
+| `usage` | native | native † | native | native | native | native | hook † | native | native |
+| `permission` | hook | hook | native | native | broker | native | hook | native | native |
+| `diagnostic` | hook | broker | native | native | broker | native | broker | broker | broker |
+| `terminal-surface` | broker | broker | broker | broker | broker | broker | broker | broker | broker |
+| `provider-artifact` | broker | broker | broker | broker | broker | broker | broker | broker | broker |
 
 † **Declared but not emitted today.** The value names the source that *would*
 own the family, so a later cutover has a stated starting point. The parity
@@ -213,6 +213,26 @@ reader), which is why this driver is the doc's first broad cutover candidate
 `permission.requested` IS native and now names its record: the server→client
 JSON-RPC request frame is committed exactly like a notification and the ask is
 minted from inside that record's normalization.
+
+### muse-serve
+
+| Family (declared) | Exception | Source of the exception |
+| --- | --- | --- |
+| `permission` (native) | `permission.requested` AND `permission.resolved` | the BROKER mints both (`selfMintedProvenance`, sourceKind broker). `requested` still names the committed server-request record so the audit pair stays followable both ways — but unlike codex-app-server it is not native-from-record, only broker-with-record |
+| `continuation` (native) | `continuation.updated` for the session id | minted by the driver from the `session/start` response, not read off a committed notification — `broker`, because no record backs it |
+| `diagnostic` (native) | the stderr-line and lifecycle diagnostics | minted by the driver, not normalized from a notification — `broker` |
+| `conversation` (native) | the intermediate/final split is driver-held, codex-app-server precedent | MSP streams assistant prose as `item/delta` fragments and finalizes at most one `agentMessage` item per turn, so a bare mapping would mark every message `final:true`. Each text-delta run accumulates in the driver and flushes as `completed{final:false}` at the next segment boundary (tool start, next message start, message completion); the newest item completion is held and the turn terminal flushes it as `final:true` ahead of itself. All flushed text is verbatim provider text |
+
+Credential mobility (T-08592): the driver's per-invocation isolated HOME
+breaks ambient keychain-bound oauth — serve answers `authRequired` under any
+other `$HOME` even with `auth.json` symlinked in (file-based api-key
+credentials do travel via the symlink). Spec `homeMode: 'operator'` keeps
+`$HOME` on the operator home while `XDG_CONFIG_HOME`/`XDG_DATA_HOME` stay
+disposable, which is what the `real-muse-serve` matrix row runs on.
+
+Wire-vocabulary note (T-08592): `session/started` opens every session on the
+real wire but is absent from the `muse schema` notification index — an export
+gap, recorded here rather than failed in the smoke's vocabulary check.
 
 ### codex-desktop
 

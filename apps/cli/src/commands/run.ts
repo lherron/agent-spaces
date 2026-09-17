@@ -334,7 +334,7 @@ export function registerRunCommand(program: Command): void {
     .argument('[prompt]', 'Optional initial prompt')
     .option(
       '--harness <id>',
-      'Coding agent harness to use (default: claude; supported: claude, codex, pi)'
+      'Coding agent harness to use (default: claude; supported: claude, codex, muse, pi)'
     )
     .option('--model <model>', 'Model override')
     .option('--model-reasoning-effort <effort>', 'Codex model reasoning effort override')

@@ -50,6 +50,7 @@
     "spaces-harness-pi": "*",
     "spaces-harness-pi-sdk": "*",
     "spaces-harness-codex": "*",
+    "spaces-harness-muse": "*",
     "spaces-runtime-contracts": "*"
   },
   "devDependencies": {

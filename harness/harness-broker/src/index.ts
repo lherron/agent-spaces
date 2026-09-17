@@ -93,6 +93,7 @@ export {
 export type { ArrisControlClient } from './drivers/arris-resident/control-client'
 export { CLAUDE_CODE_TMUX_DRIVER_KIND } from './drivers/claude-code-tmux/hook-events'
 export { CODEX_DRIVER_KIND } from './drivers/codex-app-server/event-map'
+export { MUSE_DRIVER_KIND } from './drivers/muse-serve/event-map'
 export {
   CODEX_DESKTOP_DRIVER_KIND,
   createCodexDesktopDriver,

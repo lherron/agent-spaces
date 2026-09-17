@@ -21,6 +21,7 @@ function harnessFamilyForHarness(
 ): RunCompilerDebugContext['requested']['harnessFamily'] {
   if (harnessId === 'codex') return 'codex'
   if (harnessId === 'pi') return 'pi'
+  if (harnessId === 'muse') return 'muse'
   return 'claude-code'
 }
 
@@ -32,6 +33,8 @@ function harnessRuntimeForHarness(
       return 'codex-cli'
     case 'pi':
       return 'pi-cli'
+    case 'muse':
+      return 'muse-cli'
     default:
       return 'claude-code-cli'
   }

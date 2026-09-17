@@ -8,7 +8,13 @@ export type HarnessContinuationRef = {
 }
 export type ProcessInteractionMode = 'interactive' | 'headless' | 'nonInteractive'
 export type ProcessIoMode = 'pty' | 'pipes' | 'inherit'
-export type ProcessHarnessFrontend = 'agent-sdk' | 'pi-sdk' | 'claude-code' | 'codex-cli' | 'pi-cli'
+export type ProcessHarnessFrontend =
+  | 'agent-sdk'
+  | 'pi-sdk'
+  | 'claude-code'
+  | 'codex-cli'
+  | 'pi-cli'
+  | 'muse-cli'
 export type IoMode = ProcessIoMode
 export type HarnessFrontend = ProcessHarnessFrontend
 export interface ProcessRuntimePlacement {

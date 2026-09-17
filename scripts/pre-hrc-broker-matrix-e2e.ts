@@ -156,6 +156,7 @@ export const MATRIX_ROW_NAMES = [
   'real-claude-tmux-midturn',
   'claude-tmux-ghostmux',
   'real-pi-sdk-driver',
+  'real-muse-serve',
   'real-pi-tui-tmux',
   'pi-tui-tmux-ghostmux',
 ] as const
@@ -3838,6 +3839,261 @@ async function runPiSdkDriverRow(ctx: RowContext): Promise<RowResult> {
 }
 
 // ---------------------------------------------------------------------------
+// real-muse-serve row (T-08592, campaign P-00522)
+//
+// muse-serve headless broker driver against the REAL `muse serve` binary with
+// ambient operator auth (symlinked into the per-invocation isolated HOME by
+// prepareMuseHome). No compiler support exists for muse-serve profiles yet, so
+// this row hand-builds the HarnessInvocationSpec from the committed fixture
+// shape (contracts/harness-broker-protocol/src/fixtures/muse-serve/) instead
+// of going through compileRuntimePlanForMatrix — the compile leg is recorded
+// as absent in result.compile, never fabricated.
+// ---------------------------------------------------------------------------
+
+function resolveRealMuseBin(): string | undefined {
+  for (const candidate of [
+    process.env['ASP_MUSE_PATH'],
+    process.env['MUSE_PATH'],
+    join(process.env['HOME'] ?? '', '.local', 'bin', 'muse'),
+    '/opt/homebrew/bin/muse',
+    '/usr/local/bin/muse',
+  ]) {
+    if (candidate !== undefined && candidate.length > 0 && existsSync(candidate)) return candidate
+  }
+  const onPath = Bun.which('muse')
+  if (onPath !== null && onPath.length > 0 && existsSync(onPath)) return onPath
+  return undefined
+}
+
+// muse-serve surfaces the marker via the Bash tool command + output (and the
+// assistant reply); same harness-agnostic sources as the pi/claude rows.
+const MUSE_MARKER_SOURCES: readonly SharedCommandTurnMarkerSource[] = [
+  'tool-output',
+  'tool-command',
+  'assistant',
+]
+
+/**
+ * Structured-output prompt WITHOUT a json_schema responseFormat envelope.
+ * muse-serve does not advertise finalResponse.jsonSchema (MSP turn/start has
+ * no providerRequestOptions by rule), and the broker honestly rejects the
+ * envelope with UnsupportedCapability — so the row asserts the structured
+ * turn behaviorally (final message parses as the expected JSON) instead of
+ * claiming a capability the driver does not enforce.
+ */
+function museStructuredUserInput(marker: string, inputId?: string | undefined): InvocationInput {
+  return {
+    ...(inputId !== undefined ? { inputId: inputId as InputId } : {}),
+    kind: 'user',
+    content: [{ type: 'text', text: `${STRUCTURED_OUTPUT_PROMPT} ${marker}` }],
+  }
+}
+
+function assertMuseServeContinuation(events: InvocationEventEnvelope[]): Failure[] {
+  const continuation = events.find((event) => event.type === 'continuation.updated')
+  const payload = asRecord(continuation?.payload)
+  if (continuation === undefined) {
+    return [
+      {
+        code: 'muse_continuation_missing',
+        message: 'no continuation.updated event emitted',
+      },
+    ]
+  }
+  if (payload?.['kind'] !== 'session' || typeof payload['key'] !== 'string') {
+    return [
+      {
+        code: 'muse_continuation_invalid',
+        message: `continuation.updated did not carry a muse session key: ${JSON.stringify(payload)}`,
+      },
+    ]
+  }
+  return []
+}
+
+async function runMuseServeDriverRow(ctx: RowContext): Promise<RowResult> {
+  const commandPrompt = `Run the Bash command: printf '${ctx.marker}' — then reply with exactly ${ctx.marker} and nothing else.`
+  const result: RowResult = {
+    name: 'real-muse-serve',
+    status: 'FAIL',
+    marker: ctx.marker,
+    prompt: commandPrompt,
+    observedTurnIds: [],
+    compile: {},
+    floorFailures: [],
+    contractFailures: [],
+    extraFailures: [],
+    notes: {
+      compileSkipped:
+        'no compiler muse-serve profile support; spec hand-built from the committed fixture',
+    },
+  }
+  const museBin = resolveRealMuseBin()
+  if (museBin === undefined) throw new Error('real muse binary disappeared after probe')
+  const workspace = mkdtempSync(join(tmpdir(), 'asp-matrix-muse-serve-'))
+  const invocationId = `inv_muse_${ctx.marker}` as InvocationId
+  const spec: HarnessInvocationSpec = {
+    specVersion: 'harness-broker.invocation/v1',
+    invocationId,
+    harness: { frontend: 'muse-cli', provider: 'meta', driver: 'muse-serve' },
+    process: {
+      command: museBin,
+      args: ['serve'],
+      cwd: workspace,
+      harnessTransport: { kind: 'jsonrpc-stdio' },
+    },
+    interaction: { mode: 'headless', turnConcurrency: 'single', inputQueue: 'none' },
+    driver: {
+      kind: 'muse-serve',
+      serveBin: museBin,
+      workspace,
+      // Operator HOME: ambient oauth is keychain-bound and does not travel
+      // into an isolated HOME (T-08592). Sessions/config stay disposable via
+      // temp XDG dirs; only $HOME is shared.
+      homeMode: 'operator',
+      approvalMode: 'onRequest',
+      resumeFallback: 'start-fresh',
+      permissionPolicy: { mode: 'ask-client' },
+    },
+  }
+  let client: BrokerClient | undefined
+  let eventCollector: Promise<void> | undefined
+  const events: InvocationEventEnvelope[] = []
+  let permissionRequests = 0
+  try {
+    client = await BrokerClient.start({
+      command: 'bun',
+      args: ['harness/harness-broker/bin/harness-broker.js', 'run', '--transport', 'stdio'],
+      cwd: ctx.repoRoot,
+    })
+    const hello = await client.hello({
+      clientInfo: { name: 'pre-hrc-matrix-muse-serve', version: '0.1.0' },
+      protocolVersions: ['harness-broker/0.2'],
+      capabilities: { permissionRequests: true },
+    })
+    const advertised = hello.drivers.find((driver) => driver.kind === 'muse-serve')
+    if (advertised?.available !== true) {
+      result.contractFailures.push({
+        code: 'muse_driver_unavailable',
+        message: `default broker did not advertise an available muse-serve driver: ${JSON.stringify(advertised)}`,
+      })
+      return result
+    }
+    client.onPermissionRequest(async () => {
+      permissionRequests += 1
+      return { decision: 'allow' }
+    })
+
+    const started = await client.startInvocation(
+      spec,
+      unixUserInput(commandPrompt, `input_muse_command_${ctx.marker}`)
+    )
+    eventCollector = (async () => {
+      for await (const event of started.events) events.push(event)
+    })()
+    if (!supportsStructuredFinalResponse(started.response.capabilities)) {
+      result.notes['structuredCapability'] =
+        'muse-serve does not advertise finalResponse.jsonSchema; structured turn asserted behaviorally'
+    }
+    if (!(await waitForAdditionalTerminalTurn(events, 0, ctx.turnTimeoutMs))) {
+      result.contractFailures.push({
+        code: 'muse_command_turn_timeout',
+        message: 'muse-serve command turn did not reach a terminal event',
+      })
+      return result
+    }
+    const commandTurnId =
+      findTurnWithToolCommandMarker(events, ctx.marker) ?? deriveCommandTurnId(events)
+    result.commandTurnId = commandTurnId
+
+    const narrationBaseline = terminalTurnCount(events)
+    const narrationResponse = await client.input({
+      invocationId: started.invocationId as InvocationId,
+      input: unixUserInput(NARRATION_PROMPT, `input_muse_narration_${ctx.marker}`),
+      policy: { whenBusy: 'reject' },
+    })
+    const narrationObserved = await waitForAdditionalTerminalTurn(
+      events,
+      narrationBaseline,
+      ctx.turnTimeoutMs
+    )
+    const narrationTurnId =
+      narrationResponse.turnId ?? turnIdFromEventsAfter(events, narrationBaseline)
+    if (!narrationObserved) {
+      result.extraFailures.push({
+        code: 'muse_narration_turn_timeout',
+        message: 'muse-serve narration turn did not reach a terminal event',
+      })
+    }
+
+    const structuredMarker = `STRUCT_${ctx.marker}_MUSE_SERVE`
+    const structuredBaseline = terminalTurnCount(events)
+    const structuredResponse = await client.input({
+      invocationId: started.invocationId as InvocationId,
+      input: museStructuredUserInput(structuredMarker, `input_muse_structured_${ctx.marker}`),
+      policy: { whenBusy: 'reject' },
+    })
+    const structuredObserved = await waitForAdditionalTerminalTurn(
+      events,
+      structuredBaseline,
+      ctx.turnTimeoutMs
+    )
+    const structuredTurnId =
+      structuredResponse.turnId ?? turnIdFromEventsAfter(events, structuredBaseline)
+    if (!structuredObserved) {
+      result.extraFailures.push({
+        code: 'muse_structured_turn_timeout',
+        message: 'muse-serve structured-output turn did not reach a terminal event',
+      })
+    }
+
+    result.observedTurnIds = observedTurnIds(events)
+    result.notes['eventCount'] = events.length
+    result.notes['brokerBinary'] = 'repo harness/harness-broker/bin/harness-broker.js via bun'
+    result.notes['permissionRequestsAllowed'] = permissionRequests
+    result.notes['narrationTurnIds'] = narrationTurnId === undefined ? [] : [narrationTurnId]
+    result.notes['structuredOutput'] = {
+      scenario: 'structured-output',
+      declaresJsonSchema: supportsStructuredFinalResponse(started.response.capabilities),
+      structuredTurnId: structuredTurnId ?? null,
+    }
+    result.floorFailures = runSharedFloor(
+      events,
+      ctx.marker,
+      commandTurnId,
+      ctx.allowLegacyPermissionEvent,
+      MUSE_MARKER_SOURCES
+    )
+    result.notes['markerSatisfiedBy'] = markerSatisfiedBy(
+      events,
+      commandTurnId,
+      ctx.marker,
+      MUSE_MARKER_SOURCES
+    )
+    result.extraFailures.push(
+      ...assertExactlyOneTerminalTurn(events, commandTurnId, 'command turn'),
+      ...assertExactlyOneTerminalTurn(events, narrationTurnId, 'narration turn'),
+      ...assertExactlyOneTerminalTurn(events, structuredTurnId, 'structured-output turn'),
+      ...assertIntermediateMessages(events, narrationTurnId === undefined ? [] : [narrationTurnId]),
+      ...assertStructuredValidTurn(events, structuredTurnId, structuredMarker),
+      ...assertMuseServeContinuation(events)
+    )
+  } finally {
+    if (client !== undefined) {
+      await client.dispose({ invocationId }).catch(() => undefined)
+      await client.close().catch(() => undefined)
+    }
+    await eventCollector?.catch(() => undefined)
+    if (!ctx.keepArtifacts) rmSync(workspace, { recursive: true, force: true })
+  }
+
+  const allFailed =
+    result.floorFailures.length + result.contractFailures.length + result.extraFailures.length
+  result.status = allFailed === 0 ? 'OK' : 'FAIL'
+  return result
+}
+
+// ---------------------------------------------------------------------------
 // Unix-socket transport row (T-01795 Phase E — CAPSTONE)
 //
 // The stdio rows drive an ephemeral broker CHILD that the contract harness owns
@@ -5623,6 +5879,28 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
       }
     },
     run: async (ctx) => runPiSdkDriverRow(ctx),
+  },
+  {
+    name: 'real-muse-serve',
+    description: 'muse-serve headless broker driver against the REAL muse binary (ambient auth)',
+    probe: async () => {
+      const muse = resolveRealMuseBin()
+      if (muse === undefined) {
+        return {
+          available: false,
+          reason: 'real muse binary not found (set ASP_MUSE_PATH)',
+        }
+      }
+      const authPath = join(process.env['HOME'] ?? '', '.config', 'muse', 'auth.json')
+      if (!existsSync(authPath)) {
+        return {
+          available: false,
+          reason: `muse auth (${authPath}) not present`,
+        }
+      }
+      return { available: true, reason: `real muse at ${muse}; auth present` }
+    },
+    run: async (ctx) => runMuseServeDriverRow(ctx),
   },
   {
     name: 'real-pi-tui-tmux',

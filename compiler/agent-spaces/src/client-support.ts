@@ -20,6 +20,7 @@ export const PI_SDK_FRONTEND: HarnessFrontend = 'pi-sdk'
 export const CLAUDE_CODE_FRONTEND: HarnessFrontend = 'claude-code'
 export const CODEX_CLI_FRONTEND: HarnessFrontend = 'codex-cli'
 export const PI_CLI_FRONTEND: HarnessFrontend = 'pi-cli'
+export const MUSE_CLI_FRONTEND: HarnessFrontend = 'muse-cli'
 
 const PI_SDK_MODELS = PI_SDK_MODEL_CATALOG.map((model) => model.alias)
 
@@ -60,6 +61,16 @@ const PI_CLI_MODELS = [
 const DEFAULT_PI_SDK_MODEL = 'openai-codex/gpt-5.5'
 const DEFAULT_PI_CLI_MODEL = 'gpt-5.5'
 const DEFAULT_CODEX_CLI_MODEL = 'gpt-5.6-terra'
+
+// Model ids from the muse serve model catalog (meta provider); the
+// -contributor variant is the catalog default (T-08595).
+const MUSE_CLI_MODELS = [
+  'muse-spark-1.3-contributor',
+  'muse-spark-1.3',
+  'muse-spark-1.2-contributor',
+  'muse-spark-1.2',
+]
+const DEFAULT_MUSE_CLI_MODEL = 'muse-spark-1.3-contributor'
 
 export class CodedError extends Error {
   readonly code: NonNullable<AgentSpacesError['code']>
@@ -116,6 +127,10 @@ export const FRONTEND_DEFS = new Map<HarnessFrontend, FrontendDef>([
     createFrontendDef(CODEX_CLI_FRONTEND, CODEX_CLI_MODELS, DEFAULT_CODEX_CLI_MODEL),
   ],
   [PI_CLI_FRONTEND, createFrontendDef(PI_CLI_FRONTEND, PI_CLI_MODELS, DEFAULT_PI_CLI_MODEL)],
+  [
+    MUSE_CLI_FRONTEND,
+    createFrontendDef(MUSE_CLI_FRONTEND, MUSE_CLI_MODELS, DEFAULT_MUSE_CLI_MODEL),
+  ],
 ])
 
 export function resolveFrontend(
