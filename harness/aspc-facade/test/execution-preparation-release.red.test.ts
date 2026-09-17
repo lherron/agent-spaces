@@ -46,10 +46,21 @@ function identity(label: 'a' | 'b'): AspReleaseIdentity {
 function binding(label: 'a' | 'b'): AspdReleaseBinding {
   const releaseIdentity = identity(label)
   const releaseRoot = `/immutable/releases/${releaseIdentity.releaseId}`
+  const executable = `${releaseRoot}/harness-broker`
+  const hostedDrivers = ['claude-code-tmux', 'codex-app-server', 'pi-tui-tmux']
   return {
     identity: releaseIdentity,
     releaseRoot,
-    workerExecutable: `${releaseRoot}/harness-broker`,
+    workers: {
+      'codex-app-server': { executable, hostedDrivers },
+      'claude-code-tmux': { executable, hostedDrivers },
+      'pi-tui-tmux': { executable, hostedDrivers },
+    },
+    claudeStatuslineSource: {
+      path: `${releaseRoot}/assets/claude-statusline.sh`,
+      sha256: label.repeat(64),
+      required: true,
+    },
   }
 }
 
@@ -223,7 +234,7 @@ describe('release-bound preparation service (T-08577)', () => {
       releaseRoot: selected.releaseRoot,
       worker: {
         protocol: 'harness-broker/0.2',
-        executable: selected.workerExecutable,
+        executable: selected.workers['codex-app-server']?.executable,
         argvPrefix: ['run', '--transport', 'unix'],
       },
     })
