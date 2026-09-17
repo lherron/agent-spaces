@@ -13,17 +13,19 @@ PATH, `import.meta`, a checkout, or another release:
 - `pi-tui-tmux`;
 - `pi-sdk` non-interactive.
 
-The release chooses the worker executable for the selected profile and stamps
-that absolute choice into the existing per-preparation
-`executionRelease.worker.executable`. A selected broker profile that this
-release has no declared worker binding for is refused by aspd before the compile
-response can become launchable. No worker or native harness starts on refusal.
+Each release built with this change chooses the worker executable for the
+selected profile and stamps that absolute choice into the existing
+per-preparation `executionRelease.worker.executable`. A selected broker profile
+that this release has no declared worker binding for is refused by aspd before
+the compile response can become launchable. No worker or native harness starts
+on refusal.
 
 This task is ASP producer work only. It does not migrate HRC doors, remove HRC
 resolvers, activate max3, publish packages, run `just install`, advance ACP,
-change placement/lifecycle authority, add a feature flag, add an ASPC field or
-verb, retire a harness, or reconcile the stale agent-harness invariant. Mable
-owns later shared max3 activation. T-08558 M14/M15 remain later closure work:
+change placement/lifecycle authority, add a feature flag, add any ASPC field
+besides the one optional metadata field specified below, add any verb, retire a
+harness, or reconcile the stale agent-harness invariant. Mable owns later
+shared max3 activation. T-08558 M14/M15 remain later closure work:
 HRC still has 20 locked ASP packages including `cli-kit` (19 excluding it), of
 which 14 are implementation-bearing.
 
@@ -92,24 +94,54 @@ release identity, and is inspected/digested like the other release payloads.
 This preserves the existing Pi-specific composition and avoids adding the
 heavy Pi SDK/session closure to every stock worker. It uses the existing
 per-preparation executable field exactly as designed; there is no new wire
-prerequisite.
+field for executable selection.
 
-The release inspector must prove that every declared binding names an
-identity-bound executable inside the release and that the executable's compiled
-`drivers --json` inventory contains the declared driver. Extra registered
-drivers are allowed and are not thereby release-bound.
+For releases built with this change, the release inspector must prove that every
+declared binding names an identity-bound executable inside the release and that
+the executable's compiled `drivers --json` inventory contains the declared
+driver. Extra registered drivers are allowed and are not thereby release-bound.
+This validation is a build/inspection gate for new artifacts, not a runtime
+enforcement point.
+
+Retained pre-T-08561 v1 releases remain immutable, inspectable, activatable, and
+valid rollback targets. They keep the semantics of their own compiled aspd:
+nothing in this task or a newer inspector retrofits a binding lookup, refusal,
+or hosting-evidence field into those historical payloads. In particular, such
+an aspd may still stamp its stock `harness-broker` for a selected Claude/Pi
+profile even though that worker cannot host every selection. Rollback restores
+those compiled semantics; this task neither rewrites historical artifacts nor
+forbids activating them.
 
 After the compiler returns one selected profile, aspd looks up its
 `brokerDriver` in the serving release's binding table. On success it stamps the
 chosen launcher's canonical absolute path, the profile's existing protocol, and
-the unchanged `['run','--transport','unix']` argv prefix. The dispatch/start
-payload remains byte-for-byte intact.
+the unchanged `['run','--transport','unix']` argv prefix. It also emits exactly
+one optional additive metadata field on the existing response:
+
+```ts
+executionRelease.worker.hostedDrivers?: string[]
+```
+
+For a release built with this change, `hostedDrivers` is the sorted set of
+driver IDs that the inspected `release.json` binding table assigns to the
+selected executable. It is positive hosting evidence frozen with the
+preparation; it is not inferred from the executable's extra registered drivers.
+The dispatch/start payload remains byte-for-byte intact.
+
+The consumer admission rule lands in T-08562, not this producer task. Before
+HRC launches any selected driver other than `codex-app-server` through the aspd
+route, it must require `hostedDrivers` to be present and contain the selected
+profile's `brokerDriver`; absence or mismatch refuses before any worker, pane,
+or native harness starts. `codex-app-server` remains admissible when a retained
+release omits the field, preserving the already-proven legacy binding and old
+worker control. Old clients ignore the optional metadata.
 
 ### 3.2 Named refusal on the existing response path
 
-If the selected profile has no worker binding, aspd returns the existing
-`AspcCompileHarnessInvocationResponse` failure envelope before adding an
-`executionRelease` and before any hosting effect. The named diagnostic is:
+For a release built with this change, if the selected profile has no worker
+binding, aspd returns the existing `AspcCompileHarnessInvocationResponse`
+failure envelope before adding an `executionRelease` and before any hosting
+effect. The named diagnostic is:
 
 ```json
 {
@@ -216,8 +248,10 @@ release, checkout, PATH helper, or `/$bunfs` path to it.
 ## 4. Preserved behavior and exclusions
 
 - The seven ASPC compile verbs, `aspc/0.1`, broker protocol negotiation,
-  `executionRelease` shape, `dispatchRequest`, profile/start hashes, event
-  semantics, admission classes, and HRC hosting authority are unchanged.
+  `dispatchRequest`, profile/start hashes, event semantics, admission classes,
+  and HRC hosting authority are unchanged. The only response-shape addition is
+  optional `executionRelease.worker.hostedDrivers`; no verb, envelope, union
+  arm, or protocol version changes.
 - Native `claude`, `pi`, and Codex binaries, credentials, agent/project roots,
   mutable ASP content, and per-run state remain explicit external inputs; the
   helper-closure rule does not move those native executables into the ASP
@@ -231,6 +265,11 @@ release, checkout, PATH helper, or `/$bunfs` path to it.
   no retirement.
 - No automatic release deletion. Retain every release referenced by a prepared
   operation, live execution, or unresolved recovery.
+- A binding-table-absent retained release remains activatable and can serve new
+  preparations with its historical compiled behavior. The producer refusal and
+  hosting evidence specified here apply only to releases built with this
+  change; T-08562 supplies the later fail-closed consumer rule for non-Codex
+  launches with absent evidence.
 - The stale active `agent-spaces.agent-harness-runtime-boundary` record is a
   producer-owner follow-on from T-08558 Q5. Reconcile it separately; do not
   expand this implementation to revive or remove agent-harness paths.
@@ -254,14 +293,14 @@ owns any later shared max3 activation, which is outside this task.
 | Proof | Executor | Action and required observation command |
 | --- | --- | --- |
 | Reproduction baseline | T-08561 direct worker | Run the retained `probes/driver-path-probe` and compiled-aspd preparations at `90dd7508`; preserve the exact `/$bunfs`, bare-PATH, missing-statusline, and wrong Pi-worker outputs before implementation. |
-| Release build/inspection | T-08561 direct worker | `just build-asp-release <A-build>` then `just install-asp-release <A> <ns>/releases` and `just inspect-asp-release <ns>/releases/<A>`; inspect `release.json`, `sha256`, `<release>/harness-broker{,-pi} --release-info`, and each `drivers --json`. Both worker payloads report A; binding table and asset digest validate. |
-| Claude real turn | T-08561 direct worker | Prepare via isolated aspd, persist, launch selected worker, handshake, start, and send a unique real Claude prompt through the broker/pane. Observe `broker.hello.release`, `ps -axo pid,ppid,command`, `tmux -S <socket> list-panes -a -F ...`, generated `*.settings.json`, `*.launch.json`, bundle `settings.json`, and ledger events. Worker/helper argv is under A; native Claude is the explicit configured external path; marker completes. |
-| Pi TUI real turn | T-08561 direct worker | Same flow with a real Pi scope and prompt. Observe worker hello, process tree, pane command, generated `*.pi-hook.ts`/`*.pi.launch.json`, bundle, and ledger. Worker/hook/runner are under A; native Pi is the explicit configured path; marker completes. |
-| Pi SDK real turn | T-08561 direct worker | Prepare non-interactive `pi-sdk`, verify `worker.executable=<A>/harness-broker-pi`, launch/hello/start, and send a unique prompt. Observe `broker.hello`, `broker.listInvocations`, `ps -axo pid,ppid,command`, and ledger. There is no runner child/argv; the in-process driver completes the marker under A. |
+| Release build/inspection | T-08561 direct worker | `just build-asp-release <A-build>` then `just install-asp-release <A> <ns>/releases` and `just inspect-asp-release <ns>/releases/<A>`; inspect `release.json`, `sha256`, `<release>/harness-broker{,-pi} --release-info`, and each `drivers --json`. Both worker payloads report A; the new binding table and asset digest validate. Separately inspect and activate a retained pre-T-08561 v1 release, verify its manifest/payload is unchanged and its compile response omits `hostedDrivers`, and record that its own compiled semantics remain in force. Do not launch a legacy non-Codex preparation. |
+| Claude real turn | T-08561 direct worker | Prepare via isolated aspd, assert `hostedDrivers` contains `claude-code-tmux`, persist, launch selected worker, handshake, start, and send a unique real Claude prompt through the broker/pane. Observe `broker.hello.release`, `ps -axo pid,ppid,command`, `tmux -S <socket> list-panes -a -F ...`, generated `*.settings.json`, `*.launch.json`, bundle `settings.json`, and ledger events. Worker/helper argv is under A; native Claude is the explicit configured external path; marker completes. |
+| Pi TUI real turn | T-08561 direct worker | Same flow with a real Pi scope and prompt, first asserting `hostedDrivers` contains `pi-tui-tmux`. Observe worker hello, process tree, pane command, generated `*.pi-hook.ts`/`*.pi.launch.json`, bundle, and ledger. Worker/hook/runner are under A; native Pi is the explicit configured path; marker completes. |
+| Pi SDK real turn | T-08561 direct worker | Prepare non-interactive `pi-sdk`, verify `worker.executable=<A>/harness-broker-pi` and `hostedDrivers` contains `pi-sdk`, launch/hello/start, and send a unique prompt. Observe `broker.hello`, `broker.listInvocations`, `ps -axo pid,ppid,command`, and ledger. There is no runner child/argv; the in-process driver completes the marker under A. |
 | Complete helper closure | T-08561 direct worker | For all three attempts, scan the persisted preparation, release manifest, bundle tree, Claude hook settings, Pi wrapper, launch JSON, pane commands, and process tree with `rg -n '/\$bunfs|under-construction|/agent-spaces/|harness-broker|tmux-launch-runner' <evidence-paths>`. Every `harness-broker`/helper match must resolve beneath recorded A; the bad-path patterns have zero matches. Native executable paths are separately allowlisted and recorded. Confirm Claude `statusline.sh` digest equals A's asset and MCP fixture config contains only its declared native/external values. |
 | Unhosted-driver refusal | T-08561 direct worker | Use a compiled fixture compiler that returns one valid broker profile named `unhosted-probe` against a real inspected A binding, call `aspc.compileHarnessInvocation`, and capture the exact `release_worker_driver_unavailable` failure envelope. Record `pgrep`/process-tree and worker socket directory before/after: no worker, tmux pane, or native harness is created. Also test a manifest binding to an executable whose `drivers --json` omits that driver is rejected by release inspection. |
-| Codex regressions | T-08561 direct worker | Repeat one real isolated headless Codex turn and one real isolated `codexTui` turn through A. Observe unchanged selected driver/protocol, hello identity, renderer/wrapper/hook/runner paths under A, pane/process argv, marker, and normalized terminal events. Diff the persisted start/dispatch payloads against the pre-change fixture excluding identities/paths/hashes justified by release identity. |
-| Upgrade A→B | T-08561 direct worker | Reuse `docs/aspd.md` acceptance shape with one fixed compiled pilot client: run live A workers for Claude, Pi TUI, Pi SDK and Codex; save a never-started A preparation; activate inspected B; verify old connection admission closes, new preparations/hellos are B, all live A workers still turn, and saved A preparation launches A while B serves. Observe `just aspd-status <ns>`, activation log, client state, worker hellos, process/pane argv, and per-driver markers. |
+| Codex regressions | T-08561 direct worker | Repeat one real isolated headless Codex turn and one real isolated `codexTui` turn through A. Assert the new release's headless response lists `codex-app-server` in `hostedDrivers`; observe otherwise unchanged selected driver/protocol, hello identity, renderer/wrapper/hook/runner paths under A, pane/process argv, marker, and normalized terminal events. Diff persisted start/dispatch payloads against the pre-change fixture excluding identities/paths/hashes justified by release identity. Also perform a Codex turn after activating the retained release with `hostedDrivers` absent, proving historical rollback behavior remains usable. |
+| Upgrade A→B | T-08561 direct worker | Reuse `docs/aspd.md` acceptance shape with one fixed compiled pilot client and two newly built binding-aware releases: run live A workers for Claude, Pi TUI, Pi SDK and Codex; save a never-started A preparation; activate inspected B; verify old connection admission closes, new preparations/hellos are B, all live A workers still turn, and saved A preparation launches A while B serves. Observe `just aspd-status <ns>`, activation log, client state, worker hellos, process/pane argv, and per-driver markers. Then activate the retained pre-T-08561 release, verify a Codex preparation/turn succeeds with the field absent, and record that the historical producer has its original semantics; do not launch a legacy non-Codex preparation. Reactivate B for teardown. |
 | aspd outage | T-08561 direct worker | Stop isolated aspd with A/B workers live. A new preparation must report service unavailability with no facade/source/PATH fallback; existing A/B workers complete another real turn. Restart via the namespaced recipe and verify `runningEqualsSelected`. Observe `just aspd-status <ns>`, socket absence/presence, worker PIDs before/after, hellos and markers. |
 | Teardown | T-08561 direct worker | Stop every worker through broker control, terminate native children, kill only the recorded isolated tmux server, `just aspd-stop <ns>`, and verify all recorded PIDs dead and sockets absent. Retain release/evidence files; do not touch shared max3 processes or namespaces. |
 
@@ -279,10 +318,13 @@ Implementation must update these now-stale sentences in the same commit set:
   paragraphs (53–67); external inputs must include explicit native Claude/Pi
   executables (187–193); and “One route… Other harnesses… out of scope” is
   superseded (203–208). Add the producer refusal and binding/asset inspection
-  rules to preparation and acceptance.
+  rules to preparation and acceptance. Document optional
+  `executionRelease.worker.hostedDrivers`, historical releases' unchanged
+  compiled semantics, and T-08562's later non-Codex consumer admission rule.
 - `contracts/aspc-protocol/src/types.ts:127`: replace “Absolute
-  `harness-broker` launcher” with “absolute selected release worker launcher”.
-  The interface itself does not change.
+  `harness-broker` launcher” with “absolute selected release worker launcher”
+  and add the single optional `hostedDrivers?: string[]` property to `worker`,
+  documented as the selected executable's declared release bindings.
 - `docs/standalone-asp-releases.md`: the fixed three-launcher release-root
   inventory and two `--release-info` examples are incomplete once
   `harness-broker-pi` and immutable assets are present; matrix wording must
@@ -318,13 +360,16 @@ T-08571; none is an implementation-task completion step.
 
 ## 8. Open review questions
 
-No implementation fact remains unresolved. Daedalus must rule two linked
-contract classifications before dispatch: whether the new diagnostic value plus
-success-to-refusal semantic tightening is additive within the open-string
-failure envelope, and whether additive `release.json` worker-binding/asset
-metadata can remain schema v1. The proposed compatibility rule is: new builders
-always emit the metadata; new inspectors accept retained older v1 releases with
-the fields absent; absence means only the previously proven Codex binding is
-available and never guesses a Claude/Pi binding. If Daedalus requires a manifest
-schema bump, revise this document before implementation; do not infer one in
-code.
+No implementation fact remains unresolved. Daedalus ruled the new diagnostic
+value plus success-to-refusal tightening additive within the existing
+open-string failure envelope. The remaining review classification is additive
+`release.json` worker-binding/asset metadata under manifest schema v1 plus the
+single optional additive response field
+`executionRelease.worker.hostedDrivers`. Neither adds a verb, union arm, or
+protocol version. New producer releases enforce their binding table and emit
+positive evidence; retained releases keep their compiled behavior and may omit
+it. T-08562 makes that evidence a consumer admission requirement for non-Codex
+aspd launches while preserving legacy Codex admission. The inspector validates
+new builds only; it is not an enforcement point. If Daedalus requires a
+manifest schema bump, revise this document only after supervisor review; do not
+infer one in code.
