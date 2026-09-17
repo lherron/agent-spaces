@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative, resolve } from 'node:path'
 import { forbiddenClientInputs } from './build-client.ts'
 
 const repoRoot = new URL('../..', import.meta.url).pathname
@@ -28,25 +28,18 @@ describe('pilot client closure', () => {
   test('bundles only wire contracts, framing and transport', async () => {
     const out = mkdtempSync(join(tmpdir(), 'aspd-client-closure-'))
     bases.push(out)
-    const metafile = join(out, 'meta.json')
-    const build = Bun.spawnSync({
-      cmd: [
-        'bun',
-        'build',
-        '--target=bun',
-        `--metafile=${metafile}`,
-        '--outdir',
-        out,
-        'scripts/aspd-pilot/client.ts',
-      ],
-      cwd: repoRoot,
-      stdout: 'pipe',
-      stderr: 'pipe',
+    const build = await Bun.build({
+      entrypoints: [join(repoRoot, 'scripts/aspd-pilot/client.ts')],
+      target: 'bun',
+      outdir: out,
+      sourcemap: 'external',
     })
-    expect(build.exitCode).toBe(0)
-    const inputs = Object.keys(
-      (JSON.parse(readFileSync(metafile, 'utf8')) as { inputs: Record<string, unknown> }).inputs
-    )
+    expect(build.success).toBe(true)
+    const sourceMap = build.outputs.find((output) => output.kind === 'sourcemap')
+    expect(sourceMap).toBeDefined()
+    const inputs = (
+      JSON.parse(readFileSync(sourceMap?.path ?? '', 'utf8')) as { sources: string[] }
+    ).sources.map((input) => relative(repoRoot, resolve(join(sourceMap?.path ?? '', '..'), input)))
     expect(inputs.length).toBeGreaterThan(0)
     expect(forbiddenClientInputs(inputs)).toEqual([])
   })
