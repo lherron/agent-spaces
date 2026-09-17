@@ -26,7 +26,7 @@ predicate: >
   but any non-Codex aspd launch admitted on release hosting evidence must require
   hostedDrivers to contain the selected broker driver. HRC retains worker
   hosting, lifecycle, placement, and routing authority.
-authority: Daedalus approval of wrkq T-08561 revision de063d73 on 2026-09-16
+authority: Daedalus approval of wrkq T-08561 revision de063d73 and Pi SDK scope-narrowing amendment c6d821ce on 2026-09-16
 named_gap: >
   The Pi SDK release binding is deferred. At implementation commits c96bbd46
   and d219b1d3 the release closure gate rejected the compiled Pi worker because
@@ -38,6 +38,7 @@ named_gap: >
   is unchanged.
 source:
   - wrkq:T-08561
+  - commit:c6d821ce
   - docs/proposals/aspd-release-supported-claude-pi-workers.md
   - scripts/asp-release.ts
   - harness/aspc-facade/src/aspd.ts
@@ -55,7 +56,7 @@ required_tests:
   - binding-aware A to B activation outage and saved-preparation proofs preserve frozen worker identity and live old-worker control
 last_verified:
   date: 2026-09-16
-  evidence: Daedalus source-grounded approval of T-08561 revision de063d73 established the binding-aware producer contract and historical-release boundary; implementation gates remain pending
+  evidence: Daedalus source-grounded approval of T-08561 amendment c6d821ce narrowed the release-bound set to codex-app-server, claude-code-tmux, and pi-tui-tmux, with Pi SDK explicitly unbound and refused; implementation gates remain pending
 reopen_when:
   - release worker selection stops deriving from the inspected binding table
   - hostedDrivers is inferred from registry inventory or changes from positive per-executable binding evidence
