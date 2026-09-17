@@ -25,6 +25,7 @@ const DEV_PUBLISH_PACKAGES = [
   'contracts/aspc-protocol',
   'drivers/harness-claude',
   'drivers/harness-codex',
+  'drivers/harness-muse',
   'drivers/harness-pi',
   'drivers/harness-pi-sdk',
   'compiler/agent-spaces',

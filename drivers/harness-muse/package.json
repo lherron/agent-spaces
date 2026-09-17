@@ -1,2 +1,34 @@
-{"dependencies": {"spaces-config": "*",
-    "spaces-runtime": "*", "spaces-runtime-contracts": "*"}, "description": "Muse CLI workspace composer (spike 1 pure functions; no adapter, no HarnessId)", "devDependencies": {"@types/bun": "1.3.14", "typescript": "^5.8.3"}, "exports": {".": {"bun": "./src/index.ts", "import": "./dist/index.js", "types": "./dist/index.d.ts"}}, "files": ["dist"], "main": "./dist/index.js", "name": "spaces-harness-muse", "scripts": {"build": "tsc", "postpack": "git checkout HEAD -- package.json", "prepack": "bun ../../scripts/strip-bun-exports.ts", "test": "bun test", "typecheck": "tsc --noEmit"}, "type": "module", "types": "./dist/index.d.ts", "version": "0.1.1"}
+{
+  "name": "spaces-harness-muse",
+  "version": "0.1.1",
+  "description": "Muse CLI workspace composer, harness adapter, and serve HOME preparation",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "postpack": "git checkout HEAD -- package.json",
+    "prepack": "bun ../../scripts/strip-bun-exports.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "spaces-config": "*",
+    "spaces-runtime": "*",
+    "spaces-runtime-contracts": "*"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.14",
+    "typescript": "^5.8.3"
+  }
+}
