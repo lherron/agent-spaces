@@ -213,20 +213,6 @@ export async function resolveRuntimeDeclaration(
     }
   }
 
-  if (profileDiagnostic && !target) {
-    return invalidDeclaration('agent_profile_invalid', profileDiagnostic, {
-      agentSources,
-      ...(markerProjectId ? { markerProjectId } : {}),
-      searchedAgentRoots,
-      source: {
-        agentProfile: observedProfileSource,
-        projectTargets: targetSource,
-        selectedTarget: selectedTargetSource,
-        priming: { state: 'absent', code: 'not_declared' },
-      },
-    })
-  }
-
   let priming: string | undefined
   let primingSource: SourceObservation = { state: 'absent', code: 'not_declared' }
   try {
@@ -250,7 +236,9 @@ export async function resolveRuntimeDeclaration(
   }
 
   const effective = mergeAgentWithProjectTarget(profile, target, context.runMode)
-  const baselineScalars = { ...effective.provisioning } as Record<string, string | number | boolean>
+  const baselineScalars = profileDiagnostic
+    ? targetOnlyProvisioningScalars(target)
+    : ({ ...effective.provisioning } as Record<string, string | number | boolean>)
   const finalScalars = { ...baselineScalars }
   for (const [key, value] of Object.entries(context.provisionDirectives ?? {})) {
     if (!DIRECTIVE_KEYS.has(key)) {
@@ -323,6 +311,17 @@ export async function resolveRuntimeDeclaration(
     bundle: { ref: bundle, identity: hasher.hash(bundle).value },
     diagnostics: profileDiagnostic ? [profileDiagnostic] : [],
   }
+}
+
+function targetOnlyProvisioningScalars(
+  target: Parameters<typeof mergeAgentWithProjectTarget>[1]
+): Record<string, string | number | boolean> {
+  return Object.fromEntries(
+    Object.entries(target?.provisioning ?? {}).filter(
+      ([, value]) =>
+        typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+    )
+  ) as Record<string, string | number | boolean>
 }
 
 function provisioning(

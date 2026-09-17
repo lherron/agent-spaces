@@ -251,20 +251,35 @@ model = "gpt-5.6-sol"
           provider: 'openai',
         },
       })
+      expect(targetOnly.baselineProvisioning.scalars).toEqual({
+        harness: 'codex',
+        model: 'gpt-5.6-sol',
+      })
+      expect(targetOnly.provisioning.scalars).toEqual({
+        harness: 'codex',
+        model: 'gpt-5.6-sol',
+      })
     }
 
     const invalidWithoutTarget = await service.resolveRuntimeDeclaration(
       declarationRequest('parse-invalid', join(agentsRoot, 'parse-invalid'), { mode: 'none' })
     )
     expect(invalidWithoutTarget).toMatchObject({
-      ok: false,
+      ok: true,
       source: {
         agentProfile: { state: 'invalid' },
         projectTargets: { state: 'absent', code: 'not_declared' },
         selectedTarget: { state: 'absent', code: 'not_declared' },
       },
-      resolution: { state: 'invalid', code: 'agent_profile_invalid' },
+      baselineProvisioning: { scalars: {}, effectiveHarness: 'claude' },
+      provisioning: { scalars: {}, effectiveHarness: 'claude' },
     })
+    expect(invalidWithoutTarget).not.toHaveProperty('resolution')
+    expect(invalidWithoutTarget.baselineProvisioning.scalars).not.toHaveProperty('harness')
+    expect(invalidWithoutTarget.provisioning.scalars).not.toHaveProperty('harness')
+    expect(invalidWithoutTarget.baselineProvisioning).not.toHaveProperty('declaredHarness')
+    expect(invalidWithoutTarget.provisioning).not.toHaveProperty('declaredHarness')
+    expect(invalidWithoutTarget.bundle.ref).toEqual(invalidWithoutTarget.placement.bundle)
   })
 })
 
