@@ -1,0 +1,374 @@
+/**
+ * T-08577 release-binding reds for execution preparation.
+ *
+ * These tests use the existing release-bound service wrapper. Identity and
+ * admission are passing controls that must remain byte-transparent. Direct
+ * process success gains only the serving preparation release; Desktop observer
+ * success gains the frozen execution release/worker binding. Failure arms pass
+ * through untouched, and an old hello without a capability must prevent a raw
+ * method request.
+ */
+import { afterEach, describe, expect, test } from 'bun:test'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import type { AspcService } from 'spaces-aspc'
+import { AspcUnixClient } from 'spaces-aspc-protocol/unix-client'
+import type { AspReleaseIdentity } from 'spaces-harness-broker-protocol'
+import {
+  type AspdReleaseBinding,
+  createReleaseBoundAspcService,
+  startAspdServer,
+} from '../src/aspd.js'
+
+type UnknownRecord = Record<string, unknown>
+type UnknownService = AspcService & UnknownRecord
+type DynamicMethod = (request: UnknownRecord) => unknown | Promise<unknown>
+
+const roots: string[] = []
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+})
+
+function tempRoot(): string {
+  const value = mkdtempSync('/tmp/t8577-release-')
+  roots.push(value)
+  return value
+}
+
+function identity(label: 'a' | 'b'): AspReleaseIdentity {
+  return {
+    releaseId: `asp-${label.repeat(12)}-20260917T000000Z-t08577`,
+    sourceCommit: label.repeat(40),
+    builtAt: `2026-09-17T0${label === 'a' ? '1' : '2'}:00:00.000Z`,
+  }
+}
+
+function binding(label: 'a' | 'b'): AspdReleaseBinding {
+  const releaseIdentity = identity(label)
+  const releaseRoot = `/immutable/releases/${releaseIdentity.releaseId}`
+  return {
+    identity: releaseIdentity,
+    releaseRoot,
+    workerExecutable: `${releaseRoot}/harness-broker`,
+  }
+}
+
+const DIRECT_SUCCESS: UnknownRecord = {
+  schemaVersion: 'aspc-prepare-process-invocation-response/v1',
+  ok: true,
+  declaration: { provider: 'openai', frontend: 'codex-cli' },
+  spec: {
+    provider: 'openai',
+    frontend: 'codex-cli',
+    argv: ['/external/codex', 'app-server'],
+    cwd: '/project',
+    env: {},
+    interactionMode: 'headless',
+    ioMode: 'pipes',
+    prompts: { system: null, priming: null },
+  },
+  resolvedBundle: { bundleIdentity: 'bundle-t08577' },
+  effectiveEnvironmentHash: 'env-t08577',
+  warnings: [],
+  diagnostics: [],
+}
+
+const DESKTOP_SUCCESS: UnknownRecord = {
+  schemaVersion: 'aspc-prepare-desktop-observer-response/v1',
+  ok: true,
+  plan: { planHash: 'plan-t08577' },
+  selectedProfile: {
+    brokerProtocol: 'harness-broker/0.2',
+    profileHash: 'profile-t08577',
+  },
+  startRequest: { spec: { invocationId: 'inv-t08577' } },
+  dispatchRequest: { startRequest: { spec: { invocationId: 'inv-t08577' } }, dispatchEnv: {} },
+  diagnostics: [],
+}
+
+const IDENTITY_RESPONSE: UnknownRecord = {
+  schemaVersion: 'aspc-resolve-desktop-identity-response/v1',
+  ok: true,
+  identity: {
+    nativeThreadId: '018f0f3e-7d65-7c19-a2bd-5a43c86c72ab',
+    homeIdentity: '/codex-home',
+    sqliteHome: '/codex-home',
+    registrationKey: 'd'.repeat(64),
+    homeBasis: 'reported-home',
+  },
+}
+
+const ADMISSION_RESPONSE: UnknownRecord = {
+  schemaVersion: 'aspc-admit-desktop-registration-response/v1',
+  ok: true,
+  verdict: 'pending',
+  pending: { reason: 'native_metadata_unavailable', detail: 'rollout not written yet' },
+}
+
+function fakeService(
+  input: {
+    capabilities?: UnknownRecord
+    prepareProcessInvocation?: DynamicMethod
+    prepareDesktopObserver?: DynamicMethod
+    resolveDesktopIdentity?: DynamicMethod
+    admitDesktopRegistration?: DynamicMethod
+  } = {}
+): UnknownService {
+  return {
+    hello: async () => ({
+      facadeInfo: { name: 'aspc-facade', version: '0.1.1' },
+      protocolVersion: 'aspc/0.1',
+      capabilities: {
+        compileRuntimePlan: true,
+        catalogAgents: true,
+        inspectAgent: true,
+        catalogAgentInspection: true,
+        inspectAgentSelection: true,
+        compileHarnessInvocation: true,
+        compileAndStart: false,
+        cohostedBroker: false,
+        transports: ['stdio-jsonrpc-ndjson'],
+        ...input.capabilities,
+      },
+    }),
+    compileRuntimePlan: async () => ({
+      schemaVersion: 'agent-runtime-compile-response/v1',
+      ok: false,
+      diagnostics: [],
+    }),
+    catalogAgents: async () => ({}) as never,
+    inspectAgent: async () => ({}) as never,
+    catalogAgentInspection: async () => ({}) as never,
+    inspectAgentSelection: async () => ({}) as never,
+    compileHarnessInvocation: async () => ({
+      schemaVersion: 'aspc-compile-harness-invocation-response/v1',
+      ok: false,
+      compileResponse: {
+        schemaVersion: 'agent-runtime-compile-response/v1',
+        ok: false,
+        diagnostics: [],
+      },
+      diagnostics: [],
+    }),
+    prepareProcessInvocation: input.prepareProcessInvocation ?? (async () => DIRECT_SUCCESS),
+    prepareDesktopObserver: input.prepareDesktopObserver ?? (async () => DESKTOP_SUCCESS),
+    resolveDesktopIdentity: input.resolveDesktopIdentity ?? (async () => IDENTITY_RESPONSE),
+    admitDesktopRegistration: input.admitDesktopRegistration ?? (async () => ADMISSION_RESPONSE),
+  } as unknown as UnknownService
+}
+
+function method(service: object, name: string): DynamicMethod {
+  const candidate = (service as UnknownRecord)[name]
+  expect(typeof candidate, `${name} must exist on the release-bound service`).toBe('function')
+  return candidate as DynamicMethod
+}
+
+function directRequest(): UnknownRecord {
+  return {
+    schemaVersion: 'aspc-prepare-process-invocation-request/v1',
+    context: {
+      agentId: 'cody',
+      project: { mode: 'root', projectRoot: '/project', projectId: 'agent-spaces' },
+      cwd: '/project',
+      runMode: 'task',
+    },
+    preparationCorrelation: {},
+    launch: { interactionMode: 'headless', ioMode: 'pipes' },
+  }
+}
+
+describe('release-bound preparation service (T-08577)', () => {
+  test('control: Desktop identity and admission responses remain byte-transparent', async () => {
+    const underlying = fakeService()
+    const bound = createReleaseBoundAspcService(underlying, binding('a'))
+
+    expect(
+      await method(bound, 'resolveDesktopIdentity').call(bound, {
+        schemaVersion: 'aspc-resolve-desktop-identity-request/v1',
+      })
+    ).toBe(IDENTITY_RESPONSE)
+    expect(
+      await method(bound, 'admitDesktopRegistration').call(bound, {
+        schemaVersion: 'aspc-admit-desktop-registration-request/v1',
+      })
+    ).toBe(ADMISSION_RESPONSE)
+  })
+
+  test('H3: direct preparation binds the serving release without fabricating a worker', async () => {
+    const selected = binding('a')
+    const bound = createReleaseBoundAspcService(fakeService(), selected)
+    const response = (await method(bound, 'prepareProcessInvocation').call(
+      bound,
+      directRequest()
+    )) as UnknownRecord
+
+    expect(response['release']).toEqual({
+      ...selected.identity,
+      releaseRoot: selected.releaseRoot,
+    })
+    expect(Object.hasOwn(response['release'] as object, 'worker')).toBe(false)
+    const { release: _added, ...rest } = response
+    expect(rest).toEqual(DIRECT_SUCCESS)
+  })
+
+  test('E6/H2: Desktop success freezes the selected protocol and release worker', async () => {
+    const selected = binding('a')
+    const bound = createReleaseBoundAspcService(fakeService(), selected)
+    const response = (await method(bound, 'prepareDesktopObserver').call(bound, {
+      schemaVersion: 'aspc-prepare-desktop-observer-request/v1',
+    })) as UnknownRecord
+
+    expect(response['executionRelease']).toEqual({
+      ...selected.identity,
+      releaseRoot: selected.releaseRoot,
+      worker: {
+        protocol: 'harness-broker/0.2',
+        executable: selected.workerExecutable,
+        argvPrefix: ['run', '--transport', 'unix'],
+      },
+    })
+    const { executionRelease: _added, ...rest } = response
+    expect(rest).toEqual(DESKTOP_SUCCESS)
+  })
+
+  test('B8/E3: every non-success arm is inhabitable and passes through without invented release evidence', async () => {
+    const notPrepared: UnknownRecord = {
+      schemaVersion: 'aspc-prepare-desktop-observer-response/v1',
+      ok: false,
+      notPrepared: { code: 'rollout_unavailable', detail: 'not readable' },
+    }
+    const directFailures: UnknownRecord[] = [
+      {
+        schemaVersion: 'aspc-prepare-process-invocation-response/v1',
+        ok: false,
+        agentSources: {
+          aspHome: '/asp-home',
+          agentsRoot: '/agents',
+          provenance: 'caller',
+        },
+        searchedAgentRoots: ['/agents'],
+        source: {
+          agentProfile: { state: 'absent', code: 'not_declared' },
+          projectTargets: { state: 'absent', code: 'not_declared' },
+          selectedTarget: { state: 'absent', code: 'not_declared' },
+          priming: { state: 'absent', code: 'not_declared' },
+        },
+        resolution: {
+          state: 'absent',
+          code: 'agent_not_found',
+          message: 'agent absent',
+          diagnostics: [],
+        },
+      },
+      {
+        schemaVersion: 'aspc-prepare-process-invocation-response/v1',
+        ok: false,
+        failure: {
+          kind: 'incompatible',
+          code: 'configured_context_mismatch',
+          message: 'caller source mismatch',
+        },
+      },
+      {
+        schemaVersion: 'aspc-prepare-process-invocation-response/v1',
+        ok: false,
+        failure: { kind: 'unavailable', code: 'preparation_failed', message: 'no result' },
+      },
+    ]
+    let directIndex = 0
+    const bound = createReleaseBoundAspcService(
+      fakeService({
+        prepareDesktopObserver: async () => notPrepared,
+        prepareProcessInvocation: async () => directFailures[directIndex++] as UnknownRecord,
+      }),
+      binding('a')
+    )
+
+    expect(
+      await method(bound, 'prepareDesktopObserver').call(bound, {
+        schemaVersion: 'aspc-prepare-desktop-observer-request/v1',
+      })
+    ).toBe(notPrepared)
+    for (const directFailure of directFailures) {
+      expect(await method(bound, 'prepareProcessInvocation').call(bound, directRequest())).toBe(
+        directFailure
+      )
+    }
+  })
+
+  test('H2/H3: a response admitted on A remains bound to A after B is selected', async () => {
+    const releaseA = binding('a')
+    const releaseB = binding('b')
+    const service = fakeService()
+    const boundA = createReleaseBoundAspcService(service, releaseA)
+    const directA = (await method(boundA, 'prepareProcessInvocation').call(
+      boundA,
+      directRequest()
+    )) as UnknownRecord
+    const desktopA = (await method(boundA, 'prepareDesktopObserver').call(boundA, {
+      schemaVersion: 'aspc-prepare-desktop-observer-request/v1',
+    })) as UnknownRecord
+
+    const boundB = createReleaseBoundAspcService(service, releaseB)
+    const directB = (await method(boundB, 'prepareProcessInvocation').call(
+      boundB,
+      directRequest()
+    )) as UnknownRecord
+
+    expect(directA['release']).toBeDefined()
+    expect(desktopA['executionRelease']).toBeDefined()
+    expect(directB['release']).toBeDefined()
+    expect((directA['release'] as UnknownRecord | undefined)?.['releaseId']).toBe(
+      releaseA.identity.releaseId
+    )
+    expect((desktopA['executionRelease'] as UnknownRecord | undefined)?.['releaseId']).toBe(
+      releaseA.identity.releaseId
+    )
+    expect((directB['release'] as UnknownRecord | undefined)?.['releaseId']).toBe(
+      releaseB.identity.releaseId
+    )
+    expect((directA['release'] as UnknownRecord | undefined)?.['releaseId']).not.toBe(
+      (directB['release'] as UnknownRecord | undefined)?.['releaseId']
+    )
+  })
+})
+
+describe('old-release capability gate (T-08577 H4)', () => {
+  test('an absent capability refuses client-side without sending the raw method', async () => {
+    const socketPath = join(tempRoot(), 'old.sock')
+    let rawCalls = 0
+    const oldService = fakeService({
+      prepareProcessInvocation: async () => {
+        rawCalls += 1
+        return DIRECT_SUCCESS
+      },
+    })
+    const server = await startAspdServer({ socketPath, service: oldService, log: () => {} })
+    const client = await AspcUnixClient.connect({
+      socketPath,
+      clientInfo: { name: 't08577-old-release' },
+    })
+    try {
+      const prepare = (client as unknown as UnknownRecord)['prepareProcessInvocation']
+      expect(typeof prepare, 'AspcUnixClient must expose the capability-gated method').toBe(
+        'function'
+      )
+      let caught: unknown
+      try {
+        await (prepare as DynamicMethod).call(client, directRequest())
+      } catch (error) {
+        caught = error
+      }
+      expect(caught).toBeDefined()
+      expect(
+        `${(caught as { name?: unknown }).name} ${(caught as { code?: unknown }).code} ${
+          (caught as { message?: unknown }).message
+        }`
+      ).toMatch(/missing.?capability/i)
+      expect(rawCalls).toBe(0)
+    } finally {
+      await client.close()
+      await server.retire()
+    }
+  })
+})
