@@ -13,6 +13,8 @@ import { BrokerTransportError, UnixSocketTransport } from 'spaces-harness-broker
 import type { CloseHandler } from 'spaces-harness-broker-client'
 import type { RuntimeCompileResponse } from 'spaces-runtime-contracts'
 import type {
+  AspcAdmitDesktopRegistrationRequest,
+  AspcAdmitDesktopRegistrationResponse,
   AspcAgentInspectionCatalogResponse,
   AspcCatalogAgentInspectionRequest,
   AspcCatalogAgentsRequest,
@@ -31,6 +33,12 @@ import type {
   AspcObserveContinuationArtifactResponse,
   AspcObserveRuntimeCapabilityRequest,
   AspcObserveRuntimeCapabilityResponse,
+  AspcPrepareDesktopObserverRequest,
+  AspcPrepareDesktopObserverResponse,
+  AspcPrepareProcessInvocationRequest,
+  AspcPrepareProcessInvocationResponse,
+  AspcResolveDesktopIdentityRequest,
+  AspcResolveDesktopIdentityResponse,
   AspcResolveRuntimeDeclarationRequest,
   AspcResolveRuntimeDeclarationResponse,
 } from './types.js'
@@ -76,6 +84,14 @@ export class AspcProtocolIncompatibleError extends Error {
     super(`ASPC service negotiated unsupported protocol ${offered}`)
     this.name = 'AspcProtocolIncompatibleError'
     this.offered = offered
+  }
+}
+
+export class AspcCapabilityMissingError extends Error {
+  readonly code = 'missing_capability'
+  constructor(readonly capability: string) {
+    super(`ASPC capability missing: ${capability}`)
+    this.name = 'AspcCapabilityMissingError'
   }
 }
 
@@ -179,6 +195,37 @@ export class AspcUnixClient {
     req: AspcObserveContinuationArtifactRequest
   ): Promise<AspcObserveContinuationArtifactResponse> {
     return this.#request('aspc.observeContinuationArtifact', req)
+  }
+
+  prepareProcessInvocation(
+    req: AspcPrepareProcessInvocationRequest
+  ): Promise<AspcPrepareProcessInvocationResponse> {
+    return this.#capabilityRequest('prepareProcessInvocation', 'aspc.prepareProcessInvocation', req)
+  }
+
+  resolveDesktopIdentity(
+    req: AspcResolveDesktopIdentityRequest
+  ): Promise<AspcResolveDesktopIdentityResponse> {
+    return this.#capabilityRequest('resolveDesktopIdentity', 'aspc.resolveDesktopIdentity', req)
+  }
+
+  admitDesktopRegistration(
+    req: AspcAdmitDesktopRegistrationRequest
+  ): Promise<AspcAdmitDesktopRegistrationResponse> {
+    return this.#capabilityRequest('admitDesktopRegistration', 'aspc.admitDesktopRegistration', req)
+  }
+
+  prepareDesktopObserver(
+    req: AspcPrepareDesktopObserverRequest
+  ): Promise<AspcPrepareDesktopObserverResponse> {
+    return this.#capabilityRequest('prepareDesktopObserver', 'aspc.prepareDesktopObserver', req)
+  }
+
+  #capabilityRequest<T>(capability: string, method: string, params: unknown): Promise<T> {
+    if ((this.hello.capabilities as Record<string, unknown>)[capability] !== true) {
+      throw new AspcCapabilityMissingError(capability)
+    }
+    return this.#request<T>(method, params)
   }
 
   async #request<T>(method: string, params: unknown): Promise<T> {

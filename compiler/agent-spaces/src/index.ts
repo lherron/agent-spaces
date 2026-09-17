@@ -63,6 +63,9 @@ export {
 
 export { createAgentSpacesClient } from './client.js'
 
+export { admitDesktopRegistration, resolveDesktopIdentity } from './desktop-native-identity.js'
+export { prepareDesktopObserver } from './desktop-observer-preparation.js'
+
 export {
   checkContinuationArtifact,
   observeContinuationArtifact,

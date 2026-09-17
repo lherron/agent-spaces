@@ -17,9 +17,25 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import type { AttachmentRef } from 'spaces-runtime'
 import type {
+  BuildProcessInvocationSpecRequest,
+  BuildProcessInvocationSpecResponse,
   CompileContext,
+  HarnessContinuationRef,
+  HarnessFrontend,
+  ProviderDomain,
   RuntimeCompileRequest,
   RuntimeCompileResponse,
+} from 'spaces-runtime-contracts'
+export type {
+  BuildProcessInvocationSpecRequest,
+  BuildProcessInvocationSpecResponse,
+  HarnessContinuationKey,
+  HarnessContinuationRef,
+  HarnessFrontend,
+  InteractionMode,
+  IoMode,
+  ProcessInvocationSpec,
+  ProviderDomain,
 } from 'spaces-runtime-contracts'
 
 /** Re-export HostCorrelation from config for placement consumers */
@@ -30,81 +46,6 @@ export type HostCorrelation = HostCorrelationType
 // ---------------------------------------------------------------------------
 
 /** Provider domain identifies the AI provider for a harness. */
-export type ProviderDomain = 'anthropic' | 'openai'
-
-/** Opaque provider-native string used to resume a conversation. */
-export type HarnessContinuationKey = string
-
-/**
- * Provider-typed continuation reference.
- * `key` is absent until the first successful provider turn when applicable.
- */
-export type HarnessContinuationRef = {
-  provider: ProviderDomain
-  key?: HarnessContinuationKey | undefined
-}
-
-/** How the CLI harness process interacts with the user/host. */
-export type InteractionMode = 'interactive' | 'headless' | 'nonInteractive'
-
-/** I/O mode for the CLI harness process. */
-export type IoMode = 'pty' | 'pipes' | 'inherit'
-
-/**
- * Frontend identifier.
- * SDK frontends (agent-sdk, pi-sdk) are executed by agent-spaces directly.
- * CLI frontends (claude-code, codex-cli, pi-cli) are prepared as invocation specs for CP to spawn.
- */
-export type HarnessFrontend = 'agent-sdk' | 'pi-sdk' | 'claude-code' | 'codex-cli' | 'pi-cli'
-
-/**
- * Structured process invocation spec for CP to spawn a CLI harness process.
- * CP MUST NOT shell-parse argv; it is an authoritative argv array.
- */
-export type ProcessInvocationSpec = {
-  provider: ProviderDomain
-  frontend: HarnessFrontend
-  argv: string[]
-  cwd: string
-  env: Record<string, string>
-  interactionMode: InteractionMode
-  ioMode: IoMode
-  continuation?: HarnessContinuationRef | undefined
-  displayCommand?: string | undefined
-  /** Path to the materialized system prompt file (for audit/inspection) */
-  systemPromptFile?: string | undefined
-  /**
-   * Structured prompt material carried into the launch artifact. Lets the
-   * launch wrapper (exec.ts) print the rendered system/priming prompt for
-   * harnesses that don't pass it through argv (e.g. codex-cli, which writes
-   * to AGENTS.md). Shape mirrors hrc-core's HrcLaunchPromptMaterial.
-   */
-  prompts?:
-    | {
-        system?:
-          | {
-              content: string
-              mode?: 'append' | 'replace' | undefined
-              sourcePath?: string | undefined
-            }
-          | undefined
-      }
-    | undefined
-  codexAppServer?:
-    | {
-        prompt?: string | undefined
-        resumeThreadId?: string | undefined
-        model?: string | undefined
-        modelReasoningEffort?: string | undefined
-        approvalPolicy?: 'untrusted' | 'on-failure' | 'on-request' | 'never' | undefined
-        sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access' | undefined
-        profile?: string | undefined
-        imageAttachments?: string[] | undefined
-        featureFlags?: string[] | undefined
-        extraArgs?: string[] | undefined
-      }
-    | undefined
-}
 
 // ---------------------------------------------------------------------------
 // Existing foundational types (unchanged)
@@ -182,39 +123,6 @@ export interface InterruptInFlightTurnRequest {
 // ---------------------------------------------------------------------------
 // Request/Response: CLI invocation preparation (spec §3.3)
 // ---------------------------------------------------------------------------
-
-export interface BuildProcessInvocationSpecRequest {
-  hostSessionId?: string | undefined
-  aspHome: string
-  spec: SpaceSpec
-  provider: ProviderDomain
-  frontend: 'claude-code' | 'codex-cli' | 'pi-cli'
-  model?: string | undefined
-  modelReasoningEffort?: string | undefined
-  interactionMode: 'interactive' | 'headless'
-  ioMode: 'pty' | 'inherit' | 'pipes'
-  continuation?: HarnessContinuationRef | undefined
-  cwd: string
-  lockedEnv?: Record<string, string> | undefined
-  dispatchEnv?: Record<string, string> | undefined
-  artifactDir?: string | undefined
-  /** Prompt text to include in the invocation argv */
-  prompt?: string | undefined
-  /** Suppress profile priming so `prompt` is the whole launch turn. Defaults to false. */
-  omitPriming?: boolean | undefined
-  /** Attachment refs to thread into the invocation (image attachments become CLI `-i <path>` args) */
-  attachments?: AttachmentRef[] | undefined
-  /** YOLO mode - skip all permission prompts (--dangerously-skip-permissions) */
-  yolo?: boolean | undefined
-  /** Placement-based request (v2) — when set, legacy session/spec/aspHome/cwd are ignored */
-  placement?: RuntimePlacement | undefined
-}
-
-export interface BuildProcessInvocationSpecResponse {
-  spec: ProcessInvocationSpec
-  resolvedBundle?: ResolvedRuntimeBundle | undefined
-  warnings?: string[] | undefined
-}
 
 export interface BuildHarnessBrokerInvocationRequest {
   placement: RuntimePlacement

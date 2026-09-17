@@ -508,18 +508,17 @@ export function toProcessInvocationSpec(
     ioMode: req.ioMode,
     ...(prepared.continuation ? { continuation: prepared.continuation } : {}),
     displayCommand: prepared.displayCommand,
-    ...(prepared.systemPrompt
-      ? {
-          systemPromptFile: prepared.systemPrompt.path,
-          prompts: {
-            system: {
-              content: prepared.systemPrompt.content,
-              mode: prepared.systemPrompt.mode,
-              sourcePath: prepared.systemPrompt.path,
-            },
-          },
-        }
-      : {}),
+    ...(prepared.systemPrompt ? { systemPromptFile: prepared.systemPrompt.path } : {}),
+    prompts: {
+      system: prepared.systemPrompt
+        ? {
+            content: prepared.systemPrompt.content,
+            mode: prepared.systemPrompt.mode,
+            sourcePath: prepared.systemPrompt.path,
+          }
+        : null,
+      priming: prepared.expandedPrompt !== undefined ? { content: prepared.expandedPrompt } : null,
+    },
     ...(prepared.codexAppServer ? { codexAppServer: prepared.codexAppServer } : {}),
   }
 

@@ -44,7 +44,11 @@ predicate: >
   explicitly select Claude Code or Codex CLI retain a compiler-backed
   compatibility path that may produce the artifacts those external harnesses
   require. Both lowerings consume shared ASP resolution semantics but own
-  distinct post-resolution representations. The verifier-only
+  distinct post-resolution representations. Additive direct-process and Desktop
+  observer preparation are pure producer operations: HRC retains final
+  correlation overlays, launch, input, placement, lifecycle, and durable
+  reattach authority, while fresh Desktop observers select only the serving
+  release's explicit codex-app-server worker. The verifier-only
   agent-resource-parity/v1 format independently compares compiler output with
   the production direct resource loader for ASP-authored prompt mode/content,
   reminder presence/content, and effective skill catalog/package bytes across
@@ -104,6 +108,8 @@ required_tests:
   - installed real-agent direct-path evidence covers prompt context skills tools authentication multi-turn continuation steer interrupt structured results and HRC-visible events
   - HRC can start stop and reconnect the direct harness with runtime placement session routing supervision and durable messaging authority unchanged
   - installed evidence covers at least one explicitly selected external-harness agent through the retained compatibility path
+  - direct-process and Desktop-observer preparation are pure ASP producer operations while HRC retains correlation overlays launch input lifecycle placement and durable reattach authority
+  - a Desktop observer selects only the serving release codex-app-server binding and never infers a worker from PATH or another hosted driver
   - the HRC-launched interactive TUI receives broker-allocated turn identity through an acknowledged handshake before input delivery and no turn body event reaches the ledger before the broker turn bracket
   - a rejected turn.begin returns a closed-code negative acknowledgement without pane input or control-channel destruction while the broker records the accepted input once emits turn.started before turn.failed restores ready and can run a later turn on the same runtime
   - the HRC-launched interactive TUI constructs no agent load model runtime or session until the broker's admitted session configuration validates and a withheld malformed or late configuration fails startup

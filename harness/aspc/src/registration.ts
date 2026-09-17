@@ -9,6 +9,7 @@
  * binary can pass its own transport.
  */
 import {
+  validateAspcAdmitDesktopRegistrationRequest,
   validateAspcCatalogAgentInspectionRequest,
   validateAspcCatalogAgentsRequest,
   validateAspcCommand,
@@ -20,6 +21,9 @@ import {
   validateAspcInspectRuntimePlacementRequest,
   validateAspcObserveContinuationArtifactRequest,
   validateAspcObserveRuntimeCapabilityRequest,
+  validateAspcPrepareDesktopObserverRequest,
+  validateAspcPrepareProcessInvocationRequest,
+  validateAspcResolveDesktopIdentityRequest,
   validateAspcResolveRuntimeDeclarationRequest,
 } from 'spaces-aspc-protocol'
 import type { AspcService } from './service.js'
@@ -40,6 +44,10 @@ export const ASPC_COMPILE_METHODS = {
   inspectRuntimePlacement: 'aspc.inspectRuntimePlacement',
   observeRuntimeCapability: 'aspc.observeRuntimeCapability',
   observeContinuationArtifact: 'aspc.observeContinuationArtifact',
+  prepareProcessInvocation: 'aspc.prepareProcessInvocation',
+  resolveDesktopIdentity: 'aspc.resolveDesktopIdentity',
+  admitDesktopRegistration: 'aspc.admitDesktopRegistration',
+  prepareDesktopObserver: 'aspc.prepareDesktopObserver',
 } as const
 
 export type AspcMethodRequest = {
@@ -152,6 +160,30 @@ export function registerAspcCompileMethods(
     ASPC_COMPILE_METHODS.observeContinuationArtifact,
     validateAspcObserveContinuationArtifactRequest,
     (req) => service.observeContinuationArtifact(req)
+  )
+  registerAspcMethod(
+    server,
+    ASPC_COMPILE_METHODS.prepareProcessInvocation,
+    validateAspcPrepareProcessInvocationRequest,
+    (req) => service.prepareProcessInvocation(req)
+  )
+  registerAspcMethod(
+    server,
+    ASPC_COMPILE_METHODS.resolveDesktopIdentity,
+    validateAspcResolveDesktopIdentityRequest,
+    (req) => service.resolveDesktopIdentity(req)
+  )
+  registerAspcMethod(
+    server,
+    ASPC_COMPILE_METHODS.admitDesktopRegistration,
+    validateAspcAdmitDesktopRegistrationRequest,
+    (req) => service.admitDesktopRegistration(req)
+  )
+  registerAspcMethod(
+    server,
+    ASPC_COMPILE_METHODS.prepareDesktopObserver,
+    validateAspcPrepareDesktopObserverRequest,
+    (req) => service.prepareDesktopObserver(req)
   )
 }
 

@@ -6,6 +6,8 @@ import {
   getHarnessFrontendsForProvider,
   normalizeAgentSdkModel,
 } from 'spaces-config'
+import type { RuntimePlacement } from 'spaces-config'
+import { createCanonicalHasher } from 'spaces-runtime-contracts'
 import {
   toHarnessBrokerStartRequest,
   validateBrokerInvocationRequest,
@@ -31,7 +33,9 @@ import { compileRuntimePlan } from './compile-runtime-plan.js'
 import type { AgentSpacesClientOptions } from './placement-api.js'
 import { requireAgentSpacesRuntime } from './placement-api.js'
 import { preparePlacementCliRuntime, toProcessInvocationSpec } from './prepare-cli-runtime.js'
+import { resolveRuntimeDeclaration } from './runtime-declaration.js'
 import type {
+  AgentSpacesClient,
   BuildHarnessBrokerInvocationRequest,
   BuildHarnessBrokerInvocationResponse,
   BuildProcessInvocationSpecRequest,
@@ -41,15 +45,65 @@ import type {
   HarnessCapabilities,
   HarnessContinuationRef,
   HarnessFrontend,
+  HostCorrelation,
   InvocationSpecBuilder,
   ProcessInvocationSpec,
+  ProviderDomain,
   ResolveRequest,
   ResolveResponse,
   RuntimeCompiler,
   SpaceResolver,
 } from './types.js'
 
-type CompilerAgentSpacesClient = RuntimeCompiler & SpaceResolver & InvocationSpecBuilder
+type CompilerAgentSpacesClient = AgentSpacesClient & {
+  prepareProcessInvocation(req: PrepareProcessInvocationRequest): Promise<Record<string, unknown>>
+}
+type CompilerImplementation = RuntimeCompiler &
+  SpaceResolver &
+  InvocationSpecBuilder & {
+    prepareProcessInvocation(req: PrepareProcessInvocationRequest): Promise<Record<string, unknown>>
+  }
+
+type PrepareProcessInvocationRequest = {
+  context: {
+    agentId: string
+    agentRoot?: string | undefined
+    cwd: string
+    runMode: 'query' | 'heartbeat' | 'task' | 'maintenance'
+    project:
+      | { mode: 'root'; projectRoot: string; projectId?: string | undefined }
+      | { mode: 'infer-from-cwd' }
+      | { mode: 'none' }
+    agentSources?: { aspHome?: string | undefined; agentsRoot?: string | undefined } | undefined
+    [key: string]: unknown
+  }
+  preparationCorrelation: HostCorrelation
+  expected?: { provider?: string; frontend?: string } | undefined
+  launch: {
+    interactionMode: 'interactive' | 'headless'
+    ioMode: 'pty' | 'inherit' | 'pipes'
+    model?: string | undefined
+    modelReasoningEffort?: string | undefined
+    continuation?: HarnessContinuationRef | undefined
+    prompt?: string | undefined
+    omitPriming?: boolean | undefined
+    attachments?: BuildProcessInvocationSpecRequest['attachments'] | undefined
+    yolo?: boolean | undefined
+  }
+  dispatchEnv?: Record<string, string> | undefined
+  lockedEnv?: Record<string, string> | undefined
+  artifactDir?: string | undefined
+}
+
+type SuccessfulDeclaration = {
+  ok: true
+  provisioning: {
+    provider: ProviderDomain
+    frontend: BuildProcessInvocationSpecRequest['frontend']
+  }
+  placement: RuntimePlacement
+  agentSources: Record<string, unknown>
+}
 
 async function withAspHome<T>(aspHome: string, fn: () => Promise<T>): Promise<T> {
   const aspHomeKey = 'ASP_HOME'
@@ -73,7 +127,123 @@ export function createAgentSpacesClient(
   const clientRegistryPath = options?.registryPath
   const clientRuntime = options?.runtime
 
-  return {
+  const client: CompilerImplementation = {
+    async prepareProcessInvocation(req) {
+      const resolutionContext = {
+        ...req.context,
+        ...(req.context?.agentSources
+          ? {
+              agentSources: {
+                ...(req.context.agentSources.agentsRoot
+                  ? { agentsRoot: req.context.agentSources.agentsRoot }
+                  : {}),
+              },
+            }
+          : {}),
+      }
+      const declaration = (await resolveRuntimeDeclaration(
+        {
+          schemaVersion: 'aspc-resolve-runtime-declaration-request/v1',
+          context: resolutionContext,
+        },
+        {
+          ...(clientAspHome ? { aspHome: clientAspHome } : {}),
+          ...(req.context?.agentSources?.agentsRoot
+            ? { agentsRoot: req.context.agentSources.agentsRoot }
+            : {}),
+        }
+      )) as Record<string, unknown>
+      if (declaration['ok'] !== true) {
+        return {
+          ...declaration,
+          schemaVersion: 'aspc-prepare-process-invocation-response/v1',
+        }
+      }
+      const resolved = declaration as unknown as SuccessfulDeclaration
+      const provider = resolved.provisioning.provider
+      const frontend = resolved.provisioning.frontend
+      try {
+        const invocation = await this.buildProcessInvocationSpec({
+          placement: {
+            ...resolved.placement,
+            ...(req.context.agentRoot ? { agentRoot: req.context.agentRoot } : {}),
+            ...(req.context.project?.mode === 'root'
+              ? { projectRoot: req.context.project.projectRoot }
+              : {}),
+            ...(resolved.placement.bundle.kind === 'agent-project'
+              ? {
+                  bundle: {
+                    ...resolved.placement.bundle,
+                    ...(req.context.project?.mode === 'root'
+                      ? { projectRoot: req.context.project.projectRoot }
+                      : {}),
+                  },
+                }
+              : {}),
+            cwd: req.context.cwd,
+            correlation: req.preparationCorrelation,
+          },
+          provider,
+          frontend,
+          interactionMode: req.launch.interactionMode,
+          ioMode: req.launch.ioMode,
+          ...(req.launch.model !== undefined ? { model: req.launch.model } : {}),
+          ...(req.launch.modelReasoningEffort !== undefined
+            ? { modelReasoningEffort: req.launch.modelReasoningEffort }
+            : {}),
+          ...(req.launch.continuation !== undefined
+            ? { continuation: req.launch.continuation }
+            : {}),
+          ...(req.launch.prompt !== undefined ? { prompt: req.launch.prompt } : {}),
+          ...(req.launch.omitPriming !== undefined ? { omitPriming: req.launch.omitPriming } : {}),
+          ...(req.launch.attachments !== undefined ? { attachments: req.launch.attachments } : {}),
+          ...(req.launch.yolo !== undefined ? { yolo: req.launch.yolo } : {}),
+          ...(req.dispatchEnv !== undefined ? { dispatchEnv: req.dispatchEnv } : {}),
+          ...(req.lockedEnv !== undefined ? { lockedEnv: req.lockedEnv } : {}),
+          ...(req.artifactDir !== undefined ? { artifactDir: req.artifactDir } : {}),
+        } as BuildProcessInvocationSpecRequest)
+        if (req.expected?.provider !== provider || req.expected?.frontend !== frontend) {
+          return {
+            schemaVersion: 'aspc-prepare-process-invocation-response/v1',
+            ok: false,
+            failure: {
+              kind: 'incompatible',
+              code: 'declaration_changed',
+              message: `Resolved declaration is ${provider}/${frontend}, not ${req.expected?.provider}/${req.expected?.frontend}`,
+            },
+          }
+        }
+        return {
+          schemaVersion: 'aspc-prepare-process-invocation-response/v1',
+          ok: true,
+          ...invocation,
+          declaration: {
+            provider,
+            frontend,
+            agentSources: {
+              ...resolved.agentSources,
+              ...req.context.agentSources,
+              provenance: 'caller-agent-root',
+            },
+          },
+          effectiveEnvironmentHash: createCanonicalHasher().hash(invocation.spec.env, {
+            timestampMode: 'omit-ephemeral',
+          }).value,
+          diagnostics: [],
+        }
+      } catch (error) {
+        return {
+          schemaVersion: 'aspc-prepare-process-invocation-response/v1',
+          ok: false,
+          failure: {
+            kind: 'unavailable',
+            code: 'preparation_failed',
+            message: error instanceof Error ? error.message : String(error),
+          },
+        }
+      }
+    },
+
     async compileRuntimePlan(req, options) {
       return compileRuntimePlan(req, {
         clientAspHome,
@@ -269,6 +439,7 @@ export function createAgentSpacesClient(
           ...(req.frontend === 'codex-cli' && req.interactionMode === 'headless'
             ? { codexAppServer: buildCodexAppServerLaunchDescriptor(runOptions) }
             : {}),
+          prompts: { system: null, priming: null },
         }
 
         return { spec: invocationSpec, ...(warnings.length > 0 ? { warnings } : {}) }
@@ -288,4 +459,5 @@ export function createAgentSpacesClient(
       return toHarnessBrokerStartRequest(prepared, req)
     },
   }
+  return client as unknown as CompilerAgentSpacesClient
 }

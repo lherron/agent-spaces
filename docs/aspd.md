@@ -249,6 +249,28 @@ agent/project configuration roots, and the ASP home used for materialization
 remain explicit external inputs. The execution-code pin does not freeze mutable
 agent sources.
 
+## Execution preparation operations
+
+The additive `aspc/0.1` preparation plane exposes four pure operations:
+`aspc.prepareProcessInvocation`, `aspc.resolveDesktopIdentity`,
+`aspc.admitDesktopRegistration`, and `aspc.prepareDesktopObserver`. Preparation
+may resolve and materialize ASP-owned inputs but never starts a native command or
+applies input. Direct preparation preserves the existing placement builder result
+and adds mandatory structured system/priming content plus the serving release.
+Desktop identity resolution is deliberately separate from new-registration
+admission so an established registration can be looked up without re-reading its
+rollout header. Fresh Desktop observers receive a queue-only broker profile whose
+native Desktop process remains externally owned; durable reattach retains its
+existing invocation, cursor, and release.
+
+The thin Unix client refuses a missing advertised operation before sending it.
+An aspd node must be configured and ready before consumers migrate to these
+operations; consumers retain committed control and durable reattach, while a new
+hook-driven registration is pending when the producer is unavailable. Release
+binding selects the explicit `codex-app-server` worker for Desktop observer
+hosting. It never guesses a first worker or PATH executable, and it does not
+claim that the worker's other hosted drivers advertise `codex-desktop`.
+
 ## Pilot limitations
 
 - The client still builds the existing `RuntimeCompileRequest` (placement roots,

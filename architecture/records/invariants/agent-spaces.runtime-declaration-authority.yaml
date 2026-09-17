@@ -21,10 +21,16 @@ predicate: >
   observeContinuationArtifact uses key-bound frozen provider-home evidence for
   positive missing; unbound recorded placement may prove presence but absence
   remains unknown/home_not_historical. No unusable continuation silently starts
-  fresh. The thin ASPC protocol/client closure carries DTOs, validation,
+  fresh. Four additive preparation operations keep direct process invocation and
+  Desktop identity, new-registration admission, and fresh-observer preparation
+  under ASP authority without starting a native command or applying input.
+  Direct preparation preserves the placement builder result and carries
+  mandatory structured prompt content. Desktop identity remains separate from
+  admission; existing registrations and durable reattach require no fresh
+  preparation, and the native Desktop lifecycle stays external. The thin ASPC protocol/client closure carries DTOs, validation,
   framing, and transport only, never configuration, compiler, adapter, or
   provider implementations.
-authority: T-08563 revision 5 approved by daedalus EN-13318
+authority: T-08563 revision 5 approved by daedalus EN-13318; T-08574 preparation amendment approved EN-13542
 source:
   - wrkq:T-08563 revision 5
   - wrkq:T-08563 ACCEPTANCE revision 5
@@ -35,6 +41,9 @@ source:
   - compiler/agent-spaces/src/agent-inspection.ts
   - harness/aspc/src/service.ts
   - contracts/aspc-protocol/src/types.ts
+  - compiler/agent-spaces/src/desktop-native-identity.ts
+  - compiler/agent-spaces/src/desktop-observer-preparation.ts
+  - contracts/spaces-runtime-contracts/src/process-invocation.ts
 required_tests:
   - caller source roots are canonical and echoed while exact agent roots perform no search or substitution
   - root infer-from-cwd and none project modes remain distinct and none reads no project declaration
@@ -44,9 +53,11 @@ required_tests:
   - capability detection is fresh bounded read-only and failed probes are never positive
   - key-bound frozen continuation evidence may return missing while unbound recorded placement returns present or unknown only
   - standalone aspd advertises and serves all four operations over its immutable release identity
+  - direct preparation is byte-equal to the existing placement builder and always carries structured system and priming prompt keys
+  - Desktop identity precedes durable lookup while admission and fresh observer preparation perform bounded provider-native validation without starting the native process
 last_verified:
   date: 2026-09-17
-  evidence: T-08563 revision 5 approved by daedalus EN-13318
+  evidence: T-08563 revision 5 approved by daedalus EN-13318; T-08574 preparation approved by astra EN-13542
 reopen_when:
   - declaration interpretation moves into HRC or another consumer
   - a daemon cache prevents request-time source reload

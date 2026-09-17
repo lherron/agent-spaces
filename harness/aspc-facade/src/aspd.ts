@@ -182,6 +182,42 @@ export function createReleaseBoundAspcService(
       }
       return { ...response, executionRelease }
     },
+    async prepareProcessInvocation(req) {
+      const response = await service.prepareProcessInvocation(req)
+      if (response['ok'] !== true) return response
+      return {
+        ...response,
+        release: { ...binding.identity, releaseRoot: binding.releaseRoot },
+      }
+    },
+    async prepareDesktopObserver(req) {
+      const response = await service.prepareDesktopObserver(req)
+      if (response['ok'] !== true) return response
+      const worker = binding.workers['codex-app-server']
+      if (worker === undefined) {
+        return {
+          schemaVersion: 'aspc-prepare-desktop-observer-response/v1',
+          ok: false,
+          failure: {
+            kind: 'unavailable',
+            code: 'release_worker_driver_unavailable',
+            message: 'The serving ASP release does not host codex-app-server',
+          },
+        }
+      }
+      return {
+        ...response,
+        executionRelease: {
+          ...binding.identity,
+          releaseRoot: binding.releaseRoot,
+          worker: {
+            protocol: 'harness-broker/0.2' as const,
+            executable: worker.executable,
+            argvPrefix: [...ASPD_WORKER_ARGV_PREFIX],
+          },
+        },
+      }
+    },
   }
 }
 
