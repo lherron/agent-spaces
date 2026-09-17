@@ -67,6 +67,9 @@ priming = "Agent {{handle}} works in {{projectId}} on {{lane}}."
 [spaces]
 base = []
 
+[provisioning]
+harness = "codex"
+
 [provisioning.codex]
 model = "gpt-5.3-codex"
 model_reasoning_effort = "medium"
