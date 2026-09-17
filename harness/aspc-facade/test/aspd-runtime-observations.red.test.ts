@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { type AspcService, createAspcService } from 'spaces-aspc'
+import { AspcInspectionAuthorityError, type AspcService, createAspcService } from 'spaces-aspc'
 import { UnixSocketTransport } from 'spaces-harness-broker-client'
 import type { AspReleaseIdentity } from 'spaces-harness-broker-protocol'
 import { type AspdServer, createReleaseBoundAspcService, startAspdServer } from '../src/aspd.js'
@@ -34,6 +34,13 @@ const CONTEXT = {
   cwd: '/projects/agent-spaces',
   runMode: 'task',
 }
+const AUTHORITY_ERRORS = [
+  ['AGENT_INSPECTION_PRODUCER_UNAVAILABLE', 503],
+  ['AGENT_INSPECTION_PROJECT_NOT_FOUND', 404],
+  ['AGENT_INSPECTION_AGENT_NOT_FOUND', 404],
+  ['INVALID_AGENT_INSPECTION_SELECTION', 400],
+  ['AGENT_INSPECTION_PRODUCER_FAILURE', 502],
+] as const
 
 let base = ''
 let server: AspdServer | undefined
@@ -188,6 +195,68 @@ describe('T-08563 standalone aspd runtime observations', () => {
       await actualServer.retire()
     }
   })
+
+  test('preserves identifier-authority code/status through the real Unix router', async () => {
+    const actualRoot = join(base, 'authority')
+    const actualAgents = join(actualRoot, 'agents')
+    await mkdir(actualAgents, { recursive: true })
+    const actualService = createReleaseBoundAspcService(
+      createAspcService({
+        agentsRoot: actualAgents,
+        environment: { ASP_AGENTS_ROOT: actualAgents, HOME: actualRoot },
+      }),
+      RELEASE_BINDING
+    )
+    const actualServer = await startAspdServer({
+      socketPath: join(base, 'authority.sock'),
+      service: actualService,
+      log: () => {},
+    })
+    const actualTransport = await UnixSocketTransport.connect({
+      socketPath: join(base, 'authority.sock'),
+    })
+    try {
+      const neutral = (await actualTransport.request('aspc.catalogAgentInspection', {})) as {
+        projectId: string | null
+        agents: unknown[]
+      }
+      expect(neutral).toMatchObject({ projectId: null, agents: [] })
+
+      try {
+        await actualTransport.request('aspc.catalogAgentInspection', {
+          projectId: 'agent-spaces',
+        })
+        throw new Error('expected project-scoped catalog refusal')
+      } catch (error) {
+        expect(error).toMatchObject({
+          code: -32603,
+          data: {
+            code: 'AGENT_INSPECTION_PRODUCER_UNAVAILABLE',
+            status: 503,
+          },
+        })
+      }
+    } finally {
+      await actualTransport.close()
+      await actualServer.retire()
+    }
+  })
+
+  test('preserves the complete supported identifier-authority error family', async () => {
+    for (const [code, status] of AUTHORITY_ERRORS) {
+      try {
+        await request('aspc.catalogAgentInspection', { projectId: code })
+        throw new Error(`expected ${code} refusal`)
+      } catch (error) {
+        expect(error).toMatchObject({ code: -32603, data: { code, status } })
+      }
+    }
+    expect(await request('aspc.catalogAgentInspection', {})).toEqual({
+      projectId: null,
+      agents: [],
+      contexts: {},
+    })
+  })
 })
 
 async function request(method: string, params: unknown): Promise<any> {
@@ -223,7 +292,13 @@ function fakeObservationService(): Record<string, unknown> {
     }),
     catalogAgents: async () => ({}),
     inspectAgent: async () => ({}),
-    catalogAgentInspection: async () => ({}),
+    catalogAgentInspection: async (req: { projectId?: string }) => {
+      const authority = AUTHORITY_ERRORS.find(([code]) => code === req.projectId)
+      if (authority) {
+        throw new AspcInspectionAuthorityError(authority[0], authority[1], authority[0])
+      }
+      return { projectId: null, agents: [], contexts: {} }
+    },
     inspectAgentSelection: async () => ({}),
     compileHarnessInvocation: async () => ({
       schemaVersion: 'aspc-compile-harness-invocation-response/v1',
