@@ -28,7 +28,13 @@ predicate: >
   provider evidence into that bracket without reminting it, and Pi session JSONL
   is non-authoritative until a separately approved evidence change. The stable
   replay-follow observer socket is read-only, bounded, and carries no mutation
-  or acknowledgement method. HRC is the sole retention-bearing consumer and
+  or acknowledgement method. An immutable release may also expose its private
+  retained ledger through the one-shot release-owned offline evidence reader.
+  That reader returns only already-committed normalized envelopes, reports
+  authoritative retention floor and torn/corrupt/unstable snapshot conditions,
+  and never normalizes pending raw rows, repairs evidence, follows a live file,
+  acknowledges, prunes, starts a worker, or acquires a retention claim. HRC is
+  the sole retention-bearing consumer and
   advances one durable scalar acknowledgement per invocation only through its
   fenced control connection; other observers accept the retained floor. All
   mutating RPCs remain on that fenced connection. Explicit permission decisions
@@ -37,18 +43,20 @@ predicate: >
   failure to commit keeps the provider gate closed.
 authority:
   repo: agent-spaces
-  surface: Lance HCS T-07827 / Daedalus approval wrkq T-07853, 2026-09-01; halt clause superseded by Lance operator ruling wrkq T-07883, 2026-09-02; observed Codex attribution amended by Daedalus approval of wrkq T-08097 rev 13 on 2026-09-05
+  surface: Lance HCS T-07827 / Daedalus approval wrkq T-07853, 2026-09-01; halt clause superseded by Lance operator ruling wrkq T-07883, 2026-09-02; observed Codex attribution amended by Daedalus approval of wrkq T-08097 rev 13 on 2026-09-05; release-owned read-only access amended by Daedalus approval of wrkq T-08565 rev 2 on 2026-09-16
 source:
   - wrkq:T-07883
   - wrkq:T-07853
   - wrkq:T-07827
   - wrkq:T-08097
+  - wrkq:T-08565
   - architecture/records/invariants/agent-spaces.codex-tui-app-server-presentation.yaml
   - architecture/records/invariants/agent-spaces.harness-broker-turn-evidence.yaml
   - architecture/records/risks/agent-spaces.pi-delivery-asserted-turn-start.yaml
   - harness/harness-broker/src/event-ledger.ts
   - harness/harness-broker/src/invocation-manager.ts
   - harness/harness-broker/src/cli.ts
+  - harness/harness-broker/src/offline-evidence.ts
 required_tests:
   - raw and normalized append failure partial-tail restart and commit-before-publish fault injection
   - live and replay use one normalizer and produce one normalized identity across every crash boundary
@@ -57,11 +65,12 @@ required_tests:
   - codex-tui terminal-before-item attribution and disposition are byte-identical under live normalization and raw-row replay without a live queue query
   - replay-to-follow has no seam gap and a slow observer disconnects typed within fixed queue bounds
   - HRC scalar acknowledgement and retention floor survive broker restart while a below-floor read-only observer fails typed without holding retention
+  - owning-release offline reads recover committed DB+WAL state from a private copy, preserve every source byte, page completely within fixed bounds, report torn/corrupt/unstable evidence, and never expose acknowledgement or raw normalization
   - stale control connections cannot mutate or acknowledge and RPC acceptance is never reported as provider effect
   - broker timeout fallback commits requested and resolved permission facts before provider release and remains closed on commit failure
 last_verified:
-  date: 2026-09-05
-  evidence: Daedalus source-grounded approvals of revised T-07853 and T-08097 rev 13 established committed provider-input normalization including replay-stable observed Codex attribution; implementation gates pending
+  date: 2026-09-16
+  evidence: Daedalus source-grounded approvals of revised T-07853, T-08097 rev 13, and T-08565 rev 2 established committed provider-input normalization, replay-stable observed Codex attribution, and a second read-only owning-release access path with no retention claim; installed T-08565 gates pending
 reopen_when:
   - provider or event-family authority changes
   - Pi initial bracket authority or its accepted-risk boundary changes
@@ -69,6 +78,7 @@ reopen_when:
   - raw disposition, source epoch, cursor, or blocked-unknown semantics change
   - observed attribution depends on live mutable state or differs between live ingest and replay
   - a second retention-bearing broker consumer is introduced
+  - offline evidence reads can mutate source evidence, normalize raw rows, omit snapshot integrity, or gain execution/retention authority
   - observer mutation, acknowledgement, queue bounds, or replay-floor semantics change
   - broker control fencing or explicit-versus-timeout permission ownership changes
 supersedes: []

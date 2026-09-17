@@ -17,6 +17,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { OFFLINE_EVIDENCE_CAPABILITY } from 'spaces-harness-broker-protocol'
 
 const REPO_ROOT = resolve(import.meta.dir, '..')
 const RELEASE_SCHEMA = 'asp-standalone-release/v1' as const
@@ -72,6 +73,7 @@ export type AspReleaseManifest = {
   builtAt: string
   platform: string
   architecture: string
+  capabilities?: string[] | undefined
   executables: Partial<Record<ExecutableName, ReleaseExecutable>>
   /** Additive in v1. Historical releases omit this and retain their compiled semantics. */
   workerBindings?: Record<string, ExecutableName> | undefined
@@ -87,6 +89,7 @@ export type ReleaseInspection = {
   builtAt: string
   platform: string
   architecture: string
+  capabilities: string[]
   immutable: true
   executableResolution: Partial<
     Record<
@@ -242,6 +245,13 @@ function readManifest(releasePath: string): AspReleaseManifest {
   }
   if (typeof manifest.executables !== 'object' || manifest.executables === null) {
     fail('missing executable manifest')
+  }
+  if (
+    manifest.capabilities !== undefined &&
+    (!Array.isArray(manifest.capabilities) ||
+      manifest.capabilities.some((capability) => typeof capability !== 'string'))
+  ) {
+    fail('invalid release capabilities')
   }
   return manifest as AspReleaseManifest
 }
@@ -452,6 +462,7 @@ export function inspectRelease(inputPath: string): ReleaseInspection {
     builtAt: manifest.builtAt,
     platform: manifest.platform,
     architecture: manifest.architecture,
+    capabilities: [...(manifest.capabilities ?? [])],
     immutable: true,
     executableResolution: resolution,
     ...(workerBindings !== undefined ? { workerBindings: { ...workerBindings } } : {}),
@@ -530,6 +541,7 @@ async function buildRelease(outputRootInput: string): Promise<ReleaseInspection>
       builtAt,
       platform: process.platform,
       architecture: process.arch,
+      capabilities: [OFFLINE_EVIDENCE_CAPABILITY],
       executables,
       workerBindings: { ...WORKER_BINDINGS },
       assets,

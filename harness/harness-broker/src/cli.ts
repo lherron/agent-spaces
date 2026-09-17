@@ -35,6 +35,7 @@ import type { Driver } from './drivers/driver'
 import { runPiHookBridgeCli } from './drivers/pi-tui-tmux/hook-bridge'
 import { BrokerError } from './errors'
 import { createEventLedger } from './event-ledger'
+import { runOfflineEvidenceCli } from './offline-evidence'
 import { type ProtocolServer, createProtocolServer } from './protocol-server'
 import type { TmuxHelperLauncher } from './runtime/tmux-launch-exec'
 import { assertSocketPathWithinBudget } from './socket-path'
@@ -147,6 +148,8 @@ export async function runBrokerCli(options: RunBrokerCliOptions): Promise<void> 
     await captureCommand(args.slice(1))
   } else if (command === 'submission') {
     await submissionCommand(args.slice(1))
+  } else if (command === 'evidence-read') {
+    await runOfflineEvidenceCli(args.slice(1), options.releaseIdentity)
   } else {
     process.stderr.write(
       `Unknown command: ${command ?? '(none)'}\nUsage: harness-broker run --transport stdio\n${CAPTURE_USAGE}${SUBMISSION_USAGE}`

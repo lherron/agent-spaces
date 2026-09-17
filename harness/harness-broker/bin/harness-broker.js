@@ -13,5 +13,18 @@ const preferDist = process.env.HARNESS_BROKER_USE_DIST === '1'
 const entryPath =
   !preferDist && existsSync(srcPath) ? srcPath : existsSync(distPath) ? distPath : srcPath
 
-const { runBrokerCli } = await import(pathToFileURL(entryPath).href)
-await runBrokerCli({})
+if (process.argv[2] === 'evidence-read') {
+  const offlineSrcPath = fileURLToPath(new URL('../src/offline-evidence.ts', import.meta.url))
+  const offlineDistPath = fileURLToPath(new URL('../dist/offline-evidence.js', import.meta.url))
+  const offlineEntryPath =
+    !preferDist && existsSync(offlineSrcPath)
+      ? offlineSrcPath
+      : existsSync(offlineDistPath)
+        ? offlineDistPath
+        : offlineSrcPath
+  const { runOfflineEvidenceCli } = await import(pathToFileURL(offlineEntryPath).href)
+  await runOfflineEvidenceCli(process.argv.slice(3), undefined)
+} else {
+  const { runBrokerCli } = await import(pathToFileURL(entryPath).href)
+  await runBrokerCli({})
+}

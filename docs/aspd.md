@@ -56,6 +56,40 @@ the existing broker CLI hosting contract HRC already realizes (`--socket`,
 `--attach-token-file`, and for a tmux-tui viewer
 `--experimental-observer-socket`).
 
+### Release-owned offline evidence
+
+Contract-capable frozen manifests declare
+`harness-broker.offline-evidence/v1` in `capabilities`. Historical manifests may
+omit the field; a consumer treats absence as unsupported and does not guess an
+`evidence-read` command. The existing immutable `harness-broker` executable owns
+the one-shot read-only mode:
+
+```text
+<executionRelease.worker.executable> evidence-read \
+  --event-ledger <absolute events.ndjson> \
+  --index <absolute ledger-index.db>
+```
+
+It reads one closed JSON request from stdin and writes one compact JSON result.
+`eventsSince` returns already-committed normalized envelopes through the
+published `harness-broker.offline-evidence/v1` DTOs. The reader copies the
+SQLite DB and any WAL—not SHM—to a private temporary directory before opening
+SQLite, verifies source identities before and after, and never writes beneath
+the retained ledger directory. It has no ACK, prune, follow, attach, start,
+submission, permission, socket, or raw-normalization path. A checkout executable
+has no embedded release identity and returns typed `offline_schema_unsupported`.
+
+The same mode accepts `providerObservations` for an explicit Codex or Claude
+JSONL artifact. Those observations and independently normalized broker
+comparison forms are comparison-only; they are not broker envelopes or
+execution/lifecycle authority. The request/result, paging, byte limits,
+snapshots, and typed errors are exported by `spaces-harness-broker-protocol`.
+HRC remains responsible for selecting the persisted owning release, validating
+the returned identity, projecting events, holding retained evidence, and
+enforcing that offline projection never reattaches or acknowledges that
+runtime. Reading retained evidence never starts or recreates execution
+authority.
+
 A release worker that hosts the codex-app-server viewer launches its renderer
 through its own payload (`<releaseRoot>/libexec/harness-broker renderer …`),
 passed explicitly by the release entrypoint, so the viewer always runs from the
