@@ -1,10 +1,13 @@
+import { createHash } from 'node:crypto'
 import { closeSync, existsSync, openSync, readSync, realpathSync } from 'node:fs'
 import { isAbsolute, sep } from 'node:path'
 import type { InvocationStartRequest } from 'spaces-harness-broker-protocol'
 import {
   type BrokerExecutionProfile,
   type CompiledRuntimePlan,
+  DEFAULT_CODEX_BROKER_INPUT_POLICY,
   createCanonicalHasher,
+  hashNeutralStartRequest,
   neutralBrokerExecutionProfileHash,
   neutralSpecHash,
   neutralStartRequestHash,
@@ -80,6 +83,12 @@ function notPrepared(
 function stable(prefix: string, value: unknown): string {
   const hash = createCanonicalHasher().hash(value, { timestampMode: 'omit-ephemeral' }).value
   return `${prefix}_${hash.slice(0, 32)}`
+}
+
+function hashValue(value: unknown): string {
+  return createHash('sha256')
+    .update(JSON.stringify(value) ?? 'null')
+    .digest('hex')
 }
 
 function firstLine(path: string): string {
@@ -179,12 +188,30 @@ export async function prepareDesktopObserver(request: DesktopObserverRequest) {
       },
     },
   }
+  const specHash = neutralSpecHash(startRequest.spec)
+  const startRequestHash = neutralStartRequestHash(startRequest)
+  const requestId = stable(
+    'request',
+    request
+  ) as BrokerExecutionProfile['observability']['correlation']['requestId']
+  const operationId = stable(
+    'operation',
+    request
+  ) as BrokerExecutionProfile['observability']['correlation']['operationId']
+  const traceId = stable('trace', request) as NonNullable<
+    BrokerExecutionProfile['observability']['correlation']['traceId']
+  >
   const selectedProfile: BrokerExecutionProfile = {
     schemaVersion: 'agent-runtime-profile/v1',
-    profileId: stable('profile', startRequest) as BrokerExecutionProfile['profileId'],
-    profileHash: '' as BrokerExecutionProfile['profileHash'],
-    compatibilityHash: stable('compatibility', {
+    profileId: `profile_${hashValue({
       driver: 'codex-desktop',
+      startRequest: hashNeutralStartRequest(startRequest),
+    }).slice(0, 32)}` as BrokerExecutionProfile['profileId'],
+    profileHash: '' as BrokerExecutionProfile['profileHash'],
+    compatibilityHash: hashValue({
+      driver: 'codex-desktop',
+      threadId: registration.nativeThreadId,
+      codexHome: registration.homeIdentity,
     }) as BrokerExecutionProfile['compatibilityHash'],
     kind: 'harness-broker',
     interactionMode: 'headless',
@@ -198,26 +225,26 @@ export async function prepareDesktopObserver(request: DesktopObserverRequest) {
         queue: 'required',
       },
       turns: { concurrency: 'single', interrupt: 'forbidden' },
-      continuation: 'required',
+      continuation: 'optional',
       permissions: 'none',
       events: {
-        assistantDeltas: 'required',
+        assistantDeltas: 'optional',
         toolCalls: 'required',
         usage: 'optional',
-        diagnostics: 'required',
+        diagnostics: 'optional',
       },
       control: {
-        stop: 'required',
-        dispose: 'required',
-        reconcile: 'required',
-        attachReplay: 'required',
+        stop: 'optional',
+        dispose: 'optional',
+        reconcile: 'optional',
+        attachReplay: 'optional',
       },
       lifecycle: {
-        runtimeRetention: ['unmanaged'],
-        harnessRecovery: ['fail-and-escalate'],
+        runtimeRetention: ['keep-alive'],
+        harnessRecovery: ['none'],
         turnRetry: ['none'],
-        generationFencing: 'required',
-        permissionCancellation: 'optional',
+        generationFencing: 'forbidden',
+        permissionCancellation: 'forbidden',
       },
     },
     brokerProtocol: 'harness-broker/0.2',
@@ -225,14 +252,13 @@ export async function prepareDesktopObserver(request: DesktopObserverRequest) {
     brokerOwnership: 'hrc-owned-process',
     harnessInvocation: {
       startRequest,
-      specHash: neutralSpecHash(startRequest.spec),
-      startRequestHash: neutralStartRequestHash(startRequest),
+      specHash,
+      startRequestHash,
     },
     policy: {
       permissionPolicy: { mode: 'deny', audit: true },
       inputPolicy: {
-        readyInput: 'start-turn',
-        busy: { whenBusy: 'queue', maxDepth: 64 },
+        ...DEFAULT_CODEX_BROKER_INPUT_POLICY,
         supportedKinds: ['user'],
         attachmentPolicy: { localImages: false, fileRefs: false },
       },
@@ -240,15 +266,10 @@ export async function prepareDesktopObserver(request: DesktopObserverRequest) {
     },
     observability: {
       correlation: {
-        requestId: stable(
-          'request',
-          request
-        ) as BrokerExecutionProfile['observability']['correlation']['requestId'],
-        operationId: stable(
-          'operation',
-          request
-        ) as BrokerExecutionProfile['observability']['correlation']['operationId'],
+        requestId,
+        operationId,
         invocationId,
+        traceId,
         ...request.hostingIdentity,
       } as BrokerExecutionProfile['observability']['correlation'],
     },
@@ -271,7 +292,7 @@ export async function prepareDesktopObserver(request: DesktopObserverRequest) {
     runtimeId: request.hostingIdentity.runtimeId as CompiledRuntimePlan['identity']['runtimeId'],
     invocationId,
     runId: request.hostingIdentity.runId as NonNullable<CompiledRuntimePlan['identity']['runId']>,
-    traceId: stable('trace', request) as NonNullable<CompiledRuntimePlan['identity']['traceId']>,
+    traceId: traceId as NonNullable<CompiledRuntimePlan['identity']['traceId']>,
   }
   const planMaterial = {
     schemaVersion: 'agent-runtime-plan/v1' as const,
