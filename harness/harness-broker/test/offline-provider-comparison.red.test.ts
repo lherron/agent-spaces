@@ -175,6 +175,8 @@ describe('T-08565 offline provider comparison oracle', () => {
   })
 
   test('broker comparison forms are independently normalized rather than echoing provider observations', async () => {
+    // Deliberately divergent inputs are a negative guard against echoing. Import
+    // independence and mutated-normalizer disagreement remain separate A7 gates.
     const artifactPath = artifact('codex-divergence.jsonl', [
       {
         type: 'response_item',

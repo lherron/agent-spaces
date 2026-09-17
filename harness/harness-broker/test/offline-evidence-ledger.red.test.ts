@@ -1,7 +1,10 @@
+import { Database } from 'bun:sqlite'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import {
+  copyFileSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -11,7 +14,8 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import type { InvocationEventEnvelope, InvocationId } from 'spaces-harness-broker-protocol'
+import { pathToFileURL } from 'node:url'
+import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import { createEventLedger } from '../src/event-ledger'
 
 // T-08565 behavior reds intentionally drive the real ledger writer and the
@@ -66,6 +70,7 @@ async function runReader(input: {
   ledgerPath: string
   indexPath: string
   request: Record<string, unknown>
+  tempRoot?: string
 }): Promise<{ exitCode: number; stdout: string; response: any }> {
   const child = Bun.spawn(
     [
@@ -78,7 +83,13 @@ async function runReader(input: {
       '--index',
       input.indexPath,
     ],
-    { cwd: REPO_ROOT, stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' }
+    {
+      cwd: REPO_ROOT,
+      env: { ...process.env, ...(input.tempRoot === undefined ? {} : { TMPDIR: input.tempRoot }) },
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'pipe',
+    }
   )
   child.stdin.write(`${JSON.stringify(input.request)}\n`)
   child.stdin.end()
@@ -132,6 +143,7 @@ async function readAllPages(input: {
     const page = run.response as Success
     pages.push(page)
     events.push(...page.result.events)
+    expect(page.result.events.length).toBeLessThanOrEqual(input.limit)
     expect(page.nextAfterSeq).toBeGreaterThanOrEqual(afterSeq)
     if (!page.hasMore) return { pages, events }
     expect(page.nextAfterSeq).toBeGreaterThan(afterSeq)
@@ -141,26 +153,93 @@ async function readAllPages(input: {
 }
 
 describe('T-08565 offline normalized ledger reads', () => {
-  test('a private DB+WAL snapshot sees an uncheckpointed committed floor and mutates no source file', async () => {
+  test('a private DB+WAL snapshot sees a killed writer uncheckpointed floor and mutates no source file', async () => {
     const root = scratch()
-    const ledgerPath = join(root, 'events.ndjson')
-    const indexPath = join(root, 'ledger-index.db')
-    const ledger = createEventLedger({ path: ledgerPath, indexPath })
-    for (let seq = 1; seq <= 5; seq += 1) await ledger.append(event('inv_wal', seq))
-    await ledger.ackEvents('inv_wal' as InvocationId, 3)
-    await ledger.prune({ activeInvocationIds: [] })
-    writeFileSync(join(root, 'raw-input.ndjson'), '{"committed":true}\n')
+    const source = join(root, 'source')
+    mkdirSync(source)
+    const ledgerPath = join(source, 'events.ndjson')
+    const indexPath = join(source, 'ledger-index.db')
+    const readyPath = join(root, 'writer.ready')
+    const writerPath = join(root, 'killed-writer.mjs')
+    const eventLedgerUrl = pathToFileURL(
+      join(REPO_ROOT, 'harness/harness-broker/src/event-ledger.ts')
+    ).href
+    writeFileSync(
+      writerPath,
+      `import { writeFileSync } from 'node:fs'
+import { createEventLedger } from ${JSON.stringify(eventLedgerUrl)}
+const ledger = createEventLedger({ path: ${JSON.stringify(ledgerPath)}, indexPath: ${JSON.stringify(indexPath)} })
+for (let seq = 1; seq <= 5; seq += 1) {
+  await ledger.append({ invocationId: 'inv_wal', seq, time: new Date(seq * 1000).toISOString(), type: 'diagnostic', payload: { level: 'info', message: \`event-\${seq}\` } })
+}
+await ledger.ackEvents('inv_wal', 3)
+await ledger.prune({ activeInvocationIds: [] })
+writeFileSync(${JSON.stringify(join(source, 'raw-input.ndjson'))}, '{"committed":true}\\n')
+writeFileSync(${JSON.stringify(readyPath)}, 'ready\\n')
+await new Promise(() => {})
+`
+    )
+    const writer = Bun.spawn(['bun', writerPath], {
+      cwd: REPO_ROOT,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    let writerKilled = false
+    try {
+      for (let attempt = 0; attempt < 500 && !existsSync(readyPath); attempt += 1) {
+        if (writer.exitCode !== null) break
+        await Bun.sleep(10)
+      }
+      expect(existsSync(readyPath)).toBe(true)
+      writer.kill('SIGKILL')
+      await writer.exited
+      writerKilled = true
+    } finally {
+      if (!writerKilled) {
+        writer.kill('SIGKILL')
+        await writer.exited
+      }
+    }
 
-    // Positive control: the writer remains open and the committed consumer
-    // state is still represented by a live WAL/SHM pair when the reader starts.
+    // Positive control: the writer died without close/checkpoint and left the
+    // committed floor in WAL. Controls open private copies only, never source.
     expect(existsSync(`${indexPath}-wal`)).toBe(true)
     expect(statSync(`${indexPath}-wal`).size).toBeGreaterThan(0)
     expect(existsSync(`${indexPath}-shm`)).toBe(true)
-    const before = sourceHashes(root)
+    const before = sourceHashes(source)
+
+    const dbOnly = join(root, 'db-only')
+    const dbAndWal = join(root, 'db-and-wal')
+    mkdirSync(dbOnly)
+    mkdirSync(dbAndWal)
+    copyFileSync(indexPath, join(dbOnly, 'ledger-index.db'))
+    copyFileSync(indexPath, join(dbAndWal, 'ledger-index.db'))
+    copyFileSync(`${indexPath}-wal`, join(dbAndWal, 'ledger-index.db-wal'))
+
+    const copiedFloor = (path: string): number | undefined => {
+      const db = new Database(path)
+      try {
+        return db
+          .query<{ retention_floor_seq: number }, []>(
+            `SELECT retention_floor_seq FROM consumer_state WHERE invocation_id = 'inv_wal'`
+          )
+          .get()?.retention_floor_seq
+      } catch {
+        return undefined
+      } finally {
+        db.close()
+      }
+    }
+    expect(copiedFloor(join(dbOnly, 'ledger-index.db'))).not.toBe(3)
+    expect(copiedFloor(join(dbAndWal, 'ledger-index.db'))).toBe(3)
+
+    const readerTemp = join(root, 'reader-temp')
+    mkdirSync(readerTemp)
 
     const run = await runReader({
       ledgerPath,
       indexPath,
+      tempRoot: readerTemp,
       request: { schema: SCHEMA, operation: 'eventsSince', invocationId: 'inv_wal', afterSeq: 3 },
     })
 
@@ -174,8 +253,8 @@ describe('T-08565 offline normalized ledger reads', () => {
         retentionFloorSeq: 3,
       },
     })
-    expect(sourceHashes(root)).toEqual(before)
-    ledger.close()
+    expect(sourceHashes(source)).toEqual(before)
+    expect(readdirSync(readerTemp)).toEqual([])
   })
 
   test('count and byte bounded pages are complete, stable, and advance through filtered gaps', async () => {
@@ -205,12 +284,27 @@ describe('T-08565 offline normalized ledger reads', () => {
       limit: 2,
       maxBytes: 65_536,
     })
-    expect(filtered.pages[0]).toMatchObject({
-      result: { events: [], currentSeq: 5, retentionFloorSeq: 0 },
-      hasMore: true,
-      nextAfterSeq: 2,
-    })
     expect(filtered.events.map((item) => item.seq)).toEqual([5])
+    expect(
+      filtered.pages.every(
+        (page) => page.result.currentSeq === 5 && page.result.retentionFloorSeq === 0
+      )
+    ).toBe(true)
+
+    const allExcluded = await readAllPages({
+      ledgerPath,
+      indexPath,
+      invocationId: 'inv_filter',
+      types: ['tool.call.started'],
+      limit: 2,
+      maxBytes: 65_536,
+    })
+    expect(allExcluded.events).toEqual([])
+    expect(allExcluded.pages.at(-1)).toMatchObject({
+      result: { currentSeq: 5, retentionFloorSeq: 0 },
+      hasMore: false,
+      nextAfterSeq: 5,
+    })
 
     const bounded = await readAllPages({
       ledgerPath,
