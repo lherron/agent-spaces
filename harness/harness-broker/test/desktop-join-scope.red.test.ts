@@ -469,6 +469,7 @@ describe('desktop-join write-ahead resume', () => {
       }
     })
     try {
+      let servedWith: Record<string, unknown> | undefined
       const outcome = await runDesktopJoin(
         {
           threadId,
@@ -479,9 +480,16 @@ describe('desktop-join write-ahead resume', () => {
           reportedBundleExecutable: bundle,
         },
         {
-          serve: (async () => ({ broker: {}, socketPath: 'x', close: async () => {} })) as never,
+          serve: (async (options: Record<string, unknown>) => {
+            servedWith = options
+            return { broker: {}, socketPath: 'x', close: async () => {} }
+          }) as never,
           blockForever: (async () => {}) as never,
         }
+      )
+      expect(servedWith?.['participantBootstrap']).toBe(true)
+      expect(String(servedWith?.['ledgerPath'] ?? '')).toBe(
+        join(paths.threadDir, 'event-ledger.sqlite')
       )
       expect(seen[0]).toBe(HELD)
       expect(outcome).toMatchObject({ exit: 0 })

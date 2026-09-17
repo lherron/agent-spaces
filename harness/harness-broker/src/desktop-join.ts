@@ -561,6 +561,11 @@ export async function runDesktopJoin(
       socketPath,
       cliOptions: {},
       participantBootstrap: true,
+      // HRC's controller reattach replays events (eventsSince) and acks them;
+      // without a durable ledger both throw EventReplayUnavailable and the
+      // runtime never leaves starting. The ledger lives in the thread dir so
+      // a respawn replays rather than re-emits pre-kill turns.
+      ledgerPath: join(paths.threadDir, 'event-ledger.sqlite'),
       onServerError: (error) => {
         writeJoinLog(paths.joinLog, 'server-error', { message: error.message })
       },
