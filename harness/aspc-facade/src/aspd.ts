@@ -16,7 +16,11 @@ import { unlink } from 'node:fs/promises'
 import { type Server, type Socket, connect, createServer } from 'node:net'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import type { AspcMethodServer, AspcService } from 'spaces-aspc'
-import { createAspcService, registerAspcCompileMethods } from 'spaces-aspc'
+import {
+  AspcInspectionAuthorityError,
+  createAspcService,
+  registerAspcCompileMethods,
+} from 'spaces-aspc'
 import type {
   AspcCompileHarnessInvocationRequest,
   AspcCompileHarnessInvocationResponse,
@@ -24,7 +28,9 @@ import type {
   AspcHelloRequest,
   AspcHelloResponse,
 } from 'spaces-aspc-protocol'
+import { BrokerError } from 'spaces-harness-broker'
 import type { AspReleaseIdentity } from 'spaces-harness-broker-protocol'
+import type { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { type ProtocolServer, createProtocolServer } from 'spaces-harness-broker/protocol-server'
 import { createRuntimeCompiler } from './runtime-compiler.js'
 
@@ -230,6 +236,14 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
           )
           try {
             return await handler(request)
+          } catch (error) {
+            if (error instanceof AspcInspectionAuthorityError) {
+              throw new BrokerError(-32603 as BrokerErrorCode, error.message, {
+                code: error.code,
+                status: error.status,
+              })
+            }
+            throw error
           } finally {
             // Count the request as in flight until the protocol server has
             // written its reply frame (it does so in a microtask after this
