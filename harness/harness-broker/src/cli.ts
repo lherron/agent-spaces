@@ -145,8 +145,19 @@ export async function runBrokerCli(options: RunBrokerCliOptions): Promise<void> 
       process.exit(1)
     })
   } else if (command === 'renderer') {
-    const { runRendererEntry } = await import('./drivers/codex-app-server/renderer-entry.js')
-    await runRendererEntry(args.slice(1))
+    const rest = args.slice(1)
+    const driverFlag = rest.indexOf('--driver')
+    const driver = driverFlag !== -1 ? rest[driverFlag + 1] : 'codex-app-server'
+    if (driver === 'muse-serve') {
+      const { runMuseRendererEntry } = await import('./drivers/muse-serve/renderer-entry.js')
+      await runMuseRendererEntry(rest)
+    } else if (driver === 'codex-app-server') {
+      const { runRendererEntry } = await import('./drivers/codex-app-server/renderer-entry.js')
+      await runRendererEntry(rest)
+    } else {
+      process.stderr.write(`Unknown renderer driver: ${driver ?? '(missing)'}\n`)
+      process.exit(1)
+    }
   } else if (command === 'capture') {
     await captureCommand(args.slice(1))
   } else if (command === 'submission') {

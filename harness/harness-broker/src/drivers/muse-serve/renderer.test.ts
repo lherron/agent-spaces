@@ -5,7 +5,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import type { RendererDurableReadSurface } from '../codex-app-server/renderer'
-import { createMuseServeRendererProjection } from './renderer'
+import { buildMuseRendererLaunchCommand, createMuseServeRendererProjection } from './renderer'
 
 let seq = 0
 const envelope = (type: string, payload: Record<string, unknown>): InvocationEventEnvelope => {
@@ -66,5 +66,24 @@ describe('createMuseServeRendererProjection', () => {
       'assistant: hello',
     ])
     projection.close()
+  })
+})
+
+describe('buildMuseRendererLaunchCommand', () => {
+  test('names the muse driver, read source, and runtime', () => {
+    const command = buildMuseRendererLaunchCommand({
+      invocationId: 'inv_muse_1',
+      observerSocketPath: '/tmp/obs.sock',
+      controlSocketPath: '/tmp/ctl.sock',
+      runtimeId: 'rt_1',
+    })
+    expect(command).toContain('--driver muse-serve')
+    expect(command).toContain('--invocation-id inv_muse_1')
+    expect(command).toContain('--observer-socket /tmp/obs.sock')
+    expect(command).toContain('--control-socket /tmp/ctl.sock')
+    expect(command).toContain('--runtime-id rt_1')
+    expect(command).toContain('--bootstrap-method invocation.eventsSince')
+    expect(command).toContain('--live-method invocation.event')
+    expect(command).toContain('renderer-entry')
   })
 })

@@ -62,6 +62,13 @@ import type {
 } from '../driver'
 import { withDeliveryEvidence } from '../driver'
 import { MUSE_SERVE_AUTHORITY } from '../evidence-authority'
+import type { HookListenerHandle } from '../tmux-shared'
+import {
+  buildHookSocketPath,
+  consumePaneLease,
+  getInvocationRuntimeId,
+  listenForHookEnvelopes,
+} from '../tmux-shared'
 import { MUSE_CAPABILITIES } from './capabilities'
 import { newMuseCommandId } from './command-id'
 import { MUSE_DRIVER_KIND, classifyMuseNotificationMethod, mapMuseNotification } from './event-map'
@@ -69,6 +76,7 @@ import type { MappedEvent } from './event-map'
 import { buildMuseTurnStartParams, extractMuseText } from './input'
 import { createPermissionRequestIdAllocator, handleMuseApprovalRequest } from './permissions'
 import type { PermissionRequestIdAllocator } from './permissions'
+import { buildMuseRendererLaunchCommand } from './renderer'
 import { MuseRpcClient } from './rpc-client'
 import type { MuseJsonRpcNotification, MuseJsonRpcRequest, MuseRpcPeer } from './rpc-client'
 
@@ -86,6 +94,46 @@ export const MSP_SCHEMA_FINGERPRINT =
 export interface MuseServeDriverOptions {
   /** Base dir for per-invocation isolated HOMEs. */
   homeBaseDir?: string | undefined
+}
+
+/** Lifecycle envelopes the muse renderer posts to the driver control socket. */
+interface MuseRendererControlEnvelope {
+  type: string
+  reason?: unknown
+}
+
+/**
+ * Resolve the read-only observer/broker socket the muse renderer connects to
+ * for the durable event surface. Mirrors the codex-app-server derivation:
+ * HRC dispatch env first, then ambient env, then a conventional path beside
+ * the leased tmux socket.
+ */
+function resolveMuseRendererObserverSocket(
+  driverCtx: DriverContext,
+  surface: { socketPath: string }
+): string {
+  const fromDispatch = driverCtx.dispatchEnv?.['HARNESS_BROKER_OBSERVER_SOCKET']
+  if (typeof fromDispatch === 'string' && fromDispatch.length > 0) return fromDispatch
+  const fromEnv = process.env['HARNESS_BROKER_OBSERVER_SOCKET']
+  if (typeof fromEnv === 'string' && fromEnv.length > 0) return fromEnv
+  const dir = surface.socketPath.includes('/')
+    ? surface.socketPath.slice(0, surface.socketPath.lastIndexOf('/'))
+    : '.'
+  return `${dir}/${driverCtx.invocationId}.observer.sock`
+}
+
+function buildMuseRendererControlSocketPath(
+  driverCtx: DriverContext,
+  surface: { socketPath: string },
+  runtimeId: string | undefined
+): string {
+  const dir = surface.socketPath.includes('/')
+    ? surface.socketPath.slice(0, surface.socketPath.lastIndexOf('/'))
+    : '.'
+  return buildHookSocketPath(dir, 'muse-serve-renderer-control', {
+    invocationId: driverCtx.invocationId,
+    runtimeId,
+  })
 }
 
 interface PendingSteer {
@@ -110,6 +158,7 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
   let stopping = false
   let starting = false
   let terminalEmitted = false
+  let rendererControlListener: HookListenerHandle | undefined
   let notificationSequence = 0
   let mintedForRecord = 0
   let activeProvenance: EventProvenance | undefined
@@ -588,6 +637,8 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
       stopping = false
       starting = true
       terminalEmitted = false
+      await rendererControlListener?.close().catch(() => undefined)
+      rendererControlListener = undefined
       sessionId = undefined
       currentInputId = undefined
       currentTurnId = undefined
@@ -755,6 +806,66 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
         throw startupError
       }
       if (startupTimer !== undefined) clearTimeout(startupTimer)
+
+      // Driver-owned renderer: when HRC hands this invocation a
+      // terminal-surface pane lease, report the surface and launch the muse
+      // renderer into the pane. Presentation/observation only — the serve
+      // stdio child stays the authoritative harness transport.
+      const runtimeOverlay = driverCtx.runtime
+      if (
+        runtimeOverlay?.terminalSurface !== undefined ||
+        runtimeOverlay?.terminalSurfaceRequired === true
+      ) {
+        const leased = await consumePaneLease(driverCtx, {
+          driverKind: MUSE_DRIVER_KIND,
+        })
+        emitCaptured(
+          'terminal.surface.reported',
+          {
+            kind: 'tmux-pane' as const,
+            socketPath: leased.surface.socketPath,
+            sessionId: leased.surface.sessionId,
+            windowId: leased.surface.windowId,
+            paneId: leased.surface.paneId,
+            ...(leased.surface.sessionName !== undefined
+              ? { sessionName: leased.surface.sessionName }
+              : {}),
+            ...(leased.surface.windowName !== undefined
+              ? { windowName: leased.surface.windowName }
+              : {}),
+          },
+          { driver: { kind: MUSE_DRIVER_KIND, rawType: 'tmux.surface' } }
+        )
+        const expectedRuntimeId = getInvocationRuntimeId(startSpec)
+        const controlSocketPath = buildMuseRendererControlSocketPath(
+          driverCtx,
+          leased.surface,
+          expectedRuntimeId
+        )
+        rendererControlListener = await listenForHookEnvelopes<MuseRendererControlEnvelope>(
+          controlSocketPath,
+          (envelope) => {
+            if (envelope.type === 'muse-serve-renderer.exited') {
+              emitDiagnostic('info', 'muse renderer exited')
+              return undefined
+            }
+            if (envelope.type === 'muse-serve-renderer.quit') {
+              emitDiagnostic('info', 'muse renderer quit requested')
+              return undefined
+            }
+            return undefined
+          }
+        )
+        const observerSocketPath = resolveMuseRendererObserverSocket(driverCtx, leased.surface)
+        await leased.controller.sendPastedLine(
+          buildMuseRendererLaunchCommand({
+            invocationId: driverCtx.invocationId,
+            observerSocketPath,
+            controlSocketPath: rendererControlListener.socketPath,
+            ...(expectedRuntimeId !== undefined ? { runtimeId: expectedRuntimeId } : {}),
+          })
+        )
+      }
 
       requireCtx().emit('invocation.started', {
         ...(proc.pid !== undefined ? { pid: proc.pid } : {}),
@@ -1007,6 +1118,8 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
       if (proc && proc.exitCode === null) {
         proc.kill('SIGTERM')
       }
+      await rendererControlListener?.close().catch(() => undefined)
+      rendererControlListener = undefined
       ctx = undefined
       spec = undefined
       driverSpec = undefined
