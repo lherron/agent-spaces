@@ -83,6 +83,98 @@ describe('mapMuseNotification', () => {
     const events = mapMuseNotification(notif('frob/baz', {}))
     expect(events.map((event) => event.type)).toEqual(['diagnostic'])
   })
+
+  test('toolCall started projects MSP turn-item fields (tool/callId/args)', () => {
+    const events = mapMuseNotification(
+      notif('item/started', {
+        sessionId: 's1',
+        item: {
+          itemId: 'i1',
+          kind: 'toolCall',
+          turnId: 't1',
+          status: 'inProgress',
+          tool: 'shell',
+          callId: 'call_abc',
+          args: '{"command":"echo hi"}',
+        },
+      })
+    )
+    expect(events.map((event) => event.type)).toEqual(['tool.call.started'])
+    expect(events[0]).toMatchObject({
+      payload: {
+        toolCallId: 'call_abc',
+        name: 'shell',
+        input: { command: 'echo hi' },
+      },
+    })
+  })
+
+  test('toolCall completed projects visibleOutput as the result', () => {
+    const events = mapMuseNotification(
+      notif('item/completed', {
+        sessionId: 's1',
+        item: {
+          itemId: 'i1',
+          kind: 'toolCall',
+          turnId: 't1',
+          status: 'completed',
+          tool: 'shell',
+          callId: 'call_abc',
+          visibleOutput: 'hi\n',
+        },
+      })
+    )
+    expect(events.map((event) => event.type)).toEqual(['tool.call.completed'])
+    expect(events[0]).toMatchObject({
+      payload: { toolCallId: 'call_abc', name: 'shell', result: 'hi\n' },
+    })
+  })
+
+  test('toolCall failed projects failureReason as the message', () => {
+    const events = mapMuseNotification(
+      notif('item/completed', {
+        sessionId: 's1',
+        item: {
+          itemId: 'i1',
+          kind: 'toolCall',
+          turnId: 't1',
+          status: 'failed',
+          tool: 'shell',
+          callId: 'call_abc',
+          failureReason: 'exit 127: command not found',
+        },
+      })
+    )
+    expect(events.map((event) => event.type)).toEqual(['tool.call.failed'])
+    expect(events[0]).toMatchObject({
+      payload: {
+        toolCallId: 'call_abc',
+        name: 'shell',
+        message: 'exit 127: command not found',
+      },
+    })
+  })
+
+  test('toolCall keeps approval-shape fallbacks (toolName/toolCallId)', () => {
+    const events = mapMuseNotification(
+      notif('item/completed', {
+        sessionId: 's1',
+        item: {
+          itemId: 'i1',
+          kind: 'toolCall',
+          turnId: 't1',
+          status: 'completed',
+          toolName: 'shell',
+          toolCallId: 'tc1',
+          output: 'hi',
+        },
+      })
+    )
+    expect(events.map((event) => event.type)).toEqual(['tool.call.completed'])
+    expect(events[0]).toMatchObject({
+      payload: { toolCallId: 'tc1', name: 'shell', result: 'hi' },
+    })
+  })
 })
 
 describe('muse wire vocabulary coverage (1.3.0 export)', () => {

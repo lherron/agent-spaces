@@ -7,8 +7,10 @@
  * plus credential-free echo-turn probes). turn/completed terminal vocabulary
  * (completed|failed|cancelled), the authRequired failure shape, and the
  * commandRejected/missing_run fence were all OBSERVED live; assistant
- * delta/tool-call item shapes beyond userMessage are schema-derived and marked
- * accordingly — the MATRIX model row promotes them to observed.
+ * delta shapes beyond userMessage are schema-derived and marked
+ * accordingly — the MATRIX model row promotes them to observed. toolCall
+ * turn-item fields (tool, callId, args, visibleOutput, failureReason) are
+ * verified against the 1.3.0 schema export.
  */
 import type {
   InputId,
@@ -98,6 +100,21 @@ function paramsOf(notification: MuseJsonRpcNotification): Params {
 
 function stringField(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined
+}
+
+/**
+ * Project MSP verbatim args JSON into a tool-call input. Parses when the
+ * model emitted valid JSON, otherwise carries the raw string; absent when
+ * there are no args at all.
+ */
+function argsInput(value: unknown): { input?: unknown } {
+  const raw = stringField(value)
+  if (raw === undefined) return {}
+  try {
+    return { input: JSON.parse(raw) as unknown }
+  } catch {
+    return { input: raw }
+  }
 }
 
 function diagnostic(
@@ -225,8 +242,20 @@ function mapItemEvent(
     ]
   }
   if (kind === 'toolCall') {
-    const toolCallId = (stringField(item['toolCallId']) ?? itemId ?? 'unknown') as ToolCallId
-    const name = stringField(item['toolName']) ?? stringField(item['name']) ?? 'unknown'
+    // Turn-item shape (schema-verified against muse 1.3.0): the tool name is
+    // `tool`, the call id is `callId`, args ride verbatim JSON in `args`,
+    // result text is `visibleOutput`, failure text is `failureReason`.
+    // toolName/name, toolCallId, input, output, and text are fallbacks for
+    // approval-adjacent shapes.
+    const toolCallId = (stringField(item['callId']) ??
+      stringField(item['toolCallId']) ??
+      itemId ??
+      'unknown') as ToolCallId
+    const name =
+      stringField(item['tool']) ??
+      stringField(item['toolName']) ??
+      stringField(item['name']) ??
+      'unknown'
     const terminal = status !== 'inProgress'
     if (!terminal) {
       return [
@@ -235,7 +264,7 @@ function mapItemEvent(
           payload: {
             toolCallId,
             name,
-            ...(item['input'] !== undefined ? { input: item['input'] } : {}),
+            ...(item['input'] !== undefined ? { input: item['input'] } : argsInput(item['args'])),
           },
           ...(turn !== undefined ? { extra: { turnId: turn } } : {}),
         },
@@ -248,7 +277,11 @@ function mapItemEvent(
           payload: {
             toolCallId,
             name,
-            ...(item['output'] !== undefined ? { result: item['output'] } : {}),
+            ...(item['output'] !== undefined
+              ? { result: item['output'] }
+              : item['visibleOutput'] !== undefined
+                ? { result: item['visibleOutput'] }
+                : {}),
           },
           ...(turn !== undefined ? { extra: { turnId: turn } } : {}),
         },
@@ -260,7 +293,7 @@ function mapItemEvent(
         payload: {
           toolCallId,
           name,
-          message: text || `tool call ${status}`,
+          message: stringField(item['failureReason']) || text || `tool call ${status}`,
           code: status || 'unknown',
         },
         ...(turn !== undefined ? { extra: { turnId: turn } } : {}),
