@@ -478,7 +478,10 @@ function toMuseServeStartRequest(
     },
     process: {
       command: prepared.commandPath,
-      args: ['serve', '--trust-workspace'],
+      // No-sandbox seat: serve's default proxy-only network sandbox denies the
+      // direct TCP (wrkc workrpc) the seat needs, so disable shell
+      // filesystem/network sandboxing for the host lifetime.
+      args: ['serve', '--trust-workspace', '--disable-sandbox'],
       cwd: prepared.cwd,
       lockedEnv,
       ...(prepared.pathPrepend.length > 0 ? { pathPrepend: prepared.pathPrepend } : {}),

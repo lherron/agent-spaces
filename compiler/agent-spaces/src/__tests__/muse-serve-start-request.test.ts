@@ -42,7 +42,7 @@ describe('toHarnessBrokerStartRequest — muse-serve headless birth (muse seat)'
       driver: 'muse-serve',
     })
     expect(built.spec.process.command).toBe('/usr/local/bin/muse')
-    expect(built.spec.process.args).toEqual(['serve', '--trust-workspace'])
+    expect(built.spec.process.args).toEqual(['serve', '--trust-workspace', '--disable-sandbox'])
     expect(built.spec.process.harnessTransport).toEqual({ kind: 'jsonrpc-stdio' })
     const driver = built.spec.driver as {
       kind: string
