@@ -206,15 +206,35 @@ export function createMuseTranscriptModel(
     flushAssistant(messageId, content)
   }
 
+  function toolInputSummary(input: unknown): string {
+    if (typeof input === 'string') return firstLine(input)
+    if (input !== null && typeof input === 'object' && !Array.isArray(input)) {
+      const record = input as Record<string, unknown>
+      for (const key of ['command', 'cmd', 'commandLine']) {
+        const value = record[key]
+        if (typeof value === 'string' && value.length > 0) return firstLine(value)
+      }
+      return firstLine(summarize(input))
+    }
+    return ''
+  }
+
   function renderToolStarted(payload: Record<string, unknown>, type: string): void {
     const toolCallId = String(payload['toolCallId'] ?? '')
     const name = typeof payload['name'] === 'string' ? payload['name'] : 'tool'
     toolBuffers.set(toolCallId, { name, text: '' })
+    const summary = toolInputSummary(payload['input'])
     if (!color) {
-      out(`tool ${name} started`, type)
+      out(`tool ${name} started${summary ? `: ${summary}` : ''}`, type)
       return
     }
-    out(band('tool', 'kiln', [{ text: `$ ${name}`, fg: 'kiln', bold: true }]), type)
+    out(
+      band('tool', 'kiln', [
+        { text: `$ ${name}`, fg: 'kiln', bold: true },
+        ...(summary.length > 0 ? [{ text: ` · ${summary}`, fg: 'muted' as const }] : []),
+      ]),
+      type
+    )
   }
 
   function renderToolDelta(payload: Record<string, unknown>): void {
@@ -271,6 +291,9 @@ export function createMuseTranscriptModel(
 
   function renderDiagnostic(payload: Record<string, unknown>, type: string): void {
     const level = typeof payload['level'] === 'string' ? payload['level'] : 'info'
+    // Debug telemetry (usage counters and the like) already has a rendered
+    // form elsewhere; keep it off the pane unless explicitly debugging.
+    if (level === 'debug' && !verbose) return
     const body = `[${level}] ${summarize(payload['message'] ?? '')}`
     if (!color) {
       out(body, type)

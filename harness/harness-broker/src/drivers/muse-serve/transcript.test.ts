@@ -109,6 +109,35 @@ describe('createMuseTranscriptModel', () => {
     expect(lines.some((line) => line.startsWith('assistant: '))).toBe(false)
   })
 
+  test('tool start header names the command from the input', () => {
+    const started = {
+      type: 'tool.call.started',
+      payload: { toolCallId: 'c1', name: 'bash', input: { command: 'wrkq info' } },
+    }
+    expect(render([started])).toEqual(['tool bash started: wrkq info'])
+    const styled = render([started], { color: true })
+    expect(styled.some((line) => line.includes('$ bash') && line.includes('wrkq info'))).toBe(true)
+    const bare = render([
+      { type: 'tool.call.started', payload: { toolCallId: 'c2', name: 'bash' } },
+    ])
+    expect(bare).toEqual(['tool bash started'])
+  })
+
+  test('debug diagnostics stay off the pane unless verbose', () => {
+    const debug = {
+      type: 'diagnostic',
+      payload: { level: 'debug', message: 'muse-serve context usage' },
+    }
+    expect(render([debug])).toEqual([])
+    const lines: string[] = []
+    const model = createMuseTranscriptModel({
+      emit: (line) => lines.push(line),
+      verbose: true,
+    })
+    model.apply(envelope(debug.type, debug.payload))
+    expect(lines).toEqual(['[diagnostic] [debug] muse-serve context usage'])
+  })
+
   test('projects failures, interruptions, and permissions', () => {
     const lines = render([
       { type: 'turn.failed', payload: { turnId: 't2', message: 'boom', code: 'authRequired' } },
