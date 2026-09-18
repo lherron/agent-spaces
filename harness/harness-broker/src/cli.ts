@@ -317,11 +317,12 @@ function registerBrokerMethods(
     const dispatch = params as InvocationDispatchRequest
     if (
       options.experimentalObserverEnabled === true &&
-      dispatch.startRequest.spec.driver.kind !== 'codex-app-server'
+      dispatch.startRequest.spec.driver.kind !== 'codex-app-server' &&
+      dispatch.startRequest.spec.driver.kind !== 'muse-serve'
     ) {
       throw new BrokerError(
         BrokerErrorCode.UnsupportedCapability,
-        'Experimental observer socket is only supported for codex-app-server invocations',
+        'Experimental observer socket is only supported for codex-app-server and muse-serve invocations',
         {
           driverKind: dispatch.startRequest.spec.driver.kind,
         }
