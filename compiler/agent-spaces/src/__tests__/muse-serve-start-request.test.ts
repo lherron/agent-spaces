@@ -44,9 +44,14 @@ describe('toHarnessBrokerStartRequest — muse-serve headless birth (muse seat)'
     expect(built.spec.process.command).toBe('/usr/local/bin/muse')
     expect(built.spec.process.args).toEqual(['serve', '--trust-workspace'])
     expect(built.spec.process.harnessTransport).toEqual({ kind: 'jsonrpc-stdio' })
-    const driver = built.spec.driver as { kind: string; homeMode: string }
+    const driver = built.spec.driver as {
+      kind: string
+      homeMode: string
+      approvalMode: string
+    }
     expect(driver.kind).toBe('muse-serve')
     expect(driver.homeMode).toBe('operator')
+    expect(driver.approvalMode).toBe('allowAll')
     // Ambient/reserved home keys cannot ride lockedEnv; the driver composes
     // HOME/XDG itself at birth.
     expect(built.spec.process.lockedEnv).toEqual({ ASP_PROJECT: 'agent-spaces' })

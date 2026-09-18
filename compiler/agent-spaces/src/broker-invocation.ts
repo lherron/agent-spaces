@@ -508,7 +508,10 @@ function toMuseServeStartRequest(
       // even with auth.json symlinked. XDG dirs stay disposable.
       homeMode: 'operator',
       ...(req.model !== undefined ? { model: req.model } : {}),
-      approvalMode: 'onRequest',
+      // Yolo: the muse seat runs without approval prompts (MSP allowAll —
+      // the server approves tool use itself). permissionPolicy stays deny
+      // as the backstop for anything the server still routes to policy.
+      approvalMode: 'allowAll',
       permissionPolicy: req.permissionPolicy ?? { mode: 'deny' },
       ...(req.continuation?.key !== undefined
         ? { resumeSessionId: req.continuation.key }
