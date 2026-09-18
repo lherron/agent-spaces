@@ -850,6 +850,12 @@ function expectedCapabilities(
      * 'optional' so HRC's route-specific overlay can require attach+replay.
      */
     attachReplay?: CapabilityRequirements['control']['attachReplay'] | undefined
+    /**
+     * File-reference input shape. Defaults to 'forbidden' (the codex headless
+     * contract). The muse-serve driver declares fileRefs support, so the muse
+     * headless path passes 'optional' — tolerated, never required.
+     */
+    fileRefs?: CapabilityRequirements['input']['fileRefs'] | undefined
   }
 ): CapabilityRequirements {
   return {
@@ -858,7 +864,7 @@ function expectedCapabilities(
       steer: 'optional',
       appendContext: 'optional',
       localImages: 'optional',
-      fileRefs: 'forbidden',
+      fileRefs: options?.fileRefs ?? 'forbidden',
       queue: options?.inputQueue ?? 'forbidden',
     },
     turns: {
@@ -1168,6 +1174,7 @@ async function compileBrokerPlan(
     expectedCapabilities: expectedCapabilities(permissionPolicy, {
       inputQueue: 'required',
       attachReplay: 'optional' as const,
+      ...(isMuse ? { fileRefs: 'optional' as const } : {}),
     }),
     brokerProtocol: 'harness-broker/0.2' as const,
     brokerDriver: brokerDriverKind,
