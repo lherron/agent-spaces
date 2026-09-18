@@ -41,6 +41,7 @@ const WORKER_BINDINGS = {
   'claude-code-tmux': 'harness-broker',
   'pi-tui-tmux': 'harness-broker',
   'muse-serve': 'harness-broker',
+  'muse-cli-tmux': 'harness-broker',
 } as const satisfies Record<string, ExecutableName>
 
 const RELEASE_ASSETS = {
