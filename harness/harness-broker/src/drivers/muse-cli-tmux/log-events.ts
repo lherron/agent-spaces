@@ -21,6 +21,13 @@ export { MUSE_CLI_TMUX_DRIVER_KIND }
 
 export type MuseCliTmuxLogEventNormalizer = {
   normalizeRecord: (record: MuseSessionRecord) => InvocationEventEnvelope[]
+  /**
+   * Session teardown the log never records: the TUI exits without a quit
+   * marker, so the driver synthesizes continuation.cleared off harness
+   * exit through the SAME sequencer (ordering with polled turn events
+   * preserved).
+   */
+  sessionEnded: (reason: string) => InvocationEventEnvelope[]
 }
 
 export type MuseCliTmuxLogEventNormalizerOptions = {
@@ -279,6 +286,14 @@ export function createMuseCliTmuxLogEventNormalizer(
   }
 
   return {
+    sessionEnded(reason: string): InvocationEventEnvelope[] {
+      return [
+        emit('SessionEnd', {
+          type: 'continuation.cleared',
+          payload: { reason },
+        }),
+      ]
+    },
     normalizeRecord(record: MuseSessionRecord): InvocationEventEnvelope[] {
       const payload = asRecord(record.payload)
       if (!MUSE_KNOWN_PAYLOAD_TYPES.has(record.payloadType)) {

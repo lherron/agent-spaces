@@ -20,7 +20,17 @@ import type { TmuxHelperLauncher } from '../../runtime/tmux-launch-exec'
 import { tmuxHelperRunner, writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
 import { MUSE_CLI_TMUX_AUTHORITY } from '../evidence-authority'
-import { consumePaneLease, extractText, getInvocationRuntimeId, sleep } from '../tmux-shared'
+import { getString } from '../hook-json'
+import type { HookEnvelopeResult, HookListenerHandle } from '../tmux-shared'
+import {
+  USER_INITIATED_END_REASONS,
+  buildHookSocketPath,
+  consumePaneLease,
+  extractText,
+  getInvocationRuntimeId,
+  listenForHookEnvelopes,
+  sleep,
+} from '../tmux-shared'
 import { MUSE_CLI_TMUX_DRIVER_KIND, createMuseCliTmuxLogEventNormalizer } from './log-events'
 import { createMuseCliSessionTranscriptReader } from './transcript'
 
@@ -90,6 +100,43 @@ const MUSE_CLI_TMUX_CAPABILITIES: InvocationCapabilities = {
   lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 }
 
+/**
+ * Per-invocation identity handed to the teardown listener so the broker binds
+ * a UNIQUE callback socket per invocation (never a shared global socket).
+ */
+export interface MuseHookListenerContext {
+  invocationId: string
+  runtimeId?: string | undefined
+}
+
+export type MuseHookEnvelopeHandler = (
+  envelope: MuseCliTmuxHookEnvelope
+) => Promise<HookEnvelopeResult> | HookEnvelopeResult
+
+/**
+ * The ONLY envelope this socket ever carries: the release-owned launch
+ * runner's synthetic SessionEnd on harness-process exit. The muse TUI itself
+ * never speaks the hook protocol (turns come from the session.jsonl poll);
+ * session.jsonl records no quit marker, so process exit is the teardown
+ * signal (same shape as the codex-cli-tmux opt-in).
+ */
+export interface MuseCliTmuxHookEnvelope {
+  invocationId?: unknown
+  runtimeId?: unknown
+  generation?: unknown
+  callbackSocket?: unknown
+  hookData?: unknown
+}
+
+const MUSE_HOOK_GENERATION = 1
+
+export function buildMuseHookSocketPath(
+  socketDir: string,
+  context: MuseHookListenerContext
+): string {
+  return buildHookSocketPath(socketDir, 'muse-hooks', context)
+}
+
 export interface MuseCliTmuxDriverOptions {
   tmux: {
     socketPath: string
@@ -98,6 +145,13 @@ export interface MuseCliTmuxDriverOptions {
   }
   /** Same-payload launcher for the release-owned tmux launch helper. */
   helperLauncher?: TmuxHelperLauncher | undefined
+  /** Teardown-callback listener. Receives only the runner's synthetic SessionEnd. */
+  hooks: {
+    listen: (
+      handler: MuseHookEnvelopeHandler,
+      context: MuseHookListenerContext
+    ) => Promise<HookListenerHandle>
+  }
   /** Base dir for per-invocation isolated HOMEs. Defaults to the OS temp dir. */
   homeBaseDir?: string | undefined
   /** Session-log poll cadence. Defaults to 500 ms. */
@@ -122,6 +176,47 @@ export function createMuseCliTmuxDriver(options: MuseCliTmuxDriverOptions): Driv
   let surface: SurfaceState | undefined
   let paneController: TmuxPaneController | undefined
   let pollTimer: ReturnType<typeof setInterval> | undefined
+  let hookListener: HookListenerHandle | undefined
+
+  /**
+   * Fence the teardown socket: accept only our own invocation (tolerating
+   * absent identity fields the runner omits), our runtime when the spec
+   * carries one, our generation, and our own socket path.
+   */
+  function acceptsTeardownEnvelope(
+    envelope: MuseCliTmuxHookEnvelope,
+    self: { invocationId: string; runtimeId?: string | undefined; socketPath?: string | undefined }
+  ): boolean {
+    if (envelope.invocationId !== undefined && envelope.invocationId !== self.invocationId) {
+      return false
+    }
+    if (
+      self.runtimeId !== undefined &&
+      envelope.runtimeId !== undefined &&
+      envelope.runtimeId !== self.runtimeId
+    ) {
+      return false
+    }
+    if (envelope.generation !== undefined && envelope.generation !== MUSE_HOOK_GENERATION) {
+      return false
+    }
+    if (
+      self.socketPath !== undefined &&
+      envelope.callbackSocket !== undefined &&
+      envelope.callbackSocket !== self.socketPath
+    ) {
+      return false
+    }
+    return true
+  }
+
+  async function closeHookListener(): Promise<void> {
+    const listener = hookListener
+    hookListener = undefined
+    if (listener !== undefined) {
+      await listener.close()
+    }
+  }
 
   function requireCtx(): DriverContext {
     if (ctx === undefined) {
@@ -246,9 +341,40 @@ export function createMuseCliTmuxDriver(options: MuseCliTmuxDriverOptions): Driv
       )
 
       const expectedRuntimeId = getInvocationRuntimeId(spec)
+      // Teardown callback BEFORE the paste: the runner needs the socket path
+      // in the launch env, and the socket must be listening before the TUI
+      // can exit (a fast /quit must not win the race). The runner's
+      // synthetic SessionEnd is the /quit signal: session.jsonl records no
+      // quit marker, so harness-process exit is the teardown event. Anything
+      // else on this socket is foreign — turns stay owned by the poller.
+      const handleTeardownEnvelope: MuseHookEnvelopeHandler = (envelope) => {
+        if (ctx === undefined) return undefined
+        if (
+          !acceptsTeardownEnvelope(envelope, {
+            invocationId: driverCtx.invocationId,
+            ...(expectedRuntimeId !== undefined ? { runtimeId: expectedRuntimeId } : {}),
+            ...(hookListener !== undefined ? { socketPath: hookListener.socketPath } : {}),
+          })
+        ) {
+          return undefined
+        }
+        const record = envelope.hookData
+        if (typeof record !== 'object' || record === null) return undefined
+        const fields = record as Record<string, unknown>
+        if (getString(fields, 'hook_event_name') !== 'SessionEnd') return undefined
+        const reason = getString(fields, 'reason')
+        if (reason === undefined || !USER_INITIATED_END_REASONS.has(reason)) return undefined
+        publish(normalizer.sessionEnded(reason))
+        return undefined
+      }
+      hookListener = await options.hooks.listen(handleTeardownEnvelope, {
+        invocationId: driverCtx.invocationId,
+        ...(expectedRuntimeId !== undefined ? { runtimeId: expectedRuntimeId } : {}),
+      })
       await controller.sendPastedLine(
         await buildLaunchCommandLine(spec, driverCtx, {
           home,
+          callbackSocket: hookListener.socketPath,
           ...(expectedRuntimeId !== undefined ? { runtimeId: expectedRuntimeId } : {}),
           ...(options.helperLauncher !== undefined
             ? { helperLauncher: options.helperLauncher }
@@ -278,12 +404,14 @@ export function createMuseCliTmuxDriver(options: MuseCliTmuxDriverOptions): Driv
 
     async stop(_req: InvocationStopRequest): Promise<InvocationStopResponse> {
       stopPolling()
+      await closeHookListener()
       surface = undefined
       return { accepted: true, state: 'exited' }
     },
 
     async dispose(): Promise<void> {
       stopPolling()
+      await closeHookListener()
       ctx = undefined
       surface = undefined
       paneController = undefined
@@ -303,6 +431,7 @@ async function buildLaunchCommandLine(
   ctx: DriverContext,
   homeEnv: {
     home: PreparedMuseHome
+    callbackSocket: string
     runtimeId?: string | undefined
     helperLauncher?: TmuxHelperLauncher | undefined
   }
@@ -316,6 +445,12 @@ async function buildLaunchCommandLine(
     ...museHomeEnv(homeEnv.home),
     HARNESS_BROKER_INVOCATION_ID: ctx.invocationId,
     ...(homeEnv.runtimeId !== undefined ? { HARNESS_BROKER_RUNTIME_ID: homeEnv.runtimeId } : {}),
+    // /quit teardown: the muse TUI emits no SessionEnd hook of its own, so
+    // the runner posts a synthetic one on harness-process exit (same opt-in
+    // as codex-cli-tmux). The socket carries ONLY that envelope.
+    HARNESS_BROKER_CALLBACK_SOCKET: homeEnv.callbackSocket,
+    HARNESS_BROKER_HOOK_GENERATION: String(MUSE_HOOK_GENERATION),
+    HARNESS_BROKER_SYNTH_SESSION_END: '1',
   }
   const launch = await writeTmuxLaunchExecFiles(
     `${tmpdir()}/muse-cli-tmux-${ctx.invocationId}`,
@@ -340,5 +475,9 @@ export function createDefaultMuseCliTmuxDriver(
   return createMuseCliTmuxDriver({
     tmux: { socketPath: join(socketDir, 'muse-tmux.sock') },
     ...(helperLauncher !== undefined ? { helperLauncher } : {}),
+    hooks: {
+      listen: (handler, context) =>
+        listenForHookEnvelopes(buildMuseHookSocketPath(socketDir, context), handler),
+    },
   })
 }
