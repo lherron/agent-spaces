@@ -13,8 +13,8 @@ it never starts a harness. Workers are selected from the release's inspected
 driver-to-executable binding table, hosted by the client, and controlled
 directly over their own Unix sockets with the existing broker protocol.
 
-Binding-aware releases support `codex-app-server`, `claude-code-tmux`, and
-`pi-tui-tmux` through `harness-broker`. `pi-sdk` remains on its current
+Binding-aware releases support `codex-app-server`, `claude-code-tmux`,
+`pi-tui-tmux`, and `muse-serve` through `harness-broker`. `pi-sdk` remains on its current
 non-aspd path pending a hermetic release compilation surface; selecting it
 against a binding-aware release is refused before `executionRelease`. HRC
 remains the worker host and lifecycle authority.
