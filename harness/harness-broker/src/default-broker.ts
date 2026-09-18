@@ -87,7 +87,7 @@ export function createDefaultBroker(
       }),
       createCodexDesktopDriver(),
       createMuseServeDriver(),
-      createDefaultMuseCliTmuxDriver(options.hookIpcDir),
+      createDefaultMuseCliTmuxDriver(options.hookIpcDir, options.tmuxHelperLauncher),
       createArrisResidentDriver(),
       createDefaultClaudeCodeTmuxDriver(options.hookIpcDir, options.tmuxHelperLauncher),
       createDefaultCodexCliTmuxDriver(options.hookIpcDir),

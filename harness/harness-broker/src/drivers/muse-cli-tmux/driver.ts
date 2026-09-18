@@ -16,7 +16,8 @@ import { museHomeEnv, prepareMuseHome } from 'spaces-harness-muse'
 import type { PreparedMuseHome } from 'spaces-harness-muse'
 import { BrokerError } from '../../errors'
 import type { TmuxExec, TmuxPaneController } from '../../runtime/tmux'
-import { writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
+import type { TmuxHelperLauncher } from '../../runtime/tmux-launch-exec'
+import { tmuxHelperRunner, writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
 import { MUSE_CLI_TMUX_AUTHORITY } from '../evidence-authority'
 import { consumePaneLease, extractText, getInvocationRuntimeId, sleep } from '../tmux-shared'
@@ -95,6 +96,8 @@ export interface MuseCliTmuxDriverOptions {
     tmuxBin?: string | undefined
     exec?: TmuxExec | undefined
   }
+  /** Same-payload launcher for the release-owned tmux launch helper. */
+  helperLauncher?: TmuxHelperLauncher | undefined
   /** Base dir for per-invocation isolated HOMEs. Defaults to the OS temp dir. */
   homeBaseDir?: string | undefined
   /** Session-log poll cadence. Defaults to 500 ms. */
@@ -241,6 +244,9 @@ export function createMuseCliTmuxDriver(options: MuseCliTmuxDriverOptions): Driv
         await buildLaunchCommandLine(spec, driverCtx, {
           home,
           ...(expectedRuntimeId !== undefined ? { runtimeId: expectedRuntimeId } : {}),
+          ...(options.helperLauncher !== undefined
+            ? { helperLauncher: options.helperLauncher }
+            : {}),
         })
       )
       return { ok: true }
@@ -292,6 +298,7 @@ async function buildLaunchCommandLine(
   homeEnv: {
     home: PreparedMuseHome
     runtimeId?: string | undefined
+    helperLauncher?: TmuxHelperLauncher | undefined
   }
 ): Promise<string> {
   const env = {
@@ -304,20 +311,28 @@ async function buildLaunchCommandLine(
     HARNESS_BROKER_INVOCATION_ID: ctx.invocationId,
     ...(homeEnv.runtimeId !== undefined ? { HARNESS_BROKER_RUNTIME_ID: homeEnv.runtimeId } : {}),
   }
-  const launch = await writeTmuxLaunchExecFiles(`${tmpdir()}/muse-cli-tmux-${ctx.invocationId}`, {
-    argv: [spec.process.command, ...spec.process.args],
-    cwd: spec.process.cwd,
-    env,
-    pathPrepend: spec.process.pathPrepend,
-    ...(spec.launch !== undefined ? { prompts: spec.launch } : {}),
-  })
+  const launch = await writeTmuxLaunchExecFiles(
+    `${tmpdir()}/muse-cli-tmux-${ctx.invocationId}`,
+    {
+      argv: [spec.process.command, ...spec.process.args],
+      cwd: spec.process.cwd,
+      env,
+      pathPrepend: spec.process.pathPrepend,
+      ...(spec.launch !== undefined ? { prompts: spec.launch } : {}),
+    },
+    homeEnv.helperLauncher !== undefined
+      ? { runner: tmuxHelperRunner(homeEnv.helperLauncher, 'tmux-launch') }
+      : {}
+  )
   return launch.commandLine
 }
 
 export function createDefaultMuseCliTmuxDriver(
-  socketDir: string = join(tmpdir(), 'harness-broker')
+  socketDir: string = join(tmpdir(), 'harness-broker'),
+  helperLauncher?: TmuxHelperLauncher | undefined
 ): Driver {
   return createMuseCliTmuxDriver({
     tmux: { socketPath: join(socketDir, 'muse-tmux.sock') },
+    ...(helperLauncher !== undefined ? { helperLauncher } : {}),
   })
 }
