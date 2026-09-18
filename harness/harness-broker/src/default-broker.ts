@@ -14,6 +14,7 @@ import type { RendererLauncher } from './drivers/codex-app-server/renderer'
 import { createDefaultCodexCliTmuxDriver } from './drivers/codex-cli-tmux/driver'
 import { createCodexDesktopDriver } from './drivers/codex-desktop/driver'
 import type { Driver } from './drivers/driver'
+import { createDefaultMuseCliTmuxDriver } from './drivers/muse-cli-tmux/driver'
 import { createMuseServeDriver } from './drivers/muse-serve/driver'
 import { createDefaultPiTuiTmuxDriver } from './drivers/pi-tui-tmux/driver'
 import type { EventLedger } from './event-ledger'
@@ -86,6 +87,7 @@ export function createDefaultBroker(
       }),
       createCodexDesktopDriver(),
       createMuseServeDriver(),
+      createDefaultMuseCliTmuxDriver(options.hookIpcDir),
       createArrisResidentDriver(),
       createDefaultClaudeCodeTmuxDriver(options.hookIpcDir, options.tmuxHelperLauncher),
       createDefaultCodexCliTmuxDriver(options.hookIpcDir),

@@ -23,6 +23,7 @@ import {
   CODEX_APP_SERVER_AUTHORITY,
   CODEX_CLI_TMUX_AUTHORITY,
   CODEX_DESKTOP_AUTHORITY,
+  MUSE_CLI_TMUX_AUTHORITY,
   MUSE_SERVE_AUTHORITY,
   PI_TUI_TMUX_AUTHORITY,
 } from '../../src/drivers/evidence-authority'
@@ -40,6 +41,7 @@ const DECLARED: Record<string, Record<EventFamily, EvidenceAuthority>> = {
   'codex-cli-tmux': CODEX_CLI_TMUX_AUTHORITY,
   'codex-app-server': CODEX_APP_SERVER_AUTHORITY,
   'muse-serve': MUSE_SERVE_AUTHORITY,
+  'muse-cli-tmux': MUSE_CLI_TMUX_AUTHORITY,
   'codex-desktop': CODEX_DESKTOP_AUTHORITY,
   'arris-resident': ARRIS_RESIDENT_AUTHORITY,
   'pi-tui-tmux': PI_TUI_TMUX_AUTHORITY,

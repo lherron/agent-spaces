@@ -98,22 +98,22 @@ records the same mistake once, under "Unknown HOOK names" below.
 
 ## The matrix
 
-| Family | claude-code-tmux | codex-cli-tmux | codex-app-server | muse-serve | codex-desktop | arris-resident | pi-tui-tmux | agent-harness-tmux | pi-sdk |
+| Family | claude-code-tmux | codex-cli-tmux | codex-app-server | muse-serve | muse-cli-tmux | codex-desktop | arris-resident | pi-tui-tmux | agent-harness-tmux | pi-sdk |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `invocation-lifecycle` | broker | broker | broker | broker | broker | broker | broker | broker | broker |
-| `harness-lifecycle` | hook | hook | broker | broker | broker | broker | hook | native | broker |
-| `continuation` | hook | hook | native | native | broker | native | hook | native | native |
-| `input-admission` | broker | broker | broker | broker | broker | broker | broker | broker | broker |
-| `submission-disposition` | **native** | broker † | broker † | broker † | broker † | native | broker † | broker † | broker † |
-| `turn-bracket` | hook | hook | native | native | native | native | hook ‡ | native | **broker** ‡ |
-| `turn-supervision` | broker | broker | broker | broker | broker | broker | broker | broker | broker |
-| `conversation` | **native** | **native** | native | native | native | native | hook | native | native |
-| `tool` | **native** | hook | native | native | native | native | hook | native | native |
-| `usage` | native | native † | native | native | native | native | hook † | native | native |
-| `permission` | hook | hook | native | native | broker | native | hook | native | native |
-| `diagnostic` | hook | broker | native | native | broker | native | broker | broker | broker |
-| `terminal-surface` | broker | broker | broker | broker | broker | broker | broker | broker | broker |
-| `provider-artifact` | broker | broker | broker | broker | broker | broker | broker | broker | broker |
+| `invocation-lifecycle` | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker |
+| `harness-lifecycle` | hook | hook | broker | broker | broker | broker | broker | hook | native | broker |
+| `continuation` | hook | hook | native | native | native | broker | native | hook | native | native |
+| `input-admission` | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker |
+| `submission-disposition` | **native** | broker † | broker † | broker † | broker † | broker † | native | broker † | broker † | broker † |
+| `turn-bracket` | hook | hook | native | native | native | native | native | hook ‡ | native | **broker** ‡ |
+| `turn-supervision` | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker |
+| `conversation` | **native** | **native** | native | native | native | native | native | hook | native | native |
+| `tool` | **native** | hook | native | native | native | native | native | hook | native | native |
+| `usage` | native | native † | native | native | native | native | native | hook † | native | native |
+| `permission` | hook | hook | native | native | broker | broker | native | hook | native | native |
+| `diagnostic` | hook | broker | native | native | native | broker | native | broker | broker | broker |
+| `terminal-surface` | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker |
+| `provider-artifact` | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker |
 
 † **Declared but not emitted today.** The value names the source that *would*
 own the family, so a later cutover has a stated starting point. The parity
@@ -233,6 +233,18 @@ disposable, which is what the `real-muse-serve` matrix row runs on.
 Wire-vocabulary note (T-08592): `session/started` opens every session on the
 real wire but is absent from the `muse schema` notification index — an export
 gap, recorded here rather than failed in the smoke's vocabulary check.
+
+### muse-cli-tmux
+
+The TUI's own `session.jsonl` owns observed turns, user/assistant content,
+tool records and usage — same shape as `muse-serve`, but read off a tailed
+log file rather than the MSP wire, and with no streaming deltas (only
+committed messages reach the log). `permission` stays broker: approval
+questions surface as driver diagnostics in v1, no `permission.requested` is
+emitted. Turn attribution is exact (`run_id` on every record), so no
+attribution machinery. Steer and interrupt landing are transcript-evidenced:
+busy pastes land as `inbox_item_queued` (source `user_steer`), Escape lands
+as `run_retracted`.
 
 ### codex-desktop
 

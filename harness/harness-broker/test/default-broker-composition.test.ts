@@ -28,6 +28,7 @@ describe('composable broker CLI', () => {
       'codex-app-server',
       'codex-desktop',
       'muse-serve',
+      'muse-cli-tmux',
       'arris-resident',
       'claude-code-tmux',
       'codex-cli-tmux',

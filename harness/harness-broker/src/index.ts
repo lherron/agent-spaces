@@ -108,6 +108,15 @@ export {
 } from './drivers/codex-cli-tmux/hook-events'
 export { createCodexCliTmuxDriver } from './drivers/codex-cli-tmux/driver'
 export {
+  MUSE_CLI_TMUX_DRIVER_KIND,
+  createMuseCliTmuxLogEventNormalizer,
+} from './drivers/muse-cli-tmux/log-events'
+export {
+  createDefaultMuseCliTmuxDriver,
+  createMuseCliTmuxDriver,
+} from './drivers/muse-cli-tmux/driver'
+export type { MuseCliTmuxDriverOptions } from './drivers/muse-cli-tmux/driver'
+export {
   PI_TUI_TMUX_DRIVER_KIND,
   createPiTuiTmuxHookEventNormalizer,
 } from './drivers/pi-tui-tmux/hook-events'

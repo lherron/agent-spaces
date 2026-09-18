@@ -136,6 +136,25 @@ export const MUSE_SERVE_AUTHORITY: EvidenceAuthorityMatrix = {
 }
 
 /**
+ * Muse CLI tmux (T-08601). Same shape as muse-serve — the TUI's own
+ * `session.jsonl` owns everything the model does — with two deliberate
+ * differences: `permission` stays broker (v1 surfaces approval questions as
+ * diagnostics; no `permission.requested` is emitted yet) and
+ * `harness-lifecycle` stays broker (no hooks; the session-log poll loop is
+ * driver-internal). Declared here so the driver file stays lifecycle code;
+ * AUTHORITY.md prose must agree with this matrix.
+ */
+export const MUSE_CLI_TMUX_AUTHORITY: EvidenceAuthorityMatrix = {
+  ...BROKER_OWNED_BASE,
+  continuation: 'native',
+  'turn-bracket': 'native',
+  conversation: 'native',
+  tool: 'native',
+  usage: 'native',
+  diagnostic: 'native',
+}
+
+/**
  * Codex desktop observer. The desktop rollout is the sole authority for work
  * that actually ran; the broker owns admission and observer lifecycle only.
  */
