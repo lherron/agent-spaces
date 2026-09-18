@@ -9,9 +9,10 @@
  *
  * Writer-side flag mapping (live `muse exec --help`, muse 1.3.0):
  * - model → --model, reasoning effort → --reasoning-effort (native flags).
- * - Approval has NO valid exec mapping (no approval flag; permission profiles
- *   are named and unenumerated) → data-carried for the broker driver
- *   (MuseServeDriverSpec.approvalMode). yolo is likewise unmapped.
+ * - yolo → --yolo (disables approval and sandbox, trusts the workspace).
+ *   Finer approval control has NO valid exec mapping (no approval flag;
+ *   permission profiles are named and unenumerated) → data-carried for the
+ *   broker driver (MuseServeDriverSpec.approvalMode).
  * - Prompt separation: options.prompt is the MODEL-CALLED prompt (positional
  *   PROMPT); the echoed command (displayCommand) is rendered separately by
  *   run.ts — the two are never the same string.
@@ -311,6 +312,7 @@ function buildExecArgs(bundle: ComposedTargetBundle, options: HarnessRunOptions)
   const args = [
     'exec',
     '--trust-workspace',
+    ...(options.yolo ? ['--yolo'] : []),
     '--workspace',
     options.cwd ?? options.projectPath ?? bundle.rootDir,
   ]
@@ -348,6 +350,9 @@ function buildResumeArgs(options: HarnessRunOptions): string[] {
 
 function buildInteractiveArgs(options: HarnessRunOptions): string[] {
   const args: string[] = []
+  if (options.yolo) {
+    args.push('--yolo')
+  }
   if (options.extraArgs) {
     args.push(...options.extraArgs)
   }

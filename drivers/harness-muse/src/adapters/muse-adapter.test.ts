@@ -115,6 +115,43 @@ describe('MuseAdapter', () => {
     ])
   })
 
+  test('yolo adds --yolo on the exec path and is omitted otherwise', () => {
+    const bundle = {
+      harnessId: 'muse' as const,
+      targetName: 'dev',
+      rootDir: '/out',
+      muse: {
+        workspaceDir: '/out/muse.workspace',
+        agentsPath: '/out/muse.workspace/AGENTS.md',
+        skillsDir: '/out/muse.workspace/skills',
+        settingsPath: '/out/muse.workspace/settings.json',
+        manifestPath: '/out/muse.workspace/manifest.json',
+      },
+    }
+    expect(museAdapter.buildRunArgs(bundle, runOptions({ yolo: true }))).toEqual([
+      'exec',
+      '--trust-workspace',
+      '--yolo',
+      '--workspace',
+      '/project',
+      'do the thing',
+    ])
+    expect(museAdapter.buildRunArgs(bundle, runOptions())).not.toContain('--yolo')
+  })
+
+  test('yolo adds --yolo on the interactive path and is omitted otherwise', () => {
+    const bundle = {
+      harnessId: 'muse' as const,
+      targetName: 'dev',
+      rootDir: '/out',
+    }
+    expect(museAdapter.buildRunArgs(bundle, { prompt: 'hi', yolo: true })).toEqual([
+      '--yolo',
+      'hi',
+    ])
+    expect(museAdapter.buildRunArgs(bundle, { prompt: 'hi' })).toEqual(['hi'])
+  })
+
   test('resume maps to muse resume and rejects a prompt positional', () => {
     const bundle = {
       harnessId: 'muse' as const,
