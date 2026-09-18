@@ -10,6 +10,7 @@ type ObserveRuntimeCapability = (request: Record<string, unknown>) => Promise<Ca
 
 const ENV_KEYS = [
   'ASP_CLAUDE_PATH',
+  'ASP_MUSE_PATH',
   'ASP_PI_PATH',
   'ASP_CODEX_PATH',
   'ASP_CODEX_SKIP_COMMON_PATHS',
@@ -71,6 +72,20 @@ describe('T-08563 runtime capability observation', () => {
         expect.objectContaining({ code: 'probe_exit_nonzero', probe: 'version' }),
       ])
     )
+  })
+
+  test('observes muse like claude: version probe present, credentials not required', async () => {
+    const shim = await executable('muse', `console.log('Muse Code 1.3.0')`)
+    process.env.ASP_MUSE_PATH = shim
+    for (const name of ['muse', 'muse-cli']) {
+      const response = await operation()(request(name))
+      expect(response).toMatchObject({
+        ok: true,
+        nativeRuntime: { state: 'present', code: 'native_available' },
+        credentials: { state: 'present', code: 'credentials_not_required' },
+        preparation: { state: 'present', code: 'preparation_ready' },
+      })
+    }
   })
 
   test('bounds Claude/Pi probes at 3000ms and 65536 combined bytes', async () => {

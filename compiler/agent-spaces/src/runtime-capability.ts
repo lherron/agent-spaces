@@ -63,7 +63,9 @@ export async function observeRuntimeCapability(
   const command =
     harness === 'claude'
       ? findCommand('ASP_CLAUDE_PATH', 'claude')
-      : findCommand('ASP_PI_PATH', 'pi')
+      : harness === 'muse'
+        ? findCommand('ASP_MUSE_PATH', 'muse')
+        : findCommand('ASP_PI_PATH', 'pi')
   if (!command) return capabilitySuccess(requested, harness, 'absent', 'absent', diagnostics)
   const version = await boundedProbe(command, ['--version'], PROBE_TIMEOUT_MS)
   if (!version.ok) {
@@ -436,11 +438,14 @@ function capabilityFailure(kind: 'unavailable' | 'incompatible', code: string, m
   }
 }
 
-function normalizeHarness(value: string): 'claude' | 'pi' | 'pi-sdk' | 'codex' | undefined {
+function normalizeHarness(
+  value: string
+): 'claude' | 'pi' | 'pi-sdk' | 'codex' | 'muse' | undefined {
   if (value === 'claude' || value === 'claude-code' || value === 'claude-agent-sdk') return 'claude'
   if (value === 'pi' || value === 'pi-cli') return 'pi'
   if (value === 'pi-sdk') return 'pi-sdk'
   if (value === 'codex' || value === 'codex-cli') return 'codex'
+  if (value === 'muse' || value === 'muse-cli') return 'muse'
   return undefined
 }
 
