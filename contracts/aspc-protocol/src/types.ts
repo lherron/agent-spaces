@@ -420,6 +420,7 @@ export type AspcProvisioningObservation = {
   effectiveHarness: string
   frontend: string
   provider: 'anthropic' | 'openai'
+  transport: 'cli' | 'sdk'
   family: string
   runtime: string
 }

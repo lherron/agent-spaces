@@ -106,6 +106,35 @@ describe('T-08563 runtime declaration observation', () => {
     })
   })
 
+  test('projects transport cli for a CLI harness entry (T-08600)', async () => {
+    const response = await operation()(request(), daemonDefaults())
+    expect(response.ok).toBe(true)
+    expect(response.baselineProvisioning).toMatchObject({
+      effectiveHarness: 'codex',
+      frontend: 'codex-cli',
+      transport: 'cli',
+    })
+    expect(response.baselineProvisioning.transport).toBe('cli')
+  })
+
+  test('projects transport sdk for an SDK harness entry (T-08600)', async () => {
+    const response = await operation()(
+      request({ provisionDirectives: { harness: 'claude-agent-sdk' } }),
+      daemonDefaults()
+    )
+    expect(response.ok).toBe(true)
+    expect(response.provisioning).toEqual({
+      scalars: expect.objectContaining({ harness: 'claude-agent-sdk' }),
+      declaredHarness: 'claude',
+      effectiveHarness: 'claude-agent-sdk',
+      frontend: 'agent-sdk',
+      provider: 'anthropic',
+      transport: 'sdk',
+      family: 'claude-agent-sdk',
+      runtime: 'agent-sdk',
+    })
+  })
+
   test('keeps root, infer-from-cwd, and none as three observable modes', async () => {
     const resolveDeclaration = operation()
     const rootMode = await resolveDeclaration(request(), daemonDefaults())
@@ -309,6 +338,7 @@ model = "target-model-only"
       effectiveHarness: 'claude',
       frontend: 'claude-code',
       provider: 'anthropic',
+      transport: 'cli',
       family: 'claude',
       runtime: 'claude-code',
     })
@@ -318,6 +348,7 @@ model = "target-model-only"
       effectiveHarness: 'pi-sdk',
       frontend: 'pi-sdk',
       provider: 'openai',
+      transport: 'sdk',
       family: 'pi-sdk',
       runtime: 'pi-sdk',
     })
@@ -355,6 +386,7 @@ remote = ${remote}
         effectiveHarness: 'codex',
         frontend: 'codex-cli',
         provider: 'openai',
+        transport: 'cli',
         family: 'codex',
         runtime: 'codex-cli',
       })
@@ -367,6 +399,7 @@ remote = ${remote}
         effectiveHarness: 'codex',
         frontend: 'codex-cli',
         provider: 'openai',
+        transport: 'cli',
         family: 'codex',
         runtime: 'codex-cli',
       })

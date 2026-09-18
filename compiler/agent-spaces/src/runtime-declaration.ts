@@ -345,6 +345,7 @@ function provisioning(
     effectiveHarness: entry.id,
     frontend: entry.frontend,
     provider: entry.provider,
+    transport: entry.transport,
     family: entry.id,
     runtime: entry.frontend,
   }

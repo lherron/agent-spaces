@@ -252,6 +252,7 @@ model = "gpt-5.6-sol"
           scalars: { harness: 'codex', model: 'gpt-5.6-sol' },
           effectiveHarness: 'codex',
           provider: 'openai',
+          transport: 'cli',
         },
       })
       expect(targetOnly.baselineProvisioning.scalars).toEqual({
@@ -274,8 +275,8 @@ model = "gpt-5.6-sol"
         projectTargets: { state: 'absent', code: 'not_declared' },
         selectedTarget: { state: 'absent', code: 'not_declared' },
       },
-      baselineProvisioning: { scalars: {}, effectiveHarness: 'claude' },
-      provisioning: { scalars: {}, effectiveHarness: 'claude' },
+      baselineProvisioning: { scalars: {}, effectiveHarness: 'claude', transport: 'cli' },
+      provisioning: { scalars: {}, effectiveHarness: 'claude', transport: 'cli' },
     })
     expect(invalidWithoutTarget).not.toHaveProperty('resolution')
     expect(invalidWithoutTarget.baselineProvisioning.scalars).not.toHaveProperty('harness')

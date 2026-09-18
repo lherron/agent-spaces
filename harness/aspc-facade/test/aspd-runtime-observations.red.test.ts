@@ -187,7 +187,11 @@ describe('T-08563 standalone aspd runtime observations', () => {
       expect(response).toMatchObject({
         ok: true,
         identity: { role: 'actual-producer' },
-        provisioning: { effectiveHarness: 'claude', provider: 'anthropic' },
+        provisioning: {
+          effectiveHarness: 'claude',
+          provider: 'anthropic',
+          transport: 'cli',
+        },
         agentSources: { provenance: 'caller' },
       })
     } finally {
