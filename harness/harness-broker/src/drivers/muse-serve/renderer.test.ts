@@ -5,7 +5,12 @@
 import { describe, expect, test } from 'bun:test'
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import type { RendererDurableReadSurface } from '../codex-app-server/renderer'
-import { buildMuseRendererLaunchCommand, createMuseServeRendererProjection } from './renderer'
+import {
+  buildMuseRendererLaunchCommand,
+  createMuseServeRendererProjection,
+  resolveMuseRendererEntryPath,
+  resolveMuseRendererLauncher,
+} from './renderer'
 
 let seq = 0
 const envelope = (type: string, payload: Record<string, unknown>): InvocationEventEnvelope => {
@@ -85,5 +90,31 @@ describe('buildMuseRendererLaunchCommand', () => {
     expect(command).toContain('--bootstrap-method invocation.eventsSince')
     expect(command).toContain('--live-method invocation.event')
     expect(command).toContain('renderer-entry')
+  })
+
+  test('launcher runs the renderer as a broker subcommand', () => {
+    const command = buildMuseRendererLaunchCommand({
+      invocationId: 'inv_muse_1',
+      observerSocketPath: '/tmp/obs.sock',
+      controlSocketPath: '/tmp/ctl.sock',
+      launcher: { command: '/release/libexec/harness-broker', args: ['renderer'] },
+    })
+    expect(command.startsWith('exec /release/libexec/harness-broker renderer --driver muse-serve')).toBe(
+      true
+    )
+    expect(command).toContain('--driver muse-serve')
+    expect(command).not.toContain('renderer-entry')
+  })
+})
+
+describe('resolveMuseRendererLauncher', () => {
+  test('existing sibling entry keeps bun behavior', () => {
+    expect(resolveMuseRendererLauncher(resolveMuseRendererEntryPath(), '/release/bin')).toBeUndefined()
+  })
+
+  test('missing sibling entry falls back to the broker binary itself', () => {
+    expect(
+      resolveMuseRendererLauncher('/$bunfs/root/renderer-entry.js', '/release/libexec/harness-broker')
+    ).toEqual({ command: '/release/libexec/harness-broker', args: ['renderer'] })
   })
 })

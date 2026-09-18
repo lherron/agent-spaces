@@ -78,7 +78,7 @@ import type { MappedEvent } from './event-map'
 import { buildMuseTurnStartParams, extractMuseText } from './input'
 import { createPermissionRequestIdAllocator, handleMuseApprovalRequest } from './permissions'
 import type { PermissionRequestIdAllocator } from './permissions'
-import { buildMuseRendererLaunchCommand } from './renderer'
+import { buildMuseRendererLaunchCommand, resolveMuseRendererLauncher } from './renderer'
 import { MuseRpcClient } from './rpc-client'
 import type { MuseJsonRpcNotification, MuseJsonRpcRequest, MuseRpcPeer } from './rpc-client'
 
@@ -861,12 +861,14 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
           }
         )
         const observerSocketPath = resolveMuseRendererObserverSocket(driverCtx, leased.surface)
+        const rendererLauncher = resolveMuseRendererLauncher()
         await leased.controller.sendPastedLine(
           buildMuseRendererLaunchCommand({
             invocationId: driverCtx.invocationId,
             observerSocketPath,
             controlSocketPath: rendererControlListener.socketPath,
             ...(expectedRuntimeId !== undefined ? { runtimeId: expectedRuntimeId } : {}),
+            ...(rendererLauncher !== undefined ? { launcher: rendererLauncher } : {}),
           })
         )
       }

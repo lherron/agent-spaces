@@ -8,10 +8,12 @@
  * coherent with durable attach/replay; the serve stdio child stays the
  * authoritative transport.
  */
+import { existsSync } from 'node:fs'
 import { dirname, extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createCodexAppServerRendererProjection } from '../codex-app-server/renderer'
 import type {
+  RendererLauncher,
   RendererLaunchOptions,
   RendererProjection,
   RendererProjectionOptions,
@@ -43,6 +45,22 @@ export function createMuseServeRendererProjection(
 export function resolveMuseRendererEntryPath(): string {
   const self = fileURLToPath(import.meta.url)
   return join(dirname(self), `renderer-entry${extname(self)}`)
+}
+
+/**
+ * Resolve the launcher that runs the muse renderer. Inside a bun-compiled
+ * release the renderer entry file does not exist (sibling of a $bunfs module
+ * path), so the renderer runs as a `renderer` subcommand of the broker binary
+ * itself — the same release-payload precedent as the codex-tui wrapper. In
+ * dev/dist layouts the sibling entry exists and the launcher stays undefined
+ * (`bun <entry>` behavior unchanged).
+ */
+export function resolveMuseRendererLauncher(
+  entryPath: string = resolveMuseRendererEntryPath(),
+  execPath: string = process.execPath
+): RendererLauncher | undefined {
+  if (existsSync(entryPath)) return undefined
+  return { command: execPath, args: ['renderer'] }
 }
 
 /**
