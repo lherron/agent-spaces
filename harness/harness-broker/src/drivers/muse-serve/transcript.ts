@@ -347,6 +347,10 @@ export function createMuseTranscriptModel(
           renderToolFailed(payload, event.type)
           return
         case 'usage.updated':
+          // Per-chunk usage payloads are telemetry, not transcript: keep them
+          // off the pane unless explicitly debugging (matches debug
+          // diagnostics). The endturn band keeps the compact token count.
+          if (!verbose) return
           renderChrome(`usage: ${summarize(payload['usage'])}`, event.type)
           return
         case 'diagnostic':

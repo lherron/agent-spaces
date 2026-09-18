@@ -138,6 +138,21 @@ describe('createMuseTranscriptModel', () => {
     expect(lines).toEqual(['[diagnostic] [debug] muse-serve context usage'])
   })
 
+  test('usage payloads stay off the pane unless verbose', () => {
+    const update = {
+      type: 'usage.updated',
+      payload: { usage: { inputTokens: 25008, outputTokens: 203 } },
+    }
+    expect(render([update])).toEqual([])
+    const lines: string[] = []
+    const model = createMuseTranscriptModel({
+      emit: (line) => lines.push(line),
+      verbose: true,
+    })
+    model.apply(envelope(update.type, update.payload))
+    expect(lines).toEqual(['[usage.updated] usage: {"inputTokens":25008,"outputTokens":203}'])
+  })
+
   test('projects failures, interruptions, and permissions', () => {
     const lines = render([
       { type: 'turn.failed', payload: { turnId: 't2', message: 'boom', code: 'authRequired' } },
