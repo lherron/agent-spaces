@@ -987,6 +987,8 @@ const INTERACTIVE_BROKER_BUILDERS: Partial<Record<HarnessFamily, InteractiveComp
   codex: (req, placement, options) => compileBrokerPlan(req, placement, options, true),
   pi: (req, placement, options) =>
     compileTmuxBrokerPlan(req, placement, PI_TMUX_DRIVER_CONFIG, options),
+  muse: (req, placement, options) =>
+    compileTmuxBrokerPlan(req, placement, MUSE_TMUX_DRIVER_CONFIG, options),
 }
 
 /**
@@ -1830,7 +1832,7 @@ function buildTmuxLaunchSpec(prepared: PreparedPlacementCliRuntime): HarnessLaun
  * carries `hookBridge: 'codex-hooks/v1'` on the spec driver descriptor.
  */
 interface TmuxBrokerDriverConfig {
-  driverKind: 'claude-code-tmux' | 'codex-cli-tmux' | 'pi-tui-tmux'
+  driverKind: 'claude-code-tmux' | 'codex-cli-tmux' | 'pi-tui-tmux' | 'muse-cli-tmux'
   hookBridge?: 'codex-hooks/v1' | 'pi-hrc-events/v1'
   honorDisallowedTools: boolean
 }
@@ -1843,6 +1845,11 @@ const CLAUDE_TMUX_DRIVER_CONFIG: TmuxBrokerDriverConfig = {
 const PI_TMUX_DRIVER_CONFIG: TmuxBrokerDriverConfig = {
   driverKind: 'pi-tui-tmux',
   hookBridge: 'pi-hrc-events/v1',
+  honorDisallowedTools: false,
+}
+
+const MUSE_TMUX_DRIVER_CONFIG: TmuxBrokerDriverConfig = {
+  driverKind: 'muse-cli-tmux',
   honorDisallowedTools: false,
 }
 
@@ -1921,7 +1928,19 @@ async function compileTmuxBrokerPlan(
   const limits = toProcessLimits(req.hrcPolicy.resourceLimits)
   const taskId = req.materialization.taskContext?.taskId
 
-  const lockedEnv = prepared.lockedEnv
+  // The muse composer stages a stable CLI home (HOME + XDG_* under the bundle)
+  // for `muse exec` spawns. Those keys are ambient-class and forbidden in a
+  // hashed lockedEnv — and the muse-cli-tmux driver would ignore them anyway:
+  // it mints a per-invocation isolated HOME at birth and stamps it over the
+  // launch env itself. Strip them for the muse tmux route only.
+  const lockedEnv =
+    driverKind === 'muse-cli-tmux'
+      ? Object.fromEntries(
+          Object.entries(prepared.lockedEnv).filter(
+            ([key]) => key !== 'HOME' && key !== 'XDG_CONFIG_HOME' && key !== 'XDG_DATA_HOME'
+          )
+        )
+      : prepared.lockedEnv
   const lockedEnvKeys = Object.keys(lockedEnv).sort()
   const bundleIdentity = prepared.resolvedBundle?.bundleIdentity ?? 'unknown'
   const lockHash = (prepared.resolvedBundle as { lockHash?: string | undefined } | undefined)

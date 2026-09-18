@@ -1513,7 +1513,8 @@ function validateDispatchRuntime(
   if (
     driverKind !== 'claude-code-tmux' &&
     driverKind !== 'codex-cli-tmux' &&
-    driverKind !== 'pi-tui-tmux'
+    driverKind !== 'pi-tui-tmux' &&
+    driverKind !== 'muse-cli-tmux'
   ) {
     return
   }
@@ -2305,7 +2306,8 @@ function validateTerminalSurfaceReportedPayload(
   const requiresPaneKind =
     driverKind === 'claude-code-tmux' ||
     driverKind === 'codex-cli-tmux' ||
-    driverKind === 'pi-tui-tmux'
+    driverKind === 'pi-tui-tmux' ||
+    driverKind === 'muse-cli-tmux'
 
   if (payload['kind'] === 'tmux-pane') {
     requireString(payload['socketPath'], 'payload.socketPath', issues)

@@ -146,6 +146,8 @@ type BrokerProfileFacts = {
   isCodexCliTmux: boolean
   profileClaimsPiTuiTmux: boolean
   isPiTuiTmux: boolean
+  profileClaimsMuseCliTmux: boolean
+  isMuseCliTmux: boolean
   profileClaimsPiSdk: boolean
   isPiSdk: boolean
 }
@@ -156,6 +158,7 @@ function computeBrokerProfileFacts(profile: BrokerExecutionProfile): BrokerProfi
   const profileClaimsClaudeCodeTmux = profile.brokerDriver === 'claude-code-tmux'
   const profileClaimsCodexCliTmux = profile.brokerDriver === 'codex-cli-tmux'
   const profileClaimsPiTuiTmux = profile.brokerDriver === 'pi-tui-tmux'
+  const profileClaimsMuseCliTmux = profile.brokerDriver === 'muse-cli-tmux'
   const profileClaimsPiSdk = profile.brokerDriver === 'pi-sdk'
   return {
     specDriverKind,
@@ -174,6 +177,8 @@ function computeBrokerProfileFacts(profile: BrokerExecutionProfile): BrokerProfi
     isCodexCliTmux: profileClaimsCodexCliTmux || specDriverKind === 'codex-cli-tmux',
     profileClaimsPiTuiTmux,
     isPiTuiTmux: profileClaimsPiTuiTmux || specDriverKind === 'pi-tui-tmux',
+    profileClaimsMuseCliTmux,
+    isMuseCliTmux: profileClaimsMuseCliTmux || specDriverKind === 'muse-cli-tmux',
     profileClaimsPiSdk,
     isPiSdk: profileClaimsPiSdk || specDriverKind === 'pi-sdk',
   }
@@ -368,6 +373,33 @@ const PI_TUI_TMUX_RULES: BrokerLegalityRule[] = [
       : undefined,
 ]
 
+const MUSE_CLI_TMUX_RULES: BrokerLegalityRule[] = [
+  (profile, facts) =>
+    facts.profileClaimsMuseCliTmux && facts.specDriverKind !== 'muse-cli-tmux'
+      ? executionProfileDiagnostic(
+          profile,
+          'muse_cli_tmux_requires_driver_kind',
+          'muse-cli-tmux broker profiles must use muse-cli-tmux in the hashed driver spec.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.specDriverKind === 'muse-cli-tmux' && facts.specDriverTerminalHost !== 'tmux'
+      ? executionProfileDiagnostic(
+          profile,
+          'muse_cli_tmux_requires_terminal_host',
+          'muse-cli-tmux broker profiles must declare terminalHost tmux in the hashed driver spec.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.isMuseCliTmux && facts.transportKind !== 'pty'
+      ? executionProfileDiagnostic(
+          profile,
+          'muse_cli_tmux_requires_pty_transport',
+          'muse-cli-tmux broker profiles must use pty process transport.'
+        )
+      : undefined,
+]
+
 const PI_SDK_RULES: BrokerLegalityRule[] = [
   (profile, facts) =>
     facts.isPiSdk && profile.interactionMode !== 'nonInteractive'
@@ -494,6 +526,7 @@ const BROKER_RULES: BrokerLegalityRule[] = [
   ...CLAUDE_CODE_TMUX_RULES,
   ...CODEX_CLI_TMUX_RULES,
   ...PI_TUI_TMUX_RULES,
+  ...MUSE_CLI_TMUX_RULES,
   ...PI_SDK_RULES,
   ...INTERACTIVE_TMUX_RULES,
 ]

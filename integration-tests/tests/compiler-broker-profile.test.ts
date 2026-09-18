@@ -119,6 +119,23 @@ echo "claude shim"
   return shimPath
 }
 
+function createMuseShim(dir: string): string {
+  const shimPath = join(dir, 'muse')
+  writeFileSync(
+    shimPath,
+    `#!/usr/bin/env bash
+if [[ "$1" == "--version" ]]; then
+  echo "Muse Code 1.3.0"
+  exit 0
+fi
+echo "muse shim"
+`,
+    'utf8'
+  )
+  chmodSync(shimPath, 0o755)
+  return shimPath
+}
+
 function createFixture(): {
   agentRoot: string
   projectRoot: string
@@ -148,6 +165,7 @@ base = []
   )
   createClaudeShim(aspHome)
   createCodexShim(aspHome)
+  createMuseShim(aspHome)
   return {
     agentRoot,
     projectRoot,
@@ -161,6 +179,7 @@ let fixture: ReturnType<typeof createFixture>
 const originalCodexPath = process.env['ASP_CODEX_PATH']
 const originalSkipCommon = process.env['ASP_CODEX_SKIP_COMMON_PATHS']
 const originalClaudePath = process.env['ASP_CLAUDE_PATH']
+const originalMusePath = process.env['ASP_MUSE_PATH']
 
 function createClient(): CompileClient {
   return createAgentSpacesClient({
@@ -387,6 +406,7 @@ describe('compiled broker profile field mapping', () => {
     process.env['ASP_CLAUDE_PATH'] = join(fixture.aspHome, 'claude')
     process.env['ASP_CODEX_PATH'] = join(fixture.aspHome, 'codex')
     process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
+    process.env['ASP_MUSE_PATH'] = join(fixture.aspHome, 'muse')
   })
 
   afterAll(() => {
@@ -404,6 +424,11 @@ describe('compiled broker profile field mapping', () => {
       process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = undefined
     } else {
       process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = originalSkipCommon
+    }
+    if (originalMusePath === undefined) {
+      process.env['ASP_MUSE_PATH'] = undefined
+    } else {
+      process.env['ASP_MUSE_PATH'] = originalMusePath
     }
     fixture.cleanup()
   })
@@ -511,6 +536,54 @@ describe('compiled broker profile field mapping', () => {
     expect(spec.driver).toEqual(
       expect.objectContaining({
         kind: 'claude-code-tmux',
+        terminalHost: 'tmux',
+      })
+    )
+    expect(spec.process.harnessTransport).toEqual({ kind: 'pty' })
+    expect(validateBrokerExecutionProfile(profile)).toEqual([])
+  })
+
+  test('emits a validating interactive muse-cli-tmux harness-broker profile', async () => {
+    const req = baseCompileRequest({
+      requested: {
+        modelProvider: 'meta',
+        model: 'muse-spark-1.3-contributor',
+        harnessFamily: 'muse',
+        preferredHarnessRuntime: 'muse-cli',
+        interactionMode: 'interactive',
+      },
+      materialization: {
+        ...baseCompileRequest().materialization,
+        initialPrompt: 'hello interactive muse tmux broker',
+        attachments: [],
+        taskContext: {
+          taskId: 'T-08602',
+          phase: 'red',
+          role: 'smokey',
+          requiredEvidenceKinds: ['red-test'],
+          hintsText: 'compileRuntimePlan must emit the interactive muse-cli-tmux broker profile',
+        },
+      },
+      hrcPolicy: {
+        ...baseCompileRequest().hrcPolicy,
+        exposurePolicy: { mode: 'broker-reports-target', targetKind: 'tmux-session' },
+      },
+      continuation: undefined,
+    })
+    const profile = brokerProfile(await createClient().compileRuntimePlan(req))
+    const spec = compiledSpec(profile)
+
+    expect(profile.kind).toBe('harness-broker')
+    expect(profile.interactionMode).toBe('interactive')
+    expect(profile.brokerDriver).toBe('muse-cli-tmux')
+    expect(spec.harness).toEqual({
+      frontend: 'muse-cli',
+      provider: 'meta',
+      driver: 'muse-cli-tmux',
+    })
+    expect(spec.driver).toEqual(
+      expect.objectContaining({
+        kind: 'muse-cli-tmux',
         terminalHost: 'tmux',
       })
     )
