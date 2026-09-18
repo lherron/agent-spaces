@@ -444,10 +444,85 @@ function buildInitialInput(
   }
 }
 
+/**
+ * Muse headless start request (muse-serve): mirrors the committed matrix fixture
+ * (contracts/harness-broker-protocol/src/fixtures/muse-serve/start-fresh.spec.json).
+ * Serve argv stays fixture-exact; the broker owns queueing (fifo).
+ */
+function toMuseServeStartRequest(
+  prepared: PreparedPlacementCliRuntime,
+  req: BuildHarnessBrokerInvocationRequest
+): BuildHarnessBrokerInvocationResponse {
+  const spec: HarnessInvocationSpec = {
+    specVersion: 'harness-broker.invocation/v1',
+    ...(req.invocationId !== undefined ? { invocationId: req.invocationId } : {}),
+    ...(req.labels !== undefined ? { labels: req.labels } : {}),
+    harness: {
+      frontend: 'muse-cli',
+      provider: 'meta',
+      driver: 'muse-serve',
+    },
+    process: {
+      command: prepared.commandPath,
+      args: ['serve', '--trust-workspace'],
+      cwd: prepared.cwd,
+      lockedEnv: prepared.lockedEnv,
+      ...(prepared.pathPrepend.length > 0 ? { pathPrepend: prepared.pathPrepend } : {}),
+      harnessTransport: { kind: 'jsonrpc-stdio' },
+      limits: req.limits ?? DEFAULT_BROKER_PROCESS_LIMITS,
+    },
+    interaction: {
+      mode: 'headless',
+      turnConcurrency: 'single',
+      inputQueue: 'fifo',
+    },
+    ...(req.continuation?.key !== undefined
+      ? {
+          continuation: {
+            provider: 'muse',
+            kind: 'session',
+            key: req.continuation.key,
+          },
+        }
+      : {}),
+    driver: {
+      kind: 'muse-serve',
+      workspace: prepared.cwd,
+      ...(req.model !== undefined ? { model: req.model } : {}),
+      approvalMode: 'onRequest',
+      permissionPolicy: req.permissionPolicy ?? { mode: 'deny' },
+      ...(req.continuation?.key !== undefined
+        ? { resumeSessionId: req.continuation.key }
+        : {}),
+      resumeFallback: req.resumeFallback ?? 'start-fresh',
+    },
+    correlation: req.correlation ?? brokerCorrelationFromPlacement(req.placement),
+  }
+  const initialInput = buildInitialInput(prepared, req)
+  const startRequest: InvocationStartRequest =
+    initialInput === undefined ? { spec } : { spec, initialInput }
+
+  validateInvocationSpec(startRequest.spec)
+  if (startRequest.initialInput !== undefined) {
+    validateInvocationInput(startRequest.initialInput)
+  }
+
+  return {
+    startRequest,
+    spec,
+    ...(initialInput !== undefined ? { initialInput } : {}),
+    resolvedBundle: prepared.resolvedBundle,
+    ...(prepared.warnings.length > 0 ? { warnings: prepared.warnings } : {}),
+  }
+}
+
 export function toHarnessBrokerStartRequest(
   prepared: PreparedPlacementCliRuntime,
   req: BuildHarnessBrokerInvocationRequest
 ): BuildHarnessBrokerInvocationResponse {
+  if (req.brokerDriver === 'muse-serve') {
+    return toMuseServeStartRequest(prepared, req)
+  }
   if (isInteractiveTmuxBrokerRequest(req)) {
     const driverKind = req.brokerDriver
     const hookBridge =
