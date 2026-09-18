@@ -177,7 +177,7 @@ describe('mapMuseNotification', () => {
   })
 })
 
-describe('muse wire vocabulary coverage (1.3.0 export)', () => {
+describe('muse wire vocabulary coverage (1.3.0 R3401.1 export)', () => {
   const mapped = [
     'turn/started',
     'turn/completed',
@@ -200,6 +200,7 @@ describe('muse wire vocabulary coverage (1.3.0 export)', () => {
     'session/goalChanged',
     'session/modelChanged',
     'session/modelRouteUnserved',
+    'session/listChanged',
     'session/nameChanged',
     'session/reasoningEffortChanged',
     'session/todoListChanged',
@@ -241,6 +242,27 @@ describe('muse wire vocabulary coverage (1.3.0 export)', () => {
     'skill/list',
     'item/readOutput',
     'usage/read',
+    'goal/clear',
+    'goal/edit',
+    'goal/pause',
+    'goal/resume',
+    'goal/set',
+    'subagent/close',
+    'subagent/followupTask',
+    'subagent/interrupt',
+    'subagent/readResult',
+    'subagent/reopen',
+    'subagent/resume',
+    'subagent/sendMessage',
+    'subagent/stop',
+    'task/background',
+    'task/stop',
+    'task/stopAll',
+    'view/page',
+    'view/subscribe',
+    'view/unsubscribe',
+    'workflow/cancel',
+    'workflow/childControl',
     ...mapped,
     ...ignoredKnown,
   ]

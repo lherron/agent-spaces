@@ -2,8 +2,8 @@
  * MSP notification → broker InvocationEvent mapping (T-08589, spike 3).
  *
  * Every method name below is schema- or probe-verified against muse 1.3.0
- * (offline schema export fingerprint
- * sha256:ab69549a7ebb423fce94068762da0b5ff3cdec1f8fc263dcc17248eda117f852
+ * R3401.1 (offline schema export fingerprint
+ * sha256:7469c9e352e67def4a59df7e439984d7194fa351e1c8b7abb34060fd977ced81
  * plus credential-free echo-turn probes). turn/completed terminal vocabulary
  * (completed|failed|cancelled), the authRequired failure shape, and the
  * commandRejected/missing_run fence were all OBSERVED live; assistant
