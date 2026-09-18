@@ -104,23 +104,27 @@ describe('createMuseTranscriptModel', () => {
     expect(joined).toContain('\x1b[')
     expect(joined).toContain('❯ ')
     expect(joined).toContain('▶ ')
-    expect(joined).toContain('$ shell')
+    expect(joined).toContain('$')
+    expect(joined).toContain('ls')
     expect(joined).toContain('✓ ')
     expect(joined).toContain('✗ ')
-    expect(joined).toContain('▎')
+    // Tint blocks separate sections — no keyline gutters, no tool names.
+    expect(joined).not.toContain('▎')
+    expect(joined).not.toContain('shell')
     // No legacy plain prefixes survive in styled mode.
     expect(lines.some((line) => line.startsWith('you: '))).toBe(false)
     expect(lines.some((line) => line.startsWith('assistant: '))).toBe(false)
   })
 
-  test('tool start header names the command from the input', () => {
+  test('tool start header shows the command with a bare $ marker', () => {
     const started = {
       type: 'tool.call.started',
       payload: { toolCallId: 'c1', name: 'bash', input: { command: 'wrkq info' } },
     }
     expect(render([started])).toEqual(['tool bash started: wrkq info'])
     const styled = render([started], { color: true })
-    expect(styled.some((line) => line.includes('$ bash') && line.includes('wrkq info'))).toBe(true)
+    expect(styled.some((line) => line.includes('wrkq info'))).toBe(true)
+    expect(styled.some((line) => line.includes('bash'))).toBe(false)
     const bare = render([
       { type: 'tool.call.started', payload: { toolCallId: 'c2', name: 'bash' } },
     ])
@@ -175,6 +179,12 @@ describe('createMuseTranscriptModel', () => {
     expect(joined).toContain('  … (2 more lines)')
     expect(joined).not.toContain('l5')
     expect(lines.some((line) => line.includes('$ bash'))).toBe(false)
+    // Output rows sit inside the tool tint block with no keyline; the
+    // truncation marker is dimmed to the palette floor.
+    expect(joined).toContain('48;2;18;38;28')
+    expect(joined).not.toContain('▎')
+    const marker = lines.find((line) => line.includes('more lines')) ?? ''
+    expect(marker).toContain('104;99;92')
     const short = render(
       [{ type: 'tool.call.completed', payload: { toolCallId: 'c2', name: 'bash', result: 'ok' } }],
       { color: true }

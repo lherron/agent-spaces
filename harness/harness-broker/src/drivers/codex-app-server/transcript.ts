@@ -521,6 +521,8 @@ export interface CodexStyler {
   /** Typographic: prose wrap/clip. Clamped — readability, not the pane. */
   contentWidth: () => number
   band: (bg: CodexBg, accent: CodexFg, segs: CodexSeg[]) => string
+  /** Full-width tinted block without the keyline; the tint alone separates. */
+  slab: (bg: CodexBg, segs: CodexSeg[]) => string
   line: (segs: CodexSeg[]) => string
   dimLine: (body: string) => string
 }
@@ -571,6 +573,18 @@ export function createCodexStyler(
     return `\x1b[${BG[bg]}m${paint(fitted)}${ERASE_TO_EOL}${RESET}`
   }
 
+  /**
+   * A full-width tinted block row WITHOUT the keyline: same tint, clip, and
+   * erase-to-EOL assembly as `band`, but the background tint alone separates
+   * the row — no bright spine. Opt-in per caller; `band` keeps its keyline so
+   * existing lanes render byte-identically.
+   */
+  function slab(bg: CodexBg, segs: CodexSeg[]): string {
+    if (!color) return segs.map((s) => s.text).join('')
+    const fitted = clipSegs(paintableSegs(segs), paneWidth() - 1)
+    return `\x1b[${BG[bg]}m${paint(fitted)}${ERASE_TO_EOL}${RESET}`
+  }
+
   /** An unbanded (native-bg) styled line, indented under BODY. */
   function line(segs: CodexSeg[]): string {
     if (!color) return `${BODY}${segs.map((s) => s.text).join('')}`
@@ -580,6 +594,7 @@ export function createCodexStyler(
   return {
     contentWidth,
     band,
+    slab,
     line,
     dimLine: (body: string): string => line([{ text: `· ${body}`, fg: 'dim' }]),
   }

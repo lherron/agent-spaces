@@ -4,10 +4,11 @@
  * Projects the same harness-agnostic broker events the codex transcript
  * projects (user.message, turn lifecycle, assistant deltas, tool calls,
  * usage) with muse-native content and the shared forge-lanes render language:
- * the band/keyline/ANSI primitives come from
- * codex-app-server/transcript (`createCodexStyler`), so a muse pane reads
- * like a codex pane — iris user lane, molten turn divider, kiln tool lane,
- * red failure lane, dim chrome. Styling is opt-in via `color` (the renderer
+ * the slab/ANSI primitives come from codex-app-server/transcript
+ * (`createCodexStyler`): full-width tint blocks with NO keyline gutters — the
+ * background tint alone separates user input (iris), tool calls (kiln),
+ * failures (red), and the turn footer, while agent prose stays on the native
+ * background. Styling is opt-in via `color` (the renderer
  * entry enables it on a TTY exactly like the codex entry); with `color`
  * unset the model emits the historical plain prefixed lines byte-for-byte.
  *
@@ -67,7 +68,7 @@ export function createMuseTranscriptModel(
   const emit = options.emit
   const verbose = options.verbose ?? false
   const color = options.color ?? false
-  const { band, line, dimLine } = createCodexStyler(color, options.width)
+  const { slab, line, dimLine } = createCodexStyler(color, options.width)
   const assistantBuffers = new Map<string, string>()
   const toolBuffers = new Map<string, { name: string; text: string }>()
   let lastAssistantText: string | undefined
@@ -111,7 +112,7 @@ export function createMuseTranscriptModel(
       .slice(0, 40)
       .forEach((row, idx) => {
         out(
-          band('prompt', 'iris', [
+          slab('prompt', [
             { text: idx === 0 ? '❯ ' : '  ', fg: 'iris', bold: idx === 0 },
             { text: row, fg: 'text' },
           ]),
@@ -157,7 +158,7 @@ export function createMuseTranscriptModel(
         : ''
     out('', type)
     out(
-      band('endturn', 'kiln', [
+      slab('endturn', [
         { text: '✓ ', fg: 'kiln', bold: true },
         { text: 'done', fg: 'text', bold: true },
         ...(stats.length > 0 ? [{ text: stats, fg: 'dim' as const }] : []),
@@ -178,7 +179,7 @@ export function createMuseTranscriptModel(
     }
     out('', type)
     out(
-      band('error', 'red', [
+      slab('error', [
         { text: '✗ ', fg: 'red', bold: true },
         { text: 'failed', fg: 'red', bold: true },
         { text: `  ${firstLine(summarize(payload['message'] ?? ''))}${code}`, fg: 'red' },
@@ -229,9 +230,9 @@ export function createMuseTranscriptModel(
       return
     }
     out(
-      band('tool', 'kiln', [
-        { text: `$ ${name}`, fg: 'kiln', bold: true },
-        ...(summary.length > 0 ? [{ text: ` · ${summary}`, fg: 'muted' as const }] : []),
+      slab('tool', [
+        { text: '$', fg: 'kiln', bold: true },
+        ...(summary.length > 0 ? [{ text: ` ${summary}`, fg: 'muted' as const }] : []),
       ]),
       type
     )
@@ -257,18 +258,17 @@ export function createMuseTranscriptModel(
       out(`tool ${name} completed${result ? `: ${result}` : ''}`, type)
       return
     }
-    // Exec output renders as its own rows: no `$ name` prefix (the start
-    // header already named the call), no tool-lane background (so the green
-    // header reads as the separator between calls), capped at four lines
-    // with a truncation marker.
+    // Exec output stays inside the call's tint block (the background alone
+    // separates calls — no keyline, no `$ name` prefix), capped at four
+    // lines with a dimmed truncation marker.
     const body = result.replace(/\s+$/, '')
     if (body.length === 0) return
     const rows = body.split('\n')
     for (const row of rows.slice(0, 4)) {
-      out(line([{ text: `  ${firstLine(row)}`, fg: 'muted' }]), type)
+      out(slab('tool', [{ text: `  ${firstLine(row)}`, fg: 'muted' }]), type)
     }
     if (rows.length > 4) {
-      out(line([{ text: `  … (${rows.length - 4} more lines)`, fg: 'dim' }]), type)
+      out(slab('tool', [{ text: `  … (${rows.length - 4} more lines)`, fg: 'dim' }]), type)
     }
   }
 
@@ -281,7 +281,7 @@ export function createMuseTranscriptModel(
       return
     }
     out(
-      band('error', 'red', [
+      slab('error', [
         { text: '✗ ', fg: 'red', bold: true },
         { text: `${name} failed`, fg: 'red', bold: true },
         { text: `  ${firstLine(summarize(payload['message'] ?? ''))}`, fg: 'red' },
@@ -306,7 +306,7 @@ export function createMuseTranscriptModel(
     }
     if (level === 'error' || level === 'warn') {
       const accent = level === 'error' ? 'red' : 'brass'
-      out(band('error', accent, [{ text: body, fg: accent }]), type)
+      out(slab('error', [{ text: body, fg: accent }]), type)
       return
     }
     out(dimLine(body), type)
@@ -396,7 +396,7 @@ export function createMuseTranscriptModel(
         out(body)
         return
       }
-      out(band('error', 'red', [{ text: body, fg: 'red', bold: true }]))
+      out(slab('error', [{ text: body, fg: 'red', bold: true }]))
     },
   }
 }
