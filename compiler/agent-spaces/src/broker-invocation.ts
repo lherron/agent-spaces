@@ -11,7 +11,13 @@ import type {
   InvocationInput,
   InvocationStartRequest,
 } from 'spaces-harness-broker-protocol'
-import { validateInvocationInput, validateInvocationSpec } from 'spaces-harness-broker-protocol'
+import {
+  isAmbientEnvKey,
+  isCredentialEnvKey,
+  isReservedEnvKey,
+  validateInvocationInput,
+  validateInvocationSpec,
+} from 'spaces-harness-broker-protocol'
 import type { ContextResolverContext } from 'spaces-runtime'
 import { createCanonicalHasher } from 'spaces-runtime-contracts'
 
@@ -453,6 +459,14 @@ function toMuseServeStartRequest(
   prepared: PreparedPlacementCliRuntime,
   req: BuildHarnessBrokerInvocationRequest
 ): BuildHarnessBrokerInvocationResponse {
+  // The muse-serve driver prepares its own isolated HOME at birth and composes
+  // HOME/XDG itself (driver.ts: isolated HOME is mandatory and cannot ride
+  // lockedEnv). Strip the ambient/credential/reserved keys the spec forbids.
+  const lockedEnv = Object.fromEntries(
+    Object.entries(prepared.lockedEnv).filter(
+      ([key]) => !isAmbientEnvKey(key) && !isCredentialEnvKey(key) && !isReservedEnvKey(key)
+    )
+  )
   const spec: HarnessInvocationSpec = {
     specVersion: 'harness-broker.invocation/v1',
     ...(req.invocationId !== undefined ? { invocationId: req.invocationId } : {}),
@@ -466,7 +480,7 @@ function toMuseServeStartRequest(
       command: prepared.commandPath,
       args: ['serve', '--trust-workspace'],
       cwd: prepared.cwd,
-      lockedEnv: prepared.lockedEnv,
+      lockedEnv,
       ...(prepared.pathPrepend.length > 0 ? { pathPrepend: prepared.pathPrepend } : {}),
       harnessTransport: { kind: 'jsonrpc-stdio' },
       limits: req.limits ?? DEFAULT_BROKER_PROCESS_LIMITS,

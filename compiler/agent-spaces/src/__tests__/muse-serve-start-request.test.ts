@@ -8,7 +8,11 @@ function prepared(): PreparedPlacementCliRuntime {
   return {
     commandPath: '/usr/local/bin/muse',
     cwd: '/workspace/project',
-    lockedEnv: {},
+    lockedEnv: {
+      HOME: '/Users/operator',
+      XDG_CONFIG_HOME: '/tmp/bundle/muse.home/.config',
+      ASP_PROJECT: 'agent-spaces',
+    },
     pathPrepend: [],
     imageAttachmentPaths: [],
     expandedPrompt: 'reply ok',
@@ -42,5 +46,8 @@ describe('toHarnessBrokerStartRequest — muse-serve headless birth (muse seat)'
     expect(built.spec.process.harnessTransport).toEqual({ kind: 'jsonrpc-stdio' })
     const driver = built.spec.driver as { kind: string }
     expect(driver.kind).toBe('muse-serve')
+    // Ambient/reserved home keys cannot ride lockedEnv; the driver composes
+    // HOME/XDG itself at birth.
+    expect(built.spec.process.lockedEnv).toEqual({ ASP_PROJECT: 'agent-spaces' })
   })
 })
