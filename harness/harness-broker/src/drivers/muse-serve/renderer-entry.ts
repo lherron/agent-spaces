@@ -136,13 +136,17 @@ function connectReadSurface(socketPath: string): {
 export async function runMuseRendererEntry(argv: string[]): Promise<void> {
   const { invocationId, observerSocketPath, controlSocketPath, runtimeId } = parseArgs(argv)
   const { surface, close } = connectReadSurface(observerSocketPath)
+  // Mirror the codex entry: the renderer writes into a real tmux pane (a
+  // TTY), so enable colour unless the operator opted out via NO_COLOR, and
+  // wrap/fill to the pane width via a thunk, not a snapshot (T-06343).
   const isTty = process.stdout.isTTY === true
+  const color = process.env['NO_COLOR'] === undefined && isTty
   const width = (): number | undefined => process.stdout.columns
 
   const pane = createPaneOutput({
     write: (chunk) => process.stdout.write(chunk),
     enabled: isTty,
-    color: false,
+    color,
     width,
     height: () => process.stdout.rows,
   })
@@ -153,6 +157,8 @@ export async function runMuseRendererEntry(argv: string[]): Promise<void> {
     sink: pane.sink,
     onEvent: pane.onEvent,
     verbose: process.env['BROKER_PANE_VERBOSE'] === '1',
+    color,
+    width,
   })
   await projection.start()
 

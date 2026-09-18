@@ -72,8 +72,8 @@ const BG = {
   forge: '48;2;44;24;12', // deep molten — the live running row (T-06365)
 } as const
 
-type Fg = keyof typeof FG
-type Bg = keyof typeof BG
+export type CodexFg = keyof typeof FG
+export type CodexBg = keyof typeof BG
 
 /** The signature device: a bright left keyline that turns a band into a lane. */
 const KEYLINE = '▎ '
@@ -86,9 +86,9 @@ const KEYLINE = '▎ '
  */
 const ERASE_TO_EOL = '\x1b[K'
 
-interface Seg {
+export interface CodexSeg {
   text: string
-  fg?: Fg
+  fg?: CodexFg
   bold?: boolean
 }
 
@@ -127,7 +127,7 @@ const TOOL_GLYPH: Record<string, string> = {
 
 interface PlanMark {
   glyph: string
-  fg: Fg
+  fg: CodexFg
   dim: boolean
 }
 
@@ -218,7 +218,7 @@ function resolvePaneWidth(raw: number | undefined): number {
  * Runs before `clipSegs` so the clip budget counts cells, not source characters —
  * a tab counts as 1 character but occupies up to TAB_WIDTH cells.
  */
-function paintableSegs(segs: Seg[]): Seg[] {
+function paintableSegs(segs: CodexSeg[]): CodexSeg[] {
   let column = 0
   return segs.map((seg) => {
     let text = ''
@@ -246,8 +246,8 @@ function paintableSegs(segs: Seg[]): Seg[] {
  * row must never wrap: a wrapped row splits the keyline off from its content and
  * lands the erase-to-EOL on the wrong physical row.
  */
-function clipSegs(segs: Seg[], budget: number): Seg[] {
-  const out: Seg[] = []
+function clipSegs(segs: CodexSeg[], budget: number): CodexSeg[] {
+  const out: CodexSeg[] = []
   let used = 0
   for (const seg of segs) {
     const room = budget - used
@@ -517,15 +517,18 @@ export interface CodexTranscriptModel {
  * to it, and it does that with erase-to-EOL rather than width arithmetic (T-06343).
  * Handing callers a pane width invites exactly the padding that bug was.
  */
-interface Styler {
+export interface CodexStyler {
   /** Typographic: prose wrap/clip. Clamped — readability, not the pane. */
   contentWidth: () => number
-  band: (bg: Bg, accent: Fg, segs: Seg[]) => string
-  line: (segs: Seg[]) => string
+  band: (bg: CodexBg, accent: CodexFg, segs: CodexSeg[]) => string
+  line: (segs: CodexSeg[]) => string
   dimLine: (body: string) => string
 }
 
-function createStyler(color: boolean, width: CodexTranscriptWidth | undefined): Styler {
+export function createCodexStyler(
+  color: boolean,
+  width: CodexTranscriptWidth | undefined
+): CodexStyler {
   // Both measures resolve fresh per row from the caller's width source, so a pane
   // resize after launch is picked up with no SIGWINCH handler (T-06343).
   const rawWidth = (): number | undefined => (typeof width === 'function' ? width() : width)
@@ -537,7 +540,7 @@ function createStyler(color: boolean, width: CodexTranscriptWidth | undefined): 
   // bold/coloured segment never bleeds into the next; the band background is set
   // once and only cleared by the trailing reset, so `\x1b[39m`-style resets can
   // never punch a hole in the band.
-  const paint = (segs: Seg[]): string =>
+  const paint = (segs: CodexSeg[]): string =>
     segs.map((s) => `\x1b[${s.bold ? '1' : '22'};${s.fg ? FG[s.fg] : '39'}m${s.text}`).join('')
 
   /**
@@ -561,15 +564,15 @@ function createStyler(color: boolean, width: CodexTranscriptWidth | undefined): 
    * cell: a tab would otherwise skip cells and leave the pane's own background
    * showing INSIDE the band (T-06351).
    */
-  function band(bg: Bg, accent: Fg, segs: Seg[]): string {
-    const rowSegs: Seg[] = [{ text: KEYLINE, fg: accent, bold: true }, ...segs]
+  function band(bg: CodexBg, accent: CodexFg, segs: CodexSeg[]): string {
+    const rowSegs: CodexSeg[] = [{ text: KEYLINE, fg: accent, bold: true }, ...segs]
     if (!color) return rowSegs.map((s) => s.text).join('')
     const fitted = clipSegs(paintableSegs(rowSegs), paneWidth() - 1)
     return `\x1b[${BG[bg]}m${paint(fitted)}${ERASE_TO_EOL}${RESET}`
   }
 
   /** An unbanded (native-bg) styled line, indented under BODY. */
-  function line(segs: Seg[]): string {
+  function line(segs: CodexSeg[]): string {
     if (!color) return `${BODY}${segs.map((s) => s.text).join('')}`
     return `${BODY}${paint(segs)}${RESET}`
   }
@@ -611,7 +614,7 @@ export interface CodexStatusRow {
 const EMBER_CELLS = 6
 const EMBER_GLYPH = '━'
 /** Heat by distance behind the coal: white-hot, molten, brass, then dead ember. */
-const EMBER_HEAT: readonly Fg[] = ['hot', 'molten', 'brass', 'ember']
+const EMBER_HEAT: readonly CodexFg[] = ['hot', 'molten', 'brass', 'ember']
 /** Ping-pong period: out along the bar and back, with no held frame at either end. */
 export const CODEX_STATUS_FRAME_COUNT = (EMBER_CELLS - 1) * 2
 
@@ -619,15 +622,15 @@ export function createCodexStatusRow(options: {
   color?: boolean | undefined
   width?: CodexTranscriptWidth | undefined
 }): CodexStatusRow {
-  const styler = createStyler(options.color ?? false, options.width)
+  const styler = createCodexStyler(options.color ?? false, options.width)
   return {
     running(frame: number, elapsedMs: number, note?: string | undefined): string {
       const phase =
         ((frame % CODEX_STATUS_FRAME_COUNT) + CODEX_STATUS_FRAME_COUNT) % CODEX_STATUS_FRAME_COUNT
       const coal = phase < EMBER_CELLS ? phase : CODEX_STATUS_FRAME_COUNT - phase
-      const bar: Seg[] = Array.from({ length: EMBER_CELLS }, (_, i) => ({
+      const bar: CodexSeg[] = Array.from({ length: EMBER_CELLS }, (_, i) => ({
         text: EMBER_GLYPH,
-        fg: EMBER_HEAT[Math.min(Math.abs(i - coal), EMBER_HEAT.length - 1)] as Fg,
+        fg: EMBER_HEAT[Math.min(Math.abs(i - coal), EMBER_HEAT.length - 1)] as CodexFg,
         bold: Math.abs(i - coal) <= 1,
       }))
       const elapsed = formatLiveElapsed(elapsedMs)
@@ -635,8 +638,8 @@ export function createCodexStatusRow(options: {
       return styler.band('forge', 'molten', [
         ...bar,
         { text: stalled ? '  stalled' : '  running', fg: stalled ? 'brass' : 'text', bold: true },
-        ...(elapsed.length > 0 ? [{ text: ` · ${elapsed}`, fg: 'dim' as Fg }] : []),
-        ...(stalled ? [{ text: ` · no output ${note}`, fg: 'brass' as Fg }] : []),
+        ...(elapsed.length > 0 ? [{ text: ` · ${elapsed}`, fg: 'dim' as CodexFg }] : []),
+        ...(stalled ? [{ text: ` · no output ${note}`, fg: 'brass' as CodexFg }] : []),
       ])
     },
   }
@@ -672,7 +675,7 @@ export function createCodexQueueDrawerRow(options: {
   color?: boolean | undefined
   width?: CodexTranscriptWidth | undefined
 }): CodexQueueDrawerRow {
-  const styler = createStyler(options.color ?? false, options.width)
+  const styler = createCodexStyler(options.color ?? false, options.width)
 
   function entryRow(entry: QueueDrawerEntry, nowMs: number): string {
     const waited = formatLiveElapsed(nowMs - entry.enqueuedAtMs)
@@ -686,9 +689,9 @@ export function createCodexQueueDrawerRow(options: {
       { text: '  ', fg: 'dim' },
       { text: shortSubmissionId(entry.submissionId), fg: 'text', bold: true },
       { text: ` · ${entry.principal}`, fg: 'muted' },
-      ...(entry.class !== 'queue' ? [{ text: ` · ${entry.class}`, fg: 'brass' as Fg }] : []),
-      ...(waited.length > 0 ? [{ text: ` · ${waited}`, fg: 'dim' as Fg }] : []),
-      ...(expiring.length > 0 ? [{ text: ` · ttl ${expiring}`, fg: 'brass' as Fg }] : []),
+      ...(entry.class !== 'queue' ? [{ text: ` · ${entry.class}`, fg: 'brass' as CodexFg }] : []),
+      ...(waited.length > 0 ? [{ text: ` · ${waited}`, fg: 'dim' as CodexFg }] : []),
+      ...(expiring.length > 0 ? [{ text: ` · ttl ${expiring}`, fg: 'brass' as CodexFg }] : []),
     ])
   }
 
@@ -722,7 +725,10 @@ export function createCodexTranscriptModel(
 ): CodexTranscriptModel {
   const emit = options.emit
   const verbose = options.verbose ?? false
-  const { contentWidth, band, line, dimLine } = createStyler(options.color ?? false, options.width)
+  const { contentWidth, band, line, dimLine } = createCodexStyler(
+    options.color ?? false,
+    options.width
+  )
 
   // Per-turn rolling state.
   const toolNames = new Map<string, string>()
@@ -1082,7 +1088,9 @@ export function createCodexTranscriptModel(
             { text: '▶ ', fg: 'molten', bold: true },
             { text: 'turn', fg: 'text', bold: true },
             { text: ` ${shortId(str(p['turnId']))}`, fg: 'dim' },
-            ...(startedClock.length > 0 ? [{ text: ` · ${startedClock}`, fg: 'dim' as Fg }] : []),
+            ...(startedClock.length > 0
+              ? [{ text: ` · ${startedClock}`, fg: 'dim' as CodexFg }]
+              : []),
           ])
         )
         return
@@ -1331,7 +1339,7 @@ export function createCodexTranscriptModel(
           band('endturn', 'kiln', [
             { text: '✓ ', fg: 'kiln', bold: true },
             { text: 'done', fg: 'text', bold: true },
-            ...(stats.length > 0 ? [{ text: ` · ${stats}`, fg: 'dim' as Fg }] : []),
+            ...(stats.length > 0 ? [{ text: ` · ${stats}`, fg: 'dim' as CodexFg }] : []),
           ])
         )
         return
@@ -1350,7 +1358,9 @@ export function createCodexTranscriptModel(
               text: `  ${clip(str(p['message'] ?? p['finalOutput'] ?? p['code']))}`,
               fg: 'red',
             },
-            ...(failedClock.length > 0 ? [{ text: ` · ${failedClock}`, fg: 'dim' as Fg }] : []),
+            ...(failedClock.length > 0
+              ? [{ text: ` · ${failedClock}`, fg: 'dim' as CodexFg }]
+              : []),
           ])
         )
         return
@@ -1370,7 +1380,7 @@ export function createCodexTranscriptModel(
           line([
             { text: '◼ interrupted', fg: 'brass' },
             ...(interruptedClock.length > 0
-              ? [{ text: ` · ${interruptedClock}`, fg: 'dim' as Fg }]
+              ? [{ text: ` · ${interruptedClock}`, fg: 'dim' as CodexFg }]
               : []),
           ])
         )

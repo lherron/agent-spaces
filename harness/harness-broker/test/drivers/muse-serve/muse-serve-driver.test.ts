@@ -164,6 +164,52 @@ describe('muse-serve driver', () => {
     await broker.stop({ invocationId: 'inv_muse_steer' })
   })
 
+  test('steer absorbed after a native turn roll re-arms instead of failing', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createMuseServeDriver()],
+      onEvent: (event) => events.push(event),
+      now,
+    })
+    const spec = scenarioSpec('steer-roll', 'inv_muse_steer_roll')
+    await broker.start({ spec })
+    await broker.input({
+      invocationId: 'inv_muse_steer_roll',
+      input: userInput('input_roll', 'long task'),
+    })
+    await waitFor(() => events.some((event) => event.type === 'turn.started'))
+
+    const response = await broker.steer({
+      invocationId: 'inv_muse_steer_roll',
+      origin: { principalRef: 'agent:muse-steer-test', scopeRef: 'muse-steer-test@agent-spaces' },
+      body: 'STOP - do not push',
+    })
+    expect(response.admission).toBe('admitted')
+    // The roll is absorbed, not failed: an info diagnostic names the
+    // absorbing turn, and no armed-identity error is emitted.
+    await waitFor(() =>
+      events.some(
+        (event) =>
+          event.type === 'diagnostic' &&
+          event.payload.message === 'muse turn/steer absorbed after native turn roll'
+      )
+    )
+    expect(
+      events.some(
+        (event) =>
+          event.type === 'diagnostic' &&
+          typeof event.payload.message === 'string' &&
+          event.payload.message.includes('armed turn identity')
+      )
+    ).toBe(false)
+    await waitFor(() =>
+      events.some(
+        (event) => event.type === 'assistant.message.delta' && event.payload.text === 'steered'
+      )
+    )
+    await broker.stop({ invocationId: 'inv_muse_steer_roll' })
+  })
+
   test('interrupts the running turn via turn/interrupt', async () => {
     const events: InvocationEventEnvelope[] = []
     const broker = createBroker({

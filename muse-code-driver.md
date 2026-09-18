@@ -155,7 +155,7 @@ Required changes, across CLI + broker + protocol + one helper package:
 |---|---|
 | `start(spec, ctx)` | Validate `spec.driver.kind === 'muse-serve'`; spawn `muse serve --workspace <bundle> --trust-workspace` (approval is wire-side — serve takes no approval flag — via `session/setApprovalMode`; model/effort via `session/setModel`, `session/setReasoningEffort`; all three method names spike-1 to confirm); stdio-pipe JSON-RPC client; `initialize` (check schema fingerprint against the committed bundle, SDK `checkServedFingerprint` precedent) → `session/start` (or `session/resume` for continuations). |
 | `applyInputNow(input)` | `turn/start` with `TurnInputPart[]` built by `input.ts`; the response `turnId` is the ONLY id returned (codex-app-server driver.ts precedent: the provider's `turn/start` response is the delivery acknowledgement); `bracketMintingMode: 'delivery-acknowledged'`. Broker owns queueing — never pass `ifBusy`; an own turn is always a fresh `turn/start`. |
-| `applySteerNow(input)` | Narrow contract copied from codex-app-server `applySteerNow`: active turn or throw (`not_written` evidence), input id required (`not_written`), `turn/steer` with `expectedTurnId` = armed turn (the race fence — a turn that ended mid-flight fails the RPC instead of leaking text), response `turnId` must equal the armed turn or throw (`possibly_written`) with a diagnostic. Never starts a turn, never queues. |
+| `applySteerNow(input)` | Narrow contract copied from codex-app-server `applySteerNow`: active turn or throw (`not_written` evidence), input id required (`not_written`), `turn/steer` with `expectedTurnId` = armed turn (the race fence — a turn that ended mid-flight fails the RPC instead of leaking text). Response `turnId` equal to the armed turn is the fast path; an accepted response naming a DIFFERENT turn means the native turn rolled between admission and landing and muse absorbed the input into the now-running turn (schema: "the running turn that absorbed the input") — re-arm to the absorbing turn and report delivery with an info diagnostic, since the text demonstrably did not leak. Only a missing/empty `turnId` throws (`possibly_written`) with the armed-identity error diagnostic. Never starts a turn, never queues. |
 | `interrupt` / `stop` / `dispose` | `turn/cancel` + `turn/interrupt` both exist on the wire — spike 6 picks which maps to broker interrupt. Proposed: `interruptLandingEvidence: 'ack'` pending verification (codex precedent). |
 | `event-map.ts` | MSP notifications → broker `InvocationEvent`s (turn lifecycle, assistant deltas, tool calls, usage, diagnostics, approval/request, userInput). `steerLandingEvidence: 'transcript'` with a pending-steer table tracking native observation (codex `pendingSteers` precedent) — a steered input isn't dispositioned until the transcript shows it. `nativeSourceKind: 'provider-jsonrpc'`. `captureNormalizer()` returns the SAME closure live ingest uses (restart-replay contract, `Driver.captureNormalizer` docs) — no second implementation. |
 | `permissions.ts` | `approval/request` → `ctx.requestPermission` when `brokerOwnsPermissionLifecycle` (driver emits `permission.requested`, awaits the final decision, imposes no timeout); else driver-owned timeout + self resolution (`DriverPermissionPolicy`: `deny` \| `allow` \| `ask-client`, codex `permissions.ts` precedent). |
@@ -182,6 +182,13 @@ one:
   are codex-specific. `muse-serve` needs `createMuseTranscriptModel` + a muse
   `renderer-entry` projecting the same harness-agnostic broker events
   (user.message, turn lifecycle, assistant deltas, tool calls, usage).
+  The muse model speaks the same forge-lanes render language as codex: the
+  band/keyline/ANSI primitives are shared via `createCodexStyler`
+  (codex-app-server/transcript), enabled on a TTY unless NO_COLOR is set
+  (codex entry precedent); off-TTY output stays the historical plain lines.
+  Consecutive duplicate assistant texts without an intervening turn.started
+  are folded out of the render (muse re-emits an agent item with identical
+  text when a steered duplicate lands).
   New-projection risk is low: broker events are already normalized, so this
   is restyle plus whatever muse-native params surface.
 

@@ -9,6 +9,8 @@
  * - approve: turn opens an approval/request; the decided choiceId is echoed in
  *   the closing agentMessage text, then the turn completes.
  * - bad-fingerprint: initialize answers a non-matching schema fingerprint.
+ * - steer-roll: like long, but turn/steer absorbs into a rolled turn and
+ *   reports the absorbing turn id with no prior turn/started notification.
  */
 import { MSP_SCHEMA_FINGERPRINT } from '../../../src/drivers/muse-serve/driver'
 
@@ -247,6 +249,23 @@ async function handle(message: RpcMessage): Promise<void> {
       const commandId = String(params['commandId'] ?? '')
       if (activeTurn === undefined || activeTurn !== expected) {
         commandRejected(id, commandId, 'missing_run')
+        return
+      }
+      if (scenario === 'steer-roll') {
+        // Native turn roll between admission and landing: absorb the input
+        // into a new running turn and report the absorbing turn WITHOUT a
+        // prior turn/started notification, so the driver learns the roll
+        // from the steer response alone (live R-00113 shape).
+        const rolled = `${activeTurn}-rolled`
+        activeTurn = rolled
+        respond(id, { commandId, status: 'accepted', turnId: rolled })
+        notify('item/delta', {
+          sessionId,
+          itemId: 'item-agent-1',
+          turnId: rolled,
+          field: 'text',
+          delta: 'steered',
+        })
         return
       }
       respond(id, { commandId, status: 'accepted', turnId: activeTurn })

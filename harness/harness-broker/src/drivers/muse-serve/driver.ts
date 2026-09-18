@@ -12,7 +12,9 @@
  * buildProcessEnv composition plus the HOME override) → initialize
  * (fingerprint-checked) → initialized → session/start|resume → turn/start per
  * input (broker owns queueing; never ifBusy) → turn/steer with the
- * expectedTurnId fence → turn/interrupt for broker interrupt.
+ * expectedTurnId fence (an accepted steer absorbed after a native turn roll
+ * re-arms to the absorbing turn instead of failing) → turn/interrupt for
+ * broker interrupt.
  *
  * Owned-host consequence: serve grants this client the ONLY connection, so no
  * foreign turn can ever exist — turnActive tracking is exact and there is no
@@ -1023,7 +1025,11 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
             input,
           }).then((params) => params['input']),
         })
-        if (response?.turnId !== steerTurnId) {
+        const absorbedTurnId =
+          typeof response?.turnId === 'string' && response.turnId.length > 0
+            ? (response.turnId as TurnId)
+            : undefined
+        if (absorbedTurnId === undefined) {
           emitDiagnostic(
             'error',
             'muse turn/steer response conflicts with the armed turn identity',
@@ -1040,6 +1046,21 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
             ),
             'possibly_written'
           )
+        }
+        if (absorbedTurnId !== steerTurnId) {
+          // Native turn roll: the armed turn ended server-side between the
+          // admission check and the steer landing, and muse absorbed the
+          // input into the now-running turn (TurnSteerResult.turnId is "the
+          // running turn that absorbed the input"). The text did not leak —
+          // it landed in a known turn — so re-arm to the absorbing turn and
+          // report delivery instead of failing the input.
+          currentTurnId = absorbedTurnId
+          turnActive = true
+          emitDiagnostic('info', 'muse turn/steer absorbed after native turn roll', {
+            turnId: absorbedTurnId,
+            inputId: steerInputId,
+            driver: { kind: MUSE_DRIVER_KIND, rawType: 'turn/steer' },
+          })
         }
       } catch (error) {
         if (pendingSteer.nativeObserved) {

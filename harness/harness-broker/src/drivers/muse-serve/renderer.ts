@@ -30,6 +30,8 @@ export function createMuseServeRendererProjection(
       createMuseTranscriptModel({
         emit,
         ...(options.verbose !== undefined ? { verbose: options.verbose } : {}),
+        ...(options.color !== undefined ? { color: options.color } : {}),
+        ...(options.width !== undefined ? { width: options.width } : {}),
       }),
   })
 }

@@ -17,9 +17,15 @@ const envelope = (type: string, payload: Record<string, unknown>): InvocationEve
   } as InvocationEventEnvelope
 }
 
-const render = (events: Array<{ type: string; payload: Record<string, unknown> }>): string[] => {
+const render = (
+  events: Array<{ type: string; payload: Record<string, unknown> }>,
+  options?: { color?: boolean }
+): string[] => {
   const lines: string[] = []
-  const model = createMuseTranscriptModel({ emit: (line) => lines.push(line) })
+  const model = createMuseTranscriptModel({
+    emit: (line) => lines.push(line),
+    ...(options?.color !== undefined ? { color: options.color } : {}),
+  })
   for (const event of events) model.apply(envelope(event.type, event.payload))
   return lines
 }
@@ -43,6 +49,64 @@ describe('createMuseTranscriptModel', () => {
       'turn t1 completed',
       'usage: {"inputTokens":5}',
     ])
+  })
+
+  test('folds consecutive duplicate assistant text without an intervening turn', () => {
+    const lines = render([
+      { type: 'turn.started', payload: { turnId: 't1' } },
+      {
+        type: 'assistant.message.completed',
+        payload: { messageId: 'a1', content: [{ text: 'pong sent' }] },
+      },
+      {
+        type: 'assistant.message.completed',
+        payload: { messageId: 'a2', content: [{ text: 'pong sent' }] },
+      },
+      { type: 'turn.started', payload: { turnId: 't2' } },
+      {
+        type: 'assistant.message.completed',
+        payload: { messageId: 'a3', content: [{ text: 'pong sent' }] },
+      },
+    ])
+    expect(lines).toEqual([
+      'turn t1 started',
+      'assistant: pong sent',
+      'turn t2 started',
+      'assistant: pong sent',
+    ])
+  })
+
+  test('renders forge lanes with color enabled', () => {
+    const lines = render(
+      [
+        { type: 'user.message', payload: { content: 'list files' } },
+        { type: 'turn.started', payload: { turnId: 't1abcdef' } },
+        {
+          type: 'assistant.message.completed',
+          payload: { messageId: 'm1', content: [{ text: 'Hello' }] },
+        },
+        { type: 'tool.call.completed', payload: { toolCallId: 'c1', name: 'shell', result: 'ok' } },
+        {
+          type: 'turn.completed',
+          payload: { turnId: 't1abcdef', usage: { inputTokens: 5, outputTokens: 4 } },
+        },
+        { type: 'turn.failed', payload: { turnId: 't2', message: 'boom', code: 'authRequired' } },
+        { type: 'diagnostic', payload: { level: 'error', message: 'careful' } },
+      ],
+      { color: true }
+    )
+    const joined = lines.join('\n')
+    // Every styled row carries SGR sequences; the shared design language shows.
+    expect(joined).toContain('\x1b[')
+    expect(joined).toContain('❯ ')
+    expect(joined).toContain('▶ ')
+    expect(joined).toContain('$ shell')
+    expect(joined).toContain('✓ ')
+    expect(joined).toContain('✗ ')
+    expect(joined).toContain('▎')
+    // No legacy plain prefixes survive in styled mode.
+    expect(lines.some((line) => line.startsWith('you: '))).toBe(false)
+    expect(lines.some((line) => line.startsWith('assistant: '))).toBe(false)
   })
 
   test('projects failures, interruptions, and permissions', () => {
