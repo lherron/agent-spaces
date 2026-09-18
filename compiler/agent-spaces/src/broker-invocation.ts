@@ -19,6 +19,7 @@ import {
   CLAUDE_CODE_FRONTEND,
   CODEX_CLI_FRONTEND,
   CodedError,
+  MUSE_CLI_FRONTEND,
   PI_CLI_FRONTEND,
 } from './client-support.js'
 import type { PreparedPlacementCliRuntime } from './prepare-cli-runtime.js'
@@ -244,6 +245,37 @@ export function validateBrokerInvocationRequest(req: BuildHarnessBrokerInvocatio
     }
     if (req.sdk?.runtime !== 'pi-sdk') {
       throw new CodedError('pi-sdk broker route requires an sdk descriptor', 'unsupported_frontend')
+    }
+    return
+  }
+
+  // Muse headless route (muse-serve): mirrors the codex headless route with the
+  // meta provider and muse-cli frontend. Like codex-app-server, muse-serve stays
+  // jsonrpc-stdio.
+  if (broker.brokerDriver === 'muse-serve') {
+    if (req.provider !== 'meta') {
+      throw new CodedError(
+        `muse-serve broker route requires provider "meta"; got "${req.provider}"`,
+        'provider_mismatch'
+      )
+    }
+    if (req.frontend !== MUSE_CLI_FRONTEND) {
+      throw new CodedError(
+        `muse-serve broker route requires frontend "${MUSE_CLI_FRONTEND}"; got "${req.frontend}"`,
+        'unsupported_frontend'
+      )
+    }
+    if (req.interactionMode !== 'headless') {
+      throw new CodedError(
+        `muse-serve broker route requires headless interaction mode; got "${req.interactionMode}"`,
+        'unsupported_frontend'
+      )
+    }
+    if (transportKind !== undefined && transportKind !== 'jsonrpc-stdio') {
+      throw new CodedError(
+        `muse-serve broker route requires "jsonrpc-stdio" transport; got "${transportKind}"`,
+        'unsupported_frontend'
+      )
     }
     return
   }

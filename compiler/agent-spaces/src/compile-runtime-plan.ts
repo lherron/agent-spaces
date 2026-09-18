@@ -493,33 +493,54 @@ function disallowedToolsUnsupportedDiagnostic(
 }
 
 /**
- * Validate the headless broker route (openai / codex / codex-cli / headless).
- * The foreground branch has its own route resolver (resolveForegroundRoute).
+ * Validate the headless broker route (openai+meta / codex+muse / codex-cli+muse-cli /
+ * headless). The foreground branch has its own route resolver (resolveForegroundRoute).
  */
 function validateBrokerRoute(req: RuntimeCompileRequest): CompileDiagnostic[] {
   const diagnostics: CompileDiagnostic[] = []
-  if (req.requested.modelProvider !== undefined && req.requested.modelProvider !== 'openai') {
+  if (
+    req.requested.modelProvider !== undefined &&
+    req.requested.modelProvider !== 'openai' &&
+    req.requested.modelProvider !== 'meta'
+  ) {
     diagnostics.push(
-      compileError('unsupported_provider', 'compileRuntimePlan only supports openai provider', {
-        requested: req.requested.modelProvider,
-      })
+      compileError(
+        'unsupported_provider',
+        'compileRuntimePlan only supports openai and meta providers',
+        {
+          requested: req.requested.modelProvider,
+        }
+      )
     )
   }
-  if (req.requested.harnessFamily !== undefined && req.requested.harnessFamily !== 'codex') {
+  if (
+    req.requested.harnessFamily !== undefined &&
+    req.requested.harnessFamily !== 'codex' &&
+    req.requested.harnessFamily !== 'muse'
+  ) {
     diagnostics.push(
-      compileError('unsupported_harness', 'compileRuntimePlan only supports codex harness family', {
-        requested: req.requested.harnessFamily,
-      })
+      compileError(
+        'unsupported_harness',
+        'compileRuntimePlan only supports codex and muse harness families',
+        {
+          requested: req.requested.harnessFamily,
+        }
+      )
     )
   }
   if (
     req.requested.preferredHarnessRuntime !== undefined &&
-    req.requested.preferredHarnessRuntime !== 'codex-cli'
+    req.requested.preferredHarnessRuntime !== 'codex-cli' &&
+    req.requested.preferredHarnessRuntime !== 'muse-cli'
   ) {
     diagnostics.push(
-      compileError('unsupported_runtime', 'compileRuntimePlan only supports codex-cli runtime', {
-        requested: req.requested.preferredHarnessRuntime,
-      })
+      compileError(
+        'unsupported_runtime',
+        'compileRuntimePlan only supports codex-cli and muse-cli runtimes',
+        {
+          requested: req.requested.preferredHarnessRuntime,
+        }
+      )
     )
   }
   if (req.requested.interactionMode !== undefined && req.requested.interactionMode !== 'headless') {
@@ -1037,6 +1058,17 @@ async function compileBrokerPlan(
     }
   }
 
+  // Headless broker family: codex unless the request names the muse family
+  // (explicit family, muse-cli runtime, or meta provider — validated above).
+  const requestedFamily = resolveRequestedFamily(req)
+  const isMuse =
+    requestedFamily === 'muse' ||
+    req.requested.preferredHarnessRuntime === 'muse-cli' ||
+    req.requested.modelProvider === 'meta'
+  const brokerProvider = isMuse ? ('meta' as const) : ('openai' as const)
+  const brokerFrontend = isMuse ? ('muse-cli' as const) : ('codex-cli' as const)
+  const brokerDriverKind = isMuse ? ('muse-serve' as const) : ('codex-app-server' as const)
+
   const permissionPolicy = req.hrcPolicy.permissionPolicy ?? {
     mode: 'deny',
     audit: true,
@@ -1050,10 +1082,10 @@ async function compileBrokerPlan(
   const taskId = req.materialization.taskContext?.taskId
   const brokerReq: BuildHarnessBrokerInvocationRequest = {
     placement,
-    provider: 'openai',
-    frontend: 'codex-cli',
+    provider: brokerProvider,
+    frontend: brokerFrontend,
     interactionMode: codexTui ? 'interactive' : 'headless',
-    brokerDriver: 'codex-app-server',
+    brokerDriver: brokerDriverKind,
     ...(codexTui
       ? {
           presentation: 'codex-tui' as const,
@@ -1065,7 +1097,7 @@ async function compileBrokerPlan(
     modelReasoningEffort: req.requested.reasoningEffort,
     continuation:
       req.continuation?.hrc.key !== undefined
-        ? { provider: 'openai', key: req.continuation.hrc.key }
+        ? { provider: brokerProvider, key: req.continuation.hrc.key }
         : undefined,
     prompt: req.materialization.initialPrompt,
     omitPriming: req.materialization.omitPriming,
@@ -1111,7 +1143,7 @@ async function compileBrokerPlan(
   const hashStartRequest = hashNeutralStartRequest(startRequest)
   const profileId = stableId('profile', {
     kind: 'harness-broker',
-    brokerDriver: 'codex-app-server',
+    brokerDriver: brokerDriverKind,
     startRequest: hashStartRequest,
   }) as ProfileId
   const compatibilityHash = hashValue(
@@ -1138,7 +1170,7 @@ async function compileBrokerPlan(
       attachReplay: 'optional' as const,
     }),
     brokerProtocol: 'harness-broker/0.2' as const,
-    brokerDriver: 'codex-app-server',
+    brokerDriver: brokerDriverKind,
     brokerOwnership: 'hrc-owned-process' as const,
     ...(codexTui ? { brokerTerminal: TMUX_BROKER_TERMINAL } : {}),
     harnessInvocation: {
@@ -1199,19 +1231,19 @@ async function compileBrokerPlan(
     preparedWarnings: brokerInvocation.warnings,
     ...hygieneWarningsInput(prepared),
     effectiveEnvironmentHash: prepared.preparation.effectiveEnvironmentHash,
-    disallowedToolsContext: { selectedDriver: 'codex-app-server' },
+    disallowedToolsContext: { selectedDriver: brokerDriverKind },
     resolvedBundleSource: brokerInvocation.resolvedBundle,
     omitPriming: prepared.omitPriming,
     bundleIdentity,
     placement,
     agentPolicy: prepared.placementContext.agentPolicy,
     harness: {
-      family: 'codex',
-      runtime: 'codex-cli',
-      provider: 'openai',
+      family: isMuse ? ('muse' as const) : ('codex' as const),
+      runtime: isMuse ? ('muse-cli' as const) : ('codex-cli' as const),
+      provider: brokerProvider,
     },
     model: {
-      provider: 'openai',
+      provider: brokerProvider,
       modelId:
         prepared.runtimePlan.model.ok === true
           ? prepared.runtimePlan.model.info.model

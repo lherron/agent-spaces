@@ -127,7 +127,7 @@ export interface InterruptInFlightTurnRequest {
 export interface BuildHarnessBrokerInvocationRequest {
   placement: RuntimePlacement
   provider: ProviderDomain
-  frontend: 'codex-cli' | 'claude-code' | 'pi-cli' | 'pi-sdk'
+  frontend: 'codex-cli' | 'claude-code' | 'pi-cli' | 'pi-sdk' | 'muse-cli'
   interactionMode: 'headless' | 'interactive'
   brokerDriver?:
     | 'codex-app-server'
@@ -135,6 +135,7 @@ export interface BuildHarnessBrokerInvocationRequest {
     | 'codex-cli-tmux'
     | 'pi-tui-tmux'
     | 'pi-sdk'
+    | 'muse-serve'
     | undefined
   harnessTransport?: { kind: 'jsonrpc-stdio' | 'pty' | 'in-process' } | undefined
   presentation?: 'codex-tui' | undefined
