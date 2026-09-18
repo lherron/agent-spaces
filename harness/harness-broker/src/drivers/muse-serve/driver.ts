@@ -162,6 +162,7 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
   let stopping = false
   let starting = false
   let terminalEmitted = false
+  let rendererQuitAccepted = false
   let rendererControlListener: HookListenerHandle | undefined
   let notificationSequence = 0
   let mintedForRecord = 0
@@ -240,6 +241,44 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
   ): void {
     if (!ctx) return
     emitCaptured('diagnostic', { level, message, source: 'driver', kind: MUSE_DRIVER_KIND }, extra)
+  }
+
+  /**
+   * Renderer `/quit` ends the session (codex-app-server precedent): clear the
+   * continuation with the user-initiated reason, then terminate the serve
+   * child. Downstream session-leave handling keys off
+   * `continuation.cleared`/`prompt_input_exit` and is driver-agnostic, so
+   * session-end metrics follow the same path as the codex renderer.
+   */
+  async function handleRendererQuit(): Promise<void> {
+    if (rendererQuitAccepted || terminalEmitted) return
+    rendererQuitAccepted = true
+    stopping = true
+    if (turnTimeout !== undefined) {
+      clearTimeout(turnTimeout)
+      turnTimeout = undefined
+    }
+    requireCtx().emit(
+      'continuation.cleared',
+      { reason: 'prompt_input_exit' },
+      {
+        driver: {
+          kind: MUSE_DRIVER_KIND,
+          rawType: 'muse-serve-renderer.quit',
+        },
+      }
+    )
+    if (proc !== undefined) {
+      await terminateProcess({
+        proc,
+        graceMs: spec?.process.limits?.stopGraceMs ?? 1000,
+      })
+    }
+    const listener = rendererControlListener
+    rendererControlListener = undefined
+    setTimeout(() => {
+      void listener?.close().catch(() => undefined)
+    }, 0)
   }
 
   function markSteerObserved(turnId: string, text: string): void {
@@ -848,13 +887,14 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
         )
         rendererControlListener = await listenForHookEnvelopes<MuseRendererControlEnvelope>(
           controlSocketPath,
-          (envelope) => {
+          async (envelope) => {
             if (envelope.type === 'muse-serve-renderer.exited') {
               emitDiagnostic('info', 'muse renderer exited')
               return undefined
             }
             if (envelope.type === 'muse-serve-renderer.quit') {
-              emitDiagnostic('info', 'muse renderer quit requested')
+              if (envelope.reason !== 'prompt_input_exit') return undefined
+              await handleRendererQuit()
               return undefined
             }
             return undefined
@@ -1156,6 +1196,7 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
       currentTurnId = undefined
       turnActive = false
       terminalEmitted = false
+      rendererQuitAccepted = false
       stopping = false
       starting = false
       pendingSteers.clear()
