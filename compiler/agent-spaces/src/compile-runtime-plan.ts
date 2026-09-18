@@ -1988,6 +1988,12 @@ async function compileTmuxBrokerPlan(
       kind: driverKind,
       terminalHost: 'tmux',
       ...(hookBridge !== undefined ? { hookBridge } : {}),
+      // Operator HOME is REQUIRED for muse model calls: keychain-bound oauth
+      // never leaves the operator HOME, so the muse TUI stalls at device-flow
+      // login under an isolated HOME even with auth.json symlinked (same
+      // posture as the muse-serve driver spec). Other tmux drivers run with
+      // the ambient operator HOME already.
+      ...(driverKind === 'muse-cli-tmux' ? { homeMode: 'operator' as const } : {}),
     },
     ...(launch !== undefined ? { launch } : {}),
     correlation: brokerCorrelation(req),

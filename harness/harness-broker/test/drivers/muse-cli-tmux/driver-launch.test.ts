@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { ClientCapabilities, HarnessInvocationSpec } from 'spaces-harness-broker-protocol'
 import type { DriverContext } from '../../../src/drivers/driver'
 import { createMuseCliTmuxDriver } from '../../../src/drivers/muse-cli-tmux/driver'
@@ -26,16 +28,16 @@ const LEASE = {
   },
 }
 
-function createCtx(): DriverContext {
+function createCtx(invocationId = 'inv-test-muse-launch'): DriverContext {
   return {
-    invocationId: 'inv-test-muse-launch',
+    invocationId,
     clientCapabilities: {} as ClientCapabilities,
     runtime: { terminalSurface: { ...LEASE } },
     emit: () => {},
   }
 }
 
-function createSpec(): HarnessInvocationSpec {
+function createSpec(homeMode?: 'isolated' | 'operator'): HarnessInvocationSpec {
   return {
     process: {
       command: '/usr/local/bin/muse',
@@ -44,7 +46,17 @@ function createSpec(): HarnessInvocationSpec {
       lockedEnv: {},
       pathPrepend: [],
     },
+    driver: {
+      kind: 'muse-cli-tmux',
+      terminalHost: 'tmux',
+      ...(homeMode !== undefined ? { homeMode } : {}),
+    },
   } as unknown as HarnessInvocationSpec
+}
+
+function launchArtifactEnv(invocationId: string): Record<string, string | undefined> {
+  const raw = readFileSync(join(tmpdir(), `muse-cli-tmux-${invocationId}.launch.json`), 'utf8')
+  return (JSON.parse(raw) as { env: Record<string, string | undefined> }).env
 }
 
 /** Recording exec: answers inspect/paste verbs, captures the pasted launch line. */
@@ -86,12 +98,41 @@ describe('muse-cli-tmux launch runner selection', () => {
     const driver = createMuseCliTmuxDriver({
       tmux: { socketPath: LEASE.socketPath, exec: createRecordingExec(pasted) },
     })
-    const result = await driver.start(createSpec(), createCtx())
+    const result = await driver.start(createSpec(), createCtx('inv-test-muse-fallback'))
     expect(result).toEqual({ ok: true })
     expect(pasted).toHaveLength(1)
     const line = pasted[0] as string
     expect(line.startsWith('exec bun ')).toBe(true)
     expect(line).toContain('tmux-launch-runner')
+    await driver.dispose()
+  })
+})
+
+describe('muse-cli-tmux home posture', () => {
+  test('operator homeMode keeps HOME on the operator home with disposable XDG dirs', async () => {
+    const pasted: string[] = []
+    const driver = createMuseCliTmuxDriver({
+      tmux: { socketPath: LEASE.socketPath, exec: createRecordingExec(pasted) },
+    })
+    const invocationId = 'inv-test-muse-operator-home'
+    const result = await driver.start(createSpec('operator'), createCtx(invocationId))
+    expect(result).toEqual({ ok: true })
+    const env = launchArtifactEnv(invocationId)
+    expect(env['HOME']).toBe(homedir())
+    expect(env['XDG_CONFIG_HOME']).toContain(`muse-serve-xdg-${invocationId}`)
+    await driver.dispose()
+  })
+
+  test('absent homeMode keeps the isolated per-invocation HOME', async () => {
+    const pasted: string[] = []
+    const driver = createMuseCliTmuxDriver({
+      tmux: { socketPath: LEASE.socketPath, exec: createRecordingExec(pasted) },
+    })
+    const invocationId = 'inv-test-muse-isolated-home'
+    const result = await driver.start(createSpec(), createCtx(invocationId))
+    expect(result).toEqual({ ok: true })
+    const env = launchArtifactEnv(invocationId)
+    expect(env['HOME']).toContain(`muse-serve-home-${invocationId}`)
     await driver.dispose()
   })
 })

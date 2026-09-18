@@ -202,9 +202,15 @@ export function createMuseCliTmuxDriver(options: MuseCliTmuxDriverOptions): Driv
       // Per-invocation isolated HOME (same recipe as muse-serve): state,
       // skills seeding, and session logs live under the HOME the TUI sees,
       // so the sessions tree holds exactly this invocation's session and
-      // discovery is a single-session scan.
+      // discovery is a single-session scan. Operator HOME (stamped on the
+      // compiled driver spec) is REQUIRED for model calls: keychain-bound
+      // muse oauth never leaves the operator HOME.
       const home = await prepareMuseHome(driverCtx.invocationId, {
         ...(options.homeBaseDir !== undefined ? { baseDir: options.homeBaseDir } : {}),
+        ...(spec.driver.kind === MUSE_CLI_TMUX_DRIVER_KIND &&
+        (spec.driver as { homeMode?: unknown }).homeMode === 'operator'
+          ? { homeMode: 'operator' as const }
+          : {}),
       })
 
       const normalizer = createMuseCliTmuxLogEventNormalizer({

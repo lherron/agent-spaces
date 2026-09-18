@@ -585,6 +585,9 @@ describe('compiled broker profile field mapping', () => {
       expect.objectContaining({
         kind: 'muse-cli-tmux',
         terminalHost: 'tmux',
+        // Operator HOME is required for muse model calls (keychain-bound
+        // oauth never leaves the operator HOME).
+        homeMode: 'operator',
       })
     )
     expect(spec.process.harnessTransport).toEqual({ kind: 'pty' })
