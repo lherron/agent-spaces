@@ -85,6 +85,10 @@ describe('createMuseTranscriptModel', () => {
           type: 'assistant.message.completed',
           payload: { messageId: 'm1', content: [{ text: 'Hello' }] },
         },
+        {
+          type: 'tool.call.started',
+          payload: { toolCallId: 'c1', name: 'shell', input: { command: 'ls' } },
+        },
         { type: 'tool.call.completed', payload: { toolCallId: 'c1', name: 'shell', result: 'ok' } },
         {
           type: 'turn.completed',
@@ -151,6 +155,37 @@ describe('createMuseTranscriptModel', () => {
     })
     model.apply(envelope(update.type, update.payload))
     expect(lines).toEqual(['[usage.updated] usage: {"inputTokens":25008,"outputTokens":203}'])
+  })
+
+  test('tool output renders without header, capped at four lines', () => {
+    const lines = render(
+      [
+        {
+          type: 'tool.call.completed',
+          payload: { toolCallId: 'c1', name: 'bash', result: 'l1\nl2\nl3\nl4\nl5\nl6\n' },
+        },
+      ],
+      { color: true }
+    )
+    expect(lines).toHaveLength(5)
+    const joined = lines.join('\n')
+    for (const row of ['  l1', '  l2', '  l3', '  l4']) {
+      expect(joined).toContain(row)
+    }
+    expect(joined).toContain('  … (2 more lines)')
+    expect(joined).not.toContain('l5')
+    expect(lines.some((line) => line.includes('$ bash'))).toBe(false)
+    const short = render(
+      [{ type: 'tool.call.completed', payload: { toolCallId: 'c2', name: 'bash', result: 'ok' } }],
+      { color: true }
+    )
+    expect(short).toHaveLength(1)
+    expect(short[0]).toContain('  ok')
+    const empty = render(
+      [{ type: 'tool.call.completed', payload: { toolCallId: 'c3', name: 'bash', result: '' } }],
+      { color: true }
+    )
+    expect(empty).toEqual([])
   })
 
   test('projects failures, interruptions, and permissions', () => {

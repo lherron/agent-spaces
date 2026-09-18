@@ -257,14 +257,19 @@ export function createMuseTranscriptModel(
       out(`tool ${name} completed${result ? `: ${result}` : ''}`, type)
       return
     }
-    const preview = firstLine(result)
-    out(
-      band('tool', 'kiln', [
-        { text: `$ ${name}`, fg: 'kiln', bold: true },
-        ...(preview.length > 0 ? [{ text: ` · ${preview}`, fg: 'muted' as const }] : []),
-      ]),
-      type
-    )
+    // Exec output renders as its own rows: no `$ name` prefix (the start
+    // header already named the call), no tool-lane background (so the green
+    // header reads as the separator between calls), capped at four lines
+    // with a truncation marker.
+    const body = result.replace(/\s+$/, '')
+    if (body.length === 0) return
+    const rows = body.split('\n')
+    for (const row of rows.slice(0, 4)) {
+      out(line([{ text: `  ${firstLine(row)}`, fg: 'muted' }]), type)
+    }
+    if (rows.length > 4) {
+      out(line([{ text: `  … (${rows.length - 4} more lines)`, fg: 'dim' }]), type)
+    }
   }
 
   function renderToolFailed(payload: Record<string, unknown>, type: string): void {
