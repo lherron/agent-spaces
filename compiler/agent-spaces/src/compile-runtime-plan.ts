@@ -800,6 +800,15 @@ function toProcessLimits(
   }
 }
 
+/**
+ * Resume fallback for headless broker births. muse serve sessions are
+ * disk-backed but server-GC'd, so a stale continuation key must birth fresh
+ * instead of killing the turn. Codex threads stay fail-fast.
+ */
+export function brokerResumeFallback(isMuse: boolean): 'start-fresh' | 'fail' {
+  return isMuse ? 'start-fresh' : 'fail'
+}
+
 function brokerCorrelation(req: RuntimeCompileRequest): Record<string, string> {
   const out: Record<string, string> = {
     requestId: req.correlation.requestId,
@@ -1126,7 +1135,7 @@ async function compileBrokerPlan(
     correlation: brokerCorrelation(req),
     permissionPolicy: toBrokerPermissionPolicy(permissionPolicy),
     limits: toProcessLimits(req.hrcPolicy.resourceLimits),
-    resumeFallback: 'fail',
+    resumeFallback: brokerResumeFallback(isMuse),
   }
 
   validateBrokerInvocationRequest(brokerReq)
