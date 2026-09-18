@@ -502,6 +502,11 @@ function toMuseServeStartRequest(
     driver: {
       kind: 'muse-serve',
       workspace: prepared.cwd,
+      // Operator HOME is REQUIRED for model calls: the operator credential
+      // is keychain-bound oauth (device_code), which never leaves the
+      // operator HOME — serve answers authRequired under an isolated HOME
+      // even with auth.json symlinked. XDG dirs stay disposable.
+      homeMode: 'operator',
       ...(req.model !== undefined ? { model: req.model } : {}),
       approvalMode: 'onRequest',
       permissionPolicy: req.permissionPolicy ?? { mode: 'deny' },
