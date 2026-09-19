@@ -99,8 +99,9 @@ async function runPostToolUse(options: {
 describe('Claude PostToolUse mail hint bridge', () => {
   test('writes exact additionalContext and records the handed-off hint on the broker envelope', async () => {
     const hint = 'Mail hint from HRC: 2 envelopes are held for this seat. They present at turn end.'
+    // T-08605: the exact hrc-server shape — hint only, no driveAttemptId.
     const hrc = await startHintDecisionServer({
-      response: { hint, heldCount: 2, driveAttemptId: 'drive-hint-1', reason: 'first' },
+      response: { hint, heldCount: 2, reason: 'first' },
     })
     try {
       const { envelope, output } = await runPostToolUse({ hrcSocket: hrc.socketPath })
@@ -109,7 +110,7 @@ describe('Claude PostToolUse mail hint bridge', () => {
           hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: hint },
         })
       )
-      expect(envelope?.mailHint).toEqual({ hint, driveAttemptId: 'drive-hint-1' })
+      expect(envelope?.mailHint).toEqual({ hint })
       expect(hrc.requests).toEqual([
         {
           url: '/v1/internal/mail/hint-decision',
@@ -135,7 +136,7 @@ describe('Claude PostToolUse mail hint bridge', () => {
 
   test('times the HRC query out at 250 ms, writes nothing, and still posts to the broker', async () => {
     const hrc = await startHintDecisionServer({
-      response: { hint: 'too late', driveAttemptId: 'drive-too-late' },
+      response: { hint: 'too late', heldCount: 1, reason: 'first' },
       delayMs: 1_000,
     })
     try {
@@ -154,7 +155,7 @@ describe('Claude PostToolUse mail hint bridge', () => {
 
   test('does not query HRC when either required environment value is missing', async () => {
     const hrc = await startHintDecisionServer({
-      response: { hint: 'must not be read', driveAttemptId: 'drive-unread' },
+      response: { hint: 'must not be read', heldCount: 1, reason: 'first' },
     })
     try {
       expect(

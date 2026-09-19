@@ -12,9 +12,13 @@ export type MailStopDecision = {
   reason: string
 }
 
+/**
+ * T-08605: the hint is count-only — hrc-server's hint-decision returns
+ * `{hint, heldCount, reason}` and names no drive attempt, so the parser
+ * requires `hint` only. Requiring `driveAttemptId` dropped every real hint.
+ */
 export type MailHintDecision = {
   hint: string
-  driveAttemptId: string
 }
 
 /**
@@ -98,13 +102,7 @@ export async function queryMailHintDecision(
     const parsed = JSON.parse(response.body) as unknown
     if (!isRecord(parsed)) return undefined
     const hint = parsed['hint']
-    const driveAttemptId = parsed['driveAttemptId']
-    return typeof hint === 'string' &&
-      hint.length > 0 &&
-      typeof driveAttemptId === 'string' &&
-      driveAttemptId.length > 0
-      ? { hint, driveAttemptId }
-      : undefined
+    return typeof hint === 'string' && hint.length > 0 ? { hint } : undefined
   } catch {
     return undefined
   }
