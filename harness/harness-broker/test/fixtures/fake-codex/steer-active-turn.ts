@@ -38,6 +38,14 @@ io.notify('item/started', {
   },
 })
 
+const read = await expectMethod(io, 'thread/read')
+io.respond(read, {
+  thread: {
+    id: 'thread_steer',
+    turns: [{ id: 'turn_steer_1', status: 'inProgress' }],
+  },
+})
+
 const steer = await expectMethod(io, 'turn/steer')
 const params = (steer.params ?? {}) as Record<string, unknown>
 const clientUserMessageId = params['clientUserMessageId']

@@ -131,7 +131,7 @@ describe('T-07155 codex-app-server steer', () => {
     await broker.stop({ invocationId })
   })
 
-  test('G3: a refused turn/steer throws instead of silently reporting delivery', async () => {
+  test('G3: a non-precondition turn/steer refusal throws instead of silently reporting delivery', async () => {
     const events: InvocationEventEnvelope[] = []
     const broker = createBroker({
       drivers: [createCodexAppServerDriver()],

@@ -21,6 +21,7 @@ import {
 } from '../../../src/drivers/codex-app-server/codex-tui-wrapper'
 import { createCodexAppServerDriver } from '../../../src/drivers/codex-app-server/driver'
 import {
+  CodexRpcError,
   type CodexRpcPeer,
   CodexUnixWebSocketRpcClient,
   type JsonRpcNotification,
@@ -130,9 +131,29 @@ class FakeCodexRpc implements CodexRpcPeer {
   readonly notifications: RpcRequest[] = []
   handlers: RpcHandlers = {}
   onRequest?: ((method: string, params: unknown) => unknown | Promise<unknown>) | undefined
+  threadReadResponse: unknown | (() => unknown) | undefined
+  private activeTurnId: string | undefined
 
   async sendRequest<T = unknown>(method: string, params?: unknown): Promise<T> {
     this.requests.push({ method, params })
+    if (method === 'thread/read') {
+      if (this.threadReadResponse !== undefined) {
+        return (
+          typeof this.threadReadResponse === 'function'
+            ? this.threadReadResponse()
+            : this.threadReadResponse
+        ) as T
+      }
+      return {
+        thread: {
+          id: 'thread_test',
+          turns:
+            this.activeTurnId === undefined
+              ? []
+              : [{ id: this.activeTurnId, status: 'inProgress' }],
+        },
+      } as T
+    }
     if (this.onRequest !== undefined) return (await this.onRequest(method, params)) as T
     if (method === 'initialize') return {} as T
     if (method === 'hooks/list') return { data: [] } as T
@@ -148,6 +169,14 @@ class FakeCodexRpc implements CodexRpcPeer {
   close(): void {}
 
   emit(method: string, params: unknown): void {
+    if (method === 'turn/started' || method === 'turn/completed') {
+      const record = params as { turn?: { id?: unknown }; turnId?: unknown }
+      const turnId = record.turn?.id ?? record.turnId
+      if (method === 'turn/started' && typeof turnId === 'string') this.activeTurnId = turnId
+      if (method === 'turn/completed' && turnId === this.activeTurnId) {
+        this.activeTurnId = undefined
+      }
+    }
     const message: JsonRpcNotification = { jsonrpc: '2.0', method, params }
     this.handlers.onNotification?.(message, JSON.stringify(message))
   }
@@ -1316,6 +1345,292 @@ describe('codex-tui transport', () => {
     }
   })
 
+  test('resolves a provider rollover at the steer actuation boundary', async () => {
+    const rpc = new FakeCodexRpc()
+    let ownerInputId = ''
+    let steerInputId = ''
+    rpc.onRequest = async (method, params) => {
+      if (method === 'initialize') return {}
+      if (method === 'hooks/list') return { data: [] }
+      if (method === 'thread/start') return { thread: { id: 'thread_test' } }
+      if (method === 'thread/queue/add') {
+        ownerInputId = (params as { clientUserMessageId: string }).clientUserMessageId
+        queueMicrotask(() => {
+          rpc.emit('turn/started', {
+            threadId: 'thread_test',
+            turn: { id: 'turn_observed_old', status: 'inProgress', items: [] },
+          })
+          emitUserMessageItem(rpc, {
+            turnId: 'turn_observed_old',
+            itemId: 'user_observed_old',
+            clientId: ownerInputId,
+            text: 'owner',
+          })
+        })
+        return { queuedSubmission: { id: 'queued_rollover' } }
+      }
+      if (method === 'turn/steer') {
+        const steer = params as { clientUserMessageId: string; expectedTurnId: string }
+        steerInputId = steer.clientUserMessageId
+        expect(steer.expectedTurnId).toBe('turn_provider_current')
+        return { turnId: 'turn_provider_current' }
+      }
+      throw new Error(`unhandled fake RPC request: ${method}`)
+    }
+    // The provider has already rolled, but the broker has only observed the
+    // old turn. The fresh read is the deterministic EN-15497 race seam.
+    rpc.threadReadResponse = {
+      thread: {
+        id: 'thread_test',
+        turns: [{ id: 'turn_provider_current', status: 'inProgress' }],
+      },
+    }
+    const invocationId = 'inv_codex_tui_steer_rollover'
+    const run = await setupDriver(rpc, invocationId)
+    try {
+      await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
+      await run.broker.enqueue({ invocationId, origin, body: 'owner' })
+      await waitFor(
+        () =>
+          run.events.some(
+            (event) => event.type === 'turn.attributed' && event.turnId === 'turn_observed_old'
+          ),
+        'old observed turn should be attributed'
+      )
+      // The old local observation can close before a successor is surfaced to
+      // the broker. `thread/read` remains the authoritative actuation fence,
+      // so a steer must not fall back to turn/start in this gap.
+      rpc.emit('turn/completed', {
+        threadId: 'thread_test',
+        turn: { id: 'turn_observed_old', status: 'completed', items: [] },
+      })
+      await waitFor(
+        () =>
+          run.events.some(
+            (event) => event.type === 'turn.completed' && event.turnId === 'turn_observed_old'
+          ),
+        'local predecessor completion should be observed before the provider read'
+      )
+
+      const steer = await run.broker.steer({ invocationId, origin, body: 'roll with provider' })
+      await waitFor(
+        () => rpc.requests.some((request) => request.method === 'turn/steer'),
+        'steer should reach Codex after fresh turn resolution'
+      )
+      expect(steerInputId).toBe(steer.submissionId)
+      expect(
+        rpc.requests.find((request) => request.method === 'thread/read')?.params
+      ).toMatchObject({ threadId: 'thread_test', includeTurns: true })
+
+      emitUserMessageItem(rpc, {
+        turnId: 'turn_provider_current',
+        itemId: 'user_rollover_steer',
+        clientId: steer.submissionId,
+        text: 'roll with provider',
+      })
+      await waitFor(
+        () =>
+          run.events.some(
+            (event) =>
+              event.type === 'submission.absorbed' &&
+              event.payload.submissionId === steer.submissionId
+          ),
+        'native item should absorb the steer into the provider-selected turn'
+      )
+      expect(
+        run.events.find(
+          (event) =>
+            event.type === 'submission.absorbed' &&
+            event.payload.submissionId === steer.submissionId
+        )?.turnId
+      ).toBe('turn_provider_current')
+      expect(
+        run.events.filter(
+          (event) => event.type === 'input.rejected' && event.payload.inputId === steer.submissionId
+        )
+      ).toHaveLength(0)
+    } finally {
+      await run.broker.stop({ invocationId, reason: 'test cleanup' })
+      await run.broker.dispose({ invocationId })
+      await rm(run.socketDir, { recursive: true, force: true })
+    }
+  })
+
+  test('retries typed pre-write turn mismatches through more than three read-to-steer rollovers', async () => {
+    const rpc = new FakeCodexRpc()
+    let ownerInputId = ''
+    let readCount = 0
+    let steerCount = 0
+    rpc.onRequest = async (method, params) => {
+      if (method === 'initialize') return {}
+      if (method === 'hooks/list') return { data: [] }
+      if (method === 'thread/start') return { thread: { id: 'thread_test' } }
+      if (method === 'thread/queue/add') {
+        ownerInputId = (params as { clientUserMessageId: string }).clientUserMessageId
+        queueMicrotask(() => {
+          rpc.emit('turn/started', {
+            threadId: 'thread_test',
+            turn: { id: 'turn_before_actuation', status: 'inProgress', items: [] },
+          })
+          emitUserMessageItem(rpc, {
+            turnId: 'turn_before_actuation',
+            itemId: 'user_before_actuation',
+            clientId: ownerInputId,
+            text: 'owner',
+          })
+        })
+        return { queuedSubmission: { id: 'queued_actuation_rollover' } }
+      }
+      if (method === 'turn/steer') {
+        steerCount += 1
+        const steer = params as { clientUserMessageId: string; expectedTurnId: string }
+        expect(steer.expectedTurnId).toBe(`turn_read_${steerCount}`)
+        if (steerCount <= 4) {
+          throw new CodexRpcError(-32000, 'expectedTurnId does not match the active turn', {
+            code: 'turn_mismatch',
+          })
+        }
+        return { turnId: `turn_read_${steerCount}` }
+      }
+      throw new Error(`unhandled fake RPC request: ${method}`)
+    }
+    rpc.threadReadResponse = () => {
+      readCount += 1
+      return {
+        thread: {
+          id: 'thread_test',
+          turns: [
+            {
+              id: `turn_read_${readCount}`,
+              status: 'inProgress',
+            },
+          ],
+        },
+      }
+    }
+    const invocationId = 'inv_codex_tui_steer_actuation_rollover'
+    const run = await setupDriver(rpc, invocationId)
+    try {
+      await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
+      await run.broker.enqueue({ invocationId, origin, body: 'owner' })
+      await waitFor(
+        () => run.events.some((event) => event.type === 'turn.attributed'),
+        'locally observed turn should be attributed'
+      )
+      const steer = await run.broker.steer({ invocationId, origin, body: 'race the precondition' })
+      await waitFor(() => steerCount === 5, 'typed mismatches should retry past three rollovers')
+      expect(readCount).toBe(5)
+      expect(
+        rpc.requests
+          .filter((request) => request.method === 'turn/steer')
+          .map((request) => (request.params as { clientUserMessageId: string }).clientUserMessageId)
+      ).toEqual(Array(5).fill(steer.submissionId))
+
+      emitUserMessageItem(rpc, {
+        turnId: 'turn_read_5',
+        itemId: 'user_after_actuation_rollover',
+        clientId: steer.submissionId,
+        text: 'race the precondition',
+      })
+      await waitFor(
+        () =>
+          run.events.some(
+            (event) =>
+              event.type === 'submission.absorbed' &&
+              event.payload.submissionId === steer.submissionId
+          ),
+        'final provider-selected turn should absorb the one steer'
+      )
+      expect(
+        run.events.filter(
+          (event) =>
+            event.type === 'submission.absorbed' &&
+            event.payload.submissionId === steer.submissionId
+        )
+      ).toHaveLength(1)
+      expect(
+        run.events.filter(
+          (event) => event.type === 'input.rejected' && event.payload.inputId === steer.submissionId
+        )
+      ).toHaveLength(0)
+    } finally {
+      await run.broker.stop({ invocationId, reason: 'test cleanup' })
+      await run.broker.dispose({ invocationId })
+      await rm(run.socketDir, { recursive: true, force: true })
+    }
+  })
+
+  test.each([
+    {
+      name: 'wrong-thread thread/read response',
+      thread: {
+        id: 'thread_wrong',
+        turns: [{ id: 'turn_provider_current', status: 'inProgress' }],
+      },
+      reason: 'did not match the active invocation thread',
+    },
+    {
+      name: 'no-active-turn thread/read response',
+      thread: { id: 'thread_test', turns: [] },
+      reason: 'found no active turn for steer',
+    },
+  ])('fails closed before writing for $name', async ({ name, thread, reason }) => {
+    const rpc = new FakeCodexRpc()
+    let ownerInputId = ''
+    rpc.onRequest = async (method, params) => {
+      if (method === 'initialize') return {}
+      if (method === 'hooks/list') return { data: [] }
+      if (method === 'thread/start') return { thread: { id: 'thread_test' } }
+      if (method === 'thread/queue/add') {
+        ownerInputId = (params as { clientUserMessageId: string }).clientUserMessageId
+        queueMicrotask(() => {
+          rpc.emit('turn/started', {
+            threadId: 'thread_test',
+            turn: { id: 'turn_locally_active', status: 'inProgress', items: [] },
+          })
+          emitUserMessageItem(rpc, {
+            turnId: 'turn_locally_active',
+            itemId: 'user_locally_active',
+            clientId: ownerInputId,
+            text: 'owner',
+          })
+        })
+        return { queuedSubmission: { id: 'queued_negative' } }
+      }
+      throw new Error(`unexpected write: ${method}`)
+    }
+    rpc.threadReadResponse = { thread }
+    const invocationId = `inv_codex_tui_steer_${name.replaceAll(/[^a-z]+/g, '_')}`
+    const run = await setupDriver(rpc, invocationId)
+    try {
+      await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
+      await run.broker.enqueue({ invocationId, origin, body: 'owner' })
+      await waitFor(
+        () => run.events.some((event) => event.type === 'turn.attributed'),
+        'local active turn should be attributed'
+      )
+      const steer = await run.broker.steer({ invocationId, origin, body: 'must not write' })
+      await waitFor(
+        () =>
+          run.events.some(
+            (event) =>
+              event.type === 'input.rejected' && event.payload.inputId === steer.submissionId
+          ),
+        'invalid provider read should reject the admitted steer'
+      )
+      expect(
+        run.events.find(
+          (event) => event.type === 'input.rejected' && event.payload.inputId === steer.submissionId
+        )?.payload
+      ).toMatchObject({ deliveryEvidence: 'not_written', reason: expect.stringContaining(reason) })
+      expect(rpc.requests.filter((request) => request.method === 'turn/steer')).toHaveLength(0)
+    } finally {
+      await run.broker.stop({ invocationId, reason: 'test cleanup' })
+      await run.broker.dispose({ invocationId })
+      await rm(run.socketDir, { recursive: true, force: true })
+    }
+  })
+
   test('keeps before-await steer identity when a foreign turn races the RPC response', async () => {
     const rpc = new FakeCodexRpc()
     let ownerInputId = ''
@@ -1369,6 +1684,10 @@ describe('codex-tui transport', () => {
         'original turn should be attributed'
       )
       const steer = await run.broker.steer({ invocationId, origin, body: 'race steer' })
+      await waitFor(
+        () => rpc.requests.some((request) => request.method === 'turn/steer'),
+        'steer should reach Codex'
+      )
       expect(steerInputId).toBe(steer.submissionId)
       emitUserMessageItem(rpc, {
         turnId: 'turn_original',
@@ -1744,6 +2063,10 @@ describe('codex-tui transport', () => {
           'owner should be attributed'
         )
         const steer = await run.broker.steer({ invocationId, origin, body: 'uncertain steer' })
+        await waitFor(
+          () => rpc.requests.some((request) => request.method === 'turn/steer'),
+          'steer should reach Codex'
+        )
         expect(steerInputId).toBe(steer.submissionId)
         await waitFor(
           () =>
@@ -1759,6 +2082,7 @@ describe('codex-tui transport', () => {
               event.type === 'input.rejected' && event.payload.inputId === steer.submissionId
           )?.payload
         ).toMatchObject({ deliveryEvidence: 'possibly_written' })
+        expect(rpc.requests.filter((request) => request.method === 'turn/steer')).toHaveLength(1)
         expect(
           run.events.filter(
             (event) =>

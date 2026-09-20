@@ -120,6 +120,20 @@ interface TurnSteerResponse {
   turnId?: string | undefined
 }
 
+interface ThreadReadResponse {
+  thread?:
+    | {
+        id?: string | undefined
+        turns?:
+          | Array<{
+              id?: string | undefined
+              status?: string | undefined
+            }>
+          | undefined
+      }
+    | undefined
+}
+
 interface PendingSteer {
   inputId: InputId
   threadId: string
@@ -1389,6 +1403,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
     },
     steerLandingEvidence: 'transcript',
     interruptLandingEvidence: 'ack',
+    steerNeverStartsTurn: true,
 
     capabilities(candidate?: HarnessInvocationSpec): InvocationCapabilities {
       if (candidate?.driver.kind === 'codex-app-server') {
@@ -1844,25 +1859,19 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
      * turn, never queues, and never resolves without having applied — a silent
      * resolve would report an order as delivered when it was not.
      *
-     * `expectedTurnId` is the app-server's own active-turn precondition, so a
-     * turn that ended in the race window fails the RPC instead of leaking the
-     * text into an unrelated turn. It is a staleness fence only: duplicate
-     * suppression is the caller's job (HRC's contribution ledger), because the
-     * same turn stays active across a retry.
+     * The app-server requires `expectedTurnId`, but a broker observation is not
+     * a valid actuation precondition: Codex can roll a turn after the broker has
+     * observed it and before this driver gets the steer. Resolve the provider's
+     * active turn immediately before the write, fence that exact thread + turn,
+     * then require both the RPC result and native user item to agree. The one
+     * retryable error is Codex's typed `turn_mismatch` precondition refusal,
+     * which its protocol defines as pre-write. Every other write failure stays
+     * possibly-written and is never retried.
      */
     async applySteerNow(input: InvocationInput): Promise<void> {
       if (!rpc || !spec || !driverSpec || !threadId) {
         throw withDeliveryEvidence(
           new BrokerError(BrokerErrorCode.InvalidInvocationState, 'Invocation is not ready'),
-          'not_written'
-        )
-      }
-      if (!turnActive || currentTurnId === undefined) {
-        throw withDeliveryEvidence(
-          new BrokerError(
-            BrokerErrorCode.InvalidInvocationState,
-            'Codex steer requires an active turn'
-          ),
           'not_written'
         )
       }
@@ -1877,74 +1886,132 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
       }
       const steerInputId = input.inputId
       const steerThreadId = threadId
-      const steerTurnId = currentTurnId
-      const pendingSteer: PendingSteer = {
-        inputId: steerInputId,
-        threadId: steerThreadId,
-        turnId: steerTurnId,
-        nativeObserved: false,
-      }
-      pendingSteers.set(steerInputId, pendingSteer)
-      try {
-        const response = await rpc.sendRequest<TurnSteerResponse>('turn/steer', {
-          threadId: steerThreadId,
-          expectedTurnId: steerTurnId,
-          clientUserMessageId: steerInputId,
-          input: buildCodexInput(input, driverSpec.defaultImageAttachments),
-        })
-        if (response?.turnId !== steerTurnId) {
-          emitDiagnostic(
-            'error',
-            'Codex turn/steer response conflicts with the armed turn identity',
-            {
-              inputId: steerInputId,
-              threadId: steerThreadId,
-              expectedTurnId: steerTurnId,
-              responseTurnId: response?.turnId ?? null,
-              nativeContextEntryObserved: pendingSteer.nativeObserved,
-            },
-            {
-              turnId: steerTurnId,
-              inputId: steerInputId,
-              driver: { kind: 'codex-app-server', rawType: 'turn/steer' },
-            }
+      // A `turn_mismatch` is a pre-write CAS miss, not an input delivery. Keep
+      // resolving until this invocation ceases to have an active turn or the
+      // provider accepts; a retry count would itself reject an otherwise active
+      // steer merely because Codex rolled several times.
+      for (let attempt = 1; ; attempt += 1) {
+        if (stopping) {
+          throw withDeliveryEvidence(
+            new BrokerError(
+              BrokerErrorCode.InvalidInvocationState,
+              'Codex steer invocation is stopping'
+            ),
+            'not_written'
           )
+        }
+        let steerTurnId: TurnId
+        try {
+          const providerThread = await rpc.sendRequest<ThreadReadResponse>('thread/read', {
+            threadId: steerThreadId,
+            includeTurns: true,
+          })
+          steerTurnId = currentActiveTurnFromThreadRead(providerThread, steerThreadId)
+        } catch (error) {
+          if (error !== null && typeof error === 'object' && 'deliveryEvidence' in error) {
+            throw error
+          }
+          throw withDeliveryEvidence(
+            error instanceof BrokerError
+              ? error
+              : new BrokerError(
+                  BrokerErrorCode.HarnessError,
+                  error instanceof Error
+                    ? error.message
+                    : 'Codex could not resolve the current active turn for steer'
+                ),
+            'not_written'
+          )
+        }
+        // `thread/read` is the provider's authoritative observation at the
+        // actuation boundary. Keep local state aligned for later interrupts and
+        // native event normalization, but do not use an older observation as the
+        // steer fence.
+        currentTurnId = steerTurnId
+        turnActive = true
+        const pendingSteer: PendingSteer = {
+          inputId: steerInputId,
+          threadId: steerThreadId,
+          turnId: steerTurnId,
+          nativeObserved: false,
+        }
+        pendingSteers.set(steerInputId, pendingSteer)
+        try {
+          const response = await rpc.sendRequest<TurnSteerResponse>('turn/steer', {
+            threadId: steerThreadId,
+            expectedTurnId: steerTurnId,
+            clientUserMessageId: steerInputId,
+            input: buildCodexInput(input, driverSpec.defaultImageAttachments),
+          })
+          if (response?.turnId !== steerTurnId) {
+            emitDiagnostic(
+              'error',
+              'Codex turn/steer response conflicts with the armed turn identity',
+              {
+                inputId: steerInputId,
+                threadId: steerThreadId,
+                expectedTurnId: steerTurnId,
+                responseTurnId: response?.turnId ?? null,
+                nativeContextEntryObserved: pendingSteer.nativeObserved,
+              },
+              {
+                turnId: steerTurnId,
+                inputId: steerInputId,
+                driver: { kind: 'codex-app-server', rawType: 'turn/steer' },
+              }
+            )
+            throw withDeliveryEvidence(
+              new BrokerError(
+                BrokerErrorCode.HarnessError,
+                'Codex turn/steer response did not match the armed turn'
+              ),
+              'possibly_written'
+            )
+          }
+          return
+        } catch (error) {
+          if (isDefiniteTurnMismatchError(error) && !pendingSteer.nativeObserved) {
+            pendingSteers.delete(steerInputId)
+            emitDiagnostic(
+              'info',
+              'Codex turn/steer precondition rolled before write; resolving current turn',
+              { inputId: steerInputId, threadId: steerThreadId, turnId: steerTurnId, attempt },
+              {
+                turnId: steerTurnId,
+                inputId: steerInputId,
+                driver: { kind: 'codex-app-server', rawType: 'turn/steer' },
+              }
+            )
+            continue
+          }
+          if (pendingSteer.nativeObserved) {
+            emitDiagnostic(
+              'error',
+              'Codex turn/steer RPC failed after native context entry',
+              {
+                inputId: steerInputId,
+                threadId: steerThreadId,
+                turnId: steerTurnId,
+                error: error instanceof Error ? error.message : String(error),
+              },
+              {
+                turnId: steerTurnId,
+                inputId: steerInputId,
+                driver: { kind: 'codex-app-server', rawType: 'turn/steer' },
+              }
+            )
+          }
+          if (error !== null && typeof error === 'object' && 'deliveryEvidence' in error) {
+            throw error
+          }
           throw withDeliveryEvidence(
             new BrokerError(
               BrokerErrorCode.HarnessError,
-              'Codex turn/steer response did not match the armed turn'
+              error instanceof Error ? error.message : 'Codex turn/steer failed'
             ),
             'possibly_written'
           )
         }
-      } catch (error) {
-        if (pendingSteer.nativeObserved) {
-          emitDiagnostic(
-            'error',
-            'Codex turn/steer RPC failed after native context entry',
-            {
-              inputId: steerInputId,
-              threadId: steerThreadId,
-              turnId: steerTurnId,
-              error: error instanceof Error ? error.message : String(error),
-            },
-            {
-              turnId: steerTurnId,
-              inputId: steerInputId,
-              driver: { kind: 'codex-app-server', rawType: 'turn/steer' },
-            }
-          )
-        }
-        if (error !== null && typeof error === 'object' && 'deliveryEvidence' in error) {
-          throw error
-        }
-        throw withDeliveryEvidence(
-          new BrokerError(
-            BrokerErrorCode.HarnessError,
-            error instanceof Error ? error.message : 'Codex turn/steer failed'
-          ),
-          'possibly_written'
-        )
       }
     },
 
@@ -2489,6 +2556,56 @@ function turnStartResponseId(response: TurnStartResponse | undefined): TurnId | 
   return typeof turnId === 'string' && turnId.length > 0 ? (turnId as TurnId) : undefined
 }
 
+/**
+ * Select the one turn that Codex reports as currently in progress, while
+ * refusing a missing, misrouted, or ambiguous thread-read response before any
+ * steer write is attempted.
+ */
+function currentActiveTurnFromThreadRead(
+  response: ThreadReadResponse | undefined,
+  expectedThreadId: string
+): TurnId {
+  const thread = response?.thread
+  if (thread?.id !== expectedThreadId) {
+    throw new BrokerError(
+      BrokerErrorCode.InvalidInvocationState,
+      'Codex thread/read response did not match the active invocation thread',
+      {
+        expectedThreadId,
+        responseThreadId: thread?.id ?? null,
+      }
+    )
+  }
+  const activeTurnIds = (thread.turns ?? []).flatMap((turn) =>
+    turn.status === 'inProgress' && typeof turn.id === 'string' && turn.id.length > 0
+      ? [turn.id as TurnId]
+      : []
+  )
+  if (activeTurnIds.length === 0) {
+    throw new BrokerError(
+      BrokerErrorCode.InvalidInvocationState,
+      'Codex thread/read found no active turn for steer',
+      { threadId: expectedThreadId }
+    )
+  }
+  if (activeTurnIds.length !== 1) {
+    throw new BrokerError(
+      BrokerErrorCode.HarnessError,
+      'Codex thread/read found multiple active turns for steer',
+      { threadId: expectedThreadId, activeTurnIds }
+    )
+  }
+  const activeTurnId = activeTurnIds[0]
+  if (activeTurnId === undefined) {
+    throw new BrokerError(
+      BrokerErrorCode.HarnessError,
+      'Codex thread/read lost its resolved active turn',
+      { threadId: expectedThreadId }
+    )
+  }
+  return activeTurnId
+}
+
 function turnStartedNotificationId(notification: JsonRpcNotification): TurnId | undefined {
   if (notification.params === null || typeof notification.params !== 'object') return undefined
   const params = notification.params as Record<string, unknown>
@@ -2506,6 +2623,21 @@ function isMissingThreadError(error: unknown): boolean {
   }
   const code = extractErrorCode(error)
   return code === 'thread_missing' || /not found|no rollout found/i.test(error.message)
+}
+
+/**
+ * Codex documents `expectedTurnId` as an active-turn precondition: a mismatch
+ * rejects before it accepts the user input. Restrict the retry exception to
+ * that typed failure and its explicit precondition wording; transport errors,
+ * response mismatches, and all other provider failures remain uncertain.
+ */
+function isDefiniteTurnMismatchError(error: unknown): error is CodexRpcError {
+  if (!(error instanceof CodexRpcError) || extractErrorCode(error) !== 'turn_mismatch') {
+    return false
+  }
+  return /expected(?:TurnId| active turn).*?(?:match|found)|active turn.*?expected/i.test(
+    error.message
+  )
 }
 
 function extractErrorCode(error: CodexRpcError): string | undefined {
