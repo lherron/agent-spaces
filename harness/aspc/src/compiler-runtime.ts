@@ -5,6 +5,7 @@ import {
   planPlacementRuntime,
   prepareAgentToolRuntime,
   prepareCodexRuntimeHome,
+  resolveCodexRuntimeHomePath,
 } from 'spaces-execution'
 
 export const runtimeDependencies: NonNullable<AgentSpacesClientOptions['runtime']> = {
@@ -12,5 +13,6 @@ export const runtimeDependencies: NonNullable<AgentSpacesClientOptions['runtime'
   detectAgentLocalComponents,
   planPlacementRuntime,
   prepareCodexRuntimeHome,
+  resolveCodexRuntimeHomePath,
   prepareAgentToolRuntime,
 }

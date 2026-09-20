@@ -105,6 +105,12 @@ export interface PreparePlacementCliRuntimeRequest {
   promptSources?: PreparationPromptSources | undefined
   /** Context identity hints for a context surface (T-08579 §4.1). */
   identityHints?: PreparationIdentityHints | undefined
+  /**
+   * Inspection/preview compiles need the stable CODEX_HOME path in their plan,
+   * but must not materialize that shared home. Launch preparation leaves this
+   * unset and therefore continues to write it.
+   */
+  materializeCodexRuntimeHome?: boolean | undefined
 }
 
 function extractImageAttachmentPaths(attachments: AttachmentRef[] | undefined): string[] {
@@ -393,12 +399,16 @@ export async function preparePlacementCliRuntime(
   // exec routes, so the model receives the system prompt without it appearing in
   // the visible launch message.
   if (frontendDef.frontend === CODEX_CLI_FRONTEND) {
-    const codexHomeDir = await runtime.prepareCodexRuntimeHome(bundle, {
+    const codexRunOptions = {
       ...runOptions,
       aspHome,
       interactive: req.interactionMode === 'interactive',
       ...(req.codexHookEvents !== undefined ? { codexHookEvents: req.codexHookEvents } : {}),
-    })
+    }
+    const codexHomeDir =
+      req.materializeCodexRuntimeHome === false
+        ? resolveReadOnlyCodexRuntimeHome(runtime, bundle, codexRunOptions)
+        : await runtime.prepareCodexRuntimeHome(bundle, codexRunOptions)
     runOptions = { ...runOptions, codexHomeDir }
   }
 
@@ -488,6 +498,19 @@ export async function preparePlacementCliRuntime(
     preparation,
     warnings,
   }
+}
+
+function resolveReadOnlyCodexRuntimeHome(
+  runtime: AgentSpacesRuntimeDependencies,
+  bundle: Parameters<AgentSpacesRuntimeDependencies['prepareCodexRuntimeHome']>[0],
+  runOptions: HarnessRunOptions
+): string {
+  if (runtime.resolveCodexRuntimeHomePath === undefined) {
+    throw new Error(
+      'Runtime dependency resolveCodexRuntimeHomePath is required for read-only Codex preparation'
+    )
+  }
+  return runtime.resolveCodexRuntimeHomePath(bundle, runOptions)
 }
 
 async function sweepAspTempArtifactsWithinBudget(aspHome: string): Promise<void> {

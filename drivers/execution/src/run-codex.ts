@@ -1,10 +1,11 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   copyFile,
   lstat,
   mkdir,
   readFile,
   readlink,
+  rename,
   rm,
   symlink,
   writeFile,
@@ -148,7 +149,7 @@ async function writeCodexRuntimeMetadata(
   )
 }
 
-function resolveCodexRuntimeHomePath(
+export function resolveCodexRuntimeHomePath(
   bundle: ComposedTargetBundle,
   runOptions: HarnessRunOptions
 ): string {
@@ -235,6 +236,14 @@ const MANAGED_FILES = [
 /** Managed directory entries synced from the codex.home template into the runtime home. */
 const MANAGED_DIRS = ['skills', 'prompts'] as const
 
+/**
+ * Managed directory contents are staged here, outside of the path Codex
+ * traverses. `skills` and `prompts` themselves are atomically replaced
+ * symlinks to a complete staged tree. This keeps a concurrent reader from
+ * observing the old entry-by-entry copy that caused T-08580's EEXIST race.
+ */
+const MANAGED_DIRECTORY_VERSIONS = '.asp-managed-directory-versions'
+
 async function syncManagedFile(
   templateHome: string,
   runtimeHome: string,
@@ -263,7 +272,8 @@ async function syncManagedFile(
 async function syncManagedDir(
   templateHome: string,
   runtimeHome: string,
-  relativePath: string
+  relativePath: string,
+  versionKey: string
 ): Promise<void> {
   const srcPath = join(templateHome, relativePath)
   const destPath = join(runtimeHome, relativePath)
@@ -273,8 +283,69 @@ async function syncManagedDir(
     return
   }
 
-  await rm(destPath, { recursive: true, force: true })
-  await copyDir(srcPath, destPath, { useHardlinks: false })
+  const versionsDir = join(runtimeHome, MANAGED_DIRECTORY_VERSIONS, relativePath)
+  const versionPath = join(versionsDir, versionKey)
+  const stagingPath = join(versionsDir, `.${versionKey}.${randomUUID()}.staging`)
+  const pendingLink = join(runtimeHome, `.${relativePath}.${randomUUID()}.pending`)
+
+  await mkdir(versionsDir, { recursive: true })
+  try {
+    // A complete version is immutable after publication. This can be shared by
+    // callers that prepare the same runtime home and fingerprint concurrently.
+    if (!(await pathExists(versionPath))) {
+      await mkdir(stagingPath)
+      await copyDir(srcPath, stagingPath, { useHardlinks: false })
+      try {
+        await rename(stagingPath, versionPath)
+      } catch (error) {
+        // EEXIST here is only acceptable when another writer has already
+        // published the exact immutable version. It is not ignored: any other
+        // error, or a missing winner, remains a preparation failure.
+        if (!(isAlreadyPublished(error) && (await pathExists(versionPath)))) throw error
+      }
+    }
+
+    await symlink(relative(runtimeHome, versionPath), pendingLink)
+    await replaceManagedDirectoryLink(destPath, pendingLink, versionsDir, relativePath)
+  } finally {
+    await rm(stagingPath, { recursive: true, force: true })
+    await rm(pendingLink, { force: true })
+  }
+}
+
+function isAlreadyPublished(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException | undefined)?.code === 'EEXIST'
+}
+
+async function replaceManagedDirectoryLink(
+  destPath: string,
+  pendingLink: string,
+  versionsDir: string,
+  relativePath: string
+): Promise<void> {
+  try {
+    const destination = await lstat(destPath)
+    if (destination.isSymbolicLink()) {
+      // POSIX rename replaces a symlink atomically, so readers get either a
+      // complete old version or a complete new version, never copied entries.
+      await rename(pendingLink, destPath)
+      return
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
+      await rename(pendingLink, destPath)
+      return
+    }
+    throw error
+  }
+
+  // One migration is needed for homes written by older releases, where the
+  // managed path is a real directory. Keep that complete legacy tree rather
+  // than deleting it beneath a live Codex child; all later publications use
+  // the atomic symlink replacement above.
+  const legacyPath = join(versionsDir, `.legacy-${relativePath}-${randomUUID()}`)
+  await rename(destPath, legacyPath)
+  await rename(pendingLink, destPath)
 }
 
 export async function prepareCodexRuntimeHome(
@@ -321,7 +392,7 @@ export async function prepareCodexRuntimeHome(
         await syncManagedFile(templateHome, runtimeHome, relativePath)
       }
       for (const relativePath of MANAGED_DIRS) {
-        await syncManagedDir(templateHome, runtimeHome, relativePath)
+        await syncManagedDir(templateHome, runtimeHome, relativePath, fingerprint)
       }
 
       const configPath = join(runtimeHome, 'config.toml')

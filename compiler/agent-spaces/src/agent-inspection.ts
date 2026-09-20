@@ -82,7 +82,10 @@ export type AgentInspectionOperationOutcome =
 
 type CompileRuntimePlan = (
   request: RuntimeCompileRequest,
-  options?: { compileContext?: AgentInspectionEvaluationContext['compileContext'] | undefined }
+  options?: {
+    compileContext?: AgentInspectionEvaluationContext['compileContext'] | undefined
+    materializeCodexRuntimeHome?: boolean | undefined
+  }
 ) => Promise<RuntimeCompileResponse>
 
 export type InspectAgentForContextOptions = {
@@ -403,6 +406,7 @@ export async function inspectAgentForContext(
       buildInspectionCompileRequest(request, normalized.evaluationContext, initialPrompt),
       {
         compileContext: normalized.compileContext,
+        materializeCodexRuntimeHome: false,
       }
     )
   } catch (error) {

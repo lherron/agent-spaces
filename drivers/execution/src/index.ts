@@ -71,6 +71,7 @@ export {
   validateAgentTools,
   planPlacementRuntime,
   prepareCodexRuntimeHome,
+  resolveCodexRuntimeHomePath,
   auditProjectModels,
   type AgentToolEnvResult,
   type AgentToolRuntimeContext,

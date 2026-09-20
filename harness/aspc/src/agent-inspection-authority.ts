@@ -243,7 +243,10 @@ export function createAspcInspectionAuthority(
           { request: req.request, evaluationContext },
           {
             compileRuntimePlan: (compileRequest, compileOptions) =>
-              compiler(compileRequest, { compileContext: compileOptions?.compileContext }),
+              compiler(compileRequest, {
+                compileContext: compileOptions?.compileContext,
+                materializeCodexRuntimeHome: compileOptions?.materializeCodexRuntimeHome,
+              }),
           }
         )
         return agentInspectionOutcomeSchema.parse(outcome)

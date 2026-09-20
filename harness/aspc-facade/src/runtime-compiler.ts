@@ -7,6 +7,7 @@ import {
   planPlacementRuntime,
   prepareAgentToolRuntime,
   prepareCodexRuntimeHome,
+  resolveCodexRuntimeHomePath,
 } from 'spaces-execution'
 
 export interface RuntimeCompilerOptions {
@@ -32,6 +33,7 @@ function createRuntimeDependencies(options: RuntimeCompilerOptions = {}) {
     detectAgentLocalComponents,
     planPlacementRuntime,
     prepareCodexRuntimeHome,
+    resolveCodexRuntimeHomePath,
     prepareAgentToolRuntime,
   }
 }
@@ -48,8 +50,15 @@ export function createRuntimeCompiler(options: RuntimeCompilerOptions = {}): Asp
     return client.compileRuntimePlan(
       req,
       compileOptions?.compileContext !== undefined
-        ? { compileContext: compileOptions.compileContext }
-        : undefined
+        ? {
+            compileContext: compileOptions.compileContext,
+            ...(compileOptions.materializeCodexRuntimeHome !== undefined
+              ? { materializeCodexRuntimeHome: compileOptions.materializeCodexRuntimeHome }
+              : {}),
+          }
+        : compileOptions?.materializeCodexRuntimeHome !== undefined
+          ? { materializeCodexRuntimeHome: compileOptions.materializeCodexRuntimeHome }
+          : undefined
     )
   }
 }

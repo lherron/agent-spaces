@@ -66,6 +66,7 @@ export interface AgentSpacesRuntimeDependencies {
     bundle: ComposedTargetBundle,
     runOptions: HarnessRunOptions
   ): Promise<string>
+  resolveCodexRuntimeHomePath?(bundle: ComposedTargetBundle, runOptions: HarnessRunOptions): string
   prepareAgentToolRuntime(
     context: {
       agentRoot: string

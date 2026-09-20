@@ -323,6 +323,8 @@ export type AgentEvent =
 export interface RuntimeCompileOptions {
   /** Pinned, serializable compile context (T-04133); omitted by production callers. */
   compileContext?: CompileContext | undefined
+  /** Internal inspection/preview control: preserve the home path but do not write it. */
+  materializeCodexRuntimeHome?: boolean | undefined
 }
 
 /** Compiles a placement/request into a runtime plan (e.g. dry-run preview). */

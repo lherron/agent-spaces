@@ -41,6 +41,7 @@ export {
   getProjectCodexRuntimeHomePath,
   migrateLegacyProjectCodexRuntimeHome,
   prepareCodexRuntimeHome,
+  resolveCodexRuntimeHomePath,
 } from './run-codex.js'
 
 import { detectAgentLocalComponents, resolveAgentRunDefaults } from './run/agent-profile.js'

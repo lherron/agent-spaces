@@ -22,6 +22,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
@@ -348,6 +349,22 @@ describe('T-08579 P1 preview/compile parity', () => {
       )
     })
   }
+
+  test('T-08580: inspection is read-only for the already prepared Codex home', async () => {
+    const c: Case = { agent: 'pov', project: 'projplain' }
+    const { response } = await compile(c)
+    const codexHome = response.selectedProfile.harnessInvocation.startRequest.spec.process.lockedEnv
+      .CODEX_HOME as string
+    const agentsPath = join(codexHome, 'AGENTS.md')
+    const before = readFileSync(agentsPath, 'utf8')
+    const beforeMtime = statSync(agentsPath).mtimeMs
+
+    const inspected = await inspect(c)
+
+    expect(inspected.ok, JSON.stringify(inspected.declaration)).toBe(true)
+    expect(readFileSync(agentsPath, 'utf8')).toBe(before)
+    expect(statSync(agentsPath).mtimeMs).toBe(beforeMtime)
+  })
 
   test('ND-1: dispatchEnv changes neither inspection prompt nor environment hash', async () => {
     const base: Case = { agent: 'pov', project: 'projplain' }

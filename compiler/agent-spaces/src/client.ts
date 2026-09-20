@@ -258,6 +258,9 @@ export function createAgentSpacesClient(
         ...(options?.compileContext !== undefined
           ? { compileContext: options.compileContext }
           : {}),
+        ...(options?.materializeCodexRuntimeHome !== undefined
+          ? { materializeCodexRuntimeHome: options.materializeCodexRuntimeHome }
+          : {}),
       })
     },
 

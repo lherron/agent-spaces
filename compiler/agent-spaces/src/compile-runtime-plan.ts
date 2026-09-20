@@ -90,6 +90,8 @@ type CompileRuntimePlanOptions = {
    * derivation. Production callers omit it (real time, unsalted derivation).
    */
   compileContext?: CompileContext | undefined
+  /** Inspection/preview projects a launch plan but must not mutate CODEX_HOME. */
+  materializeCodexRuntimeHome?: boolean | undefined
 }
 
 function hashValue(value: unknown): string {
@@ -1142,7 +1144,7 @@ async function compileBrokerPlan(
 
   validateBrokerInvocationRequest(brokerReq)
   const prepared = await preparePlacementCliRuntime(
-    brokerReq,
+    { ...brokerReq, materializeCodexRuntimeHome: options?.materializeCodexRuntimeHome },
     options?.clientAspHome,
     options?.clientRegistryPath,
     options?.clientRuntime
@@ -1591,6 +1593,7 @@ async function compileForegroundPlan(
       ...(placement.env !== undefined ? { env: placement.env } : {}),
       ...(placement.lockedEnv !== undefined ? { lockedEnv: placement.lockedEnv } : {}),
       ...(placement.dispatchEnv !== undefined ? { dispatchEnv: placement.dispatchEnv } : {}),
+      materializeCodexRuntimeHome: options?.materializeCodexRuntimeHome,
       placement,
     },
     options?.clientAspHome,
@@ -1741,6 +1744,7 @@ async function preparePiSdkSession(
     ...(placement.env !== undefined ? { env: placement.env } : {}),
     ...(placement.lockedEnv !== undefined ? { lockedEnv: placement.lockedEnv } : {}),
     ...(placement.dispatchEnv !== undefined ? { dispatchEnv: placement.dispatchEnv } : {}),
+    materializeCodexRuntimeHome: options?.materializeCodexRuntimeHome,
     placement,
   }
   try {
@@ -1912,6 +1916,7 @@ async function compileTmuxBrokerPlan(
       ...(placement.env !== undefined ? { env: placement.env } : {}),
       ...(placement.lockedEnv !== undefined ? { lockedEnv: placement.lockedEnv } : {}),
       ...(placement.dispatchEnv !== undefined ? { dispatchEnv: placement.dispatchEnv } : {}),
+      materializeCodexRuntimeHome: options?.materializeCodexRuntimeHome,
       placement,
     },
     options?.clientAspHome,

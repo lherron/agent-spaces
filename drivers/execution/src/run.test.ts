@@ -6,7 +6,17 @@
  */
 
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 
@@ -214,6 +224,79 @@ describe('prepareCodexRuntimeHome', () => {
     expect(metadata.mode).toBe('project')
     expect(metadata.targetName).toBe('codex')
     expect(metadata.projectPath).toBe(projectPath)
+  })
+
+  test('publishes concurrent symlinked managed skills as complete versions', async () => {
+    const root = await createTempDir('run-runtime-concurrent-managed-dir-')
+    const aspHome = join(root, 'asp-home')
+    const projectPath = join(root, 'agent-spaces')
+    const bundleRoot = join(aspHome, 'snapshots', 'concurrent', 'codex')
+    const templateHome = join(bundleRoot, 'codex.home')
+    const runtimeHome = getProjectCodexRuntimeHomePath(aspHome, projectPath, 'cody')
+    const linkedSkill = join(root, 'linked-explainer')
+
+    await mkdir(join(templateHome, 'skills'), { recursive: true })
+    await mkdir(join(templateHome, 'prompts'), { recursive: true })
+    await mkdir(linkedSkill, { recursive: true })
+    await writeFile(join(templateHome, 'AGENTS.md'), 'agents\n')
+    await writeFile(join(templateHome, 'config.toml'), 'model = "gpt-5.6-terra"\n')
+    await writeFile(join(linkedSkill, 'SKILL.md'), 'linked skill\n')
+    await symlink(linkedSkill, join(templateHome, 'skills', 'explainer'))
+
+    // Every caller uses the same stable agent@project home but a different
+    // prompt fingerprint, reproducing the T-08580 collision shape. A managed
+    // directory must be a complete published version throughout; its linked
+    // entry is deliberately the same kind of symlink as the escaped EEXIST.
+    const worker = `
+      const { prepareCodexRuntimeHome } = await import(process.env.T08580_RUN_CODEX)
+      const aspHome = process.env.T08580_ASP_HOME
+      const projectPath = process.env.T08580_PROJECT_PATH
+      const templateHome = process.env.T08580_TEMPLATE_HOME
+      const bundleRoot = process.env.T08580_BUNDLE_ROOT
+      const index = process.env.T08580_WORKER_INDEX
+      await prepareCodexRuntimeHome({
+        harnessId: 'codex', targetName: 'placement-cody', rootDir: bundleRoot,
+        pluginDirs: [templateHome],
+        codex: {
+          homeTemplatePath: templateHome,
+          configPath: templateHome + '/config.toml',
+          agentsPath: templateHome + '/AGENTS.md',
+          skillsDir: templateHome + '/skills', promptsDir: templateHome + '/prompts',
+        },
+      }, {
+        aspHome, projectPath, codexRuntimeTargetName: 'cody',
+        systemPrompt: 'task-static-prompt-' + index,
+      })
+    `
+    const workers = Array.from({ length: 8 }, (_, index) =>
+      Bun.spawn({
+        cmd: [process.execPath, '--eval', worker],
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          T08580_RUN_CODEX: new URL('./run-codex.ts', import.meta.url).href,
+          T08580_ASP_HOME: aspHome,
+          T08580_PROJECT_PATH: projectPath,
+          T08580_TEMPLATE_HOME: templateHome,
+          T08580_BUNDLE_ROOT: bundleRoot,
+          T08580_WORKER_INDEX: String(index),
+        },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      })
+    )
+    for (const process of workers) {
+      expect(await process.exited, await new Response(process.stderr).text()).toBe(0)
+    }
+
+    expect((await lstat(join(runtimeHome, 'skills'))).isSymbolicLink()).toBe(true)
+    expect((await lstat(join(runtimeHome, 'skills', 'explainer'))).isSymbolicLink()).toBe(true)
+    expect(await readFile(join(runtimeHome, 'skills', 'explainer', 'SKILL.md'), 'utf-8')).toBe(
+      'linked skill\n'
+    )
+    expect(await readFile(join(runtimeHome, 'AGENTS.md'), 'utf-8')).toMatch(
+      /task-static-prompt-[0-7]/
+    )
   })
 
   test('refreshes the stable home when composed config.toml changes', async () => {

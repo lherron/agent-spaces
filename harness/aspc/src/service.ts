@@ -55,7 +55,11 @@ const RUNTIME_COMPILE_RESPONSE_SCHEMA = 'agent-runtime-compile-response/v1'
 
 export type AspcCompiler = (
   req: RuntimeCompileRequest,
-  options?: { aspHome?: string | undefined; compileContext?: CompileContext | undefined }
+  options?: {
+    aspHome?: string | undefined
+    compileContext?: CompileContext | undefined
+    materializeCodexRuntimeHome?: boolean | undefined
+  }
 ) => Promise<RuntimeCompileResponse>
 
 export interface AspcServiceOptions {
@@ -167,6 +171,7 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
         compileRuntimePlan: (compileRequest, compileOptions) =>
           compiler(compileRequest, {
             compileContext: compileOptions?.compileContext,
+            materializeCodexRuntimeHome: compileOptions?.materializeCodexRuntimeHome,
           }),
       })
     },
@@ -205,8 +210,15 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
         ...(scaffoldPackets ? { scaffoldPackets } : {}),
         compileRuntimePlan: (
           compileRequest: RuntimeCompileRequest,
-          compileOptions?: { compileContext?: CompileContext | undefined }
-        ) => compiler(compileRequest, { compileContext: compileOptions?.compileContext }),
+          compileOptions?: {
+            compileContext?: CompileContext | undefined
+            materializeCodexRuntimeHome?: boolean | undefined
+          }
+        ) =>
+          compiler(compileRequest, {
+            compileContext: compileOptions?.compileContext,
+            materializeCodexRuntimeHome: compileOptions?.materializeCodexRuntimeHome,
+          }),
       }) as Promise<AspcInspectRuntimePlacementResponse>
     },
 
@@ -241,12 +253,25 @@ function serviceEnvironment(options: AspcServiceOptions): Record<string, string 
 
 async function defaultCompiler(
   req: RuntimeCompileRequest,
-  options?: { aspHome?: string | undefined; compileContext?: CompileContext | undefined }
+  options?: {
+    aspHome?: string | undefined
+    compileContext?: CompileContext | undefined
+    materializeCodexRuntimeHome?: boolean | undefined
+  }
 ): Promise<RuntimeCompileResponse> {
   const client = createAgentSpacesClient({ aspHome: options?.aspHome })
   return client.compileRuntimePlan(
     req,
-    options?.compileContext !== undefined ? { compileContext: options.compileContext } : undefined
+    options?.compileContext !== undefined || options?.materializeCodexRuntimeHome !== undefined
+      ? {
+          ...(options.compileContext !== undefined
+            ? { compileContext: options.compileContext }
+            : {}),
+          ...(options.materializeCodexRuntimeHome !== undefined
+            ? { materializeCodexRuntimeHome: options.materializeCodexRuntimeHome }
+            : {}),
+        }
+      : undefined
   )
 }
 
