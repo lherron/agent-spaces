@@ -10,6 +10,7 @@ import { BrokerError } from '../../src/errors'
 import {
   TmuxPaneController,
   TmuxPaneNotQuiescentError,
+  TmuxPastedLineConfirmationError,
   createTmuxPaneController,
 } from '../../src/runtime/tmux'
 import type { TmuxPaneAllowedOps, TmuxPaneControllerLease } from '../../src/runtime/tmux'
@@ -482,10 +483,102 @@ describe('TmuxPaneController', () => {
       },
     })
 
-    await controller.sendPastedLine('CODEX_HOME=/tmp codex --foo bar')
+    const delivery = await controller.sendPastedLine('CODEX_HOME=/tmp codex --foo bar', {
+      requireConfirmation: true,
+      presentRetryPolicy: 'fresh-observer',
+    })
     expect(pasteCount).toBeGreaterThanOrEqual(2)
     expect(ctrlCs).toBeGreaterThanOrEqual(1)
     expect(enters).toBe(1)
+    expect(delivery).toMatchObject({
+      confirmed: true,
+      captureAvailable: true,
+      paste: { attempts: 2, retries: 1 },
+      submit: { attempts: 1, retries: 0 },
+    })
+  })
+
+  test('required renderer launch rejects a lease without capture before writing', async () => {
+    const { controller, calls } = createRecordingController({
+      ...baseLease.allowedOps,
+      capture: false,
+    })
+
+    await expect(
+      controller.sendPastedLine('exec renderer', { requireConfirmation: true })
+    ).rejects.toMatchObject({
+      phase: 'capture_unavailable',
+      delivery: { confirmed: false, captureAvailable: false, paste: { attempts: 0 } },
+    })
+    expect(calls).toEqual([])
+  })
+
+  test('required renderer launch rejects a paste that is never observed', async () => {
+    const originalNow = Date.now
+    let syntheticNow = originalNow()
+    const controller = createTmuxPaneController({
+      socketPath: '/tmp/harness-broker-tmux.sock',
+      tmuxBin: '/opt/bin/tmux',
+      lease: { ...baseLease },
+      exec: async (argv) => {
+        const verb = argv.find((part) => ALLOWED_TMUX_VERBS.has(part))
+        if (verb === 'capture-pane') syntheticNow += 3_000
+        return { stdout: '', stderr: '' }
+      },
+    })
+    Date.now = () => syntheticNow
+    try {
+      await expect(
+        controller.sendPastedLine('exec renderer', {
+          requireConfirmation: true,
+          presentRetryPolicy: 'fresh-observer',
+        })
+      ).rejects.toMatchObject({
+        phase: 'paste_not_rendered',
+        delivery: {
+          confirmed: false,
+          captureAvailable: true,
+          paste: { attempts: 6, retries: 5 },
+          submit: { attempts: 0 },
+        },
+      })
+    } finally {
+      Date.now = originalNow
+    }
+  })
+
+  test('required renderer launch rejects a swallowed submit after bounded confirmation', async () => {
+    const originalNow = Date.now
+    let syntheticNow = originalNow()
+    let loaded = ''
+    const controller = createTmuxPaneController({
+      socketPath: '/tmp/harness-broker-tmux.sock',
+      tmuxBin: '/opt/bin/tmux',
+      lease: { ...baseLease },
+      exec: async (argv) => {
+        const verb = argv.find((part) => ALLOWED_TMUX_VERBS.has(part))
+        if (verb === 'load-buffer') loaded = readFileSync(argv.at(-1) ?? '', 'utf8')
+        if (verb === 'capture-pane') syntheticNow += 3_000
+        // The command appears for paste confirmation but never leaves after Enter.
+        return { stdout: loaded.length > 0 ? `${loaded}\n` : '', stderr: '' }
+      },
+    })
+    Date.now = () => syntheticNow
+    try {
+      const rejection = controller.sendPastedLine('exec renderer', { requireConfirmation: true })
+      await expect(rejection).rejects.toMatchObject({
+        phase: 'submit_not_confirmed',
+        delivery: {
+          confirmed: false,
+          captureAvailable: true,
+          paste: { attempts: 1, retries: 0 },
+          submit: { attempts: 5, retries: 4 },
+        },
+      })
+      await expect(rejection).rejects.toBeInstanceOf(TmuxPastedLineConfirmationError)
+    } finally {
+      Date.now = originalNow
+    }
   })
 
   test('degrades to a single blind Enter when capture is not leased', async () => {

@@ -52,6 +52,7 @@ import type { CapturedRecord } from '../../capture/capture-gate'
 import { BrokerError } from '../../errors'
 import { buildProcessEnv } from '../../runtime/env'
 import { terminateProcess } from '../../runtime/signals'
+import { TmuxPastedLineConfirmationError } from '../../runtime/tmux'
 import type {
   ApplyInputResult,
   BracketMintingMode,
@@ -237,10 +238,21 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
   function emitDiagnostic(
     level: 'debug' | 'info' | 'warn' | 'error',
     message: string,
-    extra?: Parameters<DriverContext['emit']>[2]
+    extra?: Parameters<DriverContext['emit']>[2] & { data?: unknown }
   ): void {
     if (!ctx) return
-    emitCaptured('diagnostic', { level, message, source: 'driver', kind: MUSE_DRIVER_KIND }, extra)
+    const { data, ...eventExtra } = extra ?? {}
+    emitCaptured(
+      'diagnostic',
+      {
+        level,
+        message,
+        source: 'driver',
+        kind: MUSE_DRIVER_KIND,
+        ...(data !== undefined ? { data } : {}),
+      },
+      eventExtra
+    )
   }
 
   /**
@@ -850,6 +862,7 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
       }
       if (startupTimer !== undefined) clearTimeout(startupTimer)
 
+      const sessionReadyAt = performance.now()
       // Driver-owned renderer: when HRC hands this invocation a
       // terminal-surface pane lease, report the surface and launch the muse
       // renderer into the pane. Presentation/observation only — the serve
@@ -859,9 +872,11 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
         runtimeOverlay?.terminalSurface !== undefined ||
         runtimeOverlay?.terminalSurfaceRequired === true
       ) {
+        const observerSetupStartedAt = performance.now()
         const leased = await consumePaneLease(driverCtx, {
           driverKind: MUSE_DRIVER_KIND,
         })
+        const leaseMs = Math.round((performance.now() - observerSetupStartedAt) * 10) / 10
         emitCaptured(
           'terminal.surface.reported',
           {
@@ -885,6 +900,7 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
           leased.surface,
           expectedRuntimeId
         )
+        const listenerStartedAt = performance.now()
         rendererControlListener = await listenForHookEnvelopes<MuseRendererControlEnvelope>(
           controlSocketPath,
           async (envelope) => {
@@ -900,17 +916,51 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
             return undefined
           }
         )
+        const controlListenerMs = Math.round((performance.now() - listenerStartedAt) * 10) / 10
         const observerSocketPath = resolveMuseRendererObserverSocket(driverCtx, leased.surface)
         const rendererLauncher = resolveMuseRendererLauncher()
-        await leased.controller.sendPastedLine(
-          buildMuseRendererLaunchCommand({
-            invocationId: driverCtx.invocationId,
-            observerSocketPath,
-            controlSocketPath: rendererControlListener.socketPath,
-            ...(expectedRuntimeId !== undefined ? { runtimeId: expectedRuntimeId } : {}),
-            ...(rendererLauncher !== undefined ? { launcher: rendererLauncher } : {}),
+        try {
+          const rendererDelivery = await leased.controller.sendPastedLine(
+            buildMuseRendererLaunchCommand({
+              invocationId: driverCtx.invocationId,
+              observerSocketPath,
+              controlSocketPath: rendererControlListener.socketPath,
+              ...(expectedRuntimeId !== undefined ? { runtimeId: expectedRuntimeId } : {}),
+              ...(rendererLauncher !== undefined ? { launcher: rendererLauncher } : {}),
+            }),
+            { requireConfirmation: true, presentRetryPolicy: 'fresh-observer' }
+          )
+          emitDiagnostic('info', 'muse renderer launch confirmed', {
+            data: {
+              phase: 'muse_renderer_launch',
+              postSessionMs: Math.round((performance.now() - sessionReadyAt) * 10) / 10,
+              leaseMs,
+              controlListenerMs,
+              delivery: rendererDelivery,
+            },
           })
-        )
+        } catch (error) {
+          const confirmation =
+            error instanceof TmuxPastedLineConfirmationError
+              ? { phase: error.phase, delivery: error.delivery }
+              : undefined
+          emitDiagnostic(
+            'error',
+            'muse renderer launch not confirmed; refusing invocation readiness',
+            {
+              data: {
+                phase: 'muse_renderer_launch',
+                postSessionMs: Math.round((performance.now() - sessionReadyAt) * 10) / 10,
+                leaseMs,
+                controlListenerMs,
+                ...(confirmation !== undefined ? { confirmation } : {}),
+              },
+            }
+          )
+          await rendererControlListener?.close().catch(() => undefined)
+          rendererControlListener = undefined
+          throw error
+        }
       }
 
       requireCtx().emit('invocation.started', {

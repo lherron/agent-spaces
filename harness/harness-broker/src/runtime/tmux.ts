@@ -71,6 +71,33 @@ export type TmuxSteerOptions = {
   landingPollIntervalMs?: number | undefined
 }
 
+/** Safe-to-log evidence gathered while submitting a shell command to a pane. */
+export type TmuxPastedLineDelivery = {
+  confirmed: boolean
+  captureAvailable: boolean
+  totalMs: number
+  paste: { attempts: number; retries: number; durationMs: number }
+  submit: { attempts: number; retries: number; durationMs: number }
+}
+
+export type TmuxPastedLineOptions = {
+  /** Refuse instead of returning after an unobservable or unconfirmed write. */
+  requireConfirmation?: boolean | undefined
+  /** Fast retries for a new observer pane, retaining the historic total budget. */
+  presentRetryPolicy?: 'standard' | 'fresh-observer' | undefined
+}
+
+/** A required presentation command was written but could not be confirmed. */
+export class TmuxPastedLineConfirmationError extends Error {
+  constructor(
+    readonly phase: 'capture_unavailable' | 'paste_not_rendered' | 'submit_not_confirmed',
+    readonly delivery: TmuxPastedLineDelivery
+  ) {
+    super(`tmux pasted-line ${phase}`)
+    this.name = 'TmuxPastedLineConfirmationError'
+  }
+}
+
 /**
  * Typed, fail-closed steer rejection. The broker publishes {@link reason} as
  * the submission rejection reason so HRC can redeliver by policy.
@@ -118,6 +145,9 @@ const PRESENT_POLL_INTERVAL_MS = 150
 const SUBMIT_CONFIRM_TIMEOUT_MS = 1_500
 const SUBMIT_POLL_INTERVAL_MS = 150
 const MAX_SUBMIT_ATTEMPTS = 5
+// These intervals retain the established 7.5s present-confirmation budget,
+// but reattempt early while a just-created observer pane becomes readable.
+const FRESH_OBSERVER_PASTE_TIMEOUTS_MS = [150, 300, 600, 1_200, 2_400, 2_850] as const
 // Used only when the lease does not grant capture (we cannot observe the pane).
 const LEGACY_PASTE_GAP_MS = 1_000
 // Trailing window of the pasted command used as the present / still-unexecuted
@@ -246,27 +276,54 @@ export class TmuxPaneController {
    * Degrades to a single blind paste + gap + Enter when the lease cannot observe
    * the pane (no capture).
    */
-  async sendPastedLine(text: string): Promise<void> {
+  async sendPastedLine(
+    text: string,
+    options: TmuxPastedLineOptions = {}
+  ): Promise<TmuxPastedLineDelivery> {
+    const startedAt = performance.now()
+    const delivery = (overrides: Partial<TmuxPastedLineDelivery> = {}): TmuxPastedLineDelivery => ({
+      confirmed: false,
+      captureAvailable: this.lease.allowedOps.capture === true,
+      totalMs: elapsedMs(startedAt),
+      paste: { attempts: 0, retries: 0, durationMs: 0 },
+      submit: { attempts: 0, retries: 0, durationMs: 0 },
+      ...overrides,
+    })
     const tail = commandTail(text)
 
     // No capture → cannot observe the pane; best-effort single blind submit.
     if (this.lease.allowedOps.capture !== true) {
+      if (options.requireConfirmation === true) {
+        throw new TmuxPastedLineConfirmationError('capture_unavailable', delivery())
+      }
+      const pasteStartedAt = performance.now()
       await this.pasteBuffer(text)
       await sleep(LEGACY_PASTE_GAP_MS)
       await this.sendEnter()
-      return
+      return delivery({
+        paste: { attempts: 1, retries: 0, durationMs: elapsedMs(pasteStartedAt) },
+        submit: { attempts: 1, retries: 0, durationMs: 0 },
+      })
     }
 
     // Step 1: (re)paste until the command is present at the prompt.
     let present = false
-    for (let attempt = 0; attempt < MAX_PASTE_ATTEMPTS; attempt++) {
+    let pasteAttempts = 0
+    const pasteStartedAt = performance.now()
+    const pasteTimeouts =
+      options.presentRetryPolicy === 'fresh-observer'
+        ? FRESH_OBSERVER_PASTE_TIMEOUTS_MS
+        : Array.from({ length: MAX_PASTE_ATTEMPTS }, () => PASTE_RENDER_TIMEOUT_MS)
+    for (const timeoutMs of pasteTimeouts) {
+      const attempt = pasteAttempts
+      pasteAttempts += 1
       if (attempt > 0) {
         await this.discardPromptLine()
       }
       await this.pasteBuffer(text)
       const rendered = await this.waitForPane(
         (pane) => normalizePane(pane).includes(tail),
-        PASTE_RENDER_TIMEOUT_MS,
+        timeoutMs,
         PRESENT_POLL_INTERVAL_MS
       )
       if (rendered === true) {
@@ -274,17 +331,29 @@ export class TmuxPaneController {
         break
       }
     }
+    const paste = {
+      attempts: pasteAttempts,
+      retries: Math.max(0, pasteAttempts - 1),
+      durationMs: elapsedMs(pasteStartedAt),
+    }
     if (!present) {
-      // Never rendered within budget: best-effort single Enter, no worse than legacy.
+      const failed = delivery({ paste })
+      if (options.requireConfirmation === true) {
+        throw new TmuxPastedLineConfirmationError('paste_not_rendered', failed)
+      }
+      // Legacy callers retain their best-effort single Enter behavior.
       await this.sendEnter()
-      return
+      return delivery({ ...failed, submit: { attempts: 1, retries: 0, durationMs: 0 } })
     }
 
     // Step 2: submit and confirm the command line advanced past the prompt.
     // Because we know the command WAS present, "no longer ends with the command"
     // now reliably means it was accepted (the prompt advanced or a program took
     // over the pane), not merely that it has not been typed yet.
+    const submitStartedAt = performance.now()
+    let submitAttempts = 0
     for (let attempt = 0; attempt < MAX_SUBMIT_ATTEMPTS; attempt++) {
+      submitAttempts += 1
       await this.sendEnter()
       const advanced = await this.waitForPane(
         (pane) => !normalizePane(pane).endsWith(tail),
@@ -292,9 +361,29 @@ export class TmuxPaneController {
         SUBMIT_POLL_INTERVAL_MS
       )
       if (advanced === true) {
-        return
+        return delivery({
+          confirmed: true,
+          paste,
+          submit: {
+            attempts: submitAttempts,
+            retries: Math.max(0, submitAttempts - 1),
+            durationMs: elapsedMs(submitStartedAt),
+          },
+        })
       }
     }
+    const failed = delivery({
+      paste,
+      submit: {
+        attempts: submitAttempts,
+        retries: Math.max(0, submitAttempts - 1),
+        durationMs: elapsedMs(submitStartedAt),
+      },
+    })
+    if (options.requireConfirmation === true) {
+      throw new TmuxPastedLineConfirmationError('submit_not_confirmed', failed)
+    }
+    return failed
   }
 
   /**
@@ -532,6 +621,10 @@ export class TmuxPaneController {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function elapsedMs(startedAt: number): number {
+  return Math.round((performance.now() - startedAt) * 10) / 10
 }
 
 /** Remove terminal SGR/control sequences while retaining rendered text. */

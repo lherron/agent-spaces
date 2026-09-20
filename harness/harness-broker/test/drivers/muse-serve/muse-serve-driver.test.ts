@@ -8,8 +8,14 @@
  * ack, turn/completed, commandRejected/missing_run).
  */
 import { describe, expect, test } from 'bun:test'
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { HarnessInvocationSpec, InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
+import type {
+  HarnessInvocationSpec,
+  InvocationEventEnvelope,
+  InvocationRuntimeContext,
+} from 'spaces-harness-broker-protocol'
 import { createBroker } from '../../../src/broker'
 import type { Driver } from '../../../src/drivers/driver'
 import { deliveryEvidenceOf } from '../../../src/drivers/driver'
@@ -57,6 +63,57 @@ const waitFor = async (predicate: () => boolean, timeoutMs = 8000): Promise<void
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
   throw new Error('timed out waiting for condition')
+}
+
+type TerminalSurfaceLease = NonNullable<InvocationRuntimeContext['terminalSurface']>
+
+const rendererLease = (): TerminalSurfaceLease => ({
+  kind: 'tmux-pane',
+  ownership: 'hrc',
+  socketPath: '/tmp/harness-broker/muse-renderer.sock',
+  sessionId: '$8',
+  windowId: '@3',
+  paneId: '%41',
+  allowedOps: { inspect: true, sendInput: true, sendInterrupt: true, capture: true },
+})
+
+async function withSwallowedRendererTmux<T>(
+  lease: TerminalSurfaceLease,
+  fn: () => Promise<T>
+): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), 'muse-serve-tmux-'))
+  const tmuxPath = join(dir, 'tmux')
+  const commandPath = join(dir, 'command')
+  await writeFile(
+    tmuxPath,
+    `#!/usr/bin/env bash
+if [[ "$1" == "-S" ]]; then shift 2; fi
+if [[ "$1" == "display-message" ]]; then
+  printf '%s\\t%s\\t%s\\n' '${lease.sessionId}' '${lease.windowId}' '${lease.paneId}'
+  exit 0
+fi
+if [[ "$1" == "load-buffer" ]]; then
+  cat "${'${@: -1}'}" > ${JSON.stringify(commandPath)}
+  exit 0
+fi
+if [[ "$1" == "capture-pane" ]]; then
+  cat ${JSON.stringify(commandPath)} 2>/dev/null || true
+  exit 0
+fi
+if [[ "$1" == "delete-buffer" || "$1" == "paste-buffer" || "$1" == "send-keys" ]]; then exit 0; fi
+exit 64
+`
+  )
+  await chmod(tmuxPath, 0o755)
+  const previousPath = process.env['PATH']
+  process.env['PATH'] = previousPath === undefined ? dir : `${dir}:${previousPath}`
+  try {
+    return await fn()
+  } finally {
+    if (previousPath === undefined) process.env['PATH'] = undefined
+    else process.env['PATH'] = previousPath
+    await rm(dir, { recursive: true, force: true })
+  }
 }
 
 describe('muse-serve driver', () => {
@@ -236,6 +293,66 @@ describe('muse-serve driver', () => {
     const broker = createBroker({ drivers: [createMuseServeDriver()], now })
     const spec = scenarioSpec('bad-fingerprint', 'inv_muse_badfp')
     await expect(broker.start({ spec })).rejects.toThrow('fingerprint mismatch')
+  })
+
+  test('fails closed before invocation readiness when the observer submit is swallowed', async () => {
+    const invocationId = 'inv_muse_renderer_submit_lost'
+    const events: InvocationEventEnvelope[] = []
+    const lease = rendererLease()
+    const driver = createMuseServeDriver()
+    const ctx = {
+      invocationId,
+      clientCapabilities: {},
+      runtime: { terminalSurface: lease },
+      emit(
+        type: InvocationEventEnvelope['type'],
+        payload: unknown,
+        extra?: Record<string, unknown>
+      ) {
+        const event = {
+          invocationId,
+          seq: events.length + 1,
+          time: now().toISOString(),
+          type,
+          payload,
+          ...extra,
+        } as InvocationEventEnvelope
+        events.push(event)
+        return event
+      },
+    } as Parameters<ReturnType<typeof createMuseServeDriver>['start']>[1]
+    const originalNow = Date.now
+    let syntheticNow = originalNow()
+    Date.now = () => syntheticNow
+    const clock = setInterval(() => {
+      syntheticNow += 3_000
+    }, 10)
+    try {
+      await withSwallowedRendererTmux(lease, async () => {
+        const start = driver.start(scenarioSpec('ok', invocationId), ctx)
+        // The first capture confirms the paste; the synthetic monotonic wall
+        // clock then makes each swallowed-submit confirmation expire without
+        // spending the production 1.5s per retry in this test.
+        await expect(start).rejects.toThrow('submit_not_confirmed')
+      })
+    } finally {
+      clearInterval(clock)
+      Date.now = originalNow
+      await driver.dispose()
+    }
+    expect(events.map((event) => event.type)).not.toContain('invocation.started')
+    expect(events.map((event) => event.type)).not.toContain('invocation.ready')
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'diagnostic',
+        payload: expect.objectContaining({
+          message: 'muse renderer launch not confirmed; refusing invocation readiness',
+          data: expect.objectContaining({
+            confirmation: expect.objectContaining({ phase: 'submit_not_confirmed' }),
+          }),
+        }),
+      })
+    )
   })
 
   test('decides approval by policy allow with the approved choice', async () => {
