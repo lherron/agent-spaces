@@ -52,7 +52,7 @@ import type { CapturedRecord } from '../../capture/capture-gate'
 import { BrokerError } from '../../errors'
 import { buildProcessEnv } from '../../runtime/env'
 import { terminateProcess } from '../../runtime/signals'
-import { TmuxPastedLineConfirmationError } from '../../runtime/tmux'
+import { TmuxPastedLineConfirmationError, type TmuxPastedLineDelivery } from '../../runtime/tmux'
 import type {
   ApplyInputResult,
   BracketMintingMode,
@@ -99,13 +99,20 @@ export const MSP_SCHEMA_FINGERPRINT =
 export interface MuseServeDriverOptions {
   /** Base dir for per-invocation isolated HOMEs. */
   homeBaseDir?: string | undefined
+  /** Test-only override for the bounded renderer startup acknowledgement wait. */
+  rendererStartAckTimeoutMs?: number | undefined
 }
 
 /** Lifecycle envelopes the muse renderer posts to the driver control socket. */
 interface MuseRendererControlEnvelope {
   type: string
   reason?: unknown
+  invocationId?: unknown
+  runtimeId?: unknown
+  callbackSocket?: unknown
 }
+
+const MUSE_RENDERER_START_ACK_TIMEOUT_MS = 5_000
 
 /**
  * Resolve the read-only observer/broker socket the muse renderer connects to
@@ -900,11 +907,32 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
           leased.surface,
           expectedRuntimeId
         )
+        let resolveRendererStarted: (() => void) | undefined
+        let rejectRendererStarted: ((error: Error) => void) | undefined
+        const rendererStarted = new Promise<void>((resolve, reject) => {
+          resolveRendererStarted = resolve
+          rejectRendererStarted = reject
+        })
+        // The promise is observed below after the command is sent. Register a
+        // handler now so a fast renderer cannot race past readiness.
+        rendererStarted.catch(() => undefined)
         const listenerStartedAt = performance.now()
         rendererControlListener = await listenForHookEnvelopes<MuseRendererControlEnvelope>(
           controlSocketPath,
           async (envelope) => {
+            if (envelope.invocationId !== driverCtx.invocationId) return undefined
+            if (expectedRuntimeId !== undefined && envelope.runtimeId !== expectedRuntimeId) {
+              return undefined
+            }
+            if (envelope.callbackSocket !== controlSocketPath) return undefined
+            if (envelope.type === 'muse-serve-renderer.started') {
+              resolveRendererStarted?.()
+              return undefined
+            }
             if (envelope.type === 'muse-serve-renderer.exited') {
+              rejectRendererStarted?.(
+                new Error('muse renderer exited before startup acknowledgement')
+              )
               emitDiagnostic('info', 'muse renderer exited')
               return undefined
             }
@@ -919,8 +947,11 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
         const controlListenerMs = Math.round((performance.now() - listenerStartedAt) * 10) / 10
         const observerSocketPath = resolveMuseRendererObserverSocket(driverCtx, leased.surface)
         const rendererLauncher = resolveMuseRendererLauncher()
+        let rendererDelivery: TmuxPastedLineDelivery | undefined
+        let rendererAckMs: number | undefined
         try {
-          const rendererDelivery = await leased.controller.sendPastedLine(
+          const rendererLaunchStartedAt = performance.now()
+          rendererDelivery = await leased.controller.sendPastedLine(
             buildMuseRendererLaunchCommand({
               invocationId: driverCtx.invocationId,
               observerSocketPath,
@@ -928,8 +959,35 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
               ...(expectedRuntimeId !== undefined ? { runtimeId: expectedRuntimeId } : {}),
               ...(rendererLauncher !== undefined ? { launcher: rendererLauncher } : {}),
             }),
-            { requireConfirmation: true, presentRetryPolicy: 'fresh-observer' }
+            {
+              requireConfirmation: true,
+              presentRetryPolicy: 'fresh-observer',
+              submitConfirmation: 'none',
+            }
           )
+          await new Promise<void>((resolve, reject) => {
+            const timeout = setTimeout(
+              () =>
+                reject(
+                  new BrokerError(
+                    BrokerCodes.Timeout,
+                    'Muse renderer start acknowledgement timed out'
+                  )
+                ),
+              options.rendererStartAckTimeoutMs ?? MUSE_RENDERER_START_ACK_TIMEOUT_MS
+            )
+            void rendererStarted.then(
+              () => {
+                clearTimeout(timeout)
+                resolve()
+              },
+              (error: Error) => {
+                clearTimeout(timeout)
+                reject(error)
+              }
+            )
+          })
+          rendererAckMs = Math.round((performance.now() - rendererLaunchStartedAt) * 10) / 10
           emitDiagnostic('info', 'muse renderer launch confirmed', {
             data: {
               phase: 'muse_renderer_launch',
@@ -937,6 +995,7 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
               leaseMs,
               controlListenerMs,
               delivery: rendererDelivery,
+              rendererAckMs,
             },
           })
         } catch (error) {
@@ -953,6 +1012,8 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
                 postSessionMs: Math.round((performance.now() - sessionReadyAt) * 10) / 10,
                 leaseMs,
                 controlListenerMs,
+                ...(rendererDelivery !== undefined ? { delivery: rendererDelivery } : {}),
+                ...(rendererAckMs !== undefined ? { rendererAckMs } : {}),
                 ...(confirmation !== undefined ? { confirmation } : {}),
               },
             }

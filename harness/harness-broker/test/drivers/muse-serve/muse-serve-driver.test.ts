@@ -8,7 +8,7 @@
  * ack, turn/completed, commandRejected/missing_run).
  */
 import { describe, expect, test } from 'bun:test'
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
@@ -19,6 +19,7 @@ import type {
 import { createBroker } from '../../../src/broker'
 import type { Driver } from '../../../src/drivers/driver'
 import { deliveryEvidenceOf } from '../../../src/drivers/driver'
+import { postEnvelope } from '../../../src/drivers/hook-bridge-transport'
 import { MUSE_CAPABILITIES } from '../../../src/drivers/muse-serve/capabilities'
 import { createMuseServeDriver } from '../../../src/drivers/muse-serve/driver'
 
@@ -56,10 +57,13 @@ const userInput = (inputId: string, text: string) => ({
   content: [{ type: 'text' as const, text }],
 })
 
-const waitFor = async (predicate: () => boolean, timeoutMs = 8000): Promise<void> => {
+const waitFor = async (
+  predicate: () => boolean | Promise<boolean>,
+  timeoutMs = 8000
+): Promise<void> => {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    if (predicate()) return
+    if (await predicate()) return
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
   throw new Error('timed out waiting for condition')
@@ -79,7 +83,7 @@ const rendererLease = (): TerminalSurfaceLease => ({
 
 async function withSwallowedRendererTmux<T>(
   lease: TerminalSurfaceLease,
-  fn: () => Promise<T>
+  fn: (commandPath: string) => Promise<T>
 ): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), 'muse-serve-tmux-'))
   const tmuxPath = join(dir, 'tmux')
@@ -108,7 +112,7 @@ exit 64
   const previousPath = process.env['PATH']
   process.env['PATH'] = previousPath === undefined ? dir : `${dir}:${previousPath}`
   try {
-    return await fn()
+    return await fn(commandPath)
   } finally {
     if (previousPath === undefined) process.env['PATH'] = undefined
     else process.env['PATH'] = previousPath
@@ -295,11 +299,11 @@ describe('muse-serve driver', () => {
     await expect(broker.start({ spec })).rejects.toThrow('fingerprint mismatch')
   })
 
-  test('fails closed before invocation readiness when the observer submit is swallowed', async () => {
+  test('fails closed before invocation readiness when the renderer never acknowledges startup', async () => {
     const invocationId = 'inv_muse_renderer_submit_lost'
     const events: InvocationEventEnvelope[] = []
     const lease = rendererLease()
-    const driver = createMuseServeDriver()
+    const driver = createMuseServeDriver({ rendererStartAckTimeoutMs: 5 })
     const ctx = {
       invocationId,
       clientCapabilities: {},
@@ -321,23 +325,15 @@ describe('muse-serve driver', () => {
         return event
       },
     } as Parameters<ReturnType<typeof createMuseServeDriver>['start']>[1]
-    const originalNow = Date.now
-    let syntheticNow = originalNow()
-    Date.now = () => syntheticNow
-    const clock = setInterval(() => {
-      syntheticNow += 3_000
-    }, 10)
     try {
       await withSwallowedRendererTmux(lease, async () => {
         const start = driver.start(scenarioSpec('ok', invocationId), ctx)
-        // The first capture confirms the paste; the synthetic monotonic wall
-        // clock then makes each swallowed-submit confirmation expire without
-        // spending the production 1.5s per retry in this test.
-        await expect(start).rejects.toThrow('submit_not_confirmed')
+        // The old scroll-based submit loop is disabled for this path. The
+        // command gets one Enter and required readiness waits for the process
+        // acknowledgement instead.
+        await expect(start).rejects.toThrow('start acknowledgement timed out')
       })
     } finally {
-      clearInterval(clock)
-      Date.now = originalNow
       await driver.dispose()
     }
     expect(events.map((event) => event.type)).not.toContain('invocation.started')
@@ -347,9 +343,67 @@ describe('muse-serve driver', () => {
         type: 'diagnostic',
         payload: expect.objectContaining({
           message: 'muse renderer launch not confirmed; refusing invocation readiness',
-          data: expect.objectContaining({
-            confirmation: expect.objectContaining({ phase: 'submit_not_confirmed' }),
-          }),
+          data: expect.objectContaining({ delivery: expect.any(Object) }),
+        }),
+      })
+    )
+  })
+
+  test('uses the renderer started envelope, not terminal scroll, for observer readiness', async () => {
+    const invocationId = 'inv_muse_renderer_ack'
+    const events: InvocationEventEnvelope[] = []
+    const lease = rendererLease()
+    const driver = createMuseServeDriver({ rendererStartAckTimeoutMs: 1000 })
+    const ctx = {
+      invocationId,
+      clientCapabilities: {},
+      runtime: { terminalSurface: lease },
+      emit(
+        type: InvocationEventEnvelope['type'],
+        payload: unknown,
+        extra?: Record<string, unknown>
+      ) {
+        const event = {
+          invocationId,
+          seq: events.length + 1,
+          time: now().toISOString(),
+          type,
+          payload,
+          ...extra,
+        } as InvocationEventEnvelope
+        events.push(event)
+        return event
+      },
+    } as Parameters<ReturnType<typeof createMuseServeDriver>['start']>[1]
+    try {
+      await withSwallowedRendererTmux(lease, async (commandPath) => {
+        const start = driver.start(scenarioSpec('ok', invocationId), ctx)
+        let command = ''
+        await waitFor(async () => {
+          command = await readFile(commandPath, 'utf8').catch(() => '')
+          return command.length > 0
+        })
+        const match = command.match(/--control-socket\s+(?:"([^"]+)"|'([^']+)'|(\S+))/)
+        const controlSocket = match?.[1] ?? match?.[2] ?? match?.[3]
+        expect(controlSocket).toBeString()
+        await postEnvelope(controlSocket as string, {
+          type: 'muse-serve-renderer.started',
+          invocationId,
+          callbackSocket: controlSocket,
+        })
+        await expect(start).resolves.toEqual({ ok: true })
+      })
+    } finally {
+      await driver.dispose()
+    }
+    expect(events.map((event) => event.type)).toContain('invocation.started')
+    expect(events.map((event) => event.type)).toContain('invocation.ready')
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'diagnostic',
+        payload: expect.objectContaining({
+          message: 'muse renderer launch confirmed',
+          data: expect.objectContaining({ rendererAckMs: expect.any(Number) }),
         }),
       })
     )

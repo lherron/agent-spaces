@@ -161,6 +161,16 @@ export async function runMuseRendererEntry(argv: string[]): Promise<void> {
     width,
   })
   await projection.start()
+  // The renderer has connected to the durable observer surface and completed
+  // its initial replay. This control-envelope acknowledgement is the only
+  // authoritative proof that the tmux launch command actually exec'd; pane
+  // scroll disappearance is merely a transport hint and must not gate ready.
+  await postEnvelope(controlSocketPath, {
+    type: 'muse-serve-renderer.started',
+    invocationId,
+    ...(runtimeId !== undefined ? { runtimeId } : {}),
+    callbackSocket: controlSocketPath,
+  })
 
   if (isTty) {
     let lastColumns = process.stdout.columns

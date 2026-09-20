@@ -85,6 +85,12 @@ export type TmuxPastedLineOptions = {
   requireConfirmation?: boolean | undefined
   /** Fast retries for a new observer pane, retaining the historic total budget. */
   presentRetryPolicy?: 'standard' | 'fresh-observer' | undefined
+  /**
+   * `none` sends one Enter after paste confirmation. A caller with a stronger
+   * process-level acknowledgement (such as a renderer control envelope) owns
+   * readiness; it must not also wait on terminal scroll inference.
+   */
+  submitConfirmation?: 'pane' | 'none' | undefined
 }
 
 /** A required presentation command was written but could not be confirmed. */
@@ -344,6 +350,15 @@ export class TmuxPaneController {
       // Legacy callers retain their best-effort single Enter behavior.
       await this.sendEnter()
       return delivery({ ...failed, submit: { attempts: 1, retries: 0, durationMs: 0 } })
+    }
+
+    if (options.submitConfirmation === 'none') {
+      const submitStartedAt = performance.now()
+      await this.sendEnter()
+      return delivery({
+        paste,
+        submit: { attempts: 1, retries: 0, durationMs: elapsedMs(submitStartedAt) },
+      })
     }
 
     // Step 2: submit and confirm the command line advanced past the prompt.
