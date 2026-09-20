@@ -52,13 +52,21 @@ export type {
 export { buildCorrelationEnvVars } from './placement-api.js'
 
 export {
+  ARRIS_FRONTEND,
   ARRIS_PARTICIPANT_ADAPTER_ID,
+  ARRIS_PROCESS_COMMAND,
+  ARRIS_PRODUCT_ID,
   ARRIS_RESIDENT_DRIVER_KIND,
+  arrisProductConfig,
   createArrisParticipantAdapter,
+  createResidentParticipantAdapter,
   type ArrisParticipantAdapterOptions,
   type ArrisParticipantContinuityEvidence,
   type ArrisParticipantEvidence,
   type ArrisParticipantPreparation,
+  type ResidentParticipantAdapterOptions,
+  type ResidentProductConfig,
+  type ValidatedResidentProduct,
 } from './arris-participant-adapter.js'
 
 export { createAgentSpacesClient } from './client.js'
