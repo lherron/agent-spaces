@@ -48,6 +48,7 @@ import {
   type DriverContext,
   type DriverStartResult,
   withDeliveryEvidence,
+  withSteerRequiresOwnTurn,
 } from '../driver'
 import { CODEX_APP_SERVER_AUTHORITY } from '../evidence-authority'
 import { createHookCaptureSeam } from '../hook-capture'
@@ -1403,8 +1404,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
     },
     steerLandingEvidence: 'transcript',
     interruptLandingEvidence: 'ack',
-    steerNeverStartsTurn: true,
-
+    resolvesSteerAtActuation: true,
     capabilities(candidate?: HarnessInvocationSpec): InvocationCapabilities {
       if (candidate?.driver.kind === 'codex-app-server') {
         codexTui = isCodexTuiSpec(candidate.driver as CodexAppServerDriverSpec)
@@ -1853,11 +1853,10 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
     /**
      * T-07155 — mid-turn steer via the app-server `turn/steer` RPC.
      *
-     * The broker manager calls this only under `whenBusy: 'steer'` while a turn
-     * is active; it owns all policy and disposition. This method's contract is
-     * narrow: apply the text to the ACTIVE turn or throw. It never starts a
-     * turn, never queues, and never resolves without having applied — a silent
-     * resolve would report an order as delivered when it was not.
+     * The broker manager normally calls this while a turn is active; it owns
+     * all policy and disposition. Apply the text to the provider's ACTIVE turn.
+     * If the provider is already idle, return typed no-write evidence that asks
+     * the manager to start an own turn with this same submission instead.
      *
      * The app-server requires `expectedTurnId`, but a broker observation is not
      * a valid actuation precondition: Codex can roll a turn after the broker has
@@ -1901,27 +1900,61 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
           )
         }
         let steerTurnId: TurnId
+        let authoritativeTurnResolution = false
         try {
           const providerThread = await rpc.sendRequest<ThreadReadResponse>('thread/read', {
             threadId: steerThreadId,
             includeTurns: true,
           })
-          steerTurnId = currentActiveTurnFromThreadRead(providerThread, steerThreadId)
+          const resolution = currentActiveTurnFromThreadRead(
+            providerThread,
+            steerThreadId,
+            turnActive ? currentTurnId : undefined
+          )
+          if (resolution.issue !== undefined) {
+            emitDiagnostic('warn', resolution.issue, resolution.data)
+          }
+          if (resolution.turnId === undefined) {
+            throw withSteerRequiresOwnTurn(
+              withDeliveryEvidence(
+                new BrokerError(
+                  BrokerErrorCode.InvalidInvocationState,
+                  'Codex steer found no usable active turn; starting an own turn',
+                  { threadId: steerThreadId }
+                ),
+                'not_written'
+              )
+            )
+          }
+          steerTurnId = resolution.turnId
+          authoritativeTurnResolution = resolution.authoritative
         } catch (error) {
           if (error !== null && typeof error === 'object' && 'deliveryEvidence' in error) {
             throw error
           }
-          throw withDeliveryEvidence(
-            error instanceof BrokerError
-              ? error
-              : new BrokerError(
-                  BrokerErrorCode.HarnessError,
-                  error instanceof Error
-                    ? error.message
-                    : 'Codex could not resolve the current active turn for steer'
+          const observedTurnId = turnActive ? currentTurnId : undefined
+          if (observedTurnId === undefined) {
+            throw withSteerRequiresOwnTurn(
+              withDeliveryEvidence(
+                new BrokerError(
+                  BrokerErrorCode.InvalidInvocationState,
+                  'Codex could not resolve an active turn; starting an own turn',
+                  {
+                    threadId: steerThreadId,
+                    cause: error instanceof Error ? error.message : String(error),
+                  }
                 ),
-            'not_written'
-          )
+                'not_written'
+              )
+            )
+          }
+          steerTurnId = observedTurnId
+          emitDiagnostic('warn', 'Codex thread/read failed; attempting best-effort steer', {
+            inputId: steerInputId,
+            threadId: steerThreadId,
+            turnId: steerTurnId,
+            cause: error instanceof Error ? error.message : String(error),
+          })
         }
         // `thread/read` is the provider's authoritative observation at the
         // actuation boundary. Keep local state aligned for later interrupts and
@@ -1972,6 +2005,18 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
         } catch (error) {
           if (isDefiniteTurnMismatchError(error) && !pendingSteer.nativeObserved) {
             pendingSteers.delete(steerInputId)
+            if (!authoritativeTurnResolution) {
+              throw withSteerRequiresOwnTurn(
+                withDeliveryEvidence(
+                  new BrokerError(
+                    BrokerErrorCode.InvalidInvocationState,
+                    'Codex best-effort steer missed the active turn; starting an own turn',
+                    { threadId: steerThreadId, attemptedTurnId: steerTurnId }
+                  ),
+                  'not_written'
+                )
+              )
+            }
             emitDiagnostic(
               'info',
               'Codex turn/steer precondition rolled before write; resolving current turn',
@@ -2557,24 +2602,35 @@ function turnStartResponseId(response: TurnStartResponse | undefined): TurnId | 
 }
 
 /**
- * Select the one turn that Codex reports as currently in progress, while
- * refusing a missing, misrouted, or ambiguous thread-read response before any
- * steer write is attempted.
+ * Prefer the provider's one active turn. A malformed or ambiguous read never
+ * becomes a pre-write rejection: retain the locally observed turn as the
+ * best-effort steer target, or let the caller start an own turn when none is
+ * available.
  */
+interface ActiveTurnResolution {
+  turnId?: TurnId | undefined
+  authoritative: boolean
+  issue?: string | undefined
+  data?: Record<string, unknown> | undefined
+}
+
 function currentActiveTurnFromThreadRead(
   response: ThreadReadResponse | undefined,
-  expectedThreadId: string
-): TurnId {
+  expectedThreadId: string,
+  observedTurnId: TurnId | undefined
+): ActiveTurnResolution {
   const thread = response?.thread
   if (thread?.id !== expectedThreadId) {
-    throw new BrokerError(
-      BrokerErrorCode.InvalidInvocationState,
-      'Codex thread/read response did not match the active invocation thread',
-      {
+    return {
+      turnId: observedTurnId,
+      authoritative: false,
+      issue: 'Codex thread/read returned the wrong thread; attempting best-effort steer',
+      data: {
         expectedThreadId,
         responseThreadId: thread?.id ?? null,
-      }
-    )
+        observedTurnId: observedTurnId ?? null,
+      },
+    }
   }
   const activeTurnIds = (thread.turns ?? []).flatMap((turn) =>
     turn.status === 'inProgress' && typeof turn.id === 'string' && turn.id.length > 0
@@ -2582,28 +2638,25 @@ function currentActiveTurnFromThreadRead(
       : []
   )
   if (activeTurnIds.length === 0) {
-    throw new BrokerError(
-      BrokerErrorCode.InvalidInvocationState,
-      'Codex thread/read found no active turn for steer',
-      { threadId: expectedThreadId }
-    )
+    return { authoritative: true }
   }
-  if (activeTurnIds.length !== 1) {
-    throw new BrokerError(
-      BrokerErrorCode.HarnessError,
-      'Codex thread/read found multiple active turns for steer',
-      { threadId: expectedThreadId, activeTurnIds }
-    )
+  if (activeTurnIds.length === 1) {
+    return { turnId: activeTurnIds[0], authoritative: true }
   }
-  const activeTurnId = activeTurnIds[0]
-  if (activeTurnId === undefined) {
-    throw new BrokerError(
-      BrokerErrorCode.HarnessError,
-      'Codex thread/read lost its resolved active turn',
-      { threadId: expectedThreadId }
-    )
+  const bestEffortTurnId =
+    observedTurnId !== undefined && activeTurnIds.includes(observedTurnId)
+      ? observedTurnId
+      : activeTurnIds.at(-1)
+  return {
+    turnId: bestEffortTurnId,
+    authoritative: false,
+    issue: 'Codex thread/read returned multiple active turns; attempting best-effort steer',
+    data: {
+      threadId: expectedThreadId,
+      activeTurnIds,
+      selectedTurnId: bestEffortTurnId ?? null,
+    },
   }
-  return activeTurnId
 }
 
 function turnStartedNotificationId(notification: JsonRpcNotification): TurnId | undefined {

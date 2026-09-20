@@ -1613,6 +1613,168 @@ describe('codex-tui transport', () => {
     }
   })
 
+  test('starts an own turn when steer arrives while the invocation is idle', async () => {
+    const rpc = new FakeCodexRpc()
+    let steerInputId = ''
+    rpc.onRequest = async (method, params) => {
+      if (method === 'initialize') return {}
+      if (method === 'hooks/list') return { data: [] }
+      if (method === 'thread/start') return { thread: { id: 'thread_test' } }
+      if (method === 'thread/queue/add') {
+        steerInputId = (params as { clientUserMessageId: string }).clientUserMessageId
+        queueMicrotask(() => {
+          rpc.emit('turn/started', {
+            threadId: 'thread_test',
+            turn: { id: 'turn_idle_steer', status: 'inProgress', items: [] },
+          })
+          emitUserMessageItem(rpc, {
+            turnId: 'turn_idle_steer',
+            itemId: 'user_idle_steer',
+            clientId: steerInputId,
+            text: 'start from idle',
+          })
+        })
+        return { queuedSubmission: { id: 'queued_idle_steer' } }
+      }
+      throw new Error(`unexpected request: ${method}`)
+    }
+    const invocationId = 'inv_codex_tui_idle_steer'
+    const run = await setupDriver(rpc, invocationId)
+    try {
+      await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
+      const steer = await run.broker.steer({ invocationId, origin, body: 'start from idle' })
+      await waitFor(
+        () =>
+          rpc.requests.some((request) => request.method === 'thread/queue/add') ||
+          run.events.some(
+            (event) =>
+              event.type === 'input.rejected' && event.payload.inputId === steer.submissionId
+          ),
+        'idle steer should either start or expose the regression'
+      )
+
+      expect(steerInputId).toBe(steer.submissionId)
+      expect(rpc.requests.filter((request) => request.method === 'turn/steer')).toHaveLength(0)
+      expect(
+        run.events.filter(
+          (event) => event.type === 'input.rejected' && event.payload.inputId === steer.submissionId
+        )
+      ).toHaveLength(0)
+      await waitFor(
+        () =>
+          run.events.some(
+            (event) =>
+              event.type === 'submission.executed' &&
+              event.payload.submissionId === steer.submissionId &&
+              event.turnId === 'turn_idle_steer'
+          ),
+        'idle steer should execute as the initiating input of its own turn'
+      )
+    } finally {
+      await run.broker.stop({ invocationId, reason: 'test cleanup' })
+      await run.broker.dispose({ invocationId })
+      await rm(run.socketDir, { recursive: true, force: true })
+    }
+  })
+
+  test('starts an own turn when provider state becomes idle before steer actuation', async () => {
+    const rpc = new FakeCodexRpc()
+    let queueCount = 0
+    let ownerInputId = ''
+    let steerInputId = ''
+    rpc.onRequest = async (method, params) => {
+      if (method === 'initialize') return {}
+      if (method === 'hooks/list') return { data: [] }
+      if (method === 'thread/start') return { thread: { id: 'thread_test' } }
+      if (method === 'thread/queue/add') {
+        queueCount += 1
+        const inputId = (params as { clientUserMessageId: string }).clientUserMessageId
+        if (queueCount === 1) {
+          ownerInputId = inputId
+          queueMicrotask(() => {
+            rpc.emit('turn/started', {
+              threadId: 'thread_test',
+              turn: { id: 'turn_locally_active', status: 'inProgress', items: [] },
+            })
+            emitUserMessageItem(rpc, {
+              turnId: 'turn_locally_active',
+              itemId: 'user_locally_active',
+              clientId: ownerInputId,
+              text: 'owner',
+            })
+          })
+          return { queuedSubmission: { id: 'queued_owner' } }
+        }
+        steerInputId = inputId
+        queueMicrotask(() => {
+          rpc.emit('turn/started', {
+            threadId: 'thread_test',
+            turn: { id: 'turn_started_after_provider_idle', status: 'inProgress', items: [] },
+          })
+          emitUserMessageItem(rpc, {
+            turnId: 'turn_started_after_provider_idle',
+            itemId: 'user_started_after_provider_idle',
+            clientId: steerInputId,
+            text: 'start after provider idle',
+          })
+        })
+        return { queuedSubmission: { id: 'queued_provider_idle_steer' } }
+      }
+      throw new Error(`unexpected request: ${method}`)
+    }
+    const invocationId = 'inv_codex_tui_provider_idle_steer'
+    const run = await setupDriver(rpc, invocationId)
+    try {
+      await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
+      await run.broker.enqueue({ invocationId, origin, body: 'owner' })
+      await waitFor(
+        () =>
+          run.events.some(
+            (event) => event.type === 'turn.attributed' && event.turnId === 'turn_locally_active'
+          ),
+        'broker should still observe the predecessor as active'
+      )
+      rpc.threadReadResponse = { thread: { id: 'thread_test', turns: [] } }
+
+      const steer = await run.broker.steer({
+        invocationId,
+        origin,
+        body: 'start after provider idle',
+      })
+      await waitFor(
+        () =>
+          queueCount === 2 ||
+          run.events.some(
+            (event) =>
+              event.type === 'input.rejected' && event.payload.inputId === steer.submissionId
+          ),
+        'provider-idle steer should either start or expose the regression'
+      )
+
+      expect(steerInputId).toBe(steer.submissionId)
+      expect(rpc.requests.filter((request) => request.method === 'turn/steer')).toHaveLength(0)
+      expect(
+        run.events.filter(
+          (event) => event.type === 'input.rejected' && event.payload.inputId === steer.submissionId
+        )
+      ).toHaveLength(0)
+      await waitFor(
+        () =>
+          run.events.some(
+            (event) =>
+              event.type === 'submission.executed' &&
+              event.payload.submissionId === steer.submissionId &&
+              event.turnId === 'turn_started_after_provider_idle'
+          ),
+        'provider-idle steer should execute once as the new turn owner'
+      )
+    } finally {
+      await run.broker.stop({ invocationId, reason: 'test cleanup' })
+      await run.broker.dispose({ invocationId })
+      await rm(run.socketDir, { recursive: true, force: true })
+    }
+  })
+
   test('retries typed pre-write turn mismatches through more than three read-to-steer rollovers', async () => {
     const rpc = new FakeCodexRpc()
     let ownerInputId = ''
@@ -1720,20 +1882,35 @@ describe('codex-tui transport', () => {
   test.each([
     {
       name: 'wrong-thread thread/read response',
-      thread: {
-        id: 'thread_wrong',
-        turns: [{ id: 'turn_provider_current', status: 'inProgress' }],
+      readResponse: {
+        thread: {
+          id: 'thread_wrong',
+          turns: [{ id: 'turn_provider_current', status: 'inProgress' }],
+        },
       },
-      reason: 'did not match the active invocation thread',
     },
     {
-      name: 'no-active-turn thread/read response',
-      thread: { id: 'thread_test', turns: [] },
-      reason: 'found no active turn for steer',
+      name: 'multiple-active-turn thread/read response',
+      readResponse: {
+        thread: {
+          id: 'thread_test',
+          turns: [
+            { id: 'turn_locally_active', status: 'inProgress' },
+            { id: 'turn_other_active', status: 'inProgress' },
+          ],
+        },
+      },
     },
-  ])('fails closed before writing for $name', async ({ name, thread, reason }) => {
+    {
+      name: 'failed thread/read request',
+      readResponse: () => {
+        throw new Error('thread/read unavailable')
+      },
+    },
+  ])('attempts best-effort steer for $name', async ({ name, readResponse }) => {
     const rpc = new FakeCodexRpc()
     let ownerInputId = ''
+    let steerInputId = ''
     rpc.onRequest = async (method, params) => {
       if (method === 'initialize') return {}
       if (method === 'hooks/list') return { data: [] }
@@ -1752,11 +1929,25 @@ describe('codex-tui transport', () => {
             text: 'owner',
           })
         })
-        return { queuedSubmission: { id: 'queued_negative' } }
+        return { queuedSubmission: { id: 'queued_best_effort' } }
       }
-      throw new Error(`unexpected write: ${method}`)
+      if (method === 'turn/steer') {
+        const steer = params as { clientUserMessageId: string; expectedTurnId: string }
+        steerInputId = steer.clientUserMessageId
+        expect(steer.expectedTurnId).toBe('turn_locally_active')
+        queueMicrotask(() => {
+          emitUserMessageItem(rpc, {
+            turnId: 'turn_locally_active',
+            itemId: `user_${steerInputId}`,
+            clientId: steerInputId,
+            text: 'best effort steer',
+          })
+        })
+        return { turnId: 'turn_locally_active' }
+      }
+      throw new Error(`unexpected request: ${method}`)
     }
-    rpc.threadReadResponse = { thread }
+    rpc.threadReadResponse = readResponse
     const invocationId = `inv_codex_tui_steer_${name.replaceAll(/[^a-z]+/g, '_')}`
     const run = await setupDriver(rpc, invocationId)
     try {
@@ -1766,21 +1957,23 @@ describe('codex-tui transport', () => {
         () => run.events.some((event) => event.type === 'turn.attributed'),
         'local active turn should be attributed'
       )
-      const steer = await run.broker.steer({ invocationId, origin, body: 'must not write' })
+      const steer = await run.broker.steer({ invocationId, origin, body: 'best effort steer' })
       await waitFor(
         () =>
           run.events.some(
             (event) =>
-              event.type === 'input.rejected' && event.payload.inputId === steer.submissionId
+              event.type === 'submission.absorbed' &&
+              event.payload.submissionId === steer.submissionId
           ),
-        'invalid provider read should reject the admitted steer'
+        'best-effort steer should reach the locally observed active turn'
       )
+      expect(steerInputId).toBe(steer.submissionId)
+      expect(rpc.requests.filter((request) => request.method === 'turn/steer')).toHaveLength(1)
       expect(
-        run.events.find(
+        run.events.filter(
           (event) => event.type === 'input.rejected' && event.payload.inputId === steer.submissionId
-        )?.payload
-      ).toMatchObject({ deliveryEvidence: 'not_written', reason: expect.stringContaining(reason) })
-      expect(rpc.requests.filter((request) => request.method === 'turn/steer')).toHaveLength(0)
+        )
+      ).toHaveLength(0)
     } finally {
       await run.broker.stop({ invocationId, reason: 'test cleanup' })
       await run.broker.dispose({ invocationId })

@@ -75,6 +75,31 @@ export function withDeliveryEvidence<T>(error: T, evidence: DeliveryEvidence): T
   return error
 }
 
+/** A no-write steer refusal that asks the broker to start an own turn instead. */
+export interface SteerRequiresOwnTurnCarrier {
+  readonly steerRequiresOwnTurn: true
+}
+
+export function steerRequiresOwnTurnOf(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as Partial<SteerRequiresOwnTurnCarrier>).steerRequiresOwnTurn === true
+  )
+}
+
+/** Mark a pre-write provider-idle result for same-submission own-turn fallback. */
+export function withSteerRequiresOwnTurn<T>(error: T): T {
+  if (typeof error === 'object' && error !== null && !steerRequiresOwnTurnOf(error)) {
+    Object.defineProperty(error, 'steerRequiresOwnTurn', {
+      value: true,
+      enumerable: false,
+      configurable: true,
+    })
+  }
+  return error
+}
+
 /**
  * Declares what makes an applyInputNow-returned turn id sufficient evidence to
  * open a broker turn bracket. The declaration is descriptive: drivers may only
@@ -139,7 +164,9 @@ export interface Driver {
   readonly nativeSourceKind: 'provider-jsonl' | 'provider-jsonrpc'
   readonly preemptMode: PreemptMode | null
   readonly steerLandingEvidence: SteerLandingEvidence | null
-  /** A steer is always a steer, even while idle; it must never fall back to starting a turn. */
+  /** Provider state, not the broker projection, decides whether steer joins or starts. */
+  readonly resolvesSteerAtActuation?: boolean | undefined
+  /** The host itself owns idle-steer turn creation; the broker must not call applyInputNow. */
   readonly steerNeverStartsTurn?: boolean | undefined
   readonly interruptLandingEvidence: InterruptLandingEvidence | null
   capabilities(spec?: HarnessInvocationSpec): InvocationCapabilities

@@ -11,10 +11,10 @@ import { createCodexAppServerDriver } from '../../src/drivers/codex-app-server/d
 /**
  * T-07155 gate G3 — the codex-app-server driver's mid-turn steer.
  *
- * The driver's contract is deliberately narrow: apply the text to the ACTIVE
- * turn via `turn/steer`, or throw. A silent resolve would report a supervisor's
- * order as delivered when it was not, which is the failure this whole task
- * exists to remove.
+ * The driver resolves provider state at actuation: join the active turn through
+ * `turn/steer`, or start an own turn when the provider is idle. A silent resolve
+ * would report a supervisor's order as delivered when it was not, which is the
+ * failure this whole task exists to remove.
  */
 
 const root = new URL('../..', import.meta.url).pathname

@@ -79,7 +79,7 @@ import { CaptureRecordNotBlockedError, createCaptureGate } from './capture/captu
 import { type CaptureIndex, openCaptureIndex } from './capture/capture-index'
 import { createRawJournal } from './capture/raw-journal'
 import type { ApplyInputResult, DeliveryEvidence, Driver, DriverContext } from './drivers/driver'
-import { deliveryEvidenceOf } from './drivers/driver'
+import { deliveryEvidenceOf, steerRequiresOwnTurnOf } from './drivers/driver'
 import { BrokerError } from './errors'
 import { stableJsonStringify } from './event-ledger'
 import type { InvocationEventExtra, InvocationEventSequencer } from './events'
@@ -1370,16 +1370,30 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         try {
           await applySteerNow.call(inv.driver, input)
         } catch (err) {
+          let failure = err
+          if (steerRequiresOwnTurnOf(err)) {
+            try {
+              const result = await applyAndEmit(inv, input)
+              return {
+                inputId: input.inputId,
+                accepted: true,
+                disposition: 'started',
+                turnId: result.turnId,
+              }
+            } catch (startError) {
+              failure = startError
+            }
+          }
           // The driver says what its failure proves about the body. A refusal
           // raised before the first paste is a real no-write; everything from
           // the paste onward may have landed.
-          const evidence = deliveryEvidenceOf(err) ?? 'possibly_written'
+          const evidence = deliveryEvidenceOf(failure) ?? 'possibly_written'
           const failed = inv.submissions.get(input.inputId)
           if (failed !== undefined) failed.deliveryEvidence = evidence
           return rejectQueueInput(
             inv,
             input.inputId,
-            String(err instanceof Error ? err.message : err),
+            String(failure instanceof Error ? failure.message : failure),
             evidence
           )
         }
@@ -2663,6 +2677,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       if (
         inv.state === 'ready' &&
         inv.pendingOwnTurnSubmissionId === undefined &&
+        inv.driver.resolvesSteerAtActuation !== true &&
         inv.driver.steerNeverStartsTurn !== true
       ) {
         void applyAndEmit(inv, record.input).catch((error) =>
