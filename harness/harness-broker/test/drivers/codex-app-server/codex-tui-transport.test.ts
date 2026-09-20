@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { spawn } from 'node:child_process'
+import { type ChildProcess, spawn } from 'node:child_process'
 import { chmod, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
-import { type Server, createServer } from 'node:http'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,7 +11,6 @@ import type {
   SubmissionOrigin,
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
-import { WebSocketServer } from 'ws'
 import { createBroker } from '../../../src/broker'
 import {
   type AttachAttemptResult,
@@ -28,6 +26,8 @@ import {
   type RpcHandlers,
 } from '../../../src/drivers/codex-app-server/rpc-client'
 import type { TmuxExec } from '../../../src/runtime/tmux'
+
+const websocketServers = new Set<ChildProcess>()
 
 const origin: SubmissionOrigin = {
   principalRef: 'agent:codex-tui-test',
@@ -258,6 +258,97 @@ async function waitFor(
   expect(await predicate(), message).toBe(true)
 }
 
+type UnixWebSocketServerMode = 'echo' | 'fragmented-ping' | 'invalid-accept' | 'oversize-frame'
+
+async function startUnixWebSocketEchoServer(
+  socketPath: string,
+  mode: UnixWebSocketServerMode = 'echo'
+): Promise<{ closedPath: string }> {
+  const readyPath = `${socketPath}.ready`
+  const closedPath = `${socketPath}.closed`
+  const server = spawn(
+    'node',
+    [
+      '--input-type=module',
+      '--eval',
+      `
+        import { createServer } from 'node:http'
+        import { writeFile } from 'node:fs/promises'
+        import { WebSocketServer } from 'ws'
+
+        const [socketPath, readyPath, closedPath, mode] = process.argv.slice(1)
+        const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false })
+        const server = createServer()
+        server.on('upgrade', (request, socket, head) => {
+          if (request.headers['sec-websocket-extensions'] !== undefined) process.exit(2)
+          socket.once('close', () => void writeFile(closedPath, 'closed'))
+          if (mode === 'invalid-accept') {
+            socket.end(
+              'HTTP/1.1 101 Switching Protocols\\r\\n' +
+                'Upgrade: websocket\\r\\n' +
+                'Connection: Upgrade\\r\\n' +
+                'Sec-WebSocket-Accept: invalid\\r\\n\\r\\n'
+            )
+            return
+          }
+          wss.handleUpgrade(request, socket, head, (ws) => wss.emit('connection', ws, request))
+        })
+        wss.on('connection', (ws) => {
+          if (mode === 'oversize-frame') {
+            setTimeout(() => {
+              const frame = Buffer.alloc(10)
+              frame[0] = 0x81
+              frame[1] = 127
+              frame.writeBigUInt64BE(16n * 1024n * 1024n + 1n, 2)
+              ws._socket.write(frame)
+            }, 20)
+            return
+          }
+          ws.on('message', (raw) => {
+            const request = JSON.parse(raw.toString())
+            if (request.id !== undefined) {
+              const response = JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { ok: true } })
+              if (mode === 'fragmented-ping') {
+                ws.once('pong', () => {
+                  const split = Math.floor(response.length / 2)
+                  ws.send(response.slice(0, split), { fin: false })
+                  ws.send(response.slice(split))
+                })
+                ws.ping('probe')
+              } else {
+                ws.send(response)
+              }
+            }
+          })
+        })
+        server.listen(socketPath, async () => { await writeFile(readyPath, 'ready') })
+        process.on('SIGTERM', () => {
+          for (const client of wss.clients) client.terminate()
+          server.close(() => process.exit(0))
+        })
+      `,
+      socketPath,
+      readyPath,
+      closedPath,
+      mode,
+    ],
+    { cwd: process.cwd(), stdio: ['ignore', 'ignore', 'pipe'] }
+  )
+  websocketServers.add(server)
+  await waitFor(async () => {
+    if (server.exitCode !== null) return false
+    try {
+      return (await readFile(readyPath, 'utf8')) === 'ready'
+    } catch {
+      return false
+    }
+  }, 'real Node websocket server should bind its Unix socket')
+  if (server.exitCode !== null) {
+    throw new Error(`websocket server exited: ${await readFile(readyPath, 'utf8').catch(() => '')}`)
+  }
+  return { closedPath }
+}
+
 async function setupDriver(
   rpc: FakeCodexRpc,
   invocationId: string,
@@ -268,7 +359,9 @@ async function setupDriver(
 ) {
   const events: InvocationEventEnvelope[] = []
   const tmux = fakeTmux()
-  const socketDir = await mkdtemp(join(tmpdir(), 'codex-tui-driver-test-'))
+  // The driver creates several identity-derived UDS paths below this root;
+  // macOS limits sockaddr_un paths to 104 bytes, so keep the test root short.
+  const socketDir = await mkdtemp(join('/tmp', 'codex-tui-driver-test-'))
   const driver = createCodexAppServerDriver({
     codexTui: {
       tmuxExec: tmux.exec,
@@ -290,11 +383,22 @@ async function setupDriver(
 
 describe('codex-tui transport', () => {
   let directory: string | undefined
-  let server: Server | undefined
 
   afterEach(async () => {
-    await new Promise<void>((resolve) => server?.close(() => resolve()) ?? resolve())
+    const runningServers = [...websocketServers]
+    websocketServers.clear()
+    for (const websocketServer of runningServers) {
+      if (websocketServer.exitCode === null) websocketServer.kill('SIGTERM')
+    }
+    await Promise.all(
+      runningServers.map(async (websocketServer) => {
+        if (websocketServer.exitCode === null) {
+          await new Promise<void>((resolve) => websocketServer.once('exit', () => resolve()))
+        }
+      })
+    )
     if (directory !== undefined) await rm(directory, { recursive: true, force: true })
+    directory = undefined
   })
 
   test('spec-aware cold admission rejects JSON Schema before starting the TUI driver', async () => {
@@ -340,33 +444,7 @@ describe('codex-tui transport', () => {
   test('uses websocket framing over a unix socket without compression', async () => {
     directory = await mkdtemp(join(tmpdir(), 'codex-tui-ws-'))
     const socketPath = join(directory, 'appsrv.sock')
-    const wss = new WebSocketServer({
-      noServer: true,
-      perMessageDeflate: false,
-    })
-    server = createServer()
-    server.on('upgrade', (request, socket, head) => {
-      expect(request.headers['sec-websocket-extensions']).toBeUndefined()
-      wss.handleUpgrade(request, socket, head, (ws) => wss.emit('connection', ws, request))
-    })
-    wss.on('connection', (ws) => {
-      ws.on('message', (raw) => {
-        const request = JSON.parse(raw.toString()) as {
-          id?: number
-          method: string
-        }
-        if (request.id !== undefined) {
-          ws.send(
-            JSON.stringify({
-              jsonrpc: '2.0',
-              id: request.id,
-              result: { ok: true },
-            })
-          )
-        }
-      })
-    })
-    await new Promise<void>((resolve) => server?.listen(socketPath, resolve))
+    await startUnixWebSocketEchoServer(socketPath)
 
     const client = new CodexUnixWebSocketRpcClient(socketPath)
     await client.ready()
@@ -374,7 +452,86 @@ describe('codex-tui transport', () => {
       ok: true,
     })
     client.close()
-    wss.close()
+  })
+
+  test('answers ping and reassembles fragmented JSON-RPC text over a Unix socket', async () => {
+    directory = await mkdtemp(join(tmpdir(), 'codex-tui-ws-fragmented-'))
+    const socketPath = join(directory, 'appsrv.sock')
+    await startUnixWebSocketEchoServer(socketPath, 'fragmented-ping')
+
+    const client = new CodexUnixWebSocketRpcClient(socketPath)
+    await client.ready()
+    await expect(client.sendRequest('initialize', {})).resolves.toEqual({ ok: true })
+    client.close()
+  })
+
+  test('rejects an invalid Unix websocket accept key and destroys the socket', async () => {
+    directory = await mkdtemp(join(tmpdir(), 'codex-tui-ws-invalid-accept-'))
+    const socketPath = join(directory, 'appsrv.sock')
+    const endpoint = await startUnixWebSocketEchoServer(socketPath, 'invalid-accept')
+    const client = new CodexUnixWebSocketRpcClient(socketPath)
+
+    await expect(client.ready()).rejects.toThrow('invalid accept key')
+    await waitFor(
+      async () => (await readFile(endpoint.closedPath, 'utf8').catch(() => '')) === 'closed',
+      'client should destroy a failed websocket upgrade socket'
+    )
+  })
+
+  test('rejects an oversized websocket frame before buffering its payload', async () => {
+    directory = await mkdtemp(join(tmpdir(), 'codex-tui-ws-oversize-'))
+    const socketPath = join(directory, 'appsrv.sock')
+    const endpoint = await startUnixWebSocketEchoServer(socketPath, 'oversize-frame')
+    const client = new CodexUnixWebSocketRpcClient(socketPath)
+
+    await client.ready()
+    await expect(client.sendRequest('initialize', {})).rejects.toThrow('frame is too large')
+    await waitFor(
+      async () => (await readFile(endpoint.closedPath, 'utf8').catch(() => '')) === 'closed',
+      'client should destroy an oversized-frame socket'
+    )
+  })
+
+  test("keeps ws+unix working in Bun's compiled broker payload", async () => {
+    directory = await mkdtemp(join(tmpdir(), 'codex-tui-compiled-ws-'))
+    const socketPath = join(directory, 'appsrv.sock')
+    await startUnixWebSocketEchoServer(socketPath)
+    const entryPath = join(directory, 'compiled-client.ts')
+    const payloadPath = join(directory, 'compiled-client')
+    const rpcClientPath = join(
+      process.cwd(),
+      'harness/harness-broker/src/drivers/codex-app-server/rpc-client.ts'
+    )
+    await writeFile(
+      entryPath,
+      [
+        `import { CodexUnixWebSocketRpcClient } from ${JSON.stringify(rpcClientPath)};`,
+        'const client = new CodexUnixWebSocketRpcClient(process.argv[2]);',
+        'await client.ready();',
+        "const result = await client.sendRequest('initialize', {});",
+        'client.close();',
+        'process.stdout.write(JSON.stringify(result), () => process.exit(0));',
+      ].join('\n')
+    )
+    const build = Bun.spawn({
+      cmd: ['bun', 'build', '--compile', '--target=bun', '--outfile', payloadPath, entryPath],
+      cwd: process.cwd(),
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    await build.exited
+    const buildError = (await new Response(build.stderr).text()).trim()
+    expect(build.exitCode, buildError).toBe(0)
+
+    const payload = Bun.spawn({
+      cmd: [payloadPath, socketPath],
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    await payload.exited
+    const payloadError = (await new Response(payload.stderr).text()).trim()
+    expect(payload.exitCode, payloadError).toBe(0)
+    expect((await new Response(payload.stdout).text()).trim()).toBe('{"ok":true}')
   })
 
   test('retries -32600 then -32603 before the successful remote attach', async () => {

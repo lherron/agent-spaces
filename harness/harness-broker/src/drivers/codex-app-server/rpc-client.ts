@@ -1,8 +1,9 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
+import { createHash, randomBytes } from 'node:crypto'
 import { once } from 'node:events'
+import { type Socket, connect } from 'node:net'
 import { createInterface } from 'node:readline'
 import type { JsonRpcId } from 'spaces-harness-broker-protocol'
-import WebSocket from 'ws'
 
 export interface JsonRpcRequest {
   jsonrpc: '2.0'
@@ -29,6 +30,11 @@ export interface JsonRpcResponse {
 }
 
 export type JsonRpcMessage = JsonRpcRequest | JsonRpcNotification | JsonRpcResponse
+
+/** Bound untrusted app-server transport data before JSON parsing/allocation. */
+const MAX_WEBSOCKET_HANDSHAKE_BYTES = 16 * 1024
+const MAX_WEBSOCKET_FRAME_BYTES = 16 * 1024 * 1024
+const MAX_WEBSOCKET_CONTROL_FRAME_BYTES = 125
 
 export class CodexRpcError extends Error {
   readonly code: number
@@ -285,46 +291,39 @@ export class CodexUnixWebSocketRpcClient implements CodexRpcPeer {
   >()
   private closed = false
   private opened = false
-  private readonly socket: WebSocket
+  private readonly socket: Socket
   private readonly readyPromise: Promise<void>
+  private resolveReady: (() => void) | undefined
+  private rejectReady: ((error: Error) => void) | undefined
+  private handshakeBuffer = Buffer.alloc(0)
+  private frameBuffer = Buffer.alloc(0)
+  private fragmentOpcode: number | undefined
+  private fragments: Buffer[] = []
+  private fragmentBytes = 0
 
   constructor(
     socketPath: string,
     private readonly handlers: RpcHandlers = {}
   ) {
-    // Codex 0.153.4 rejects the extension offer emitted by Bun's built-in
-    // client. `ws` with compression disabled is the live-proven transport.
-    this.socket = new WebSocket(`ws+unix://${socketPath}:/`, {
-      perMessageDeflate: false,
-    })
+    // Bun reserves the bare `ws` specifier for its compatibility shim. Its
+    // native client rejects ws+unix outright; its node:http shim also cannot
+    // complete the upgrade expected by the `ws` package. Codex's app-server is
+    // an ordinary RFC 6455 upgrade over a Unix socket, so own that narrow
+    // transport directly rather than selecting either incompatible shim.
+    this.socket = connect(socketPath)
     this.readyPromise = new Promise<void>((resolve, reject) => {
-      const onOpen = () => {
-        cleanup()
-        this.opened = true
-        resolve()
-      }
-      const onError = (error: Error) => {
-        cleanup()
-        reject(error)
-      }
-      const cleanup = () => {
-        this.socket.off('open', onOpen)
-        this.socket.off('error', onError)
-      }
-      this.socket.once('open', onOpen)
-      this.socket.once('error', onError)
+      this.resolveReady = resolve
+      this.rejectReady = reject
     })
-    this.socket.on('message', (data) => {
-      void this.handleFrame(Buffer.isBuffer(data) ? data.toString('utf8') : String(data))
+    this.socket.on('connect', () => this.writeHandshake())
+    this.socket.on('data', (chunk) => {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+      if (!this.opened) this.handleHandshakeChunk(bytes)
+      else this.handleFrameChunk(bytes)
     })
     this.socket.on('error', (error) => this.handleError(error))
-    this.socket.on('close', (code, reason) => {
-      const detail = reason.toString().trim()
-      this.handleError(
-        new Error(
-          `Codex app-server websocket closed (${code}${detail.length > 0 ? `: ${detail}` : ''})`
-        )
-      )
+    this.socket.on('close', () => {
+      this.handleError(new Error('Codex app-server websocket closed'))
     })
   }
 
@@ -372,11 +371,210 @@ export class CodexUnixWebSocketRpcClient implements CodexRpcPeer {
     this.closed = true
     for (const pending of this.pending.values()) pending.reject(error)
     this.pending.clear()
-    if (this.opened && this.socket.readyState === WebSocket.OPEN) this.socket.close()
-    else this.socket.terminate()
+    if (!this.opened) this.rejectReady?.(error)
+    if (this.opened && !this.socket.destroyed) {
+      this.writeFrame(0x8, Buffer.alloc(0))
+      this.socket.end()
+    } else {
+      this.socket.destroy()
+    }
   }
 
-  private async handleFrame(rawFrame: string): Promise<void> {
+  private writeHandshake(): void {
+    if (this.closed) return
+    const nonce = randomBytes(16).toString('base64')
+    const expectedAccept = createHash('sha1')
+      .update(`${nonce}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+      .digest('base64')
+    this.expectedAccept = expectedAccept
+    this.socket.write(
+      [
+        'GET / HTTP/1.1',
+        'Host: localhost',
+        'Upgrade: websocket',
+        'Connection: Upgrade',
+        `Sec-WebSocket-Key: ${nonce}`,
+        'Sec-WebSocket-Version: 13',
+        '',
+        '',
+      ].join('\r\n')
+    )
+  }
+
+  private expectedAccept: string | undefined
+
+  private handleHandshakeChunk(chunk: Buffer): void {
+    if (this.handshakeBuffer.length + chunk.length > MAX_WEBSOCKET_HANDSHAKE_BYTES) {
+      this.handleError(new Error('Codex app-server websocket upgrade headers are too large'))
+      return
+    }
+    this.handshakeBuffer = Buffer.concat([this.handshakeBuffer, chunk])
+    const headerEnd = this.handshakeBuffer.indexOf('\r\n\r\n')
+    if (headerEnd < 0) return
+    const header = this.handshakeBuffer.subarray(0, headerEnd).toString('latin1')
+    const lines = header.split('\r\n')
+    const status = lines.shift()
+    if (status !== 'HTTP/1.1 101 Switching Protocols') {
+      this.handleError(
+        new Error(`Codex app-server websocket upgrade failed: ${status ?? 'missing status'}`)
+      )
+      return
+    }
+    const headers = new Map<string, string>()
+    for (const line of lines) {
+      const separator = line.indexOf(':')
+      if (separator > 0) {
+        headers.set(line.slice(0, separator).trim().toLowerCase(), line.slice(separator + 1).trim())
+      }
+    }
+    if (headers.get('upgrade')?.toLowerCase() !== 'websocket') {
+      this.handleError(new Error('Codex app-server websocket upgrade omitted Upgrade: websocket'))
+      return
+    }
+    if (
+      !headers
+        .get('connection')
+        ?.split(',')
+        .some((token) => token.trim().toLowerCase() === 'upgrade')
+    ) {
+      this.handleError(new Error('Codex app-server websocket upgrade omitted Connection: Upgrade'))
+      return
+    }
+    if (headers.get('sec-websocket-accept') !== this.expectedAccept) {
+      this.handleError(
+        new Error('Codex app-server websocket upgrade returned an invalid accept key')
+      )
+      return
+    }
+    this.opened = true
+    this.resolveReady?.()
+    this.resolveReady = undefined
+    this.rejectReady = undefined
+    const remainder = this.handshakeBuffer.subarray(headerEnd + 4)
+    this.handshakeBuffer = Buffer.alloc(0)
+    if (remainder.length > 0) this.handleFrameChunk(remainder)
+  }
+
+  private handleFrameChunk(chunk: Buffer): void {
+    // A complete frame carries at most fourteen bytes of header/mask overhead.
+    // This cap also bounds a peer that streams an incomplete declared frame.
+    if (this.frameBuffer.length + chunk.length > MAX_WEBSOCKET_FRAME_BYTES + 14) {
+      this.handleError(new Error('Codex app-server websocket frame buffer is too large'))
+      return
+    }
+    this.frameBuffer = Buffer.concat([this.frameBuffer, chunk])
+    while (!this.closed) {
+      const frame = this.takeFrame()
+      if (frame === undefined) return
+      this.handleWireFrame(frame.opcode, frame.fin, frame.payload)
+    }
+  }
+
+  private takeFrame(): { opcode: number; fin: boolean; payload: Buffer } | undefined {
+    if (this.frameBuffer.length < 2) return undefined
+    const first = this.frameBuffer[0] as number
+    const second = this.frameBuffer[1] as number
+    if ((first & 0x70) !== 0) {
+      this.handleError(new Error('Codex app-server websocket used an unsupported extension'))
+      return undefined
+    }
+    const masked = (second & 0x80) !== 0
+    if (masked) {
+      this.handleError(new Error('Codex app-server websocket server frames must not be masked'))
+      return undefined
+    }
+    let payloadLength = second & 0x7f
+    let offset = 2
+    if (payloadLength === 126) {
+      if (this.frameBuffer.length < offset + 2) return undefined
+      payloadLength = this.frameBuffer.readUInt16BE(offset)
+      offset += 2
+    } else if (payloadLength === 127) {
+      if (this.frameBuffer.length < offset + 8) return undefined
+      const length = this.frameBuffer.readBigUInt64BE(offset)
+      if (length > BigInt(Number.MAX_SAFE_INTEGER)) {
+        this.handleError(new Error('Codex app-server websocket frame is too large'))
+        return undefined
+      }
+      payloadLength = Number(length)
+      offset += 8
+    }
+    if (payloadLength > MAX_WEBSOCKET_FRAME_BYTES) {
+      this.handleError(new Error('Codex app-server websocket frame is too large'))
+      return undefined
+    }
+    if (this.frameBuffer.length < offset + payloadLength) return undefined
+    const payload = Buffer.from(this.frameBuffer.subarray(offset, offset + payloadLength))
+    this.frameBuffer = this.frameBuffer.subarray(offset + payloadLength)
+    return { opcode: first & 0x0f, fin: (first & 0x80) !== 0, payload }
+  }
+
+  private handleWireFrame(opcode: number, fin: boolean, payload: Buffer): void {
+    if (opcode >= 0x8 && (!fin || payload.length > MAX_WEBSOCKET_CONTROL_FRAME_BYTES)) {
+      this.handleError(new Error('Codex app-server websocket sent an invalid control frame'))
+      return
+    }
+    if (opcode === 0x9) {
+      this.writeFrame(0xa, payload)
+      return
+    }
+    if (opcode === 0x8) {
+      if (!this.closed) this.writeFrame(0x8, payload)
+      this.handleError(new Error('Codex app-server websocket closed'))
+      this.socket.end()
+      return
+    }
+    if (opcode === 0xa) return
+    if (opcode === 0x0) {
+      if (this.fragmentOpcode === undefined) {
+        this.handleError(
+          new Error('Codex app-server websocket sent an unexpected continuation frame')
+        )
+        return
+      }
+      if (this.fragmentBytes + payload.length > MAX_WEBSOCKET_FRAME_BYTES) {
+        this.handleError(new Error('Codex app-server websocket fragmented message is too large'))
+        return
+      }
+      this.fragments.push(payload)
+      this.fragmentBytes += payload.length
+      if (!fin) return
+      const completedOpcode = this.fragmentOpcode
+      const completedPayload = Buffer.concat(this.fragments)
+      this.fragmentOpcode = undefined
+      this.fragments = []
+      this.fragmentBytes = 0
+      this.handleDataFrame(completedOpcode, completedPayload)
+      return
+    }
+    if (opcode !== 0x1 && opcode !== 0x2) {
+      this.handleError(new Error(`Codex app-server websocket sent unsupported opcode ${opcode}`))
+      return
+    }
+    if (this.fragmentOpcode !== undefined) {
+      this.handleError(
+        new Error('Codex app-server websocket started a new fragmented frame before finishing')
+      )
+      return
+    }
+    if (!fin) {
+      this.fragmentOpcode = opcode
+      this.fragments = [payload]
+      this.fragmentBytes = payload.length
+      return
+    }
+    this.handleDataFrame(opcode, payload)
+  }
+
+  private handleDataFrame(opcode: number, payload: Buffer): void {
+    if (opcode !== 0x1) {
+      this.handleError(new Error('Codex app-server websocket sent a binary JSON-RPC frame'))
+      return
+    }
+    void this.handleJsonFrame(payload.toString('utf8'))
+  }
+
+  private async handleJsonFrame(rawFrame: string): Promise<void> {
     const trimmed = rawFrame.trim()
     if (trimmed.length === 0) return
     let message: JsonRpcMessage
@@ -443,17 +641,49 @@ export class CodexUnixWebSocketRpcClient implements CodexRpcPeer {
   }
 
   private writeMessage(message: JsonRpcMessage): void {
-    if (this.closed || this.socket.readyState !== WebSocket.OPEN) {
+    if (this.closed || !this.opened || this.socket.destroyed) {
       throw new Error('JSON-RPC client is closed')
     }
-    this.socket.send(JSON.stringify(message))
+    this.writeFrame(0x1, Buffer.from(JSON.stringify(message), 'utf8'))
+  }
+
+  private writeFrame(opcode: number, payload: Buffer): void {
+    const mask = randomBytes(4)
+    let header: Buffer
+    if (payload.length < 126) {
+      header = Buffer.from([0x80 | opcode, 0x80 | payload.length])
+    } else if (payload.length <= 0xffff) {
+      header = Buffer.alloc(4)
+      header[0] = 0x80 | opcode
+      header[1] = 0x80 | 126
+      header.writeUInt16BE(payload.length, 2)
+    } else {
+      header = Buffer.alloc(10)
+      header[0] = 0x80 | opcode
+      header[1] = 0x80 | 127
+      header.writeBigUInt64BE(BigInt(payload.length), 2)
+    }
+    const maskedPayload = Buffer.from(payload)
+    for (let index = 0; index < maskedPayload.length; index += 1) {
+      const byte = maskedPayload[index]
+      const maskByte = mask[index % 4]
+      if (byte === undefined || maskByte === undefined) {
+        throw new Error('Failed to construct masked websocket frame')
+      }
+      maskedPayload[index] = byte ^ maskByte
+    }
+    this.socket.write(Buffer.concat([header, mask, maskedPayload]))
   }
 
   private handleError(error: Error): void {
     if (this.closed) return
     this.closed = true
+    this.rejectReady?.(error)
+    this.resolveReady = undefined
+    this.rejectReady = undefined
     for (const pending of this.pending.values()) pending.reject(error)
     this.pending.clear()
     this.handlers.onError?.(error)
+    this.socket.destroy()
   }
 }
