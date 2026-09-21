@@ -280,7 +280,7 @@ export function createAgentHarnessTmuxDriver(
         verifyChildHello(hello, options.releaseIdentity)
         const started = await client.startInvocationFromRequest(
           { spec: nextSpec },
-          { dispatchEnv: driverCtx.dispatchEnv }
+          { dispatchEnv: driverCtx.dispatchEnv, runtime: driverCtx.runtime }
         )
         eventPump = (async () => {
           for await (const event of started.events) forward(event)
