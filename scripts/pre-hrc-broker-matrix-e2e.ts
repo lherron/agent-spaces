@@ -58,6 +58,9 @@ type RowResult = {
     startRequestHash?: string | undefined
   }
   events: number
+  eventTypes: string[]
+  terminalTurns: number
+  continuationObserved: boolean
   failures: Array<{ code: string; message: string }>
 }
 
@@ -160,7 +163,7 @@ function createFixture(row: RowName): {
   ).pathname
   writeExecutable(
     join(aspHome, 'codex'),
-    `#!/usr/bin/env bash\nif [[ "$1" == "--version" ]]; then echo "codex 999.0.0"; exit 0; fi\nif [[ "$1" == "app-server" && "$2" == "--help" ]]; then echo "app-server"; exit 0; fi\nif [[ "$1" == "app-server" ]]; then exec bun ${JSON.stringify(fakeCodex)}; fi\necho "codex shim"\n`
+    `#!/usr/bin/env bash\nif [[ "$1" == "--version" ]]; then echo "codex 999.0.0"; exit 0; fi\nfor arg in "$@"; do if [[ "$arg" == "--help" ]]; then echo "app-server"; exit 0; fi; done\nif [[ " $* " == *" app-server "* ]]; then exec bun ${JSON.stringify(fakeCodex)}; fi\necho "codex shim" >&2\n`
   )
   writeExecutable(
     join(aspHome, 'claude'),
@@ -186,7 +189,7 @@ function realExecutable(name: 'codex' | 'claude' | 'muse'): string | undefined {
   return found === null ? undefined : found
 }
 
-function rowSelection(row: RowName): {
+export function matrixRowSelection(row: RowName): {
   harness: HarnessId
   modelProvider: string
   model: string
@@ -255,7 +258,7 @@ function createRequest(
   marker: string
 ): RuntimeCompileRequest {
   const allocated = identity(row, marker)
-  const selection = rowSelection(row)
+  const selection = matrixRowSelection(row)
   return {
     schemaVersion: 'agent-runtime-compile-request/v2',
     agent: { id: 'sparky' },
@@ -267,7 +270,7 @@ function createRequest(
       runMode: 'task',
       bundle: { kind: 'agent-project', agentName: 'sparky', projectRoot: fixture.projectRoot },
       correlation: {
-        sessionRef: { scopeRef: 'sparky@agent-spaces', laneRef: 'main' },
+        sessionRef: { scopeRef: 'agent:sparky:project:agent-spaces', laneRef: 'main' },
         hostSessionId: allocated.hostSessionId,
       },
     } as RuntimeCompileRequest['placement'],
@@ -300,7 +303,7 @@ function createRequest(
       traceId: allocated.traceId,
       appId: 'agent-spaces',
       appSessionKey: `prehrc-matrix-${row}`,
-      scopeRef: 'sparky@agent-spaces',
+      scopeRef: 'agent:sparky:project:agent-spaces',
       laneRef: 'main',
     },
   }
@@ -343,6 +346,113 @@ function hasTerminalTurn(events: InvocationEventEnvelope[]): boolean {
   )
 }
 
+function terminalTurns(events: InvocationEventEnvelope[]): InvocationEventEnvelope[] {
+  return events.filter(
+    (event) =>
+      event.type === 'turn.completed' ||
+      event.type === 'turn.failed' ||
+      event.type === 'turn.interrupted'
+  )
+}
+
+function eventContains(event: InvocationEventEnvelope, value: string): boolean {
+  return JSON.stringify(event.payload).includes(value)
+}
+
+/**
+ * Retained pre-HRC verification floor. The broker is the sole producer of the
+ * normalized stream, so this checks delivery order and one complete command
+ * turn rather than reconstructing a retired compiler-side execution profile.
+ */
+function verifyBrokerEventFloor(
+  events: InvocationEventEnvelope[],
+  invocationId: InvocationId,
+  marker: string
+): Array<{ code: string; message: string }> {
+  const failures: Array<{ code: string; message: string }> = []
+  if (events.length === 0) {
+    failures.push({ code: 'broker_event_stream_empty', message: 'broker emitted no events' })
+    return failures
+  }
+
+  for (const [index, event] of events.entries()) {
+    if (event.invocationId !== invocationId) {
+      failures.push({
+        code: 'event_invocation_mismatch',
+        message: `event ${event.type} belongs to ${event.invocationId}, not ${invocationId}`,
+      })
+      break
+    }
+    const previous = events[index - 1]
+    if (previous !== undefined && event.seq <= previous.seq) {
+      failures.push({
+        code: 'event_sequence_invalid',
+        message: `event sequence ${previous.seq} then ${event.seq} is not strictly increasing`,
+      })
+      break
+    }
+  }
+
+  const types = new Set(events.map((event) => event.type))
+  for (const required of ['invocation.started', 'invocation.ready', 'turn.started'] as const) {
+    if (!types.has(required)) {
+      failures.push({
+        code: 'broker_event_baseline_missing',
+        message: `broker event stream did not include ${required}`,
+      })
+    }
+  }
+
+  const terminals = terminalTurns(events)
+  if (terminals.length !== 1) {
+    failures.push({
+      code: 'terminal_turn_count_invalid',
+      message: `expected one initial terminal turn, observed ${terminals.length}`,
+    })
+  }
+
+  const markerTool = events.find(
+    (event) =>
+      (event.type === 'tool.call.started' || event.type === 'tool.call.completed') &&
+      eventContains(event, marker)
+  )
+  if (markerTool === undefined || markerTool.turnId === undefined) {
+    failures.push({
+      code: 'marker_command_missing',
+      message: `no executed tool call carried ${marker}`,
+    })
+    return failures
+  }
+
+  const markerTurn = markerTool.turnId
+  const markerEvents = events.filter((event) => event.turnId === markerTurn)
+  if (!markerEvents.some((event) => event.type === 'tool.call.started')) {
+    failures.push({
+      code: 'marker_tool_start_missing',
+      message: `marker turn ${markerTurn} did not emit tool.call.started`,
+    })
+  }
+  if (!markerEvents.some((event) => event.type === 'tool.call.completed')) {
+    failures.push({
+      code: 'marker_tool_completion_missing',
+      message: `marker turn ${markerTurn} did not emit tool.call.completed`,
+    })
+  }
+  if (!markerEvents.some((event) => event.type === 'turn.started')) {
+    failures.push({
+      code: 'marker_turn_start_missing',
+      message: `marker turn ${markerTurn} did not emit turn.started`,
+    })
+  }
+  if (!markerEvents.some((event) => event.type === 'turn.completed')) {
+    failures.push({
+      code: 'marker_turn_completion_missing',
+      message: `marker turn ${markerTurn} did not emit turn.completed`,
+    })
+  }
+  return failures
+}
+
 async function waitForTerminal(
   events: InvocationEventEnvelope[],
   timeoutMs: number
@@ -367,6 +477,9 @@ async function runRow(
     marker,
     compile: {},
     events: 0,
+    eventTypes: [],
+    terminalTurns: 0,
+    continuationObserved: false,
     failures: [],
   }
   const fixture = createFixture(row)
@@ -374,6 +487,7 @@ async function runRow(
   const originalClaude = process.env['ASP_CLAUDE_PATH']
   const originalMuse = process.env['ASP_MUSE_PATH']
   const originalSkip = process.env['ASP_CODEX_SKIP_COMMON_PATHS']
+  const originalFakeMarker = process.env['ASP_MATRIX_FAKE_MARKER']
   let broker: BrokerClient | undefined
   let invocationId: InvocationId | undefined
   try {
@@ -399,6 +513,7 @@ async function runRow(
       process.env['ASP_MUSE_PATH'] = join(fixture.aspHome, 'muse')
     }
     process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
+    process.env['ASP_MATRIX_FAKE_MARKER'] = marker
 
     const response = await compileForMatrix(
       row === 'unix-jsonrpc-ndjson' ? 'aspc-rpc' : transport,
@@ -451,22 +566,42 @@ async function runRow(
     })()
     const terminal = await waitForTerminal(events, timeoutMs)
     result.events = events.length
+    result.eventTypes = [...new Set(events.map((event) => event.type))].sort()
+    result.terminalTurns = terminalTurns(events).length
+    result.continuationObserved = events.some((event) => event.type === 'continuation.updated')
     if (!terminal) {
       result.failures.push({
         code: 'terminal_turn_timeout',
         message: `no terminal turn after ${timeoutMs}ms`,
       })
     }
-    if (!events.some((event) => event.type === 'invocation.ready')) {
+    result.failures.push(...verifyBrokerEventFloor(events, invocationId, marker))
+    if (
+      row === 'fake-codex' ||
+      row === 'unix-jsonrpc-ndjson' ||
+      row === 'real-codex' ||
+      row === 'codex-tui'
+    ) {
+      if (!result.continuationObserved) {
+        result.failures.push({
+          code: 'codex_continuation_missing',
+          message: 'Codex broker execution did not emit continuation.updated',
+        })
+      }
+    }
+
+    const snapshot = await broker.snapshot({ invocationId })
+    const lastEvent = events.at(-1)
+    if (snapshot.invocationId !== invocationId || snapshot.currentSeq < (lastEvent?.seq ?? 0)) {
       result.failures.push({
-        code: 'invocation_not_ready',
-        message: 'broker did not report invocation.ready',
+        code: 'broker_snapshot_out_of_sync',
+        message: `snapshot invocation=${snapshot.invocationId} seq=${snapshot.currentSeq}, event seq=${lastEvent?.seq ?? 0}`,
       })
     }
-    if (!JSON.stringify(events).includes(marker)) {
+    if (snapshot.pendingInputIds.length > 0 || snapshot.brokerQueue.length > 0) {
       result.failures.push({
-        code: 'marker_missing',
-        message: `broker events did not contain ${marker}`,
+        code: 'broker_input_not_drained',
+        message: `terminal initial turn retained inputs=${snapshot.pendingInputIds.length} queue=${snapshot.brokerQueue.length}`,
       })
     }
     await broker.dispose({ invocationId }).catch(() => undefined)
@@ -493,6 +628,8 @@ async function runRow(
     else process.env['ASP_MUSE_PATH'] = originalMuse
     if (originalSkip === undefined) process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = undefined
     else process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = originalSkip
+    if (originalFakeMarker === undefined) process.env['ASP_MATRIX_FAKE_MARKER'] = undefined
+    else process.env['ASP_MATRIX_FAKE_MARKER'] = originalFakeMarker
     fixture.cleanup()
   }
 }
