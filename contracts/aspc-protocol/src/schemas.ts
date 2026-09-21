@@ -9,7 +9,6 @@ import type {
   AspcCatalogAgentInspectionRequest,
   AspcCatalogAgentsRequest,
   AspcCommand,
-  AspcCompileAndStartRequest,
   AspcCompileHarnessInvocationRequest,
   AspcHelloRequest,
   AspcInspectAgentRequest,
@@ -185,10 +184,6 @@ export function validateAspcInspectAgentSelectionRequest(
   validateInspectAgentSelection(value, 'params', issues)
   if (issues.length > 0) throw new AspcInspectAgentSelectionRequestValidationError(issues)
   return value as AspcInspectAgentSelectionRequest
-}
-
-export function validateAspcCompileAndStartRequest(value: unknown): AspcCompileAndStartRequest {
-  return validateAspcCompileHarnessInvocationRequest(value)
 }
 
 function validateObservationRequest<T>(
@@ -481,7 +476,6 @@ const ASPC_PARAMS_VALIDATORS: Record<AspcMethod, ParamsValidator> = {
   },
   'aspc.observeContinuationArtifact': validateContinuationObservation,
   'aspc.prepareProcessInvocation': validatePrepareProcessParams,
-  'aspc.compileAndStart': validateCompileHarnessInvocation,
 }
 
 function validateRuntimeObservation(

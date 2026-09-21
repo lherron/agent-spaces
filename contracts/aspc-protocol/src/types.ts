@@ -4,7 +4,6 @@ import type {
   BrokerProtocolVersion,
   InvocationRuntimeContext,
   InvocationStartRequest,
-  InvocationStartResponse,
   JsonRpcRequest,
 } from 'spaces-harness-broker-protocol'
 import type {
@@ -37,7 +36,6 @@ export type AspcProtocolVersion = typeof ASPC_PROTOCOL_VERSION
  */
 export const ASPC_COMPILE_HARNESS_INVOCATION_RESPONSE_VERSION =
   'aspc-compile-harness-invocation-response/v2' as const
-export const ASPC_COMPILE_AND_START_RESPONSE_VERSION = 'aspc-compile-and-start-response/v1' as const
 export const ASPC_RESOLVE_RUNTIME_DECLARATION_RESPONSE_VERSION =
   'aspc-resolve-runtime-declaration-response/v1' as const
 export const ASPC_INSPECT_RUNTIME_PLACEMENT_RESPONSE_VERSION =
@@ -66,7 +64,6 @@ export const ASPC_METHODS = [
   'aspc.observeRuntimeCapability',
   'aspc.observeContinuationArtifact',
   'aspc.prepareProcessInvocation',
-  'aspc.compileAndStart',
 ] as const
 
 export type AspcMethod = (typeof ASPC_METHODS)[number]
@@ -83,7 +80,6 @@ export type AspcCommand =
   | JsonRpcRequest<'aspc.observeRuntimeCapability', AspcObserveRuntimeCapabilityRequest>
   | JsonRpcRequest<'aspc.observeContinuationArtifact', AspcObserveContinuationArtifactRequest>
   | JsonRpcRequest<'aspc.prepareProcessInvocation', AspcPrepareProcessInvocationRequest>
-  | JsonRpcRequest<'aspc.compileAndStart', AspcCompileAndStartRequest>
 
 export interface AspcHelloRequest {
   clientInfo: {
@@ -103,7 +99,6 @@ export interface AspcHelloRequest {
         inspectRuntimePlacementPreparationCorrelation?: boolean | undefined
         observeRuntimeCapability?: boolean | undefined
         observeContinuationArtifact?: boolean | undefined
-        compileAndStart?: boolean | undefined
         prepareProcessInvocation?: boolean | undefined
       }
     | undefined
@@ -127,7 +122,6 @@ export interface AspcHelloResponse {
     inspectRuntimePlacementPreparationCorrelation: true
     observeRuntimeCapability: true
     observeContinuationArtifact: true
-    compileAndStart: boolean
     prepareProcessInvocation: true
     cohostedBroker: boolean
     transports: AspcTransportKind[]
@@ -258,8 +252,6 @@ export type AspcCompileHarnessInvocationResponse =
       ok: false
       diagnostics: CompileDiagnostic[]
     }
-
-export type AspcCompileAndStartRequest = AspcCompileHarnessInvocationRequest
 
 export type AspcRuntimeDeclarationContext = {
   agentId: string
@@ -593,18 +585,4 @@ export type AspcObserveContinuationArtifactResponse =
       failure: AspcObservationFailure<
         'unsupported_schema' | 'unsupported_provider' | 'evidence_invalid' | 'observation_failed'
       >
-    }
-
-export type AspcCompileAndStartResponse =
-  | {
-      schemaVersion: typeof ASPC_COMPILE_AND_START_RESPONSE_VERSION
-      ok: true
-      compile: Extract<AspcCompileHarnessInvocationResponse, { ok: true }>
-      startResponse: InvocationStartResponse
-    }
-  | {
-      schemaVersion: typeof ASPC_COMPILE_AND_START_RESPONSE_VERSION
-      ok: false
-      compile: Extract<AspcCompileHarnessInvocationResponse, { ok: false }>
-      diagnostics: CompileDiagnostic[]
     }

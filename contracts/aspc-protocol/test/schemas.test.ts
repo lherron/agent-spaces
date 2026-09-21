@@ -6,7 +6,6 @@ import {
   AspcCompileHarnessInvocationRequestValidationError,
   AspcHelloRequestValidationError,
   validateAspcCommand,
-  validateAspcCompileAndStartRequest,
   validateAspcCompileHarnessInvocationRequest,
   validateAspcHelloRequest,
 } from '../src/index.js'
@@ -62,8 +61,21 @@ describe('ASPC protocol validators', () => {
       protocolVersions: [ASPC_PROTOCOL_VERSION],
     }
     expect(validateAspcHelloRequest(request)).toBe(request)
-    expect(ASPC_METHODS).toContain('aspc.compileHarnessInvocation')
+    expect(ASPC_METHODS).toEqual([
+      'aspc.hello',
+      'aspc.catalogAgents',
+      'aspc.inspectAgent',
+      'aspc.catalogAgentInspection',
+      'aspc.inspectAgentSelection',
+      'aspc.compileHarnessInvocation',
+      'aspc.resolveRuntimeDeclaration',
+      'aspc.inspectRuntimePlacement',
+      'aspc.observeRuntimeCapability',
+      'aspc.observeContinuationArtifact',
+      'aspc.prepareProcessInvocation',
+    ])
     expect(ASPC_METHODS).not.toContain('aspc.compileRuntimePlan' as never)
+    expect(ASPC_METHODS).not.toContain('aspc.compileAndStart' as never)
     expect(
       validateAspcCommand({
         jsonrpc: '2.0',
@@ -102,17 +114,15 @@ describe('ASPC protocol validators', () => {
     ).toMatchObject({ method: 'aspc.compileHarnessInvocation' })
   })
 
-  test('compileAndStart reuses the same selector-free envelope validator', () => {
-    const request = { compileRequest, dispatchEnv: { EXTRA_FLAG: '1' } }
-    expect(validateAspcCompileAndStartRequest(request)).toBe(request)
-    expect(
+  test('rejects the removed compileAndStart method', () => {
+    expect(() =>
       validateAspcCommand({
         jsonrpc: '2.0',
         id: '3',
         method: 'aspc.compileAndStart',
-        params: request,
+        params: { compileRequest },
       })
-    ).toMatchObject({ method: 'aspc.compileAndStart' })
+    ).toThrow(AspcCommandValidationError)
   })
 
   test('rejects the removed compileRuntimePlan method', () => {
