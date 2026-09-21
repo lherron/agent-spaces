@@ -2,8 +2,15 @@ id: agent-spaces.harness-broker-turn-evidence
 kind: invariant
 status: active
 owner_project: agent-spaces
-scope: harness-broker turn brackets and external-TUI submission disposition attribution
+scope: harness-broker turn brackets and external-harness submission disposition attribution
 predicate: >
+  Amendment T-08680 (2026-09-21, ruled by Lance): agent-harness-tmux is
+  worker-native and no longer uses delivery acknowledgement through a private
+  turn.begin handshake. Its broker and operator inputs are observed and mapped
+  inside the one standard-protocol worker through the real DriverContext; the
+  agent-harness runtime-boundary record owns its exact attribution law. All
+  agent-harness turn.begin clauses formerly in this record are superseded.
+  Subject to that amendment,
   Except for the bounded legacy risk recorded as
   agent-spaces.pi-delivery-asserted-turn-start, harness-broker turn lifecycle
   brackets are minted only at the evidence moment declared by the driver:
@@ -19,9 +26,7 @@ predicate: >
   pending delivery and its terminal records indeterminate submission.lost then
   non-retryable invocation.failed, while foreign attribution never contests.
   The declaration is advertised per driver and gates
-  the shared delivery-time synthesis. agent-harness-tmux remains
-  delivery-acknowledged so a rejected turn.begin opens turn.started before
-  turn.failed. codex-cli-tmux remains harness-evidence: state at the
+  the shared delivery-time synthesis. codex-cli-tmux remains harness-evidence: state at the
   driver/manager boundary may attach a pending broker input to an input-ID-less
   native UserPromptSubmit only when exact or otherwise unambiguous
   prompt-content evidence matches; priming and different operator prompts remain
@@ -95,8 +100,9 @@ predicate: >
   ship coherently; consumer no-reinject behavior precedes activation.
 authority:
   repo: agent-spaces
-  surface: wrkq T-07849 rev 11 approved by Daedalus on Lance's authority; amended by Daedalus approvals of wrkq T-07962 rev 3 on 2026-09-03, wrkq T-08097 rev 13 on 2026-09-05, wrkq T-08204 rev 2 (C-19934) plus rev 3 attribution reconciliation, and wrkq T-08206 rev 2 (C-19948) on 2026-09-07
+  surface: wrkq T-07849 rev 11 approved by Daedalus on Lance's authority; amended by Daedalus approvals of wrkq T-07962 rev 3 on 2026-09-03, wrkq T-08097 rev 13 on 2026-09-05, wrkq T-08204 rev 2 (C-19934) plus rev 3 attribution reconciliation, and wrkq T-08206 rev 2 (C-19948) on 2026-09-07; agent-harness child-handshake clauses superseded by Lance ruling T-08680 on 2026-09-21
 source:
+  - wrkq:T-08680
   - wrkq:T-07849
   - wrkq:T-07962
   - wrkq:T-08097
@@ -110,7 +116,6 @@ source:
   - harness/harness-broker/src/drivers/claude-code-tmux/hook-transcript.ts
   - harness/harness-broker/src/drivers/claude-code-tmux/hook-events.ts
   - harness/harness-broker/src/drivers/claude-code-tmux/turn-attribution.ts
-  - harness/harness-broker/src/drivers/agent-harness-tmux/driver.ts
   - harness/harness-broker/src/runtime/tmux.ts
   - contracts/harness-broker-protocol/src/events.ts
   - contracts/harness-broker-protocol/src/schemas.ts
@@ -120,7 +125,6 @@ required_tests:
   - batched Claude remove and queued_command rows resolve every correlated prompt exactly once on the then-live turn
   - an unresolved Claude remove warns without a disposition and remains pending until a correlated attachment, recall evidence, or teardown authority resolves it
   - active-turn applyInputNow absorption opens no allocated-id bracket while execution opens on the observed user row
-  - agent-harness-tmux negative turn.begin acknowledgement emits turn.started before turn.failed
   - pi-tui-tmux delivery-asserted regression preserves its existing observable lifecycle
   - live claude-code-tmux matrix evidence exposes one disposition per tracked prompt without transcript snooping by consumers
   - recorded and live codex-cli-tmux cases prove two matching prompt turns, negative priming and operator controls, and fail-closed lost correlation with no later same-seat drain
@@ -141,7 +145,7 @@ last_verified:
 reopen_when:
   - a driver changes bracket-minting declaration or evidence moment
   - claude-code-tmux queue-operation vocabulary ordering or absorption signature changes
-  - the shared applyInputNow synthesis or agent-harness turn.begin gate changes
+  - the shared applyInputNow synthesis changes
   - a tracked prompt can emit multiple dispositions multiple user.message rows or a terminal against the wrong turn
   - submission.absorbed or the turn manifest no longer identifies the turn a steer joined
   - codex-cli-tmux attribution borrows identity by turn order, owns a nonmatching prompt, or permits same-seat drain after lost correlation

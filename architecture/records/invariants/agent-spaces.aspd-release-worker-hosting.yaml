@@ -4,6 +4,13 @@ status: active
 owner_project: agent-spaces
 scope: immutable ASP release worker selection, helper closure, and positive hosting evidence
 predicate: >
+  Amendment T-08680 (2026-09-21, ruled by Lance): the identity-bound
+  agent-harness release executable binds both agent-harness and
+  agent-harness-tmux and directly serves the standard broker protocol. It is a
+  native worker, not the deferred generic Pi SDK binding described in the named
+  gap below. Release inspection must prove its hermetic closure, embedded
+  identity, dual driver inventory, explicit dual bindings, and positive
+  hostedDrivers before either route is exposed. Subject to that amendment,
   A binding-aware standalone ASP release declares each release-supported broker
   driver's worker executable and each required ASP-owned asset in its immutable release
   manifest. Inspection proves every declared worker is identity-bound, resolves
@@ -29,7 +36,7 @@ predicate: >
   participant-owned codex-desktop broker (T-08594, 2026-09-17, ruled by Lance,
   recorded hrc-runtime T-08567 C-23749): hook-started from the active release
   and served in-process, never HRC-hosted.
-authority: Daedalus approval of wrkq T-08561 revision de063d73 and Pi SDK scope-narrowing amendment c6d821ce on 2026-09-16; T-08594 Desktop amendment under Lance ruling (hrc-runtime T-08567 C-23749)
+authority: Daedalus approval of wrkq T-08561 revision de063d73 and Pi SDK scope-narrowing amendment c6d821ce on 2026-09-16; T-08594 Desktop amendment under Lance ruling (hrc-runtime T-08567 C-23749); T-08680 native agent-harness worker amendment ruled by Lance 2026-09-21
 named_gap: >
   The Pi SDK release binding is deferred. At implementation commits c96bbd46
   and d219b1d3 the release closure gate rejected the compiled Pi worker because
@@ -40,6 +47,8 @@ named_gap: >
   off the aspd route or refuse it explicitly. The existing non-aspd Pi SDK path
   is unchanged.
 source:
+  - wrkq:T-08680
+  - docs/proposals/agent-harness-native-release-worker.md
   - wrkq:T-08594
   - wrkq:T-08561
   - commit:c6d821ce
@@ -51,6 +60,8 @@ source:
   - architecture/records/invariants/agent-spaces.harness-broker-turn-evidence.yaml
   - architecture/records/invariants/agent-spaces.codex-tui-app-server-presentation.yaml
 required_tests:
+  - the identity-bound agent-harness executable passes release closure and identity inspection advertises both agent-harness drivers and owns both explicit bindings
+  - aspd preparation for either agent-harness driver returns that exact executable with the selected driver in positive hostedDrivers and refuses missing or mismatched evidence before executionRelease
   - new release build and inspection validate worker bindings driver inventories identity and payload and asset digests
   - newly built releases prepare and complete real Claude Pi TUI and Codex turns with the selected release worker and hostedDrivers containing the selected driver
   - Pi SDK remains unbound until its transitive build-host absolute paths have a hermetic release compilation surface and new releases refuse Pi SDK before executionRelease

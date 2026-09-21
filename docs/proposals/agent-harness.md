@@ -1,6 +1,7 @@
 # Praesidium Agent Harness
 
-- **Status:** accepted; ratified by Daedalus in `hrcchat#20779`
+- **Status:** accepted; broker-worker topology amended by T-08680 in
+  `docs/proposals/agent-harness-native-release-worker.md`
 - **Date:** 2026-08-24
 - **Author:** cody@agent-spaces
 - **Tracking:** T-07542
