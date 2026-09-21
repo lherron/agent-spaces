@@ -22,12 +22,10 @@ import {
 } from './broker-invocation.js'
 import { type MaterializedSpec, materializeSpec } from './client-materialization.js'
 import {
-  CODEX_CLI_FRONTEND,
   CodedError,
-  assertProviderMatch,
   formatDisplayCommand,
-  resolveFrontend,
 } from './client-support.js'
+import { catalogProcessImplementationForFrontend } from './harness-selection/catalog-projections.js'
 import { composeAgentLocalEnv } from './compose-agent-local-env.js'
 import type {
   AgentSpacesRuntimeDependencies,
@@ -180,18 +178,31 @@ export async function preparePlacementCliRuntime(
   // Refuse a contradictory identity before any preparation side effect.
   resolvePreparationIdentity(placement, req.identityHints)
 
-  const frontendDef = resolveFrontend(req.frontend)
-
-  // Validate provider matches frontend
-  if (req.provider !== frontendDef.provider) {
+  const implementation = catalogProcessImplementationForFrontend(req.frontend)
+  if (implementation === undefined) {
     throw new CodedError(
-      `Provider mismatch: frontend "${req.frontend}" requires provider "${frontendDef.provider}" but got "${req.provider}"`,
+      `No catalog process implementation for frontend ${req.frontend}`,
+      'unsupported_frontend'
+    )
+  }
+
+  // The physical process identity is a catalog projection, not a route fallback.
+  if (req.provider !== implementation.provider) {
+    throw new CodedError(
+      `Provider mismatch: frontend "${req.frontend}" requires provider "${implementation.provider}" but got "${req.provider}"`,
       'provider_mismatch'
     )
   }
 
-  // Validate provider match with continuation if provided
-  assertProviderMatch(frontendDef, req.continuation)
+  if (
+    req.continuation?.provider !== undefined &&
+    req.continuation.provider !== implementation.provider
+  ) {
+    throw new CodedError(
+      `Provider mismatch: frontend "${req.frontend}" is provider "${implementation.provider}" but continuation is provider "${req.continuation.provider}"`,
+      'provider_mismatch'
+    )
+  }
 
   const placementContext = await resolvePlacementContext({ ...placement, dryRun: true })
   const { spec } = placementContext.materialization
@@ -232,6 +243,11 @@ export async function preparePlacementCliRuntime(
       ...unresolvedRuntimePlan.runOptions,
       prompt: selectedLaunchPrompt,
     },
+  }
+  if (runtimePlan.harnessId !== implementation.harness) {
+    throw new Error(
+      `Runtime plan harness ${runtimePlan.harnessId} does not match catalog implementation ${implementation.harness}`
+    )
   }
   if (!runtimePlan.model.ok) {
     throw new Error(
@@ -398,7 +414,7 @@ export async function preparePlacementCliRuntime(
   // self-healing for stale blocks). Codex reads AGENTS.md on both interactive and
   // exec routes, so the model receives the system prompt without it appearing in
   // the visible launch message.
-  if (frontendDef.frontend === CODEX_CLI_FRONTEND) {
+  if (implementation.harness === 'codex') {
     const codexRunOptions = {
       ...runOptions,
       aspHome,

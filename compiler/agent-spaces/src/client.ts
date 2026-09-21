@@ -1,6 +1,10 @@
 import { isAbsolute } from 'node:path'
 
-import { buildCodexAppServerLaunchDescriptor, normalizeAgentSdkModel } from 'spaces-config'
+import {
+  buildCodexAppServerLaunchDescriptor,
+  isHarnessId,
+  normalizeAgentSdkModel,
+} from 'spaces-config'
 import type { RuntimePlacement } from 'spaces-config'
 import {
   toHarnessBrokerStartRequest,
@@ -15,16 +19,21 @@ import {
   validateSpec,
 } from './client-materialization.js'
 import {
-  ADAPTER_DEFS,
-  AGENT_SDK_FRONTEND,
   CodedError,
-  assertProviderMatch,
   formatDisplayCommand,
-  resolveFrontend,
-  resolveModel,
 } from './client-support.js'
 import { compileRuntimePlan } from './compile-runtime-plan.js'
-import { catalogCapabilities } from './harness-selection/catalog-projections.js'
+import {
+  catalogCapabilities,
+  catalogProcessImplementationForFrontend,
+  catalogProcessImplementationForHarness,
+  resolveCatalogProcessModel,
+} from './harness-selection/catalog-projections.js'
+import {
+  AGENT_SDK_FRONTEND,
+  resolveSessionRuntimeModel,
+  sessionRuntimeFacts,
+} from './session-runtime-facts.js'
 import type { AgentSpacesClientOptions } from './placement-api.js'
 import { requireAgentSpacesRuntime } from './placement-api.js'
 import {
@@ -154,12 +163,8 @@ export function createAgentSpacesClient(
         }
       }
       const resolved = declaration as unknown as SuccessfulDeclaration
-      // Old v1 routing still needs provider/frontend: resolve them from the
-      // internal legacy seam by exact canonical harness id (EN-15986).
-      // An undeclared harness stays absent here; T-08702 migrates this
-      // consumer off the seam entirely.
       const effectiveHarness = resolved.provisioning.effectiveHarness
-      if (typeof effectiveHarness !== 'string') {
+      if (typeof effectiveHarness !== 'string' || !isHarnessId(effectiveHarness)) {
         return {
           schemaVersion: 'aspc-prepare-process-invocation-response/v1',
           ok: false,
@@ -170,22 +175,19 @@ export function createAgentSpacesClient(
           },
         }
       }
-      const adapter = [...ADAPTER_DEFS.values()].find(
-        (candidate) => candidate.internalId === effectiveHarness
-      )
-      if (adapter === undefined) {
+      const implementation = catalogProcessImplementationForHarness(effectiveHarness)
+      if (implementation === undefined) {
         return {
           schemaVersion: 'aspc-prepare-process-invocation-response/v1',
           ok: false,
           failure: {
             kind: 'incompatible',
             code: 'unsupported_harness',
-            message: `Unsupported harness ${effectiveHarness}`,
+            message: `Harness ${effectiveHarness} has no direct process implementation`,
           },
         }
       }
-      const provider = adapter.provider
-      const frontend = adapter.frontend
+      const { provider, frontend } = implementation
       const placement = placementFromDeclaration(
         resolved.placement,
         req.context,
@@ -315,13 +317,28 @@ export function createAgentSpacesClient(
     async describe(req: DescribeRequest): Promise<DescribeResponse> {
       return withAspHome(req.aspHome, async () => {
         const spec = validateSpec(req.spec)
-        const frontendDef = req.frontend
-          ? resolveFrontend(req.frontend)
-          : resolveFrontend(AGENT_SDK_FRONTEND)
-        const materialized = await materializeSpec(spec, req.aspHome, frontendDef.internalId, {
-          registryPathOverride: req.registryPath ?? clientRegistryPath,
-          runtime: requireAgentSpacesRuntime(clientRuntime),
-        })
+        const sessionFacts =
+          req.frontend === undefined || req.frontend === AGENT_SDK_FRONTEND
+            ? sessionRuntimeFacts(AGENT_SDK_FRONTEND)
+            : undefined
+        const implementation = sessionFacts
+          ? undefined
+          : catalogProcessImplementationForFrontend(req.frontend!)
+        if (sessionFacts === undefined && implementation === undefined) {
+          throw new CodedError(
+            `Describe does not select a process implementation for frontend ${req.frontend}`,
+            'unsupported_frontend'
+          )
+        }
+        const materialized = await materializeSpec(
+          spec,
+          req.aspHome,
+          implementation?.harness ?? 'agent-harness',
+          {
+            registryPathOverride: req.registryPath ?? clientRegistryPath,
+            runtime: requireAgentSpacesRuntime(clientRuntime),
+          }
+        )
         const hooks = await collectHooks(materialized.materialization.pluginDirs)
         const tools = await collectTools(materialized.materialization.mcpConfigPath)
         const lintWarnings =
@@ -338,11 +355,11 @@ export function createAgentSpacesClient(
           response.lintWarnings = lintWarnings
         }
 
-        if (frontendDef.frontend === AGENT_SDK_FRONTEND) {
-          const modelResolution = resolveModel(frontendDef, req.model)
+        if (sessionFacts) {
+          const modelResolution = resolveSessionRuntimeModel(sessionFacts, req.model)
           if (!modelResolution.ok) {
             throw new Error(
-              `Model not supported for frontend ${frontendDef.frontend}: ${modelResolution.modelId}`
+              `Model not supported for session frontend ${sessionFacts.frontend}: ${modelResolution.modelId}`
             )
           }
           const plugins = materialized.materialization.pluginDirs.map((dir) => ({
@@ -350,10 +367,10 @@ export function createAgentSpacesClient(
             path: dir,
           }))
           response.agentSdkSessionParams = [
-            { paramName: 'kind', paramValue: 'agent-sdk' },
+            { paramName: 'kind', paramValue: AGENT_SDK_FRONTEND },
             { paramName: 'sessionId', paramValue: req.hostSessionId ?? null },
             { paramName: 'cwd', paramValue: req.cwd ?? null },
-            { paramName: 'model', paramValue: normalizeAgentSdkModel(modelResolution.info.model) },
+            { paramName: 'model', paramValue: normalizeAgentSdkModel(modelResolution.model) },
             { paramName: 'plugins', paramValue: plugins },
             { paramName: 'permissionHandler', paramValue: 'auto-allow' },
           ]
@@ -368,9 +385,10 @@ export function createAgentSpacesClient(
         harnesses: catalogCapabilities().map((capability) => ({
           id: capability.id,
           provider: capability.defaultModelProvider as ProviderDomain,
-          frontends: [...ADAPTER_DEFS.values()]
-            .filter((adapter) => adapter.internalId === capability.id)
-            .map((adapter) => adapter.frontend),
+          frontends: (() => {
+            const implementation = catalogProcessImplementationForHarness(capability.id)
+            return implementation === undefined ? [] : [implementation.frontend]
+          })(),
           models: capability.modelProviders.flatMap((provider) => provider.supportedModels),
         })),
       }
@@ -397,18 +415,32 @@ export function createAgentSpacesClient(
           throw new Error('cwd must be an absolute path')
         }
 
-        const frontendDef = resolveFrontend(req.frontend)
-
-        if (req.provider !== frontendDef.provider) {
+        const implementation = catalogProcessImplementationForFrontend(req.frontend)
+        if (implementation === undefined) {
           throw new CodedError(
-            `Provider mismatch: frontend "${req.frontend}" requires provider "${frontendDef.provider}" but got "${req.provider}"`,
+            `No catalog process implementation for frontend ${req.frontend}`,
+            'unsupported_frontend'
+          )
+        }
+
+        if (req.provider !== implementation.provider) {
+          throw new CodedError(
+            `Provider mismatch: frontend "${req.frontend}" requires provider "${implementation.provider}" but got "${req.provider}"`,
             'provider_mismatch'
           )
         }
 
-        assertProviderMatch(frontendDef, req.continuation)
+        if (
+          req.continuation?.provider !== undefined &&
+          req.continuation.provider !== implementation.provider
+        ) {
+          throw new CodedError(
+            `Provider mismatch: frontend "${req.frontend}" is provider "${implementation.provider}" but continuation is provider "${req.continuation.provider}"`,
+            'provider_mismatch'
+          )
+        }
 
-        const modelResolution = resolveModel(frontendDef, req.model)
+        const modelResolution = resolveCatalogProcessModel(implementation, req.model)
         if (!modelResolution.ok) {
           throw new Error(
             `Model not supported for frontend ${req.frontend}: ${modelResolution.modelId}`
@@ -416,15 +448,15 @@ export function createAgentSpacesClient(
         }
 
         const runtime = requireAgentSpacesRuntime(clientRuntime)
-        const materialized = await materializeSpec(spec, req.aspHome, frontendDef.internalId, {
+        const materialized = await materializeSpec(spec, req.aspHome, implementation.harness, {
           registryPathOverride: clientRegistryPath,
           runtime,
         })
-        const adapter = runtime.getHarnessAdapter(frontendDef.internalId)
+        const adapter = runtime.getHarnessAdapter(implementation.harness)
         const detection = await adapter.detect()
         if (!detection.available) {
           throw new Error(
-            `Harness "${frontendDef.internalId}" is not available: ${detection.error ?? 'not found'}`
+            `Harness "${implementation.harness}" is not available: ${detection.error ?? 'not found'}`
           )
         }
 
@@ -435,7 +467,7 @@ export function createAgentSpacesClient(
         const isResume = !!req.continuation?.key
         const runOptions = {
           interactive: req.interactionMode === 'interactive',
-          model: modelResolution.info.model,
+          model: modelResolution.model,
           ...(req.modelReasoningEffort !== undefined
             ? { modelReasoningEffort: req.modelReasoningEffort }
             : {}),
@@ -451,7 +483,7 @@ export function createAgentSpacesClient(
 
         const args = adapter.buildRunArgs(bundle, runOptions)
         const adapterEnv = adapter.getRunEnv(bundle, runOptions)
-        const commandPath = detection.path ?? frontendDef.internalId
+        const commandPath = detection.path ?? implementation.harness
         const argv = [commandPath, ...args]
         const env: Record<string, string> = {
           ...adapterEnv,
@@ -459,10 +491,10 @@ export function createAgentSpacesClient(
         }
         const displayCommand = formatDisplayCommand(commandPath, args, adapterEnv)
         const continuation: HarnessContinuationRef | undefined = req.continuation
-          ? { provider: frontendDef.provider, key: req.continuation.key }
+          ? { provider: implementation.provider, key: req.continuation.key }
           : undefined
         const invocationSpec: ProcessInvocationSpec = {
-          provider: frontendDef.provider,
+          provider: implementation.provider,
           frontend: req.frontend,
           argv,
           cwd: req.cwd,
@@ -471,7 +503,7 @@ export function createAgentSpacesClient(
           ioMode: req.ioMode,
           ...(continuation ? { continuation } : {}),
           displayCommand,
-          ...(req.frontend === 'codex-cli' && req.interactionMode === 'headless'
+          ...(implementation.harness === 'codex' && req.interactionMode === 'headless'
             ? { codexAppServer: buildCodexAppServerLaunchDescriptor(runOptions) }
             : {}),
           prompts: { system: null, priming: null },

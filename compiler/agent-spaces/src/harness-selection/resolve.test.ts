@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import { HARNESS_CATALOG, HARNESS_IDS } from './catalog.js'
+import {
+  catalogProcessImplementationForFrontend,
+  catalogProcessImplementationForHarness,
+} from './catalog-projections.js'
 import { resolveHarnessExecution } from './resolve.js'
 
 describe('central harness selection catalog', () => {
@@ -11,6 +15,26 @@ describe('central harness selection catalog', () => {
       'codex',
       'muse',
     ])
+  })
+
+  test('projects direct process facts only from the selected catalog harness', () => {
+    expect(catalogProcessImplementationForHarness('agent-harness')).toBeUndefined()
+    expect(catalogProcessImplementationForHarness('claude')).toMatchObject({
+      frontend: 'claude-code',
+      provider: 'anthropic',
+      harness: 'claude',
+    })
+    expect(catalogProcessImplementationForHarness('codex')).toMatchObject({
+      frontend: 'codex-cli',
+      provider: 'openai',
+      harness: 'codex',
+    })
+    expect(catalogProcessImplementationForHarness('muse')).toMatchObject({
+      frontend: 'muse-cli',
+      provider: 'meta',
+      harness: 'muse',
+    })
+    expect(catalogProcessImplementationForFrontend('pi-cli')).toBeUndefined()
   })
 
   test.each([

@@ -85,7 +85,7 @@ describe('T-08563 runtime capability observation', () => {
     })
   })
 
-  test('bounds a canonical CLI probe at 3000ms', async () => {
+  test('bounds canonical CLI probes at 3000ms and 65536 combined bytes', async () => {
     const slow = await executable('claude-slow', `await Bun.sleep(10_000); console.log('late')`)
     process.env.ASP_CLAUDE_PATH = slow
     const started = Date.now()
@@ -94,6 +94,17 @@ describe('T-08563 runtime capability observation', () => {
     expect(timeout.nativeRuntime).toEqual({ state: 'unknown', code: 'detection_failed' })
     expect(timeout.diagnostics).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: 'probe_timeout' })])
+    )
+
+    const overflow = await executable(
+      'claude-overflow',
+      `process.stdout.write('x'.repeat(65_537))`
+    )
+    process.env.ASP_CLAUDE_PATH = overflow
+    const over = await operation()(request('claude'))
+    expect(over.nativeRuntime).toEqual({ state: 'unknown', code: 'detection_failed' })
+    expect(over.diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'probe_output_limit' })])
     )
   }, 10_000)
 
