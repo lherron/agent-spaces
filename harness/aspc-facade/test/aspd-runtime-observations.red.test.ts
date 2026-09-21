@@ -18,7 +18,7 @@ const RELEASE_BINDING = {
   workers: {
     'codex-app-server': {
       executable: '/releases/asp-runtime-observation-red/harness-broker',
-      hostedDrivers: ['claude-code-tmux', 'codex-app-server', 'pi-tui-tmux'],
+      hostedDrivers: ['claude-code-tmux', 'codex-app-server', 'muse-cli-tmux', 'muse-serve'],
     },
   },
   claudeStatuslineSource: {
@@ -283,7 +283,6 @@ function fakeObservationService(): Record<string, unknown> {
         inspectRuntimePlacement: true,
         observeRuntimeCapability: true,
         observeContinuationArtifact: true,
-        compileAndStart: false,
         cohostedBroker: false,
         transports: ['stdio-jsonrpc-ndjson'],
       },

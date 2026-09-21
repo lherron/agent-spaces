@@ -31,9 +31,10 @@ describe('composable broker CLI', () => {
       'muse-cli-tmux',
       'arris-resident',
       'claude-code-tmux',
-      'codex-cli-tmux',
-      'pi-tui-tmux',
       'noop-driver',
     ])
+    for (const retiredDriver of ['codex-cli-tmux', 'pi-tui-tmux', 'pi-sdk']) {
+      expect(hello.drivers.map((driver) => driver.kind)).not.toContain(retiredDriver)
+    }
   })
 })

@@ -37,6 +37,13 @@ const IDENTITY: AspReleaseIdentity = {
   builtAt: '2026-09-16T12:00:00.000Z',
 }
 
+const BROKER_HOSTED_DRIVERS = [
+  'claude-code-tmux',
+  'codex-app-server',
+  'muse-cli-tmux',
+  'muse-serve',
+]
+
 const bases: string[] = []
 afterEach(() => {
   for (const base of bases.splice(0)) rmSync(base, { recursive: true, force: true })
@@ -55,7 +62,6 @@ function fakeRelease(base: string, manifestOverrides: Record<string, unknown> = 
   mkdirSync(join(root, 'assets', 'claude'), { recursive: true })
   writeFileSync(join(root, 'libexec', 'aspd'), '#!/bin/sh\n', { mode: 0o555 })
   writeFileSync(join(root, 'harness-broker'), '#!/bin/sh\n', { mode: 0o555 })
-  writeFileSync(join(root, 'harness-broker-pi'), '#!/bin/sh\n', { mode: 0o555 })
   writeFileSync(join(root, 'agent-harness'), '#!/bin/sh\n', { mode: 0o555 })
   writeFileSync(join(root, 'assets', 'claude', 'statusline.sh'), '#!/bin/sh\n')
   writeFileSync(
@@ -65,14 +71,13 @@ function fakeRelease(base: string, manifestOverrides: Record<string, unknown> = 
       sourceCommit: IDENTITY.sourceCommit,
       executables: {
         'harness-broker': { launcher: 'harness-broker' },
-        'harness-broker-pi': { launcher: 'harness-broker-pi' },
         'agent-harness': { launcher: 'agent-harness' },
       },
       workerBindings: {
         'codex-app-server': 'harness-broker',
         'claude-code-tmux': 'harness-broker',
-        'pi-tui-tmux': 'harness-broker',
-        'pi-sdk': 'harness-broker-pi',
+        'muse-cli-tmux': 'harness-broker',
+        'muse-serve': 'harness-broker',
         'agent-harness': 'agent-harness',
         'agent-harness-tmux': 'agent-harness',
       },
@@ -94,19 +99,19 @@ const binding: AspdReleaseBinding = {
   workers: {
     'codex-app-server': {
       executable: '/releases/asp-x/harness-broker',
-      hostedDrivers: ['claude-code-tmux', 'codex-app-server', 'pi-tui-tmux'],
+      hostedDrivers: BROKER_HOSTED_DRIVERS,
     },
     'claude-code-tmux': {
       executable: '/releases/asp-x/harness-broker',
-      hostedDrivers: ['claude-code-tmux', 'codex-app-server', 'pi-tui-tmux'],
+      hostedDrivers: BROKER_HOSTED_DRIVERS,
     },
-    'pi-tui-tmux': {
+    'muse-cli-tmux': {
       executable: '/releases/asp-x/harness-broker',
-      hostedDrivers: ['claude-code-tmux', 'codex-app-server', 'pi-tui-tmux'],
+      hostedDrivers: BROKER_HOSTED_DRIVERS,
     },
-    'pi-sdk': {
-      executable: '/releases/asp-x/harness-broker-pi',
-      hostedDrivers: ['pi-sdk'],
+    'muse-serve': {
+      executable: '/releases/asp-x/harness-broker',
+      hostedDrivers: BROKER_HOSTED_DRIVERS,
     },
     'agent-harness': {
       executable: '/releases/asp-x/agent-harness',
@@ -156,7 +161,6 @@ function fakeService(overrides: Partial<AspcService> = {}): AspcService {
         catalogAgentInspection: true,
         inspectAgentSelection: true,
         compileHarnessInvocation: true,
-        compileAndStart: false,
         cohostedBroker: false,
         transports: ['stdio-jsonrpc-ndjson'],
       },
@@ -199,9 +203,11 @@ describe('release binding', () => {
     expect(resolved.workers['codex-app-server']?.executable).toBe(
       join(resolved.releaseRoot, 'harness-broker')
     )
-    expect(resolved.workers['pi-sdk']?.executable).toBe(
-      join(resolved.releaseRoot, 'harness-broker-pi')
-    )
+    expect(Object.keys(resolved.workers).sort()).toEqual([
+      'agent-harness',
+      'agent-harness-tmux',
+      ...BROKER_HOSTED_DRIVERS,
+    ])
     for (const driver of ['agent-harness', 'agent-harness-tmux']) {
       expect(resolved.workers[driver]).toEqual({
         executable: join(resolved.releaseRoot, 'agent-harness'),
@@ -242,7 +248,7 @@ describe('release-bound service (W1/W2)', () => {
     expect(hello.protocolVersion).toBe('aspc/0.1')
     const expectedTransports: AspcTransportKind[] = ['unix-jsonrpc-ndjson']
     expect(hello.capabilities.transports).toEqual(expectedTransports)
-    expect(hello.capabilities.compileAndStart).toBe(false)
+    expect(hello.capabilities).not.toHaveProperty('compileAndStart')
     expect(hello.capabilities.cohostedBroker).toBe(false)
     expect(hello.release).toEqual(IDENTITY)
   })
@@ -262,7 +268,7 @@ describe('release-bound service (W1/W2)', () => {
         worker: {
           protocol,
           executable: binding.workers['codex-app-server']!.executable,
-          hostedDrivers: ['claude-code-tmux', 'codex-app-server', 'pi-tui-tmux'],
+          hostedDrivers: BROKER_HOSTED_DRIVERS,
           argvPrefix: ['run', '--transport', 'unix'],
         },
       }
@@ -272,22 +278,27 @@ describe('release-bound service (W1/W2)', () => {
     }
   })
 
-  test('selects the Pi SDK worker from the release binding table', async () => {
-    const service = createReleaseBoundAspcService(
-      fakeService({
-        compileHarnessInvocation: async () => okCompile('harness-broker/0.2', 'pi-sdk'),
-      }),
-      binding
-    )
-    const response = await service.compileHarnessInvocation(compileRequest())
-    if (!response.ok) throw new Error('expected ok')
-    expect(response.executionRelease?.worker).toEqual({
-      protocol: 'harness-broker/0.2',
-      executable: '/releases/asp-x/harness-broker-pi',
-      hostedDrivers: ['pi-sdk'],
-      argvPrefix: ['run', '--transport', 'unix'],
-    })
-  })
+  test.each(['pi-sdk', 'pi-tui-tmux', 'codex-cli-tmux'])(
+    'refuses retired driver %s from the release binding table',
+    async (driver) => {
+      const service = createReleaseBoundAspcService(
+        fakeService({
+          compileHarnessInvocation: async () => okCompile('harness-broker/0.2', driver),
+        }),
+        binding
+      )
+      const response = await service.compileHarnessInvocation(compileRequest())
+      expect(response).toMatchObject({
+        ok: false,
+        diagnostics: [
+          {
+            code: 'release_worker_driver_unavailable',
+            details: { releaseId: IDENTITY.releaseId, brokerDriver: driver },
+          },
+        ],
+      })
+    }
+  )
 
   test.each(['agent-harness', 'agent-harness-tmux'])(
     'selects the shared native agent-harness worker for %s',

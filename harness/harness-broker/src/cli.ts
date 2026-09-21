@@ -32,7 +32,6 @@ import type { CodexTuiLauncher } from './drivers/codex-app-server/codex-tui-wrap
 import type { RendererLauncher } from './drivers/codex-app-server/renderer'
 import { runCodexHookBridgeCli } from './drivers/codex-cli-tmux/hook-bridge'
 import type { Driver } from './drivers/driver'
-import { runPiHookBridgeCli } from './drivers/pi-tui-tmux/hook-bridge'
 import { BrokerError } from './errors'
 import { createEventLedger } from './event-ledger'
 import { runOfflineEvidenceCli } from './offline-evidence'
@@ -127,8 +126,6 @@ export async function runBrokerCli(options: RunBrokerCliOptions): Promise<void> 
     await runClaudeHookDecisionBridgeCli(args.slice(1))
   } else if (command === 'codex-hook') {
     await runCodexHookBridgeCli(args.slice(1))
-  } else if (command === 'pi-hook') {
-    await runPiHookBridgeCli(args.slice(1))
   } else if (command === 'run-once') {
     await runOnce(args.slice(1), options)
   } else if (command === 'validate-start-request') {

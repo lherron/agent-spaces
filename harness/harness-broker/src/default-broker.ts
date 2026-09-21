@@ -11,12 +11,10 @@ import { createDefaultClaudeCodeTmuxDriver } from './drivers/claude-code-tmux/dr
 import type { CodexTuiLauncher } from './drivers/codex-app-server/codex-tui-wrapper'
 import { createCodexAppServerDriver } from './drivers/codex-app-server/driver'
 import type { RendererLauncher } from './drivers/codex-app-server/renderer'
-import { createDefaultCodexCliTmuxDriver } from './drivers/codex-cli-tmux/driver'
 import { createCodexDesktopDriver } from './drivers/codex-desktop/driver'
 import type { Driver } from './drivers/driver'
 import { createDefaultMuseCliTmuxDriver } from './drivers/muse-cli-tmux/driver'
 import { createMuseServeDriver } from './drivers/muse-serve/driver'
-import { createDefaultPiTuiTmuxDriver } from './drivers/pi-tui-tmux/driver'
 import type { EventLedger } from './event-ledger'
 import type { TmuxHelperLauncher } from './runtime/tmux-launch-exec'
 
@@ -64,7 +62,7 @@ export interface DefaultBrokerOptions {
   rendererLauncher?: RendererLauncher | undefined
   /** T-08556: codex-tui wrapper / hook receiver launcher for the codex-app-server TUI. */
   codexTuiLauncher?: CodexTuiLauncher | undefined
-  /** Release-owned Claude/Pi hook bridges and tmux runner launcher (T-08561). */
+  /** Release-owned Claude hook bridge and tmux runner launcher (T-08561). */
   tmuxHelperLauncher?: TmuxHelperLauncher | undefined
 }
 
@@ -77,6 +75,11 @@ export function createDefaultBroker(
 ) {
   return createBroker({
     drivers: [
+      // This is the broker-process half of the compiler-owned v2 catalog.
+      // `agent-harness` and `agent-harness-tmux` are native-worker recipes
+      // supplied by the dedicated agent-harness executable through
+      // `additionalDrivers`. The two explicit-participant operations remain
+      // available here; retired ordinary route implementations are not.
       createCodexAppServerDriver({
         ...(options.rendererLauncher !== undefined
           ? { rendererLauncher: options.rendererLauncher }
@@ -90,8 +93,6 @@ export function createDefaultBroker(
       createDefaultMuseCliTmuxDriver(options.hookIpcDir, options.tmuxHelperLauncher),
       createArrisResidentDriver(),
       createDefaultClaudeCodeTmuxDriver(options.hookIpcDir, options.tmuxHelperLauncher),
-      createDefaultCodexCliTmuxDriver(options.hookIpcDir),
-      createDefaultPiTuiTmuxDriver(options.hookIpcDir, options.tmuxHelperLauncher),
       ...(options.additionalDrivers?.map((createDriver) => createDriver()) ?? []),
     ],
     ...(onEvent !== undefined ? { onEvent } : {}),

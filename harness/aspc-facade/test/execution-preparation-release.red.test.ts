@@ -66,14 +66,15 @@ function binding(label: 'a' | 'b'): AspdReleaseBinding {
   const releaseIdentity = identity(label)
   const releaseRoot = `/immutable/releases/${releaseIdentity.releaseId}`
   const executable = `${releaseRoot}/harness-broker`
-  const hostedDrivers = ['claude-code-tmux', 'codex-app-server', 'pi-tui-tmux']
+  const hostedDrivers = ['claude-code-tmux', 'codex-app-server', 'muse-cli-tmux', 'muse-serve']
   return {
     identity: releaseIdentity,
     releaseRoot,
     workers: {
       'codex-app-server': { executable, hostedDrivers },
       'claude-code-tmux': { executable, hostedDrivers },
-      'pi-tui-tmux': { executable, hostedDrivers },
+      'muse-cli-tmux': { executable, hostedDrivers },
+      'muse-serve': { executable, hostedDrivers },
     },
     claudeStatuslineSource: {
       path: `${releaseRoot}/assets/claude-statusline.sh`,
@@ -119,7 +120,6 @@ function fakeService(
         catalogAgentInspection: true,
         inspectAgentSelection: true,
         compileHarnessInvocation: true,
-        compileAndStart: false,
         cohostedBroker: false,
         transports: ['stdio-jsonrpc-ndjson'],
         ...input.capabilities,
