@@ -18,7 +18,6 @@ import { resolveScopeInput } from 'agent-scope'
 import type { InvocationStartRequest } from 'spaces-harness-broker-protocol'
 import type {
   BrokerExecutionProfile,
-  CompiledRuntimePlan,
   RuntimeIdentityAllocation,
   RuntimePlacement,
 } from 'spaces-runtime-contracts'
@@ -27,6 +26,7 @@ import {
   neutralSpecHash,
   neutralStartRequestHash,
 } from 'spaces-runtime-contracts'
+import type { LegacyCompiledRuntimePlan as CompiledRuntimePlan } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 import type { ContractHarnessFailure } from './pre-hrc-broker-contract-types.js'
 

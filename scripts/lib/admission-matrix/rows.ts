@@ -35,12 +35,9 @@ import type {
   InvocationRuntimeContext,
   InvocationStartRequest,
 } from 'spaces-harness-broker-protocol'
-import type {
-  BrokerExecutionProfile,
-  BrokerPermissionPolicy,
-  RuntimeCompileRequest,
-} from 'spaces-runtime-contracts'
+import type { BrokerExecutionProfile, BrokerPermissionPolicy } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
+import type { LegacyRuntimeCompileRequest as RuntimeCompileRequest } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 import { createAgentSpacesClient } from '../../../compiler/agent-spaces/src/index.js'
 import {

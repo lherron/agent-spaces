@@ -11,16 +11,18 @@ import type {
   CompatibilityHash,
   CompileDiagnostic,
   CompileId,
-  CompiledRuntimePlan,
   PlanHash,
   ProfileHash,
   ProfileId,
-  RuntimeCompileRequest,
-  RuntimeCompileResponse,
   RuntimeIdentityAllocation,
   RuntimeOperationId,
   RuntimeResourceLimits,
 } from 'spaces-runtime-contracts'
+import type {
+  LegacyCompiledRuntimePlan as CompiledRuntimePlan,
+  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
+  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
+} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 export type PreHrcRouteDecision = {
   schemaVersion: 'pre-hrc-route-decision/v1'

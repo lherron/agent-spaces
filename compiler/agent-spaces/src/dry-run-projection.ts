@@ -2,8 +2,8 @@ import type {
   AgentInspectionDiagnostic,
   AgentInspectionPart,
   AgentInspectionResult,
-  RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
+import type { LegacyRuntimeCompileResponse as RuntimeCompileResponse } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 import { type ForegroundLaunch, foregroundLaunchFromResponse } from './foreground-launch.js'
 

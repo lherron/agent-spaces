@@ -26,6 +26,9 @@
     "*": {
       "agent-inspection": [
         "dist/agent-inspection.d.ts"
+      ],
+      "internal/compiler-plan-v1": [
+        "dist/internal/compiler-plan-v1.d.ts"
       ]
     }
   },

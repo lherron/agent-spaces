@@ -13,13 +13,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { InputId, InvocationEventEnvelope, InvocationId } from 'spaces-harness-broker-protocol'
-import type {
-  BrokerExecutionProfile,
-  CompiledRuntimePlan,
-  RuntimeCompileRequest,
-  RuntimeCompileResponse,
-} from 'spaces-runtime-contracts'
+import type { BrokerExecutionProfile } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
+import type {
+  LegacyCompiledRuntimePlan as CompiledRuntimePlan,
+  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
+  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
+} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 import type {
   HostSessionId,

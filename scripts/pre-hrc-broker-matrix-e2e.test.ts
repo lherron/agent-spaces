@@ -3,7 +3,8 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { BrokerExecutionProfile, RuntimeCompileResponse } from 'spaces-runtime-contracts'
+import type { BrokerExecutionProfile } from 'spaces-runtime-contracts'
+import type { LegacyRuntimeCompileResponse as RuntimeCompileResponse } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 import { createAgentSpacesClient } from '../compiler/agent-spaces/src/index.js'
 import {

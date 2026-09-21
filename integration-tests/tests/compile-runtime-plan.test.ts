@@ -25,8 +25,6 @@ import { validateInvocationStartRequest } from 'spaces-harness-broker-protocol'
 import type {
   BrokerExecutionProfile,
   CompiledAgentPolicy,
-  RuntimeCompileRequest,
-  RuntimeCompileResponse,
   TerminalExecutionProfile,
 } from 'spaces-runtime-contracts'
 import {
@@ -35,6 +33,10 @@ import {
   project,
 } from 'spaces-runtime-contracts'
 import * as RuntimeContracts from 'spaces-runtime-contracts'
+import type {
+  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
+  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
+} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 import type { RuntimePlacement as ConfigRuntimePlacement } from 'spaces-config'
 import type {

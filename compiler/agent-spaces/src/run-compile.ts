@@ -18,9 +18,9 @@ import {
   type CompileRuntimeFn,
   DEFAULT_CODEX_BROKER_INPUT_POLICY,
   type RunCompilerDebugContext,
-  type RuntimeCompileRequest,
   type RuntimeIdentityAllocation,
 } from 'spaces-runtime-contracts'
+import type { LegacyRuntimeCompileRequest as RuntimeCompileRequest } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 import { createAgentSpacesClient } from './client.js'
 import { projectAgentCompileForDryRun } from './dry-run-projection.js'

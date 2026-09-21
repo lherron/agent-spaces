@@ -16,12 +16,14 @@ import type {
   BuildProcessInvocationSpecResponse,
   CompileContext,
   CompileDiagnostic,
-  CompiledRuntimePlan,
   ProcessAttachmentRef,
-  RuntimeCompileRequest,
-  RuntimeCompileResponse,
   RuntimePlacement,
 } from 'spaces-runtime-contracts'
+import type {
+  LegacyCompiledRuntimePlan as CompiledRuntimePlan,
+  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
+  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
+} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 import type {
   AspcCatalogAgentInspectionRequest,
   AspcInspectAgentSelectionRequest,

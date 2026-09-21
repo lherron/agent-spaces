@@ -4,7 +4,6 @@ import { isAbsolute, sep } from 'node:path'
 import type { InvocationStartRequest } from 'spaces-harness-broker-protocol'
 import {
   type BrokerExecutionProfile,
-  type CompiledRuntimePlan,
   DEFAULT_CODEX_BROKER_INPUT_POLICY,
   createCanonicalHasher,
   hashNeutralStartRequest,
@@ -13,6 +12,7 @@ import {
   neutralStartRequestHash,
   validateBrokerExecutionProfile,
 } from 'spaces-runtime-contracts'
+import type { LegacyCompiledRuntimePlan as CompiledRuntimePlan } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 const MAX_HEADER_BYTES = 256 * 1024
 const DEFAULT_DESKTOP_BUNDLE = '/Applications/ChatGPT.app/Contents/Resources/codex'

@@ -20,12 +20,9 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type {
-  BrokerExecutionProfile,
-  OutputManifest,
-  RuntimeCompileRequest,
-} from 'spaces-runtime-contracts'
+import type { BrokerExecutionProfile, OutputManifest } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
+import type { LegacyRuntimeCompileRequest as RuntimeCompileRequest } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 import { createAgentSpacesClient } from '../../../compiler/agent-spaces/src/index.js'
 
 import {

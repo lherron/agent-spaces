@@ -1,5 +1,6 @@
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
-import type { BrokerExecutionProfile, RuntimeCompileResponse } from 'spaces-runtime-contracts'
+import type { BrokerExecutionProfile } from 'spaces-runtime-contracts'
+import type { LegacyRuntimeCompileResponse as RuntimeCompileResponse } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 import type {
   ContractHarnessFailure,

@@ -25,15 +25,12 @@ import {
   type CompileDiagnostic,
   type CompileId,
   type CompiledAgentPolicy,
-  type CompiledRuntimePlan,
   DEFAULT_CODEX_BROKER_INPUT_POLICY,
   type HarnessFamily,
   type HarnessRuntime,
   type PiSdkModelCatalogEntry,
   type ProfileId,
   type ProviderDomain,
-  type RuntimeCompileRequest,
-  type RuntimeCompileResponse,
   type RuntimeContractProjection,
   type TerminalExecutionProfile,
   createCanonicalHasher,
@@ -45,6 +42,11 @@ import {
   validateBrokerExecutionProfile,
   validateTerminalExecutionProfile,
 } from 'spaces-runtime-contracts'
+import type {
+  LegacyCompiledRuntimePlan as CompiledRuntimePlan,
+  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
+  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
+} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 import {
   combineBrokerPrompts,

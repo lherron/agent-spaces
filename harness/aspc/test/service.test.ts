@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import type { AspcCompileHarnessInvocationRequest, AspcProfileSelector } from 'spaces-aspc-protocol'
+import type { BrokerExecutionProfile } from 'spaces-runtime-contracts'
 import type {
-  BrokerExecutionProfile,
-  CompiledRuntimePlan,
-  RuntimeCompileRequest,
-  RuntimeCompileResponse,
-} from 'spaces-runtime-contracts'
+  LegacyCompiledRuntimePlan as CompiledRuntimePlan,
+  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
+  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
+} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 import type { AspcCompiler } from '../src/service.js'
 import { createAspcService } from '../src/service.js'
 

@@ -31,10 +31,12 @@ import type {
   HarnessFamily,
   HarnessRuntime,
   ProviderDomain,
-  RuntimeCompileRequest,
-  RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
+import type {
+  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
+  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
+} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 import type {
   HostSessionId,

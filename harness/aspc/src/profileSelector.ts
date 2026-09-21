@@ -1,9 +1,6 @@
 import type { AspcCompileHarnessInvocationRequest } from 'spaces-aspc-protocol'
-import type {
-  BrokerExecutionProfile,
-  CompileDiagnostic,
-  RuntimeCompileResponse,
-} from 'spaces-runtime-contracts'
+import type { BrokerExecutionProfile, CompileDiagnostic } from 'spaces-runtime-contracts'
+import type { LegacyRuntimeCompileResponse as RuntimeCompileResponse } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 import { DIAGNOSTIC_CODES, compilerDiagnostic } from './diagnostics.js'
 
 type CompiledPlan = Extract<RuntimeCompileResponse, { ok: true }>['plan']

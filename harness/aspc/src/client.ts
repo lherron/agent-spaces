@@ -18,7 +18,7 @@ import { ASPC_PROTOCOL_VERSION } from 'spaces-aspc-protocol'
 import { StdioTransport } from 'spaces-harness-broker-client'
 import type { StdioTransportStartOptions } from 'spaces-harness-broker-client'
 import type { JsonRpcNotification, JsonRpcRequest } from 'spaces-harness-broker-protocol'
-import type { RuntimeCompileResponse } from 'spaces-runtime-contracts'
+import type { LegacyRuntimeCompileResponse as RuntimeCompileResponse } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 export type AspcRequestHandler = (request: JsonRpcRequest) => Promise<unknown>
 

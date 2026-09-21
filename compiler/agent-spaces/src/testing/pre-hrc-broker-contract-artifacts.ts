@@ -2,12 +2,12 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, resolve, sep } from 'node:path'
 
-import type {
-  BrokerExecutionProfile,
-  CompiledRuntimePlan,
-  RuntimeCompileRequest,
-} from 'spaces-runtime-contracts'
+import type { BrokerExecutionProfile } from 'spaces-runtime-contracts'
 import { project } from 'spaces-runtime-contracts'
+import type {
+  LegacyCompiledRuntimePlan as CompiledRuntimePlan,
+  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
+} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 import type {
   ContractHarnessFailure,

@@ -2,7 +2,14 @@ export * from './boundary-checks'
 export * from './agent-inspection'
 export * from './capabilities'
 export * from './compile-context'
-export * from './compiler-plan'
+// The canonical public compile vocabulary is v2. The v1 compiler seam remains
+// available only through the explicitly internal compiler-plan-v1 subpath.
+export type {
+  RuntimeCompileRequestV2 as RuntimeCompileRequest,
+  RuntimeCompileResponseV2 as RuntimeCompileResponse,
+  CompiledRuntimePlanV2 as CompiledRuntimePlan,
+} from './harness-selection'
+export type { CompileDiagnostic, CompiledAgentPolicy } from './compiler-plan'
 export * from './continuation'
 export * from './controller'
 export * from './errors'

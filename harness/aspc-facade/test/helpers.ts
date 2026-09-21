@@ -10,8 +10,8 @@ import { join } from 'node:path'
 import { allocatePreHrcRuntimeIdentity, buildPlacementFromScopeRef } from 'agent-spaces/testing'
 import { AspcClient } from 'spaces-aspc'
 import type { JsonRpcNotification } from 'spaces-harness-broker-protocol'
-import type { RuntimeCompileRequest } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
+import type { LegacyRuntimeCompileRequest as RuntimeCompileRequest } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 /** JSON-RPC "method not found" — the code that proves a route is NOT served. */
 export const JSON_RPC_METHOD_NOT_FOUND = -32601

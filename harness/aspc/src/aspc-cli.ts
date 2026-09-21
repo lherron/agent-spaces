@@ -12,7 +12,8 @@
 import { readFileSync } from 'node:fs'
 
 import { createAgentSpacesClient } from 'agent-spaces'
-import type { CompileContext, RuntimeCompileRequest } from 'spaces-runtime-contracts'
+import type { CompileContext } from 'spaces-runtime-contracts'
+import type { LegacyRuntimeCompileRequest as RuntimeCompileRequest } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 import { runtimeDependencies } from './compiler-runtime.js'
 import { buildOutputManifest } from './manifest.js'

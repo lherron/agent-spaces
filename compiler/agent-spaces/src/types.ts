@@ -24,8 +24,6 @@ import type {
   HarnessContinuationRef,
   HarnessFrontend,
   ProviderDomain,
-  RuntimeCompileRequest,
-  RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
 export type {
   BuildProcessInvocationSpecRequest,
@@ -38,6 +36,10 @@ export type {
   ProcessInvocationSpec,
   ProviderDomain,
 } from 'spaces-runtime-contracts'
+import type {
+  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
+  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
+} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 /** Re-export HostCorrelation from config for placement consumers */
 export type HostCorrelation = HostCorrelationType

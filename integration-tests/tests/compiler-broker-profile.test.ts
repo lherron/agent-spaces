@@ -23,15 +23,15 @@ import type {
   InvocationId,
 } from 'spaces-harness-broker-protocol'
 import { validateInvocationStartRequest } from 'spaces-harness-broker-protocol'
-import type {
-  BrokerExecutionProfile,
-  RuntimeCompileRequest,
-  RuntimeCompileResponse,
-} from 'spaces-runtime-contracts'
+import type { BrokerExecutionProfile } from 'spaces-runtime-contracts'
 import {
   DEFAULT_CODEX_BROKER_INPUT_POLICY,
   validateBrokerExecutionProfile,
 } from 'spaces-runtime-contracts'
+import type {
+  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
+  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
+} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 import type { RuntimePlacement as ConfigRuntimePlacement } from 'spaces-config'
 import type {

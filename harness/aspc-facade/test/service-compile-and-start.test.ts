@@ -18,13 +18,12 @@ import { describe, expect, test } from 'bun:test'
 import type { AspcCompiler } from 'spaces-aspc'
 import type { AspcCompileHarnessInvocationRequest, AspcProfileSelector } from 'spaces-aspc-protocol'
 import type { Broker } from 'spaces-harness-broker'
+import type { BrokerExecutionProfile, CompileDiagnostic } from 'spaces-runtime-contracts'
 import type {
-  BrokerExecutionProfile,
-  CompileDiagnostic,
-  CompiledRuntimePlan,
-  RuntimeCompileRequest,
-  RuntimeCompileResponse,
-} from 'spaces-runtime-contracts'
+  LegacyCompiledRuntimePlan as CompiledRuntimePlan,
+  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
+  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
+} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 import { createCohostedAspcService } from '../src/index.js'
 
 const COMPILE_REQUEST = {

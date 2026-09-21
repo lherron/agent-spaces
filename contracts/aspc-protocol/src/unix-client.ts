@@ -11,7 +11,7 @@
  */
 import { BrokerTransportError, UnixSocketTransport } from 'spaces-harness-broker-client'
 import type { CloseHandler } from 'spaces-harness-broker-client'
-import type { RuntimeCompileResponse } from 'spaces-runtime-contracts'
+import type { LegacyRuntimeCompileResponse as RuntimeCompileResponse } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 import type {
   AspcAgentInspectionCatalogResponse,
   AspcCatalogAgentInspectionRequest,

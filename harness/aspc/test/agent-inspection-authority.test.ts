@@ -3,7 +3,10 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { RuntimeCompileRequest, RuntimeCompileResponse } from 'spaces-runtime-contracts'
+import type {
+  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
+  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
+} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 import { AspcInspectionAuthorityError, createAspcService } from '../src/index.js'
 import type { AspcCompiler } from '../src/service.js'

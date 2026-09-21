@@ -24,12 +24,14 @@ import {
   type AgentInspectionRequest,
   type AgentInspectionResult,
   type CompileDiagnostic,
-  type RuntimeCompileRequest,
-  type RuntimeCompileResponse,
   createCanonicalHasher,
   validateAgentInspectionRequest,
   validateAgentInspectionResult,
 } from 'spaces-runtime-contracts'
+import type {
+  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
+  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
+} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 import { compileRuntimePlan } from './compile-runtime-plan.js'
 import {

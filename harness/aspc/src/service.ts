@@ -37,9 +37,11 @@ import type {
   BrokerExecutionProfile,
   CompileContext,
   CompileDiagnostic,
-  RuntimeCompileRequest,
-  RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
+import type {
+  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
+  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
+} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 import packageManifest from '../package.json'
 import {
   type AspcInspectionAuthorityOptions,

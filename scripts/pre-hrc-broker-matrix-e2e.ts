@@ -99,13 +99,12 @@ import {
   conservativeDefaultLifecyclePolicyOverlay,
 } from 'spaces-harness-broker-protocol'
 import { CODEX_INTERACTIVE_HOOK_EVENTS, buildHrcCodexHooksConfig } from 'spaces-harness-codex'
-import type {
-  BrokerExecutionProfile,
-  BrokerPermissionPolicy,
-  RuntimeCompileRequest,
-  RuntimeCompileResponse,
-} from 'spaces-runtime-contracts'
+import type { BrokerExecutionProfile, BrokerPermissionPolicy } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY, project } from 'spaces-runtime-contracts'
+import type {
+  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
+  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
+} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 import { createAgentSpacesClient } from '../compiler/agent-spaces/src/index.js'
 import { AspcClient } from '../harness/aspc/src/index.js'

@@ -6,10 +6,12 @@ import type {
   AgentInspectionEvaluationContext,
   AgentInspectionRequest,
   AgentInspectionResult,
-  RuntimeCompileRequest,
-  RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
 import { validateAgentInspectionResult } from 'spaces-runtime-contracts'
+import type {
+  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
+  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
+} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 import * as AgentSpaces from '../index.js'
 
 type CompileRuntimePlan = (

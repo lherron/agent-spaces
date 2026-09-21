@@ -12,7 +12,8 @@
 
 import { describe, expect, test } from 'bun:test'
 import type { AspcCompileHarnessInvocationRequest } from 'spaces-aspc-protocol'
-import type { CompileDiagnostic, RuntimeCompileRequest } from 'spaces-runtime-contracts'
+import type { CompileDiagnostic } from 'spaces-runtime-contracts'
+import type { LegacyRuntimeCompileRequest as RuntimeCompileRequest } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 import type { AspcCompiler } from '../src/service.js'
 import { createAspcService } from '../src/service.js'
 
