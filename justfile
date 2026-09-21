@@ -143,6 +143,12 @@ check:
     bun scripts/check-doc-reachability.ts
     bun scripts/check-rule-authoring.ts
 
+# User-runnable resolver capability-matrix gate (T-08706). Sequencing gate for
+# the producer-owned harness-selection campaign leg; intentionally NOT wired
+# into `verify` or `check`.
+check-harness-selection-matrix:
+    bun scripts/check-harness-selection-matrix.ts
+
 # Overlay the Codex desktop-app agent (stella) into the default Codex home and install managed Praesidium CLI hooks
 overlay-codex *args:
     bun scripts/sync-agent-to-codex-default.ts --install-hooks --apply {{args}}
