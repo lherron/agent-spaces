@@ -9,13 +9,6 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import {
-  detectAgentLocalComponents,
-  harnessRegistry,
-  planPlacementRuntime,
-  prepareAgentToolRuntime,
-  prepareCodexRuntimeHome,
-} from 'spaces-execution'
 import { BrokerClient } from 'spaces-harness-broker-client'
 import type { InvocationEventEnvelope, InvocationId } from 'spaces-harness-broker-protocol'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
@@ -78,12 +71,21 @@ type CliArgs = {
   help: boolean
 }
 
-const compilerRuntimeDependencies = {
-  getHarnessAdapter: (harnessId: string) => harnessRegistry.getOrThrow(harnessId),
-  detectAgentLocalComponents,
-  planPlacementRuntime,
-  prepareCodexRuntimeHome,
-  prepareAgentToolRuntime,
+async function compilerRuntimeDependencies() {
+  const {
+    detectAgentLocalComponents,
+    harnessRegistry,
+    planPlacementRuntime,
+    prepareAgentToolRuntime,
+    prepareCodexRuntimeHome,
+  } = await import('spaces-execution')
+  return {
+    getHarnessAdapter: (harnessId: string) => harnessRegistry.getOrThrow(harnessId),
+    detectAgentLocalComponents,
+    planPlacementRuntime,
+    prepareCodexRuntimeHome,
+    prepareAgentToolRuntime,
+  }
 }
 
 function usage(): void {
@@ -318,7 +320,7 @@ async function compileForMatrix(
     const { createAgentSpacesClient } = await import('../compiler/agent-spaces/src/index.js')
     return createAgentSpacesClient({
       aspHome: fixture.aspHome,
-      runtime: compilerRuntimeDependencies,
+      runtime: await compilerRuntimeDependencies(),
     }).compileRuntimePlan(request)
   }
   const facade = await AspcClient.start({
