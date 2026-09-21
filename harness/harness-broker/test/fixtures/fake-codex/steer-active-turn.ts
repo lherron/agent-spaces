@@ -38,12 +38,11 @@ io.notify('item/started', {
   },
 })
 
-const read = await expectMethod(io, 'thread/read')
-io.respond(read, {
-  thread: {
-    id: 'thread_steer',
-    turns: [{ id: 'turn_steer_1', status: 'inProgress' }],
-  },
+const turns = await expectMethod(io, 'thread/turns/list')
+io.respond(turns, {
+  data: [{ id: 'turn_steer_1', status: 'inProgress' }],
+  nextCursor: null,
+  backwardsCursor: null,
 })
 
 const steer = await expectMethod(io, 'turn/steer')

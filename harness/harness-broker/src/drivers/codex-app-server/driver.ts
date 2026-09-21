@@ -121,17 +121,12 @@ interface TurnSteerResponse {
   turnId?: string | undefined
 }
 
-interface ThreadReadResponse {
-  thread?:
-    | {
+interface ThreadTurnsListResponse {
+  data?:
+    | Array<{
         id?: string | undefined
-        turns?:
-          | Array<{
-              id?: string | undefined
-              status?: string | undefined
-            }>
-          | undefined
-      }
+        status?: string | undefined
+      }>
     | undefined
 }
 
@@ -1902,12 +1897,17 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
         let steerTurnId: TurnId
         let authoritativeTurnResolution = false
         try {
-          const providerThread = await rpc.sendRequest<ThreadReadResponse>('thread/read', {
-            threadId: steerThreadId,
-            includeTurns: true,
-          })
-          const resolution = currentActiveTurnFromThreadRead(
-            providerThread,
+          const providerTurns = await rpc.sendRequest<ThreadTurnsListResponse>(
+            'thread/turns/list',
+            {
+              threadId: steerThreadId,
+              limit: 2,
+              sortDirection: 'desc',
+              itemsView: 'notLoaded',
+            }
+          )
+          const resolution = currentActiveTurnFromTurnsList(
+            providerTurns,
             steerThreadId,
             turnActive ? currentTurnId : undefined
           )
@@ -1949,17 +1949,17 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
             )
           }
           steerTurnId = observedTurnId
-          emitDiagnostic('warn', 'Codex thread/read failed; attempting best-effort steer', {
+          emitDiagnostic('warn', 'Codex thread/turns/list failed; attempting best-effort steer', {
             inputId: steerInputId,
             threadId: steerThreadId,
             turnId: steerTurnId,
             cause: error instanceof Error ? error.message : String(error),
           })
         }
-        // `thread/read` is the provider's authoritative observation at the
-        // actuation boundary. Keep local state aligned for later interrupts and
-        // native event normalization, but do not use an older observation as the
-        // steer fence.
+        // The newest bounded `thread/turns/list` page is the provider's
+        // authoritative observation at the actuation boundary. Keep local state
+        // aligned for later interrupts and native event normalization, but do
+        // not use an older observation as the steer fence.
         currentTurnId = steerTurnId
         turnActive = true
         const pendingSteer: PendingSteer = {
@@ -2614,25 +2614,23 @@ interface ActiveTurnResolution {
   data?: Record<string, unknown> | undefined
 }
 
-function currentActiveTurnFromThreadRead(
-  response: ThreadReadResponse | undefined,
+function currentActiveTurnFromTurnsList(
+  response: ThreadTurnsListResponse | undefined,
   expectedThreadId: string,
   observedTurnId: TurnId | undefined
 ): ActiveTurnResolution {
-  const thread = response?.thread
-  if (thread?.id !== expectedThreadId) {
+  if (!Array.isArray(response?.data)) {
     return {
       turnId: observedTurnId,
       authoritative: false,
-      issue: 'Codex thread/read returned the wrong thread; attempting best-effort steer',
+      issue: 'Codex thread/turns/list returned a malformed page; attempting best-effort steer',
       data: {
-        expectedThreadId,
-        responseThreadId: thread?.id ?? null,
+        threadId: expectedThreadId,
         observedTurnId: observedTurnId ?? null,
       },
     }
   }
-  const activeTurnIds = (thread.turns ?? []).flatMap((turn) =>
+  const activeTurnIds = response.data.flatMap((turn) =>
     turn.status === 'inProgress' && typeof turn.id === 'string' && turn.id.length > 0
       ? [turn.id as TurnId]
       : []
@@ -2650,7 +2648,7 @@ function currentActiveTurnFromThreadRead(
   return {
     turnId: bestEffortTurnId,
     authoritative: false,
-    issue: 'Codex thread/read returned multiple active turns; attempting best-effort steer',
+    issue: 'Codex thread/turns/list returned multiple active turns; attempting best-effort steer',
     data: {
       threadId: expectedThreadId,
       activeTurnIds,

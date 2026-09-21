@@ -131,27 +131,24 @@ class FakeCodexRpc implements CodexRpcPeer {
   readonly notifications: RpcRequest[] = []
   handlers: RpcHandlers = {}
   onRequest?: ((method: string, params: unknown) => unknown | Promise<unknown>) | undefined
-  threadReadResponse: unknown | (() => unknown) | undefined
+  threadTurnsListResponse: unknown | (() => unknown) | undefined
   private activeTurnId: string | undefined
 
   async sendRequest<T = unknown>(method: string, params?: unknown): Promise<T> {
     this.requests.push({ method, params })
-    if (method === 'thread/read') {
-      if (this.threadReadResponse !== undefined) {
+    if (method === 'thread/turns/list') {
+      if (this.threadTurnsListResponse !== undefined) {
         return (
-          typeof this.threadReadResponse === 'function'
-            ? this.threadReadResponse()
-            : this.threadReadResponse
+          typeof this.threadTurnsListResponse === 'function'
+            ? this.threadTurnsListResponse()
+            : this.threadTurnsListResponse
         ) as T
       }
       return {
-        thread: {
-          id: 'thread_test',
-          turns:
-            this.activeTurnId === undefined
-              ? []
-              : [{ id: this.activeTurnId, status: 'inProgress' }],
-        },
+        data:
+          this.activeTurnId === undefined ? [] : [{ id: this.activeTurnId, status: 'inProgress' }],
+        nextCursor: null,
+        backwardsCursor: null,
       } as T
     }
     if (this.onRequest !== undefined) return (await this.onRequest(method, params)) as T
@@ -1536,11 +1533,10 @@ describe('codex-tui transport', () => {
     }
     // The provider has already rolled, but the broker has only observed the
     // old turn. The fresh read is the deterministic EN-15497 race seam.
-    rpc.threadReadResponse = {
-      thread: {
-        id: 'thread_test',
-        turns: [{ id: 'turn_provider_current', status: 'inProgress' }],
-      },
+    rpc.threadTurnsListResponse = {
+      data: [{ id: 'turn_provider_current', status: 'inProgress' }],
+      nextCursor: null,
+      backwardsCursor: null,
     }
     const invocationId = 'inv_codex_tui_steer_rollover'
     const run = await setupDriver(rpc, invocationId)
@@ -1555,8 +1551,8 @@ describe('codex-tui transport', () => {
         'old observed turn should be attributed'
       )
       // The old local observation can close before a successor is surfaced to
-      // the broker. `thread/read` remains the authoritative actuation fence,
-      // so a steer must not fall back to turn/start in this gap.
+      // the broker. `thread/turns/list` remains the authoritative actuation
+      // fence, so a steer must not fall back to turn/start in this gap.
       rpc.emit('turn/completed', {
         threadId: 'thread_test',
         turn: { id: 'turn_observed_old', status: 'completed', items: [] },
@@ -1576,8 +1572,14 @@ describe('codex-tui transport', () => {
       )
       expect(steerInputId).toBe(steer.submissionId)
       expect(
-        rpc.requests.find((request) => request.method === 'thread/read')?.params
-      ).toMatchObject({ threadId: 'thread_test', includeTurns: true })
+        rpc.requests.find((request) => request.method === 'thread/turns/list')?.params
+      ).toEqual({
+        threadId: 'thread_test',
+        limit: 2,
+        sortDirection: 'desc',
+        itemsView: 'notLoaded',
+      })
+      expect(rpc.requests.some((request) => request.method === 'thread/read')).toBe(false)
 
       emitUserMessageItem(rpc, {
         turnId: 'turn_provider_current',
@@ -1734,7 +1736,7 @@ describe('codex-tui transport', () => {
           ),
         'broker should still observe the predecessor as active'
       )
-      rpc.threadReadResponse = { thread: { id: 'thread_test', turns: [] } }
+      rpc.threadTurnsListResponse = { data: [], nextCursor: null, backwardsCursor: null }
 
       const steer = await run.broker.steer({
         invocationId,
@@ -1775,10 +1777,10 @@ describe('codex-tui transport', () => {
     }
   })
 
-  test('retries typed pre-write turn mismatches through more than three read-to-steer rollovers', async () => {
+  test('retries typed pre-write turn mismatches through more than three list-to-steer rollovers', async () => {
     const rpc = new FakeCodexRpc()
     let ownerInputId = ''
-    let readCount = 0
+    let turnsListCount = 0
     let steerCount = 0
     rpc.onRequest = async (method, params) => {
       if (method === 'initialize') return {}
@@ -1813,18 +1815,17 @@ describe('codex-tui transport', () => {
       }
       throw new Error(`unhandled fake RPC request: ${method}`)
     }
-    rpc.threadReadResponse = () => {
-      readCount += 1
+    rpc.threadTurnsListResponse = () => {
+      turnsListCount += 1
       return {
-        thread: {
-          id: 'thread_test',
-          turns: [
-            {
-              id: `turn_read_${readCount}`,
-              status: 'inProgress',
-            },
-          ],
-        },
+        data: [
+          {
+            id: `turn_read_${turnsListCount}`,
+            status: 'inProgress',
+          },
+        ],
+        nextCursor: null,
+        backwardsCursor: null,
       }
     }
     const invocationId = 'inv_codex_tui_steer_actuation_rollover'
@@ -1838,7 +1839,7 @@ describe('codex-tui transport', () => {
       )
       const steer = await run.broker.steer({ invocationId, origin, body: 'race the precondition' })
       await waitFor(() => steerCount === 5, 'typed mismatches should retry past three rollovers')
-      expect(readCount).toBe(5)
+      expect(turnsListCount).toBe(5)
       expect(
         rpc.requests
           .filter((request) => request.method === 'turn/steer')
@@ -1881,30 +1882,22 @@ describe('codex-tui transport', () => {
 
   test.each([
     {
-      name: 'wrong-thread thread/read response',
+      name: 'malformed thread/turns/list response',
+      readResponse: {},
+    },
+    {
+      name: 'multiple-active-turn thread/turns/list response',
       readResponse: {
-        thread: {
-          id: 'thread_wrong',
-          turns: [{ id: 'turn_provider_current', status: 'inProgress' }],
-        },
+        data: [
+          { id: 'turn_locally_active', status: 'inProgress' },
+          { id: 'turn_other_active', status: 'inProgress' },
+        ],
       },
     },
     {
-      name: 'multiple-active-turn thread/read response',
-      readResponse: {
-        thread: {
-          id: 'thread_test',
-          turns: [
-            { id: 'turn_locally_active', status: 'inProgress' },
-            { id: 'turn_other_active', status: 'inProgress' },
-          ],
-        },
-      },
-    },
-    {
-      name: 'failed thread/read request',
+      name: 'failed thread/turns/list request',
       readResponse: () => {
-        throw new Error('thread/read unavailable')
+        throw new Error('thread/turns/list unavailable')
       },
     },
   ])('attempts best-effort steer for $name', async ({ name, readResponse }) => {
@@ -1947,7 +1940,7 @@ describe('codex-tui transport', () => {
       }
       throw new Error(`unexpected request: ${method}`)
     }
-    rpc.threadReadResponse = readResponse
+    rpc.threadTurnsListResponse = readResponse
     const invocationId = `inv_codex_tui_steer_${name.replaceAll(/[^a-z]+/g, '_')}`
     const run = await setupDriver(rpc, invocationId)
     try {

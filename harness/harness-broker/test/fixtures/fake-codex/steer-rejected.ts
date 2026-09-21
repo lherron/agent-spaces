@@ -22,12 +22,11 @@ const start = await expectMethod(io, 'turn/start')
 await io.respondAndFlush(start, { turn: { id: 'turn_steer_reject_1', status: 'inProgress' } })
 io.notify('turn/started', { turnId: 'turn_steer_reject_1' })
 
-const read = await expectMethod(io, 'thread/read')
-io.respond(read, {
-  thread: {
-    id: 'thread_steer_reject',
-    turns: [{ id: 'turn_steer_reject_1', status: 'inProgress' }],
-  },
+const turns = await expectMethod(io, 'thread/turns/list')
+io.respond(turns, {
+  data: [{ id: 'turn_steer_reject_1', status: 'inProgress' }],
+  nextCursor: null,
+  backwardsCursor: null,
 })
 
 const steer = await expectMethod(io, 'turn/steer')
