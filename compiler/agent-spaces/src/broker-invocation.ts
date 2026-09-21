@@ -165,6 +165,12 @@ export function validateBrokerInvocationRequest(req: BuildHarnessBrokerInvocatio
       'resolve_failed'
     )
   }
+  if (req.brokerDriver === undefined) {
+    throw new CodedError(
+      'Broker invocation requires a driver already resolved by the harness selection catalog',
+      'resolve_failed'
+    )
+  }
   if (req.frontend.length === 0 || req.provider.length === 0) {
     throw new CodedError(
       'Broker invocation frontend and provider must be non-empty',
@@ -317,6 +323,12 @@ function toMuseServeStartRequest(
   prepared: PreparedPlacementCliRuntime,
   req: BuildHarnessBrokerInvocationRequest
 ): BuildHarnessBrokerInvocationResponse {
+  if (req.provider !== 'meta' || req.frontend !== 'muse-cli') {
+    throw new CodedError(
+      'Resolved muse-serve payload must carry the muse-cli/meta launch identity',
+      'resolve_failed'
+    )
+  }
   // The muse-serve driver prepares its own isolated HOME at birth and composes
   // HOME/XDG itself (driver.ts: isolated HOME is mandatory and cannot ride
   // lockedEnv). Strip the ambient/credential/reserved keys the spec forbids.
@@ -477,11 +489,27 @@ export function toHarnessBrokerStartRequest(
   prepared: PreparedPlacementCliRuntime | NativeWorkerBrokerPrepared,
   req: BuildHarnessBrokerInvocationRequest
 ): BuildHarnessBrokerInvocationResponse {
+  // This accepts an already-selected low-level payload; it never supplies a
+  // fallback route. Harness/presentation-to-driver selection is owned solely
+  // by harness-selection/catalog.
+  validateBrokerInvocationRequest(req)
   if (req.brokerDriver === 'muse-serve') {
     return toMuseServeStartRequest(prepared as PreparedPlacementCliRuntime, req)
   }
   if (isNativeAgentHarnessBrokerRequest(req)) {
     return toNativeAgentHarnessStartRequest(prepared as NativeWorkerBrokerPrepared, req)
+  }
+  if (req.brokerDriver !== 'codex-app-server') {
+    throw new CodedError(
+      `Broker invocation cannot materialize unsupported selected driver ${req.brokerDriver}`,
+      'resolve_failed'
+    )
+  }
+  if (req.provider !== 'openai' || req.frontend !== 'codex-cli') {
+    throw new CodedError(
+      'Resolved codex-app-server payload must carry the codex-cli/openai launch identity',
+      'resolve_failed'
+    )
   }
   const childPrepared = prepared as PreparedPlacementCliRuntime
   const codexDescriptor = buildCodexAppServerLaunchDescriptor(childPrepared.runOptions)

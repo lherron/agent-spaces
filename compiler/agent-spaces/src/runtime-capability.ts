@@ -360,7 +360,10 @@ async function credentialFact(
   | { state: 'absent'; code: 'credentials_missing' }
   | { state: 'unknown'; code: 'credential_source_unreadable' }
 > {
-  if (harness === 'pi' || harness === 'pi-sdk' || harness === 'agent-harness') {
+  // agent-harness owns this retained native-worker credential probe. The
+  // underlying Pi-compatible auth location is an implementation detail, not a
+  // selectable harness identity.
+  if (harness === 'agent-harness') {
     const present = Boolean(process.env['OPENAI_API_KEY'] || process.env['ANTHROPIC_API_KEY'])
     if (present) return { state: 'present', code: 'credentials_present' }
     return credentialPathFact(join(runtimeHome(), '.pi', 'agent', 'auth.json'))
