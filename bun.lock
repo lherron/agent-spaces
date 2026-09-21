@@ -51,6 +51,7 @@
       "optionalDependencies": {
         "spaces-harness-claude": "*",
         "spaces-harness-codex": "*",
+        "spaces-harness-muse": "*",
         "spaces-harness-pi": "*",
         "spaces-harness-pi-sdk": "*",
       },
@@ -183,6 +184,7 @@
       "version": "0.1.1",
       "dependencies": {
         "@iarna/toml": "^2.2.5",
+        "agent-scope": "*",
         "spaces-config": "*",
         "spaces-runtime-contracts": "*",
       },
@@ -1010,7 +1012,7 @@
 
     "safe-buffer": ["safe-buffer@5.2.1", "http://mini:4873/safe-buffer/-/safe-buffer-5.2.1.tgz", {}, "sha512-rp3So07KcdmmKbGvgaNxQSJr7bGVSVk5S9Eq1F+ppbRo70+YeaDxkw5Dd8NPN+GD6bjnYm2VuPuCXmpuYvmCXQ=="],
 
-    "semver": ["semver@7.8.0", "http://mini:4873/semver/-/semver-7.8.0.tgz", { "bin": { "semver": "bin/semver.js" } }, "sha512-AcM7dV/5ul4EekoQ29Agm5vri8JNqRyj39o0qpX6vDF2GZrtutZl5RwgD1XnZjiTAfncsJhMI48QQH3sN87YNA=="],
+    "semver": ["semver@7.8.5", "http://mini:4873/semver/-/semver-7.8.5.tgz", { "bin": { "semver": "bin/semver.js" } }, "sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA=="],
 
     "shebang-command": ["shebang-command@2.0.0", "http://mini:4873/shebang-command/-/shebang-command-2.0.0.tgz", { "dependencies": { "shebang-regex": "^3.0.0" } }, "sha512-kHxr2zZpYtdmrN1qDjrrX/Z1rR1kG8Dx+gkpK1G4eXmvXswmcE1hTWBWYUzlraYw1/yZp6YuDY77YtvbN0dmDA=="],
 
@@ -1183,8 +1185,6 @@
     "@earendil-works/pi-coding-agent/ignore": ["ignore@7.0.8", "http://mini:4873/ignore/-/ignore-7.0.8.tgz", {}, "sha512-YYNsSlXBjMk92SKnkwvB5LOVSa6OznlFUGcsvrFgNJbJCd0M1XKeFVRc8ZByeCqz32FivYNHJVooLmdqrmvp/Q=="],
 
     "@earendil-works/pi-coding-agent/minimatch": ["minimatch@10.2.6", "http://mini:4873/minimatch/-/minimatch-10.2.6.tgz", { "dependencies": { "brace-expansion": "^5.0.8" } }, "sha512-vpLQEs+VLCr1nU0BXS07maYoFwlDAH0gngQuuttxIwutDFEMHq2blX+8vpgxDdK3J1PwjCJiep77OitTZ4Ll1A=="],
-
-    "@earendil-works/pi-coding-agent/semver": ["semver@7.8.5", "http://mini:4873/semver/-/semver-7.8.5.tgz", { "bin": { "semver": "bin/semver.js" } }, "sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA=="],
 
     "@earendil-works/pi-coding-agent/typebox": ["typebox@1.3.27", "http://mini:4873/typebox/-/typebox-1.3.27.tgz", {}, "sha512-zu+jc1pcy4UiNThxikUr36f0Rybk9PEeCg/NE6adeWr/SKsdNO4EzZHYRDlv2YCVAfj3Odq3dESSo/jNyoBXzA=="],
 
