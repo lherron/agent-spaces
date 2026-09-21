@@ -1,9 +1,9 @@
 schema = 1
 id = "task-worker"
-description = "Agent-local Agent SDK fixture"
+description = "Agent-local Muse fixture"
 
 [harness]
-supports = ["claude-agent-sdk"]
+supports = ["muse"]
 
 [claude]
 model = "claude/sonnet"

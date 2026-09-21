@@ -1,9 +1,9 @@
 schema = 1
 id = "repo-defaults"
-description = "Project-local Pi SDK fixture"
+description = "Project-local agent-harness fixture"
 
 [harness]
-supports = ["pi-sdk"]
+supports = ["agent-harness"]
 
 [pi]
 model = "openai-codex/gpt-5.5"

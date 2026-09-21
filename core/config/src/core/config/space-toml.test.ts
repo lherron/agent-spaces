@@ -308,6 +308,13 @@ spaces = ["invalid-ref"]
       expect(() => parseSpaceToml(toml)).toThrow(ConfigValidationError)
     })
 
+    test('rejects retired harness ids in support declarations', () => {
+      for (const harness of ['agent-sdk', 'claude-agent-sdk', 'pi', 'pi-sdk']) {
+        const toml = `schema = 1\nid = "my-space"\n[harness]\nsupports = ["${harness}"]\n`
+        expect(() => parseSpaceToml(toml)).toThrow(ConfigValidationError)
+      }
+    })
+
     test('includes validation errors in ConfigValidationError', () => {
       const toml = 'schema = 2\nid = "Invalid"\n'
       try {

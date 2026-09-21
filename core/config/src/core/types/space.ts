@@ -63,7 +63,7 @@ export interface SpaceSettings {
 /** Multi-harness support configuration */
 export interface SpaceHarnessConfig {
   /** List of harnesses this space supports */
-  supports?: Array<'claude' | 'claude-agent-sdk' | 'pi' | 'pi-sdk' | 'codex'> | undefined
+  supports?: Array<'agent-harness' | 'claude' | 'codex' | 'muse'> | undefined
 }
 
 /** Claude-specific space configuration */

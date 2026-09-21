@@ -45,7 +45,7 @@ async function writeSpace(
       `name = "${options.pluginName ?? id}"`,
       '',
       '[harness]',
-      `supports = [${(options.supports ?? ['pi']).map((value) => `"${value}"`).join(', ')}]`,
+      `supports = [${(options.supports ?? ['agent-harness']).map((value) => `"${value}"`).join(', ')}]`,
       ...(dependencies.length > 0
         ? ['', '[deps]', `spaces = [${dependencies.map((value) => `"${value}"`).join(', ')}]`]
         : []),
@@ -83,7 +83,7 @@ async function createFixture(options: { unsupported?: boolean; missingCommit?: b
   await writeSpace(registryRoot, 'current', {
     dependencies: [`space:base@git:${immutableCommit}`],
     pluginName: 'shared-plugin',
-    supports: options.unsupported ? ['codex'] : ['pi-sdk'],
+    supports: options.unsupported ? ['codex'] : ['agent-harness'],
   })
 
   await mkdir(join(agentRoot, 'skills', 'agent-skill'), { recursive: true })

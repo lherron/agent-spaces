@@ -97,7 +97,7 @@ describe('projectRoot fixture layout (T-00841)', () => {
     )
   })
 
-  test('fixture manifests cover all four harness frontends', () => {
+  test('fixture manifests cover all four canonical harnesses', () => {
     const supports = new Set<string>()
     for (const [root, ids] of [
       [AGENT_ROOT, AGENT_SPACE_IDS],
@@ -114,7 +114,7 @@ describe('projectRoot fixture layout (T-00841)', () => {
     }
 
     expect([...supports]).toEqual(
-      expect.arrayContaining(['claude', 'claude-agent-sdk', 'pi-sdk', 'codex'])
+      expect.arrayContaining(['agent-harness', 'claude', 'codex', 'muse'])
     )
   })
 })

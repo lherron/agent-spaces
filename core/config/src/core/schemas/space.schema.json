@@ -121,10 +121,10 @@
       "properties": {
         "supports": {
           "type": "array",
-          "description": "List of harnesses this space supports (claude, claude-agent-sdk, pi, pi-sdk, codex)",
+          "description": "List of supported canonical harnesses (agent-harness, claude, codex, muse)",
           "items": {
             "type": "string",
-            "enum": ["claude", "claude-agent-sdk", "pi", "pi-sdk", "codex"]
+            "enum": ["agent-harness", "claude", "codex", "muse"]
           },
           "uniqueItems": true
         }
