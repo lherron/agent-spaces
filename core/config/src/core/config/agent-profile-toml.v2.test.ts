@@ -104,12 +104,10 @@ status_line = ["model", "cwd"]
     })
   })
 
-  test('rejects a removed harness with the valid catalog ids', () => {
-    expect(() =>
-      parseAgentProfile('version = 3\n[provisioning]\nharness = "agent-harness"\n')
-    ).toThrow(
-      'unsupported harness "agent-harness"; valid harness ids: claude, claude-agent-sdk, pi, pi-sdk, codex'
-    )
+  test('accepts the first-party agent harness', () => {
+    expect(
+      parseAgentProfile('version = 3\n[provisioning]\nharness = "agent-harness"\n').provisioning
+    ).toEqual({ harness: 'agent-harness' })
   })
 
   test('viewer is absent rather than materialized when the profile omits it', () => {

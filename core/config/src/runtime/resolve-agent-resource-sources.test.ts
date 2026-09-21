@@ -62,7 +62,7 @@ async function writeSpace(
   }
 }
 
-async function createFixture(options: { harness?: string; missingCommit?: boolean } = {}) {
+async function createFixture(options: { unsupported?: boolean; missingCommit?: boolean } = {}) {
   const root = await tempRoot('agent-resource-sources')
   const registryRoot = join(root, 'registry')
   const aspHome = join(root, 'asp-home')
@@ -83,7 +83,7 @@ async function createFixture(options: { harness?: string; missingCommit?: boolea
   await writeSpace(registryRoot, 'current', {
     dependencies: [`space:base@git:${immutableCommit}`],
     pluginName: 'shared-plugin',
-    supports: ['pi-sdk'],
+    supports: options.unsupported ? ['codex'] : ['pi-sdk'],
   })
 
   await mkdir(join(agentRoot, 'skills', 'agent-skill'), { recursive: true })
@@ -102,7 +102,7 @@ async function createFixture(options: { harness?: string; missingCommit?: boolea
       'base = ["space:current@dev"]',
       '',
       '[provisioning]',
-      `harness = "${options.harness ?? 'pi-sdk'}"`,
+      'harness = "agent-harness"',
       'model = "gpt-5.6-sol"',
       'reasoning = "high"',
       '',
@@ -220,6 +220,24 @@ describe('resolveAgentResourceSources', () => {
     expect(files.some((file) => file.endsWith('.asp-materialized.json'))).toBe(false)
   })
 
+  test('fails visibly when a selected space does not support agent-harness', async () => {
+    const fixture = await createFixture({ unsupported: true })
+
+    await expect(
+      resolveAgentResourceSources({
+        placement: fixture.placement,
+        aspHome: fixture.aspHome,
+        registryPathOverride: fixture.registryRoot,
+        agentLocalComponents: fixture.agentLocalComponents,
+        runtime: {
+          async prepareAgentToolRuntime() {
+            return { env: {}, pathPrepend: [], warnings: [] }
+          },
+        },
+      })
+    ).rejects.toThrow(/current.*does not support.*agent-harness/i)
+  })
+
   test('propagates missing pinned immutable content instead of warning or materializing', async () => {
     const fixture = await createFixture({ missingCommit: true })
 
@@ -242,23 +260,4 @@ describe('resolveAgentResourceSources', () => {
     expect(files.some((file) => file.endsWith('.asp-materialized.json'))).toBe(false)
   })
 
-  test('rejects the removed agent-harness id during profile resolution', async () => {
-    const fixture = await createFixture({ harness: 'agent-harness' })
-
-    await expect(
-      resolveAgentResourceSources({
-        placement: fixture.placement,
-        aspHome: fixture.aspHome,
-        registryPathOverride: fixture.registryRoot,
-        agentLocalComponents: fixture.agentLocalComponents,
-        runtime: {
-          async prepareAgentToolRuntime() {
-            return { env: {}, pathPrepend: [], warnings: [] }
-          },
-        },
-      })
-    ).rejects.toThrow(
-      'unsupported harness "agent-harness"; valid harness ids: claude, claude-agent-sdk, pi, pi-sdk, codex'
-    )
-  })
 })

@@ -1,7 +1,9 @@
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import { readSpaceToml } from '../core/config/space-toml.js'
 import type { AgentLocalComponents } from '../core/types/agent-local.js'
+import { isHarnessSupported } from '../core/types/harness.js'
 import type { LockFile, LockSpaceEntry, LockWarning } from '../core/types/lock.js'
 import { getLoadOrderEntries } from '../core/types/lock.js'
 import type { ResolvedPlacementContext, RuntimePlacement } from '../core/types/placement.js'
@@ -191,6 +193,13 @@ export async function resolveAgentResourceSources(
       registryPath,
       paths,
     })
+    const manifest = await readSpaceToml(join(root, 'space.toml'))
+    if (!isHarnessSupported(manifest.harness?.supports, 'agent-harness')) {
+      throw new Error(
+        `Space ${entry.id} (${ref}) does not support harness agent-harness; source root: ${root}`
+      )
+    }
+
     const source: AgentResourceSpaceSource = kind === 'registry' ? 'immutable-snapshot' : 'mutable'
     const resolvedSpace: ResolvedAgentResourceSpace = {
       ref,
