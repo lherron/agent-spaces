@@ -112,6 +112,7 @@ export interface PiSdkSessionFactoryInput {
   environment: NodeJS.ProcessEnv
   auth: PiSdkAuthResolution
   permissionExtension: ExtensionFactory
+  additionalExtensions?: ExtensionFactory[] | undefined
   structuredTool: ToolDefinition
 }
 
@@ -125,6 +126,19 @@ export interface PiSdkDriverOptions {
    * that boundary as native-worker instead.
    */
   requiredHarnessTransport?: 'in-process' | 'native-worker' | undefined
+  /** Worker-local lifecycle hooks used by an interactive shell around the SDK session. */
+  onSessionStarted?:
+    | ((
+        session: PiSdkSession,
+        context: { spec: HarnessInvocationSpec; ctx: DriverContext }
+      ) => Promise<void>)
+    | undefined
+  beforeSessionDispose?: ((session: PiSdkSession) => Promise<void>) | undefined
+  /** Observe prompts entered directly in an interactive shell as broker turns. */
+  observeOperatorTurns?: boolean | undefined
+  additionalExtensionFactories?:
+    | ((context: { spec: HarnessInvocationSpec; ctx: DriverContext }) => ExtensionFactory[])
+    | undefined
 }
 
 export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
@@ -142,6 +156,8 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
   let activeSchema: Record<string, unknown> | undefined
   let disposed = false
   let exited = false
+  let operatorTurnCounter = 0
+  let operatorTurnId: TurnId | undefined
 
   const requireCtx = (): DriverContext => {
     if (ctx === undefined) throw new Error('pi-sdk driver has not started')
@@ -327,12 +343,56 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
         environment,
         auth,
         permissionExtension,
+        ...(options.additionalExtensionFactories === undefined
+          ? {}
+          : {
+              additionalExtensions: options.additionalExtensionFactories({
+                spec: nextSpec,
+                ctx: driverCtx,
+              }),
+            }),
         structuredTool,
       })
-      unsubscribe = session.subscribe((event) => mapper?.handle(event))
+      unsubscribe = session.subscribe((event) => {
+        const currentMapper = mapper
+        if (currentMapper === undefined) return
+        if (options.observeOperatorTurns === true) {
+          const ensureOperatorTurn = (): void => {
+            if (currentMapper.activeTurnId !== undefined) return
+            operatorTurnCounter += 1
+            operatorTurnId = `turn_${driverCtx.invocationId}_tui_${operatorTurnCounter}` as TurnId
+            currentMapper.beginTurn({ turnId: operatorTurnId, structured: false })
+            driverCtx.emit(
+              'turn.started',
+              { turnId: operatorTurnId, source: 'hook-observed' },
+              {
+                turnId: operatorTurnId,
+                driver: { kind: driverKind, rawType: 'tui.operator_prompt' },
+              }
+            )
+          }
+          if (event.type === 'agent_start') ensureOperatorTurn()
+          if (event.type === 'message_start' && event.message.role === 'user') {
+            ensureOperatorTurn()
+            const content = userMessageText(event.message.content)
+            if (content.length > 0 && operatorTurnId !== undefined) {
+              driverCtx.emit(
+                'user.message',
+                { content, turnId: operatorTurnId, role: 'user' },
+                {
+                  turnId: operatorTurnId,
+                  driver: { kind: driverKind, rawType: 'tui.operator_prompt' },
+                }
+              )
+            }
+          }
+        }
+        currentMapper.handle(event)
+      })
       session.setActiveToolsByName(
         session.getActiveToolNames().filter((name) => name !== STRUCTURED_TOOL_NAME)
       )
+      await options.onSessionStarted?.(session, { spec: nextSpec, ctx: driverCtx })
       const authNotice = {
         message: `Resolved pi SDK authentication for ${auth.providerId}`,
         code: 'auth-resolved',
@@ -422,9 +482,18 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
     disposed = true
     unsubscribe?.()
     unsubscribe = undefined
+    if (session !== undefined) await options.beforeSessionDispose?.(session)
     await session?.dispose()
     session = undefined
   }
+}
+
+function userMessageText(content: string | ReadonlyArray<{ type: string; text?: string }>): string {
+  if (typeof content === 'string') return content
+  return content
+    .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
+    .map((part) => part.text)
+    .join('\n')
 }
 
 export function composePiSdkEnvironment(
@@ -474,7 +543,7 @@ async function createDefaultPiSdkSession(input: PiSdkSessionFactoryInput): Promi
     },
     auth: input.auth,
     environment: input.environment,
-    extensionFactories: [input.permissionExtension],
+    extensionFactories: [input.permissionExtension, ...(input.additionalExtensions ?? [])],
     customTools: [input.structuredTool],
     ...(systemPrompt !== undefined
       ? {

@@ -1,15 +1,10 @@
 import { expect, test } from 'bun:test'
 import { createBroker } from 'spaces-harness-broker'
-import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 
-import {
-  AGENT_HARNESS_TMUX_EMBEDDED_LIFECYCLE_REQUIRED,
-  createAgentHarnessTmuxDriver,
-} from './interactive-driver'
+import { AGENT_HARNESS_TMUX_DRIVER_KIND, createAgentHarnessTmuxDriver } from './interactive-driver'
 
-test('advertises the interactive identity as unavailable until Earendil supplies an embedded lifecycle', async () => {
+test('registers the interactive identity as an available external-child driver', async () => {
   const broker = createBroker({ drivers: [createAgentHarnessTmuxDriver()] })
-
   await expect(
     broker.hello({
       clientInfo: { name: 'agent-harness-native-worker-test' },
@@ -18,48 +13,45 @@ test('advertises the interactive identity as unavailable until Earendil supplies
   ).resolves.toMatchObject({
     drivers: [
       {
-        kind: 'agent-harness-tmux',
-        available: false,
-        unavailableReason: AGENT_HARNESS_TMUX_EMBEDDED_LIFECYCLE_REQUIRED,
+        kind: AGENT_HARNESS_TMUX_DRIVER_KIND,
+        available: true,
+        capabilities: {
+          bracketMintingMode: 'delivery-acknowledged',
+          turns: { interrupt: 'protocol' },
+        },
       },
     ],
   })
 })
 
-test('refuses an interactive broker start before driver entry with the lifecycle dependency', async () => {
-  const broker = createBroker({ drivers: [createAgentHarnessTmuxDriver()] })
-
+test('requires the HRC-supplied pane lease before launching the TUI child', async () => {
+  const driver = createAgentHarnessTmuxDriver()
   await expect(
-    broker.start(
+    driver.start(
       {
-        spec: {
-          specVersion: 'harness-broker.invocation/v1',
-          invocationId: 'agent-harness-interactive-unavailable',
-          harness: {
-            frontend: 'agent-harness',
-            provider: 'openai',
-            driver: 'agent-harness-tmux',
-          },
-          driver: { kind: 'agent-harness-tmux' },
-          sdk: {
-            runtime: 'pi-sdk',
-            provider: 'openai',
-            modelId: 'gpt-5.6-terra',
-            authMode: 'api-key',
-          },
-          agent: { agentId: 'sparky' },
-          process: {
-            execution: 'native-worker',
-            cwd: '/tmp',
-            harnessTransport: { kind: 'native-worker' },
-          },
+        specVersion: 'harness-broker.invocation/v1',
+        invocationId: 'agent-harness-interactive-no-lease',
+        harness: { frontend: 'agent-harness', provider: 'openai', driver: 'agent-harness-tmux' },
+        driver: { kind: 'agent-harness-tmux', permissionPolicy: { mode: 'deny' } },
+        sdk: {
+          runtime: 'pi-sdk',
+          provider: 'openai',
+          modelId: 'gpt-5.6-terra',
+          authMode: 'api-key',
         },
-      },
-      undefined,
-      { tmux: { socketPath: '/tmp/agent-harness-test-tmux.sock' } }
+        agent: { agentId: 'sparky' },
+        process: {
+          execution: 'native-worker',
+          cwd: '/tmp',
+          harnessTransport: { kind: 'native-worker' },
+        },
+      } as never,
+      {
+        invocationId: 'agent-harness-interactive-no-lease',
+        clientCapabilities: {},
+        emit: () => ({}) as never,
+        emitEvent: () => ({}) as never,
+      }
     )
-  ).rejects.toMatchObject({
-    code: BrokerErrorCode.DriverUnavailable,
-    message: AGENT_HARNESS_TMUX_EMBEDDED_LIFECYCLE_REQUIRED,
-  })
+  ).rejects.toThrow('terminalSurface')
 })

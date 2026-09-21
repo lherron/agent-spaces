@@ -12,6 +12,8 @@ const productionDependencies: ResolvedAgentSessionDependencies = {
   createRuntime: createAgentHarnessRuntime,
 }
 
+const sessionRuntimes = new WeakMap<PiSdkSession, AgentSessionRuntime>()
+
 /**
  * Resolve broker-provided semantic inputs into the shared direct runtime.
  * Authentication, permissions, structured output, continuation, environment,
@@ -51,13 +53,22 @@ export async function createResolvedAgentSession(
   const runtime = await dependencies.createRuntime({
     agent,
     auth: input.auth,
-    extensionFactories: [input.permissionExtension],
+    extensionFactories: [input.permissionExtension, ...(input.additionalExtensions ?? [])],
     customTools: [input.structuredTool],
     ...(input.spec.continuation?.key !== undefined
       ? { continuationKey: input.spec.continuation.key }
       : {}),
   })
-  return runtimeBackedPiSdkSession(runtime)
+  const session = runtimeBackedPiSdkSession(runtime)
+  sessionRuntimes.set(session, runtime)
+  return session
+}
+
+/** Recover the runtime that backs a session created by this factory. */
+export function resolvedAgentSessionRuntime(
+  session: PiSdkSession
+): AgentSessionRuntime | undefined {
+  return sessionRuntimes.get(session)
 }
 
 /** Narrow a direct runtime to the broker's Pi SDK session shape. */

@@ -28,6 +28,7 @@
     "@earendil-works/pi-server": "0.86.1",
     "agent-harness-runtime": "workspace:*",
     "spaces-harness-broker": "workspace:*",
+    "spaces-harness-broker-client": "workspace:*",
     "spaces-harness-broker-pi-sdk": "workspace:*",
     "spaces-harness-broker-protocol": "workspace:*"
   },

@@ -3,6 +3,7 @@ import { runBrokerCli } from 'spaces-harness-broker-pi-sdk'
 
 import { createAgentHarnessDriver } from './broker/driver.js'
 import { createAgentHarnessTmuxDriver } from './broker/interactive-driver.js'
+import { createAgentHarnessTmuxLeafDriver } from './broker/interactive-leaf-driver.js'
 import { runAgentHarnessPrint } from './foreground/print.js'
 import { runAgentHarnessTui } from './foreground/tui.js'
 
@@ -23,14 +24,9 @@ export interface AgentHarnessCliDependencies {
 const productionDependencies: AgentHarnessCliDependencies = {
   runBrokerCli: () =>
     runBrokerCli({
-      additionalDrivers: [
-        createAgentHarnessDriver,
-        // The release-owned executable is the broker process for BOTH driver
-        // identities.  The interactive identity remains deliberately
-        // unavailable until Earendil provides a lifecycle that can leave a TUI
-        // without exiting this broker process.
-        createAgentHarnessTmuxDriver,
-      ],
+      additionalDrivers: isTuiChild(process.argv.slice(2))
+        ? [createAgentHarnessTmuxLeafDriver]
+        : [createAgentHarnessDriver, createAgentHarnessTmuxDriver],
     }),
   runTui: runAgentHarnessTui,
   runPrint: runAgentHarnessPrint,
@@ -38,6 +34,11 @@ const productionDependencies: AgentHarnessCliDependencies = {
   setExitCode: (code) => {
     process.exitCode = code
   },
+}
+
+export function isTuiChild(args: string[]): boolean {
+  const index = args.indexOf('--agent-harness-role')
+  return index !== -1 && args[index + 1] === 'tui-child'
 }
 
 export async function runAgentHarness(): Promise<void> {

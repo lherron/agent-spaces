@@ -48,6 +48,42 @@ describe('native release-worker Pi composition', () => {
     expect(constructed).toBe(true)
     expect(events[0]?.payload).toMatchObject({ command: process.execPath, args: [] })
   })
+
+  test('mints one operator turn when the TUI user message precedes agent_start', async () => {
+    const events: CapturedEvent[] = []
+    let listener: ((event: AgentSessionEvent) => void) | undefined
+    const session = idleSession()
+    session.subscribe = (nextListener) => {
+      listener = nextListener
+      return () => {
+        listener = undefined
+      }
+    }
+    const driver = createPiSdkDriver({
+      driverKind: 'agent-harness',
+      requiredHarnessTransport: 'native-worker',
+      observeOperatorTurns: true,
+      async createSession() {
+        return session
+      },
+    })
+
+    await driver.start(nativeWorkerSpec(), createContext(events))
+    listener?.(
+      piEvent({
+        type: 'message_start',
+        message: { role: 'user', content: [{ type: 'text', text: 'typed in the TUI' }] },
+      })
+    )
+    listener?.(piEvent({ type: 'agent_start' }))
+
+    expect(events.filter((event) => event.type === 'turn.started')).toHaveLength(1)
+    expect(events.filter((event) => event.type === 'user.message')).toHaveLength(1)
+    expect(events.find((event) => event.type === 'user.message')?.payload).toMatchObject({
+      content: 'typed in the TUI',
+      role: 'user',
+    })
+  })
 })
 
 describe('pi SDK driver structured output', () => {

@@ -66,6 +66,13 @@ export type {
   TmuxPaneInspection,
   TmuxPaneResize,
 } from './runtime/tmux'
+export { tmuxHelperRunner, writeTmuxLaunchExecFiles } from './runtime/tmux-launch-exec'
+export type {
+  TmuxHelperLauncher,
+  TmuxLaunchRunner,
+} from './runtime/tmux-launch-exec'
+export { buildHookSocketPath, consumePaneLease } from './drivers/tmux-shared'
+export type { PaneLeaseSurface } from './drivers/tmux-shared'
 
 export { createInvocationManager } from './invocation-manager'
 export type { InvocationManager, Invocation } from './invocation-manager'

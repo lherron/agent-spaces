@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { dispatchAgentHarness, parseForegroundInvocation } from './cli'
+import { dispatchAgentHarness, isTuiChild, parseForegroundInvocation } from './cli'
 
 function dependencies() {
   const calls: string[] = []
@@ -101,5 +101,20 @@ describe('agent-harness CLI dispatch', () => {
       agentId: 'cody',
       resume: 'session.jsonl',
     })
+  })
+
+  test('selects the worker-local TUI child role without changing the broker wire command', () => {
+    expect(
+      isTuiChild([
+        'run',
+        '--transport',
+        'unix',
+        '--socket',
+        '/tmp/child.sock',
+        '--agent-harness-role',
+        'tui-child',
+      ])
+    ).toBe(true)
+    expect(isTuiChild(['run', '--transport', 'unix', '--socket', '/tmp/outer.sock'])).toBe(false)
   })
 })
