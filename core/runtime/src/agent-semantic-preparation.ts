@@ -9,7 +9,10 @@ import {
   resolveAgentPlacementPaths,
   resolveAgentResourceSources,
 } from 'spaces-config'
-import { type PiSdkModelCatalogEntry, findPiSdkModelCatalogEntry } from 'spaces-runtime-contracts'
+import {
+  type PiProviderModelCatalogEntry,
+  findPiProviderModelCatalogEntry,
+} from 'spaces-runtime-contracts'
 import { type AgentSystemPromptInspection, inspectAgentSystemPrompt } from './system-prompt.js'
 
 /** Execution-plane hooks supplied by the composition root; this core seam never discovers a harness. */
@@ -32,7 +35,7 @@ export interface LoadAgentSemanticOptions {
   hostSessionId?: string | undefined
   generation?: number | undefined
   model?: string | undefined
-  provider?: 'openai' | 'anthropic' | undefined
+  provider?: 'openai' | 'openai-codex' | 'anthropic' | 'anthropic-max' | undefined
   reasoningEffort?: string | undefined
   lockedEnv?: Record<string, string> | undefined
   dispatchEnv?: Record<string, string> | undefined
@@ -46,7 +49,7 @@ export interface ResolvedAgentSemantics {
   projectId?: string | undefined
   aspHome: string
   placement: RuntimePlacement
-  model: PiSdkModelCatalogEntry
+  model: PiProviderModelCatalogEntry
   reasoningEffort?: string | undefined
   environment: NodeJS.ProcessEnv
   prompt?: { content: string; mode: 'append' | 'replace' } | undefined
@@ -148,14 +151,11 @@ export async function loadAgentSemantics(
 export function resolveAgentHarnessModel(
   explicitProvider: LoadAgentSemanticOptions['provider'],
   requestedModel: string
-): PiSdkModelCatalogEntry {
-  const qualified = requestedModel.includes('/')
-    ? requestedModel
-    : requestedModel.startsWith('claude-')
-      ? `anthropic-max/${requestedModel}`
-      : `openai-codex/${requestedModel}`
-  const provider = explicitProvider ?? (qualified.startsWith('anthropic') ? 'anthropic' : 'openai')
-  const model = findPiSdkModelCatalogEntry(provider, qualified)
+): PiProviderModelCatalogEntry {
+  const provider =
+    explicitProvider ?? (requestedModel.startsWith('claude-') ? 'anthropic-max' : 'openai-codex')
+  const qualified = requestedModel.includes('/') ? requestedModel : `${provider}/${requestedModel}`
+  const model = findPiProviderModelCatalogEntry(provider, qualified)
   if (model === undefined) throw new Error(`Unsupported direct-harness model: ${qualified}`)
   return model
 }

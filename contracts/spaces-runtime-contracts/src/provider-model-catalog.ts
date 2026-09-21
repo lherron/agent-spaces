@@ -44,7 +44,7 @@ const OPENAI_PI_PROVIDER_MODELS: readonly PiProviderModelCatalogEntry[] =
     },
     {
       alias: `openai-codex/${piModelId}`,
-      modelProvider: 'openai',
+      modelProvider: 'openai-codex',
       piProvider: 'openai-codex',
       piModelId: `openai-codex/${piModelId}`,
       authMode: 'oauth',
@@ -62,7 +62,7 @@ const ANTHROPIC_PI_PROVIDER_MODELS: readonly PiProviderModelCatalogEntry[] =
     },
     {
       alias: `anthropic-max/${piModelId}`,
-      modelProvider: 'anthropic',
+      modelProvider: 'anthropic-max',
       piProvider: 'anthropic',
       piModelId: `anthropic/${piModelId}`,
       authMode: 'oauth',

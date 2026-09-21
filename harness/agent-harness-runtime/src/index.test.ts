@@ -10,6 +10,7 @@ describe('resolveAgentHarnessModel', () => {
   test('maps Cody bare GPT-5.6 identity onto the OAuth Pi namespace', () => {
     expect(resolveAgentHarnessModel(undefined, 'gpt-5.6-sol')).toEqual({
       alias: 'openai-codex/gpt-5.6-sol',
+      modelProvider: 'openai-codex',
       piProvider: 'openai-codex',
       piModelId: 'openai-codex/gpt-5.6-sol',
       authMode: 'oauth',

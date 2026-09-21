@@ -6,7 +6,7 @@ import type {
 } from '@earendil-works/pi-coding-agent'
 import type { ResolvedAgentResourceSources, RunMode, RuntimePlacement } from 'spaces-config'
 import type { AgentSystemPromptInspection, ContextResolverContext } from 'spaces-runtime'
-import type { PiSdkModelCatalogEntry } from 'spaces-runtime-contracts'
+import type { PiProviderModelCatalogEntry } from 'spaces-runtime-contracts'
 
 export interface LoadAgentOptions {
   agentId: string
@@ -22,7 +22,7 @@ export interface LoadAgentOptions {
   hostSessionId?: string | undefined
   generation?: number | undefined
   model?: string | undefined
-  provider?: 'openai' | 'anthropic' | undefined
+  provider?: 'openai' | 'openai-codex' | 'anthropic' | 'anthropic-max' | undefined
   reasoningEffort?: string | undefined
   lockedEnv?: Record<string, string> | undefined
   dispatchEnv?: Record<string, string> | undefined
@@ -41,7 +41,7 @@ export interface ResolvedAgent {
   projectId?: string | undefined
   aspHome: string
   placement: RuntimePlacement
-  model: PiSdkModelCatalogEntry
+  model: PiProviderModelCatalogEntry
   reasoningEffort?: string | undefined
   environment: NodeJS.ProcessEnv
   prompt?: { content: string; mode: 'append' | 'replace' } | undefined

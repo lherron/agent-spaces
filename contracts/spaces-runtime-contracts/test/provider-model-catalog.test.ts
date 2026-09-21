@@ -9,29 +9,29 @@ describe('PI_PROVIDER_MODEL_CATALOG', () => {
       expect.arrayContaining([
         {
           alias: 'openai-codex/gpt-5.6-sol',
-          modelProvider: 'openai',
+          modelProvider: 'openai-codex',
           piProvider: 'openai-codex',
           piModelId: 'openai-codex/gpt-5.6-sol',
           authMode: 'oauth',
         },
         {
           alias: 'anthropic-max/claude-sonnet-4-5',
-          modelProvider: 'anthropic',
+          modelProvider: 'anthropic-max',
           piProvider: 'anthropic',
           piModelId: 'anthropic/claude-sonnet-4-5',
           authMode: 'oauth',
         },
       ])
     )
-    expect(findPiProviderModelCatalogEntry('anthropic', 'anthropic-max/claude-sonnet-4-5')).toEqual(
-      {
-        alias: 'anthropic-max/claude-sonnet-4-5',
-        modelProvider: 'anthropic',
-        piProvider: 'anthropic',
-        piModelId: 'anthropic/claude-sonnet-4-5',
-        authMode: 'oauth',
-      }
-    )
+    expect(
+      findPiProviderModelCatalogEntry('anthropic-max', 'anthropic-max/claude-sonnet-4-5')
+    ).toEqual({
+      alias: 'anthropic-max/claude-sonnet-4-5',
+      modelProvider: 'anthropic-max',
+      piProvider: 'anthropic',
+      piModelId: 'anthropic/claude-sonnet-4-5',
+      authMode: 'oauth',
+    })
     expect(catalog).toBe(PI_PROVIDER_MODEL_CATALOG)
   })
 })
