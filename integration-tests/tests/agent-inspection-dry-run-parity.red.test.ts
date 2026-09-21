@@ -12,8 +12,6 @@ import type {
   RuntimeCompileRequest,
   RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
-import * as AgentSpaces from '../../compiler/agent-spaces/src/index.js'
-import { compilerRuntime } from './compiler-runtime.js'
 
 type CompileClient = {
   compileRuntimePlan(
@@ -215,8 +213,13 @@ async function compilePinnedFixture(): Promise<{
   inspection: AgentInspectionResult
   readonly compileCount: number
 }> {
-  const inspectAgentForContext = inspectionOperation()
-  const client = AgentSpaces.createAgentSpacesClient({
+  const [inspectAgentForContext, { createAgentSpacesClient }, { compilerRuntime }] =
+    await Promise.all([
+      inspectionOperation(),
+      import('../../compiler/agent-spaces/src/index.js'),
+      import('./compiler-runtime.js'),
+    ])
+  const client = createAgentSpacesClient({
     aspHome: fixture.aspHome,
     runtime: compilerRuntime,
   }) as CompileClient
@@ -246,8 +249,9 @@ async function compilePinnedFixture(): Promise<{
   }
 }
 
-function inspectionOperation(): InspectAgentForContext {
-  const operation = (AgentSpaces as Record<string, unknown>)['inspectAgentForContext']
+async function inspectionOperation(): Promise<InspectAgentForContext> {
+  const module = await import('../../compiler/agent-spaces/src/index.js')
+  const operation = (module as Record<string, unknown>)['inspectAgentForContext']
   expect(operation).toBeFunction()
   return operation as InspectAgentForContext
 }
