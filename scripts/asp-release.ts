@@ -60,7 +60,6 @@ const IDENTITY_BOUND_EXECUTABLES: ReadonlySet<ExecutableName> = new Set([
 const WORKER_BINDINGS = {
   'codex-app-server': 'harness-broker',
   'claude-code-tmux': 'harness-broker',
-  'pi-tui-tmux': 'harness-broker',
   'muse-serve': 'harness-broker',
   'muse-cli-tmux': 'harness-broker',
   'agent-harness': 'agent-harness',

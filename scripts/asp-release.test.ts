@@ -181,26 +181,34 @@ describe('standalone ASP release inspection', () => {
     )
   })
 
-  test('validates identity-bound worker bindings against driver inventories and assets', () => {
+  test('validates the six retained identity-bound worker bindings against driver inventories and assets', () => {
     const release = fixture({
-      names: ['aspc-facade', 'harness-broker', 'aspd'],
+      names: ['aspc-facade', 'harness-broker', 'agent-harness', 'aspd'],
       embeddedIdentity: true,
       payload: (_name, id, sourceCommit) => `#!/bin/sh\n# ${id} ${sourceCommit}\nexit 0\n`,
       workerBindings: {
         'codex-app-server': 'harness-broker',
         'claude-code-tmux': 'harness-broker',
-        'pi-tui-tmux': 'harness-broker',
+        'muse-serve': 'harness-broker',
+        'muse-cli-tmux': 'harness-broker',
+        'agent-harness': 'agent-harness',
+        'agent-harness-tmux': 'agent-harness',
       },
       driverInventories: {
-        'harness-broker': ['codex-app-server', 'claude-code-tmux', 'pi-tui-tmux'],
+        'harness-broker': ['codex-app-server', 'claude-code-tmux', 'muse-serve', 'muse-cli-tmux'],
+        'agent-harness': ['agent-harness', 'agent-harness-tmux'],
       },
       statusline: '#!/bin/sh\necho ready\n',
+      photonWasm: 'photon-wasm-fixture',
     })
     const result = inspectRelease(release)
     expect(result.workerBindings).toEqual({
       'codex-app-server': 'harness-broker',
       'claude-code-tmux': 'harness-broker',
-      'pi-tui-tmux': 'harness-broker',
+      'muse-serve': 'harness-broker',
+      'muse-cli-tmux': 'harness-broker',
+      'agent-harness': 'agent-harness',
+      'agent-harness-tmux': 'agent-harness',
     })
     expect(result.assetResolution?.['claude-statusline']?.path).toBe(
       join(release, 'assets', 'claude', 'statusline.sh')
@@ -269,12 +277,12 @@ describe('standalone ASP release inspection', () => {
       names: ['aspc-facade', 'harness-broker', 'aspd'],
       embeddedIdentity: true,
       payload: (_name, id, sourceCommit) => `#!/bin/sh\n# ${id} ${sourceCommit}\nexit 0\n`,
-      workerBindings: { 'pi-sdk': 'harness-broker' },
+      workerBindings: { 'unregistered-driver': 'harness-broker' },
       driverInventories: { 'harness-broker': ['codex-app-server'] },
       statusline: '#!/bin/sh\necho ready\n',
     })
     expect(() => inspectRelease(release)).toThrow(
-      'worker harness-broker does not advertise bound driver: pi-sdk'
+      'worker harness-broker does not advertise bound driver: unregistered-driver'
     )
   })
 
