@@ -136,7 +136,6 @@ export function createReleaseBoundAspcService(
         ...response,
         capabilities: {
           ...response.capabilities,
-          compileAndStart: false,
           cohostedBroker: false,
           transports: ['unix-jsonrpc-ndjson'],
         },

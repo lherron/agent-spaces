@@ -11,7 +11,7 @@
  */
 import type { Readable, Writable } from 'node:stream'
 import type { AspcCompiler, AspcService, AspcServiceOptions } from 'spaces-aspc'
-import { createAspcService, JSONRPC_VERSION, registerAspcCompileMethods } from 'spaces-aspc'
+import { JSONRPC_VERSION, createAspcService, registerAspcCompileMethods } from 'spaces-aspc'
 import { createDefaultBroker, createProtocolServer } from 'spaces-harness-broker'
 import type { Broker, ProtocolServer } from 'spaces-harness-broker'
 import type {
@@ -103,7 +103,6 @@ export function createAspcFacadeServer(options: AspcFacadeOptions): ProtocolServ
         ...response,
         capabilities: {
           ...response.capabilities,
-          compileAndStart: false,
           cohostedBroker: true,
         },
         brokerProtocol: SUPPORTED_BROKER_PROTOCOL_VERSIONS[0]!,

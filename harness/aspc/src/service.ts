@@ -141,7 +141,6 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
           inspectRuntimePlacementPreparationCorrelation: true,
           observeRuntimeCapability: true,
           observeContinuationArtifact: true,
-          compileAndStart: false,
           prepareProcessInvocation: true,
           cohostedBroker: false,
           transports: ['stdio-jsonrpc-ndjson'],

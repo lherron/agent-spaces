@@ -44,7 +44,7 @@ describe('ASPC cohosted composition facade', () => {
       const aspcHello = await client.hello()
       expect(aspcHello.protocolVersion).toBe(ASPC_PROTOCOL_VERSION)
       expect(aspcHello.capabilities.cohostedBroker).toBe(true)
-      expect(aspcHello.capabilities.compileAndStart).toBe(false)
+      expect(aspcHello.capabilities).not.toHaveProperty('compileAndStart')
       expect(aspcHello.brokerProtocol).toBeDefined()
       expect(await probeServed(client, 'aspc.compileAndStart', {})).toBe(false)
       expect(await probeServed(client, 'aspc.compileRuntimePlan', {})).toBe(false)

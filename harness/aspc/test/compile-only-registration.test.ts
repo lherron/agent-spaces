@@ -92,7 +92,7 @@ describe('compile-only ASPC registration', () => {
     })) as AspcHelloResponse
 
     expect(response.protocolVersion).toBe(ASPC_PROTOCOL_VERSION)
-    expect(response.capabilities.compileAndStart).toBe(false)
+    expect(response.capabilities).not.toHaveProperty('compileAndStart')
     expect(response.capabilities.cohostedBroker).toBe(false)
     expect(response.capabilities.transports).toEqual(['stdio-jsonrpc-ndjson'])
     expect(Object.hasOwn(response, 'brokerProtocol')).toBe(false)
