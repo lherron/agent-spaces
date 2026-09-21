@@ -55,7 +55,7 @@ export function registerAgentInspectionCommands(program: Command): void {
   agents
     .command('catalog')
     .description('Catalog agents using an explicit inspection evaluation context')
-    .requiredOption('--context <file>', 'agent-inspection-evaluation-context/v1 JSON file')
+    .requiredOption('--context <file>', 'agent-inspection-evaluation-context/v2 JSON file')
     .option('--json', 'Output JSON')
     .action(async (options: OutputOptions & { context: string }) => {
       const catalog = await catalogAgentsForContext({
@@ -67,8 +67,8 @@ export function registerAgentInspectionCommands(program: Command): void {
   agents
     .command('inspect')
     .description('Inspect one agent using explicit request and evaluation-context files')
-    .requiredOption('--request <file>', 'agent-inspection-request/v1 JSON file')
-    .requiredOption('--context <file>', 'agent-inspection-evaluation-context/v1 JSON file')
+    .requiredOption('--request <file>', 'agent-inspection-request/v2 JSON file')
+    .requiredOption('--context <file>', 'agent-inspection-evaluation-context/v2 JSON file')
     .option('--json', 'Output JSON')
     .action(async (options: OutputOptions & { request: string; context: string }) => {
       const outcome = await inspectAgentForContext({

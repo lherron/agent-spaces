@@ -54,7 +54,7 @@ function part(
 
 function inspectionResult() {
   return {
-    schemaVersion: 'agent-inspection/v1',
+    schemaVersion: 'agent-inspection/v2',
     identity: {
       agentId: 'room-tester',
       projectId: 'agent-spaces',
@@ -63,8 +63,7 @@ function inspectionResult() {
       taskId: 'T-06328',
       lane: 'main',
       harness: 'codex',
-      frontend: 'taskboard',
-      interaction: 'headless',
+      presentation: false,
     },
     parts: [
       part('prompt:prompt:soul', 'prompt', {
@@ -135,7 +134,7 @@ function inspectionResult() {
   }
 }
 
-describe('agent-inspection/v1 contract', () => {
+describe('agent-inspection/v2 contract', () => {
   test('accepts every viewer part and discriminated disposition/diagnostic/freshness arm', () => {
     const validate = contractValidator('validateAgentInspectionResult')
     const dispositionArms = [
@@ -189,7 +188,7 @@ describe('agent-inspection/v1 contract', () => {
   test('rejects unknown schema and union arms with accumulated path diagnostics', () => {
     const validate = contractValidator('validateAgentInspectionResult')
     const candidate = inspectionResult()
-    candidate.schemaVersion = 'agent-inspection/v2'
+    candidate.schemaVersion = 'agent-inspection/v999'
     candidate.parts[0] = part('prompt:prompt:soul', 'mystery', {}, { kind: 'invented' })
     candidate.completeness = { kind: 'maybe' }
     candidate.freshness = { kind: 'ancient' } as typeof candidate.freshness
@@ -216,7 +215,7 @@ describe('agent inspection consumer boundary', () => {
   test('requires a fully explicit validated evaluation context', () => {
     const validate = contractValidator('validateAgentInspectionEvaluationContext')
     const context = {
-      schemaVersion: 'agent-inspection-evaluation-context/v1',
+      schemaVersion: 'agent-inspection-evaluation-context/v2',
       identifiers: {
         agentId: 'room-tester',
         projectId: 'agent-spaces',
@@ -225,8 +224,7 @@ describe('agent inspection consumer boundary', () => {
         taskId: 'T-06328',
         lane: 'main',
         harness: 'codex',
-        frontend: 'taskboard',
-        interaction: 'headless',
+        presentation: false,
       },
       paths: {
         agentRoot: '/asp/agents/room-tester',
@@ -286,7 +284,7 @@ describe('agent inspection consumer boundary', () => {
   test('rejects raw paths, raw environment maps, and credential-shaped inputs', () => {
     const validate = contractValidator('validateAgentInspectionRequest')
     const request = {
-      schemaVersion: 'agent-inspection-request/v1',
+      schemaVersion: 'agent-inspection-request/v2',
       identifiers: {
         agentId: 'room-tester',
         projectId: 'agent-spaces',
@@ -295,8 +293,7 @@ describe('agent inspection consumer boundary', () => {
         taskId: 'T-06328',
         lane: 'main',
         harness: 'codex',
-        frontend: 'taskboard',
-        interaction: 'headless',
+        presentation: false,
       },
       declaredOverrides: {
         modelId: 'gpt-5',

@@ -20,12 +20,11 @@ const identifiers = {
   scope: 'agent:cody:project:agent-spaces',
   lane: 'main',
   harness: 'codex',
-  frontend: 'codex-cli',
-  interaction: 'interactive',
+  presentation: true,
 }
 
 const request = {
-  schemaVersion: 'agent-inspection-request/v1',
+  schemaVersion: 'agent-inspection-request/v2',
   identifiers,
   declaredOverrides: {},
 }

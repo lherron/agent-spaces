@@ -3,16 +3,14 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
-  AgentInspectionDiagnostic,
   AgentInspectionEvaluationContext,
+  AgentInspectionIdentity,
   AgentInspectionPart,
   AgentInspectionRequest,
   AgentInspectionResult,
+  RuntimeCompileRequest,
+  RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
-import type {
-  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
-  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
-} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 import * as AgentSpaces from '../../compiler/agent-spaces/src/index.js'
 import { compilerRuntime } from './compiler-runtime.js'
 
@@ -47,21 +45,6 @@ type StableCompileIdentity = {
   lockHash: string | null
   bundleIdentity: string
 }
-
-type DryRunAgentProjection = {
-  accepted: boolean
-  promptBytes: string
-  sectionOrder: string[]
-  capabilities: AgentInspectionPart[]
-  runtimeSettings: AgentInspectionPart[]
-  diagnostics: AgentInspectionDiagnostic[]
-  identity: StableCompileIdentity
-}
-
-type ProjectAgentCompileForDryRun = (input: {
-  response: RuntimeCompileResponse
-  inspection: AgentInspectionResult
-}) => DryRunAgentProjection
 
 type Fixture = {
   root: string
@@ -132,8 +115,8 @@ afterEach(async () => {
   await rm(fixture.root, { recursive: true, force: true })
 })
 
-describe('T-06331 contextual inspection parity with dry-run', () => {
-  test('projects the five-leg pinned fixture identically for inspection and dry-run', async () => {
+describe('T-06331 contextual inspection parity with the singular compiled plan', () => {
+  test('preserves the five-leg pinned fixture and singular plan identity', async () => {
     const compiled = await compilePinnedFixture()
     const expectedPrompt = expectedPromptBytes()
     expect(compiled.compileCount).toBe(1)
@@ -167,20 +150,14 @@ describe('T-06331 contextual inspection parity with dry-run', () => {
       promptParts.find((part) => part.partId === 'prompt:prompt:predicate-skipped')?.disposition
     ).toEqual({ kind: 'skipped', reason: 'predicate' })
 
-    const project = projector()({
-      response: compiled.response,
-      inspection: compiled.inspection,
+    expect(compiled.inspection.parts.some((part) => part.kind === 'capability')).toBe(true)
+    expect(compiled.inspection.parts.some((part) => part.kind === 'runtime-setting')).toBe(true)
+    expect(stableIdentity(compiled.response, compiled.inspection)).toEqual({
+      compileId: compiled.response.ok ? compiled.response.plan.compileId : '',
+      planHash: compiled.response.ok ? compiled.response.plan.planHash : '',
+      lockHash: compiled.response.ok ? (compiled.response.plan.artifacts.lockHash ?? null) : null,
+      bundleIdentity: compiled.response.ok ? compiled.response.plan.artifacts.bundleIdentity : '',
     })
-    expect(project.promptBytes).toBe(expectedPrompt)
-    expect(project.sectionOrder).toEqual(promptParts.map((part) => part.partId))
-    expect(project.capabilities).toEqual(
-      compiled.inspection.parts.filter((part) => part.kind === 'capability')
-    )
-    expect(project.runtimeSettings).toEqual(
-      compiled.inspection.parts.filter((part) => part.kind === 'runtime-setting')
-    )
-    expect(project.diagnostics).toEqual(compiled.inspection.diagnostics)
-    expect(project.identity).toEqual(stableIdentity(compiled.response, compiled.inspection))
   })
 
   test('compiles the completely pinned fixture twice to identical canonical results', async () => {
@@ -196,22 +173,12 @@ describe('T-06331 contextual inspection parity with dry-run', () => {
     )
   })
 
-  test('refuses the partial dry-run projection while inspection preserves it from one compile', async () => {
+  test('preserves a partial inspection from one singular compile', async () => {
     const compiled = await compilePinnedFixture()
-    const beforeProjection = compiled.compileCount
-    const project = projector()({
-      response: compiled.response,
-      inspection: compiled.inspection,
-    })
-
-    expect(compiled.compileCount, 'projection must not invoke the compiler again').toBe(
-      beforeProjection
-    )
+    expect(compiled.compileCount).toBe(1)
     expect(compiled.response.ok).toBe(true)
     expect(compiled.inspection.completeness.kind).toBe('partial')
-    expect(project.accepted).toBe(false)
-    expect(project.diagnostics).toEqual(compiled.inspection.diagnostics)
-    expect(project.diagnostics).toContainEqual(
+    expect(compiled.inspection.diagnostics).toContainEqual(
       expect.objectContaining({
         kind: 'resolution',
         code: 'part_resolution_failed',
@@ -263,18 +230,9 @@ function inspectionOperation(): InspectAgentForContext {
   return operation as InspectAgentForContext
 }
 
-function projector(): ProjectAgentCompileForDryRun {
-  const operation = (AgentSpaces as Record<string, unknown>)['projectAgentCompileForDryRun']
-  expect(
-    operation,
-    'agent-spaces must export the additive projector consumed by dry-run; it must not compile'
-  ).toBeFunction()
-  return operation as ProjectAgentCompileForDryRun
-}
-
 function inspectionRequest(): AgentInspectionRequest {
   return {
-    schemaVersion: 'agent-inspection-request/v1',
+    schemaVersion: 'agent-inspection-request/v2',
     identifiers: identifiers(),
     declaredOverrides: { modelId: 'gpt-5.5', reasoningEffort: 'medium' },
   }
@@ -282,7 +240,7 @@ function inspectionRequest(): AgentInspectionRequest {
 
 function evaluationContext(): AgentInspectionEvaluationContext {
   return {
-    schemaVersion: 'agent-inspection-evaluation-context/v1',
+    schemaVersion: 'agent-inspection-evaluation-context/v2',
     identifiers: identifiers(),
     paths: {
       agentRoot: fixture.agentRoot,
@@ -315,7 +273,7 @@ function evaluationContext(): AgentInspectionEvaluationContext {
   }
 }
 
-function identifiers() {
+function identifiers(): AgentInspectionIdentity {
   return {
     agentId: AGENT_ID,
     agentName: 'Parity Agent',
@@ -325,8 +283,7 @@ function identifiers() {
     taskId: 'T-06331',
     lane: 'main',
     harness: 'codex',
-    frontend: 'taskboard',
-    interaction: 'headless',
+    presentation: false,
   }
 }
 

@@ -63,7 +63,7 @@ describe('T-06330 inspection boundary', () => {
 
 function inspectionRequest(): AgentInspectionRequest {
   return {
-    schemaVersion: 'agent-inspection-request/v1',
+    schemaVersion: 'agent-inspection-request/v2',
     identifiers: identity(),
     declaredOverrides: {},
   }
@@ -71,7 +71,7 @@ function inspectionRequest(): AgentInspectionRequest {
 
 function evaluationContext(): AgentInspectionEvaluationContext {
   return {
-    schemaVersion: 'agent-inspection-evaluation-context/v1',
+    schemaVersion: 'agent-inspection-evaluation-context/v2',
     identifiers: identity(),
     paths: {
       agentRoot: '/explicit/agents/room-tester',
@@ -104,8 +104,7 @@ function identity() {
     taskId: 'T-06330',
     lane: 'main',
     harness: 'codex',
-    frontend: 'taskboard',
-    interaction: 'headless',
+    presentation: false,
   }
 }
 

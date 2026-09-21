@@ -214,7 +214,7 @@ export function createAspcInspectionAuthority(
         const agentRoot = join(agentsRoot, req.agentId)
         const pinnedEnvironment = nonEmptyEnvironment(environment())
         const evaluationContext: AgentInspectionEvaluationContext = {
-          schemaVersion: 'agent-inspection-evaluation-context/v1',
+          schemaVersion: 'agent-inspection-evaluation-context/v2',
           identifiers: selected.identifiers,
           paths: {
             agentRoot,
@@ -268,17 +268,7 @@ function contextOptions(
   const declaredHarness =
     typeof provisioning?.['harness'] === 'string' ? provisioning['harness'] : DEFAULT_HARNESS
   if (!isHarnessId(declaredHarness)) return []
-  const frontend =
-    declaredHarness === 'claude'
-      ? 'claude-code'
-      : declaredHarness === 'codex'
-        ? 'codex-cli'
-        : declaredHarness === 'muse'
-          ? 'muse-cli'
-          : 'agent-harness-tui'
-  const interactions = ['headless'] as const
-
-  return [...new Set(interactions)].map((interaction) => ({
+  return [false, true].map((presentation) => ({
     identifiers: {
       agentId,
       projectId,
@@ -286,8 +276,7 @@ function contextOptions(
       scope: `agent:${agentId}:project:${projectId}`,
       lane: 'main',
       harness: declaredHarness,
-      frontend,
-      interaction,
+      presentation,
     },
     declaredOverrides: {},
   }))
@@ -299,8 +288,7 @@ function summary(identifiers: AspcAgentInspectionContextOption['identifiers']) {
     mode: identifiers.mode,
     lane: identifiers.lane,
     harness: identifiers.harness,
-    frontend: identifiers.frontend,
-    interaction: identifiers.interaction,
+    presentation: identifiers.presentation,
   }
 }
 

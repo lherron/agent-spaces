@@ -2,8 +2,6 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 
 import { type RuntimePlacement, buildRuntimeBundleRef, parseAgentProfile } from 'spaces-config'
-// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
-// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
 import { isHarnessId } from 'spaces-config'
 import {
   type InspectAgentSystemPromptInput,
@@ -22,6 +20,7 @@ import {
   type AgentInspectionRequest,
   type AgentInspectionResult,
   type CompileDiagnostic,
+  type HarnessId,
   type RuntimeCompileRequest,
   type RuntimeCompileResponse,
   createCanonicalHasher,
@@ -64,8 +63,7 @@ export type AgentCatalogRow = {
         mode: string
         lane: string
         harness: string
-        frontend: string
-        interaction: string
+        presentation: boolean
       }
     | undefined
   diagnostics: AgentCatalogDiagnostic[]
@@ -142,7 +140,11 @@ export async function inspectRuntimePlacement(
   const provisioning = declaration['provisioning'] as {
     effectiveHarness?: string | undefined
   }
-  const effectiveHarness = provisioning['effectiveHarness'] ?? 'agent-harness'
+  const declaredHarness = provisioning['effectiveHarness']
+  if (declaredHarness !== undefined && !isHarnessId(declaredHarness)) {
+    throw new Error(`Unsupported inspection harness ${declaredHarness}`)
+  }
+  const effectiveHarness: HarnessId = declaredHarness ?? 'agent-harness'
   const placement = placementFromDeclaration(
     {
       ...resolvedPlacement,
@@ -198,14 +200,11 @@ export async function inspectRuntimePlacement(
     ...(preparation.identity.taskId ? { taskId: preparation.identity.taskId } : {}),
     lane: preparation.identity.lane ?? 'primary',
     harness: effectiveHarness,
-    // These two identifiers remain in the inspection-v1 DTO, but no longer
-    // select a compiler route. They are compatibility display values only.
-    frontend: effectiveHarness,
-    interaction: 'headless',
+    presentation: false,
   }
   const profilePath = join(placement.agentRoot, 'agent-profile.toml')
   const evaluationContext: AgentInspectionEvaluationContext = {
-    schemaVersion: 'agent-inspection-evaluation-context/v1',
+    schemaVersion: 'agent-inspection-evaluation-context/v2',
     identifiers,
     paths: {
       agentRoot: placement.agentRoot,
@@ -232,7 +231,7 @@ export async function inspectRuntimePlacement(
   const inspectionOutcome = await inspectAgentForContext(
     {
       request: {
-        schemaVersion: 'agent-inspection-request/v1',
+        schemaVersion: 'agent-inspection-request/v2',
         identifiers,
         declaredOverrides: {},
       },
@@ -462,7 +461,7 @@ export async function inspectAgentForContext(
     ...parts.flatMap(failedResolutionDiagnostic),
   ]
   const inspection: AgentInspectionResult = {
-    schemaVersion: 'agent-inspection/v1',
+    schemaVersion: 'agent-inspection/v2',
     identity: request.identifiers,
     parts,
     completeness:
@@ -512,8 +511,7 @@ function catalogRow(
           mode: context.identifiers.mode,
           lane: context.identifiers.lane,
           harness: context.identifiers.harness,
-          frontend: context.identifiers.frontend,
-          interaction: context.identifiers.interaction,
+          presentation: context.identifiers.presentation,
         }
   return {
     agentId,
@@ -610,7 +608,7 @@ function buildInspectionCompileRequest(
       modelProvider: harness.provider,
       model: request.declaredOverrides.modelId,
       reasoningEffort: request.declaredOverrides.reasoningEffort,
-      presentation: request.identifiers.interaction === 'interactive',
+      presentation: request.identifiers.presentation,
     },
     materialization: {
       initialPrompt,

@@ -60,8 +60,7 @@ export const agentInspectionRequestSchema = schema<AgentInspectionRequest>((valu
   }
   identifier(request.identifiers.lane, 'identifiers.lane', issues)
   identifier(request.identifiers.harness, 'identifiers.harness', issues)
-  identifier(request.identifiers.frontend, 'identifiers.frontend', issues)
-  identifier(request.identifiers.interaction, 'identifiers.interaction', issues)
+  bool(request.identifiers.presentation, 'identifiers.presentation', issues)
   throwIfIssues(issues)
   return request
 })
@@ -124,7 +123,7 @@ export const agentInspectionOutcomeSchema = schema<AspcInspectAgentResponse>((va
             issues
           )
           agentInspectionRequestSchema.parse({
-            schemaVersion: 'agent-inspection-request/v1',
+            schemaVersion: 'agent-inspection-request/v2',
             identifiers: inspection.identity,
             declaredOverrides: {},
           })
@@ -200,11 +199,12 @@ function validateCatalogRow(value: unknown, basePath: string, issues: Validation
       issues
     )
     if (summary !== undefined) {
-      const fields = ['projectId', 'mode', 'lane', 'harness', 'frontend', 'interaction']
+      const fields = ['projectId', 'mode', 'lane', 'harness', 'presentation']
       rejectUnknown(summary, new Set(fields), `${basePath}.defaultContextSummary`, issues)
-      for (const field of fields) {
+      for (const field of ['projectId', 'mode', 'lane', 'harness']) {
         identifier(summary[field], `${basePath}.defaultContextSummary.${field}`, issues)
       }
+      bool(summary['presentation'], `${basePath}.defaultContextSummary.presentation`, issues)
     }
   }
 
@@ -228,7 +228,7 @@ function validateContextOption(
   rejectUnknown(option, new Set(['identifiers', 'declaredOverrides']), basePath, issues)
   try {
     const request = agentInspectionRequestSchema.parse({
-      schemaVersion: 'agent-inspection-request/v1',
+      schemaVersion: 'agent-inspection-request/v2',
       identifiers: option['identifiers'],
       declaredOverrides: option['declaredOverrides'],
     })
@@ -325,6 +325,12 @@ function identifier(value: unknown, basePath: string, issues: ValidationIssue[])
 function nonEmptyString(value: unknown, basePath: string, issues: ValidationIssue[]): void {
   if (typeof value !== 'string' || value.length === 0) {
     issues.push(issue(basePath, 'invalid_type', `${basePath} must be a non-empty string`))
+  }
+}
+
+function bool(value: unknown, basePath: string, issues: ValidationIssue[]): void {
+  if (typeof value !== 'boolean') {
+    issues.push(issue(basePath, 'invalid_type', `${basePath} must be a boolean`))
   }
 }
 

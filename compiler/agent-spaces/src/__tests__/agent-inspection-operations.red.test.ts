@@ -6,12 +6,9 @@ import type {
   AgentInspectionEvaluationContext,
   AgentInspectionRequest,
   AgentInspectionResult,
+  RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
 import { validateAgentInspectionResult } from 'spaces-runtime-contracts'
-import type {
-  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
-  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
-} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 import * as AgentSpaces from '../index.js'
 
 type CompileRuntimePlan = (
@@ -145,7 +142,7 @@ describe('T-06330 agent catalog and contextual inspection operations', () => {
     }
   })
 
-  test('projects agent-harness inspection into the explicit first-party Pi runtime', async () => {
+  test('projects agent-harness inspection into the canonical selection request', async () => {
     const { inspectAgentForContext } = operations()
     await writeFile(
       join(fixture.validRoot, 'context-template.toml'),
@@ -175,12 +172,11 @@ describe('T-06330 agent catalog and contextual inspection operations', () => {
 
     expect(outcome.ok).toBe(true)
     expect(compiledRequest?.requested).toMatchObject({
-      modelProvider: 'openai',
+      harness: 'agent-harness',
+      modelProvider: 'openai-codex',
       model: 'gpt-5.6-terra',
       reasoningEffort: 'high',
-      harnessFamily: 'pi',
-      preferredHarnessRuntime: 'agent-harness',
-      interactionMode: 'headless',
+      presentation: false,
     })
   })
 
@@ -333,7 +329,7 @@ function operations(): {
 
 function inspectionRequest(agentId = 'valid-agent'): AgentInspectionRequest {
   return {
-    schemaVersion: 'agent-inspection-request/v1',
+    schemaVersion: 'agent-inspection-request/v2',
     identifiers: identity(agentId),
     declaredOverrides: { modelId: 'gpt-5', reasoningEffort: 'medium' },
   }
@@ -342,7 +338,7 @@ function inspectionRequest(agentId = 'valid-agent'): AgentInspectionRequest {
 function evaluationContext(agentId = 'valid-agent'): AgentInspectionEvaluationContext {
   const agentRoot = agentId === 'broken-agent' ? fixture.brokenRoot : fixture.validRoot
   return {
-    schemaVersion: 'agent-inspection-evaluation-context/v1',
+    schemaVersion: 'agent-inspection-evaluation-context/v2',
     identifiers: identity(agentId),
     paths: {
       agentRoot,
@@ -379,38 +375,57 @@ function identity(agentId: string) {
     taskId: 'T-06330',
     lane: 'main',
     harness: 'codex',
-    frontend: 'taskboard',
-    interaction: 'headless',
+    presentation: false,
   }
 }
 
 function successfulCompileResponse(): RuntimeCompileResponse {
   return {
-    schemaVersion: 'agent-runtime-compile-response/v1',
+    schemaVersion: 'agent-runtime-compile-response/v2',
     ok: true,
     plan: {
-      schemaVersion: 'agent-runtime-plan/v1',
+      schemaVersion: 'agent-runtime-plan/v2',
       compiler: { name: 'agent-spaces', version: 'test' },
       compileId: 'compile_t06330',
       planHash: 'plan_t06330',
       createdAt: '2026-07-18T12:34:56.000Z',
+      agent: { id: 'valid-agent' },
       identity: {} as never,
       placement: {} as never,
       resolvedBundle: { bundleIdentity: 'bundle_t06330' } as never,
-      harness: { family: 'codex', runtime: 'codex-cli', provider: 'openai' },
-      model: {
-        provider: 'openai',
-        modelId: 'gpt-5',
-        requestedModel: 'gpt-5',
+      omitPriming: false,
+      selection: {
+        harness: 'codex',
+        modelProvider: 'openai-codex',
+        model: 'gpt-5',
         reasoningEffort: 'medium',
+        presentation: false,
+        provenance: {
+          harness: 'compile-request',
+          modelProvider: 'catalog-default',
+          model: 'compile-request',
+          reasoningEffort: 'compile-request',
+          presentation: 'compile-request',
+        },
       },
-      executionProfiles: [
-        {
-          kind: 'terminal',
+      execution: {
+        recipeId: 'codex-app-server-headless',
+        driver: 'codex-app-server',
+        protocol: 'harness-broker/0.2',
+        hosting: {
+          executionTransport: 'jsonrpc-stdio',
+          terminalRequired: false,
+          processExecution: 'broker-process',
+        },
+        presentationFulfillment: 'attachable',
+        profile: {
           profileId: 'profile_t06330',
-          controllerKind: 'foreground-terminal',
-        } as never,
-      ],
+          profileHash: 'profile_hash_t06330',
+          compatibilityHash: 'compatibility_hash_t06330',
+          startRequestHash: 'start_request_hash_t06330',
+        },
+        dispatchRequest: {} as never,
+      },
       artifacts: {
         lockHash: 'lock_t06330',
         bundleIdentity: 'bundle_t06330',
@@ -424,7 +439,7 @@ function successfulCompileResponse(): RuntimeCompileResponse {
 
 function failedCompileResponse(): RuntimeCompileResponse {
   return {
-    schemaVersion: 'agent-runtime-compile-response/v1',
+    schemaVersion: 'agent-runtime-compile-response/v2',
     ok: false,
     diagnostics: [
       {

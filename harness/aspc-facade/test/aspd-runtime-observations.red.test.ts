@@ -326,7 +326,7 @@ function fakeObservationService(): Record<string, unknown> {
         ok: true,
         declaration: {},
         inspection: {
-          schemaVersion: 'agent-inspection/v1',
+          schemaVersion: 'agent-inspection/v2',
           completeness: { kind: 'partial', missingPartIds: ['prompt:template:resolution'] },
         },
         prompt: {

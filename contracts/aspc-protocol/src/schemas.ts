@@ -796,25 +796,25 @@ function validateStrictInspectionRequest(
   const identifiersPath = path(basePath, 'identifiers')
   const identifiers = requireRecord(request['identifiers'], identifiersPath, issues)
   if (identifiers === undefined) return
-  const required = [
-    'agentId',
-    'projectId',
-    'mode',
-    'scope',
-    'lane',
-    'harness',
-    'frontend',
-    'interaction',
-  ] as const
+  const required = ['agentId', 'projectId', 'mode', 'scope', 'lane', 'harness'] as const
   for (const field of required) {
     validateInspectionIdentifier(identifiers[field], path(identifiersPath, field), issues)
   }
   for (const field of ['agentName', 'taskId'] as const) {
     validateOptionalInspectionIdentifier(identifiers[field], path(identifiersPath, field), issues)
   }
+  if (typeof identifiers['presentation'] !== 'boolean') {
+    issues.push(
+      issue(
+        path(identifiersPath, 'presentation'),
+        ISSUE_CODE.invalidType,
+        `${path(identifiersPath, 'presentation')} must be a boolean`
+      )
+    )
+  }
   rejectUnknownParams(
     identifiers,
-    new Set([...required, 'agentName', 'taskId']),
+    new Set([...required, 'agentName', 'taskId', 'presentation']),
     identifiersPath,
     issues
   )

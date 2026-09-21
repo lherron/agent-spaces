@@ -12,7 +12,7 @@ describe('browser-safe agent-inspection entrypoint', () => {
   test('exposes the shared inspection schemas through the package subpath', () => {
     expect(
       agentInspectionRequestSchema.safeParse({
-        schemaVersion: 'agent-inspection-request/v1',
+        schemaVersion: 'agent-inspection-request/v2',
         identifiers: {
           agentId: 'cody',
           projectId: 'agent-spaces',
@@ -20,8 +20,7 @@ describe('browser-safe agent-inspection entrypoint', () => {
           scope: 'project',
           lane: 'default',
           harness: 'codex',
-          frontend: 'codex-cli',
-          interaction: 'interactive',
+          presentation: true,
         },
         declaredOverrides: {},
       }).success

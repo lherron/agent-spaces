@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { LegacyRuntimeCompileResponse as RuntimeCompileResponse } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
+import type { RuntimeCompileResponse } from 'spaces-runtime-contracts'
 import * as Aspc from '../src/index.js'
 
 type Handler = (request: { id: string | number; method: string; params: unknown }) => Promise<any>
@@ -147,7 +147,7 @@ describe('T-08563 ASPC runtime observation service', () => {
         expect.objectContaining({ name: expect.any(String), chars: expect.any(Number) }),
       ])
     )
-    expect(response.inspection.schemaVersion).toBe('agent-inspection/v1')
+    expect(response.inspection.schemaVersion).toBe('agent-inspection/v2')
     expect(response.effectiveEnvironmentHash).toEqual(expect.any(String))
   })
 
@@ -156,7 +156,7 @@ describe('T-08563 ASPC runtime observation service', () => {
     expect(response).toMatchObject({
       ok: true,
       prompt: { state: 'absent', code: 'prompt_not_declared' },
-      inspection: { schemaVersion: 'agent-inspection/v1' },
+      inspection: { schemaVersion: 'agent-inspection/v2' },
     })
     expect(response).not.toHaveProperty('failure')
   })
@@ -363,26 +363,49 @@ ${template ? '\n[instructions]\ntemplate = "context-template.toml"\n' : ''}`
 
 function successfulCompileResponse(): RuntimeCompileResponse {
   return {
-    schemaVersion: 'agent-runtime-compile-response/v1',
+    schemaVersion: 'agent-runtime-compile-response/v2',
     ok: true,
     plan: {
-      schemaVersion: 'agent-runtime-plan/v1',
+      schemaVersion: 'agent-runtime-plan/v2',
       compiler: { name: 'agent-spaces', version: 'red' },
       compileId: 'compile_runtime_observation_red',
       planHash: 'plan_runtime_observation_red',
       createdAt: '2026-09-17T04:00:00.000Z',
+      agent: { id: 'prompted' },
       identity: {} as never,
       placement: {} as never,
       resolvedBundle: { bundleIdentity: 'bundle_runtime_observation_red' } as never,
-      harness: { family: 'codex', runtime: 'codex-cli', provider: 'openai' },
-      model: { provider: 'openai', modelId: 'gpt-5', requestedModel: 'gpt-5' },
-      executionProfiles: [
-        {
-          kind: 'terminal',
+      omitPriming: false,
+      selection: {
+        harness: 'codex',
+        modelProvider: 'openai-codex',
+        model: 'gpt-5.6-terra',
+        presentation: false,
+        provenance: {
+          harness: 'compile-request',
+          modelProvider: 'catalog-default',
+          model: 'catalog-default',
+          presentation: 'catalog-default',
+        },
+      },
+      execution: {
+        recipeId: 'codex-app-server-headless',
+        driver: 'codex-app-server',
+        protocol: 'harness-broker/0.2',
+        hosting: {
+          executionTransport: 'jsonrpc-stdio',
+          terminalRequired: false,
+          processExecution: 'broker-process',
+        },
+        presentationFulfillment: 'attachable',
+        profile: {
           profileId: 'profile-red',
-          controllerKind: 'foreground-terminal',
-        } as never,
-      ],
+          profileHash: 'profile-hash-red',
+          compatibilityHash: 'compatibility-hash-red',
+          startRequestHash: 'start-request-hash-red',
+        },
+        dispatchRequest: {} as never,
+      },
       artifacts: { lockHash: 'lock-red', bundleIdentity: 'bundle_runtime_observation_red' },
       lockedEnv: { lockedEnvKeys: [] },
       diagnostics: [],

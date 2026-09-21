@@ -1,10 +1,11 @@
 import type { ValidationIssue } from 'spaces-harness-broker-protocol'
+import type { HarnessId } from './harness-selection.js'
 
 /** Canonical schema discriminants for the compiled-agent inspection contracts. */
-export const AGENT_INSPECTION_SCHEMA_VERSION = 'agent-inspection/v1' as const
-export const AGENT_INSPECTION_REQUEST_SCHEMA_VERSION = 'agent-inspection-request/v1' as const
+export const AGENT_INSPECTION_SCHEMA_VERSION = 'agent-inspection/v2' as const
+export const AGENT_INSPECTION_REQUEST_SCHEMA_VERSION = 'agent-inspection-request/v2' as const
 export const AGENT_INSPECTION_EVALUATION_CONTEXT_SCHEMA_VERSION =
-  'agent-inspection-evaluation-context/v1' as const
+  'agent-inspection-evaluation-context/v2' as const
 
 /** JSON-compatible data carried by viewer parts and declared overrides. */
 export type AgentInspectionJsonValue =
@@ -34,9 +35,8 @@ export type AgentInspectionIdentity = {
   scope: string
   taskId?: string | undefined
   lane: string
-  harness: string
-  frontend: string
-  interaction: string
+  harness: HarnessId
+  presentation: boolean
 }
 
 export type AgentInspectionContribution =
@@ -400,18 +400,16 @@ function stringRecord(value: unknown, path: string, issues: ValidationIssue[]): 
 function validateIdentity(value: unknown, path: string, issues: ValidationIssue[]): void {
   const identity = record(value, path, issues)
   if (identity === undefined) return
-  for (const field of [
-    'agentId',
-    'projectId',
-    'mode',
-    'scope',
-    'lane',
-    'harness',
-    'frontend',
-    'interaction',
-  ]) {
+  for (const field of ['agentId', 'projectId', 'mode', 'scope', 'lane', 'harness']) {
     string(identity[field], `${path}.${field}`, issues)
   }
+  oneOf(
+    identity['harness'],
+    ['agent-harness', 'claude', 'codex', 'muse'],
+    `${path}.harness`,
+    issues
+  )
+  boolean(identity['presentation'], `${path}.presentation`, issues)
   optionalString(identity['agentName'], `${path}.agentName`, issues)
   optionalString(identity['taskId'], `${path}.taskId`, issues)
 }

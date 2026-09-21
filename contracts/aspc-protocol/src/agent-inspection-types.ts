@@ -39,8 +39,7 @@ export type AspcAgentCatalogRow = {
         mode: string
         lane: string
         harness: string
-        frontend: string
-        interaction: string
+        presentation: boolean
       }
     | undefined
   diagnostics: AspcInspectionDiagnostic[]

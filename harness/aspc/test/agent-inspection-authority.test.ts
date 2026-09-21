@@ -3,10 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type {
-  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
-  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
-} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
+import type { RuntimeCompileRequest, RuntimeCompileResponse } from 'spaces-runtime-contracts'
 
 import { AspcInspectionAuthorityError, createAspcService } from '../src/index.js'
 import type { AspcCompiler } from '../src/service.js'
@@ -115,9 +112,9 @@ describe('ASPC identifier-only inspection authority', () => {
     const catalog = await service.catalogAgentInspection({ projectId: 'agent-spaces' })
     expect(resolvedIds).toEqual(['agent-spaces'])
     expect(catalog.projectId).toBe('agent-spaces')
-    expect(catalog.contexts['cody']?.map(({ identifiers }) => identifiers.interaction)).toEqual([
-      'interactive',
-      'headless',
+    expect(catalog.contexts['cody']?.map(({ identifiers }) => identifiers.presentation)).toEqual([
+      false,
+      true,
     ])
     expect(catalog.contexts['broken']).toBeUndefined()
     expect(catalog.contexts['sparky']).toEqual([
@@ -129,8 +126,19 @@ describe('ASPC identifier-only inspection authority', () => {
           scope: 'agent:sparky:project:agent-spaces',
           lane: 'main',
           harness: 'muse',
-          frontend: 'muse-cli',
-          interaction: 'interactive',
+          presentation: false,
+        },
+        declaredOverrides: {},
+      },
+      {
+        identifiers: {
+          agentId: 'sparky',
+          projectId: 'agent-spaces',
+          mode: 'task',
+          scope: 'agent:sparky:project:agent-spaces',
+          lane: 'main',
+          harness: 'muse',
+          presentation: true,
         },
         declaredOverrides: {},
       },
@@ -141,8 +149,7 @@ describe('ASPC identifier-only inspection authority', () => {
         mode: 'task',
         lane: 'main',
         harness: 'codex',
-        frontend: 'codex-cli',
-        interaction: 'interactive',
+        presentation: false,
       }
     )
     expect(JSON.stringify(catalog)).not.toContain(fixture.agentsRoot)
@@ -172,7 +179,7 @@ describe('ASPC identifier-only inspection authority', () => {
     const outcome = await service.inspectAgentSelection({
       agentId: 'cody',
       request: {
-        schemaVersion: 'agent-inspection-request/v1',
+        schemaVersion: 'agent-inspection-request/v2',
         identifiers: option!.identifiers,
         declaredOverrides: option!.declaredOverrides,
       },
@@ -208,7 +215,7 @@ describe('ASPC identifier-only inspection authority', () => {
     const catalog = await service.catalogAgentInspection({ projectId: 'agent-spaces' })
     const option = catalog.contexts['cody']![0]!
     const request = {
-      schemaVersion: 'agent-inspection-request/v1' as const,
+      schemaVersion: 'agent-inspection-request/v2' as const,
       identifiers: option.identifiers,
       declaredOverrides: option.declaredOverrides,
     }
@@ -218,14 +225,12 @@ describe('ASPC identifier-only inspection authority', () => {
       'INVALID_AGENT_INSPECTION_SELECTION',
       400
     )
-    await expectAuthorityError(
+    await expect(
       service.inspectAgentSelection({
         agentId: 'cody',
-        request: { ...request, identifiers: { ...request.identifiers, interaction: 'bogus' } },
-      }),
-      'INVALID_AGENT_INSPECTION_SELECTION',
-      400
-    )
+        request: { ...request, identifiers: { ...request.identifiers, presentation: 'bogus' } },
+      })
+    ).rejects.toThrow('Invalid ASPC inspectAgentSelection request')
     await expectAuthorityError(
       service.inspectAgentSelection({
         agentId: 'missing',
@@ -290,24 +295,49 @@ function compilerReturning(response: RuntimeCompileResponse): AspcCompiler {
 
 function successfulCompileResponse(): RuntimeCompileResponse {
   return {
-    schemaVersion: 'agent-runtime-compile-response/v1',
+    schemaVersion: 'agent-runtime-compile-response/v2',
     ok: true,
     plan: {
-      schemaVersion: 'agent-runtime-plan/v1',
+      schemaVersion: 'agent-runtime-plan/v2',
       compiler: { name: 'agent-spaces', version: 'test' },
       compileId: 'compile-authority',
       planHash: 'plan-authority',
       createdAt: '2026-08-23T14:00:00.000Z',
+      agent: { id: 'cody' },
       identity: {} as never,
       placement: {} as never,
       resolvedBundle: { bundleIdentity: 'bundle-authority' } as never,
-      harness: { family: 'codex', runtime: 'codex-cli', provider: 'openai' },
-      model: {
-        provider: 'openai',
-        modelId: 'gpt-5.6-sol',
-        requestedModel: 'gpt-5.6-sol',
+      omitPriming: false,
+      selection: {
+        harness: 'codex',
+        modelProvider: 'openai-codex',
+        model: 'gpt-5.6-sol',
+        presentation: false,
+        provenance: {
+          harness: 'compile-request',
+          modelProvider: 'catalog-default',
+          model: 'compile-request',
+          presentation: 'catalog-default',
+        },
       },
-      executionProfiles: [],
+      execution: {
+        recipeId: 'codex-app-server-headless',
+        driver: 'codex-app-server',
+        protocol: 'harness-broker/0.2',
+        hosting: {
+          executionTransport: 'jsonrpc-stdio',
+          terminalRequired: false,
+          processExecution: 'broker-process',
+        },
+        presentationFulfillment: 'attachable',
+        profile: {
+          profileId: 'profile-authority',
+          profileHash: 'profile-hash-authority',
+          compatibilityHash: 'compatibility-hash-authority',
+          startRequestHash: 'start-request-hash-authority',
+        },
+        dispatchRequest: {} as never,
+      },
       artifacts: { bundleIdentity: 'bundle-authority' },
       lockedEnv: { lockedEnvKeys: [] },
       diagnostics: [],
