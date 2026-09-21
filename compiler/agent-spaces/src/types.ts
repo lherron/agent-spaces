@@ -5,6 +5,7 @@ import type {
   RuntimePlacement,
 } from 'spaces-config'
 import type {
+  AgentHarnessSpec,
   HarnessInvocationSpec,
   HarnessSdkSpec,
   InputId,
@@ -127,7 +128,7 @@ export interface InterruptInFlightTurnRequest {
 export interface BuildHarnessBrokerInvocationRequest {
   placement: RuntimePlacement
   provider: ProviderDomain
-  frontend: 'codex-cli' | 'claude-code' | 'pi-cli' | 'pi-sdk' | 'muse-cli'
+  frontend: 'codex-cli' | 'claude-code' | 'pi-cli' | 'pi-sdk' | 'agent-harness-tui' | 'muse-cli'
   interactionMode: 'headless' | 'interactive'
   brokerDriver?:
     | 'codex-app-server'
@@ -135,13 +136,17 @@ export interface BuildHarnessBrokerInvocationRequest {
     | 'codex-cli-tmux'
     | 'pi-tui-tmux'
     | 'pi-sdk'
+    | 'agent-harness'
+    | 'agent-harness-tmux'
     | 'muse-serve'
     | undefined
-  harnessTransport?: { kind: 'jsonrpc-stdio' | 'pty' | 'in-process' } | undefined
+  harnessTransport?: { kind: 'jsonrpc-stdio' | 'pty' | 'in-process' | 'native-worker' } | undefined
   presentation?: 'codex-tui' | undefined
   transport?: 'websocket-unix' | undefined
   codexHookEvents?: readonly string[] | undefined
   sdk?: HarnessSdkSpec | undefined
+  /** Semantic identity consumed by the first-party release-owned worker. */
+  agent?: AgentHarnessSpec | undefined
   aspHome?: string | undefined
   model?: string | undefined
   modelReasoningEffort?: string | undefined

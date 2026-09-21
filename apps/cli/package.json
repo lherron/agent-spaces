@@ -97,6 +97,7 @@
     "spaces-runtime",
     "spaces-harness-claude",
     "spaces-harness-codex",
+    "spaces-harness-muse",
     "spaces-harness-pi",
     "spaces-harness-pi-sdk",
     "spaces-turn-runner"
@@ -138,6 +139,7 @@
   "optionalDependencies": {
     "spaces-harness-claude": "*",
     "spaces-harness-codex": "*",
+    "spaces-harness-muse": "*",
     "spaces-harness-pi": "*",
     "spaces-harness-pi-sdk": "*"
   },

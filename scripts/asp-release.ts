@@ -16,16 +16,33 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs'
+import { createRequire } from 'node:module'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { OFFLINE_EVIDENCE_CAPABILITY } from 'spaces-harness-broker-protocol'
 
 const REPO_ROOT = resolve(import.meta.dir, '..')
 const RELEASE_SCHEMA = 'asp-standalone-release/v1' as const
+const require = createRequire(import.meta.url)
+
+/**
+ * Photon 0.3.4 uses this exact CommonJS loader. Bun otherwise bakes its
+ * build-host __dirname into a compiled executable, which is neither hermetic
+ * nor compatible with the sibling asset layout used by our immutable release.
+ */
+const PHOTON_NODE_PACKAGE = '@silvia-odwyer/photon-node'
+const PHOTON_NODE_VERSION = '0.3.4'
+const PHOTON_WASM_FILENAME = 'photon_rs_bg.wasm'
+const PHOTON_LOADER_PATH = require.resolve(`${PHOTON_NODE_PACKAGE}/photon_rs.js`)
+const PHOTON_WASM_SOURCE = join(dirname(PHOTON_LOADER_PATH), PHOTON_WASM_FILENAME)
+const PHOTON_LOADER_SOURCE = "const path = require('path').join(__dirname, 'photon_rs_bg.wasm');"
+const PHOTON_LOADER_REPLACEMENT =
+  "const path = require('path').join(require('path').dirname(process.execPath), 'photon_rs_bg.wasm');"
 
 const EXECUTABLES = {
   'aspc-facade': 'scripts/asp-release/entries/aspc-facade.ts',
   'harness-broker': 'scripts/asp-release/entries/harness-broker.ts',
   aspd: 'scripts/asp-release/entries/aspd.ts',
+  'agent-harness': 'scripts/asp-release/entries/agent-harness.ts',
 } as const
 
 type ExecutableName = keyof typeof EXECUTABLES
@@ -34,7 +51,11 @@ type ExecutableName = keyof typeof EXECUTABLES
 const REQUIRED_EXECUTABLES: readonly ExecutableName[] = ['aspc-facade', 'harness-broker']
 
 /** Executables whose entrypoints report the compiled-in release identity over RPC. */
-const IDENTITY_BOUND_EXECUTABLES: ReadonlySet<ExecutableName> = new Set(['aspd', 'harness-broker'])
+const IDENTITY_BOUND_EXECUTABLES: ReadonlySet<ExecutableName> = new Set([
+  'aspd',
+  'harness-broker',
+  'agent-harness',
+])
 
 const WORKER_BINDINGS = {
   'codex-app-server': 'harness-broker',
@@ -42,12 +63,18 @@ const WORKER_BINDINGS = {
   'pi-tui-tmux': 'harness-broker',
   'muse-serve': 'harness-broker',
   'muse-cli-tmux': 'harness-broker',
+  'agent-harness': 'agent-harness',
+  'agent-harness-tmux': 'agent-harness',
 } as const satisfies Record<string, ExecutableName>
 
 const RELEASE_ASSETS = {
   'claude-statusline': {
     source: 'drivers/harness-claude/assets/statusline.sh',
     path: 'assets/claude/statusline.sh',
+  },
+  'photon-wasm': {
+    source: PHOTON_WASM_SOURCE,
+    path: `libexec/${PHOTON_WASM_FILENAME}`,
   },
 } as const
 
@@ -145,6 +172,82 @@ function run(command: string[], cwd = REPO_ROOT): string {
 
 function sha256(path: string): string {
   return createHash('sha256').update(readFileSync(path)).digest('hex')
+}
+
+function releaseAssetSource(source: string): string {
+  return isAbsolute(source) ? source : join(REPO_ROOT, source)
+}
+
+function escapedRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Build-only closure repair for Photon 0.3.4. This is intentionally a Bun
+ * plugin, not an esbuild plugin: esbuild is not in the worker closure and
+ * must not become a runtime dependency merely to rewrite one source module.
+ */
+function photonWasmLoaderPlugin(): { plugin: Bun.Plugin; assertTransformed(): void } {
+  const packageJson = JSON.parse(
+    readFileSync(require.resolve(`${PHOTON_NODE_PACKAGE}/package.json`), 'utf8')
+  ) as { version?: unknown }
+  if (packageJson.version !== PHOTON_NODE_VERSION) {
+    fail(
+      `unsupported ${PHOTON_NODE_PACKAGE} version: expected ${PHOTON_NODE_VERSION}, got ${String(packageJson.version)}`
+    )
+  }
+  const source = readFileSync(PHOTON_LOADER_PATH, 'utf8')
+  const loaderOccurrences = source.split(PHOTON_LOADER_SOURCE).length - 1
+  if (loaderOccurrences !== 1) {
+    fail(
+      `${PHOTON_NODE_PACKAGE}@${PHOTON_NODE_VERSION} loader shape changed; refusing unscoped wasm rewrite`
+    )
+  }
+  let transformed = false
+  return {
+    plugin: {
+      name: 'asp-release-photon-wasm-loader',
+      setup(build) {
+        build.onLoad({ filter: new RegExp(`^${escapedRegExp(PHOTON_LOADER_PATH)}$`) }, () => {
+          transformed = true
+          return {
+            contents: source.replace(PHOTON_LOADER_SOURCE, PHOTON_LOADER_REPLACEMENT),
+            loader: 'js',
+          }
+        })
+      },
+    },
+    assertTransformed() {
+      if (!transformed) {
+        fail(`${PHOTON_NODE_PACKAGE}@${PHOTON_NODE_VERSION} was not in agent-harness closure`)
+      }
+    },
+  }
+}
+
+export async function compileReleaseExecutable(
+  name: ExecutableName,
+  entry: string,
+  payload: string,
+  embeddedIdentity: string
+): Promise<void> {
+  const photonPlugin = name === 'agent-harness' ? photonWasmLoaderPlugin() : undefined
+  const result = await Bun.build({
+    entrypoints: [entry],
+    compile: { outfile: payload },
+    target: 'bun',
+    define: { ASP_RELEASE_EMBEDDED_IDENTITY: embeddedIdentity },
+    plugins: photonPlugin === undefined ? [] : [photonPlugin.plugin],
+  })
+  if (!result.success) {
+    fail(
+      `failed to compile ${name}: ${result.logs
+        .map((log) => log.message)
+        .join('\n')
+        .trim()}`
+    )
+  }
+  photonPlugin?.assertTransformed()
 }
 
 function assertAbsolute(path: string, label: string): string {
@@ -314,13 +417,17 @@ function readDriverInventory(launcher: string, executableName: ExecutableName, c
     fail(`worker ${executableName} driver inventory returned invalid JSON`)
   }
   if (!Array.isArray(drivers)) fail(`worker ${executableName} driver inventory is not an array`)
-  return new Set(
-    drivers.flatMap((entry) => {
-      if (typeof entry !== 'object' || entry === null) return []
-      const kind = (entry as Record<string, unknown>)['kind']
-      return typeof kind === 'string' ? [kind] : []
-    })
-  )
+  const inventory = new Map<string, boolean>()
+  for (const entry of drivers) {
+    if (typeof entry !== 'object' || entry === null) continue
+    const summary = entry as Record<string, unknown>
+    const kind = summary['kind']
+    const available = summary['available']
+    if (typeof kind !== 'string' || typeof available !== 'boolean') continue
+    if (inventory.has(kind)) fail(`worker ${executableName} advertises duplicate driver: ${kind}`)
+    inventory.set(kind, available)
+  }
+  return inventory
 }
 
 function inspectWorkerBindings(
@@ -337,7 +444,7 @@ function inspectWorkerBindings(
   ) {
     fail('invalid worker binding table')
   }
-  const inventories = new Map<ExecutableName, Set<string>>()
+  const inventories = new Map<ExecutableName, Map<string, boolean>>()
   for (const [driver, executableName] of Object.entries(workerBindings)) {
     if (
       driver.length === 0 ||
@@ -454,6 +561,13 @@ export function inspectRelease(inputPath: string): ReleaseInspection {
   if (workerBindings !== undefined && assetResolution['claude-statusline'] === undefined) {
     fail('binding-aware release is missing required asset: claude-statusline')
   }
+  if (
+    (workerBindings?.['agent-harness'] === 'agent-harness' ||
+      workerBindings?.['agent-harness-tmux'] === 'agent-harness') &&
+    assetResolution['photon-wasm'] === undefined
+  ) {
+    fail('agent-harness release worker is missing required asset: photon-wasm')
+  }
   inspectWorkerBindings(manifest, resolution, releasePath)
 
   return {
@@ -499,7 +613,7 @@ async function buildRelease(outputRootInput: string): Promise<ReleaseInspection>
     for (const [name, definition] of Object.entries(RELEASE_ASSETS) as Array<
       [ReleaseAssetName, (typeof RELEASE_ASSETS)[ReleaseAssetName]]
     >) {
-      const source = join(REPO_ROOT, definition.source)
+      const source = releaseAssetSource(definition.source)
       const destination = join(staging, definition.path)
       mkdirSync(dirname(destination), { recursive: true, mode: 0o755 })
       copyFileSync(source, destination, constants.COPYFILE_EXCL)
@@ -512,17 +626,7 @@ async function buildRelease(outputRootInput: string): Promise<ReleaseInspection>
       const payload = join(staging, 'libexec', name)
       const entry = join(REPO_ROOT, EXECUTABLES[name])
       const embeddedIdentity = JSON.stringify({ releaseId: id, sourceCommit, builtAt })
-      run([
-        'bun',
-        'build',
-        '--compile',
-        '--target=bun',
-        '--define',
-        `ASP_RELEASE_EMBEDDED_IDENTITY=${embeddedIdentity}`,
-        '--outfile',
-        payload,
-        entry,
-      ])
+      await compileReleaseExecutable(name, entry, payload, embeddedIdentity)
       chmodSync(payload, 0o755)
       const launcher = join(staging, name)
       writeFileSync(launcher, launcherScript(name, id, sourceCommit, builtAt), { mode: 0o755 })

@@ -4,7 +4,7 @@
  * `spaces-aspc` no longer builds its own JSON-RPC transport (that lived in
  * `spaces-harness-broker`); it exposes a registration entrypoint that binds the
  * ASPC compile plane onto a caller-supplied server object. It must register
- * exactly the eleven read/compile methods — no `aspc.compileAndStart`, no
+ * exactly the twelve read/compile methods — no `aspc.compileAndStart`, no
  * `broker.*`, no `invocation.*` — and report its capabilities honestly.
  *
  * The cohosted direction of every capability flag asserted here is pinned in
@@ -32,6 +32,7 @@ const COMPILE_METHODS = [
   'aspc.inspectRuntimePlacement',
   'aspc.observeContinuationArtifact',
   'aspc.observeRuntimeCapability',
+  'aspc.prepareProcessInvocation',
   'aspc.resolveRuntimeDeclaration',
 ]
 
@@ -62,7 +63,7 @@ function recordingServer(): {
 }
 
 describe('compile-only ASPC registration', () => {
-  test('AC-3: registers exactly the eleven read/compile methods on the injected server', () => {
+  test('AC-3: registers exactly the twelve read/compile methods on the injected server', () => {
     const server = recordingServer()
     registerAspcCompileMethods(server)
 
@@ -106,5 +107,6 @@ describe('compile-only ASPC registration', () => {
     expect(response.capabilities.inspectRuntimePlacement).toBe(true)
     expect(response.capabilities.observeRuntimeCapability).toBe(true)
     expect(response.capabilities.observeContinuationArtifact).toBe(true)
+    expect(response.capabilities.prepareProcessInvocation).toBe(true)
   })
 })

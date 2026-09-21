@@ -789,7 +789,10 @@ export async function runInteractiveClaudeTmuxSession(
     driverTmuxArgv,
     turns,
     provenance: {
-      realClaudeArgv: [spec.process.command, ...spec.process.args],
+      realClaudeArgv:
+        spec.process.command !== undefined && spec.process.args !== undefined
+          ? [spec.process.command, ...spec.process.args]
+          : [],
       launchCommandLine: undefined,
       hookBridgeCommand,
       mockClaude: options.mockClaude,

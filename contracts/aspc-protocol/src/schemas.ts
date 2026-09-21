@@ -665,7 +665,15 @@ function validateContinuationObservation(
       if (frozen['brokerDriver'] !== undefined) {
         requireEnum(
           frozen['brokerDriver'],
-          ['codex-app-server', 'claude-code-tmux', 'codex-cli-tmux', 'pi-tui-tmux', 'pi-sdk'],
+          [
+            'codex-app-server',
+            'claude-code-tmux',
+            'codex-cli-tmux',
+            'pi-tui-tmux',
+            'pi-sdk',
+            'agent-harness',
+            'agent-harness-tmux',
+          ],
           path(basePath, 'historicalExecution.frozenStartRequest.brokerDriver'),
           issues
         )

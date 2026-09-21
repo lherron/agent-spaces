@@ -17,15 +17,19 @@ export function createDriverRegistry(drivers: Driver[]): DriverRegistry {
       return map.get(kind)
     },
     summaries(): DriverSummary[] {
-      return drivers.map((d) => ({
-        kind: d.kind,
-        version: d.version,
-        available: true,
-        capabilities: d.capabilities(),
-        // Published so a consumer or the parity report reads the LIVE broker's
-        // declared authority matrix rather than a checked-in copy of AUTHORITY.md.
-        evidenceAuthority: d.evidenceAuthority,
-      }))
+      return drivers.map((d) => {
+        const unavailableReason = d.unavailableReason?.()
+        return {
+          kind: d.kind,
+          version: d.version,
+          available: unavailableReason === undefined,
+          ...(unavailableReason !== undefined ? { unavailableReason } : {}),
+          capabilities: d.capabilities(),
+          // Published so a consumer or the parity report reads the LIVE broker's
+          // declared authority matrix rather than a checked-in copy of AUTHORITY.md.
+          evidenceAuthority: d.evidenceAuthority,
+        }
+      })
     },
   }
 }

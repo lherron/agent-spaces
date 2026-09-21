@@ -50,6 +50,7 @@ import {
   withDeliveryEvidence,
   withSteerRequiresOwnTurn,
 } from '../driver'
+import { hasChildHarnessProcess } from '../driver'
 import { CODEX_APP_SERVER_AUTHORITY } from '../evidence-authority'
 import { createHookCaptureSeam } from '../hook-capture'
 import { getString } from '../hook-json'
@@ -1417,6 +1418,12 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
     ): Promise<DriverStartResult> {
       if (startSpec.driver.kind !== 'codex-app-server') {
         throw new BrokerError(BrokerErrorCode.DriverUnavailable, 'Invalid Codex driver spec')
+      }
+      if (!hasChildHarnessProcess(startSpec)) {
+        throw new BrokerError(
+          BrokerErrorCode.DispatchValidationFailed,
+          'codex-app-server requires a child harness process'
+        )
       }
 
       ctx = driverCtx

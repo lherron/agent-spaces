@@ -1,3 +1,5 @@
+import { basename } from 'node:path'
+
 import type { HygieneGateFinding, RuntimePlacement } from 'spaces-config'
 import { MaterializationHygieneError } from 'spaces-config'
 import type {
@@ -9,6 +11,7 @@ import type {
   ProcessLimits,
 } from 'spaces-harness-broker-protocol'
 import { validateInvocationSpec } from 'spaces-harness-broker-protocol'
+import { loadAgentSemantics } from 'spaces-runtime'
 import type { AttachmentRef } from 'spaces-runtime'
 import {
   type AgentchatExposurePolicy,
@@ -44,11 +47,17 @@ import {
 } from 'spaces-runtime-contracts'
 
 import {
+  combineBrokerPrompts,
+  deriveHandleParts,
   toHarnessBrokerStartRequest,
   validateBrokerInvocationRequest,
 } from './broker-invocation.js'
 import { PI_SDK_FRONTEND, resolveFrontend } from './client-support.js'
-import type { AgentSpacesRuntimeDependencies } from './placement-api.js'
+import { type AgentSpacesRuntimeDependencies, requireAgentSpacesRuntime } from './placement-api.js'
+import {
+  buildPreparationExecutionContext,
+  promptSourcesForCompile,
+} from './preparation-execution-context.js'
 import {
   type PreparedPlacementCliRuntime,
   preparePlacementCliRuntime,
@@ -171,7 +180,7 @@ interface AssemblePlanInput {
   harness: CompiledRuntimePlan['harness']
   model: CompiledRuntimePlan['model']
   executionProfiles: CompiledRuntimePlan['executionProfiles']
-  materializedBundleRoot: string
+  materializedBundleRoot?: string | undefined
   systemPromptFile?: string | undefined
   lockHash?: string | undefined
   bundleIdentity: string
@@ -220,7 +229,7 @@ function assemblePlan(input: AssemblePlanInput): RuntimeCompileResponse {
     model,
     executionProfiles,
     artifacts: {
-      materializedBundleRoot,
+      ...(materializedBundleRoot !== undefined ? { materializedBundleRoot } : {}),
       ...(systemPromptFile !== undefined ? { systemPromptFile } : {}),
       ...(lockHash !== undefined ? { lockHash } : {}),
       bundleIdentity,
@@ -303,7 +312,7 @@ interface FinalizePlanInput {
   harness: CompiledRuntimePlan['harness']
   model: CompiledRuntimePlan['model']
   executionProfiles: CompiledRuntimePlan['executionProfiles']
-  materializedBundleRoot: string
+  materializedBundleRoot?: string | undefined
   systemPromptFile?: string | undefined
   lockHash?: string | undefined
   lockedEnvKeys: string[]
@@ -366,7 +375,9 @@ function finalizePlan(input: FinalizePlanInput): RuntimeCompileResponse {
     harness: input.harness,
     model: input.model,
     executionProfiles: input.executionProfiles,
-    materializedBundleRoot: input.materializedBundleRoot,
+    ...(input.materializedBundleRoot !== undefined
+      ? { materializedBundleRoot: input.materializedBundleRoot }
+      : {}),
     ...(input.systemPromptFile !== undefined ? { systemPromptFile: input.systemPromptFile } : {}),
     ...(input.lockHash !== undefined ? { lockHash: input.lockHash } : {}),
     bundleIdentity: input.bundleIdentity,
@@ -1035,6 +1046,9 @@ export async function compileRuntimePlan(
   const startedAtMs = performance.now()
   try {
     const placement = req.placement as CompilePlacement
+    if (req.requested.preferredHarnessRuntime === 'agent-harness') {
+      return await compileNativeAgentHarnessPlan(req, placement, options)
+    }
     if (req.requested.interactionMode === 'interactive') {
       const brokerBuilder = resolveInteractiveBrokerBuilder(req)
       if (brokerBuilder) {
@@ -1531,6 +1545,311 @@ async function compilePiSdkBrokerPlan(
     ...(prepared.systemPrompt?.path !== undefined
       ? { systemPromptFile: prepared.systemPrompt.path }
       : {}),
+    ...(lockHash !== undefined ? { lockHash } : {}),
+    lockedEnvKeys,
+    nowIso: options?.compileContext?.nowIso,
+  })
+}
+
+function validateNativeAgentHarnessRoute(req: RuntimeCompileRequest): CompileDiagnostic[] {
+  const diagnostics: CompileDiagnostic[] = []
+  if (req.requested.harnessFamily !== undefined && req.requested.harnessFamily !== 'pi') {
+    diagnostics.push(
+      compileError('unsupported_harness', 'agent-harness requires harnessFamily pi', {
+        requested: req.requested.harnessFamily,
+      })
+    )
+  }
+  if (req.requested.modelProvider !== undefined && req.requested.modelProvider !== 'openai') {
+    diagnostics.push(
+      compileError('unsupported_provider', 'agent-harness requires modelProvider openai', {
+        requested: req.requested.modelProvider,
+      })
+    )
+  }
+  if (
+    req.requested.interactionMode !== 'headless' &&
+    req.requested.interactionMode !== 'interactive'
+  ) {
+    diagnostics.push(
+      compileError(
+        'unsupported_interaction_mode',
+        'agent-harness requires interactionMode headless or interactive',
+        { requested: req.requested.interactionMode ?? null }
+      )
+    )
+  }
+  return diagnostics
+}
+
+function nativeAgentHarnessSpec(
+  req: RuntimeCompileRequest,
+  placement: CompilePlacement,
+  aspHome: string
+): NonNullable<BuildHarnessBrokerInvocationRequest['agent']> {
+  const handle = deriveHandleParts(placement)
+  return {
+    agentId: handle.agentId ?? basename(placement.agentRoot),
+    ...(handle.projectId !== undefined ? { projectId: handle.projectId } : {}),
+    agentRoot: placement.agentRoot,
+    ...(placement.projectRoot !== undefined ? { projectRoot: placement.projectRoot } : {}),
+    aspHome,
+    runMode: placement.runMode,
+    ...(req.correlation.scopeRef !== undefined ? { scopeRef: req.correlation.scopeRef } : {}),
+    ...(req.correlation.laneRef !== undefined ? { laneRef: req.correlation.laneRef } : {}),
+    ...(req.identity.runId !== undefined ? { runId: req.identity.runId } : {}),
+    hostSessionId: req.identity.hostSessionId,
+    generation: req.identity.generation,
+  }
+}
+
+function resolvedReasoningEffort(
+  value: string | undefined
+): RuntimeCompileRequest['requested']['reasoningEffort'] {
+  return value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh'
+    ? value
+    : undefined
+}
+
+/**
+ * Compile the first-party route without projecting a child executable. The
+ * release-selected worker owns the driver; this compiler only emits its
+ * hash-covered runtime inputs and HRC presentation intent.
+ */
+async function compileNativeAgentHarnessPlan(
+  req: RuntimeCompileRequest,
+  placement: CompilePlacement,
+  options?: CompileRuntimePlanOptions
+): Promise<RuntimeCompileResponse> {
+  const routeDiagnostics = validateNativeAgentHarnessRoute(req)
+  if (routeDiagnostics.length > 0) {
+    return {
+      schemaVersion: 'agent-runtime-compile-response/v1',
+      ok: false,
+      diagnostics: routeDiagnostics,
+    }
+  }
+
+  const interactionMode = req.requested.interactionMode as 'headless' | 'interactive'
+  const driverKind =
+    interactionMode === 'interactive' ? ('agent-harness-tmux' as const) : ('agent-harness' as const)
+  const promptSources = promptSourcesForCompile(options?.clientAspHome)
+  const semanticAgent = nativeAgentHarnessSpec(req, placement, promptSources.aspHome)
+  const preparation = buildPreparationExecutionContext(placement, {
+    promptSources,
+    identityHints: {
+      agentId: semanticAgent.agentId,
+      ...(semanticAgent.projectId !== undefined ? { projectId: semanticAgent.projectId } : {}),
+    },
+  })
+  const resolved = await loadAgentSemantics(
+    {
+      ...semanticAgent,
+      cwd: placement.cwd,
+      provider: 'openai',
+      ...(req.requested.model !== undefined ? { model: req.requested.model } : {}),
+      ...(req.requested.reasoningEffort !== undefined
+        ? { reasoningEffort: req.requested.reasoningEffort }
+        : {}),
+      ...(placement.lockedEnv !== undefined ? { lockedEnv: placement.lockedEnv } : {}),
+      ...(placement.dispatchEnv !== undefined ? { dispatchEnv: placement.dispatchEnv } : {}),
+      baseEnvironment: preparation.execEnv,
+    },
+    requireAgentSpacesRuntime(options?.clientRuntime)
+  )
+  const resolvedAgent = {
+    ...semanticAgent,
+    agentId: resolved.agentId,
+    ...(resolved.projectId !== undefined ? { projectId: resolved.projectId } : {}),
+    agentRoot: resolved.placement.agentRoot,
+    ...(resolved.placement.projectRoot !== undefined
+      ? { projectRoot: resolved.placement.projectRoot }
+      : {}),
+    aspHome: resolved.aspHome,
+    runMode: resolved.placement.runMode,
+  }
+
+  const permissionPolicy = req.hrcPolicy.permissionPolicy ?? { mode: 'deny' as const, audit: true }
+  if (interactionMode === 'interactive' && permissionPolicy.mode === 'ask-client') {
+    return {
+      schemaVersion: 'agent-runtime-compile-response/v1',
+      ok: false,
+      diagnostics: [
+        compileError(
+          'agent_harness_tmux_forbids_ask_client',
+          'agent-harness-tmux cannot use ask-client permission policy without a broker-mediated approval surface.'
+        ),
+      ],
+    }
+  }
+  const inputPolicy: BrokerInputPolicy =
+    req.hrcPolicy.inputPolicy ?? DEFAULT_CODEX_BROKER_INPUT_POLICY
+  const attachments = toBrokerAttachments(req.materialization.attachments)
+  const taskId = req.materialization.taskContext?.taskId
+  const modelRoute = resolved.model
+  const modelId = modelRoute.alias
+  const reasoningEffort = resolvedReasoningEffort(
+    req.requested.reasoningEffort ?? resolved.reasoningEffort
+  )
+  const initialPrompt = combineBrokerPrompts(
+    req.continuation === undefined
+      ? resolved.sources.placementContext.materialization.effectiveConfig?.priming
+      : undefined,
+    req.materialization.initialPrompt,
+    req.materialization.omitPriming ?? false
+  )
+  const prepared = {
+    cwd: resolved.sources.cwd,
+    // The profile serializes declared worker-local locks, never the resolved
+    // environment (which can contain credentials). The worker reloads source
+    // resources through the same semantic agent block at birth/replacement.
+    lockedEnv: { ...(placement.lockedEnv ?? {}) },
+    pathPrepend: resolved.sources.pathPrepend,
+    ...(initialPrompt !== undefined ? { expandedPrompt: initialPrompt } : {}),
+    imageAttachmentPaths: (req.materialization.attachments ?? [])
+      .filter((attachment) => attachment.kind === 'image')
+      .map((attachment) => attachment.path)
+      .filter((path): path is string => path !== undefined),
+    resolvedBundle: resolved.sources.placementContext.resolvedBundle,
+    warnings: resolved.warnings,
+  }
+  const brokerReq: BuildHarnessBrokerInvocationRequest = {
+    placement,
+    provider: 'openai',
+    frontend: 'agent-harness-tui',
+    interactionMode,
+    brokerDriver: driverKind,
+    harnessTransport: { kind: 'native-worker' },
+    sdk: {
+      runtime: 'pi-sdk',
+      provider: modelRoute.piProvider,
+      modelId: modelRoute.piModelId,
+      authMode: modelRoute.authMode,
+      ...(reasoningEffort !== undefined ? { thinkingLevel: reasoningEffort } : {}),
+    },
+    agent: resolvedAgent,
+    ...(req.continuation?.hrc.key !== undefined
+      ? { continuation: { provider: 'openai', key: req.continuation.hrc.key } }
+      : {}),
+    prompt: req.materialization.initialPrompt,
+    omitPriming: req.materialization.omitPriming,
+    ...(req.materialization.responseFormat !== undefined
+      ? { responseFormat: req.materialization.responseFormat }
+      : {}),
+    ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
+    ...(req.identity.invocationId !== undefined ? { invocationId: req.identity.invocationId } : {}),
+    ...(req.identity.initialInputId !== undefined
+      ? { initialInputId: req.identity.initialInputId }
+      : {}),
+    ...(options?.compileContext?.idSalt !== undefined
+      ? { idSalt: options.compileContext.idSalt }
+      : {}),
+    generation: req.identity.generation,
+    ...(taskId !== undefined ? { labels: { task: taskId } } : {}),
+    correlation: brokerCorrelation(req),
+    permissionPolicy: toBrokerPermissionPolicy(permissionPolicy),
+    limits: toProcessLimits(req.hrcPolicy.resourceLimits),
+    interaction: { inputQueue: 'fifo' },
+    resumeFallback: 'fail',
+  }
+  validateBrokerInvocationRequest(brokerReq)
+  const brokerInvocation = toHarnessBrokerStartRequest(prepared, brokerReq)
+  const { startRequest, spec } = brokerInvocation
+  const lockedEnv = spec.process.lockedEnv ?? {}
+  const lockedEnvKeys = Object.keys(lockedEnv).sort()
+  const bundleIdentity = brokerInvocation.resolvedBundle?.bundleIdentity ?? 'unknown'
+  const lockHash = (brokerInvocation.resolvedBundle as { lockHash?: string } | undefined)?.lockHash
+  const hashStartRequest = hashNeutralStartRequest(startRequest)
+  const profileId = stableId('profile', {
+    kind: 'harness-broker',
+    brokerDriver: driverKind,
+    startRequest: hashStartRequest,
+  }) as ProfileId
+  const compatibilityHash = hashValue(
+    buildCompatibilityMaterial(req, hashStartRequest, bundleIdentity, lockHash, lockedEnv)
+  )
+  const specHash = neutralSpecHash(spec)
+  const startRequestHash = neutralStartRequestHash(startRequest)
+  const initialInputHash =
+    startRequest.initialInput !== undefined ? hashValue(startRequest.initialInput) : undefined
+  const profileMaterial = {
+    schemaVersion: 'agent-runtime-profile/v1' as const,
+    profileId,
+    kind: 'harness-broker' as const,
+    interactionMode,
+    expectedCapabilities: expectedCapabilities(permissionPolicy, {
+      inputQueue: 'required',
+      attachReplay: 'optional',
+    }),
+    brokerProtocol: 'harness-broker/0.2' as const,
+    brokerDriver: driverKind,
+    brokerOwnership: 'hrc-owned-process' as const,
+    ...(interactionMode === 'interactive' ? { brokerTerminal: TMUX_BROKER_TERMINAL } : {}),
+    harnessInvocation: {
+      startRequest,
+      specHash,
+      startRequestHash,
+      ...(initialInputHash !== undefined ? { initialInputHash } : {}),
+    },
+    policy: {
+      permissionPolicy,
+      inputPolicy,
+      exposurePolicy:
+        interactionMode === 'interactive'
+          ? TMUX_BROKER_EXPOSURE_POLICY
+          : (req.hrcPolicy.exposurePolicy ?? { mode: 'none' as const }),
+      ...(req.hrcPolicy.resourceLimits !== undefined
+        ? { resourceLimits: req.hrcPolicy.resourceLimits }
+        : {}),
+    },
+    ...(req.continuation !== undefined
+      ? { continuation: { hrc: req.continuation, broker: req.continuation.broker } }
+      : {}),
+    observability: brokerObservability(
+      req,
+      startRequest.spec.invocationId ??
+        req.identity.invocationId ??
+        (profileId as unknown as InvocationId)
+    ),
+  }
+  const profileHash = projectionHash(
+    {
+      ...profileMaterial,
+      harnessInvocation: { startRequest: hashStartRequest, specHash, startRequestHash },
+      observability: { correlation: hashNeutralCompileIdentity(req.identity) },
+      compatibilityHash,
+    },
+    'profile'
+  ).profileHash
+  const profile: BrokerExecutionProfile = { ...profileMaterial, profileHash, compatibilityHash }
+  const validationDiagnostics = validateBrokerExecutionProfile(profile)
+  if (validationDiagnostics.length > 0) {
+    return {
+      schemaVersion: 'agent-runtime-compile-response/v1',
+      ok: false,
+      diagnostics: validationDiagnostics,
+    }
+  }
+  return finalizePlan({
+    req,
+    profileHash,
+    profileId,
+    preparedWarnings: brokerInvocation.warnings,
+    effectiveEnvironmentHash: preparation.effectiveEnvironmentHash,
+    disallowedToolsContext: { selectedDriver: driverKind },
+    resolvedBundleSource: brokerInvocation.resolvedBundle,
+    omitPriming: req.materialization.omitPriming ?? false,
+    bundleIdentity,
+    placement,
+    agentPolicy: resolved.sources.placementContext.agentPolicy,
+    harness: { family: 'pi', runtime: 'agent-harness', provider: 'openai' },
+    model: {
+      provider: 'openai',
+      modelId,
+      ...(req.requested.model !== undefined ? { requestedModel: req.requested.model } : {}),
+      ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
+    },
+    executionProfiles: [profile],
     ...(lockHash !== undefined ? { lockHash } : {}),
     lockedEnvKeys,
     nowIso: options?.compileContext?.nowIso,

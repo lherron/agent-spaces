@@ -23,6 +23,33 @@ test('pi SDK declares ack-backed interrupt landing evidence', () => {
   expect(createPiSdkDriver().capabilities().interrupt.landingEvidence).toBe('ack')
 })
 
+describe('native release-worker Pi composition', () => {
+  test('requires both native-worker execution and native-worker transport', async () => {
+    const events: CapturedEvent[] = []
+    let constructed = false
+    const driver = createPiSdkDriver({
+      driverKind: 'agent-harness',
+      requiredHarnessTransport: 'native-worker',
+      async createSession() {
+        constructed = true
+        return idleSession()
+      },
+    })
+
+    await expect(
+      driver.start(nativeWorkerSpec({ execution: undefined }), createContext(events))
+    ).rejects.toThrow('agent-harness requires native-worker process execution')
+    await expect(
+      driver.start(nativeWorkerSpec({ transport: 'in-process' }), createContext(events))
+    ).rejects.toThrow('agent-harness requires native-worker harness transport')
+    expect(constructed).toBe(false)
+
+    await driver.start(nativeWorkerSpec(), createContext(events))
+    expect(constructed).toBe(true)
+    expect(events[0]?.payload).toMatchObject({ command: process.execPath, args: [] })
+  })
+})
+
 describe('pi SDK driver structured output', () => {
   test('re-validates tool args and synthesizes canonical JSON after one retry', async () => {
     const events: CapturedEvent[] = []
@@ -402,6 +429,24 @@ function spec(
       harnessTransport: { kind: 'in-process' },
     },
   }
+}
+
+function nativeWorkerSpec(
+  options: { execution?: unknown; transport?: string } = {}
+): HarnessInvocationSpec {
+  const execution = Object.hasOwn(options, 'execution') ? options.execution : 'native-worker'
+  return {
+    specVersion: 'harness-broker.invocation/v1',
+    invocationId: 'native-worker-driver-test',
+    harness: { frontend: 'agent-harness', provider: 'openai', driver: 'agent-harness' },
+    driver: { kind: 'agent-harness' },
+    sdk: { runtime: 'pi-sdk', provider: 'openai', modelId: 'gpt-4.1-nano', authMode: 'api-key' },
+    process: {
+      execution,
+      cwd: '/tmp',
+      harnessTransport: { kind: options.transport ?? 'native-worker' },
+    },
+  } as unknown as HarnessInvocationSpec
 }
 
 function createContext(

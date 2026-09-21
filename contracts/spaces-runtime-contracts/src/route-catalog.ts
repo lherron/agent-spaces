@@ -26,7 +26,7 @@ export type RuntimeRouteCatalogEntry = {
     | {
         protocolVersion: 'harness-broker/0.2'
         driver: 'codex-app-server' | string
-        processTransport: 'jsonrpc-stdio' | 'pty' | 'in-process'
+        processTransport: 'jsonrpc-stdio' | 'pty' | 'in-process' | 'native-worker'
       }
     | undefined
   piSdkModels?: readonly PiSdkModelCatalogEntry[] | undefined
@@ -214,6 +214,36 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = defineRuntimeRo
       piSdkModels,
     })
   ),
+  {
+    controller: 'harness-broker',
+    modelProvider: 'openai',
+    harnessFamily: 'pi',
+    harnessRuntime: 'agent-harness',
+    interactionMode: 'headless',
+    startupMethods: ['create-broker-invocation', 'reuse-existing'],
+    turnDeliveries: ['broker-input'],
+    lifecycle: BROKER_LIFECYCLE_BASELINE,
+    broker: {
+      protocolVersion: 'harness-broker/0.2',
+      driver: 'agent-harness',
+      processTransport: 'native-worker',
+    },
+  },
+  {
+    controller: 'harness-broker',
+    modelProvider: 'openai',
+    harnessFamily: 'pi',
+    harnessRuntime: 'agent-harness',
+    interactionMode: 'interactive',
+    startupMethods: ['create-broker-invocation', 'reuse-existing'],
+    turnDeliveries: ['broker-input', 'terminal-literal-input'],
+    lifecycle: BROKER_LIFECYCLE_BASELINE,
+    broker: {
+      protocolVersion: 'harness-broker/0.2',
+      driver: 'agent-harness-tmux',
+      processTransport: 'native-worker',
+    },
+  },
   {
     controller: 'harness-broker',
     modelProvider: 'openai',

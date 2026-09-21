@@ -2,6 +2,12 @@ export * from './harness/index.js'
 export * from './session/index.js'
 export * from './agent-memory/index.js'
 export { normalizeAgentInspectionEvaluationContext } from './agent-inspection-context.js'
+export { loadAgentSemantics, resolveAgentHarnessModel } from './agent-semantic-preparation.js'
+export type {
+  AgentSemanticPreparationRuntime,
+  LoadAgentSemanticOptions,
+  ResolvedAgentSemantics,
+} from './agent-semantic-preparation.js'
 export { parseContextTemplate } from './context-template.js'
 export {
   expandTemplate,

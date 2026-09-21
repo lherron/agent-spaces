@@ -479,8 +479,30 @@ function validateSpec(value: unknown, issues: ValidationIssue[], prefix = ''): v
   if (!process) {
     issues.push(makeIssue(joinPath(prefix, 'process'), 'required', 'process is required'))
   } else {
-    requireString(process['command'], joinPath(prefix, 'process.command'), issues)
-    requireStringArray(process['args'], joinPath(prefix, 'process.args'), issues)
+    const nativeWorker = process['execution'] === 'native-worker'
+    if (nativeWorker) {
+      if (Object.hasOwn(process, 'command')) {
+        issues.push(
+          makeIssue(
+            joinPath(prefix, 'process.command'),
+            'forbidden',
+            'native-worker process must not declare a command'
+          )
+        )
+      }
+      if (Object.hasOwn(process, 'args')) {
+        issues.push(
+          makeIssue(
+            joinPath(prefix, 'process.args'),
+            'forbidden',
+            'native-worker process must not declare args'
+          )
+        )
+      }
+    } else {
+      requireString(process['command'], joinPath(prefix, 'process.command'), issues)
+      requireStringArray(process['args'], joinPath(prefix, 'process.args'), issues)
+    }
     requireString(process['cwd'], joinPath(prefix, 'process.cwd'), issues)
     validateEnv(process['lockedEnv'], joinPath(prefix, 'process.lockedEnv'), issues, 'lockedEnv')
     optionalStringArray(process['pathPrepend'], joinPath(prefix, 'process.pathPrepend'), issues)
@@ -490,6 +512,7 @@ function validateSpec(value: unknown, issues: ValidationIssue[], prefix = ''): v
       issues
     )
     validateProcessLimits(process['limits'], joinPath(prefix, 'process.limits'), issues)
+    validateNativeWorkerProcessShape(process, harness, prefix, issues)
   }
 
   validateInteraction(spec['interaction'], joinPath(prefix, 'interaction'), issues)
@@ -523,6 +546,60 @@ function validateSpec(value: unknown, issues: ValidationIssue[], prefix = ''): v
   validateSdkContract(spec, harness, process, prefix, issues)
   validateAgentHarnessSpec(spec['agent'], joinPath(prefix, 'agent'), issues)
   validateLaunch(spec['launch'], joinPath(prefix, 'launch'), issues)
+}
+
+/**
+ * `native-worker` is an agent-harness-only process alternative. Keep this
+ * cross-field gate next to the generic process parser so it cannot become a
+ * globally admitted transport merely because its vocabulary is public.
+ */
+function validateNativeWorkerProcessShape(
+  process: SchemaRecord,
+  harness: SchemaRecord | undefined,
+  prefix: string,
+  issues: ValidationIssue[]
+): void {
+  const driverKind = harness?.['driver']
+  const isAgentHarness = driverKind === 'agent-harness' || driverKind === 'agent-harness-tmux'
+  const execution = process['execution']
+  const transportKind = asRecord(process['harnessTransport'])?.['kind']
+
+  if (!isAgentHarness && execution !== undefined) {
+    issues.push(
+      makeIssue(
+        joinPath(prefix, 'process.execution'),
+        'forbidden',
+        'execution is only supported by native agent-harness workers'
+      )
+    )
+  }
+  if (!isAgentHarness && transportKind === 'native-worker') {
+    issues.push(
+      makeIssue(
+        joinPath(prefix, 'process.harnessTransport.kind'),
+        'forbidden',
+        'native-worker transport is only supported by agent-harness drivers'
+      )
+    )
+  }
+  if (execution === 'native-worker' && transportKind !== 'native-worker') {
+    issues.push(
+      makeIssue(
+        joinPath(prefix, 'process.harnessTransport.kind'),
+        'invalid_literal',
+        'native-worker execution requires native-worker transport'
+      )
+    )
+  }
+  if (transportKind === 'native-worker' && execution !== 'native-worker') {
+    issues.push(
+      makeIssue(
+        joinPath(prefix, 'process.execution'),
+        'invalid_literal',
+        'native-worker transport requires native-worker execution'
+      )
+    )
+  }
 }
 
 function validateAgentHarnessSpec(value: unknown, prefix: string, issues: ValidationIssue[]): void {
@@ -559,7 +636,8 @@ function validateSdkContract(
 ): void {
   const sdkPath = joinPath(prefix, 'sdk')
   const driverKind = harness?.['driver']
-  const carriesSdkBlock = driverKind === 'pi-sdk'
+  const isAgentHarness = driverKind === 'agent-harness' || driverKind === 'agent-harness-tmux'
+  const carriesSdkBlock = driverKind === 'pi-sdk' || isAgentHarness
   // Eligibility for `in-process` transport is a DISTINCT predicate from carrying
   // an `sdk` block. A driver that runs inside the broker process and opens its
   // own transport — `arris-resident` dials the Arris control socket itself, so
@@ -589,7 +667,7 @@ function validateSdkContract(
   }
 
   if (!sdk) {
-    issues.push(makeIssue(sdkPath, 'required', 'sdk is required for the pi-sdk driver'))
+    issues.push(makeIssue(sdkPath, 'required', 'sdk is required for the Pi SDK-backed driver'))
   } else {
     optionalEnum(sdk['runtime'], ['pi-sdk'], joinPath(sdkPath, 'runtime'), issues, true)
     requireString(sdk['provider'], joinPath(sdkPath, 'provider'), issues)
@@ -600,6 +678,40 @@ function validateSdkContract(
 
   if (!process) {
     return
+  }
+  const transportKind = asRecord(process['harnessTransport'])?.['kind']
+  if (isAgentHarness) {
+    if (transportKind !== 'native-worker') {
+      issues.push(
+        makeIssue(
+          joinPath(prefix, 'process.harnessTransport.kind'),
+          'invalid_literal',
+          'agent-harness requires native-worker transport'
+        )
+      )
+    }
+    if (process['execution'] !== 'native-worker') {
+      issues.push(
+        makeIssue(
+          joinPath(prefix, 'process.execution'),
+          'invalid_literal',
+          'agent-harness requires native-worker execution'
+        )
+      )
+    }
+    if (spec['agent'] === undefined) {
+      issues.push(makeIssue(joinPath(prefix, 'agent'), 'required', 'agent-harness requires agent'))
+    }
+    const driver = asRecord(spec['driver'])
+    if (driver?.['controlProtocol'] !== undefined) {
+      issues.push(
+        makeIssue(
+          joinPath(prefix, 'driver.controlProtocol'),
+          'forbidden',
+          'agent-harness forbids private control protocols'
+        )
+      )
+    }
   }
   if (requiresInProcessHost && asRecord(process['harnessTransport'])?.['kind'] !== 'in-process') {
     issues.push(
@@ -1434,7 +1546,7 @@ function validateTurnRetryPolicy(
 
 /**
  * Spec §3.3 dispatch-time contract: a `claude-code-tmux` / `codex-cli-tmux` /
- * `pi-tui-tmux`
+ * `pi-tui-tmux` / `agent-harness-tmux`
  * dispatch MUST carry a runtime-owned terminal surface on the dispatch
  * envelope. The compiled profile emits launch INTENT only — the concrete
  * tmux server socket and pane are runtime allocations supplied by HRC (or
@@ -1514,7 +1626,8 @@ function validateDispatchRuntime(
     driverKind !== 'claude-code-tmux' &&
     driverKind !== 'codex-cli-tmux' &&
     driverKind !== 'pi-tui-tmux' &&
-    driverKind !== 'muse-cli-tmux'
+    driverKind !== 'muse-cli-tmux' &&
+    driverKind !== 'agent-harness-tmux'
   ) {
     return
   }
@@ -2628,7 +2741,7 @@ function validateHarnessTransport(
   }
   optionalEnum(
     transport['kind'],
-    ['jsonrpc-stdio', 'pipes', 'pty', 'in-process'],
+    ['jsonrpc-stdio', 'pipes', 'pty', 'in-process', 'native-worker'],
     joinPath(basePath, 'kind'),
     issues,
     true

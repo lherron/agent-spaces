@@ -48,6 +48,9 @@ export async function observeRuntimeCapability(
       []
     )
   }
+  if (harness === 'agent-harness') {
+    return capabilitySuccess(requested, harness, 'present', 'present', [])
+  }
 
   const diagnostics: Diagnostic[] = []
   if (harness === 'codex') {
@@ -381,7 +384,7 @@ async function credentialFact(
   | { state: 'absent'; code: 'credentials_missing' }
   | { state: 'unknown'; code: 'credential_source_unreadable' }
 > {
-  if (harness === 'pi' || harness === 'pi-sdk') {
+  if (harness === 'pi' || harness === 'pi-sdk' || harness === 'agent-harness') {
     const present = Boolean(process.env['OPENAI_API_KEY'] || process.env['ANTHROPIC_API_KEY'])
     if (present) return { state: 'present', code: 'credentials_present' }
     return credentialPathFact(join(runtimeHome(), '.pi', 'agent', 'auth.json'))
@@ -440,10 +443,11 @@ function capabilityFailure(kind: 'unavailable' | 'incompatible', code: string, m
 
 function normalizeHarness(
   value: string
-): 'claude' | 'pi' | 'pi-sdk' | 'codex' | 'muse' | undefined {
+): 'claude' | 'pi' | 'pi-sdk' | 'agent-harness' | 'codex' | 'muse' | undefined {
   if (value === 'claude' || value === 'claude-code' || value === 'claude-agent-sdk') return 'claude'
   if (value === 'pi' || value === 'pi-cli') return 'pi'
   if (value === 'pi-sdk') return 'pi-sdk'
+  if (value === 'agent-harness' || value === 'agent-harness-tui') return 'agent-harness'
   if (value === 'codex' || value === 'codex-cli') return 'codex'
   if (value === 'muse' || value === 'muse-cli') return 'muse'
   return undefined

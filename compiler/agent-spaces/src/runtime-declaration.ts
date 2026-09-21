@@ -347,7 +347,9 @@ function provisioning(
     provider: entry.provider,
     transport: entry.transport,
     family: entry.id,
-    runtime: entry.frontend,
+    // agent-harness is a first-party compiler/runtime discriminator. Its
+    // frontend names the presentation surface, not a generic adapter runtime.
+    runtime: entry.id === 'agent-harness' ? entry.id : entry.frontend,
   }
 }
 

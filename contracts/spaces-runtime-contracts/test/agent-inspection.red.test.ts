@@ -253,6 +253,20 @@ describe('agent inspection consumer boundary', () => {
     }
 
     expect(validate(context)).toBe(context)
+    expect(
+      validate({
+        ...context,
+        environment: { EMPTY_VALUE: '' },
+        predicateInputs: { ...context.predicateInputs, environment: { EMPTY_VALUE: '' } },
+        execInputs: { ...context.execInputs, environment: { EMPTY_VALUE: '' } },
+      })
+    ).toBeDefined()
+    const invalidEnvironmentIssues = validationIssues(() =>
+      validate({ ...context, environment: { NOT_A_STRING: 1 } })
+    )
+    expect(invalidEnvironmentIssues.map((issue) => issue.path)).toContain(
+      'environment.NOT_A_STRING'
+    )
     const issues = validationIssues(() =>
       validate({ schemaVersion: context.schemaVersion, identifiers: context.identifiers })
     )

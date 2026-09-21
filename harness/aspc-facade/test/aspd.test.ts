@@ -56,6 +56,7 @@ function fakeRelease(base: string, manifestOverrides: Record<string, unknown> = 
   writeFileSync(join(root, 'libexec', 'aspd'), '#!/bin/sh\n', { mode: 0o555 })
   writeFileSync(join(root, 'harness-broker'), '#!/bin/sh\n', { mode: 0o555 })
   writeFileSync(join(root, 'harness-broker-pi'), '#!/bin/sh\n', { mode: 0o555 })
+  writeFileSync(join(root, 'agent-harness'), '#!/bin/sh\n', { mode: 0o555 })
   writeFileSync(join(root, 'assets', 'claude', 'statusline.sh'), '#!/bin/sh\n')
   writeFileSync(
     join(root, 'release.json'),
@@ -65,12 +66,15 @@ function fakeRelease(base: string, manifestOverrides: Record<string, unknown> = 
       executables: {
         'harness-broker': { launcher: 'harness-broker' },
         'harness-broker-pi': { launcher: 'harness-broker-pi' },
+        'agent-harness': { launcher: 'agent-harness' },
       },
       workerBindings: {
         'codex-app-server': 'harness-broker',
         'claude-code-tmux': 'harness-broker',
         'pi-tui-tmux': 'harness-broker',
         'pi-sdk': 'harness-broker-pi',
+        'agent-harness': 'agent-harness',
+        'agent-harness-tmux': 'agent-harness',
       },
       assets: {
         'claude-statusline': {
@@ -103,6 +107,14 @@ const binding: AspdReleaseBinding = {
     'pi-sdk': {
       executable: '/releases/asp-x/harness-broker-pi',
       hostedDrivers: ['pi-sdk'],
+    },
+    'agent-harness': {
+      executable: '/releases/asp-x/agent-harness',
+      hostedDrivers: ['agent-harness', 'agent-harness-tmux'],
+    },
+    'agent-harness-tmux': {
+      executable: '/releases/asp-x/agent-harness',
+      hostedDrivers: ['agent-harness', 'agent-harness-tmux'],
     },
   },
   claudeStatuslineSource: {
@@ -193,6 +205,12 @@ describe('release binding', () => {
     expect(resolved.workers['pi-sdk']?.executable).toBe(
       join(resolved.releaseRoot, 'harness-broker-pi')
     )
+    for (const driver of ['agent-harness', 'agent-harness-tmux']) {
+      expect(resolved.workers[driver]).toEqual({
+        executable: join(resolved.releaseRoot, 'agent-harness'),
+        hostedDrivers: ['agent-harness', 'agent-harness-tmux'],
+      })
+    }
     expect(resolved.claudeStatuslineSource.path).toBe(
       join(resolved.releaseRoot, 'assets', 'claude', 'statusline.sh')
     )
@@ -273,6 +291,26 @@ describe('release-bound service (W1/W2)', () => {
       argvPrefix: ['run', '--transport', 'unix'],
     })
   })
+
+  test.each(['agent-harness', 'agent-harness-tmux'])(
+    'selects the shared native agent-harness worker for %s',
+    async (driver) => {
+      const service = createReleaseBoundAspcService(
+        fakeService({
+          compileHarnessInvocation: async () => okCompile('harness-broker/0.2', driver),
+        }),
+        binding
+      )
+      const response = await service.compileHarnessInvocation(compileRequest())
+      if (!response.ok) throw new Error('expected ok')
+      expect(response.executionRelease?.worker).toEqual({
+        protocol: 'harness-broker/0.2',
+        executable: '/releases/asp-x/agent-harness',
+        hostedDrivers: ['agent-harness', 'agent-harness-tmux'],
+        argvPrefix: ['run', '--transport', 'unix'],
+      })
+    }
+  )
 
   test('refuses a selected driver missing from the release binding table', async () => {
     const service = createReleaseBoundAspcService(

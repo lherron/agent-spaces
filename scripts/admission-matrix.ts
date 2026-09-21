@@ -776,8 +776,6 @@ async function main(): Promise<void> {
   // the unix socket path budget.
   const workDir = mkdtempSync(join('/tmp', 'am-'))
   const hookIpcDir = join(workDir, 'ipc')
-  const controlDir = join(hookIpcDir, 'control')
-  mkdirSync(controlDir, { recursive: true })
   const artifactDir = args.artifactDir ?? join(workDir, 'artifacts')
   mkdirSync(artifactDir, { recursive: true })
   const ctx: PlanContext = {
@@ -789,7 +787,7 @@ async function main(): Promise<void> {
   }
 
   // Rows are REGISTRY-DRIVEN. `noop-driver` is the only exclusion.
-  const drivers = buildMatrixDrivers(hookIpcDir, controlDir)
+  const drivers = buildMatrixDrivers(hookIpcDir)
   const summaries = createDriverRegistry(drivers)
     .summaries()
     .filter((summary) => summary.kind !== NOOP_DRIVER_KIND)

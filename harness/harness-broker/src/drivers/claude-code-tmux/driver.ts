@@ -32,12 +32,13 @@ import {
 } from '../../runtime/tmux-launch-exec'
 import type {
   ApplyInputResult,
+  ChildProcessInvocationSpec,
   DeliveryEvidence,
   Driver,
   DriverContext,
   DriverStartResult,
 } from '../driver'
-import { withDeliveryEvidence } from '../driver'
+import { hasChildHarnessProcess, withDeliveryEvidence } from '../driver'
 import { CLAUDE_CODE_TMUX_AUTHORITY } from '../evidence-authority'
 import { asRecord as asHookRecord, getString } from '../hook-json'
 import {
@@ -476,6 +477,12 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     },
 
     async start(spec: HarnessInvocationSpec, driverCtx: DriverContext): Promise<DriverStartResult> {
+      if (!hasChildHarnessProcess(spec)) {
+        throw new BrokerError(
+          BrokerErrorCode.DispatchValidationFailed,
+          'claude-code-tmux requires a child harness process'
+        )
+      }
       transcriptWatcher?.close()
       transcriptWatcher = undefined
       transcriptPath = undefined
@@ -1563,7 +1570,7 @@ function classifyTranscriptUserEntry(
 }
 
 async function buildLaunchCommandLine(
-  spec: HarnessInvocationSpec,
+  spec: ChildProcessInvocationSpec,
   ctx: DriverContext,
   hookEnv: {
     invocationId: string

@@ -2624,8 +2624,9 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         // their own harness.started; skip it when a real harness.started arrived.
         if (inv.state === 'starting' && inv.harnessStartedSeen !== true) {
           emit(inv, 'invocation.started', {
-            command: spec.process.command,
-            args: spec.process.args,
+            command:
+              spec.process.execution === 'native-worker' ? process.execPath : spec.process.command,
+            args: spec.process.execution === 'native-worker' ? [] : spec.process.args,
             cwd: spec.process.cwd,
           })
         }

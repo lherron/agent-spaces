@@ -26,6 +26,12 @@ export interface LoadAgentOptions {
   reasoningEffort?: string | undefined
   lockedEnv?: Record<string, string> | undefined
   dispatchEnv?: Record<string, string> | undefined
+  /**
+   * Deterministic environment base for placement and direct ASP source
+   * resolution. Omit only for foreground execution, which intentionally keeps
+   * the caller's process environment.
+   */
+  baseEnvironment?: NodeJS.ProcessEnv | undefined
   resolverContext?: ContextResolverContext | undefined
 }
 

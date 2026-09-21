@@ -6,6 +6,7 @@ import { createResolvedAgentSession } from './invocation-session-factory.js'
 export function createAgentHarnessDriver() {
   return createPiSdkDriver({
     driverKind: 'agent-harness',
+    requiredHarnessTransport: 'native-worker',
     createSession: createResolvedAgentSession,
   })
 }

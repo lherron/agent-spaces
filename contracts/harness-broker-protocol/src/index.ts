@@ -1,4 +1,3 @@
-export * from './agent-harness-control'
 export * from './arris-federation'
 export * from './capabilities'
 export * from './capture'

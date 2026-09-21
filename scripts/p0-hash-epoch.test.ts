@@ -65,6 +65,10 @@ const CANONICAL_JSON_CENSUS_EXCLUSIONS = new Map([
     'Object.keys(lockedEnv).sort() emits a sorted key NAME LIST field; it serializes no values',
   ],
   [
+    'compiler/agent-spaces/src/compile-runtime-plan.ts#compileNativeAgentHarnessPlan',
+    'Object.keys(lockedEnv).sort() emits a sorted key NAME LIST field; it serializes no values',
+  ],
+  [
     'compiler/agent-spaces/src/compile-runtime-plan.ts#compileTmuxBrokerPlan',
     'Object.keys(lockedEnv).sort() emits a sorted key NAME LIST field; it serializes no values',
   ],
@@ -86,6 +90,10 @@ const CANONICAL_JSON_CENSUS_EXCLUSIONS = new Map([
   [
     'harness/harness-broker/src/event-ledger.ts#sortJson',
     'event-ledger row canonicalization for runtime telemetry; not compiled artifact bytes',
+  ],
+  [
+    'harness/harness-broker/src/offline-provider-comparison.ts#canonicalize',
+    'offline runtime evidence comparison hashing; not compiled artifact bytes, and already codepoint-ordered',
   ],
 ])
 

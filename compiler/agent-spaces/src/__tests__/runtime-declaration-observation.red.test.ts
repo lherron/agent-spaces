@@ -135,6 +135,28 @@ describe('T-08563 runtime declaration observation', () => {
     })
   })
 
+  test('preserves agent-harness as its own first-party SDK declaration', async () => {
+    const response = await operation()(
+      request({ provisionDirectives: { harness: 'agent-harness', model: 'gpt-5.6-terra' } }),
+      daemonDefaults()
+    )
+
+    expect(response.ok).toBe(true)
+    expect(response.provisioning).toEqual({
+      scalars: expect.objectContaining({
+        harness: 'agent-harness',
+        model: 'gpt-5.6-terra',
+      }),
+      declaredHarness: 'claude',
+      effectiveHarness: 'agent-harness',
+      frontend: 'agent-harness-tui',
+      provider: 'openai',
+      transport: 'sdk',
+      family: 'agent-harness',
+      runtime: 'agent-harness',
+    })
+  })
+
   test('keeps root, infer-from-cwd, and none as three observable modes', async () => {
     const resolveDeclaration = operation()
     const rootMode = await resolveDeclaration(request(), daemonDefaults())

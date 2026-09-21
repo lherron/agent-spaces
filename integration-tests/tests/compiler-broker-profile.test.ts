@@ -15,7 +15,13 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { HarnessInvocationSpec, InputId, InvocationId } from 'spaces-harness-broker-protocol'
+import type {
+  ChildHarnessProcessSpec,
+  HarnessInvocationSpec,
+  HarnessProcessSpec,
+  InputId,
+  InvocationId,
+} from 'spaces-harness-broker-protocol'
 import { validateInvocationStartRequest } from 'spaces-harness-broker-protocol'
 import type {
   BrokerExecutionProfile,
@@ -342,6 +348,13 @@ function compiledSpec(profile: BrokerExecutionProfile): HarnessInvocationSpec {
   return profile.harnessInvocation.startRequest.spec
 }
 
+function childProcess(process: HarnessProcessSpec): ChildHarnessProcessSpec {
+  if (process.execution === 'native-worker') {
+    throw new Error('expected a child-process route')
+  }
+  return process
+}
+
 function textFromInitialInput(profile: BrokerExecutionProfile): string | undefined {
   const textPart = profile.harnessInvocation.startRequest.initialInput?.content.find(
     (part) => part.type === 'text'
@@ -624,17 +637,18 @@ describe('compiled broker profile field mapping', () => {
     const req = claudeTmuxCompileRequest()
     const profile = brokerProfile(await createClient().compileRuntimePlan(req))
     const spec = compiledSpec(profile)
+    const process = childProcess(spec.process)
 
-    const sessionIdIndex = spec.process.args.indexOf('--session-id')
+    const sessionIdIndex = process.args.indexOf('--session-id')
     expect(sessionIdIndex).toBeGreaterThanOrEqual(0)
-    expect(spec.process.args[sessionIdIndex + 1]).toMatch(
+    expect(process.args[sessionIdIndex + 1]).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
     )
-    expect(spec.process.args).not.toContain('--resume')
+    expect(process.args).not.toContain('--resume')
 
-    const separatorIndex = spec.process.args.indexOf('--')
+    const separatorIndex = process.args.indexOf('--')
     expect(separatorIndex).toBeGreaterThanOrEqual(0)
-    expect(spec.process.args.slice(separatorIndex)).toEqual([
+    expect(process.args.slice(separatorIndex)).toEqual([
       '--',
       [
         'Agent cody handles agent-spaces task T-01610.',
@@ -660,7 +674,10 @@ describe('compiled broker profile field mapping', () => {
     const expectedPrompt = 'Handle the cold summons.'
 
     expect(compiledSpec(profile).launch?.initialPrompt).toBe(expectedPrompt)
-    expect(compiledSpec(profile).process.args.slice(-2)).toEqual(['--', expectedPrompt])
+    expect(childProcess(compiledSpec(profile).process).args.slice(-2)).toEqual([
+      '--',
+      expectedPrompt,
+    ])
     expect(textFromInitialInput(profile)).toBeUndefined()
     if (!response.ok) throw new Error('compile failed')
     expect(response.plan.omitPriming).toBe(true)
@@ -690,18 +707,19 @@ describe('compiled broker profile field mapping', () => {
       )
     )
     const spec = compiledSpec(profile)
+    const process = childProcess(spec.process)
 
     expect(spec.continuation).toEqual({
       provider: 'anthropic',
       kind: 'session',
       key: 'claude-session-01769',
     })
-    const resumeIndex = spec.process.args.indexOf('--resume')
+    const resumeIndex = process.args.indexOf('--resume')
     expect(resumeIndex).toBeGreaterThanOrEqual(0)
-    expect(spec.process.args[resumeIndex + 1]).toBe('claude-session-01769')
-    expect(spec.process.args).not.toContain('--session-id')
-    expect(spec.process.args.slice(-2)).toEqual(['--', 'hello interactive claude tmux broker'])
-    expect(spec.process.args).not.toContain('Agent cody handles agent-spaces task T-01610.')
+    expect(process.args[resumeIndex + 1]).toBe('claude-session-01769')
+    expect(process.args).not.toContain('--session-id')
+    expect(process.args.slice(-2)).toEqual(['--', 'hello interactive claude tmux broker'])
+    expect(process.args).not.toContain('Agent cody handles agent-spaces task T-01610.')
   })
 
   test('omits profile priming from a claude-code-tmux resume without a caller prompt', async () => {
@@ -733,9 +751,10 @@ describe('compiled broker profile field mapping', () => {
       )
     )
     const spec = compiledSpec(profile)
+    const process = childProcess(spec.process)
 
-    expect(spec.process.args.slice(-2)).toEqual(['--resume', 'claude-session-07218'])
-    expect(spec.process.args).not.toContain('Agent cody handles agent-spaces task T-01610.')
+    expect(process.args.slice(-2)).toEqual(['--resume', 'claude-session-07218'])
+    expect(process.args).not.toContain('Agent cody handles agent-spaces task T-01610.')
   })
 
   test('keeps profile priming for a fresh claude-code-tmux launch without a caller prompt', async () => {
@@ -752,7 +771,7 @@ describe('compiled broker profile field mapping', () => {
       )
     )
 
-    expect(compiledSpec(profile).process.args.slice(-2)).toEqual([
+    expect(childProcess(compiledSpec(profile).process).args.slice(-2)).toEqual([
       '--',
       'Agent cody handles agent-spaces task T-01610.',
     ])

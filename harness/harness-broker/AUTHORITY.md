@@ -98,18 +98,18 @@ records the same mistake once, under "Unknown HOOK names" below.
 
 ## The matrix
 
-| Family | claude-code-tmux | codex-cli-tmux | codex-app-server | muse-serve | muse-cli-tmux | codex-desktop | arris-resident | pi-tui-tmux | agent-harness-tmux | pi-sdk |
+| Family | claude-code-tmux | codex-cli-tmux | codex-app-server | muse-serve | muse-cli-tmux | codex-desktop | arris-resident | pi-tui-tmux | pi-sdk |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `invocation-lifecycle` | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker |
-| `harness-lifecycle` | hook | hook | broker | broker | broker | broker | broker | hook | native | broker |
-| `continuation` | hook | hook | native | native | native | broker | native | hook | native | native |
-| `input-admission` | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker |
-| `submission-disposition` | **native** | broker † | broker † | broker † | broker † | broker † | native | broker † | broker † | broker † |
-| `turn-bracket` | hook | hook | native | native | native | native | native | hook ‡ | native | **broker** ‡ |
-| `turn-supervision` | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker |
-| `conversation` | **native** | **native** | native | native | native | native | native | hook | native | native |
-| `tool` | **native** | hook | native | native | native | native | native | hook | native | native |
-| `usage` | native | native † | native | native | native | native | native | hook † | native | native |
+| `invocation-lifecycle` | broker | broker | broker | broker | broker | broker | broker | broker | broker |
+| `harness-lifecycle` | hook | hook | broker | broker | broker | broker | broker | hook | broker |
+| `continuation` | hook | hook | native | native | native | broker | native | hook | native |
+| `input-admission` | broker | broker | broker | broker | broker | broker | broker | broker | broker |
+| `submission-disposition` | **native** | broker † | broker † | broker † | broker † | broker † | native | broker † | broker † |
+| `turn-bracket` | hook | hook | native | native | native | native | native | hook ‡ | **broker** ‡ |
+| `turn-supervision` | broker | broker | broker | broker | broker | broker | broker | broker | broker |
+| `conversation` | **native** | **native** | native | native | native | native | native | hook | native |
+| `tool` | **native** | hook | native | native | native | native | native | hook | native |
+| `usage` | native | native † | native | native | native | native | native | hook † | native |
 | `permission` | hook | hook | native | native | broker | broker | native | hook | native | native |
 | `diagnostic` | hook | broker | native | native | native | broker | native | broker | broker | broker |
 | `terminal-surface` | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker |
@@ -253,16 +253,15 @@ records and usage. Broker admission remains broker-owned. Observer health and
 release are helper facts, never evidence that the desktop process or thread
 ended; no desktop lifecycle operation is implemented by this driver.
 
-### agent-harness-tmux, pi-sdk
+### pi-sdk
 
-No exceptions. agent-harness reads a single native protocol stream; pi-sdk runs
-in-process with no hook channel, so its delivery-asserted bracket is the whole
-family.
+No exceptions. pi-sdk runs in-process with no hook channel, so its
+delivery-asserted bracket is the whole family.
 
-**Named gap — neither driver is capture-wired.** They commit no raw records, so
-under the provenance rule below their ledger events report `sourceKind: 'broker'`
-rather than the `native` their declaration names. The declaration is unchanged
-and still states where the evidence comes from; what is missing is a journal to
+**Named gap — pi-sdk is not capture-wired.** It commits no raw records, so under
+the provenance rule below its ledger events report `sourceKind: 'broker'` rather
+than the `native` its declaration names. The declaration is unchanged and still
+states where the evidence comes from; what is missing is a journal to
 substantiate it, exactly as the `†` cells mark families that are declared but
 not emitted.
 
@@ -588,8 +587,8 @@ Where each driver gets it:
 | `codex-app-server` | the `thread/start` / `thread/resume` response `model`, moved by `model/rerouted` | `provider-response` |
 | `codex-app-server` (no provider model) | driver spec `model` | `harness-config` |
 | `codex-desktop` | the turn's rollout `turn_context.model` | `provider-response` |
-| `agent-harness` / `agent-harness-tmux` / `pi-sdk` | settled message `responseModel`, else `model` | `provider-response` |
-| `agent-harness` / `agent-harness-tmux` / `pi-sdk` (no message model) | `spec.sdk.modelId` | `harness-config` |
+| `agent-harness` / `pi-sdk` | settled message `responseModel`, else `model` | `provider-response` |
+| `agent-harness` / `pi-sdk` (no message model) | `spec.sdk.modelId` | `harness-config` |
 
 The field is OPTIONAL on the wire and a driver with no truthful source omits it
 rather than inventing one. Two omissions are deliberate and permanent:

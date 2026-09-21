@@ -21,6 +21,7 @@ export interface RunCompilerDebugContext {
       | 'codex-cli'
       | 'pi-cli'
       | 'pi-sdk'
+      | 'agent-harness'
       | 'muse-cli'
       | undefined
     interactionMode?: 'interactive' | 'headless' | 'nonInteractive' | undefined

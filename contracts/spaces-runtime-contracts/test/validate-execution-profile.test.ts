@@ -340,6 +340,40 @@ function piSdkBrokerProfile(overrides: Record<string, unknown> = {}): BrokerExec
   return brokerProfileFrom(basePiSdkBrokerProfile, overrides)
 }
 
+const baseAgentHarnessProfile = brokerProfile({
+  profileId: 'profile:test-agent-harness',
+  interactionMode: 'headless',
+  brokerDriver: 'agent-harness',
+  brokerTerminal: undefined,
+  harnessInvocation: {
+    startRequest: {
+      spec: {
+        harness: { frontend: 'agent-harness-tui', provider: 'openai', driver: 'agent-harness' },
+        process: {
+          execution: 'native-worker',
+          cwd: '/tmp',
+          lockedEnv: {},
+          harnessTransport: { kind: 'native-worker' },
+        },
+        interaction: { mode: 'headless', turnConcurrency: 'single', inputQueue: 'fifo' },
+        driver: { kind: 'agent-harness', permissionPolicy: { mode: 'deny' } },
+        sdk: {
+          runtime: 'pi-sdk',
+          provider: 'openai-codex',
+          modelId: 'openai-codex/gpt-5.6-terra',
+          authMode: 'oauth',
+        },
+        agent: { agentId: 'sparky', runMode: 'task' },
+      },
+    },
+  },
+  policy: { ...baseBrokerProfile.policy, exposurePolicy: noneExposurePolicy },
+})
+
+function agentHarnessProfile(overrides: Record<string, unknown> = {}): BrokerExecutionProfile {
+  return brokerProfileFrom(baseAgentHarnessProfile, overrides)
+}
+
 describe('validateTerminalExecutionProfile', () => {
   test('allows a foreground profile with inherited terminal IO and launch input', () => {
     expect(validateTerminalExecutionProfile(profile())).toEqual([])
@@ -429,6 +463,186 @@ describe('validateBrokerExecutionProfile', () => {
 
   test('allows a valid pi-sdk in-process broker profile', () => {
     expect(validateBrokerExecutionProfile(piSdkBrokerProfile())).toEqual([])
+  })
+
+  test('allows native agent-harness headless and tmux profiles', () => {
+    expect(validateBrokerExecutionProfile(agentHarnessProfile())).toEqual([])
+    expect(
+      validateBrokerExecutionProfile(
+        agentHarnessProfile({
+          interactionMode: 'interactive',
+          brokerDriver: 'agent-harness-tmux',
+          brokerTerminal: baseBrokerProfile.brokerTerminal,
+          policy: { ...baseBrokerProfile.policy, exposurePolicy: tmuxExposurePolicy },
+          harnessInvocation: {
+            startRequest: {
+              spec: {
+                harness: { driver: 'agent-harness-tmux' },
+                interaction: { mode: 'interactive' },
+                driver: { kind: 'agent-harness-tmux', terminalHost: 'tmux' },
+              },
+            },
+          },
+        })
+      )
+    ).toEqual([])
+  })
+
+  test('rejects native agent-harness process, semantic, and tmux permission mismatches', () => {
+    const childTransport = validateBrokerExecutionProfile(
+      agentHarnessProfile({
+        harnessInvocation: {
+          startRequest: { spec: { process: { harnessTransport: { kind: 'pty' } } } },
+        },
+      })
+    )
+    const noAgent = validateBrokerExecutionProfile(
+      agentHarnessProfile({ harnessInvocation: { startRequest: { spec: { agent: undefined } } } })
+    )
+    const askClientTmux = validateBrokerExecutionProfile(
+      agentHarnessProfile({
+        interactionMode: 'interactive',
+        brokerDriver: 'agent-harness-tmux',
+        brokerTerminal: baseBrokerProfile.brokerTerminal,
+        policy: {
+          ...baseBrokerProfile.policy,
+          permissionPolicy: { mode: 'ask-client', timeoutMs: 1, defaultDecision: 'deny' },
+          exposurePolicy: tmuxExposurePolicy,
+        },
+        harnessInvocation: {
+          startRequest: {
+            spec: {
+              harness: { driver: 'agent-harness-tmux' },
+              interaction: { mode: 'interactive' },
+              driver: { kind: 'agent-harness-tmux', terminalHost: 'tmux' },
+            },
+          },
+        },
+      })
+    )
+    expect(diagnosticCodes(childTransport)).toContain(
+      'agent_harness_requires_native_worker_transport'
+    )
+    expect(diagnosticCodes(noAgent)).toContain('agent_harness_requires_agent_block')
+    expect(diagnosticCodes(askClientTmux)).toContain('agent_harness_tmux_forbids_ask_client')
+  })
+
+  test('rejects native agent-harness profile/spec driver disagreement in both directions', () => {
+    const profileClaimsWrongSpec = validateBrokerExecutionProfile(
+      agentHarnessProfile({
+        harnessInvocation: {
+          startRequest: {
+            spec: {
+              harness: { driver: 'muse-serve' },
+              driver: { kind: 'muse-serve' },
+            },
+          },
+        },
+      })
+    )
+    const specClaimsWrongProfile = validateBrokerExecutionProfile(
+      agentHarnessProfile({ brokerDriver: 'muse-serve' })
+    )
+    const tmuxSpecClaimsWrongProfile = validateBrokerExecutionProfile(
+      agentHarnessProfile({
+        interactionMode: 'interactive',
+        brokerDriver: 'claude-code-tmux',
+        brokerTerminal: baseBrokerProfile.brokerTerminal,
+        policy: { ...baseBrokerProfile.policy, exposurePolicy: tmuxExposurePolicy },
+        harnessInvocation: {
+          startRequest: {
+            spec: {
+              harness: { driver: 'agent-harness-tmux' },
+              interaction: { mode: 'interactive' },
+              driver: { kind: 'agent-harness-tmux', terminalHost: 'tmux' },
+            },
+          },
+        },
+      })
+    )
+
+    expect(diagnosticCodes(profileClaimsWrongSpec)).toContain('agent_harness_requires_driver_kind')
+    expect(diagnosticCodes(specClaimsWrongProfile)).toContain(
+      'agent_harness_spec_requires_profile_driver'
+    )
+    expect(diagnosticCodes(tmuxSpecClaimsWrongProfile)).toContain(
+      'agent_harness_tmux_spec_requires_profile_driver'
+    )
+  })
+
+  test('rejects native agent-harness interaction and semantic boundary violations', () => {
+    const headlessWithTerminal = validateBrokerExecutionProfile(
+      agentHarnessProfile({ brokerTerminal: baseBrokerProfile.brokerTerminal })
+    )
+    const interactiveWithoutTerminal = validateBrokerExecutionProfile(
+      agentHarnessProfile({
+        interactionMode: 'interactive',
+        brokerDriver: 'agent-harness-tmux',
+        policy: { ...baseBrokerProfile.policy, exposurePolicy: tmuxExposurePolicy },
+        harnessInvocation: {
+          startRequest: {
+            spec: {
+              harness: { driver: 'agent-harness-tmux' },
+              interaction: { mode: 'interactive' },
+              driver: { kind: 'agent-harness-tmux', terminalHost: 'tmux' },
+            },
+          },
+        },
+      })
+    )
+    const missingSdk = validateBrokerExecutionProfile(
+      agentHarnessProfile({ harnessInvocation: { startRequest: { spec: { sdk: undefined } } } })
+    )
+    const inProcessClaim = validateBrokerExecutionProfile(
+      agentHarnessProfile({
+        harnessInvocation: {
+          startRequest: {
+            spec: {
+              process: {
+                execution: undefined,
+                harnessTransport: { kind: 'in-process' },
+              },
+            },
+          },
+        },
+      })
+    )
+    const privateBridge = validateBrokerExecutionProfile(
+      agentHarnessProfile({
+        interactionMode: 'interactive',
+        brokerDriver: 'agent-harness-tmux',
+        brokerTerminal: baseBrokerProfile.brokerTerminal,
+        policy: { ...baseBrokerProfile.policy, exposurePolicy: tmuxExposurePolicy },
+        harnessInvocation: {
+          startRequest: {
+            spec: {
+              harness: { driver: 'agent-harness-tmux' },
+              interaction: { mode: 'interactive' },
+              driver: {
+                kind: 'agent-harness-tmux',
+                terminalHost: 'tmux',
+                hookBridge: 'agent-harness-control/v1',
+              },
+            },
+          },
+        },
+      })
+    )
+
+    expect(diagnosticCodes(headlessWithTerminal)).toContain(
+      'agent_harness_requires_headless_profile'
+    )
+    expect(diagnosticCodes(interactiveWithoutTerminal)).toContain(
+      'interactive_broker_requires_tmux_terminal'
+    )
+    expect(diagnosticCodes(missingSdk)).toContain('agent_harness_requires_pi_sdk_block')
+    expect(diagnosticCodes(inProcessClaim)).toEqual(
+      expect.arrayContaining([
+        'agent_harness_requires_native_worker_transport',
+        'agent_harness_requires_native_worker_execution',
+      ])
+    )
+    expect(diagnosticCodes(privateBridge)).toContain('agent_harness_forbids_private_control_bridge')
   })
 
   test('rejects pi-sdk broker profiles that are not nonInteractive', () => {
@@ -866,6 +1080,28 @@ describe('runtime route selection', () => {
       expect(selectedRoute?.piSdkModels?.length).toBeGreaterThan(0)
     }
     expect(selectedProviders.sort()).toEqual(['anthropic', 'openai'])
+  })
+
+  test('catalogs both first-party agent-harness presentations as native workers', () => {
+    const routes = RUNTIME_ROUTE_CATALOG.filter((route) => route.harnessRuntime === 'agent-harness')
+    expect(routes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          interactionMode: 'headless',
+          broker: expect.objectContaining({
+            driver: 'agent-harness',
+            processTransport: 'native-worker',
+          }),
+        }),
+        expect.objectContaining({
+          interactionMode: 'interactive',
+          broker: expect.objectContaining({
+            driver: 'agent-harness-tmux',
+            processTransport: 'native-worker',
+          }),
+        }),
+      ])
+    )
   })
 
   test('catalogs API-key and OAuth aliases explicitly for both credential universes', () => {

@@ -121,16 +121,6 @@ export {
   createPiTuiTmuxHookEventNormalizer,
 } from './drivers/pi-tui-tmux/hook-events'
 export { createPiTuiTmuxDriver } from './drivers/pi-tui-tmux/driver'
-export {
-  AGENT_HARNESS_TMUX_DRIVER_KIND,
-  createAgentHarnessTmuxDriver,
-  createDefaultAgentHarnessTmuxDriver,
-} from './drivers/agent-harness-tmux/driver'
-export type {
-  AgentHarnessControlListenerContext,
-  AgentHarnessControlListenerHandle,
-  AgentHarnessTmuxDriverOptions,
-} from './drivers/agent-harness-tmux/driver'
 export type { NoopDriverOptions } from './drivers/noop-driver'
 
 export type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from './drivers/driver'

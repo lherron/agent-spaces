@@ -6,6 +6,7 @@ import type {
   AgentInspectionEvaluationContext,
   AgentInspectionRequest,
   AgentInspectionResult,
+  RuntimeCompileRequest,
   RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
 import { validateAgentInspectionResult } from 'spaces-runtime-contracts'
@@ -140,6 +141,45 @@ describe('T-06330 agent catalog and contextual inspection operations', () => {
         `${surface} must delegate catalog reads to the agent-spaces producer assembly`
       ).toBe(true)
     }
+  })
+
+  test('projects agent-harness inspection into the explicit first-party Pi runtime', async () => {
+    const { inspectAgentForContext } = operations()
+    await writeFile(
+      join(fixture.validRoot, 'context-template.toml'),
+      inlineTemplate('agent-harness inspection')
+    )
+    const request = {
+      ...inspectionRequest(),
+      identifiers: { ...inspectionRequest().identifiers, harness: 'agent-harness' },
+      declaredOverrides: { modelId: 'gpt-5.6-terra', reasoningEffort: 'high' },
+    } as AgentInspectionRequest
+    const context = {
+      ...evaluationContext(),
+      identifiers: request.identifiers,
+      declaredOverrides: request.declaredOverrides,
+    } as AgentInspectionEvaluationContext
+    let compiledRequest: RuntimeCompileRequest | undefined
+
+    const outcome = await inspectAgentForContext(
+      { request, evaluationContext: context },
+      {
+        compileRuntimePlan: async (input) => {
+          compiledRequest = input as RuntimeCompileRequest
+          return successfulCompileResponse()
+        },
+      }
+    )
+
+    expect(outcome.ok).toBe(true)
+    expect(compiledRequest?.requested).toMatchObject({
+      modelProvider: 'openai',
+      model: 'gpt-5.6-terra',
+      reasoningEffort: 'high',
+      harnessFamily: 'pi',
+      preferredHarnessRuntime: 'agent-harness',
+      interactionMode: 'headless',
+    })
   })
 
   test('keeps invalid agents in the catalog with counts and returns a diagnostic inspection failure while valid agents remain inspectable', async () => {

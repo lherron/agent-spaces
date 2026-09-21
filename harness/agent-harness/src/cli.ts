@@ -1,15 +1,12 @@
-import { readStoredCredential } from '@earendil-works/pi-coding-agent'
 import type { LoadAgentOptions } from 'agent-harness-runtime'
-import { createDefaultAgentHarnessTmuxDriver } from 'spaces-harness-broker'
 import { runBrokerCli } from 'spaces-harness-broker-pi-sdk'
 
 import { createAgentHarnessDriver } from './broker/driver.js'
+import { createAgentHarnessTmuxDriver } from './broker/interactive-driver.js'
 import { runAgentHarnessPrint } from './foreground/print.js'
 import { runAgentHarnessTui } from './foreground/tui.js'
 
 export interface ForegroundInvocation extends LoadAgentOptions {
-  /** Selects the broker-owned interactive control path. */
-  brokerControlSocket?: string | undefined
   prompt?: string | undefined
   /** `true` continues the most recent agent-scoped session; a string opens that session. */
   resume?: string | boolean | undefined
@@ -28,10 +25,11 @@ const productionDependencies: AgentHarnessCliDependencies = {
     runBrokerCli({
       additionalDrivers: [
         createAgentHarnessDriver,
-        // The `agent-harness` executable is the broker process for BOTH
-        // agent-harness driver kinds; the stock harness-broker binary must not
-        // register either, or spaces-harness-broker would depend on this package.
-        () => createDefaultAgentHarnessTmuxDriver(undefined, { readStoredCredential }),
+        // The release-owned executable is the broker process for BOTH driver
+        // identities.  The interactive identity remains deliberately
+        // unavailable until Earendil provides a lifecycle that can leave a TUI
+        // without exiting this broker process.
+        createAgentHarnessTmuxDriver,
       ],
     }),
   runTui: runAgentHarnessTui,
@@ -149,19 +147,11 @@ export function parseForegroundInvocation(args: string[]): ForegroundInvocation 
           invocation.resume = true
         }
         break
-      case '--broker-control-socket':
-        invocation.brokerControlSocket = requiredValue(arg, value)
-        index += 1
-        break
       default:
         throw new Error(`Unknown agent-harness foreground option: ${arg}`)
     }
   }
-  if (invocation.brokerControlSocket !== undefined && invocation.agentId.length !== 0)
-    throw new Error(
-      'agent-harness broker mode forbids --agent-id: broker control socket supplies agent identity'
-    )
-  if (invocation.brokerControlSocket === undefined && invocation.agentId.length === 0)
+  if (invocation.agentId.length === 0)
     throw new Error('agent-harness foreground modes require --agent-id')
   if (positional.length > 1)
     throw new Error('agent-harness foreground modes accept at most one prompt')

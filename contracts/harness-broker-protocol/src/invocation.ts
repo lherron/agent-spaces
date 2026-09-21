@@ -282,7 +282,8 @@ export interface HarnessDescriptor {
   driver: 'codex-app-server' | 'muse-serve' | string
 }
 
-export interface HarnessProcessSpec {
+/** A process HRC/the broker launches as a child for this invocation. */
+export interface ChildHarnessProcessSpec {
   command: string
   args: string[]
   cwd: string
@@ -295,15 +296,39 @@ export interface HarnessProcessSpec {
    * Part of launch shape — included in all process-launch hash material.
    */
   pathPrepend?: string[] | undefined
-  harnessTransport: HarnessTransportSpec
+  harnessTransport: ChildHarnessTransportSpec
   limits?: ProcessLimits | undefined
+  execution?: never
 }
 
-export type HarnessTransportSpec =
+/**
+ * An already-external worker selected by the immutable execution release.
+ *
+ * This deliberately contains no executable launch fields: `command` and
+ * `args` would falsely imply that the driver chooses or launches a child.
+ * The release worker owns the selected driver and serves harness-broker
+ * directly.
+ */
+export interface NativeWorkerProcessSpec {
+  execution: 'native-worker'
+  cwd: string
+  lockedEnv?: Record<string, string> | undefined
+  pathPrepend?: string[] | undefined
+  limits?: ProcessLimits | undefined
+  harnessTransport: { kind: 'native-worker' }
+  command?: never
+  args?: never
+}
+
+export type HarnessProcessSpec = ChildHarnessProcessSpec | NativeWorkerProcessSpec
+
+export type ChildHarnessTransportSpec =
   | { kind: 'jsonrpc-stdio' }
   | { kind: 'pipes' }
   | { kind: 'pty'; cols?: number | undefined; rows?: number | undefined }
   | { kind: 'in-process' }
+
+export type HarnessTransportSpec = ChildHarnessTransportSpec | { kind: 'native-worker' }
 
 export interface HarnessSdkSpec {
   runtime: 'pi-sdk'

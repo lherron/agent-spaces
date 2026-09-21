@@ -1,21 +1,4 @@
-import { type PiSdkModelCatalogEntry, findPiSdkModelCatalogEntry } from 'spaces-runtime-contracts'
-
-import type { LoadAgentOptions } from './types.js'
-
-export function resolveAgentHarnessModel(
-  explicitProvider: LoadAgentOptions['provider'],
-  requestedModel: string
-): PiSdkModelCatalogEntry {
-  const qualified = requestedModel.includes('/')
-    ? requestedModel
-    : requestedModel.startsWith('claude-')
-      ? `anthropic-max/${requestedModel}`
-      : `openai-codex/${requestedModel}`
-  const provider = explicitProvider ?? (qualified.startsWith('anthropic') ? 'anthropic' : 'openai')
-  const model = findPiSdkModelCatalogEntry(provider, qualified)
-  if (model === undefined) throw new Error(`Unsupported direct-harness model: ${qualified}`)
-  return model
-}
+export { resolveAgentHarnessModel } from 'spaces-runtime'
 
 export function providerCredential(
   provider: string,

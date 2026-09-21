@@ -200,21 +200,5 @@ export const PI_TUI_TMUX_AUTHORITY: EvidenceAuthorityMatrix = {
   permission: 'hook',
 }
 
-/**
- * agent-harness TUI. Its control protocol is a real answered handshake, so the
- * turn bracket is provider-native evidence (`delivery-acknowledged`), not a
- * broker assertion.
- */
-export const AGENT_HARNESS_TMUX_AUTHORITY: EvidenceAuthorityMatrix = {
-  ...BROKER_OWNED_BASE,
-  'harness-lifecycle': 'native',
-  continuation: 'native',
-  'turn-bracket': 'native',
-  conversation: 'native',
-  tool: 'native',
-  usage: 'native',
-  permission: 'native',
-}
-
 /** Drivers with no provider behind them at all (noop, in-process test driver). */
 export const BROKER_ONLY_AUTHORITY: EvidenceAuthorityMatrix = { ...BROKER_OWNED_BASE }

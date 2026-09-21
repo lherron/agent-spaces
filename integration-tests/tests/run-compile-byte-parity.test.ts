@@ -20,7 +20,12 @@ import {
   getProjectHarnessBundleRootPath,
 } from 'spaces-config'
 import { type RunResult, displayPrompts, run } from 'spaces-execution'
-import type { InputId, InvocationId } from 'spaces-harness-broker-protocol'
+import type {
+  ChildHarnessProcessSpec,
+  HarnessProcessSpec,
+  InputId,
+  InvocationId,
+} from 'spaces-harness-broker-protocol'
 import type {
   BrokerExecutionProfile,
   HarnessFamily,
@@ -313,6 +318,13 @@ function brokerProfile(response: RuntimeCompileResponse): BrokerExecutionProfile
   return profile
 }
 
+function childProcess(process: HarnessProcessSpec): ChildHarnessProcessSpec {
+  if (process.execution === 'native-worker') {
+    throw new Error('expected a child-process route')
+  }
+  return process
+}
+
 function normalizeGeneratedSessionIds(value: string): string {
   return value
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/g, '<session-id>')
@@ -590,7 +602,7 @@ describe('asp run <-> compiler foreground byte-parity', () => {
     const brokerReq = compileRequest(testCase)
     brokerReq.materialization = { initialPrompt: prompt }
     const broker = brokerProfile(await createClient().compileRuntimePlan(brokerReq))
-    const brokerProcess = broker.harnessInvocation.startRequest.spec.process
+    const brokerProcess = childProcess(broker.harnessInvocation.startRequest.spec.process)
     const brokerSettingsPath = settingPathBeforeSeparator(brokerProcess.args)
     const foregroundSettings = readSettings(settingPathBeforeSeparator(foreground.args))
     const durableBrokerSettings = readSettings(brokerSettingsPath)

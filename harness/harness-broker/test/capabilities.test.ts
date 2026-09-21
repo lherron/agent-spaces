@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { InvocationCapabilities } from 'spaces-harness-broker-protocol'
 import { CONSERVATIVE_LIFECYCLE_CAPABILITIES } from 'spaces-harness-broker-protocol'
-import { createDefaultAgentHarnessTmuxDriver } from '../src/drivers/agent-harness-tmux/driver'
 import { createDefaultClaudeCodeTmuxDriver } from '../src/drivers/claude-code-tmux/driver'
 import { createCodexAppServerDriver } from '../src/drivers/codex-app-server/driver'
 import { createDefaultCodexCliTmuxDriver } from '../src/drivers/codex-cli-tmux/driver'
@@ -110,8 +109,6 @@ describe('Pi TUI tmux capability matrix', () => {
 describe('interrupt landing evidence capability matrix', () => {
   test('declares the evidence each broker driver actually observes', () => {
     expect({
-      'agent-harness-tmux':
-        createDefaultAgentHarnessTmuxDriver().capabilities().interrupt.landingEvidence,
       'codex-app-server': createCodexAppServerDriver().capabilities().interrupt.landingEvidence,
       'claude-code-tmux':
         createDefaultClaudeCodeTmuxDriver().capabilities().interrupt.landingEvidence,
@@ -119,7 +116,6 @@ describe('interrupt landing evidence capability matrix', () => {
       'pi-tui-tmux': createDefaultPiTuiTmuxDriver().capabilities().interrupt.landingEvidence,
       noop: createNoopDriver().capabilities().interrupt.landingEvidence,
     }).toEqual({
-      'agent-harness-tmux': 'ack',
       'codex-app-server': 'ack',
       'claude-code-tmux': 'transcript',
       'codex-cli-tmux': 'asserted',

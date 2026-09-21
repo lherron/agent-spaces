@@ -15,7 +15,12 @@ import { delimiter, dirname, join } from 'node:path'
 import { seedImmutableRegistryMirror } from './hermetic.js'
 
 import { harnessRegistry, planPlacementRuntime } from 'spaces-execution'
-import type { InputId, InvocationId } from 'spaces-harness-broker-protocol'
+import type {
+  ChildHarnessProcessSpec,
+  HarnessProcessSpec,
+  InputId,
+  InvocationId,
+} from 'spaces-harness-broker-protocol'
 import { validateInvocationStartRequest } from 'spaces-harness-broker-protocol'
 import type {
   BrokerExecutionProfile,
@@ -60,6 +65,12 @@ type PiSdkAliasCase = readonly [
   authMode: 'api-key' | 'oauth',
 ]
 
+type AgentHarnessCase = readonly [
+  interactionMode: 'headless' | 'interactive',
+  expectedDriver: 'agent-harness' | 'agent-harness-tmux',
+  expectsTerminal: boolean,
+]
+
 /**
  * Table for the pi-sdk alias matrix.
  *
@@ -94,6 +105,11 @@ const PI_SDK_ALIAS_CASES: readonly PiSdkAliasCase[] = [
     'anthropic/claude-sonnet-4-5',
     'oauth',
   ],
+]
+
+const AGENT_HARNESS_CASES: readonly AgentHarnessCase[] = [
+  ['headless', 'agent-harness', false],
+  ['interactive', 'agent-harness-tmux', true],
 ]
 
 /** Whatever bun accepts back from a test body -- named so the `void` union that
@@ -368,6 +384,13 @@ function brokerProfile(response: RuntimeCompileResponse): BrokerExecutionProfile
     throw new Error('compileRuntimePlan produced no matching execution profile')
   }
   return profile
+}
+
+function childProcess(process: HarnessProcessSpec): ChildHarnessProcessSpec {
+  if (process.execution === 'native-worker') {
+    throw new Error('expected a child-process route')
+  }
+  return process
 }
 
 type BrokerProfileValidator = (profile: BrokerExecutionProfile) => CompileDiagnostic[]
@@ -674,6 +697,108 @@ describe('compileRuntimePlan broker profile contract', () => {
     }
   )
 
+  test.each(AGENT_HARNESS_CASES)(
+    'compiles first-party agent-harness %s to a hash-covered native worker profile',
+    async (interactionMode, expectedDriver, expectsTerminal) => {
+      writeFileSync(join(fixture.agentRoot, 'SOUL.md'), '# Cody\n', 'utf8')
+      const req = baseCompileRequest({
+        requested: {
+          modelProvider: 'openai',
+          model: 'gpt-5.6-terra',
+          reasoningEffort: 'high',
+          harnessFamily: 'pi',
+          preferredHarnessRuntime: 'agent-harness',
+          interactionMode,
+        },
+        materialization: {
+          ...baseCompileRequest().materialization,
+          attachments: [],
+          initialPrompt: `native ${interactionMode} turn`,
+        },
+      })
+      const response = await createClient().compileRuntimePlan(req)
+      const profile = brokerProfile(response)
+      const startRequest = profile.harnessInvocation.startRequest
+      const spec = startRequest.spec
+
+      expect(profile.interactionMode).toBe(interactionMode)
+      expect(profile.brokerDriver).toBe(expectedDriver)
+      expect(profile.brokerTerminal).toEqual(
+        expectsTerminal
+          ? expect.objectContaining({
+              host: 'tmux',
+              turnDelivery: 'terminal-literal-input',
+              operatorAttach: true,
+            })
+          : undefined
+      )
+      expect(spec.harness).toEqual({
+        frontend: 'agent-harness-tui',
+        provider: 'openai',
+        driver: expectedDriver,
+      })
+      expect(spec.process).toMatchObject({
+        execution: 'native-worker',
+        cwd: fixture.projectRoot,
+        lockedEnv: { EXTRA_FLAG: '1' },
+        harnessTransport: { kind: 'native-worker' },
+      })
+      expect(spec.process).not.toHaveProperty('command')
+      expect(spec.process).not.toHaveProperty('args')
+      expect(spec.agent).toMatchObject({
+        agentId: 'cody',
+        projectId: 'agent-spaces',
+        agentRoot: fixture.agentRoot,
+        projectRoot: fixture.projectRoot,
+        runMode: 'task',
+        scopeRef: req.correlation.scopeRef,
+        laneRef: req.correlation.laneRef,
+        runId: req.identity.runId,
+        hostSessionId: req.identity.hostSessionId,
+        generation: req.identity.generation,
+      })
+      expect(spec.sdk).toEqual({
+        runtime: 'pi-sdk',
+        provider: 'openai-codex',
+        modelId: 'openai-codex/gpt-5.6-terra',
+        authMode: 'oauth',
+        thinkingLevel: 'high',
+      })
+      expect(spec.driver).toEqual({
+        kind: expectedDriver,
+        permissionPolicy: { mode: 'deny' },
+        ...(expectsTerminal ? { terminalHost: 'tmux' } : {}),
+      })
+      expect(spec.continuation).toEqual({
+        provider: 'openai',
+        kind: 'session',
+        key: 'thread_T01609',
+      })
+      expect(startRequest.initialInput?.content).toContainEqual({
+        type: 'text',
+        text: `native ${interactionMode} turn`,
+      })
+      expect(profile.harnessInvocation.specHash).toBe(RuntimeContracts.neutralSpecHash(spec))
+      expect(profile.harnessInvocation.startRequestHash).toBe(
+        RuntimeContracts.neutralStartRequestHash(startRequest)
+      )
+      expect(validateInvocationStartRequest(startRequest)).toEqual(startRequest)
+      expect(validateBrokerExecutionProfile(profile)).toEqual([])
+      if (!response.ok) throw new Error('unreachable')
+      expect(response.plan.harness).toEqual({
+        family: 'pi',
+        runtime: 'agent-harness',
+        provider: 'openai',
+      })
+      expect(response.plan.model).toMatchObject({
+        provider: 'openai',
+        modelId: 'openai-codex/gpt-5.6-terra',
+        requestedModel: 'gpt-5.6-terra',
+        reasoningEffort: 'high',
+      })
+    }
+  )
+
   test('rejects a pi-sdk alias outside the selected ASP provider route', async () => {
     const response = await createClient().compileRuntimePlan(
       baseCompileRequest({
@@ -977,7 +1102,7 @@ describe('compileRuntimePlan broker profile contract', () => {
       )
     )
     const profile = brokerProfile(response)
-    const args = profile.harnessInvocation.startRequest.spec.process.args
+    const args = childProcess(profile.harnessInvocation.startRequest.spec.process).args
     const flagIndex = args.indexOf('--disallowedTools')
 
     expect(response.diagnostics).not.toContainEqual(

@@ -34,6 +34,24 @@ import type {
   BuildHarnessBrokerInvocationResponse,
 } from './types.js'
 
+type BrokerInitialInputPrepared = Pick<
+  PreparedPlacementCliRuntime,
+  'expandedPrompt' | 'imageAttachmentPaths'
+>
+
+/**
+ * Direct first-party preparation contains resource semantics only. In
+ * particular, it has no command, args, adapter detection, or generated bundle.
+ */
+export type NativeWorkerBrokerPrepared = BrokerInitialInputPrepared & {
+  cwd: string
+  lockedEnv: Record<string, string>
+  pathPrepend: string[]
+  resolvedBundle: PreparedPlacementCliRuntime['resolvedBundle']
+  warnings: string[]
+  systemPrompt?: PreparedPlacementCliRuntime['systemPrompt'] | undefined
+}
+
 interface HandleParts {
   agentId?: string | undefined
   projectId?: string | undefined
@@ -196,6 +214,11 @@ export function validateBrokerInvocationRequest(req: BuildHarnessBrokerInvocatio
       frontend: PI_CLI_FRONTEND,
       driver: 'pi-tui-tmux',
     },
+    'agent-harness-tmux': {
+      provider: 'openai',
+      frontend: 'agent-harness-tui',
+      driver: 'agent-harness-tmux',
+    },
   }
   const interactiveRoute =
     broker.brokerDriver !== undefined ? interactiveTmuxRoutes[broker.brokerDriver] : undefined
@@ -215,9 +238,39 @@ export function validateBrokerInvocationRequest(req: BuildHarnessBrokerInvocatio
         'unsupported_frontend'
       )
     }
-    if (transportKind !== undefined && transportKind !== 'pty') {
+    const requiredTransport =
+      interactiveRoute.driver === 'agent-harness-tmux' ? 'native-worker' : 'pty'
+    if (transportKind !== undefined && transportKind !== requiredTransport) {
       throw new CodedError(
-        `${interactiveRoute.driver} broker route requires "pty" harness transport; got "${transportKind}"`,
+        `${interactiveRoute.driver} broker route requires "${requiredTransport}" harness transport; got "${transportKind}"`,
+        'unsupported_frontend'
+      )
+    }
+    return
+  }
+
+  if (broker.brokerDriver === 'agent-harness') {
+    if (req.frontend !== 'agent-harness-tui' || req.provider !== 'openai') {
+      throw new CodedError(
+        'agent-harness broker route requires provider "openai" and frontend "agent-harness-tui"',
+        'unsupported_frontend'
+      )
+    }
+    if (req.interactionMode !== 'headless') {
+      throw new CodedError(
+        `agent-harness broker route requires headless interaction mode; got "${req.interactionMode}"`,
+        'unsupported_frontend'
+      )
+    }
+    if (transportKind !== 'native-worker') {
+      throw new CodedError(
+        `agent-harness broker route requires "native-worker" harness transport; got "${transportKind}"`,
+        'unsupported_frontend'
+      )
+    }
+    if (req.sdk?.runtime !== 'pi-sdk' || req.agent === undefined) {
+      throw new CodedError(
+        'agent-harness broker route requires Pi SDK and semantic agent descriptors',
         'unsupported_frontend'
       )
     }
@@ -377,7 +430,7 @@ export function combineBrokerPrompts(
 }
 
 function buildBrokerInitialText(
-  prepared: PreparedPlacementCliRuntime,
+  prepared: BrokerInitialInputPrepared,
   req: BuildHarnessBrokerInvocationRequest
 ): string | undefined {
   if (req.prompt === '') {
@@ -425,7 +478,7 @@ function deriveInitialInputId(
 }
 
 function buildInitialInput(
-  prepared: PreparedPlacementCliRuntime,
+  prepared: BrokerInitialInputPrepared,
   req: BuildHarnessBrokerInvocationRequest
 ): InvocationInput | undefined {
   const content: InputContent[] = []
@@ -516,9 +569,7 @@ function toMuseServeStartRequest(
       // as the backstop for anything the server still routes to policy.
       approvalMode: 'allowAll',
       permissionPolicy: req.permissionPolicy ?? { mode: 'deny' },
-      ...(req.continuation?.key !== undefined
-        ? { resumeSessionId: req.continuation.key }
-        : {}),
+      ...(req.continuation?.key !== undefined ? { resumeSessionId: req.continuation.key } : {}),
       resumeFallback: req.resumeFallback ?? 'start-fresh',
     },
     correlation: req.correlation ?? brokerCorrelationFromPlacement(req.placement),
@@ -541,13 +592,93 @@ function toMuseServeStartRequest(
   }
 }
 
+function toNativeAgentHarnessStartRequest(
+  prepared: NativeWorkerBrokerPrepared,
+  req: BuildHarnessBrokerInvocationRequest & {
+    provider: 'openai'
+    frontend: 'agent-harness-tui'
+    interactionMode: 'headless' | 'interactive'
+    brokerDriver: 'agent-harness' | 'agent-harness-tmux'
+    harnessTransport: { kind: 'native-worker' }
+    sdk: NonNullable<BuildHarnessBrokerInvocationRequest['sdk']>
+    agent: NonNullable<BuildHarnessBrokerInvocationRequest['agent']>
+  }
+): BuildHarnessBrokerInvocationResponse {
+  const spec: HarnessInvocationSpec = {
+    specVersion: 'harness-broker.invocation/v1',
+    ...(req.invocationId !== undefined ? { invocationId: req.invocationId } : {}),
+    ...(req.labels !== undefined ? { labels: req.labels } : {}),
+    harness: {
+      frontend: 'agent-harness-tui',
+      provider: 'openai',
+      driver: req.brokerDriver,
+    },
+    process: {
+      execution: 'native-worker',
+      cwd: prepared.cwd,
+      lockedEnv: prepared.lockedEnv,
+      ...(prepared.pathPrepend.length > 0 ? { pathPrepend: prepared.pathPrepend } : {}),
+      harnessTransport: { kind: 'native-worker' },
+      limits: req.limits ?? DEFAULT_BROKER_PROCESS_LIMITS,
+    },
+    interaction: {
+      mode: req.interactionMode,
+      turnConcurrency: 'single',
+      inputQueue: req.interaction?.inputQueue ?? 'fifo',
+    },
+    ...(req.continuation?.key !== undefined
+      ? {
+          continuation: {
+            provider: req.provider,
+            kind: 'session',
+            key: req.continuation.key,
+          },
+        }
+      : {}),
+    driver: {
+      kind: req.brokerDriver,
+      ...(req.brokerDriver === 'agent-harness-tmux' ? { terminalHost: 'tmux' } : {}),
+      permissionPolicy: req.permissionPolicy ?? { mode: 'deny' },
+    },
+    sdk: req.sdk,
+    agent: req.agent,
+    ...(prepared.systemPrompt?.path !== undefined
+      ? {
+          launch: {
+            systemPromptFile: prepared.systemPrompt.path,
+            ...(prepared.systemPrompt.mode !== undefined
+              ? { systemPromptMode: prepared.systemPrompt.mode }
+              : {}),
+          },
+        }
+      : {}),
+    correlation: req.correlation ?? brokerCorrelationFromPlacement(req.placement),
+  }
+  const initialInput = buildInitialInput(prepared, req)
+  const startRequest: InvocationStartRequest =
+    initialInput === undefined ? { spec } : { spec, initialInput }
+  validateInvocationSpec(spec)
+  if (initialInput !== undefined) validateInvocationInput(initialInput)
+  return {
+    startRequest,
+    spec,
+    ...(initialInput !== undefined ? { initialInput } : {}),
+    resolvedBundle: prepared.resolvedBundle,
+    ...(prepared.warnings.length > 0 ? { warnings: prepared.warnings } : {}),
+  }
+}
+
 export function toHarnessBrokerStartRequest(
-  prepared: PreparedPlacementCliRuntime,
+  prepared: PreparedPlacementCliRuntime | NativeWorkerBrokerPrepared,
   req: BuildHarnessBrokerInvocationRequest
 ): BuildHarnessBrokerInvocationResponse {
   if (req.brokerDriver === 'muse-serve') {
-    return toMuseServeStartRequest(prepared, req)
+    return toMuseServeStartRequest(prepared as PreparedPlacementCliRuntime, req)
   }
+  if (isNativeAgentHarnessBrokerRequest(req)) {
+    return toNativeAgentHarnessStartRequest(prepared as NativeWorkerBrokerPrepared, req)
+  }
+  const childPrepared = prepared as PreparedPlacementCliRuntime
   if (isInteractiveTmuxBrokerRequest(req)) {
     const driverKind = req.brokerDriver
     const hookBridge =
@@ -566,12 +697,12 @@ export function toHarnessBrokerStartRequest(
         driver: driverKind,
       },
       process: {
-        command: prepared.commandPath,
-        args: prepared.args,
-        cwd: prepared.cwd,
-        lockedEnv: prepared.lockedEnv,
-        ...(prepared.pathPrepend.length > 0 ? { pathPrepend: prepared.pathPrepend } : {}),
-        harnessTransport: req.harnessTransport ?? { kind: 'pty' },
+        command: childPrepared.commandPath,
+        args: childPrepared.args,
+        cwd: childPrepared.cwd,
+        lockedEnv: childPrepared.lockedEnv,
+        ...(childPrepared.pathPrepend.length > 0 ? { pathPrepend: childPrepared.pathPrepend } : {}),
+        harnessTransport: { kind: 'pty' },
         limits: req.limits ?? DEFAULT_BROKER_PROCESS_LIMITS,
       },
       interaction: {
@@ -602,8 +733,8 @@ export function toHarnessBrokerStartRequest(
     return {
       startRequest,
       spec,
-      resolvedBundle: prepared.resolvedBundle,
-      ...(prepared.warnings.length > 0 ? { warnings: prepared.warnings } : {}),
+      resolvedBundle: childPrepared.resolvedBundle,
+      ...(childPrepared.warnings.length > 0 ? { warnings: childPrepared.warnings } : {}),
     }
   }
 
@@ -620,9 +751,9 @@ export function toHarnessBrokerStartRequest(
       process: {
         command: 'in-process',
         args: [],
-        cwd: prepared.cwd,
-        lockedEnv: prepared.lockedEnv,
-        ...(prepared.pathPrepend.length > 0 ? { pathPrepend: prepared.pathPrepend } : {}),
+        cwd: childPrepared.cwd,
+        lockedEnv: childPrepared.lockedEnv,
+        ...(childPrepared.pathPrepend.length > 0 ? { pathPrepend: childPrepared.pathPrepend } : {}),
         harnessTransport: { kind: 'in-process' },
         limits: req.limits ?? DEFAULT_BROKER_PROCESS_LIMITS,
       },
@@ -645,12 +776,12 @@ export function toHarnessBrokerStartRequest(
       // driver spec so the profile policy and running broker cannot diverge.
       driver: { kind: 'pi-sdk', permissionPolicy: req.permissionPolicy ?? { mode: 'deny' } },
       sdk: req.sdk,
-      ...(prepared.systemPrompt?.path !== undefined
+      ...(childPrepared.systemPrompt?.path !== undefined
         ? {
             launch: {
-              systemPromptFile: prepared.systemPrompt.path,
-              ...(prepared.systemPrompt.mode !== undefined
-                ? { systemPromptMode: prepared.systemPrompt.mode }
+              systemPromptFile: childPrepared.systemPrompt.path,
+              ...(childPrepared.systemPrompt.mode !== undefined
+                ? { systemPromptMode: childPrepared.systemPrompt.mode }
                 : {}),
             },
           }
@@ -668,12 +799,12 @@ export function toHarnessBrokerStartRequest(
       startRequest,
       spec,
       ...(initialInput !== undefined ? { initialInput } : {}),
-      resolvedBundle: prepared.resolvedBundle,
-      ...(prepared.warnings.length > 0 ? { warnings: prepared.warnings } : {}),
+      resolvedBundle: childPrepared.resolvedBundle,
+      ...(childPrepared.warnings.length > 0 ? { warnings: childPrepared.warnings } : {}),
     }
   }
 
-  const codexDescriptor = buildCodexAppServerLaunchDescriptor(prepared.runOptions)
+  const codexDescriptor = buildCodexAppServerLaunchDescriptor(childPrepared.runOptions)
   const driver: CodexAppServerDriverSpec = {
     kind: 'codex-app-server',
     ...(req.presentation !== undefined ? { presentation: req.presentation } : {}),
@@ -701,11 +832,11 @@ export function toHarnessBrokerStartRequest(
       driver: 'codex-app-server',
     },
     process: {
-      command: prepared.commandPath,
-      args: prepared.args,
-      cwd: prepared.cwd,
-      lockedEnv: prepared.lockedEnv,
-      ...(prepared.pathPrepend.length > 0 ? { pathPrepend: prepared.pathPrepend } : {}),
+      command: childPrepared.commandPath,
+      args: childPrepared.args,
+      cwd: childPrepared.cwd,
+      lockedEnv: childPrepared.lockedEnv,
+      ...(childPrepared.pathPrepend.length > 0 ? { pathPrepend: childPrepared.pathPrepend } : {}),
       harnessTransport: { kind: 'jsonrpc-stdio' },
       limits: req.limits ?? DEFAULT_BROKER_PROCESS_LIMITS,
     },
@@ -739,8 +870,8 @@ export function toHarnessBrokerStartRequest(
     startRequest,
     spec,
     ...(initialInput !== undefined ? { initialInput } : {}),
-    resolvedBundle: prepared.resolvedBundle,
-    ...(prepared.warnings.length > 0 ? { warnings: prepared.warnings } : {}),
+    resolvedBundle: childPrepared.resolvedBundle,
+    ...(childPrepared.warnings.length > 0 ? { warnings: childPrepared.warnings } : {}),
   }
 }
 
@@ -771,5 +902,26 @@ function isPiSdkBrokerRequest(
     req.brokerDriver === 'pi-sdk' &&
     req.harnessTransport?.kind === 'in-process' &&
     req.sdk?.runtime === 'pi-sdk'
+  )
+}
+
+function isNativeAgentHarnessBrokerRequest(
+  req: BuildHarnessBrokerInvocationRequest
+): req is BuildHarnessBrokerInvocationRequest & {
+  provider: 'openai'
+  frontend: 'agent-harness-tui'
+  interactionMode: 'headless' | 'interactive'
+  brokerDriver: 'agent-harness' | 'agent-harness-tmux'
+  harnessTransport: { kind: 'native-worker' }
+  sdk: NonNullable<BuildHarnessBrokerInvocationRequest['sdk']>
+  agent: NonNullable<BuildHarnessBrokerInvocationRequest['agent']>
+} {
+  return (
+    req.provider === 'openai' &&
+    req.frontend === 'agent-harness-tui' &&
+    (req.brokerDriver === 'agent-harness' || req.brokerDriver === 'agent-harness-tmux') &&
+    req.harnessTransport?.kind === 'native-worker' &&
+    req.sdk?.runtime === 'pi-sdk' &&
+    req.agent !== undefined
   )
 }

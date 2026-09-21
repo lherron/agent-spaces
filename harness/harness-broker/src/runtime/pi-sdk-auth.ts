@@ -6,9 +6,7 @@ import type { DriverContext } from '../drivers/driver'
 
 /**
  * The broker-resolved auth binding for a pi-SDK-backed invocation: selectors
- * plus a credential-store path. It deliberately carries NO credential material,
- * which is what lets it be projected across a process boundary (the
- * `agent-harness-control/v1` `session.config` frame) unchanged.
+ * plus a credential-store path. It deliberately carries NO credential material.
  */
 export interface PiSdkAuthResolution {
   authMode: 'api-key' | 'oauth'
@@ -47,10 +45,8 @@ export function piSdkAgentDir(spec: HarnessInvocationSpec): string {
 
 /**
  * Resolve the auth binding for a pi-SDK-backed invocation from the hash-covered
- * spec plus the dispatch env. The single source for BOTH the in-process pi-sdk
- * driver and the `agent-harness-tmux` driver's `session.config` projection, so
- * the interactive surface binds the same value the headless one does rather
- * than one that merely happens to match.
+ * spec plus the dispatch env. The in-process Pi SDK driver and the first-party
+ * release worker consume this same resolution without a private projection.
  */
 export async function resolvePiSdkAuth(
   spec: HarnessInvocationSpec,

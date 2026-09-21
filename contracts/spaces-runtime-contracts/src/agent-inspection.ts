@@ -384,7 +384,17 @@ function stringArray(value: unknown, path: string, issues: ValidationIssue[]): v
 function stringRecord(value: unknown, path: string, issues: ValidationIssue[]): void {
   const values = record(value, path, issues)
   if (values === undefined) return
-  for (const [key, item] of Object.entries(values)) string(item, `${path}.${key}`, issues)
+  for (const [key, item] of Object.entries(values)) {
+    if (typeof item !== 'string') {
+      issues.push(
+        issue(
+          `${path}.${key}`,
+          item === undefined ? ISSUE.required : ISSUE.invalidType,
+          `${path}.${key} must be a string`
+        )
+      )
+    }
+  }
 }
 
 function validateIdentity(value: unknown, path: string, issues: ValidationIssue[]): void {
@@ -638,7 +648,9 @@ function validateDiagnostic(value: unknown, path: string, issues: ValidationIssu
 }
 
 function throwIfIssues(issues: ValidationIssue[]): void {
-  if (issues.length > 0) throw new AgentInspectionValidationError(issues)
+  if (issues.length > 0) {
+    throw new AgentInspectionValidationError(issues)
+  }
 }
 
 /** Validates and returns the original v1 inspection result. */

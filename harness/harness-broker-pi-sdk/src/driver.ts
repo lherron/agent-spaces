@@ -119,12 +119,19 @@ export interface PiSdkDriverOptions {
   createSession?: ((input: PiSdkSessionFactoryInput) => Promise<PiSdkSession>) | undefined
   schedule?: ((task: () => void) => void) | undefined
   driverKind?: string | undefined
+  /**
+   * The generic Pi SDK driver is broker-local. First-party release workers use
+   * the same composition *inside their already-external worker*, and declare
+   * that boundary as native-worker instead.
+   */
+  requiredHarnessTransport?: 'in-process' | 'native-worker' | undefined
 }
 
 export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
   const createSession = options.createSession ?? createDefaultPiSdkSession
   const schedule = options.schedule ?? ((task: () => void) => setImmediate(task))
   const driverKind = options.driverKind ?? PI_SDK_DRIVER_KIND
+  const requiredHarnessTransport = options.requiredHarnessTransport ?? 'in-process'
 
   let ctx: DriverContext | undefined
   let spec: HarnessInvocationSpec | undefined
@@ -259,7 +266,7 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
       nextSpec: HarnessInvocationSpec,
       driverCtx: DriverContext
     ): Promise<DriverStartResult> {
-      assertPiSdkSpec(nextSpec, driverKind)
+      assertPiSdkSpec(nextSpec, driverKind, requiredHarnessTransport)
       ctx = driverCtx
       spec = nextSpec
       disposed = false
@@ -268,8 +275,14 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
       driverCtx.emit(
         'invocation.started',
         {
-          command: nextSpec.process.command,
-          args: nextSpec.process.args,
+          // A native-worker invocation deliberately serializes no child argv:
+          // this process is the release-selected worker.  The broker event
+          // still requires an executable label, so report our actual entrypoint
+          // rather than inventing a process-spec command.
+          command:
+            processSpecCommand(nextSpec) ??
+            (requiredHarnessTransport === 'native-worker' ? process.execPath : 'in-process'),
+          args: processSpecArgs(nextSpec),
           cwd: nextSpec.process.cwd,
         },
         { driver: { kind: driverKind } }
@@ -433,9 +446,7 @@ export function composePiSdkEnvironment(
 }
 
 /**
- * Bind the shared broker resolution to this package's credential reader. The
- * resolution itself lives in `spaces-harness-broker` so the `agent-harness-tmux`
- * driver projects the SAME value into its `session.config` frame.
+ * Bind the shared broker resolution to this package's credential reader.
  */
 function resolvePiSdkAuth(
   spec: HarnessInvocationSpec,
@@ -510,12 +521,27 @@ function configureStructuredTool(
   tool.parameters = schema
 }
 
-function assertPiSdkSpec(spec: HarnessInvocationSpec, driverKind: string): void {
+function assertPiSdkSpec(
+  spec: HarnessInvocationSpec,
+  driverKind: string,
+  requiredHarnessTransport: 'in-process' | 'native-worker'
+): void {
   if (spec.driver.kind !== driverKind) {
     throw new Error(`pi-sdk driver cannot start spec for ${spec.driver.kind}`)
   }
-  if (spec.process.harnessTransport.kind !== 'in-process') {
-    throw new Error('pi-sdk driver requires in-process harness transport')
+  const harnessTransportKind = (spec.process.harnessTransport as { kind: string }).kind
+  if (harnessTransportKind !== requiredHarnessTransport) {
+    throw new Error(`${driverKind} requires ${requiredHarnessTransport} harness transport`)
+  }
+  if (requiredHarnessTransport === 'native-worker') {
+    const process = spec.process as unknown as { command?: unknown; args?: unknown }
+    const execution = (spec.process as unknown as { execution?: unknown }).execution
+    if (execution !== 'native-worker') {
+      throw new Error(`${driverKind} requires native-worker process execution`)
+    }
+    if (process.command !== undefined || process.args !== undefined) {
+      throw new Error(`${driverKind} native-worker process must not declare command or args`)
+    }
   }
   if (spec.sdk?.runtime !== 'pi-sdk') {
     throw new Error('pi-sdk driver requires spec.sdk.runtime=pi-sdk')
@@ -523,6 +549,16 @@ function assertPiSdkSpec(spec: HarnessInvocationSpec, driverKind: string): void 
   if (spec.sdk.authMode !== 'api-key' && spec.sdk.authMode !== 'oauth') {
     throw new Error('pi-sdk driver requires spec.sdk.authMode=api-key|oauth')
   }
+}
+
+function processSpecCommand(spec: HarnessInvocationSpec): string | undefined {
+  const command = (spec.process as unknown as { command?: unknown }).command
+  return typeof command === 'string' ? command : undefined
+}
+
+function processSpecArgs(spec: HarnessInvocationSpec): string[] {
+  const args = (spec.process as unknown as { args?: unknown }).args
+  return Array.isArray(args) && args.every((arg) => typeof arg === 'string') ? args : []
 }
 
 function readPermissionPolicy(spec: HarnessInvocationSpec): PermissionPolicy {

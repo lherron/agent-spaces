@@ -24,7 +24,6 @@ import {
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import { readStoredCredential } from '@earendil-works/pi-coding-agent'
 import {
   detectAgentLocalComponents,
   harnessRegistry,
@@ -33,7 +32,6 @@ import {
   prepareCodexRuntimeHome,
 } from 'spaces-execution'
 import type {
-  HarnessInvocationSpec,
   InvocationRuntimeContext,
   InvocationStartRequest,
 } from 'spaces-harness-broker-protocol'
@@ -50,7 +48,6 @@ import {
   buildPlacementFromScopeRef,
 } from '../../../compiler/agent-spaces/src/testing/pre-hrc-broker-helpers.js'
 import { allocatePreHrcTmuxPane } from '../../../compiler/agent-spaces/src/testing/pre-hrc-tmux-allocator.js'
-import { createDefaultAgentHarnessTmuxDriver } from '../../../harness/harness-broker/src/drivers/agent-harness-tmux/driver'
 import { createDefaultClaudeCodeTmuxDriver } from '../../../harness/harness-broker/src/drivers/claude-code-tmux/driver'
 import { createCodexAppServerDriver } from '../../../harness/harness-broker/src/drivers/codex-app-server/driver'
 import { createDefaultCodexCliTmuxDriver } from '../../../harness/harness-broker/src/drivers/codex-cli-tmux/driver'
@@ -97,13 +94,12 @@ export type RowRecipe = {
  * that ships as an `additionalDrivers` entry. `noop-driver` is deliberately
  * absent (it is not a real harness and the spec excludes it).
  */
-export function buildMatrixDrivers(hookIpcDir: string, controlDir: string): Driver[] {
+export function buildMatrixDrivers(hookIpcDir: string): Driver[] {
   return [
     createDefaultClaudeCodeTmuxDriver(hookIpcDir),
     createDefaultCodexCliTmuxDriver(hookIpcDir),
     createDefaultPiTuiTmuxDriver(hookIpcDir),
     createCodexAppServerDriver(),
-    createDefaultAgentHarnessTmuxDriver(controlDir, { readStoredCredential }),
   ]
 }
 
@@ -530,75 +526,6 @@ function compiledRecipe(input: {
   }
 }
 
-/**
- * agent-harness-tmux has no compiler route (`compiler/agent-spaces/src/types.ts`
- * knows four broker drivers), so its spec is built directly — the same shape
- * `direct-agent-harness.ts` builds for the headless surface.
- */
-function agentHarnessRecipe(): RowRecipe {
-  const authStore = join(homedir(), '.pi', 'agent', 'auth.json')
-  return {
-    kind: 'agent-harness-tmux',
-    probe: () => {
-      const bin = onPath('agent-harness')
-      if (bin === undefined) return { available: false, reason: 'agent-harness binary not on PATH' }
-      const tmux = tmuxProbe()
-      if (tmux !== undefined) return tmux
-      const auth = authProbe(authStore, 'pi')
-      if (auth !== undefined) return auth
-      return { available: true, reason: `agent-harness at ${bin}, pi auth at ${authStore}` }
-    },
-    plan: async (ctx) => {
-      const pane = await allocatePane(ctx, 'agent-harness-tmux')
-      const invocationId = `inv_admission_matrix_agent_harness_${ctx.marker}`
-      const spec = {
-        specVersion: 'harness-broker.invocation/v1',
-        invocationId,
-        harness: { frontend: 'agent-harness', provider: 'openai', driver: 'agent-harness-tmux' },
-        process: {
-          command: join(ctx.repoRoot, 'harness/agent-harness/bin/agent-harness.js'),
-          args: ['tui'],
-          cwd: ctx.repoRoot,
-          lockedEnv: {
-            ASP_HOME: process.env['ASP_HOME'] ?? join(homedir(), 'praesidium/var/spaces-repo'),
-          },
-          harnessTransport: { kind: 'pty' },
-        },
-        interaction: { mode: 'interactive', turnConcurrency: 'single', inputQueue: 'fifo' },
-        driver: {
-          kind: 'agent-harness-tmux',
-          terminalHost: 'tmux',
-          permissionPolicy: { mode: 'allow' },
-        },
-        sdk: {
-          runtime: 'pi-sdk',
-          provider: 'openai-codex',
-          modelId: 'gpt-5.6-terra',
-          authMode: 'oauth',
-        },
-        agent: {
-          agentId: 'sparky',
-          projectId: 'agent-spaces',
-          aspHome: process.env['ASP_HOME'] ?? join(homedir(), 'praesidium/var/spaces-repo'),
-          runMode: 'task',
-          scopeRef: 'agent:sparky:project:agent-spaces:task:T-07860',
-          runId: `run-${ctx.marker}`,
-        },
-        correlation: { runtimeId: `runtime-${ctx.marker}` },
-      } as unknown as HarnessInvocationSpec
-      return {
-        driver: createDefaultAgentHarnessTmuxDriver(join(ctx.hookIpcDir, 'control'), {
-          readStoredCredential,
-        }),
-        startRequest: { spec },
-        runtime: pane.runtime,
-        dispatchEnv: { HARNESS_PI_AUTH_STORE: authStore },
-        cleanup: pane.cleanup,
-      }
-    },
-  }
-}
-
 export const ROW_RECIPES: Record<string, RowRecipe> = {
   'claude-code-tmux': compiledRecipe({
     kind: 'claude-code-tmux',
@@ -663,5 +590,4 @@ export const ROW_RECIPES: Record<string, RowRecipe> = {
       return { available: true, reason: `real codex at ${codex}` }
     },
   }),
-  'agent-harness-tmux': agentHarnessRecipe(),
 }

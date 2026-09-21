@@ -52,6 +52,44 @@ describe('broker invocation driver gate lift RED', () => {
     ).not.toThrow()
   })
 
+  test('accepts native agent-harness routes without a child launch shape', () => {
+    const prepared = {
+      cwd: '/tmp/projects/agent-spaces',
+      lockedEnv: { DECLARED: '1' },
+      pathPrepend: ['/tmp/tools'],
+      imageAttachmentPaths: [],
+      resolvedBundle: { bundleIdentity: 'native-worker-bundle' },
+      warnings: [],
+    }
+    const request = brokerReq({
+      provider: 'openai',
+      frontend: 'agent-harness-tui',
+      interactionMode: 'headless',
+      brokerDriver: 'agent-harness',
+      harnessTransport: { kind: 'native-worker' },
+      sdk: {
+        runtime: 'pi-sdk',
+        provider: 'openai-codex',
+        modelId: 'openai-codex/gpt-5.6-terra',
+        authMode: 'oauth',
+      },
+      agent: { agentId: 'sparky', agentRoot: '/tmp/agents/sparky', runMode: 'task' },
+    })
+    expect(() => validateBrokerInvocationRequest(request)).not.toThrow()
+    const { spec } = toHarnessBrokerStartRequest(prepared, request)
+    expect(spec.process).toMatchObject({
+      execution: 'native-worker',
+      cwd: '/tmp/projects/agent-spaces',
+      lockedEnv: { DECLARED: '1' },
+      pathPrepend: ['/tmp/tools'],
+      harnessTransport: { kind: 'native-worker' },
+    })
+    expect(spec.process).not.toHaveProperty('command')
+    expect(spec.process).not.toHaveProperty('args')
+    expect(spec.harness.driver).toBe('agent-harness')
+    expect(spec.agent).toEqual(request.agent)
+  })
+
   test('still rejects codex app-server when interaction mode is interactive', () => {
     expect(() =>
       validateBrokerInvocationRequest(

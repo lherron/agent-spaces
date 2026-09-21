@@ -63,7 +63,7 @@ import type {
   PreemptMode,
   SteerLandingEvidence,
 } from '../driver'
-import { withDeliveryEvidence } from '../driver'
+import { hasChildHarnessProcess, withDeliveryEvidence } from '../driver'
 import { MUSE_SERVE_AUTHORITY } from '../evidence-authority'
 import type { HookListenerHandle } from '../tmux-shared'
 import {
@@ -691,6 +691,12 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
     ): Promise<DriverStartResult> {
       if (startSpec.driver.kind !== MUSE_DRIVER_KIND) {
         throw new BrokerError(BrokerCodes.DriverUnavailable, 'Invalid muse-serve driver spec')
+      }
+      if (!hasChildHarnessProcess(startSpec)) {
+        throw new BrokerError(
+          BrokerCodes.DispatchValidationFailed,
+          'muse-serve requires a child harness process'
+        )
       }
       ctx = driverCtx
       spec = startSpec

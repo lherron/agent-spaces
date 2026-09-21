@@ -230,7 +230,7 @@ describe('pi-sdk provider mapping (T-01092)', () => {
         join(import.meta.dirname, '..', 'commands', 'agent', 'index.ts'),
         'utf8'
       )
-      const fn = source.match(/function normalizeHarness[\s\S]*?^}/m)?.[0]
+      const fn = source.match(/function normalizeHarness[\s\S]*?\n}\n\nfunction /)?.[0]
 
       expect(fn).toBeDefined()
       expect(fn).toMatch(/const frontend = resolveHarnessFrontendName\(input\)/)

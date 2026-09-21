@@ -95,6 +95,23 @@ function launchArtifact(calls: TmuxExecCall[]): LaunchArtifact {
 }
 
 describe('pi-tui-tmux driver', () => {
+  test('rejects a release-owned native worker process before acquiring a pane', async () => {
+    const { createDefaultPiTuiTmuxDriver } = await import('../../../src/drivers/pi-tui-tmux/driver')
+    const driver = createDefaultPiTuiTmuxDriver()
+    const nativeSpec = {
+      ...piTmuxSpec(),
+      process: {
+        execution: 'native-worker',
+        cwd: process.cwd(),
+        harnessTransport: { kind: 'native-worker' },
+      },
+    } as HarnessInvocationSpec
+
+    await expect(driver.start(nativeSpec, {} as DriverContext)).rejects.toThrow(
+      'pi-tui-tmux requires a child harness process'
+    )
+  })
+
   test('consumes an hrc-owned pane lease, reports the pane, and launches Pi with broker hook env', async () => {
     const target = (await import('../../../src/drivers/pi-tui-tmux/driver')) as {
       createPiTuiTmuxDriver: typeof import(

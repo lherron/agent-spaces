@@ -15,7 +15,14 @@ import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../../errors'
 import type { TmuxExec, TmuxPaneController } from '../../runtime/tmux'
 import { writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
-import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
+import type {
+  ApplyInputResult,
+  ChildProcessInvocationSpec,
+  Driver,
+  DriverContext,
+  DriverStartResult,
+} from '../driver'
+import { hasChildHarnessProcess } from '../driver'
 import { CODEX_CLI_TMUX_AUTHORITY } from '../evidence-authority'
 import { createHookCaptureSeam } from '../hook-capture'
 import { getString } from '../hook-json'
@@ -243,6 +250,12 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
     },
 
     async start(spec: HarnessInvocationSpec, driverCtx: DriverContext): Promise<DriverStartResult> {
+      if (!hasChildHarnessProcess(spec)) {
+        throw new BrokerError(
+          BrokerErrorCode.DispatchValidationFailed,
+          'codex-cli-tmux requires a child harness process'
+        )
+      }
       const leased = await consumePaneLease(driverCtx, {
         driverKind: 'codex-cli-tmux',
         ...(options.tmux.tmuxBin !== undefined ? { tmuxBin: options.tmux.tmuxBin } : {}),
@@ -504,7 +517,7 @@ function emitTranscriptDiagnostic(
 }
 
 async function buildLaunchCommandLine(
-  spec: HarnessInvocationSpec,
+  spec: ChildProcessInvocationSpec,
   ctx: DriverContext,
   hookEnv: { callbackSocket: string; hookCliPath: string; runtimeId?: string | undefined }
 ): Promise<string> {

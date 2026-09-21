@@ -329,6 +329,8 @@ export type AspcHistoricalExecutionEvidence = {
           | 'codex-cli-tmux'
           | 'pi-tui-tmux'
           | 'pi-sdk'
+          | 'agent-harness'
+          | 'agent-harness-tmux'
           | undefined
         compileId?: string | undefined
         planHash?: string | undefined

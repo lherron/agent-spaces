@@ -35,7 +35,9 @@ type FixtureOptions = {
   embeddedIdentity?: boolean
   workerBindings?: Record<string, string>
   driverInventories?: Record<string, string[]>
+  unavailableDrivers?: Record<string, string[]>
   statusline?: string
+  photonWasm?: string
 }
 
 function fixture(options: FixtureOptions = {}): string {
@@ -50,7 +52,10 @@ function fixture(options: FixtureOptions = {}): string {
     const launcher = `#!/bin/sh
 if [ "\${1-}" = "drivers" ]; then
   printf '%s\\n' '${JSON.stringify(
-    (options.driverInventories?.[name] ?? []).map((kind) => ({ kind, available: true }))
+    (options.driverInventories?.[name] ?? []).map((kind) => ({
+      kind,
+      available: !(options.unavailableDrivers?.[name] ?? []).includes(kind),
+    }))
   )}'
   exit 0
 fi
@@ -98,6 +103,17 @@ printf '%s\\n' '${JSON.stringify({
     }
     chmodSync(assetDir, 0o555)
     chmodSync(join(release, 'assets'), 0o555)
+  }
+  if (options.photonWasm !== undefined) {
+    const assetPath = join(release, 'libexec', 'photon_rs_bg.wasm')
+    writeFileSync(assetPath, options.photonWasm, { mode: 0o444 })
+    manifest.assets = {
+      ...manifest.assets,
+      'photon-wasm': {
+        path: 'libexec/photon_rs_bg.wasm',
+        sha256: sha256(options.photonWasm),
+      },
+    }
   }
   writeFileSync(join(release, 'release.json'), `${JSON.stringify(manifest, null, 2)}\n`)
   chmodSync(join(release, 'release.json'), 0o444)
@@ -189,6 +205,63 @@ describe('standalone ASP release inspection', () => {
     expect(result.assetResolution?.['claude-statusline']?.path).toBe(
       join(release, 'assets', 'claude', 'statusline.sh')
     )
+  })
+
+  test('binds both agent-harness drivers to one worker with a digested Photon runtime', () => {
+    const release = fixture({
+      names: ['aspc-facade', 'harness-broker', 'agent-harness', 'aspd'],
+      embeddedIdentity: true,
+      payload: (_name, id, sourceCommit) => `#!/bin/sh\n# ${id} ${sourceCommit}\nexit 0\n`,
+      workerBindings: {
+        'agent-harness': 'agent-harness',
+        'agent-harness-tmux': 'agent-harness',
+      },
+      driverInventories: {
+        'agent-harness': ['agent-harness', 'agent-harness-tmux'],
+      },
+      statusline: '#!/bin/sh\necho ready\n',
+      photonWasm: 'photon-wasm-fixture',
+    })
+
+    const result = inspectRelease(release)
+    expect(result.workerBindings).toEqual({
+      'agent-harness': 'agent-harness',
+      'agent-harness-tmux': 'agent-harness',
+    })
+    expect(result.assetResolution?.['photon-wasm']?.path).toBe(
+      join(release, 'libexec', 'photon_rs_bg.wasm')
+    )
+  })
+
+  test('rejects an agent-harness binding without its Photon runtime asset', () => {
+    const release = fixture({
+      names: ['aspc-facade', 'harness-broker', 'agent-harness', 'aspd'],
+      embeddedIdentity: true,
+      payload: (_name, id, sourceCommit) => `#!/bin/sh\n# ${id} ${sourceCommit}\nexit 0\n`,
+      workerBindings: { 'agent-harness': 'agent-harness' },
+      driverInventories: { 'agent-harness': ['agent-harness'] },
+      statusline: '#!/bin/sh\necho ready\n',
+    })
+
+    expect(() => inspectRelease(release)).toThrow(
+      'agent-harness release worker is missing required asset: photon-wasm'
+    )
+  })
+
+  test('accepts a binding whose release worker registers the driver as unavailable', () => {
+    const release = fixture({
+      names: ['aspc-facade', 'harness-broker', 'agent-harness', 'aspd'],
+      embeddedIdentity: true,
+      payload: (_name, id, sourceCommit) => `#!/bin/sh\n# ${id} ${sourceCommit}\nexit 0\n`,
+      workerBindings: { 'agent-harness-tmux': 'agent-harness' },
+      driverInventories: { 'agent-harness': ['agent-harness-tmux'] },
+      unavailableDrivers: { 'agent-harness': ['agent-harness-tmux'] },
+      statusline: '#!/bin/sh\necho ready\n',
+      photonWasm: 'photon-wasm-fixture',
+    })
+
+    const result = inspectRelease(release)
+    expect(result.workerBindings).toEqual({ 'agent-harness-tmux': 'agent-harness' })
   })
 
   test('rejects a worker binding not advertised by its executable', () => {

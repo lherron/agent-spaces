@@ -179,7 +179,14 @@ export async function inspectRuntimePlacement(
     }
     throw error
   }
-  const environment = preparation.execEnv
+  // NodeJS.ProcessEnv permits undefined values in memory, but the frozen
+  // inspection contract represents the executable environment: only strings
+  // can cross that boundary, and an undefined entry is equivalent to absence.
+  const environment = Object.fromEntries(
+    Object.entries(preparation.execEnv).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string'
+    )
+  )
   const nowIso = (options.now?.() ?? new Date()).toISOString()
   const projectRoot = placement.projectRoot ?? context.cwd
   const projectId = preparation.identity.projectId ?? basename(projectRoot)
@@ -853,6 +860,9 @@ function requestedHarness(
       runtime: entry.id === 'claude-agent-sdk' ? 'claude-agent-sdk' : 'claude-code-cli',
       provider: 'anthropic',
     }
+  }
+  if (entry?.id === 'agent-harness') {
+    return { family: 'pi', runtime: 'agent-harness', provider: entry.provider }
   }
   if (entry?.id === 'pi' || entry?.id === 'pi-sdk') {
     return {

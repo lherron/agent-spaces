@@ -377,6 +377,10 @@ export function createBroker(options: BrokerOptions): Broker {
         { driverKind }
       )
     }
+    const unavailableReason = driver.unavailableReason?.()
+    if (unavailableReason !== undefined) {
+      throw new BrokerError(BrokerErrorCode.DriverUnavailable, unavailableReason, { driverKind })
+    }
     return { driver, parsedDispatchEnv }
   }
 

@@ -10,6 +10,7 @@ export type ProcessInteractionMode = 'interactive' | 'headless' | 'nonInteractiv
 export type ProcessIoMode = 'pty' | 'pipes' | 'inherit'
 export type ProcessHarnessFrontend =
   | 'agent-sdk'
+  | 'agent-harness-tui'
   | 'pi-sdk'
   | 'claude-code'
   | 'codex-cli'

@@ -18,7 +18,14 @@ import { BrokerError } from '../../errors'
 import type { TmuxExec, TmuxPaneController } from '../../runtime/tmux'
 import type { TmuxHelperLauncher } from '../../runtime/tmux-launch-exec'
 import { tmuxHelperRunner, writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
-import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
+import type {
+  ApplyInputResult,
+  ChildProcessInvocationSpec,
+  Driver,
+  DriverContext,
+  DriverStartResult,
+} from '../driver'
+import { hasChildHarnessProcess } from '../driver'
 import { MUSE_CLI_TMUX_AUTHORITY } from '../evidence-authority'
 import { getString } from '../hook-json'
 import type { HookEnvelopeResult, HookListenerHandle } from '../tmux-shared'
@@ -283,6 +290,12 @@ export function createMuseCliTmuxDriver(options: MuseCliTmuxDriverOptions): Driv
     },
 
     async start(spec: HarnessInvocationSpec, driverCtx: DriverContext): Promise<DriverStartResult> {
+      if (!hasChildHarnessProcess(spec)) {
+        throw new BrokerError(
+          BrokerErrorCode.DispatchValidationFailed,
+          'muse-cli-tmux requires a child harness process'
+        )
+      }
       const leased = await consumePaneLease(driverCtx, {
         driverKind: 'muse-cli-tmux',
         ...(options.tmux.tmuxBin !== undefined ? { tmuxBin: options.tmux.tmuxBin } : {}),
@@ -427,7 +440,7 @@ export function createMuseCliTmuxDriver(options: MuseCliTmuxDriverOptions): Driv
 }
 
 async function buildLaunchCommandLine(
-  spec: HarnessInvocationSpec,
+  spec: ChildProcessInvocationSpec,
   ctx: DriverContext,
   homeEnv: {
     home: PreparedMuseHome

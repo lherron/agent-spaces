@@ -3,13 +3,17 @@
 End-to-end verification for the first-party `agent-harness` and
 `agent-harness-tmux` drivers after T-08680. This runbook tests the architecture,
 not only model output: aspd must select one immutable release executable, that
-worker must speak the standard broker protocol directly, and interactive mode
-must not use `agent-harness-control/v1` or launch a TUI child.
+worker must speak the standard broker protocol directly. When Earendil supplies
+an embedded lifecycle, interactive mode must not use a private relay or launch
+a TUI child.
 
-**Validation status:** blocked before first successful run. Earendil 0.86.1
-retains build-host Photon/esbuild paths in the compiled worker and its
-`InteractiveMode` has no non-exiting embedded lifecycle. Do not mark this
-runbook validated until both fixed points pass.
+**Validation status:** partial. The release compiler now relocates Photon to a
+digested sibling asset, and a direct compiled-worker probe contains no absolute
+agent-spaces, HRC, or esbuild path. Earendil 0.86.1 still has no non-exiting
+embedded `InteractiveMode` lifecycle, so `agent-harness-tmux` is registered as
+unavailable. Release inspection accepts that explicit binding because the
+driver is present in the worker inventory; invocation start remains the
+fail-closed availability gate.
 
 ## Safety and prerequisites
 
@@ -59,9 +63,12 @@ RELEASE="$AH_E2E_ROOT/build/<release-id>"
 jq '[.[].kind] | sort' "$AH_E2E_ROOT/worker-drivers.json"
 ```
 
-Stop here if the inspector finds Photon, esbuild, the agent-spaces checkout, or
-another build-host absolute path. A successful `drivers --json` alone does not
-prove a shippable worker.
+Stop here if the inspector finds an absolute Photon/esbuild path, the
+agent-spaces checkout, another build-host path, or either bound driver is
+absent. Under Earendil 0.86.1, `agent-harness` must report available and
+`agent-harness-tmux` must report unavailable with the embedded-lifecycle
+reason. That is a shippable inventory: binding proves ownership and broker
+start proves availability.
 
 ## 2. Install and start an isolated aspd namespace
 
@@ -141,44 +148,21 @@ Save the NDJSON stream. Pass only if:
 - interrupt remains ack-backed; and
 - the worker process tree contains no agent-harness child.
 
-## 5. Interactive real tmux proof
+## 5. Interactive unavailability proof
 
-Create a real tmux surface and launch the exact returned worker itself as the
-pane process, keeping its Unix broker socket reachable. Do not paste
-`agent-harness tui`, a runner, or a control-socket argument into the pane.
+Earendil 0.86.1 cannot host its interactive presentation without exiting the
+worker process. The released `agent-harness-tmux` registration is therefore
+intentionally unavailable. A broker start must fail with `DriverUnavailable`
+and the reason that Earendil lacks a non-exiting embedded lifecycle. It must
+not create a pane, worker child, or invocation event stream.
 
-Start the frozen `agent-harness-tmux` invocation over the ordinary broker
-socket. Then perform, in order:
-
-1. Submit a broker input requesting exact sentinel `BROKER-TURN`.
-2. Type an operator prompt in the TUI requesting exact sentinel
-   `OPERATOR-TURN`.
-3. Detach and reattach the tmux client.
-4. Enter `/quit` in the TUI.
-5. Query the broker and then issue broker stop.
-
-Pass only if:
-
-- the pane process is the immutable release worker, not a TUI child;
-- `terminal.surface.reported` names the leased surface;
-- broker and operator prompts use one invocation identity and one gap-free
-  sequence;
-- each prompt has exactly one turn bracket and one terminal;
-- no frame, socket, argv, event, or log contains
-  `agent-harness-control/v1`, `--broker-control-socket`, `session.config`, or
-  `turn.begin`;
-- `/quit` restores the terminal and returns from the embedded presentation
-  without disposing Pi or exiting the broker;
-- the broker answers after `/quit` and exits only on broker stop; and
-- detach/reattach does not change broker identity or continuation.
-
-The current `scripts/agent-harness-tmux-integration-e2e.ts` is historical until
-rewritten: it deliberately tests the retired child/control-socket topology and
-must not be accepted as T-08680 evidence.
+When the upstream lifecycle exists, replace this refusal proof with a real tmux
+exercise of one worker process, one invocation identity, and one gap-free event
+sequence across broker and operator input.
 
 ## 6. Regression gates
 
-After the two real turns:
+After the release proof, headless real turn, and interactive proof:
 
 ```sh
 bun run build
@@ -190,8 +174,8 @@ just architecture-records
 bun run test
 ```
 
-Run the `agent-harness-tmux` harness matrix row from a real Ghostty terminal and
-run the published CLI pack smoke. Existing Codex, Claude, generic Pi, Muse,
+Do not add an interactive matrix row until the embedded lifecycle is available.
+Run the published CLI pack smoke. Existing Codex, Claude, generic Pi, Muse,
 Arris, Desktop, and direct foreground `asp run` rows must remain green.
 
 ## 7. Cleanup

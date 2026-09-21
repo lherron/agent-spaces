@@ -31,6 +31,8 @@ export type HarnessRuntime =
   | 'codex-desktop'
   | 'pi-cli'
   | 'pi-sdk'
+  /** First-party Pi-family worker selected from an immutable ASP release. */
+  | 'agent-harness'
 
 export type InteractionMode = 'interactive' | 'headless' | 'nonInteractive'
 export type RuntimeControllerKind =

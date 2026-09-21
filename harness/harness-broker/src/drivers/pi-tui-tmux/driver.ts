@@ -21,7 +21,14 @@ import {
   tmuxHelperRunner,
   writeTmuxLaunchExecFiles,
 } from '../../runtime/tmux-launch-exec'
-import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
+import type {
+  ApplyInputResult,
+  ChildProcessInvocationSpec,
+  Driver,
+  DriverContext,
+  DriverStartResult,
+} from '../driver'
+import { hasChildHarnessProcess } from '../driver'
 import { PI_TUI_TMUX_AUTHORITY } from '../evidence-authority'
 import { createHookCaptureSeam } from '../hook-capture'
 import { asRecord as asPiHookRecord, getString } from '../hook-json'
@@ -185,6 +192,12 @@ export function createPiTuiTmuxDriver(options: PiTuiTmuxDriverOptions): Driver {
     },
 
     async start(spec: HarnessInvocationSpec, driverCtx: DriverContext): Promise<DriverStartResult> {
+      if (!hasChildHarnessProcess(spec)) {
+        throw new BrokerError(
+          BrokerErrorCode.DispatchValidationFailed,
+          'pi-tui-tmux requires a child harness process'
+        )
+      }
       const leased = await consumePaneLease(driverCtx, {
         driverKind: PI_TUI_TMUX_DRIVER_KIND,
         ...(options.tmux.tmuxBin !== undefined ? { tmuxBin: options.tmux.tmuxBin } : {}),
@@ -355,7 +368,7 @@ export function createPiTuiTmuxDriver(options: PiTuiTmuxDriverOptions): Driver {
 }
 
 async function buildLaunchCommandLine(
-  spec: HarnessInvocationSpec,
+  spec: ChildProcessInvocationSpec,
   ctx: DriverContext,
   hookEnv: {
     callbackSocket: string

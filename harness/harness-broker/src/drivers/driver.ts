@@ -1,4 +1,5 @@
 import type {
+  ChildHarnessProcessSpec,
   ClientCapabilities,
   EventProvenance,
   EvidenceAuthorityMatrix,
@@ -23,6 +24,17 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import type { CaptureGate, CaptureNormalizer } from '../capture/capture-gate'
 import type { DispatchEnv } from '../runtime/env'
+
+/** A broker driver that launches a child may use executable fields only after this narrowing. */
+export type ChildProcessInvocationSpec = HarnessInvocationSpec & {
+  process: ChildHarnessProcessSpec
+}
+
+export function hasChildHarnessProcess(
+  spec: HarnessInvocationSpec
+): spec is ChildProcessInvocationSpec {
+  return spec.process.execution !== 'native-worker'
+}
 
 export interface ApplyInputResult {
   turnId?: TurnId | undefined
@@ -169,6 +181,14 @@ export interface Driver {
   /** The host itself owns idle-steer turn creation; the broker must not call applyInputNow. */
   readonly steerNeverStartsTurn?: boolean | undefined
   readonly interruptLandingEvidence: InterruptLandingEvidence | null
+  /**
+   * A driver can be deliberately present in an immutable worker inventory while
+   * an upstream runtime prerequisite is unavailable.  Keeping that distinction
+   * on the driver (rather than omitting the identity) makes `drivers --json`
+   * truthful and lets release inspection prove the intended binding without
+   * pretending that a start would work.
+   */
+  unavailableReason?(): string | undefined
   capabilities(spec?: HarnessInvocationSpec): InvocationCapabilities
   /**
    * This driver's PRODUCTION normalizer, for restart replay (T-07853 §7.3).

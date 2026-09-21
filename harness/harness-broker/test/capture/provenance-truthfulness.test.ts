@@ -11,7 +11,6 @@ import { PI_SDK_AUTHORITY } from '../../../harness-broker-pi-sdk/src/evidence-au
 import { createBroker } from '../../src/broker'
 import type { Driver } from '../../src/drivers/driver'
 import {
-  AGENT_HARNESS_TMUX_AUTHORITY,
   CLAUDE_CODE_TMUX_AUTHORITY,
   CODEX_APP_SERVER_AUTHORITY,
   CODEX_CLI_TMUX_AUTHORITY,
@@ -45,7 +44,6 @@ const DECLARED: Record<
   'codex-cli-tmux': { authority: CODEX_CLI_TMUX_AUTHORITY, native: 'provider-jsonl' },
   'codex-app-server': { authority: CODEX_APP_SERVER_AUTHORITY, native: 'provider-jsonrpc' },
   'pi-tui-tmux': { authority: PI_TUI_TMUX_AUTHORITY, native: 'provider-jsonl' },
-  'agent-harness-tmux': { authority: AGENT_HARNESS_TMUX_AUTHORITY, native: 'provider-jsonrpc' },
   'pi-sdk': { authority: PI_SDK_AUTHORITY, native: 'provider-jsonl' },
 }
 

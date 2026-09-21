@@ -17,7 +17,13 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { HarnessInvocationSpec, InputId, InvocationId } from 'spaces-harness-broker-protocol'
+import type {
+  ChildHarnessProcessSpec,
+  HarnessInvocationSpec,
+  HarnessProcessSpec,
+  InputId,
+  InvocationId,
+} from 'spaces-harness-broker-protocol'
 import type {
   BrokerExecutionProfile,
   RuntimeCompileRequest,
@@ -150,6 +156,13 @@ function brokerProfile(response: RuntimeCompileResponse): BrokerExecutionProfile
 
 function specFromProfile(profile: BrokerExecutionProfile): HarnessInvocationSpec {
   return profile.harnessInvocation.startRequest.spec
+}
+
+function childProcess(process: HarnessProcessSpec): ChildHarnessProcessSpec {
+  if (process.execution === 'native-worker') {
+    throw new Error('expected a child-process route')
+  }
+  return process
 }
 
 // ---------------------------------------------------------------------------
@@ -412,8 +425,8 @@ describe('continuation threading no-loss regression guards (T-04829)', () => {
 
       // buildResumeArgs in codex-adapter.ts:316 produces ['resume', ..., key, ...]
       // The spec.process.args IS the codex argv (command is the codex binary path).
-      expect(s.process.args).toContain('resume')
-      expect(s.process.args).toContain(CODEX_KEY)
+      expect(childProcess(s.process).args).toContain('resume')
+      expect(childProcess(s.process).args).toContain(CODEX_KEY)
     })
 
     test('the continuation key appears AFTER the resume subcommand in argv (no positional swap)', async () => {
@@ -421,8 +434,9 @@ describe('continuation threading no-loss regression guards (T-04829)', () => {
         brokerProfile(await createClient().compileRuntimePlan(codexTmuxRequest()))
       )
 
-      const resumeIdx = s.process.args.indexOf('resume')
-      const keyIdx = s.process.args.indexOf(CODEX_KEY)
+      const args = childProcess(s.process).args
+      const resumeIdx = args.indexOf('resume')
+      const keyIdx = args.indexOf(CODEX_KEY)
 
       expect(resumeIdx).toBeGreaterThanOrEqual(0)
       expect(keyIdx).toBeGreaterThan(resumeIdx)
@@ -514,9 +528,10 @@ describe('continuation threading no-loss regression guards (T-04829)', () => {
         brokerProfile(await createClient().compileRuntimePlan(claudeTmuxRequest()))
       )
 
-      const resumeIdx = s.process.args.indexOf('--resume')
+      const args = childProcess(s.process).args
+      const resumeIdx = args.indexOf('--resume')
       expect(resumeIdx).toBeGreaterThanOrEqual(0)
-      expect(s.process.args[resumeIdx + 1]).toBe(CLAUDE_KEY)
+      expect(args[resumeIdx + 1]).toBe(CLAUDE_KEY)
     })
 
     test('process argv does NOT contain --session-id when resuming (no fresh-start collision)', async () => {
@@ -524,7 +539,7 @@ describe('continuation threading no-loss regression guards (T-04829)', () => {
         brokerProfile(await createClient().compileRuntimePlan(claudeTmuxRequest()))
       )
 
-      expect(s.process.args).not.toContain('--session-id')
+      expect(childProcess(s.process).args).not.toContain('--session-id')
     })
   })
 })

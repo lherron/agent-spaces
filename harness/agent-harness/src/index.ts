@@ -2,6 +2,10 @@ export { dispatchAgentHarness, runAgentHarness } from './cli.js'
 export type { AgentHarnessCliDependencies, ForegroundInvocation } from './cli.js'
 export { createAgentHarnessDriver } from './broker/driver.js'
 export {
+  AGENT_HARNESS_TMUX_EMBEDDED_LIFECYCLE_REQUIRED,
+  createAgentHarnessTmuxDriver,
+} from './broker/interactive-driver.js'
+export {
   createResolvedAgentSession,
   runtimeBackedPiSdkSession,
 } from './broker/invocation-session-factory.js'
