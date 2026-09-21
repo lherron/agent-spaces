@@ -13,13 +13,42 @@ describe('central harness selection catalog', () => {
     ])
   })
 
-  test.each(
-    HARNESS_IDS.flatMap((harness) =>
-      [false, true].map((presentation) => ({ harness, presentation }))
-    )
-  )(
-    '$harness presentation=$presentation resolves to its catalog recipe',
-    ({ harness, presentation }) => {
+  test.each([
+    [
+      'agent-harness',
+      false,
+      'agent-harness',
+      'native-worker',
+      false,
+      'native-worker',
+      'birth-variant',
+    ],
+    [
+      'agent-harness',
+      true,
+      'agent-harness-tmux',
+      'native-worker',
+      true,
+      'native-worker',
+      'birth-variant',
+    ],
+    ['claude', false, 'claude-code-tmux', 'pty', true, 'broker-process', 'intrinsic'],
+    ['claude', true, 'claude-code-tmux', 'pty', true, 'broker-process', 'intrinsic'],
+    ['codex', false, 'codex-app-server', 'jsonrpc-stdio', false, 'broker-process', 'attachable'],
+    ['codex', true, 'codex-app-server', 'jsonrpc-stdio', true, 'broker-process', 'attachable'],
+    ['muse', false, 'muse-serve', 'jsonrpc-stdio', false, 'broker-process', 'birth-variant'],
+    ['muse', true, 'muse-cli-tmux', 'pty', true, 'broker-process', 'birth-variant'],
+  ] as const)(
+    '%s presentation=%s resolves the exact recipe',
+    (
+      harness,
+      presentation,
+      driver,
+      executionTransport,
+      terminalRequired,
+      processExecution,
+      fulfillment
+    ) => {
       const result = resolveHarnessExecution({
         agent: { id: 'cody' },
         requested: { harness, presentation },
@@ -28,11 +57,18 @@ describe('central harness selection catalog', () => {
       if (!result.ok) return
       expect(result.selection.harness).toBe(harness)
       expect(result.selection.presentation).toBe(presentation)
-      expect(result.recipe.driver).toBeDefined()
+      expect(result.recipe.driver).toBe(driver)
       expect(result.recipe.protocol).toBe('harness-broker/0.2')
-      expect(result.recipe.hosting.terminalRequired).toBe(
-        result.recipe.hosting.terminalHost === 'tmux' || harness === 'claude'
-      )
+      expect(result.recipe.hosting.executionTransport).toBe(executionTransport)
+      expect(result.recipe.hosting.terminalRequired).toBe(terminalRequired)
+      expect(result.recipe.hosting.processExecution).toBe(processExecution)
+      expect(result.recipe.presentationFulfillment).toBe(fulfillment)
+      if (harness === 'codex' && presentation) {
+        expect(result.recipe.presentationSurface).toEqual({
+          transport: 'websocket-unix',
+          terminalHost: 'tmux',
+        })
+      } else expect(result.recipe.presentationSurface).toBeUndefined()
     }
   )
 
@@ -56,6 +92,15 @@ describe('central harness selection catalog', () => {
     ).toMatchObject({
       ok: true,
       selection: { modelProvider: 'openai-codex', model: 'gpt-5.6-terra' },
+    })
+    expect(
+      resolveHarnessExecution({
+        agent: { id: 'cody' },
+        requested: { harness: 'agent-harness', modelProvider: 'anthropic-max' },
+      })
+    ).toMatchObject({
+      ok: true,
+      selection: { modelProvider: 'anthropic-max', model: 'claude-sonnet-4-5' },
     })
     expect(
       resolveHarnessExecution({

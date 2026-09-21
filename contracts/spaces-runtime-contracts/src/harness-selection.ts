@@ -5,7 +5,6 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import type { HrcCapabilityPolicy } from './capabilities'
 import type { RuntimeContinuationRef } from './continuation'
-import type { RuntimeExecutionProfile } from './execution-profile'
 import type { AgentchatExposurePolicy } from './exposure'
 import type {
   AttachmentRef,
@@ -80,11 +79,16 @@ export type SelectionProvenance = {
 }
 
 export type HostingRequirements = {
-  harnessTransport: 'jsonrpc-stdio' | 'pty' | 'native-worker'
+  executionTransport: 'jsonrpc-stdio' | 'pty' | 'native-worker'
   terminalRequired: boolean
   terminalHost?: 'tmux' | undefined
   processExecution: 'native-worker' | 'broker-process'
 }
+
+/** Presentation is a separate surface from the execution protocol transport. */
+export type PresentationSurface =
+  | { transport: 'terminal'; terminalHost: 'tmux' }
+  | { transport: 'websocket-unix'; terminalHost: 'tmux' }
 
 export type ResolvedHarnessSelection = {
   harness: HarnessId
@@ -102,11 +106,19 @@ export type ExecutionRecipeDto = {
   driver: string
   protocol: 'harness-broker/0.2'
   hosting: HostingRequirements
+  presentationSurface?: PresentationSurface | undefined
   presentationFulfillment: 'intrinsic' | 'attachable' | 'birth-variant'
 }
 
+export type ResolvedExecutionProfile = {
+  profileId: string
+  profileHash: string
+  compatibilityHash: string
+  startRequestHash: string
+}
+
 export type CompiledExecution = ExecutionRecipeDto & {
-  profile: RuntimeExecutionProfile
+  profile: ResolvedExecutionProfile
   dispatchRequest: InvocationDispatchRequest
 }
 

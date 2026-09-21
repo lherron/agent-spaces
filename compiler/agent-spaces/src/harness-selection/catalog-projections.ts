@@ -1,4 +1,5 @@
 import type { HarnessId } from 'spaces-runtime-contracts'
+import { assertCatalogBuilderCoherence } from './builders.js'
 import { HARNESS_CATALOG, HARNESS_IDS } from './catalog.js'
 
 function definitionFor(id: HarnessId) {
@@ -34,7 +35,9 @@ export function catalogRecipes() {
   return HARNESS_IDS.flatMap((id: HarnessId) => {
     const variants = definitionFor(id).executionVariants
     return [variants.withoutPresentation, variants.withPresentation].filter(
-      (recipe) => !('code' in recipe)
+      (recipe): recipe is typeof variants.withoutPresentation => !('code' in recipe)
     )
   })
 }
+
+assertCatalogBuilderCoherence(catalogRecipes())

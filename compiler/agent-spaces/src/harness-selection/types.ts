@@ -28,6 +28,7 @@ export type ExecutionRecipe = {
   driver: string
   protocol: 'harness-broker/0.2'
   hosting: HostingRequirements
+  presentationSurface?: import('spaces-runtime-contracts').PresentationSurface | undefined
   presentationFulfillment: PresentationFulfillment
 }
 

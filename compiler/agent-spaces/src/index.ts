@@ -74,6 +74,8 @@ export { createAgentSpacesClient } from './client.js'
 export {
   HARNESS_CATALOG,
   HARNESS_IDS,
+  assertCatalogBuilderCoherence,
+  BUILDER_REGISTRY_IDS,
   catalogCapabilities,
   catalogHarnessIds,
   catalogRecipes,
