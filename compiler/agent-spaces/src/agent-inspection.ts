@@ -321,7 +321,7 @@ const RUNTIME_PLAN_PROVENANCE: AgentInspectionProvenance = {
     {
       kind: 'runtime-plan',
       sourceId: 'canonical-compile',
-      sourceRef: 'agent-runtime-plan/v1',
+      sourceRef: 'agent-runtime-plan/v2',
     },
   ],
 }

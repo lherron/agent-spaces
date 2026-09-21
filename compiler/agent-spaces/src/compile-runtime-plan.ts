@@ -141,13 +141,10 @@ function toResolvedBundle(
 }
 
 /**
- * Inputs for the shared plan-assembly tail. The three plan builders
- * (broker / foreground / tmux-broker) all assemble an identical
- * `planMaterial` envelope — differing ONLY in the per-route `harness` and `model`
- * objects and in their `executionProfiles` payload. Everything else (schema,
- * compiler stamp, identity, placement, resolvedBundle, artifacts, lockedEnv,
- * diagnostics) is byte-for-byte the same. Centralizing the envelope guarantees a
- * single source for the projection-hashed key order.
+ * Inputs for the shared singular plan-assembly tail. Every resolved builder
+ * supplies one canonical start request; this finalizer freezes the selected
+ * recipe, profile hashes, dispatch request, and common plan envelope in one
+ * deterministic projection.
  */
 interface FinalizePlanInput {
   req: RuntimeCompileRequest
