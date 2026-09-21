@@ -48,12 +48,13 @@ source:
   - wrkq:T-08699
   - wrkq:EN-15959
   - docs/proposals/producer-owned-harness-selection.md
-  - contracts/spaces-runtime-contracts/src/compiler-plan.ts
-  - core/config/src/core/types/harness.ts
-  - contracts/spaces-runtime-contracts/src/route-catalog.ts
+  - contracts/spaces-runtime-contracts/src/harness-selection.ts
+  - core/config/src/core/types/agent-profile.ts
+  - compiler/agent-spaces/src/harness-selection/catalog.ts
+  - compiler/agent-spaces/src/harness-selection/resolve.ts
+  - compiler/agent-spaces/src/harness-selection/catalog-projections.ts
   - compiler/agent-spaces/src/compile-runtime-plan.ts
   - compiler/agent-spaces/src/broker-invocation.ts
-  - compiler/agent-spaces/src/client-support.ts
   - harness/aspc/src/registration.ts
 required_tests:
   - the public harness keys are exactly agent-harness claude codex and muse and every harness/presentation cell resolves or returns a typed refusal
