@@ -1,7 +1,7 @@
 # Multi-harness project for smoke testing
 # WHY: Tests full multi-harness composition with different harness configurations
 
-schema = 1
+schema = 2
 
 [targets.claude-dev]
 description = "Claude-only development environment"

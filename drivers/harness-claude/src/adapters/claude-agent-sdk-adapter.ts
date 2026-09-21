@@ -7,11 +7,11 @@
  * `this.id`, so the 9 previously-verbatim delegations are inherited unchanged.
  */
 
-import type { HarnessId } from 'spaces-config'
 import { ClaudeAdapter } from './claude-adapter.js'
 
 export class ClaudeAgentSdkAdapter extends ClaudeAdapter {
-  override readonly id: HarnessId = 'claude-agent-sdk'
+  // Legacy adapter id (retired from selection; package deleted in T-08698).
+  override readonly id: string = 'claude-agent-sdk'
   override readonly name: string = 'Claude Agent SDK'
 }
 

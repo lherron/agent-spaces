@@ -17,7 +17,6 @@ import type {
   ComposedTargetBundle,
   HarnessAdapter,
   HarnessDetection,
-  HarnessId,
   HarnessModelInfo,
   HarnessRunOptions,
   HarnessValidationResult,
@@ -97,7 +96,7 @@ export interface ClaudeAdapterOptions {
  * - Invocation: uses spaces-claude/invoke
  */
 export class ClaudeAdapter implements HarnessAdapter {
-  readonly id: HarnessId = 'claude'
+  readonly id: string = 'claude'
   readonly name: string = 'Claude Code'
 
   constructor(private readonly options: ClaudeAdapterOptions = {}) {}

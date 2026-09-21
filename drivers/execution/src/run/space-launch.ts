@@ -4,10 +4,8 @@ import { join } from 'node:path'
 import {
   type ComposeTargetInput,
   type ComposedTargetBundle,
-  DEFAULT_HARNESS,
   type HarnessAdapter,
   type HarnessDetection,
-  type HarnessId,
   type HarnessRunOptions,
   type LockFile,
   PORTABLE_SPACES_REGISTRY,
@@ -23,7 +21,6 @@ import {
   generateLockFileForTarget,
   getAspHome,
   getRegistryPath,
-  isHarnessSupported,
   lockFileExists,
   parseSpaceRef,
   readLockJson,
@@ -31,6 +28,15 @@ import {
   resolveSpaceManifest,
   serializeLockJson,
 } from 'spaces-config'
+// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
+// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
+// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
+// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
+import {
+  DEFAULT_HARNESS,
+  type HarnessId,
+  isHarnessSupported,
+} from 'spaces-config/internal/legacy-harness'
 
 import { harnessRegistry } from '../harness/index.js'
 

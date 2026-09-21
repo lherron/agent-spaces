@@ -22,10 +22,14 @@ import {
   parseTargetsToml,
   resolveAgentPlacementPaths,
   resolveAgentPrimingPrompt,
-  normalizeHarnessFrontend as resolveHarnessFrontendName,
-  resolveHarnessProvider,
   resolvePlacement,
 } from 'spaces-config'
+// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
+// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
+import {
+  normalizeHarnessFrontend as resolveHarnessFrontendName,
+  resolveHarnessProvider,
+} from 'spaces-config/internal/legacy-harness'
 import { createAgentSpacesClient } from 'spaces-turn-runner'
 import { parseEnvFlags } from './shared.js'
 

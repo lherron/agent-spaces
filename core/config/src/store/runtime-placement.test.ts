@@ -60,7 +60,7 @@ describe('runtime placement helpers', () => {
     const projectDir = join(tmp, 'projects', 'agent-spaces')
     mkdirSync(projectDir, { recursive: true })
     writeAgentProfile(agentsRoot, 'larry')
-    writeFileSync(join(projectDir, 'asp-targets.toml'), 'schema = 1\n')
+    writeFileSync(join(projectDir, 'asp-targets.toml'), 'schema = 2\n')
 
     expect(
       resolveAgentPlacementPaths({
@@ -148,7 +148,7 @@ describe('runtime placement helpers', () => {
     const projectDir = join(tmp, 'project')
     const localRoot = join(projectDir, 'agents')
     mkdirSync(projectDir, { recursive: true })
-    writeFileSync(join(projectDir, 'asp-targets.toml'), 'schema = 1\nagents-root = "agents"\n')
+    writeFileSync(join(projectDir, 'asp-targets.toml'), 'schema = 2\nagents-root = "agents"\n')
     writeAgentProfile(canonicalRoot, 'smokey')
     const localAgentRoot = writeAgentProfile(localRoot, 'smokey')
 
@@ -171,7 +171,7 @@ describe('runtime placement helpers', () => {
     const canonicalRoot = join(tmp, 'canonical')
     const projectDir = join(tmp, 'project')
     mkdirSync(projectDir, { recursive: true })
-    writeFileSync(join(projectDir, 'asp-targets.toml'), 'schema = 1\nagents-root = "agents"\n')
+    writeFileSync(join(projectDir, 'asp-targets.toml'), 'schema = 2\nagents-root = "agents"\n')
     const canonicalAgentRoot = writeAgentProfile(canonicalRoot, 'daedalus')
 
     expect(
@@ -196,7 +196,7 @@ describe('runtime placement helpers', () => {
     const localRoot = join(projectDir, 'agents')
     mkdirSync(localRoot, { recursive: true })
     mkdirSync(canonicalRoot, { recursive: true })
-    writeFileSync(join(projectDir, 'asp-targets.toml'), 'schema = 1\nagents-root = "agents"\n')
+    writeFileSync(join(projectDir, 'asp-targets.toml'), 'schema = 2\nagents-root = "agents"\n')
 
     expect(
       resolveAgentPlacementPaths({
@@ -218,7 +218,7 @@ describe('runtime placement helpers', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-marker-'))
     const projectDir = join(tmp, 'agent-spaces')
     mkdirSync(projectDir, { recursive: true })
-    writeFileSync(join(projectDir, 'asp-targets.toml'), 'schema = 1\n')
+    writeFileSync(join(projectDir, 'asp-targets.toml'), 'schema = 2\n')
 
     // Even with a conflicting ASP_PROJECT set, the cwd marker wins.
     expect(
@@ -243,7 +243,7 @@ describe('runtime placement helpers', () => {
     const projectDir = join(tmp, 'project-root')
     const subDir = join(projectDir, 'src', 'nested')
     mkdirSync(subDir, { recursive: true })
-    writeFileSync(join(projectDir, 'asp-targets.toml'), 'schema = 1\n')
+    writeFileSync(join(projectDir, 'asp-targets.toml'), 'schema = 2\n')
 
     expect(findProjectMarker(subDir)).toEqual({
       dir: projectDir,
@@ -261,8 +261,8 @@ describe('runtime placement helpers', () => {
     const localAgentsRoot = join(projectDir, 'agents')
     const agentSubdir = join(localAgentsRoot, 'bench', 'skills')
     mkdirSync(agentSubdir, { recursive: true })
-    writeFileSync(join(projectDir, 'asp-targets.toml'), 'schema = 1\nagents-root = "agents"\n')
-    writeFileSync(join(localAgentsRoot, 'asp-targets.toml'), 'schema = 1\n')
+    writeFileSync(join(projectDir, 'asp-targets.toml'), 'schema = 2\nagents-root = "agents"\n')
+    writeFileSync(join(localAgentsRoot, 'asp-targets.toml'), 'schema = 2\n')
 
     expect(
       findProjectMarker(agentSubdir, {
@@ -291,7 +291,7 @@ describe('runtime placement helpers', () => {
     const src = join(inner, 'src')
     mkdirSync(src, { recursive: true })
     mkdirSync(join(inner, '.git'))
-    writeFileSync(join(outer, 'asp-targets.toml'), 'schema = 1\n')
+    writeFileSync(join(outer, 'asp-targets.toml'), 'schema = 2\n')
 
     expect(findProjectMarker(src)).toEqual({
       dir: inner,
@@ -305,7 +305,7 @@ describe('runtime placement helpers', () => {
     const src = join(repo, 'src')
     mkdirSync(src, { recursive: true })
     mkdirSync(join(repo, '.git'))
-    writeFileSync(join(repo, 'asp-targets.toml'), 'schema = 1\n')
+    writeFileSync(join(repo, 'asp-targets.toml'), 'schema = 2\n')
 
     expect(findProjectMarker(src)).toEqual({
       dir: repo,

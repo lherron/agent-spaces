@@ -3,17 +3,21 @@ import { readdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
 import {
-  DEFAULT_HARNESS,
   type HarnessAdapter,
-  type HarnessFrontend,
-  type HarnessId,
   type HarnessModelInfo,
   type ProjectManifest,
   type TargetDefinition,
   getAgentRootsForProject,
-  getHarnessCatalogEntry,
   loadProjectManifest,
 } from 'spaces-config'
+// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
+// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
+import {
+  DEFAULT_HARNESS,
+  type HarnessFrontend,
+  type HarnessId,
+  getHarnessCatalogEntry,
+} from 'spaces-config/internal/legacy-harness'
 
 import { harnessRegistry } from '../harness/index.js'
 

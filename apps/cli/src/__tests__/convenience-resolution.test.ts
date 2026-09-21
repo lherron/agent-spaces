@@ -73,7 +73,7 @@ async function setupConvenienceDirs(): Promise<{
 
   // Project dir with marker (schema-only is now valid).
   await mkdir(projectDir, { recursive: true })
-  await writeFile(join(projectDir, 'asp-targets.toml'), 'schema = 1\n', 'utf8')
+  await writeFile(join(projectDir, 'asp-targets.toml'), 'schema = 2\n', 'utf8')
 
   await mkdir(aspHome, { recursive: true })
 

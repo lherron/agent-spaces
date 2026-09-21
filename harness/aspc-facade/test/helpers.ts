@@ -39,7 +39,7 @@ export function createFixture(codexFixture = 'start-fresh-turn.ts'): Fixture {
   mkdirSync(aspHome, { recursive: true })
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
-    `version = 3
+    `version = 4
 
 [spaces]
 base = []

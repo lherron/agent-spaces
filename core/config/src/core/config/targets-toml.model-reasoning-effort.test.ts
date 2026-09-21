@@ -29,7 +29,7 @@ import { parseTargetsToml, serializeTargetsToml } from './targets-toml.js'
 describe('parseTargetsToml: model_reasoning_effort in [codex]', () => {
   test('parses top-level [codex] model_reasoning_effort', () => {
     const toml = `
-schema = 1
+schema = 2
 
 [codex]
 model_reasoning_effort = "high"
@@ -43,7 +43,7 @@ compose = ["space:my-space@stable"]
 
   test('parses target-level [targets.default.provisioning.codex] model_reasoning_effort', () => {
     const toml = `
-schema = 1
+schema = 2
 
 [targets.default]
 compose = ["space:my-space@stable"]
@@ -57,7 +57,7 @@ model_reasoning_effort = "low"
 
   test('parses both top-level and target-level together', () => {
     const toml = `
-schema = 1
+schema = 2
 
 [codex]
 model_reasoning_effort = "medium"
@@ -115,7 +115,7 @@ describe('mergeCodexOptions: model_reasoning_effort', () => {
 describe('getEffectiveCodexOptions: model_reasoning_effort', () => {
   test('target-level overrides top-level', () => {
     const manifest: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       codex: { model_reasoning_effort: 'medium' },
       targets: {
         fast: {
@@ -130,7 +130,7 @@ describe('getEffectiveCodexOptions: model_reasoning_effort', () => {
 
   test('top-level used when target has no codex section', () => {
     const manifest: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       codex: { model_reasoning_effort: 'high' },
       targets: {
         default: { compose: ['space:default@stable'] },
@@ -148,7 +148,7 @@ describe('getEffectiveCodexOptions: model_reasoning_effort', () => {
 describe('round-trip: model_reasoning_effort', () => {
   test('top-level [codex] model_reasoning_effort survives serialize/parse cycle', () => {
     const original: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       codex: { model_reasoning_effort: 'high' },
       targets: {
         default: { compose: ['space:default@stable'] },
@@ -161,7 +161,7 @@ describe('round-trip: model_reasoning_effort', () => {
 
   test('target-level [targets.x.provisioning.codex] model_reasoning_effort survives serialize/parse cycle', () => {
     const original: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       targets: {
         reasoning: {
           compose: ['space:reasoning@stable'],

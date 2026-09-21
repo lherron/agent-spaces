@@ -28,11 +28,11 @@ async function createFixture(profileModel?: string) {
   const agentRoot = join(projectRoot, 'agents', 'mux')
   await mkdir(aspHome, { recursive: true })
   await mkdir(join(agentRoot, 'spaces', 'muse-meta'), { recursive: true })
-  await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 1\nagents-root = "agents"\n')
+  await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 2\nagents-root = "agents"\n')
   await writeFile(
     join(agentRoot, 'agent-profile.toml'),
     [
-      'version = 3',
+      'version = 4',
       '',
       '[provisioning]',
       'harness = "codex"',

@@ -36,8 +36,13 @@ export {
   mergePrimingPrompt,
   resolveAgentPrimingPrompt,
   resolveEffectiveCompose,
+  toSelectionLayers,
 } from './merge/agent-project-merge.js'
-export type { EffectiveTargetConfig } from './merge/agent-project-merge.js'
+export type {
+  EffectiveTargetConfig,
+  MergedSelectionLayers,
+  SelectionWireLayer,
+} from './merge/agent-project-merge.js'
 
 // Config parsers
 export {

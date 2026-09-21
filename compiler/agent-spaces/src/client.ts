@@ -1,12 +1,15 @@
 import { isAbsolute } from 'node:path'
 
+import { buildCodexAppServerLaunchDescriptor, normalizeAgentSdkModel } from 'spaces-config'
+import type { RuntimePlacement } from 'spaces-config'
+// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
+// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
 import {
   HARNESS_PROVIDERS,
-  buildCodexAppServerLaunchDescriptor,
+  type HarnessId as LegacyHarnessId,
+  getHarnessCatalogEntry,
   getHarnessFrontendsForProvider,
-  normalizeAgentSdkModel,
-} from 'spaces-config'
-import type { RuntimePlacement } from 'spaces-config'
+} from 'spaces-config/internal/legacy-harness'
 import {
   toHarnessBrokerStartRequest,
   validateBrokerInvocationRequest,
@@ -107,8 +110,9 @@ type PrepareProcessInvocationRequest = {
 type SuccessfulDeclaration = {
   ok: true
   provisioning: {
-    provider: ProviderDomain
-    frontend: BuildProcessInvocationSpecRequest['frontend']
+    effectiveHarness?: string | undefined
+    declaredHarness?: string | undefined
+    scalars: Record<string, string | number | boolean>
   }
   placement: RuntimePlacement
   agentSources: Record<string, unknown>
@@ -158,8 +162,49 @@ export function createAgentSpacesClient(
         }
       }
       const resolved = declaration as unknown as SuccessfulDeclaration
-      const provider = resolved.provisioning.provider
-      const frontend = resolved.provisioning.frontend
+      // Old v1 routing still needs provider/frontend: resolve them from the
+      // internal legacy seam by exact canonical harness id (EN-15986).
+      // An undeclared harness stays absent here; T-08702 migrates this
+      // consumer off the seam entirely.
+      const effectiveHarness = resolved.provisioning.effectiveHarness
+      if (typeof effectiveHarness !== 'string') {
+        return {
+          schemaVersion: 'aspc-prepare-process-invocation-response/v1',
+          ok: false,
+          failure: {
+            kind: 'incompatible',
+            code: 'undeclared_harness',
+            message: 'No harness is declared; refusing to invent a v1 routing default',
+          },
+        }
+      }
+      let legacyEntry: { provider: ProviderDomain; frontend?: unknown }
+      try {
+        legacyEntry = getHarnessCatalogEntry(effectiveHarness as LegacyHarnessId)
+      } catch {
+        return {
+          schemaVersion: 'aspc-prepare-process-invocation-response/v1',
+          ok: false,
+          failure: {
+            kind: 'incompatible',
+            code: 'unsupported_harness',
+            message: `Unsupported harness ${effectiveHarness}`,
+          },
+        }
+      }
+      if (typeof legacyEntry.frontend !== 'string') {
+        return {
+          schemaVersion: 'aspc-prepare-process-invocation-response/v1',
+          ok: false,
+          failure: {
+            kind: 'incompatible',
+            code: 'unsupported_harness',
+            message: `Unsupported harness ${effectiveHarness}`,
+          },
+        }
+      }
+      const provider = legacyEntry.provider
+      const frontend = legacyEntry.frontend as BuildProcessInvocationSpecRequest['frontend']
       const placement = placementFromDeclaration(
         resolved.placement,
         req.context,

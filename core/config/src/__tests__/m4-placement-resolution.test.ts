@@ -433,7 +433,7 @@ describe('SOUL.md enforcement (T-00889)', () => {
     noSoulDir = mkdtempSync(join(tmpdir(), 'no-soul-'))
     const agentRoot = join(noSoulDir, 'agent-root')
     mkdirSync(agentRoot, { recursive: true })
-    writeFileSync(join(agentRoot, 'agent-profile.toml'), 'version = 3\n\n[spaces]\nbase = []\n')
+    writeFileSync(join(agentRoot, 'agent-profile.toml'), 'version = 4\n\n[spaces]\nbase = []\n')
   })
 
   afterEach(() => {
@@ -487,7 +487,7 @@ describe('resolvePlacementContext materialization (T-01094)', () => {
       writeFileSync(
         join(agentRoot, 'agent-profile.toml'),
         `
-version = 3
+version = 4
 priming = "Agent prompt"
 
 [identity]
@@ -505,7 +505,7 @@ model = "gpt-5.5"
       writeFileSync(
         join(projectRoot, 'asp-targets.toml'),
         `
-schema = 1
+schema = 2
 
 [targets.smokey]
 compose_mode = "merge"

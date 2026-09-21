@@ -8,19 +8,20 @@
 import type {
   AgentLocalComponents,
   ComposedTargetBundle,
-  HarnessFrontend as ConfigHarnessFrontend,
   HarnessAdapter,
-  HarnessId,
-  HarnessProvider,
   HarnessRunOptions,
   ResolvedPlacementContext,
   ResolvedRuntimeBundle,
   RuntimePlacement,
 } from 'spaces-config'
+// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
+// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
+import type { HarnessId } from 'spaces-config/internal/legacy-harness'
 import type { AttachmentRef } from 'spaces-runtime'
 import type { PlacementRuntimePlan } from 'spaces-runtime-contracts'
 import { buildAgentSessionEnv } from './agent-session-env.js'
 import type {
+  HarnessFrontend as ConfigHarnessFrontend,
   HarnessContinuationRef,
   ProcessInvocationSpec,
   ProviderDomain,
@@ -43,7 +44,7 @@ export interface AgentSpacesClientOptions {
 export type CompilerPlacementRuntimePlan = PlacementRuntimePlan<
   ConfigHarnessFrontend,
   HarnessId,
-  HarnessProvider,
+  ProviderDomain,
   Partial<HarnessRunOptions>
 >
 

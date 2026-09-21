@@ -453,7 +453,7 @@ function resolveInstructionRef(ref: string, placement: RuntimePlacement): string
 function loadAgentProfile(agentRoot: string): AgentRuntimeProfile {
   const source = readAgentProfileSource(agentRoot)
   if (source === undefined) {
-    return { version: 3 }
+    return { version: 4 }
   }
   return parseAgentProfile(source.content, source.path)
 }
@@ -487,7 +487,7 @@ function buildSyntheticAgentProjectManifest(
   effectiveConfig: EffectiveTargetConfig
 ): ProjectManifest {
   return {
-    schema: 1,
+    schema: 2,
     ...(Object.keys(effectiveConfig.claude).length > 0 ? { claude: effectiveConfig.claude } : {}),
     ...(Object.keys(effectiveConfig.codex).length > 0 ? { codex: effectiveConfig.codex } : {}),
     targets: {
@@ -498,11 +498,20 @@ function buildSyntheticAgentProjectManifest(
           : {}),
         ...(effectiveConfig.priming !== undefined ? { priming: effectiveConfig.priming } : {}),
         provisioning: {
-          harness: effectiveConfig.harness,
-          ...(effectiveConfig.model === undefined ? {} : { model: effectiveConfig.model }),
-          ...(effectiveConfig.reasoning === undefined
+          // Selection scalars serialize by property presence: an omitted
+          // harness or presentation stays omitted (the resolver defaults
+          // them); only an explicit false is written.
+          ...(effectiveConfig.harness === undefined ? {} : { harness: effectiveConfig.harness }),
+          ...(effectiveConfig.model_provider === undefined
             ? {}
-            : { reasoning: effectiveConfig.reasoning }),
+            : { model_provider: effectiveConfig.model_provider }),
+          ...(effectiveConfig.model === undefined ? {} : { model: effectiveConfig.model }),
+          ...(effectiveConfig.reasoning_effort === undefined
+            ? {}
+            : { reasoning_effort: effectiveConfig.reasoning_effort }),
+          ...(effectiveConfig.presentation === undefined
+            ? {}
+            : { presentation: effectiveConfig.presentation }),
           ...(effectiveConfig.sandbox === undefined ? {} : { sandbox: effectiveConfig.sandbox }),
           ...(effectiveConfig.approval === undefined ? {} : { approval: effectiveConfig.approval }),
           yolo: effectiveConfig.yolo,

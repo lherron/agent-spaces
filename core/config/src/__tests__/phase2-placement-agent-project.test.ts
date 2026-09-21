@@ -92,7 +92,7 @@ describe('placement resolver: agent-project bundle (T-00993)', () => {
     const agentRoot = createAgentRoot(
       tempDir,
       `
-version = 3
+version = 4
 
 [spaces]
 base = ["space:defaults@dev"]
@@ -124,7 +124,7 @@ model = "claude-opus-4-6"
     const agentRoot = createAgentRoot(
       tempDir,
       `
-version = 3
+version = 4
 
 [spaces]
 base = ["space:agent-base@dev"]
@@ -134,7 +134,7 @@ base = ["space:agent-base@dev"]
     const projectRoot = createProjectRoot(
       tempDir,
       `
-schema = 1
+schema = 2
 
 [targets.testagent]
 compose = ["space:project-only@dev"]
@@ -164,7 +164,7 @@ compose = ["space:project-only@dev"]
     const agentRoot = createAgentRoot(
       tempDir,
       `
-version = 3
+version = 4
 
 [spaces]
 base = ["space:a@dev", "space:b@dev"]
@@ -174,7 +174,7 @@ base = ["space:a@dev", "space:b@dev"]
     const projectRoot = createProjectRoot(
       tempDir,
       `
-schema = 1
+schema = 2
 
 [targets.testagent]
 compose_mode = "merge"
@@ -209,7 +209,7 @@ compose = ["space:b@dev", "space:c@dev"]
     const agentRoot = createAgentRoot(
       tempDir,
       `
-version = 3
+version = 4
 
 [spaces]
 base = ["space:fallback@dev"]
@@ -240,13 +240,13 @@ base = ["space:fallback@dev"]
     const agentRoot = createAgentRoot(
       tempDir,
       `
-version = 3
+version = 4
 
 [spaces]
 base = ["space:defaults@dev"]
 `
     )
-    const projectRoot = createProjectRoot(tempDir, 'schema = 1\n[targets]\n')
+    const projectRoot = createProjectRoot(tempDir, 'schema = 2\n[targets]\n')
 
     const { resolvePlacement } = await import('../resolver/placement-resolver.js')
 

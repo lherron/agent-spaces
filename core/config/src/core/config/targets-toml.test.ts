@@ -23,7 +23,7 @@ import {
 /** Create a minimal valid project manifest */
 function createValidManifest(): ProjectManifest {
   return {
-    schema: 1,
+    schema: 2,
     targets: {
       default: {
         compose: ['space:my-space@stable'],
@@ -35,7 +35,7 @@ function createValidManifest(): ProjectManifest {
 /** Create a full-featured project manifest */
 function createFullManifest(): ProjectManifest {
   return {
-    schema: 1,
+    schema: 2,
     claude: {
       model: 'claude-3-opus',
       permission_mode: 'auto',
@@ -127,21 +127,21 @@ describe('parseTargetsToml', () => {
   describe('valid input', () => {
     test('parses minimal valid manifest', () => {
       const toml = `
-schema = 1
+schema = 2
 
 [targets.default]
 compose = ["space:my-space@stable"]
 `
       const result = parseTargetsToml(toml)
 
-      expect(result.schema).toBe(1)
+      expect(result.schema).toBe(2)
       expect(result.targets.default).toBeDefined()
       expect(result.targets.default.compose).toEqual(['space:my-space@stable'])
     })
 
     test('parses manifest with multiple targets', () => {
       const toml = `
-schema = 1
+schema = 2
 
 [targets.dev]
 compose = ["space:dev@latest"]
@@ -158,7 +158,7 @@ compose = ["space:prod@stable"]
 
     test('parses manifest with global claude options', () => {
       const toml = `
-schema = 1
+schema = 2
 
 [claude]
 model = "claude-3-opus"
@@ -177,7 +177,7 @@ compose = ["space:my-space@stable"]
 
     test('parses optional top-level agents-root', () => {
       const toml = `
-schema = 1
+schema = 2
 agents-root = "agents"
 
 [targets.default]
@@ -186,12 +186,12 @@ compose = ["space:my-space@stable"]
       const result = parseTargetsToml(toml)
 
       expect(result['agents-root']).toBe('agents')
-      expect(result.schema).toBe(1)
+      expect(result.schema).toBe(2)
     })
 
     test('parses manifest with codex options', () => {
       const toml = `
-schema = 1
+schema = 2
 
 [codex]
 model = "gpt-5.3-codex"
@@ -217,19 +217,19 @@ sandbox_mode = "danger-full-access"
     })
 
     test('rejects a codex profile selector (T-08581)', () => {
-      expect(() => parseTargetsToml('schema = 1\n[codex]\nprofile = "meta"\n[targets]\n')).toThrow(
+      expect(() => parseTargetsToml('schema = 2\n[codex]\nprofile = "meta"\n[targets]\n')).toThrow(
         ConfigValidationError
       )
       expect(() =>
         parseTargetsToml(
-          'schema = 1\n[targets.default]\ncompose = []\n[targets.default.provisioning.codex]\nprofile = "meta"\n'
+          'schema = 2\n[targets.default]\ncompose = []\n[targets.default.provisioning.codex]\nprofile = "meta"\n'
         )
       ).toThrow(ConfigValidationError)
     })
 
     test('parses manifest with target-specific claude options', () => {
       const toml = `
-schema = 1
+schema = 2
 
 [targets.default]
 compose = ["space:my-space@stable"]
@@ -244,7 +244,7 @@ model = "claude-3-sonnet"
 
     test('parses manifest with resolver options', () => {
       const toml = `
-schema = 1
+schema = 2
 
 [targets.default]
 compose = ["space:my-space@stable"]
@@ -261,7 +261,7 @@ allow_dirty = false
 
     test('parses manifest with description', () => {
       const toml = `
-schema = 1
+schema = 2
 
 [targets.default]
 description = "My development target"
@@ -274,7 +274,7 @@ compose = ["space:my-space@stable"]
 
     test('parses manifest with priming', () => {
       const toml = `
-schema = 1
+schema = 2
 
 [targets.default]
 priming = "Register with agentchat and send READY"
@@ -287,7 +287,7 @@ compose = ["space:my-space@stable"]
 
     test('parses manifest with multiple compose entries', () => {
       const toml = `
-schema = 1
+schema = 2
 
 [targets.default]
 compose = ["space:core@stable", "space:frontend@^1.0.0", "space:backend@latest"]
@@ -329,7 +329,7 @@ compose = ["space:core@stable", "space:frontend@^1.0.0", "space:backend@latest"]
 
     test('throws ConfigParseError for duplicate keys', () => {
       const toml = `
-schema = 1
+schema = 2
 schema = 2
 `
       expect(() => parseTargetsToml(toml)).toThrow(ConfigParseError)
@@ -353,7 +353,7 @@ schema = 2
 
     test('throws ConfigValidationError for wrong schema version', () => {
       const toml = `
-schema = 2
+schema = 1
 
 [targets.default]
 compose = ["space:my-space@stable"]
@@ -361,15 +361,15 @@ compose = ["space:my-space@stable"]
       expect(() => parseTargetsToml(toml)).toThrow(ConfigValidationError)
     })
 
-    test('marker-only file (schema = 1, no targets) is valid with targets = {}', () => {
-      const toml = 'schema = 1'
+    test('marker-only file (schema = 2, no targets) is valid with targets = {}', () => {
+      const toml = 'schema = 2'
       const manifest = parseTargetsToml(toml)
       expect(manifest.targets).toEqual({})
     })
 
     test('empty [targets] table parses to an empty map', () => {
       const toml = `
-schema = 1
+schema = 2
 
 [targets]
 `
@@ -379,7 +379,7 @@ schema = 1
 
     test('allows target without compose (agent-profile provides defaults)', () => {
       const toml = `
-schema = 1
+schema = 2
 
 [targets.default]
 description = "No compose — agent-profile provides defaults"
@@ -391,7 +391,7 @@ description = "No compose — agent-profile provides defaults"
 
     test('allows target with empty compose array', () => {
       const toml = `
-schema = 1
+schema = 2
 
 [targets.default]
 compose = []
@@ -402,7 +402,7 @@ compose = []
 
     test('throws ConfigValidationError for invalid space ref format', () => {
       const toml = `
-schema = 1
+schema = 2
 
 [targets.default]
 compose = ["invalid-ref"]
@@ -412,7 +412,7 @@ compose = ["invalid-ref"]
 
     test('throws ConfigValidationError for description too long', () => {
       const toml = `
-schema = 1
+schema = 2
 
 [targets.default]
 description = "${'a'.repeat(301)}"
@@ -433,7 +433,7 @@ compose = ["space:my-space@stable"]
 
     test('shows property name in additionalProperties error message', () => {
       const toml = `
-schema = 1
+schema = 2
 
 [targets.manager]
 compose = ["space:my-space@stable"]
@@ -466,7 +466,7 @@ describe('readTargetsToml', () => {
   test('reads and parses valid asp-targets.toml', async () => {
     const filePath = join(testDir, 'asp-targets.toml')
     const toml = `
-schema = 1
+schema = 2
 
 [targets.default]
 compose = ["space:my-space@stable"]
@@ -474,7 +474,7 @@ compose = ["space:my-space@stable"]
     await Bun.write(filePath, toml)
 
     const result = await readTargetsToml(filePath)
-    expect(result.schema).toBe(1)
+    expect(result.schema).toBe(2)
     expect(result.targets.default).toBeDefined()
   })
 
@@ -484,7 +484,7 @@ compose = ["space:my-space@stable"]
     await Bun.write(filePath, toToml(manifest))
 
     const result = await readTargetsToml(filePath)
-    expect(result.schema).toBe(1)
+    expect(result.schema).toBe(2)
     expect(result.claude?.model).toBe('claude-3-opus')
     expect(result.targets.default.resolver?.locked).toBe(true)
   })
@@ -517,7 +517,7 @@ describe('serializeTargetsToml', () => {
     const manifest = createValidManifest()
     const result = serializeTargetsToml(manifest)
 
-    expect(result).toContain('schema = 1')
+    expect(result).toContain('schema = 2')
     expect(result).toContain('[targets.default]')
     expect(result).toContain('space:my-space@stable')
   })
@@ -526,7 +526,7 @@ describe('serializeTargetsToml', () => {
     const manifest = createFullManifest()
     const result = serializeTargetsToml(manifest)
 
-    expect(result).toContain('schema = 1')
+    expect(result).toContain('schema = 2')
     expect(result).toContain('[claude]')
     expect(result).toContain('model = "claude-3-opus"')
     expect(result).toContain('[targets.default]')
@@ -560,5 +560,86 @@ describe('serializeTargetsToml', () => {
     expect(parsed.targets.default.compose).toEqual(original.targets.default.compose)
     expect(parsed.targets.default.resolver?.locked).toBe(original.targets.default.resolver?.locked)
     expect(parsed.targets.default.priming).toBe(original.targets.default.priming)
+  })
+})
+
+describe('parseTargetsToml: v4 selection vocabulary (T-08701)', () => {
+  test('accepts only schema 2 and rejects schema 1 without translation', () => {
+    expect(parseTargetsToml('schema = 2').schema).toBe(2)
+    expect(() => parseTargetsToml('schema = 1')).toThrow(ConfigValidationError)
+    expect(() => parseTargetsToml('schema = 1\n[targets.default]\ncompose = []\n')).toThrow(
+      ConfigValidationError
+    )
+  })
+
+  test('parses the new selection scalars and preserves explicit presentation false', () => {
+    const manifest = parseTargetsToml(`
+schema = 2
+
+[targets.default]
+compose = ["space:my-space@stable"]
+
+[targets.default.provisioning]
+harness = "codex"
+model_provider = "openai-codex"
+model = "gpt-5.5"
+reasoning_effort = "high"
+presentation = false
+yolo = true
+`)
+    expect(manifest.targets.default.provisioning).toEqual({
+      harness: 'codex',
+      model_provider: 'openai-codex',
+      model: 'gpt-5.5',
+      reasoning_effort: 'high',
+      presentation: false,
+      yolo: true,
+    })
+    expect(Object.hasOwn(manifest.targets.default.provisioning ?? {}, 'presentation')).toBe(true)
+  })
+
+  test('omitted presentation stays absent through parse and round-trip', () => {
+    const manifest = parseTargetsToml(`
+schema = 2
+
+[targets.default]
+compose = ["space:my-space@stable"]
+
+[targets.default.provisioning]
+harness = "codex"
+`)
+    expect(Object.hasOwn(manifest.targets.default.provisioning ?? {}, 'presentation')).toBe(false)
+    const roundTripped = parseTargetsToml(serializeTargetsToml(manifest))
+    expect(Object.hasOwn(roundTripped.targets.default.provisioning ?? {}, 'presentation')).toBe(
+      false
+    )
+  })
+
+  test('rejects removed viewer and reasoning keys', () => {
+    for (const line of ['viewer = "none"', 'reasoning = "high"']) {
+      expect(() =>
+        parseTargetsToml(
+          `schema = 2\n[targets.default]\ncompose = []\n[targets.default.provisioning]\n${line}\n`
+        )
+      ).toThrow(ConfigValidationError)
+    }
+  })
+
+  test('rejects harness aliases and removed harness ids', () => {
+    for (const harness of ['claude-code', 'agent-sdk', 'pi', 'pi-sdk']) {
+      expect(() =>
+        parseTargetsToml(
+          `schema = 2\n[targets.default]\ncompose = []\n[targets.default.provisioning]\nharness = "${harness}"\n`
+        )
+      ).toThrow(ConfigValidationError)
+    }
+  })
+
+  test('rejects provider-prefixed model strings', () => {
+    expect(() =>
+      parseTargetsToml(
+        `schema = 2\n[targets.default]\ncompose = []\n[targets.default.provisioning]\nmodel = "openai-codex/gpt-5.5"\n`
+      )
+    ).toThrow(ConfigValidationError)
   })
 })

@@ -196,7 +196,7 @@ function realDirectFixture(): {
   symlinkSync(realAgentsRoot, linkedAgentsRoot)
   writeFileSync(
     join(realAgentRoot, 'agent-profile.toml'),
-    `version = 3
+    `version = 4
 priming = "Prepared by {{handle}}."
 
 [spaces]

@@ -16,12 +16,10 @@ import type {
   AspcInspectAgentResponse,
   AspcInspectAgentSelectionRequest,
 } from 'spaces-aspc-protocol'
-import {
-  DEFAULT_HARNESS,
-  getAgentsRoot,
-  parseAgentProfile,
-  resolveHarnessCatalogEntry,
-} from 'spaces-config'
+import { getAgentsRoot, parseAgentProfile } from 'spaces-config'
+// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
+// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
+import { DEFAULT_HARNESS, resolveHarnessCatalogEntry } from 'spaces-config/internal/legacy-harness'
 import { RUNTIME_ROUTE_CATALOG } from 'spaces-runtime-contracts'
 import type {
   AgentInspectionEvaluationContext,

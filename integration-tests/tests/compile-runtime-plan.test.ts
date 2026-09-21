@@ -234,7 +234,7 @@ function createFixture(): {
   writeFileSync(imagePath, 'not-really-a-png', 'utf8')
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
-    `version = 3
+    `version = 4
 
 [spaces]
 base = []
@@ -1384,7 +1384,7 @@ exit 0
     const originalProfile = readFileSync(profilePath, 'utf8')
     writeFileSync(
       profilePath,
-      `version = 3
+      `version = 4
 
 [spaces]
 base = []
@@ -1784,7 +1784,7 @@ content = "task={{taskId}} lane={{lane}} now={{dateUtc}}"
     const profilePath = join(fixture.agentRoot, 'agent-profile.toml')
     writeFileSync(
       profilePath,
-      `version = 3
+      `version = 4
 claims_task = true
 
 [placement]
@@ -1818,7 +1818,7 @@ base = []
       }
       expect(response.plan.agentPolicy).toEqual(expectedPolicy)
     } finally {
-      writeFileSync(profilePath, 'version = 3\n\n[spaces]\nbase = []\n', 'utf8')
+      writeFileSync(profilePath, 'version = 4\n\n[spaces]\nbase = []\n', 'utf8')
     }
   })
 
@@ -1826,7 +1826,7 @@ base = []
     const profilePath = join(fixture.agentRoot, 'agent-profile.toml')
     writeFileSync(
       profilePath,
-      `version = 3
+      `version = 4
 
 [placement]
 
@@ -1848,7 +1848,7 @@ base = []
         claimsTask: false,
       })
     } finally {
-      writeFileSync(profilePath, 'version = 3\n\n[spaces]\nbase = []\n', 'utf8')
+      writeFileSync(profilePath, 'version = 4\n\n[spaces]\nbase = []\n', 'utf8')
     }
   })
 
@@ -1858,10 +1858,10 @@ base = []
       compileContext: { nowIso: '2026-07-19T00:00:00.000Z' },
     }
 
-    writeFileSync(profilePath, 'version = 3\n\n[spaces]\nbase = []\n', 'utf8')
+    writeFileSync(profilePath, 'version = 4\n\n[spaces]\nbase = []\n', 'utf8')
     const absent = await createClient().compileRuntimePlan(baseCompileRequest(), compileOptions)
 
-    writeFileSync(profilePath, 'version = 3\nclaims_task = false\n\n[spaces]\nbase = []\n', 'utf8')
+    writeFileSync(profilePath, 'version = 4\nclaims_task = false\n\n[spaces]\nbase = []\n', 'utf8')
     try {
       const explicitFalse = await createClient().compileRuntimePlan(
         baseCompileRequest(),
@@ -1874,7 +1874,7 @@ base = []
       expect(explicitFalse.plan.planHash).toBe(absent.plan.planHash)
       expect(explicitFalse.plan).toEqual(absent.plan)
     } finally {
-      writeFileSync(profilePath, 'version = 3\n\n[spaces]\nbase = []\n', 'utf8')
+      writeFileSync(profilePath, 'version = 4\n\n[spaces]\nbase = []\n', 'utf8')
     }
   })
 }) /**

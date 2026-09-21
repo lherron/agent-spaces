@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PROVISIONING_SCALAR_KEYS, type ProvisioningScalars } from 'agent-scope'
+import type { HarnessSelectionRequest } from 'spaces-runtime-contracts'
 
 import { ConfigValidationError } from '../errors.js'
 import type { ValidationError } from '../schemas/index.js'
@@ -14,16 +15,87 @@ export interface EffectiveTargetConfig {
   compose: SpaceRefString[]
   yolo: boolean
   remoteControl: boolean
-  /** Canonical scalar-keyed provisioning result; target values override agent values. */
-  provisioning: ProvisioningScalars
-  harness: string
+  /** Merged harness selection; absent when neither layer declares one (the resolver defaults it). */
+  harness?: string | undefined
+  model_provider?: string | undefined
   model?: string | undefined
-  reasoning?: string | undefined
+  reasoning_effort?: string | undefined
+  /**
+   * Merged presentation. Absent stays absent: only an explicit false is
+   * preserved (by property presence, never truthiness). Config never defaults
+   * this — the central resolver applies the catalog default.
+   */
+  presentation?: boolean | undefined
   sandbox?: string | undefined
   approval?: string | undefined
   claude: ClaudeOptions
   codex: CodexOptions
   description?: string | undefined
+  /** Canonical scalar-keyed provisioning result; target values override agent values. */
+  provisioning: ProvisioningScalars
+}
+
+/**
+ * One wire-spelled selection layer for the central resolver. Property
+ * presence is preserved exactly (including explicit `presentation: false`)
+ * so precedence and provenance resolve per layer in the compiler.
+ */
+export type SelectionWireLayer = Partial<HarnessSelectionRequest>
+
+export interface MergedSelectionLayers {
+  agentProfile?: SelectionWireLayer | undefined
+  projectTarget?: SelectionWireLayer | undefined
+  summonDirectives?: SelectionWireLayer | undefined
+}
+
+/** Selection keys in TOML/directive (snake) spelling and their wire (camel) spelling. */
+const SELECTION_KEY_MAP = {
+  harness: 'harness',
+  model_provider: 'modelProvider',
+  model: 'model',
+  reasoning_effort: 'reasoningEffort',
+  presentation: 'presentation',
+} as const
+
+type SelectionSnakeKey = keyof typeof SELECTION_KEY_MAP
+
+function toWireLayer(scalars: ProvisioningScalars | undefined): SelectionWireLayer | undefined {
+  if (scalars === undefined) return undefined
+  const layer: SelectionWireLayer = {}
+  let present = false
+  for (const [snake, wire] of Object.entries(SELECTION_KEY_MAP)) {
+    const key = snake as SelectionSnakeKey
+    if (Object.hasOwn(scalars, key)) {
+      const value = scalars[key]
+      if (value !== undefined) {
+        Object.assign(layer, { [wire]: value })
+        present = true
+      }
+    }
+  }
+  return present ? layer : undefined
+}
+
+/**
+ * Build the wire-spelled selection layers for the central resolver from the
+ * three config-side scalar homes: agent profile, project target, and parsed
+ * summon directives. Translation is spelling only (`model_provider` to
+ * `modelProvider`); defaults, compatibility, and driver mapping resolve
+ * centrally, never here.
+ */
+export function toSelectionLayers(
+  agentProvisioning: AgentRuntimeProfile['provisioning'],
+  targetProvisioning: TargetDefinition['provisioning'],
+  directives?: Partial<ProvisioningScalars> | undefined
+): MergedSelectionLayers {
+  const agentProfile = toWireLayer(agentProvisioning)
+  const projectTarget = toWireLayer(targetProvisioning)
+  const summonDirectives = toWireLayer(directives)
+  return {
+    ...(agentProfile !== undefined ? { agentProfile } : {}),
+    ...(projectTarget !== undefined ? { projectTarget } : {}),
+    ...(summonDirectives !== undefined ? { summonDirectives } : {}),
+  }
 }
 
 function mergeProvisioningScalars(
@@ -40,8 +112,10 @@ function mergeProvisioningScalars(
   }
 
   // These two booleans have always defaulted to false in the effective merge.
-  // Keep that per-key behavior without materializing defaults for absent scalars
-  // such as viewer, whose absence is meaningful to downstream consumers.
+  // Keep that per-key behavior without materializing defaults for absent
+  // selection scalars such as presentation, whose absence is meaningful to
+  // the central resolver (omitted receives the catalog default; only an
+  // explicit false is preserved, by property presence above).
   merged['yolo'] ??= false
   merged['remote'] ??= false
 
@@ -141,12 +215,12 @@ export function mergeAgentWithProjectTarget(
   const agentProvisioning = profile.provisioning
   const targetProvisioning = projectTarget?.provisioning
   const provisioning = mergeProvisioningScalars(agentProvisioning, targetProvisioning)
-  const reasoning = provisioning.reasoning
+  const reasoningEffort = provisioning.reasoning_effort
   const sandbox = provisioning.sandbox
   const approval = provisioning.approval
   const claude = mergeClaudeOptions(agentProvisioning?.claude, targetProvisioning?.claude)
   const codex = mergeCodexOptions(agentProvisioning?.codex, targetProvisioning?.codex)
-  if (reasoning !== undefined) codex.model_reasoning_effort = reasoning
+  if (reasoningEffort !== undefined) codex.model_reasoning_effort = reasoningEffort
   if (sandbox !== undefined) codex.sandbox_mode = sandbox as CodexOptions['sandbox_mode']
   if (approval !== undefined) codex.approval_policy = approval as CodexOptions['approval_policy']
 
@@ -155,9 +229,15 @@ export function mergeAgentWithProjectTarget(
     compose: resolveEffectiveCompose(profile, projectTarget, runMode),
     yolo: provisioning.yolo ?? false,
     remoteControl: provisioning.remote ?? false,
-    harness: provisioning.harness ?? 'claude-code',
-    model: provisioning.model,
-    reasoning,
+    ...(provisioning.harness !== undefined ? { harness: provisioning.harness } : {}),
+    ...(provisioning.model_provider !== undefined
+      ? { model_provider: provisioning.model_provider }
+      : {}),
+    ...(provisioning.model !== undefined ? { model: provisioning.model } : {}),
+    ...(reasoningEffort !== undefined ? { reasoning_effort: reasoningEffort } : {}),
+    ...(Object.hasOwn(provisioning, 'presentation') && provisioning.presentation !== undefined
+      ? { presentation: provisioning.presentation }
+      : {}),
     sandbox,
     approval,
     claude,

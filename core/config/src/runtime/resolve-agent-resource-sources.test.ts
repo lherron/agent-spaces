@@ -96,7 +96,7 @@ async function createFixture(options: { unsupported?: boolean; missingCommit?: b
   await writeFile(
     join(agentRoot, 'agent-profile.toml'),
     [
-      'version = 3',
+      'version = 4',
       '',
       '[spaces]',
       'base = ["space:current@dev"]',
@@ -104,7 +104,7 @@ async function createFixture(options: { unsupported?: boolean; missingCommit?: b
       '[provisioning]',
       'harness = "agent-harness"',
       'model = "gpt-5.6-sol"',
-      'reasoning = "high"',
+      'reasoning_effort = "high"',
       '',
     ].join('\n')
   )
@@ -181,7 +181,7 @@ describe('resolveAgentResourceSources', () => {
     })
 
     expect(resolved.cwd).toBe(fixture.projectRoot)
-    expect(resolved.effectiveConfig).toEqual({ model: 'gpt-5.6-sol', reasoning: 'high' })
+    expect(resolved.effectiveConfig).toEqual({ model: 'gpt-5.6-sol', reasoning_effort: 'high' })
     expect(resolved.environment).toMatchObject({
       BASE_ONLY: 'present',
       DISPATCH_ONLY: 'present',
@@ -259,5 +259,4 @@ describe('resolveAgentResourceSources', () => {
     expect(files.some((file) => file.endsWith('bundle.json'))).toBe(false)
     expect(files.some((file) => file.endsWith('.asp-materialized.json'))).toBe(false)
   })
-
 })

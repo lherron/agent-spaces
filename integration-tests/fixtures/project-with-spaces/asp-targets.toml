@@ -1,7 +1,7 @@
 # Project with local spaces
 # WHY: Tests project-defined spaces feature
 
-schema = 1
+schema = 2
 
 [targets.dev]
 description = "Development with custom workflow"

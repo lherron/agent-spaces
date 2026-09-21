@@ -156,7 +156,7 @@ describe('T-08563 standalone aspd runtime observations', () => {
     await mkdir(actualAgent, { recursive: true })
     await writeFile(
       join(actualAgent, 'agent-profile.toml'),
-      'version = 3\n[identity]\nrole = "actual-producer"\n[provisioning]\nharness = "claude"\n'
+      'version = 4\n[identity]\nrole = "actual-producer"\n[provisioning]\nharness = "claude"\n'
     )
     const actualService = createReleaseBoundAspcService(
       createAspcService({
@@ -188,9 +188,9 @@ describe('T-08563 standalone aspd runtime observations', () => {
         ok: true,
         identity: { role: 'actual-producer' },
         provisioning: {
+          scalars: { harness: 'claude' },
+          declaredHarness: 'claude',
           effectiveHarness: 'claude',
-          provider: 'anthropic',
-          transport: 'cli',
         },
         agentSources: { provenance: 'caller' },
       })

@@ -340,7 +340,7 @@ describe('asp run', () => {
       agentsRoot,
       'dev',
       `
-version = 3
+version = 4
 
 priming = "You are {{agentId}} in {{projectId}} working on {{taskId}}."
 `
@@ -389,7 +389,7 @@ priming = "You are {{agentId}} in {{projectId}} working on {{taskId}}."
       agentsRoot,
       'cody',
       `
-version = 3
+version = 4
 
 priming = "You are {{agentId}} in {{projectId}} working on {{taskId}}."
 `
@@ -444,7 +444,7 @@ priming = "You are {{agentId}} in {{projectId}} working on {{taskId}}."
       tempAgentsRoot,
       'animan',
       `
-version = 3
+version = 4
 
 [spaces]
 base = ["space:base@stable"]
@@ -501,7 +501,7 @@ base = ["space:base@stable"]
       tempAgentsRoot,
       'animan',
       `
-version = 3
+version = 4
 
 [spaces]
 base = ["space:frontend@stable"]

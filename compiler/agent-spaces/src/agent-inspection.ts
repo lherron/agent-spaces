@@ -1,12 +1,10 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 
-import {
-  type RuntimePlacement,
-  buildRuntimeBundleRef,
-  parseAgentProfile,
-  resolveHarnessCatalogEntry,
-} from 'spaces-config'
+import { type RuntimePlacement, buildRuntimeBundleRef, parseAgentProfile } from 'spaces-config'
+// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
+// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
+import { resolveHarnessCatalogEntry } from 'spaces-config/internal/legacy-harness'
 import {
   type InspectAgentSystemPromptInput,
   type ResolvedContextSection,
@@ -143,9 +141,13 @@ export async function inspectRuntimePlacement(
   const resolvedPlacement = declaration['placement'] as RuntimePlacement
   const sources = declaration['agentSources'] as Record<string, unknown>
   const provisioning = declaration['provisioning'] as {
-    effectiveHarness: string
-    frontend: string
+    effectiveHarness?: string | undefined
   }
+  // The declaration no longer projects a frontend (T-08701); the v1
+  // inspection identifiers resolve it from the internal legacy seam by exact
+  // canonical harness id (EN-15986). An undeclared harness stays undefined
+  // and is rejected downstream, never defaulted.
+  const legacyRouting = resolveHarnessCatalogEntry(provisioning['effectiveHarness'])
   const placement = placementFromDeclaration(
     {
       ...resolvedPlacement,
@@ -200,8 +202,8 @@ export async function inspectRuntimePlacement(
     scope: `agent:${context['agentId']}:project:${projectId}`,
     ...(preparation.identity.taskId ? { taskId: preparation.identity.taskId } : {}),
     lane: preparation.identity.lane ?? 'primary',
-    harness: provisioning['effectiveHarness'],
-    frontend: provisioning['frontend'],
+    harness: provisioning['effectiveHarness'] as string,
+    frontend: legacyRouting?.frontend as string,
     interaction: 'interactive',
   }
   const profilePath = join(placement.agentRoot, 'agent-profile.toml')
@@ -222,7 +224,7 @@ export async function inspectRuntimePlacement(
     scaffoldPackets: options.scaffoldPackets ?? [],
     agentProfile: (existsSync(profilePath)
       ? parseAgentProfile(readFileSync(profilePath, 'utf8'), profilePath)
-      : parseAgentProfile('version = 3', profilePath)) as unknown as Record<string, unknown>,
+      : parseAgentProfile('version = 4', profilePath)) as unknown as Record<string, unknown>,
     declaredOverrides: {},
     compileContext: {
       nowIso,

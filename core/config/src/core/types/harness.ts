@@ -1,246 +1,60 @@
 /**
- * Harness types for Agent Spaces v2 Multi-Harness Support
+ * Harness identification for Agent Spaces (T-08701).
  *
- * A Harness is a coding agent runtime (e.g., Claude Code, Pi).
- * Each harness implements a common interface for detection, validation,
- * materialization, composition, and invocation.
+ * This module validates the closed public harness vocabulary and carries the
+ * structural harness interfaces (detection, validation, materialization,
+ * composition, invocation) plus the space-manifest harness extensions. It is
+ * NOT a selection authority: aliases, provider/model defaults, transports,
+ * frontends, builders, drivers, and hosting mappings live only in the central
+ * compiler catalog (`compiler/agent-spaces/src/harness-selection/`). The
+ * selectable identifier union itself is owned by `spaces-runtime-contracts`
+ * and re-exported here so config consumers share the single definition.
  */
 
+import type { HarnessId } from 'spaces-runtime-contracts'
 import type { LockWarning } from './lock.js'
 import type { SpaceKey, SpaceRefString } from './refs.js'
 import type { ResolvedSpaceManifest, SpaceSettings } from './space.js'
 import type { CodexOptions, ProjectManifest } from './targets.js'
 
+export type { HarnessId }
+
 // ============================================================================
 // Harness Identification
 // ============================================================================
 
-/** Supported harness identifiers */
-export type HarnessId =
-  | 'agent-harness'
-  | 'claude'
-  | 'claude-agent-sdk'
-  | 'pi'
-  | 'pi-sdk'
-  | 'codex'
-  | 'muse'
-
-/** Provider family for a harness. */
-export type HarnessProvider = 'anthropic' | 'openai' | 'meta'
-
-/** Provider-facing frontend identifier used by placement/runtime APIs. */
-export type HarnessFrontend =
-  | 'agent-sdk'
-  | 'agent-harness-tui'
-  | 'pi-sdk'
-  | 'claude-code'
-  | 'codex-cli'
-  | 'pi-cli'
-  | 'muse-cli'
-
-/** Runtime transport family for a harness. */
-export type HarnessTransport = 'cli' | 'sdk'
-
-/** Canonical metadata for a harness variant. */
-export interface HarnessCatalogEntry {
-  id: HarnessId
-  aliases: readonly string[]
-  provider: HarnessProvider
-  transport: HarnessTransport
-  frontend?: HarnessFrontend | undefined
-}
-
-/** All known harness IDs */
+/**
+ * The complete, deliberately closed, public harness vocabulary. Exactly the
+ * four canonical ids — no aliases, frontends, or removed ids. Membership here
+ * is the only harness question config answers; everything else resolves in
+ * the central compiler resolver.
+ */
 export const HARNESS_IDS: readonly HarnessId[] = [
   'agent-harness',
   'claude',
-  'claude-agent-sdk',
-  'pi',
-  'pi-sdk',
   'codex',
   'muse',
 ] as const
 
-/** Frontends that can be used via placement/runtime APIs. */
-export const HARNESS_FRONTENDS: readonly HarnessFrontend[] = [
-  'agent-sdk',
-  'agent-harness-tui',
-  'pi-sdk',
-  'claude-code',
-  'codex-cli',
-  'pi-cli',
-  'muse-cli',
-] as const
-
-/** Known provider families. */
-export const HARNESS_PROVIDERS: readonly HarnessProvider[] = [
-  'anthropic',
-  'openai',
-  'meta',
-] as const
-
-/** Canonical harness metadata shared across config, runtime, and CLIs. */
-export const HARNESS_CATALOG: readonly HarnessCatalogEntry[] = [
-  {
-    id: 'agent-harness',
-    aliases: [],
-    provider: 'openai',
-    transport: 'sdk',
-    frontend: 'agent-harness-tui',
-  },
-  {
-    id: 'claude',
-    aliases: ['claude-code'],
-    provider: 'anthropic',
-    transport: 'cli',
-    frontend: 'claude-code',
-  },
-  {
-    id: 'claude-agent-sdk',
-    aliases: ['agent-sdk'],
-    provider: 'anthropic',
-    transport: 'sdk',
-    frontend: 'agent-sdk',
-  },
-  {
-    id: 'pi',
-    aliases: ['pi-cli'],
-    provider: 'openai',
-    transport: 'cli',
-    frontend: 'pi-cli',
-  },
-  {
-    id: 'pi-sdk',
-    aliases: [],
-    provider: 'openai',
-    transport: 'sdk',
-    frontend: 'pi-sdk',
-  },
-  {
-    id: 'codex',
-    aliases: ['codex-cli'],
-    provider: 'openai',
-    transport: 'cli',
-    frontend: 'codex-cli',
-  },
-  {
-    id: 'muse',
-    aliases: ['muse-cli'],
-    provider: 'meta',
-    transport: 'cli',
-    frontend: 'muse-cli',
-  },
-] as const
-
-const HARNESS_CATALOG_BY_ID = new Map<HarnessId, HarnessCatalogEntry>(
-  HARNESS_CATALOG.map((entry) => [entry.id, entry])
-)
-const HARNESS_CATALOG_BY_FRONTEND = new Map<HarnessFrontend, HarnessCatalogEntry>(
-  HARNESS_CATALOG.flatMap((entry) => (entry.frontend ? [[entry.frontend, entry]] : []))
-)
-const HARNESS_CATALOG_BY_NAME = new Map<string, HarnessCatalogEntry>()
-
-for (const entry of HARNESS_CATALOG) {
-  HARNESS_CATALOG_BY_NAME.set(entry.id, entry)
-  for (const alias of entry.aliases) {
-    HARNESS_CATALOG_BY_NAME.set(alias, entry)
-  }
-  if (entry.frontend) {
-    HARNESS_CATALOG_BY_NAME.set(entry.frontend, entry)
-  }
-}
-
-/** All accepted harness names, including internal ids, aliases, and frontends. */
-export const HARNESS_NAMES: readonly string[] = [...HARNESS_CATALOG_BY_NAME.keys()]
-
-/** Type guard for HarnessId */
+/** Closed-membership type guard for HarnessId. Removed values fail, never translate. */
 export function isHarnessId(value: string): value is HarnessId {
-  return HARNESS_IDS.includes(value as HarnessId)
+  return (HARNESS_IDS as readonly string[]).includes(value)
 }
 
-/** Return the catalog entry for an internal harness id. */
-export function getHarnessCatalogEntry(id: HarnessId): HarnessCatalogEntry {
-  const entry = HARNESS_CATALOG_BY_ID.get(id)
-  if (!entry) {
-    throw new Error(`Unknown harness id "${id}"`)
-  }
-  return entry
-}
-
-/** Return the catalog entry for a placement/runtime frontend. */
-export function getHarnessCatalogEntryByFrontend(
-  frontend: HarnessFrontend
-): HarnessCatalogEntry | undefined {
-  return HARNESS_CATALOG_BY_FRONTEND.get(frontend)
-}
-
-/** Resolve a harness name, alias, or frontend to its canonical catalog entry. */
-export function resolveHarnessCatalogEntry(
-  value: string | undefined
-): HarnessCatalogEntry | undefined {
-  if (!value) return undefined
-  return HARNESS_CATALOG_BY_NAME.get(value)
-}
-
-/** Normalize any accepted harness name to its internal harness id. */
-export function normalizeHarnessId(value: string | undefined): HarnessId | undefined {
-  return resolveHarnessCatalogEntry(value)?.id
-}
-
-/** Normalize any accepted harness name to its placement/runtime frontend. */
-export function normalizeHarnessFrontend(value: string | undefined): HarnessFrontend | undefined {
-  return resolveHarnessCatalogEntry(value)?.frontend
-}
-
-/** Resolve the provider family for any accepted harness name. */
-export function resolveHarnessProvider(value: string | undefined): HarnessProvider | undefined {
-  return resolveHarnessCatalogEntry(value)?.provider
-}
-
-/** Resolve the preferred placement/runtime frontend for a provider/transport pair. */
-export function resolveHarnessFrontendForProvider(
-  provider: HarnessProvider,
-  transport: HarnessTransport
-): HarnessFrontend | undefined {
-  if (provider === 'openai' && transport === 'sdk') {
-    return getHarnessCatalogEntry('pi-sdk').frontend
-  }
-  return HARNESS_CATALOG.find(
-    (entry) => entry.provider === provider && entry.transport === transport && entry.frontend
-  )?.frontend
-}
-
-/** List all placement/runtime frontends available for a provider family. */
-export function getHarnessFrontendsForProvider(provider: HarnessProvider): HarnessFrontend[] {
-  return HARNESS_CATALOG.filter((entry) => entry.provider === provider && entry.frontend).map(
-    (entry) => entry.frontend as HarnessFrontend
-  )
-}
-
-/** Check if a space supports a harness (including alias compatibility) */
-export function isHarnessSupported(
-  supports: HarnessId[] | undefined,
-  harnessId: HarnessId
-): boolean {
-  if (!supports) return true
-  if (supports.includes(harnessId)) return true
-  if (harnessId === 'claude-agent-sdk') return supports.includes('claude')
-  if (harnessId === 'agent-harness') return supports.includes('pi') || supports.includes('pi-sdk')
-  if (harnessId === 'pi-sdk') return supports.includes('pi')
-  return false
-}
-
-/** Default harness when none specified */
-export const DEFAULT_HARNESS: HarnessId = 'claude'
+/**
+ * Default harness for orchestration call sites that must instantiate an
+ * adapter without a caller selection. Matches the approved selection default
+ * (`agent-harness`); provider/model compatibility still resolves centrally.
+ */
+export const DEFAULT_HARNESS: HarnessId = 'agent-harness'
 
 /**
  * Harnesses for which lock generation emits a per-harness env-hash entry.
  *
  * Single source of truth for the lock-file harness enumeration (consumed by
  * `resolver/lock-generator.ts`). Currently only the default harness is
- * recorded; widening this list (e.g. to add per-harness env hashes for
- * `codex`/`pi`) is the one place to edit rather than a constant inlined in the
- * generator.
+ * recorded; widening this list is the one place to edit rather than a
+ * constant inlined in the generator.
  */
 export const LOCK_HARNESSES: readonly HarnessId[] = [DEFAULT_HARNESS] as const
 
@@ -396,8 +210,8 @@ export interface ComposeTargetResult {
 
 /** A fully composed target bundle ready for invocation */
 export interface ComposedTargetBundle {
-  /** Which harness this bundle is for */
-  harnessId: HarnessId
+  /** Which harness this bundle is for (adapter id; may be legacy until T-08702) */
+  harnessId: string
   /** Target name */
   targetName: string
   /** Root directory of the bundle */
@@ -557,8 +371,12 @@ export interface HarnessRunOptions {
  * multi-harness Agent Spaces.
  */
 export interface HarnessAdapter {
-  /** Harness identifier */
-  readonly id: HarnessId
+  /**
+   * Harness identifier. A plain string (not the closed selection union):
+   * retired adapters keep their legacy ids until their packages are deleted
+   * (T-08698) and builders migrate (T-08702); only selection is closed.
+   */
+  readonly id: string
 
   /** Human-readable name */
   readonly name: string

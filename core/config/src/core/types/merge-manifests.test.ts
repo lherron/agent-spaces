@@ -9,7 +9,7 @@
  *   - Targets: full-override by name (project wins entirely, no field-level merge)
  *   - Top-level claude/codex options: field-level merge (project overrides defaults per field)
  *   - defaults null/undefined: returns project as-is
- *   - Both manifests must have schema: 1
+ *   - Both manifests must have schema: 2
  */
 
 import { describe, expect, test } from 'bun:test'
@@ -22,7 +22,7 @@ describe('mergeManifests', () => {
   // -- Helpers --
 
   const defaultsManifest: ProjectManifest = {
-    schema: 1,
+    schema: 2,
     claude: {
       model: 'claude-3-opus',
       permission_mode: 'auto',
@@ -40,7 +40,7 @@ describe('mergeManifests', () => {
   }
 
   const projectManifest: ProjectManifest = {
-    schema: 1,
+    schema: 2,
     claude: {
       model: 'claude-3-sonnet',
     },
@@ -69,7 +69,7 @@ describe('mergeManifests', () => {
 
   test('target exists in both → project wins entirely (no field-level merge)', () => {
     const defaults: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       targets: {
         overlap: {
           description: 'Default description',
@@ -79,7 +79,7 @@ describe('mergeManifests', () => {
       },
     }
     const project: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       targets: {
         overlap: {
           compose: ['space:project@latest'],
@@ -107,11 +107,11 @@ describe('mergeManifests', () => {
 
   test('top-level claude: only defaults has claude → result gets defaults claude', () => {
     const project: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       targets: { a: { compose: ['space:a@stable'] } },
     }
     const defaults: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       claude: { model: 'claude-3-opus', permission_mode: 'auto' },
       targets: {},
     }
@@ -122,12 +122,12 @@ describe('mergeManifests', () => {
 
   test('top-level claude: only project has claude → result gets project claude', () => {
     const project: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       claude: { model: 'claude-3-sonnet' },
       targets: { a: { compose: ['space:a@stable'] } },
     }
     const defaults: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       targets: {},
     }
     const result = mergeManifests(defaults, project)
@@ -138,7 +138,7 @@ describe('mergeManifests', () => {
 
   test('top-level codex options merge field-by-field (project overrides defaults per field)', () => {
     const defaults: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       codex: {
         model: 'gpt-5.3-codex',
         approval_policy: 'on-request',
@@ -147,7 +147,7 @@ describe('mergeManifests', () => {
       targets: {},
     }
     const project: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       codex: {
         model: 'gpt-5.1-codex-mini',
         // approval_policy not set → inherits from defaults
@@ -163,9 +163,9 @@ describe('mergeManifests', () => {
 
   // -- Schema validation --
 
-  test('result always has schema: 1', () => {
+  test('result always has schema: 2', () => {
     const result = mergeManifests(defaultsManifest, projectManifest)
-    expect(result.schema).toBe(1)
+    expect(result.schema).toBe(2)
   })
 
   // -- Null/undefined defaults --

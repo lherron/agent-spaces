@@ -90,8 +90,8 @@ export interface TargetDefinition {
  * Defines the project-level composition surface for Spaces.
  */
 export interface ProjectManifest {
-  /** Schema version (currently 1) */
-  schema: 1
+  /** Schema version (sole accepted: 2) */
+  schema: 2
   /** Optional project-local agents root, relative to project root unless absolute or ~-prefixed */
   'agents-root'?: string | undefined
   /** Default claude options for all targets */
@@ -182,7 +182,7 @@ export function mergeManifests(
   if (defaults == null) return project
 
   const result: ProjectManifest = {
-    schema: 1,
+    schema: 2,
     targets: { ...defaults.targets, ...project.targets },
   }
 
@@ -208,8 +208,8 @@ export function getEffectiveCodexOptions(
   const options = mergeCodexOptions(manifest.codex, target?.provisioning?.codex)
   const provisioning = target?.provisioning
   if (provisioning?.model !== undefined) options.model = provisioning.model
-  if (provisioning?.reasoning !== undefined) {
-    options.model_reasoning_effort = provisioning.reasoning
+  if (provisioning?.reasoning_effort !== undefined) {
+    options.model_reasoning_effort = provisioning.reasoning_effort
   }
   if (provisioning?.approval !== undefined) {
     options.approval_policy = provisioning.approval as CodexOptions['approval_policy']

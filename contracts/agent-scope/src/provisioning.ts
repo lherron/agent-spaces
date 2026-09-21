@@ -33,14 +33,15 @@
  */
 export const PROVISIONING_SCALAR_KINDS = {
   harness: 'string',
+  model_provider: 'string',
   model: 'string',
-  reasoning: 'string',
+  reasoning_effort: 'string',
+  presentation: 'boolean',
   node: 'string',
   yolo: 'boolean',
   sandbox: 'string',
   approval: 'string',
   remote: 'boolean',
-  viewer: 'string',
 } as const
 
 type ProvisioningScalarKinds = typeof PROVISIONING_SCALAR_KINDS
@@ -122,8 +123,8 @@ export class ProvisionDirectiveError extends Error {
 export type ProvisionVocabulary = {
   /** Registered model aliases for the resolved harness. */
   models?: readonly string[] | undefined
-  /** Legal `reasoning` enum members for the resolved harness. */
-  reasoning?: readonly string[] | undefined
+  /** Legal `reasoning_effort` enum members for the resolved harness. */
+  reasoning_effort?: readonly string[] | undefined
 }
 
 /** The character that opens the directive block. Outside the token charset. */
@@ -190,24 +191,24 @@ function resolveBareToken(
   vocabulary: ProvisionVocabulary | undefined
 ): { key: ProvisioningScalarKey; raw: string } {
   const isModel = vocabulary?.models?.includes(token) ?? false
-  const isReasoning = vocabulary?.reasoning?.includes(token) ?? false
+  const isReasoningEffort = vocabulary?.reasoning_effort?.includes(token) ?? false
 
-  if (isModel && isReasoning) {
+  if (isModel && isReasoningEffort) {
     throw new ProvisionDirectiveError(
       `ambiguous provisioning directive "${token}": it is both a registered model alias and a ` +
-        `reasoning value; spell it as "model=${token}" or "reasoning=${token}"`,
+        `reasoning effort value; spell it as "model=${token}" or "reasoning_effort=${token}"`,
       'AMBIGUOUS_DIRECTIVE'
     )
   }
   if (isModel) {
     return { key: 'model', raw: token }
   }
-  if (isReasoning) {
-    return { key: 'reasoning', raw: token }
+  if (isReasoningEffort) {
+    return { key: 'reasoning_effort', raw: token }
   }
 
   throw new ProvisionDirectiveError(
-    `unknown provisioning directive "${token}": bare tokens resolve only inside the closed namespaces (registered model aliases, reasoning values); every other key must be spelled "key=value" (node= is explicit-only)`,
+    `unknown provisioning directive "${token}": bare tokens resolve only inside the closed namespaces (registered model aliases, reasoning effort values); every other key must be spelled "key=value" (node= is explicit-only)`,
     'UNKNOWN_PROVISION_KEY'
   )
 }
@@ -254,7 +255,11 @@ function assertValueInVocabulary(
   vocabulary: ProvisionVocabulary | undefined
 ): void {
   const allowed =
-    key === 'model' ? vocabulary?.models : key === 'reasoning' ? vocabulary?.reasoning : undefined
+    key === 'model'
+      ? vocabulary?.models
+      : key === 'reasoning_effort'
+        ? vocabulary?.reasoning_effort
+        : undefined
 
   if (allowed !== undefined && !allowed.includes(raw)) {
     throw new ProvisionDirectiveError(

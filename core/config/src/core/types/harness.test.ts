@@ -1,138 +1,36 @@
 import { describe, expect, test } from 'bun:test'
 
-import {
-  HARNESS_FRONTENDS,
-  HARNESS_NAMES,
-  type HarnessId,
-  getHarnessCatalogEntry,
-  getHarnessCatalogEntryByFrontend,
-  getHarnessFrontendsForProvider,
-  isHarnessSupported,
-  normalizeHarnessFrontend,
-  normalizeHarnessId,
-  resolveHarnessCatalogEntry,
-  resolveHarnessFrontendForProvider,
-  resolveHarnessProvider,
-} from './harness.js'
+import { DEFAULT_HARNESS, HARNESS_IDS, LOCK_HARNESSES, isHarnessId } from './harness.js'
 
-describe('harness catalog', () => {
-  test('normalizes accepted harness aliases and frontends to canonical ids', () => {
-    expect(normalizeHarnessId('claude')).toBe('claude')
-    expect(normalizeHarnessId('claude-code')).toBe('claude')
-    expect(normalizeHarnessId('agent-sdk')).toBe('claude-agent-sdk')
-    expect(normalizeHarnessId('codex-cli')).toBe('codex')
-    expect(normalizeHarnessId('pi-sdk')).toBe('pi-sdk')
-    expect(normalizeHarnessId('pi')).toBe('pi')
-    expect(normalizeHarnessId('agent-harness')).toBe('agent-harness')
-    expect(normalizeHarnessFrontend('agent-harness')).toBe('agent-harness-tui')
+describe('harness identification (T-08701)', () => {
+  test('exposes exactly the four canonical public harness ids', () => {
+    expect([...HARNESS_IDS]).toEqual(['agent-harness', 'claude', 'codex', 'muse'])
   })
 
-  test('resolves runtime frontends only when one exists', () => {
-    expect(normalizeHarnessFrontend('claude')).toBe('claude-code')
-    expect(normalizeHarnessFrontend('codex')).toBe('codex-cli')
-    expect(normalizeHarnessFrontend('agent-sdk')).toBe('agent-sdk')
-    expect(normalizeHarnessFrontend('agent-harness')).toBe('agent-harness-tui')
-    expect(normalizeHarnessFrontend('pi-sdk')).toBe('pi-sdk')
-    expect(normalizeHarnessFrontend('pi')).toBe('pi-cli')
-  })
-
-  test('recognizes agent-harness as the first-party SDK harness id', () => {
-    expect(HARNESS_FRONTENDS).toContain('agent-harness-tui')
-    expect(getHarnessCatalogEntry('agent-harness')).toMatchObject({
-      provider: 'openai',
-      transport: 'sdk',
-      frontend: 'agent-harness-tui',
-    })
-    expect(getHarnessCatalogEntryByFrontend('agent-harness-tui')).toMatchObject({
-      id: 'agent-harness',
-      frontend: 'agent-harness-tui',
-    })
-    expect(resolveHarnessProvider('agent-harness')).toBe('openai')
-    expect(isHarnessSupported(['pi'], 'agent-harness')).toBe(true)
-    expect(isHarnessSupported(['pi-sdk'], 'agent-harness')).toBe(true)
-  })
-
-  test('resolves provider families from canonical names and aliases', () => {
-    expect(resolveHarnessProvider('claude-code')).toBe('anthropic')
-    expect(resolveHarnessProvider('claude-agent-sdk')).toBe('anthropic')
-    expect(resolveHarnessProvider('codex')).toBe('openai')
-    expect(resolveHarnessProvider('pi-sdk')).toBe('openai')
-    expect(resolveHarnessProvider('pi')).toBe('openai')
-  })
-
-  test('derives preferred placement frontends by provider and transport', () => {
-    expect(resolveHarnessFrontendForProvider('anthropic', 'cli')).toBe('claude-code')
-    expect(resolveHarnessFrontendForProvider('anthropic', 'sdk')).toBe('agent-sdk')
-    expect(resolveHarnessFrontendForProvider('openai', 'cli')).toBe('pi-cli')
-    expect(resolveHarnessFrontendForProvider('openai', 'sdk')).toBe('pi-sdk')
-  })
-
-  test('exposes catalog entries for ids and frontends', () => {
-    const claude = getHarnessCatalogEntry('claude')
-    expect(claude).toEqual({
-      id: 'claude',
-      aliases: ['claude-code'],
-      provider: 'anthropic',
-      transport: 'cli',
-      frontend: 'claude-code',
-    })
-
-    expect(getHarnessCatalogEntryByFrontend('pi-sdk')).toMatchObject({
-      id: 'pi-sdk',
-      provider: 'openai',
-      transport: 'sdk',
-      frontend: 'pi-sdk',
-    })
-  })
-
-  test('lists accepted harness names and provider frontends without duplicates', () => {
-    expect(new Set(HARNESS_NAMES).size).toBe(HARNESS_NAMES.length)
-    expect(HARNESS_NAMES).toContain('claude')
-    expect(HARNESS_NAMES).toContain('claude-code')
-    expect(HARNESS_NAMES).toContain('codex')
-    expect(HARNESS_NAMES).toContain('codex-cli')
-    expect(HARNESS_NAMES).toContain('pi')
-    expect(HARNESS_NAMES).toContain('pi-sdk')
-    expect(HARNESS_NAMES).toContain('agent-harness')
-
-    expect(getHarnessFrontendsForProvider('anthropic')).toEqual(['claude-code', 'agent-sdk'])
-    expect(getHarnessFrontendsForProvider('openai')).toEqual([
-      'agent-harness-tui',
-      'pi-cli',
-      'pi-sdk',
+  test('accepts canonical ids and rejects aliases, removed ids, and frontends', () => {
+    for (const id of ['agent-harness', 'claude', 'codex', 'muse']) {
+      expect(isHarnessId(id)).toBe(true)
+    }
+    for (const removed of [
+      'claude-code',
       'codex-cli',
-    ])
-  })
-
-  test('resolves catalog entries for all canonical harness ids', () => {
-    for (const harnessId of [
-      'agent-harness',
-      'claude',
+      'agent-sdk',
       'claude-agent-sdk',
       'pi',
+      'pi-cli',
       'pi-sdk',
-      'codex',
-    ] satisfies HarnessId[]) {
-      expect(resolveHarnessCatalogEntry(harnessId)).toEqual(getHarnessCatalogEntry(harnessId))
+      'muse-cli',
+      'agent-harness-tui',
+      'viewer',
+      '',
+    ]) {
+      expect(isHarnessId(removed)).toBe(false)
     }
   })
 
-  test('registers the public pi-cli frontend for the internal pi harness id', () => {
-    expect(getHarnessCatalogEntry('pi')).toMatchObject({
-      id: 'pi',
-      provider: 'openai',
-      transport: 'cli',
-      frontend: 'pi-cli',
-    })
-    expect(getHarnessCatalogEntryByFrontend('pi-cli')).toMatchObject({
-      id: 'pi',
-      frontend: 'pi-cli',
-    })
-    expect(resolveHarnessCatalogEntry('pi-cli')).toMatchObject({
-      id: 'pi',
-      frontend: 'pi-cli',
-    })
-    expect(normalizeHarnessFrontend('pi')).toBe('pi-cli')
-    expect(resolveHarnessFrontendForProvider('openai', 'cli')).toBe('pi-cli')
+  test('defaults to agent-harness without owning provider/model routing', () => {
+    expect(DEFAULT_HARNESS).toBe('agent-harness')
+    expect(isHarnessId(DEFAULT_HARNESS)).toBe(true)
+    expect([...LOCK_HARNESSES]).toEqual([DEFAULT_HARNESS])
   })
 })

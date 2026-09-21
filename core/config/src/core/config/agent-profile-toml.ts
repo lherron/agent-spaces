@@ -9,7 +9,7 @@ import type {
   RunMode,
 } from '../types/agent-profile.js'
 import { type AgentIdentity, ROSTER_SLOT_TOKENS } from '../types/agent-profile.js'
-import { HARNESS_IDS, resolveHarnessCatalogEntry } from '../types/harness.js'
+import { HARNESS_IDS, isHarnessId } from '../types/harness.js'
 import { type SpaceRefString, isSpaceRefString } from '../types/refs.js'
 import type { ClaudeOptions, CodexOptions, ProvisioningSettings } from '../types/targets.js'
 import { normalizeJobExecutionNodes } from './job-execution-nodes.js'
@@ -248,9 +248,11 @@ function parseProvisioningSettings(
     }
 
     // Semantic validation stays explicit even though membership and value kind
-    // are derived from agent-scope's kinds table.
+    // are derived from agent-scope's kinds table. Config validates the closed
+    // public harness vocabulary only; provider/model compatibility resolves in
+    // the central compiler resolver.
     if (scalarKey === 'harness') {
-      if (!resolveHarnessCatalogEntry(raw)) {
+      if (!isHarnessId(raw)) {
         fail(
           source,
           `${path}/${key}`,
@@ -258,6 +260,14 @@ function parseProvisioningSettings(
           'enum'
         )
       }
+    }
+    if (scalarKey === 'model' && raw.includes('/')) {
+      fail(
+        source,
+        `${path}/${key}`,
+        `provider-prefixed model "${raw}" is rejected; set model_provider and model separately`,
+        'pattern'
+      )
     }
     if (scalarKey === 'node' && raw === 'local') {
       fail(
@@ -553,8 +563,13 @@ export function parseAgentProfile(content: string, filePath?: string): AgentRunt
   )
 
   const version = parsed['version']
-  if (version !== 3) {
-    fail(source, '/version', 'unsupported profile version; expected 3', 'const')
+  if (version !== 4) {
+    fail(
+      source,
+      '/version',
+      'unsupported profile version; expected 4 (versions 1 through 3 are rejected without translation)',
+      'const'
+    )
   }
 
   const profile: AgentRuntimeProfile = {

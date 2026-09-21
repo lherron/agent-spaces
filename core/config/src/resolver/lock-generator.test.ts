@@ -138,7 +138,7 @@ describe('lock-generator', () => {
   })
 
   describe('harness enumeration (A6)', () => {
-    test('emits one harness entry per LOCK_HARNESSES, defaulting to claude', async () => {
+    test('emits one harness entry per LOCK_HARNESSES, defaulting to agent-harness', async () => {
       const space = createMockSpace('space-a', 'abc1234', 'plugin-a')
       const key = 'space-a@abc1234' as SpaceKey
 
@@ -163,9 +163,9 @@ describe('lock-generator', () => {
 
       // Behavior is driven by the shared enumeration, not an inline literal.
       expect(Object.keys(targetEntry.harnesses).sort()).toEqual([...LOCK_HARNESSES].sort())
-      // Preserved default: only the claude entry today.
-      expect(LOCK_HARNESSES).toEqual(['claude'])
-      expect(targetEntry.harnesses.claude?.envHash).toBeDefined()
+      // Preserved default: only the agent-harness entry (T-08701 contract default).
+      expect(LOCK_HARNESSES).toEqual(['agent-harness'])
+      expect(targetEntry.harnesses['agent-harness']?.envHash).toBeDefined()
     })
   })
 

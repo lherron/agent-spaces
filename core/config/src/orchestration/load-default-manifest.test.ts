@@ -45,7 +45,7 @@ describe('loadDefaultManifest', () => {
 
   test('returns ProjectManifest when default-targets.toml exists', async () => {
     const defaultTargets = `
-schema = 1
+schema = 2
 
 [claude]
 model = "claude-3-opus"
@@ -58,7 +58,7 @@ compose = ["space:defaults@stable"]
 
     const result = await loadDefaultManifest()
     expect(result).not.toBeNull()
-    expect(result!.schema).toBe(1)
+    expect(result!.schema).toBe(2)
     expect(result!.claude?.model).toBe('claude-3-opus')
     expect(result!.targets.shared).toBeDefined()
     expect(result!.targets.shared.compose).toEqual(['space:defaults@stable'])
@@ -76,7 +76,7 @@ compose = ["space:defaults@stable"]
     process.env['ASP_HOME'] = customHome
 
     const toml = `
-schema = 1
+schema = 2
 
 [targets.custom]
 compose = ["space:custom@stable"]
@@ -124,7 +124,7 @@ describe('loadProjectManifest integration with defaults', () => {
   test('merges default targets under project targets when default-targets.toml exists', async () => {
     // Write default-targets.toml in ASP_HOME
     const defaultTargets = `
-schema = 1
+schema = 2
 
 [claude]
 model = "claude-3-opus"
@@ -138,7 +138,7 @@ compose = ["space:defaults@stable"]
 
     // Write project asp-targets.toml
     const projectTargets = `
-schema = 1
+schema = 2
 
 [claude]
 model = "claude-3-sonnet"
@@ -166,7 +166,7 @@ compose = ["space:dev@latest"]
   test('project targets override default targets with same name entirely', async () => {
     // Write default-targets.toml
     const defaultTargets = `
-schema = 1
+schema = 2
 
 [targets.dev]
 description = "Default dev"
@@ -176,7 +176,7 @@ compose = ["space:defaults@stable"]
 
     // Write project asp-targets.toml with same target name
     const projectTargets = `
-schema = 1
+schema = 2
 
 [targets.dev]
 compose = ["space:project-dev@latest"]
@@ -195,7 +195,7 @@ compose = ["space:project-dev@latest"]
     // No default-targets.toml in ASP_HOME
 
     const projectTargets = `
-schema = 1
+schema = 2
 
 [targets.dev]
 compose = ["space:dev@latest"]
@@ -222,17 +222,17 @@ compose = ["space:dev@latest"]
     try {
       await writeFile(
         join(envAspHome, 'default-targets.toml'),
-        'schema = 1\n\n[targets.from_env]\ncompose = ["space:env@stable"]\n',
+        'schema = 2\n\n[targets.from_env]\ncompose = ["space:env@stable"]\n',
         'utf8'
       )
       await writeFile(
         join(explicitAspHome, 'default-targets.toml'),
-        'schema = 1\n\n[targets.from_explicit]\ncompose = ["space:explicit@stable"]\n',
+        'schema = 2\n\n[targets.from_explicit]\ncompose = ["space:explicit@stable"]\n',
         'utf8'
       )
       await writeFile(
         join(testProjectDir, 'asp-targets.toml'),
-        'schema = 1\n\n[targets.dev]\ncompose = ["space:dev@stable"]\n',
+        'schema = 2\n\n[targets.dev]\ncompose = ["space:dev@stable"]\n',
         'utf8'
       )
 
@@ -254,7 +254,7 @@ compose = ["space:dev@latest"]
   test('T-00810: no asp-targets.toml + default-targets.toml exists → returns defaults manifest', async () => {
     // Write default-targets.toml in ASP_HOME
     const defaultTargets = `
-schema = 1
+schema = 2
 
 [claude]
 model = "claude-3-opus"
@@ -273,7 +273,7 @@ compose = ["space:defaults@stable"]
 
     // The returned manifest should contain the default targets
     expect(result).toBeDefined()
-    expect(result.schema).toBe(1)
+    expect(result.schema).toBe(2)
     expect(result.targets.shared).toBeDefined()
     expect(result.targets.shared.compose).toEqual(['space:defaults@stable'])
     expect(result.targets.shared.description).toBe('Shared defaults target')

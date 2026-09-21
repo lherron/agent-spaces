@@ -217,7 +217,7 @@ export async function hooksTomlExists(hooksDir: string): Promise<boolean> {
  * @param harnessId - Harness ID to filter for (Claude- or Pi-compatible)
  * @returns Filtered hooks applicable to the harness
  */
-function normalizeHarnessForHooks(harnessId: HarnessId): 'claude' | 'pi' {
+function normalizeHarnessForHooks(harnessId: HarnessId | string): 'claude' | 'pi' {
   return harnessId === 'pi' || harnessId === 'pi-sdk' ? 'pi' : 'claude'
 }
 
@@ -230,7 +230,7 @@ function normalizeHookHarness(harness?: string): string | undefined {
 
 export function filterHooksForHarness(
   hooks: CanonicalHookDefinition[],
-  harnessId: HarnessId
+  harnessId: HarnessId | string
 ): CanonicalHookDefinition[] {
   const normalized = normalizeHarnessForHooks(harnessId)
   return hooks.filter((h) => !h.harness || normalizeHookHarness(h.harness) === normalized)

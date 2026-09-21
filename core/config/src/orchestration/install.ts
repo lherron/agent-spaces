@@ -27,6 +27,9 @@ import { basename, join, relative } from 'node:path'
 import { createCanonicalHasher } from 'spaces-runtime-contracts'
 
 import { resolveNowIso } from '../core/compile-clock.js'
+// Internal legacy seam (EN-15986): the install path addresses adapters by
+// their pre-cutover ids. T-08702 deletes it with the v1 flow.
+import type { HarnessId } from '../core/types/harness-legacy.js'
 
 import {
   type AgentLocalComponents,
@@ -35,7 +38,6 @@ import {
   type ComposeTargetInput,
   DEFAULT_HARNESS,
   type HarnessAdapter,
-  type HarnessId,
   type HygieneGateFinding,
   LOCK_FILENAME,
   type LockFile,
@@ -55,7 +57,6 @@ import {
   createEmptyLockFile,
   getEffectiveCodexOptions,
   getLoadOrderEntries,
-  isHarnessSupported,
   readSpaceToml,
   withLock,
   withProjectLock,
@@ -541,8 +542,9 @@ async function materializeSpaceEntry(
   }
 
   const supports = manifest?.harness?.supports
-  if (!isHarnessSupported(supports, harnessId)) {
-    // Skip spaces that do not support the selected harness
+  if (supports !== undefined && !(supports as readonly string[]).includes(harnessId)) {
+    // Skip spaces that do not declare the selected canonical harness id.
+    // Removed ids and aliases never translate (T-08701).
     return null
   }
 

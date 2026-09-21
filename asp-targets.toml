@@ -1,4 +1,4 @@
-schema = 1
+schema = 2
 
 [targets.smokey]
 description = "Smokey for agent-spaces"
@@ -13,7 +13,7 @@ compose = [ "space:smokey@dev", "space:defaults@dev" ]
 
   [targets.smokey.provisioning]
   harness = "codex"
-  reasoning = "high"
+  reasoning_effort = "high"
 
 [targets.curly]
 description = "Curly for agent-spaces"
@@ -37,7 +37,7 @@ priming_append = """
 compose = [ "space:defaults@dev" ]
 
   [targets.animata.provisioning]
-  reasoning = "high"
+  reasoning_effort = "high"
 
 [targets.animan]
 description = "Animan for agent-spaces"
@@ -62,7 +62,7 @@ priming_append = """
 compose = [ "space:defaults@dev" ]
 
   [targets.larry.provisioning]
-  reasoning = "high"
+  reasoning_effort = "high"
 
 [targets.locallarry]
 description = "Local Larry clone (no agent profile, targets-only)"
@@ -71,5 +71,5 @@ compose = [ "space:defaults@dev" ]
 
   [targets.locallarry.provisioning]
   harness = "codex"
-  reasoning = "high"
+  reasoning_effort = "high"
   yolo = true

@@ -6,7 +6,7 @@ import { parseTargetsToml, serializeTargetsToml } from './targets-toml.js'
 describe('asp-targets.toml model_reasoning_summary', () => {
   test('parses top-level and target values', () => {
     const parsed = parseTargetsToml(`
-schema = 1
+schema = 2
 
 [codex]
 model_reasoning_summary = "concise"
@@ -25,7 +25,7 @@ model_reasoning_summary = "detailed"
   test('rejects unsupported values', () => {
     expect(() =>
       parseTargetsToml(`
-schema = 1
+schema = 2
 
 [codex]
 model_reasoning_summary = "verbose"
@@ -41,7 +41,7 @@ model_reasoning_summary = "verbose"
     expect(merged.model_reasoning_summary).toBe('none')
 
     const manifest: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       codex: { model_reasoning_summary: 'auto' },
       targets: {
         default: { provisioning: { codex: { model_reasoning_summary: 'concise' } } },
@@ -52,7 +52,7 @@ model_reasoning_summary = "verbose"
 
   test('round-trips top-level and target values', () => {
     const original: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       codex: { model_reasoning_summary: 'auto' },
       targets: {
         default: { provisioning: { codex: { model_reasoning_summary: 'none' } } },

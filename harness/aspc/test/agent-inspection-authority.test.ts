@@ -29,7 +29,7 @@ beforeEach(async () => {
   await mkdir(projectRoot, { recursive: true })
   await writeFile(
     join(codyRoot, 'agent-profile.toml'),
-    `version = 3
+    `version = 4
 
 [identity]
 display = "Cody"
@@ -89,7 +89,7 @@ describe('ASPC identifier-only inspection authority', () => {
     await mkdir(lateRoot)
     await writeFile(
       join(lateRoot, 'agent-profile.toml'),
-      'version = 3\n[provisioning]\nharness = "pi"\n'
+      'version = 4\n[provisioning]\nharness = "codex"\n'
     )
     const refreshed = await service.catalogAgentInspection({})
     expect(refreshed.agents.map(({ agentId }) => agentId)).toContain('late-agent')
@@ -100,7 +100,7 @@ describe('ASPC identifier-only inspection authority', () => {
     await mkdir(sparkyRoot)
     await writeFile(
       join(sparkyRoot, 'agent-profile.toml'),
-      'version = 3\n[provisioning]\nharness = "pi-sdk"\nmodel = "openai-codex/gpt-5.5"\n'
+      'version = 4\n[provisioning]\nharness = "muse"\nmodel_provider = "meta"\nmodel = "muse-spark-1.3-contributor"\n'
     )
     const resolvedIds: string[] = []
     const service = createAspcService({
@@ -128,9 +128,9 @@ describe('ASPC identifier-only inspection authority', () => {
           mode: 'task',
           scope: 'agent:sparky:project:agent-spaces',
           lane: 'main',
-          harness: 'pi-sdk',
-          frontend: 'pi-sdk',
-          interaction: 'nonInteractive',
+          harness: 'muse',
+          frontend: 'muse-cli',
+          interaction: 'interactive',
         },
         declaredOverrides: {},
       },

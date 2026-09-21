@@ -38,6 +38,7 @@ import {
   mergeAgentWithProjectTarget,
   mergePrimingPrompt,
   resolveAgentPrimingPrompt,
+  toSelectionLayers,
 } from '../agent-project-merge.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -46,7 +47,7 @@ import {
 
 function makeProfile(overrides: Partial<AgentRuntimeProfile> = {}): AgentRuntimeProfile {
   return {
-    version: 3,
+    version: 4,
     identity: { display: 'TestAgent', role: 'coder' },
     priming: 'You are TestAgent.',
     spaces: {
@@ -79,15 +80,16 @@ function scalarValues(prefix: string, booleanValue: boolean): ProvisioningScalar
   ) as ProvisioningScalars
 }
 
-describe('mergeAgentWithProjectTarget: legacy projection characterization', () => {
+describe('mergeAgentWithProjectTarget: v4 projection characterization', () => {
   test('full named-field result and override precedence stay byte-identical', () => {
     const profile = makeProfile({
       priming: 'Agent priming.',
       spaces: { base: ['space:agent@dev' as SpaceRefString] },
       provisioning: {
-        harness: 'pi-sdk',
+        harness: 'claude',
+        model_provider: 'anthropic',
         model: 'agent-model',
-        reasoning: 'agent-reasoning',
+        reasoning_effort: 'low',
         sandbox: 'read-only',
         approval: 'on-request',
         claude: {
@@ -110,9 +112,11 @@ describe('mergeAgentWithProjectTarget: legacy projection characterization', () =
       priming: 'Project priming.',
       compose: ['space:project@dev' as SpaceRefString],
       provisioning: {
-        harness: 'target-harness',
+        harness: 'codex',
+        model_provider: 'openai-codex',
         model: 'target-model',
-        reasoning: 'target-reasoning',
+        reasoning_effort: 'high',
+        presentation: false,
         sandbox: 'danger-full-access',
         approval: 'never',
         claude: {
@@ -132,30 +136,44 @@ describe('mergeAgentWithProjectTarget: legacy projection characterization', () =
     })
 
     const result = mergeAgentWithProjectTarget(profile, target, 'query')
-    const { provisioning: _provisioning, ...legacyProjection } = result
+    const { provisioning: _provisioning, ...projection } = result
 
-    expect(JSON.stringify(legacyProjection)).toBe(
-      '{"priming":"Project priming.","compose":["space:project@dev"],"yolo":false,"remoteControl":false,"harness":"target-harness","model":"target-model","reasoning":"target-reasoning","sandbox":"danger-full-access","approval":"never","claude":{"model":"target-claude-model","permission_mode":"target-permission","args":["--target"]},"codex":{"model":"target-codex-model","model_reasoning_effort":"target-reasoning","model_reasoning_summary":"detailed","status_line":["target-status"],"approval_policy":"never","sandbox_mode":"danger-full-access"},"description":"Project description."}'
+    expect(JSON.stringify(projection)).toBe(
+      '{"priming":"Project priming.","compose":["space:project@dev"],"yolo":false,"remoteControl":false,"harness":"codex","model_provider":"openai-codex","model":"target-model","reasoning_effort":"high","presentation":false,"sandbox":"danger-full-access","approval":"never","claude":{"model":"target-claude-model","permission_mode":"target-permission","args":["--target"]},"codex":{"model":"target-codex-model","model_reasoning_effort":"high","model_reasoning_summary":"detailed","status_line":["target-status"],"approval_policy":"never","sandbox_mode":"danger-full-access"},"description":"Project description."}'
     )
   })
 })
 
 describe('mergeAgentWithProjectTarget: structural provisioning scalars', () => {
-  test('carries viewer from an agent profile and preserves its absence', () => {
-    const withViewer = mergeAgentWithProjectTarget(
-      makeProfile({ provisioning: { viewer: 'none' } }),
+  test('omitted presentation stays absent; explicit false is preserved by presence', () => {
+    const explicitFalse = mergeAgentWithProjectTarget(
+      makeProfile({ provisioning: { harness: 'codex', presentation: false } }),
       undefined,
       'query'
     )
-    const withoutViewer = mergeAgentWithProjectTarget(
+    const omitted = mergeAgentWithProjectTarget(
       makeProfile({ provisioning: { harness: 'codex' } }),
       undefined,
       'query'
     )
 
-    expect(withViewer.provisioning.viewer).toBe('none')
-    expect(Object.hasOwn(withoutViewer.provisioning, 'viewer')).toBe(false)
-    expect(withoutViewer.provisioning).toEqual({ harness: 'codex', yolo: false, remote: false })
+    expect(explicitFalse.presentation).toBe(false)
+    expect(Object.hasOwn(explicitFalse, 'presentation')).toBe(true)
+    expect(explicitFalse.provisioning.presentation).toBe(false)
+    expect(Object.hasOwn(explicitFalse.provisioning, 'presentation')).toBe(true)
+    expect(Object.hasOwn(omitted, 'presentation')).toBe(false)
+    expect(Object.hasOwn(omitted.provisioning, 'presentation')).toBe(false)
+    expect(omitted.provisioning).toEqual({ harness: 'codex', yolo: false, remote: false })
+  })
+
+  test('config never defaults presentation: target omission does not revive agent false', () => {
+    const result = mergeAgentWithProjectTarget(
+      makeProfile({ provisioning: { harness: 'codex', presentation: false } }),
+      makeTarget({ provisioning: { model: 'target-model' } }),
+      'query'
+    )
+    expect(result.presentation).toBe(false)
+    expect(result.provisioning.presentation).toBe(false)
   })
 
   test('carries node without naming that scalar in the merge implementation', () => {
@@ -179,6 +197,41 @@ describe('mergeAgentWithProjectTarget: structural provisioning scalars', () => {
 
     expect(result.provisioning).toEqual(targetScalars)
     expect(result.remoteControl).toBe(false)
+  })
+
+  test('toSelectionLayers emits wire-spelled layers with presence preserved', () => {
+    const layers = toSelectionLayers(
+      {
+        harness: 'claude',
+        model_provider: 'anthropic',
+        model: 'agent-model',
+        reasoning_effort: 'low',
+        presentation: false,
+        node: 'agent-node',
+        yolo: true,
+      },
+      { model: 'target-model', reasoning_effort: 'high' },
+      { presentation: true, model_provider: 'openai-codex' }
+    )
+
+    expect(layers).toEqual({
+      agentProfile: {
+        harness: 'claude',
+        modelProvider: 'anthropic',
+        model: 'agent-model',
+        reasoningEffort: 'low',
+        presentation: false,
+      },
+      projectTarget: { model: 'target-model', reasoningEffort: 'high' },
+      summonDirectives: { presentation: true, modelProvider: 'openai-codex' },
+    })
+  })
+
+  test('toSelectionLayers omits empty layers and drops non-selection scalars', () => {
+    expect(toSelectionLayers(undefined, undefined, undefined)).toEqual({})
+    expect(
+      toSelectionLayers({ node: 'svc', yolo: true }, { sandbox: 'workspace-write' }, undefined)
+    ).toEqual({})
   })
 })
 
@@ -419,30 +472,27 @@ describe('mergeAgentWithProjectTarget: remoteControl', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 7. Target-level harness precedence (T-00996)
+// 7. Target-level harness precedence (T-00996, T-08701)
 //
-// RED GATE: TargetDefinition does not yet have a `harness` field.
-// mergeAgentWithProjectTarget must prefer target.harness over profile.identity.harness.
-//
-// Pass conditions:
-// 1. TargetDefinition gains `harness?: string`
-// 2. mergeAgentWithProjectTarget uses: target.harness ?? profile.identity.harness ?? 'claude-code'
+// mergeAgentWithProjectTarget prefers target.harness over profile harness.
+// An undeclared harness stays absent: config owns no default (the central
+// compiler resolver applies the catalog default).
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('mergeAgentWithProjectTarget: target-level harness (T-00996)', () => {
-  test('target.harness overrides profile identity.harness', () => {
+  test('target.harness overrides profile provisioning.harness', () => {
     const profile = makeProfile({
       identity: { display: 'Larry', role: 'implementer' },
       provisioning: { harness: 'codex' },
     })
     const target = makeTarget({
-      provisioning: { harness: 'claude-code' },
-    } as Partial<TargetDefinition>) // cast: harness not on TargetDefinition yet
+      provisioning: { harness: 'claude' },
+    })
     const result = mergeAgentWithProjectTarget(profile, target, 'query')
-    expect(result.harness).toBe('claude-code')
+    expect(result.harness).toBe('claude')
   })
 
-  test('profile identity.harness used when target has no harness', () => {
+  test('profile provisioning.harness used when target has no harness', () => {
     const profile = makeProfile({
       identity: { display: 'Larry', role: 'implementer' },
       provisioning: { harness: 'codex' },
@@ -452,26 +502,28 @@ describe('mergeAgentWithProjectTarget: target-level harness (T-00996)', () => {
     expect(result.harness).toBe('codex')
   })
 
-  test('defaults to claude-code when neither target nor profile set harness', () => {
+  test('harness stays absent when neither target nor profile declare it', () => {
     const profile = makeProfile({
       identity: { display: 'Smokey', role: 'tester' },
       provisioning: undefined,
     })
     const target = makeTarget({})
     const result = mergeAgentWithProjectTarget(profile, target, 'query')
-    expect(result.harness).toBe('claude-code')
+    expect(result.harness).toBeUndefined()
+    expect(Object.hasOwn(result, 'harness')).toBe(false)
+    expect(Object.hasOwn(result.provisioning, 'harness')).toBe(false)
   })
 
-  test('target.harness = "agent-sdk" overrides profile harness = "claude-code"', () => {
+  test('target.harness = "muse" overrides profile harness = "codex"', () => {
     const profile = makeProfile({
       identity: { display: 'Animata', role: 'coordinator' },
-      provisioning: { harness: 'claude-code' },
+      provisioning: { harness: 'codex' },
     })
     const target = makeTarget({
-      provisioning: { harness: 'agent-sdk' },
-    } as Partial<TargetDefinition>)
+      provisioning: { harness: 'muse' },
+    })
     const result = mergeAgentWithProjectTarget(profile, target, 'query')
-    expect(result.harness).toBe('agent-sdk')
+    expect(result.harness).toBe('muse')
   })
 })
 

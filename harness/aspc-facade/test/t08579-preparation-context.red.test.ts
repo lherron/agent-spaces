@@ -76,7 +76,7 @@ function write(path: string, content: string): void {
   writeFileSync(path, content)
 }
 
-const PROFILE = 'version = 3\n\n[spaces]\nbase = []\n\n[provisioning]\nharness = "codex"\n'
+const PROFILE = 'version = 4\n\n[spaces]\nbase = []\n\n[provisioning]\nharness = "codex"\n'
 
 const POV_TEMPLATE = `schema_version = 2
 mode = "append"
@@ -170,8 +170,8 @@ function buildFixture(base: string): void {
   write(join(base, 'roster', 'pov', 'context-template.toml'), POV_TEMPLATE)
   write(join(base, 'roster', 'pov2', 'agent-profile.toml'), PROFILE)
   write(join(base, 'roster', 'pov2', 'SOUL.md'), '# pov2 soul')
-  write(join(base, 'projplain', 'asp-targets.toml'), 'schema = 1\n')
-  write(join(base, 'projoverlay', 'asp-targets.toml'), 'schema = 1\nagents-root = "agents"\n')
+  write(join(base, 'projplain', 'asp-targets.toml'), 'schema = 2\n')
+  write(join(base, 'projoverlay', 'asp-targets.toml'), 'schema = 2\nagents-root = "agents"\n')
   write(join(base, 'projoverlay', 'agents', 'MOTD.md'), 'MOTD=project-overlay')
   const codex = join(base, 'codex')
   writeFileSync(
@@ -341,11 +341,11 @@ describe('T-08579 P1 preview/compile parity', () => {
       expect(normalize(inspected.prompt?.value?.systemPrompt)).toEqual(normalize(prompt))
       expect(inspected.effectiveEnvironmentHash).toEqual(expect.any(String))
       expect(response.effectiveEnvironmentHash).toBe(inspected.effectiveEnvironmentHash)
-      expect(inspected.declaration.provisioning.frontend).toBe(
-        response.selectedProfile.harnessInvocation.startRequest.spec.harness.driver ===
-          'codex-app-server'
-          ? 'codex-cli'
-          : 'unexpected'
+      // T-08701: the declaration carries closed-vocabulary scalars only; the
+      // v1 driver label stays on the compile response.
+      expect(inspected.declaration.provisioning.effectiveHarness).toBe('codex')
+      expect(response.selectedProfile.harnessInvocation.startRequest.spec.harness.driver).toBe(
+        'codex-app-server'
       )
     })
   }

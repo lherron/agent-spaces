@@ -68,7 +68,7 @@ async function setupCliFixture() {
   await writeFile(
     join(agentRoot, 'agent-profile.toml'),
     `
-version = 3
+version = 4
 
 [identity]
 display = "Smokey"
@@ -78,7 +78,7 @@ display = "Smokey"
   await writeFile(
     join(projectDir, 'asp-targets.toml'),
     `
-schema = 1
+schema = 2
 
 [targets.${targetName}]
 compose = []
@@ -211,7 +211,7 @@ content = "second reminder"
     await writeFile(
       join(fixture.agentRoot, 'agent-profile.toml'),
       `
-version = 3
+version = 4
 
 [session]
 additionalContext = ["agent-root:///session-note.md"]
@@ -427,7 +427,7 @@ content = "abcdefghijk"
     await writeFile(
       join(fixture.agentRoot, 'agent-profile.toml'),
       `
-version = 3
+version = 4
 
 [identity]
 display = "Smokey"

@@ -221,7 +221,9 @@ export interface LinkInstructionsResult {
 export async function linkInstructionsFile(
   snapshotDir: string,
   pluginDir: string,
-  harness: HarnessId,
+  // String (not closed HarnessId): v1 materialization paths still carry
+  // legacy adapter ids; T-08702 reworks harness-format routing.
+  harness: HarnessId | string,
   options: LinkOptions = {}
 ): Promise<LinkInstructionsResult> {
   const agentMdPath = join(snapshotDir, INSTRUCTIONS_FILE_AGNOSTIC)

@@ -3,9 +3,13 @@ import {
   CLAUDE_CODE_MODELS,
   DEFAULT_AGENT_SDK_MODEL,
   DEFAULT_CLAUDE_CODE_MODEL,
+} from 'spaces-config'
+// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
+// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
+import {
   type HarnessId,
   getHarnessCatalogEntryByFrontend,
-} from 'spaces-config'
+} from 'spaces-config/internal/legacy-harness'
 import { PI_SDK_MODEL_CATALOG } from 'spaces-runtime-contracts'
 
 import type {

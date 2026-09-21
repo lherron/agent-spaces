@@ -12,7 +12,10 @@
 
 import chalk from 'chalk'
 
-import { type HarnessId, harnessRegistry, isHarnessId } from 'spaces-execution'
+// Internal legacy seam (EN-15986): `--harness` addresses v1 adapters, not the
+// closed selection vocabulary. T-08702 deletes it with the v1 flow.
+import { type HarnessId, isHarnessId } from 'spaces-config/internal/legacy-harness'
+import { harnessRegistry } from 'spaces-execution'
 
 /**
  * Default harness id used when `--harness` is omitted.

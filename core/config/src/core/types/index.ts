@@ -136,21 +136,19 @@ export {
   hasTarget,
 } from './lock.js'
 
-// Harness types (multi-harness support)
+// Harness types (multi-harness support). Identification here is closed
+// vocabulary validation only (T-08701); selection authority lives in the
+// central compiler catalog.
 export type {
   ComposedTargetBundle,
   ComposeTargetInput,
   ComposeTargetOptions,
   ComposeTargetResult,
   HarnessAdapter,
-  HarnessCatalogEntry,
   HarnessDetection,
-  HarnessFrontend,
   HarnessId,
   HarnessModelInfo,
-  HarnessProvider,
   HarnessRunOptions,
-  HarnessTransport,
   HarnessValidationResult,
   MaterializeSpaceInput,
   MaterializeSpaceOptions,
@@ -164,25 +162,7 @@ export type {
   SpacePiConfig,
 } from './harness.js'
 
-export {
-  DEFAULT_HARNESS,
-  getHarnessCatalogEntry,
-  getHarnessCatalogEntryByFrontend,
-  getHarnessFrontendsForProvider,
-  HARNESS_CATALOG,
-  HARNESS_FRONTENDS,
-  HARNESS_IDS,
-  HARNESS_NAMES,
-  HARNESS_PROVIDERS,
-  isHarnessSupported,
-  isHarnessId,
-  LOCK_HARNESSES,
-  normalizeHarnessFrontend,
-  normalizeHarnessId,
-  resolveHarnessCatalogEntry,
-  resolveHarnessFrontendForProvider,
-  resolveHarnessProvider,
-} from './harness.js'
+export { DEFAULT_HARNESS, HARNESS_IDS, isHarnessId, LOCK_HARNESSES } from './harness.js'
 
 // Agent-local components types (agent-local skills/commands auto-discovery)
 export type { AgentLocalComponents } from './agent-local.js'

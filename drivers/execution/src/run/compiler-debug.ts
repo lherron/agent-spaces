@@ -11,8 +11,12 @@
  * the emitted shape.
  */
 
-import { type HarnessId, getHarnessCatalogEntry } from 'spaces-config'
-
+// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
+// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
+import {
+  type HarnessId as LegacyHarnessId,
+  getHarnessCatalogEntry,
+} from 'spaces-config/internal/legacy-harness'
 import type { CompileRuntimeFn, LaunchShape, RunCompileOutcome } from './types.js'
 import type { RunCompilerDebugContext } from './types.js'
 
@@ -50,7 +54,9 @@ function compileInteractionMode(
 export interface BuildCompilerDebugContextArgs {
   aspHome: string
   registryPath?: string | undefined
-  harnessId: HarnessId
+  // String (not closed HarnessId): the debug context still addresses legacy
+  // adapters on the v1 path; T-08702 removes this with the v1 flow.
+  harnessId: string
   model?: string | undefined
   reasoningEffort?: string | undefined
   interactive?: boolean | undefined
@@ -101,7 +107,10 @@ export async function maybeCompileForRun(
 }
 
 function buildCompilerDebugContext(args: BuildCompilerDebugContextArgs): RunCompilerDebugContext {
-  const harnessCatalog = getHarnessCatalogEntry(args.harnessId)
+  // The v1 debug context still addresses registered adapters (all in the
+  // legacy union); the cast carries the runtime string without translating
+  // it. T-08702 deletes this with the v1 flow.
+  const harnessCatalog = getHarnessCatalogEntry(args.harnessId as LegacyHarnessId)
   return {
     aspHome: args.aspHome,
     registryPath: args.registryPath,

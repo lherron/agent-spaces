@@ -247,7 +247,7 @@ template = "agent-template.toml"
     const localAgentsRoot = join(projectRoot, 'agents')
     const localAgentRoot = join(localAgentsRoot, 'bencher')
     await mkdir(localAgentRoot, { recursive: true })
-    await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 1\nagents-root = "agents"\n')
+    await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 2\nagents-root = "agents"\n')
     await writeFile(join(localAgentRoot, 'SOUL.md'), 'local soul')
     await writeFile(join(localAgentRoot, 'agent-profile.toml'), 'version = 3\n')
     await writeFile(
@@ -273,7 +273,7 @@ template = "agent-template.toml"
     const localAgentsRoot = join(projectRoot, 'agents')
     const localAgentRoot = join(localAgentsRoot, 'bencher')
     await mkdir(localAgentRoot, { recursive: true })
-    await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 1\nagents-root = "agents"\n')
+    await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 2\nagents-root = "agents"\n')
     await writeFile(join(localAgentRoot, 'SOUL.md'), 'local soul')
     await writeFile(
       join(localAgentRoot, 'agent-profile.toml'),
@@ -305,7 +305,7 @@ template = "agent-template.toml"
     await mkdir(canonicalAgentRoot, { recursive: true })
     await mkdir(localAgentsRoot, { recursive: true })
     await writeFile(join(canonicalAgentRoot, 'agent-profile.toml'), 'version = 3\n')
-    await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 1\nagents-root = "agents"\n')
+    await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 2\nagents-root = "agents"\n')
     await writeFile(join(agentsRoot, 'AGENT_MOTD.md'), 'canonical motd')
     await writeFile(
       join(localAgentsRoot, 'context-template.toml'),

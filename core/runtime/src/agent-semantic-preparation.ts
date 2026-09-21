@@ -118,7 +118,7 @@ export async function loadAgentSemantics(
     options.provider,
     options.model ?? sources.effectiveConfig.model ?? 'gpt-5.6-sol'
   )
-  const reasoningEffort = options.reasoningEffort ?? sources.effectiveConfig.reasoning
+  const reasoningEffort = options.reasoningEffort ?? sources.effectiveConfig.reasoning_effort
 
   return {
     input: options,

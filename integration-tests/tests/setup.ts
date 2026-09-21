@@ -229,7 +229,7 @@ export async function createTempProject(
   const tmpDir = await fs.mkdtemp('/tmp/asp-project-')
 
   // Write asp-targets.toml
-  let toml = 'schema = 1\n\n'
+  let toml = 'schema = 2\n\n'
   for (const [name, target] of Object.entries(targets)) {
     toml += `[targets.${name}]\n`
     if (target.description) {

@@ -76,7 +76,7 @@ describe('asp run --print-command: model_reasoning_effort in codex invocation (T
 
     await writeFile(
       join(projectDir, 'asp-targets.toml'),
-      `schema = 1
+      `schema = 2
 
 [targets.codex-target]
 compose = []

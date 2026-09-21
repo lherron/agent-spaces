@@ -91,7 +91,7 @@ function createFixture(
   writeFileSync(imagePath2, 'also-not-really-a-png', 'utf8')
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
-    `version = 3
+    `version = 4
 ${options.primingPrompt !== undefined ? `priming = "${options.primingPrompt}"\n` : ''}
 [spaces]
 base = []

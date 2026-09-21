@@ -21,7 +21,7 @@ interface InitOptions {
  * Generate a minimal asp-targets.toml content.
  */
 function generateTargetsToml(targetName: string): string {
-  return `schema = 1
+  return `schema = 2
 
 [targets.${targetName}]
 description = "Default target"

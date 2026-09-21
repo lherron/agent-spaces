@@ -1,4 +1,4 @@
-/** T-08563 rev 5 declaration reds through the agent-spaces package entrypoint. */
+/** T-08701 v4/schema2 declaration observation through the agent-spaces package entrypoint. */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -47,11 +47,9 @@ beforeEach(async () => {
   ])
   await writeProfile(agentRoot, 'verify', 'claude')
   await writeProfile(outsideRoot, 'outside', 'claude')
-  await writeFile(join(agentRoot, 'SOUL.md'), 'Smokey declaration fixture\n')
-  await writeFile(join(outsideRoot, 'SOUL.md'), 'Outside roster fixture\n')
   await writeFile(
     join(projectRoot, 'asp-targets.toml'),
-    `schema = 1
+    `schema = 2
 
 [targets.smokey]
 compose = []
@@ -67,7 +65,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true })
 })
 
-describe('T-08563 runtime declaration observation', () => {
+describe('T-08701 runtime declaration observation', () => {
   test('positive control: fixture sources are independently readable', async () => {
     expect(await readFile(join(agentRoot, 'agent-profile.toml'), 'utf8')).toContain(
       'role = "verify"'
@@ -84,7 +82,11 @@ describe('T-08563 runtime declaration observation', () => {
       request({
         agentRoot: alias,
         project: { mode: 'root', projectRoot, projectId: 'agent-spaces' },
-        provisionDirectives: { harness: 'pi-sdk', model: 'openai-codex/gpt-5.5' },
+        provisionDirectives: {
+          harness: 'muse',
+          model_provider: 'meta',
+          model: 'muse-spark-1.3-contributor',
+        },
       }),
       daemonDefaults()
     )
@@ -94,48 +96,52 @@ describe('T-08563 runtime declaration observation', () => {
     expect(await realpath(response.placement.agentRoot)).toBe(await realpath(outsideRoot))
     expect(await realpath(response.agentSources.aspHome)).toBe(await realpath(aspHome))
     expect(await realpath(response.agentSources.agentsRoot)).toBe(await realpath(agentsRoot))
-    expect(response.baselineProvisioning).toMatchObject({
+    expect(response.baselineProvisioning).toEqual({
+      scalars: { harness: 'codex', model: 'gpt-5.6-sol', yolo: false, remote: false },
       declaredHarness: 'claude',
       effectiveHarness: 'codex',
-      provider: 'openai',
     })
-    expect(response.provisioning).toMatchObject({
-      effectiveHarness: 'pi-sdk',
-      frontend: 'pi-sdk',
-      provider: 'openai',
+    expect(response.provisioning).toEqual({
+      scalars: {
+        harness: 'muse',
+        model_provider: 'meta',
+        model: 'muse-spark-1.3-contributor',
+        yolo: false,
+        remote: false,
+      },
+      declaredHarness: 'claude',
+      effectiveHarness: 'muse',
     })
   })
 
-  test('projects transport cli for a CLI harness entry (T-08600)', async () => {
+  test('reports closed-vocabulary baseline scalars without driver projections', async () => {
     const response = await operation()(request(), daemonDefaults())
     expect(response.ok).toBe(true)
-    expect(response.baselineProvisioning).toMatchObject({
+    expect(response.baselineProvisioning).toEqual({
+      scalars: { harness: 'codex', model: 'gpt-5.6-sol', yolo: false, remote: false },
+      declaredHarness: 'claude',
       effectiveHarness: 'codex',
-      frontend: 'codex-cli',
-      transport: 'cli',
     })
-    expect(response.baselineProvisioning.transport).toBe('cli')
+    for (const key of ['frontend', 'transport', 'provider', 'family', 'runtime']) {
+      expect(response.baselineProvisioning).not.toHaveProperty(key)
+      expect(response.provisioning).not.toHaveProperty(key)
+    }
   })
 
-  test('projects transport sdk for an SDK harness entry (T-08600)', async () => {
+  test('lets a directive replace the target-selected harness', async () => {
     const response = await operation()(
-      request({ provisionDirectives: { harness: 'claude-agent-sdk' } }),
+      request({ provisionDirectives: { harness: 'claude' } }),
       daemonDefaults()
     )
     expect(response.ok).toBe(true)
     expect(response.provisioning).toEqual({
-      scalars: expect.objectContaining({ harness: 'claude-agent-sdk' }),
+      scalars: { harness: 'claude', model: 'gpt-5.6-sol', yolo: false, remote: false },
       declaredHarness: 'claude',
-      effectiveHarness: 'claude-agent-sdk',
-      frontend: 'agent-sdk',
-      provider: 'anthropic',
-      transport: 'sdk',
-      family: 'claude-agent-sdk',
-      runtime: 'agent-sdk',
+      effectiveHarness: 'claude',
     })
   })
 
-  test('preserves agent-harness as its own first-party SDK declaration', async () => {
+  test('preserves agent-harness as its own first-party declaration', async () => {
     const response = await operation()(
       request({ provisionDirectives: { harness: 'agent-harness', model: 'gpt-5.6-terra' } }),
       daemonDefaults()
@@ -143,18 +149,24 @@ describe('T-08563 runtime declaration observation', () => {
 
     expect(response.ok).toBe(true)
     expect(response.provisioning).toEqual({
-      scalars: expect.objectContaining({
+      scalars: {
         harness: 'agent-harness',
         model: 'gpt-5.6-terra',
-      }),
+        yolo: false,
+        remote: false,
+      },
       declaredHarness: 'claude',
       effectiveHarness: 'agent-harness',
-      frontend: 'agent-harness-tui',
-      provider: 'openai',
-      transport: 'sdk',
-      family: 'agent-harness',
-      runtime: 'agent-harness',
     })
+  })
+
+  test('rejects a directive naming a harness outside the closed vocabulary', async () => {
+    const response = await operation()(
+      request({ provisionDirectives: { harness: 'pi-sdk' } }),
+      daemonDefaults()
+    )
+    expect(response.ok).toBe(false)
+    expect(response.failure).toMatchObject({ kind: 'incompatible', code: 'unsupported_harness' })
   })
 
   test('keeps root, infer-from-cwd, and none as three observable modes', async () => {
@@ -179,13 +191,17 @@ describe('T-08563 runtime declaration observation', () => {
     expect(none.ok).toBe(true)
     expect(none.placement).not.toHaveProperty('projectRoot')
     expect(none.source.projectTargets).toEqual({ state: 'absent', code: 'not_declared' })
-    expect(none.baselineProvisioning.effectiveHarness).toBe('claude')
+    expect(none.baselineProvisioning).toEqual({
+      scalars: { harness: 'claude', model: 'fixture-model', yolo: false, remote: false },
+      declaredHarness: 'claude',
+      effectiveHarness: 'claude',
+    })
   })
 
   test('anchors caller-root searches without leaking daemon source configuration', async () => {
     const wrongAgentsRoot = join(root, 'wrong-daemon-agents')
     await mkdir(join(wrongAgentsRoot, 'smokey'), { recursive: true })
-    await writeProfile(join(wrongAgentsRoot, 'smokey'), 'wrong-daemon', 'pi')
+    await writeProfile(join(wrongAgentsRoot, 'smokey'), 'wrong-daemon', 'muse')
     await writeFile(join(aspHome, 'config.toml'), `agents-root = ${JSON.stringify(agentsRoot)}\n`)
     const options = {
       aspHome: join(root, 'wrong-daemon-home'),
@@ -234,11 +250,11 @@ describe('T-08563 runtime declaration observation', () => {
   test('re-reads mutable profile and project sources on every call', async () => {
     const resolveDeclaration = operation()
     const first = await resolveDeclaration(request(), daemonDefaults())
-    await writeProfile(agentRoot, 'changed-without-restart', 'pi')
+    await writeProfile(agentRoot, 'changed-without-restart', 'muse')
     const second = await resolveDeclaration(request(), daemonDefaults())
     await writeFile(
       join(projectRoot, 'asp-targets.toml'),
-      'schema = 1\n[targets.smokey]\ncompose = []\n[targets.smokey.provisioning]\nharness = "claude"\n'
+      'schema = 2\n[targets.smokey]\ncompose = []\n[targets.smokey.provisioning]\nharness = "claude"\n'
     )
     const third = await resolveDeclaration(request(), daemonDefaults())
 
@@ -258,8 +274,12 @@ describe('T-08563 runtime declaration observation', () => {
     expect(targetOnly).toMatchObject({
       ok: true,
       source: { agentProfile: { state: 'absent', code: 'not_declared' } },
-      baselineProvisioning: { effectiveHarness: 'codex', provider: 'openai' },
+      baselineProvisioning: {
+        scalars: { harness: 'codex', model: 'gpt-5.6-sol', yolo: false, remote: false },
+        effectiveHarness: 'codex',
+      },
     })
+    expect(targetOnly.baselineProvisioning).not.toHaveProperty('declaredHarness')
 
     const defaultOnly = await operation()(request({ project: { mode: 'none' } }), daemonDefaults())
     expect(defaultOnly).toMatchObject({
@@ -268,127 +288,101 @@ describe('T-08563 runtime declaration observation', () => {
         agentProfile: { state: 'absent', code: 'not_declared' },
         projectTargets: { state: 'absent', code: 'not_declared' },
       },
-      baselineProvisioning: { effectiveHarness: 'claude', provider: 'anthropic' },
+      baselineProvisioning: { scalars: {} },
     })
+    // Fail closed: with no harness declared anywhere, none is invented.
+    expect(defaultOnly.baselineProvisioning).not.toHaveProperty('effectiveHarness')
+    expect(defaultOnly.baselineProvisioning).not.toHaveProperty('declaredHarness')
   })
 
   test.each([
     ['malformed TOML', 'version = [not valid'],
-    ['schema-invalid TOML', 'version = 3\nunknown_key = true\n'],
-  ])(
-    'keeps target-only resolution available for an invalid profile: %s',
-    async (_case, invalidProfile) => {
-      const profilePath = join(agentRoot, 'agent-profile.toml')
-      await writeFile(profilePath, invalidProfile)
+    ['schema-invalid TOML', 'version = 4\nunknown_key = true\n'],
+  ])('rejects an invalid profile without target fallback: %s', async (_case, invalidProfile) => {
+    const profilePath = join(agentRoot, 'agent-profile.toml')
+    await writeFile(profilePath, invalidProfile)
 
-      const response = await operation()(request(), daemonDefaults())
-      const canonicalProfilePath = join(await realpath(agentRoot), 'agent-profile.toml')
+    const response = await operation()(request(), daemonDefaults())
 
-      expect(response).toMatchObject({
-        ok: true,
-        source: {
-          agentProfile: {
-            state: 'invalid',
-            diagnostics: [
-              {
-                severity: 'error',
-                code: 'agent_profile_invalid',
-                source: 'agent-profile',
-                path: canonicalProfilePath,
-              },
-            ],
-          },
-          projectTargets: { state: 'valid', code: 'parsed' },
-          selectedTarget: { state: 'valid', code: 'parsed' },
+    expect(response).toMatchObject({
+      ok: false,
+      resolution: { state: 'invalid', code: 'agent_profile_invalid' },
+      source: {
+        agentProfile: {
+          state: 'invalid',
+          diagnostics: [
+            {
+              severity: 'error',
+              code: 'agent_profile_invalid',
+              source: 'agent-profile',
+            },
+          ],
         },
-        baselineProvisioning: {
-          scalars: { harness: 'codex', model: 'gpt-5.6-sol' },
-          effectiveHarness: 'codex',
-          provider: 'openai',
-        },
-        provisioning: {
-          scalars: { harness: 'codex', model: 'gpt-5.6-sol' },
-          effectiveHarness: 'codex',
-          provider: 'openai',
-        },
-        diagnostics: [
-          {
-            severity: 'error',
-            code: 'agent_profile_invalid',
-            source: 'agent-profile',
-            path: canonicalProfilePath,
-          },
-        ],
-      })
-      expect(response.source.agentProfile).not.toHaveProperty('declaredHarness')
-      expect(response.source.agentProfile).not.toHaveProperty('declaredProvider')
-      expect(response.baselineProvisioning).not.toHaveProperty('declaredHarness')
-      expect(response.provisioning).not.toHaveProperty('declaredHarness')
-      expect(response.baselineProvisioning.scalars).toEqual({
-        harness: 'codex',
-        model: 'gpt-5.6-sol',
-      })
-      expect(response.provisioning.scalars).toEqual({
-        harness: 'codex',
-        model: 'gpt-5.6-sol',
-      })
-      expect(response.placement.projectRoot).toBe(await realpath(projectRoot))
-      expect(response.bundle.ref).toEqual(response.placement.bundle)
-    }
-  )
+        projectTargets: { state: 'absent', code: 'not_declared' },
+      },
+    })
+    expect(response).not.toHaveProperty('failure')
+    expect(response).not.toHaveProperty('provisioning')
+    expect(response).not.toHaveProperty('baselineProvisioning')
+    expect(response.source.agentProfile).not.toHaveProperty('declaredHarness')
+  })
 
   test('does not invent a harness scalar when the selected target omits one', async () => {
-    await writeFile(join(agentRoot, 'agent-profile.toml'), 'version = [not valid')
+    await rm(join(agentRoot, 'agent-profile.toml'))
     await writeFile(
       join(projectRoot, 'asp-targets.toml'),
-      `schema = 1
+      `schema = 2
 
 [targets.smokey]
+compose = []
+
 [targets.smokey.provisioning]
 model = "target-model-only"
 `
     )
 
     const response = await operation()(
-      request({ provisionDirectives: { harness: 'pi-sdk' } }),
+      request({ provisionDirectives: { harness: 'agent-harness' } }),
       daemonDefaults()
     )
 
     expect(response.ok).toBe(true)
     expect(response.baselineProvisioning).toEqual({
-      scalars: { model: 'target-model-only' },
-      effectiveHarness: 'claude',
-      frontend: 'claude-code',
-      provider: 'anthropic',
-      transport: 'cli',
-      family: 'claude',
-      runtime: 'claude-code',
+      scalars: { model: 'target-model-only', yolo: false, remote: false },
     })
     expect(response.baselineProvisioning).not.toHaveProperty('declaredHarness')
+    expect(response.baselineProvisioning).not.toHaveProperty('effectiveHarness')
     expect(response.provisioning).toEqual({
-      scalars: { model: 'target-model-only', harness: 'pi-sdk' },
-      effectiveHarness: 'pi-sdk',
-      frontend: 'pi-sdk',
-      provider: 'openai',
-      transport: 'sdk',
-      family: 'pi-sdk',
-      runtime: 'pi-sdk',
+      scalars: { model: 'target-model-only', harness: 'agent-harness', yolo: false, remote: false },
+      effectiveHarness: 'agent-harness',
     })
     expect(response.provisioning).not.toHaveProperty('declaredHarness')
   })
 
   test.each([
-    [true, false, { yolo: false, viewer: 'none' }, { yolo: false, remote: false, viewer: 'none' }],
-    [false, true, { remote: false }, { yolo: false, remote: false }],
+    [
+      true,
+      false,
+      { presentation: false, reasoning_effort: 'high' },
+      { yolo: true, remote: false, presentation: false, reasoning_effort: 'high' },
+    ],
+    [
+      false,
+      true,
+      { yolo: true, model_provider: 'openai-codex' },
+      { yolo: true, remote: true, model_provider: 'openai-codex' },
+    ],
   ] as const)(
     'keeps explicit target booleans and overlays directives: yolo=%s remote=%s',
     async (yolo, remote, provisionDirectives, expectedFinalBooleans) => {
-      await writeFile(join(agentRoot, 'agent-profile.toml'), 'version = [not valid')
+      await rm(join(agentRoot, 'agent-profile.toml'))
       await writeFile(
         join(projectRoot, 'asp-targets.toml'),
-        `schema = 1
+        `schema = 2
 
 [targets.smokey]
+compose = []
+
 [targets.smokey.provisioning]
 harness = "codex"
 model = "gpt-5.6-sol"
@@ -406,11 +400,6 @@ remote = ${remote}
       expect(response.baselineProvisioning).toEqual({
         scalars: { harness: 'codex', model: 'gpt-5.6-sol', yolo, remote },
         effectiveHarness: 'codex',
-        frontend: 'codex-cli',
-        provider: 'openai',
-        transport: 'cli',
-        family: 'codex',
-        runtime: 'codex-cli',
       })
       expect(response.provisioning).toEqual({
         scalars: {
@@ -419,11 +408,6 @@ remote = ${remote}
           ...expectedFinalBooleans,
         },
         effectiveHarness: 'codex',
-        frontend: 'codex-cli',
-        provider: 'openai',
-        transport: 'cli',
-        family: 'codex',
-        runtime: 'codex-cli',
       })
     }
   )
@@ -433,78 +417,50 @@ remote = ${remote}
       'malformed TOML / mode none',
       'version = [not valid',
       () => request({ project: { mode: 'none' } }),
-      'absent',
     ],
     [
       'schema-invalid TOML / mode none',
-      'version = 3\nunknown_key = true\n',
+      'version = 4\nunknown_key = true\n',
       () => request({ project: { mode: 'none' } }),
-      'absent',
     ],
     [
       'malformed TOML / valid targets without a selected agent',
       'version = [not valid',
       () => request({ agentId: 'not-targeted', agentRoot }),
-      'valid',
     ],
     [
       'schema-invalid TOML / valid targets without a selected agent',
-      'version = 3\nunknown_key = true\n',
+      'version = 4\nunknown_key = true\n',
       () => request({ agentId: 'not-targeted', agentRoot }),
-      'valid',
     ],
   ])(
-    'keeps fail-open target-only resolution without a valid target: %s',
-    async (_case, invalidProfile, makeRequest, expectedTargetState) => {
+    'rejects invalid profiles without target fallback: %s',
+    async (_case, invalidProfile, makeRequest) => {
       const profilePath = join(agentRoot, 'agent-profile.toml')
       await writeFile(profilePath, invalidProfile)
 
       const response = await operation()(makeRequest(), daemonDefaults())
-      const canonicalProfilePath = join(await realpath(agentRoot), 'agent-profile.toml')
 
       expect(response).toMatchObject({
-        ok: true,
+        ok: false,
+        resolution: { state: 'invalid', code: 'agent_profile_invalid' },
         source: {
           agentProfile: {
             state: 'invalid',
             diagnostics: [
               {
+                severity: 'error',
                 code: 'agent_profile_invalid',
                 source: 'agent-profile',
-                path: canonicalProfilePath,
               },
             ],
           },
-          selectedTarget: { state: 'absent', code: 'not_declared' },
         },
-        baselineProvisioning: { scalars: {}, effectiveHarness: 'claude' },
-        provisioning: { scalars: {}, effectiveHarness: 'claude' },
-        diagnostics: [
-          {
-            code: 'agent_profile_invalid',
-            source: 'agent-profile',
-            path: canonicalProfilePath,
-          },
-        ],
       })
-      expect(response.source.projectTargets).toMatchObject(
-        expectedTargetState === 'valid'
-          ? { state: 'valid', code: 'parsed' }
-          : { state: 'absent', code: 'not_declared' }
-      )
-      expect(response.baselineProvisioning.scalars).toEqual({})
-      expect(response.provisioning.scalars).toEqual({})
-      expect(response.baselineProvisioning.scalars).not.toHaveProperty('harness')
-      expect(response.provisioning.scalars).not.toHaveProperty('harness')
-      expect(response.baselineProvisioning).not.toHaveProperty('declaredHarness')
-      expect(response.provisioning).not.toHaveProperty('declaredHarness')
-      expect(response).not.toHaveProperty('resolution')
-      expect(response.bundle.ref).toEqual(response.placement.bundle)
-      if (expectedTargetState === 'valid') {
-        expect(response.placement.projectRoot).toBe(await realpath(projectRoot))
-      } else {
-        expect(response.placement).not.toHaveProperty('projectRoot')
-      }
+      expect(response).not.toHaveProperty('failure')
+      expect(response).not.toHaveProperty('provisioning')
+      expect(response).not.toHaveProperty('baselineProvisioning')
+      expect(response).not.toHaveProperty('placement')
     }
   )
 
@@ -529,15 +485,14 @@ remote = ${remote}
           state: 'valid',
           code: 'parsed',
           declaredHarness: 'claude',
-          declaredProvider: 'anthropic',
         },
       },
       baselineProvisioning: {
         declaredHarness: 'claude',
         effectiveHarness: 'codex',
-        provider: 'openai',
       },
     })
+    expect(before.source.agentProfile).not.toHaveProperty('declaredProvider')
   })
 
   test('distinguishes declaration absent/invalid from unavailable/incompatible evidence', async () => {
@@ -553,18 +508,32 @@ remote = ${remote}
     })
     expect(absent).not.toHaveProperty('failure')
 
-    await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = [not valid')
+    // An invalid profile fails before project targets are read.
     await writeFile(join(agentRoot, 'agent-profile.toml'), 'version = [not valid')
-    const invalid = await resolveDeclaration(request(), daemonDefaults())
-    expect(invalid).toMatchObject({
+    const invalidProfile = await resolveDeclaration(request(), daemonDefaults())
+    expect(invalidProfile).toMatchObject({
+      ok: false,
+      resolution: { state: 'invalid', code: 'agent_profile_invalid' },
+      source: {
+        agentProfile: { state: 'invalid' },
+        projectTargets: { state: 'absent', code: 'not_declared' },
+      },
+    })
+    expect(invalidProfile).not.toHaveProperty('failure')
+
+    // Invalid targets surface only once the profile parses.
+    await writeProfile(agentRoot, 'verify', 'claude')
+    await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = [not valid')
+    const invalidTargets = await resolveDeclaration(request(), daemonDefaults())
+    expect(invalidTargets).toMatchObject({
       ok: false,
       resolution: { state: 'invalid', code: 'project_targets_invalid' },
       source: {
-        agentProfile: { state: 'invalid' },
+        agentProfile: { state: 'valid' },
         projectTargets: { state: 'invalid' },
       },
     })
-    expect(invalid).not.toHaveProperty('failure')
+    expect(invalidTargets).not.toHaveProperty('failure')
 
     const nonDirectory = join(root, 'not-a-directory')
     await writeFile(nonDirectory, 'file')
@@ -615,7 +584,7 @@ function daemonDefaults(): Record<string, unknown> {
 async function writeProfile(path: string, role: string, harness: string): Promise<void> {
   await writeFile(
     join(path, 'agent-profile.toml'),
-    `version = 3
+    `version = 4
 operator = false
 
 [identity]

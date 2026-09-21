@@ -37,10 +37,10 @@ async function fixture() {
   await mkdir(project)
   await mkdir(agent, { recursive: true })
   await mkdir(aspHome)
-  await writeFile(join(project, 'asp-targets.toml'), 'schema = 1\n')
+  await writeFile(join(project, 'asp-targets.toml'), 'schema = 2\n')
   await writeFile(
     join(agent, 'agent-profile.toml'),
-    'version = 3\n[provisioning]\nharness = "agent-harness"\nmodel = "gpt-5.6-sol"\n'
+    'version = 4\n[provisioning]\nharness = "agent-harness"\nmodel = "gpt-5.6-sol"\n'
   )
   return { root, project, agents, aspHome }
 }

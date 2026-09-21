@@ -177,7 +177,7 @@ describe('agent-authored runtime resources plan compiler', () => {
   test('uses the canonical profile default owner set when a schedule has no override', async () => {
     const result = await compileInlineResource({
       profile: `
-version = 3
+version = 4
 
 [jobs]
 default_node = ["svc", "max3", "svc"]
@@ -206,7 +206,7 @@ default_node = ["svc", "max3", "svc"]
   ])('normalizes schedule execution override: %s', async (_label, authored, expected) => {
     const result = await compileInlineResource({
       profile: `
-version = 3
+version = 4
 
 [jobs]
 default_node = "fallback"

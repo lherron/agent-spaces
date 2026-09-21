@@ -1,7 +1,7 @@
 # Sample project targets configuration
 # WHY: This project composes frontend and backend spaces for development
 
-schema = 1
+schema = 2
 
 [targets.dev]
 description = "Full-stack development environment"

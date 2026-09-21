@@ -12,9 +12,7 @@ import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import {
-  DEFAULT_HARNESS,
   type HarnessAdapter,
-  type HarnessId,
   LOCK_FILENAME,
   type LockFile,
   type SpaceKey,
@@ -23,6 +21,9 @@ import {
   readLockJson,
   readSpaceToml,
 } from '../core/index.js'
+// Internal legacy seam (EN-15986): the v1 build path defaults and addresses
+// adapters with the pre-cutover catalog. T-08702 deletes it with the v1 flow.
+import { DEFAULT_HARNESS, type HarnessId } from '../core/types/harness-legacy.js'
 
 import {
   type SettingsInput,

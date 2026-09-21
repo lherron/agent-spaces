@@ -412,7 +412,7 @@ describe('existing CLI compatibility (T-00867)', () => {
     try {
       await writeFile(
         join(projectDir, 'asp-targets.toml'),
-        'schema = 1\nagents-root = "./agents"\n'
+        'schema = 2\nagents-root = "./agents"\n'
       )
       await mkdir(join(projectDir, 'agents', 'spaces'), { recursive: true })
       await writeFile(

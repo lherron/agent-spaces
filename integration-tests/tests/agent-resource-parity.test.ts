@@ -52,12 +52,12 @@ describe('agent resource parity task fixture', () => {
     await writeFile(join(agentsRoot, 'valid', 'SOUL.md'), '# Valid\n')
     await writeFile(
       join(agentsRoot, 'valid', 'agent-profile.toml'),
-      'version = 3\n\n[spaces]\nbase = []\n'
+      'version = 4\n\n[spaces]\nbase = []\n'
     )
     await mkdir(join(agentsRoot, 'excluded'), { recursive: true })
     await writeFile(
       join(agentsRoot, 'excluded', 'agent-profile.toml'),
-      'version = 3\n\n[spaces]\nbase = []\n'
+      'version = 4\n\n[spaces]\nbase = []\n'
     )
     await expect(
       inventoryAgents({
@@ -105,7 +105,7 @@ describe('agent resource parity task fixture', () => {
     await writeFile(join(agentRoot, 'SOUL.md'), '# Fixture soul\n')
     await writeFile(
       join(agentRoot, 'agent-profile.toml'),
-      `version = 3
+      `version = 4
 
 [spaces]
 base = ["space:base@dev"]

@@ -133,7 +133,7 @@ describe('getAgentRootsForProject', () => {
     try {
       await mkdir(localRoot, { recursive: true })
       await mkdir(canonicalRoot, { recursive: true })
-      await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 1\nagents-root = "agents"\n')
+      await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 2\nagents-root = "agents"\n')
 
       expect(
         getAgentRootsForProject(projectRoot, { env: { ASP_AGENTS_ROOT: canonicalRoot } })
@@ -153,7 +153,7 @@ describe('getAgentRootsForProject', () => {
     try {
       await mkdir(projectRoot, { recursive: true })
       await mkdir(canonicalRoot, { recursive: true })
-      await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 1\nagents-root = "agents"\n')
+      await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 2\nagents-root = "agents"\n')
 
       const result = getAgentRootSearchPathForProject(projectRoot, {
         env: { ASP_AGENTS_ROOT: canonicalRoot },
@@ -183,7 +183,7 @@ describe('getAgentRootsForProject', () => {
     try {
       await mkdir(projectRoot, { recursive: true })
       await mkdir(canonicalRoot, { recursive: true })
-      await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 1\n')
+      await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 2\n')
 
       const result = getAgentRootSearchPathForProject(projectRoot, {
         env: { ASP_AGENTS_ROOT: canonicalRoot },

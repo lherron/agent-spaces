@@ -86,7 +86,7 @@ function createFixture(): Fixture {
   mkdirSync(agentRoot, { recursive: true })
   mkdirSync(projectRoot, { recursive: true })
   mkdirSync(aspHome, { recursive: true })
-  writeFileSync(join(agentRoot, 'agent-profile.toml'), 'version = 3\n[spaces]\nbase = []\n', 'utf8')
+  writeFileSync(join(agentRoot, 'agent-profile.toml'), 'version = 4\n[spaces]\nbase = []\n', 'utf8')
   createClaudeShim(aspHome)
   createCodexShim(aspHome)
   return {

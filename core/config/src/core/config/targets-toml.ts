@@ -6,7 +6,9 @@ import { readFile } from 'node:fs/promises'
 import TOML from '@iarna/toml'
 
 import { ConfigFileNotFoundError, ConfigParseError, ConfigValidationError } from '../errors.js'
+import type { ValidationError } from '../schemas/index.js'
 import { validateProjectManifest } from '../schemas/index.js'
+import { HARNESS_IDS, isHarnessId } from '../types/harness.js'
 import type { ProjectManifest } from '../types/targets.js'
 
 /** Default filename for project manifest */
@@ -39,22 +41,47 @@ export function parseTargetsToml(content: string, filePath?: string): ProjectMan
     throw new ConfigValidationError('Invalid asp-targets.toml', source, result.errors)
   }
 
-  // Default missing targets to {} so a marker-only file (schema = 1) is valid.
+  // Default missing targets to {} so a marker-only file (schema = 2) is valid.
   if (!result.data.targets) {
     result.data.targets = {}
   }
 
+  const errors: ValidationError[] = []
   for (const [targetName, target] of Object.entries(result.data.targets)) {
     if (target.priming !== undefined && target.priming_append !== undefined) {
-      throw new ConfigValidationError('Invalid asp-targets.toml', source, [
-        {
-          path: `/targets/${targetName}`,
-          message: 'cannot set both priming and priming_append',
-          keyword: 'conflict',
-          params: {},
-        },
-      ])
+      errors.push({
+        path: `/targets/${targetName}`,
+        message: 'cannot set both priming and priming_append',
+        keyword: 'conflict',
+        params: {},
+      })
     }
+    // Semantic selection validation: the JSON schema checks key membership
+    // and value kinds, but the closed harness vocabulary and the
+    // provider/model split are enforced here at the first typed boundary.
+    // Provider/model compatibility itself resolves in the central compiler
+    // resolver, never here.
+    const harness = target.provisioning?.harness
+    if (harness !== undefined && !isHarnessId(harness)) {
+      errors.push({
+        path: `/targets/${targetName}/provisioning/harness`,
+        message: `unsupported harness "${harness}"; valid harness ids: ${HARNESS_IDS.join(', ')}`,
+        keyword: 'enum',
+        params: {},
+      })
+    }
+    const model = target.provisioning?.model
+    if (model?.includes('/')) {
+      errors.push({
+        path: `/targets/${targetName}/provisioning/model`,
+        message: `provider-prefixed model "${model}" is rejected; set model_provider and model separately`,
+        keyword: 'pattern',
+        params: {},
+      })
+    }
+  }
+  if (errors.length > 0) {
+    throw new ConfigValidationError('Invalid asp-targets.toml', source, errors)
   }
 
   return result.data

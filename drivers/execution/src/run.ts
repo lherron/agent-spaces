@@ -15,7 +15,6 @@ import {
   type AgentLocalComponents,
   type BuildResult,
   type HarnessAdapter,
-  type HarnessId,
   type HarnessRunOptions,
   LOCK_FILENAME,
   type LockFile,
@@ -34,6 +33,9 @@ import {
   readLockJson,
   sweepAspTempArtifacts,
 } from 'spaces-config'
+// Internal legacy seam (EN-15986): the v1 foreground run path addresses
+// adapters by their pre-cutover ids. T-08702 deletes it with the v1 flow.
+import type { HarnessId } from 'spaces-config/internal/legacy-harness'
 
 import { migrateLegacyProjectCodexRuntimeHome } from './run-codex.js'
 export {

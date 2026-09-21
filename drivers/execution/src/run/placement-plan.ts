@@ -1,20 +1,24 @@
+import type {
+  ClaudeOptions,
+  CodexOptions,
+  HarnessAdapter,
+  HarnessRunOptions,
+  ProjectManifest,
+  ResolvedPlacementContext,
+  RuntimePlacement,
+  SpaceRefString,
+  TargetDefinition,
+} from 'spaces-config'
+// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
+// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
 import {
-  type ClaudeOptions,
-  type CodexOptions,
   DEFAULT_HARNESS,
-  type HarnessAdapter,
   type HarnessFrontend,
   type HarnessId,
   type HarnessProvider,
-  type HarnessRunOptions,
-  type ProjectManifest,
-  type ResolvedPlacementContext,
-  type RuntimePlacement,
-  type SpaceRefString,
-  type TargetDefinition,
   getHarnessCatalogEntry,
   getHarnessCatalogEntryByFrontend,
-} from 'spaces-config'
+} from 'spaces-config/internal/legacy-harness'
 import type {
   PlacementRuntimeModelResolution as ContractPlacementRuntimeModelResolution,
   PlacementRuntimePlan as ContractPlacementRuntimePlan,
@@ -147,7 +151,9 @@ export function buildSyntheticRunManifest(
   }
 
   return {
-    schema: 1,
+    // Schema 2 is the sole accepted targets schema (T-08701); the emitted
+    // provisioning keys are unchanged valid vocabulary.
+    schema: 2,
     ...(manifest.claude ? { claude: manifest.claude } : {}),
     ...(manifest.codex ? { codex: manifest.codex } : {}),
     targets: {
@@ -184,7 +190,7 @@ export function planProjectTargetRuntime(
     ? resolveAgentRunDefaultsFromProfile(target, agentProfile)
     : undefined
   const harnessId =
-    options.harness ??
+    resolveProfileHarnessForRun(options.harness) ??
     resolveProfileHarnessForRun(agentDefaults?.harness) ??
     resolveProfileHarnessForRun(target?.provisioning?.harness) ??
     DEFAULT_HARNESS

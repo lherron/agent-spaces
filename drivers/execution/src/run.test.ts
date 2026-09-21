@@ -610,11 +610,13 @@ describe('project-target runtime planner (T-01099)', () => {
     const { planProjectTargetRuntime } = await import('./run/placement-plan.js')
     const root = await createTempDir('proj-target-retired-sdk-')
     const manifest: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       targets: {
         sdk_target: {
           compose: [],
-          provisioning: { harness: 'pi-sdk' },
+          // Deliberately invalid declaration: retired ids never parse from
+          // TOML, but the planner layer must still refuse them (T-01099).
+          provisioning: { harness: 'pi-sdk' as never },
         },
       },
     }
@@ -958,19 +960,19 @@ describe('agent-profile integration (asp run gaps)', () => {
   })
 
   // -------------------------------------------------------------------------
-  // Gap 1: yolo falls back to profile.harnessDefaults.yolo
+  // Gap 1: yolo falls back to profile provisioning.yolo
   //
   // When target and CLI both omit yolo, asp run should read
-  // profile.harnessDefaults.yolo from the agent's agent-profile.toml.
+  // profile provisioning.yolo from the agent's agent-profile.toml.
   // Regression: animan lost yolo=true after Phase 5 migration.
   // -------------------------------------------------------------------------
-  test('gap 1: yolo falls back to profile.harnessDefaults.yolo when target/CLI omit it', async () => {
+  test('gap 1: yolo falls back to profile provisioning.yolo when target/CLI omit it', async () => {
     const agentsDir = await createTempDir('smokey-agents-yolo-')
     await writeAgentProfile(
       agentsDir,
       'animan',
       `
-version = 3
+version = 4
 
 [provisioning]
 yolo = true
@@ -990,18 +992,18 @@ yolo = true
   })
 
   // -------------------------------------------------------------------------
-  // Gap 2: model falls back to profile.harnessDefaults.model
+  // Gap 2: model falls back to profile provisioning.model
   //
-  // Precedence: CLI --model > target-level model > profile.harnessDefaults.model
+  // Precedence: CLI --model > target-level model > profile provisioning.model
   // When no CLI or target model is set, the profile default should apply.
   // -------------------------------------------------------------------------
-  test('gap 2: model falls back to profile.harnessDefaults.model when CLI/target omit it', async () => {
+  test('gap 2: model falls back to profile provisioning.model when CLI/target omit it', async () => {
     const agentsDir = await createTempDir('smokey-agents-model-')
     await writeAgentProfile(
       agentsDir,
       'larry',
       `
-version = 3
+version = 4
 
 [provisioning]
 model = "claude-opus-4-6"
@@ -1019,13 +1021,13 @@ model = "claude-opus-4-6"
     expect(defaults!.model).toBe('claude-opus-4-6')
   })
 
-  test('gap 2: target-level model overrides profile.harnessDefaults.model', async () => {
+  test('gap 2: target-level model overrides profile provisioning.model', async () => {
     const agentsDir = await createTempDir('smokey-agents-model-prec-')
     await writeAgentProfile(
       agentsDir,
       'larry',
       `
-version = 3
+version = 4
 
 [provisioning]
 model = "claude-opus-4-6"
@@ -1041,14 +1043,14 @@ model = "claude-opus-4-6"
     expect(resolveAgentRunDefaults).toBeDefined()
     const defaults = resolveAgentRunDefaults!('larry', target, { agentsRoot: agentsDir })
     expect(defaults).toBeDefined()
-    // Target codex.model should win over profile harnessDefaults.model
+    // Target codex.model should win over provisioning.model
     expect(defaults!.model).toBe('gpt-5.3-codex')
   })
 
   // -------------------------------------------------------------------------
   // Gap 3: harness-specific defaults merge from profile under target overrides
   //
-  // profile.harnessDefaults.codex provides defaults; target.codex overrides
+  // profile provisioning.codex provides defaults; target.codex overrides
   // individual fields. The result should be a field-level merge.
   // -------------------------------------------------------------------------
   test('gap 3: codex defaults from profile merge under target overrides', async () => {
@@ -1057,7 +1059,7 @@ model = "claude-opus-4-6"
       agentsDir,
       'animata',
       `
-version = 3
+version = 4
 
 [provisioning]
 model = "gpt-5.3-codex"
@@ -1093,7 +1095,7 @@ sandbox_mode = "workspace-write"
       agentsDir,
       'smokey',
       `
-version = 3
+version = 4
 
 [provisioning]
 model = "claude-sonnet-4-6"
@@ -1120,18 +1122,18 @@ permission_mode = "plan"
   })
 
   // -------------------------------------------------------------------------
-  // Gap 4: identity.harness is used when no --harness flag and no target harness
+  // Gap 4: provisioning.harness is used when no --harness flag and no target harness
   //
-  // When an agent's profile specifies identity.harness = "codex", asp run
+  // When an agent's profile specifies provisioning.harness = "codex", asp run
   // should select codex as the harness rather than the default ("claude").
   // -------------------------------------------------------------------------
-  test('gap 4: identity.harness is used when no --harness and no target harness', async () => {
+  test('gap 4: provisioning.harness is used when no --harness and no target harness', async () => {
     const agentsDir = await createTempDir('smokey-agents-harness-')
     await writeAgentProfile(
       agentsDir,
       'larry',
       `
-version = 3
+version = 4
 
 [identity]
 display = "Larry"
@@ -1166,7 +1168,7 @@ harness = "codex"
       agentsDir,
       'smokey',
       `
-version = 3
+version = 4
 
 [spaces]
 base = ["space:smokey@dev"]
@@ -1180,7 +1182,7 @@ base = ["space:smokey@dev"]
 
     // First: verify resolveEffectiveCompose itself works correctly (this should pass)
     const profile: AgentRuntimeProfile = {
-      version: 3,
+      version: 4,
       spaces: { base: ['space:smokey@dev' as SpaceRefString] },
     }
     const merged = resolveEffectiveCompose(profile, target, 'task')
@@ -1202,24 +1204,24 @@ base = ["space:smokey@dev"]
   // -------------------------------------------------------------------------
   // Gap 6 (T-00996): target-level harness precedence
   //
-  // Precedence: CLI --harness > target.harness > profile.identity.harness > DEFAULT_HARNESS
+  // Precedence: CLI --harness > target.harness > profile.provisioning.harness > DEFAULT_HARNESS
   //
   // RED GATE: TargetDefinition does not have a `harness` field yet.
   // resolveAgentRunDefaults must thread target.harness into the result.
   //
   // Pass condition: Larry adds `harness?: string` to TargetDefinition,
   // updates mergeAgentWithProjectTarget to prefer target.harness over
-  // profile.identity.harness, and run.ts already chains via
+  // profile.provisioning.harness, and run.ts already chains via
   // options.harness ?? agentDefaults.harness ?? DEFAULT_HARNESS.
   // -------------------------------------------------------------------------
 
-  test('gap 6a: target-level harness overrides profile identity.harness', async () => {
+  test('gap 6a: target-level harness overrides profile provisioning.harness', async () => {
     const agentsDir = await createTempDir('smokey-agents-tgt-harness-')
     await writeAgentProfile(
       agentsDir,
       'larry',
       `
-version = 3
+version = 4
 
 [identity]
 display = "Larry"
@@ -1230,25 +1232,25 @@ harness = "codex"
 `
     )
 
-    // Target explicitly sets harness = "claude-code" → should override profile's "codex"
+    // Target explicitly sets harness = "claude" → should override profile's "codex"
     const target: TargetDefinition = {
       compose: ['space:defaults@stable' as SpaceRefString],
-      provisioning: { harness: 'claude-code' },
+      provisioning: { harness: 'claude' },
     }
 
     expect(resolveAgentRunDefaults).toBeDefined()
     const defaults = resolveAgentRunDefaults!('larry', target, { agentsRoot: agentsDir })
     expect(defaults).toBeDefined()
-    expect(defaults!.harness).toBe('claude-code')
+    expect(defaults!.harness).toBe('claude')
   })
 
-  test('gap 6b: fallback to profile identity.harness when target has no harness', async () => {
+  test('gap 6b: fallback to profile provisioning.harness when target has no harness', async () => {
     const agentsDir = await createTempDir('smokey-agents-tgt-harness-fb-')
     await writeAgentProfile(
       agentsDir,
       'larry',
       `
-version = 3
+version = 4
 
 [identity]
 display = "Larry"
@@ -1267,7 +1269,7 @@ harness = "codex"
     expect(resolveAgentRunDefaults).toBeDefined()
     const defaults = resolveAgentRunDefaults!('larry', target, { agentsRoot: agentsDir })
     expect(defaults).toBeDefined()
-    // Profile identity.harness should be used as fallback
+    // Profile provisioning.harness should be used as fallback
     expect(defaults!.harness).toBe('codex')
   })
 
@@ -1277,7 +1279,7 @@ harness = "codex"
       agentsDir,
       'smokey',
       `
-version = 3
+version = 4
 
 [identity]
 display = "Smokey"
@@ -1293,8 +1295,9 @@ role = "tester"
     expect(resolveAgentRunDefaults).toBeDefined()
     const defaults = resolveAgentRunDefaults!('smokey', target, { agentsRoot: agentsDir })
     expect(defaults).toBeDefined()
-    // Should fall back to DEFAULT_HARNESS (currently 'claude-code')
-    expect(defaults!.harness).toBe('claude-code')
+    // Fail closed (T-08701): no harness is invented at the defaults layer.
+    // The v1 launch layer applies the legacy-seam DEFAULT_HARNESS downstream.
+    expect(defaults!.harness).toBeUndefined()
   })
 
   // NOTE: CLI --harness precedence is tested implicitly at the run() call site:

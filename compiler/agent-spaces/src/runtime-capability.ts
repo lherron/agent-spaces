@@ -1,7 +1,9 @@
 import { constants, access } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
-import { resolveHarnessCatalogEntry } from 'spaces-config'
+// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
+// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
+import { resolveHarnessCatalogEntry } from 'spaces-config/internal/legacy-harness'
 
 export const OBSERVE_RUNTIME_CAPABILITY_REQUEST_VERSION =
   'aspc-observe-runtime-capability-request/v1'

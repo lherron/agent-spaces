@@ -5,7 +5,7 @@ import { parseAgentProfile } from './agent-profile-toml.js'
 describe('agent-profile federation policy (T-06604)', () => {
   test('parses placement and claims_task in version 3', () => {
     const profile = parseAgentProfile(`
-version = 3
+version = 4
 claims_task = true
 
 [placement.pins]
@@ -31,14 +31,14 @@ minisvc = "svc_1"
   })
 
   test('defaults claims_task to false and leaves absent placement undeclared', () => {
-    const profile = parseAgentProfile('version = 3\n')
+    const profile = parseAgentProfile('version = 4\n')
 
     expect(profile.claims_task ?? false).toBe(false)
     expect(profile.placement).toBeUndefined()
   })
 
   test('accepts an empty placement table as a declared policy with no pins', () => {
-    const profile = parseAgentProfile('version = 3\n\n[placement]\n')
+    const profile = parseAgentProfile('version = 4\n\n[placement]\n')
 
     expect(profile.placement).toEqual({ pins: {}, homes: {} })
   })
@@ -47,7 +47,7 @@ minisvc = "svc_1"
     'accepts nodeId-shaped default and pin value %j',
     (nodeId) => {
       const profile = parseAgentProfile(`
-version = 3
+version = 4
 
 [provisioning]
 node = "${nodeId}"
@@ -68,7 +68,7 @@ node = "${nodeId}"
     (nodeId) => {
       expect(() =>
         parseAgentProfile(`
-version = 3
+version = 4
 
 [provisioning]
 node = "${nodeId}"
@@ -82,7 +82,7 @@ node = "${nodeId}"
     (nodeId) => {
       expect(() =>
         parseAgentProfile(`
-version = 3
+version = 4
 
 [placement.pins]
 "project:task" = "${nodeId}"
@@ -103,7 +103,7 @@ version = 3
   ])('rejects non-exact project:task pin key %j', (scopeKey) => {
     expect(() =>
       parseAgentProfile(`
-version = 3
+version = 4
 
 [placement.pins]
 "${scopeKey}" = "lab"
@@ -116,7 +116,7 @@ version = 3
     (taskKey) => {
       expect(() =>
         parseAgentProfile(`
-version = 3
+version = 4
 
 [placement.homes]
 "${taskKey}" = "lab"
@@ -130,7 +130,7 @@ version = 3
     (nodeId) => {
       expect(() =>
         parseAgentProfile(`
-version = 3
+version = 4
 
 [placement.homes]
 labprimary = "${nodeId}"
@@ -142,7 +142,7 @@ labprimary = "${nodeId}"
   test.each(['"yes"', '1', '[]'])('rejects non-boolean claims_task source %s', (rawValue) => {
     expect(() =>
       parseAgentProfile(`
-version = 3
+version = 4
 claims_task = ${rawValue}
 `)
     ).toThrow(ConfigValidationError)
@@ -152,7 +152,7 @@ claims_task = ${rawValue}
     try {
       parseAgentProfile(
         `
-version = 3
+version = 4
 
 [placement.pins]
 "missing-colon" = "lab"
@@ -177,7 +177,7 @@ describe('agent-profile job execution ownership (T-06804)', () => {
     ['["all", "all"]', ['all']],
   ])('normalizes jobs.default_node from %s', (authored, expected) => {
     const profile = parseAgentProfile(`
-version = 3
+version = 4
 
 [jobs]
 default_node = ${authored}
@@ -191,7 +191,7 @@ default_node = ${authored}
     (authored) => {
       expect(() =>
         parseAgentProfile(`
-version = 3
+version = 4
 
 [jobs]
 default_node = ${authored}

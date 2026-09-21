@@ -7,16 +7,17 @@ import {
   type AgentRuntimeProfile,
   type ClaudeOptions,
   type CodexOptions,
-  type HarnessId,
   type SpaceRefString,
   type TargetDefinition,
   getAgentRootsForProject,
   getAgentsRoot,
   mergeAgentWithProjectTarget,
-  normalizeHarnessId,
   parseAgentProfile,
   resolveAgentPrimingPrompt,
 } from 'spaces-config'
+// Internal legacy seam (EN-15986): the v1 run path resolves adapter ids with
+// the pre-cutover catalog. T-08702 deletes it with the v1 flow.
+import { type HarnessId, normalizeHarnessId } from 'spaces-config/internal/legacy-harness'
 
 async function isDirectory(path: string): Promise<boolean> {
   try {
@@ -117,6 +118,9 @@ export function loadAgentProfileForRun(
 }
 
 export function resolveProfileHarnessForRun(harness: string | undefined): HarnessId | undefined {
+  // v1 adapter-id resolution through the frozen legacy seam (EN-15986).
+  // Selection vocabulary stays closed at the parsers; this path only routes
+  // already-declared v1 values to adapters until T-08702 migrates it.
   return normalizeHarnessId(harness)
 }
 
@@ -164,7 +168,7 @@ export function resolveAgentRunDefaultsFromProfile(
   return {
     yolo: effective.yolo,
     remoteControl: effective.remoteControl,
-    harness: effective.harness,
+    ...(effective.harness !== undefined ? { harness: effective.harness } : {}),
     claude: effective.claude,
     codex: effective.codex,
     compose: effective.compose,

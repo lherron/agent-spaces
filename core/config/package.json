@@ -49,6 +49,11 @@
     "./schemas/*": {
       "types": "./src/core/schemas/*",
       "import": "./src/core/schemas/*"
+    },
+    "./internal/legacy-harness": {
+      "bun": "./src/core/types/harness-legacy.ts",
+      "types": "./dist/core/types/harness-legacy.d.ts",
+      "import": "./dist/core/types/harness-legacy.js"
     }
   },
   "files": [

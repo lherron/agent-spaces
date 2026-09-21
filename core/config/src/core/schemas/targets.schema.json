@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema"],
   "properties": {
-    "schema": { "type": "integer", "const": 1 },
+    "schema": { "type": "integer", "const": 2 },
     "agents-root": {
       "type": "string",
       "description": "Optional project-local agents root, relative to the project root unless absolute or ~-prefixed"
@@ -86,8 +86,10 @@
           "additionalProperties": false,
           "properties": {
             "harness": { "type": "string" },
+            "model_provider": { "type": "string" },
             "model": { "type": "string" },
-            "reasoning": { "type": "string" },
+            "reasoning_effort": { "type": "string" },
+            "presentation": { "type": "boolean" },
             "node": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
             "yolo": { "type": "boolean" },
             "sandbox": { "type": "string" },

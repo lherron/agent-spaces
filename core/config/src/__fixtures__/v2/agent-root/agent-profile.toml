@@ -1,4 +1,4 @@
-version = 3
+version = 4
 
 [instructions]
 base = ["agent-root:///SOUL.md"]

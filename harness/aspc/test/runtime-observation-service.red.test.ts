@@ -1,6 +1,6 @@
 /** T-08563 rev 5 service/registration and placement-prompt behavior reds. */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { LegacyRuntimeCompileResponse as RuntimeCompileResponse } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
@@ -197,10 +197,10 @@ describe('T-08563 ASPC runtime observation service', () => {
     expect(changed.effectiveEnvironmentHash).toBe(first.effectiveEnvironmentHash)
   })
 
-  test('routes invalid profile observations and target-only results through the service', async () => {
+  test('rejects invalid profiles without target fallback through the service', async () => {
     const fixtures = [
       ['parse-invalid', 'version = [not valid'],
-      ['schema-invalid', 'version = 3\nunknown_key = true\n'],
+      ['schema-invalid', 'version = 4\nunknown_key = true\n'],
     ] as const
     for (const [agentId, profile] of fixtures) {
       const agentRoot = join(agentsRoot, agentId)
@@ -209,14 +209,18 @@ describe('T-08563 ASPC runtime observation service', () => {
     }
     await writeFile(
       join(projectRoot, 'asp-targets.toml'),
-      `schema = 1
+      `schema = 2
 
 [targets.parse-invalid]
+compose = []
+
 [targets.parse-invalid.provisioning]
 harness = "codex"
 model = "gpt-5.6-sol"
 
 [targets.schema-invalid]
+compose = []
+
 [targets.schema-invalid.provisioning]
 harness = "codex"
 model = "gpt-5.6-sol"
@@ -226,64 +230,52 @@ model = "gpt-5.6-sol"
     const service = dynamicService()
     for (const [agentId] of fixtures) {
       const agentRoot = join(agentsRoot, agentId)
-      const targetOnly = await service.resolveRuntimeDeclaration(
+      const rejected = await service.resolveRuntimeDeclaration(
         declarationRequest(agentId, agentRoot, {
           mode: 'root',
           projectRoot,
           projectId: 'agent-spaces',
         })
       )
-      expect(targetOnly).toMatchObject({
-        ok: true,
+      // Fail closed (T-08701): an invalid profile is never usable, even with
+      // valid project targets present. Targets are never read.
+      expect(rejected).toMatchObject({
+        ok: false,
+        resolution: { state: 'invalid', code: 'agent_profile_invalid' },
         source: {
           agentProfile: {
             state: 'invalid',
             diagnostics: [
               {
+                severity: 'error',
                 code: 'agent_profile_invalid',
-                path: join(await realpath(agentRoot), 'agent-profile.toml'),
+                source: 'agent-profile',
               },
             ],
           },
-          projectTargets: { state: 'valid', code: 'parsed' },
-          selectedTarget: { state: 'valid', code: 'parsed' },
-        },
-        baselineProvisioning: {
-          scalars: { harness: 'codex', model: 'gpt-5.6-sol' },
-          effectiveHarness: 'codex',
-          provider: 'openai',
-          transport: 'cli',
+          projectTargets: { state: 'absent', code: 'not_declared' },
         },
       })
-      expect(targetOnly.baselineProvisioning.scalars).toEqual({
-        harness: 'codex',
-        model: 'gpt-5.6-sol',
-      })
-      expect(targetOnly.provisioning.scalars).toEqual({
-        harness: 'codex',
-        model: 'gpt-5.6-sol',
-      })
+      expect(rejected).not.toHaveProperty('failure')
+      expect(rejected).not.toHaveProperty('provisioning')
+      expect(rejected).not.toHaveProperty('baselineProvisioning')
     }
 
     const invalidWithoutTarget = await service.resolveRuntimeDeclaration(
       declarationRequest('parse-invalid', join(agentsRoot, 'parse-invalid'), { mode: 'none' })
     )
     expect(invalidWithoutTarget).toMatchObject({
-      ok: true,
+      ok: false,
+      resolution: { state: 'invalid', code: 'agent_profile_invalid' },
       source: {
         agentProfile: { state: 'invalid' },
         projectTargets: { state: 'absent', code: 'not_declared' },
         selectedTarget: { state: 'absent', code: 'not_declared' },
       },
-      baselineProvisioning: { scalars: {}, effectiveHarness: 'claude', transport: 'cli' },
-      provisioning: { scalars: {}, effectiveHarness: 'claude', transport: 'cli' },
     })
-    expect(invalidWithoutTarget).not.toHaveProperty('resolution')
-    expect(invalidWithoutTarget.baselineProvisioning.scalars).not.toHaveProperty('harness')
-    expect(invalidWithoutTarget.provisioning.scalars).not.toHaveProperty('harness')
-    expect(invalidWithoutTarget.baselineProvisioning).not.toHaveProperty('declaredHarness')
-    expect(invalidWithoutTarget.provisioning).not.toHaveProperty('declaredHarness')
-    expect(invalidWithoutTarget.bundle.ref).toEqual(invalidWithoutTarget.placement.bundle)
+    expect(invalidWithoutTarget).not.toHaveProperty('failure')
+    expect(invalidWithoutTarget).not.toHaveProperty('provisioning')
+    expect(invalidWithoutTarget).not.toHaveProperty('baselineProvisioning')
   })
 })
 
@@ -354,10 +346,13 @@ async function makeAgent(agentId: string, template: boolean): Promise<void> {
   await mkdir(path, { recursive: true })
   await writeFile(
     join(path, 'agent-profile.toml'),
-    `version = 3
+    `version = 4
 
 [identity]
 display = "${agentId}"
+
+[provisioning]
+harness = "claude"
 
 [spaces]
 base = []

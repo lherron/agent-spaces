@@ -19,7 +19,7 @@
  * 3. Directives never enter the canonical ScopeRef: the scopeRef/laneRef/parsed of a
  *    directed handle are identical to the undirected form (spec Part 2 core invariant).
  * 4. `key=value` is canonical. Bare-token sugar resolves ONLY inside the closed
- *    namespaces (registered model aliases, reasoning enum); `node=` is explicit-only.
+ *    namespaces (registered model aliases, reasoning effort values); `node=` is explicit-only.
  * 5. A bare token belonging to two closed namespaces is a hard `AMBIGUOUS_DIRECTIVE`.
  * 6. Deny-list `{yolo, sandbox}` is enforced at the sender: `DENIED_PROVISION_KEY`.
  * 7. Keys outside the top-level `[provisioning]` scalars — including dotted keys, which
@@ -44,13 +44,13 @@ import {
 /** Resolved harness vocabulary: closed namespaces for bare-token sugar. */
 const VOCAB: ProvisionVocabulary = {
   models: ['sonnet', 'opus', 'gpt-5.6-sol'],
-  reasoning: ['low', 'medium', 'high'],
+  reasoning_effort: ['low', 'medium', 'high'],
 }
 
 /** Same, but `high` is ALSO a registered model alias — the ambiguity case. */
 const AMBIGUOUS_VOCAB: ProvisionVocabulary = {
   models: ['sonnet', 'high'],
-  reasoning: ['low', 'medium', 'high'],
+  reasoning_effort: ['low', 'medium', 'high'],
 }
 
 /** Resolve a directed handle against the standard vocabulary. */
@@ -74,7 +74,9 @@ function directiveError(fn: () => unknown): ProvisionDirectiveError {
 
 describe('provisioning directives: canonical scope identity', () => {
   test('directives never enter the ScopeRef — directed round-trips identical to undirected', () => {
-    const directed = resolve('cody@hrc-runtime:T-01234/reviewer~repair+model=sonnet+reasoning=high')
+    const directed = resolve(
+      'cody@hrc-runtime:T-01234/reviewer~repair+model=sonnet+reasoning_effort=high'
+    )
     const undirected = resolve('cody@hrc-runtime:T-01234/reviewer~repair')
 
     // The whole canonical surface is byte-identical with and without the block.
@@ -85,7 +87,7 @@ describe('provisioning directives: canonical scope identity', () => {
     expect(directed.laneRef).toBe(undirected.laneRef)
 
     // Only the out-of-band directive channel differs.
-    expect(directed.directives).toEqual({ model: 'sonnet', reasoning: 'high' })
+    expect(directed.directives).toEqual({ model: 'sonnet', reasoning_effort: 'high' })
     expect(undirected.directives).toBeUndefined()
   })
 })
@@ -94,24 +96,31 @@ describe('provisioning directives: grammar', () => {
   test('sugar precedence — bare tokens resolve only in closed namespaces; node= is explicit-only', () => {
     // Registered model alias → the `model` key.
     expect(resolve('cody@hrc-runtime:T-1+sonnet').directives).toEqual({ model: 'sonnet' })
-    // Reasoning enum member → the `reasoning` key.
-    expect(resolve('cody@hrc-runtime:T-1+low').directives).toEqual({ reasoning: 'low' })
-    // `high` is unambiguous under a vocabulary where it is only a reasoning value.
-    expect(resolve('cody@hrc-runtime:T-1+high').directives).toEqual({ reasoning: 'high' })
+    // Reasoning effort enum member → the `reasoning_effort` key.
+    expect(resolve('cody@hrc-runtime:T-1+low').directives).toEqual({ reasoning_effort: 'low' })
+    // `high` is unambiguous under a vocabulary where it is only a reasoning effort value.
+    expect(resolve('cody@hrc-runtime:T-1+high').directives).toEqual({ reasoning_effort: 'high' })
 
     // key=value is the canonical spelling of the same directives.
-    expect(resolve('cody@hrc-runtime:T-1+model=sonnet+reasoning=low').directives).toEqual({
+    expect(resolve('cody@hrc-runtime:T-1+model=sonnet+reasoning_effort=low').directives).toEqual({
       model: 'sonnet',
-      reasoning: 'low',
+      reasoning_effort: 'low',
     })
     // Sugar and canonical form compose in one block.
-    expect(resolve('cody@hrc-runtime:T-1+sonnet+reasoning=high').directives).toEqual({
+    expect(resolve('cody@hrc-runtime:T-1+sonnet+reasoning_effort=high').directives).toEqual({
       model: 'sonnet',
-      reasoning: 'high',
+      reasoning_effort: 'high',
     })
 
     // `node` is not a closed namespace: it is reachable ONLY as an explicit key=value.
     expect(resolve('cody@hrc-runtime:T-1+node=svc').directives).toEqual({ node: 'svc' })
+    // New selection keys pass through as explicit key=value.
+    expect(
+      resolve('cody@hrc-runtime:T-1+model_provider=openai-codex+presentation=true').directives
+    ).toEqual({ model_provider: 'openai-codex', presentation: true })
+    expect(resolve('cody@hrc-runtime:T-1+presentation=false').directives).toEqual({
+      presentation: false,
+    })
   })
 
   test('a bare token in two closed namespaces is a hard AMBIGUOUS_DIRECTIVE error', () => {
@@ -132,30 +141,52 @@ describe('provisioning directives: sender-side validation', () => {
   test('public scalar metadata exposes the exact parser extension contract', () => {
     expect(PROVISIONING_SCALAR_KINDS).toEqual({
       harness: 'string',
+      model_provider: 'string',
       model: 'string',
-      reasoning: 'string',
+      reasoning_effort: 'string',
+      presentation: 'boolean',
       node: 'string',
       yolo: 'boolean',
       sandbox: 'string',
       approval: 'string',
       remote: 'boolean',
-      viewer: 'string',
     })
     expect(PROVISIONING_SCALAR_KEYS).toEqual(Object.keys(PROVISIONING_SCALAR_KINDS))
 
-    const typedViewer = { viewer: 'none' } satisfies ProvisioningScalars
-    expect(typedViewer).toEqual({ viewer: 'none' })
+    const typedSelection = {
+      harness: 'codex',
+      model_provider: 'openai-codex',
+      model: 'gpt-5.5',
+      reasoning_effort: 'high',
+      presentation: false,
+    } satisfies ProvisioningScalars
+    expect(typedSelection).toEqual({
+      harness: 'codex',
+      model_provider: 'openai-codex',
+      model: 'gpt-5.5',
+      reasoning_effort: 'high',
+      presentation: false,
+    })
   })
 
   test('deny at sender — yolo/sandbox are DENIED_PROVISION_KEY', () => {
     expect(DENIED_PROVISION_OVERRIDE_KEYS).toEqual(['yolo', 'sandbox'])
 
-    expect(resolve('cody@hrc-runtime:T-1+viewer=none').directives).toEqual({ viewer: 'none' })
-    expect(resolve('cody@hrc-runtime:T-1+viewer=auto').directives).toEqual({ viewer: 'auto' })
-
     for (const directive of ['yolo=true', 'sandbox=danger-full-access']) {
       const err = directiveError(() => resolve(`cody@hrc-runtime:T-1+${directive}`))
       expect(err.code).toBe('DENIED_PROVISION_KEY')
+    }
+  })
+
+  test('removed selection keys fail closed without translation', () => {
+    for (const directive of [
+      'viewer=none', // removed string scalar
+      'viewer=auto',
+      'reasoning=high', // old key: canonical spelling is reasoning_effort
+      'reasoning', // old bare-token namespace is gone
+    ]) {
+      const err = directiveError(() => resolve(`cody@hrc-runtime:T-1+${directive}`))
+      expect(err.code).toBe('UNKNOWN_PROVISION_KEY')
     }
   })
 
@@ -164,6 +195,7 @@ describe('provisioning directives: sender-side validation', () => {
       'banana=3', // not a provisioning scalar at all
       'codex.sandbox_mode=danger-full-access', // nested tables are inexpressible: no dotted keys
       'claude.permission_mode=bypassPermissions',
+      'modelProvider=gpt-5.5', // wire spelling is not valid TOML/directive vocabulary
       'svc', // bare token outside every closed namespace (node= is explicit-only)
     ]) {
       const err = directiveError(() => resolve(`cody@hrc-runtime:T-1+${directive}`))
@@ -172,7 +204,11 @@ describe('provisioning directives: sender-side validation', () => {
   })
 
   test('values validate against the resolved harness vocabulary — INVALID_PROVISION_VALUE', () => {
-    for (const directive of ['reasoning=turbo', 'model=not-a-registered-alias']) {
+    for (const directive of [
+      'reasoning_effort=turbo',
+      'model=not-a-registered-alias',
+      'presentation=maybe',
+    ]) {
       const err = directiveError(() => resolve(`cody@hrc-runtime:T-1+${directive}`))
       expect(err.code).toBe('INVALID_PROVISION_VALUE')
     }

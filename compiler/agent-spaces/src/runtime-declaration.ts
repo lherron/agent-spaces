@@ -10,9 +10,9 @@ import {
   parseAgentProfile,
   parseTargetsToml,
   resolveAgentPrimingPrompt,
-  resolveHarnessCatalogEntry,
 } from 'spaces-config'
 import { createCanonicalHasher } from 'spaces-runtime-contracts'
+import { HARNESS_CATALOG } from './harness-selection/catalog.js'
 
 export const RESOLVE_RUNTIME_DECLARATION_REQUEST_VERSION =
   'aspc-resolve-runtime-declaration-request/v1'
@@ -56,12 +56,13 @@ type Diagnostic = {
 const hasher = createCanonicalHasher()
 const DIRECTIVE_KEYS = new Set([
   'harness',
+  'model_provider',
   'model',
-  'reasoning',
+  'reasoning_effort',
+  'presentation',
   'sandbox',
   'approval',
   'node',
-  'viewer',
   'yolo',
   'remote',
 ])
@@ -161,7 +162,6 @@ export async function resolveRuntimeDeclaration(
   const profilePath = join(agentRoot, 'agent-profile.toml')
   let profileContent: string | undefined
   let profile: ReturnType<typeof parseAgentProfile>
-  let profileDiagnostic: Diagnostic | undefined
   if (existsSync(profilePath)) {
     try {
       profileContent = readFileSync(profilePath, 'utf8')
@@ -171,15 +171,23 @@ export async function resolveRuntimeDeclaration(
     try {
       profile = parseAgentProfile(profileContent, profilePath)
     } catch (error) {
-      profileDiagnostic = diagnostic('agent_profile_invalid', 'agent-profile', error, profilePath)
-      profile = parseAgentProfile('version = 3', profilePath)
+      // Invalid profiles are never usable compile inputs (T-08701): report
+      // the typed failure instead of synthesizing a fallback profile.
+      return declarationInvalid('agent_profile_invalid', 'agent-profile', error, {
+        agentSources,
+        ...(markerProjectId ? { markerProjectId } : {}),
+        searchedAgentRoots,
+        source: {
+          ...emptySources(),
+          agentProfile: invalidSource('agent_profile_invalid', 'agent-profile', error),
+        },
+      })
     }
   } else {
-    profile = parseAgentProfile('version = 3', profilePath)
+    profile = parseAgentProfile('version = 4', profilePath)
   }
-  const observedProfileSource = profileDiagnostic
-    ? ({ state: 'invalid', diagnostics: [profileDiagnostic] } as const)
-    : profileContent !== undefined
+  const observedProfileSource =
+    profileContent !== undefined
       ? profileSource(profileContent, profile.provisioning?.harness)
       : ({ state: 'absent', code: 'not_declared' } as const)
 
@@ -236,9 +244,7 @@ export async function resolveRuntimeDeclaration(
   }
 
   const effective = mergeAgentWithProjectTarget(profile, target, context.runMode)
-  const baselineScalars = profileDiagnostic
-    ? targetOnlyProvisioningScalars(target)
-    : ({ ...effective.provisioning } as Record<string, string | number | boolean>)
+  const baselineScalars = { ...effective.provisioning } as Record<string, string | number | boolean>
   const finalScalars = { ...baselineScalars }
   for (const [key, value] of Object.entries(context.provisionDirectives ?? {})) {
     if (!DIRECTIVE_KEYS.has(key)) {
@@ -246,8 +252,10 @@ export async function resolveRuntimeDeclaration(
     }
     finalScalars[key] = value
   }
-  const baselineHarness = String(baselineScalars['harness'] ?? effective.harness)
-  const finalHarness = String(finalScalars['harness'] ?? baselineHarness)
+  const baselineHarness =
+    typeof baselineScalars['harness'] === 'string' ? baselineScalars['harness'] : undefined
+  const finalHarness =
+    typeof finalScalars['harness'] === 'string' ? finalScalars['harness'] : undefined
   const baselineProvisioning = provisioning(
     baselineScalars,
     profile.provisioning?.harness,
@@ -309,28 +317,19 @@ export async function resolveRuntimeDeclaration(
       : {}),
     placement,
     bundle: { ref: bundle, identity: hasher.hash(bundle).value },
-    diagnostics: profileDiagnostic ? [profileDiagnostic] : [],
+    diagnostics: [],
   }
-}
-
-function targetOnlyProvisioningScalars(
-  target: Parameters<typeof mergeAgentWithProjectTarget>[1]
-): Record<string, string | number | boolean> {
-  return Object.fromEntries(
-    Object.entries(target?.provisioning ?? {}).filter(
-      ([, value]) =>
-        typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
-    )
-  ) as Record<string, string | number | boolean>
 }
 
 function provisioning(
   scalars: Record<string, string | number | boolean>,
   declaredHarness: string | undefined,
-  effectiveHarness: string
+  effectiveHarness: string | undefined
 ): Record<string, unknown> & { failure?: Record<string, unknown> } {
-  const entry = resolveHarnessCatalogEntry(effectiveHarness)
-  if (!entry || !entry.frontend) {
+  // Closed-vocabulary validation only, sourced from the central catalog.
+  // No driver, frontend, transport, provider, or hosting mapping is produced
+  // here (T-08701); an undeclared harness stays absent for the resolver.
+  if (effectiveHarness !== undefined && !Object.hasOwn(HARNESS_CATALOG, effectiveHarness)) {
     return {
       failure: failure(
         'incompatible',
@@ -342,14 +341,7 @@ function provisioning(
   return {
     scalars,
     ...(declaredHarness ? { declaredHarness } : {}),
-    effectiveHarness: entry.id,
-    frontend: entry.frontend,
-    provider: entry.provider,
-    transport: entry.transport,
-    family: entry.id,
-    // agent-harness is a first-party compiler/runtime discriminator. Its
-    // frontend names the presentation surface, not a generic adapter runtime.
-    runtime: entry.id === 'agent-harness' ? entry.id : entry.frontend,
+    ...(effectiveHarness !== undefined ? { effectiveHarness } : {}),
   }
 }
 
@@ -484,11 +476,9 @@ function profileSource(
   content: string,
   declaredHarness: string | undefined
 ): SourceObservation & Record<string, unknown> {
-  const entry = resolveHarnessCatalogEntry(declaredHarness)
   return {
     ...validSource(content),
     ...(declaredHarness ? { declaredHarness } : {}),
-    ...(entry ? { declaredProvider: entry.provider } : {}),
   }
 }
 

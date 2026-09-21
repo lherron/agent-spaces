@@ -69,7 +69,7 @@ function createFixture(): {
 
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
-    `version = 3
+    `version = 4
 
 [spaces]
 base = []
@@ -85,7 +85,7 @@ enabled = true
 
   writeFileSync(
     join(projectRoot, 'asp-targets.toml'),
-    `schema = 1
+    `schema = 2
 
 [targets.${AGENT_NAME}]
 compose = []

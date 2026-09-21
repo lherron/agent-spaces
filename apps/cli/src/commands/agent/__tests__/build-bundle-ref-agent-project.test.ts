@@ -21,7 +21,7 @@ beforeAll(() => {
   mkdirSync(testAgentRoot, { recursive: true })
   writeFileSync(
     join(testAgentRoot, 'agent-profile.toml'),
-    'version = 3\n\n[identity]\ndisplay = "Test"\n'
+    'version = 4\n\n[identity]\ndisplay = "Test"\n'
   )
 })
 

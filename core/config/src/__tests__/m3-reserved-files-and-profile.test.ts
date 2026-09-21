@@ -111,7 +111,7 @@ describe('agent-profile.toml parser (T-00853)', () => {
     const content = readFileSync(join(resolveAgentRoot(), 'agent-profile.toml'), 'utf8')
     const profile = parseAgentProfile(content)
 
-    expect(profile.version).toBe(3)
+    expect(profile.version).toBe(4)
   })
 
   test('parses instructions.base', async () => {
@@ -178,8 +178,8 @@ describe('agent-profile.toml parser (T-00853)', () => {
   test('parses minimal valid profile (version only)', async () => {
     const { parseAgentProfile } = await import('../core/config/agent-profile-toml.js')
 
-    const profile = parseAgentProfile('version = 3\n')
-    expect(profile.version).toBe(3)
+    const profile = parseAgentProfile('version = 4\n')
+    expect(profile.version).toBe(4)
     expect(profile.instructions).toBeUndefined()
     expect(profile.spaces).toBeUndefined()
     expect(profile.targets).toBeUndefined()
@@ -191,7 +191,7 @@ describe('agent-profile.toml parser (T-00853)', () => {
 
     expect(() =>
       parseAgentProfile(`
-version = 3
+version = 4
 
 [harnessByMode.heartbeat]
 model = "claude/haiku"
@@ -204,7 +204,7 @@ sandboxMode = "read-only"
     const { parseAgentProfile } = await import('../core/config/agent-profile-toml.js')
 
     const profile = parseAgentProfile(`
-version = 3
+version = 4
 
 [session]
 additionalContext = ["agent-root:///session-banner.md"]

@@ -1,4 +1,4 @@
-schema = 1
+schema = 2
 
 [claude]
 model = "claude-sonnet-4-5"

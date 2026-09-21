@@ -102,7 +102,7 @@ function createFixture(): {
   // so the launch shape stays minimal and the expansion context cannot diverge.
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
-    `version = 3
+    `version = 4
 
 [spaces]
 base = []
@@ -135,7 +135,7 @@ content = "REMINDER: this is the session reminder block that must ride the pi la
   // asp-targets.toml declaring the agent target (empty compose).
   writeFileSync(
     join(projectRoot, 'asp-targets.toml'),
-    `schema = 1
+    `schema = 2
 
 [targets.${AGENT_NAME}]
 compose = []

@@ -184,7 +184,7 @@ describe('agents-root convention fallback when options omit env (T-06927)', () =
     // toConfigOptions({ agentId }) produces `{}`, yet convention discovery must remain live.
     const agentRoot = join(conventionAgentsRoot(), 'mable')
     mkdirSync(agentRoot, { recursive: true })
-    writeFileSync(join(agentRoot, 'agent-profile.toml'), 'version = 3\n')
+    writeFileSync(join(agentRoot, 'agent-profile.toml'), 'version = 4\n')
 
     const placement = resolveAgentPlacementPaths({ agentId: 'mable' })
 

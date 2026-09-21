@@ -3,7 +3,9 @@ import { join } from 'node:path'
 
 import { readSpaceToml } from '../core/config/space-toml.js'
 import type { AgentLocalComponents } from '../core/types/agent-local.js'
-import { isHarnessSupported } from '../core/types/harness.js'
+// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
+// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
+import { isHarnessSupported } from '../core/types/harness-legacy.js'
 import type { LockFile, LockSpaceEntry, LockWarning } from '../core/types/lock.js'
 import { getLoadOrderEntries } from '../core/types/lock.js'
 import type { ResolvedPlacementContext, RuntimePlacement } from '../core/types/placement.js'
@@ -73,7 +75,7 @@ export interface ResolvedAgentResourceSources {
   aspHome: string
   effectiveConfig: {
     model?: string | undefined
-    reasoning?: string | undefined
+    reasoning_effort?: string | undefined
   }
   orderedSpaces: ResolvedAgentResourceSpace[]
   skillRoots: AgentResourceRoot[]
@@ -266,7 +268,9 @@ export async function resolveAgentResourceSources(
     aspHome: options.aspHome,
     effectiveConfig: {
       ...(effective?.model !== undefined ? { model: effective.model } : {}),
-      ...(effective?.reasoning !== undefined ? { reasoning: effective.reasoning } : {}),
+      ...(effective?.reasoning_effort !== undefined
+        ? { reasoning_effort: effective.reasoning_effort }
+        : {}),
     },
     orderedSpaces,
     skillRoots,

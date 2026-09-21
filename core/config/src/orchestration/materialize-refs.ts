@@ -17,7 +17,6 @@ import {
   type CommitSha,
   DEFAULT_HARNESS,
   type HarnessAdapter,
-  type HarnessId,
   type LockFile,
   PORTABLE_SPACES_REGISTRY,
   type SpaceId,
@@ -26,6 +25,9 @@ import {
   lockFileExists,
   readLockJson,
 } from '../core/index.js'
+// Internal legacy seam (EN-15986): the refs path addresses adapters by
+// their pre-cutover ids. T-08702 deletes it with the v1 flow.
+import type { HarnessId } from '../core/types/harness-legacy.js'
 
 import {
   type ClosureOptions,

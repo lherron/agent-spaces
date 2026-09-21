@@ -63,7 +63,7 @@ function fixture(): Fixture {
   writeFileSync(join(aspHome, 'config.toml'), `agents-root = ${JSON.stringify(agentsRoot)}\n`)
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
-    `version = 3
+    `version = 4
 priming = "Agent {{handle}} works in {{projectId}} on {{lane}}."
 
 [spaces]

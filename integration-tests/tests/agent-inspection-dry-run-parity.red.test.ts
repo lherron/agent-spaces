@@ -93,7 +93,7 @@ beforeEach(async () => {
 
   await writeFile(
     join(projectRoot, 'asp-targets.toml'),
-    `schema = 1
+    `schema = 2
 agents-root = "agents"
 
 [targets.${AGENT_ID}]
@@ -102,7 +102,7 @@ compose = []
   )
   await writeFile(
     join(agentRoot, 'agent-profile.toml'),
-    `version = 3
+    `version = 4
 
 [identity]
 display = "Parity Agent"

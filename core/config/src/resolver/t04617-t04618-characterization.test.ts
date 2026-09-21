@@ -75,7 +75,7 @@ describe('T-04617 loadAgentProfile reader tolerance characterization', () => {
     const agentRoot = writeAgentRoot(
       tempDir,
       `
-version = 3
+version = 4
 
 [spaces.modes.query]
 base = ["space:query-only@dev"]
@@ -135,7 +135,7 @@ base = ["space:raw-query@dev"]
     const agentRoot = writeAgentRoot(
       tempDir,
       `
-version = 3
+version = 4
 unknown = "still parsed by raw reader"
 
 [spaces]
@@ -166,7 +166,7 @@ base = ["space:raw-base@dev"]
     const agentRoot = writeAgentRoot(
       tempDir,
       `
-version = 3
+version = 4
 
 [spaces]
 base = "space:not-an-array@dev"

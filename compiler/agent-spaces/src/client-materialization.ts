@@ -3,7 +3,6 @@ import { isAbsolute, join } from 'node:path'
 
 import {
   type AgentLocalComponents,
-  type HarnessId,
   type HygieneGateFinding,
   type LintWarning,
   PathResolver,
@@ -16,6 +15,9 @@ import {
   readHooksWithPrecedence,
   resolveAgentRuntimeSpecToLock,
 } from 'spaces-config'
+// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
+// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
+import type { HarnessId } from 'spaces-config/internal/legacy-harness'
 
 import { CodedError } from './client-support.js'
 import type { AgentSpacesRuntimeDependencies } from './placement-api.js'

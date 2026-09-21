@@ -46,7 +46,7 @@ async function buildOverlay(): Promise<Overlay> {
   writeFileSync(join(agentRoot, 'SOUL.md'), '# Stella\n')
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
-    ['version = 3', '', '[spaces]', 'base = []', ''].join('\n')
+    ['version = 4', '', '[spaces]', 'base = []', ''].join('\n')
   )
   await syncAgentToCodexDefault({
     agentId: 'stella',

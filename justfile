@@ -143,6 +143,11 @@ check:
     bun scripts/check-doc-reachability.ts
     bun scripts/check-rule-authoring.ts
 
+# Validate every direct-child agent profile through the production v4 parser
+# (T-08701). Defaults to ~/agents; pass one explicit agents root to override.
+validate-agent-profiles *args:
+    bun scripts/validate-agent-profiles.ts {{args}}
+
 # User-runnable resolver capability-matrix gate (T-08706). Sequencing gate for
 # the producer-owned harness-selection campaign leg; intentionally NOT wired
 # into `verify` or `check`.

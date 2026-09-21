@@ -5,15 +5,17 @@
  * coding agent runtimes (Claude Code, Pi, etc.).
  */
 
-import type { HarnessAdapter, HarnessDetection, HarnessId } from 'spaces-config'
+import type { HarnessAdapter, HarnessDetection } from 'spaces-config'
 import { KeyedRegistry } from '../keyed-registry.js'
 
 /**
  * Registry for harness adapters
  *
  * Provides a central place to register and retrieve harness adapters.
+ * Keyed by adapter id string: retired adapters keep legacy ids until
+ * deletion (T-08698/T-08702); only selection is closed (T-08701).
  */
-export class HarnessRegistry extends KeyedRegistry<HarnessId, HarnessAdapter> {
+export class HarnessRegistry extends KeyedRegistry<string, HarnessAdapter> {
   /**
    * Register a harness adapter
    *
@@ -30,7 +32,7 @@ export class HarnessRegistry extends KeyedRegistry<HarnessId, HarnessAdapter> {
    * @param id - The harness ID to look up
    * @returns The adapter, or undefined if not registered
    */
-  get(id: HarnessId): HarnessAdapter | undefined {
+  get(id: string): HarnessAdapter | undefined {
     return this.getEntry(id)
   }
 
@@ -41,7 +43,7 @@ export class HarnessRegistry extends KeyedRegistry<HarnessId, HarnessAdapter> {
    * @returns The adapter
    * @throws Error if the adapter is not registered
    */
-  getOrThrow(id: HarnessId): HarnessAdapter {
+  getOrThrow(id: string): HarnessAdapter {
     return this.getEntryOrThrow(id, 'Harness adapter not found: ')
   }
 
@@ -50,7 +52,7 @@ export class HarnessRegistry extends KeyedRegistry<HarnessId, HarnessAdapter> {
    *
    * @param id - The harness ID to check
    */
-  has(id: HarnessId): boolean {
+  has(id: string): boolean {
     return this.hasEntry(id)
   }
 
@@ -64,7 +66,7 @@ export class HarnessRegistry extends KeyedRegistry<HarnessId, HarnessAdapter> {
   /**
    * Get all registered harness IDs
    */
-  getIds(): HarnessId[] {
+  getIds(): string[] {
     return this.keys()
   }
 
@@ -75,8 +77,8 @@ export class HarnessRegistry extends KeyedRegistry<HarnessId, HarnessAdapter> {
    *
    * @returns Map of harness ID to detection result
    */
-  async detectAvailable(): Promise<Map<HarnessId, HarnessDetection>> {
-    const results = new Map<HarnessId, HarnessDetection>()
+  async detectAvailable(): Promise<Map<string, HarnessDetection>> {
+    const results = new Map<string, HarnessDetection>()
 
     await Promise.all(
       this.entryList().map(async ([id, adapter]) => {

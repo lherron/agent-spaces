@@ -697,7 +697,9 @@ export function hasPermissions(permissions: CanonicalPermissions | null): boolea
  */
 export function explainPermissions(
   permissions: CanonicalPermissions,
-  harnessId: HarnessId
+  // String (not closed HarnessId): the pi permission flavor predates
+  // selection; T-08702 reworks harness-format routing.
+  harnessId: HarnessId | string
 ): string[] {
   const lines: string[] = []
   // ClaudePermissions and PiPermissions are structurally identical, so a single

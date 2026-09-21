@@ -28,7 +28,7 @@ import { parseTargetsToml, serializeTargetsToml } from './targets-toml.js'
 describe('parseTargetsToml: compose_mode', () => {
   test('parses compose_mode = "replace"', () => {
     const toml = `
-schema = 1
+schema = 2
 
 [targets.larry]
 compose_mode = "replace"
@@ -40,7 +40,7 @@ compose = ["space:defaults@dev"]
 
   test('parses compose_mode = "merge"', () => {
     const toml = `
-schema = 1
+schema = 2
 
 [targets.larry]
 compose_mode = "merge"
@@ -52,7 +52,7 @@ compose = ["space:praesidium-defaults@dev"]
 
   test('compose_mode defaults to undefined when not specified', () => {
     const toml = `
-schema = 1
+schema = 2
 
 [targets.larry]
 compose = ["space:defaults@dev"]
@@ -63,7 +63,7 @@ compose = ["space:defaults@dev"]
 
   test('rejects invalid compose_mode value', () => {
     const toml = `
-schema = 1
+schema = 2
 
 [targets.larry]
 compose_mode = "append"
@@ -80,7 +80,7 @@ compose = ["space:defaults@dev"]
 describe('parseTargetsToml: priming_append', () => {
   test('parses priming_append as string', () => {
     const toml = `
-schema = 1
+schema = 2
 
 [targets.larry]
 compose = ["space:defaults@dev"]
@@ -92,7 +92,7 @@ priming_append = "\\n## Project: agent-spaces\\nUses Bun workspace."
 
   test('parses multiline priming_append', () => {
     const toml = `
-schema = 1
+schema = 2
 
 [targets.larry]
 compose = ["space:defaults@dev"]
@@ -110,7 +110,7 @@ priming_append = """
 
   test('rejects both priming and priming_append on same target', () => {
     const toml = `
-schema = 1
+schema = 2
 
 [targets.larry]
 compose = ["space:defaults@dev"]
@@ -122,7 +122,7 @@ priming_append = "\\n## Extra context"
 
   test('allows priming alone (no conflict)', () => {
     const toml = `
-schema = 1
+schema = 2
 
 [targets.larry]
 compose = ["space:defaults@dev"]
@@ -135,7 +135,7 @@ priming = "You are Larry."
 
   test('allows priming_append alone (no conflict)', () => {
     const toml = `
-schema = 1
+schema = 2
 
 [targets.larry]
 compose = ["space:defaults@dev"]
@@ -154,7 +154,7 @@ priming_append = "Extra context only."
 describe('round-trip: compose_mode and priming_append', () => {
   test('compose_mode survives serialize/parse cycle', () => {
     const original = {
-      schema: 1 as const,
+      schema: 2 as const,
       targets: {
         larry: {
           compose: ['space:defaults@dev' as const],
@@ -169,7 +169,7 @@ describe('round-trip: compose_mode and priming_append', () => {
 
   test('priming_append survives serialize/parse cycle', () => {
     const original = {
-      schema: 1 as const,
+      schema: 2 as const,
       targets: {
         larry: {
           compose: ['space:defaults@dev' as const],

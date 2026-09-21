@@ -6,7 +6,7 @@ import { parseTargetsToml, serializeTargetsToml } from './targets-toml.js'
 describe('parseTargetsToml: status_line in [codex]', () => {
   test('parses top-level [codex] status_line', () => {
     const toml = `
-schema = 1
+schema = 2
 
 [codex]
 status_line = ["model-with-reasoning", "context-remaining", "current-dir"]
@@ -24,7 +24,7 @@ compose = ["space:my-space@stable"]
 
   test('parses target-level [targets.default.provisioning.codex] status_line', () => {
     const toml = `
-schema = 1
+schema = 2
 
 [targets.default]
 compose = ["space:my-space@stable"]
@@ -62,7 +62,7 @@ describe('mergeCodexOptions: status_line', () => {
 describe('getEffectiveCodexOptions: status_line', () => {
   test('target-level overrides top-level', () => {
     const manifest: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       codex: { status_line: ['model-with-reasoning', 'context-remaining', 'current-dir'] },
       targets: {
         fast: {
@@ -80,7 +80,7 @@ describe('getEffectiveCodexOptions: status_line', () => {
 describe('round-trip: status_line', () => {
   test('top-level [codex] status_line survives serialize/parse cycle', () => {
     const original: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       codex: { status_line: ['model-with-reasoning', 'context-remaining', 'current-dir'] },
       targets: {
         default: { compose: ['space:default@stable'] },

@@ -13,7 +13,6 @@ import {
   type BuildOptions as ConfigBuildOptions,
   type InstallOptions as ConfigInstallOptions,
   type MaterializeFromRefsOptions as ConfigMaterializeFromRefsOptions,
-  DEFAULT_HARNESS,
   type InstallResult,
   type LockFile,
   type MaterializeFromRefsResult,
@@ -24,6 +23,9 @@ import {
   materializeFromRefs as configMaterializeFromRefs,
   materializeTarget as configMaterializeTarget,
 } from 'spaces-config'
+// Internal legacy seam (EN-15986): v1 adapter ids and foreground defaults.
+// T-08702 deletes it with the v1 flow.
+import { DEFAULT_HARNESS } from 'spaces-config/internal/legacy-harness'
 
 import { harnessRegistry } from './harness/index.js'
 

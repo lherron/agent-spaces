@@ -396,7 +396,6 @@ export type AspcAgentProfileSourceObservation =
       code: 'parsed'
       contentHash: string
       declaredHarness?: string | undefined
-      declaredProvider?: 'anthropic' | 'openai' | undefined
     }
   | { state: 'invalid'; diagnostics: AspcDeclarationDiagnostic[] }
 
@@ -418,15 +417,17 @@ export type AspcRuntimeDeclarationSources = {
   priming: AspcDeclarationSourceObservation
 }
 
+/**
+ * Declaration-time provisioning observation (T-08701). Carries the merged
+ * scalars with property-presence semantics (an omitted harness or
+ * presentation stays omitted) plus the declared/merged harness strings.
+ * Driver, frontend, transport, provider, and hosting mappings resolve only
+ * in the central compiler resolver and are never projected here.
+ */
 export type AspcProvisioningObservation = {
   scalars: Record<string, string | number | boolean>
   declaredHarness?: string | undefined
-  effectiveHarness: string
-  frontend: string
-  provider: 'anthropic' | 'openai'
-  transport: 'cli' | 'sdk'
-  family: string
-  runtime: string
+  effectiveHarness?: string | undefined
 }
 
 export type AspcResolvedRuntimePlacement = RuntimePlacement & {
