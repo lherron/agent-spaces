@@ -89,7 +89,7 @@ export const HARNESS_CATALOG: Readonly<Record<HarnessId, HarnessDefinition>> = {
       {
         id: 'anthropic',
         defaultModel: 'opus[1m]',
-        supportedModels: ['opus[1m]', 'claude-sonnet-4-5'],
+        supportedModels: ['opus[1m]', 'opus', 'fable', 'sonnet', 'haiku', 'claude-sonnet-4-5'],
       },
     ],
     presentationDefault: false,

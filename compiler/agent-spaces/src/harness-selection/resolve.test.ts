@@ -122,6 +122,21 @@ describe('central harness selection catalog', () => {
     })
   })
 
+  test.each(['opus[1m]', 'opus', 'fable', 'sonnet', 'haiku', 'claude-sonnet-4-5'])(
+    'accepts the retained Claude Code model %s',
+    (model) => {
+      expect(
+        resolveHarnessExecution({
+          agent: { id: 'cody' },
+          requested: { harness: 'claude', model },
+        })
+      ).toMatchObject({
+        ok: true,
+        selection: { harness: 'claude', modelProvider: 'anthropic', model },
+      })
+    }
+  )
+
   test('preserves an explicit false over a lower presentation true', () => {
     const result = resolveHarnessExecution({
       agent: { id: 'cody' },
