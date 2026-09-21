@@ -162,7 +162,13 @@ export type {
   SpacePiConfig,
 } from './harness.js'
 
-export { DEFAULT_HARNESS, HARNESS_IDS, isHarnessId, LOCK_HARNESSES } from './harness.js'
+export {
+  DEFAULT_HARNESS,
+  HARNESS_IDS,
+  isHarnessId,
+  isHarnessSupported,
+  LOCK_HARNESSES,
+} from './harness.js'
 
 // Agent-local components types (agent-local skills/commands auto-discovery)
 export type { AgentLocalComponents } from './agent-local.js'

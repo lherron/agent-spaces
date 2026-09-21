@@ -14,7 +14,6 @@ import type {
   AspcCatalogAgentsResponse,
   AspcCompileHarnessInvocationRequest,
   AspcCompileHarnessInvocationResponse,
-  AspcCompileRuntimePlanRequest,
   AspcHelloRequest,
   AspcHelloResponse,
   AspcInspectAgentRequest,
@@ -32,28 +31,23 @@ import type {
   AspcResolveRuntimeDeclarationResponse,
 } from 'spaces-aspc-protocol'
 import { ASPC_PROTOCOL_VERSION } from 'spaces-aspc-protocol'
-import type { InvocationDispatchRequest } from 'spaces-harness-broker-protocol'
 import type {
-  BrokerExecutionProfile,
   CompileContext,
   CompileDiagnostic,
+  RuntimeCompileRequest,
+  RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
-import type {
-  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
-  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
-} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 import packageManifest from '../package.json'
 import {
   type AspcInspectionAuthorityOptions,
   createAspcInspectionAuthority,
 } from './agent-inspection-authority.js'
 import { DIAGNOSTIC_CODES, compilerDiagnostic, errorDetails, formatError } from './diagnostics.js'
-import { selectBrokerProfile } from './profileSelector.js'
 
 const ASPC_FACADE_VERSION: string = packageManifest.version
 
 const ASPC_COMPILE_HARNESS_INVOCATION_SCHEMA = 'aspc-compile-harness-invocation-response/v1'
-const RUNTIME_COMPILE_RESPONSE_SCHEMA = 'agent-runtime-compile-response/v1'
+const RUNTIME_COMPILE_RESPONSE_SCHEMA = 'agent-runtime-compile-response/v2'
 
 export type AspcCompiler = (
   req: RuntimeCompileRequest,
@@ -61,6 +55,9 @@ export type AspcCompiler = (
     aspHome?: string | undefined
     compileContext?: CompileContext | undefined
     materializeCodexRuntimeHome?: boolean | undefined
+    dispatch?:
+      | Omit<import('spaces-harness-broker-protocol').InvocationDispatchRequest, 'startRequest'>
+      | undefined
   }
 ) => Promise<RuntimeCompileResponse>
 
@@ -77,7 +74,6 @@ export interface AspcServiceOptions {
 
 export interface AspcService {
   hello(req: AspcHelloRequest): Promise<AspcHelloResponse>
-  compileRuntimePlan(req: AspcCompileRuntimePlanRequest): Promise<RuntimeCompileResponse>
   catalogAgents(req: AspcCatalogAgentsRequest): Promise<AspcCatalogAgentsResponse>
   inspectAgent(req: AspcInspectAgentRequest): Promise<AspcInspectAgentResponse>
   catalogAgentInspection(
@@ -133,7 +129,6 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
         },
         protocolVersion: ASPC_PROTOCOL_VERSION,
         capabilities: {
-          compileRuntimePlan: true,
           catalogAgents: true,
           inspectAgent: true,
           catalogAgentInspection: true,
@@ -150,10 +145,6 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
           transports: ['stdio-jsonrpc-ndjson'],
         },
       }
-    },
-
-    async compileRuntimePlan(req: AspcCompileRuntimePlanRequest): Promise<RuntimeCompileResponse> {
-      return compileRuntimePlanSafe(compiler, req.compileRequest, req.aspHome, req.compileContext)
     },
 
     async prepareProcessInvocation(req) {
@@ -259,12 +250,17 @@ async function defaultCompiler(
     aspHome?: string | undefined
     compileContext?: CompileContext | undefined
     materializeCodexRuntimeHome?: boolean | undefined
+    dispatch?:
+      | Omit<import('spaces-harness-broker-protocol').InvocationDispatchRequest, 'startRequest'>
+      | undefined
   }
 ): Promise<RuntimeCompileResponse> {
   const client = createAgentSpacesClient({ aspHome: options?.aspHome })
   return client.compileRuntimePlan(
     req,
-    options?.compileContext !== undefined || options?.materializeCodexRuntimeHome !== undefined
+    options?.compileContext !== undefined ||
+      options?.materializeCodexRuntimeHome !== undefined ||
+      options?.dispatch !== undefined
       ? {
           ...(options.compileContext !== undefined
             ? { compileContext: options.compileContext }
@@ -272,6 +268,7 @@ async function defaultCompiler(
           ...(options.materializeCodexRuntimeHome !== undefined
             ? { materializeCodexRuntimeHome: options.materializeCodexRuntimeHome }
             : {}),
+          ...(options.dispatch !== undefined ? { dispatch: options.dispatch } : {}),
         }
       : undefined
   )
@@ -281,12 +278,16 @@ async function compileRuntimePlanSafe(
   compiler: AspcCompiler,
   req: RuntimeCompileRequest,
   aspHome: string | undefined,
-  compileContext?: CompileContext | undefined
+  compileContext?: CompileContext | undefined,
+  dispatch?:
+    | Omit<import('spaces-harness-broker-protocol').InvocationDispatchRequest, 'startRequest'>
+    | undefined
 ): Promise<RuntimeCompileResponse> {
   try {
     return await compiler(req, {
       aspHome,
       ...(compileContext !== undefined ? { compileContext } : {}),
+      ...(dispatch !== undefined ? { dispatch } : {}),
     })
   } catch (error) {
     return failRuntimeCompile([
@@ -307,54 +308,24 @@ async function compileHarnessInvocation(
     compiler,
     req.compileRequest,
     req.aspHome,
-    req.compileContext
+    req.compileContext,
+    {
+      ...(req.dispatchEnv !== undefined ? { dispatchEnv: req.dispatchEnv } : {}),
+      ...(req.runtime !== undefined ? { runtime: req.runtime } : {}),
+      ...(req.lifecyclePolicy !== undefined ? { lifecyclePolicy: req.lifecyclePolicy } : {}),
+    }
   )
   if (!compileResponse.ok) {
-    return failHarnessInvocation(compileResponse, compileResponse.diagnostics)
+    return failHarnessInvocation(compileResponse.diagnostics)
   }
-
-  const selected = selectBrokerProfile(compileResponse.plan, req.profileSelector)
-  if (!selected.ok) {
-    const diagnostics = [...compileResponse.diagnostics, selected.diagnostic]
-    return failHarnessInvocation(failRuntimeCompile(diagnostics), diagnostics)
-  }
-
-  const dispatchRequest = buildDispatchRequest(selected.profile, req)
   return {
     schemaVersion: ASPC_COMPILE_HARNESS_INVOCATION_SCHEMA,
     ok: true,
-    compileResponse,
     plan: compileResponse.plan,
-    selectedProfile: selected.profile,
-    startRequest: selected.profile.harnessInvocation.startRequest,
-    dispatchRequest,
     diagnostics: compileResponse.diagnostics,
     ...(compileResponse.effectiveEnvironmentHash !== undefined
       ? { effectiveEnvironmentHash: compileResponse.effectiveEnvironmentHash }
       : {}),
-  }
-}
-
-// The typed `placement` contract in spaces-runtime-contracts does not expose
-// an optional `dispatchEnv`, so reach it through this named structural view.
-type PlacementWithDispatchEnv = { dispatchEnv?: Record<string, string> | undefined }
-
-function placementDispatchEnv(
-  req: AspcCompileHarnessInvocationRequest
-): Record<string, string> | undefined {
-  return (req.compileRequest.placement as PlacementWithDispatchEnv).dispatchEnv
-}
-
-function buildDispatchRequest(
-  profile: BrokerExecutionProfile,
-  req: AspcCompileHarnessInvocationRequest
-): InvocationDispatchRequest {
-  const dispatchEnv = req.dispatchEnv ?? placementDispatchEnv(req)
-  return {
-    startRequest: profile.harnessInvocation.startRequest,
-    ...(dispatchEnv !== undefined ? { dispatchEnv } : {}),
-    ...(req.runtime !== undefined ? { runtime: req.runtime } : {}),
-    ...(req.lifecyclePolicy !== undefined ? { lifecyclePolicy: req.lifecyclePolicy } : {}),
   }
 }
 
@@ -369,13 +340,11 @@ function failRuntimeCompile(
 }
 
 function failHarnessInvocation(
-  compileResponse: RuntimeCompileResponse,
   diagnostics: CompileDiagnostic[]
 ): Extract<AspcCompileHarnessInvocationResponse, { ok: false }> {
   return {
     schemaVersion: ASPC_COMPILE_HARNESS_INVOCATION_SCHEMA,
     ok: false,
-    compileResponse,
     diagnostics,
   }
 }

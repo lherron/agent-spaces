@@ -1,17 +1,28 @@
+import {
+  type ResolvedRecipeBuilder,
+  compileBrokerPlan,
+  compileClaudeTmuxPlan,
+  compileMuseTmuxPlan,
+  compileNativeAgentHarnessPlan,
+} from '../compile-runtime-plan.js'
 import type { BuilderId, ExecutionRecipe } from './types.js'
 
 /**
- * Bounded registry identity seam. T-08702 replaces these IDs with callable
- * resolved-recipe builders; until then this prevents catalog/builder drift.
+ * Callable materializer registry. Selection has already happened before this
+ * table is indexed; entries never reinterpret harness or presentation intent.
  */
-export const BUILDER_REGISTRY_IDS: ReadonlySet<BuilderId> = new Set([
-  'agent-harness',
-  'agent-harness-tmux',
-  'claude-code-tmux',
-  'codex-app-server',
-  'muse-serve',
-  'muse-cli-tmux',
-])
+export const BUILDER_REGISTRY: Readonly<Record<BuilderId, ResolvedRecipeBuilder>> = {
+  'agent-harness': compileNativeAgentHarnessPlan,
+  'agent-harness-tmux': compileNativeAgentHarnessPlan,
+  'claude-code-tmux': compileClaudeTmuxPlan,
+  'codex-app-server': compileBrokerPlan,
+  'muse-serve': compileBrokerPlan,
+  'muse-cli-tmux': compileMuseTmuxPlan,
+}
+
+export const BUILDER_REGISTRY_IDS: ReadonlySet<BuilderId> = new Set(
+  Object.keys(BUILDER_REGISTRY) as BuilderId[]
+)
 
 export function assertCatalogBuilderCoherence(recipes: readonly ExecutionRecipe[]): void {
   for (const recipe of recipes) {

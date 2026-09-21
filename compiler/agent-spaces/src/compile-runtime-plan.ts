@@ -5,6 +5,7 @@ import { MaterializationHygieneError } from 'spaces-config'
 import type {
   HarnessInvocationSpec,
   HarnessLaunchSpec,
+  InvocationDispatchRequest,
   InvocationId,
   InvocationStartRequest,
   PermissionPolicy,
@@ -24,29 +25,20 @@ import {
   type CompileContext,
   type CompileDiagnostic,
   type CompileId,
-  type CompiledAgentPolicy,
+  type CompiledRuntimePlan,
   DEFAULT_CODEX_BROKER_INPUT_POLICY,
-  type HarnessFamily,
-  type HarnessRuntime,
-  type PiSdkModelCatalogEntry,
+  type ExecutionRecipeDto,
   type ProfileId,
-  type ProviderDomain,
+  type ResolvedHarnessSelection,
+  type RuntimeCompileRequest,
+  type RuntimeCompileResponse,
   type RuntimeContractProjection,
-  type TerminalExecutionProfile,
   createCanonicalHasher,
-  findPiSdkModelCatalogEntry,
   hashNeutralStartRequest,
   neutralSpecHash,
   neutralStartRequestHash,
   project,
-  validateBrokerExecutionProfile,
-  validateTerminalExecutionProfile,
 } from 'spaces-runtime-contracts'
-import type {
-  LegacyCompiledRuntimePlan as CompiledRuntimePlan,
-  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
-  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
-} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 import {
   combineBrokerPrompts,
@@ -54,7 +46,14 @@ import {
   toHarnessBrokerStartRequest,
   validateBrokerInvocationRequest,
 } from './broker-invocation.js'
-import { PI_SDK_FRONTEND, resolveFrontend } from './client-support.js'
+import { assertExecutionMatchesResolution } from './harness-selection/assert-execution-matches-resolution.js'
+import { BUILDER_REGISTRY } from './harness-selection/builders.js'
+import { resolveHarnessExecution } from './harness-selection/resolve.js'
+import type {
+  ExecutionRecipe,
+  ProvisioningLayers,
+  ResolvedHarnessExecution,
+} from './harness-selection/types.js'
 import { type AgentSpacesRuntimeDependencies, requireAgentSpacesRuntime } from './placement-api.js'
 import {
   buildPreparationExecutionContext,
@@ -67,7 +66,6 @@ import {
 import type {
   BuildHarnessBrokerInvocationRequest,
   BuildHarnessBrokerInvocationResponse,
-  HarnessFrontend,
 } from './types.js'
 
 /**
@@ -80,7 +78,7 @@ import type {
  * assignable to the strict RuntimePlacement that prepare-cli-runtime expects.
  * Replaces the former scattered cast cluster.
  */
-type CompilePlacement = RuntimeCompileRequest['placement'] &
+export type CompilePlacement = RuntimeCompileRequest['placement'] &
   RuntimePlacement & {
     env?: Record<string, string> | undefined
     lockedEnv?: Record<string, string> | undefined
@@ -91,7 +89,7 @@ const COMPILER_VERSION = '0.1.1'
 
 type PreparedResolvedBundle = NonNullable<BuildHarnessBrokerInvocationResponse['resolvedBundle']>
 
-type CompileRuntimePlanOptions = {
+export type CompileRuntimePlanOptions = {
   clientAspHome?: string | undefined
   clientRegistryPath?: string | undefined
   clientRuntime?: AgentSpacesRuntimeDependencies | undefined
@@ -103,6 +101,9 @@ type CompileRuntimePlanOptions = {
   compileContext?: CompileContext | undefined
   /** Inspection/preview projects a launch plan but must not mutate CODEX_HOME. */
   materializeCodexRuntimeHome?: boolean | undefined
+  /** Already-merged producer provisioning below the explicit request layer. */
+  provisioningLayers?: ProvisioningLayers | undefined
+  dispatch?: Omit<InvocationDispatchRequest, 'startRequest'> | undefined
 }
 
 function hashValue(value: unknown): string {
@@ -171,127 +172,11 @@ function toResolvedBundle(
  * diagnostics) is byte-for-byte the same. Centralizing the envelope guarantees a
  * single source for the projection-hashed key order.
  */
-interface AssemblePlanInput {
-  req: RuntimeCompileRequest
-  compileId: CompileId
-  createdAt: string
-  compiledPlacement: CompiledRuntimePlan['placement']
-  agentPolicy?: CompiledAgentPolicy | undefined
-  resolvedBundle: CompiledRuntimePlan['resolvedBundle']
-  omitPriming: boolean
-  harness: CompiledRuntimePlan['harness']
-  model: CompiledRuntimePlan['model']
-  executionProfiles: CompiledRuntimePlan['executionProfiles']
-  materializedBundleRoot?: string | undefined
-  systemPromptFile?: string | undefined
-  lockHash?: string | undefined
-  bundleIdentity: string
-  lockedEnvKeys: string[]
-  diagnostics: CompileDiagnostic[]
-}
-
-/**
- * Assemble the shared `planMaterial` envelope, compute its plan-projection hash,
- * and wrap it in the `ok` compile response. The object-literal key order here is
- * authoritative for the byte-parity tests — it reproduces the previously inlined
- * tail exactly (schemaVersion, compiler, compileId, createdAt, identity,
- * placement, resolvedBundle, harness, model, executionProfiles, artifacts,
- * lockedEnv, diagnostics), so each caller's projectionHash is unchanged.
- */
-function assemblePlan(input: AssemblePlanInput): RuntimeCompileResponse {
-  const {
-    req,
-    compileId,
-    createdAt,
-    compiledPlacement,
-    agentPolicy,
-    resolvedBundle,
-    omitPriming,
-    harness,
-    model,
-    executionProfiles,
-    materializedBundleRoot,
-    systemPromptFile,
-    lockHash,
-    bundleIdentity,
-    lockedEnvKeys,
-    diagnostics,
-  } = input
-  const planMaterial = {
-    schemaVersion: 'agent-runtime-plan/v1' as const,
-    compiler: { name: 'agent-spaces' as const, version: COMPILER_VERSION },
-    compileId,
-    createdAt,
-    identity: req.identity,
-    placement: compiledPlacement,
-    ...(agentPolicy !== undefined ? { agentPolicy } : {}),
-    resolvedBundle,
-    omitPriming,
-    harness,
-    model,
-    executionProfiles,
-    artifacts: {
-      ...(materializedBundleRoot !== undefined ? { materializedBundleRoot } : {}),
-      ...(systemPromptFile !== undefined ? { systemPromptFile } : {}),
-      ...(lockHash !== undefined ? { lockHash } : {}),
-      bundleIdentity,
-    },
-    lockedEnv: {
-      lockedEnvKeys,
-    },
-    diagnostics,
-  }
-  const planHash = projectionHash(
-    {
-      schemaVersion: planMaterial.schemaVersion,
-      compiler: planMaterial.compiler,
-      identity: hashNeutralCompileIdentity(req.identity),
-      placement: hashNeutralPlacement(compiledPlacement),
-      ...(agentPolicy !== undefined ? { agentPolicy } : {}),
-      omitPriming: planMaterial.omitPriming,
-      harness: planMaterial.harness,
-      model: planMaterial.model,
-      executionProfiles: planMaterial.executionProfiles.map((profile) => ({
-        kind: profile.kind,
-        profileHash: profile.profileHash,
-        compatibilityHash: profile.compatibilityHash,
-      })),
-      lockedEnv: planMaterial.lockedEnv,
-      diagnostics: planMaterial.diagnostics,
-    },
-    'plan'
-  ).planHash
-  const plan: CompiledRuntimePlan = {
-    ...planMaterial,
-    planHash,
-  }
-
-  return {
-    schemaVersion: 'agent-runtime-compile-response/v1',
-    ok: true,
-    plan,
-    diagnostics,
-  }
-}
-
-/**
- * Inputs for {@link finalizePlan} — the shared pre-assembly preamble that the
- * three plan builders (broker / foreground / tmux-broker) each
- * re-copied: build the `prepare_runtime_warning` diagnostics, append the
- * disallowed-tools diagnostic, stamp `compileId` + `createdAt`, coerce the
- * resolved bundle + placement, then call {@link assemblePlan}.
- *
- * The route-specific bits are parameterized: the warnings source, the
- * disallowed-tools context (the tmux route gates it on `honorDisallowedTools` by
- * passing `undefined`), the resolved-bundle source, and the per-route harness /
- * model / executionProfiles. The diagnostics array ORDER (warnings then the
- * optional disallowed-tools diagnostic) and the {@link assemblePlan} key order
- * are hash-authoritative — both are reproduced verbatim.
- */
 interface FinalizePlanInput {
   req: RuntimeCompileRequest
-  profileHash: string
-  profileId?: ProfileId | undefined
+  resolved: ResolvedHarnessExecution
+  startRequest: InvocationStartRequest
+  compatibilityHash: string
   preparedWarnings: string[] | undefined
   /**
    * Hygiene findings force-admitted to reusable cache under force-compose. When
@@ -310,10 +195,6 @@ interface FinalizePlanInput {
   omitPriming: boolean
   bundleIdentity: string
   placement: CompilePlacement
-  agentPolicy?: CompiledAgentPolicy | undefined
-  harness: CompiledRuntimePlan['harness']
-  model: CompiledRuntimePlan['model']
-  executionProfiles: CompiledRuntimePlan['executionProfiles']
   materializedBundleRoot?: string | undefined
   systemPromptFile?: string | undefined
   lockHash?: string | undefined
@@ -330,6 +211,7 @@ interface FinalizePlanInput {
    * material, so this affects only the emitted stamp, never plan identity.
    */
   nowIso?: string | undefined
+  dispatch?: Omit<InvocationDispatchRequest, 'startRequest'> | undefined
 }
 
 /**
@@ -338,57 +220,117 @@ interface FinalizePlanInput {
  * key set, and the assemble key order are unchanged from the inlined tails.
  */
 function finalizePlan(input: FinalizePlanInput): RuntimeCompileResponse {
+  assertExecutionMatchesResolution(input.resolved, input.startRequest)
+  const startRequestHash = neutralStartRequestHash(input.startRequest)
+  const profileId = stableId('profile', {
+    recipeId: input.resolved.recipe.recipeId,
+    startRequest: hashNeutralStartRequest(input.startRequest),
+  })
+  const profileHash = hashValue({
+    profileId,
+    recipe: toRecipeDto(input.resolved.recipe),
+    compatibilityHash: input.compatibilityHash,
+    startRequestHash,
+  })
   const diagnostics: CompileDiagnostic[] = (input.preparedWarnings ?? []).map((warning) => ({
     level: 'warning',
     code: 'prepare_runtime_warning',
     message: warning,
     plane: 'asp-compiler',
-    profileId: input.profileId,
+    profileId: profileId as ProfileId,
   }))
   // Force-compose hygiene warnings (Cond 4): deterministic order — sorted by code
   // then path — appended after prepare-runtime warnings. Present only under
   // force-compose, so a clean gate pass leaves the diagnostics array unchanged.
   for (const finding of sortHygieneFindings(input.hygieneWarnings ?? [])) {
-    diagnostics.push(hygieneWarningDiagnostic(finding, input.profileId))
+    diagnostics.push(hygieneWarningDiagnostic(finding, profileId as ProfileId))
   }
   if (input.disallowedToolsContext !== undefined) {
     const disallowedToolsDiagnostic = disallowedToolsUnsupportedDiagnostic(
       input.req,
       input.disallowedToolsContext.selectedDriver,
-      input.profileId
+      profileId as ProfileId
     )
     if (disallowedToolsDiagnostic !== undefined) diagnostics.push(disallowedToolsDiagnostic)
   }
   const compileId = stableId('compile', {
     generation: input.req.identity.generation,
-    profileHash: input.profileHash,
+    profileHash,
   }) as CompileId
   const createdAt = input.nowIso ?? new Date().toISOString()
   const resolvedBundle = toResolvedBundle(input.resolvedBundleSource, input.bundleIdentity)
   const compiledPlacement = toCompiledPlacement(input.placement)
-  const response = assemblePlan({
-    req: input.req,
+  const dispatchRequest: InvocationDispatchRequest = {
+    startRequest: input.startRequest,
+    ...((input.dispatch?.dispatchEnv ?? input.placement.dispatchEnv) !== undefined
+      ? { dispatchEnv: input.dispatch?.dispatchEnv ?? input.placement.dispatchEnv }
+      : {}),
+    ...(input.dispatch?.runtime !== undefined ? { runtime: input.dispatch.runtime } : {}),
+    ...(input.dispatch?.lifecyclePolicy !== undefined
+      ? { lifecyclePolicy: input.dispatch.lifecyclePolicy }
+      : {}),
+  }
+  const execution = {
+    ...toRecipeDto(input.resolved.recipe),
+    profile: {
+      profileId,
+      profileHash,
+      compatibilityHash: input.compatibilityHash,
+      startRequestHash,
+    },
+    dispatchRequest,
+  }
+  const planMaterial = {
+    schemaVersion: 'agent-runtime-plan/v2' as const,
+    compiler: { name: 'agent-spaces' as const, version: COMPILER_VERSION },
     compileId,
     createdAt,
-    compiledPlacement,
-    ...(input.agentPolicy !== undefined ? { agentPolicy: input.agentPolicy } : {}),
+    agent: input.req.agent,
+    identity: input.req.identity,
+    placement: compiledPlacement,
     resolvedBundle,
     omitPriming: input.omitPriming,
-    harness: input.harness,
-    model: input.model,
-    executionProfiles: input.executionProfiles,
-    ...(input.materializedBundleRoot !== undefined
-      ? { materializedBundleRoot: input.materializedBundleRoot }
-      : {}),
-    ...(input.systemPromptFile !== undefined ? { systemPromptFile: input.systemPromptFile } : {}),
-    ...(input.lockHash !== undefined ? { lockHash: input.lockHash } : {}),
-    bundleIdentity: input.bundleIdentity,
-    lockedEnvKeys: input.lockedEnvKeys,
+    selection: input.resolved.selection,
+    execution,
+    artifacts: {
+      ...(input.materializedBundleRoot !== undefined
+        ? { materializedBundleRoot: input.materializedBundleRoot }
+        : {}),
+      ...(input.systemPromptFile !== undefined ? { systemPromptFile: input.systemPromptFile } : {}),
+      ...(input.lockHash !== undefined ? { lockHash: input.lockHash } : {}),
+      bundleIdentity: input.bundleIdentity,
+    },
+    lockedEnv: { lockedEnvKeys: input.lockedEnvKeys },
     diagnostics,
+  }
+  const planHash = hashValue({
+    ...planMaterial,
+    createdAt: undefined,
+    identity: hashNeutralCompileIdentity(input.req.identity),
+    placement: hashNeutralPlacement(compiledPlacement),
   })
-  return response.ok
-    ? { ...response, effectiveEnvironmentHash: input.effectiveEnvironmentHash }
-    : response
+  const plan: CompiledRuntimePlan = { ...planMaterial, planHash }
+  return {
+    schemaVersion: 'agent-runtime-compile-response/v2',
+    ok: true,
+    plan,
+    diagnostics,
+    effectiveEnvironmentHash: input.effectiveEnvironmentHash,
+  }
+}
+
+function toRecipeDto(recipe: ExecutionRecipe): ExecutionRecipeDto {
+  return {
+    recipeId: recipe.recipeId,
+    driver: recipe.driver,
+    protocol: recipe.protocol,
+    hosting: recipe.hosting,
+    ...(recipe.presentationSurface !== undefined
+      ? { presentationSurface: recipe.presentationSurface }
+      : {}),
+    presentationFulfillment:
+      recipe.presentationFulfillment as ExecutionRecipeDto['presentationFulfillment'],
+  }
 }
 
 function compileError(code: string, message: string, details?: unknown): CompileDiagnostic {
@@ -477,7 +419,7 @@ function hygieneErrorToDiagnostics(err: MaterializationHygieneError): CompileDia
 export function hygieneBlockResponse(error: unknown): RuntimeCompileResponse | undefined {
   if (error instanceof MaterializationHygieneError) {
     return {
-      schemaVersion: 'agent-runtime-compile-response/v1',
+      schemaVersion: 'agent-runtime-compile-response/v2',
       ok: false,
       diagnostics: hygieneErrorToDiagnostics(error),
     }
@@ -511,269 +453,6 @@ function disallowedToolsUnsupportedDiagnostic(
  * Validate the headless broker route (openai+meta / codex+muse / codex-cli+muse-cli /
  * headless). The foreground branch has its own route resolver (resolveForegroundRoute).
  */
-function validateBrokerRoute(req: RuntimeCompileRequest): CompileDiagnostic[] {
-  const diagnostics: CompileDiagnostic[] = []
-  if (
-    req.requested.modelProvider !== undefined &&
-    req.requested.modelProvider !== 'openai' &&
-    req.requested.modelProvider !== 'meta'
-  ) {
-    diagnostics.push(
-      compileError(
-        'unsupported_provider',
-        'compileRuntimePlan only supports openai and meta providers',
-        {
-          requested: req.requested.modelProvider,
-        }
-      )
-    )
-  }
-  if (
-    req.requested.harnessFamily !== undefined &&
-    req.requested.harnessFamily !== 'codex' &&
-    req.requested.harnessFamily !== 'muse'
-  ) {
-    diagnostics.push(
-      compileError(
-        'unsupported_harness',
-        'compileRuntimePlan only supports codex and muse harness families',
-        {
-          requested: req.requested.harnessFamily,
-        }
-      )
-    )
-  }
-  if (
-    req.requested.preferredHarnessRuntime !== undefined &&
-    req.requested.preferredHarnessRuntime !== 'codex-cli' &&
-    req.requested.preferredHarnessRuntime !== 'muse-cli'
-  ) {
-    diagnostics.push(
-      compileError(
-        'unsupported_runtime',
-        'compileRuntimePlan only supports codex-cli and muse-cli runtimes',
-        {
-          requested: req.requested.preferredHarnessRuntime,
-        }
-      )
-    )
-  }
-  if (req.requested.interactionMode !== undefined && req.requested.interactionMode !== 'headless') {
-    diagnostics.push(
-      compileError(
-        'unsupported_interaction_mode',
-        'compileRuntimePlan only supports headless mode',
-        {
-          requested: req.requested.interactionMode,
-        }
-      )
-    )
-  }
-  return diagnostics
-}
-
-/** Canonical foreground (interactive) route per harness family. */
-type ForegroundRoute = {
-  frontend: HarnessFrontend
-  family: HarnessFamily
-  runtime: HarnessRuntime
-  provider: ProviderDomain
-}
-
-const FOREGROUND_ROUTES: Record<HarnessFamily, ForegroundRoute> = {
-  'claude-code': {
-    frontend: 'claude-code',
-    family: 'claude-code',
-    runtime: 'claude-code-cli',
-    provider: 'anthropic',
-  },
-  codex: {
-    frontend: 'codex-cli',
-    family: 'codex',
-    runtime: 'codex-cli',
-    provider: 'openai',
-  },
-  pi: {
-    frontend: 'pi-cli',
-    family: 'pi',
-    runtime: 'pi-cli',
-    provider: 'openai',
-  },
-  muse: {
-    frontend: 'muse-cli',
-    family: 'muse',
-    runtime: 'muse-cli',
-    provider: 'meta',
-  },
-}
-
-const RUNTIME_TO_FAMILY: Partial<Record<HarnessRuntime, HarnessFamily>> = {
-  'claude-code-cli': 'claude-code',
-  'codex-cli': 'codex',
-  'pi-cli': 'pi',
-  'muse-cli': 'muse',
-}
-
-/**
- * Resolve the requested harness family from the explicit `harnessFamily` field,
- * falling back to the family implied by `preferredHarnessRuntime`. Centralizes
- * the family-resolution logic that was duplicated across the foreground route
- * resolver and the interactive-broker route predicates.
- */
-function resolveRequestedFamily(req: RuntimeCompileRequest): HarnessFamily | undefined {
-  const requestedRuntime = req.requested.preferredHarnessRuntime
-  return (
-    req.requested.harnessFamily ??
-    (requestedRuntime !== undefined ? RUNTIME_TO_FAMILY[requestedRuntime] : undefined)
-  )
-}
-
-/**
- * Resolve a foreground (interactive) route from the requested harness fields.
- * Emits diagnostics for genuinely unsupported pairings (sdk runtimes, provider
- * mismatch, inconsistent family/runtime) so the compiler returns errors rather
- * than throwing deep in the prepare path.
- */
-function resolveForegroundRoute(
-  req: RuntimeCompileRequest
-):
-  | { route: ForegroundRoute; diagnostics: CompileDiagnostic[] }
-  | { diagnostics: CompileDiagnostic[] } {
-  const diagnostics: CompileDiagnostic[] = []
-  const requestedRuntime = req.requested.preferredHarnessRuntime
-  const family = resolveRequestedFamily(req)
-
-  if (family === undefined) {
-    diagnostics.push(
-      compileError(
-        'unsupported_harness',
-        'interactive compile requires a foreground-capable harness family (claude-code, codex, pi, or muse)',
-        { requested: req.requested }
-      )
-    )
-    return { diagnostics }
-  }
-
-  const route = FOREGROUND_ROUTES[family]
-
-  if (req.requested.modelProvider !== undefined && req.requested.modelProvider !== route.provider) {
-    diagnostics.push(
-      compileError(
-        'unsupported_provider',
-        `interactive ${route.frontend} requires provider ${route.provider}`,
-        { requested: req.requested.modelProvider, frontend: route.frontend }
-      )
-    )
-  }
-  if (requestedRuntime !== undefined && requestedRuntime !== route.runtime) {
-    diagnostics.push(
-      compileError(
-        'unsupported_runtime',
-        `interactive ${route.family} requires the ${route.runtime} runtime`,
-        { requested: requestedRuntime, frontend: route.frontend }
-      )
-    )
-  }
-
-  if (diagnostics.length > 0) return { diagnostics }
-  return { route, diagnostics }
-}
-
-/** Capability requirements for a foreground, operator-driven terminal session. */
-function foregroundCapabilities(): CapabilityRequirements {
-  return {
-    input: {
-      user: 'required',
-      steer: 'forbidden',
-      appendContext: 'forbidden',
-      localImages: 'optional',
-      fileRefs: 'optional',
-      queue: 'forbidden',
-    },
-    turns: {
-      concurrency: 'single',
-      interrupt: 'optional',
-    },
-    continuation: 'optional',
-    permissions: 'none',
-    events: {
-      assistantDeltas: 'optional',
-      toolCalls: 'optional',
-      usage: 'optional',
-      diagnostics: 'optional',
-    },
-    control: {
-      stop: 'optional',
-      dispose: 'optional',
-      reconcile: 'forbidden',
-      attachReplay: 'forbidden',
-    },
-    lifecycle: lifecycleCapabilityBaseline('unmanaged'),
-  }
-}
-
-function lifecycleCapabilityBaseline(
-  route: 'broker' | 'unmanaged'
-): CapabilityRequirements['lifecycle'] {
-  if (route === 'broker') {
-    return {
-      runtimeRetention: ['keep-alive'],
-      harnessRecovery: ['none'],
-      turnRetry: ['none'],
-      generationFencing: 'optional',
-      permissionCancellation: 'optional',
-    }
-  }
-  return {
-    runtimeRetention: ['unmanaged'],
-    harnessRecovery: ['none'],
-    turnRetry: ['none'],
-    generationFencing: 'forbidden',
-    permissionCancellation: 'forbidden',
-  }
-}
-
-function buildForegroundCompatibilityMaterial(
-  req: RuntimeCompileRequest,
-  process: TerminalExecutionProfile['process'],
-  route: ForegroundRoute,
-  bundleIdentity: string,
-  lockHash: string | undefined
-): unknown {
-  return {
-    bundle: { bundleIdentity, ...(lockHash !== undefined ? { lockHash } : {}) },
-    model: {
-      provider: route.provider,
-      requestedModel: req.requested.model,
-      reasoningEffort: req.requested.reasoningEffort,
-    },
-    process: {
-      command: process.command,
-      args: process.args,
-      cwd: process.cwd,
-      lockedEnv: process.lockedEnv,
-      pathPrepend: process.pathPrepend,
-      io: process.io,
-    },
-    terminal: {
-      host: 'foreground',
-      startupMethod: 'inherit-current-terminal',
-      turnDelivery: 'terminal-launch-input',
-    },
-    continuation:
-      req.continuation !== undefined
-        ? {
-            hrc: {
-              provider: req.continuation.hrc.provider,
-              continuationId: req.continuation.hrc.continuationId,
-            },
-            source: req.continuation.source,
-          }
-        : undefined,
-    policy: { exposurePolicy: { mode: 'none' } },
-  }
-}
-
 function toBrokerAttachments(
   attachments: RuntimeCompileRequest['materialization']['attachments']
 ): AttachmentRef[] | undefined {
@@ -913,8 +592,30 @@ function expectedCapabilities(
   }
 }
 
+function lifecycleCapabilityBaseline(
+  route: 'broker' | 'unmanaged'
+): CapabilityRequirements['lifecycle'] {
+  if (route === 'broker') {
+    return {
+      runtimeRetention: ['keep-alive'],
+      harnessRecovery: ['none'],
+      turnRetry: ['none'],
+      generationFencing: 'optional',
+      permissionCancellation: 'optional',
+    }
+  }
+  return {
+    runtimeRetention: ['unmanaged'],
+    harnessRecovery: ['none'],
+    turnRetry: ['none'],
+    generationFencing: 'forbidden',
+    permissionCancellation: 'forbidden',
+  }
+}
+
 function buildCompatibilityMaterial(
   req: RuntimeCompileRequest,
+  selection: ResolvedHarnessSelection,
   // Only `.spec` is read, so this accepts both the full start request and the
   // neutralized start-request projection.
   startRequest: {
@@ -940,9 +641,9 @@ function buildCompatibilityMaterial(
   return {
     bundle: { bundleIdentity, ...(lockHash !== undefined ? { lockHash } : {}) },
     model: {
-      provider: req.requested.modelProvider ?? 'openai',
-      requestedModel: req.requested.model,
-      reasoningEffort: req.requested.reasoningEffort,
+      provider: selection.modelProvider,
+      requestedModel: selection.model,
+      reasoningEffort: selection.reasoningEffort,
       driverModel: driver.kind === 'codex-app-server' ? driver.model : undefined,
     },
     process: {
@@ -983,48 +684,12 @@ function buildCompatibilityMaterial(
   }
 }
 
-/** Compiles an interactive request into a runtime plan. */
-type InteractiveCompileBuilder = (
+export type ResolvedRecipeBuilder = (
   req: RuntimeCompileRequest,
   placement: CompilePlacement,
+  resolved: ResolvedHarnessExecution,
   options?: CompileRuntimePlanOptions
 ) => Promise<RuntimeCompileResponse>
-
-/**
- * Families that route interactive requests to an operator-attachable
- * harness-broker (tmux) rather than the foreground TerminalExecutionProfile.
- * Mirrors the extensible `FOREGROUND_ROUTES` table: adding a tmux-broker family
- * is a one-line entry rather than a new boolean predicate + dispatch branch.
- */
-const INTERACTIVE_BROKER_BUILDERS: Partial<Record<HarnessFamily, InteractiveCompileBuilder>> = {
-  'claude-code': (req, placement, options) =>
-    compileTmuxBrokerPlan(req, placement, CLAUDE_TMUX_DRIVER_CONFIG, options),
-  codex: (req, placement, options) => compileBrokerPlan(req, placement, options, true),
-  pi: (req, placement, options) =>
-    compileTmuxBrokerPlan(req, placement, PI_TMUX_DRIVER_CONFIG, options),
-  muse: (req, placement, options) =>
-    compileTmuxBrokerPlan(req, placement, MUSE_TMUX_DRIVER_CONFIG, options),
-}
-
-/**
- * Resolve the interactive controller route by EXPLICIT compiler intent, never by
- * descriptive catalog array order (cody 0B mandate).
- *
- * The pre-HRC default for interactive claude-code/codex is the operator-attachable
- * harness-broker (claude-code-tmux / codex-cli-tmux). The foreground
- * TerminalExecutionProfile is selectable ONLY when the request carries
- * controllerIntent 'foreground-terminal'; other families fall through to the
- * foreground terminal as their interactive default. Returns the matching broker
- * builder, or `undefined` to fall through to the foreground plan.
- */
-function resolveInteractiveBrokerBuilder(
-  req: RuntimeCompileRequest
-): InteractiveCompileBuilder | undefined {
-  if (req.requested.controllerIntent === 'foreground-terminal') return undefined
-  const family = resolveRequestedFamily(req)
-  if (family === undefined) return undefined
-  return INTERACTIVE_BROKER_BUILDERS[family]
-}
 
 // Launch-timing instrumentation (diagnostic). The compiler has no logger of its
 // own and runs in-process: client-side for `hrc run --dry-run` previews (lands on
@@ -1034,10 +699,8 @@ function resolveInteractiveBrokerBuilder(
 // not a per-token hot loop.
 function emitAspCompileTiming(req: RuntimeCompileRequest, startedAtMs: number): void {
   const durMs = (performance.now() - startedAtMs).toFixed(1)
-  const mode = req.requested.interactionMode
-  const runtime = req.requested.preferredHarnessRuntime ?? '(unspecified)'
   process.stderr.write(
-    `[asp-timing] compileRuntimePlan dur=${durMs}ms mode=${mode} runtime=${runtime}\n`
+    `[asp-timing] compileRuntimePlan dur=${durMs}ms harness=${req.requested.harness ?? '(default)'} presentation=${String(req.requested.presentation ?? false)}\n`
   )
 }
 
@@ -1048,21 +711,22 @@ export async function compileRuntimePlan(
   const startedAtMs = performance.now()
   try {
     const placement = req.placement as CompilePlacement
-    if (req.requested.preferredHarnessRuntime === 'agent-harness') {
-      return await compileNativeAgentHarnessPlan(req, placement, options)
-    }
-    if (req.requested.interactionMode === 'interactive') {
-      const brokerBuilder = resolveInteractiveBrokerBuilder(req)
-      if (brokerBuilder) {
-        return await brokerBuilder(req, placement, options)
+    const resolved = resolveHarnessExecution({
+      agent: req.agent,
+      requested: req.requested,
+      ...(options?.provisioningLayers !== undefined
+        ? { provisioningLayers: options.provisioningLayers }
+        : {}),
+      consistency: { agentIds: [basename(placement.agentRoot)] },
+    })
+    if (!resolved.ok) {
+      return {
+        schemaVersion: 'agent-runtime-compile-response/v2',
+        ok: false,
+        diagnostics: [compileError(resolved.code, resolved.message, resolved.details)],
       }
-      return await compileForegroundPlan(req, placement, options)
     }
-    // nonInteractive + pi-sdk routes through the broker's in-process pi-sdk driver.
-    if (req.requested.preferredHarnessRuntime === 'pi-sdk') {
-      return await compilePiSdkBrokerPlan(req, placement, options)
-    }
-    return await compileBrokerPlan(req, placement, options)
+    return await BUILDER_REGISTRY[resolved.recipe.builder](req, placement, resolved, options)
   } catch (error) {
     // Compose-time hygiene gate block — convert the typed error to `ok: false`
     // with `materialization_hygiene_error` diagnostics HERE, at/below the compiler
@@ -1078,31 +742,17 @@ export async function compileRuntimePlan(
   }
 }
 
-async function compileBrokerPlan(
+export async function compileBrokerPlan(
   req: RuntimeCompileRequest,
   placement: CompilePlacement,
-  options?: CompileRuntimePlanOptions,
-  codexTui = false
+  resolved: ResolvedHarnessExecution,
+  options?: CompileRuntimePlanOptions
 ): Promise<RuntimeCompileResponse> {
-  const routeDiagnostics = codexTui ? [] : validateBrokerRoute(req)
-  if (routeDiagnostics.length > 0) {
-    return {
-      schemaVersion: 'agent-runtime-compile-response/v1',
-      ok: false,
-      diagnostics: routeDiagnostics,
-    }
-  }
-
-  // Headless broker family: codex unless the request names the muse family
-  // (explicit family, muse-cli runtime, or meta provider — validated above).
-  const requestedFamily = resolveRequestedFamily(req)
-  const isMuse =
-    requestedFamily === 'muse' ||
-    req.requested.preferredHarnessRuntime === 'muse-cli' ||
-    req.requested.modelProvider === 'meta'
+  const isMuse = resolved.recipe.builder === 'muse-serve'
+  const codexTui = resolved.selection.presentation
   const brokerProvider = isMuse ? ('meta' as const) : ('openai' as const)
   const brokerFrontend = isMuse ? ('muse-cli' as const) : ('codex-cli' as const)
-  const brokerDriverKind = isMuse ? ('muse-serve' as const) : ('codex-app-server' as const)
+  const brokerDriverKind = resolved.recipe.driver as 'muse-serve' | 'codex-app-server'
 
   const permissionPolicy = req.hrcPolicy.permissionPolicy ?? {
     mode: 'deny',
@@ -1128,8 +778,8 @@ async function compileBrokerPlan(
           codexHookEvents: ['Stop', 'PostToolUse'] as const,
         }
       : {}),
-    model: req.requested.model,
-    modelReasoningEffort: req.requested.reasoningEffort,
+    model: resolved.selection.model,
+    modelReasoningEffort: resolved.selection.reasoningEffort,
     continuation:
       req.continuation?.hrc.key !== undefined
         ? { provider: brokerProvider, key: req.continuation.hrc.key }
@@ -1182,7 +832,14 @@ async function compileBrokerPlan(
     startRequest: hashStartRequest,
   }) as ProfileId
   const compatibilityHash = hashValue(
-    buildCompatibilityMaterial(req, hashStartRequest, bundleIdentity, lockHash, lockedEnv)
+    buildCompatibilityMaterial(
+      req,
+      resolved.selection,
+      hashStartRequest,
+      bundleIdentity,
+      lockHash,
+      lockedEnv
+    )
   )
   const specHash = neutralSpecHash(spec)
   const startRequestHash = neutralStartRequestHash(startRequest)
@@ -1195,75 +852,11 @@ async function compileBrokerPlan(
   // activation env (ASP_HEADLESS_DURABLE_BROKER) is REMOVED entirely: a stale env
   // var has no effect, and there is no v0.1 path to fall back to.
 
-  const profileMaterial = {
-    schemaVersion: 'agent-runtime-profile/v1' as const,
-    profileId,
-    kind: 'harness-broker' as const,
-    interactionMode: codexTui ? ('interactive' as const) : ('headless' as const),
-    expectedCapabilities: expectedCapabilities(permissionPolicy, {
-      inputQueue: 'required',
-      attachReplay: 'optional' as const,
-      ...(isMuse ? { fileRefs: 'optional' as const } : {}),
-    }),
-    brokerProtocol: 'harness-broker/0.2' as const,
-    brokerDriver: brokerDriverKind,
-    brokerOwnership: 'hrc-owned-process' as const,
-    ...(codexTui ? { brokerTerminal: TMUX_BROKER_TERMINAL } : {}),
-    harnessInvocation: {
-      startRequest,
-      specHash,
-      startRequestHash,
-      ...(initialInputHash !== undefined ? { initialInputHash } : {}),
-    },
-    policy: {
-      permissionPolicy,
-      inputPolicy,
-      exposurePolicy,
-      ...(req.hrcPolicy.resourceLimits !== undefined
-        ? { resourceLimits: req.hrcPolicy.resourceLimits }
-        : {}),
-    },
-    ...(req.continuation !== undefined
-      ? {
-          continuation: {
-            hrc: req.continuation,
-            broker: req.continuation.broker,
-          },
-        }
-      : {}),
-    observability: brokerObservability(
-      req,
-      startRequest.spec.invocationId ??
-        req.identity.invocationId ??
-        (profileId as unknown as InvocationId)
-    ),
-  }
-  const profileHash = projectionHash(
-    {
-      ...profileMaterial,
-      harnessInvocation: {
-        startRequest: hashStartRequest,
-        specHash: profileMaterial.harnessInvocation.specHash,
-        startRequestHash: profileMaterial.harnessInvocation.startRequestHash,
-      },
-      observability: {
-        correlation: hashNeutralCompileIdentity(req.identity),
-      },
-      compatibilityHash,
-    },
-    'profile'
-  ).profileHash
-
-  const profile: BrokerExecutionProfile = {
-    ...profileMaterial,
-    profileHash,
-    compatibilityHash,
-  }
-
   return finalizePlan({
     req,
-    profileHash,
-    profileId,
+    resolved,
+    startRequest,
+    compatibilityHash,
     preparedWarnings: brokerInvocation.warnings,
     ...hygieneWarningsInput(prepared),
     effectiveEnvironmentHash: prepared.preparation.effectiveEnvironmentHash,
@@ -1272,24 +865,6 @@ async function compileBrokerPlan(
     omitPriming: prepared.omitPriming,
     bundleIdentity,
     placement,
-    agentPolicy: prepared.placementContext.agentPolicy,
-    harness: {
-      family: isMuse ? ('muse' as const) : ('codex' as const),
-      runtime: isMuse ? ('muse-cli' as const) : ('codex-cli' as const),
-      provider: brokerProvider,
-    },
-    model: {
-      provider: brokerProvider,
-      modelId:
-        prepared.runtimePlan.model.ok === true
-          ? prepared.runtimePlan.model.info.model
-          : (req.requested.model ?? 'unknown'),
-      ...(req.requested.model !== undefined ? { requestedModel: req.requested.model } : {}),
-      ...(req.requested.reasoningEffort !== undefined
-        ? { reasoningEffort: req.requested.reasoningEffort }
-        : {}),
-    },
-    executionProfiles: [profile],
     materializedBundleRoot: prepared.materialized.materialization.outputPath,
     ...(prepared.systemPrompt?.path !== undefined
       ? { systemPromptFile: prepared.systemPrompt.path }
@@ -1297,291 +872,8 @@ async function compileBrokerPlan(
     ...(lockHash !== undefined ? { lockHash } : {}),
     lockedEnvKeys,
     nowIso: options?.compileContext?.nowIso,
+    dispatch: options?.dispatch,
   })
-}
-
-function validatePiSdkBrokerRoute(req: RuntimeCompileRequest): CompileDiagnostic[] {
-  const diagnostics: CompileDiagnostic[] = []
-  if (req.requested.interactionMode === undefined) {
-    diagnostics.push(
-      compileError(
-        'unsupported_interaction_mode',
-        'pi-sdk broker compile requires an explicit nonInteractive interactionMode',
-        { requested: null }
-      )
-    )
-  } else if (req.requested.interactionMode !== 'nonInteractive') {
-    diagnostics.push(
-      compileError(
-        'unsupported_interaction_mode',
-        'pi-sdk broker compile requires interactionMode nonInteractive',
-        { requested: req.requested.interactionMode }
-      )
-    )
-  }
-  if (req.requested.harnessFamily !== undefined && req.requested.harnessFamily !== 'pi') {
-    diagnostics.push(
-      compileError('unsupported_harness', 'pi-sdk broker compile requires harnessFamily pi', {
-        requested: req.requested.harnessFamily,
-      })
-    )
-  }
-  return diagnostics
-}
-
-function selectPiSdkModelCatalogEntry(
-  provider: ProviderDomain,
-  requestedModel: string | undefined,
-  prepared: PreparedPlacementCliRuntime
-): { alias: string; model: PiSdkModelCatalogEntry } | undefined {
-  const selectedModel =
-    requestedModel ??
-    (provider === 'anthropic'
-      ? 'anthropic/claude-sonnet-4-5'
-      : prepared.runtimePlan.model.ok === true
-        ? prepared.runtimePlan.model.info.effectiveModel
-        : 'openai-codex/gpt-5.5')
-  const alias = selectedModel.includes('/') ? selectedModel : `${provider}/${selectedModel}`
-  const model = findPiSdkModelCatalogEntry(provider, alias)
-  return model === undefined ? undefined : { alias, model }
-}
-
-async function compilePiSdkBrokerPlan(
-  req: RuntimeCompileRequest,
-  placement: CompilePlacement,
-  options?: CompileRuntimePlanOptions
-): Promise<RuntimeCompileResponse> {
-  const routeDiagnostics = validatePiSdkBrokerRoute(req)
-  if (routeDiagnostics.length > 0) {
-    return {
-      schemaVersion: 'agent-runtime-compile-response/v1',
-      ok: false,
-      diagnostics: routeDiagnostics,
-    }
-  }
-
-  const provider = req.requested.modelProvider ?? 'openai'
-  const prepared = await preparePiSdkSession(req, placement, options)
-  const selectedModel = selectPiSdkModelCatalogEntry(provider, req.requested.model, prepared)
-  if (selectedModel === undefined) {
-    return {
-      schemaVersion: 'agent-runtime-compile-response/v1',
-      ok: false,
-      diagnostics: [
-        compileError(
-          'unsupported_model',
-          `No pi-sdk model catalog row matches provider ${provider} and model ${req.requested.model ?? '(default)'}`,
-          { requested: req.requested.model ?? null }
-        ),
-      ],
-    }
-  }
-  const { alias: modelId, model: modelRoute } = selectedModel
-  const permissionPolicy = req.hrcPolicy.permissionPolicy ?? {
-    mode: 'deny',
-    audit: true,
-  }
-  const inputPolicy: BrokerInputPolicy =
-    req.hrcPolicy.inputPolicy ?? DEFAULT_CODEX_BROKER_INPUT_POLICY
-  const exposurePolicy: AgentchatExposurePolicy = req.hrcPolicy.exposurePolicy ?? { mode: 'none' }
-  const attachments = toBrokerAttachments(req.materialization.attachments)
-  const taskId = req.materialization.taskContext?.taskId
-  const brokerReq: BuildHarnessBrokerInvocationRequest = {
-    placement,
-    provider,
-    frontend: 'pi-sdk',
-    interactionMode: 'headless',
-    brokerDriver: 'pi-sdk',
-    harnessTransport: { kind: 'in-process' },
-    sdk: {
-      runtime: 'pi-sdk',
-      provider: modelRoute.piProvider,
-      modelId: modelRoute.piModelId,
-      authMode: modelRoute.authMode,
-      ...(req.requested.reasoningEffort !== undefined
-        ? { thinkingLevel: req.requested.reasoningEffort }
-        : {}),
-    },
-    ...(req.continuation?.hrc.key !== undefined
-      ? { continuation: { provider, key: req.continuation.hrc.key } }
-      : {}),
-    prompt: req.materialization.initialPrompt,
-    omitPriming: req.materialization.omitPriming,
-    ...(req.materialization.responseFormat !== undefined
-      ? { responseFormat: req.materialization.responseFormat }
-      : {}),
-    ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
-    ...(req.identity.invocationId !== undefined ? { invocationId: req.identity.invocationId } : {}),
-    ...(req.identity.initialInputId !== undefined
-      ? { initialInputId: req.identity.initialInputId }
-      : {}),
-    ...(options?.compileContext?.idSalt !== undefined
-      ? { idSalt: options.compileContext.idSalt }
-      : {}),
-    generation: req.identity.generation,
-    ...(taskId !== undefined ? { labels: { task: taskId } } : {}),
-    correlation: brokerCorrelation(req),
-    permissionPolicy: toBrokerPermissionPolicy(permissionPolicy),
-    limits: toProcessLimits(req.hrcPolicy.resourceLimits),
-    interaction: { inputQueue: 'fifo' },
-    resumeFallback: 'fail',
-  }
-
-  validateBrokerInvocationRequest(brokerReq)
-  const brokerInvocation = toHarnessBrokerStartRequest(prepared, brokerReq)
-  const startRequest = brokerInvocation.startRequest
-  const spec = brokerInvocation.spec
-  const lockedEnv = spec.process.lockedEnv ?? {}
-  const lockedEnvKeys = Object.keys(lockedEnv).sort()
-  const bundleIdentity = brokerInvocation.resolvedBundle?.bundleIdentity ?? 'unknown'
-  const lockHash = (
-    brokerInvocation.resolvedBundle as { lockHash?: string | undefined } | undefined
-  )?.lockHash
-  const hashStartRequest = hashNeutralStartRequest(startRequest)
-  const profileId = stableId('profile', {
-    kind: 'harness-broker',
-    brokerDriver: 'pi-sdk',
-    startRequest: hashStartRequest,
-  }) as ProfileId
-  const compatibilityHash = hashValue(
-    buildCompatibilityMaterial(req, hashStartRequest, bundleIdentity, lockHash, lockedEnv)
-  )
-  const specHash = neutralSpecHash(spec)
-  const startRequestHash = neutralStartRequestHash(startRequest)
-  const initialInputHash =
-    startRequest.initialInput !== undefined ? hashValue(startRequest.initialInput) : undefined
-
-  const profileMaterial = {
-    schemaVersion: 'agent-runtime-profile/v1' as const,
-    profileId,
-    kind: 'harness-broker' as const,
-    interactionMode: 'nonInteractive' as const,
-    expectedCapabilities: expectedCapabilities(permissionPolicy, {
-      inputQueue: 'required',
-      attachReplay: 'optional',
-    }),
-    brokerProtocol: 'harness-broker/0.2' as const,
-    brokerDriver: 'pi-sdk',
-    brokerOwnership: 'hrc-owned-process' as const,
-    harnessInvocation: {
-      startRequest,
-      specHash,
-      startRequestHash,
-      ...(initialInputHash !== undefined ? { initialInputHash } : {}),
-    },
-    policy: {
-      permissionPolicy,
-      inputPolicy,
-      exposurePolicy,
-      ...(req.hrcPolicy.resourceLimits !== undefined
-        ? { resourceLimits: req.hrcPolicy.resourceLimits }
-        : {}),
-    },
-    ...(req.continuation !== undefined
-      ? {
-          continuation: {
-            hrc: req.continuation,
-            broker: req.continuation.broker,
-          },
-        }
-      : {}),
-    observability: brokerObservability(
-      req,
-      startRequest.spec.invocationId ??
-        req.identity.invocationId ??
-        (profileId as unknown as InvocationId)
-    ),
-  }
-  const profileHash = projectionHash(
-    {
-      ...profileMaterial,
-      harnessInvocation: {
-        startRequest: hashStartRequest,
-        specHash: profileMaterial.harnessInvocation.specHash,
-        startRequestHash: profileMaterial.harnessInvocation.startRequestHash,
-      },
-      observability: { correlation: hashNeutralCompileIdentity(req.identity) },
-      compatibilityHash,
-    },
-    'profile'
-  ).profileHash
-  const profile: BrokerExecutionProfile = {
-    ...profileMaterial,
-    profileHash,
-    compatibilityHash,
-  }
-
-  const validationDiagnostics = validateBrokerExecutionProfile(profile)
-  if (validationDiagnostics.length > 0) {
-    return {
-      schemaVersion: 'agent-runtime-compile-response/v1',
-      ok: false,
-      diagnostics: validationDiagnostics,
-    }
-  }
-
-  return finalizePlan({
-    req,
-    profileHash,
-    profileId,
-    preparedWarnings: brokerInvocation.warnings,
-    ...hygieneWarningsInput(prepared),
-    effectiveEnvironmentHash: prepared.preparation.effectiveEnvironmentHash,
-    disallowedToolsContext: { selectedDriver: 'pi-sdk' },
-    resolvedBundleSource: brokerInvocation.resolvedBundle,
-    omitPriming: prepared.omitPriming,
-    bundleIdentity,
-    placement,
-    agentPolicy: prepared.placementContext.agentPolicy,
-    harness: { family: 'pi', runtime: 'pi-sdk', provider },
-    model: {
-      provider,
-      modelId,
-      ...(req.requested.model !== undefined ? { requestedModel: req.requested.model } : {}),
-      ...(req.requested.reasoningEffort !== undefined
-        ? { reasoningEffort: req.requested.reasoningEffort }
-        : {}),
-    },
-    executionProfiles: [profile],
-    materializedBundleRoot: prepared.materialized.materialization.outputPath,
-    ...(prepared.systemPrompt?.path !== undefined
-      ? { systemPromptFile: prepared.systemPrompt.path }
-      : {}),
-    ...(lockHash !== undefined ? { lockHash } : {}),
-    lockedEnvKeys,
-    nowIso: options?.compileContext?.nowIso,
-  })
-}
-
-function validateNativeAgentHarnessRoute(req: RuntimeCompileRequest): CompileDiagnostic[] {
-  const diagnostics: CompileDiagnostic[] = []
-  if (req.requested.harnessFamily !== undefined && req.requested.harnessFamily !== 'pi') {
-    diagnostics.push(
-      compileError('unsupported_harness', 'agent-harness requires harnessFamily pi', {
-        requested: req.requested.harnessFamily,
-      })
-    )
-  }
-  if (req.requested.modelProvider !== undefined && req.requested.modelProvider !== 'openai') {
-    diagnostics.push(
-      compileError('unsupported_provider', 'agent-harness requires modelProvider openai', {
-        requested: req.requested.modelProvider,
-      })
-    )
-  }
-  if (
-    req.requested.interactionMode !== 'headless' &&
-    req.requested.interactionMode !== 'interactive'
-  ) {
-    diagnostics.push(
-      compileError(
-        'unsupported_interaction_mode',
-        'agent-harness requires interactionMode headless or interactive',
-        { requested: req.requested.interactionMode ?? null }
-      )
-    )
-  }
-  return diagnostics
 }
 
 function nativeAgentHarnessSpec(
@@ -1618,23 +910,16 @@ function resolvedReasoningEffort(
  * release-selected worker owns the driver; this compiler only emits its
  * hash-covered runtime inputs and HRC presentation intent.
  */
-async function compileNativeAgentHarnessPlan(
+export async function compileNativeAgentHarnessPlan(
   req: RuntimeCompileRequest,
   placement: CompilePlacement,
+  execution: ResolvedHarnessExecution,
   options?: CompileRuntimePlanOptions
 ): Promise<RuntimeCompileResponse> {
-  const routeDiagnostics = validateNativeAgentHarnessRoute(req)
-  if (routeDiagnostics.length > 0) {
-    return {
-      schemaVersion: 'agent-runtime-compile-response/v1',
-      ok: false,
-      diagnostics: routeDiagnostics,
-    }
-  }
-
-  const interactionMode = req.requested.interactionMode as 'headless' | 'interactive'
-  const driverKind =
-    interactionMode === 'interactive' ? ('agent-harness-tmux' as const) : ('agent-harness' as const)
+  const interactionMode = execution.selection.presentation
+    ? ('interactive' as const)
+    : ('headless' as const)
+  const driverKind = execution.recipe.driver as 'agent-harness' | 'agent-harness-tmux'
   const promptSources = promptSourcesForCompile(options?.clientAspHome)
   const semanticAgent = nativeAgentHarnessSpec(req, placement, promptSources.aspHome)
   const preparation = buildPreparationExecutionContext(placement, {
@@ -1644,14 +929,14 @@ async function compileNativeAgentHarnessPlan(
       ...(semanticAgent.projectId !== undefined ? { projectId: semanticAgent.projectId } : {}),
     },
   })
-  const resolved = await loadAgentSemantics(
+  const semantics = await loadAgentSemantics(
     {
       ...semanticAgent,
       cwd: placement.cwd,
-      provider: 'openai',
-      ...(req.requested.model !== undefined ? { model: req.requested.model } : {}),
-      ...(req.requested.reasoningEffort !== undefined
-        ? { reasoningEffort: req.requested.reasoningEffort }
+      provider: execution.selection.modelProvider as 'openai' | 'anthropic',
+      model: execution.selection.model,
+      ...(execution.selection.reasoningEffort !== undefined
+        ? { reasoningEffort: execution.selection.reasoningEffort }
         : {}),
       ...(placement.lockedEnv !== undefined ? { lockedEnv: placement.lockedEnv } : {}),
       ...(placement.dispatchEnv !== undefined ? { dispatchEnv: placement.dispatchEnv } : {}),
@@ -1661,20 +946,20 @@ async function compileNativeAgentHarnessPlan(
   )
   const resolvedAgent = {
     ...semanticAgent,
-    agentId: resolved.agentId,
-    ...(resolved.projectId !== undefined ? { projectId: resolved.projectId } : {}),
-    agentRoot: resolved.placement.agentRoot,
-    ...(resolved.placement.projectRoot !== undefined
-      ? { projectRoot: resolved.placement.projectRoot }
+    agentId: semantics.agentId,
+    ...(semantics.projectId !== undefined ? { projectId: semantics.projectId } : {}),
+    agentRoot: semantics.placement.agentRoot,
+    ...(semantics.placement.projectRoot !== undefined
+      ? { projectRoot: semantics.placement.projectRoot }
       : {}),
-    aspHome: resolved.aspHome,
-    runMode: resolved.placement.runMode,
+    aspHome: semantics.aspHome,
+    runMode: semantics.placement.runMode,
   }
 
   const permissionPolicy = req.hrcPolicy.permissionPolicy ?? { mode: 'deny' as const, audit: true }
   if (interactionMode === 'interactive' && permissionPolicy.mode === 'ask-client') {
     return {
-      schemaVersion: 'agent-runtime-compile-response/v1',
+      schemaVersion: 'agent-runtime-compile-response/v2',
       ok: false,
       diagnostics: [
         compileError(
@@ -1688,32 +973,32 @@ async function compileNativeAgentHarnessPlan(
     req.hrcPolicy.inputPolicy ?? DEFAULT_CODEX_BROKER_INPUT_POLICY
   const attachments = toBrokerAttachments(req.materialization.attachments)
   const taskId = req.materialization.taskContext?.taskId
-  const modelRoute = resolved.model
+  const modelRoute = semantics.model
   const modelId = modelRoute.alias
   const reasoningEffort = resolvedReasoningEffort(
-    req.requested.reasoningEffort ?? resolved.reasoningEffort
+    execution.selection.reasoningEffort ?? semantics.reasoningEffort
   )
   const initialPrompt = combineBrokerPrompts(
     req.continuation === undefined
-      ? resolved.sources.placementContext.materialization.effectiveConfig?.priming
+      ? semantics.sources.placementContext.materialization.effectiveConfig?.priming
       : undefined,
     req.materialization.initialPrompt,
     req.materialization.omitPriming ?? false
   )
   const prepared = {
-    cwd: resolved.sources.cwd,
+    cwd: semantics.sources.cwd,
     // The profile serializes declared worker-local locks, never the resolved
     // environment (which can contain credentials). The worker reloads source
     // resources through the same semantic agent block at birth/replacement.
     lockedEnv: { ...(placement.lockedEnv ?? {}) },
-    pathPrepend: resolved.sources.pathPrepend,
+    pathPrepend: semantics.sources.pathPrepend,
     ...(initialPrompt !== undefined ? { expandedPrompt: initialPrompt } : {}),
     imageAttachmentPaths: (req.materialization.attachments ?? [])
       .filter((attachment) => attachment.kind === 'image')
       .map((attachment) => attachment.path)
       .filter((path): path is string => path !== undefined),
-    resolvedBundle: resolved.sources.placementContext.resolvedBundle,
-    warnings: resolved.warnings,
+    resolvedBundle: semantics.sources.placementContext.resolvedBundle,
+    warnings: semantics.warnings,
   }
   const brokerReq: BuildHarnessBrokerInvocationRequest = {
     placement,
@@ -1768,74 +1053,24 @@ async function compileNativeAgentHarnessPlan(
     startRequest: hashStartRequest,
   }) as ProfileId
   const compatibilityHash = hashValue(
-    buildCompatibilityMaterial(req, hashStartRequest, bundleIdentity, lockHash, lockedEnv)
+    buildCompatibilityMaterial(
+      req,
+      execution.selection,
+      hashStartRequest,
+      bundleIdentity,
+      lockHash,
+      lockedEnv
+    )
   )
   const specHash = neutralSpecHash(spec)
   const startRequestHash = neutralStartRequestHash(startRequest)
   const initialInputHash =
     startRequest.initialInput !== undefined ? hashValue(startRequest.initialInput) : undefined
-  const profileMaterial = {
-    schemaVersion: 'agent-runtime-profile/v1' as const,
-    profileId,
-    kind: 'harness-broker' as const,
-    interactionMode,
-    expectedCapabilities: expectedCapabilities(permissionPolicy, {
-      inputQueue: 'required',
-      attachReplay: 'optional',
-    }),
-    brokerProtocol: 'harness-broker/0.2' as const,
-    brokerDriver: driverKind,
-    brokerOwnership: 'hrc-owned-process' as const,
-    ...(interactionMode === 'interactive' ? { brokerTerminal: TMUX_BROKER_TERMINAL } : {}),
-    harnessInvocation: {
-      startRequest,
-      specHash,
-      startRequestHash,
-      ...(initialInputHash !== undefined ? { initialInputHash } : {}),
-    },
-    policy: {
-      permissionPolicy,
-      inputPolicy,
-      exposurePolicy:
-        interactionMode === 'interactive'
-          ? TMUX_BROKER_EXPOSURE_POLICY
-          : (req.hrcPolicy.exposurePolicy ?? { mode: 'none' as const }),
-      ...(req.hrcPolicy.resourceLimits !== undefined
-        ? { resourceLimits: req.hrcPolicy.resourceLimits }
-        : {}),
-    },
-    ...(req.continuation !== undefined
-      ? { continuation: { hrc: req.continuation, broker: req.continuation.broker } }
-      : {}),
-    observability: brokerObservability(
-      req,
-      startRequest.spec.invocationId ??
-        req.identity.invocationId ??
-        (profileId as unknown as InvocationId)
-    ),
-  }
-  const profileHash = projectionHash(
-    {
-      ...profileMaterial,
-      harnessInvocation: { startRequest: hashStartRequest, specHash, startRequestHash },
-      observability: { correlation: hashNeutralCompileIdentity(req.identity) },
-      compatibilityHash,
-    },
-    'profile'
-  ).profileHash
-  const profile: BrokerExecutionProfile = { ...profileMaterial, profileHash, compatibilityHash }
-  const validationDiagnostics = validateBrokerExecutionProfile(profile)
-  if (validationDiagnostics.length > 0) {
-    return {
-      schemaVersion: 'agent-runtime-compile-response/v1',
-      ok: false,
-      diagnostics: validationDiagnostics,
-    }
-  }
   return finalizePlan({
     req,
-    profileHash,
-    profileId,
+    resolved: execution,
+    startRequest,
+    compatibilityHash,
     preparedWarnings: brokerInvocation.warnings,
     effectiveEnvironmentHash: preparation.effectiveEnvironmentHash,
     disallowedToolsContext: { selectedDriver: driverKind },
@@ -1843,18 +1078,10 @@ async function compileNativeAgentHarnessPlan(
     omitPriming: req.materialization.omitPriming ?? false,
     bundleIdentity,
     placement,
-    agentPolicy: resolved.sources.placementContext.agentPolicy,
-    harness: { family: 'pi', runtime: 'agent-harness', provider: 'openai' },
-    model: {
-      provider: 'openai',
-      modelId,
-      ...(req.requested.model !== undefined ? { requestedModel: req.requested.model } : {}),
-      ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
-    },
-    executionProfiles: [profile],
     ...(lockHash !== undefined ? { lockHash } : {}),
     lockedEnvKeys,
     nowIso: options?.compileContext?.nowIso,
+    dispatch: options?.dispatch,
   })
 }
 
@@ -1867,236 +1094,6 @@ async function compileNativeAgentHarnessPlan(
  * for argv. Foreground is caller-owned (exposurePolicy {mode:'none'}), inherits
  * the operator's TTY (io {kind:'inherit'}), and delivers at most one launch turn
  * (turnDelivery 'terminal-launch-input').
- */
-async function compileForegroundPlan(
-  req: RuntimeCompileRequest,
-  placement: CompilePlacement,
-  options?: CompileRuntimePlanOptions
-): Promise<RuntimeCompileResponse> {
-  const routed = resolveForegroundRoute(req)
-  if (!('route' in routed)) {
-    return {
-      schemaVersion: 'agent-runtime-compile-response/v1',
-      ok: false,
-      diagnostics: routed.diagnostics,
-    }
-  }
-  const route = routed.route
-  // Resolve the frontend up front so an unknown frontend surfaces as a thrown
-  // CodedError before the heavier prepare path runs.
-  resolveFrontend(route.frontend)
-
-  const attachments = toBrokerAttachments(req.materialization.attachments)
-  const prepared = await preparePlacementCliRuntime(
-    {
-      provider: route.provider,
-      frontend: route.frontend,
-      interactionMode: 'interactive',
-      ...(req.requested.model !== undefined ? { model: req.requested.model } : {}),
-      ...(req.requested.reasoningEffort !== undefined
-        ? { modelReasoningEffort: req.requested.reasoningEffort }
-        : {}),
-      ...(req.continuation?.hrc.key !== undefined
-        ? {
-            continuation: {
-              provider: route.provider,
-              key: req.continuation.hrc.key,
-            },
-          }
-        : {}),
-      ...(req.materialization.initialPrompt !== undefined
-        ? { prompt: req.materialization.initialPrompt }
-        : {}),
-      ...(req.materialization.omitPriming !== undefined
-        ? { omitPriming: req.materialization.omitPriming }
-        : {}),
-      ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
-      ...(placement.env !== undefined ? { env: placement.env } : {}),
-      ...(placement.lockedEnv !== undefined ? { lockedEnv: placement.lockedEnv } : {}),
-      ...(placement.dispatchEnv !== undefined ? { dispatchEnv: placement.dispatchEnv } : {}),
-      materializeCodexRuntimeHome: options?.materializeCodexRuntimeHome,
-      placement,
-    },
-    options?.clientAspHome,
-    options?.clientRegistryPath,
-    options?.clientRuntime
-  )
-
-  const lockedEnv = prepared.lockedEnv
-  const lockedEnvKeys = Object.keys(lockedEnv).sort()
-  const bundleIdentity = prepared.resolvedBundle?.bundleIdentity ?? 'unknown'
-  const lockHash = (prepared.resolvedBundle as { lockHash?: string | undefined } | undefined)
-    ?.lockHash
-
-  const processSpec: TerminalExecutionProfile['process'] = {
-    command: prepared.commandPath,
-    args: prepared.args,
-    cwd: prepared.cwd,
-    lockedEnv,
-    ...(prepared.pathPrepend.length > 0 ? { pathPrepend: prepared.pathPrepend } : {}),
-    io: { kind: 'inherit' },
-  }
-
-  const compatibilityHash = hashValue(
-    buildForegroundCompatibilityMaterial(req, processSpec, route, bundleIdentity, lockHash)
-  )
-  const profileId = stableId('profile', {
-    kind: 'terminal',
-    host: 'foreground',
-    command: processSpec.command,
-    args: processSpec.args,
-    cwd: processSpec.cwd,
-  }) as ProfileId
-
-  const profileMaterial = {
-    schemaVersion: 'agent-runtime-profile/v1' as const,
-    profileId,
-    kind: 'terminal' as const,
-    interactionMode: 'interactive' as const,
-    expectedCapabilities: foregroundCapabilities(),
-    terminal: {
-      host: 'foreground' as const,
-      startupMethod: 'inherit-current-terminal' as const,
-      turnDelivery: 'terminal-launch-input' as const,
-    },
-    process: processSpec,
-    policy: {
-      exposurePolicy: { mode: 'none' as const },
-      ...(req.hrcPolicy.resourceLimits !== undefined
-        ? { resourceLimits: req.hrcPolicy.resourceLimits }
-        : {}),
-    },
-  }
-  const profileHash = projectionHash(
-    { ...profileMaterial, compatibilityHash },
-    'profile'
-  ).profileHash
-  const profile: TerminalExecutionProfile = {
-    ...profileMaterial,
-    profileHash,
-    compatibilityHash,
-  }
-
-  const validationDiagnostics = validateTerminalExecutionProfile(profile)
-  if (validationDiagnostics.length > 0) {
-    return {
-      schemaVersion: 'agent-runtime-compile-response/v1',
-      ok: false,
-      diagnostics: validationDiagnostics,
-    }
-  }
-
-  return finalizePlan({
-    req,
-    profileHash,
-    profileId,
-    preparedWarnings: prepared.warnings,
-    ...hygieneWarningsInput(prepared),
-    effectiveEnvironmentHash: prepared.preparation.effectiveEnvironmentHash,
-    disallowedToolsContext: {
-      selectedDriver: `${route.frontend}:foreground-terminal`,
-    },
-    resolvedBundleSource: prepared.resolvedBundle,
-    omitPriming: prepared.omitPriming,
-    bundleIdentity,
-    placement,
-    agentPolicy: prepared.placementContext.agentPolicy,
-    harness: {
-      family: route.family,
-      runtime: route.runtime,
-      provider: route.provider,
-    },
-    model: {
-      provider: route.provider,
-      modelId:
-        prepared.runtimePlan.model.ok === true
-          ? prepared.runtimePlan.model.info.model
-          : (req.requested.model ?? 'unknown'),
-      ...(req.requested.model !== undefined ? { requestedModel: req.requested.model } : {}),
-      ...(req.requested.reasoningEffort !== undefined
-        ? { reasoningEffort: req.requested.reasoningEffort }
-        : {}),
-    },
-    executionProfiles: [profile],
-    materializedBundleRoot: prepared.materialized.materialization.outputPath,
-    ...(prepared.systemPrompt?.path !== undefined
-      ? { systemPromptFile: prepared.systemPrompt.path }
-      : {}),
-    ...(lockHash !== undefined ? { lockHash } : {}),
-    lockedEnvKeys,
-    nowIso: options?.compileContext?.nowIso,
-  })
-}
-
-/**
- * Prepare the pi-sdk broker launch shape (cwd/lockedEnv/pathPrepend/model) from
- * the SAME preparePlacementCliRuntime path the foreground/broker branches use, so
- * the driver composes env exactly like a launched harness process. The
- * pi-sdk model catalog is namespaced (`openai-codex/<model>`); a bare requested
- * model (e.g. `gpt-5.5`) that the adapter does not recognize falls back to the
- * pi-sdk default rather than failing the compile — honoring an explicit pi-sdk
- * model id when one is given.
- */
-async function preparePiSdkSession(
-  req: RuntimeCompileRequest,
-  placement: CompilePlacement,
-  options?: CompileRuntimePlanOptions
-): Promise<PreparedPlacementCliRuntime> {
-  const attachments = toBrokerAttachments(req.materialization.attachments)
-  const baseReq = {
-    provider: 'openai' as ProviderDomain,
-    frontend: PI_SDK_FRONTEND,
-    interactionMode: 'nonInteractive' as const,
-    ...(req.continuation?.hrc.key !== undefined
-      ? {
-          continuation: {
-            provider: 'openai' as ProviderDomain,
-            key: req.continuation.hrc.key,
-          },
-        }
-      : {}),
-    ...(req.materialization.initialPrompt !== undefined
-      ? { prompt: req.materialization.initialPrompt }
-      : {}),
-    ...(req.materialization.omitPriming !== undefined
-      ? { omitPriming: req.materialization.omitPriming }
-      : {}),
-    ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
-    ...(placement.env !== undefined ? { env: placement.env } : {}),
-    ...(placement.lockedEnv !== undefined ? { lockedEnv: placement.lockedEnv } : {}),
-    ...(placement.dispatchEnv !== undefined ? { dispatchEnv: placement.dispatchEnv } : {}),
-    materializeCodexRuntimeHome: options?.materializeCodexRuntimeHome,
-    placement,
-  }
-  try {
-    return await preparePlacementCliRuntime(
-      {
-        ...baseReq,
-        ...(req.requested.model !== undefined ? { model: req.requested.model } : {}),
-      },
-      options?.clientAspHome,
-      options?.clientRegistryPath,
-      options?.clientRuntime
-    )
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    if (req.requested.model !== undefined && /Model not supported/.test(message)) {
-      return await preparePlacementCliRuntime(
-        baseReq,
-        options?.clientAspHome,
-        options?.clientRegistryPath,
-        options?.clientRuntime
-      )
-    }
-    throw error
-  }
-}
-
-/**
- * The pre-HRC interactive claude-code surface is an operator-attachable tmux
- * session, exposed via the broker-reports-target policy (PLANE_SPEC AD-010).
- * Both policy.exposurePolicy and brokerTerminal.exposurePolicy carry this exact
- * literal; the broker validator asserts they are identical.
  */
 const TMUX_BROKER_EXPOSURE_POLICY = {
   mode: 'broker-reports-target',
@@ -2157,26 +1154,32 @@ function buildTmuxLaunchSpec(prepared: PreparedPlacementCliRuntime): HarnessLaun
  * carries `hookBridge: 'codex-hooks/v1'` on the spec driver descriptor.
  */
 interface TmuxBrokerDriverConfig {
-  driverKind: 'claude-code-tmux' | 'codex-cli-tmux' | 'pi-tui-tmux' | 'muse-cli-tmux'
+  driverKind: 'claude-code-tmux' | 'muse-cli-tmux'
+  provider: 'anthropic' | 'meta'
+  frontend: 'claude-code' | 'muse-cli'
   hookBridge?: 'codex-hooks/v1' | 'pi-hrc-events/v1'
   honorDisallowedTools: boolean
 }
 
 const CLAUDE_TMUX_DRIVER_CONFIG: TmuxBrokerDriverConfig = {
   driverKind: 'claude-code-tmux',
+  provider: 'anthropic',
+  frontend: 'claude-code',
   honorDisallowedTools: true,
-}
-
-const PI_TMUX_DRIVER_CONFIG: TmuxBrokerDriverConfig = {
-  driverKind: 'pi-tui-tmux',
-  hookBridge: 'pi-hrc-events/v1',
-  honorDisallowedTools: false,
 }
 
 const MUSE_TMUX_DRIVER_CONFIG: TmuxBrokerDriverConfig = {
   driverKind: 'muse-cli-tmux',
+  provider: 'meta',
+  frontend: 'muse-cli',
   honorDisallowedTools: false,
 }
+
+export const compileClaudeTmuxPlan: ResolvedRecipeBuilder = (req, placement, resolved, options) =>
+  compileTmuxBrokerPlan(req, placement, resolved, CLAUDE_TMUX_DRIVER_CONFIG, options)
+
+export const compileMuseTmuxPlan: ResolvedRecipeBuilder = (req, placement, resolved, options) =>
+  compileTmuxBrokerPlan(req, placement, resolved, MUSE_TMUX_DRIVER_CONFIG, options)
 
 /**
  * Harness-kind-agnostic interactive tmux broker compiler. The claude-code-tmux
@@ -2185,25 +1188,14 @@ const MUSE_TMUX_DRIVER_CONFIG: TmuxBrokerDriverConfig = {
  * field shapes are preserved verbatim to keep specHash/profileHash/planHash
  * stable for each driver.
  */
-async function compileTmuxBrokerPlan(
+export async function compileTmuxBrokerPlan(
   req: RuntimeCompileRequest,
   placement: CompilePlacement,
+  resolved: ResolvedHarnessExecution,
   driverConfig: TmuxBrokerDriverConfig,
   options?: CompileRuntimePlanOptions
 ): Promise<RuntimeCompileResponse> {
-  const { driverKind, hookBridge, honorDisallowedTools } = driverConfig
-  const routed = resolveForegroundRoute(req)
-  if (!('route' in routed)) {
-    return {
-      schemaVersion: 'agent-runtime-compile-response/v1',
-      ok: false,
-      diagnostics: routed.diagnostics,
-    }
-  }
-  const route = routed.route
-  // Resolve the frontend up front so an unknown frontend surfaces as a thrown
-  // CodedError before the heavier prepare path runs.
-  resolveFrontend(route.frontend)
+  const { driverKind, provider, frontend, hookBridge, honorDisallowedTools } = driverConfig
 
   const attachments = toBrokerAttachments(req.materialization.attachments)
   // claude-code-tmux honors disallowedTools; codex-cli-tmux does not (it emits a
@@ -2211,17 +1203,17 @@ async function compileTmuxBrokerPlan(
   const disallowedTools = honorDisallowedTools ? requestedDisallowedTools(req) : undefined
   const prepared = await preparePlacementCliRuntime(
     {
-      provider: route.provider,
-      frontend: route.frontend,
+      provider,
+      frontend,
       interactionMode: 'interactive',
-      ...(req.requested.model !== undefined ? { model: req.requested.model } : {}),
-      ...(req.requested.reasoningEffort !== undefined
-        ? { modelReasoningEffort: req.requested.reasoningEffort }
+      model: resolved.selection.model,
+      ...(resolved.selection.reasoningEffort !== undefined
+        ? { modelReasoningEffort: resolved.selection.reasoningEffort }
         : {}),
       ...(req.continuation?.hrc.key !== undefined
         ? {
             continuation: {
-              provider: route.provider,
+              provider,
               key: req.continuation.hrc.key,
             },
           }
@@ -2280,8 +1272,8 @@ async function compileTmuxBrokerPlan(
     ...(req.identity.invocationId !== undefined ? { invocationId: req.identity.invocationId } : {}),
     ...(taskId !== undefined ? { labels: { task: taskId } } : {}),
     harness: {
-      frontend: route.frontend,
-      provider: route.provider,
+      frontend,
+      provider,
       driver: driverKind,
     },
     process: {
@@ -2304,7 +1296,7 @@ async function compileTmuxBrokerPlan(
     ...(req.continuation?.hrc.key !== undefined
       ? {
           continuation: {
-            provider: route.provider,
+            provider,
             key: req.continuation.hrc.key,
             kind: 'session',
           },
@@ -2334,7 +1326,14 @@ async function compileTmuxBrokerPlan(
     startRequest: hashStartRequest,
   }) as ProfileId
   const compatibilityHash = hashValue(
-    buildCompatibilityMaterial(req, hashStartRequest, bundleIdentity, lockHash, lockedEnv)
+    buildCompatibilityMaterial(
+      req,
+      resolved.selection,
+      hashStartRequest,
+      bundleIdentity,
+      lockHash,
+      lockedEnv
+    )
   )
   const specHash = neutralSpecHash(spec)
   const startRequestHash = neutralStartRequestHash(startRequest)
@@ -2347,82 +1346,11 @@ async function compileTmuxBrokerPlan(
   const brokerProtocol = 'harness-broker/0.2' as const
   const attachReplay = 'optional' as const
 
-  const profileMaterial = {
-    schemaVersion: 'agent-runtime-profile/v1' as const,
-    profileId,
-    kind: 'harness-broker' as const,
-    interactionMode: 'interactive' as const,
-    expectedCapabilities: expectedCapabilities(permissionPolicy, {
-      inputQueue: 'required',
-      attachReplay,
-    }),
-    brokerProtocol,
-    brokerDriver: driverKind,
-    brokerOwnership: 'hrc-owned-process' as const,
-    brokerTerminal: TMUX_BROKER_TERMINAL,
-    harnessInvocation: {
-      startRequest,
-      specHash,
-      startRequestHash,
-    },
-    policy: {
-      permissionPolicy,
-      inputPolicy,
-      exposurePolicy: TMUX_BROKER_EXPOSURE_POLICY,
-      ...(req.hrcPolicy.resourceLimits !== undefined
-        ? { resourceLimits: req.hrcPolicy.resourceLimits }
-        : {}),
-      ...(disallowedTools !== undefined ? { disallowedTools } : {}),
-    },
-    ...(req.continuation !== undefined
-      ? {
-          continuation: {
-            hrc: req.continuation,
-            broker: req.continuation.broker,
-          },
-        }
-      : {}),
-    observability: brokerObservability(
-      req,
-      startRequest.spec.invocationId ??
-        req.identity.invocationId ??
-        (profileId as unknown as InvocationId)
-    ),
-  }
-  const profileHash = projectionHash(
-    {
-      ...profileMaterial,
-      harnessInvocation: {
-        startRequest: hashStartRequest,
-        specHash: profileMaterial.harnessInvocation.specHash,
-        startRequestHash: profileMaterial.harnessInvocation.startRequestHash,
-      },
-      observability: {
-        correlation: hashNeutralCompileIdentity(req.identity),
-      },
-      compatibilityHash,
-    },
-    'profile'
-  ).profileHash
-  const profile: BrokerExecutionProfile = {
-    ...profileMaterial,
-    profileHash,
-    compatibilityHash,
-  }
-
-  const validationDiagnostics = validateBrokerExecutionProfile(profile)
-  if (validationDiagnostics.length > 0) {
-    return {
-      schemaVersion: 'agent-runtime-compile-response/v1',
-      ok: false,
-      diagnostics: validationDiagnostics,
-    }
-  }
-
   return finalizePlan({
     req,
-    profileHash,
-    profileId,
+    resolved,
+    startRequest,
+    compatibilityHash,
     preparedWarnings: prepared.warnings,
     ...hygieneWarningsInput(prepared),
     effectiveEnvironmentHash: prepared.preparation.effectiveEnvironmentHash,
@@ -2431,24 +1359,6 @@ async function compileTmuxBrokerPlan(
     omitPriming: prepared.omitPriming,
     bundleIdentity,
     placement,
-    agentPolicy: prepared.placementContext.agentPolicy,
-    harness: {
-      family: route.family,
-      runtime: route.runtime,
-      provider: route.provider,
-    },
-    model: {
-      provider: route.provider,
-      modelId:
-        prepared.runtimePlan.model.ok === true
-          ? prepared.runtimePlan.model.info.model
-          : (req.requested.model ?? 'unknown'),
-      ...(req.requested.model !== undefined ? { requestedModel: req.requested.model } : {}),
-      ...(req.requested.reasoningEffort !== undefined
-        ? { reasoningEffort: req.requested.reasoningEffort }
-        : {}),
-    },
-    executionProfiles: [profile],
     materializedBundleRoot: prepared.materialized.materialization.outputPath,
     ...(prepared.systemPrompt?.path !== undefined
       ? { systemPromptFile: prepared.systemPrompt.path }
@@ -2456,5 +1366,6 @@ async function compileTmuxBrokerPlan(
     ...(lockHash !== undefined ? { lockHash } : {}),
     lockedEnvKeys,
     nowIso: options?.compileContext?.nowIso,
+    dispatch: options?.dispatch,
   })
 }

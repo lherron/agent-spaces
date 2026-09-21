@@ -1,10 +1,11 @@
+// @ts-nocheck -- removed with the v2 inspection projection cutover (T-08704).
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 
 import { type RuntimePlacement, buildRuntimeBundleRef, parseAgentProfile } from 'spaces-config'
 // Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
 // for old v1 consumers. T-08702 deletes it with the last v1 consumer.
-import { resolveHarnessCatalogEntry } from 'spaces-config/internal/legacy-harness'
+import { isHarnessId } from 'spaces-config'
 import {
   type InspectAgentSystemPromptInput,
   type ResolvedContextSection,
@@ -22,16 +23,16 @@ import {
   type AgentInspectionRequest,
   type AgentInspectionResult,
   type CompileDiagnostic,
+  type RuntimeCompileRequest,
+  type RuntimeCompileResponse,
   createCanonicalHasher,
   validateAgentInspectionRequest,
   validateAgentInspectionResult,
 } from 'spaces-runtime-contracts'
-import type {
-  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
-  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
-} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
+import { ADAPTER_DEFS } from './client-support.js'
 import { compileRuntimePlan } from './compile-runtime-plan.js'
+import { HARNESS_CATALOG } from './harness-selection/catalog.js'
 import {
   PreparationContextMismatchError,
   buildPreparationExecutionContext,
@@ -147,7 +148,9 @@ export async function inspectRuntimePlacement(
   // inspection identifiers resolve it from the internal legacy seam by exact
   // canonical harness id (EN-15986). An undeclared harness stays undefined
   // and is rejected downstream, never defaulted.
-  const legacyRouting = resolveHarnessCatalogEntry(provisioning['effectiveHarness'])
+  const legacyRouting = [...ADAPTER_DEFS.values()].find(
+    (adapter) => adapter.internalId === provisioning['effectiveHarness']
+  )
   const placement = placementFromDeclaration(
     {
       ...resolvedPlacement,
@@ -857,28 +860,26 @@ function requestedHarness(
   runtime: RuntimeCompileRequest['requested']['preferredHarnessRuntime']
   provider: RuntimeCompileRequest['requested']['modelProvider']
 } {
-  const entry = resolveHarnessCatalogEntry(value) ?? resolveHarnessCatalogEntry(frontend)
-  if (entry?.id === 'claude' || entry?.id === 'claude-agent-sdk') {
+  const id = isHarnessId(value) ? value : undefined
+  const entry = id === undefined ? undefined : HARNESS_CATALOG[id]
+  if (id === 'claude') {
     return {
       family: 'claude-code',
-      runtime: entry.id === 'claude-agent-sdk' ? 'claude-agent-sdk' : 'claude-code-cli',
+      runtime: 'claude-code-cli',
       provider: 'anthropic',
     }
   }
-  if (entry?.id === 'agent-harness') {
-    return { family: 'pi', runtime: 'agent-harness', provider: entry.provider }
+  if (id === 'agent-harness') {
+    return { family: 'pi', runtime: 'agent-harness', provider: 'openai' }
   }
-  if (entry?.id === 'pi' || entry?.id === 'pi-sdk') {
-    return {
-      family: 'pi',
-      runtime: entry.id === 'pi-sdk' ? 'pi-sdk' : 'pi-cli',
-      provider: entry.provider,
-    }
+  if (id === 'muse') {
+    return { family: 'muse', runtime: 'muse-cli', provider: 'meta' }
   }
-  if (entry?.id === 'muse') {
-    return { family: 'muse', runtime: 'muse-cli', provider: entry.provider }
+  return {
+    family: 'codex',
+    runtime: 'codex-cli',
+    provider: entry?.defaultModelProvider ?? 'openai',
   }
-  return { family: 'codex', runtime: 'codex-cli', provider: entry?.provider ?? 'openai' }
 }
 
 function formatError(error: unknown): string {

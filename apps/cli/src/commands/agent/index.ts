@@ -24,12 +24,6 @@ import {
   resolveAgentPrimingPrompt,
   resolvePlacement,
 } from 'spaces-config'
-// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
-// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
-import {
-  normalizeHarnessFrontend as resolveHarnessFrontendName,
-  resolveHarnessProvider,
-} from 'spaces-config/internal/legacy-harness'
 import { createAgentSpacesClient } from 'spaces-turn-runner'
 import { parseEnvFlags } from './shared.js'
 
@@ -37,23 +31,20 @@ const VALID_MODES = ['query', 'heartbeat', 'task', 'maintenance', 'resolve'] as 
 type RunMode = (typeof VALID_MODES)[number]
 type ExecuteMode = Exclude<RunMode, 'resolve'>
 
-/** Map display names and aliases to internal HarnessId values */
+/** Map the closed public harness IDs to their low-level process adapters. */
 function normalizeHarness(input: string): {
   frontend: string
   provider: 'anthropic' | 'openai' | 'meta'
 } {
-  const frontend = resolveHarnessFrontendName(input)
-  const provider = resolveHarnessProvider(input)
-  if (!frontend || !provider) {
-    throw new Error(
-      `Invalid harness "${input}". Must be one of: claude-code, claude, codex-cli, codex, agent-sdk, claude-agent-sdk, pi-sdk`
-    )
-  }
-  return { frontend, provider }
+  if (input === 'claude') return { frontend: 'claude-code', provider: 'anthropic' }
+  if (input === 'codex') return { frontend: 'codex-cli', provider: 'openai' }
+  if (input === 'muse') return { frontend: 'muse-cli', provider: 'meta' }
+  if (input === 'agent-harness') return { frontend: 'agent-harness-tui', provider: 'openai' }
+  throw new Error(`Invalid harness "${input}". Must be one of: agent-harness, claude, codex, muse`)
 }
 
 function normalizeConfiguredHarness(input: string | undefined): string | undefined {
-  return resolveHarnessFrontendName(input)
+  return input === undefined ? undefined : normalizeHarness(input).frontend
 }
 
 function loadProjectTarget(

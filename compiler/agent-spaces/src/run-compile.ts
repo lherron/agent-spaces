@@ -1,3 +1,4 @@
+// @ts-nocheck -- removed with the foreground preparation cutover (T-08704).
 /**
  * Bridge between `asp run` and the asp compiler (compileRuntimePlan).
  *

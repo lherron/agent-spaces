@@ -34,7 +34,7 @@ import {
 } from 'spaces-config'
 // Internal legacy seam (EN-15986): `asp run --harness` addresses v1 adapters.
 // T-08702 deletes it with the v1 flow.
-import type { HarnessId } from 'spaces-config/internal/legacy-harness'
+import type { HarnessId } from 'spaces-config'
 import {
   type RunResult,
   isSpaceReference,

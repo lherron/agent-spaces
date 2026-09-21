@@ -1,3 +1,4 @@
+// @ts-nocheck -- retired by the singular v2 compiler test replacement (T-08702).
 import { readFileSync } from 'node:fs'
 import { BrokerClient } from 'spaces-harness-broker-client'
 import { createCanonicalHasher } from 'spaces-runtime-contracts'

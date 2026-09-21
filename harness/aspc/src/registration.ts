@@ -13,7 +13,6 @@ import {
   validateAspcCatalogAgentsRequest,
   validateAspcCommand,
   validateAspcCompileHarnessInvocationRequest,
-  validateAspcCompileRuntimePlanRequest,
   validateAspcHelloRequest,
   validateAspcInspectAgentRequest,
   validateAspcInspectAgentSelectionRequest,
@@ -31,7 +30,6 @@ export const JSONRPC_VERSION = '2.0'
 /** The compile-plane wire names, in one place rather than at each call site. */
 export const ASPC_COMPILE_METHODS = {
   hello: 'aspc.hello',
-  compileRuntimePlan: 'aspc.compileRuntimePlan',
   catalogAgents: 'aspc.catalogAgents',
   inspectAgent: 'aspc.inspectAgent',
   catalogAgentInspection: 'aspc.catalogAgentInspection',
@@ -94,12 +92,6 @@ export function registerAspcCompileMethods(
 
   registerAspcMethod(server, ASPC_COMPILE_METHODS.hello, validateAspcHelloRequest, (req) =>
     service.hello(req)
-  )
-  registerAspcMethod(
-    server,
-    ASPC_COMPILE_METHODS.compileRuntimePlan,
-    validateAspcCompileRuntimePlanRequest,
-    (req) => service.compileRuntimePlan(req)
   )
   registerAspcMethod(
     server,

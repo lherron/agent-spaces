@@ -29,7 +29,7 @@ import { createCanonicalHasher } from 'spaces-runtime-contracts'
 import { resolveNowIso } from '../core/compile-clock.js'
 // Internal legacy seam (EN-15986): the install path addresses adapters by
 // their pre-cutover ids. T-08702 deletes it with the v1 flow.
-import type { HarnessId } from '../core/types/harness-legacy.js'
+import type { HarnessId } from '../core/types/harness.js'
 
 import {
   type AgentLocalComponents,

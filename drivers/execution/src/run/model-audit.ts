@@ -12,12 +12,8 @@ import {
 } from 'spaces-config'
 // Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
 // for old v1 consumers. T-08702 deletes it with the last v1 consumer.
-import {
-  DEFAULT_HARNESS,
-  type HarnessFrontend,
-  type HarnessId,
-  getHarnessCatalogEntry,
-} from 'spaces-config/internal/legacy-harness'
+import { DEFAULT_HARNESS, type HarnessId } from 'spaces-config'
+import type { HarnessFrontend } from 'spaces-runtime-contracts'
 
 import { harnessRegistry } from '../harness/index.js'
 
@@ -201,7 +197,14 @@ export async function auditProjectModels(
       resolveProfileHarnessForRun(runtimePlan.target?.provisioning?.harness) ??
       DEFAULT_HARNESS
     const adapter = harnessRegistry.getOrThrow(harnessId)
-    const frontend = getHarnessCatalogEntry(harnessId).frontend
+    const frontend =
+      harnessId === 'claude'
+        ? 'claude-code'
+        : harnessId === 'codex'
+          ? 'codex-cli'
+          : harnessId === 'muse'
+            ? 'muse-cli'
+            : undefined
     if (!frontend) {
       continue
     }

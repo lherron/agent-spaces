@@ -20,12 +20,10 @@ import type {
   OutputManifestEntry,
   OutputManifestExclusion,
   OutputManifestExclusionReason,
+  RuntimeCompileRequest,
+  RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
 import { OUTPUT_MANIFEST_SCHEMA_VERSION, createCanonicalHasher } from 'spaces-runtime-contracts'
-import type {
-  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
-  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
-} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 export interface BuildOutputManifestInput {
   compileRequest: RuntimeCompileRequest

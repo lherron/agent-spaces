@@ -17,7 +17,7 @@ import {
 } from 'spaces-config'
 // Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
 // for old v1 consumers. T-08702 deletes it with the last v1 consumer.
-import type { HarnessId } from 'spaces-config/internal/legacy-harness'
+import type { HarnessId } from 'spaces-config'
 
 import { CodedError } from './client-support.js'
 import type { AgentSpacesRuntimeDependencies } from './placement-api.js'

@@ -11,7 +11,6 @@
  */
 import { BrokerTransportError, UnixSocketTransport } from 'spaces-harness-broker-client'
 import type { CloseHandler } from 'spaces-harness-broker-client'
-import type { LegacyRuntimeCompileResponse as RuntimeCompileResponse } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 import type {
   AspcAgentInspectionCatalogResponse,
   AspcCatalogAgentInspectionRequest,
@@ -19,7 +18,6 @@ import type {
   AspcCatalogAgentsResponse,
   AspcCompileHarnessInvocationRequest,
   AspcCompileHarnessInvocationResponse,
-  AspcCompileRuntimePlanRequest,
   AspcHelloRequest,
   AspcHelloResponse,
   AspcInspectAgentRequest,
@@ -137,10 +135,6 @@ export class AspcUnixClient {
       await transport.close()
       throw error
     }
-  }
-
-  compileRuntimePlan(req: AspcCompileRuntimePlanRequest): Promise<RuntimeCompileResponse> {
-    return this.#request('aspc.compileRuntimePlan', req)
   }
 
   compileHarnessInvocation(

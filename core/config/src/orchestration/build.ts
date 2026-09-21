@@ -23,7 +23,7 @@ import {
 } from '../core/index.js'
 // Internal legacy seam (EN-15986): the v1 build path defaults and addresses
 // adapters with the pre-cutover catalog. T-08702 deletes it with the v1 flow.
-import { DEFAULT_HARNESS, type HarnessId } from '../core/types/harness-legacy.js'
+import { DEFAULT_HARNESS, type HarnessId } from '../core/types/harness.js'
 
 import {
   type SettingsInput,

@@ -148,7 +148,7 @@ export function createReleaseBoundAspcService(
     ): Promise<AspcCompileHarnessInvocationResponse> {
       const response = await service.compileHarnessInvocation(req)
       if (!response.ok) return response
-      const brokerDriver = response.selectedProfile.brokerDriver
+      const brokerDriver = response.plan.execution.driver
       const worker = binding.workers[brokerDriver]
       if (worker === undefined) {
         const diagnostic = {
@@ -162,11 +162,6 @@ export function createReleaseBoundAspcService(
         return {
           schemaVersion: response.schemaVersion,
           ok: false,
-          compileResponse: {
-            schemaVersion: 'agent-runtime-compile-response/v1',
-            ok: false,
-            diagnostics,
-          },
           diagnostics,
         }
       }
@@ -174,7 +169,7 @@ export function createReleaseBoundAspcService(
         ...binding.identity,
         releaseRoot: binding.releaseRoot,
         worker: {
-          protocol: response.selectedProfile.brokerProtocol,
+          protocol: response.plan.execution.protocol,
           executable: worker.executable,
           hostedDrivers: [...worker.hostedDrivers],
           argvPrefix: [...ASPD_WORKER_ARGV_PREFIX],

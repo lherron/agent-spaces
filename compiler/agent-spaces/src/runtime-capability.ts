@@ -1,9 +1,8 @@
 import { constants, access } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
-// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
-// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
-import { resolveHarnessCatalogEntry } from 'spaces-config/internal/legacy-harness'
+import { isHarnessId } from 'spaces-config'
+import { HARNESS_CATALOG } from './harness-selection/catalog.js'
 
 export const OBSERVE_RUNTIME_CAPABILITY_REQUEST_VERSION =
   'aspc-observe-runtime-capability-request/v1'
@@ -40,16 +39,6 @@ export async function observeRuntimeCapability(
       `Unsupported harness ${requested}`
     )
   }
-  if (harness === 'pi-sdk') {
-    const ready = typeof process.env['ASP_PI_SDK_ROOT'] === 'string'
-    return capabilitySuccess(
-      requested,
-      harness,
-      ready ? 'present' : 'absent',
-      ready ? 'present' : 'absent',
-      []
-    )
-  }
   if (harness === 'agent-harness') {
     return capabilitySuccess(requested, harness, 'present', 'present', [])
   }
@@ -68,9 +57,7 @@ export async function observeRuntimeCapability(
   const command =
     harness === 'claude'
       ? findCommand('ASP_CLAUDE_PATH', 'claude')
-      : harness === 'muse'
-        ? findCommand('ASP_MUSE_PATH', 'muse')
-        : findCommand('ASP_PI_PATH', 'pi')
+      : findCommand('ASP_MUSE_PATH', 'muse')
   if (!command) return capabilitySuccess(requested, harness, 'absent', 'absent', diagnostics)
   const version = await boundedProbe(command, ['--version'], PROBE_TIMEOUT_MS)
   if (!version.ok) {
@@ -81,18 +68,6 @@ export async function observeRuntimeCapability(
       candidate: command,
     })
     return capabilitySuccess(requested, harness, 'unknown', 'unknown', diagnostics)
-  }
-  if (harness === 'pi') {
-    const help = await boundedProbe(command, ['--help'], PROBE_TIMEOUT_MS)
-    if (!help.ok) {
-      diagnostics.push({
-        code: help.code,
-        probe: 'help',
-        message: help.message,
-        candidate: command,
-      })
-      return capabilitySuccess(requested, harness, 'present', 'unknown', diagnostics)
-    }
   }
   return capabilitySuccess(requested, harness, 'present', 'present', diagnostics)
 }
@@ -349,7 +324,7 @@ async function capabilitySuccess(
   preparationState: 'present' | 'absent' | 'unknown',
   diagnostics: Diagnostic[]
 ): Promise<Record<string, unknown>> {
-  const entry = resolveHarnessCatalogEntry(harness)
+  const entry = isHarnessId(harness) ? HARNESS_CATALOG[harness] : undefined
   const credentials = await credentialFact(harness)
   const ready = preparationState === 'present' && credentials.state === 'present'
   return {
@@ -357,8 +332,7 @@ async function capabilitySuccess(
     ok: true,
     harness: {
       requested,
-      ...(entry?.frontend ? { frontend: entry.frontend } : {}),
-      ...(entry?.provider ? { provider: entry.provider } : {}),
+      ...(entry !== undefined ? { modelProvider: entry.defaultModelProvider } : {}),
     },
     registration: { state: 'present', code: 'registered' },
     nativeRuntime:
@@ -445,14 +419,8 @@ function capabilityFailure(kind: 'unavailable' | 'incompatible', code: string, m
 
 function normalizeHarness(
   value: string
-): 'claude' | 'pi' | 'pi-sdk' | 'agent-harness' | 'codex' | 'muse' | undefined {
-  if (value === 'claude' || value === 'claude-code' || value === 'claude-agent-sdk') return 'claude'
-  if (value === 'pi' || value === 'pi-cli') return 'pi'
-  if (value === 'pi-sdk') return 'pi-sdk'
-  if (value === 'agent-harness' || value === 'agent-harness-tui') return 'agent-harness'
-  if (value === 'codex' || value === 'codex-cli') return 'codex'
-  if (value === 'muse' || value === 'muse-cli') return 'muse'
-  return undefined
+): 'agent-harness' | 'claude' | 'codex' | 'muse' | undefined {
+  return isHarnessId(value) ? value : undefined
 }
 
 function findCommand(envName: string, command: string): string | undefined {

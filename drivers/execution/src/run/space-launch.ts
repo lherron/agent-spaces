@@ -32,11 +32,7 @@ import {
 // for old v1 consumers. T-08702 deletes it with the last v1 consumer.
 // Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
 // for old v1 consumers. T-08702 deletes it with the last v1 consumer.
-import {
-  DEFAULT_HARNESS,
-  type HarnessId,
-  isHarnessSupported,
-} from 'spaces-config/internal/legacy-harness'
+import { DEFAULT_HARNESS, type HarnessId } from 'spaces-config'
 
 import { harnessRegistry } from '../harness/index.js'
 
@@ -229,7 +225,7 @@ async function materializeClosureArtifacts(
     if (!space) throw new Error(`Space not found in closure: ${spaceKey}`)
 
     const supports = space.manifest.harness?.supports
-    if (!isHarnessSupported(supports, harnessId)) {
+    if (supports !== undefined && !(supports as readonly string[]).includes(harnessId)) {
       if (rootKeys.has(spaceKey)) {
         throw new Error(`Space "${space.id}" does not support harness "${harnessId}"`)
       }
@@ -399,7 +395,7 @@ export async function runLocalSpace(
   const rawManifest = await readSpaceToml(manifestPath)
   const manifest = resolveSpaceManifest(rawManifest)
   const supports = manifest.harness?.supports
-  if (!isHarnessSupported(supports, harnessId)) {
+  if (supports !== undefined && !(supports as readonly string[]).includes(harnessId)) {
     throw new Error(`Space "${manifest.id}" does not support harness "${harnessId}"`)
   }
 

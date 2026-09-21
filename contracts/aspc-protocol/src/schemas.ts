@@ -41,7 +41,7 @@ import {
  * home is `spaces-runtime-contracts`; mirrored here as a single point of reference
  * for the validator so the literal isn't repeated inline.
  */
-const RUNTIME_COMPILE_REQUEST_SCHEMA_VERSION = 'agent-runtime-compile-request/v1'
+const RUNTIME_COMPILE_REQUEST_SCHEMA_VERSION = 'agent-runtime-compile-request/v2'
 
 /**
  * Base for the package's request/command validation errors. Subclasses supply
@@ -459,7 +459,6 @@ type ParamsValidator = (value: unknown, basePath: string, issues: ValidationIssu
  */
 const ASPC_PARAMS_VALIDATORS: Record<AspcMethod, ParamsValidator> = {
   'aspc.hello': validateHello,
-  'aspc.compileRuntimePlan': validateCompileRuntimePlan,
   'aspc.catalogAgents': validateCatalogAgents,
   'aspc.inspectAgent': validateInspectAgent,
   'aspc.catalogAgentInspection': validateCatalogAgentInspection,
@@ -1032,10 +1031,22 @@ function validateCompileHarnessInvocation(
 ): void {
   const request = validateCompileRuntimePlan(value, basePath, issues)
   if (request === undefined) return
-  validateProfileSelector(request['profileSelector'], path(basePath, 'profileSelector'), issues)
   validateOptionalStringRecord(request['dispatchEnv'], path(basePath, 'dispatchEnv'), issues)
   optionalRecord(request['runtime'], path(basePath, 'runtime'), issues)
   optionalRecord(request['lifecyclePolicy'], path(basePath, 'lifecyclePolicy'), issues)
+  rejectUnknownParams(
+    request,
+    new Set([
+      'compileRequest',
+      'aspHome',
+      'compileContext',
+      'dispatchEnv',
+      'runtime',
+      'lifecyclePolicy',
+    ]),
+    basePath,
+    issues
+  )
 }
 
 function validateRuntimeCompileRequest(
@@ -1054,22 +1065,40 @@ function validateRuntimeCompileRequest(
   requireRecordFields(
     request,
     basePath,
-    ['identity', 'placement', 'requested', 'materialization', 'hrcPolicy', 'correlation'],
+    ['agent', 'identity', 'placement', 'requested', 'materialization', 'hrcPolicy', 'correlation'],
     issues
   )
-}
-
-function validateProfileSelector(
-  value: unknown,
-  basePath: string,
-  issues: ValidationIssue[]
-): void {
-  if (value === undefined) return
-  const selector = requireRecord(value, basePath, issues)
-  if (selector === undefined) return
-  optionalString(selector['profileId'], path(basePath, 'profileId'), issues)
-  optionalString(selector['profileHash'], path(basePath, 'profileHash'), issues)
-  optionalString(selector['brokerDriver'], path(basePath, 'brokerDriver'), issues)
+  const agent = requireRecord(request['agent'], path(basePath, 'agent'), issues)
+  if (agent !== undefined) {
+    requireString(agent['id'], path(basePath, 'agent.id'), issues)
+    rejectUnknownParams(agent, new Set(['id']), path(basePath, 'agent'), issues)
+  }
+  const requested = requireRecord(request['requested'], path(basePath, 'requested'), issues)
+  if (requested !== undefined) {
+    optionalString(requested['harness'], path(basePath, 'requested.harness'), issues)
+    optionalString(requested['modelProvider'], path(basePath, 'requested.modelProvider'), issues)
+    optionalString(requested['model'], path(basePath, 'requested.model'), issues)
+    optionalString(
+      requested['reasoningEffort'],
+      path(basePath, 'requested.reasoningEffort'),
+      issues
+    )
+    if (requested['presentation'] !== undefined && typeof requested['presentation'] !== 'boolean') {
+      issues.push(
+        issue(
+          path(basePath, 'requested.presentation'),
+          ISSUE_CODE.invalidType,
+          `${path(basePath, 'requested.presentation')} must be a boolean`
+        )
+      )
+    }
+    rejectUnknownParams(
+      requested,
+      new Set(['harness', 'modelProvider', 'model', 'reasoningEffort', 'presentation']),
+      path(basePath, 'requested'),
+      issues
+    )
+  }
 }
 
 /**

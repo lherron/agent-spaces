@@ -19,8 +19,7 @@ import type {
 import { getAgentsRoot, parseAgentProfile } from 'spaces-config'
 // Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
 // for old v1 consumers. T-08702 deletes it with the last v1 consumer.
-import { DEFAULT_HARNESS, resolveHarnessCatalogEntry } from 'spaces-config/internal/legacy-harness'
-import { RUNTIME_ROUTE_CATALOG } from 'spaces-runtime-contracts'
+import { DEFAULT_HARNESS, isHarnessId } from 'spaces-config'
 import type {
   AgentInspectionEvaluationContext,
   AgentInspectionScaffoldPacket,
@@ -268,28 +267,16 @@ function contextOptions(
   const provisioning = asRecord(profile['provisioning'])
   const declaredHarness =
     typeof provisioning?.['harness'] === 'string' ? provisioning['harness'] : DEFAULT_HARNESS
-  const harness = resolveHarnessCatalogEntry(declaredHarness)
-  if (harness === undefined || harness.frontend === undefined) return []
-
-  const family =
-    harness.id === 'codex'
-      ? 'codex'
-      : harness.id === 'pi' || harness.id === 'pi-sdk'
-        ? 'pi'
-        : 'claude-code'
-  const runtime =
-    harness.id === 'codex'
-      ? 'codex-cli'
-      : harness.id === 'pi'
-        ? 'pi-cli'
-        : harness.id === 'pi-sdk'
-          ? 'pi-sdk'
-          : harness.id === 'claude-agent-sdk'
-            ? 'claude-agent-sdk'
-            : 'claude-code-cli'
-  const interactions = RUNTIME_ROUTE_CATALOG.filter(
-    (route) => route.harnessFamily === family && route.harnessRuntime === runtime
-  ).map(({ interactionMode }) => interactionMode)
+  if (!isHarnessId(declaredHarness)) return []
+  const frontend =
+    declaredHarness === 'claude'
+      ? 'claude-code'
+      : declaredHarness === 'codex'
+        ? 'codex-cli'
+        : declaredHarness === 'muse'
+          ? 'muse-cli'
+          : 'agent-harness-tui'
+  const interactions = ['headless'] as const
 
   return [...new Set(interactions)].map((interaction) => ({
     identifiers: {
@@ -299,7 +286,7 @@ function contextOptions(
       scope: `agent:${agentId}:project:${projectId}`,
       lane: 'main',
       harness: declaredHarness,
-      frontend: harness.frontend as string,
+      frontend,
       interaction,
     },
     declaredOverrides: {},

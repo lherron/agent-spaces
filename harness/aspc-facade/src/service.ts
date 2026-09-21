@@ -96,7 +96,10 @@ export function createCohostedAspcService(
         return failCompileAndStart(compiled)
       }
 
-      const startResponse = await startFromDispatch(options.broker, compiled.dispatchRequest)
+      const startResponse = await startFromDispatch(
+        options.broker,
+        compiled.plan.execution.dispatchRequest
+      )
       return {
         schemaVersion: ASPC_COMPILE_AND_START_SCHEMA,
         ok: true,

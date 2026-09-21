@@ -2,14 +2,6 @@ import { isAbsolute } from 'node:path'
 
 import { buildCodexAppServerLaunchDescriptor, normalizeAgentSdkModel } from 'spaces-config'
 import type { RuntimePlacement } from 'spaces-config'
-// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
-// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
-import {
-  HARNESS_PROVIDERS,
-  type HarnessId as LegacyHarnessId,
-  getHarnessCatalogEntry,
-  getHarnessFrontendsForProvider,
-} from 'spaces-config/internal/legacy-harness'
 import {
   toHarnessBrokerStartRequest,
   validateBrokerInvocationRequest,
@@ -23,15 +15,16 @@ import {
   validateSpec,
 } from './client-materialization.js'
 import {
+  ADAPTER_DEFS,
   AGENT_SDK_FRONTEND,
   CodedError,
-  FRONTEND_DEFS,
   assertProviderMatch,
   formatDisplayCommand,
   resolveFrontend,
   resolveModel,
 } from './client-support.js'
 import { compileRuntimePlan } from './compile-runtime-plan.js'
+import { catalogCapabilities } from './harness-selection/catalog-projections.js'
 import type { AgentSpacesClientOptions } from './placement-api.js'
 import { requireAgentSpacesRuntime } from './placement-api.js'
 import {
@@ -56,7 +49,6 @@ import type {
   DescribeResponse,
   HarnessCapabilities,
   HarnessContinuationRef,
-  HarnessFrontend,
   HostCorrelation,
   InvocationSpecBuilder,
   ProcessInvocationSpec,
@@ -178,10 +170,10 @@ export function createAgentSpacesClient(
           },
         }
       }
-      let legacyEntry: { provider: ProviderDomain; frontend?: unknown }
-      try {
-        legacyEntry = getHarnessCatalogEntry(effectiveHarness as LegacyHarnessId)
-      } catch {
+      const adapter = [...ADAPTER_DEFS.values()].find(
+        (candidate) => candidate.internalId === effectiveHarness
+      )
+      if (adapter === undefined) {
         return {
           schemaVersion: 'aspc-prepare-process-invocation-response/v1',
           ok: false,
@@ -192,19 +184,8 @@ export function createAgentSpacesClient(
           },
         }
       }
-      if (typeof legacyEntry.frontend !== 'string') {
-        return {
-          schemaVersion: 'aspc-prepare-process-invocation-response/v1',
-          ok: false,
-          failure: {
-            kind: 'incompatible',
-            code: 'unsupported_harness',
-            message: `Unsupported harness ${effectiveHarness}`,
-          },
-        }
-      }
-      const provider = legacyEntry.provider
-      const frontend = legacyEntry.frontend as BuildProcessInvocationSpecRequest['frontend']
+      const provider = adapter.provider
+      const frontend = adapter.frontend
       const placement = placementFromDeclaration(
         resolved.placement,
         req.context,
@@ -306,6 +287,7 @@ export function createAgentSpacesClient(
         ...(options?.materializeCodexRuntimeHome !== undefined
           ? { materializeCodexRuntimeHome: options.materializeCodexRuntimeHome }
           : {}),
+        ...(options?.dispatch !== undefined ? { dispatch: options.dispatch } : {}),
       })
     },
 
@@ -383,15 +365,14 @@ export function createAgentSpacesClient(
 
     async getHarnessCapabilities(): Promise<HarnessCapabilities> {
       return {
-        harnesses: HARNESS_PROVIDERS.map((provider) => {
-          const frontends = getHarnessFrontendsForProvider(provider) as HarnessFrontend[]
-          return {
-            id: provider,
-            provider,
-            frontends,
-            models: frontends.flatMap((frontend) => FRONTEND_DEFS.get(frontend)?.models ?? []),
-          }
-        }),
+        harnesses: catalogCapabilities().map((capability) => ({
+          id: capability.id,
+          provider: capability.defaultModelProvider as ProviderDomain,
+          frontends: [...ADAPTER_DEFS.values()]
+            .filter((adapter) => adapter.internalId === capability.id)
+            .map((adapter) => adapter.frontend),
+          models: capability.modelProviders.flatMap((provider) => provider.supportedModels),
+        })),
       }
     },
 

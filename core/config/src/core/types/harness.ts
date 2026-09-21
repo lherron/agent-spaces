@@ -41,6 +41,14 @@ export function isHarnessId(value: string): value is HarnessId {
   return (HARNESS_IDS as readonly string[]).includes(value)
 }
 
+/** Exact closed-vocabulary support check; aliases are deliberately not translated. */
+export function isHarnessSupported(
+  supports: readonly string[] | undefined,
+  harnessId: HarnessId
+): boolean {
+  return supports === undefined || supports.includes(harnessId)
+}
+
 /**
  * Default harness for orchestration call sites that must instantiate an
  * adapter without a caller selection. Matches the approved selection default

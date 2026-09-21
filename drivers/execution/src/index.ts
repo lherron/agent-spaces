@@ -25,7 +25,7 @@ import {
 } from 'spaces-config'
 // Internal legacy seam (EN-15986): v1 adapter ids and foreground defaults.
 // T-08702 deletes it with the v1 flow.
-import { DEFAULT_HARNESS } from 'spaces-config/internal/legacy-harness'
+import { DEFAULT_HARNESS } from 'spaces-config'
 
 import { harnessRegistry } from './harness/index.js'
 

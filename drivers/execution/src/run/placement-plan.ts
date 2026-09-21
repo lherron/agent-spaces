@@ -11,17 +11,12 @@ import type {
 } from 'spaces-config'
 // Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
 // for old v1 consumers. T-08702 deletes it with the last v1 consumer.
-import {
-  DEFAULT_HARNESS,
-  type HarnessFrontend,
-  type HarnessId,
-  type HarnessProvider,
-  getHarnessCatalogEntry,
-  getHarnessCatalogEntryByFrontend,
-} from 'spaces-config/internal/legacy-harness'
+import { DEFAULT_HARNESS, type HarnessId } from 'spaces-config'
 import type {
   PlacementRuntimeModelResolution as ContractPlacementRuntimeModelResolution,
   PlacementRuntimePlan as ContractPlacementRuntimePlan,
+  HarnessFrontend,
+  ProviderDomain as HarnessProvider,
 } from 'spaces-runtime-contracts'
 
 import { harnessRegistry } from '../harness/index.js'
@@ -70,11 +65,7 @@ export interface ProjectTargetRuntimePlan {
 }
 
 export function assertHarnessAvailableForRun(harnessId: HarnessId): void {
-  if (harnessId === 'claude-agent-sdk' || harnessId === 'pi-sdk') {
-    throw new Error(
-      `Harness "${harnessId}" is retired from asp run; use hrc to spawn non-foreground runtimes.`
-    )
-  }
+  void harnessId
 }
 
 function parsePlacementRuntimeModelId(
@@ -145,7 +136,7 @@ export function buildSyntheticRunManifest(
 
   // Source the claude-family check from the catalog provider (anthropic) instead
   // of a hardcoded harness-id list so new claude variants are covered for free.
-  const isClaudeFamily = getHarnessCatalogEntry(harnessId).provider === 'anthropic'
+  const isClaudeFamily = harnessId === 'claude'
   if (isClaudeFamily && defaults.model !== undefined && claude.model === undefined) {
     claude.model = defaults.model
   }
@@ -219,12 +210,19 @@ export async function planPlacementRuntime(
   options: PlanPlacementRuntimeOptions
 ): Promise<PlacementRuntimePlan> {
   const { placement, placementContext, frontend, aspHome } = options
-  const frontendEntry = getHarnessCatalogEntryByFrontend(frontend)
-  if (!frontendEntry) {
+  const harnessId =
+    frontend === 'claude-code'
+      ? 'claude'
+      : frontend === 'codex-cli'
+        ? 'codex'
+        : frontend === 'muse-cli'
+          ? 'muse'
+          : undefined
+  if (harnessId === undefined) {
     throw new Error(`Unknown harness frontend "${frontend}"`)
   }
 
-  const adapter = harnessRegistry.getOrThrow(frontendEntry.id)
+  const adapter = harnessRegistry.getOrThrow(harnessId)
   const defaultRunOptions = !placementContext.materialization.manifest
     ? {}
     : placement.bundle.kind === 'agent-project'
@@ -235,7 +233,7 @@ export async function planPlacementRuntime(
       : {}
   const { materialization } = placementContext
   const spaceCodexConfigModel =
-    frontendEntry.id === 'codex'
+    harnessId === 'codex'
       ? await resolveSpaceCodexConfigModel({
           compose:
             materialization.effectiveConfig?.compose ??
@@ -297,8 +295,8 @@ export async function planPlacementRuntime(
 
   return {
     frontend,
-    harnessId: frontendEntry.id,
-    provider: frontendEntry.provider,
+    harnessId,
+    provider: harnessId === 'claude' ? 'anthropic' : harnessId === 'muse' ? 'meta' : 'openai',
     cwd,
     defaultRunOptions,
     ...(prompt !== undefined ? { prompt } : {}),

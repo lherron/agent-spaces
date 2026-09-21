@@ -1,7 +1,7 @@
 import type { BuildResult, ResolveOptions } from 'spaces-config'
 // Internal legacy seam (EN-15986): the v1 run entrypoint addresses adapters
 // by their pre-cutover ids. T-08702 deletes it with the v1 flow.
-import type { HarnessId } from 'spaces-config/internal/legacy-harness'
+import type { HarnessId } from 'spaces-config'
 import type { CompileRuntimeFn, RunLaunchShape } from 'spaces-runtime-contracts'
 
 export type {

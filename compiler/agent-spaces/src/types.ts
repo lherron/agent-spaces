@@ -24,6 +24,8 @@ import type {
   HarnessContinuationRef,
   HarnessFrontend,
   ProviderDomain,
+  RuntimeCompileRequest,
+  RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
 export type {
   BuildProcessInvocationSpecRequest,
@@ -36,10 +38,6 @@ export type {
   ProcessInvocationSpec,
   ProviderDomain,
 } from 'spaces-runtime-contracts'
-import type {
-  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
-  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
-} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 /** Re-export HostCorrelation from config for placement consumers */
 export type HostCorrelation = HostCorrelationType
@@ -332,6 +330,9 @@ export interface RuntimeCompileOptions {
   compileContext?: CompileContext | undefined
   /** Internal inspection/preview control: preserve the home path but do not write it. */
   materializeCodexRuntimeHome?: boolean | undefined
+  dispatch?:
+    | Omit<import('spaces-harness-broker-protocol').InvocationDispatchRequest, 'startRequest'>
+    | undefined
 }
 
 /** Compiles a placement/request into a runtime plan (e.g. dry-run preview). */

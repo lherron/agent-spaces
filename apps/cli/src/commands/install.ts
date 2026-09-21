@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { TARGETS_FILENAME, isConfigError, readTargetsToml } from 'spaces-config'
 // Internal legacy seam (EN-15986): `--harness` addresses v1 adapters, not the
 // closed selection vocabulary. T-08702 deletes it with the v1 flow.
-import { type HarnessId, isHarnessId } from 'spaces-config/internal/legacy-harness'
+import { type HarnessId, isHarnessId } from 'spaces-config'
 import { harnessRegistry, install } from 'spaces-execution'
 
 import { DEFAULT_HARNESS_ID } from '../harness-validator.js'

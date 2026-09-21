@@ -2,7 +2,6 @@ import type {
   AspReleaseIdentity,
   BrokerLifecyclePolicyOverlay,
   BrokerProtocolVersion,
-  InvocationDispatchRequest,
   InvocationRuntimeContext,
   InvocationStartRequest,
   InvocationStartResponse,
@@ -12,18 +11,14 @@ import type {
   AgentInspectionEvaluationContext,
   AgentInspectionRequest,
   AgentInspectionResult,
-  BrokerExecutionProfile,
   BuildProcessInvocationSpecResponse,
   CompileContext,
   CompileDiagnostic,
+  CompiledRuntimePlan,
   ProcessAttachmentRef,
+  RuntimeCompileRequest,
   RuntimePlacement,
 } from 'spaces-runtime-contracts'
-import type {
-  LegacyCompiledRuntimePlan as CompiledRuntimePlan,
-  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
-  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
-} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 import type {
   AspcCatalogAgentInspectionRequest,
   AspcInspectAgentSelectionRequest,
@@ -61,7 +56,6 @@ export const ASPC_PREPARE_PROCESS_INVOCATION_RESPONSE_VERSION =
  */
 export const ASPC_METHODS = [
   'aspc.hello',
-  'aspc.compileRuntimePlan',
   'aspc.catalogAgents',
   'aspc.inspectAgent',
   'aspc.catalogAgentInspection',
@@ -79,7 +73,6 @@ export type AspcMethod = (typeof ASPC_METHODS)[number]
 
 export type AspcCommand =
   | JsonRpcRequest<'aspc.hello', AspcHelloRequest>
-  | JsonRpcRequest<'aspc.compileRuntimePlan', AspcCompileRuntimePlanRequest>
   | JsonRpcRequest<'aspc.catalogAgents', AspcCatalogAgentsRequest>
   | JsonRpcRequest<'aspc.inspectAgent', AspcInspectAgentRequest>
   | JsonRpcRequest<'aspc.catalogAgentInspection', AspcCatalogAgentInspectionRequest>
@@ -100,7 +93,6 @@ export interface AspcHelloRequest {
   protocolVersions: string[]
   capabilities?:
     | {
-        compileRuntimePlan?: boolean | undefined
         catalogAgents?: boolean | undefined
         inspectAgent?: boolean | undefined
         catalogAgentInspection?: boolean | undefined
@@ -124,7 +116,6 @@ export interface AspcHelloResponse {
   }
   protocolVersion: AspcProtocolVersion
   capabilities: {
-    compileRuntimePlan: true
     catalogAgents: true
     inspectAgent: true
     catalogAgentInspection: true
@@ -245,14 +236,7 @@ export interface AspcInspectAgentRequest {
   evaluationContext: AgentInspectionEvaluationContext
 }
 
-export type AspcProfileSelector = {
-  profileId?: string | undefined
-  profileHash?: string | undefined
-  brokerDriver?: string | undefined
-}
-
 export interface AspcCompileHarnessInvocationRequest extends AspcCompileRuntimePlanRequest {
-  profileSelector?: AspcProfileSelector | undefined
   dispatchEnv?: Record<string, string> | undefined
   runtime?: InvocationRuntimeContext | undefined
   lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
@@ -262,11 +246,7 @@ export type AspcCompileHarnessInvocationResponse =
   | {
       schemaVersion: typeof ASPC_COMPILE_HARNESS_INVOCATION_RESPONSE_VERSION
       ok: true
-      compileResponse: Extract<RuntimeCompileResponse, { ok: true }>
       plan: CompiledRuntimePlan
-      selectedProfile: BrokerExecutionProfile
-      startRequest: BrokerExecutionProfile['harnessInvocation']['startRequest']
-      dispatchRequest: InvocationDispatchRequest
       diagnostics: CompileDiagnostic[]
       /** Canonical hash of the preparation execution environment (T-08579). */
       effectiveEnvironmentHash?: string | undefined
@@ -276,7 +256,6 @@ export type AspcCompileHarnessInvocationResponse =
   | {
       schemaVersion: typeof ASPC_COMPILE_HARNESS_INVOCATION_RESPONSE_VERSION
       ok: false
-      compileResponse: RuntimeCompileResponse
       diagnostics: CompileDiagnostic[]
     }
 

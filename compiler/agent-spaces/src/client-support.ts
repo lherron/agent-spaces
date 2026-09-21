@@ -1,17 +1,7 @@
-import {
-  AGENT_SDK_MODELS,
-  CLAUDE_CODE_MODELS,
-  DEFAULT_AGENT_SDK_MODEL,
-  DEFAULT_CLAUDE_CODE_MODEL,
-} from 'spaces-config'
-// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
-// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
-import {
-  type HarnessId,
-  getHarnessCatalogEntryByFrontend,
-} from 'spaces-config/internal/legacy-harness'
+import { AGENT_SDK_MODELS, DEFAULT_AGENT_SDK_MODEL, type HarnessId } from 'spaces-config'
 import { PI_SDK_MODEL_CATALOG } from 'spaces-runtime-contracts'
 
+import { HARNESS_CATALOG } from './harness-selection/catalog.js'
 import type {
   AgentSpacesError,
   HarnessContinuationRef,
@@ -25,56 +15,6 @@ export const CLAUDE_CODE_FRONTEND: HarnessFrontend = 'claude-code'
 export const CODEX_CLI_FRONTEND: HarnessFrontend = 'codex-cli'
 export const PI_CLI_FRONTEND: HarnessFrontend = 'pi-cli'
 export const MUSE_CLI_FRONTEND: HarnessFrontend = 'muse-cli'
-
-const PI_SDK_MODELS = PI_SDK_MODEL_CATALOG.map((model) => model.alias)
-
-const CODEX_CLI_MODELS = [
-  'gpt-6-astra',
-  'gpt-5.6-sol',
-  'gpt-5.6-terra',
-  'gpt-5.6-luna',
-  'gpt-5.5',
-  'gpt-5.3-codex',
-  'gpt-5.3',
-  'gpt-5.2-codex',
-  'gpt-5.1-codex-mini',
-  'gpt-5.1-codex-max',
-  'gpt-5.2',
-  'gpt-5.1',
-  'gpt-5.1-codex',
-  'gpt-5-codex',
-  'gpt-5-codex-mini',
-  'gpt-5',
-]
-
-const PI_CLI_MODELS = [
-  'gpt-5.5',
-  'gpt-5.3-codex',
-  'gpt-5.3',
-  'gpt-5.2-codex',
-  'gpt-5.1-codex-mini',
-  'gpt-5.1-codex-max',
-  'gpt-5.2',
-  'gpt-5.1',
-  'gpt-5.1-codex',
-  'gpt-5-codex',
-  'gpt-5-codex-mini',
-  'gpt-5',
-]
-
-const DEFAULT_PI_SDK_MODEL = 'openai-codex/gpt-5.5'
-const DEFAULT_PI_CLI_MODEL = 'gpt-5.5'
-const DEFAULT_CODEX_CLI_MODEL = 'gpt-5.6-terra'
-
-// Model ids from the muse serve model catalog (meta provider); the
-// -contributor variant is the catalog default (T-08595).
-const MUSE_CLI_MODELS = [
-  'muse-spark-1.3-contributor',
-  'muse-spark-1.3',
-  'muse-spark-1.2-contributor',
-  'muse-spark-1.2',
-]
-const DEFAULT_MUSE_CLI_MODEL = 'muse-spark-1.3-contributor'
 
 export class CodedError extends Error {
   readonly code: NonNullable<AgentSpacesError['code']>
@@ -98,49 +38,93 @@ export interface ModelInfo {
   model: string
 }
 
-function createFrontendDef(
+function createAdapterDef(
+  internalId: HarnessId,
+  provider: ProviderDomain,
   frontend: HarnessFrontend,
-  models: string[],
+  models: readonly string[],
   defaultModel: string
 ): FrontendDef {
-  const catalogEntry = getHarnessCatalogEntryByFrontend(frontend)
-  if (!catalogEntry) {
-    throw new Error(`Unknown harness frontend "${frontend}"`)
-  }
   return {
-    provider: catalogEntry.provider,
-    internalId: catalogEntry.id,
+    provider,
+    internalId,
     frontend,
-    models,
+    models: [...models],
     defaultModel,
   }
 }
 
-export const FRONTEND_DEFS = new Map<HarnessFrontend, FrontendDef>([
+function providerFor(harness: HarnessId) {
+  return HARNESS_CATALOG[harness].supportedModelProviders[0]!
+}
+
+export const ADAPTER_DEFS = new Map<HarnessFrontend, FrontendDef>([
   [
     AGENT_SDK_FRONTEND,
-    createFrontendDef(AGENT_SDK_FRONTEND, AGENT_SDK_MODELS, DEFAULT_AGENT_SDK_MODEL),
+    createAdapterDef(
+      'claude',
+      'anthropic',
+      AGENT_SDK_FRONTEND,
+      AGENT_SDK_MODELS,
+      DEFAULT_AGENT_SDK_MODEL
+    ),
   ],
-  [PI_SDK_FRONTEND, createFrontendDef(PI_SDK_FRONTEND, PI_SDK_MODELS, DEFAULT_PI_SDK_MODEL)],
+  [
+    PI_SDK_FRONTEND,
+    createAdapterDef(
+      'agent-harness',
+      'openai',
+      PI_SDK_FRONTEND,
+      PI_SDK_MODEL_CATALOG.map((model) => model.alias),
+      'openai-codex/gpt-5.5'
+    ),
+  ],
   [
     CLAUDE_CODE_FRONTEND,
-    createFrontendDef(CLAUDE_CODE_FRONTEND, CLAUDE_CODE_MODELS, DEFAULT_CLAUDE_CODE_MODEL),
+    createAdapterDef(
+      'claude',
+      'anthropic',
+      CLAUDE_CODE_FRONTEND,
+      providerFor('claude').supportedModels,
+      providerFor('claude').defaultModel
+    ),
   ],
   [
     CODEX_CLI_FRONTEND,
-    createFrontendDef(CODEX_CLI_FRONTEND, CODEX_CLI_MODELS, DEFAULT_CODEX_CLI_MODEL),
+    createAdapterDef(
+      'codex',
+      'openai',
+      CODEX_CLI_FRONTEND,
+      providerFor('codex').supportedModels,
+      providerFor('codex').defaultModel
+    ),
   ],
-  [PI_CLI_FRONTEND, createFrontendDef(PI_CLI_FRONTEND, PI_CLI_MODELS, DEFAULT_PI_CLI_MODEL)],
   [
     MUSE_CLI_FRONTEND,
-    createFrontendDef(MUSE_CLI_FRONTEND, MUSE_CLI_MODELS, DEFAULT_MUSE_CLI_MODEL),
+    createAdapterDef(
+      'muse',
+      'meta',
+      MUSE_CLI_FRONTEND,
+      providerFor('muse').supportedModels,
+      providerFor('muse').defaultModel
+    ),
+  ],
+  [
+    PI_CLI_FRONTEND,
+    createAdapterDef(
+      'agent-harness',
+      'openai',
+      PI_CLI_FRONTEND,
+      providerFor('agent-harness').supportedModels,
+      providerFor('agent-harness').defaultModel
+    ),
   ],
 ])
 
 export function resolveFrontend(
   frontend: HarnessFrontend
 ): FrontendDef & { frontend: HarnessFrontend } {
-  const def = FRONTEND_DEFS.get(frontend)
+  const def = ADAPTER_DEFS.get(frontend)
   if (!def) {
     throw new CodedError(`Unsupported frontend: ${frontend}`, 'unsupported_frontend')
   }
