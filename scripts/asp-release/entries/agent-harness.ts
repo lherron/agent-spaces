@@ -1,3 +1,4 @@
+import { registerBunOAuthFlows } from '@earendil-works/pi-ai/bun-oauth'
 import { runBrokerCli } from 'spaces-harness-broker'
 
 import {
@@ -9,6 +10,11 @@ import {
 import { embeddedReleaseIdentity } from './embedded-identity.js'
 
 const tuiChild = isTuiChild(process.argv.slice(2))
+
+// pi-ai intentionally loads OAuth flows through variable imports in ordinary
+// Node/Bun execution. A standalone Bun binary has no adjacent module files, so
+// bind the statically bundled loaders before either worker role creates Pi.
+registerBunOAuthFlows()
 
 // The outer worker and its TUI child are the same immutable payload. The role
 // flag selects only the worker-local driver set; both sides speak the standard
