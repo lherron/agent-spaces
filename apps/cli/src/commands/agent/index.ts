@@ -10,20 +10,20 @@ import { spawn } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseScopeRef, resolveScopeInput } from 'agent-scope'
+import { HARNESS_CATALOG, resolveHarnessExecution } from 'agent-spaces'
 import type { Command } from 'commander'
 import {
-  type HarnessId,
   type RuntimePlacement,
   TARGETS_FILENAME,
   type TargetDefinition,
   buildRuntimeBundleRef,
-  mergeAgentWithProjectTarget,
   parseAgentProfile,
   parseTargetsToml,
   resolveAgentPlacementPaths,
-  resolveAgentPrimingPrompt,
   resolvePlacement,
+  toSelectionLayers,
 } from 'spaces-config'
+import type { HarnessSelectionRequest } from 'spaces-runtime-contracts'
 import { createAgentSpacesClient } from 'spaces-turn-runner'
 import { parseEnvFlags } from './shared.js'
 
@@ -31,22 +31,12 @@ const VALID_MODES = ['query', 'heartbeat', 'task', 'maintenance', 'resolve'] as 
 type RunMode = (typeof VALID_MODES)[number]
 type ExecuteMode = Exclude<RunMode, 'resolve'>
 
-/** Map the closed public harness IDs to their low-level process adapters. */
-function normalizeHarness(input: string): {
+/** A direct foreground process implementation projected from the central catalog. */
+type ForegroundProcessSelection = {
   frontend: string
   provider: 'anthropic' | 'openai' | 'meta'
-} {
-  if (input === 'claude') return { frontend: 'claude-code', provider: 'anthropic' }
-  if (input === 'codex') return { frontend: 'codex-cli', provider: 'openai' }
-  if (input === 'muse') return { frontend: 'muse-cli', provider: 'meta' }
-  if (input === 'agent-harness') return { frontend: 'agent-harness-tui', provider: 'openai' }
-  throw new Error(`Invalid harness "${input}". Must be one of: agent-harness, claude, codex, muse`)
-}
-
-function normalizeConfiguredHarness(input: string | undefined): HarnessId | undefined {
-  if (input === undefined) return undefined
-  normalizeHarness(input)
-  return input as HarnessId
+  model: string
+  presentation: boolean
 }
 
 function loadProjectTarget(
@@ -76,50 +66,50 @@ function loadAgentProfile(agentRoot: string): ReturnType<typeof parseAgentProfil
   return parseAgentProfile(source, profilePath)
 }
 
-function resolveHarnessOption(
+function resolveForegroundProcessSelection(
   scopeRef: string,
-  runMode: ExecuteMode,
   options: AgentCommandOptions
-): HarnessId {
-  const explicitHarness = normalizeConfiguredHarness(options.harness)
-  if (explicitHarness) {
-    return explicitHarness
-  }
-
-  if (!options.agentRoot) {
-    return 'agent-harness'
-  }
-
+): ForegroundProcessSelection {
+  const agentId = parseScopeRef(scopeRef).agentId
   const bundle = buildRuntimeBundleRef({
     ...options,
-    agentName: parseScopeRef(scopeRef).agentId,
+    agentName: agentId,
     agentRoot: options.agentRoot,
     projectRoot: options.projectRoot,
   })
-
-  if (bundle.kind === 'compose') {
-    return 'agent-harness'
+  const profile = options.agentRoot ? loadAgentProfile(options.agentRoot) : undefined
+  const target =
+    bundle.kind === 'agent-project'
+      ? loadProjectTarget(bundle.projectRoot, bundle.agentName)
+      : undefined
+  const requested: HarnessSelectionRequest = {
+    ...(options.harness === undefined
+      ? {}
+      : { harness: options.harness as HarnessSelectionRequest['harness'] }),
+    ...(options.modelProvider === undefined ? {} : { modelProvider: options.modelProvider }),
+    ...(options.model === undefined ? {} : { model: options.model }),
+    ...(options.presentation === undefined ? {} : { presentation: options.presentation }),
+  }
+  const resolution = resolveHarnessExecution({
+    agent: { id: agentId },
+    provisioningLayers: toSelectionLayers(profile?.provisioning, target?.provisioning),
+    requested,
+  })
+  if (!resolution.ok) {
+    throw new Error(resolution.message)
   }
 
-  const profile = loadAgentProfile(options.agentRoot)
-  if (!profile) {
-    return 'agent-harness'
-  }
-
-  if (bundle.kind === 'agent-project') {
-    const primingPrompt = resolveAgentPrimingPrompt(profile, options.agentRoot)
-    const effective = mergeAgentWithProjectTarget(
-      {
-        ...profile,
-        ...(primingPrompt !== undefined ? { priming: primingPrompt } : {}),
-      },
-      loadProjectTarget(bundle.projectRoot, bundle.agentName),
-      runMode
+  const implementation = HARNESS_CATALOG[resolution.selection.harness].processImplementation
+  if (implementation === undefined) {
+    throw new Error(
+      `Harness "${resolution.selection.harness}" has no direct foreground process implementation; use hosted v2 compilation instead.`
     )
-    return normalizeConfiguredHarness(effective.harness) ?? 'agent-harness'
   }
-
-  return normalizeConfiguredHarness(profile.provisioning?.harness) ?? 'agent-harness'
+  return {
+    ...implementation,
+    model: resolution.selection.model,
+    presentation: resolution.selection.presentation,
+  }
 }
 
 interface AgentCommandOptions {
@@ -131,13 +121,14 @@ interface AgentCommandOptions {
   runId?: string
   laneRef?: string
   scaffoldFile?: string
+  modelProvider?: string
   model?: string
   prompt?: string
   promptFile?: string
   attachment?: string[]
   continueProvider?: string
   continueKey?: string
-  interaction?: string
+  presentation?: boolean
   io?: string
   env?: string[]
   dryRun?: boolean
@@ -151,6 +142,12 @@ interface AgentCommandOptions {
 
 function collect(value: string, previous: string[]): string[] {
   return [...previous, value]
+}
+
+function parsePresentation(value: string): boolean {
+  if (value === 'true') return true
+  if (value === 'false') return false
+  throw new Error('--presentation must be true or false')
 }
 
 export function registerAgentCommands(program: Command): void {
@@ -168,13 +165,18 @@ export function registerAgentCommands(program: Command): void {
     .option('--run-id <id>', 'Run ID for correlation')
     .option('--lane-ref <ref>', 'Lane reference (default: main)')
     .option('--scaffold-file <path>', 'JSON file with scaffold packets')
+    .option('--model-provider <id>', 'Model provider override')
     .option('--model <model>', 'Model override')
     .option('--prompt <text>', 'Prompt text (alternative to positional)')
     .option('--prompt-file <path>', 'Read prompt from file')
     .option('--attachment <path>', 'Attachment path (repeatable)', collect, [])
     .option('--continue-provider <provider>', 'Continuation provider: anthropic, openai')
     .option('--continue-key <key>', 'Continuation key for resume')
-    .option('--interaction <mode>', 'Interaction mode: interactive, headless')
+    .option(
+      '--presentation <true|false>',
+      'Request the selected harness operator UI',
+      parsePresentation
+    )
     .option('--io <mode>', 'I/O mode: pty, pipes, inherit')
     .option('--env <KEY=VALUE>', 'Environment variable (repeatable)', collect, [])
     .option('--dry-run', 'Print invocation without spawning')
@@ -273,8 +275,7 @@ async function handleExecute(
     throw new Error('resolve mode must be handled by handleResolve')
   }
   const runMode = mode as ExecuteMode
-  const harness = resolveHarnessOption(canonicalRef, runMode, options)
-  const { frontend, provider } = normalizeHarness(harness)
+  const selection = resolveForegroundProcessSelection(canonicalRef, options)
 
   // Resolve prompt
   const prompt = resolvePrompt(positionalPrompt, options)
@@ -295,9 +296,16 @@ async function handleExecute(
       : undefined
   const envVars = parseEnvFlags(options.env)
 
-  const exec: FrontendExecContext = { placement, provider, continuation, envVars, prompt, options }
+  const exec: FrontendExecContext = {
+    placement,
+    continuation,
+    envVars,
+    prompt,
+    options,
+    ...selection,
+  }
 
-  await runProcessFrontend(frontend, exec)
+  await runProcessFrontend(selection.frontend, exec)
 }
 
 function missingAgentRootError(options: AgentCommandOptions): Error {
@@ -318,6 +326,8 @@ function missingAgentRootError(options: AgentCommandOptions): Error {
 interface FrontendExecContext {
   placement: RuntimePlacement
   provider: 'anthropic' | 'openai' | 'meta'
+  model: string
+  presentation: boolean
   continuation: { provider: 'anthropic' | 'openai' | 'meta'; key: string } | undefined
   envVars: Record<string, string> | undefined
   prompt: string | undefined
@@ -330,15 +340,24 @@ interface FrontendExecContext {
  */
 async function runProcessFrontend(
   frontend: string,
-  { placement, provider, continuation, envVars, prompt, options }: FrontendExecContext
+  {
+    placement,
+    provider,
+    model,
+    presentation,
+    continuation,
+    envVars,
+    prompt,
+    options,
+  }: FrontendExecContext
 ): Promise<void> {
   const client = createAgentSpacesClient()
   const response = await client.buildProcessInvocationSpec({
     placement,
     provider,
     frontend,
-    model: options.model,
-    interactionMode: (options.interaction ?? 'headless') as 'interactive' | 'headless',
+    model,
+    interactionMode: presentation ? 'interactive' : 'headless',
     ioMode: (options.io ?? 'pipes') as 'pty' | 'pipes' | 'inherit',
     continuation,
     lockedEnv: envVars,

@@ -23,11 +23,11 @@ import type {
 import {
   AGENT_SDK_FRONTEND,
   PI_SDK_FRONTEND,
-  assertProviderMatch,
+  assertSessionContinuationProvider,
   composeAgentLocalEnv,
   deriveHandleParts,
   materializeSpec,
-  resolveFrontend,
+  sessionRuntimeFacts,
 } from 'agent-spaces/turn-support'
 import { compilerRuntime } from './compiler-runtime.js'
 import type { InFlightRunContext } from './run-tracker.js'
@@ -56,7 +56,7 @@ export async function runPlacementTurnNonInteractive(
   inFlightRuns: Map<string, InFlightRunContext>
 ): Promise<RunTurnNonInteractiveResponse> {
   const placement = req.placement as RuntimePlacement
-  const frontendDef = resolveFrontend(req.frontend)
+  const sessionFacts = sessionRuntimeFacts(req.frontend)
   const hostSessionId = resolveHostSessionId(req)
   const runId = resolveRunId(req)
   const eventEmitter = createEventEmitter(
@@ -70,7 +70,7 @@ export async function runPlacementTurnNonInteractive(
   let resolvedPrompt = req.prompt
 
   try {
-    assertProviderMatch(frontendDef, req.continuation)
+    assertSessionContinuationProvider(sessionFacts, req.continuation)
 
     const placementContext = await resolvePlacementContext({ ...placement, dryRun: true })
     const aspHome = req.aspHome ?? defaultAspHome ?? getAspHome()
@@ -90,7 +90,7 @@ export async function runPlacementTurnNonInteractive(
     return emitTurnFailure(
       eventEmitter,
       {
-        provider: frontendDef.provider,
+        provider: sessionFacts.provider,
         frontend: req.frontend,
         model: req.model,
       },
@@ -115,7 +115,7 @@ export async function runPlacementTurnNonInteractive(
   if (!runtimePlan.model.ok) {
     const error = toAgentSpacesError(
       new Error(
-        `Model not supported for frontend ${frontendDef.frontend}: ${runtimePlan.model.modelId}`
+        `Model not supported for session runtime ${sessionFacts.frontend}: ${runtimePlan.model.modelId}`
       ),
       'model_not_supported'
     )
@@ -181,7 +181,7 @@ export async function runPlacementTurnNonInteractive(
       // above returns a failure response when the dry-run plan reports an
       // unsupported model, and the reused plan is byte-identical.
       if (!runtimePlan.model.ok) {
-        throw new Error(`Model not supported for frontend ${frontendDef.frontend}`)
+        throw new Error(`Model not supported for session runtime ${sessionFacts.frontend}`)
       }
       const effectiveModel = runtimePlan.model.info.effectiveModel
       const resolvedYolo = runtimePlan.yolo ?? false
@@ -192,13 +192,13 @@ export async function runPlacementTurnNonInteractive(
         runtime: compilerRuntime,
       })
 
-      if (frontendDef.frontend === PI_SDK_FRONTEND) {
+      if (sessionFacts.frontend === PI_SDK_FRONTEND) {
         harnessEnv['PI_CODING_AGENT_DIR'] = materialized.materialization.outputPath
       }
 
       restoreEnv = applyEnvOverlay(harnessEnv)
 
-      if (frontendDef.frontend === AGENT_SDK_FRONTEND) {
+      if (sessionFacts.frontend === AGENT_SDK_FRONTEND) {
         const plugins = (materialized.materialization.pluginDirs ?? []).map((dir) => ({
           type: 'local' as const,
           path: dir,
@@ -279,7 +279,7 @@ export async function runPlacementTurnNonInteractive(
           session,
           eventEmitter,
           assistantState,
-          allowSessionIdUpdate: frontendDef.frontend !== PI_SDK_FRONTEND,
+          allowSessionIdUpdate: sessionFacts.frontend !== PI_SDK_FRONTEND,
           continuationKey,
           outstandingTurns: 0,
           acceptedInputApplicationIds: new Set<string>(),
@@ -331,7 +331,7 @@ export async function runPlacementTurnNonInteractive(
     if (!producedContent) {
       const error = toAgentSpacesError(
         new Error(
-          `Agent session produced no assistant output (frontend=${frontendDef.frontend}, continuationKey=${continuationKey ?? 'none'})`
+          `Agent session produced no assistant output (sessionRuntime=${sessionFacts.frontend}, continuationKey=${continuationKey ?? 'none'})`
         ),
         'empty_response'
       )
