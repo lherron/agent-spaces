@@ -19,20 +19,31 @@ predicate: >
   are governed by agent-spaces.runtime-declaration-authority and accept only
   their exact placement context DTOs; they do not add paths, roots, environment,
   or placement inputs to identifier-only catalogAgentInspection or
-  inspectAgentSelection.
-authority: T-08563 revision 5 approved by daedalus EN-13318
+  inspectAgentSelection. Inspection, declaration, capability, CLI, and
+  generated-schema projections of execution selection derive only from the
+  compiler catalog governed by agent-spaces.producer-owned-harness-selection.
+  They expose canonical harness, model provider, model, reasoning effort,
+  boolean presentation, and producer hosting facts without publishing aliases,
+  frontend, family, runtime, interaction, controller, profile-selector, or
+  driver-selection inputs. ASPC inspection code does not import or recreate a
+  route catalog.
+authority: T-08563 revision 5 approved by daedalus EN-13318; producer-owned selection amendment approved by EN-15959 and Lance on 2026-09-21
 source:
   - wrkq:T-08563 revision 5
   - wrkq:EN-13318
   - hrcchat#20422
   - harness/aspc/src/service.ts
   - contracts/aspc-protocol/src/types.ts
+  - architecture/records/invariants/agent-spaces.producer-owned-harness-selection.yaml
+  - docs/proposals/producer-owned-harness-selection.md
 required_tests:
   - consumer-facing catalog and inspection operations reject any path root environment clock probe scaffold or compile-option input
   - catalog and inspection DTOs contain no filesystem path or ambient environment field
   - contextual inspection resolves a requested agent only against the freshly resolved canonical producer catalog
   - project-neutral catalog behavior is independent of process cwd and ambient environment
   - project-neutral catalog emits no fabricated project or project-contextual compile options
+  - inspection declaration capability CLI and generated schema projections equal compiler catalog projections and contain no selectable alias frontend family runtime interaction controller profile or driver fields
+  - ASPC inspection owns no harness-to-driver or provider-to-harness mapping
 last_verified:
   date: 2026-09-17
   evidence: T-08563 revision 5 approved by daedalus EN-13318
@@ -41,5 +52,6 @@ reopen_when:
   - an identifier-only catalog or selection operation accepts producer context rather than identifiers
   - project-neutral catalog semantics change
   - evaluation context becomes part of the public DTO or transport contract
+  - an inspection or declaration projection is sourced from config aliases a public route catalog or an ASPC-local selection table
 supersedes: []
 superseded_by: null

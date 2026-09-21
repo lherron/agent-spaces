@@ -4,50 +4,46 @@ status: active
 owner_project: agent-spaces
 scope: immutable ASP release worker selection, helper closure, and positive hosting evidence
 predicate: >
-  Amendment T-08680 (2026-09-21, ruled by Lance): the identity-bound
-  agent-harness release executable binds both agent-harness and
-  agent-harness-tmux and directly serves the standard broker protocol. It is a
-  native worker, not the deferred generic Pi SDK binding described in the named
-  gap below. Release inspection must prove its hermetic closure, embedded
-  identity, dual driver inventory, explicit dual bindings, and positive
-  hostedDrivers before either route is exposed. Subject to that amendment,
+  Under agent-spaces.producer-owned-harness-selection, a v2 ASP release is
+  activatable only when its immutable binding table positively covers every
+  driver the four-harness catalog can select: claude-code-tmux,
+  codex-app-server, muse-serve, muse-cli-tmux, agent-harness, and
+  agent-harness-tmux. There is no Codex exemption and no inferred hosting.
   A binding-aware standalone ASP release declares each release-supported broker
-  driver's worker executable and each required ASP-owned asset in its immutable release
-  manifest. Inspection proves every declared worker is identity-bound, resolves
-  inside that release, advertises every driver bound to it, and matches its
-  recorded digests. That release's compiled aspd selects a worker only through
-  the declared binding, freezes the selected executable in the existing
-  per-preparation executionRelease.worker.executable, and emits optional
+  driver's worker executable and each required ASP-owned asset in its immutable
+  release manifest. Inspection proves every declared worker is identity-bound,
+  resolves inside that release, advertises every driver bound to it, and matches
+  its recorded digests. That release's compiled aspd selects a worker only
+  through the declared binding, freezes the selected executable in the existing
+  per-preparation executionRelease.worker.executable, and emits
   executionRelease.worker.hostedDrivers as the sorted set of manifest bindings
   assigned to that executable. hostedDrivers is positive hosting evidence, not
   an inference from extra registered drivers; a missing selected-driver binding
-  returns release_worker_driver_unavailable on the existing compile failure
-  envelope before executionRelease or any hosting effect. ASP-owned Claude and
-  Pi hook and tmux helpers execute through the selected release payload, and the
+  returns release_worker_driver_unavailable on the compile failure envelope
+  before a successful v2 result or any hosting effect. The selected driver is
+  compiler output carried by plan.execution.driver and the single canonical
+  dispatch start request; neither caller input nor a selectedProfile brokerDriver
+  chooses it. The identity-bound agent-harness release executable binds both
+  agent-harness drivers and directly serves the standard broker protocol as a
+  native worker. Pi implementation packages may remain shared infrastructure,
+  but pi and pi-sdk are not selectable harnesses and a deferred generic Pi SDK
+  binding is not part of the v2 activation matrix. ASP-owned Claude and Pi hook
+  and tmux helpers execute through the selected release payload, and the
   verified Claude statusline asset is copied into the materialized bundle so no
   durable helper reference depends on PATH, import.meta, a checkout, or a
-  retired release. Retained pre-binding v1 releases remain valid immutable
-  rollback targets with their own compiled behavior and may omit both binding
-  metadata and hostedDrivers; absence is not positive non-Codex hosting
-  evidence. Consumers may preserve the proven legacy codex-app-server binding,
-  but any non-Codex aspd launch admitted on release hosting evidence must require
-  hostedDrivers to contain the selected broker driver. HRC retains worker
-  hosting, lifecycle, placement, and routing authority, except the
-  participant-owned codex-desktop broker (T-08594, 2026-09-17, ruled by Lance,
-  recorded hrc-runtime T-08567 C-23749): hook-started from the active release
-  and served in-process, never HRC-hosted.
-authority: Daedalus approval of wrkq T-08561 revision de063d73 and Pi SDK scope-narrowing amendment c6d821ce on 2026-09-16; T-08594 Desktop amendment under Lance ruling (hrc-runtime T-08567 C-23749); T-08680 native agent-harness worker amendment ruled by Lance 2026-09-21
-named_gap: >
-  The Pi SDK release binding is deferred. At implementation commits c96bbd46
-  and d219b1d3 the release closure gate rejected the compiled Pi worker because
-  transitive @silvia-odwyer/photon-node and esbuild modules under the Pi SDK
-  package root retained build-host absolute paths. A hermetic release-specific
-  Pi SDK compilation surface remains required. Until then new releases leave
-  pi-sdk unbound and refuse it before executionRelease; T-08562 must keep Pi SDK
-  off the aspd route or refuse it explicitly. The existing non-aspd Pi SDK path
-  is unchanged.
+  retired release. Retained v1 release artifacts remain immutable historical
+  artifacts with their own compiled behavior, but they are neither v2-compatible
+  producers nor supported fallback or rollback readers for the v2 contract.
+  HRC retains worker hosting, lifecycle, placement, and routing authority,
+  except the participant-owned codex-desktop broker (T-08594, 2026-09-17,
+  ruled by Lance, recorded hrc-runtime T-08567 C-23749): hook-started from the
+  active release and served in-process, never HRC-hosted.
+authority: Daedalus approval of wrkq T-08561 revision de063d73 and Pi SDK scope-narrowing amendment c6d821ce on 2026-09-16; T-08594 Desktop amendment under Lance ruling (hrc-runtime T-08567 C-23749); T-08680 native agent-harness worker amendment ruled by Lance 2026-09-21; producer-owned selection amendment approved by EN-15959 and Lance on 2026-09-21
 source:
+  - wrkq:T-08699
   - wrkq:T-08680
+  - architecture/records/invariants/agent-spaces.producer-owned-harness-selection.yaml
+  - docs/proposals/producer-owned-harness-selection.md
   - docs/proposals/agent-harness-native-release-worker.md
   - wrkq:T-08594
   - wrkq:T-08561
@@ -60,25 +56,30 @@ source:
   - architecture/records/invariants/agent-spaces.harness-broker-turn-evidence.yaml
   - architecture/records/invariants/agent-spaces.codex-tui-app-server-presentation.yaml
 required_tests:
+  - v2 release activation rejects unless bindings and positive hostedDrivers cover claude-code-tmux codex-app-server muse-serve muse-cli-tmux agent-harness and agent-harness-tmux
   - the identity-bound agent-harness executable passes release closure and identity inspection advertises both agent-harness drivers and owns both explicit bindings
   - aspd preparation for either agent-harness driver returns that exact executable with the selected driver in positive hostedDrivers and refuses missing or mismatched evidence before executionRelease
   - new release build and inspection validate worker bindings driver inventories identity and payload and asset digests
-  - newly built releases prepare and complete real Claude Pi TUI and Codex turns with the selected release worker and hostedDrivers containing the selected driver
-  - Pi SDK remains unbound until its transitive build-host absolute paths have a hermetic release compilation surface and new releases refuse Pi SDK before executionRelease
+  - newly built v2 releases prepare and complete real Claude Codex Muse and agent-harness turns across both presentation values with the selected release worker and hostedDrivers containing the selected driver
+  - neither caller input nor selectedProfile brokerDriver can select or override plan.execution.driver and its canonical start request
+  - pi and pi-sdk remain unselectable even when retained implementation packages or bindings are present
   - an unbound selected driver returns release_worker_driver_unavailable before executionRelease and creates no worker pane or native harness
   - generated Claude and Pi settings wrappers launch descriptions panes and process trees resolve ASP-owned helpers beneath the selected immutable release and the Claude bundle carries the verified statusline bytes
-  - retained pre-binding v1 release inspection activation and Codex rollback preserve its compiled behavior with hostedDrivers absent and do not claim non-Codex hosting evidence
+  - retained v1 releases remain immutable historical artifacts but are rejected as v2 producers fallback readers and rollback compatibility paths
   - binding-aware A to B activation outage and saved-preparation proofs preserve frozen worker identity and live old-worker control
 last_verified:
-  date: 2026-09-17
-  evidence: T-08561 isolated release A/B matrix built and inspected binding-aware releases, completed real Claude Pi TUI and Codex turns from immutable workers, observed Pi SDK and compiled unhosted-driver refusal before executionRelease, proved helper and statusline closure plus MCP neutrality, preserved a retained pre-binding Codex rollback, and kept live A/B workers controllable through activation and aspd outage; evidence retained under var/wrkq-artifacts/T-08561/implementation
+  date: 2026-09-21
+  evidence: T-08561 proved binding and immutable-worker mechanics; T-08680 proved the dual-bound native agent-harness release worker; T-08699 records the approved v2 activation contract, whose implementation remains pending
 reopen_when:
   - the participant-owned Desktop broker changes ownership or hosting
   - release worker selection stops deriving from the inspected binding table
   - hostedDrivers is inferred from registry inventory or changes from positive per-executable binding evidence
   - an unbound driver can receive executionRelease or cause a hosting effect
   - a release worker resolves an ASP-owned Claude or Pi helper or required statusline asset outside its immutable release payload
-  - a retained pre-binding release is rewritten rejected as a rollback target or treated as positive non-Codex hosting evidence
+  - a retained v1 release is rewritten or is accepted as a v2-compatible producer fallback reader or rollback path
+  - any of the six compiler-selectable drivers lacks a positive v2 release binding or Codex receives an exemption
+  - caller input or a selectedProfile brokerDriver chooses the release worker instead of the compiler's singular execution and canonical dispatch request
+  - pi or pi-sdk becomes a public selectable harness or an activation prerequisite for the four-harness v2 matrix
   - worker hosting lifecycle placement or routing authority moves from HRC
 supersedes: []
 superseded_by: null

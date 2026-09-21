@@ -20,20 +20,26 @@ predicate: >
   alternative: no process command or arguments exist and harnessTransport is
   native-worker, meaning the already-external release worker directly owns the
   selected runtime and speaks the standard harness-broker protocol.
-  Native-worker is distinct from HRC-local in-process execution. Headless
-  selects agent-harness with no terminal and owns the Pi runtime in the worker.
-  Interactive selects agent-harness-tmux: HRC launches the outer release worker
-  generically and supplies a tmux pane lease; the registered driver consumes
-  that lease and launches the same release executable as a TUI child in the
-  pane. A worker-local Unix socket carries the standard harness-broker protocol
-  directly between them. The child registers the leaf agent-harness-tmux
-  driver, owns Pi and InteractiveMode, and is the sole mapper for Pi events.
+  Native-worker is distinct from HRC-local in-process execution. Under
+  agent-spaces.producer-owned-harness-selection, agent-harness with presentation
+  false resolves to the agent-harness driver with no terminal and owns the Pi
+  runtime in the worker. Presentation true is a birth variant that resolves to
+  agent-harness-tmux: HRC launches the outer release worker generically and
+  supplies a tmux pane lease; the registered driver consumes that lease and
+  launches the same release executable as a TUI child in the pane. A
+  worker-local Unix socket carries the standard harness-broker protocol directly
+  between them. The child registers the leaf agent-harness-tmux driver, owns Pi
+  and InteractiveMode, and is the sole mapper for Pi events. A later
+  presentation request cannot silently replace a live headless worker; changing
+  birth variant requires an explicit lifecycle replacement.
   The outer driver verifies broker.hello and exact release identity, invokes the
   standard invocation methods, and re-sequences child envelopes into its real
   DriverContext. No agent-harness-control/v1, session-config, turn-begin, or
-  other private wire contract exists. Both drivers require the semantic
-  agent block and a Pi SDK model binding, while the outer runtime discriminator
-  remains the distinct first-party agent-harness value. The shared Pi driver
+  other private wire contract exists. Both drivers require the semantic agent
+  block and an internal Pi provider/model binding, while the public harness
+  identity and outer runtime discriminator remain the distinct first-party
+  agent-harness value. Pi and pi-sdk are not public harness identities or
+  fallback selection routes. The shared Pi driver
   owns auth, permission, continuation, mapping, interruption, and disposal in
   the child; its presentation observes operator turns in that same mapper.
   Earendil InteractiveMode process exit is confined to the child and can never
@@ -47,9 +53,12 @@ predicate: >
   external-harness, generic Pi SDK, Arris, Muse, and Desktop routes retain their
   own contracts, and HRC retains all non-execution semantic authority named by
   their active records.
-authority: T-08680 native-worker amendment ruled by Lance 2026-09-21; prior T-08563 revision 5 approved by daedalus EN-13318 and hrcchat#21059; T-08594 Desktop amendment ruled by Lance
+authority: T-08680 native-worker amendment ruled by Lance 2026-09-21; prior T-08563 revision 5 approved by daedalus EN-13318 and hrcchat#21059; T-08594 Desktop amendment ruled by Lance; producer-owned selection amendment approved by EN-15959 and Lance on 2026-09-21
 source:
+  - wrkq:T-08699
   - wrkq:T-08680
+  - architecture/records/invariants/agent-spaces.producer-owned-harness-selection.yaml
+  - docs/proposals/producer-owned-harness-selection.md
   - docs/proposals/agent-harness-native-release-worker.md
   - docs/proposals/agent-harness.md
   - docs/proposals/agent-harness-hrc-interactive.md
@@ -66,8 +75,9 @@ source:
   - scripts/asp-release.ts
 required_tests:
   - both agent-harness profiles use the native-worker shape and reject a process command arguments in-process pty jsonrpc-stdio and private-control declarations
-  - noninteractive intent selects agent-harness without a terminal while interactive intent selects agent-harness-tmux with an HRC-owned tmux terminal surface
-  - inspection preserves the distinct agent-harness Pi-family runtime rather than falling through to Codex or generic Pi SDK
+  - presentation false selects agent-harness without a terminal while presentation true selects the agent-harness-tmux birth variant with an HRC-owned tmux terminal surface
+  - a later presentation request never replaces a live headless worker and requires an explicit lifecycle replacement to change birth variant
+  - inspection preserves the distinct agent-harness identity and internal Pi provider/model binding rather than exposing or falling through to a generic Pi SDK harness
   - compiled profiles preserve semantic agent identity model provider auth reasoning permission continuation and correlation inputs under the invocation hash
   - one identity-bound release executable advertises both drivers reports its embedded release identity and is selected only through explicit inspected bindings
   - release closure inspection rejects checkout paths identity mismatch digest drift missing inventory and a binding to another executable
@@ -89,6 +99,8 @@ reopen_when:
   - the interactive route launches anything except the same release executable or uses anything except the standard broker protocol on its worker-local socket
   - the TUI child exit can terminate the outer worker or the outer driver maps Pi events independently of the child
   - either driver is inferred rather than positively bound to the inspected immutable executable
+  - Pi or pi-sdk becomes a public harness identity provider-derived fallback or selectable compatibility route
+  - a later presentation request silently replaces a live headless worker
   - the direct runtime requires a harness adapter compiler-built Pi bundle or ambient Pi resource discovery
   - a replacement session can lose the custom ASP resource loader
   - foreground execution attaches to an HRC runtime or stops sharing the first-party runtime factory

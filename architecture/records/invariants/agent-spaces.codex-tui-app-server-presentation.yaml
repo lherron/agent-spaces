@@ -2,63 +2,76 @@ id: agent-spaces.codex-tui-app-server-presentation
 kind: invariant
 status: active
 owner_project: agent-spaces
-scope: interactive Codex app-server runtime presentation delivery evidence and lifetime
+scope: Codex app-server execution, optional operator presentation, delivery evidence, and lifetime
 predicate: >
-  Interactive Codex compatibility seats compile to the codex-app-server driver
-  with codex-tui presentation and websocket-over-unix transport while headless
-  codex-app-server seats and their tmux-tui renderer retain existing initial-turn
-  behavior. Both presentations use native steering confirmation under
+  Under agent-spaces.producer-owned-harness-selection, harness codex always
+  resolves to the codex-app-server driver. Presentation false uses the
+  JSON-RPC-stdio app-server recipe without a terminal surface. Presentation
+  true uses the same driver and model session with codex-tui presentation,
+  websocket-over-Unix transport, and an HRC-owned tmux surface; it never selects
+  codex-cli-tmux. A later explicit presentation request may attach the stock
+  remote Codex TUI to a live app-server without replacing that worker, while a
+  request that cannot be fulfilled is refused rather than downgraded. Both
+  presentation outcomes use native steering confirmation under
   agent-spaces.harness-broker-turn-evidence: turn/steer carries the pending
   client identity, and only its matching committed native user item confirms
   context entry without replacing initiating ownership. The transcript landing
-  evidence enum denotes asynchronous provider evidence here; nativeSourceKind
-  remains provider-jsonrpc. Each
-  interactive runtime owns exactly one app-server started beneath the HRC-leased
-  tmux pane wrapper; pane exit or teardown kills that server, so neither server
-  nor its queued work can outlive the runtime that owns its broker. The broker
-  initializes and subscribes first with the experimental API enabled; the stock
-  remote Codex TUI attaches as the second client after thread start or resume.
-  The driver advertises steer and queue only. Launch and later obligation-bearing
-  inputs enter the same broker-held FIFO and one head at a time reaches Codex via
-  thread/queue/add with clientUserMessageId; turn/start is never sent and
-  exclusive is unsupported. Resume scrubs every durable Codex queue item before
-  loading the thread, and a runtime crash has at-least-once delivery semantics
-  with the old submission failed and any resend carrying fresh identity. The RPC
-  notification stream is the sole turn evidence authority. Observed brackets and
-  attribution obey agent-spaces.harness-broker-turn-evidence, including
-  fail-closed unknown attribution before an item. Approval policy is exactly
-  never in this presentation. Stop and PostToolUse hooks are raw provenance and
-  synchronous mail-stop control only; they mint no turn events. codex-cli-tmux is
-  deprecated in place until a separate removal ruling.
-authority: Daedalus approval of wrkq T-08097 rev 13 with companion wrkq T-08098 on 2026-09-05; native steering evidence amended by wrkq T-08206 rev 2 (C-19948) on 2026-09-07
+  evidence enum denotes asynchronous provider evidence and nativeSourceKind
+  remains provider-jsonrpc. A presented runtime owns exactly one app-server
+  beneath the HRC-leased tmux pane wrapper; pane exit or teardown kills that
+  server, so neither server nor queued work can outlive its owning runtime. The
+  broker initializes and subscribes first with the experimental API enabled;
+  the stock remote Codex TUI attaches as the second client after thread start or
+  resume. The driver advertises steer and queue only. Launch and later
+  obligation-bearing inputs enter the same broker-held FIFO and one head at a
+  time reaches Codex via thread/queue/add with clientUserMessageId; turn/start
+  is never sent and exclusive is unsupported. Resume scrubs every durable Codex
+  queue item before loading the thread, and a runtime crash has at-least-once
+  delivery semantics with the old submission failed and any resend carrying
+  fresh identity. The RPC notification stream is the sole turn evidence
+  authority. Observed brackets and attribution obey
+  agent-spaces.harness-broker-turn-evidence, including fail-closed unknown
+  attribution before an item. Approval policy is exactly never in the presented
+  recipe. Stop and PostToolUse hooks are raw provenance and synchronous
+  mail-stop control only; they mint no turn events. codex-cli-tmux may remain as
+  an unselectable implementation until separately removed, but is not a
+  compatibility route or public selection value.
+authority: Daedalus approval of wrkq T-08097 rev 13 with companion wrkq T-08098 on 2026-09-05; native steering evidence amended by wrkq T-08206 rev 2 C-19948 on 2026-09-07; producer-owned selection amendment approved by EN-15959 and Lance on 2026-09-21
 source:
   - wrkq:T-08097
   - wrkq:T-08098
   - wrkq:T-08206
+  - wrkq:T-08554
+  - wrkq:T-08699
+  - architecture/records/invariants/agent-spaces.producer-owned-harness-selection.yaml
   - architecture/records/invariants/agent-spaces.harness-broker-admission.yaml
   - architecture/records/invariants/agent-spaces.harness-broker-turn-evidence.yaml
   - architecture/records/invariants/agent-spaces.harness-broker-local-commit-observation.yaml
+  - docs/proposals/producer-owned-harness-selection.md
   - compiler/agent-spaces/src/compile-runtime-plan.ts
   - compiler/agent-spaces/src/broker-invocation.ts
   - harness/harness-broker/src/drivers/codex-app-server/driver.ts
   - harness/harness-broker/src/invocation-manager.ts
 required_tests:
-  - interactive Codex compilation selects codex-app-server codex-tui websocket-unix with tmux terminal while headless output stays byte-identical
-  - the pane-owned app-server dies on pane runtime and broker teardown and no queued item executes outside its owning runtime
+  - codex presentation false and true both resolve codex-app-server while false omits terminal hosting and true declares codex-tui websocket-unix plus tmux presentation hosting
+  - no public or compiler selection path maps codex to codex-cli-tmux and the unselectable implementation cannot be reached by alias family runtime interaction or driver input
+  - presentation can attach detach and reattach without changing worker runtime thread or frozen recipe identity and never silently replaces a live worker
+  - the pane-owned presented app-server dies on pane runtime and broker teardown and no queued item executes outside its owning runtime
   - launch and later queue inputs use thread/queue/add originate distinct turns under human and goal races and preserve one disposition per submission
   - resume deletes every stored queue item before thread/resume and records each deletion diagnostically
   - codex-tui refuses approval policy other than never and its hooks remain raw provenance outside turn evidence
-  - real-terminal validation covers broker and human turns steer interrupt continuation pane exit and runtime cleanup
-  - TUI and headless Codex steering confirm only the exact native user item, preserve initiating ownership and queue waiters, and never duplicate the headless initial user message
+  - real-terminal validation covers broker and human turns steer interrupt continuation pane exit runtime cleanup and false-to-later-attachment
+  - TUI and nonpresented Codex steering confirm only the exact native user item preserve initiating ownership and queue waiters and never duplicate the initial user message
 last_verified:
-  date: 2026-09-05
-  evidence: Daedalus source-grounded approval of T-08097 rev 13 established the per-runtime two-client codex-tui route, queue-only own-turn delivery, observed attribution, fail-closed unknown terminals, approvals-off boundary, and runtime-bounded queue lifetime; implementation gates remain pending
+  date: 2026-09-21
+  evidence: T-08554 installed app-server attach detach reattach and post-attachment turns plus T-08699 installed capability probes; v2 selection implementation pending
 reopen_when:
+  - codex selection resolves any driver other than codex-app-server
+  - presentation false requires a terminal or presentation true silently downgrades or replaces a live worker
   - codex-tui stops using one runtime-owned app-server with broker first and stock TUI second
   - an obligation-bearing input bypasses the broker FIFO or thread/queue/add or turn/start becomes a delivery path
   - exclusive or an approval policy other than never is exposed in codex-tui presentation
   - queue scrub can occur after thread load or an item can execute after its owning runtime dies
   - hooks mint turn evidence or the RPC notification stream stops being sole evidence authority
-  - headless codex-app-server behavior beyond shared native steering confirmation or codex-cli-tmux removal enters this migration
 supersedes: []
 superseded_by: null

@@ -5,9 +5,14 @@ owner_project: agent-spaces
 scope: placement-bound runtime declaration interpretation, preparation context, and read-only node observations
 predicate: >
   Agent Spaces alone interprets mutable agent profiles, project targets,
-  provisioning overlays, priming, harness/provider/frontend mappings, prompt
-  composition, node-local harness capability, and historical continuation
-  artifact format. HRC supplies its already-decided placement context and keeps
+  property-preserving provisioning overlays, priming, prompt composition,
+  node-local harness capability, and historical continuation artifact format.
+  Under agent-spaces.producer-owned-harness-selection, config and declaration
+  code parse and merge the separate harness, model-provider, model, reasoning,
+  and boolean presentation scalars but own no alias, frontend, family, runtime,
+  driver, or hosting mapping; the compiler's sole catalog and resolver own all
+  default, compatibility, recipe, and driver selection. HRC supplies its
+  already-decided placement context and keeps
   project registry, task-worktree selection, home-node placement,
   authorization, continuation selection, launch, attachment, and lifecycle
   authority. resolveRuntimeDeclaration and inspectRuntimePlacement re-read
@@ -35,16 +40,18 @@ predicate: >
   observeContinuationArtifact uses key-bound frozen provider-home evidence for
   positive missing; unbound recorded placement may prove presence but absence
   remains unknown/home_not_historical. No unusable continuation silently starts
-  fresh. Four additive preparation operations keep direct process invocation and
+  fresh. The retained separately named preparation operations keep direct process invocation and
   Desktop identity, new-registration admission, and fresh-observer preparation
   under ASP authority without starting a native command or applying input.
   Direct preparation preserves the placement builder result and carries
   mandatory structured prompt content. Desktop identity remains separate from
   admission; existing registrations and durable reattach require no fresh
-  preparation, and the native Desktop lifecycle stays external. The thin ASPC protocol/client closure carries DTOs, validation,
-  framing, and transport only, never configuration, compiler, adapter, or
-  provider implementations.
-authority: T-08563 revision 5 approved by daedalus EN-13318; T-08574 preparation amendment approved EN-13542; T-08579 revision 5 preparation-context amendment approved by daedalus on 2026-09-17
+  preparation, and the native Desktop lifecycle stays external. Public ordinary
+  compilation is only aspc.compileHarnessInvocation; compileRuntimePlan remains
+  an internal compiler/SDK operation. The thin ASPC protocol/client closure
+  carries DTOs, validation, framing, and transport only, never selection
+  policy, configuration, compiler, adapter, or provider implementations.
+authority: T-08563 revision 5 approved by daedalus EN-13318; T-08574 preparation amendment approved EN-13542; T-08579 revision 5 preparation-context amendment approved by daedalus on 2026-09-17; producer-owned selection amendment approved by EN-15959 and Lance on 2026-09-21
 source:
   - wrkq:T-08563 revision 5
   - wrkq:T-08563 ACCEPTANCE revision 5
@@ -59,6 +66,8 @@ source:
   - compiler/agent-spaces/src/desktop-native-identity.ts
   - compiler/agent-spaces/src/desktop-observer-preparation.ts
   - contracts/spaces-runtime-contracts/src/process-invocation.ts
+  - architecture/records/invariants/agent-spaces.producer-owned-harness-selection.yaml
+  - docs/proposals/producer-owned-harness-selection.md
 required_tests:
   - caller source roots are canonical and echoed while exact agent roots perform no search or substitution
   - root infer-from-cwd and none project modes remain distinct and none reads no project declaration
@@ -71,9 +80,10 @@ required_tests:
   - conflicting sessionRef and explicit context agent project or task identity returns configured_context_mismatch before materialization
   - capability detection is fresh bounded read-only and failed probes are never positive
   - key-bound frozen continuation evidence may return missing while unbound recorded placement returns present or unknown only
-  - standalone aspd advertises and serves all four operations over its immutable release identity
+  - standalone aspd advertises compileHarnessInvocation as its sole ordinary compile RPC while separately named preparation and observation operations retain their exact authority boundaries
   - direct preparation is byte-equal to the existing placement builder and always carries structured system and priming prompt keys
   - Desktop identity precedes durable lookup while admission and fresh observer preparation perform bounded provider-native validation without starting the native process
+  - profile project directive and explicit request values preserve omission versus false and reach the compiler resolver without config ASPC or declaration code selecting a driver
 last_verified:
   date: 2026-09-17
   evidence: T-08563 revision 5 approved by daedalus EN-13318; T-08574 preparation approved by astra EN-13542
@@ -87,5 +97,7 @@ reopen_when:
   - inspection direct preparation and launch preparation stop sharing one preparation execution context
   - dispatchEnv becomes a template exec predicate interpolation or preparation-environment-hash input
   - explicit and ambient prompt-source authority are merged or silently substituted
+  - config declaration or ASPC code gains a harness-to-driver provider-to-harness frontend family runtime or hosting mapping
+  - compileRuntimePlan becomes a second public ordinary RPC
 supersedes: []
 superseded_by: null

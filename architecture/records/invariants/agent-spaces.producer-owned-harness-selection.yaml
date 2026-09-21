@@ -1,0 +1,74 @@
+id: agent-spaces.producer-owned-harness-selection
+kind: invariant
+status: active
+owner_project: agent-spaces
+scope: public harness selection, compiler recipe resolution, and singular aspd compilation
+predicate: >
+  Agent Spaces exposes exactly agent-harness, claude, codex, and muse as
+  selectable harness identities. Harness identifies the agent implementation;
+  model provider, model, reasoning effort, and boolean presentation remain
+  independent inputs. The compiler owns the sole exhaustive execution catalog
+  and pure resolver. Only that catalog maps harness and presentation to a
+  builder, driver, protocol, process transport, terminal requirement,
+  presentation fulfillment, and declared hosting requirements. Config parses
+  and property-preservingly merges profile, project, directive, and explicit
+  request scalars but selects no driver. Public contract packages own only
+  vocabulary and DTOs. ASPC validates the envelope, invokes the compiler, and
+  returns its singular result without a profile or driver selector. Resolution
+  precedence is catalog defaults, agent profile, project target, per-summon
+  directives, then explicit compile request. The default harness is claude and
+  default presentation is false. Omitted provider and model use the selected
+  harness and provider defaults respectively; provider never infers harness,
+  model never infers provider, and changing harness preserves explicit
+  provider/model values so incompatibility is refused. Explicit false is
+  preserved by property presence. A true presentation request resolves to a
+  fulfilling intrinsic, attachable, or birth-variant recipe or returns a typed
+  refusal, never a downgrade. The public v2 request requires a top-level agent
+  id consistent with every explicit placement, bundle, and scope identity and
+  rejects v1, viewer, aliases, frontend, family, runtime, interaction,
+  controller, profile, and driver selectors. Ordinary compilation returns one
+  execution and one canonical dispatch start request through public
+  aspc.compileHarnessInvocation; compileRuntimePlan may remain an internal
+  compiler/SDK method but is not a second public RPC. Builders consume an
+  already-resolved recipe and cannot inspect raw selection fields. Foreground
+  process preparation and explicitly named participant, Desktop, observer, and
+  exact-profile operations remain separate from ordinary harness selection.
+  V1 releases remain immutable historical artifacts but are not compatibility
+  readers or fallback producers for v2. A v2 release must positively bind every
+  driver its catalog can select, including Codex, before activation. ASP never
+  silently reinterprets incompatible prepared or live state.
+authority: Daedalus APPROVE EN-15959 with Lance's binding clean-cutover, four-harness, and approval-scope rulings on 2026-09-21
+source:
+  - wrkq:T-08690 revision 3
+  - wrkq:T-08699
+  - wrkq:EN-15959
+  - docs/proposals/producer-owned-harness-selection.md
+  - contracts/spaces-runtime-contracts/src/compiler-plan.ts
+  - core/config/src/core/types/harness.ts
+  - contracts/spaces-runtime-contracts/src/route-catalog.ts
+  - compiler/agent-spaces/src/compile-runtime-plan.ts
+  - compiler/agent-spaces/src/broker-invocation.ts
+  - compiler/agent-spaces/src/client-support.ts
+  - harness/aspc/src/profileSelector.ts
+required_tests:
+  - the public harness keys are exactly agent-harness claude codex and muse and every harness/presentation cell resolves or returns a typed refusal
+  - precedence and provenance cover catalog profile project directive and explicit request layers while explicit presentation false survives every boundary
+  - provider cannot select harness model cannot select provider and a harness-only override preserves explicit provider/model before compatibility validation
+  - v1 aliases viewer frontend family runtime interaction controller profile and driver selectors are rejected without translation fallback or deprecation
+  - every ordinary compile returns one execution and one canonical start request with driver recipe hashes hosting evidence and frozen dispatch consistency
+  - ASPC exposes compileHarnessInvocation as the sole public ordinary compile RPC and owns no catalog profile selection or driver mapping
+  - repository enforcement rejects driver selection outside the compiler catalog raw selection reads in builders provider-to-harness mappings and catalog builder hosting incoherence
+  - real installed aspd calls cover the four retained harnesses both presentation booleans invalid combinations and removed-field rejection
+last_verified:
+  date: 2026-09-21
+  evidence: T-08699 source survey, installed CLI and driver probes, durable real-turn evidence from T-08554 T-08595 T-08601 and T-08680, and approved contract EN-15959; implementation pending
+reopen_when:
+  - a selectable harness is added removed aliased or inferred outside the four-value public vocabulary
+  - any production authority outside the compiler catalog maps selection inputs to a driver or hosting recipe
+  - ASPC regains profile or driver selection or exposes a second ordinary compile RPC
+  - a provider or model silently selects a harness or an incompatible explicit value is discarded
+  - presentation false is treated as omission or terminal prohibition or requested true is silently downgraded
+  - ordinary compilation becomes plural or carries multiple authoritative start requests
+  - a v2 release can succeed without positive selected-driver hosting evidence
+supersedes: []
+superseded_by: null
