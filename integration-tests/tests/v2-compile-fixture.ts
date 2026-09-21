@@ -28,6 +28,20 @@ export type V2CompileOptions = {
   prompt?: string | undefined
   continuation?: RuntimeCompileRequest['continuation'] | undefined
   lockedEnv?: Record<string, string> | undefined
+  dispatchEnv?: Record<string, string> | undefined
+  attachments?: RuntimeCompileRequest['materialization']['attachments'] | undefined
+  omitPriming?: boolean | undefined
+  responseFormat?: RuntimeCompileRequest['materialization']['responseFormat'] | undefined
+  taskContext?: RuntimeCompileRequest['materialization']['taskContext'] | undefined
+  permissionPolicy?: RuntimeCompileRequest['hrcPolicy']['permissionPolicy'] | undefined
+  inputPolicy?: RuntimeCompileRequest['hrcPolicy']['inputPolicy'] | undefined
+  exposurePolicy?: RuntimeCompileRequest['hrcPolicy']['exposurePolicy'] | undefined
+  resourceLimits?: RuntimeCompileRequest['hrcPolicy']['resourceLimits'] | undefined
+  capabilityPolicy?: RuntimeCompileRequest['hrcPolicy']['capabilityPolicy'] | undefined
+  disallowedTools?: string[] | undefined
+  scopeRef?: string | undefined
+  laneRef?: string | undefined
+  runMode?: 'query' | 'heartbeat' | 'task' | 'maintenance' | undefined
 }
 
 function identity(namespace: string): RuntimeCompileRequest['identity'] {
@@ -91,17 +105,20 @@ export function buildV2CompileRequest(
   options: V2CompileOptions
 ): RuntimeCompileRequest {
   const allocated = identity(options.namespace)
+  const scopeRef = options.scopeRef ?? `${fixture.agentId}@agent-spaces`
+  const laneRef = options.laneRef ?? 'main'
   const placement = {
     agentRoot: fixture.agentRoot,
     projectRoot: fixture.projectRoot,
     cwd: fixture.projectRoot,
-    runMode: 'task',
+    runMode: options.runMode ?? 'task',
     bundle: { kind: 'agent-project', agentName: fixture.agentId, projectRoot: fixture.projectRoot },
     correlation: {
-      sessionRef: { scopeRef: `${fixture.agentId}@agent-spaces`, laneRef: 'main' },
+      sessionRef: { scopeRef, laneRef },
       hostSessionId: allocated.hostSessionId,
     },
     ...(options.lockedEnv === undefined ? {} : { lockedEnv: options.lockedEnv }),
+    ...(options.dispatchEnv === undefined ? {} : { dispatchEnv: options.dispatchEnv }),
   } as RuntimeCompileRequest['placement']
   return {
     schemaVersion: 'agent-runtime-compile-request/v2',
@@ -119,7 +136,10 @@ export function buildV2CompileRequest(
     },
     materialization: {
       ...(options.prompt === undefined ? {} : { initialPrompt: options.prompt }),
-      taskContext: {
+      ...(options.attachments === undefined ? {} : { attachments: options.attachments }),
+      ...(options.omitPriming === undefined ? {} : { omitPriming: options.omitPriming }),
+      ...(options.responseFormat === undefined ? {} : { responseFormat: options.responseFormat }),
+      taskContext: options.taskContext ?? {
         taskId: 'T-08704',
         phase: 'v2-integration',
         role: 'test',
@@ -128,12 +148,18 @@ export function buildV2CompileRequest(
       },
     },
     hrcPolicy: {
-      permissionPolicy: { mode: 'deny', audit: true },
-      inputPolicy: DEFAULT_CODEX_BROKER_INPUT_POLICY,
-      exposurePolicy: { mode: 'none' },
-      resourceLimits: { startupTimeoutMs: 10_000, turnTimeoutMs: 10_000 },
+      permissionPolicy: options.permissionPolicy ?? { mode: 'deny', audit: true },
+      inputPolicy: options.inputPolicy ?? DEFAULT_CODEX_BROKER_INPUT_POLICY,
+      exposurePolicy: options.exposurePolicy ?? { mode: 'none' },
+      resourceLimits: options.resourceLimits ?? { startupTimeoutMs: 10_000, turnTimeoutMs: 10_000 },
       observability: { traceId: allocated.traceId },
-      capabilityPolicy: { allowDegrade: false, requireBrokerDefaultForCodexHeadless: true },
+      capabilityPolicy: options.capabilityPolicy ?? {
+        allowDegrade: false,
+        requireBrokerDefaultForCodexHeadless: true,
+      },
+      ...(options.disallowedTools === undefined
+        ? {}
+        : { disallowedTools: options.disallowedTools }),
     },
     ...(options.continuation === undefined ? {} : { continuation: options.continuation }),
     correlation: {
@@ -147,8 +173,8 @@ export function buildV2CompileRequest(
       traceId: allocated.traceId,
       appId: 'agent-spaces-integration-tests',
       appSessionKey: options.namespace,
-      scopeRef: `${fixture.agentId}@agent-spaces`,
-      laneRef: 'main',
+      scopeRef,
+      laneRef,
     },
   }
 }
@@ -156,6 +182,13 @@ export function buildV2CompileRequest(
 export async function compileV2(
   fixture: V2CompileFixture,
   options: V2CompileOptions
+): Promise<RuntimeCompileResponse> {
+  return compileV2Request(fixture, buildV2CompileRequest(fixture, options))
+}
+
+export async function compileV2Request(
+  fixture: V2CompileFixture,
+  request: RuntimeCompileRequest
 ): Promise<RuntimeCompileResponse> {
   const originalCodexPath = process.env['ASP_CODEX_PATH']
   const originalClaudePath = process.env['ASP_CLAUDE_PATH']
@@ -169,7 +202,7 @@ export async function compileV2(
     const { compilerRuntime } = await import('./compiler-runtime.js')
     const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
     const client = createAgentSpacesClient({ aspHome: fixture.aspHome, runtime: compilerRuntime })
-    return await client.compileRuntimePlan(buildV2CompileRequest(fixture, options))
+    return await client.compileRuntimePlan(request)
   } finally {
     if (originalCodexPath === undefined) process.env['ASP_CODEX_PATH'] = undefined
     else process.env['ASP_CODEX_PATH'] = originalCodexPath
