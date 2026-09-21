@@ -11,7 +11,6 @@ type ObserveRuntimeCapability = (request: Record<string, unknown>) => Promise<Ca
 const ENV_KEYS = [
   'ASP_CLAUDE_PATH',
   'ASP_MUSE_PATH',
-  'ASP_PI_PATH',
   'ASP_CODEX_PATH',
   'ASP_CODEX_SKIP_COMMON_PATHS',
   'ANTHROPIC_API_KEY',
@@ -74,21 +73,19 @@ describe('T-08563 runtime capability observation', () => {
     )
   })
 
-  test('observes muse like claude: version probe present, credentials not required', async () => {
+  test('observes the canonical muse harness: version probe present, credentials not required', async () => {
     const shim = await executable('muse', `console.log('Muse Code 1.3.0')`)
     process.env.ASP_MUSE_PATH = shim
-    for (const name of ['muse', 'muse-cli']) {
-      const response = await operation()(request(name))
-      expect(response).toMatchObject({
-        ok: true,
-        nativeRuntime: { state: 'present', code: 'native_available' },
-        credentials: { state: 'present', code: 'credentials_not_required' },
-        preparation: { state: 'present', code: 'preparation_ready' },
-      })
-    }
+    const response = await operation()(request('muse'))
+    expect(response).toMatchObject({
+      ok: true,
+      nativeRuntime: { state: 'present', code: 'native_available' },
+      credentials: { state: 'present', code: 'credentials_not_required' },
+      preparation: { state: 'present', code: 'preparation_ready' },
+    })
   })
 
-  test('bounds Claude/Pi probes at 3000ms and 65536 combined bytes', async () => {
+  test('bounds a canonical CLI probe at 3000ms', async () => {
     const slow = await executable('claude-slow', `await Bun.sleep(10_000); console.log('late')`)
     process.env.ASP_CLAUDE_PATH = slow
     const started = Date.now()
@@ -97,17 +94,6 @@ describe('T-08563 runtime capability observation', () => {
     expect(timeout.nativeRuntime).toEqual({ state: 'unknown', code: 'detection_failed' })
     expect(timeout.diagnostics).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: 'probe_timeout' })])
-    )
-
-    const overflow = await executable(
-      'pi-overflow',
-      `if (process.argv.includes('--version')) process.stdout.write('x'.repeat(65_537)); else console.log('--extension --skill')`
-    )
-    process.env.ASP_PI_PATH = overflow
-    const over = await operation()(request('pi'))
-    expect(over.nativeRuntime).toEqual({ state: 'unknown', code: 'detection_failed' })
-    expect(over.diagnostics).toEqual(
-      expect.arrayContaining([expect.objectContaining({ code: 'probe_output_limit' })])
     )
   }, 10_000)
 
@@ -219,25 +205,29 @@ describe('T-08563 runtime capability observation', () => {
     expect(JSON.stringify(response)).not.toMatch(/invocation|materializ|initialInput/i)
   })
 
-  test('re-reads Pi credential presence from the node-local auth source', async () => {
-    const shim = await executable(
-      'pi-credentials',
-      `if (process.argv.includes('--version')) console.log('pi 1.0.0'); else console.log('--extension --skill')`
-    )
-    process.env.ASP_PI_PATH = shim
+  test('re-reads agent-harness credential presence from its native-worker auth source', async () => {
     process.env.HOME = root
     Reflect.deleteProperty(process.env, 'ANTHROPIC_API_KEY')
     Reflect.deleteProperty(process.env, 'OPENAI_API_KEY')
 
-    const absent = await operation()(request('pi'))
+    const absent = await operation()(request('agent-harness'))
     expect(absent.credentials).toEqual({ state: 'absent', code: 'credentials_missing' })
     expect(absent.preparation).toEqual({ state: 'absent', code: 'credentials_missing' })
 
     await mkdir(join(root, '.pi', 'agent'), { recursive: true })
     await writeFile(join(root, '.pi', 'agent', 'auth.json'), '{}')
-    const present = await operation()(request('pi'))
+    const present = await operation()(request('agent-harness'))
     expect(present.credentials).toEqual({ state: 'present', code: 'credentials_present' })
     expect(present.preparation).toEqual({ state: 'present', code: 'preparation_ready' })
+  })
+
+  test('refuses retired aliases instead of treating them as selectable harnesses', async () => {
+    for (const retired of ['pi', 'pi-sdk', 'muse-cli']) {
+      await expect(operation()(request(retired))).resolves.toMatchObject({
+        ok: false,
+        failure: { kind: 'incompatible', code: 'unsupported_harness' },
+      })
+    }
   })
 })
 
