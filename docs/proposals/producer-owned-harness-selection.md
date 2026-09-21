@@ -3,7 +3,8 @@
 - **Status:** approved architecture; implementation pending
 - **Tracking:** T-08699 and campaign P-00540
 - **Architecture authority:** `agent-spaces.producer-owned-harness-selection`
-- **Approval:** Daedalus EN-15959, with Lance's binding four-harness and clean-cutover rulings
+- **Approval:** Daedalus EN-15959, with Lance's binding four-harness,
+  agent-harness-default, fail-closed-version, and clean-cutover rulings
 
 ## 1. Decision
 
@@ -234,7 +235,7 @@ Resolution order is deterministic:
 
 Rules:
 
-- default harness is `claude`;
+- default harness is `agent-harness`;
 - default presentation is `false`;
 - TOML uses `model_provider`; the wire uses `modelProvider`;
 - TOML and directives use boolean `presentation`; `viewer` is removed and
@@ -253,6 +254,21 @@ Rules:
 Each resolved scalar records its winning provenance layer. Config and
 directive code parse and merge property-preserving values, but do not validate
 driver combinations or select recipes.
+
+`agent-profile.toml` is a closed, version-gated source contract. Its canonical
+discriminator is the TOML field `version`; it is not the compile RPC's
+`schemaVersion`. The typed parser is the executable schema authority today: it
+rejects unknown top-level and provisioning keys, wrong value kinds, and
+unsupported versions. This cutover bumps the accepted profile contract from
+`version = 3` to `version = 4` and the accepted `asp-targets.toml` contract from
+`schema = 1` to `schema = 2`. The parser, shared scalar-derived key set,
+TypeScript source shapes, tests, generated/public schema projections, and every
+first-party TOML move in one cut. There is no dual reader or migration fallback
+in production. Profile versions 1 through 3, project-target schema 1, removed
+fields such as `viewer`, aliases, and provider-prefixed model values fail at
+the first typed boundary rather than translating. An offline migration tool
+may rewrite files before activation, but its presence does not make a legacy
+file readable by the new runtime.
 
 ## 7. Public v2 contract
 
@@ -393,6 +409,13 @@ binary any incompatible prepared/live state before activating v2; ASP does not
 reinterpret old persisted bytes. The concrete HRC disposition and migration
 are outside P-00540.
 
+Fail-closed applies to every selection-bearing ingress, not to unrelated ASP
+operations whose current protocol name legitimately ends in `/v1`. A campaign-
+complete build rejects compile request/plan/profile v1, profile TOML versions
+1 through 3, project-target TOML schema 1, removed selector fields, aliases,
+and old directive keys. It does not infer the new shape from overlapping old
+fields.
+
 ## 10. Removal and enforcement
 
 The cutover removes these selection authorities after their consumers move:
@@ -457,5 +480,7 @@ Implementation is correct when:
 7. every selected release worker has positive binding evidence;
 8. real installed aspd calls cover all eight harness/presentation cells plus
    v1 and removed-field rejection; and
-9. real retained-harness smokes prove the matrix without silently replacing a
-   live worker.
+9. profile TOML versions 1 through 3 and project-target TOML schema 1 fail at
+   their first typed boundary, while only version 4/schema 2 are accepted; and
+10. real retained-harness smokes prove the matrix without silently replacing a
+    live worker.
