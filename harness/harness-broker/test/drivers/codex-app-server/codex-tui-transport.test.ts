@@ -1404,6 +1404,12 @@ describe('codex-tui transport', () => {
         () => rpc.requests.filter((request) => request.method === 'turn/steer').length === 1,
         'first steer should reach Codex'
       )
+      emitUserMessageItem(rpc, {
+        turnId: 'turn_owned',
+        itemId: 'user_steer_first',
+        clientId: first.submissionId,
+        text: 'identical text',
+      })
       const second = await run.broker.steer({ invocationId, origin, body: 'identical text' })
       await waitFor(
         () => rpc.requests.filter((request) => request.method === 'turn/steer').length === 2,
@@ -1424,18 +1430,12 @@ describe('codex-tui transport', () => {
         },
       ])
       expect(first.submissionId).not.toBe(second.submissionId)
-      expect(run.events.filter((event) => event.type === 'submission.absorbed')).toHaveLength(0)
+      expect(run.events.filter((event) => event.type === 'submission.absorbed')).toHaveLength(1)
 
       emitUserMessageItem(rpc, {
         turnId: 'turn_owned',
         itemId: 'user_human_later',
         text: 'human context',
-      })
-      emitUserMessageItem(rpc, {
-        turnId: 'turn_owned',
-        itemId: 'user_steer_first',
-        clientId: first.submissionId,
-        text: 'identical text',
       })
       // Provider replay and item/completed are not second landing evidence.
       emitUserMessageItem(rpc, {
@@ -2063,28 +2063,30 @@ describe('codex-tui transport', () => {
     }
   })
 
-  test('keeps a mismatched steer response uncertain until the armed native item arrives', async () => {
+  test('fails a mismatched steer response open into an own turn', async () => {
     const rpc = new FakeCodexRpc()
-    let ownerInputId = ''
+    let queuedInputCount = 0
     rpc.onRequest = async (method, params) => {
       if (method === 'initialize') return {}
       if (method === 'hooks/list') return { data: [] }
       if (method === 'thread/start') return { thread: { id: 'thread_test' } }
       if (method === 'thread/queue/add') {
-        ownerInputId = (params as { clientUserMessageId: string }).clientUserMessageId
+        const inputId = (params as { clientUserMessageId: string }).clientUserMessageId
+        queuedInputCount += 1
+        const turnId = queuedInputCount === 1 ? 'turn_mismatch' : 'turn_mismatch_fallback'
         queueMicrotask(() => {
           rpc.emit('turn/started', {
             threadId: 'thread_test',
-            turn: { id: 'turn_mismatch', status: 'inProgress', items: [] },
+            turn: { id: turnId, status: 'inProgress', items: [] },
           })
           emitUserMessageItem(rpc, {
-            turnId: 'turn_mismatch',
-            itemId: 'user_mismatch_owner',
-            clientId: ownerInputId,
-            text: 'owner',
+            turnId,
+            itemId: `user_${turnId}`,
+            clientId: inputId,
+            text: queuedInputCount === 1 ? 'owner' : 'mismatched response',
           })
         })
-        return { queuedSubmission: { id: 'queued_mismatch' } }
+        return { queuedSubmission: { id: `queued_mismatch_${queuedInputCount}` } }
       }
       if (method === 'turn/steer') return { turnId: 'turn_wrong_response' }
       throw new Error(`unhandled fake RPC request: ${method}`)
@@ -2106,15 +2108,17 @@ describe('codex-tui transport', () => {
         () =>
           run.events.some(
             (event) =>
-              event.type === 'input.rejected' && event.payload.inputId === steer.submissionId
+              event.type === 'submission.executed' &&
+              event.payload.submissionId === steer.submissionId &&
+              event.turnId === 'turn_mismatch_fallback'
           ),
-        'mismatched response should be diagnosed as uncertain'
+        'mismatched response should fail open into an own turn'
       )
       expect(
         run.events.find(
-          (event) => event.type === 'input.rejected' && event.payload.inputId === steer.submissionId
+          (event) => event.type === 'input.accepted' && event.payload.inputId === steer.submissionId
         )?.payload
-      ).toMatchObject({ deliveryEvidence: 'possibly_written' })
+      ).toMatchObject({ disposition: 'started' })
       expect(
         run.events.find(
           (event) =>
@@ -2131,18 +2135,9 @@ describe('codex-tui transport', () => {
       })
       expect(
         run.events.filter(
-          (event) =>
-            event.type === 'submission.absorbed' &&
-            event.payload.submissionId === steer.submissionId
+          (event) => event.type === 'input.rejected' && event.payload.inputId === steer.submissionId
         )
       ).toHaveLength(0)
-
-      emitUserMessageItem(rpc, {
-        turnId: 'turn_wrong_native',
-        itemId: 'user_wrong_native_turn',
-        clientId: steer.submissionId,
-        text: 'wrong native context',
-      })
       expect(
         run.events.filter(
           (event) =>
@@ -2150,33 +2145,6 @@ describe('codex-tui transport', () => {
             event.payload.submissionId === steer.submissionId
         )
       ).toHaveLength(0)
-      expect(
-        run.events.find(
-          (event) =>
-            event.type === 'diagnostic' &&
-            event.payload.message.includes('unexpected thread or turn')
-        )?.payload
-      ).toMatchObject({
-        data: {
-          inputId: steer.submissionId,
-          expectedTurnId: 'turn_mismatch',
-          observedTurnId: 'turn_wrong_native',
-        },
-      })
-
-      emitUserMessageItem(rpc, {
-        turnId: 'turn_mismatch',
-        itemId: 'user_after_mismatch',
-        clientId: steer.submissionId,
-        text: 'mismatched response',
-      })
-      expect(
-        run.events.filter(
-          (event) =>
-            event.type === 'submission.absorbed' &&
-            event.payload.submissionId === steer.submissionId
-        )
-      ).toHaveLength(1)
     } finally {
       await run.broker.stop({ invocationId, reason: 'test cleanup' })
       await run.broker.dispose({ invocationId })
@@ -2184,31 +2152,33 @@ describe('codex-tui transport', () => {
     }
   })
 
-  test('does not infer through a tool gap or interrupt and accepts delayed native evidence', async () => {
+  test('fails an unconfirmed steer open into an own turn when its target turn terminalizes', async () => {
     const rpc = new FakeCodexRpc()
-    let ownerInputId = ''
+    let queuedInputCount = 0
     rpc.onRequest = async (method, params) => {
       if (method === 'initialize') return {}
       if (method === 'hooks/list') return { data: [] }
       if (method === 'thread/start') return { thread: { id: 'thread_test' } }
       if (method === 'thread/queue/add') {
-        ownerInputId = (params as { clientUserMessageId: string }).clientUserMessageId
+        const inputId = (params as { clientUserMessageId: string }).clientUserMessageId
+        queuedInputCount += 1
+        const turnId = queuedInputCount === 1 ? 'turn_interrupted_steer' : 'turn_fail_open'
         queueMicrotask(() => {
           rpc.emit('turn/started', {
             threadId: 'thread_test',
-            turn: { id: 'turn_interrupted_steer', status: 'inProgress', items: [] },
+            turn: { id: turnId, status: 'inProgress', items: [] },
           })
           emitUserMessageItem(rpc, {
-            turnId: 'turn_interrupted_steer',
-            itemId: 'user_interrupt_owner',
-            clientId: ownerInputId,
-            text: 'owner',
+            turnId,
+            itemId: `user_${turnId}`,
+            clientId: inputId,
+            text: queuedInputCount === 1 ? 'owner' : 'late steer',
           })
         })
-        return { queuedSubmission: { id: 'queued_interrupt' } }
+        return { queuedSubmission: { id: `queued_${queuedInputCount}` } }
       }
       if (method === 'turn/steer') {
-        return { turnId: (params as { expectedTurnId: string }).expectedTurnId }
+        return new Promise<never>(() => undefined)
       }
       if (method === 'turn/interrupt') return {}
       throw new Error(`unhandled fake RPC request: ${method}`)
@@ -2227,12 +2197,8 @@ describe('codex-tui transport', () => {
       )
       const steer = await run.broker.steer({ invocationId, origin, body: 'late steer' })
       await waitFor(
-        () =>
-          run.events.some(
-            (event) =>
-              event.type === 'input.accepted' && event.payload.inputId === steer.submissionId
-          ),
-        'steer should be accepted'
+        () => rpc.requests.some((request) => request.method === 'turn/steer'),
+        'steer should reach Codex'
       )
       rpc.emit('item/started', {
         threadId: 'thread_test',
@@ -2251,6 +2217,19 @@ describe('codex-tui transport', () => {
         threadId: 'thread_test',
         turn: { id: 'turn_interrupted_steer', status: 'interrupted', items: [] },
       })
+      await waitFor(
+        () =>
+          run.events.some(
+            (event) =>
+              event.type === 'submission.executed' &&
+              event.payload.submissionId === steer.submissionId &&
+              event.turnId === 'turn_fail_open'
+          ),
+        'unconfirmed steer should start its own turn'
+      )
+      expect(rpc.requests.filter((request) => request.method === 'thread/queue/add')).toHaveLength(
+        2
+      )
       expect(
         run.events.filter(
           (event) =>
@@ -2258,20 +2237,11 @@ describe('codex-tui transport', () => {
             event.payload.submissionId === steer.submissionId
         )
       ).toHaveLength(0)
-
-      emitUserMessageItem(rpc, {
-        turnId: 'turn_interrupted_steer',
-        itemId: 'user_after_interrupt',
-        clientId: steer.submissionId,
-        text: 'late steer',
-      })
       expect(
-        run.events.filter(
-          (event) =>
-            event.type === 'submission.absorbed' &&
-            event.payload.submissionId === steer.submissionId
-        )
-      ).toHaveLength(1)
+        run.events.find(
+          (event) => event.type === 'input.accepted' && event.payload.inputId === steer.submissionId
+        )?.payload
+      ).toMatchObject({ disposition: 'started' })
     } finally {
       await run.broker.stop({ invocationId, reason: 'test cleanup' })
       await run.broker.dispose({ invocationId })
@@ -2321,12 +2291,8 @@ describe('codex-tui transport', () => {
       )
       const steer = await run.broker.steer({ invocationId, origin, body: 'lost with process' })
       await waitFor(
-        () =>
-          run.events.some(
-            (event) =>
-              event.type === 'input.accepted' && event.payload.inputId === steer.submissionId
-          ),
-        'steer should be accepted'
+        () => rpc.requests.some((request) => request.method === 'turn/steer'),
+        'steer should reach Codex'
       )
       rpc.fail(new Error('provider process died'))
       await waitFor(
@@ -2354,30 +2320,32 @@ describe('codex-tui transport', () => {
   })
 
   test.each([false, true])(
-    'retains native steer evidence when an RPC failure is observed nativeFirst=%s',
+    'fails an ambiguous RPC error open unless native evidence already landed nativeFirst=%s',
     async (nativeFirst) => {
       const rpc = new FakeCodexRpc()
-      let ownerInputId = ''
       let steerInputId = ''
+      let queuedInputCount = 0
       rpc.onRequest = async (method, params) => {
         if (method === 'initialize') return {}
         if (method === 'hooks/list') return { data: [] }
         if (method === 'thread/start') return { thread: { id: 'thread_test' } }
         if (method === 'thread/queue/add') {
-          ownerInputId = (params as { clientUserMessageId: string }).clientUserMessageId
+          const inputId = (params as { clientUserMessageId: string }).clientUserMessageId
+          queuedInputCount += 1
+          const turnId = queuedInputCount === 1 ? 'turn_rpc_failure' : 'turn_rpc_fallback'
           queueMicrotask(() => {
             rpc.emit('turn/started', {
               threadId: 'thread_test',
-              turn: { id: 'turn_rpc_failure', status: 'inProgress', items: [] },
+              turn: { id: turnId, status: 'inProgress', items: [] },
             })
             emitUserMessageItem(rpc, {
-              turnId: 'turn_rpc_failure',
-              itemId: 'user_rpc_owner',
-              clientId: ownerInputId,
-              text: 'owner',
+              turnId,
+              itemId: `user_${turnId}`,
+              clientId: inputId,
+              text: queuedInputCount === 1 ? 'owner' : 'uncertain steer',
             })
           })
-          return { queuedSubmission: { id: 'queued_rpc_failure' } }
+          return { queuedSubmission: { id: `queued_rpc_${queuedInputCount}` } }
         }
         if (method === 'turn/steer') {
           steerInputId = (params as { clientUserMessageId: string }).clientUserMessageId
@@ -2411,30 +2379,17 @@ describe('codex-tui transport', () => {
           'steer should reach Codex'
         )
         expect(steerInputId).toBe(steer.submissionId)
-        await waitFor(
-          () =>
-            run.events.some(
-              (event) =>
-                event.type === 'input.rejected' && event.payload.inputId === steer.submissionId
-            ),
-          'RPC failure should emit an uncertain input rejection'
-        )
-        expect(
-          run.events.find(
-            (event) =>
-              event.type === 'input.rejected' && event.payload.inputId === steer.submissionId
-          )?.payload
-        ).toMatchObject({ deliveryEvidence: 'possibly_written' })
         expect(rpc.requests.filter((request) => request.method === 'turn/steer')).toHaveLength(1)
-        expect(
-          run.events.filter(
-            (event) =>
-              event.type === 'submission.rejected' &&
-              event.payload.submissionId === steer.submissionId
-          )
-        ).toHaveLength(0)
 
         if (nativeFirst) {
+          await waitFor(
+            () =>
+              run.events.some(
+                (event) =>
+                  event.type === 'input.accepted' && event.payload.inputId === steer.submissionId
+              ),
+            'native confirmation should preserve the steer despite the RPC error'
+          )
           expect(
             run.events.find(
               (event) =>
@@ -2442,9 +2397,26 @@ describe('codex-tui transport', () => {
                 event.payload.message.includes('failed after native context entry')
             )?.payload
           ).toMatchObject({ data: { inputId: steer.submissionId } })
-        }
-
-        if (!nativeFirst) {
+          expect(
+            run.events.filter(
+              (event) =>
+                event.type === 'submission.absorbed' &&
+                event.payload.submissionId === steer.submissionId
+            )
+          ).toHaveLength(1)
+          expect(queuedInputCount).toBe(1)
+        } else {
+          await waitFor(
+            () =>
+              run.events.some(
+                (event) =>
+                  event.type === 'submission.executed' &&
+                  event.payload.submissionId === steer.submissionId &&
+                  event.turnId === 'turn_rpc_fallback'
+              ),
+            'ambiguous RPC failure should fail open into an own turn'
+          )
+          expect(queuedInputCount).toBe(2)
           expect(
             run.events.filter(
               (event) =>
@@ -2452,20 +2424,13 @@ describe('codex-tui transport', () => {
                 event.payload.submissionId === steer.submissionId
             )
           ).toHaveLength(0)
-          emitUserMessageItem(rpc, {
-            turnId: 'turn_rpc_failure',
-            itemId: 'user_after_rpc_failure',
-            clientId: steer.submissionId,
-            text: 'uncertain steer',
-          })
         }
         expect(
           run.events.filter(
             (event) =>
-              event.type === 'submission.absorbed' &&
-              event.payload.submissionId === steer.submissionId
+              event.type === 'input.rejected' && event.payload.inputId === steer.submissionId
           )
-        ).toHaveLength(1)
+        ).toHaveLength(0)
       } finally {
         await run.broker.stop({ invocationId, reason: 'test cleanup' })
         await run.broker.dispose({ invocationId })

@@ -136,6 +136,44 @@ interface PendingSteer {
   threadId: string
   turnId: TurnId
   nativeObserved: boolean
+  confirmation: Promise<'native-observed' | 'target-terminal'>
+  settle: (result: 'native-observed' | 'target-terminal') => void
+}
+
+async function waitForSteerResponseOrTargetTerminal(
+  request: Promise<TurnSteerResponse>,
+  confirmation: PendingSteer['confirmation'],
+  threadId: string,
+  turnId: TurnId
+): Promise<TurnSteerResponse> {
+  const requestOutcome = request.then(
+    (response) => ({ kind: 'response' as const, response }),
+    (error: unknown) => ({ kind: 'error' as const, error })
+  )
+  const targetTerminal = confirmation.then((result) =>
+    result === 'target-terminal'
+      ? { kind: 'target-terminal' as const }
+      : new Promise<never>(() => undefined)
+  )
+  const firstOutcome = await Promise.race([requestOutcome, targetTerminal])
+  if (firstOutcome.kind === 'target-terminal') {
+    throw withSteerRequiresOwnTurn(
+      withDeliveryEvidence(
+        new BrokerError(
+          BrokerErrorCode.InvalidInvocationState,
+          'Codex steer target terminalized without native landing evidence; starting an own turn',
+          { threadId, attemptedTurnId: turnId }
+        ),
+        'possibly_written'
+      )
+    )
+  }
+  if (firstOutcome.kind === 'error') throw firstOutcome.error
+  return firstOutcome.response
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback
 }
 
 type ChildProcess = Awaited<ReturnType<typeof spawnHarnessProcess>>
@@ -448,7 +486,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
   ): void {
     if (terminalEmitted) return
     terminalEmitted = true
-    pendingSteers.clear()
+    settleAllPendingSteers('target-terminal')
     emitCaptured('invocation.failed', {
       message,
       ...(code !== undefined ? { code } : {}),
@@ -456,6 +494,19 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
       ...(retryable !== undefined ? { retryable } : {}),
       ...(reason !== undefined ? { reason } : {}),
     })
+  }
+
+  function settleAllPendingSteers(result: 'native-observed' | 'target-terminal'): void {
+    for (const pendingSteer of pendingSteers.values()) pendingSteer.settle(result)
+    pendingSteers.clear()
+  }
+
+  function settlePendingSteersForTurn(turnId: TurnId): void {
+    for (const [inputId, pendingSteer] of pendingSteers) {
+      if (pendingSteer.turnId !== turnId) continue
+      pendingSteer.settle('target-terminal')
+      pendingSteers.delete(inputId)
+    }
   }
 
   function activeTurnExtra(): DriverEventExtra {
@@ -482,6 +533,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
       },
       activeTurnExtra()
     )
+    settlePendingSteersForTurn(currentTurnId)
     if (codexTui && attributionByTurn.get(currentTurnId)?.ownership === 'unknown') {
       rejectPendingAttributions(new BrokerError(BrokerErrorCode.HarnessError, failure.message))
     }
@@ -629,6 +681,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
       const content = normalizeUserMessageText(item)
       if (exactPendingSteer !== undefined) {
         exactPendingSteer.nativeObserved = true
+        exactPendingSteer.settle('native-observed')
         emitCaptured(
           'user.message',
           { content, inputId: exactPendingSteer.inputId, role: 'user' },
@@ -941,6 +994,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
         event.type === 'turn.failed' ||
         event.type === 'turn.interrupted'
       ) {
+        settlePendingSteersForTurn(event.payload.turnId)
         if (codexTui && event.type === 'turn.interrupted') {
           queuedStartRequired = true
           const attribution = attributionByTurn.get(event.payload.turnId)
@@ -1009,7 +1063,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
       }
     }
 
-    pendingSteers.clear()
+    settleAllPendingSteers('target-terminal')
     terminalEmitted = true
     requireCtx().emit('invocation.exited', { exitCode: code, signal })
   }
@@ -1020,7 +1074,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
       return
     }
     if (terminalEmitted) return
-    pendingSteers.clear()
+    settleAllPendingSteers('target-terminal')
     ensureUnknownAttribution(currentTurnId)
     if (codexTui) {
       if (turnActive && currentTurnId !== undefined) {
@@ -1456,7 +1510,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
       reportedTranscriptPaths.clear()
       ungatedFrames.length = 0
       pendingBrokerInputs.clear()
-      pendingSteers.clear()
+      settleAllPendingSteers('target-terminal')
       observedUserItems.clear()
       queuedSubmissions.clear()
       attributionByTurn.clear()
@@ -1864,10 +1918,10 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
      * a valid actuation precondition: Codex can roll a turn after the broker has
      * observed it and before this driver gets the steer. Resolve the provider's
      * active turn immediately before the write, fence that exact thread + turn,
-     * then require both the RPC result and native user item to agree. The one
-     * retryable error is Codex's typed `turn_mismatch` precondition refusal,
-     * which its protocol defines as pre-write. Every other write failure stays
-     * possibly-written and is never retried.
+     * then require both the RPC result and native user item to agree. Native
+     * confirmation wins. Every unconfirmed terminal or ambiguous RPC outcome
+     * fails open into an own turn with the same submission; this deliberately
+     * accepts duplicate delivery rather than risk silently dropping a steer.
      */
     async applySteerNow(input: InvocationInput): Promise<void> {
       if (!rpc || !spec || !driverSpec || !threadId) {
@@ -1948,7 +2002,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
                   'Codex could not resolve an active turn; starting an own turn',
                   {
                     threadId: steerThreadId,
-                    cause: error instanceof Error ? error.message : String(error),
+                    cause: errorMessage(error, String(error)),
                   }
                 ),
                 'not_written'
@@ -1960,7 +2014,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
             inputId: steerInputId,
             threadId: steerThreadId,
             turnId: steerTurnId,
-            cause: error instanceof Error ? error.message : String(error),
+            cause: errorMessage(error, String(error)),
           })
         }
         // The newest bounded `thread/turns/list` page is the provider's
@@ -1969,20 +2023,31 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
         // not use an older observation as the steer fence.
         currentTurnId = steerTurnId
         turnActive = true
+        let settlePendingSteer!: PendingSteer['settle']
+        const confirmation = new Promise<'native-observed' | 'target-terminal'>((resolve) => {
+          settlePendingSteer = resolve
+        })
         const pendingSteer: PendingSteer = {
           inputId: steerInputId,
           threadId: steerThreadId,
           turnId: steerTurnId,
           nativeObserved: false,
+          confirmation,
+          settle: settlePendingSteer,
         }
         pendingSteers.set(steerInputId, pendingSteer)
         try {
-          const response = await rpc.sendRequest<TurnSteerResponse>('turn/steer', {
-            threadId: steerThreadId,
-            expectedTurnId: steerTurnId,
-            clientUserMessageId: steerInputId,
-            input: buildCodexInput(input, driverSpec.defaultImageAttachments),
-          })
+          const response = await waitForSteerResponseOrTargetTerminal(
+            rpc.sendRequest<TurnSteerResponse>('turn/steer', {
+              threadId: steerThreadId,
+              expectedTurnId: steerTurnId,
+              clientUserMessageId: steerInputId,
+              input: buildCodexInput(input, driverSpec.defaultImageAttachments),
+            }),
+            pendingSteer.confirmation,
+            steerThreadId,
+            steerTurnId
+          )
           if (response?.turnId !== steerTurnId) {
             emitDiagnostic(
               'error',
@@ -2000,12 +2065,29 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
                 driver: { kind: 'codex-app-server', rawType: 'turn/steer' },
               }
             )
-            throw withDeliveryEvidence(
-              new BrokerError(
-                BrokerErrorCode.HarnessError,
-                'Codex turn/steer response did not match the armed turn'
-              ),
-              'possibly_written'
+            if (pendingSteer.nativeObserved) return
+            pendingSteers.delete(steerInputId)
+            throw withSteerRequiresOwnTurn(
+              withDeliveryEvidence(
+                new BrokerError(
+                  BrokerErrorCode.HarnessError,
+                  'Codex turn/steer response did not match the armed turn; starting an own turn'
+                ),
+                'possibly_written'
+              )
+            )
+          }
+          const confirmationResult = await pendingSteer.confirmation
+          if (confirmationResult === 'target-terminal') {
+            throw withSteerRequiresOwnTurn(
+              withDeliveryEvidence(
+                new BrokerError(
+                  BrokerErrorCode.InvalidInvocationState,
+                  'Codex steer target terminalized without native landing evidence; starting an own turn',
+                  { threadId: steerThreadId, attemptedTurnId: steerTurnId }
+                ),
+                'possibly_written'
+              )
             )
           }
           return
@@ -2044,7 +2126,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
                 inputId: steerInputId,
                 threadId: steerThreadId,
                 turnId: steerTurnId,
-                error: error instanceof Error ? error.message : String(error),
+                error: errorMessage(error, String(error)),
               },
               {
                 turnId: steerTurnId,
@@ -2052,16 +2134,20 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
                 driver: { kind: 'codex-app-server', rawType: 'turn/steer' },
               }
             )
+            return
           }
           if (error !== null && typeof error === 'object' && 'deliveryEvidence' in error) {
             throw error
           }
-          throw withDeliveryEvidence(
-            new BrokerError(
-              BrokerErrorCode.HarnessError,
-              error instanceof Error ? error.message : 'Codex turn/steer failed'
-            ),
-            'possibly_written'
+          pendingSteers.delete(steerInputId)
+          throw withSteerRequiresOwnTurn(
+            withDeliveryEvidence(
+              new BrokerError(
+                BrokerErrorCode.HarnessError,
+                `${errorMessage(error, 'Codex turn/steer failed')}; starting an own turn`
+              ),
+              'possibly_written'
+            )
           )
         }
       }
@@ -2092,7 +2178,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
 
     async stop(req: InvocationStopRequest): Promise<InvocationStopResponse> {
       stopping = true
-      pendingSteers.clear()
+      settleAllPendingSteers('target-terminal')
       closeRendererControlListener()
       if (hookListener !== undefined) {
         const listener = hookListener
@@ -2135,7 +2221,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
       attachTokenPath = undefined
       websocketSocketPath = undefined
       pendingBrokerInputs.clear()
-      pendingSteers.clear()
+      settleAllPendingSteers('target-terminal')
       observedUserItems.clear()
       queuedSubmissions.clear()
       attributionByTurn.clear()

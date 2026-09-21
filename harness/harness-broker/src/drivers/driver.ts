@@ -87,7 +87,7 @@ export function withDeliveryEvidence<T>(error: T, evidence: DeliveryEvidence): T
   return error
 }
 
-/** A no-write steer refusal that asks the broker to start an own turn instead. */
+/** A steer outcome whose driver policy asks the broker to start an own turn instead. */
 export interface SteerRequiresOwnTurnCarrier {
   readonly steerRequiresOwnTurn: true
 }
@@ -100,7 +100,7 @@ export function steerRequiresOwnTurnOf(error: unknown): boolean {
   )
 }
 
-/** Mark a pre-write provider-idle result for same-submission own-turn fallback. */
+/** Mark a steer result for same-submission own-turn fallback. */
 export function withSteerRequiresOwnTurn<T>(error: T): T {
   if (typeof error === 'object' && error !== null && !steerRequiresOwnTurnOf(error)) {
     Object.defineProperty(error, 'steerRequiresOwnTurn', {
