@@ -121,6 +121,7 @@ export const HARNESS_CATALOG: Readonly<Record<HarnessId, HarnessDefinition>> = {
         presentationFulfillment: 'intrinsic',
       },
     },
+    processImplementation: { frontend: 'claude-code', provider: 'anthropic' },
   },
   codex: {
     id: 'codex',
@@ -161,6 +162,7 @@ export const HARNESS_CATALOG: Readonly<Record<HarnessId, HarnessDefinition>> = {
         presentationSurface: { transport: 'websocket-unix', terminalHost: 'tmux' },
       },
     },
+    processImplementation: { frontend: 'codex-cli', provider: 'openai' },
   },
   muse: {
     id: 'muse',
@@ -200,6 +202,7 @@ export const HARNESS_CATALOG: Readonly<Record<HarnessId, HarnessDefinition>> = {
         presentationFulfillment: 'birth-variant',
       },
     },
+    processImplementation: { frontend: 'muse-cli', provider: 'meta' },
   },
 }
 

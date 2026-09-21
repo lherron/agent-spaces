@@ -2,6 +2,7 @@ import type {
   HarnessId,
   HarnessSelectionRequest,
   HostingRequirements,
+  ProviderDomain,
   ReasoningEffort,
   ResolvedHarnessSelection,
 } from 'spaces-runtime-contracts'
@@ -37,6 +38,16 @@ export type ExplicitRefusal = {
   message: string
 }
 
+/**
+ * A concrete process implementation emitted only after canonical harness
+ * selection. It is deliberately catalog data rather than a caller-facing
+ * selection vocabulary.
+ */
+export type ProcessImplementation = {
+  frontend: 'claude-code' | 'codex-cli' | 'muse-cli'
+  provider: ProviderDomain
+}
+
 export type HarnessDefinition = {
   id: HarnessId
   defaultModelProvider: string
@@ -46,6 +57,7 @@ export type HarnessDefinition = {
     withoutPresentation: ExecutionRecipe
     withPresentation: ExecutionRecipe | ExplicitRefusal
   }
+  processImplementation?: ProcessImplementation | undefined
 }
 
 export type ProvisioningLayer = Partial<HarnessSelectionRequest>
