@@ -1,8 +1,10 @@
 # HRC-operated agent-harness interactive TUI
 
-- **Status:** **superseded** by the owner-approved native release-worker design
-  in `docs/proposals/agent-harness-native-release-worker.md`; retained as
-  historical rationale for the retired child-control topology
+- **Status:** **superseded** by the corrected owner-approved native
+  release-worker design in `docs/proposals/agent-harness-native-release-worker.md`;
+  retained as historical rationale. Its child/socket topology is restored, but
+  its private `agent-harness-control/v1` wire contract remains retired and must
+  not be implemented.
   (r1-r3 rejected in `hrcchat#20910`/`#20912`/`#20914`)
 - **Date:** 2026-08-25
 - **Author:** clod@agent-spaces

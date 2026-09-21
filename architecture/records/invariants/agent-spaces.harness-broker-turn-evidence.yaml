@@ -6,10 +6,13 @@ scope: harness-broker turn brackets and external-harness submission disposition 
 predicate: >
   Amendment T-08680 (2026-09-21, ruled by Lance): agent-harness-tmux is
   worker-native and no longer uses delivery acknowledgement through a private
-  turn.begin handshake. Its broker and operator inputs are observed and mapped
-  inside the one standard-protocol worker through the real DriverContext; the
-  agent-harness runtime-boundary record owns its exact attribution law. All
-  agent-harness turn.begin clauses formerly in this record are superseded.
+  turn.begin handshake. Its outer driver sends standard invocation.input to a
+  standard broker endpoint in the TUI child. The child broker acknowledgement
+  supplies the turn identity; the outer broker owns the HRC-facing delivered
+  bracket, while operator input is mapped once by the child and relayed without
+  an input id. The agent-harness runtime-boundary record owns the process and
+  attribution law. All private agent-harness turn.begin clauses formerly in
+  this record are superseded.
   Subject to that amendment,
   Except for the bounded legacy risk recorded as
   agent-spaces.pi-delivery-asserted-turn-start, harness-broker turn lifecycle

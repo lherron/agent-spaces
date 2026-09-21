@@ -4,9 +4,9 @@ status: active
 owner_project: agent-spaces
 scope: first-party agent-harness composition compilation release binding and broker ownership
 predicate: >
-  Amendment T-08680 (2026-09-21, ruled by Lance) supersedes the former
-  agent-harness broker-child topology and preserves the direct resource and
-  runtime laws below. The agent-harness and agent-harness-tmux driver identities
+  Amendment T-08680 (2026-09-21, corrected and ruled by Lance) preserves the
+  agent-harness-tmux child topology while retiring only its private protocol.
+  The agent-harness and agent-harness-tmux driver identities
   are served by one identity-bound agent-harness executable in an immutable ASP
   release. ASPC interprets the mutable agent declaration and emits a complete
   hash-covered broker profile. aspd selects only an inspected binding and
@@ -20,23 +20,24 @@ predicate: >
   alternative: no process command or arguments exist and harnessTransport is
   native-worker, meaning the already-external release worker directly owns the
   selected runtime and speaks the standard harness-broker protocol.
-  Native-worker is distinct from HRC-local in-process execution and from a
-  driver-launched pty or JSON-RPC child. Headless selects agent-harness with no
-  terminal and owns the Pi runtime in the worker. Interactive selects
-  agent-harness-tmux and HRC starts that same worker itself in the leased tmux
-  surface; the worker owns the Pi runtime, embedded TUI, broker server,
-  broker-delivered input, operator-entered input, invocation identity, and one
-  authoritative event sequence in one process. No agent-harness child,
-  agent-harness-control/v1 socket, session-config or turn-begin handshake,
-  event relay, or second sequencer exists. Both drivers require the semantic
+  Native-worker is distinct from HRC-local in-process execution. Headless
+  selects agent-harness with no terminal and owns the Pi runtime in the worker.
+  Interactive selects agent-harness-tmux: HRC launches the outer release worker
+  generically and supplies a tmux pane lease; the registered driver consumes
+  that lease and launches the same release executable as a TUI child in the
+  pane. A worker-local Unix socket carries the standard harness-broker protocol
+  directly between them. The child registers the leaf agent-harness-tmux
+  driver, owns Pi and InteractiveMode, and is the sole mapper for Pi events.
+  The outer driver verifies broker.hello and exact release identity, invokes the
+  standard invocation methods, and re-sequences child envelopes into its real
+  DriverContext. No agent-harness-control/v1, session-config, turn-begin, or
+  other private wire contract exists. Both drivers require the semantic
   agent block and a Pi SDK model binding, while the outer runtime discriminator
   remains the distinct first-party agent-harness value. The shared Pi driver
-  owns auth, permission, continuation, mapping, interruption, and disposal; an
-  embedded presentation may observe operator turns but cannot allocate a
-  second broker sequence. Earendil InteractiveMode may be used in the worker
-  only through a non-exiting embedded lifecycle that restores the terminal,
-  unregisters its handlers, returns on clean leave, leaves runtime disposal to
-  the driver, and never exits the broker process. The direct runtime continues
+  owns auth, permission, continuation, mapping, interruption, and disposal in
+  the child; its presentation observes operator turns in that same mapper.
+  Earendil InteractiveMode process exit is confined to the child and can never
+  terminate the outer release worker. The direct runtime continues
   to use AgentSpacesResourceLoader as its sole resource-delivery boundary. It
   resolves ordered ASP sources and contextual prompt, reminder, skills, model,
   auth, permission, and environment without a harness adapter, compiler-built
@@ -70,10 +71,11 @@ required_tests:
   - compiled profiles preserve semantic agent identity model provider auth reasoning permission continuation and correlation inputs under the invocation hash
   - one identity-bound release executable advertises both drivers reports its embedded release identity and is selected only through explicit inspected bindings
   - release closure inspection rejects checkout paths identity mismatch digest drift missing inventory and a binding to another executable
-  - headless broker input runs in the worker-owned Pi runtime and emits directly through the ordinary DriverContext without an agent-harness child
-  - interactive broker and operator inputs use the same live session real DriverContext mapper invocation identity and monotonic broker sequence
-  - interactive clean leave restores the terminal without process exit leaves the broker responsive and defers runtime disposal to broker stop
-  - no active implementation source or serialized runtime contract declares agent-harness-control/v1 control sockets turn-begin or session-config frames or an agent-harness event relay
+  - headless broker input runs in the outer worker-owned Pi runtime and emits directly through the ordinary DriverContext without a child
+  - interactive launch consumes the HRC pane lease starts the same immutable executable as a child and verifies its standard broker hello plus exact release identity
+  - interactive broker and operator inputs use the child's same live session mapper and invocation identity while the outer broker emits one monotonic HRC-facing sequence
+  - interactive clean leave exits only the child and leaves the outer broker responsive until stop or dispose
+  - no active implementation source or serialized runtime contract declares agent-harness-control/v1 turn-begin session-config or another private child wire protocol
   - isolated aspd preparation returns the exact immutable worker and positive hostedDrivers then a real headless turn completes from that executable
   - a real tmux proof launches the exact worker in the leased surface completes broker and operator turns survives detach and remains controllable until stop
   - direct source resolution and every replacement session preserve the custom ASP resource loader with no adapter lowering generated merged Pi bundle or ambient discovery
@@ -84,8 +86,8 @@ last_verified:
 reopen_when:
   - HRC gains agent-harness-specific planning registration runtime imports executable selection or a private child protocol
   - either driver uses in-process pty jsonrpc-stdio or a serialized process command instead of native-worker
-  - the interactive route launches a TUI child or gains a second identity mapper sequencer or event relay
-  - the embedded TUI can exit the broker process dispose the runtime independently or leave terminal handlers installed
+  - the interactive route launches anything except the same release executable or uses anything except the standard broker protocol on its worker-local socket
+  - the TUI child exit can terminate the outer worker or the outer driver maps Pi events independently of the child
   - either driver is inferred rather than positively bound to the inspected immutable executable
   - the direct runtime requires a harness adapter compiler-built Pi bundle or ambient Pi resource discovery
   - a replacement session can lose the custom ASP resource loader
