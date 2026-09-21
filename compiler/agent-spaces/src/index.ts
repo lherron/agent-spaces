@@ -107,7 +107,6 @@ export type {
   CodexDesktopObserverProfileFailure,
   CodexDesktopObserverProfileRequest,
 } from './desktop-observer-preparation.js'
-export { prepareDesktopObserver } from './desktop-observer-preparation.js'
 
 export {
   checkContinuationArtifact,
@@ -123,19 +122,6 @@ export {
 } from './runtime-declaration.js'
 
 export { observeRuntimeCapability } from './runtime-capability.js'
-
-export {
-  composeForegroundEnv,
-  foregroundLaunchFromResponse,
-  type ForegroundLaunch,
-} from './foreground-launch.js'
-
-export {
-  type AgentCompileDryRunProjection,
-  projectAgentCompileForDryRun,
-  type RuntimeCompileDryRunProjection,
-  type StableAgentCompileIdentity,
-} from './dry-run-projection.js'
 
 export {
   catalogAgentsForContext,

@@ -5,14 +5,12 @@ import type { InvocationStartRequest } from 'spaces-harness-broker-protocol'
 import {
   type BrokerExecutionProfile,
   DEFAULT_CODEX_BROKER_INPUT_POLICY,
-  createCanonicalHasher,
   hashNeutralStartRequest,
   neutralBrokerExecutionProfileHash,
   neutralSpecHash,
   neutralStartRequestHash,
   validateBrokerExecutionProfile,
 } from 'spaces-runtime-contracts'
-import type { LegacyCompiledRuntimePlan as CompiledRuntimePlan } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 const MAX_HEADER_BYTES = 256 * 1024
 const DEFAULT_DESKTOP_BUNDLE = '/Applications/ChatGPT.app/Contents/Resources/codex'
@@ -83,57 +81,6 @@ export type CodexDesktopObserverProfileFailure = {
     | 'bundle_unresolved'
     | 'observer_plan_invalid'
   detail: string
-}
-
-type DesktopObserverRequest = {
-  identity: {
-    requestId: string
-    operationId: string
-    invocationId: string
-    traceId?: string | undefined
-  }
-  registration: {
-    registrationKey: string
-    agentId: string
-    projectId: string
-    scopeRef: string
-    laneRef: string
-    hostSessionId: string
-    generation: number
-    homeIdentity: string
-    rolloutPath?: string
-    nativeThreadId: string
-    reportedBundleExecutable?: string
-    projectRoot: string
-    sqliteHome: string
-  }
-  operatorBundleExecutable?: string
-  hostingIdentity: { runtimeId: string; runId: string; hostSessionId: string; generation: number }
-  recoveryBoundary?: DesktopRecoveryBoundary
-  nativeAttemptStorePath: string
-}
-
-function notPrepared(
-  code:
-    | 'rollout_unavailable'
-    | 'rollout_archived'
-    | 'rollout_home_mismatch'
-    | 'native_metadata_unparsable'
-    | 'native_thread_mismatch'
-    | 'bundle_unresolved'
-    | 'observer_plan_invalid',
-  detail: string
-) {
-  return {
-    schemaVersion: 'aspc-prepare-desktop-observer-response/v1' as const,
-    ok: false as const,
-    notPrepared: { code, detail },
-  }
-}
-
-function stable(prefix: string, value: unknown): string {
-  const hash = createCanonicalHasher().hash(value, { timestampMode: 'omit-ephemeral' }).value
-  return `${prefix}_${hash.slice(0, 32)}`
 }
 
 function hashValue(value: unknown): string {
@@ -399,96 +346,5 @@ export function buildCodexDesktopObserverProfile(request: CodexDesktopObserverPr
     profile: selectedProfile,
     startRequest: patchedStartRequest,
     bundleExecutable,
-  }
-}
-
-export async function prepareDesktopObserver(request: DesktopObserverRequest) {
-  const built = buildCodexDesktopObserverProfile({
-    registration: request.registration,
-    ...(request.operatorBundleExecutable === undefined
-      ? {}
-      : { operatorBundleExecutable: request.operatorBundleExecutable }),
-    identity: {
-      requestId: request.identity.requestId,
-      operationId: request.identity.operationId,
-      invocationId: request.identity.invocationId,
-      runtimeId: request.hostingIdentity.runtimeId,
-      hostSessionId: request.hostingIdentity.hostSessionId,
-      generation: request.hostingIdentity.generation,
-      ...(request.hostingIdentity.runId === undefined
-        ? {}
-        : { runId: request.hostingIdentity.runId }),
-      ...(request.identity.traceId === undefined ? {} : { traceId: request.identity.traceId }),
-    },
-    brokerOwnership: 'hrc-owned-process',
-    ...(request.recoveryBoundary === undefined
-      ? {}
-      : { recoveryBoundary: request.recoveryBoundary }),
-    nativeAttemptStorePath: request.nativeAttemptStorePath,
-  })
-  if (!built.ok) return notPrepared(built.code, built.detail)
-  const { profile: selectedProfile, startRequest, bundleExecutable } = built
-  const registration = request.registration
-  const traceId = request.identity.traceId as
-    | BrokerExecutionProfile['observability']['correlation']['traceId']
-    | undefined
-  const invocationId = request.identity.invocationId as NonNullable<
-    InvocationStartRequest['spec']['invocationId']
-  >
-
-  const identity: CompiledRuntimePlan['identity'] = {
-    requestId: selectedProfile.observability.correlation.requestId,
-    operationId: selectedProfile.observability.correlation.operationId,
-    hostSessionId: request.hostingIdentity
-      .hostSessionId as CompiledRuntimePlan['identity']['hostSessionId'],
-    generation: request.hostingIdentity.generation,
-    runtimeId: request.hostingIdentity.runtimeId as CompiledRuntimePlan['identity']['runtimeId'],
-    invocationId,
-    runId: request.hostingIdentity.runId as NonNullable<CompiledRuntimePlan['identity']['runId']>,
-    traceId: traceId as NonNullable<CompiledRuntimePlan['identity']['traceId']>,
-  }
-  const planMaterial = {
-    schemaVersion: 'agent-runtime-plan/v1' as const,
-    compiler: { name: 'agent-spaces' as const, version: 'codex-desktop-observer/1' },
-    compileId: stable('compile', request) as CompiledRuntimePlan['compileId'],
-    createdAt: '1970-01-01T00:00:00.000Z',
-    identity,
-    placement: {
-      kind: 'external-native-desktop',
-      root: registration.projectRoot,
-      registrationKey: registration.registrationKey,
-      agentId: registration.agentId,
-      projectId: registration.projectId,
-      scopeRef: registration.scopeRef,
-      laneRef: registration.laneRef,
-    },
-    resolvedBundle: {
-      bundleIdentity: `codex-desktop:${bundleExecutable}`,
-      root: registration.homeIdentity,
-    },
-    omitPriming: true,
-    harness: {
-      family: 'codex' as const,
-      runtime: 'codex-desktop' as const,
-      provider: 'openai' as const,
-    },
-    model: { provider: 'openai' as const, modelId: 'codex-desktop' },
-    executionProfiles: [selectedProfile],
-    artifacts: { bundleIdentity: `codex-desktop:${bundleExecutable}` },
-    lockedEnv: { lockedEnvKeys: [] },
-    diagnostics: [],
-  }
-  const plan: CompiledRuntimePlan = {
-    ...planMaterial,
-    planHash: stable('plan', planMaterial),
-  }
-  return {
-    schemaVersion: 'aspc-prepare-desktop-observer-response/v1' as const,
-    ok: true as const,
-    plan,
-    selectedProfile,
-    startRequest,
-    dispatchRequest: { startRequest },
-    diagnostics: [],
   }
 }
