@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { validateAgentInspectionRequest } from 'spaces-runtime-contracts'
 import type {
   AgentInspectionEvaluationContext,
   AgentInspectionIdentity,
@@ -113,6 +114,27 @@ template = "context-template.toml"
 
 afterEach(async () => {
   await rm(fixture.root, { recursive: true, force: true })
+})
+
+describe('v2 inspection identity contract', () => {
+  test('accepts the producer-owned harness and presentation identity', () => {
+    const request: AgentInspectionRequest = {
+      schemaVersion: 'agent-inspection-request/v2',
+      identifiers: identifiers(),
+      declaredOverrides: { modelId: 'gpt-5.6-terra', reasoningEffort: 'medium' },
+    }
+    expect(validateAgentInspectionRequest(request)).toEqual(request)
+  })
+
+  test('fails closed for the retired selection-bearing inspection discriminator', () => {
+    expect(() =>
+      validateAgentInspectionRequest({
+        schemaVersion: 'agent-inspection-request/v1',
+        identifiers: identifiers(),
+        declaredOverrides: {},
+      })
+    ).toThrow('Invalid compiled-agent inspection contract')
+  })
 })
 
 describe('T-06331 contextual inspection parity with the singular compiled plan', () => {
