@@ -10,206 +10,113 @@ provenance: authored
 
 # Harness Architecture
 
-Agent Spaces is layered into a deterministic config/materialization layer,
-a harness-agnostic runtime layer, a run-time execution layer,
-harness-specific adapters, and a public host-facing API. HRC (target
-lifecycle, run monitoring, tmux pane ownership) is a neighbor system, not
-implemented here.
+The normative law is the active
+`agent-spaces.producer-owned-harness-selection` architecture record. This
+reference describes the current v2 producer boundary. Older proposals, smoke
+runbooks, and immutable v1 release artifacts are historical evidence; they do
+not extend this contract.
 
-## Package layering
+## Selection boundary
 
-```text
-asp-targets.toml / agent-profile.toml / local spaces
-        |
-        v
-  spaces-config      (packages/config)
-  - parse manifests, resolve refs/closures
-  - compute lock + integrity
-  - materialize per-space artifacts / target bundles
-        |
-        v
-  spaces-runtime      (packages/runtime)
-  - harness registry contracts
-  - UnifiedSession / UnifiedSessionEvent
-        |
-        v
-  spaces-execution     (packages/execution)
-  - run-time orchestration
-  - harness adapter dispatch
-  - run/build/install wrappers
-        |
-        v
-  spaces-harness-*      (packages/harness-claude, -codex, -pi, -pi-sdk)
-  - Claude / Codex / Pi / Pi SDK specifics
-        |
-        v
-  agent-spaces + asp CLI     (packages/agent-spaces, packages/cli)
-  - host-facing request/response API
-  - placement-driven execution
-  - AgentEvent translation
-```
-
-`git`, `resolver`, `store`, `materializer`, `lint`, and `core` are not
-standalone workspace packages — they are sub-exports inside `spaces-config`
-(e.g. `spaces-config/resolver`, `spaces-config/materializer`).
-
-`agent-scope` (packages/agent-scope) sits outside this chain as a
-standalone identity package, since scope/session addressing is a semantic
-seam consumed by every layer, not just a CLI convenience — see
-`agent-spaces/identity-scope-and-env-contract`.
-
-Dependency shape: `agent-scope → spaces-config → spaces-runtime → spaces-execution → {spaces-harness-claude, -codex, -pi, -pi-sdk} → agent-spaces → cli`.
-
-The first-party path adds `agent-harness-runtime` after shared ASP resolution and
-`agent-harness` as the HRC-operated executable. Unlike the external-harness
-compatibility path, it creates a Pi session from semantic agent placement and
-does not consume an ASPC-produced frontier-harness process plan:
+The public harness vocabulary is closed:
 
 ```text
-ASP agent + project placement
-  -> shared spaces-config / spaces-runtime resolution
-  -> agent-harness-runtime -> Pi session
-  -> agent-harness broker surface -> HRC
+agent-harness | claude | codex | muse
 ```
 
-## Runtime contract: `UnifiedSession` / `UnifiedSessionEvent`
+`agent-harness` is the default. A request separately supplies an optional
+`modelProvider`, `model`, `reasoningEffort`, and boolean `presentation`; the
+default presentation is `false`. A provider never selects a harness and a
+model never selects a provider. `presentation: false` is an explicit user
+value, not an omitted value or a prohibition on an implementation-required
+terminal.
 
-`spaces-runtime/session` defines the harness-agnostic contract every
-harness adapter implements against. `UnifiedSessionEvent` is the granular
-event stream: `agent_start`, `agent_end`, `turn_start`, `turn_end`,
-`message_start`, `message_update`, `message_end`, `tool_execution_start`,
-`tool_execution_update`, `tool_execution_end`, `sdk_session_id`. This is the
-canonical run-time event model.
+`claude-agent-sdk`, `pi`, `pi-sdk`, `claude-code`, `codex-cli`, `muse-cli`,
+and `agent-sdk` are not harness IDs or aliases. Retained packages and broker
+drivers are implementation details, not selectable compatibility routes.
 
-`packages/agent-spaces/src/session-events.ts` translates that granular
-stream into the coarser public `AgentEvent` contract (`state`, `message`,
-`message_delta`, `tool_call`, `tool_result`, `log`, `complete`). `AgentEvent`
-is the stable host-facing surface; it is not a competing replay model.
+The compiler's exhaustive catalog is the only authority that maps harness and
+presentation to a builder, driver, protocol, transport, terminal requirement,
+hosting requirement, and presentation fulfillment. Configuration parses and
+property-preservingly merges scalars; public contracts carry vocabulary and
+DTOs; neither can select a recipe. Builders receive the resolved recipe and
+cannot reinterpret raw selection fields.
 
-Some harness paths can additionally emit JSONL artifacts to an artifact
-directory for observability/debugging. That output is optional telemetry —
-not the event contract, not a stable replay API, and not a substitute for
-`UnifiedSessionEvent` or `AgentEvent`.
+The catalog's initial recipes are:
 
-## Continuation contract
+| Harness | `presentation: false` | `presentation: true` |
+| --- | --- | --- |
+| `claude` | `claude-code-tmux` | same intrinsic recipe |
+| `codex` | `codex-app-server` | same driver with Codex TUI attachment |
+| `muse` | `muse-serve` | `muse-cli-tmux` birth variant |
+| `agent-harness` | `agent-harness` native worker | `agent-harness-tmux` birth variant |
 
-The cross-package continuation term is `continuationKey` (types
-`HarnessContinuationKey`, `HarnessContinuationRef`,
-`SessionMetadataSnapshot.continuationKey`). User-facing CLI flags still use
-`--resume` because it is harness UX vocabulary; internally the runtime
-contract stays `continuationKey`. Codex maps `continuationKey` into
-`resumeThreadId` in its session layer. Claude adapters may still pass
-resume-specific provider flags internally, but the cross-package contract
-name is `continuationKey`.
+A true request must resolve to the stated fulfillment or a typed refusal; it
+is never silently downgraded. A later request may attach only where the recipe
+permits it. Birth variants require explicit lifecycle replacement.
 
-## Harness adapters
+## Configuration and compilation
 
-Provider-specific packages translate the shared runtime/execution
-contracts into concrete invocation and session behavior. They sit
-downstream of `spaces-runtime` and `spaces-execution`, not as peers of
-`spaces-config`:
+`agent-profile.toml` accepts only `version = 4`; `asp-targets.toml` accepts
+only `schema = 2`. TOML uses `model_provider` and boolean `presentation`; the
+wire uses `modelProvider` and `presentation`. Versions 1–3, schema 1,
+`viewer`, aliases, provider-prefixed model strings, and all retired selection
+fields fail at their first typed boundary. There is no dual reader or runtime
+migration fallback.
 
-- `spaces-harness-claude` (`packages/harness-claude`) — Claude CLI + Agent
-  SDK adapters. Default harness (`--harness claude`).
-- `spaces-harness-codex` (`packages/harness-codex`) — Codex CLI /
-  app-server adapter. Experimental (`--harness codex`).
-- `spaces-harness-pi` (`packages/harness-pi`) — Pi CLI adapter
-  (`--harness pi`; env `PI_CODING_AGENT_DIR`, flags `--no-extensions`,
-  `--no-skills`, hooks-scripts — see `packages/harness-pi/AGENTS.md`).
-- `spaces-harness-pi-sdk` (`packages/harness-pi-sdk`) — Pi SDK adapter and
-  session runtime (`--harness pi-sdk`; models as `provider:model`, extension
-  imports happen inside the runner so extensions must be dependency-free or
-  depend on packages available to the harness runtime).
+Resolution is deterministic: catalog defaults, agent profile, project target,
+per-summon directives, explicit compile overrides, compatibility validation,
+then one recipe. Omitted provider and model use the selected catalog defaults;
+changing only harness preserves explicit provider/model and refuses an
+incompatible combination.
 
-## Harness Broker
+The ordinary public RPC is solely `aspc.compileHarnessInvocation`. ASPC
+validates the v2 envelope and invokes the compiler; it has no catalog, profile
+selector, or driver selector. `compileRuntimePlan` remains an internal
+compiler/SDK operation, not another public RPC. Foreground `asp run` retains
+its separate process-preparation path, while exact-profile, participant,
+Desktop, and observer flows remain explicitly named operations.
 
-`spaces-harness-broker` (`packages/harness-broker`, `bin: harness-broker`)
-is a long-lived process exposing a JSON-RPC NDJSON protocol over `stdio` or
-a unix socket (`harness-broker run --transport stdio` or `--transport unix --socket <path>`; advertised transports `stdio-jsonrpc-ndjson`,
-`unix-jsonrpc-ndjson`). It manages invocations through pluggable drivers
-under `packages/harness-broker/src/drivers/`:
+Every ordinary success contains one `execution` and one canonical start
+request at `execution.dispatchRequest.startRequest`. The profile may reference
+that request and its hashes but never duplicates it. There is no
+`executionProfiles`, `selectedProfile`, top-level `startRequest`, or caller
+`brokerDriver` selection input.
 
-- `codex-app-server`
-- `codex-desktop`
-- `arris-resident`
-- `claude-code-tmux`
-- `codex-cli-tmux`
-- `pi-tui-tmux`
+## Package and hosting boundaries
 
-Test compositions may add `noop`; the separately composed
-`harness-broker-pi` adds `pi-sdk` on the existing non-aspd compatibility path.
-Binding-aware standalone releases leave Pi SDK unbound pending a hermetic
-release compilation surface and refuse it before returning `executionRelease`.
-The stock worker remains the release binding for Codex app-server, Claude tmux,
-and Pi TUI. Registry presence alone is not a release binding, and deprecated
-`codex-cli-tmux` remains unbound.
+```text
+profile / project TOML / directives / compile request
+                    |
+                    v
+  spaces-config: parse and merge independent scalars
+                    |
+                    v
+  agent-spaces compiler: catalog, resolver, selected recipe, canonical start request
+                    |
+                    v
+  spaces-aspc: v2 envelope validation and compiler invocation
+                    |
+                    v
+  aspc-facade / release worker: bind and execute the frozen driver
+```
 
-The broker emits a normalized event vocabulary
-(`invocation.started`/`invocation.ready`, `turn.completed`,
-`assistant.message.completed{final}`, permission events) consumed by broker
-clients such as HRC, and supports structured output, mid-turn input
-queueing, and continuation/resume. Protocol types live in
-`spaces-harness-broker-protocol` (`packages/harness-broker-protocol`); a
-typed client lives in `spaces-harness-broker-client`
-(`packages/harness-broker-client`). Unix-socket paths are budget-checked
-against the `sockaddr_un` limit (104 bytes macOS / 108 bytes Linux) before
-bind (`packages/harness-broker/src/socket-path.ts`).
+The public contract package owns vocabulary and resolved DTOs only. The
+compiler owns selection. A v2 immutable release must positively bind every
+catalog-selectable driver, including Codex, before a successful compile can
+name its worker. The broker executes the frozen driver named by the canonical
+start request.
 
-`agent-harness` composes this broker surface with the Pi SDK driver and
-`agent-harness-runtime`. The broker protocol is integration scaffolding: HRC still
-owns placement, lifecycle, supervision, and durable messaging, while the SDK
-owns ASP-aware Pi session construction. The compatibility `harness-broker-pi`
-is not release-packaged by T-08561: its compiled closure retained build-host
-paths through transitive `@silvia-odwyer/photon-node` and `esbuild`. It remains
-available on the current non-aspd path while a hermetic release compilation
-surface is deferred.
-Profiles select this first-party path with `harness = "agent-harness"`.
-`harness = "pi-sdk"` remains a compatibility alias for existing profiles and
-callers.
+HRC retains placement, authorization, terminal leases, lifecycle, messaging,
+continuation, credentials, and reattachment. It does not choose a harness,
+recipe, or worker. Migrating HRC callers and persisted state to this breaking
+v2 contract is explicitly outside this ASP-only cutover.
 
-**Boundary with HRC:** the `claude-code-tmux` driver *consumes* a leased
-tmux pane whose ownership is `'hrc'` — it never constructs or owns a tmux
-server. HRC drives the broker and owns run lifecycle (target vs. run state,
-zombie/failed reconciliation, `turn.reaped`); the broker only executes
-invocations against a pane it was handed
-(`packages/harness-broker/src/drivers/claude-code-tmux/driver.ts`).
+## Retained implementation layers
 
-Any harness-broker change requires the MATRIX smoke (`bun run smoke:matrix`, or a single row via `--config <name>`), run from a real
-terminal via `ghostmux` (see this repo's `AGENTS.md` and
-`packages/harness-broker/AGENTS.md`) — running it inline inside a Claude
-Code session leaks `CLAUDECODE`/`CLAUDE_CODE_SESSION_ID`/
-`CLAUDE_CODE_CHILD_SESSION` into the child `claude` process, producing
-false negatives in transcript-tailing smoke rows.
-
-## ASPC compiler
-
-`spaces-aspc` (`packages/aspc`, `bin: aspc`) is the COMPILE-ONLY plane: it
-compiles a `CompiledRuntimePlan` and harness invocation and serves
-`aspc.hello`, `aspc.compileRuntimePlan`, `aspc.catalogAgents`,
-`aspc.inspectAgent`, `aspc.compileHarnessInvocation`. It carries no live
-broker and owns no transport; `registerAspcCompileMethods`
-(`packages/aspc/src/registration.ts`) binds those five methods onto a
-caller-supplied JSON-RPC server.
-
-`spaces-aspc-facade` (`packages/aspc-facade`, `bin: aspc-facade`) is the
-cohosted composition: it wires the `spaces-aspc` compile plane to a live
-`spaces-harness-broker`, adds `aspc.compileAndStart` plus the `broker.*` /
-`invocation.*` routes, and emits `invocation.event` notifications and
-`invocation.permission.request` callbacks
-(`packages/aspc-facade/src/facade.ts`). Out-of-repo consumers (taskboard's
-agent viewer, hrc-server) spawn `aspc-facade run --transport stdio`.
-Protocol types for both facades live in `spaces-aspc-protocol`
-(`packages/aspc-protocol`).
-
-## Repo boundary rule
-
-ASP source must not import `hrc-*`, `acp-*`, `gateway-*`,
-`coordination-substrate`, `wrkq-lib`, or `wlearn` (enforced by `bun run check:boundaries`). ASP integrates with sibling repos through env,
-protocol, and start-request inputs — never by importing them. The 10
-cross-repo publishable boundary packages (`agent-scope`, `cli-kit`,
-`spaces-config`, `spaces-runtime`, `spaces-runtime-contracts`,
-`spaces-execution`, `spaces-harness-{claude,codex,pi,pi-sdk}`,
-`spaces-harness-broker-protocol`/`-client`, `spaces-aspc-protocol`,
-`agent-spaces`) each carry a `prepack` step that strips `exports.*.bun`
-from the published manifest so Bun consumers in the HRC/ACP repos resolve
-`dist/*.js` rather than unshipped `src/`.
+`spaces-runtime` still supplies harness-neutral session contracts and
+`spaces-execution` still supplies foreground installation/build/run plumbing.
+Harness-specific packages and broker drivers may remain while they implement a
+catalog recipe or preserve historical artifacts. Their presence does not make
+their names public selection vocabulary. ASP source continues to avoid HRC,
+ACP, gateway, coordination-substrate, wrkq, and wlearn imports.

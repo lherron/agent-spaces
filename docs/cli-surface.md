@@ -16,6 +16,12 @@ order) is defined in `packages/cli/src/command-registry.ts`. This page is a
 navigational summary; the authoritative option-by-option reference lives in
 this repo's own `docs/cli-reference.md`.
 
+The public v2 harness vocabulary is exactly `agent-harness`, `claude`,
+`codex`, and `muse`, with `agent-harness` as its default. A model provider,
+model, reasoning effort, and boolean `presentation` are independent inputs;
+the compiler catalog alone derives the driver, transport, terminal, and
+presentation recipe. Foreground-process switches do not add selection values.
+
 ## Command groups
 
 ```text
@@ -64,8 +70,8 @@ Common path options accepted by most project-facing commands: `--project <path>`
    (`alice@demo:T-1/reviewer`) or canonical `ScopeRef`
    (`agent:alice:project:demo`); `mode` is one of `query`, `heartbeat`,
    `task`, `maintenance`, `resolve`. Key options: `--agent-root`,
-   `--project-root`, `--cwd`, `--harness` (`claude-code`, `codex-cli`,
-   `agent-sdk`, `pi-sdk`; aliases `claude`, `codex`, `claude-agent-sdk`),
+   `--project-root`, `--cwd`, `--harness` (`agent-harness`, `claude`, `codex`,
+   `muse`),
    `--lane-ref`, `--host-session-id`, `--run-id`, `--compose <ref>`
    (repeatable; `agent-project` is implicit from the scope-ref agentId),
    `--continue-provider`/`--continue-key`, `--interaction`
@@ -78,10 +84,12 @@ derived on the fly from a scope address.
 
 ## `asp run` highlights
 
-`--harness <id>` (default `claude`; also `claude-agent-sdk`, `codex`, `pi`,
-`pi-sdk`), `--model <model>` (pi-sdk expects `provider:model`),
+`--harness <id>` (default `agent-harness`; one of `agent-harness`, `claude`,
+`codex`, `muse`), `--model <model>` (the ordinary v2 wire uses a separate
+`modelProvider`, never a `provider:model` token),
 `--model-reasoning-effort` (Codex), `--permission-mode` (Claude),
-`--no-interactive`, `--dry-run` / `--print-command` (print the harness
+`--no-interactive` (a foreground-process UI control, not the v2 boolean
+`presentation` input), `--dry-run` / `--print-command` (print the harness
 invocation without spawning), `--no-refresh` (use cached project bundles),
 `--yolo` (`--dangerously-skip-permissions`), `--inherit-all` /
 `--inherit-project` / `--inherit-user` / `--inherit-local` (opt back into
@@ -121,8 +129,8 @@ as correct; it prints the generated harness invocation without launching.
 - `asp doctor [--json]` — Claude binary, registry reachability, cache
   permissions.
 - `asp gc [--dry-run]` — garbage-collect unreferenced store/cache entries.
-- `asp harnesses [--json]` — list available harnesses, versions, paths,
-  capabilities, models (`codex` is marked experimental).
+- `asp harnesses [--json]` — list the four catalog-derived public harnesses,
+  plus local availability, versions, paths, capabilities, and models.
 
 ## Space and registry authoring
 
@@ -163,3 +171,9 @@ Fixtures for local testing live in `integration-tests/fixtures/`:
 `sample-registry/spaces/` (test spaces: base, frontend, backend, …),
 `sample-project/` (a project with `asp-targets.toml`), `claude-shim/` (a
 mock `claude` binary), `codex-shim/` (a mock Codex binary for `--harness codex` dry-runs). Note: `asp run` does not accept a `--prompt` flag.
+
+The ordinary hosted-worker API is not a second CLI route: it is solely
+`aspc.compileHarnessInvocation` on the v2 envelope. It returns one execution
+and its single canonical dispatch start request. V1 requests, profile versions
+1–3, target schema 1, aliases, `viewer`, and retired selectors are rejected
+at their typed boundary; this surface does not migrate HRC callers or state.

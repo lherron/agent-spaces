@@ -46,13 +46,17 @@ Notable manifest sections (all optional beyond `schema`/`id`):
 - `deps.spaces` — transitive space-ref dependencies
 - `settings.permissions.allow` / `.deny`, `settings.env`, `settings.model` —
   Claude settings applied when running with this space
-- `harness.supports` — which harnesses the space supports
-  (`claude`, `claude-agent-sdk`, `pi`, `pi-sdk`, `codex`)
-- `claude.model`, `claude.mcp` — Claude-specific overrides
-- `pi.model`, `pi.extensions`, `pi.build` — Pi-specific overrides (extension
-  bundling: `bundle`, `format` esm/cjs, `target` bun/node, `external`)
+- `harness.supports` — which public harness identities the space supports:
+  `agent-harness`, `claude`, `codex`, and `muse`. This is a closed vocabulary;
+  it is not a driver or provider routing table.
+- `claude.model`, `claude.mcp` — retained Claude materialization settings
+- `pi.model`, `pi.extensions`, `pi.build` — retained Pi implementation settings
+  (extension bundling: `bundle`, `format` esm/cjs, `target` bun/node, `external`)
 - `codex.config`, `codex.model`, `codex.prompts.enabled`, `codex.skills.enabled`
-  — Codex-specific overrides
+  — retained Codex materialization settings
+
+Those implementation-specific sections shape generated artifacts only; none is
+a public harness ID, provider route, or execution-recipe selector.
 
 `id` and `plugin.name` both match `^[a-z0-9]+(?:-[a-z0-9]+)*$`.
 
@@ -103,7 +107,7 @@ A project declares its composition profiles in `asp-targets.toml`
 (schema in `packages/config/src/core/schemas/targets.schema.json`):
 
 ```toml
-schema = 1
+schema = 2
 
 [targets.default]
 description = "Default development environment"
@@ -119,16 +123,22 @@ priming_prompt_append = """
 
 Per-target fields include `description`, `priming_prompt` /
 `priming_prompt_append`, `compose` (ordered space-ref list — later entries
-are higher precedence for collision warnings and load order),
-`compose_mode` (`replace` or `merge`), `yolo` (skip permission prompts),
-`remote_control`, `harness` (overrides agent-profile identity harness), and
-per-harness override blocks `[targets.<name>.claude]` /
-`[targets.<name>.codex]` (model, permission_mode/approval_policy,
-sandbox_mode, reasoning effort/summary, status_line, profile, pass-through
-`args`). Top-level `[claude]` / `[codex]` tables set defaults applied to all
-targets unless a target overrides them. `agents-root` at the top level
-declares a project-local agents root layered over the canonical one (see
-`agent-spaces/materialization-install-flow`).
+are higher precedence for collision warnings and load order), and
+`compose_mode` (`replace` or `merge`). Selection scalars live only in
+`[targets.<name>.provisioning]`: `harness`, `model_provider`, `model`,
+`reasoning_effort`, and boolean `presentation`. The harness field accepts
+exactly `agent-harness`, `claude`, `codex`, or `muse`; omission defaults through
+the compiler catalog to `agent-harness`. Omitted `presentation` defaults to
+`false`, while an explicit `presentation = false` remains explicit through
+every merge. Provider/model compatibility and every execution recipe remain
+compiler decisions, never TOML routing.
+
+`asp-targets.toml` accepts only `schema = 2`; schema 1, `viewer`, aliases,
+provider-prefixed model strings, and retired family/runtime/frontend/controller
+selectors fail at parsing. This version gate concerns target selection only:
+the independent `space.toml` content-manifest schema above remains `schema = 1`.
+`agents-root` at the top level declares a project-local agents root layered over
+the canonical one (see `agent-spaces/materialization-install-flow`).
 
 Real per-agent target examples exist in this repo's own
 `asp-targets.toml`, e.g.:
@@ -137,7 +147,6 @@ Real per-agent target examples exist in this repo's own
 [targets.smokey]
 description = "Smokey for agent-spaces"
 compose = ["space:smokey@dev", "space:defaults@dev"]
-harness = "codex"
 priming_prompt_append = """
 
 ## Project: agent-spaces
@@ -145,8 +154,12 @@ priming_prompt_append = """
 - This project uses red/green TDD.
 """
 
-[targets.smokey.codex]
-model_reasoning_effort = "high"
+[targets.smokey.provisioning]
+harness = "codex"
+model_provider = "openai-codex"
+model = "gpt-5.6-terra"
+reasoning_effort = "high"
+presentation = false
 ```
 
 ## Resolution outputs

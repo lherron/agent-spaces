@@ -275,18 +275,21 @@ High-level flow:
 
 The deterministic parts of steps 1-7 live in `spaces-config`. Step 8 and session lifecycle handling live in `spaces-execution` and the harness packages.
 
-## HRC Run Lifecycle
+## HRC boundary
 
-HRC keeps session continuity separate from individual run outcomes. A run can be closed by observation timeout without closing the current session:
+HRC is a neighboring consumer, not an implementation surface in this document.
+For ordinary v2 compilation, Agent Spaces selects the harness recipe and emits
+one frozen execution plus its one canonical dispatch start request. HRC retains
+placement, authorization, resource allocation, terminal leases, lifecycle,
+messaging, continuation, credentials, and reattachment. Migrating HRC callers,
+prepared state, or live state to v2 is outside this ASP-only cutover.
 
-| Session state | Run state | Terminal | Meaning |
-| --- | --- | --- | --- |
-| active | zombie | Yes | Current session continuity remains active, but a headless run was abandoned by observation timeout. HRC has not seen correlated run events for the configured threshold, so the run is closed with unknown outcome and runtime ownership is cleared. |
-| active | failed | Yes | Current session continuity remains active, but active-run reconciliation proved the owning tmux/sdk runtime cannot still be serving the run. HRC closes the run with a specific runtime lifecycle error code, clears runtime ownership, and emits `turn.reaped`. |
+## Retained implementation packages
 
-## Harness Adapters
-
-Current harness packages:
+These packages are retained implementation layers, not public selectable
+harness identities. The active selection vocabulary is solely
+`agent-harness`, `claude`, `codex`, and `muse`; the compiler catalog decides
+which retained implementation a resolved recipe uses.
 
 - `spaces-harness-claude`
 - `spaces-harness-codex`

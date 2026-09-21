@@ -4,6 +4,14 @@ This document describes the current `asp` CLI shipped from `packages/cli`. Comma
 registration order (and therefore `asp --help` order) is defined in
 `packages/cli/src/command-registry.ts`.
 
+Public harness selection is the v2 producer contract: the only selectable
+identities are `agent-harness`, `claude`, `codex`, and `muse`. The default is
+`agent-harness`. A provider, model, reasoning effort, and `presentation`
+boolean are independent inputs; neither a provider nor a model chooses a
+harness. Driver, terminal, and presentation mechanics are compiler output, not
+CLI selection values. See `agent-spaces/harness-architecture` for the complete
+contract.
+
 ## Top-Level Commands
 
 ```text
@@ -57,11 +65,15 @@ Accepts a target name from `asp-targets.toml`, a direct space ref such as
 
 Key options:
 
-- `--harness <id>`: harness implementation (default `claude`; also `claude-agent-sdk`, `codex`, `pi`, `pi-sdk`)
-- `--model <model>`: model override (pi-sdk expects `provider:model`)
+- `--harness <id>`: one of `agent-harness`, `claude`, `codex`, or `muse`
+  (default `agent-harness`)
+- `--model <model>`: model override. A public v2 compile request carries its
+  provider separately as `modelProvider`; a `provider:model` value is rejected.
 - `--model-reasoning-effort <effort>`: Codex reasoning effort override
 - `--permission-mode <mode>`: Claude permission mode
-- `--no-interactive`: run non-interactively
+- `--no-interactive`: foreground-process UI behavior only. It is not the v2
+  `presentation` selection input; ordinary compilation uses an optional boolean
+  `requested.presentation`, whose omitted default is `false`.
 - `--dry-run` / `--print-command`: print the harness invocation without spawning
 - `--no-refresh`: use cached project bundles
 - `--yolo`: skip all permission prompts (`--dangerously-skip-permissions`)
@@ -110,7 +122,8 @@ Materialize plugins without launching. Optional `target` argument (default: all)
 Describe hooks, skills, tools, and lint warnings for targets.
 
 - `--json`: JSON output
-- `--harness <id>`: harness used when materializing (default `agent-sdk`)
+- `--harness <id>`: one of `agent-harness`, `claude`, `codex`, or `muse`
+  when materializing (default `agent-harness`)
 - `--model <id>`: model to use (harness-specific)
 
 ## `asp explain`
@@ -169,8 +182,10 @@ Show pending lock changes without writing. `--target <name>`, `--json`.
 
 ## `asp harnesses`
 
-List available harnesses and their status (version, path, capabilities, models). The
-`codex` harness is marked experimental. `--json` for JSON output.
+List the catalog-derived public harnesses and their local availability (version,
+path, capabilities, models). The list is exactly `agent-harness`, `claude`,
+`codex`, and `muse`; availability does not create another selection route.
+`--json` for JSON output.
 
 ## `asp resolve-reminder`
 
@@ -234,15 +249,17 @@ Arguments:
 Key options:
 
 - `--agent-root <path>`, `--project-root <path>`, `--cwd <path>`: placement and execution roots
-- `--harness <harness>`: `claude-code`, `codex-cli`, `agent-sdk`, `pi-sdk` (aliases: `claude`, `codex`, `claude-agent-sdk`)
+- `--harness <harness>`: one of `agent-harness`, `claude`, `codex`, or `muse`
 - `--lane-ref <ref>`: lane selection for `SessionRef` (default `main`)
 - `--host-session-id <id>` / `--run-id <id>`: host correlation
 - `--scaffold-file <path>`: JSON file with scaffold packets
-- `--model <model>`: model override
+- `--model <model>`: model override; the v2 wire carries its provider separately
+  as `modelProvider`
 - `--prompt <text>` / `--prompt-file <path>` / `--attachment <path>` (repeatable): prompt input
 - `--continue-provider <provider>` / `--continue-key <key>`: explicit continuation input
-- `--interaction <mode>`: `interactive` or `headless`
-- `--io <mode>`: `pty`, `pipes`, or `inherit`
+- `--interaction <mode>` / `--io <mode>`: foreground process controls. They do
+  not widen ordinary v2 harness selection; that request accepts only the
+  boolean `presentation`, then the compiler derives terminal and transport.
 - `--env <KEY=VALUE>` (repeatable): environment variables
 - `--compose <ref>` (repeatable): explicit bundle selection; `agent-project` is implicit from the scope-ref agentId
 - `--yolo`: skip permission prompts
@@ -264,3 +281,8 @@ Price agents' resident system-prompt sections against real HRC run frequency.
 - The public host-facing continuation term is `continuationKey`, not `resume`.
 - `hostSessionId` is the canonical correlation field. `cpSessionId` remains deprecated
   compatibility input only.
+- The sole public ordinary compile RPC is `aspc.compileHarnessInvocation` with
+  `schemaVersion: "agent-runtime-compile-request/v2"`. Its successful plan has
+  one `execution` and one canonical
+  `execution.dispatchRequest.startRequest`; v1 requests, old TOML versions,
+  aliases, `viewer`, and retired selectors fail closed rather than translating.

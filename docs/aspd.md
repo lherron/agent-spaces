@@ -1,42 +1,73 @@
-# aspd: independent ASP preparation daemon (pilot)
+# aspd: v2 ASP compilation and release hosting
 
-Status: release-bound preparation contract established by T-08539 and extended
-to supported compiler-backed Claude/Pi workers by T-08561. Governing designs:
-`hrc-runtime/asp-hrc-split-proposal.md` at `bf3e539e` (Daedalus APPROVE,
+## Current v2 contract
+
+`aspd` serves the producer-owned ordinary compilation boundary from an immutable
+ASP release. Its sole public ordinary compile RPC is
+`aspc.compileHarnessInvocation`, accepting only
+`schemaVersion: "agent-runtime-compile-request/v2"`. The request has a closed
+selection vocabulary — `agent-harness`, `claude`, `codex`, and `muse` — plus
+independent `modelProvider`, `model`, `reasoningEffort`, and boolean
+`presentation` inputs. The default harness is `agent-harness` and the default
+presentation is `false`.
+
+ASPC validates the envelope and invokes the compiler; it owns no route catalog,
+profile selector, or driver selector. The compiler catalog is the sole authority
+that resolves harness and presentation to a recipe, frozen driver, transport,
+terminal requirement, and hosting requirement. A provider or model never
+chooses a harness. A true presentation request resolves to a fulfilling recipe
+or a typed refusal; it is never silently downgraded.
+
+Every successful ordinary response contains one `execution` and one canonical
+start request at `execution.dispatchRequest.startRequest`. The selected v2
+release must positively bind that compiler-selected driver before a successful
+response can expose `executionRelease`; the broker executes the frozen driver
+named by that canonical request. V1 requests, plans, and profiles; profile TOML
+versions 1–3; target schema 1; aliases; `viewer`; and retired selectors fail
+closed at their typed boundary. Existing v1 release artifacts remain immutable
+history, not v2-compatible producers or fallback readers.
+
+This is an ASP-only cutover. HRC continues to own its placement, authorization,
+resource allocation, terminal leases, lifecycle, messaging, continuation,
+credentials, and reattachment boundaries, but its migration and disposition of
+prepared or live v1 state are explicitly outside this document's scope.
+
+The governing active records are
+`agent-spaces.producer-owned-harness-selection` and
+`agent-spaces.aspd-release-worker-hosting`; the approved design is
+`docs/proposals/producer-owned-harness-selection.md`.
+
+## Historical pre-v2 pilot record
+
+The rest of this page retains the T-08539/T-08561 pilot evidence and operation
+notes. It accurately describes the then-current v1/additive ASPC surface, but
+does not extend, soften, or replace the v2 contract above.
+
+At that time, release-bound preparation was established by T-08539 and extended
+to supported compiler-backed Claude/Pi workers by T-08561. Its governing designs
+were `hrc-runtime/asp-hrc-split-proposal.md` at `bf3e539e` (Daedalus APPROVE,
 EN-12789) and `agent-spaces.aspd-release-worker-hosting` (Daedalus APPROVE,
-EN-13188).
+EN-13188). The pilot ASPC compile plane bound seven `aspc.*` methods through
+`registerAspcCompileMethods`, served from an immutable release on an explicitly
+configured Unix socket. It prepared but never started a harness.
 
-`aspd` is the existing ASPC compile plane — the seven `aspc.*` methods bound by
-`registerAspcCompileMethods` — served by a long-lived process on a stable,
-explicitly configured Unix socket, from one immutable ASP release. It prepares;
-it never starts a harness. Workers are selected from the release's inspected
-driver-to-executable binding table, hosted by the client, and controlled
-directly over their own Unix sockets with the existing broker protocol.
+### Pilot protocol: existing verbs and additive metadata only
 
-Binding-aware releases support `codex-app-server`, `claude-code-tmux`,
-`pi-tui-tmux`, and `muse-serve` through `harness-broker`. `pi-sdk` remains on its current
-non-aspd path pending a hermetic release compilation surface; selecting it
-against a binding-aware release is refused before `executionRelease`. HRC
-remains the worker host and lifecycle authority.
+The pilot had no new RPC verbs, replacement payload, or version bump:
+`aspc/0.1` and the broker's `harness-broker/0.2|0.3` negotiation were unchanged.
 
-## Protocol: existing verbs, additive metadata only
-
-No new RPC verbs, no replacement payload, no version bump. `aspc/0.1` and the
-broker's `harness-broker/0.2|0.3` negotiation are unchanged.
-
-| Surface | Change | Why |
+| Surface | Pilot change | Why |
 | --- | --- | --- |
 | `aspc.hello` (W1) | `capabilities.transports` may report `unix-jsonrpc-ndjson`; optional `release: {releaseId, sourceCommit, builtAt}` | Accurate transport reporting; the serving release is proven by the reply, not by a path |
 | `aspc.compileHarnessInvocation` ok response (W2) | optional `executionRelease: {releaseId, sourceCommit, builtAt, releaseRoot, worker: {protocol, executable, hostedDrivers?, argvPrefix}}` | The client launches the selected worker without PATH/`current`; `hostedDrivers` is positive evidence from bindings assigned to that executable |
 | `broker.hello` (W3) | optional `release: {releaseId, sourceCommit, builtAt}` | The worker reports the release actually executing, at handshake |
 | Thin Unix client (W4) | `spaces-aspc-protocol/unix-client` | Wire types + NDJSON framing + transport only |
 
-Everything else — `compileResponse`, `plan`, `selectedProfile`, `startRequest`,
-`dispatchRequest`, diagnostics, catalog/inspection semantics — is byte-for-byte
-the existing contract. `aspd` does not register `aspc.compileAndStart` and
-reports `compileAndStart: false`, `cohostedBroker: false`.
+In the pilot, all other compile response and profile shapes remained byte-for-byte
+the existing contract. `aspd` did not register `aspc.compileAndStart` and
+reported `compileAndStart: false`, `cohostedBroker: false`.
 
-### Release identity
+#### Pilot release identity
 
 `release` blocks come from identity compiled into the executable
 (`bun build --define`) when the release is built, not from launcher environment
@@ -56,7 +87,7 @@ the existing broker CLI hosting contract HRC already realizes (`--socket`,
 `--attach-token-file`, and for a tmux-tui viewer
 `--experimental-observer-socket`).
 
-### Release-owned offline evidence
+#### Pilot release-owned offline evidence
 
 Contract-capable frozen manifests declare
 `harness-broker.offline-evidence/v1` in `capabilities`. Historical manifests may
@@ -120,7 +151,7 @@ binding, aspd returns `release_worker_driver_unavailable` on the existing
 Retained pre-binding v1 releases keep their own compiled behavior and may omit
 both the binding table and `hostedDrivers`; inspection does not retrofit them.
 
-## Preparation → hosting → start
+### Pilot preparation → hosting → start
 
 1. **Prepare.** The client connects, calls `aspc.hello` (every connection), then
    `aspc.compileHarnessInvocation` with an existing `RuntimeCompileRequest`.
@@ -158,7 +189,7 @@ both the binding table and `hostedDrivers`; inspection does not retrofit them.
    and controls the invocation through existing submission/event/replay
    methods.
 
-### Start uncertainty (explicitly unproven in this pilot)
+#### Start uncertainty (explicitly unproven in this pilot)
 
 `invocation.start` has no durable receipt. This pilot does **not** prove
 lost-start-reply safe retry and does not claim `invocation.start` is idempotent.
@@ -174,7 +205,7 @@ headless Codex `dispatchRequest` carries neither, so that path does not apply
 without a contract change. The gap is deferred to the HRC integration/recovery
 design (recorded on T-08539); participant behavior is unchanged.
 
-## Service lifecycle and activation
+### Pilot service lifecycle and activation
 
 All state lives under one explicit namespace root:
 
@@ -215,7 +246,7 @@ activating or rolling back `aspd` never signals them. A prepared payload stays
 runnable while another release is active or no daemon is running. Releases are
 retained; there is no automated deletion.
 
-## Commands
+### Pilot commands
 
 ```bash
 # Build, stage and inspect immutable releases (each from a clean, recorded commit)
@@ -242,14 +273,14 @@ The pilot client speaks NDJSON commands on stdin (`connect`, `prepare`,
 preparation, hosting intent, binding, worker hello, start outcome and turn under
 its `--state` directory.
 
-## External inputs
+### Pilot external inputs
 
 Native Codex (`ASP_CODEX_PATH`), Claude, and Pi executables, their credentials,
 agent/project configuration roots, and the ASP home used for materialization
 remain explicit external inputs. The execution-code pin does not freeze mutable
 agent sources.
 
-## Execution preparation operations
+### Pilot execution preparation operations
 
 The additive `aspc/0.1` preparation plane exposes one pure operation:
 `aspc.prepareProcessInvocation`. Preparation
@@ -270,7 +301,7 @@ binding selects the explicit `codex-app-server` worker for Desktop observer
 hosting. It never guesses a first worker or PATH executable, and it does not
 claim that the worker's other hosted drivers advertise `codex-desktop`.
 
-## Pilot limitations
+### Pilot limitations
 
 - The client still builds the existing `RuntimeCompileRequest` (placement roots,
   requested harness/interaction mode, policy, identity/correlation). Runtime
@@ -287,7 +318,7 @@ claim that the worker's other hosted drivers advertise `codex-desktop`.
 - `codex-cli-tmux` remains registered and deprecated, with no release binding;
   `codex-desktop` and `arris-resident` are not newly bound here.
 
-## Acceptance plan
+### Pilot acceptance plan
 
 Installed artifacts only, isolated namespace, real Codex, driven by one fixed
 pilot client artifact and process (`scripts/aspd-pilot`), evidence under
@@ -320,7 +351,7 @@ pilot client artifact and process (`scripts/aspd-pilot`), evidence under
 9. Activate a retained pre-binding release and complete a Codex rollback turn
    with `hostedDrivers` absent; do not claim or launch a legacy non-Codex route.
 
-## Pilot evidence layout
+### Pilot evidence layout
 
 T-08539 retains its installed acceptance under
 `var/wrkq-artifacts/T-08539/` (outside every checkout): `releases-build/` (built
