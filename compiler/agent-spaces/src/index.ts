@@ -71,6 +71,26 @@ export {
 
 export { createAgentSpacesClient } from './client.js'
 
+export {
+  HARNESS_CATALOG,
+  HARNESS_IDS,
+  catalogCapabilities,
+  catalogHarnessIds,
+  catalogRecipes,
+  resolveHarnessExecution,
+} from './harness-selection/index.js'
+export type {
+  BuilderId,
+  CompileRefusal,
+  ExecutionRecipe,
+  HarnessDefinition,
+  HarnessResolution,
+  ProvisioningLayer,
+  ProvisioningLayers,
+  ResolveHarnessExecutionInput,
+  ResolvedHarnessExecution,
+} from './harness-selection/index.js'
+
 export { admitDesktopRegistration, resolveDesktopIdentity } from './desktop-native-identity.js'
 export {
   CODEX_DESKTOP_PARTICIPANT_ADAPTER_ID,
