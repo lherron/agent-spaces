@@ -12,7 +12,13 @@ import type {
   ResolvedRuntimeBundle,
   RuntimePlacement,
 } from './external'
-import type { CompileId, PlanHash, RuntimeCorrelation, RuntimeIdentityAllocation } from './ids'
+import type {
+  CompileId,
+  PlanHash,
+  ProfileId,
+  RuntimeCorrelation,
+  RuntimeIdentityAllocation,
+} from './ids'
 import type { BrokerInputPolicy } from './input'
 import type { RuntimeObservabilityInput } from './observability'
 import type { BrokerPermissionPolicy } from './permissions'
@@ -36,7 +42,17 @@ export type HarnessSelectionRequest = {
   presentation?: boolean | undefined
 }
 
-export type RuntimeCompileRequestV2 = {
+/** A diagnostic emitted while resolving or compiling a v2 runtime plan. */
+export type CompileDiagnostic = {
+  level: 'info' | 'warning' | 'error'
+  code: string
+  message: string
+  plane: 'asp-compiler'
+  profileId?: ProfileId | undefined
+  details?: unknown
+}
+
+export type RuntimeCompileRequest = {
   schemaVersion: 'agent-runtime-compile-request/v2'
   agent: { id: string }
   identity: RuntimeIdentityAllocation
@@ -123,7 +139,7 @@ export type CompiledExecution = ExecutionRecipeDto & {
 }
 
 /** The v2 singular compiled-plan DTO. */
-export type CompiledRuntimePlanV2 = {
+export type CompiledRuntimePlan = {
   schemaVersion: 'agent-runtime-plan/v2'
   compiler: { name: 'agent-spaces'; version: string }
   compileId: CompileId
@@ -144,21 +160,21 @@ export type CompiledRuntimePlanV2 = {
     bundleIdentity: string
   }
   lockedEnv: { lockedEnvKeys: string[] }
-  diagnostics: import('./compiler-plan').CompileDiagnostic[]
+  diagnostics: CompileDiagnostic[]
 }
 
-export type RuntimeCompileResponseV2 =
+export type RuntimeCompileResponse =
   | {
       schemaVersion: 'agent-runtime-compile-response/v2'
       ok: true
-      plan: CompiledRuntimePlanV2
-      diagnostics: import('./compiler-plan').CompileDiagnostic[]
+      plan: CompiledRuntimePlan
+      diagnostics: CompileDiagnostic[]
       effectiveEnvironmentHash?: string | undefined
     }
   | {
       schemaVersion: 'agent-runtime-compile-response/v2'
       ok: false
-      diagnostics: import('./compiler-plan').CompileDiagnostic[]
+      diagnostics: CompileDiagnostic[]
     }
 
 /** Canonical dispatch request is carried exactly once by the compiled execution. */

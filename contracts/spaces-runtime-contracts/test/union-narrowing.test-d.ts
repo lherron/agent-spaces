@@ -16,7 +16,6 @@ import type {
   BrokerExecutionProfile,
   RunStatus,
   RuntimeControlErrorCode,
-  RuntimeRouteCatalogEntry,
   RuntimeStatus,
 } from '../src/index.ts'
 
@@ -111,11 +110,6 @@ void _runStatusClosed
 // brokerDriver accepts a custom/non-core driver string.
 const _customBrokerDriver: BrokerExecutionProfile['brokerDriver'] = 'my-custom-driver'
 void _customBrokerDriver
-
-// route-catalog `driver` accepts a custom/non-core driver string.
-type RouteCatalogBroker = NonNullable<RuntimeRouteCatalogEntry['broker']>
-const _customRouteDriver: RouteCatalogBroker['driver'] = 'my-custom-driver'
-void _customRouteDriver
 
 // ── (d) RuntimeStatus is CLOSED ─────────────────────────────────────────────
 // @ts-expect-error EXCEPTION(T-05007): closed runtime-row status vocabulary — arbitrary string must NOT assign.

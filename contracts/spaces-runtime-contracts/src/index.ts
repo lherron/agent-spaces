@@ -2,14 +2,6 @@ export * from './boundary-checks'
 export * from './agent-inspection'
 export * from './capabilities'
 export * from './compile-context'
-// The canonical public compile vocabulary is v2. The v1 compiler seam remains
-// available only through the explicitly internal compiler-plan-v1 subpath.
-export type {
-  RuntimeCompileRequestV2 as RuntimeCompileRequest,
-  RuntimeCompileResponseV2 as RuntimeCompileResponse,
-  CompiledRuntimePlanV2 as CompiledRuntimePlan,
-} from './harness-selection'
-export type { CompileDiagnostic, CompiledAgentPolicy } from './compiler-plan'
 export * from './continuation'
 export * from './controller'
 export * from './errors'
@@ -28,11 +20,29 @@ export * from './participant-adapter'
 export * from './permissions'
 export * from './process-invocation'
 export * from './persistence'
-export * from './primitives'
+export type {
+  InteractionMode,
+  IsoTimestamp,
+  JsonObject,
+  JsonValue,
+  LegacyTransportAlias,
+  ProviderDomain,
+  RunStatus,
+  RuntimeControllerKind,
+  RuntimeExecutionProfileKind,
+  RuntimeStateStatus,
+  RuntimeStatus,
+  SchemaVersion,
+} from './primitives'
+export {
+  isRuntimeStateStatus,
+  isRuntimeStatus,
+  RUNTIME_STATE_STATUS_VALUES,
+  RUNTIME_STATUS_VALUES,
+} from './primitives'
 export * from './public-api'
+export * from './provider-model-catalog'
 export * from './resources'
-export * from './route-catalog'
-export * from './route-decision'
-export * from './run-compile'
+export type { PlacementRuntimeModelResolution, PlacementRuntimePlan } from './run-compile'
 export * from './runtime-state'
 export * from './validate-execution-profile'
