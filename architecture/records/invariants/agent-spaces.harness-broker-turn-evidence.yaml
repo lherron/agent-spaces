@@ -98,8 +98,10 @@ predicate: >
   target terminal or interrupt without an exact native match retires the steer
   correlation and starts the fallback; a late original-turn user item remains
   visible conversation evidence but cannot replace the fallback's authoritative
-  executed disposition. Definitive teardown or withdrawal remains terminal and
-  later conversation evidence cannot reopen it. Controller reconnect preserves
+  executed disposition. The driver retains the retired input-plus-target-turn
+  fence until the fallback is attributed or fails, so the input-id-only own-turn
+  waiter can resolve only from a different observed turn. Definitive teardown or
+  withdrawal remains terminal and later conversation evidence cannot reopen it. Controller reconnect preserves
   correlation only while the armed target remains live; committed replay uses
   the same idempotent observer. Driver disposal clears process-local tracking and
   establishes no process-persistent reconstruction. A provider missing clientId
@@ -144,7 +146,7 @@ required_tests:
   - T-08107 archived _5 and _12 sequence preserves independently named input attribution despite out-of-order turn numbers while ambiguous unclassified identical and contains candidates remain unresolved without age-based selection
   - Codex native steer captures cover exact thread turn item and client identity, identical input bodies, human items, started/completed duplicates, initiating queue ownership, and headless initial-message deduplication
   - Codex native-before-response wins once while response failure or mismatch without native evidence starts the same submission as an own turn with possibly_written evidence
-  - an unconfirmed Codex steer target terminal or interrupt wins a race against a delayed or absent RPC response and starts the same submission as an own turn while tool gaps and unrelated items infer no absorption
+  - an unconfirmed Codex steer target terminal or interrupt wins a race against a delayed or absent RPC response and starts the same submission as an own turn while a late first user item on the retired target remains identity-free conversation evidence and cannot resolve the fallback attribution waiter
   - shared manager emits no inferred absorption for ack asserted or null sibling drivers while their existing delivery capabilities remain intact
   - installed Codex TUI and Claude CLI native-to-broker-to-HRC receipt evidence preserves exact submission identity and original turn ownership with no presentation on acknowledgement
 last_verified:

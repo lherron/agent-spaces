@@ -240,6 +240,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
   let websocketSocketPath: string | undefined
   const pendingBrokerInputs = new Set<InputId>()
   const pendingSteers = new Map<InputId, PendingSteer>()
+  const retiredSteerTurnsByInput = new Map<InputId, Set<TurnId>>()
   const observedUserItems = new Set<string>()
   const queuedSubmissions = new Map<InputId, string>()
   const attributionByTurn = new Map<
@@ -497,13 +498,27 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
   }
 
   function settleAllPendingSteers(result: 'native-observed' | 'target-terminal'): void {
-    for (const pendingSteer of pendingSteers.values()) pendingSteer.settle(result)
+    for (const pendingSteer of pendingSteers.values()) {
+      if (result === 'target-terminal') retirePendingSteer(pendingSteer)
+      pendingSteer.settle(result)
+    }
     pendingSteers.clear()
+  }
+
+  function retirePendingSteer(pendingSteer: PendingSteer): void {
+    const retiredTurns = retiredSteerTurnsByInput.get(pendingSteer.inputId) ?? new Set<TurnId>()
+    retiredTurns.add(pendingSteer.turnId)
+    retiredSteerTurnsByInput.set(pendingSteer.inputId, retiredTurns)
+  }
+
+  function isRetiredSteerTurn(inputId: InputId, turnId: TurnId): boolean {
+    return retiredSteerTurnsByInput.get(inputId)?.has(turnId) ?? false
   }
 
   function settlePendingSteersForTurn(turnId: TurnId): void {
     for (const [inputId, pendingSteer] of pendingSteers) {
       if (pendingSteer.turnId !== turnId) continue
+      retirePendingSteer(pendingSteer)
       pendingSteer.settle('target-terminal')
       pendingSteers.delete(inputId)
     }
@@ -581,6 +596,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
     if (attribution.ownership === 'own' && attribution.inputId !== undefined) {
       currentInputId = attribution.inputId
       pendingBrokerInputs.delete(attribution.inputId)
+      retiredSteerTurnsByInput.delete(attribution.inputId)
       attributionWaiters.get(attribution.inputId)?.resolve(turn)
       attributionWaiters.delete(attribution.inputId)
     }
@@ -595,6 +611,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
     for (const waiter of attributionWaiters.values()) waiter.reject(error)
     attributionWaiters.clear()
     pendingBrokerInputs.clear()
+    retiredSteerTurnsByInput.clear()
     queuedSubmissions.clear()
   }
 
@@ -615,7 +632,11 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
     const itemType = frameString(item['type'])
     const clientId = frameString(item['clientId']) as InputId | undefined
     if (itemType === 'userMessage') {
-      if (clientId !== undefined && pendingBrokerInputs.has(clientId)) {
+      if (
+        clientId !== undefined &&
+        pendingBrokerInputs.has(clientId) &&
+        !isRetiredSteerTurn(clientId, turn)
+      ) {
         emitAttribution(turn, {
           ownership: 'own',
           inputId: clientId,
@@ -1366,6 +1387,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
       return { turnId: observedTurnId }
     } catch (error) {
       pendingBrokerInputs.delete(inputId)
+      retiredSteerTurnsByInput.delete(inputId)
       attributionWaiters.delete(inputId)
       queuedSubmissions.delete(inputId)
       if (turnTimeout !== undefined) clearTimeout(turnTimeout)
@@ -1511,6 +1533,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
       ungatedFrames.length = 0
       pendingBrokerInputs.clear()
       settleAllPendingSteers('target-terminal')
+      retiredSteerTurnsByInput.clear()
       observedUserItems.clear()
       queuedSubmissions.clear()
       attributionByTurn.clear()
@@ -2066,6 +2089,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
               }
             )
             if (pendingSteer.nativeObserved) return
+            retirePendingSteer(pendingSteer)
             pendingSteers.delete(steerInputId)
             throw withSteerRequiresOwnTurn(
               withDeliveryEvidence(
@@ -2095,6 +2119,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
           if (isDefiniteTurnMismatchError(error) && !pendingSteer.nativeObserved) {
             pendingSteers.delete(steerInputId)
             if (!authoritativeTurnResolution) {
+              retirePendingSteer(pendingSteer)
               throw withSteerRequiresOwnTurn(
                 withDeliveryEvidence(
                   new BrokerError(
@@ -2140,6 +2165,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
             throw error
           }
           pendingSteers.delete(steerInputId)
+          retirePendingSteer(pendingSteer)
           throw withSteerRequiresOwnTurn(
             withDeliveryEvidence(
               new BrokerError(
@@ -2222,6 +2248,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
       websocketSocketPath = undefined
       pendingBrokerInputs.clear()
       settleAllPendingSteers('target-terminal')
+      retiredSteerTurnsByInput.clear()
       observedUserItems.clear()
       queuedSubmissions.clear()
       attributionByTurn.clear()

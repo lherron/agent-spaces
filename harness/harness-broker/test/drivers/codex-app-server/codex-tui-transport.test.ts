@@ -2152,30 +2152,16 @@ describe('codex-tui transport', () => {
     }
   })
 
-  test('fails an unconfirmed steer open into an own turn when its target turn terminalizes', async () => {
+  test('fences late target evidence from the fail-open own-turn attribution', async () => {
     const rpc = new FakeCodexRpc()
-    let queuedInputCount = 0
+    let fallbackInputId = ''
     rpc.onRequest = async (method, params) => {
       if (method === 'initialize') return {}
       if (method === 'hooks/list') return { data: [] }
       if (method === 'thread/start') return { thread: { id: 'thread_test' } }
       if (method === 'thread/queue/add') {
-        const inputId = (params as { clientUserMessageId: string }).clientUserMessageId
-        queuedInputCount += 1
-        const turnId = queuedInputCount === 1 ? 'turn_interrupted_steer' : 'turn_fail_open'
-        queueMicrotask(() => {
-          rpc.emit('turn/started', {
-            threadId: 'thread_test',
-            turn: { id: turnId, status: 'inProgress', items: [] },
-          })
-          emitUserMessageItem(rpc, {
-            turnId,
-            itemId: `user_${turnId}`,
-            clientId: inputId,
-            text: queuedInputCount === 1 ? 'owner' : 'late steer',
-          })
-        })
-        return { queuedSubmission: { id: `queued_${queuedInputCount}` } }
+        fallbackInputId = (params as { clientUserMessageId: string }).clientUserMessageId
+        return { queuedSubmission: { id: 'queued_fail_open' } }
       }
       if (method === 'turn/steer') {
         return new Promise<never>(() => undefined)
@@ -2187,35 +2173,52 @@ describe('codex-tui transport', () => {
     const run = await setupDriver(rpc, invocationId)
     try {
       await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
-      await run.broker.enqueue({ invocationId, origin, body: 'owner' })
-      await waitFor(
-        () =>
-          run.events.some(
-            (event) => event.type === 'turn.attributed' && event.turnId === 'turn_interrupted_steer'
-          ),
-        'owner should be attributed'
-      )
+      rpc.emit('turn/started', {
+        threadId: 'thread_test',
+        turn: { id: 'turn_interrupted_steer', status: 'inProgress', items: [] },
+      })
       const steer = await run.broker.steer({ invocationId, origin, body: 'late steer' })
       await waitFor(
         () => rpc.requests.some((request) => request.method === 'turn/steer'),
         'steer should reach Codex'
       )
-      rpc.emit('item/started', {
+      rpc.emit('turn/completed', {
         threadId: 'thread_test',
+        turn: { id: 'turn_interrupted_steer', status: 'interrupted', items: [] },
+      })
+      await waitFor(
+        () => fallbackInputId === steer.submissionId,
+        'unconfirmed steer should enqueue the same submission for an own turn'
+      )
+
+      emitUserMessageItem(rpc, {
         turnId: 'turn_interrupted_steer',
-        item: { id: 'tool_gap', type: 'commandExecution', command: 'sleep 1' },
+        itemId: 'late_retired_target_item',
+        clientId: steer.submissionId,
+        text: 'late steer',
       })
       expect(
         run.events.filter(
           (event) =>
-            event.type === 'submission.absorbed' &&
+            event.type === 'submission.executed' &&
             event.payload.submissionId === steer.submissionId
         )
       ).toHaveLength(0)
-      await run.broker.interrupt({ invocationId, scope: 'turn', reason: 'test interrupt' })
-      rpc.emit('turn/completed', {
+      expect(
+        run.events.find(
+          (event) => event.type === 'user.message' && event.payload.content === 'late steer'
+        )?.inputId
+      ).toBeUndefined()
+
+      rpc.emit('turn/started', {
         threadId: 'thread_test',
-        turn: { id: 'turn_interrupted_steer', status: 'interrupted', items: [] },
+        turn: { id: 'turn_fail_open', status: 'inProgress', items: [] },
+      })
+      emitUserMessageItem(rpc, {
+        turnId: 'turn_fail_open',
+        itemId: 'user_turn_fail_open',
+        clientId: steer.submissionId,
+        text: 'late steer',
       })
       await waitFor(
         () =>
@@ -2225,18 +2228,8 @@ describe('codex-tui transport', () => {
               event.payload.submissionId === steer.submissionId &&
               event.turnId === 'turn_fail_open'
           ),
-        'unconfirmed steer should start its own turn'
+        'only the fallback turn should execute the submission'
       )
-      expect(rpc.requests.filter((request) => request.method === 'thread/queue/add')).toHaveLength(
-        2
-      )
-      expect(
-        run.events.filter(
-          (event) =>
-            event.type === 'submission.absorbed' &&
-            event.payload.submissionId === steer.submissionId
-        )
-      ).toHaveLength(0)
       expect(
         run.events.find(
           (event) => event.type === 'input.accepted' && event.payload.inputId === steer.submissionId
