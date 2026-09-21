@@ -11,7 +11,7 @@ import type {
 } from 'spaces-config'
 // Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
 // for old v1 consumers. T-08702 deletes it with the last v1 consumer.
-import { DEFAULT_HARNESS, type HarnessId } from 'spaces-config'
+import { DEFAULT_HARNESS, type HarnessId, isHarnessId } from 'spaces-config'
 import type {
   PlacementRuntimeModelResolution as ContractPlacementRuntimeModelResolution,
   PlacementRuntimePlan as ContractPlacementRuntimePlan,
@@ -65,7 +65,11 @@ export interface ProjectTargetRuntimePlan {
 }
 
 export function assertHarnessAvailableForRun(harnessId: HarnessId): void {
-  void harnessId
+  if (!isHarnessId(harnessId)) {
+    throw new Error(
+      `Invalid harness "${String(harnessId)}". Must be one of: agent-harness, claude, codex, muse`
+    )
+  }
 }
 
 function parsePlacementRuntimeModelId(

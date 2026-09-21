@@ -10,9 +10,9 @@ import { spawn } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseScopeRef, resolveScopeInput } from 'agent-scope'
-import type { AgentEvent } from 'agent-spaces'
 import type { Command } from 'commander'
 import {
+  type HarnessId,
   type RuntimePlacement,
   TARGETS_FILENAME,
   type TargetDefinition,
@@ -43,8 +43,10 @@ function normalizeHarness(input: string): {
   throw new Error(`Invalid harness "${input}". Must be one of: agent-harness, claude, codex, muse`)
 }
 
-function normalizeConfiguredHarness(input: string | undefined): string | undefined {
-  return input === undefined ? undefined : normalizeHarness(input).frontend
+function normalizeConfiguredHarness(input: string | undefined): HarnessId | undefined {
+  if (input === undefined) return undefined
+  normalizeHarness(input)
+  return input as HarnessId
 }
 
 function loadProjectTarget(
@@ -78,14 +80,14 @@ function resolveHarnessOption(
   scopeRef: string,
   runMode: ExecuteMode,
   options: AgentCommandOptions
-): string {
+): HarnessId {
   const explicitHarness = normalizeConfiguredHarness(options.harness)
   if (explicitHarness) {
     return explicitHarness
   }
 
   if (!options.agentRoot) {
-    return 'claude-code'
+    return 'agent-harness'
   }
 
   const bundle = buildRuntimeBundleRef({
@@ -96,12 +98,12 @@ function resolveHarnessOption(
   })
 
   if (bundle.kind === 'compose') {
-    return 'claude-code'
+    return 'agent-harness'
   }
 
   const profile = loadAgentProfile(options.agentRoot)
   if (!profile) {
-    return 'claude-code'
+    return 'agent-harness'
   }
 
   if (bundle.kind === 'agent-project') {
@@ -114,10 +116,10 @@ function resolveHarnessOption(
       loadProjectTarget(bundle.projectRoot, bundle.agentName),
       runMode
     )
-    return normalizeConfiguredHarness(effective.harness) ?? 'claude-code'
+    return normalizeConfiguredHarness(effective.harness) ?? 'agent-harness'
   }
 
-  return normalizeConfiguredHarness(profile.provisioning?.harness) ?? 'claude-code'
+  return normalizeConfiguredHarness(profile.provisioning?.harness) ?? 'agent-harness'
 }
 
 interface AgentCommandOptions {
@@ -159,10 +161,7 @@ export function registerAgentCommands(program: Command): void {
     .argument('<mode>', 'Mode: query, heartbeat, task, maintenance, resolve')
     .argument('[prompt]', 'Prompt text')
     .option('--agent-root <path>', 'Absolute path to agent root')
-    .option(
-      '--harness <harness>',
-      'Harness: claude-code, codex-cli, agent-sdk, pi-sdk (also accepts: claude, codex, claude-agent-sdk)'
-    )
+    .option('--harness <harness>', 'Harness: agent-harness, claude, codex, or muse')
     .option('--project-root <path>', 'Absolute path to project root')
     .option('--cwd <path>', 'Override working directory')
     .option('--host-session-id <id>', 'Host session ID for correlation')
@@ -298,11 +297,7 @@ async function handleExecute(
 
   const exec: FrontendExecContext = { placement, provider, continuation, envVars, prompt, options }
 
-  if (frontend === 'claude-code' || frontend === 'codex-cli') {
-    await runProcessFrontend(frontend, exec)
-  } else {
-    await runSdkFrontend(frontend, exec)
-  }
+  await runProcessFrontend(frontend, exec)
 }
 
 function missingAgentRootError(options: AgentCommandOptions): Error {
@@ -391,57 +386,6 @@ async function runProcessFrontend(
   if (child.stderr) child.stderr.pipe(process.stderr)
   const exitCode = await new Promise<number>((r) => child.on('close', (c) => r(c ?? 1)))
   process.exit(exitCode)
-}
-
-/**
- * Execute an SDK-frontend (agent-sdk / pi-sdk): run a non-interactive turn and
- * stream events to stdout.
- */
-async function runSdkFrontend(
-  frontend: string,
-  { placement, continuation, envVars, prompt, options }: FrontendExecContext
-): Promise<void> {
-  if (options.dryRun || options.printCommand) {
-    const invocation = {
-      frontend,
-      bundle: placement.bundle,
-      model: options.model ?? null,
-      hasPrompt: Boolean(prompt),
-    }
-    if (options.json) {
-      console.log(JSON.stringify({ invocation }, null, 2))
-    } else {
-      console.log('Dry run — would execute (in-process SDK turn, not spawned):')
-      console.log(`  frontend: ${frontend}`)
-      console.log(`  bundle:   ${JSON.stringify(placement.bundle)}`)
-      console.log(`  model:    ${options.model ?? '(profile default)'}`)
-      console.log(`  prompt:   ${prompt ? 'provided' : '(none)'}`)
-    }
-    return
-  }
-
-  const client = createAgentSpacesClient()
-  const response = await client.runTurnNonInteractive({
-    placement,
-    frontend: frontend as 'agent-sdk' | 'pi-sdk',
-    model: options.model,
-    yolo: options.yolo,
-    continuation,
-    lockedEnv: envVars,
-    prompt: prompt ?? '',
-    attachments: options.attachment,
-    callbacks: {
-      onEvent: (event: AgentEvent) => {
-        if (options.json) console.log(JSON.stringify(event))
-        else if (event.type === 'message' && event.role === 'assistant')
-          process.stdout.write(event.content)
-        else if (event.type === 'message_delta') process.stdout.write(event.delta)
-      },
-    },
-    hostSessionId: options.hostSessionId || `cli-${Date.now()}`,
-    runId: options.runId ?? '',
-  } as unknown as Parameters<typeof client.runTurnNonInteractive>[0])
-  if (!response.result.success) process.exit(1)
 }
 
 function resolvePrompt(

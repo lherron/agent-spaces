@@ -2,13 +2,6 @@ import type { BuildResult, ResolveOptions } from 'spaces-config'
 // Internal legacy seam (EN-15986): the v1 run entrypoint addresses adapters
 // by their pre-cutover ids. T-08702 deletes it with the v1 flow.
 import type { HarnessId } from 'spaces-config'
-import type { CompileRuntimeFn, RunLaunchShape } from 'spaces-runtime-contracts'
-
-export type {
-  CompileRuntimeFn,
-  RunCompileOutcome,
-  RunCompilerDebugContext,
-} from 'spaces-runtime-contracts'
 
 /**
  * Launch fields shared by both run paths (project-target `RunOptions` and
@@ -41,12 +34,6 @@ export interface BaseRunOptions {
   remoteControl?: boolean | undefined
   sessionNamePrefix?: string | undefined
   pagePrompts?: boolean | undefined
-  /**
-   * Injected compiler. When provided, the run compiles a real
-   * RuntimeCompileRequest (used for `--debug` and, behind the
-   * ASP_RUN_VIA_COMPILER gate, to drive a foreground inherit-spawn).
-   */
-  compileRuntime?: CompileRuntimeFn | undefined
 }
 
 export interface RunOptions extends ResolveOptions, BaseRunOptions {
@@ -68,19 +55,12 @@ export interface RunInvocationResult {
  * compared for byte-parity, and so callers can inspect exactly what would be
  * spawned. `env` is the explicit per-launch env (NOT merged with process.env).
  */
-export type LaunchShape = RunLaunchShape
-
-/**
- * Result of compiling a run through the asp compiler (compileRuntimePlan),
- * surfaced to the run path via dependency injection (the compiler lives in the
- * `agent-spaces` package, which depends on this one — so the CLI injects it).
- *
- * `request`/`response` are the REAL RuntimeCompileRequest/Response the run used
- * (or would use) — `--debug` dumps these directly with no second compile and no
- * synthetic identities. `foreground` is populated iff the plan produced a
- * foreground TerminalExecutionProfile; when so its launch shape can drive the
- * inherit-spawn instead of the legacy adapter argv path.
- */
+export interface LaunchShape {
+  command: string
+  args: string[]
+  cwd?: string | undefined
+  env: Record<string, string>
+}
 export interface RunResult {
   build: BuildResult
   invocation?: RunInvocationResult | undefined
@@ -97,12 +77,6 @@ export interface RunResult {
   nearMaxChars?: boolean | undefined
   primingPrompt?: string | undefined
   launch?: LaunchShape | undefined
-  /**
-   * The real RuntimeCompileRequest/Response the run compiled (when a compiler
-   * was injected). `--debug` dumps these verbatim — no synthetic IDs, no second
-   * compile.
-   */
-  runtimeCompile?: { request: unknown; response: unknown } | undefined
 }
 
 export interface GlobalRunOptions extends BaseRunOptions {

@@ -54,25 +54,14 @@ function isEnvFlagEnabled(value: string | undefined): boolean {
   return value === '1' || value === 'true'
 }
 
-/** Parse an env-style boolean disable gate that accepts common false-ish values. */
-function isEnvFlagDisabled(value: string | undefined): boolean {
-  return value === '0' || value === 'false' || value === 'no' || value === 'off'
-}
-
 /**
  * Resolve the run-time feature gates from the environment.
  *
- * Centralizes the `ASP_RUN_VIA_COMPILER` default-on gate and the `ASP_DEBUG_RUN`
- * `'1' | 'true'` gate parsing that both `run.ts` and `space-launch.ts`
- * previously duplicated inline. `env` defaults to `process.env` so existing
- * callers behave identically, while tests can pass an explicit env.
+ * Centralizes the `ASP_DEBUG_RUN` gate parsing. Foreground execution no longer
+ * routes through the hosted-worker compiler.
  */
-export function resolveRunEnvFlags(env: NodeJS.ProcessEnv = process.env): {
-  viaCompiler: boolean
-  debugRun: boolean
-} {
+export function resolveRunEnvFlags(env: NodeJS.ProcessEnv = process.env): { debugRun: boolean } {
   return {
-    viaCompiler: !isEnvFlagDisabled(env['ASP_RUN_VIA_COMPILER']),
     debugRun: isEnvFlagEnabled(env['ASP_DEBUG_RUN']),
   }
 }

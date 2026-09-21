@@ -5,13 +5,11 @@
  * same run() entry point as `asp run`; only the final launch surface changes.
  */
 
-import { createCompileRuntimeFn } from 'agent-spaces'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
 import { type RunResult, run } from 'spaces-execution'
 
-import { compilerRuntime } from '../compiler-runtime.js'
 import { exitWithAspError } from '../helpers.js'
 import { findProjectRoot } from '../lib.js'
 import { displayRunResultPrompts } from '../prompt-display.js'
@@ -60,7 +58,6 @@ async function runGui(agentId: string, options: GuiOptions): Promise<RunResult> 
     inheritProject: options.inheritProject,
     inheritUser: options.inheritUser,
     pagePrompts: options.pagePrompts,
-    compileRuntime: createCompileRuntimeFn(options.aspHome, compilerRuntime),
   })
 }
 

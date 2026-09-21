@@ -118,10 +118,11 @@ export function loadAgentProfileForRun(
 }
 
 export function resolveProfileHarnessForRun(harness: string | undefined): HarnessId | undefined {
-  // v1 adapter-id resolution through the frozen legacy seam (EN-15986).
-  // Selection vocabulary stays closed at the parsers; this path only routes
-  // already-declared v1 values to adapters until T-08702 migrates it.
-  return harness !== undefined && isHarnessId(harness) ? harness : undefined
+  if (harness === undefined) return undefined
+  if (isHarnessId(harness)) return harness
+  throw new Error(
+    `Invalid harness "${harness}". Must be one of: agent-harness, claude, codex, muse`
+  )
 }
 
 export function resolveAgentPrimingPromptForRun(

@@ -10,19 +10,17 @@
 
 import { randomUUID } from 'node:crypto'
 import { rm } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import {
   type AgentLocalComponents,
   type BuildResult,
   type HarnessAdapter,
   type HarnessRunOptions,
   LOCK_FILENAME,
-  type LockFile,
   PathResolver,
   type SpaceRefString,
   install as configInstall,
   ensureImmutableRegistry,
-  getAgentsRoot,
   getAspHome,
   getLegacyProjectHarnessOutputPath,
   getRegistryPath,
@@ -54,7 +52,6 @@ export {
   type AgentToolRuntimeContext,
 } from './run/agent-tools.js'
 export { auditProjectModels, type ModelAuditRow } from './run/model-audit.js'
-import { maybeCompileForRun } from './run/compiler-debug.js'
 import { executeHarnessRun } from './run/execute.js'
 import {
   type RunSystemPromptBudget,
@@ -70,11 +67,8 @@ import {
 } from './run/placement-plan.js'
 import { runGlobalSpace, runLocalSpace } from './run/space-launch.js'
 import type {
-  CompileRuntimeFn,
   GlobalRunOptions,
   LaunchShape,
-  RunCompileOutcome,
-  RunCompilerDebugContext,
   RunInvocationResult,
   RunOptions,
   RunResult,
@@ -109,22 +103,6 @@ interface RunInstallArgs {
   agentRoot: string | undefined
   materializationIdentity: MaterializationIdentity | undefined
   currentHarnessOutputPath: string
-}
-
-interface BuildProjectRunCompilerContextArgs {
-  targetName: string
-  options: RunOptions
-  aspHome: string
-  effectiveRegistryPath: string
-  harnessId: HarnessId
-  runOptions: HarnessRunOptions
-  agentRoot: string | undefined
-  projectId: string
-  taskId: string | undefined
-  effectivePrompt: string | undefined
-  bundleRootDir: string
-  materializedHarnessOutputPath: string
-  lock: LockFile
 }
 
 export async function migrateLegacyProjectHarnessOutput(
@@ -234,84 +212,24 @@ async function installConfiguredRunTarget(args: RunInstallArgs): Promise<string>
   )
 }
 
-function buildProjectRunCompilerContext(
-  args: BuildProjectRunCompilerContextArgs
-): Parameters<typeof maybeCompileForRun>[0]['buildContext'] {
-  return () => {
-    const placementAgentRoot =
-      args.agentRoot ??
-      join(
-        getAgentsRoot({ aspHome: args.aspHome }) ?? dirname(args.options.projectPath),
-        args.targetName
-      )
-    const compilerCwd = args.runOptions.cwd ?? args.options.cwd ?? args.options.projectPath
-    const placementBase = {
-      agentRoot: placementAgentRoot,
-      projectRoot: args.options.projectPath,
-      cwd: compilerCwd,
-      runMode: 'query',
-      dryRun: args.options.dryRun === true,
-      ...(args.options.env !== undefined ? { env: args.options.env } : {}),
-    }
-    const placementBundle =
-      args.agentRoot !== undefined
-        ? {
-            kind: 'agent-project',
-            agentName: args.targetName,
-            projectRoot: args.options.projectPath,
-          }
-        : { kind: 'compose', compose: args.lock.targets[args.targetName]?.compose ?? [] }
-    const placement = { ...placementBase, bundle: placementBundle }
-    const scopeRef = `agent:${args.targetName}:project:${args.projectId}${
-      args.taskId ? `:task:${args.taskId}` : ''
-    }`
-    return {
-      aspHome: args.aspHome,
-      registryPath: args.effectiveRegistryPath,
-      harnessId: args.harnessId,
-      model: args.runOptions.model,
-      reasoningEffort: args.runOptions.modelReasoningEffort,
-      interactive: args.runOptions.interactive,
-      yolo: args.runOptions.yolo,
-      placement,
-      initialPrompt: args.effectivePrompt,
-      resolvedBundleHint: {
-        bundleIdentity: `asp-run:${args.options.projectPath}:${args.targetName}:${args.harnessId}`,
-        root: args.bundleRootDir,
-        targetName: args.targetName,
-        targetDir: args.materializedHarnessOutputPath,
-        lockHash: args.lock.targets[args.targetName]?.envHash,
-      },
-      correlation: {
-        appSessionKey: `${args.projectId}:${args.taskId}`,
-        scopeRef,
-        laneRef: 'main',
-      },
-    }
-  }
-}
-
 export {
   detectAgentLocalComponents,
   resolveAgentRunDefaults,
   planPlacementRuntime,
   runGlobalSpace,
   runLocalSpace,
-  type CompileRuntimeFn,
   type GlobalRunOptions,
   type LaunchShape,
   type PlacementRuntimeModelResolution,
   type PlacementRuntimePlan,
   type PlanPlacementRuntimeOptions,
-  type RunCompileOutcome,
-  type RunCompilerDebugContext,
   type RunInvocationResult,
   type RunOptions,
   type RunResult,
 }
 
 export async function run(targetName: string, options: RunOptions): Promise<RunResult> {
-  const { debugRun: debug, viaCompiler } = resolveRunEnvFlags()
+  const { debugRun: debug } = resolveRunEnvFlags()
   const runStart = performance.now()
   let lastMark = runStart
   const debugLog = (...args: unknown[]) => {
@@ -481,42 +399,12 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     dryRun: options.dryRun,
   })
 
-  // Compile through the injected compiler when needed: to dump the REAL plan for
-  // `--debug`, and/or — behind the ASP_RUN_VIA_COMPILER gate — to drive the
-  // foreground inherit-spawn from the compiled TerminalExecutionProfile instead
-  // of the legacy adapter argv path. ONE compile, no synthetic identities.
-  const wantDebugDump = options.dryRun === true && options.debug === true
-  debugLog('compileRuntime start')
-  const { compileOutcome, compiledLaunch } = await maybeCompileForRun({
-    compileRuntime: options.compileRuntime,
-    viaCompiler,
-    wantDebugDump,
-    buildContext: buildProjectRunCompilerContext({
-      targetName,
-      options,
-      aspHome,
-      effectiveRegistryPath,
-      harnessId,
-      runOptions,
-      agentRoot: agentProfile?.agentRoot,
-      projectId,
-      taskId,
-      effectivePrompt,
-      bundleRootDir: bundle.rootDir,
-      materializedHarnessOutputPath,
-      lock,
-    }),
-  })
-  debugLog('compileRuntime ok', compileOutcome?.ok)
-
-  debugLog('executeHarnessRun start', compiledLaunch ? '(via compiler)' : '(legacy)')
-  const executionLaunch = runOptions.launchSurface === 'codex-app' ? undefined : compiledLaunch
+  debugLog('executeHarnessRun start')
   const execution = await executeHarnessRun(adapter, detection, bundle, runOptions, {
     env: options.env,
     dryRun: options.dryRun,
     reminderContent,
     pagePrompts: options.pagePrompts,
-    ...(executionLaunch ? { compiledLaunch: executionLaunch } : {}),
     ...(agentProfile
       ? {
           agentToolRuntime: {
@@ -557,9 +445,6 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     totalContextChars: budget.totalContextChars,
     nearMaxChars: budget.nearMaxChars,
     primingPrompt: effectivePrompt,
-    ...(compileOutcome
-      ? { runtimeCompile: { request: compileOutcome.request, response: compileOutcome.response } }
-      : {}),
     launch: execution.launch,
   }
 }

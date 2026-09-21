@@ -71,7 +71,7 @@ export function registerBuildCommand(program: Command): void {
     .requiredOption('--output <dir>', 'Output directory for materialized plugins')
     .option(
       '--harness <id>',
-      'Coding agent harness to use (default: claude, e.g., claude-agent-sdk, codex, pi, pi-sdk)'
+      'Coding agent harness to use (default: agent-harness; one of: agent-harness, claude, codex, muse)'
     )
     .option('--no-clean', 'Keep existing output directory contents')
     .option('--no-install', 'Do not auto-install if lock missing')

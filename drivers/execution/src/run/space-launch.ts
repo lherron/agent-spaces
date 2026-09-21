@@ -28,25 +28,14 @@ import {
   resolveSpaceManifest,
   serializeLockJson,
 } from 'spaces-config'
-// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
-// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
-// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
-// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
 import { DEFAULT_HARNESS, type HarnessId } from 'spaces-config'
 
 import { harnessRegistry } from '../harness/index.js'
 
-import { maybeCompileForRun } from './compiler-debug.js'
 import { executeHarnessRun } from './execute.js'
 import { assertHarnessAvailableForRun } from './placement-plan.js'
 import type { GlobalRunOptions, RunResult } from './types.js'
-import {
-  cleanupTempDir,
-  createTempDir,
-  mergeDefined,
-  resolveRunEnvFlags,
-  toHarnessRunOptions,
-} from './util.js'
+import { cleanupTempDir, createTempDir, mergeDefined, toHarnessRunOptions } from './util.js'
 
 /**
  * Synthetic snapshot integrity used when a lock entry carries no known
@@ -115,52 +104,10 @@ async function executeSpaceRun({
     throw new Error('Non-interactive mode requires a prompt')
   }
 
-  // Compile through the injected compiler when needed (real `--debug` dump and,
-  // behind the ASP_RUN_VIA_COMPILER gate, a foreground inherit-spawn).
-  const { viaCompiler } = resolveRunEnvFlags()
-  const wantDebugDump = options.dryRun === true && options.debug === true
-  const { compileOutcome, compiledLaunch } = await maybeCompileForRun({
-    compileRuntime: options.compileRuntime,
-    viaCompiler,
-    wantDebugDump,
-    buildContext: () => {
-      const compilerCwd = runOptions.cwd ?? runOptions.projectPath ?? defaultCwd
-      return {
-        aspHome,
-        harnessId: adapter.id,
-        model: runOptions.model,
-        reasoningEffort: runOptions.modelReasoningEffort,
-        interactive: runOptions.interactive,
-        yolo: runOptions.yolo,
-        placement: {
-          agentRoot: compilerCwd,
-          projectRoot: compilerCwd,
-          cwd: compilerCwd,
-          runMode: 'query',
-          bundle: { kind: 'compose', compose: lock.targets[bundle.targetName]?.compose ?? [] },
-          dryRun: options.dryRun === true,
-          ...(options.env !== undefined ? { env: options.env } : {}),
-        },
-        initialPrompt: runOptions.prompt,
-        resolvedBundleHint: {
-          bundleIdentity: `asp-run:${bundle.rootDir}:${bundle.targetName}:${adapter.id}`,
-          root: bundle.rootDir,
-          targetName: bundle.targetName,
-        },
-        correlation: {
-          appSessionKey: bundle.targetName,
-          scopeRef: bundle.targetName,
-          laneRef: 'main',
-        },
-      }
-    },
-  })
-
   const execution = await executeHarnessRun(adapter, detection, bundle, runOptions, {
     env: options.env,
     dryRun: options.dryRun,
     pagePrompts: options.pagePrompts,
-    ...(compiledLaunch ? { compiledLaunch } : {}),
   })
 
   const shouldCleanup = options.dryRun ? false : (options.cleanup ?? !options.interactive)
@@ -181,9 +128,6 @@ async function executeSpaceRun({
     command: execution.command,
     displayCommand: execution.displayCommand,
     primingPrompt: runOptions.prompt,
-    ...(compileOutcome
-      ? { runtimeCompile: { request: compileOutcome.request, response: compileOutcome.response } }
-      : {}),
   }
 }
 

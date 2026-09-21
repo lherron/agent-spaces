@@ -46,7 +46,7 @@ export function registerDescribeCommand(program: Command): void {
     .description('Describe hooks, skills, tools, and lint warnings for targets')
     .argument('[target]', 'Specific target to describe (default: all)')
     .option('--json', 'Output as JSON')
-    .option('--harness <id>', 'Harness to use when materializing (default: agent-sdk)')
+    .option('--harness <id>', 'Harness to use when materializing (default: agent-harness)')
     .option('--model <id>', 'Model to use (harness-specific)')
     .option('--project <path>', 'Project directory (default: auto-detect)')
     .option('--registry <path>', 'Registry path override')

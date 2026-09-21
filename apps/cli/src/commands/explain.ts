@@ -24,7 +24,7 @@ export function registerExplainCommand(program: Command): void {
     .argument('[target]', 'Specific target to explain (default: all)')
     .option(
       '--harness <id>',
-      'Coding agent harness to use (default: claude, e.g., claude-agent-sdk, codex, pi, pi-sdk)'
+      'Coding agent harness to use (default: agent-harness; one of: agent-harness, claude, codex, muse)'
     )
     .option('--json', 'Output as JSON')
     .option('--no-store-check', 'Skip checking if snapshots are in store')

@@ -17,7 +17,6 @@ import { stat } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 
-import { createCompileRuntimeFn } from 'agent-spaces'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
@@ -43,7 +42,6 @@ import {
   runLocalSpace,
 } from 'spaces-execution'
 
-import { compilerRuntime } from '../compiler-runtime.js'
 import { validateOptionalHarness } from '../harness-validator.js'
 import { exitWithAspError, logInvocationOutput } from '../helpers.js'
 import { findProjectRoot } from '../lib.js'
@@ -120,7 +118,6 @@ function buildCommonRunOptions(options: RunOptions) {
     remoteControl: options.remoteControl,
     sessionNamePrefix: options.namePrefix,
     pagePrompts: options.pagePrompts,
-    compileRuntime: createCompileRuntimeFn(options.aspHome, compilerRuntime),
   }
 }
 
@@ -280,21 +277,6 @@ async function executeDirectAgentHarness(plan: DirectAgentHarnessPlan): Promise<
     child.once('error', reject)
     child.once('close', (code) => resolveExit(code ?? 1))
   })
-}
-
-/**
- * Print the REAL RuntimeCompileRequest/Response the run compiled.
- *
- * No re-compile, no synthetic identities — these are the exact request/response
- * `run()` already produced for this invocation.
- */
-function printCompilerDebugDump(runtimeCompile: { request: unknown; response: unknown }): void {
-  console.log('')
-  console.log(chalk.cyan('RuntimeCompileRequest'))
-  console.log(JSON.stringify(runtimeCompile.request, null, 2))
-  console.log('')
-  console.log(chalk.cyan('RuntimeCompileResponse'))
-  console.log(JSON.stringify(runtimeCompile.response, null, 2))
 }
 
 /**
@@ -600,9 +582,6 @@ export function registerRunCommand(program: Command): void {
         // In dry-run mode, print the system prompt, reminder, and command with formatting
         if (options.dryRun) {
           await displayRunResultPrompts(result, options.pagePrompts)
-          if (options.debug && result.runtimeCompile) {
-            printCompilerDebugDump(result.runtimeCompile)
-          }
         }
 
         process.exit(result.exitCode)

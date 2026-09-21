@@ -645,10 +645,8 @@ describe('project-target runtime planner (T-01099)', () => {
       }
     })()
 
-    expect({
-      explicit: /claude-agent-sdk[\s\S]*retired[\s\S]*hrc/i.test(String(explicitError)),
-      declared: /pi-sdk[\s\S]*retired[\s\S]*hrc/i.test(String(declaredError)),
-    }).toEqual({ explicit: true, declared: true })
+    expect(String(explicitError)).toMatch(/Invalid harness "claude-agent-sdk"/)
+    expect(String(declaredError)).toMatch(/Invalid harness "pi-sdk"/)
   })
 
   test('refuses retired SDK harnesses in global and local run modes', async () => {
@@ -672,10 +670,8 @@ describe('project-target runtime planner (T-01099)', () => {
         (error: unknown) => error
       )
 
-    expect({
-      global: /claude-agent-sdk[\s\S]*retired[\s\S]*hrc/i.test(String(globalError)),
-      local: /pi-sdk[\s\S]*retired[\s\S]*hrc/i.test(String(localError)),
-    }).toEqual({ global: true, local: true })
+    expect(String(globalError)).toMatch(/Invalid harness "claude-agent-sdk"/)
+    expect(String(localError)).toMatch(/Invalid harness "pi-sdk"/)
   })
 
   test('continues planning every retained project harness', async () => {
@@ -686,7 +682,7 @@ describe('project-target runtime planner (T-01099)', () => {
       targets: { retained_target: { compose: [] } },
     }
 
-    for (const harnessId of ['claude', 'codex', 'pi'] as const) {
+    for (const harnessId of ['agent-harness', 'claude', 'codex', 'muse'] as const) {
       const plan = planProjectTargetRuntime(manifest, 'retained_target', {
         aspHome: join(root, 'asp-home'),
         projectPath: root,
@@ -730,14 +726,12 @@ describe('project-target runtime planner (T-01099)', () => {
     expect(combinePrompts(undefined, undefined)).toBeUndefined()
   })
 
-  test('resolveRunEnvFlags enables compiler by default with explicit escape hatch', async () => {
+  test('resolveRunEnvFlags only exposes the debug gate', async () => {
     const { resolveRunEnvFlags } = await import('./run/util.js')
 
-    expect(resolveRunEnvFlags({}).viaCompiler).toBe(true)
-    expect(resolveRunEnvFlags({ ASP_RUN_VIA_COMPILER: '0' }).viaCompiler).toBe(false)
-    expect(resolveRunEnvFlags({ ASP_RUN_VIA_COMPILER: 'false' }).viaCompiler).toBe(false)
-    expect(resolveRunEnvFlags({ ASP_RUN_VIA_COMPILER: '1' }).viaCompiler).toBe(true)
-    expect(resolveRunEnvFlags({ ASP_RUN_VIA_COMPILER: 'true' }).viaCompiler).toBe(true)
+    expect(resolveRunEnvFlags({})).toEqual({ debugRun: false })
+    expect(resolveRunEnvFlags({ ASP_RUN_VIA_COMPILER: '1' })).toEqual({ debugRun: false })
+    expect(resolveRunEnvFlags({ ASP_DEBUG_RUN: 'true' })).toEqual({ debugRun: true })
   })
 })
 

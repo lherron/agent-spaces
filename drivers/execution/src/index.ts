@@ -3,7 +3,7 @@
  *
  * This package provides all runtime execution functionality:
  * - Claude CLI detection and invocation
- * - Harness adapters (Claude, Pi, Pi SDK)
+ * - Harness adapters for the four canonical public harnesses
  * - Running agents with plugins
  * - Install/materialize with harness support
  */
@@ -23,8 +23,6 @@ import {
   materializeFromRefs as configMaterializeFromRefs,
   materializeTarget as configMaterializeTarget,
 } from 'spaces-config'
-// Internal legacy seam (EN-15986): v1 adapter ids and foreground defaults.
-// T-08702 deletes it with the v1 flow.
 import { DEFAULT_HARNESS } from 'spaces-config'
 
 import { harnessRegistry } from './harness/index.js'
@@ -80,9 +78,6 @@ export {
   type ModelAuditRow,
   type RunOptions,
   type RunResult,
-  type RunCompilerDebugContext,
-  type CompileRuntimeFn,
-  type RunCompileOutcome,
   type LaunchShape,
   type GlobalRunOptions,
   type PlanPlacementRuntimeOptions,

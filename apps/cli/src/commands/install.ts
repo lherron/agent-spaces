@@ -70,7 +70,7 @@ export function registerInstallCommand(program: Command): void {
     .option('--targets <names...>', 'Specific targets to install')
     .option(
       '--harness <id>',
-      'Coding agent harness to use (default: claude, e.g., claude-agent-sdk, codex, pi, pi-sdk)'
+      'Coding agent harness to use (default: agent-harness; one of: agent-harness, claude, codex, muse)'
     )
     .option('--update', 'Update existing lock (re-resolve selectors)')
     .option('--refresh', 'Force re-copy from source (clear cache)')

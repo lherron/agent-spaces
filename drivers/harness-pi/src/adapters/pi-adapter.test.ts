@@ -72,11 +72,11 @@ describe('PiAdapter', () => {
 
   describe('id and name', () => {
     test('has correct id', () => {
-      expect(adapter.id).toBe('pi')
+      expect(adapter.id).toBe('agent-harness')
     })
 
     test('has correct name', () => {
-      expect(adapter.name).toBe('Pi Coding Agent')
+      expect(adapter.name).toBe('Agent Harness')
     })
   })
 
@@ -502,7 +502,7 @@ export function tool() { return 'built with options'; }
       const result = await adapter.composeTarget(input, outputDir, {})
 
       // Check bundle structure
-      expect(result.bundle.harnessId).toBe('pi')
+      expect(result.bundle.harnessId).toBe('agent-harness')
       expect(result.bundle.targetName).toBe('test-target')
       expect(result.bundle.rootDir).toBe(outputDir)
       expect(result.bundle.pi?.extensionsDir).toBe(join(outputDir, 'extensions'))
@@ -1897,7 +1897,7 @@ describe('loadTargetBundle', () => {
 
     const bundle = await adapter.loadTargetBundle(outputDir, 'my-target')
 
-    expect(bundle.harnessId).toBe('pi')
+    expect(bundle.harnessId).toBe('agent-harness')
     expect(bundle.targetName).toBe('my-target')
     expect(bundle.rootDir).toBe(outputDir)
     expect(bundle.pi?.extensionsDir).toBe(join(outputDir, 'extensions'))

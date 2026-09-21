@@ -117,8 +117,8 @@ const LINT_ONLY_FACETS: ReadonlyArray<{
  * - Invocation: builds Pi CLI arguments
  */
 export class PiAdapter implements HarnessAdapter {
-  readonly id = 'pi' as const
-  readonly name = 'Pi Coding Agent'
+  readonly id = 'agent-harness' as const
+  readonly name = 'Agent Harness'
 
   readonly models: HarnessModelInfo[] = [
     {
@@ -385,7 +385,7 @@ export class PiAdapter implements HarnessAdapter {
     await this.lintPermissions(input, warnings)
 
     const bundle: ComposedTargetBundle = {
-      harnessId: 'pi',
+      harnessId: 'agent-harness',
       targetName: input.targetName,
       rootDir: outputDir,
       pi: {
@@ -798,7 +798,7 @@ export class PiAdapter implements HarnessAdapter {
       : undefined
 
     return {
-      harnessId: 'pi',
+      harnessId: 'agent-harness',
       targetName,
       rootDir: outputDir,
       pi: {
