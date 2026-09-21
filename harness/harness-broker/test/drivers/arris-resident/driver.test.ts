@@ -426,9 +426,23 @@ describe('Arris resident driver control seam', () => {
         host_state: 'Finished',
       })
     )
+    for (const [index, kind] of [
+      'attached_request_passed_through',
+      'attached_request_normalized',
+      'attached_turn_admitted',
+      'attached_request_refused',
+    ].entries()) {
+      expect(normalize(captured(7 + index, kind, {}))).toMatchObject({
+        disposition: 'ignored-known',
+      })
+    }
 
     expect(events.filter((event) => event.type === 'turn.started')).toHaveLength(1)
     expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(1)
+    expect(events.find((event) => event.type === 'turn.attributed')?.payload).toMatchObject({
+      ownership: 'foreign',
+      origin: 'autonomous',
+    })
     expect(events.find((event) => event.type === 'driver.notice')?.payload).toMatchObject({
       code: 'ARRIS_ITEM_OBSERVED',
       data: { event_source: 'internal_child', mints_identity: false },

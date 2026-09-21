@@ -141,6 +141,14 @@ const KNOWN_IGNORED_EVENTS = new Set([
   'control_outcome',
   'control_input_turn_completed',
   'child_turn_completed_ignored',
+  // App-server admission diagnostics explain attached TUI traffic but carry
+  // no broker turn, delivery, or lifecycle fact. They are deliberately
+  // state-only so a real resident's ordinary attach path does not accumulate
+  // blocked-unknown capture records.
+  'attached_request_passed_through',
+  'attached_request_normalized',
+  'attached_turn_admitted',
+  'attached_request_refused',
 ])
 
 export function createArrisResidentDriver(options: ArrisResidentDriverOptions = {}): Driver {
@@ -392,13 +400,18 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
         { ...extra, turnId: neutral as TurnId, ...(inputId !== undefined ? { inputId } : {}) }
       )
       const origin = stringValue(detail['origin'])
+      // A historical control turn can be replayed before this broker has seen
+      // the matching control_input_presented record. Do not claim broker/own
+      // attribution without its input id; the later presentation record
+      // upgrades attribution once the durable identity is available.
+      const owned = inputId !== undefined
       requireCtx().emit(
         'turn.attributed',
         {
           turnId: neutral as TurnId,
-          ownership: inputId !== undefined || origin === 'control' ? 'own' : 'foreign',
+          ownership: owned ? 'own' : 'foreign',
           origin:
-            inputId !== undefined || origin === 'control'
+            owned
               ? 'broker'
               : origin === 'attached_client'
                 ? 'human'
