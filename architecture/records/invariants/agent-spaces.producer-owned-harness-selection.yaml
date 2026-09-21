@@ -54,7 +54,7 @@ source:
   - compiler/agent-spaces/src/compile-runtime-plan.ts
   - compiler/agent-spaces/src/broker-invocation.ts
   - compiler/agent-spaces/src/client-support.ts
-  - harness/aspc/src/profileSelector.ts
+  - harness/aspc/src/registration.ts
 required_tests:
   - the public harness keys are exactly agent-harness claude codex and muse and every harness/presentation cell resolves or returns a typed refusal
   - precedence and provenance cover catalog profile project directive and explicit request layers while explicit presentation false survives every boundary

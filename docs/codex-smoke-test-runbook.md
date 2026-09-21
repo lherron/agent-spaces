@@ -1,5 +1,12 @@
 # Codex Integration Smoke Test Runbook
 
+> **Historical pre-v2 runbook.** Codex remains a public harness identity, but
+> this record describes its earlier integration and is not the v2 selection or
+> acceptance contract. The active contract resolves `codex` through the
+> compiler catalog to `codex-app-server`; see
+> `agent-spaces/harness-architecture` and
+> `docs/proposals/producer-owned-harness-selection.md`.
+
 Manual smoke test for Codex harness integration with agent-spaces, using the real agent-spaces project setup.
 
 ## Prerequisites

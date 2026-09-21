@@ -1,5 +1,11 @@
 # Pi SDK Smoke Test Runbook
 
+> **Historical pre-v2 runbook.** This preserves the evidence for the retired
+> Pi SDK selection path. `pi-sdk` is not a public harness ID or alias under the
+> active four-harness contract, and this runbook is not current acceptance
+> guidance. See `agent-spaces/harness-architecture` and
+> `docs/proposals/producer-owned-harness-selection.md` for the active boundary.
+
 Manual smoke test for Pi SDK harness integration with agent-spaces, using the real agent-spaces project setup.
 
 ## Prerequisites

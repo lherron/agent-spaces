@@ -40,9 +40,11 @@ against. The deterministic part of this pipeline is owned by
    runs the agent-hygiene gate (`hygiene-gate.ts`).
 7. **Compose target bundles** under `asp_modules/` — the final, harness-ready
    plugin directory tree for a target.
-8. **Hand the bundle to the selected harness** — `spaces-execution` picks
-   the harness adapter (`--harness claude|codex|pi|pi-sdk`) and launches or
-   drives the session.
+8. **Hand the bundle to the selected implementation** — foreground execution
+   uses the requested public harness identity (`agent-harness`, `claude`,
+   `codex`, or `muse`). Ordinary compilation resolves the implementation's
+   driver and terminal recipe only in the compiler catalog; materialization
+   never infers a route from a provider or model.
 
 `asp install` runs steps 1-7 without launching (materializes bundles under
 `ASP_HOME`). `asp build [target]` also materializes without launching, with
