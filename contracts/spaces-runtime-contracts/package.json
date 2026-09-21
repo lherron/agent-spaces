@@ -15,20 +15,12 @@
       "bun": "./src/agent-inspection.ts",
       "types": "./dist/agent-inspection.d.ts",
       "import": "./dist/agent-inspection.js"
-    },
-    "./internal/compiler-plan-v1": {
-      "bun": "./src/internal/compiler-plan-v1.ts",
-      "types": "./dist/internal/compiler-plan-v1.d.ts",
-      "import": "./dist/internal/compiler-plan-v1.js"
     }
   },
   "typesVersions": {
     "*": {
       "agent-inspection": [
         "dist/agent-inspection.d.ts"
-      ],
-      "internal/compiler-plan-v1": [
-        "dist/internal/compiler-plan-v1.d.ts"
       ]
     }
   },

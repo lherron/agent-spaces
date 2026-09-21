@@ -1,13 +1,9 @@
 import type {
   CompiledRuntimePlan,
+  HarnessId,
   RuntimeCompileRequest,
   RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
-import type {
-  LegacyCompiledRuntimePlan,
-  LegacyRuntimeCompileRequest,
-  LegacyRuntimeCompileResponse,
-} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
 type Equal<Left, Right> = (<Value>() => Value extends Left ? 1 : 2) extends <
   Value,
@@ -26,16 +22,23 @@ type _CanonicalPlanIsV2 = Expect<
   Equal<CompiledRuntimePlan['schemaVersion'], 'agent-runtime-plan/v2'>
 >
 
-type _InternalRequestIsV1 = Expect<
-  Equal<LegacyRuntimeCompileRequest['schemaVersion'], 'agent-runtime-compile-request/v1'>
->
-type _InternalResponseIsV1 = Expect<
-  Equal<LegacyRuntimeCompileResponse['schemaVersion'], 'agent-runtime-compile-response/v1'>
->
-type _InternalPlanIsV1 = Expect<
-  Equal<LegacyCompiledRuntimePlan['schemaVersion'], 'agent-runtime-plan/v1'>
->
+type _HarnessIdIsClosed = Expect<Equal<HarnessId, 'agent-harness' | 'claude' | 'codex' | 'muse'>>
 
-// @ts-expect-error Legacy compiler-plan types are not exposed from the root contract package.
-type _NoRootLegacyRequest = import('spaces-runtime-contracts').LegacyRuntimeCompileRequest
-void (0 as unknown as _NoRootLegacyRequest)
+// @ts-expect-error v2 is the canonical public vocabulary; suffixed aliases are not retained.
+type _NoSuffixedV2Request = import('spaces-runtime-contracts').RuntimeCompileRequestV2
+// @ts-expect-error Retired route-selection entries are not part of the public contract surface.
+type _NoRouteCatalogEntry = import('spaces-runtime-contracts').RuntimeRouteCatalogEntry
+// @ts-expect-error Retired family selection is private legacy vocabulary.
+type _NoHarnessFamily = import('spaces-runtime-contracts').HarnessFamily
+// @ts-expect-error The pre-v2 compiler policy is private legacy vocabulary.
+type _NoCompiledAgentPolicy = import('spaces-runtime-contracts').CompiledAgentPolicy
+// @ts-expect-error Route-decision selection is not a root public contract.
+type _NoRuntimeRouteDecision = import('spaces-runtime-contracts').RuntimeRouteDecision
+// @ts-expect-error The compile/run callback bridge was retired with v1 selection.
+type _NoCompileRuntimeFn = import('spaces-runtime-contracts').CompileRuntimeFn
+void (0 as unknown as _NoSuffixedV2Request)
+void (0 as unknown as _NoRouteCatalogEntry)
+void (0 as unknown as _NoHarnessFamily)
+void (0 as unknown as _NoCompiledAgentPolicy)
+void (0 as unknown as _NoRuntimeRouteDecision)
+void (0 as unknown as _NoCompileRuntimeFn)
