@@ -35,7 +35,8 @@ describe('ASPC preparation service registration (T-08577)', () => {
     const server = recordingServer()
     registerAspcCompileMethods(server)
 
-    expect(server.handlers.has('aspc.compileRuntimePlan')).toBe(true)
+    expect(server.handlers.has('aspc.compileHarnessInvocation')).toBe(true)
+    expect(server.handlers.has('aspc.compileRuntimePlan')).toBe(false)
     expect(server.handlers.has('aspc.compileAndStart')).toBe(false)
     expect([...server.handlers.keys()].some((name) => name.startsWith('broker.'))).toBe(false)
     expect([...server.handlers.keys()].some((name) => name.startsWith('invocation.'))).toBe(false)

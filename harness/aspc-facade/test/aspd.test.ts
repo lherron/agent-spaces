@@ -129,15 +129,17 @@ function okCompile(
   brokerDriver = 'codex-app-server'
 ): AspcCompileHarnessInvocationResponse {
   return {
-    schemaVersion: 'aspc-compile-harness-invocation-response/v1',
+    schemaVersion: 'aspc-compile-harness-invocation-response/v2',
     ok: true,
-    compileResponse: {} as never,
-    plan: {} as never,
-    selectedProfile: { brokerProtocol, brokerDriver, profileHash: 'p' } as never,
-    startRequest: { spec: { invocationId: 'inv_1' } } as never,
-    dispatchRequest: {
-      startRequest: { spec: { invocationId: 'inv_1' } },
-      dispatchEnv: { A: 'b' },
+    plan: {
+      execution: {
+        driver: brokerDriver,
+        protocol: brokerProtocol,
+        dispatchRequest: {
+          startRequest: { spec: { invocationId: 'inv_1' } },
+          dispatchEnv: { A: 'b' },
+        },
+      },
     } as never,
     diagnostics: [],
   }
@@ -149,7 +151,6 @@ function fakeService(overrides: Partial<AspcService> = {}): AspcService {
       facadeInfo: { name: 'aspc-facade', version: '0.0.0' },
       protocolVersion: 'aspc/0.1',
       capabilities: {
-        compileRuntimePlan: true,
         catalogAgents: true,
         inspectAgent: true,
         catalogAgentInspection: true,
@@ -159,11 +160,6 @@ function fakeService(overrides: Partial<AspcService> = {}): AspcService {
         cohostedBroker: false,
         transports: ['stdio-jsonrpc-ndjson'],
       },
-    }),
-    compileRuntimePlan: async () => ({
-      schemaVersion: 'agent-runtime-compile-response/v1',
-      ok: false,
-      diagnostics: [],
     }),
     catalogAgents: async () => ({}) as never,
     inspectAgent: async () => ({}) as never,
@@ -177,7 +173,8 @@ function fakeService(overrides: Partial<AspcService> = {}): AspcService {
 function compileRequest(): AspcCompileHarnessInvocationRequest {
   return {
     compileRequest: {
-      schemaVersion: 'agent-runtime-compile-request/v1',
+      schemaVersion: 'agent-runtime-compile-request/v2',
+      agent: { id: 'cody' },
       identity: {},
       placement: {},
       requested: {},
@@ -321,21 +318,8 @@ describe('release-bound service (W1/W2)', () => {
     )
     const response = await service.compileHarnessInvocation(compileRequest())
     expect(response).toEqual({
-      schemaVersion: 'aspc-compile-harness-invocation-response/v1',
+      schemaVersion: 'aspc-compile-harness-invocation-response/v2',
       ok: false,
-      compileResponse: {
-        schemaVersion: 'agent-runtime-compile-response/v1',
-        ok: false,
-        diagnostics: [
-          {
-            level: 'error',
-            code: 'release_worker_driver_unavailable',
-            message: 'Selected broker driver is not hosted by this ASP release',
-            plane: 'asp-compiler',
-            details: { releaseId: IDENTITY.releaseId, brokerDriver: 'unhosted-probe' },
-          },
-        ],
-      },
       diagnostics: [
         {
           level: 'error',
@@ -351,13 +335,8 @@ describe('release-bound service (W1/W2)', () => {
 
   test('failed compiles pass through without a release binding', async () => {
     const failed: AspcCompileHarnessInvocationResponse = {
-      schemaVersion: 'aspc-compile-harness-invocation-response/v1',
+      schemaVersion: 'aspc-compile-harness-invocation-response/v2',
       ok: false,
-      compileResponse: {
-        schemaVersion: 'agent-runtime-compile-response/v1',
-        ok: false,
-        diagnostics: [],
-      },
       diagnostics: [],
     }
     const service = createReleaseBoundAspcService(

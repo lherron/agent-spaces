@@ -10,8 +10,10 @@ import { join } from 'node:path'
 import { allocatePreHrcRuntimeIdentity, buildPlacementFromScopeRef } from 'agent-spaces/testing'
 import { AspcClient } from 'spaces-aspc'
 import type { JsonRpcNotification } from 'spaces-harness-broker-protocol'
-import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
-import type { LegacyRuntimeCompileRequest as RuntimeCompileRequest } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
+import {
+  DEFAULT_CODEX_BROKER_INPUT_POLICY,
+  type RuntimeCompileRequest,
+} from 'spaces-runtime-contracts'
 
 /** JSON-RPC "method not found" — the code that proves a route is NOT served. */
 export const JSON_RPC_METHOD_NOT_FOUND = -32601
@@ -136,15 +138,16 @@ export function buildCompileRequest(
     hostSessionId: identity.hostSessionId,
   })
   return {
-    schemaVersion: 'agent-runtime-compile-request/v1',
+    schemaVersion: 'agent-runtime-compile-request/v2',
+    agent: { id: 'sparky' },
     identity,
     placement,
     requested: {
-      modelProvider: 'openai',
+      harness: 'codex',
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
       reasoningEffort: 'medium',
-      harnessFamily: 'codex',
-      preferredHarnessRuntime: 'codex-cli',
-      interactionMode: 'headless',
+      presentation: false,
     },
     materialization: {
       initialPrompt: `Say ${namespace}`,

@@ -85,10 +85,9 @@ describe('spaces-aspc is compile-only', () => {
     const service = createAspcService({})
 
     expect('compileAndStart' in service).toBe(false)
-    // Positive control: the seven compile members remain on the service.
+    // Positive control: the selector-free compile member remains on the service.
     for (const member of [
       'hello',
-      'compileRuntimePlan',
       'catalogAgents',
       'inspectAgent',
       'catalogAgentInspection',
@@ -97,6 +96,7 @@ describe('spaces-aspc is compile-only', () => {
     ]) {
       expect(typeof (service as unknown as Record<string, unknown>)[member]).toBe('function')
     }
+    expect('compileRuntimePlan' in service).toBe(false)
 
     const serviceSource = readFileSync(join(srcRoot, 'service.ts'), 'utf8')
     const optionsBlock = /export interface AspcServiceOptions\s*\{([^}]*)\}/.exec(serviceSource)

@@ -114,7 +114,6 @@ function fakeService(
       facadeInfo: { name: 'aspc-facade', version: '0.1.1' },
       protocolVersion: 'aspc/0.1',
       capabilities: {
-        compileRuntimePlan: true,
         catalogAgents: true,
         inspectAgent: true,
         catalogAgentInspection: true,
@@ -126,23 +125,13 @@ function fakeService(
         ...input.capabilities,
       },
     }),
-    compileRuntimePlan: async () => ({
-      schemaVersion: 'agent-runtime-compile-response/v1',
-      ok: false,
-      diagnostics: [],
-    }),
     catalogAgents: async () => ({}) as never,
     inspectAgent: async () => ({}) as never,
     catalogAgentInspection: async () => ({}) as never,
     inspectAgentSelection: async () => ({}) as never,
     compileHarnessInvocation: async () => ({
-      schemaVersion: 'aspc-compile-harness-invocation-response/v1',
+      schemaVersion: 'aspc-compile-harness-invocation-response/v2',
       ok: false,
-      compileResponse: {
-        schemaVersion: 'agent-runtime-compile-response/v1',
-        ok: false,
-        diagnostics: [],
-      },
       diagnostics: [],
     }),
     prepareProcessInvocation: input.prepareProcessInvocation ?? (async () => DIRECT_SUCCESS),

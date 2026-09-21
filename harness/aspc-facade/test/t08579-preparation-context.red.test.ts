@@ -219,7 +219,8 @@ function compileRequest(c: Case): UnknownRecord {
   const aspHome = c.compileAspHome ?? 'ambient-home'
   return {
     compileRequest: {
-      schemaVersion: 'agent-runtime-compile-request/v1',
+      schemaVersion: 'agent-runtime-compile-request/v2',
+      agent: { id: c.agent },
       identity: ids,
       placement: {
         agentRoot,
@@ -232,16 +233,15 @@ function compileRequest(c: Case): UnknownRecord {
         ...(c.dispatchEnv ? { dispatchEnv: c.dispatchEnv } : {}),
       },
       requested: {
-        modelProvider: 'openai',
-        harnessFamily: 'codex',
-        preferredHarnessRuntime: 'codex-cli',
-        interactionMode: 'headless',
+        harness: 'codex',
+        modelProvider: 'openai-codex',
+        model: 'gpt-5.6-terra',
+        presentation: false,
       },
       materialization: {},
       hrcPolicy: {},
       correlation: ids,
     },
-    profileSelector: { brokerDriver: 'codex-app-server' },
     ...(c.dispatchEnv ? { dispatchEnv: c.dispatchEnv } : {}),
     ...(aspHome === 'none' ? {} : { aspHome: join(root, aspHome) }),
   }
@@ -312,7 +312,7 @@ describe('T-08579 P0 launch-unchanged guard (golden from origin/main 5a018ce5)',
       const { prompt, response } = await compile(c)
       observed[caseKey(c)] = {
         systemPrompt: normalize(prompt),
-        dispatchEnv: response.dispatchRequest.dispatchEnv ?? null,
+        dispatchEnv: response.plan.execution.dispatchRequest.dispatchEnv ?? null,
       }
     }
     if (WRITE_GOLDEN) {
@@ -342,9 +342,9 @@ describe('T-08579 P1 preview/compile parity', () => {
       expect(inspected.effectiveEnvironmentHash).toEqual(expect.any(String))
       expect(response.effectiveEnvironmentHash).toBe(inspected.effectiveEnvironmentHash)
       // T-08701: the declaration carries closed-vocabulary scalars only; the
-      // v1 driver label stays on the compile response.
+      // The resolved driver stays on the singular compile execution.
       expect(inspected.declaration.provisioning.effectiveHarness).toBe('codex')
-      expect(response.selectedProfile.harnessInvocation.startRequest.spec.harness.driver).toBe(
+      expect(response.plan.execution.dispatchRequest.startRequest.spec.harness.driver).toBe(
         'codex-app-server'
       )
     })
@@ -353,7 +353,7 @@ describe('T-08579 P1 preview/compile parity', () => {
   test('T-08580: inspection is read-only for the already prepared Codex home', async () => {
     const c: Case = { agent: 'pov', project: 'projplain' }
     const { response } = await compile(c)
-    const codexHome = response.selectedProfile.harnessInvocation.startRequest.spec.process.lockedEnv
+    const codexHome = response.plan.execution.dispatchRequest.startRequest.spec.process.lockedEnv
       .CODEX_HOME as string
     const agentsPath = join(codexHome, 'AGENTS.md')
     const before = readFileSync(agentsPath, 'utf8')

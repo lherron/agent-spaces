@@ -274,7 +274,6 @@ function fakeObservationService(): Record<string, unknown> {
       facadeInfo: { name: 'aspc-facade', version: 'red' },
       protocolVersion: 'aspc/0.1',
       capabilities: {
-        compileRuntimePlan: true,
         catalogAgents: true,
         inspectAgent: true,
         catalogAgentInspection: true,
@@ -289,11 +288,6 @@ function fakeObservationService(): Record<string, unknown> {
         transports: ['stdio-jsonrpc-ndjson'],
       },
     }),
-    compileRuntimePlan: async () => ({
-      schemaVersion: 'agent-runtime-compile-response/v1',
-      ok: false,
-      diagnostics: [],
-    }),
     catalogAgents: async () => ({}),
     inspectAgent: async () => ({}),
     catalogAgentInspection: async (req: { projectId?: string }) => {
@@ -305,13 +299,8 @@ function fakeObservationService(): Record<string, unknown> {
     },
     inspectAgentSelection: async () => ({}),
     compileHarnessInvocation: async () => ({
-      schemaVersion: 'aspc-compile-harness-invocation-response/v1',
+      schemaVersion: 'aspc-compile-harness-invocation-response/v2',
       ok: false,
-      compileResponse: {
-        schemaVersion: 'agent-runtime-compile-response/v1',
-        ok: false,
-        diagnostics: [],
-      },
       diagnostics: [],
     }),
     resolveRuntimeDeclaration: async () => {

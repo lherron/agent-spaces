@@ -86,7 +86,6 @@ describe('hrc-server consumer contract', () => {
       const started = await client.compileAndStart({
         compileRequest: buildCompileRequest(fixture, 'consumer_pin', ASK_CLIENT_PERMISSION_POLICY),
         aspHome: fixture.aspHome,
-        profileSelector: { brokerDriver: 'codex-app-server' },
       })
       expect(started.ok).toBe(true)
       if (!started.ok) return

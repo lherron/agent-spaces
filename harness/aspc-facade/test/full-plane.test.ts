@@ -61,18 +61,12 @@ describe('cohosted facade full plane', () => {
       })
       expect(brokerHello.protocolVersion).toBe('harness-broker/0.2')
 
-      // --- the seven compile methods ---
+      // --- the compile plane ---
       const hello = await client.hello()
       expect(hello.facadeInfo.name).toBe('aspc-facade')
-      const compiled = await client.compileRuntimePlan({
-        compileRequest: buildCompileRequest(fixture, 'full_plane_compile'),
-        aspHome: fixture.aspHome,
-      })
-      expect(compiled.ok).toBe(true)
       const invocationCompile = await client.compileHarnessInvocation({
         compileRequest: buildCompileRequest(fixture, 'full_plane_invocation'),
         aspHome: fixture.aspHome,
-        profileSelector: { brokerDriver: 'codex-app-server' },
       })
       expect(invocationCompile.ok).toBe(true)
       expect(await probeServed(client, 'aspc.catalogAgents', {})).toBe(true)
@@ -86,7 +80,6 @@ describe('cohosted facade full plane', () => {
           ASK_CLIENT_PERMISSION_POLICY
         ),
         aspHome: fixture.aspHome,
-        profileSelector: { brokerDriver: 'codex-app-server' },
       })
       expect(started.ok).toBe(true)
       if (!started.ok) return

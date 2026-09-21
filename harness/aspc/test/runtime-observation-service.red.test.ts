@@ -59,7 +59,8 @@ describe('T-08563 ASPC runtime observation service', () => {
       protocolVersions: ['aspc/0.1'],
     })
     expect(hello.protocolVersion).toBe('aspc/0.1')
-    expect(hello.capabilities.compileRuntimePlan).toBe(true)
+    expect(hello.capabilities.compileHarnessInvocation).toBe(true)
+    expect(hello.capabilities).not.toHaveProperty('compileRuntimePlan')
   })
 
   test('registers all four methods and advertises exact hello capability booleans', async () => {

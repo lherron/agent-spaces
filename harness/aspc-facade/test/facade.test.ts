@@ -7,12 +7,9 @@
  * AC-9's success case (compileAndStart starts through the co-hosted broker).
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { createAgentSpacesClient } from 'agent-spaces'
 import { ASPC_PROTOCOL_VERSION } from 'spaces-aspc-protocol'
 import type { BrokerHelloResponse } from 'spaces-harness-broker-protocol'
 import { conservativeDefaultLifecyclePolicyOverlay } from 'spaces-harness-broker-protocol'
-import type { BrokerExecutionProfile } from 'spaces-runtime-contracts'
-import { runtimeDependencies } from '../src/runtime-compiler.js'
 import {
   type Fixture,
   buildCompileRequest,
@@ -59,56 +56,22 @@ describe('ASPC cohosted composition facade', () => {
     }
   })
 
-  test('ASPC compileRuntimePlan is equivalent to SDK compileRuntimePlan', async () => {
-    const compileRequest = buildCompileRequest(fixture, 'equivalence')
-    const sdk = createAgentSpacesClient({
-      aspHome: fixture.aspHome,
-      runtime: runtimeDependencies,
-    })
-    const sdkResponse = await sdk.compileRuntimePlan(compileRequest)
-    expect(sdkResponse.ok).toBe(true)
-
-    const client = await startFacadeClient(fixture)
-    try {
-      const rpcResponse = await client.compileRuntimePlan({
-        compileRequest,
-        aspHome: fixture.aspHome,
-      })
-      expect(rpcResponse.ok).toBe(true)
-      if (!sdkResponse.ok || !rpcResponse.ok) return
-
-      const sdkProfile = sdkResponse.plan.executionProfiles[0] as BrokerExecutionProfile
-      const rpcProfile = rpcResponse.plan.executionProfiles[0] as BrokerExecutionProfile
-      expect(rpcResponse.plan.compileId).toBe(sdkResponse.plan.compileId)
-      expect(rpcResponse.plan.planHash).toBe(sdkResponse.plan.planHash)
-      expect(rpcProfile.profileHash).toBe(sdkProfile.profileHash)
-      expect(rpcProfile.harnessInvocation.startRequestHash).toBe(
-        sdkProfile.harnessInvocation.startRequestHash
-      )
-      expect(rpcProfile.harnessInvocation.startRequest).toEqual(
-        sdkProfile.harnessInvocation.startRequest
-      )
-    } finally {
-      await client.close()
-    }
-  })
-
-  test('compileHarnessInvocation returns selected profile and exact dispatch start request', async () => {
+  test('compileHarnessInvocation returns one execution and one canonical dispatch request', async () => {
     const client = await startFacadeClient(fixture)
     try {
       const response = await client.compileHarnessInvocation({
         compileRequest: buildCompileRequest(fixture, 'harness_invocation'),
         aspHome: fixture.aspHome,
-        profileSelector: { brokerDriver: 'codex-app-server' },
         dispatchEnv: { EXTRA_FLAG: 'aspc' },
       })
       expect(response.ok).toBe(true)
       if (!response.ok) return
 
-      expect(response.selectedProfile.brokerDriver).toBe('codex-app-server')
-      expect(response.startRequest).toEqual(response.selectedProfile.harnessInvocation.startRequest)
-      expect(response.dispatchRequest.startRequest).toEqual(response.startRequest)
-      expect(response.dispatchRequest.dispatchEnv).toEqual({ EXTRA_FLAG: 'aspc' })
+      expect(response.plan.execution.driver).toBe('codex-app-server')
+      expect(response.plan.execution.dispatchRequest.dispatchEnv).toEqual({ EXTRA_FLAG: 'aspc' })
+      expect(response).not.toHaveProperty('selectedProfile')
+      expect(response).not.toHaveProperty('startRequest')
+      expect(response).not.toHaveProperty('dispatchRequest')
     } finally {
       await client.close()
     }
@@ -121,15 +84,15 @@ describe('ASPC cohosted composition facade', () => {
       const response = await client.compileHarnessInvocation({
         compileRequest: buildCompileRequest(fixture, 'harness_invocation_lifecycle'),
         aspHome: fixture.aspHome,
-        profileSelector: { brokerDriver: 'codex-app-server' },
         lifecyclePolicy,
       })
       expect(response.ok).toBe(true)
       if (!response.ok) return
 
-      expect(response.dispatchRequest.lifecyclePolicy).toEqual(lifecyclePolicy)
-      expect(response.dispatchRequest.startRequest).toEqual(response.startRequest)
-      expect(JSON.stringify(response.startRequest)).not.toContain('lifecyclePolicy')
+      expect(response.plan.execution.dispatchRequest.lifecyclePolicy).toEqual(lifecyclePolicy)
+      expect(JSON.stringify(response.plan.execution.dispatchRequest.startRequest)).not.toContain(
+        'lifecyclePolicy'
+      )
     } finally {
       await client.close()
     }
@@ -158,14 +121,12 @@ describe('ASPC cohosted composition facade', () => {
       const response = await client.compileAndStart({
         compileRequest: buildCompileRequest(fixture, 'compile_and_start'),
         aspHome: fixture.aspHome,
-        profileSelector: { brokerDriver: 'codex-app-server' },
       })
       expect(response.ok).toBe(true)
       if (!response.ok) return
 
-      expect(response.compile.dispatchRequest.startRequest).toEqual(response.compile.startRequest)
       expect(response.startResponse.invocationId).toBe(
-        response.compile.startRequest.spec.invocationId
+        response.compile.plan.execution.dispatchRequest.startRequest.spec.invocationId
       )
 
       await client.request('invocation.stop', {

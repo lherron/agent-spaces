@@ -13,13 +13,8 @@ const service = {
   compileHarnessInvocation: async () => {
     await gate
     return {
-      schemaVersion: 'aspc-compile-harness-invocation-response/v1',
+      schemaVersion: 'aspc-compile-harness-invocation-response/v2',
       ok: false,
-      compileResponse: {
-        schemaVersion: 'agent-runtime-compile-response/v1',
-        ok: false,
-        diagnostics: [],
-      },
       diagnostics: Array.from({ length: 4000 }, (_, i) => ({
         code: `padding_${i}`,
         message: 'x'.repeat(500),

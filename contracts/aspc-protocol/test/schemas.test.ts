@@ -4,17 +4,16 @@ import {
   ASPC_PROTOCOL_VERSION,
   AspcCommandValidationError,
   AspcCompileHarnessInvocationRequestValidationError,
-  AspcCompileRuntimePlanRequestValidationError,
   AspcHelloRequestValidationError,
   validateAspcCommand,
   validateAspcCompileAndStartRequest,
   validateAspcCompileHarnessInvocationRequest,
-  validateAspcCompileRuntimePlanRequest,
   validateAspcHelloRequest,
 } from '../src/index.js'
 
 const compileRequest = {
-  schemaVersion: 'agent-runtime-compile-request/v1',
+  schemaVersion: 'agent-runtime-compile-request/v2',
+  agent: { id: 'cody' },
   identity: {
     requestId: 'req_1',
     operationId: 'op_1',
@@ -29,15 +28,14 @@ const compileRequest = {
     runMode: 'agent',
   },
   requested: {
-    modelProvider: 'openai',
-    harnessFamily: 'codex',
-    preferredHarnessRuntime: 'codex-cli',
-    interactionMode: 'headless',
+    harness: 'codex',
+    modelProvider: 'openai-codex',
+    model: 'gpt-5.5',
+    reasoningEffort: 'high',
+    presentation: false,
   },
-  materialization: {
-    initialPrompt: 'hello',
-  },
-  hrcPolicy: {},
+  materialization: { initialPrompt: 'hello' },
+  hrcPolicy: { disallowedTools: ['AskUserQuestion'] },
   correlation: {
     requestId: 'req_1',
     operationId: 'op_1',
@@ -45,15 +43,27 @@ const compileRequest = {
     generation: 1,
     runtimeId: 'runtime_1',
   },
+} as const
+
+function captureCompileIssues(value: unknown) {
+  try {
+    validateAspcCompileHarnessInvocationRequest(value)
+  } catch (error) {
+    expect(error).toBeInstanceOf(AspcCompileHarnessInvocationRequestValidationError)
+    return (error as AspcCompileHarnessInvocationRequestValidationError).issues
+  }
+  throw new Error('expected compile request validation to fail')
 }
 
 describe('ASPC protocol validators', () => {
-  test('validates aspc.hello', () => {
+  test('validates hello and advertises the closed method set', () => {
     const request = {
       clientInfo: { name: 'non-ts-client' },
       protocolVersions: [ASPC_PROTOCOL_VERSION],
     }
-    expect(validateAspcHelloRequest(request)).toEqual(request)
+    expect(validateAspcHelloRequest(request)).toBe(request)
+    expect(ASPC_METHODS).toContain('aspc.compileHarnessInvocation')
+    expect(ASPC_METHODS).not.toContain('aspc.compileRuntimePlan' as never)
     expect(
       validateAspcCommand({
         jsonrpc: '2.0',
@@ -70,570 +80,163 @@ describe('ASPC protocol validators', () => {
         clientInfo: { name: 'old-client' },
         protocolVersions: ['aspc/0.0'],
       })
-    ).toThrow('Invalid ASPC hello request')
+    ).toThrow(AspcHelloRequestValidationError)
   })
 
-  test('validates compileRuntimePlan params', () => {
-    const request = { compileRequest, aspHome: '/tmp/asp-home' }
-    expect(validateAspcCompileRuntimePlanRequest(request)).toEqual(request)
+  test('validates the sole v2 ordinary compile operation and preserves explicit false', () => {
+    const request = {
+      compileRequest,
+      dispatchEnv: { EXTRA_FLAG: '1' },
+      runtime: { runtimeId: 'runtime_1' },
+      lifecyclePolicy: { runtimeRetention: 'keep-alive' },
+    }
+    expect(validateAspcCompileHarnessInvocationRequest(request)).toBe(request)
+    expect(request.compileRequest.requested.presentation).toBe(false)
     expect(
       validateAspcCommand({
         jsonrpc: '2.0',
         id: '2',
-        method: 'aspc.compileRuntimePlan',
-        params: request,
-      })
-    ).toMatchObject({ method: 'aspc.compileRuntimePlan' })
-  })
-
-  test('accepts compile requests carrying hrcPolicy.disallowedTools', () => {
-    const request = {
-      compileRequest: {
-        ...compileRequest,
-        hrcPolicy: { disallowedTools: ['AskUserQuestion'] },
-      },
-      aspHome: '/tmp/asp-home',
-    }
-
-    expect(validateAspcCompileRuntimePlanRequest(request)).toEqual(request)
-  })
-
-  test('validates compileHarnessInvocation params with dispatch extras', () => {
-    const request = {
-      compileRequest,
-      profileSelector: { brokerDriver: 'codex-app-server' },
-      dispatchEnv: { EXTRA_FLAG: '1' },
-    }
-    expect(validateAspcCompileHarnessInvocationRequest(request)).toEqual(request)
-    expect(
-      validateAspcCommand({
-        jsonrpc: '2.0',
-        id: '3',
         method: 'aspc.compileHarnessInvocation',
         params: request,
       })
     ).toMatchObject({ method: 'aspc.compileHarnessInvocation' })
   })
 
-  test('validates compileAndStart params (request helper + command)', () => {
-    const request = {
-      compileRequest,
-      profileSelector: { brokerDriver: 'codex-app-server' },
-      dispatchEnv: { EXTRA_FLAG: '1' },
-    }
-    expect(validateAspcCompileAndStartRequest(request)).toEqual(request)
+  test('compileAndStart reuses the same selector-free envelope validator', () => {
+    const request = { compileRequest, dispatchEnv: { EXTRA_FLAG: '1' } }
+    expect(validateAspcCompileAndStartRequest(request)).toBe(request)
     expect(
       validateAspcCommand({
         jsonrpc: '2.0',
-        id: '5',
+        id: '3',
         method: 'aspc.compileAndStart',
         params: request,
       })
     ).toMatchObject({ method: 'aspc.compileAndStart' })
   })
 
-  test('rejects compileAndStart params with a non-object compileRequest', () => {
-    expect(() => validateAspcCompileAndStartRequest({ compileRequest: 'nope' })).toThrow(
-      'Invalid ASPC compileHarnessInvocation request'
-    )
-  })
-
-  test('rejects unknown ASPC methods', () => {
+  test('rejects the removed compileRuntimePlan method', () => {
     expect(() =>
       validateAspcCommand({
         jsonrpc: '2.0',
         id: '4',
-        method: 'broker.hello',
-        params: {},
+        method: 'aspc.compileRuntimePlan',
+        params: { compileRequest },
       })
-    ).toThrow('Invalid ASPC command')
+    ).toThrow(AspcCommandValidationError)
   })
 
-  test('unsupported method error lists the valid methods', () => {
+  test('rejects the v1 compile contract at schemaVersion', () => {
+    const issues = captureCompileIssues({
+      compileRequest: { ...compileRequest, schemaVersion: 'agent-runtime-compile-request/v1' },
+    })
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        path: 'params.compileRequest.schemaVersion',
+        code: 'invalid_literal',
+      })
+    )
+  })
+
+  for (const removed of [
+    'harnessFamily',
+    'preferredHarnessRuntime',
+    'interactionMode',
+    'controllerIntent',
+    'brokerDriver',
+  ] as const) {
+    test(`rejects removed requested.${removed}`, () => {
+      const issues = captureCompileIssues({
+        compileRequest: {
+          ...compileRequest,
+          requested: { ...compileRequest.requested, [removed]: 'removed' },
+        },
+      })
+      expect(issues).toContainEqual(
+        expect.objectContaining({
+          path: `params.compileRequest.requested.${removed}`,
+          code: 'forbidden_input',
+        })
+      )
+    })
+  }
+
+  for (const removed of ['profileSelector', 'profileId', 'profileHash', 'brokerDriver'] as const) {
+    test(`rejects removed outer selector ${removed}`, () => {
+      const issues = captureCompileIssues({ compileRequest, [removed]: 'removed' })
+      expect(issues).toContainEqual(
+        expect.objectContaining({ path: `params.${removed}`, code: 'forbidden_input' })
+      )
+    })
+  }
+
+  for (const harness of ['pi', 'pi-sdk', 'claude-code', 'codex-cli', 'muse-cli'] as const) {
+    test(`rejects noncanonical harness ${harness}`, () => {
+      const issues = captureCompileIssues({
+        compileRequest: {
+          ...compileRequest,
+          requested: { ...compileRequest.requested, harness },
+        },
+      })
+      expect(issues).toContainEqual(
+        expect.objectContaining({
+          path: 'params.compileRequest.requested.harness',
+          code: 'invalid_literal',
+        })
+      )
+    })
+  }
+
+  test('rejects unknown compile-request fields instead of shallowly accepting them', () => {
+    const issues = captureCompileIssues({
+      compileRequest: { ...compileRequest, unexpectedTopLevel: true },
+    })
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        path: 'params.compileRequest.unexpectedTopLevel',
+        code: 'forbidden_input',
+      })
+    )
+  })
+
+  test('rejects invalid reasoning effort and non-boolean presentation', () => {
+    const issues = captureCompileIssues({
+      compileRequest: {
+        ...compileRequest,
+        requested: {
+          ...compileRequest.requested,
+          reasoningEffort: 'extreme',
+          presentation: 'false',
+        },
+      },
+    })
+    expect(issues.map((entry) => entry.path)).toEqual(
+      expect.arrayContaining([
+        'params.compileRequest.requested.reasoningEffort',
+        'params.compileRequest.requested.presentation',
+      ])
+    )
+  })
+
+  test('rejects non-string dispatch environment values', () => {
+    const issues = captureCompileIssues({
+      compileRequest,
+      dispatchEnv: { GOOD: 'ok', BAD: 1 },
+    })
+    expect(issues).toContainEqual(
+      expect.objectContaining({ path: 'params.dispatchEnv.BAD', code: 'invalid_type' })
+    )
+  })
+
+  test('rejects unknown ASPC methods and lists the public set', () => {
     let caught: AspcCommandValidationError | undefined
     try {
-      validateAspcCommand({
-        jsonrpc: '2.0',
-        id: '4',
-        method: 'broker.hello',
-        params: {},
-      })
+      validateAspcCommand({ jsonrpc: '2.0', id: '5', method: 'broker.hello', params: {} })
     } catch (error) {
       caught = error as AspcCommandValidationError
     }
     expect(caught).toBeInstanceOf(AspcCommandValidationError)
-    const methodIssue = caught?.issues.find((entry) => entry.path === 'method')
-    expect(methodIssue?.message).toContain('broker.hello')
-    for (const method of ASPC_METHODS) {
-      expect(methodIssue?.message).toContain(method)
-    }
-  })
-
-  test('non-string protocolVersions element reports an indexed path', () => {
-    let caught: AspcHelloRequestValidationError | undefined
-    try {
-      validateAspcHelloRequest({
-        clientInfo: { name: 'client' },
-        protocolVersions: [ASPC_PROTOCOL_VERSION, 42],
-      })
-    } catch (error) {
-      caught = error as AspcHelloRequestValidationError
-    }
-    expect(caught).toBeInstanceOf(AspcHelloRequestValidationError)
-    const itemIssue = caught?.issues.find((entry) => entry.path === 'params.protocolVersions.1')
-    expect(itemIssue?.message).toBe('params.protocolVersions.1 must be a string')
-    // The array is malformed, so the "unsupported protocol" issue must NOT also
-    // fire for the same field (A3: gated on the array being well-formed).
-    expect(caught?.issues.some((entry) => entry.code === 'unsupported_protocol')).toBe(false)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Characterization tests (T-04606)
-//
-// The four public validators return their typed result via an unchecked `as`
-// cast after only SHALLOW runtime checks (deep `RuntimeCompileRequest`
-// validation is intentionally delegated to spaces-runtime-contracts). These
-// tests PIN the current accept/reject surface — including the deliberately
-// shallow acceptances — so any future tightening is a conscious, visible
-// change rather than a silent break (Hyrum's Law). They assert behavior only;
-// no source change accompanies them.
-// ---------------------------------------------------------------------------
-
-// A `compileRequest` that is shallowly well-formed (correct schemaVersion + the
-// six required fields present as records) but whose nested fields are EMPTY.
-// The current validators accept this — they only check the fields exist as
-// objects, not their contents.
-const shallowCompileRequest = {
-  schemaVersion: 'agent-runtime-compile-request/v1',
-  identity: {},
-  placement: {},
-  requested: {},
-  materialization: {},
-  hrcPolicy: {},
-  correlation: {},
-}
-
-describe('ASPC validators — characterization (T-04606)', () => {
-  describe('validateAspcHelloRequest', () => {
-    test('returns the input value (same reference) on success', () => {
-      const request = {
-        clientInfo: { name: 'client', version: '1.2.3' },
-        protocolVersions: [ASPC_PROTOCOL_VERSION],
-        capabilities: { streaming: true },
-      }
-      expect(validateAspcHelloRequest(request)).toBe(request)
-    })
-
-    test('shallow: unknown top-level fields are passed through unchanged', () => {
-      const request = {
-        clientInfo: { name: 'client', extraClientField: 'kept' },
-        protocolVersions: [ASPC_PROTOCOL_VERSION],
-        unknownTopLevel: 'kept',
-      }
-      // No issue raised for extra fields; the object is returned verbatim.
-      expect(validateAspcHelloRequest(request)).toBe(request)
-    })
-
-    test('throws the specific error class with populated issues on a non-object', () => {
-      let caught: unknown
-      try {
-        validateAspcHelloRequest('not-an-object')
-      } catch (error) {
-        caught = error
-      }
-      expect(caught).toBeInstanceOf(AspcHelloRequestValidationError)
-      const typed = caught as AspcHelloRequestValidationError
-      expect(typed.code).toBe('INVALID_ASPC_HELLO_REQUEST')
-      expect(typed.name).toBe('AspcHelloRequestValidationError')
-      expect(typed.issues.length).toBeGreaterThan(0)
-    })
-
-    test('throws when clientInfo.name is missing', () => {
-      expect(() =>
-        validateAspcHelloRequest({
-          clientInfo: {},
-          protocolVersions: [ASPC_PROTOCOL_VERSION],
-        })
-      ).toThrow(AspcHelloRequestValidationError)
-    })
-  })
-
-  describe('validateAspcCompileRuntimePlanRequest', () => {
-    test('returns the input value (same reference) on success', () => {
-      const request = { compileRequest, aspHome: '/tmp/asp-home' }
-      expect(validateAspcCompileRuntimePlanRequest(request)).toBe(request)
-    })
-
-    test('shallow: accepts a compileRequest whose required fields are empty records', () => {
-      // PINS the delegated/shallow contract: nested field contents are NOT
-      // validated here, so a deeply-empty-but-shallowly-shaped request passes.
-      const request = { compileRequest: shallowCompileRequest }
-      expect(validateAspcCompileRuntimePlanRequest(request)).toBe(request)
-    })
-
-    test('throws the specific error class with populated issues on a non-object', () => {
-      let caught: unknown
-      try {
-        validateAspcCompileRuntimePlanRequest(42)
-      } catch (error) {
-        caught = error
-      }
-      expect(caught).toBeInstanceOf(AspcCompileRuntimePlanRequestValidationError)
-      const typed = caught as AspcCompileRuntimePlanRequestValidationError
-      expect(typed.code).toBe('INVALID_ASPC_COMPILE_RUNTIME_PLAN_REQUEST')
-      expect(typed.name).toBe('AspcCompileRuntimePlanRequestValidationError')
-      expect(typed.issues.length).toBeGreaterThan(0)
-    })
-
-    test('throws when compileRequest.schemaVersion is wrong', () => {
-      let caught: AspcCompileRuntimePlanRequestValidationError | undefined
-      try {
-        validateAspcCompileRuntimePlanRequest({
-          compileRequest: { ...shallowCompileRequest, schemaVersion: 'bogus/v9' },
-        })
-      } catch (error) {
-        caught = error as AspcCompileRuntimePlanRequestValidationError
-      }
-      expect(caught).toBeInstanceOf(AspcCompileRuntimePlanRequestValidationError)
-      const schemaIssue = caught?.issues.find(
-        (entry) => entry.path === 'params.compileRequest.schemaVersion'
-      )
-      expect(schemaIssue?.code).toBe('invalid_literal')
-    })
-
-    test('throws when a required compileRequest field is missing', () => {
-      const { identity, ...withoutIdentity } = shallowCompileRequest
-      void identity
-      let caught: AspcCompileRuntimePlanRequestValidationError | undefined
-      try {
-        validateAspcCompileRuntimePlanRequest({ compileRequest: withoutIdentity })
-      } catch (error) {
-        caught = error as AspcCompileRuntimePlanRequestValidationError
-      }
-      expect(caught).toBeInstanceOf(AspcCompileRuntimePlanRequestValidationError)
-      const missingIssue = caught?.issues.find(
-        (entry) => entry.path === 'params.compileRequest.identity'
-      )
-      expect(missingIssue?.code).toBe('required')
-    })
-
-    test('throws when aspHome is present but not a string', () => {
-      expect(() => validateAspcCompileRuntimePlanRequest({ compileRequest, aspHome: 123 })).toThrow(
-        AspcCompileRuntimePlanRequestValidationError
-      )
-    })
-  })
-
-  describe('validateAspcCompileHarnessInvocationRequest', () => {
-    test('returns the input value (same reference) on success', () => {
-      const request = {
-        compileRequest,
-        profileSelector: { profileId: 'p1', brokerDriver: 'codex-app-server' },
-        dispatchEnv: { EXTRA_FLAG: '1' },
-      }
-      expect(validateAspcCompileHarnessInvocationRequest(request)).toBe(request)
-    })
-
-    test('shallow: profileSelector/runtime/lifecyclePolicy are optional and unknown keys are kept', () => {
-      const request = {
-        compileRequest,
-        profileSelector: { profileId: 'p1', unknownSelectorField: 'kept' },
-        runtime: { anything: true },
-        lifecyclePolicy: { whatever: 'kept' },
-      }
-      expect(validateAspcCompileHarnessInvocationRequest(request)).toBe(request)
-    })
-
-    test('throws the specific error class with populated issues on a non-object', () => {
-      let caught: unknown
-      try {
-        validateAspcCompileHarnessInvocationRequest(null)
-      } catch (error) {
-        caught = error
-      }
-      expect(caught).toBeInstanceOf(AspcCompileHarnessInvocationRequestValidationError)
-      const typed = caught as AspcCompileHarnessInvocationRequestValidationError
-      expect(typed.code).toBe('INVALID_ASPC_COMPILE_HARNESS_INVOCATION_REQUEST')
-      expect(typed.name).toBe('AspcCompileHarnessInvocationRequestValidationError')
-      expect(typed.issues.length).toBeGreaterThan(0)
-    })
-
-    test('throws when dispatchEnv carries a non-string value', () => {
-      let caught: AspcCompileHarnessInvocationRequestValidationError | undefined
-      try {
-        validateAspcCompileHarnessInvocationRequest({
-          compileRequest,
-          dispatchEnv: { GOOD: 'ok', BAD: 1 },
-        })
-      } catch (error) {
-        caught = error as AspcCompileHarnessInvocationRequestValidationError
-      }
-      expect(caught).toBeInstanceOf(AspcCompileHarnessInvocationRequestValidationError)
-      const envIssue = caught?.issues.find((entry) => entry.path === 'params.dispatchEnv.BAD')
-      expect(envIssue?.code).toBe('invalid_type')
-    })
-
-    test('throws when profileSelector.profileId is not a string', () => {
-      let caught: AspcCompileHarnessInvocationRequestValidationError | undefined
-      try {
-        validateAspcCompileHarnessInvocationRequest({
-          compileRequest,
-          profileSelector: { profileId: 7 },
-        })
-      } catch (error) {
-        caught = error as AspcCompileHarnessInvocationRequestValidationError
-      }
-      expect(caught).toBeInstanceOf(AspcCompileHarnessInvocationRequestValidationError)
-      const selectorIssue = caught?.issues.find(
-        (entry) => entry.path === 'params.profileSelector.profileId'
-      )
-      expect(selectorIssue?.code).toBe('invalid_type')
-    })
-  })
-
-  describe('validateAspcCompileAndStartRequest (alias of compileHarnessInvocation)', () => {
-    test('returns the input value (same reference) on success', () => {
-      const request = { compileRequest, profileSelector: { brokerDriver: 'codex-app-server' } }
-      expect(validateAspcCompileAndStartRequest(request)).toBe(request)
-    })
-
-    test('throws the compileHarnessInvocation error class (alias preserves identity)', () => {
-      let caught: unknown
-      try {
-        validateAspcCompileAndStartRequest({ compileRequest: 'nope' })
-      } catch (error) {
-        caught = error
-      }
-      expect(caught).toBeInstanceOf(AspcCompileHarnessInvocationRequestValidationError)
-      expect(
-        (caught as AspcCompileHarnessInvocationRequestValidationError).issues.length
-      ).toBeGreaterThan(0)
-    })
-  })
-
-  describe('validateAspcCommand', () => {
-    test('returns the input value (same reference) on success', () => {
-      const command = {
-        jsonrpc: '2.0',
-        id: '10',
-        method: 'aspc.hello',
-        params: { clientInfo: { name: 'c' }, protocolVersions: [ASPC_PROTOCOL_VERSION] },
-      }
-      expect(validateAspcCommand(command)).toBe(command)
-    })
-
-    test('throws on a non-JSON-RPC value with populated issues', () => {
-      let caught: unknown
-      try {
-        validateAspcCommand({ not: 'jsonrpc' })
-      } catch (error) {
-        caught = error
-      }
-      expect(caught).toBeInstanceOf(AspcCommandValidationError)
-      const typed = caught as AspcCommandValidationError
-      expect(typed.code).toBe('INVALID_ASPC_COMMAND')
-      expect(typed.issues.length).toBeGreaterThan(0)
-    })
-
-    test('rolls a delegated params failure up into AspcCommandValidationError', () => {
-      // A recognized method whose params fail the per-method validator surfaces
-      // as the COMMAND error class (not the per-request class).
-      let caught: unknown
-      try {
-        validateAspcCommand({
-          jsonrpc: '2.0',
-          id: '11',
-          method: 'aspc.hello',
-          params: { clientInfo: {} },
-        })
-      } catch (error) {
-        caught = error
-      }
-      expect(caught).toBeInstanceOf(AspcCommandValidationError)
-      expect((caught as AspcCommandValidationError).issues.length).toBeGreaterThan(0)
-    })
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Characterization tests (T-04607) — shallow-validation DEPTH BOUNDARY +
-// per-method command-routing rejection matrix.
-//
-// T-04606 pinned per-validator success/error-class and a few shallow/rejection
-// cases. This block adds the two gaps T-04606 did NOT cover:
-//
-//   1. DEPTH BOUNDARY: this layer validates the SHAPE of the compileRequest
-//      (correct schemaVersion + six fields present *as records*) but delegates
-//      all content validation to spaces-runtime-contracts. So nested sub-objects
-//      that are structurally garbage *at depth* (wrong-typed values, bogus
-//      enums, unknown keys) are ACCEPTED here. These tests pin exactly where the
-//      validation stops, so any future deepening is a visible, deliberate change
-//      (Hyrum's Law). The mirror-image — a required field present but NOT a
-//      record — is the boundary's reject side and is pinned too.
-//
-//   2. COMMAND ROUTING MATRIX: for each aspc.* method, a malformed params object
-//      routed through validateAspcCommand throws AspcCommandValidationError with
-//      the per-method validator's issue path correctly PREFIXED under 'params'.
-//      (T-04606 only checked the rollup happens; here we verify the path string.)
-//
-// Characterization only: NO source changes. Behavior is asserted exactly as is.
-// ---------------------------------------------------------------------------
-
-// Shallowly well-formed (correct schemaVersion + six required fields present as
-// records) but every nested field is structurally garbage at depth: wrong value
-// types, bogus enum-ish strings, unexpected keys. The current validators check
-// only that each field is a record, never its contents — so this is ACCEPTED.
-const deeplyGarbageCompileRequest = {
-  schemaVersion: 'agent-runtime-compile-request/v1',
-  identity: { requestId: 123, generation: 'not-a-number', unexpected: true },
-  placement: { runMode: 999, agentRoot: [], junk: { nested: 'deep' } },
-  requested: { harnessFamily: 'totally-not-a-real-family', interactionMode: false },
-  materialization: { initialPrompt: 42, surprise: {} },
-  hrcPolicy: { disallowedTools: 'should-be-an-array-but-is-a-string' },
-  correlation: { generation: 'wrong-type', extra: null },
-}
-
-describe('ASPC validators — depth boundary + command routing (T-04607)', () => {
-  describe('shallow-validation depth boundary', () => {
-    test('compileRuntimePlan accepts a compileRequest that is garbage at depth', () => {
-      // Every nested field is present-as-a-record but structurally wrong. Content
-      // validation is delegated downstream, so this layer returns it unchanged.
-      const request = { compileRequest: deeplyGarbageCompileRequest, aspHome: '/tmp/asp-home' }
-      expect(validateAspcCompileRuntimePlanRequest(request)).toBe(request)
-    })
-
-    test('compileRuntimePlan accepts unknown extra keys WITHIN compileRequest', () => {
-      const request = {
-        compileRequest: {
-          ...shallowCompileRequest,
-          unexpectedTopLevel: 'kept',
-          anotherExtra: 99,
-        },
-      }
-      expect(validateAspcCompileRuntimePlanRequest(request)).toBe(request)
-    })
-
-    test('compileHarnessInvocation accepts garbage-at-depth compileRequest alongside dispatch extras', () => {
-      // The deep compileRequest garbage AND a profileSelector carrying unknown
-      // nested keys both pass — only the shallow shape is enforced here.
-      const request = {
-        compileRequest: deeplyGarbageCompileRequest,
-        profileSelector: { profileId: 'p1', brokerDriver: 'x', deep: { junk: true } },
-        dispatchEnv: { OK: 'value' },
-      }
-      expect(validateAspcCompileHarnessInvocationRequest(request)).toBe(request)
-    })
-
-    test('boundary reject side: a required compileRequest field present but NOT a record is rejected', () => {
-      // The shape IS enforced: a field that exists but is not an object draws an
-      // invalid_type issue (distinct from the `required` issue for a missing one).
-      let caught: AspcCompileRuntimePlanRequestValidationError | undefined
-      try {
-        validateAspcCompileRuntimePlanRequest({
-          compileRequest: { ...shallowCompileRequest, identity: 'not-a-record' },
-        })
-      } catch (error) {
-        caught = error as AspcCompileRuntimePlanRequestValidationError
-      }
-      expect(caught).toBeInstanceOf(AspcCompileRuntimePlanRequestValidationError)
-      const identityIssue = caught?.issues.find(
-        (entry) => entry.path === 'params.compileRequest.identity'
-      )
-      expect(identityIssue?.code).toBe('invalid_type')
-    })
-  })
-
-  describe('validateAspcCommand per-method rejection paths', () => {
-    test('aspc.hello: missing clientInfo.name reports a params-prefixed path', () => {
-      let caught: AspcCommandValidationError | undefined
-      try {
-        validateAspcCommand({
-          jsonrpc: '2.0',
-          id: '20',
-          method: 'aspc.hello',
-          params: { clientInfo: {}, protocolVersions: [ASPC_PROTOCOL_VERSION] },
-        })
-      } catch (error) {
-        caught = error as AspcCommandValidationError
-      }
-      expect(caught).toBeInstanceOf(AspcCommandValidationError)
-      const nameIssue = caught?.issues.find((entry) => entry.path === 'params.clientInfo.name')
-      expect(nameIssue?.code).toBe('required')
-    })
-
-    test('aspc.compileRuntimePlan: non-object compileRequest reports params.compileRequest', () => {
-      let caught: AspcCommandValidationError | undefined
-      try {
-        validateAspcCommand({
-          jsonrpc: '2.0',
-          id: '21',
-          method: 'aspc.compileRuntimePlan',
-          params: { compileRequest: 'nope' },
-        })
-      } catch (error) {
-        caught = error as AspcCommandValidationError
-      }
-      expect(caught).toBeInstanceOf(AspcCommandValidationError)
-      const issue = caught?.issues.find((entry) => entry.path === 'params.compileRequest')
-      expect(issue?.code).toBe('invalid_type')
-    })
-
-    test('aspc.compileRuntimePlan: missing nested compileRequest field reports params.compileRequest.identity', () => {
-      const { identity, ...withoutIdentity } = shallowCompileRequest
-      void identity
-      let caught: AspcCommandValidationError | undefined
-      try {
-        validateAspcCommand({
-          jsonrpc: '2.0',
-          id: '22',
-          method: 'aspc.compileRuntimePlan',
-          params: { compileRequest: withoutIdentity },
-        })
-      } catch (error) {
-        caught = error as AspcCommandValidationError
-      }
-      expect(caught).toBeInstanceOf(AspcCommandValidationError)
-      const issue = caught?.issues.find((entry) => entry.path === 'params.compileRequest.identity')
-      expect(issue?.code).toBe('required')
-    })
-
-    test('aspc.compileHarnessInvocation: non-string dispatchEnv value reports params.dispatchEnv.<key>', () => {
-      let caught: AspcCommandValidationError | undefined
-      try {
-        validateAspcCommand({
-          jsonrpc: '2.0',
-          id: '23',
-          method: 'aspc.compileHarnessInvocation',
-          params: { compileRequest, dispatchEnv: { GOOD: 'ok', BAD: 1 } },
-        })
-      } catch (error) {
-        caught = error as AspcCommandValidationError
-      }
-      expect(caught).toBeInstanceOf(AspcCommandValidationError)
-      const issue = caught?.issues.find((entry) => entry.path === 'params.dispatchEnv.BAD')
-      expect(issue?.code).toBe('invalid_type')
-    })
-
-    test('aspc.compileAndStart: routes through the harnessInvocation validator (params.profileSelector.profileId)', () => {
-      // The alias method shares compileHarnessInvocation's validator, so its
-      // selector checks fire and prefix under params just like the others.
-      let caught: AspcCommandValidationError | undefined
-      try {
-        validateAspcCommand({
-          jsonrpc: '2.0',
-          id: '24',
-          method: 'aspc.compileAndStart',
-          params: { compileRequest, profileSelector: { profileId: 7 } },
-        })
-      } catch (error) {
-        caught = error as AspcCommandValidationError
-      }
-      expect(caught).toBeInstanceOf(AspcCommandValidationError)
-      const issue = caught?.issues.find(
-        (entry) => entry.path === 'params.profileSelector.profileId'
-      )
-      expect(issue?.code).toBe('invalid_type')
-    })
+    const issue = caught?.issues.find((entry) => entry.path === 'method')
+    for (const method of ASPC_METHODS) expect(issue?.message).toContain(method)
   })
 })

@@ -36,7 +36,7 @@ export type AspcProtocolVersion = typeof ASPC_PROTOCOL_VERSION
  * response union below.
  */
 export const ASPC_COMPILE_HARNESS_INVOCATION_RESPONSE_VERSION =
-  'aspc-compile-harness-invocation-response/v1' as const
+  'aspc-compile-harness-invocation-response/v2' as const
 export const ASPC_COMPILE_AND_START_RESPONSE_VERSION = 'aspc-compile-and-start-response/v1' as const
 export const ASPC_RESOLVE_RUNTIME_DECLARATION_RESPONSE_VERSION =
   'aspc-resolve-runtime-declaration-response/v1' as const
@@ -216,7 +216,7 @@ export interface AspcExecutionRelease extends AspReleaseIdentity {
   }
 }
 
-export interface AspcCompileRuntimePlanRequest {
+interface AspcCompileEnvelope {
   compileRequest: RuntimeCompileRequest
   aspHome?: string | undefined
   /**
@@ -236,7 +236,7 @@ export interface AspcInspectAgentRequest {
   evaluationContext: AgentInspectionEvaluationContext
 }
 
-export interface AspcCompileHarnessInvocationRequest extends AspcCompileRuntimePlanRequest {
+export interface AspcCompileHarnessInvocationRequest extends AspcCompileEnvelope {
   dispatchEnv?: Record<string, string> | undefined
   runtime?: InvocationRuntimeContext | undefined
   lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined

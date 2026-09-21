@@ -20,9 +20,8 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { BrokerExecutionProfile, OutputManifest } from 'spaces-runtime-contracts'
+import type { OutputManifest, RuntimeCompileRequest } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
-import type { LegacyRuntimeCompileRequest as RuntimeCompileRequest } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 import { createAgentSpacesClient } from '../../../compiler/agent-spaces/src/index.js'
 
 import {
@@ -72,24 +71,24 @@ afterEach(() => {
 })
 
 describe('T-04133 red: reproducible ASPC compiler surfaces', () => {
-  test('stdio compileRuntimePlan accepts fixed compile context and derives omitted initial input ids deterministically', async () => {
+  test('stdio compileHarnessInvocation accepts fixed compile context and derives omitted initial input ids deterministically', async () => {
     const client = await startFacadeClient()
     try {
       const firstRequest = buildCompileRequest('fixed_context')
       const secondRequest = buildCompileRequest('fixed_context')
       const generationChanged = buildCompileRequest('fixed_context', { generation: 2 })
 
-      const first = await client.request('aspc.compileRuntimePlan', {
+      const first = await client.request('aspc.compileHarnessInvocation', {
         compileRequest: firstRequest,
         aspHome: fixture.aspHome,
         compileContext: fixedCompileContext,
       })
-      const second = await client.request('aspc.compileRuntimePlan', {
+      const second = await client.request('aspc.compileHarnessInvocation', {
         compileRequest: secondRequest,
         aspHome: fixture.aspHome,
         compileContext: fixedCompileContext,
       })
-      const changed = await client.request('aspc.compileRuntimePlan', {
+      const changed = await client.request('aspc.compileHarnessInvocation', {
         compileRequest: generationChanged,
         aspHome: fixture.aspHome,
         compileContext: fixedCompileContext,
@@ -98,32 +97,27 @@ describe('T-04133 red: reproducible ASPC compiler surfaces', () => {
       const firstPlan = expectOkPlan(first)
       const secondPlan = expectOkPlan(second)
       const changedPlan = expectOkPlan(changed)
-      const firstProfile = brokerProfile(firstPlan)
-      const secondProfile = brokerProfile(secondPlan)
-      const changedProfile = brokerProfile(changedPlan)
+      const firstExecution = firstPlan.execution
+      const secondExecution = secondPlan.execution
+      const changedExecution = changedPlan.execution
 
       expect(firstPlan.createdAt).toBe(fixedCompileContext.nowIso)
       expect(secondPlan.createdAt).toBe(fixedCompileContext.nowIso)
       expect(secondPlan.compileId).toBe(firstPlan.compileId)
       expect(secondPlan.planHash).toBe(firstPlan.planHash)
-      expect(secondProfile.profileHash).toBe(firstProfile.profileHash)
-      expect(secondProfile.harnessInvocation.initialInputHash).toBe(
-        firstProfile.harnessInvocation.initialInputHash
-      )
-      expect(secondProfile.harnessInvocation.startRequestHash).toBe(
-        firstProfile.harnessInvocation.startRequestHash
-      )
-      expect(secondProfile.harnessInvocation.startRequest.initialInput?.inputId).toBe(
-        firstProfile.harnessInvocation.startRequest.initialInput?.inputId
+      expect(secondExecution.profile.profileHash).toBe(firstExecution.profile.profileHash)
+      expect(secondExecution.profile.startRequestHash).toBe(firstExecution.profile.startRequestHash)
+      expect(secondExecution.dispatchRequest.startRequest.initialInput?.inputId).toBe(
+        firstExecution.dispatchRequest.startRequest.initialInput?.inputId
       )
 
       // Negative guard: the derived id is scoped to identity/generation/content,
       // so a later generation must not be deduped against the earlier request.
-      expect(changedProfile.harnessInvocation.startRequest.initialInput?.inputId).not.toBe(
-        firstProfile.harnessInvocation.startRequest.initialInput?.inputId
+      expect(changedExecution.dispatchRequest.startRequest.initialInput?.inputId).not.toBe(
+        firstExecution.dispatchRequest.startRequest.initialInput?.inputId
       )
-      expect(changedProfile.harnessInvocation.startRequestHash).not.toBe(
-        firstProfile.harnessInvocation.startRequestHash
+      expect(changedExecution.profile.startRequestHash).not.toBe(
+        firstExecution.profile.startRequestHash
       )
     } finally {
       await client.close()
@@ -628,15 +622,16 @@ function buildCompileRequest(
     hostSessionId: identity.hostSessionId,
   })
   return {
-    schemaVersion: 'agent-runtime-compile-request/v1',
+    schemaVersion: 'agent-runtime-compile-request/v2',
+    agent: { id: 'sparky' },
     identity,
     placement,
     requested: {
-      modelProvider: 'openai',
+      harness: 'codex',
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
       reasoningEffort: 'medium',
-      harnessFamily: 'codex',
-      preferredHarnessRuntime: 'codex-cli',
-      interactionMode: 'headless',
+      presentation: false,
     },
     materialization: {
       initialPrompt: overrides.initialPrompt ?? `Say ${namespace}`,
@@ -680,21 +675,15 @@ function expectOkPlan(value: unknown) {
       createdAt: string
       compileId: string
       planHash: string
-      executionProfiles: unknown[]
+      execution: {
+        profile: { profileHash: string; startRequestHash: string }
+        dispatchRequest: {
+          startRequest: { initialInput?: { inputId?: string | undefined } | undefined }
+        }
+      }
     }
   }
   return response.plan
-}
-
-function brokerProfile(plan: ReturnType<typeof expectOkPlan>): BrokerExecutionProfile {
-  const profiles = plan.executionProfiles.filter(
-    (profile): profile is BrokerExecutionProfile =>
-      typeof profile === 'object' &&
-      profile !== null &&
-      (profile as { kind?: unknown }).kind === 'harness-broker'
-  )
-  expect(profiles).toHaveLength(1)
-  return profiles[0]
 }
 
 async function startFacadeClient(): Promise<AspcClient> {

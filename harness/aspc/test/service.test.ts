@@ -1,69 +1,58 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import type { AspcCompileHarnessInvocationRequest, AspcProfileSelector } from 'spaces-aspc-protocol'
-import type { BrokerExecutionProfile } from 'spaces-runtime-contracts'
+import type { AspcCompileHarnessInvocationRequest } from 'spaces-aspc-protocol'
 import type {
-  LegacyCompiledRuntimePlan as CompiledRuntimePlan,
-  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
-  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
-} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
+  CompiledRuntimePlan,
+  RuntimeCompileRequest,
+  RuntimeCompileResponse,
+} from 'spaces-runtime-contracts'
 import type { AspcCompiler } from '../src/service.js'
 import { createAspcService } from '../src/service.js'
 
-// These unit tests exercise the failure/diagnostic branches of `AspcService`
-// using an injected `compiler` stub, without spawning a subprocess facade
-// (harness/aspc-facade/test/facade.test.ts covers the E2E happy path). They
-// cover:
-//  - compileRuntimePlan `compiler_exception`
-//  - compileHarnessInvocation `broker_profile_missing` / `broker_profile_ambiguous`
-//    and the single-match (length === 1) happy path (A5 regression guard)
-//
-// `compileAndStart` coverage moved to harness/aspc-facade/test/ with the start
-// plane itself (T-07314 facade split).
-
 const COMPILE_REQUEST = {
-  schemaVersion: 'agent-runtime-compile-request/v1',
+  schemaVersion: 'agent-runtime-compile-request/v2',
+  agent: { id: 'cody' },
+  identity: {},
   placement: {},
+  requested: { harness: 'codex', presentation: false },
+  materialization: {},
+  hrcPolicy: {},
+  correlation: {},
 } as unknown as RuntimeCompileRequest
 
-function fakeProfile(overrides: Partial<BrokerExecutionProfile> = {}): BrokerExecutionProfile {
-  return {
-    kind: 'harness-broker',
-    profileId: 'profile-1',
-    profileHash: 'hash-1',
-    brokerDriver: 'codex-app-server',
-    harnessInvocation: {
-      startRequest: { spec: { invocationId: 'inv-1' } },
+const PLAN = {
+  schemaVersion: 'agent-runtime-plan/v2',
+  execution: {
+    driver: 'codex-app-server',
+    protocol: 'harness-broker/0.2',
+    profile: {
+      profileId: 'profile-1',
+      profileHash: 'profile-hash-1',
+      compatibilityHash: 'compatibility-hash-1',
       startRequestHash: 'start-hash-1',
     },
-    ...overrides,
-  } as unknown as BrokerExecutionProfile
-}
+    dispatchRequest: {
+      startRequest: { spec: { invocationId: 'inv-1', driver: { kind: 'codex-app-server' } } },
+      dispatchEnv: {},
+      runtime: {},
+      lifecyclePolicy: {},
+    },
+  },
+} as unknown as CompiledRuntimePlan
 
-function okPlanResponse(
-  profiles: BrokerExecutionProfile[]
-): Extract<RuntimeCompileResponse, { ok: true }> {
-  const plan = {
-    schemaVersion: 'agent-runtime-plan/v1',
-    executionProfiles: profiles,
-  } as unknown as CompiledRuntimePlan
-  return {
-    schemaVersion: 'agent-runtime-compile-response/v1',
-    ok: true,
-    plan,
-    diagnostics: [],
-  }
+const OK_RESPONSE: Extract<RuntimeCompileResponse, { ok: true }> = {
+  schemaVersion: 'agent-runtime-compile-response/v2',
+  ok: true,
+  plan: PLAN,
+  diagnostics: [],
 }
 
 function compilerReturning(response: RuntimeCompileResponse): AspcCompiler {
   return async () => response
 }
 
-function buildRequest(selector?: AspcProfileSelector): AspcCompileHarnessInvocationRequest {
-  return {
-    compileRequest: COMPILE_REQUEST,
-    ...(selector !== undefined ? { profileSelector: selector } : {}),
-  }
+function buildRequest(): AspcCompileHarnessInvocationRequest {
+  return { compileRequest: COMPILE_REQUEST }
 }
 
 function packageVersion(): string {
@@ -74,101 +63,71 @@ function packageVersion(): string {
   return manifest.version
 }
 
-describe('AspcService.hello', () => {
-  test('facadeInfo.version matches package.json version', async () => {
-    const service = createAspcService({})
-    const response = await service.hello({})
+describe('AspcService', () => {
+  test('hello reports the package version and one ordinary compile capability', async () => {
+    const response = await createAspcService({}).hello({})
     expect(response.facadeInfo.version).toBe(packageVersion())
+    expect(response.capabilities.compileHarnessInvocation).toBe(true)
+    expect(response.capabilities).not.toHaveProperty('compileRuntimePlan')
   })
-})
 
-describe('AspcService.compileRuntimePlan', () => {
+  test('returns the compiler singular plan without selecting or echoing a profile', async () => {
+    const response = await createAspcService({
+      compiler: compilerReturning(OK_RESPONSE),
+    }).compileHarnessInvocation(buildRequest())
+
+    expect(response.ok).toBe(true)
+    if (!response.ok) return
+    expect(response.schemaVersion).toBe('aspc-compile-harness-invocation-response/v2')
+    expect(response.plan).toBe(PLAN)
+    expect(response.plan.execution.driver).toBe('codex-app-server')
+    expect(response).not.toHaveProperty('selectedProfile')
+    expect(response).not.toHaveProperty('startRequest')
+    expect(response).not.toHaveProperty('dispatchRequest')
+  })
+
+  test('threads dispatch overlays into the single compiler call', async () => {
+    let observedOptions: Parameters<AspcCompiler>[1]
+    const compiler: AspcCompiler = async (_request, options) => {
+      observedOptions = options
+      return OK_RESPONSE
+    }
+    const service = createAspcService({ compiler })
+    await service.compileHarnessInvocation({
+      ...buildRequest(),
+      dispatchEnv: { EXTRA: '1' },
+      runtime: { runtimeId: 'runtime-1' },
+      lifecyclePolicy: { runtimeRetention: 'keep-alive' },
+    })
+    expect(observedOptions?.dispatch).toEqual({
+      dispatchEnv: { EXTRA: '1' },
+      runtime: { runtimeId: 'runtime-1' },
+      lifecyclePolicy: { runtimeRetention: 'keep-alive' },
+    })
+  })
+
   test('wraps a throwing compiler into a compiler_exception diagnostic', async () => {
-    const service = createAspcService({
+    const response = await createAspcService({
       compiler: async () => {
         throw new Error('boom from compiler')
       },
-    })
+    }).compileHarnessInvocation(buildRequest())
 
-    const response = await service.compileRuntimePlan({ compileRequest: COMPILE_REQUEST })
     expect(response.ok).toBe(false)
     if (response.ok) return
+    expect(response.schemaVersion).toBe('aspc-compile-harness-invocation-response/v2')
     expect(response.diagnostics).toHaveLength(1)
-    const [diagnostic] = response.diagnostics
-    expect(diagnostic?.code).toBe('compiler_exception')
-    expect(diagnostic?.message).toBe('boom from compiler')
-    expect(diagnostic?.plane).toBe('asp-compiler')
-  })
-})
-
-describe('AspcService.compileHarnessInvocation profile selection', () => {
-  test('returns ok for exactly one matched profile (single-match path)', async () => {
-    const profile = fakeProfile({ profileId: 'only-one' })
-    const service = createAspcService({
-      compiler: compilerReturning(okPlanResponse([profile])),
+    expect(response.diagnostics[0]).toMatchObject({
+      code: 'compiler_exception',
+      message: 'boom from compiler',
+      plane: 'asp-compiler',
     })
-
-    const response = await service.compileHarnessInvocation(buildRequest())
-    expect(response.ok).toBe(true)
-    if (!response.ok) return
-    expect(response.selectedProfile.profileId).toBe('only-one')
-    expect(response.startRequest).toEqual(profile.harnessInvocation.startRequest)
   })
 
-  test('single-match path returns ok even with a narrowing selector', async () => {
-    const match = fakeProfile({ profileId: 'wanted', brokerDriver: 'codex-app-server' })
-    const other = fakeProfile({ profileId: 'unwanted', brokerDriver: 'claude-code-tmux' })
-    const service = createAspcService({
-      compiler: compilerReturning(okPlanResponse([match, other])),
-    })
-
-    const response = await service.compileHarnessInvocation(
-      buildRequest({ brokerDriver: 'codex-app-server' })
-    )
-    expect(response.ok).toBe(true)
-    if (!response.ok) return
-    expect(response.selectedProfile.profileId).toBe('wanted')
-  })
-
-  test('reports broker_profile_missing when no profile matches', async () => {
-    const service = createAspcService({
-      compiler: compilerReturning(
-        okPlanResponse([fakeProfile({ brokerDriver: 'codex-app-server' })])
-      ),
-    })
-
-    const response = await service.compileHarnessInvocation(
-      buildRequest({ brokerDriver: 'does-not-exist' })
-    )
-    expect(response.ok).toBe(false)
-    if (response.ok) return
-    const codes = response.diagnostics.map((d) => d.code)
-    expect(codes).toContain('broker_profile_missing')
-  })
-
-  test('reports broker_profile_ambiguous when multiple profiles match', async () => {
-    const service = createAspcService({
-      compiler: compilerReturning(
-        okPlanResponse([
-          fakeProfile({ profileId: 'a', brokerDriver: 'codex-app-server' }),
-          fakeProfile({ profileId: 'b', brokerDriver: 'codex-app-server' }),
-        ])
-      ),
-    })
-
-    const response = await service.compileHarnessInvocation(
-      buildRequest({ brokerDriver: 'codex-app-server' })
-    )
-    expect(response.ok).toBe(false)
-    if (response.ok) return
-    const codes = response.diagnostics.map((d) => d.code)
-    expect(codes).toContain('broker_profile_ambiguous')
-  })
-
-  test('propagates compile failure diagnostics unchanged', async () => {
-    const service = createAspcService({
+  test('propagates compile failure diagnostics without a nested legacy response', async () => {
+    const response = await createAspcService({
       compiler: compilerReturning({
-        schemaVersion: 'agent-runtime-compile-response/v1',
+        schemaVersion: 'agent-runtime-compile-response/v2',
         ok: false,
         diagnostics: [
           {
@@ -179,12 +138,11 @@ describe('AspcService.compileHarnessInvocation profile selection', () => {
           },
         ],
       }),
-    })
+    }).compileHarnessInvocation(buildRequest())
 
-    const response = await service.compileHarnessInvocation(buildRequest())
     expect(response.ok).toBe(false)
     if (response.ok) return
-    expect(response.diagnostics.map((d) => d.code)).toEqual(['upstream_failure'])
-    expect(response.compileResponse.ok).toBe(false)
+    expect(response.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['upstream_failure'])
+    expect(response).not.toHaveProperty('compileResponse')
   })
 })

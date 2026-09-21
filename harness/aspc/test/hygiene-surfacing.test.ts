@@ -1,6 +1,6 @@
 /**
  * ASPC surfacing of the compose-time hygiene cache-admission block (T-05574,
- * Cond 1). The real `compileRuntimePlan` converts a `MaterializationHygieneError`
+ * Cond 1). The compiler converts a `MaterializationHygieneError`
  * to an `ok: false` response carrying `materialization_hygiene_error`
  * `CompileDiagnostic[]` BEFORE it reaches the aspc facade — so the facade's generic
  * `compiler_exception` catch never sees it. These tests inject a compiler that
@@ -12,14 +12,19 @@
 
 import { describe, expect, test } from 'bun:test'
 import type { AspcCompileHarnessInvocationRequest } from 'spaces-aspc-protocol'
-import type { CompileDiagnostic } from 'spaces-runtime-contracts'
-import type { LegacyRuntimeCompileRequest as RuntimeCompileRequest } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
+import type { CompileDiagnostic, RuntimeCompileRequest } from 'spaces-runtime-contracts'
 import type { AspcCompiler } from '../src/service.js'
 import { createAspcService } from '../src/service.js'
 
 const COMPILE_REQUEST = {
-  schemaVersion: 'agent-runtime-compile-request/v1',
+  schemaVersion: 'agent-runtime-compile-request/v2',
+  agent: { id: 'cody' },
+  identity: {},
   placement: {},
+  requested: {},
+  materialization: {},
+  hrcPolicy: {},
+  correlation: {},
 } as unknown as RuntimeCompileRequest
 
 function buildRequest(): AspcCompileHarnessInvocationRequest {
@@ -42,23 +47,12 @@ const HYGIENE_DIAGNOSTIC: CompileDiagnostic = {
 
 /** A compiler that returns the CONVERTED hygiene-block response (ok:false). */
 const hygieneBlockingCompiler: AspcCompiler = async () => ({
-  schemaVersion: 'agent-runtime-compile-response/v1',
+  schemaVersion: 'agent-runtime-compile-response/v2',
   ok: false,
   diagnostics: [HYGIENE_DIAGNOSTIC],
 })
 
 describe('ASPC surfaces materialization_hygiene_error (not compiler_exception)', () => {
-  test('compileRuntimePlan surfaces the typed hygiene diagnostics', async () => {
-    const service = createAspcService({ compiler: hygieneBlockingCompiler })
-    const response = await service.compileRuntimePlan({ compileRequest: COMPILE_REQUEST })
-    expect(response.ok).toBe(false)
-    if (response.ok) return
-    const codes = response.diagnostics.map((d) => d.code)
-    expect(codes).toContain('materialization_hygiene_error')
-    expect(codes).not.toContain('compiler_exception')
-    expect(response.diagnostics[0]?.details).toMatchObject({ code: 'W421', severity: 'error' })
-  })
-
   test('compileHarnessInvocation surfaces the typed hygiene diagnostics', async () => {
     const service = createAspcService({ compiler: hygieneBlockingCompiler })
     const response = await service.compileHarnessInvocation(buildRequest())
@@ -67,6 +61,7 @@ describe('ASPC surfaces materialization_hygiene_error (not compiler_exception)',
     const codes = response.diagnostics.map((d) => d.code)
     expect(codes).toContain('materialization_hygiene_error')
     expect(codes).not.toContain('compiler_exception')
-    expect(response.compileResponse.ok).toBe(false)
+    expect(response).not.toHaveProperty('compileResponse')
+    expect(response.diagnostics[0]?.details).toMatchObject({ code: 'W421', severity: 'error' })
   })
 })

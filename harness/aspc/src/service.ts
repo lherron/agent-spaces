@@ -30,7 +30,10 @@ import type {
   AspcResolveRuntimeDeclarationRequest,
   AspcResolveRuntimeDeclarationResponse,
 } from 'spaces-aspc-protocol'
-import { ASPC_PROTOCOL_VERSION } from 'spaces-aspc-protocol'
+import {
+  ASPC_COMPILE_HARNESS_INVOCATION_RESPONSE_VERSION,
+  ASPC_PROTOCOL_VERSION,
+} from 'spaces-aspc-protocol'
 import type {
   CompileContext,
   CompileDiagnostic,
@@ -46,7 +49,6 @@ import { DIAGNOSTIC_CODES, compilerDiagnostic, errorDetails, formatError } from 
 
 const ASPC_FACADE_VERSION: string = packageManifest.version
 
-const ASPC_COMPILE_HARNESS_INVOCATION_SCHEMA = 'aspc-compile-harness-invocation-response/v1'
 const RUNTIME_COMPILE_RESPONSE_SCHEMA = 'agent-runtime-compile-response/v2'
 
 export type AspcCompiler = (
@@ -319,7 +321,7 @@ async function compileHarnessInvocation(
     return failHarnessInvocation(compileResponse.diagnostics)
   }
   return {
-    schemaVersion: ASPC_COMPILE_HARNESS_INVOCATION_SCHEMA,
+    schemaVersion: ASPC_COMPILE_HARNESS_INVOCATION_RESPONSE_VERSION,
     ok: true,
     plan: compileResponse.plan,
     diagnostics: compileResponse.diagnostics,
@@ -343,7 +345,7 @@ function failHarnessInvocation(
   diagnostics: CompileDiagnostic[]
 ): Extract<AspcCompileHarnessInvocationResponse, { ok: false }> {
   return {
-    schemaVersion: ASPC_COMPILE_HARNESS_INVOCATION_SCHEMA,
+    schemaVersion: ASPC_COMPILE_HARNESS_INVOCATION_RESPONSE_VERSION,
     ok: false,
     diagnostics,
   }

@@ -11,7 +11,6 @@ import type {
   AspcCommand,
   AspcCompileAndStartRequest,
   AspcCompileHarnessInvocationRequest,
-  AspcCompileRuntimePlanRequest,
   AspcHelloRequest,
   AspcInspectAgentRequest,
   AspcInspectAgentSelectionRequest,
@@ -65,18 +64,6 @@ export class AspcHelloRequestValidationError extends AspcValidationError {
 
   constructor(issues: ValidationIssue[]) {
     super('AspcHelloRequestValidationError', 'Invalid ASPC hello request', issues)
-  }
-}
-
-export class AspcCompileRuntimePlanRequestValidationError extends AspcValidationError {
-  readonly code = 'INVALID_ASPC_COMPILE_RUNTIME_PLAN_REQUEST'
-
-  constructor(issues: ValidationIssue[]) {
-    super(
-      'AspcCompileRuntimePlanRequestValidationError',
-      'Invalid ASPC compileRuntimePlan request',
-      issues
-    )
   }
 }
 
@@ -155,17 +142,6 @@ export function validateAspcHelloRequest(value: unknown): AspcHelloRequest {
     throw new AspcHelloRequestValidationError(issues)
   }
   return value as AspcHelloRequest
-}
-
-export function validateAspcCompileRuntimePlanRequest(
-  value: unknown
-): AspcCompileRuntimePlanRequest {
-  const issues: ValidationIssue[] = []
-  validateCompileRuntimePlan(value, 'params', issues)
-  if (issues.length > 0) {
-    throw new AspcCompileRuntimePlanRequestValidationError(issues)
-  }
-  return value as AspcCompileRuntimePlanRequest
 }
 
 export function validateAspcCompileHarnessInvocationRequest(
@@ -995,7 +971,7 @@ function validateHello(value: unknown, basePath: string, issues: ValidationIssue
   validateOptionalBooleanRecord(request['capabilities'], path(basePath, 'capabilities'), issues)
 }
 
-function validateCompileRuntimePlan(
+function validateCompileEnvelope(
   value: unknown,
   basePath: string,
   issues: ValidationIssue[]
@@ -1029,7 +1005,7 @@ function validateCompileHarnessInvocation(
   basePath: string,
   issues: ValidationIssue[]
 ): void {
-  const request = validateCompileRuntimePlan(value, basePath, issues)
+  const request = validateCompileEnvelope(value, basePath, issues)
   if (request === undefined) return
   validateOptionalStringRecord(request['dispatchEnv'], path(basePath, 'dispatchEnv'), issues)
   optionalRecord(request['runtime'], path(basePath, 'runtime'), issues)
@@ -1075,14 +1051,24 @@ function validateRuntimeCompileRequest(
   }
   const requested = requireRecord(request['requested'], path(basePath, 'requested'), issues)
   if (requested !== undefined) {
-    optionalString(requested['harness'], path(basePath, 'requested.harness'), issues)
+    if (requested['harness'] !== undefined) {
+      requireEnum(
+        requested['harness'],
+        ['agent-harness', 'claude', 'codex', 'muse'],
+        path(basePath, 'requested.harness'),
+        issues
+      )
+    }
     optionalString(requested['modelProvider'], path(basePath, 'requested.modelProvider'), issues)
     optionalString(requested['model'], path(basePath, 'requested.model'), issues)
-    optionalString(
-      requested['reasoningEffort'],
-      path(basePath, 'requested.reasoningEffort'),
-      issues
-    )
+    if (requested['reasoningEffort'] !== undefined) {
+      requireEnum(
+        requested['reasoningEffort'],
+        ['low', 'medium', 'high', 'xhigh'],
+        path(basePath, 'requested.reasoningEffort'),
+        issues
+      )
+    }
     if (requested['presentation'] !== undefined && typeof requested['presentation'] !== 'boolean') {
       issues.push(
         issue(
@@ -1099,6 +1085,22 @@ function validateRuntimeCompileRequest(
       issues
     )
   }
+  rejectUnknownParams(
+    request,
+    new Set([
+      'schemaVersion',
+      'agent',
+      'identity',
+      'placement',
+      'requested',
+      'materialization',
+      'hrcPolicy',
+      'continuation',
+      'correlation',
+    ]),
+    basePath,
+    issues
+  )
 }
 
 /**
