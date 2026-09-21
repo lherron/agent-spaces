@@ -130,8 +130,6 @@ export {
   type ForegroundLaunch,
 } from './foreground-launch.js'
 
-export { createCompileRuntimeFn } from './run-compile.js'
-
 export {
   type AgentCompileDryRunProjection,
   projectAgentCompileForDryRun,

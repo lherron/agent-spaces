@@ -1,6 +1,5 @@
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
-import type { BrokerExecutionProfile } from 'spaces-runtime-contracts'
-import type { LegacyRuntimeCompileResponse as RuntimeCompileResponse } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
+import type { CompiledExecution, RuntimeCompileResponse } from 'spaces-runtime-contracts'
 
 import type {
   ContractHarnessFailure,
@@ -72,7 +71,7 @@ function assistantTexts(events: readonly InvocationEventEnvelope[]): string[] {
 }
 
 export function selectBrokerExecutionProfile(compileResponse: RuntimeCompileResponse): {
-  profile?: BrokerExecutionProfile | undefined
+  profile?: CompiledExecution | undefined
   failures: ContractHarnessFailure[]
 } {
   const failures: ContractHarnessFailure[] = []
@@ -85,32 +84,12 @@ export function selectBrokerExecutionProfile(compileResponse: RuntimeCompileResp
     return { failures }
   }
 
-  const profiles = compileResponse.plan.executionProfiles.filter(
-    (profile): profile is BrokerExecutionProfile => profile.kind === 'harness-broker'
-  )
-  if (profiles.length === 0) {
-    failures.push({
-      code: 'broker_profile_missing',
-      message: 'Compiled plan did not contain a harness-broker execution profile.',
-      path: 'plan.executionProfiles',
-    })
-    return { failures }
-  }
-  if (profiles.length > 1) {
-    failures.push({
-      code: 'broker_profile_ambiguous',
-      message: 'Compiled plan contained more than one harness-broker execution profile.',
-      path: 'plan.executionProfiles',
-      redactedDetails: { count: profiles.length },
-    })
-    return { profile: profiles[0], failures }
-  }
-  return { profile: profiles[0], failures }
+  return { profile: compileResponse.plan.execution, failures }
 }
 
 export function assertBrokerProfileClosure(
   compileResponse: RuntimeCompileResponse,
-  profile: BrokerExecutionProfile | undefined
+  profile: CompiledExecution | undefined
 ): ContractHarnessFailure[] {
   const failures: ContractHarnessFailure[] = []
   if (!compileResponse.ok) return failures
@@ -118,49 +97,32 @@ export function assertBrokerProfileClosure(
     failures.push({
       code: 'broker_profile_missing',
       message: 'Cannot assert broker profile closure without a selected profile.',
-      path: 'plan.executionProfiles',
+      path: 'plan.execution',
     })
     return failures
   }
 
-  if (profile.kind !== 'harness-broker') {
-    failures.push({
-      code: 'broker_profile_invalid',
-      message: 'Selected profile is not a harness-broker profile.',
-      path: 'selectedProfile.kind',
-      redactedDetails: { kind: profile.kind },
-    })
-  }
-  if (profile.brokerProtocol !== 'harness-broker/0.2') {
+  if (profile.protocol !== 'harness-broker/0.2') {
     failures.push({
       code: 'broker_protocol_invalid',
       message: 'Selected broker profile does not target harness-broker/0.2.',
-      path: 'selectedProfile.brokerProtocol',
-      redactedDetails: { brokerProtocol: profile.brokerProtocol },
+      path: 'plan.execution.protocol',
+      redactedDetails: { protocol: profile.protocol },
     })
   }
-  if (!profile.brokerDriver) {
+  if (!profile.driver) {
     failures.push({
       code: 'broker_driver_missing',
       message: 'Selected broker profile has no broker driver.',
-      path: 'selectedProfile.brokerDriver',
+      path: 'plan.execution.driver',
     })
   }
-  if (profile.harnessInvocation?.startRequest === undefined) {
-    failures.push({
-      code: 'start_request_missing',
-      message: 'Selected broker profile has no invocation start request.',
-      path: 'selectedProfile.harnessInvocation.startRequest',
-    })
-    return failures
-  }
-
-  const startRequest = profile.harnessInvocation.startRequest
+  const startRequest = profile.dispatchRequest.startRequest
   if (startRequest.spec.specVersion !== 'harness-broker.invocation/v1') {
     failures.push({
       code: 'start_request_missing',
       message: 'Selected broker profile start request has an invalid broker spec version.',
-      path: 'selectedProfile.harnessInvocation.startRequest.spec.specVersion',
+      path: 'plan.execution.dispatchRequest.startRequest.spec.specVersion',
       redactedDetails: { specVersion: startRequest.spec.specVersion },
     })
   }
@@ -173,21 +135,13 @@ export function assertBrokerProfileClosure(
     failures.push({
       code: 'start_request_identity_mismatch',
       message: 'Compiled runtime identity invocationId does not match the broker start request.',
-      path: 'selectedProfile.harnessInvocation.startRequest.spec.invocationId',
+      path: 'plan.execution.dispatchRequest.startRequest.spec.invocationId',
       redactedDetails: {
         identityInvocationId,
         startRequestInvocationId: startRequest.spec.invocationId,
       },
     })
   }
-  if (profile.harnessInvocation.startRequest !== startRequest) {
-    failures.push({
-      code: 'start_request_reference_changed',
-      message: 'Selected profile did not preserve the broker start request reference.',
-      path: 'selectedProfile.harnessInvocation.startRequest',
-    })
-  }
-
   return failures
 }
 
@@ -203,16 +157,14 @@ export function assertBrokerProfileClosure(
  *   - startRequest carries NO initialInput (priming is not typed → no race).
  */
 export function assertInteractiveTmuxLaunchClosure(
-  profile: BrokerExecutionProfile | undefined
+  profile: CompiledExecution | undefined
 ): ContractHarnessFailure[] {
   const failures: ContractHarnessFailure[] = []
-  if (profile?.kind !== 'harness-broker') return failures
-  if (profile.interactionMode !== 'interactive') return failures
-  const driver = profile.brokerDriver
-  if (driver !== 'claude-code-tmux' && driver !== 'codex-cli-tmux') return failures
+  if (profile === undefined || !profile.hosting.terminalRequired) return failures
+  const driver = profile.driver
+  if (driver !== 'claude-code-tmux' && driver !== 'muse-cli-tmux') return failures
 
-  const startRequest = profile.harnessInvocation?.startRequest
-  if (startRequest === undefined) return failures
+  const startRequest = profile.dispatchRequest.startRequest
 
   const launch = startRequest.spec.launch
   if (launch?.initialPrompt === undefined || launch.initialPrompt.length === 0) {
@@ -239,7 +191,7 @@ export function assertInteractiveTmuxLaunchClosure(
 
 export function assertPreHrcRouteDecision(
   decision: PreHrcRouteDecision | undefined,
-  profile: BrokerExecutionProfile | undefined,
+  profile: CompiledExecution | undefined,
   compileResponse: RuntimeCompileResponse
 ): ContractHarnessFailure[] {
   const failures: ContractHarnessFailure[] = []
@@ -266,12 +218,12 @@ export function assertPreHrcRouteDecision(
       'Pre-HRC route decision must use broker-input turn delivery.',
     ],
     [
-      decision.selectedProfileId === profile.profileId,
+      decision.selectedProfileId === profile.profile.profileId,
       'routeDecision.selectedProfileId',
       'Pre-HRC route decision selectedProfileId must match the selected profile.',
     ],
     [
-      decision.selectedProfileHash === profile.profileHash,
+      decision.selectedProfileHash === profile.profile.profileHash,
       'routeDecision.selectedProfileHash',
       'Pre-HRC route decision selectedProfileHash must match the selected profile.',
     ],

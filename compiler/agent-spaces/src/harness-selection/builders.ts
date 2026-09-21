@@ -12,12 +12,12 @@ import type { BuilderId, ExecutionRecipe } from './types.js'
  * table is indexed; entries never reinterpret harness or presentation intent.
  */
 export const BUILDER_REGISTRY: Readonly<Record<BuilderId, ResolvedRecipeBuilder>> = {
-  'agent-harness': compileNativeAgentHarnessPlan,
-  'agent-harness-tmux': compileNativeAgentHarnessPlan,
-  'claude-code-tmux': compileClaudeTmuxPlan,
-  'codex-app-server': compileBrokerPlan,
-  'muse-serve': compileBrokerPlan,
-  'muse-cli-tmux': compileMuseTmuxPlan,
+  'agent-harness': (...args) => compileNativeAgentHarnessPlan(...args),
+  'agent-harness-tmux': (...args) => compileNativeAgentHarnessPlan(...args),
+  'claude-code-tmux': (...args) => compileClaudeTmuxPlan(...args),
+  'codex-app-server': (...args) => compileBrokerPlan(...args),
+  'muse-serve': (...args) => compileBrokerPlan(...args),
+  'muse-cli-tmux': (...args) => compileMuseTmuxPlan(...args),
 }
 
 export const BUILDER_REGISTRY_IDS: ReadonlySet<BuilderId> = new Set(

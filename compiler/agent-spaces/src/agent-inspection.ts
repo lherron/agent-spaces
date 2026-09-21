@@ -1,4 +1,3 @@
-// @ts-nocheck -- removed with the v2 inspection projection cutover (T-08704).
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 
@@ -30,7 +29,6 @@ import {
   validateAgentInspectionResult,
 } from 'spaces-runtime-contracts'
 
-import { ADAPTER_DEFS } from './client-support.js'
 import { compileRuntimePlan } from './compile-runtime-plan.js'
 import { HARNESS_CATALOG } from './harness-selection/catalog.js'
 import {
@@ -144,13 +142,7 @@ export async function inspectRuntimePlacement(
   const provisioning = declaration['provisioning'] as {
     effectiveHarness?: string | undefined
   }
-  // The declaration no longer projects a frontend (T-08701); the v1
-  // inspection identifiers resolve it from the internal legacy seam by exact
-  // canonical harness id (EN-15986). An undeclared harness stays undefined
-  // and is rejected downstream, never defaulted.
-  const legacyRouting = [...ADAPTER_DEFS.values()].find(
-    (adapter) => adapter.internalId === provisioning['effectiveHarness']
-  )
+  const effectiveHarness = provisioning['effectiveHarness'] ?? 'agent-harness'
   const placement = placementFromDeclaration(
     {
       ...resolvedPlacement,
@@ -205,9 +197,11 @@ export async function inspectRuntimePlacement(
     scope: `agent:${context['agentId']}:project:${projectId}`,
     ...(preparation.identity.taskId ? { taskId: preparation.identity.taskId } : {}),
     lane: preparation.identity.lane ?? 'primary',
-    harness: provisioning['effectiveHarness'] as string,
-    frontend: legacyRouting?.frontend as string,
-    interaction: 'interactive',
+    harness: effectiveHarness,
+    // These two identifiers remain in the inspection-v1 DTO, but no longer
+    // select a compiler route. They are compatibility display values only.
+    frontend: effectiveHarness,
+    interaction: 'headless',
   }
   const profilePath = join(placement.agentRoot, 'agent-profile.toml')
   const evaluationContext: AgentInspectionEvaluationContext = {
@@ -588,9 +582,10 @@ function buildInspectionCompileRequest(
     traceId: `trace_${seed}`,
     idempotencyKey: `agent-inspection:${seed}`,
   } as RuntimeCompileRequest['identity']
-  const harness = requestedHarness(request.identifiers.harness, request.identifiers.frontend)
+  const harness = requestedHarness(request.identifiers.harness)
   return {
-    schemaVersion: 'agent-runtime-compile-request/v1',
+    schemaVersion: 'agent-runtime-compile-request/v2',
+    agent: { id: request.identifiers.agentId },
     identity,
     placement: {
       kind: 'agent-inspection',
@@ -611,12 +606,11 @@ function buildInspectionCompileRequest(
       },
     },
     requested: {
+      harness: harness.id,
       modelProvider: harness.provider,
       model: request.declaredOverrides.modelId,
       reasoningEffort: request.declaredOverrides.reasoningEffort,
-      harnessFamily: harness.family,
-      preferredHarnessRuntime: harness.runtime,
-      interactionMode: asInteractionMode(request.identifiers.interaction),
+      presentation: request.identifiers.interaction === 'interactive',
     },
     materialization: {
       initialPrompt,
@@ -701,7 +695,11 @@ function runtimePlanParts(
       partId: 'harness:selected',
       disposition: { kind: 'effective' },
       provenance: RUNTIME_PLAN_PROVENANCE,
-      value: plan.harness,
+      value: {
+        family: plan.selection.harness,
+        runtime: plan.execution.recipeId,
+        provider: plan.selection.modelProvider,
+      },
     },
     {
       kind: 'model',
@@ -709,10 +707,10 @@ function runtimePlanParts(
       disposition: { kind: 'effective' },
       provenance: RUNTIME_PLAN_PROVENANCE,
       value: {
-        provider: plan.model.provider,
-        modelId: plan.model.modelId,
-        ...(plan.model.reasoningEffort !== undefined
-          ? { reasoningEffort: plan.model.reasoningEffort }
+        provider: plan.selection.modelProvider,
+        modelId: plan.selection.model,
+        ...(plan.selection.reasoningEffort !== undefined
+          ? { reasoningEffort: plan.selection.reasoningEffort }
           : {}),
       },
     },
@@ -728,27 +726,17 @@ function runtimePlanParts(
       },
     },
   ]
-  for (const profile of plan.executionProfiles) {
-    parts.push({
-      kind: 'execution-profile',
-      partId: `execution-profile:${profile.profileId}`,
-      disposition: { kind: 'effective' },
-      provenance: RUNTIME_PLAN_PROVENANCE,
-      value: {
-        profileId: profile.profileId,
-        controllerKind: profile.kind,
-      },
-    })
-  }
-  if (plan.executionProfiles.length === 0) {
-    parts.push({
-      kind: 'execution-profile',
-      partId: 'execution-profile:none',
-      disposition: { kind: 'skipped', reason: 'empty' },
-      provenance: RUNTIME_PLAN_PROVENANCE,
-      value: { profileId: 'none', controllerKind: 'none' },
-    })
-  }
+  parts.push({
+    kind: 'execution-profile',
+    partId: `execution-profile:${plan.execution.profile.profileId}`,
+    disposition: { kind: 'effective' },
+    provenance: RUNTIME_PLAN_PROVENANCE,
+    value: {
+      profileId: plan.execution.profile.profileId,
+      controllerKind: plan.execution.driver,
+      configuration: { recipeId: plan.execution.recipeId },
+    },
+  })
   return parts
 }
 
@@ -847,39 +835,13 @@ function asRunMode(value: string): 'query' | 'heartbeat' | 'task' | 'maintenance
   return 'query'
 }
 
-function asInteractionMode(value: string): 'interactive' | 'nonInteractive' | 'headless' {
-  if (value === 'interactive' || value === 'nonInteractive') return value
-  return 'headless'
-}
-
-function requestedHarness(
-  value: string,
-  frontend: string
-): {
-  family: RuntimeCompileRequest['requested']['harnessFamily']
-  runtime: RuntimeCompileRequest['requested']['preferredHarnessRuntime']
+function requestedHarness(value: string): {
+  id: RuntimeCompileRequest['requested']['harness']
   provider: RuntimeCompileRequest['requested']['modelProvider']
 } {
   const id = isHarnessId(value) ? value : undefined
-  const entry = id === undefined ? undefined : HARNESS_CATALOG[id]
-  if (id === 'claude') {
-    return {
-      family: 'claude-code',
-      runtime: 'claude-code-cli',
-      provider: 'anthropic',
-    }
-  }
-  if (id === 'agent-harness') {
-    return { family: 'pi', runtime: 'agent-harness', provider: 'openai' }
-  }
-  if (id === 'muse') {
-    return { family: 'muse', runtime: 'muse-cli', provider: 'meta' }
-  }
-  return {
-    family: 'codex',
-    runtime: 'codex-cli',
-    provider: entry?.defaultModelProvider ?? 'openai',
-  }
+  if (id === undefined) throw new Error(`Unsupported inspection harness ${value}`)
+  return { id, provider: HARNESS_CATALOG[id].defaultModelProvider }
 }
 
 function formatError(error: unknown): string {

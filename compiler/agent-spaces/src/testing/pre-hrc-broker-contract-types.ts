@@ -5,24 +5,22 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import type {
   AgentchatExposurePolicy,
-  BrokerExecutionProfile,
   BrokerInputPolicy,
   BrokerPermissionPolicy,
   CompatibilityHash,
   CompileDiagnostic,
   CompileId,
+  CompiledExecution,
+  CompiledRuntimePlan,
   PlanHash,
-  ProfileHash,
-  ProfileId,
+  RuntimeCompileRequest,
+  RuntimeCompileResponse,
   RuntimeIdentityAllocation,
   RuntimeOperationId,
   RuntimeResourceLimits,
 } from 'spaces-runtime-contracts'
-import type {
-  LegacyCompiledRuntimePlan as CompiledRuntimePlan,
-  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
-  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
-} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
+
+export type SelectedCompiledExecution = CompiledExecution
 
 export type PreHrcRouteDecision = {
   schemaVersion: 'pre-hrc-route-decision/v1'
@@ -31,8 +29,8 @@ export type PreHrcRouteDecision = {
   compileId: CompileId
   planHash: PlanHash
 
-  selectedProfileId: ProfileId
-  selectedProfileHash: ProfileHash
+  selectedProfileId: string
+  selectedProfileHash: string
   selectedProfileKind: 'harness-broker'
   controller: 'harness-broker'
   startupMethod: 'create-broker-invocation'
@@ -150,8 +148,6 @@ export type PreHrcBrokerContractHarnessInput = {
         env?: Record<string, string> | undefined
       }
     | undefined
-  /** Narrow profile selection by id/hash (forwarded to selectBrokerProfile). */
-  profileSelector?: { profileId?: string | undefined; profileHash?: string | undefined } | undefined
   brokerStartAssertions?:
     | {
         baseline?:
@@ -187,7 +183,7 @@ export type PreHrcBrokerContractHarnessInput = {
    * compiler-closure verifier runs, to exercise the pre-broker-start contract
    * gate. Production callers never set this.
    */
-  mutateProfileForTest?: ((profile: BrokerExecutionProfile) => void) | undefined
+  mutateProfileForTest?: ((execution: SelectedCompiledExecution) => void) | undefined
 }
 
 export type PreHrcBrokerContractArtifactManifest = {
@@ -198,7 +194,7 @@ export type PreHrcBrokerContractArtifactManifest = {
     | {
         compileId?: CompileId | undefined
         planHash?: PlanHash | undefined
-        selectedProfileHash?: ProfileHash | undefined
+        selectedProfileHash?: string | undefined
         startRequestHash?: string | undefined
       }
     | undefined
@@ -220,7 +216,7 @@ export type PreHrcBrokerContractHarnessResult = {
   mode: 'dry-run-compile' | 'broker-start' | 'interactive-tmux'
   compileResponse: RuntimeCompileResponse
   compiledPlan?: CompiledRuntimePlan | undefined
-  selectedProfile?: BrokerExecutionProfile | undefined
+  selectedProfile?: SelectedCompiledExecution | undefined
   routeDecision?: PreHrcRouteDecision | undefined
   artifacts?: PreHrcBrokerContractArtifactManifest | undefined
   assertionReport: PreHrcBrokerContractAssertionReport
