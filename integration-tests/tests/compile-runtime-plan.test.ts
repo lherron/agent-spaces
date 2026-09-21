@@ -294,4 +294,119 @@ describe('v2 runtime compile plan', () => {
       kind: 'pty',
     })
   })
+
+  test('keeps the complete identity allocation attached to both the plan and its only dispatch', async () => {
+    const value = fixture('allocated-agent')
+    const request = buildV2CompileRequest(value, {
+      namespace: 'complete-identity',
+      harness: 'codex',
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+      prompt: 'retain the allocation',
+    })
+    const response = await compileV2Request(value, request)
+    expect(response.ok).toBe(true)
+    if (!response.ok) return
+
+    expect(response.plan.identity).toEqual(request.identity)
+    expect(response.plan.execution.dispatchRequest.startRequest.spec).toMatchObject({
+      invocationId: request.identity.invocationId,
+      correlation: expect.objectContaining({
+        requestId: request.identity.requestId,
+        operationId: request.identity.operationId,
+        hostSessionId: request.identity.hostSessionId,
+        runtimeId: request.identity.runtimeId,
+        runId: request.identity.runId,
+        traceId: request.identity.traceId,
+      }),
+    })
+  })
+
+  test('keeps correlation changes out of compatibility mechanics while preserving their dispatch values', async () => {
+    const value = fixture()
+    const common = {
+      harness: 'codex' as const,
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+      lockedEnv: { LOCKED_MODE: 'strict' },
+    }
+    const first = await compileV2(value, {
+      ...common,
+      namespace: 'correlation-mechanics-a',
+      scopeRef: 'agent:cody:project:agent-spaces:task:T-08704',
+      laneRef: 'repair',
+    })
+    const second = await compileV2(value, {
+      ...common,
+      namespace: 'correlation-mechanics-b',
+      scopeRef: 'agent:cody:project:agent-spaces:task:T-99999',
+      laneRef: 'main',
+    })
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    if (!first.ok || !second.ok) return
+
+    expect(second.plan.execution.profile.compatibilityHash).toBe(
+      first.plan.execution.profile.compatibilityHash
+    )
+    expect(second.plan.execution.dispatchRequest.startRequest.spec.correlation).toMatchObject({
+      scopeRef: 'agent:cody:project:agent-spaces:task:T-99999',
+      laneRef: 'main',
+    })
+  })
+
+  test('retains requested reasoning effort as selection data without exposing a selectable driver', async () => {
+    const { plan } = await planFor({
+      namespace: 'reasoning-selection',
+      harness: 'codex',
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+      reasoningEffort: 'xhigh',
+    })
+    expect(plan.selection).toMatchObject({
+      harness: 'codex',
+      reasoningEffort: 'xhigh',
+      provenance: { reasoningEffort: 'compile-request' },
+    })
+    expect(plan.execution).not.toHaveProperty('selectedDriver')
+  })
+
+  test('keeps placement bundle and requested run mode available to the broker start request', async () => {
+    const { plan } = await planFor(
+      {
+        namespace: 'placement-materialization',
+        harness: 'muse',
+        modelProvider: 'meta',
+        model: 'muse-spark-1.3-contributor',
+        presentation: false,
+        runMode: 'heartbeat',
+        prompt: 'materialize placement facts',
+      },
+      'placement-agent'
+    )
+    expect(plan.placement).toMatchObject({
+      runMode: 'heartbeat',
+      bundle: { kind: 'agent-project', agentName: 'placement-agent' },
+    })
+    expect(plan.execution.dispatchRequest.startRequest.spec.correlation).toMatchObject({
+      agentId: 'placement-agent',
+      runMode: 'heartbeat',
+    })
+  })
+
+  test('does not reintroduce plural profile selection into a successful v2 plan', async () => {
+    const { plan } = await planFor({
+      namespace: 'singular-execution',
+      harness: 'agent-harness',
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: true,
+    })
+    expect(plan).not.toHaveProperty('executionProfiles')
+    expect(plan.execution.dispatchRequest.startRequest.spec.driver.kind).toBe(plan.execution.driver)
+    expect(plan.execution.profile.profileId).toMatch(/^profile_/)
+  })
 })

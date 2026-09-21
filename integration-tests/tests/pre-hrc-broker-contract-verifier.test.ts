@@ -81,4 +81,112 @@ describe('pre-HRC broker contract verifier on v2 execution', () => {
       validateInvocationStartRequest({ invocationId: 'inv_wrong', state: 'running' })
     ).toThrow()
   })
+
+  test.each([
+    ['agent-harness', 'openai-codex', 'gpt-5.6-terra', false, 'agent-harness'],
+    ['agent-harness', 'openai-codex', 'gpt-5.6-terra', true, 'agent-harness-tmux'],
+    ['claude', 'anthropic', 'claude-sonnet-4-5', false, 'claude-code-tmux'],
+    ['codex', 'openai-codex', 'gpt-5.6-terra', true, 'codex-app-server'],
+    ['muse', 'meta', 'muse-spark-1.3-contributor', false, 'muse-serve'],
+    ['muse', 'meta', 'muse-spark-1.3-contributor', true, 'muse-cli-tmux'],
+  ] as const)(
+    'keeps the %s retained route verifiable as its expected broker driver',
+    async (harness, modelProvider, model, presentation, driver) => {
+      const request = await startRequest({
+        namespace: `contract-driver-${harness}-${presentation}`,
+        harness,
+        modelProvider,
+        model,
+        presentation,
+      })
+      expect(request.spec.driver.kind).toBe(driver)
+      expect(validateInvocationStartRequest(request)).toBe(request)
+    }
+  )
+
+  test('rejects stale runtime and lifecycle overlays placed on the canonical start request', async () => {
+    const request = await startRequest({
+      namespace: 'contract-stale-overlay',
+      harness: 'codex',
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+    })
+    expect(() =>
+      validateInvocationStartRequest({
+        ...request,
+        runtime: { socketPath: '/tmp/not-a-start-request-field' },
+      })
+    ).toThrow(/runtime/)
+    expect(() =>
+      validateInvocationStartRequest({
+        ...request,
+        lifecyclePolicy: { policyId: 'not-a-start-request-field' },
+      })
+    ).toThrow(/lifecyclePolicy/)
+  })
+
+  test('rejects malformed typed initial input before a broker can start it', async () => {
+    const request = await startRequest({
+      namespace: 'contract-invalid-input',
+      harness: 'codex',
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+      prompt: 'validate input shape',
+    })
+    expect(() =>
+      validateInvocationStartRequest({
+        ...request,
+        initialInput: {
+          ...request.initialInput,
+          kind: 'invalid-input-kind',
+        },
+      })
+    ).toThrow()
+  })
+
+  test('keeps dispatch-only environment out of the hash-covered request verified by the broker', async () => {
+    const fixture = createV2CompileFixture()
+    fixtures.push(fixture)
+    const response = await compileV2(fixture, {
+      namespace: 'contract-dispatch-env',
+      harness: 'codex',
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+      lockedEnv: { LOCKED_MODE: 'strict' },
+      dispatchEnv: { EPHEMERAL_TOKEN: 'dispatch-only' },
+    })
+    expect(response.ok).toBe(true)
+    if (!response.ok) return
+    const dispatch = response.plan.execution.dispatchRequest
+    expect(dispatch.dispatchEnv).toEqual({ EPHEMERAL_TOKEN: 'dispatch-only' })
+    expect(JSON.stringify(dispatch.startRequest)).not.toContain('dispatch-only')
+    expect(validateInvocationStartRequest(dispatch.startRequest)).toBe(dispatch.startRequest)
+  })
+
+  test('keeps the compiled initial input bound to its allocated input and invocation identity', async () => {
+    const fixture = createV2CompileFixture()
+    fixtures.push(fixture)
+    const response = await compileV2(fixture, {
+      namespace: 'contract-input-identity',
+      harness: 'codex',
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+      prompt: 'bind input to invocation',
+    })
+    expect(response.ok).toBe(true)
+    if (!response.ok) return
+    const { identity, execution } = response.plan
+    expect(execution.dispatchRequest.startRequest).toMatchObject({
+      initialInput: { inputId: identity.initialInputId },
+      spec: { invocationId: identity.invocationId },
+    })
+    expect(execution.dispatchRequest.startRequest.spec.correlation).toMatchObject({
+      runtimeId: identity.runtimeId,
+      hostSessionId: identity.hostSessionId,
+    })
+  })
 })

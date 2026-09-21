@@ -366,7 +366,7 @@ function eventContains(event: InvocationEventEnvelope, value: string): boolean {
  * normalized stream, so this checks delivery order and one complete command
  * turn rather than reconstructing a retired compiler-side execution profile.
  */
-function verifyBrokerEventFloor(
+export function verifyBrokerEventFloor(
   events: InvocationEventEnvelope[],
   invocationId: InvocationId,
   marker: string

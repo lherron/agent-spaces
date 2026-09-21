@@ -132,4 +132,84 @@ describe('v2 agent environment contract', () => {
       first.plan.execution.profile.compatibilityHash
     )
   })
+
+  test('keeps dispatch-only changes out of both compatibility and start-request hashes', async () => {
+    const fixture = createV2CompileFixture()
+    fixtures.push(fixture)
+    const common = {
+      harness: 'codex' as const,
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+      lockedEnv: { LOCKED_MODE: 'strict' },
+    }
+    const first = await compileV2(fixture, {
+      ...common,
+      namespace: 'env-hash-dispatch-a',
+      dispatchEnv: { RUNTIME_INSTANCE: 'a' },
+    })
+    const second = await compileV2(fixture, {
+      ...common,
+      namespace: 'env-hash-dispatch-b',
+      dispatchEnv: { RUNTIME_INSTANCE: 'b' },
+    })
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    if (!first.ok || !second.ok) return
+
+    expect(second.plan.execution.profile.compatibilityHash).toBe(
+      first.plan.execution.profile.compatibilityHash
+    )
+    expect(second.plan.execution.profile.startRequestHash).toBe(
+      first.plan.execution.profile.startRequestHash
+    )
+  })
+
+  test.each([
+    [{ LOCKED_MODE: 'strict' }, { LOCKED_MODE: 'relaxed' }],
+    [{ LOCKED_MODE: 'strict' }, { LOCKED_MODE: 'strict', EXTRA_FLAG: '1' }],
+  ])(
+    'changes hash-covered mechanics when locked environment changes from %j to %j',
+    async (a, b) => {
+      const fixture = createV2CompileFixture()
+      fixtures.push(fixture)
+      const common = {
+        harness: 'codex' as const,
+        modelProvider: 'openai-codex',
+        model: 'gpt-5.6-terra',
+        presentation: false,
+      }
+      const first = await compileV2(fixture, { ...common, namespace: 'env-locked-a', lockedEnv: a })
+      const second = await compileV2(fixture, {
+        ...common,
+        namespace: 'env-locked-b',
+        lockedEnv: b,
+      })
+      expect(first.ok).toBe(true)
+      expect(second.ok).toBe(true)
+      if (!first.ok || !second.ok) return
+
+      expect(second.plan.execution.profile.compatibilityHash).not.toBe(
+        first.plan.execution.profile.compatibilityHash
+      )
+      expect(second.plan.execution.profile.startRequestHash).not.toBe(
+        first.plan.execution.profile.startRequestHash
+      )
+    }
+  )
+
+  test('does not turn empty dispatch or locked inputs into a synthetic process overlay', async () => {
+    const plan = await compile({
+      namespace: 'env-empty-overlays',
+      harness: 'codex',
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+      lockedEnv: {},
+      dispatchEnv: {},
+    })
+    expect(plan.execution.dispatchRequest.dispatchEnv).toEqual({})
+    expect(plan.execution.dispatchRequest.startRequest.spec.process.lockedEnv).toEqual({})
+    expect(plan.lockedEnv.lockedEnvKeys).toEqual([])
+  })
 })

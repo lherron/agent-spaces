@@ -232,4 +232,77 @@ describe('v2 broker execution projection', () => {
     expect(process.pathPrepend).toBeUndefined()
     expect(process.lockedEnv).not.toHaveProperty('PATH')
   })
+
+  test.each([
+    ['agent-harness', 'openai-codex', 'gpt-5.6-terra', false, 'native-worker'],
+    ['agent-harness', 'openai-codex', 'gpt-5.6-terra', true, 'native-worker'],
+    ['claude', 'anthropic', 'claude-sonnet-4-5', false, 'pty'],
+    ['codex', 'openai-codex', 'gpt-5.6-terra', false, 'jsonrpc-stdio'],
+    ['muse', 'meta', 'muse-spark-1.3-contributor', false, 'jsonrpc-stdio'],
+    ['muse', 'meta', 'muse-spark-1.3-contributor', true, 'pty'],
+  ] as const)(
+    'keeps %s presentation=%s on its explicit broker transport',
+    async (harness, modelProvider, model, presentation, transport) => {
+      const execution = await compile({
+        namespace: `profile-transport-${harness}-${presentation}`,
+        harness,
+        modelProvider,
+        model,
+        presentation,
+      })
+      expect(execution.hosting.executionTransport).toBe(transport)
+      expect(execution.dispatchRequest.startRequest.spec.process.harnessTransport).toEqual({
+        kind: transport,
+      })
+    }
+  )
+
+  test('keeps non-presentation Codex outside a terminal-hosted execution surface', async () => {
+    const execution = await compile({
+      namespace: 'profile-codex-headless-hosting',
+      harness: 'codex',
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+    })
+    expect(execution.hosting).toMatchObject({
+      terminalRequired: false,
+      processExecution: 'broker-process',
+    })
+    expect(execution).not.toHaveProperty('presentationSurface')
+  })
+
+  test('keeps a required terminal surface in the execution recipe instead of dispatch environment', async () => {
+    const execution = await compile({
+      namespace: 'profile-terminal-recipe',
+      harness: 'muse',
+      modelProvider: 'meta',
+      model: 'muse-spark-1.3-contributor',
+      presentation: true,
+    })
+    expect(execution.presentationSurface).toEqual({ transport: 'terminal', terminalHost: 'tmux' })
+    expect(execution.dispatchRequest.dispatchEnv).toBeUndefined()
+    expect(execution.dispatchRequest.startRequest.spec).not.toHaveProperty('runtime')
+  })
+
+  test('changes broker mechanics when denied tools change for the selected Claude harness', async () => {
+    const common = {
+      harness: 'claude' as const,
+      modelProvider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      presentation: true,
+    }
+    const bashOnly = await compile({
+      ...common,
+      namespace: 'profile-tool-hash-a',
+      disallowedTools: ['Bash'],
+    })
+    const bashAndWrite = await compile({
+      ...common,
+      namespace: 'profile-tool-hash-b',
+      disallowedTools: ['Bash', 'Write'],
+    })
+    expect(bashAndWrite.profile.compatibilityHash).not.toBe(bashOnly.profile.compatibilityHash)
+    expect(bashAndWrite.profile.startRequestHash).not.toBe(bashOnly.profile.startRequestHash)
+  })
 })

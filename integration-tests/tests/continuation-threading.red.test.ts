@@ -179,4 +179,70 @@ describe('v2 continuation threading', () => {
       first.plan.execution.profile.startRequestHash
     )
   })
+
+  test('keeps a resumed Codex caller prompt as a typed broker input rather than a driver argument', async () => {
+    const plan = await compile({
+      namespace: 'continuation-codex-input',
+      harness: 'codex',
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+      continuation: codexContinuation,
+      prompt: 'continue with this caller message',
+    })
+    const start = plan.execution.dispatchRequest.startRequest
+    expect(start.initialInput?.content).toEqual([
+      { type: 'text', text: 'continue with this caller message' },
+    ])
+    expect(start.spec.process.args).not.toContain('continue with this caller message')
+  })
+
+  test('does not leave Codex resume state on a fresh request after compiling a resumed request', async () => {
+    const fixture = createV2CompileFixture()
+    fixtures.push(fixture)
+    const common = {
+      harness: 'codex' as const,
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+    }
+    const resumed = await compileV2(fixture, {
+      ...common,
+      namespace: 'continuation-isolation-resumed',
+      continuation: codexContinuation,
+    })
+    const fresh = await compileV2(fixture, {
+      ...common,
+      namespace: 'continuation-isolation-fresh',
+    })
+    expect(resumed.ok).toBe(true)
+    expect(fresh.ok).toBe(true)
+    if (!resumed.ok || !fresh.ok) return
+
+    expect(resumed.plan.execution.dispatchRequest.startRequest.spec.driver).toMatchObject({
+      resumeThreadId: 'thread_T08704',
+    })
+    expect(fresh.plan.execution.dispatchRequest.startRequest.spec.driver).not.toHaveProperty(
+      'resumeThreadId'
+    )
+    expect(fresh.plan.execution.dispatchRequest.startRequest.spec.continuation).toBeUndefined()
+  })
+
+  test('retains continuation provenance without leaking its observed timestamp into the canonical spec', async () => {
+    const plan = await compile({
+      namespace: 'continuation-provenance-hygiene',
+      harness: 'codex',
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+      continuation: codexContinuation,
+    })
+    const continuation = plan.execution.dispatchRequest.startRequest.spec.continuation
+    expect(continuation).toMatchObject({
+      provider: 'codex',
+      kind: 'thread',
+      key: 'thread_T08704',
+    })
+    expect(JSON.stringify(continuation)).not.toContain(codexContinuation.observedAt)
+  })
 })
