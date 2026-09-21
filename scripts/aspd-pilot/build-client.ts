@@ -23,11 +23,16 @@ export const ALLOWED_CLIENT_SOURCE_ROOTS = [
 ] as const
 
 export function forbiddenClientInputs(inputs: string[]): string[] {
-  return inputs.filter(
-    (input) =>
-      !input.startsWith('node:') &&
-      !ALLOWED_CLIENT_SOURCE_ROOTS.some((allowed) => input === allowed || input.startsWith(allowed))
-  )
+  return inputs.filter((input) => {
+    const contractIndex = input.indexOf('contracts/')
+    const normalized = contractIndex === -1 ? input : input.slice(contractIndex)
+    return (
+      !normalized.startsWith('node:') &&
+      !ALLOWED_CLIENT_SOURCE_ROOTS.some(
+        (allowed) => normalized === allowed || normalized.startsWith(allowed)
+      )
+    )
+  })
 }
 
 function run(cmd: string[]): string {

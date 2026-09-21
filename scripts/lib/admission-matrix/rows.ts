@@ -35,21 +35,16 @@ import type {
   InvocationRuntimeContext,
   InvocationStartRequest,
 } from 'spaces-harness-broker-protocol'
-import type { BrokerExecutionProfile, BrokerPermissionPolicy } from 'spaces-runtime-contracts'
+import type {
+  BrokerPermissionPolicy,
+  CompiledExecution,
+  RuntimeCompileRequest,
+} from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
-import type { LegacyRuntimeCompileRequest as RuntimeCompileRequest } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
 
-import { createAgentSpacesClient } from '../../../compiler/agent-spaces/src/index.js'
-import {
-  allocatePreHrcRuntimeIdentity,
-  buildPlacementFromScopeRef,
-} from '../../../compiler/agent-spaces/src/testing/pre-hrc-broker-helpers.js'
-import { allocatePreHrcTmuxPane } from '../../../compiler/agent-spaces/src/testing/pre-hrc-tmux-allocator.js'
 import { createDefaultClaudeCodeTmuxDriver } from '../../../harness/harness-broker/src/drivers/claude-code-tmux/driver'
 import { createCodexAppServerDriver } from '../../../harness/harness-broker/src/drivers/codex-app-server/driver'
-import { createDefaultCodexCliTmuxDriver } from '../../../harness/harness-broker/src/drivers/codex-cli-tmux/driver'
 import type { Driver } from '../../../harness/harness-broker/src/drivers/driver'
-import { createDefaultPiTuiTmuxDriver } from '../../../harness/harness-broker/src/drivers/pi-tui-tmux/driver'
 
 export const NOOP_DRIVER_KIND = 'noop-driver'
 
@@ -86,18 +81,11 @@ export type RowRecipe = {
 // ---------------------------------------------------------------------------
 
 /**
- * Every driver kind the broker can register, wired exactly as
- * `createDefaultBroker` wires the production set plus the agent-harness driver
- * that ships as an `additionalDrivers` entry. `noop-driver` is deliberately
- * absent (it is not a real harness and the spec excludes it).
+ * The two driver kinds selected by the v2 matrix request shapes. `noop-driver`
+ * is deliberately absent: it is not a real harness and the contract excludes it.
  */
 export function buildMatrixDrivers(hookIpcDir: string): Driver[] {
-  return [
-    createDefaultClaudeCodeTmuxDriver(hookIpcDir),
-    createDefaultCodexCliTmuxDriver(hookIpcDir),
-    createDefaultPiTuiTmuxDriver(hookIpcDir),
-    createCodexAppServerDriver(),
-  ]
+  return [createDefaultClaudeCodeTmuxDriver(hookIpcDir), createCodexAppServerDriver()]
 }
 
 // ---------------------------------------------------------------------------
@@ -165,21 +153,6 @@ export function resolveCodexBin(): string | undefined {
   )
 }
 
-export function resolvePiBin(): string | undefined {
-  return (
-    firstExisting([
-      process.env['ASP_PI_PATH'],
-      process.env['PI_PATH'],
-      join(homedir(), '.local/bin/pi'),
-      '/opt/homebrew/bin/pi',
-      '/usr/local/bin/pi',
-      ...nvmCandidates('pi'),
-      join(homedir(), '.volta/bin/pi'),
-      join(homedir(), '.asdf/shims/pi'),
-    ]) ?? onPath('pi')
-  )
-}
-
 function tmuxProbe(): DependencyProbe | undefined {
   const tmux = resolveTmuxBin()
   if (tmux === 'tmux' && onPath('tmux') === undefined) {
@@ -227,7 +200,7 @@ function createFixture(kind: string, agentName: string, repoRoot: string): Fixtu
   mkdirSync(aspHome, { recursive: true })
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
-    'version = 3\n\n[spaces]\nbase = []\n',
+    'version = 4\n\n[spaces]\nbase = []\n',
     'utf8'
   )
   writeFileSync(
@@ -252,33 +225,17 @@ function createFixture(kind: string, agentName: string, repoRoot: string): Fixtu
 
 const REQUESTED: Record<string, RuntimeCompileRequest['requested']> = {
   'claude-code-tmux': {
+    harness: 'claude',
     modelProvider: 'anthropic',
     model: 'sonnet',
-    harnessFamily: 'claude-code',
-    preferredHarnessRuntime: 'claude-code-cli',
-    interactionMode: 'interactive',
-  },
-  'codex-cli-tmux': {
-    modelProvider: 'openai',
-    reasoningEffort: 'medium',
-    harnessFamily: 'codex',
-    preferredHarnessRuntime: 'codex-cli',
-    interactionMode: 'interactive',
-  },
-  'pi-tui-tmux': {
-    modelProvider: 'openai',
-    model: 'gpt-5.5',
-    reasoningEffort: 'medium',
-    harnessFamily: 'pi',
-    preferredHarnessRuntime: 'pi-cli',
-    interactionMode: 'interactive',
+    presentation: true,
   },
   'codex-app-server': {
-    modelProvider: 'openai',
+    harness: 'codex',
+    modelProvider: 'openai-codex',
+    model: 'gpt-5.6-terra',
     reasoningEffort: 'medium',
-    harnessFamily: 'codex',
-    preferredHarnessRuntime: 'codex-cli',
-    interactionMode: 'headless',
+    presentation: false,
   },
 }
 
@@ -294,6 +251,22 @@ function allowPermissionPolicy(): BrokerPermissionPolicy {
   } as BrokerPermissionPolicy
 }
 
+function identity(namespace: string, marker: string): RuntimeCompileRequest['identity'] {
+  const suffix = `${namespace}_${marker}`.replaceAll(/[^a-zA-Z0-9_-]/g, '_')
+  return {
+    requestId: `request_${suffix}`,
+    operationId: `operation_${suffix}`,
+    hostSessionId: `host_${suffix}`,
+    generation: 1,
+    runtimeId: `runtime_${suffix}`,
+    invocationId: `inv_${suffix}`,
+    initialInputId: `input_${suffix}`,
+    runId: `run_${suffix}`,
+    traceId: `trace_${suffix}`,
+    idempotencyKey: suffix,
+  } as RuntimeCompileRequest['identity']
+}
+
 function compileRequest(input: {
   kind: string
   fixture: Fixture
@@ -303,27 +276,30 @@ function compileRequest(input: {
   timeoutMs: number
 }): RuntimeCompileRequest {
   const ns = `admission_matrix_${input.kind.replace(/-/g, '_')}`
-  const identity = allocatePreHrcRuntimeIdentity({
-    namespace: ns,
-    invocationId: `inv_${ns}_${input.marker}`,
-    initialInputId: `input_${ns}_${input.marker}`,
-    idempotencyKey: `${ns}-${input.marker}`,
-  })
+  const requestIdentity = identity(ns, input.marker)
   const requested = REQUESTED[input.kind]
   if (requested === undefined) throw new Error(`no compile recipe for driver kind ${input.kind}`)
-  const headless = requested.interactionMode === 'headless'
+  const headless = requested.presentation !== true
   const scopeRef = `agent:${input.agentName}:project:agent-spaces:task:T-07860`
   return {
-    schemaVersion: 'agent-runtime-compile-request/v1',
-    identity,
-    placement: buildPlacementFromScopeRef({
-      scopeRef,
-      agentName: input.agentName,
+    schemaVersion: 'agent-runtime-compile-request/v2',
+    agent: { id: input.agentName },
+    identity: requestIdentity,
+    placement: {
       agentRoot: input.fixture.agentRoot,
       projectRoot: input.fixture.projectRoot,
       cwd: input.fixture.projectRoot,
-      hostSessionId: identity.hostSessionId,
-    }),
+      runMode: 'task',
+      bundle: {
+        kind: 'agent-project',
+        agentName: input.agentName,
+        projectRoot: input.fixture.projectRoot,
+      },
+      correlation: {
+        sessionRef: { scopeRef, laneRef: 'main' },
+        hostSessionId: requestIdentity.hostSessionId,
+      },
+    } as RuntimeCompileRequest['placement'],
     requested,
     materialization: {
       initialPrompt: input.prompt,
@@ -343,24 +319,24 @@ function compileRequest(input: {
         ? { mode: 'none' }
         : { mode: 'broker-reports-target', targetKind: 'tmux-session' },
       resourceLimits: { startupTimeoutMs: input.timeoutMs, turnTimeoutMs: input.timeoutMs },
-      observability: { traceId: identity.traceId },
+      observability: { traceId: requestIdentity.traceId },
       capabilityPolicy: { allowDegrade: false, requireBrokerDefaultForCodexHeadless: true },
     },
     correlation: {
-      requestId: identity.requestId,
-      operationId: identity.operationId,
-      hostSessionId: identity.hostSessionId,
-      generation: identity.generation,
-      runtimeId: identity.runtimeId,
-      runId: identity.runId,
-      invocationId: identity.invocationId,
-      traceId: identity.traceId,
+      requestId: requestIdentity.requestId,
+      operationId: requestIdentity.operationId,
+      hostSessionId: requestIdentity.hostSessionId,
+      generation: requestIdentity.generation,
+      runtimeId: requestIdentity.runtimeId,
+      runId: requestIdentity.runId,
+      invocationId: requestIdentity.invocationId,
+      traceId: requestIdentity.traceId,
       appId: 'agent-spaces',
       appSessionKey: `${ns}-${input.marker}`,
       scopeRef,
       laneRef: 'main',
     },
-  } as RuntimeCompileRequest
+  }
 }
 
 const compilerRuntime = {
@@ -376,7 +352,8 @@ async function compileProfile(
   kind: string,
   fixture: Fixture,
   request: RuntimeCompileRequest
-): Promise<BrokerExecutionProfile> {
+): Promise<CompiledExecution> {
+  const { createAgentSpacesClient } = await import('../../../compiler/agent-spaces/src/index.js')
   const client = createAgentSpacesClient({ aspHome: fixture.aspHome, runtime: compilerRuntime })
   const response = await client.compileRuntimePlan(request)
   if (!response.ok) {
@@ -384,35 +361,88 @@ async function compileProfile(
       `compileRuntimePlan failed for ${kind}: ${JSON.stringify(response.diagnostics)}`
     )
   }
-  const profile = response.plan.executionProfiles.find(
-    (candidate): candidate is BrokerExecutionProfile =>
-      candidate.kind === 'harness-broker' && candidate.brokerDriver === kind
-  )
-  if (profile === undefined) throw new Error(`compile emitted no ${kind} broker profile`)
-  return profile
+  if (response.plan.execution.driver !== kind) {
+    throw new Error(`compile emitted ${response.plan.execution.driver}, expected ${kind}`)
+  }
+  return response.plan.execution
 }
 
 // ---------------------------------------------------------------------------
 // tmux pane allocation
 // ---------------------------------------------------------------------------
 
-function runTmux(bin: string, argv: string[]): Promise<void> {
+function runTmux(bin: string, argv: string[]): Promise<string> {
   return new Promise((resolvePromise, reject) => {
     const proc = spawn(bin, argv, { stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
     let stderr = ''
+    proc.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8')
+    })
     proc.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString('utf8')
     })
     proc.on('error', reject)
     proc.on('close', (code) =>
       code === 0
-        ? resolvePromise()
+        ? resolvePromise(stdout)
         : reject(new Error(`tmux ${argv.join(' ')} exited ${code}: ${stderr}`))
     )
   })
 }
 
 let paneCounter = 0
+
+async function allocatePaneLease(input: {
+  tmuxBin: string
+  socketPath: string
+  sessionName: string
+}): Promise<NonNullable<InvocationRuntimeContext['terminalSurface']>> {
+  const output = await runTmux(input.tmuxBin, [
+    '-S',
+    input.socketPath,
+    'new-session',
+    '-d',
+    '-s',
+    input.sessionName,
+    '-P',
+    '-F',
+    '#{session_id}\\t#{window_id}\\t#{pane_id}\\t#{window_name}',
+  ])
+  const line = output
+    .trim()
+    .split('\n')
+    .map((entry) => entry.trim())
+    .find((entry) => entry.length > 0)
+  const [sessionId, windowId, paneId, windowName] = line?.split('\t') ?? []
+  if (
+    sessionId === undefined ||
+    sessionId.length === 0 ||
+    windowId === undefined ||
+    windowId.length === 0 ||
+    paneId === undefined ||
+    paneId.length === 0
+  ) {
+    throw new Error(`tmux new-session returned malformed pane identity: ${JSON.stringify(line)}`)
+  }
+  return {
+    kind: 'tmux-pane',
+    ownership: 'hrc',
+    socketPath: input.socketPath,
+    sessionId,
+    windowId,
+    paneId,
+    sessionName: input.sessionName,
+    windowName: windowName ?? '',
+    allowedOps: {
+      inspect: true,
+      sendInput: true,
+      sendInterrupt: true,
+      capture: true,
+      resize: false,
+    },
+  }
+}
 
 async function allocatePane(
   ctx: PlanContext,
@@ -424,7 +454,7 @@ async function allocatePane(
   paneCounter += 1
   const socketPath = join('/tmp', `amt-${process.pid}-${paneCounter}.sock`)
   await runTmux(ctx.tmuxBin, ['-S', socketPath, 'start-server'])
-  const allocated = await allocatePreHrcTmuxPane({
+  const lease = await allocatePaneLease({
     tmuxBin: ctx.tmuxBin,
     socketPath,
     sessionName: `am-${kind}-${ctx.marker}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 60),
@@ -434,7 +464,7 @@ async function allocatePane(
   await runTmux(ctx.tmuxBin, ['-S', socketPath, 'set-option', '-g', 'exit-empty', 'off'])
   await runTmux(ctx.tmuxBin, ['-S', socketPath, 'set-option', '-g', 'remain-on-exit', 'on'])
   return {
-    runtime: { terminalSurface: allocated.lease },
+    runtime: { terminalSurface: lease },
     cleanup: async () => {
       await runTmux(ctx.tmuxBin, ['-S', socketPath, 'kill-server']).catch(() => undefined)
     },
@@ -452,12 +482,6 @@ function exportCodexPath(): void {
   process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
 }
 
-function exportPiPath(): void {
-  const pi = resolvePiBin()
-  if (pi === undefined) return
-  process.env['ASP_PI_PATH'] = pi
-}
-
 /** Priming prompt every seat runs at launch: cheap, deterministic, tool-free. */
 export const PRIMING_PROMPT = 'Reply with exactly READY and nothing else. Do not use any tools.'
 
@@ -468,7 +492,7 @@ function compiledRecipe(input: {
   probe: () => DependencyProbe
   driver: (hookIpcDir: string, controlDir: string) => Driver
   /**
-   * Point the compiler at the binary the probe resolved. `codex` / `pi` are
+   * Point the compiler at the binary the probe resolved. `codex` is
    * frequently absent from a headless agent's PATH (version-manager installs),
    * and the compiler reads these env keys — so a row that probed a real binary
    * must hand that same path to the compile, or the compiled launch is a
@@ -504,12 +528,12 @@ function compiledRecipe(input: {
         }
         return {
           driver: input.driver(ctx.hookIpcDir, join(ctx.hookIpcDir, 'control')),
-          startRequest: profile.harnessInvocation.startRequest,
+          startRequest: profile.dispatchRequest.startRequest,
           runtime,
           primingPrompt: PRIMING_PROMPT,
           compile: {
-            profileHash: profile.profileHash,
-            startRequestHash: profile.harnessInvocation.startRequestHash,
+            profileHash: profile.profile.profileHash,
+            startRequestHash: profile.profile.startRequestHash,
           },
           cleanup: async () => {
             for (const fn of cleanups.reverse()) await fn()
@@ -536,40 +560,6 @@ export const ROW_RECIPES: Record<string, RowRecipe> = {
       const tmux = tmuxProbe()
       if (tmux !== undefined) return tmux
       return { available: true, reason: `real claude at ${claude}` }
-    },
-  }),
-  'codex-cli-tmux': compiledRecipe({
-    kind: 'codex-cli-tmux',
-    agentName: 'curly',
-    needsPane: true,
-    prepareEnv: exportCodexPath,
-    driver: (hookIpcDir) => createDefaultCodexCliTmuxDriver(hookIpcDir),
-    probe: () => {
-      const codex = resolveCodexBin()
-      if (codex === undefined)
-        return { available: false, reason: 'codex binary not found (set ASP_CODEX_PATH)' }
-      const tmux = tmuxProbe()
-      if (tmux !== undefined) return tmux
-      const auth = authProbe(join(homedir(), '.codex', 'auth.json'), 'codex')
-      if (auth !== undefined) return auth
-      return { available: true, reason: `real codex at ${codex}` }
-    },
-  }),
-  'pi-tui-tmux': compiledRecipe({
-    kind: 'pi-tui-tmux',
-    agentName: 'curly',
-    needsPane: true,
-    prepareEnv: exportPiPath,
-    driver: (hookIpcDir) => createDefaultPiTuiTmuxDriver(hookIpcDir),
-    probe: () => {
-      const pi = resolvePiBin()
-      if (pi === undefined)
-        return { available: false, reason: 'pi binary not found (set ASP_PI_PATH)' }
-      const tmux = tmuxProbe()
-      if (tmux !== undefined) return tmux
-      const auth = authProbe(join(homedir(), '.pi', 'agent', 'auth.json'), 'pi')
-      if (auth !== undefined) return auth
-      return { available: true, reason: `real pi at ${pi}` }
     },
   }),
   'codex-app-server': compiledRecipe({
