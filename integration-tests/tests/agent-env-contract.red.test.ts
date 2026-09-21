@@ -99,4 +99,37 @@ describe('v2 agent environment contract', () => {
       first.plan.execution.dispatchRequest.startRequest.spec.process.lockedEnv
     )
   })
+
+  test('keeps correlation-only changes out of the hash-covered environment mechanics', async () => {
+    const fixture = createV2CompileFixture()
+    fixtures.push(fixture)
+    const common = {
+      harness: 'codex' as const,
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+      lockedEnv: { EXTRA_FLAG: '1' },
+    }
+    const first = await compileV2(fixture, {
+      ...common,
+      namespace: 'env-correlation-a',
+      scopeRef: 'agent:cody:project:agent-spaces:task:T-08704',
+      laneRef: 'repair',
+    })
+    const second = await compileV2(fixture, {
+      ...common,
+      namespace: 'env-correlation-b',
+      scopeRef: 'agent:cody:project:agent-spaces:task:T-99999',
+      laneRef: 'main',
+    })
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    if (!first.ok || !second.ok) return
+    expect(second.plan.execution.dispatchRequest.startRequest.spec.process.lockedEnv).toEqual(
+      first.plan.execution.dispatchRequest.startRequest.spec.process.lockedEnv
+    )
+    expect(second.plan.execution.profile.compatibilityHash).toBe(
+      first.plan.execution.profile.compatibilityHash
+    )
+  })
 })

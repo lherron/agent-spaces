@@ -105,7 +105,7 @@ export function buildV2CompileRequest(
   options: V2CompileOptions
 ): RuntimeCompileRequest {
   const allocated = identity(options.namespace)
-  const scopeRef = options.scopeRef ?? `${fixture.agentId}@agent-spaces`
+  const scopeRef = options.scopeRef ?? `agent:${fixture.agentId}:project:agent-spaces`
   const laneRef = options.laneRef ?? 'main'
   const placement = {
     agentRoot: fixture.agentRoot,

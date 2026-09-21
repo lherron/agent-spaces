@@ -17,6 +17,22 @@ async function initial(options: Parameters<typeof compileV2>[1]) {
 }
 
 describe('v2 broker initial input composition', () => {
+  test.each([
+    [false, 'caller prompt'],
+    [true, 'caller prompt'],
+  ])('keeps a caller prompt when omitPriming=%s', async (omitPriming, prompt) => {
+    const input = await initial({
+      namespace: `initial-caller-${omitPriming}`,
+      harness: 'codex',
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+      omitPriming,
+      prompt,
+    })
+    expect(input?.content).toEqual([{ type: 'text', text: prompt }])
+  })
+
   test('puts the caller prompt in the only start request with the allocated input id', async () => {
     const input = await initial({
       namespace: 'initial-prompt',
@@ -42,6 +58,18 @@ describe('v2 broker initial input composition', () => {
     expect(input).toBeUndefined()
   })
 
+  test('suppresses text input for an explicitly empty caller prompt', async () => {
+    const input = await initial({
+      namespace: 'initial-empty',
+      harness: 'codex',
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+      prompt: '',
+    })
+    expect(input).toBeUndefined()
+  })
+
   test('preserves image attachments in the start input without duplicating them into driver fields', async () => {
     const fixture = createV2CompileFixture()
     fixtures.push(fixture)
@@ -60,6 +88,26 @@ describe('v2 broker initial input composition', () => {
     const start = response.plan.execution.dispatchRequest.startRequest
     expect(start.initialInput?.content).toContainEqual({ type: 'local_image', path: image })
     expect(start.spec.driver).not.toHaveProperty('defaultImageAttachments')
+  })
+
+  test('keeps an image-only input image-only', async () => {
+    const fixture = createV2CompileFixture()
+    fixtures.push(fixture)
+    const image = `${fixture.projectRoot}/image-only.png`
+    const response = await compileV2(fixture, {
+      namespace: 'initial-image-only',
+      harness: 'codex',
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+      prompt: '',
+      attachments: [{ kind: 'image', path: image, mimeType: 'image/png' }],
+    })
+    expect(response.ok).toBe(true)
+    if (!response.ok) return
+    expect(response.plan.execution.dispatchRequest.startRequest.initialInput?.content).toEqual([
+      { type: 'local_image', path: image },
+    ])
   })
 
   test('threads a response schema onto the initial input rather than the driver spec', async () => {
@@ -107,6 +155,95 @@ describe('v2 broker initial input composition', () => {
       },
     })
     expect(input).toBeUndefined()
+  })
+
+  test('changes the canonical start hash when prompt text changes', async () => {
+    const fixture = createV2CompileFixture()
+    fixtures.push(fixture)
+    const common = {
+      harness: 'codex' as const,
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+    }
+    const first = await compileV2(fixture, {
+      ...common,
+      namespace: 'initial-hash-prompt-a',
+      prompt: 'first prompt',
+    })
+    const second = await compileV2(fixture, {
+      ...common,
+      namespace: 'initial-hash-prompt-b',
+      prompt: 'second prompt',
+    })
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    if (!first.ok || !second.ok) return
+    expect(second.plan.execution.profile.startRequestHash).not.toBe(
+      first.plan.execution.profile.startRequestHash
+    )
+  })
+
+  test('changes the canonical start hash when attachment mechanics change', async () => {
+    const fixture = createV2CompileFixture()
+    fixtures.push(fixture)
+    const common = {
+      harness: 'codex' as const,
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+      prompt: 'same prompt',
+    }
+    const first = await compileV2(fixture, {
+      ...common,
+      namespace: 'initial-hash-image-a',
+      attachments: [{ kind: 'image', path: `${fixture.projectRoot}/a.png`, mimeType: 'image/png' }],
+    })
+    const second = await compileV2(fixture, {
+      ...common,
+      namespace: 'initial-hash-image-b',
+      attachments: [{ kind: 'image', path: `${fixture.projectRoot}/b.png`, mimeType: 'image/png' }],
+    })
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    if (!first.ok || !second.ok) return
+    expect(second.plan.execution.profile.startRequestHash).not.toBe(
+      first.plan.execution.profile.startRequestHash
+    )
+  })
+
+  test('changes the canonical start hash when response-format mechanics change', async () => {
+    const fixture = createV2CompileFixture()
+    fixtures.push(fixture)
+    const common = {
+      harness: 'codex' as const,
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+      prompt: 'return structured output',
+    }
+    const first = await compileV2(fixture, {
+      ...common,
+      namespace: 'initial-hash-schema-a',
+      responseFormat: {
+        kind: 'json_schema',
+        schema: { type: 'object', properties: { ok: { type: 'boolean' } } },
+      },
+    })
+    const second = await compileV2(fixture, {
+      ...common,
+      namespace: 'initial-hash-schema-b',
+      responseFormat: {
+        kind: 'json_schema',
+        schema: { type: 'object', properties: { count: { type: 'number' } } },
+      },
+    })
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    if (!first.ok || !second.ok) return
+    expect(second.plan.execution.profile.startRequestHash).not.toBe(
+      first.plan.execution.profile.startRequestHash
+    )
   })
 
   test('retains materialization task context as correlation-safe labels on the start spec', async () => {
