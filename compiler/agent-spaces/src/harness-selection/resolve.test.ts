@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { HARNESS_CATALOG, HARNESS_IDS } from './catalog.js'
 import {
   catalogProcessImplementationForFrontend,
   catalogProcessImplementationForHarness,
 } from './catalog-projections.js'
+import { HARNESS_CATALOG, HARNESS_IDS } from './catalog.js'
 import { resolveHarnessExecution } from './resolve.js'
 
 describe('central harness selection catalog', () => {

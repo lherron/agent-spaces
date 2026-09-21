@@ -18,10 +18,7 @@ import {
   resolveSpecToLock,
   validateSpec,
 } from './client-materialization.js'
-import {
-  CodedError,
-  formatDisplayCommand,
-} from './client-support.js'
+import { CodedError, formatDisplayCommand } from './client-support.js'
 import { compileRuntimePlan } from './compile-runtime-plan.js'
 import {
   catalogCapabilities,
@@ -29,11 +26,6 @@ import {
   catalogProcessImplementationForHarness,
   resolveCatalogProcessModel,
 } from './harness-selection/catalog-projections.js'
-import {
-  AGENT_SDK_FRONTEND,
-  resolveSessionRuntimeModel,
-  sessionRuntimeFacts,
-} from './session-runtime-facts.js'
 import type { AgentSpacesClientOptions } from './placement-api.js'
 import { requireAgentSpacesRuntime } from './placement-api.js'
 import {
@@ -48,6 +40,11 @@ import {
   toProcessInvocationSpec,
 } from './prepare-cli-runtime.js'
 import { resolveRuntimeDeclaration } from './runtime-declaration.js'
+import {
+  AGENT_SDK_FRONTEND,
+  resolveSessionRuntimeModel,
+  sessionRuntimeFacts,
+} from './session-runtime-facts.js'
 import type {
   AgentSpacesClient,
   BuildHarnessBrokerInvocationRequest,
@@ -321,9 +318,10 @@ export function createAgentSpacesClient(
           req.frontend === undefined || req.frontend === AGENT_SDK_FRONTEND
             ? sessionRuntimeFacts(AGENT_SDK_FRONTEND)
             : undefined
-        const implementation = sessionFacts
-          ? undefined
-          : catalogProcessImplementationForFrontend(req.frontend!)
+        const implementation =
+          sessionFacts || req.frontend === undefined
+            ? undefined
+            : catalogProcessImplementationForFrontend(req.frontend)
         if (sessionFacts === undefined && implementation === undefined) {
           throw new CodedError(
             `Describe does not select a process implementation for frontend ${req.frontend}`,
