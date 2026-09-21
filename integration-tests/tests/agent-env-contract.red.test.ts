@@ -198,7 +198,7 @@ describe('v2 agent environment contract', () => {
     }
   )
 
-  test('does not turn empty dispatch or locked inputs into a synthetic process overlay', async () => {
+  test('keeps the resolved baseline environment while empty caller overlays add no locked keys', async () => {
     const plan = await compile({
       namespace: 'env-empty-overlays',
       harness: 'codex',
@@ -209,7 +209,8 @@ describe('v2 agent environment contract', () => {
       dispatchEnv: {},
     })
     expect(plan.execution.dispatchRequest.dispatchEnv).toEqual({})
-    expect(plan.execution.dispatchRequest.startRequest.spec.process.lockedEnv).toEqual({})
-    expect(plan.lockedEnv.lockedEnvKeys).toEqual([])
+    const locked = plan.execution.dispatchRequest.startRequest.spec.process.lockedEnv
+    expect(locked).toMatchObject({ ASP_AGENT_NAME: 'cody', ASP_PROJECT: 'agent-spaces' })
+    expect(locked).not.toHaveProperty('EXTRA_FLAG')
   })
 })

@@ -41,7 +41,7 @@ describe('v2 broker execution projection', () => {
       },
     })
     expect(spec.harness).toEqual({
-      frontend: 'codex-cli',
+      frontend: 'codex',
       provider: 'openai',
       driver: 'codex-app-server',
     })
@@ -272,7 +272,7 @@ describe('v2 broker execution projection', () => {
     expect(execution).not.toHaveProperty('presentationSurface')
   })
 
-  test('keeps a required terminal surface in the execution recipe instead of dispatch environment', async () => {
+  test('keeps Muse terminal hosting as a birth-variant execution recipe instead of dispatch environment', async () => {
     const execution = await compile({
       namespace: 'profile-terminal-recipe',
       harness: 'muse',
@@ -280,7 +280,10 @@ describe('v2 broker execution projection', () => {
       model: 'muse-spark-1.3-contributor',
       presentation: true,
     })
-    expect(execution.presentationSurface).toEqual({ transport: 'terminal', terminalHost: 'tmux' })
+    expect(execution).toMatchObject({
+      presentationFulfillment: 'birth-variant',
+      hosting: { terminalRequired: true, terminalHost: 'tmux' },
+    })
     expect(execution.dispatchRequest.dispatchEnv).toBeUndefined()
     expect(execution.dispatchRequest.startRequest.spec).not.toHaveProperty('runtime')
   })
