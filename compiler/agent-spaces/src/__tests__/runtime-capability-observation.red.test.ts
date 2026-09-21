@@ -96,10 +96,7 @@ describe('T-08563 runtime capability observation', () => {
       expect.arrayContaining([expect.objectContaining({ code: 'probe_timeout' })])
     )
 
-    const overflow = await executable(
-      'claude-overflow',
-      `process.stdout.write('x'.repeat(65_537))`
-    )
+    const overflow = await executable('claude-overflow', `process.stdout.write('x'.repeat(65_537))`)
     process.env.ASP_CLAUDE_PATH = overflow
     const over = await operation()(request('claude'))
     expect(over.nativeRuntime).toEqual({ state: 'unknown', code: 'detection_failed' })

@@ -1,5 +1,5 @@
 import { AGENT_SDK_MODELS, DEFAULT_AGENT_SDK_MODEL } from 'spaces-config'
-import { PI_SDK_MODEL_CATALOG } from 'spaces-runtime-contracts'
+import { PI_PROVIDER_MODEL_CATALOG } from 'spaces-runtime-contracts'
 
 import { CodedError } from './client-support.js'
 import type { HarnessContinuationRef, ProviderDomain } from './types.js'
@@ -26,7 +26,9 @@ const SESSION_RUNTIME_FACTS: Readonly<Record<SessionFrontend, SessionRuntimeFact
   [PI_SDK_FRONTEND]: {
     frontend: PI_SDK_FRONTEND,
     provider: 'openai',
-    models: PI_SDK_MODEL_CATALOG.map((model) => model.alias),
+    // Pi's provider-qualified model metadata informs materialization only; it
+    // carries no harness, driver, lifecycle, or presentation selection.
+    models: PI_PROVIDER_MODEL_CATALOG.map((model) => model.alias),
     defaultModel: 'openai-codex/gpt-5.5',
   },
 }

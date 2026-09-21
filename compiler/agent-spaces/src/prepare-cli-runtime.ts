@@ -21,12 +21,9 @@ import {
   deriveHandleParts,
 } from './broker-invocation.js'
 import { type MaterializedSpec, materializeSpec } from './client-materialization.js'
-import {
-  CodedError,
-  formatDisplayCommand,
-} from './client-support.js'
-import { catalogProcessImplementationForFrontend } from './harness-selection/catalog-projections.js'
+import { CodedError, formatDisplayCommand } from './client-support.js'
 import { composeAgentLocalEnv } from './compose-agent-local-env.js'
+import { catalogProcessImplementationForFrontend } from './harness-selection/catalog-projections.js'
 import type {
   AgentSpacesRuntimeDependencies,
   CompilerPlacementRuntimePlan,
