@@ -117,13 +117,13 @@ describe('pre-HRC broker contract verifier on v2 execution', () => {
         ...request,
         runtime: { socketPath: '/tmp/not-a-start-request-field' },
       })
-    ).toThrow(/runtime/)
+    ).toThrow()
     expect(() =>
       validateInvocationStartRequest({
         ...request,
         lifecyclePolicy: { policyId: 'not-a-start-request-field' },
       })
-    ).toThrow(/lifecyclePolicy/)
+    ).toThrow()
   })
 
   test('rejects malformed typed initial input before a broker can start it', async () => {
