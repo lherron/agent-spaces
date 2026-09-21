@@ -2,12 +2,12 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, resolve, sep } from 'node:path'
 
-import type { BrokerExecutionProfile } from 'spaces-runtime-contracts'
-import { project } from 'spaces-runtime-contracts'
 import type {
-  LegacyCompiledRuntimePlan as CompiledRuntimePlan,
-  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
-} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
+  CompiledExecution,
+  CompiledRuntimePlan,
+  RuntimeCompileRequest,
+} from 'spaces-runtime-contracts'
+import { project } from 'spaces-runtime-contracts'
 
 import type {
   ContractHarnessFailure,
@@ -20,7 +20,7 @@ export type PreHrcBrokerContractArtifactInput = {
   artifactDir: string
   compileRequest: RuntimeCompileRequest
   compiledPlan?: CompiledRuntimePlan | undefined
-  selectedProfile?: BrokerExecutionProfile | undefined
+  selectedProfile?: CompiledExecution | undefined
   routeDecision?: PreHrcRouteDecision | undefined
   brokerEvents?: unknown[] | undefined
   assertionReport: PreHrcBrokerContractAssertionReport
@@ -69,7 +69,7 @@ export async function writePreHrcBrokerContractArtifacts(
   }
 
   const artifactDir = isAbsolute(input.artifactDir) ? input.artifactDir : resolve(input.artifactDir)
-  const startRequest = input.selectedProfile?.harnessInvocation.startRequest
+  const startRequest = input.selectedProfile?.dispatchRequest.startRequest
   const brokerSpec = startRequest?.spec
   const contractFields = {
     ...(input.compiledPlan?.compileId !== undefined
@@ -78,11 +78,11 @@ export async function writePreHrcBrokerContractArtifacts(
     ...(input.compiledPlan?.planHash !== undefined
       ? { planHash: input.compiledPlan.planHash }
       : {}),
-    ...(input.selectedProfile?.profileHash !== undefined
-      ? { selectedProfileHash: input.selectedProfile.profileHash }
+    ...(input.selectedProfile?.profile.profileHash !== undefined
+      ? { selectedProfileHash: input.selectedProfile.profile.profileHash }
       : {}),
-    ...(input.selectedProfile?.harnessInvocation.startRequestHash !== undefined
-      ? { startRequestHash: input.selectedProfile.harnessInvocation.startRequestHash }
+    ...(input.selectedProfile?.profile.startRequestHash !== undefined
+      ? { startRequestHash: input.selectedProfile.profile.startRequestHash }
       : {}),
   }
   const files: Record<string, string> = {}
@@ -96,10 +96,7 @@ export async function writePreHrcBrokerContractArtifacts(
         'compiled-plan.projection.json',
         input.compiledPlan !== undefined ? project(input.compiledPlan, 'plan') : null,
       ],
-      [
-        'selected-profile.projection.json',
-        input.selectedProfile !== undefined ? project(input.selectedProfile, 'profile') : null,
-      ],
+      ['selected-profile.projection.json', input.selectedProfile?.profile ?? null],
       [
         'broker-spec.projection.json',
         brokerSpec !== undefined ? project(brokerSpec, 'spec') : null,

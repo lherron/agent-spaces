@@ -17,16 +17,12 @@ import { resolve } from 'node:path'
 import { resolveScopeInput } from 'agent-scope'
 import type { InvocationStartRequest } from 'spaces-harness-broker-protocol'
 import type {
-  BrokerExecutionProfile,
+  CompiledExecution,
+  CompiledRuntimePlan,
   RuntimeIdentityAllocation,
   RuntimePlacement,
 } from 'spaces-runtime-contracts'
-import {
-  createCanonicalHasher,
-  neutralSpecHash,
-  neutralStartRequestHash,
-} from 'spaces-runtime-contracts'
-import type { LegacyCompiledRuntimePlan as CompiledRuntimePlan } from 'spaces-runtime-contracts/internal/compiler-plan-v1'
+import { neutralSpecHash, neutralStartRequestHash } from 'spaces-runtime-contracts'
 
 import type { ContractHarnessFailure } from './pre-hrc-broker-contract-types.js'
 
@@ -152,55 +148,34 @@ export function buildPlacementFromScopeRef(
 // Broker profile selection
 // ---------------------------------------------------------------------------
 
-export type BrokerProfileSelector = {
-  profileId?: string | undefined
-  profileHash?: string | undefined
-}
-
 function brokerProfileIncompatibility(
-  profile: BrokerExecutionProfile,
+  execution: CompiledExecution,
   identity: CompiledRuntimePlan['identity']
 ): ContractHarnessFailure | undefined {
-  if (profile.kind !== 'harness-broker') {
+  if (execution.hosting.terminalRequired) {
     return {
       code: 'broker_profile_invalid',
-      message: 'Selected profile is not a harness-broker profile.',
-      path: 'selectedProfile.kind',
-      redactedDetails: { kind: profile.kind },
+      message: 'Selected compiled execution is not headless.',
+      path: 'plan.execution.hosting.terminalRequired',
     }
   }
-  if (profile.interactionMode !== 'headless') {
-    return {
-      code: 'broker_profile_invalid',
-      message: 'Selected broker profile is not headless.',
-      path: 'selectedProfile.interactionMode',
-      redactedDetails: { interactionMode: profile.interactionMode },
-    }
-  }
-  if (profile.brokerProtocol !== 'harness-broker/0.2') {
+  if (execution.protocol !== 'harness-broker/0.2') {
     return {
       code: 'broker_protocol_invalid',
-      message: 'Selected broker profile does not target harness-broker/0.2.',
-      path: 'selectedProfile.brokerProtocol',
-      redactedDetails: { brokerProtocol: profile.brokerProtocol },
+      message: 'Selected execution does not target harness-broker/0.2.',
+      path: 'plan.execution.protocol',
+      redactedDetails: { protocol: execution.protocol },
     }
   }
-  if (profile.brokerDriver !== 'codex-app-server') {
+  if (execution.driver !== 'codex-app-server') {
     return {
       code: 'broker_driver_missing',
-      message: 'Selected broker profile does not use the codex-app-server driver.',
-      path: 'selectedProfile.brokerDriver',
-      redactedDetails: { brokerDriver: profile.brokerDriver },
+      message: 'Selected execution does not use the codex-app-server driver.',
+      path: 'plan.execution.driver',
+      redactedDetails: { driver: execution.driver },
     }
   }
-  const startRequest = profile.harnessInvocation?.startRequest
-  if (startRequest === undefined) {
-    return {
-      code: 'start_request_missing',
-      message: 'Selected broker profile has no invocation start request.',
-      path: 'selectedProfile.harnessInvocation.startRequest',
-    }
-  }
+  const startRequest = execution.dispatchRequest.startRequest
   if (
     identity.invocationId !== undefined &&
     startRequest.spec.invocationId !== undefined &&
@@ -236,68 +211,16 @@ function brokerProfileIncompatibility(
 }
 
 /**
- * Select the single compatible harness-broker profile from a compiled plan.
+ * Return the singular compiled broker execution after checking the matrix row.
  *
- * Requires kind `harness-broker`, interactionMode `headless`, brokerProtocol
- * `harness-broker/0.2`, brokerDriver `codex-app-server`, a start request whose
- * `spec.invocationId` matches the plan identity, and (when an initial input is
- * present) a matching `initialInput.inputId`. Selection can be narrowed by
- * `profileId` / `profileHash`. Throws a {@link ContractHarnessFailureError} when
- * no compatible profile is found.
+ * There is no profile selector: the compiler has already resolved exactly one
+ * execution. The helper only verifies that it is the expected headless Codex
+ * broker row and that its request identity is coherent.
  */
-export function selectBrokerProfile(
-  plan: CompiledRuntimePlan,
-  selector?: BrokerProfileSelector
-): BrokerExecutionProfile {
-  const brokerProfiles = (plan.executionProfiles ?? []).filter(
-    (profile): profile is BrokerExecutionProfile => profile.kind === 'harness-broker'
-  )
-  if (brokerProfiles.length === 0) {
-    throw new ContractHarnessFailureError({
-      code: 'broker_profile_missing',
-      message: 'Compiled plan did not contain a harness-broker execution profile.',
-      path: 'plan.executionProfiles',
-    })
-  }
-
-  let candidates = brokerProfiles
-  if (selector?.profileId !== undefined) {
-    candidates = candidates.filter((profile) => profile.profileId === selector.profileId)
-  }
-  if (selector?.profileHash !== undefined) {
-    candidates = candidates.filter((profile) => profile.profileHash === selector.profileHash)
-  }
-  if (candidates.length === 0) {
-    throw new ContractHarnessFailureError({
-      code: 'broker_profile_missing',
-      message: 'No harness-broker profile matched the requested selector.',
-      path: 'plan.executionProfiles',
-      redactedDetails: { selector },
-    })
-  }
-
-  const reasons: ContractHarnessFailure[] = []
-  let primary: ContractHarnessFailure | undefined
-  for (const profile of candidates) {
-    const incompatibility = brokerProfileIncompatibility(profile, plan.identity)
-    if (incompatibility === undefined) return profile
-    const reason: ContractHarnessFailure = {
-      ...incompatibility,
-      redactedDetails: {
-        ...(incompatibility.redactedDetails as object | undefined),
-        profileId: profile.profileId,
-      },
-    }
-    reasons.push(reason)
-    primary ??= incompatibility
-  }
-
-  throw new ContractHarnessFailureError({
-    code: primary?.code ?? 'broker_profile_invalid',
-    message: primary?.message ?? 'No compatible harness-broker profile was found.',
-    path: primary?.path,
-    redactedDetails: { incompatibleProfiles: reasons },
-  })
+export function selectBrokerProfile(plan: CompiledRuntimePlan): CompiledExecution {
+  const incompatibility = brokerProfileIncompatibility(plan.execution, plan.identity)
+  if (incompatibility === undefined) return plan.execution
+  throw new ContractHarnessFailureError(incompatibility)
 }
 
 // ---------------------------------------------------------------------------
@@ -309,10 +232,6 @@ export function selectBrokerProfile(
  * (`timestampMode: 'omit-ephemeral'`), so recomputed hashes are byte-comparable
  * to the values stored on the profile at compile time.
  */
-function canonicalHash(value: unknown): string {
-  return createCanonicalHasher().hash(value, { timestampMode: 'omit-ephemeral' }).value
-}
-
 /** Recursively freeze an object graph in place. */
 function deepFreeze<T>(value: T): T {
   if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -344,55 +263,21 @@ export type BrokerStartContractVerification = {
  * actual broker start.
  */
 export function verifyBrokerStartContract(
-  profile: BrokerExecutionProfile
+  execution: CompiledExecution
 ): BrokerStartContractVerification {
   const failures: ContractHarnessFailure[] = []
-  const invocation = profile.harnessInvocation
-  if (invocation?.startRequest === undefined) {
-    failures.push({
-      code: 'broker_start_contract_unverifiable',
-      message: 'Selected broker profile has no start request to verify before broker start.',
-      path: 'selectedProfile.harnessInvocation.startRequest',
-    })
-    return { ok: false, failures }
-  }
-
-  const startRequest = invocation.startRequest
+  const startRequest = execution.dispatchRequest.startRequest
   const recomputedSpecHash = neutralSpecHash(startRequest.spec)
   const recomputedStartRequestHash = neutralStartRequestHash(startRequest)
-  const recomputedInitialInputHash =
-    startRequest.initialInput !== undefined ? canonicalHash(startRequest.initialInput) : undefined
-
-  if (recomputedSpecHash !== invocation.specHash) {
-    failures.push({
-      code: 'spec_hash_mismatch',
-      message:
-        'Broker spec hash changed after compile; local code mutated spec.driver / spec.process before broker start.',
-      path: 'selectedProfile.harnessInvocation.specHash',
-      redactedDetails: { expected: invocation.specHash, actual: recomputedSpecHash },
-    })
-  }
-  if (recomputedStartRequestHash !== invocation.startRequestHash) {
+  if (recomputedStartRequestHash !== execution.profile.startRequestHash) {
     failures.push({
       code: 'start_request_hash_mismatch',
       message:
         'Broker start request hash changed after compile; local code mutated the start request (process/env/continuation/initialInput) before broker start.',
-      path: 'selectedProfile.harnessInvocation.startRequestHash',
+      path: 'plan.execution.profile.startRequestHash',
       redactedDetails: {
-        expected: invocation.startRequestHash,
+        expected: execution.profile.startRequestHash,
         actual: recomputedStartRequestHash,
-      },
-    })
-  }
-  if (recomputedInitialInputHash !== invocation.initialInputHash) {
-    failures.push({
-      code: 'initial_input_hash_mismatch',
-      message:
-        'Broker initial input hash changed after compile; local code mutated initialInput before broker start.',
-      path: 'selectedProfile.harnessInvocation.initialInputHash',
-      redactedDetails: {
-        expected: invocation.initialInputHash,
-        actual: recomputedInitialInputHash,
       },
     })
   }

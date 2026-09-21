@@ -6,7 +6,6 @@ import type {
   HarnessInvocationSpec,
   HarnessLaunchSpec,
   InvocationDispatchRequest,
-  InvocationId,
   InvocationStartRequest,
   PermissionPolicy,
   ProcessLimits,
@@ -15,13 +14,7 @@ import { validateInvocationSpec } from 'spaces-harness-broker-protocol'
 import { loadAgentSemantics } from 'spaces-runtime'
 import type { AttachmentRef } from 'spaces-runtime'
 import {
-  type AgentchatExposurePolicy,
-  type BrokerExecutionProfile,
-  type BrokerInputPolicy,
-  type BrokerObservabilityContract,
   type BrokerPermissionPolicy,
-  type BrokerTerminalSurface,
-  type CapabilityRequirements,
   type CompileContext,
   type CompileDiagnostic,
   type CompileId,
@@ -32,12 +25,9 @@ import {
   type ResolvedHarnessSelection,
   type RuntimeCompileRequest,
   type RuntimeCompileResponse,
-  type RuntimeContractProjection,
   createCanonicalHasher,
   hashNeutralStartRequest,
-  neutralSpecHash,
   neutralStartRequestHash,
-  project,
 } from 'spaces-runtime-contracts'
 
 import {
@@ -130,19 +120,6 @@ function hashNeutralPlacement(
       correlation?: unknown
     }
   return hashPlacement
-}
-
-function projectionHash<K extends 'plan' | 'profile' | 'spec' | 'start-request'>(
-  value: unknown,
-  kind: K
-): Extract<
-  RuntimeContractProjection,
-  Record<K extends 'start-request' ? 'startRequestHash' : `${K}Hash`, string>
-> {
-  return project(value, kind) as Extract<
-    RuntimeContractProjection,
-    Record<K extends 'start-request' ? 'startRequestHash' : `${K}Hash`, string>
-  >
 }
 
 function toCompiledPlacement(placement: CompilePlacement): CompiledRuntimePlan['placement'] {
@@ -522,105 +499,12 @@ function brokerCorrelation(req: RuntimeCompileRequest): Record<string, string> {
   return out
 }
 
-function brokerObservability(
-  req: RuntimeCompileRequest,
-  invocationId: InvocationId
-): BrokerObservabilityContract {
-  return {
-    correlation: {
-      requestId: req.identity.requestId,
-      operationId: req.identity.operationId,
-      hostSessionId: req.identity.hostSessionId,
-      generation: req.identity.generation,
-      runtimeId: req.identity.runtimeId,
-      ...(req.identity.runId !== undefined ? { runId: req.identity.runId } : {}),
-      invocationId,
-      ...(req.identity.traceId !== undefined ? { traceId: req.identity.traceId } : {}),
-    },
-    ...(req.hrcPolicy.observability !== undefined
-      ? { driverConfig: { observability: req.hrcPolicy.observability } }
-      : {}),
-  }
-}
-
-function expectedCapabilities(
-  policy: BrokerPermissionPolicy,
-  options?: {
-    inputQueue?: CapabilityRequirements['input']['queue'] | undefined
-    /**
-     * Durable-attach/replay capability shape (T-01878 Ph4b). Defaults to
-     * 'forbidden' (the v0.1-style legacy sentinel). The headless v0.2 path passes
-     * 'optional' so HRC's route-specific overlay can require attach+replay.
-     */
-    attachReplay?: CapabilityRequirements['control']['attachReplay'] | undefined
-    /**
-     * File-reference input shape. Defaults to 'forbidden' (the codex headless
-     * contract). The muse-serve driver declares fileRefs support, so the muse
-     * headless path passes 'optional' — tolerated, never required.
-     */
-    fileRefs?: CapabilityRequirements['input']['fileRefs'] | undefined
-  }
-): CapabilityRequirements {
-  return {
-    input: {
-      user: 'required',
-      steer: 'optional',
-      appendContext: 'optional',
-      localImages: 'optional',
-      fileRefs: options?.fileRefs ?? 'forbidden',
-      queue: options?.inputQueue ?? 'forbidden',
-    },
-    turns: {
-      concurrency: 'single',
-      interrupt: 'optional',
-    },
-    continuation: 'optional',
-    permissions: policy.mode === 'ask-client' ? 'broker-request' : 'none',
-    events: {
-      assistantDeltas: 'optional',
-      toolCalls: 'required',
-      usage: 'optional',
-      diagnostics: 'optional',
-    },
-    control: {
-      stop: 'optional',
-      dispose: 'optional',
-      reconcile: 'optional',
-      attachReplay: options?.attachReplay ?? 'forbidden',
-    },
-    lifecycle: lifecycleCapabilityBaseline('broker'),
-  }
-}
-
-function lifecycleCapabilityBaseline(
-  route: 'broker' | 'unmanaged'
-): CapabilityRequirements['lifecycle'] {
-  if (route === 'broker') {
-    return {
-      runtimeRetention: ['keep-alive'],
-      harnessRecovery: ['none'],
-      turnRetry: ['none'],
-      generationFencing: 'optional',
-      permissionCancellation: 'optional',
-    }
-  }
-  return {
-    runtimeRetention: ['unmanaged'],
-    harnessRecovery: ['none'],
-    turnRetry: ['none'],
-    generationFencing: 'forbidden',
-    permissionCancellation: 'forbidden',
-  }
-}
-
 function buildCompatibilityMaterial(
   req: RuntimeCompileRequest,
   selection: ResolvedHarnessSelection,
   // Only `.spec` is read, so this accepts both the full start request and the
   // neutralized start-request projection.
-  startRequest: {
-    spec: BrokerExecutionProfile['harnessInvocation']['startRequest']['spec']
-  },
+  startRequest: { spec: HarnessInvocationSpec },
   bundleIdentity: string,
   lockHash: string | undefined,
   lockedEnv: Record<string, string>
@@ -758,11 +642,6 @@ export async function compileBrokerPlan(
     mode: 'deny',
     audit: true,
   }
-  const inputPolicy: BrokerInputPolicy =
-    req.hrcPolicy.inputPolicy ?? DEFAULT_CODEX_BROKER_INPUT_POLICY
-  const exposurePolicy: AgentchatExposurePolicy = codexTui
-    ? TMUX_BROKER_EXPOSURE_POLICY
-    : (req.hrcPolicy.exposurePolicy ?? { mode: 'none' })
   const attachments = toBrokerAttachments(req.materialization.attachments)
   const taskId = req.materialization.taskContext?.taskId
   const brokerReq: BuildHarnessBrokerInvocationRequest = {
@@ -826,11 +705,6 @@ export async function compileBrokerPlan(
     brokerInvocation.resolvedBundle as { lockHash?: string | undefined } | undefined
   )?.lockHash
   const hashStartRequest = hashNeutralStartRequest(startRequest)
-  const profileId = stableId('profile', {
-    kind: 'harness-broker',
-    brokerDriver: brokerDriverKind,
-    startRequest: hashStartRequest,
-  }) as ProfileId
   const compatibilityHash = hashValue(
     buildCompatibilityMaterial(
       req,
@@ -841,11 +715,6 @@ export async function compileBrokerPlan(
       lockedEnv
     )
   )
-  const specHash = neutralSpecHash(spec)
-  const startRequestHash = neutralStartRequestHash(startRequest)
-  const initialInputHash =
-    startRequest.initialInput !== undefined ? hashValue(startRequest.initialInput) : undefined
-
   // T-01867 Ph6 cutover: harness-broker/0.1 is decommissioned. The headless codex
   // profile emits the v0.2 durable markers UNCONDITIONALLY — brokerProtocol
   // 'harness-broker/0.2' + control.attachReplay 'optional'. The temporary Ph4b
@@ -969,12 +838,9 @@ export async function compileNativeAgentHarnessPlan(
       ],
     }
   }
-  const inputPolicy: BrokerInputPolicy =
-    req.hrcPolicy.inputPolicy ?? DEFAULT_CODEX_BROKER_INPUT_POLICY
   const attachments = toBrokerAttachments(req.materialization.attachments)
   const taskId = req.materialization.taskContext?.taskId
   const modelRoute = semantics.model
-  const modelId = modelRoute.alias
   const reasoningEffort = resolvedReasoningEffort(
     execution.selection.reasoningEffort ?? semantics.reasoningEffort
   )
@@ -1047,11 +913,6 @@ export async function compileNativeAgentHarnessPlan(
   const bundleIdentity = brokerInvocation.resolvedBundle?.bundleIdentity ?? 'unknown'
   const lockHash = (brokerInvocation.resolvedBundle as { lockHash?: string } | undefined)?.lockHash
   const hashStartRequest = hashNeutralStartRequest(startRequest)
-  const profileId = stableId('profile', {
-    kind: 'harness-broker',
-    brokerDriver: driverKind,
-    startRequest: hashStartRequest,
-  }) as ProfileId
   const compatibilityHash = hashValue(
     buildCompatibilityMaterial(
       req,
@@ -1062,10 +923,6 @@ export async function compileNativeAgentHarnessPlan(
       lockedEnv
     )
   )
-  const specHash = neutralSpecHash(spec)
-  const startRequestHash = neutralStartRequestHash(startRequest)
-  const initialInputHash =
-    startRequest.initialInput !== undefined ? hashValue(startRequest.initialInput) : undefined
   return finalizePlan({
     req,
     resolved: execution,
@@ -1095,26 +952,6 @@ export async function compileNativeAgentHarnessPlan(
  * the operator's TTY (io {kind:'inherit'}), and delivers at most one launch turn
  * (turnDelivery 'terminal-launch-input').
  */
-const TMUX_BROKER_EXPOSURE_POLICY = {
-  mode: 'broker-reports-target',
-  targetKind: 'tmux-session',
-} as const
-
-/**
- * The fixed broker-owned tmux surface descriptor shared by the interactive
- * tmux broker routes (claude-code-tmux and codex-cli-tmux). This is
- * selection/exposure metadata ONLY — the socket/session/pane are
- * RUNTIME-REPORTED by the driver (Phase 3), never synthesized at compile time,
- * so a dry compile creates no tmux session and emits no synthetic ids.
- */
-const TMUX_BROKER_TERMINAL: BrokerTerminalSurface = {
-  host: 'tmux',
-  startupMethod: 'create-terminal',
-  turnDelivery: 'terminal-literal-input',
-  operatorAttach: true,
-  exposurePolicy: TMUX_BROKER_EXPOSURE_POLICY,
-}
-
 /**
  * Build the harness-kind-agnostic launch payload for tmux broker routes. The
  * priming is delivered to the harness via launch argv (see the prompt-through-
@@ -1237,12 +1074,6 @@ export async function compileTmuxBrokerPlan(
     options?.clientRuntime
   )
 
-  const permissionPolicy = req.hrcPolicy.permissionPolicy ?? {
-    mode: 'deny',
-    audit: true,
-  }
-  const inputPolicy: BrokerInputPolicy =
-    req.hrcPolicy.inputPolicy ?? DEFAULT_CODEX_BROKER_INPUT_POLICY
   const limits = toProcessLimits(req.hrcPolicy.resourceLimits)
   const taskId = req.materialization.taskContext?.taskId
 
@@ -1320,11 +1151,6 @@ export async function compileTmuxBrokerPlan(
   const startRequest: InvocationStartRequest = { spec }
   const hashStartRequest = hashNeutralStartRequest(startRequest)
 
-  const profileId = stableId('profile', {
-    kind: 'harness-broker',
-    brokerDriver: driverKind,
-    startRequest: hashStartRequest,
-  }) as ProfileId
   const compatibilityHash = hashValue(
     buildCompatibilityMaterial(
       req,
@@ -1335,17 +1161,6 @@ export async function compileTmuxBrokerPlan(
       lockedEnv
     )
   )
-  const specHash = neutralSpecHash(spec)
-  const startRequestHash = neutralStartRequestHash(startRequest)
-
-  // T-01817: interactive v0.2 tmux broker profiles must not contradict a durable
-  // Unix broker hello that advertises attachReplay:true. Emit attachReplay
-  // 'optional' (not the pre-durable 'forbidden' default) for all three tmux
-  // drivers. This relaxes the contradiction without asserting restart durability;
-  // HRC still requires attachReplay:true from broker hello for durable Unix routes.
-  const brokerProtocol = 'harness-broker/0.2' as const
-  const attachReplay = 'optional' as const
-
   return finalizePlan({
     req,
     resolved,

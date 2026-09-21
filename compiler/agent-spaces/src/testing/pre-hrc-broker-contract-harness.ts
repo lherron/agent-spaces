@@ -1,14 +1,12 @@
-// @ts-nocheck -- retired by the singular v2 compiler test replacement (T-08702).
 import { readFileSync } from 'node:fs'
 import { BrokerClient } from 'spaces-harness-broker-client'
-import { createCanonicalHasher } from 'spaces-runtime-contracts'
+import { DEFAULT_CODEX_BROKER_INPUT_POLICY, createCanonicalHasher } from 'spaces-runtime-contracts'
 
 import type {
   BrokerHelloResponse,
   BrokerLifecyclePolicyOverlay,
   BrokerListInvocationsRequest,
   BrokerListInvocationsResponse,
-  InvocationCapabilities,
   InvocationEventEnvelope,
   InvocationEventsSinceResponse,
   InvocationId,
@@ -21,11 +19,7 @@ import type {
   InvocationStatusResponse,
   PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
-import type {
-  BrokerExecutionProfile,
-  CapabilityRequirements,
-  HrcCapabilityPolicy,
-} from 'spaces-runtime-contracts'
+import type { CompiledExecution, HrcCapabilityPolicy } from 'spaces-runtime-contracts'
 import { compileRuntimePlan } from '../compile-runtime-plan.js'
 import { buildCorrelationEnvVars } from '../placement-api.js'
 import { writePreHrcBrokerContractArtifacts } from './pre-hrc-broker-contract-artifacts.js'
@@ -67,21 +61,22 @@ function routeIdFor(value: unknown): string {
 
 function createPreHrcRouteDecision(
   plan: NonNullable<PreHrcBrokerContractHarnessResult['compiledPlan']>,
-  profile: NonNullable<PreHrcBrokerContractHarnessResult['selectedProfile']>
+  execution: NonNullable<PreHrcBrokerContractHarnessResult['selectedProfile']>,
+  request: PreHrcBrokerContractHarnessInput['compileRequest']
 ): PreHrcRouteDecision {
   return {
     schemaVersion: 'pre-hrc-route-decision/v1',
     routeId: routeIdFor({
       compileId: plan.compileId,
       planHash: plan.planHash,
-      selectedProfileId: profile.profileId,
-      selectedProfileHash: profile.profileHash,
+      selectedProfileId: execution.profile.profileId,
+      selectedProfileHash: execution.profile.profileHash,
     }),
     operationId: plan.identity.operationId,
     compileId: plan.compileId,
     planHash: plan.planHash,
-    selectedProfileId: profile.profileId,
-    selectedProfileHash: profile.profileHash,
+    selectedProfileId: execution.profile.profileId,
+    selectedProfileHash: execution.profile.profileHash,
     selectedProfileKind: 'harness-broker',
     controller: 'harness-broker',
     startupMethod: 'create-broker-invocation',
@@ -90,15 +85,16 @@ function createPreHrcRouteDecision(
     admission: { decision: 'admit' },
     reuse: {
       policy: 'always-new',
-      compatibilityHash: profile.compatibilityHash,
+      compatibilityHash: execution.profile
+        .compatibilityHash as PreHrcRouteDecision['reuse']['compatibilityHash'],
       staleGeneration: 'rotate',
     },
     productPolicy: {
-      permissionPolicy: profile.policy.permissionPolicy,
-      inputPolicy: profile.policy.inputPolicy,
-      exposurePolicy: profile.policy.exposurePolicy,
-      ...(profile.policy.resourceLimits !== undefined
-        ? { resourceLimits: profile.policy.resourceLimits }
+      permissionPolicy: request.hrcPolicy.permissionPolicy ?? { mode: 'deny', audit: true },
+      inputPolicy: request.hrcPolicy.inputPolicy ?? DEFAULT_CODEX_BROKER_INPUT_POLICY,
+      exposurePolicy: request.hrcPolicy.exposurePolicy ?? { mode: 'none' },
+      ...(request.hrcPolicy.resourceLimits !== undefined
+        ? { resourceLimits: request.hrcPolicy.resourceLimits }
         : {}),
     },
     diagnostics: plan.diagnostics.map(({ level, code, message }) => ({ level, code, message })),
@@ -132,144 +128,8 @@ function requiredFlag(
   })
 }
 
-function assertInvocationCapabilities(
-  requirements: CapabilityRequirements,
-  capabilities: InvocationCapabilities | undefined,
-  pathPrefix: string,
-  hrcPolicy: HrcCapabilityPolicy | undefined
-): ContractHarnessFailure[] {
-  if (capabilities === undefined) {
-    return [
-      {
-        code: 'broker_capability_missing',
-        message: 'Broker did not report invocation capabilities for the selected driver.',
-        path: pathPrefix,
-        redactedDetails: { hrcPolicy },
-      },
-    ]
-  }
-
-  const failures: ContractHarnessFailure[] = []
-  for (const key of [
-    'user',
-    'steer',
-    'appendContext',
-    'localImages',
-    'fileRefs',
-    'queue',
-  ] as const) {
-    requiredFlag(
-      failures,
-      requirements.input[key] !== 'required' || capabilities.input[key] === true,
-      `${pathPrefix}.input.${key}`,
-      `Required input capability is missing: ${key}.`,
-      { required: requirements.input[key], actual: capabilities.input[key], hrcPolicy }
-    )
-  }
-
-  requiredFlag(
-    failures,
-    requirements.turns.concurrency === 'any' ||
-      requirements.turns.concurrency === capabilities.turns.concurrency,
-    `${pathPrefix}.turns.concurrency`,
-    `Required turn concurrency is missing: ${requirements.turns.concurrency}.`,
-    {
-      required: requirements.turns.concurrency,
-      actual: capabilities.turns.concurrency,
-      hrcPolicy,
-    }
-  )
-  requiredFlag(
-    failures,
-    requirements.turns.interrupt !== 'required' ||
-      capabilities.turns.interrupt === 'protocol' ||
-      capabilities.turns.interrupt === 'process',
-    `${pathPrefix}.turns.interrupt`,
-    'Required turn interrupt capability is missing.',
-    { required: requirements.turns.interrupt, actual: capabilities.turns.interrupt, hrcPolicy }
-  )
-  requiredFlag(
-    failures,
-    requirements.continuation !== 'required' || capabilities.continuation.supported === true,
-    `${pathPrefix}.continuation.supported`,
-    'Required continuation capability is missing.',
-    {
-      required: requirements.continuation,
-      actual: capabilities.continuation.supported,
-      hrcPolicy,
-    }
-  )
-
-  for (const key of ['assistantDeltas', 'toolCalls', 'usage', 'diagnostics'] as const) {
-    requiredFlag(
-      failures,
-      requirements.events[key] !== 'required' || capabilities.events[key] === true,
-      `${pathPrefix}.events.${key}`,
-      `Required event capability is missing: ${key}.`,
-      { required: requirements.events[key], actual: capabilities.events[key], hrcPolicy }
-    )
-  }
-
-  for (const key of ['stop', 'dispose'] as const) {
-    requiredFlag(
-      failures,
-      requirements.control[key] !== 'required' || capabilities.control[key] === true,
-      `${pathPrefix}.control.${key}`,
-      `Required control capability is missing: ${key}.`,
-      { required: requirements.control[key], actual: capabilities.control[key], hrcPolicy }
-    )
-  }
-
-  requiredFlag(
-    failures,
-    requirements.control.reconcile !== 'required' || capabilities.control.status === true,
-    `${pathPrefix}.control.status`,
-    'Required reconcile/status capability is missing.',
-    { required: requirements.control.reconcile, actual: capabilities.control.status, hrcPolicy }
-  )
-
-  requiredFlag(
-    failures,
-    requirements.permissions === 'none' ||
-      capabilities.permissions?.brokerToClientRequests === true,
-    `${pathPrefix}.permissions.brokerToClientRequests`,
-    'Required broker permission request capability is missing.',
-    { required: requirements.permissions, actual: capabilities.permissions, hrcPolicy }
-  )
-
-  for (const mode of requirements.lifecycle.runtimeRetention) {
-    requiredFlag(
-      failures,
-      capabilities.lifecycle.runtimeRetention.includes(mode),
-      `${pathPrefix}.lifecycle.runtimeRetention`,
-      `Required lifecycle retention mode is missing: ${mode}.`,
-      { required: mode, actual: capabilities.lifecycle.runtimeRetention, hrcPolicy }
-    )
-  }
-  for (const mode of requirements.lifecycle.harnessRecovery) {
-    requiredFlag(
-      failures,
-      capabilities.lifecycle.harnessRecovery.includes(mode),
-      `${pathPrefix}.lifecycle.harnessRecovery`,
-      `Required lifecycle recovery mode is missing: ${mode}.`,
-      { required: mode, actual: capabilities.lifecycle.harnessRecovery, hrcPolicy }
-    )
-  }
-  for (const mode of requirements.lifecycle.turnRetry) {
-    requiredFlag(
-      failures,
-      capabilities.lifecycle.turnRetry.includes(mode),
-      `${pathPrefix}.lifecycle.turnRetry`,
-      `Required lifecycle turn retry mode is missing: ${mode}.`,
-      { required: mode, actual: capabilities.lifecycle.turnRetry, hrcPolicy }
-    )
-  }
-
-  return failures
-}
-
 function assertBrokerHelloCapabilities(
-  profile: BrokerExecutionProfile,
+  execution: CompiledExecution,
   hello: BrokerHelloResponse,
   hrcPolicy: HrcCapabilityPolicy | undefined
 ): ContractHarnessFailure[] {
@@ -281,39 +141,14 @@ function assertBrokerHelloCapabilities(
     'Broker hello did not advertise event notifications.',
     { actual: hello.capabilities.eventNotifications, hrcPolicy }
   )
-  requiredFlag(
-    failures,
-    profile.expectedCapabilities.permissions === 'none' ||
-      hello.capabilities.brokerToClientRequests === true,
-    'brokerHello.capabilities.brokerToClientRequests',
-    'Broker hello did not advertise broker-to-client permission requests.',
-    {
-      required: profile.expectedCapabilities.permissions,
-      actual: hello.capabilities.brokerToClientRequests,
-      hrcPolicy,
-    }
-  )
-  requiredFlag(
-    failures,
-    profile.expectedCapabilities.control.attachReplay !== 'required' ||
-      hello.capabilities.attachReplay === true,
-    'brokerHello.capabilities.attachReplay',
-    'Broker hello did not advertise required attach/replay capability.',
-    {
-      required: profile.expectedCapabilities.control.attachReplay,
-      actual: hello.capabilities.attachReplay,
-      hrcPolicy,
-    }
-  )
-
-  const driver = hello.drivers.find((candidate) => candidate.kind === profile.brokerDriver)
+  const driver = hello.drivers.find((candidate) => candidate.kind === execution.driver)
   if (driver === undefined || !driver.available) {
     failures.push({
       code: 'broker_capability_missing',
       message: 'Broker hello did not advertise an available selected driver.',
       path: 'brokerHello.drivers',
       redactedDetails: {
-        brokerDriver: profile.brokerDriver,
+        driver: execution.driver,
         availableDrivers: hello.drivers.map(({ kind, available }) => ({ kind, available })),
         hrcPolicy,
       },
@@ -321,31 +156,21 @@ function assertBrokerHelloCapabilities(
     return failures
   }
 
-  return [
-    ...failures,
-    ...assertInvocationCapabilities(
-      profile.expectedCapabilities,
-      driver.capabilities,
-      `brokerHello.drivers.${driver.kind}.capabilities`,
-      hrcPolicy
-    ),
-  ]
+  return failures
 }
 
 function assertHeadlessCodexInputQueueSpec(
-  profile: BrokerExecutionProfile | undefined
+  execution: CompiledExecution | undefined
 ): ContractHarnessFailure[] {
   if (
-    profile === undefined ||
-    profile.interactionMode !== 'headless' ||
-    profile.brokerDriver !== 'codex-app-server'
+    execution === undefined ||
+    execution.hosting.terminalRequired ||
+    execution.driver !== 'codex-app-server'
   ) {
     return []
   }
-  const inputQueue = profile.harnessInvocation.startRequest.spec.interaction?.inputQueue
-  if (inputQueue === 'fifo' && profile.expectedCapabilities.input.queue === 'required') {
-    return []
-  }
+  const inputQueue = execution.dispatchRequest.startRequest.spec.interaction?.inputQueue
+  if (inputQueue === 'fifo') return []
   return [
     {
       code: 'broker_input_queue_invalid',
@@ -354,17 +179,17 @@ function assertHeadlessCodexInputQueueSpec(
       path: 'selectedProfile.harnessInvocation.startRequest.spec.interaction.inputQueue',
       redactedDetails: {
         inputQueue,
-        expectedCapability: profile.expectedCapabilities.input.queue,
+        expectedCapability: 'required',
       },
     },
   ]
 }
 
 function assertHeadlessCodexComposedInputQueue(
-  profile: BrokerExecutionProfile,
+  execution: CompiledExecution,
   response: InvocationStartResponse
 ): ContractHarnessFailure[] {
-  if (profile.interactionMode !== 'headless' || profile.brokerDriver !== 'codex-app-server') {
+  if (execution.hosting.terminalRequired || execution.driver !== 'codex-app-server') {
     return []
   }
   if (response.capabilities.input.queue === true) return []
@@ -375,7 +200,7 @@ function assertHeadlessCodexComposedInputQueue(
         'Headless codex-app-server broker start must report composed input.queue capability true.',
       path: 'invocationStart.response.capabilities.input.queue',
       redactedDetails: {
-        inputQueue: profile.harnessInvocation.startRequest.spec.interaction?.inputQueue,
+        inputQueue: execution.dispatchRequest.startRequest.spec.interaction?.inputQueue,
         capability: response.capabilities.input.queue,
       },
     },
@@ -383,35 +208,18 @@ function assertHeadlessCodexComposedInputQueue(
 }
 
 function selectInteractiveTmuxProfile(
-  plan: NonNullable<PreHrcBrokerContractHarnessResult['compiledPlan']>,
-  selector: PreHrcBrokerContractHarnessInput['profileSelector']
-): BrokerExecutionProfile {
-  const profiles = plan.executionProfiles.filter(
-    (profile): profile is BrokerExecutionProfile => profile.kind === 'harness-broker'
-  )
-  let candidates = profiles
-  if (selector?.profileId !== undefined) {
-    candidates = candidates.filter((profile) => profile.profileId === selector.profileId)
-  }
-  if (selector?.profileHash !== undefined) {
-    candidates = candidates.filter((profile) => profile.profileHash === selector.profileHash)
-  }
-  const selected = candidates.find(
-    (profile) =>
-      profile.interactionMode === 'interactive' && profile.brokerDriver === 'claude-code-tmux'
-  )
-  if (selected === undefined) {
+  plan: NonNullable<PreHrcBrokerContractHarnessResult['compiledPlan']>
+): CompiledExecution {
+  const selected = plan.execution
+  if (!selected.hosting.terminalRequired || selected.driver !== 'claude-code-tmux') {
     throw new ContractHarnessFailureError({
       code: 'interactive_tmux_mode_invalid',
       message: 'interactive-tmux mode requires an interactive claude-code-tmux broker profile.',
-      path: 'plan.executionProfiles',
+      path: 'plan.execution',
       redactedDetails: {
-        selector,
-        candidates: candidates.map((profile) => ({
-          profileId: profile.profileId,
-          interactionMode: profile.interactionMode,
-          brokerDriver: profile.brokerDriver,
-        })),
+        profileId: selected.profile.profileId,
+        driver: selected.driver,
+        terminalRequired: selected.hosting.terminalRequired,
       },
     })
   }
@@ -918,7 +726,7 @@ function assertFilteredEventsPreserveLedger(input: {
 }
 
 async function startBrokerInvocation(
-  profile: BrokerExecutionProfile,
+  profile: CompiledExecution,
   dispatchEnv: Record<string, string> | undefined,
   lifecyclePolicy: BrokerLifecyclePolicyOverlay | undefined,
   hrcPolicy: HrcCapabilityPolicy | undefined,
@@ -965,15 +773,10 @@ async function startBrokerInvocation(
     })
 
     const startResult = await brokerClient.startInvocationFromRequest(
-      profile.harnessInvocation.startRequest,
+      profile.dispatchRequest.startRequest,
       { dispatchEnv, lifecyclePolicy }
     )
-    const invocationFailures = assertInvocationCapabilities(
-      profile.expectedCapabilities,
-      startResult.response.capabilities,
-      'invocationStart.response.capabilities',
-      hrcPolicy
-    )
+    const invocationFailures: ContractHarnessFailure[] = []
     const queueFailures = assertHeadlessCodexComposedInputQueue(profile, startResult.response)
     const eventFailures = await collectEventsUntilTerminalTurn(
       startResult.events,
@@ -1043,7 +846,7 @@ async function startBrokerInvocation(
 }
 
 async function runInteractiveTmuxInvocation(
-  profile: BrokerExecutionProfile,
+  profile: CompiledExecution,
   runtimeOptions: PreHrcBrokerContractHarnessInput['interactiveTmux'],
   dispatchEnv: Record<string, string> | undefined,
   allowLegacyPermissionEvent: boolean
@@ -1054,7 +857,7 @@ async function runInteractiveTmuxInvocation(
 }> {
   const socketPath =
     runtimeOptions?.socketPath ??
-    `/tmp/prehrc-interactive-tmux-${profile.harnessInvocation.startRequest.spec.invocationId ?? 'inv'}.sock`
+    `/tmp/prehrc-interactive-tmux-${profile.dispatchRequest.startRequest.spec.invocationId ?? 'inv'}.sock`
   const tmuxBin = runtimeOptions?.tmuxBin ?? '/opt/bin/tmux'
   const tmuxServerEvents: Array<{
     owner: 'harness'
@@ -1079,7 +882,7 @@ async function runInteractiveTmuxInvocation(
 
   const events: InvocationEventEnvelope[] = []
   const ledger = new PreHrcBrokerEventLedger()
-  const startRequest = profile.harnessInvocation.startRequest as InvocationStartRequest
+  const startRequest = profile.dispatchRequest.startRequest as InvocationStartRequest
   const invocationId = startRequest.spec.invocationId ?? 'inv_prehrc_interactive'
 
   try {
@@ -1423,7 +1226,7 @@ export async function runPreHrcBrokerContractHarness(
   // to find a compatible profile is surfaced as a structured failure rather than
   // an unhandled throw so the assertion report stays complete.
   const selectionFailures: ContractHarnessFailure[] = []
-  let selectedProfile: BrokerExecutionProfile | undefined
+  let selectedProfile: CompiledExecution | undefined
   if (!compileResponse.ok) {
     selectionFailures.push({
       code: 'compile_failed',
@@ -1434,8 +1237,8 @@ export async function runPreHrcBrokerContractHarness(
     try {
       selectedProfile =
         mode === 'interactive-tmux'
-          ? selectInteractiveTmuxProfile(compileResponse.plan, input.profileSelector)
-          : selectBrokerProfile(compileResponse.plan, input.profileSelector)
+          ? selectInteractiveTmuxProfile(compileResponse.plan)
+          : selectBrokerProfile(compileResponse.plan)
     } catch (error) {
       if (error instanceof ContractHarnessFailureError) {
         selectionFailures.push(error.failure)
@@ -1459,7 +1262,7 @@ export async function runPreHrcBrokerContractHarness(
 
   const routeDecision =
     compiledPlan !== undefined && selectedProfile !== undefined
-      ? createPreHrcRouteDecision(compiledPlan, selectedProfile)
+      ? createPreHrcRouteDecision(compiledPlan, selectedProfile, input.compileRequest)
       : undefined
 
   const failures: ContractHarnessFailure[] = [
@@ -1489,7 +1292,7 @@ export async function runPreHrcBrokerContractHarness(
       dispatchEnv,
       input.lifecyclePolicy,
       input.compileRequest.hrcPolicy.capabilityPolicy,
-      input.timeoutMs ?? selectedProfile.policy.resourceLimits?.turnTimeoutMs ?? 10_000,
+      input.timeoutMs ?? input.compileRequest.hrcPolicy.resourceLimits?.turnTimeoutMs ?? 10_000,
       input.allowLegacyPermissionEvent === true,
       input.brokerProcess
     )
@@ -1512,7 +1315,7 @@ export async function runPreHrcBrokerContractHarness(
             ...input.brokerStartAssertions.realCodexHappyPath,
             expectedCwd:
               input.brokerStartAssertions.realCodexHappyPath.expectedCwd ??
-              selectedProfile.harnessInvocation.startRequest.spec.process.cwd,
+              selectedProfile.dispatchRequest.startRequest.spec.process.cwd,
           })
         )
       }

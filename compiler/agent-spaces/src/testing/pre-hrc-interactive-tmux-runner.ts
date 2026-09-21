@@ -27,12 +27,12 @@ import type {
   InvocationInput,
   InvocationRuntimeContext,
 } from 'spaces-harness-broker-protocol'
-import type { BrokerExecutionProfile, BrokerPermissionPolicy } from 'spaces-runtime-contracts'
-import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 import type {
-  LegacyRuntimeCompileRequest as RuntimeCompileRequest,
-  LegacyRuntimeCompileResponse as RuntimeCompileResponse,
-} from 'spaces-runtime-contracts/internal/compiler-plan-v1'
+  BrokerPermissionPolicy,
+  RuntimeCompileRequest,
+  RuntimeCompileResponse,
+} from 'spaces-runtime-contracts'
+import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 
 import { buildCorrelationEnvVars } from '../placement-api.js'
 import { assertInteractiveTmuxEvents } from './pre-hrc-broker-contract-harness.js'
@@ -223,7 +223,7 @@ export type InteractiveTmuxRunResult = {
     selectedProfileHash: string | undefined
     startRequestHash: string | undefined
     brokerDriver: string | undefined
-    interactionMode: string | undefined
+    presentation: boolean | undefined
   }
   contractVerification: { ok: boolean; failures: unknown[] }
   assertionFailures: Array<{ code: string; message: string; path?: string | undefined }>
@@ -300,16 +300,21 @@ function compileRequest(options: InteractiveTmuxRunOptions): RuntimeCompileReque
     cwd: options.cwd,
     hostSessionId: identity.hostSessionId,
   })
+  const placementBundle = asRecord(placement['bundle'])
+  const agentId = placementBundle?.['agentName']
+  if (typeof agentId !== 'string' || agentId.length === 0) {
+    throw new Error('Interactive tmux placement did not resolve an agent identity.')
+  }
   return {
-    schemaVersion: 'agent-runtime-compile-request/v1',
+    schemaVersion: 'agent-runtime-compile-request/v2',
+    agent: { id: agentId },
     identity,
     placement,
     requested: {
+      harness: 'claude',
       modelProvider: 'anthropic',
       model: options.model,
-      harnessFamily: 'claude-code',
-      preferredHarnessRuntime: 'claude-code-cli',
-      interactionMode: 'interactive',
+      presentation: true,
     },
     materialization: {
       initialPrompt: INTERACTIVE_TMUX_LAUNCH_PRIMING_PROMPT,
@@ -354,28 +359,6 @@ function compileRequest(options: InteractiveTmuxRunOptions): RuntimeCompileReque
       laneRef: 'main',
     },
   }
-}
-
-function selectInteractiveProfile(profiles: BrokerExecutionProfile[]): BrokerExecutionProfile {
-  const selected = profiles.find(
-    (profile) =>
-      profile.kind === 'harness-broker' &&
-      profile.interactionMode === 'interactive' &&
-      profile.brokerDriver === 'claude-code-tmux'
-  )
-  if (selected === undefined) {
-    const candidates = JSON.stringify(
-      profiles.map((p) => ({
-        kind: p.kind,
-        interactionMode: p.interactionMode,
-        brokerDriver: p.brokerDriver,
-      }))
-    )
-    throw new Error(
-      `Compiler did not emit an interactive claude-code-tmux broker profile. Candidates: ${candidates}`
-    )
-  }
-  return selected
 }
 
 // ---------------------------------------------------------------------------
@@ -713,7 +696,7 @@ export async function runInteractiveClaudeTmuxSession(
   mkdirSync(options.artifactDir, { recursive: true })
   ensureAspHomeRegistry(options)
 
-  // --- 1. Compile + select + verify the interactive claude-code-tmux profile ---
+  // --- 1. Compile + verify the singular interactive Claude execution ---
   const request = compileRequest(options)
   const compileResponse = await deps.compileRuntimePlan(request)
   if (!compileResponse.ok) {
@@ -722,18 +705,27 @@ export async function runInteractiveClaudeTmuxSession(
     )
   }
   const plan = compileResponse.plan
-  const brokerProfiles = plan.executionProfiles.filter(
-    (p): p is BrokerExecutionProfile => p.kind === 'harness-broker'
-  )
-  const profile = selectInteractiveProfile(brokerProfiles)
-  const verification = verifyBrokerStartContract(profile)
+  const execution = plan.execution
+  if (
+    execution.driver !== 'claude-code-tmux' ||
+    !execution.hosting.terminalRequired ||
+    execution.hosting.terminalHost !== 'tmux'
+  ) {
+    throw new Error(
+      `Compiler did not emit the Claude tmux execution: ${JSON.stringify({
+        driver: execution.driver,
+        hosting: execution.hosting,
+      })}`
+    )
+  }
+  const verification = verifyBrokerStartContract(execution)
   if (!verification.ok) {
     throw new Error(
       `Broker start contract verification failed: ${JSON.stringify(verification.failures)}`
     )
   }
 
-  const startRequest = profile.harnessInvocation.startRequest
+  const startRequest = execution.dispatchRequest.startRequest
   const spec = startRequest.spec as HarnessInvocationSpec
   const invocationId = (spec.invocationId ?? 'inv_phase5_claude_tmux') as InvocationId
 
@@ -801,10 +793,10 @@ export async function runInteractiveClaudeTmuxSession(
     compile: {
       compileId: plan.compileId,
       planHash: plan.planHash,
-      selectedProfileHash: profile.profileHash,
-      startRequestHash: profile.harnessInvocation.startRequestHash,
-      brokerDriver: profile.brokerDriver,
-      interactionMode: profile.interactionMode,
+      selectedProfileHash: execution.profile.profileHash,
+      startRequestHash: execution.profile.startRequestHash,
+      brokerDriver: execution.driver,
+      presentation: plan.selection.presentation,
     },
     contractVerification: { ok: verification.ok, failures: verification.failures },
     assertionFailures: [],
