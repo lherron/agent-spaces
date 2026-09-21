@@ -86,15 +86,20 @@ function preparation(
       attempt,
       response: {
         ok: true,
-        plan: { identity: { generation: 1 } },
-        selectedProfile: {
-          brokerProtocol: 'harness-broker/0.2',
-          profileHash: 'p',
-          harnessInvocation: { startRequestHash: 's' },
-        },
-        dispatchRequest: {
-          startRequest: {
-            spec: { invocationId: 'inv_t', correlation: { runtimeId: 'rt', hostSessionId: 'hs' } },
+        plan: {
+          identity: { generation: 1 },
+          execution: {
+            driver: 'codex-app-server',
+            protocol: 'harness-broker/0.2',
+            profile: { profileHash: 'p', startRequestHash: 's' },
+            dispatchRequest: {
+              startRequest: {
+                spec: {
+                  invocationId: 'inv_t',
+                  correlation: { runtimeId: 'rt', hostSessionId: 'hs' },
+                },
+              },
+            },
           },
         },
         executionRelease,

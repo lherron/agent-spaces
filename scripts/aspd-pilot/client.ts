@@ -125,6 +125,30 @@ function compileRequest(
     typeof spec['requested'] === 'object' && spec['requested'] !== null
       ? (spec['requested'] as Record<string, unknown>)
       : {}
+  const unsupportedRequestedKeys = Object.keys(requested).filter(
+    (key) => !['harness', 'modelProvider', 'model', 'reasoningEffort', 'presentation'].includes(key)
+  )
+  if (unsupportedRequestedKeys.length > 0) {
+    throw new Refusal(
+      'unsupported_harness_selection',
+      `requested contains unsupported v2 selection keys: ${unsupportedRequestedKeys.join(', ')}`
+    )
+  }
+  const requestedSelection = {
+    harness: typeof requested['harness'] === 'string' ? requested['harness'] : 'codex',
+    modelProvider:
+      typeof requested['modelProvider'] === 'string' ? requested['modelProvider'] : 'openai-codex',
+    presentation:
+      typeof requested['presentation'] === 'boolean' ? requested['presentation'] : false,
+    ...(typeof requested['model'] === 'string'
+      ? { model: requested['model'] }
+      : typeof spec['model'] === 'string'
+        ? { model: spec['model'] }
+        : {}),
+    ...(typeof requested['reasoningEffort'] === 'string'
+      ? { reasoningEffort: requested['reasoningEffort'] }
+      : { reasoningEffort: 'low' }),
+  }
   const materialization =
     typeof spec['materialization'] === 'object' && spec['materialization'] !== null
       ? (spec['materialization'] as Record<string, unknown>)
@@ -146,7 +170,8 @@ function compileRequest(
   }
   return {
     compileRequest: {
-      schemaVersion: 'agent-runtime-compile-request/v1',
+      schemaVersion: 'agent-runtime-compile-request/v2',
+      agent: { id: agentName },
       identity,
       placement: {
         agentRoot,
@@ -159,15 +184,7 @@ function compileRequest(
           hostSessionId: identity.hostSessionId,
         },
       },
-      requested: {
-        modelProvider: 'openai',
-        harnessFamily: 'codex',
-        preferredHarnessRuntime: 'codex-cli',
-        interactionMode: 'headless',
-        ...(typeof spec['model'] === 'string' ? { model: spec['model'] } : {}),
-        reasoningEffort: 'low',
-        ...requested,
-      },
+      requested: requestedSelection,
       materialization: { omitPriming: true, ...materialization },
       hrcPolicy: {
         permissionPolicy: { mode: 'deny', audit: true },
@@ -243,10 +260,10 @@ async function prepare(cmd: Command): Promise<unknown> {
       attempt,
       connectionRelease: client.hello.release,
       executionRelease: response.executionRelease,
-      invocationId: response.dispatchRequest.startRequest.spec.invocationId,
-      driver: response.selectedProfile.brokerDriver,
-      startRequestHash: response.selectedProfile.harnessInvocation.startRequestHash,
-      profileHash: response.selectedProfile.profileHash,
+      invocationId: response.plan.execution.dispatchRequest.startRequest.spec.invocationId,
+      driver: response.plan.execution.driver,
+      startRequestHash: response.plan.execution.profile.startRequestHash,
+      profileHash: response.plan.execution.profile.profileHash,
     }
   } finally {
     if (ephemeral) await client.close()
@@ -362,7 +379,7 @@ async function launch(cmd: Command): Promise<unknown> {
   const { executable } = validateReleaseBinding(release)
   record('hosting.release.validated', { attempt, releaseId: release.releaseId })
 
-  const spec = compiled.dispatchRequest.startRequest.spec
+  const spec = compiled.plan.execution.dispatchRequest.startRequest.spec
   const correlation = (spec.correlation ?? {}) as Record<string, unknown>
   const token = randomBytes(24).toString('hex')
   const bindings: Bindings = {
@@ -374,8 +391,8 @@ async function launch(cmd: Command): Promise<unknown> {
     hostSessionId: String(correlation['hostSessionId']),
     generation: compiled.plan.identity.generation,
     invocationId: String(spec.invocationId),
-    startRequestHash: compiled.selectedProfile.harnessInvocation.startRequestHash,
-    selectedProfileHash: compiled.selectedProfile.profileHash,
+    startRequestHash: compiled.plan.execution.profile.startRequestHash,
+    selectedProfileHash: compiled.plan.execution.profile.profileHash,
   }
   writeFileSync(bindings.attachTokenPath, token, { mode: 0o600, flag: 'wx' })
   const argv = [
@@ -447,7 +464,7 @@ async function launch(cmd: Command): Promise<unknown> {
     }
 
     // The persisted dispatch payload, unchanged. Submitted once; never replayed.
-    const dispatch = compiled.dispatchRequest
+    const dispatch = compiled.plan.execution.dispatchRequest
     writeJson(join(dispatchMarker(dir)), { submittedAt: now(), startAttempt: `${attempt}-start-1` })
     let startResponse: unknown
     try {
