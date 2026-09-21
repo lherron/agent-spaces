@@ -6,8 +6,7 @@
  * `compiler_exception` catch never sees it. These tests inject a compiler that
  * returns that converted response and assert the compile-plane aspc entry
  * points surface the typed diagnostics unchanged (not degraded to
- * `compiler_exception`). The `compileAndStart` case moved to
- * harness/aspc-facade/test/ with the start plane (T-07314 facade split).
+ * `compiler_exception`).
  */
 
 import { describe, expect, test } from 'bun:test'

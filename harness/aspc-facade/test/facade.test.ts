@@ -2,9 +2,10 @@
  * Moved from harness/aspc/test/facade.test.ts by the T-07314 facade split: the
  * cohosted cases now drive the `spaces-aspc-facade` composition bin, which is
  * where the `aspc-facade` executable lives. These are RE-PINS of existing
- * behavior, plus AC-8 (cohosted capability flags, the `true` direction of the
- * flags harness/aspc/test/compile-only-registration.test.ts pins `false`) and
- * AC-9's success case (compileAndStart starts through the co-hosted broker).
+ * behavior, plus the selector-free cutover: the cohosted transport advertises
+ * the broker separately, while ordinary compilation is one
+ * `aspc.compileHarnessInvocation` request whose dispatch result is passed to
+ * `invocation.start` without a second ASPC operation.
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { ASPC_PROTOCOL_VERSION } from 'spaces-aspc-protocol'
@@ -14,6 +15,7 @@ import {
   type Fixture,
   buildCompileRequest,
   createFixture,
+  probeServed,
   removeFixture,
   startFacadeClient,
 } from './helpers'
@@ -36,14 +38,16 @@ afterEach(() => {
 })
 
 describe('ASPC cohosted composition facade', () => {
-  test('AC-8: co-hosts ASPC and broker and reports cohosted capabilities honestly', async () => {
+  test('co-hosts a broker but exposes one ordinary ASPC compile operation', async () => {
     const client = await startFacadeClient(fixture)
     try {
       const aspcHello = await client.hello()
       expect(aspcHello.protocolVersion).toBe(ASPC_PROTOCOL_VERSION)
       expect(aspcHello.capabilities.cohostedBroker).toBe(true)
-      expect(aspcHello.capabilities.compileAndStart).toBe(true)
+      expect(aspcHello.capabilities.compileAndStart).toBe(false)
       expect(aspcHello.brokerProtocol).toBeDefined()
+      expect(await probeServed(client, 'aspc.compileAndStart', {})).toBe(false)
+      expect(await probeServed(client, 'aspc.compileRuntimePlan', {})).toBe(false)
 
       const brokerHello = await client.request<BrokerHelloResponse>('broker.hello', {
         clientInfo: { name: 'aspc-facade-test' },
@@ -115,27 +119,31 @@ describe('ASPC cohosted composition facade', () => {
     }
   })
 
-  test('AC-9: compileAndStart compiles through ASPC and starts through the co-hosted broker', async () => {
+  test('starts the compiled canonical dispatch through the separate broker route', async () => {
     const client = await startFacadeClient(fixture)
     try {
-      const response = await client.compileAndStart({
+      const compile = await client.compileHarnessInvocation({
         compileRequest: buildCompileRequest(fixture, 'compile_and_start'),
         aspHome: fixture.aspHome,
       })
-      expect(response.ok).toBe(true)
-      if (!response.ok) return
+      expect(compile.ok).toBe(true)
+      if (!compile.ok) return
 
-      expect(response.startResponse.invocationId).toBe(
-        response.compile.plan.execution.dispatchRequest.startRequest.spec.invocationId
+      const startResponse = await client.request<{ invocationId: string }>('invocation.start', {
+        ...compile.plan.execution.dispatchRequest,
+      })
+
+      expect(startResponse.invocationId).toBe(
+        compile.plan.execution.dispatchRequest.startRequest.spec.invocationId
       )
 
       await client.request('invocation.stop', {
-        invocationId: response.startResponse.invocationId,
+        invocationId: startResponse.invocationId,
         reason: 'test cleanup',
         graceMs: 100,
       })
       await client.request('invocation.dispose', {
-        invocationId: response.startResponse.invocationId,
+        invocationId: startResponse.invocationId,
       })
     } finally {
       await client.close()

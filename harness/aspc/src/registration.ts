@@ -64,8 +64,7 @@ export interface RegisterAspcCompileMethodsOptions {
 
 /**
  * Registers one ASPC route: validate the JSON-RPC envelope, narrow params with
- * the method's typed validator, then forward to the service. Exported so the
- * composition package registers `aspc.compileAndStart` through the same seam.
+ * the method's typed validator, then forward to the service.
  */
 export function registerAspcMethod<Params, Result>(
   server: AspcMethodServer,
@@ -80,9 +79,9 @@ export function registerAspcMethod<Params, Result>(
 }
 
 /**
- * Binds exactly the seven compile methods onto `server`. Registers no
- * `aspc.compileAndStart`, no `broker.*` and no `invocation.*` route: the start
- * plane belongs to the co-hosted composition facade.
+ * Binds the ASPC read/compile methods onto `server`. It registers no broker or
+ * invocation route: starting an invocation is a separate broker operation that
+ * receives the canonical dispatch request from `compileHarnessInvocation`.
  */
 export function registerAspcCompileMethods(
   server: AspcMethodServer,

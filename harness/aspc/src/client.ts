@@ -3,8 +3,6 @@ import type {
   AspcCatalogAgentInspectionRequest,
   AspcCatalogAgentsRequest,
   AspcCatalogAgentsResponse,
-  AspcCompileAndStartRequest,
-  AspcCompileAndStartResponse,
   AspcCompileHarnessInvocationRequest,
   AspcCompileHarnessInvocationResponse,
   AspcHelloRequest,
@@ -73,10 +71,6 @@ export class AspcClient {
     req: AspcCompileHarnessInvocationRequest
   ): Promise<AspcCompileHarnessInvocationResponse> {
     return this.#transport.request('aspc.compileHarnessInvocation', req)
-  }
-
-  compileAndStart(req: AspcCompileAndStartRequest): Promise<AspcCompileAndStartResponse> {
-    return this.#transport.request('aspc.compileAndStart', req)
   }
 
   request<T>(method: string, params?: unknown): Promise<T> {

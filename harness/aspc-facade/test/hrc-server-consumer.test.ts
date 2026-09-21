@@ -4,7 +4,8 @@
  * The task description's premise that hrc-server is a compile-plane-only
  * consumer is FALSIFIED by source: `hrc-runtime/packages/hrc-server/src/
  * agent-spaces-adapter/aspc-facade-client.ts` spawns `node_modules/.bin/
- * aspc-facade` and speaks the FULL cohosted plane enumerated below (the
+ * aspc-facade` and speaks the separate compile and broker planes enumerated
+ * below (the
  * `invocation.event` notification and the `invocation.permission.request`
  * server->client callback included).
  *
@@ -83,12 +84,15 @@ describe('hrc-server consumer contract', () => {
         protocolVersions: ['harness-broker/0.2'],
         capabilities: { eventReplay: true, permissionRequests: true },
       })
-      const started = await client.compileAndStart({
+      const compile = await client.compileHarnessInvocation({
         compileRequest: buildCompileRequest(fixture, 'consumer_pin', ASK_CLIENT_PERMISSION_POLICY),
         aspHome: fixture.aspHome,
       })
-      expect(started.ok).toBe(true)
-      if (!started.ok) return
+      expect(compile.ok).toBe(true)
+      if (!compile.ok) return
+      const started = await client.request<{ invocationId: string }>('invocation.start', {
+        ...compile.plan.execution.dispatchRequest,
+      })
       await waitFor(() => notifications.length > 0 && serverRequests.length > 0)
 
       const notified = new Set(notifications.map((notification) => notification.method))
@@ -110,12 +114,12 @@ describe('hrc-server consumer contract', () => {
       expect(unserved).toEqual([])
 
       await client.request('invocation.stop', {
-        invocationId: started.startResponse.invocationId,
+        invocationId: started.invocationId,
         reason: 'consumer pin cleanup',
         graceMs: 100,
       })
       await client.request('invocation.dispose', {
-        invocationId: started.startResponse.invocationId,
+        invocationId: started.invocationId,
       })
     } finally {
       await client.close()

@@ -49,16 +49,22 @@ export function createRuntimeCompiler(options: RuntimeCompilerOptions = {}): Asp
     })
     return client.compileRuntimePlan(
       req,
-      compileOptions?.compileContext !== undefined
+      compileOptions?.compileContext !== undefined ||
+        compileOptions?.materializeCodexRuntimeHome !== undefined ||
+        compileOptions?.dispatch !== undefined
         ? {
-            compileContext: compileOptions.compileContext,
+            ...(compileOptions.compileContext !== undefined
+              ? { compileContext: compileOptions.compileContext }
+              : {}),
             ...(compileOptions.materializeCodexRuntimeHome !== undefined
               ? { materializeCodexRuntimeHome: compileOptions.materializeCodexRuntimeHome }
               : {}),
+            // The compiler alone constructs the start request. The facade
+            // forwards only host-owned dispatch overlays, which the compiler
+            // folds into plan.execution.dispatchRequest.
+            ...(compileOptions.dispatch !== undefined ? { dispatch: compileOptions.dispatch } : {}),
           }
-        : compileOptions?.materializeCodexRuntimeHome !== undefined
-          ? { materializeCodexRuntimeHome: compileOptions.materializeCodexRuntimeHome }
-          : undefined
+        : undefined
     )
   }
 }

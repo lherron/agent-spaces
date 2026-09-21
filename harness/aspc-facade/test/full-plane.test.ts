@@ -2,8 +2,9 @@
  * T-07314 RED (AC-7): the cohosted composition facade serves the FULL plane.
  *
  * Drives the real `harness/aspc-facade/bin/aspc-facade.js` over stdio: the five
- * compile methods, `aspc.compileAndStart`, the two `broker.*` routes and the six
- * `invocation.*` routes must all be served, the server must emit
+ * compile methods, the two `broker.*` routes and the six `invocation.*` routes
+ * must all be served. A compile returns the singular canonical dispatch request
+ * for the separate `invocation.start` route. The server must emit
  * `invocation.event` notifications, and it must issue
  * `invocation.permission.request` requests back to the client (ask-client
  * policy, permission-request fake-codex fixture).
@@ -72,8 +73,8 @@ describe('cohosted facade full plane', () => {
       expect(await probeServed(client, 'aspc.catalogAgents', {})).toBe(true)
       expect(await probeServed(client, 'aspc.inspectAgent', {})).toBe(true)
 
-      // --- aspc.compileAndStart through the co-hosted broker ---
-      const started = await client.compileAndStart({
+      // --- compile once, then start its canonical dispatch through the broker ---
+      const startedCompile = await client.compileHarnessInvocation({
         compileRequest: buildCompileRequest(
           fixture,
           'full_plane_start',
@@ -81,9 +82,12 @@ describe('cohosted facade full plane', () => {
         ),
         aspHome: fixture.aspHome,
       })
-      expect(started.ok).toBe(true)
-      if (!started.ok) return
-      const invocationId = started.startResponse.invocationId
+      expect(startedCompile.ok).toBe(true)
+      if (!startedCompile.ok) return
+      const started = await client.request<{ invocationId: string }>('invocation.start', {
+        ...startedCompile.plan.execution.dispatchRequest,
+      })
+      const invocationId = started.invocationId
 
       // --- broker.* and invocation.* ---
       const health = await client.request<{ status: string }>('broker.health', {})

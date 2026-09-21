@@ -3,14 +3,15 @@
  *
  * Composition only: it owns the transport (from `spaces-harness-broker`), binds
  * the compile plane through `spaces-aspc`'s transport-injected registration
- * seam, then adds the routes that require a live broker — `aspc.compileAndStart`,
- * `broker.*` and `invocation.*` — plus the server->client `invocation.event`
- * notification and `invocation.permission.request` callback.
+ * seam, then adds the separate `broker.*` and `invocation.*` routes plus the
+ * server->client `invocation.event` notification and
+ * `invocation.permission.request` callback. Compiling remains the single
+ * selector-free `aspc.compileHarnessInvocation` operation; callers start the
+ * returned canonical dispatch request through `invocation.start`.
  */
 import type { Readable, Writable } from 'node:stream'
-import type { AspcCompiler, AspcServiceOptions } from 'spaces-aspc'
-import { JSONRPC_VERSION, registerAspcCompileMethods, registerAspcMethod } from 'spaces-aspc'
-import { validateAspcCompileAndStartRequest } from 'spaces-aspc-protocol'
+import type { AspcCompiler, AspcService, AspcServiceOptions } from 'spaces-aspc'
+import { createAspcService, JSONRPC_VERSION, registerAspcCompileMethods } from 'spaces-aspc'
 import { createDefaultBroker, createProtocolServer } from 'spaces-harness-broker'
 import type { Broker, ProtocolServer } from 'spaces-harness-broker'
 import type {
@@ -19,8 +20,8 @@ import type {
   JsonRpcNotification,
   PermissionDecision,
 } from 'spaces-harness-broker-protocol'
-import { validateCommand } from 'spaces-harness-broker-protocol'
-import { createCohostedAspcService, startFromDispatch } from './service.js'
+import { SUPPORTED_BROKER_PROTOCOL_VERSIONS, validateCommand } from 'spaces-harness-broker-protocol'
+import { runtimeCompiler } from './runtime-compiler.js'
 
 export interface AspcFacadeOptions
   extends Pick<
@@ -38,8 +39,6 @@ export interface AspcFacadeOptions
   broker?: Broker | undefined
   compiler?: AspcCompiler | undefined
 }
-
-const ASPC_COMPILE_AND_START_METHOD = 'aspc.compileAndStart'
 
 const BROKER_METHODS = {
   hello: 'broker.hello',
@@ -83,9 +82,8 @@ export function createAspcFacadeServer(options: AspcFacadeOptions): ProtocolServ
       (event) => emitEvent(event),
       (params) => server.request<PermissionDecision>('invocation.permission.request', params)
     )
-  const aspc = createCohostedAspcService({
-    broker,
-    ...(options.compiler !== undefined ? { compiler: options.compiler } : {}),
+  const compile = createAspcService({
+    compiler: options.compiler ?? runtimeCompiler,
     ...(options.agentsRoot !== undefined ? { agentsRoot: options.agentsRoot } : {}),
     ...(options.resolveProjectRoot !== undefined
       ? { resolveProjectRoot: options.resolveProjectRoot }
@@ -97,14 +95,23 @@ export function createAspcFacadeServer(options: AspcFacadeOptions): ProtocolServ
       : {}),
     ...(options.scaffoldPackets !== undefined ? { scaffoldPackets: options.scaffoldPackets } : {}),
   })
+  const aspc: AspcService = {
+    ...compile,
+    async hello(req) {
+      const response = await compile.hello(req)
+      return {
+        ...response,
+        capabilities: {
+          ...response.capabilities,
+          compileAndStart: false,
+          cohostedBroker: true,
+        },
+        brokerProtocol: SUPPORTED_BROKER_PROTOCOL_VERSIONS[0]!,
+      }
+    },
+  }
 
   registerAspcCompileMethods(server, { service: aspc })
-  registerAspcMethod(
-    server,
-    ASPC_COMPILE_AND_START_METHOD,
-    validateAspcCompileAndStartRequest,
-    (req) => aspc.compileAndStart(req)
-  )
 
   registerBrokerMethods(server, broker)
   return server
@@ -217,4 +224,16 @@ function registerBrokerMethods(server: ProtocolServer, broker: Broker): void {
       return invoke(params)
     })
   }
+}
+
+function startFromDispatch(
+  broker: Broker,
+  dispatch: InvocationDispatchRequest
+): ReturnType<Broker['start']> {
+  return broker.start(
+    dispatch.startRequest,
+    dispatch.dispatchEnv,
+    dispatch.runtime,
+    dispatch.lifecyclePolicy
+  )
 }
