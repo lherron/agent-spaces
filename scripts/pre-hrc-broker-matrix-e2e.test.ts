@@ -1,11 +1,53 @@
 import { describe, expect, test } from 'bun:test'
+import type { InvocationEventEnvelope, InvocationId } from 'spaces-harness-broker-protocol'
 
 import {
   BROKER_MANAGED_MATRIX_ROWS,
   MATRIX_ROW_NAMES,
   SPARKY_CODEX_MATRIX_ROWS,
   matrixRowSelection,
+  verifyBrokerEventFloor,
 } from './pre-hrc-broker-matrix-e2e.ts'
+
+const invocationId = 'inv_matrix_contract' as InvocationId
+const marker = 'MATRIX_MARKER'
+
+function event(
+  seq: number,
+  type: InvocationEventEnvelope['type'],
+  payload: Record<string, unknown>,
+  turnId?: string
+): InvocationEventEnvelope {
+  return {
+    invocationId,
+    seq,
+    time: new Date(1_700_000_000_000 + seq).toISOString(),
+    type,
+    payload,
+    ...(turnId === undefined ? {} : { turnId: turnId as never }),
+  } as InvocationEventEnvelope
+}
+
+function completeMarkerStream(): InvocationEventEnvelope[] {
+  return [
+    event(1, 'invocation.started', { command: 'codex', args: [], cwd: '/tmp' }),
+    event(2, 'invocation.ready', { state: 'ready' }),
+    event(3, 'turn.started', { turnId: 'turn_1', inputId: 'input_1' }, 'turn_1'),
+    event(
+      4,
+      'tool.call.started',
+      { toolCallId: 'call_1', name: 'Bash', input: { command: `printf ${marker}` } },
+      'turn_1'
+    ),
+    event(
+      5,
+      'tool.call.completed',
+      { toolCallId: 'call_1', name: 'Bash', output: marker, isError: false },
+      'turn_1'
+    ),
+    event(6, 'turn.completed', { turnId: 'turn_1' }, 'turn_1'),
+  ]
+}
 
 describe('pre-HRC broker matrix v2 catalog', () => {
   test('keeps only broker-managed catalog routes', () => {
@@ -40,4 +82,33 @@ describe('pre-HRC broker matrix v2 catalog', () => {
       expect(matrixRowSelection(row)).toEqual({ harness, modelProvider, model, presentation })
     }
   )
+
+  test('retains command-turn event-floor verification for a complete broker stream', () => {
+    expect(verifyBrokerEventFloor(completeMarkerStream(), invocationId, marker)).toEqual([])
+  })
+
+  test('rejects event streams that cross an invocation boundary', () => {
+    const events = completeMarkerStream()
+    events[2] = { ...events[2]!, invocationId: 'inv_other' as InvocationId }
+    expect(
+      verifyBrokerEventFloor(events, invocationId, marker).map((failure) => failure.code)
+    ).toContain('event_invocation_mismatch')
+  })
+
+  test('rejects non-monotonic broker sequence numbers', () => {
+    const events = completeMarkerStream()
+    events[2] = { ...events[2]!, seq: 2 }
+    expect(
+      verifyBrokerEventFloor(events, invocationId, marker).map((failure) => failure.code)
+    ).toContain('event_sequence_invalid')
+  })
+
+  test('rejects a stream that does not finish the marker command turn', () => {
+    const events = completeMarkerStream().filter((item) => item.type !== 'turn.completed')
+    expect(
+      verifyBrokerEventFloor(events, invocationId, marker).map((failure) => failure.code)
+    ).toEqual(
+      expect.arrayContaining(['terminal_turn_count_invalid', 'marker_turn_completion_missing'])
+    )
+  })
 })
