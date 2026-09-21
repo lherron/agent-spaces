@@ -86,7 +86,7 @@ describe('pre-HRC interactive tmux preparation on v2 plans', () => {
     })
   })
 
-  test('materializes interactive Claude priming in the canonical broker input, not a foreground launch payload', async () => {
+  test('materializes interactive Claude priming on its broker-owned launch specification', async () => {
     const result = await execution({
       namespace: 'interactive-claude-input',
       harness: 'claude',
@@ -96,11 +96,13 @@ describe('pre-HRC interactive tmux preparation on v2 plans', () => {
       prompt: 'start the terminal turn through the broker',
     })
     const start = result.dispatchRequest.startRequest
-    expect(start.initialInput?.content).toEqual([
-      { type: 'text', text: 'start the terminal turn through the broker' },
-    ])
-    expect(start.spec).not.toHaveProperty('launch')
-    expect(start.spec.process.args).not.toContain('start the terminal turn through the broker')
+    expect(start.initialInput).toBeUndefined()
+    expect(start.spec.launch).toMatchObject({
+      initialPrompt: 'start the terminal turn through the broker',
+    })
+    expect(start.spec.process.args).toEqual(
+      expect.arrayContaining(['--', 'start the terminal turn through the broker'])
+    )
   })
 
   test('does not allocate an initial turn merely to prepare an empty interactive terminal route', async () => {

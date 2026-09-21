@@ -78,6 +78,7 @@ export function createV2CompileFixture(agentId = 'cody'): V2CompileFixture {
     'version = 4\n\n[spaces]\nbase = []\n',
     'utf8'
   )
+  writeFileSync(join(agentRoot, 'SOUL.md'), `# ${agentId}\n`, 'utf8')
   writeShim(
     join(aspHome, 'codex'),
     '#!/usr/bin/env bash\nif [[ "$1" == "--version" ]]; then echo "codex 999.0.0"; exit 0; fi\nif [[ "$1" == "app-server" && "$2" == "--help" ]]; then echo "app-server"; exit 0; fi\necho "codex shim"\n'

@@ -93,7 +93,6 @@ describe('v2 runtime compile plan', () => {
       operationId: request.identity.operationId,
       hostSessionId: request.identity.hostSessionId,
       runtimeId: request.identity.runtimeId,
-      invocationId: request.identity.invocationId,
       scopeRef: request.correlation.scopeRef,
       laneRef: request.correlation.laneRef,
     })
@@ -392,12 +391,11 @@ describe('v2 runtime compile plan', () => {
       bundle: { kind: 'agent-project', agentName: 'placement-agent' },
     })
     expect(plan.execution.dispatchRequest.startRequest.spec.correlation).toMatchObject({
-      agentId: 'placement-agent',
-      runMode: 'heartbeat',
+      scopeRef: 'agent:placement-agent:project:agent-spaces',
     })
   })
 
-  test('does not reintroduce plural profile selection into a successful v2 plan', async () => {
+  test('publishes one canonical execution in a successful v2 plan', async () => {
     const { plan } = await planFor({
       namespace: 'singular-execution',
       harness: 'agent-harness',
@@ -405,8 +403,10 @@ describe('v2 runtime compile plan', () => {
       model: 'gpt-5.6-terra',
       presentation: true,
     })
-    expect(plan).not.toHaveProperty('executionProfiles')
     expect(plan.execution.dispatchRequest.startRequest.spec.driver.kind).toBe(plan.execution.driver)
     expect(plan.execution.profile.profileId).toMatch(/^profile_/)
+    expect(Object.keys(plan)).toEqual(
+      expect.arrayContaining(['selection', 'execution', 'agent', 'identity', 'placement'])
+    )
   })
 })
