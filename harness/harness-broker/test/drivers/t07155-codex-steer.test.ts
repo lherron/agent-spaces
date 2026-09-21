@@ -131,7 +131,7 @@ describe('T-07155 codex-app-server steer', () => {
     await broker.stop({ invocationId })
   })
 
-  test('G3: a non-precondition turn/steer refusal throws instead of silently reporting delivery', async () => {
+  test('G3: an ambiguous turn/steer refusal fails open into an own turn', async () => {
     const events: InvocationEventEnvelope[] = []
     const broker = createBroker({
       drivers: [createCodexAppServerDriver()],
@@ -151,9 +151,18 @@ describe('T-07155 codex-app-server steer', () => {
       policy: { whenBusy: 'steer' },
     })
 
-    // Rejected, and specifically NOT parked on the deferred queue.
-    expect(response).toMatchObject({ accepted: false, disposition: 'rejected' })
+    expect(response).toMatchObject({
+      accepted: true,
+      disposition: 'started',
+      turnId: 'turn_steer_reject_fallback',
+    })
     expect(events.filter((event) => event.type === 'input.queued')).toHaveLength(0)
+    expect(
+      events.find(
+        (event) =>
+          event.type === 'submission.executed' && event.payload.submissionId === 'input_urgent'
+      )
+    ).toMatchObject({ turnId: 'turn_steer_reject_fallback' })
 
     await broker.stop({ invocationId })
   })
