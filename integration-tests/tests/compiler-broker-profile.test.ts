@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import { mkdirSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
 import { validateInvocationStartRequest } from 'spaces-harness-broker-protocol'
 
 import { compileV2, createV2CompileFixture } from './v2-compile-fixture.js'
@@ -78,6 +80,29 @@ describe('v2 broker execution projection', () => {
     expect(second.profile.startRequestHash).not.toBe(first.profile.startRequestHash)
   })
 
+  test('keeps broker correlation flat and free of controller launch metadata', async () => {
+    const execution = await compile({
+      namespace: 'profile-correlation',
+      harness: 'codex',
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+      scopeRef: 'agent:cody:project:agent-spaces:task:T-08704',
+      laneRef: 'repair',
+    })
+    const spec = execution.dispatchRequest.startRequest.spec
+    expect(spec.correlation).toMatchObject({
+      scopeRef: 'agent:cody:project:agent-spaces:task:T-08704',
+      laneRef: 'repair',
+    })
+    expect(spec.correlation).not.toHaveProperty('sessionRef')
+    for (const value of Object.values(spec.correlation ?? {})) expect(typeof value).toBe('string')
+    const serialized = JSON.stringify(spec)
+    for (const forbidden of ['callbackSocket', 'spoolPath', 'persistence', '"hrc"', '"acp"']) {
+      expect(serialized).not.toContain(forbidden)
+    }
+  })
+
   test('preserves deny policy and FIFO input policy on the canonical start spec', async () => {
     const execution = await compile({
       namespace: 'profile-policy',
@@ -100,6 +125,22 @@ describe('v2 broker execution projection', () => {
     expect(execution.dispatchRequest.startRequest.spec.interaction).toMatchObject({
       inputQueue: 'fifo',
     })
+  })
+
+  test('threads denied Claude tools through the retained terminal execution policy', async () => {
+    const execution = await compile({
+      namespace: 'profile-claude-tool-policy',
+      harness: 'claude',
+      modelProvider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      presentation: true,
+      disallowedTools: ['Bash', 'Write'],
+    })
+    expect(execution.driver).toBe('claude-code-tmux')
+    expect(execution.dispatchRequest.startRequest.spec.driver.kind).toBe('claude-code-tmux')
+    expect(execution.dispatchRequest.startRequest.spec.process.args).toEqual(
+      expect.arrayContaining(['--disallowedTools', 'Bash', 'Write'])
+    )
   })
 
   test('derives presentation for Codex from the selection, not a driver selector', async () => {
@@ -154,5 +195,41 @@ describe('v2 broker execution projection', () => {
     expect(headless.hosting.terminalRequired).toBe(false)
     expect(presentation.driver).toBe('muse-cli-tmux')
     expect(presentation.hosting).toMatchObject({ terminalRequired: true, terminalHost: 'tmux' })
+  })
+
+  test('puts agent tools in the typed process PATH prepend instead of locked environment', async () => {
+    const fixture = createV2CompileFixture()
+    fixtures.push(fixture)
+    const toolsBin = join(fixture.agentRoot, 'tools', 'bin')
+    mkdirSync(toolsBin, { recursive: true })
+    try {
+      const response = await compileV2(fixture, {
+        namespace: 'profile-tools-path',
+        harness: 'codex',
+        modelProvider: 'openai-codex',
+        model: 'gpt-5.6-terra',
+        presentation: false,
+      })
+      expect(response.ok).toBe(true)
+      if (!response.ok) return
+      const process = response.plan.execution.dispatchRequest.startRequest.spec.process
+      expect(process.pathPrepend).toEqual([toolsBin])
+      expect(process.lockedEnv).not.toHaveProperty('PATH')
+    } finally {
+      rmSync(join(fixture.agentRoot, 'tools'), { recursive: true, force: true })
+    }
+  })
+
+  test('leaves pathPrepend absent for an agent without a tools directory', async () => {
+    const execution = await compile({
+      namespace: 'profile-no-tools',
+      harness: 'codex',
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+    })
+    const process = execution.dispatchRequest.startRequest.spec.process
+    expect(process.pathPrepend).toBeUndefined()
+    expect(process.lockedEnv).not.toHaveProperty('PATH')
   })
 })

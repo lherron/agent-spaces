@@ -49,6 +49,11 @@ describe('v2 continuation threading', () => {
       kind: 'thread',
       key: 'thread_T08704',
     })
+    expect(plan.execution.dispatchRequest.startRequest.spec.driver).toMatchObject({
+      kind: 'codex-app-server',
+      resumeThreadId: 'thread_T08704',
+      resumeFallback: 'fail',
+    })
   })
 
   test('does not manufacture a continuation for a fresh compile', async () => {
@@ -90,6 +95,22 @@ describe('v2 continuation threading', () => {
       key: 'session_T08704',
     })
     expect(spec.process.args).toEqual(expect.arrayContaining(['--resume', 'session_T08704']))
+    expect(spec.process.args).not.toContain('--session-id')
+  })
+
+  test('keeps a fresh Claude launch distinct from a resumed session', async () => {
+    const plan = await compile({
+      namespace: 'continuation-claude-fresh',
+      harness: 'claude',
+      modelProvider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      presentation: true,
+      prompt: 'start a fresh Claude terminal session',
+    })
+    const spec = plan.execution.dispatchRequest.startRequest.spec
+    expect(spec.continuation).toBeUndefined()
+    expect(spec.process.args).toContain('--session-id')
+    expect(spec.process.args).not.toContain('--resume')
   })
 
   test('changes the start-request hash when continuation mechanics change', async () => {
@@ -126,5 +147,36 @@ describe('v2 continuation threading', () => {
       omitPriming: false,
     })
     expect(plan.execution.dispatchRequest.startRequest.initialInput).toBeUndefined()
+  })
+
+  test('uses the preserved continuation key as a hash-covered execution mechanic', async () => {
+    const fixture = createV2CompileFixture()
+    fixtures.push(fixture)
+    const common = {
+      harness: 'codex' as const,
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+    }
+    const first = await compileV2(fixture, {
+      ...common,
+      namespace: 'continuation-key-a',
+      continuation: codexContinuation,
+    })
+    const second = await compileV2(fixture, {
+      ...common,
+      namespace: 'continuation-key-b',
+      continuation: {
+        ...codexContinuation,
+        hrc: { ...codexContinuation.hrc, key: 'thread_T08704_other' },
+        broker: { ...codexContinuation.broker, key: 'thread_T08704_other' },
+      },
+    })
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    if (!first.ok || !second.ok) return
+    expect(second.plan.execution.profile.startRequestHash).not.toBe(
+      first.plan.execution.profile.startRequestHash
+    )
   })
 })
