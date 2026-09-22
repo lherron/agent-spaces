@@ -4,6 +4,7 @@ import {
   type AgentSession,
   type AgentSessionRuntime,
   type AgentSessionServices,
+  type BashOperations,
   type CreateAgentSessionRuntimeFactory,
   ModelRuntime,
   SettingsManager,
@@ -23,6 +24,8 @@ import type {
   ResolvedAgent,
   RuntimeBackedSession,
 } from './types.js'
+
+type AgentHarnessBashToolDefinition = ReturnType<typeof createBashToolDefinition>
 
 /**
  * Construct the reloaded direct resource boundary used for every Pi session
@@ -110,10 +113,11 @@ export async function createAgentHarnessRuntime(
       resourceLoader,
       diagnostics: activeAgent.warnings.map((message) => ({ type: 'warning' as const, message })),
     }
-    const bashTool = createBashToolDefinition(cwd, {
-      spawnHook: (context) => ({ ...context, cwd, env: { ...activeAgent.environment } }),
-      exposeSessionEnvironment: false,
-    })
+    const bashTool = createAgentHarnessBashToolDefinition(
+      cwd,
+      activeAgent.environment,
+      options.bashOperations
+    )
     const created = await createAgentSessionFromServices({
       services,
       sessionManager,
@@ -139,6 +143,18 @@ export async function createAgentHarnessRuntime(
         cwd: initialCwd,
         continuationKey: options.continuationKey,
       }),
+  })
+}
+
+export function createAgentHarnessBashToolDefinition(
+  cwd: string,
+  environment: NodeJS.ProcessEnv,
+  operations?: BashOperations
+): AgentHarnessBashToolDefinition {
+  return createBashToolDefinition(cwd, {
+    ...(operations !== undefined ? { operations } : {}),
+    spawnHook: (context) => ({ ...context, cwd, env: { ...environment } }),
+    exposeSessionEnvironment: false,
   })
 }
 

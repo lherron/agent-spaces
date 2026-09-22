@@ -1,5 +1,6 @@
 import type {
   AgentSession,
+  BashOperations,
   ExtensionFactory,
   SessionManager,
   ToolDefinition,
@@ -66,6 +67,8 @@ export interface CreateSessionOptions {
   continuationKey?: string | boolean | undefined
   extensionFactories?: ExtensionFactory[] | undefined
   customTools?: ToolDefinition[] | undefined
+  /** Host-owned execution boundary for the built-in Pi bash tool. */
+  bashOperations?: BashOperations | undefined
   auth?: PiAgentSessionAuth | undefined
 }
 
