@@ -72,7 +72,7 @@ describe('token-rent', () => {
               agentRoot: join(agentsRoot, 'alice'),
               correlation: { sessionRef: { scopeRef: 'agent:alice:project:demo:task:two' } },
             },
-            harness: { family: 'codex' },
+            selection: { harness: 'codex' },
             artifacts: { systemPromptFile: promptFile },
           })
         )});`,
