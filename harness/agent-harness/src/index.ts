@@ -22,6 +22,7 @@ export {
 export {
   createResidentApprovalControl,
   createResidentSurfaceController,
+  createResidentTmuxTransport,
   type ResidentApprovalControl,
   type ResidentApprovalDecision,
   type ResidentApprovalPending,
@@ -31,5 +32,6 @@ export {
   type ResidentSurfaceObservation,
   type ResidentSurfaceSnapshot,
   type ResidentSurfaceTransport,
+  type ResidentTmuxTransportOptions,
 } from './resident-controller.js'
 export { loadAgent, createSession } from 'agent-harness-runtime'

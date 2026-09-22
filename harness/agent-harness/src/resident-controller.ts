@@ -11,6 +11,61 @@ export interface ResidentSurfaceTransport {
   detachClient(clientName: string, reason: ResidentDetachReason): void | Promise<void>
 }
 
+export interface ResidentTmuxTransportOptions {
+  socketPath: string
+  tmuxBin?: string
+  exec?: (args: string[]) => Promise<{ status: number; stdout: string; stderr: string }>
+}
+
+export function createResidentTmuxTransport(
+  options: ResidentTmuxTransportOptions
+): ResidentSurfaceTransport {
+  if (!options.socketPath || !options.socketPath.startsWith('/'))
+    throw new Error('resident tmux socketPath must be absolute')
+  const tmuxBin = options.tmuxBin ?? 'tmux'
+  const exec =
+    options.exec ??
+    (async (args: string[]) => {
+      const child = Bun.spawn([tmuxBin, '-S', options.socketPath, ...args], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      })
+      const [status, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ])
+      return { status, stdout, stderr }
+    })
+  const run = async (args: string[]): Promise<string> => {
+    const result = await exec(args)
+    if (result.status !== 0)
+      throw new Error(`tmux ${args[0]} failed (${result.status}): ${result.stderr.trim()}`)
+    return result.stdout.trim()
+  }
+  const assertClient = (clientName: string): void => {
+    if (!clientName || clientName.startsWith('-') || /[\r\n\0]/.test(clientName))
+      throw new Error('invalid resident tmux client name')
+  }
+  const readOnly = async (clientName: string): Promise<boolean> => {
+    const flags = await run(['display-message', '-p', '-c', clientName, '#{client_flags}'])
+    return flags.split(',').includes('read-only')
+  }
+  return {
+    async setReadOnly(clientName, desired) {
+      assertClient(clientName)
+      if ((await readOnly(clientName)) === desired) return
+      await run(['switch-client', '-r', '-c', clientName])
+      if ((await readOnly(clientName)) !== desired)
+        throw new Error(`tmux failed to set read-only=${desired} for ${clientName}`)
+    },
+    async detachClient(clientName) {
+      assertClient(clientName)
+      await run(['detach-client', '-t', clientName])
+    },
+  }
+}
+
 export interface ResidentSurfaceIdentity {
   surfaceId: string
   runtimeId: string
@@ -31,9 +86,11 @@ export interface ResidentSurfaceSnapshot {
   observers: string[]
   reservation: string | undefined
   disposed: boolean
+  observationFailure: string | undefined
 }
 
 export interface ResidentSurfaceController {
+  assertReady(): void
   attachClient(
     clientName: string,
     options?: { readOnly?: boolean }
@@ -59,6 +116,7 @@ export function createResidentSurfaceController(
   let writer: string | undefined
   let reservation: string | undefined
   let disposed = false
+  let observationFailure: string | undefined
   const observers = new Set<string>()
   let tail = Promise.resolve()
 
@@ -74,10 +132,19 @@ export function createResidentSurfaceController(
     if (disposed) throw new Error('resident surface controller is disposed')
   }
   const observe = async (observation: ResidentSurfaceObservation): Promise<void> => {
-    await controllerOptions.onObservation?.(observation)
+    try {
+      await controllerOptions.onObservation?.(observation)
+    } catch (error) {
+      observationFailure ??= error instanceof Error ? error.message : String(error)
+    }
   }
 
   return {
+    assertReady() {
+      assertLive()
+      if (observationFailure !== undefined)
+        throw new Error(`resident surface observation failed: ${observationFailure}`)
+    },
     attachClient(clientName, attachOptions = {}) {
       return serialized(async () => {
         assertLive()
@@ -132,8 +199,19 @@ export function createResidentSurfaceController(
           try {
             await controllerOptions.transport.setReadOnly(clientName, false)
           } catch (error) {
-            if (priorWriter !== undefined)
-              await controllerOptions.transport.setReadOnly(priorWriter, false)
+            if (priorWriter !== undefined) {
+              try {
+                await controllerOptions.transport.setReadOnly(priorWriter, false)
+              } catch (restorationError) {
+                writer = undefined
+                observers.add(priorWriter)
+                observers.add(clientName)
+                throw new AggregateError(
+                  [error, restorationError],
+                  `resident surface promotion and restoration failed: ${String(restorationError)}`
+                )
+              }
+            }
             throw error
           }
           if (priorWriter !== undefined) observers.add(priorWriter)
@@ -163,6 +241,7 @@ export function createResidentSurfaceController(
         observers: [...observers].sort(),
         reservation,
         disposed,
+        observationFailure,
       }
     },
   }

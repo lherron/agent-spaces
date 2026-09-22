@@ -4,6 +4,7 @@ import type { ExtensionContext, ToolCallEvent } from '@earendil-works/pi-coding-
 import {
   createResidentApprovalControl,
   createResidentSurfaceController,
+  createResidentTmuxTransport,
 } from './resident-controller'
 import type { ResidentSurfaceTransport } from './resident-controller'
 
@@ -121,6 +122,89 @@ describe('resident surface controller', () => {
       observers: ['current'],
       reservation: undefined,
     })
+  })
+
+  test('fails closed when takeover promotion and incumbent restoration both fail', async () => {
+    let failRestoration = false
+    const subject = surfaceController({
+      async setReadOnly(clientName, readOnly) {
+        if (clientName === 'next' && !readOnly) throw new Error('promotion failed')
+        if (clientName === 'current' && !readOnly && failRestoration)
+          throw new Error('restoration failed')
+      },
+      async detachClient() {},
+    })
+    await subject.attachClient('current')
+    await subject.attachClient('next')
+    failRestoration = true
+    await expect(subject.takeControl('next')).rejects.toThrow('restoration failed')
+    expect(subject.snapshot()).toMatchObject({
+      writer: undefined,
+      observers: ['current', 'next'],
+      reservation: undefined,
+    })
+  })
+
+  test('retains physical transfer truth and degrades readiness when observation fails', async () => {
+    const controller = createResidentSurfaceController({
+      identity: {
+        surfaceId: 'surface-1',
+        runtimeId: 'runtime-1',
+        sessionId: 'session-1',
+        incarnationId: 'incarnation-1',
+      },
+      transport: { setReadOnly: () => undefined, detachClient: () => undefined },
+      onObservation: (observation) => {
+        if (observation.type === 'control-transferred') throw new Error('journal unavailable')
+      },
+      disposeHost: () => undefined,
+    })
+    await controller.attachClient('current')
+    await controller.attachClient('next')
+    await expect(controller.takeControl('next')).resolves.toBeUndefined()
+    expect(controller.snapshot()).toMatchObject({
+      writer: 'next',
+      observers: ['current'],
+      observationFailure: 'journal unavailable',
+    })
+    expect(() => controller.assertReady()).toThrow('journal unavailable')
+  })
+})
+
+describe('native tmux transport', () => {
+  test('queries flags, changes only mismatched mode, verifies, and targets detach', async () => {
+    const flags = new Map([
+      ['writer', 'attached,UTF-8'],
+      ['observer', 'attached,read-only,UTF-8'],
+    ])
+    const calls: string[][] = []
+    const transport = createResidentTmuxTransport({
+      socketPath: '/tmp/resident.sock',
+      async exec(args) {
+        calls.push(args)
+        if (args[0] === 'display-message') {
+          return { status: 0, stdout: flags.get(args[3] ?? '') ?? '', stderr: '' }
+        }
+        if (args[0] === 'switch-client') {
+          const client = args[3] ?? ''
+          const current = flags.get(client) ?? ''
+          flags.set(
+            client,
+            current.includes('read-only')
+              ? current.replace(',read-only', '')
+              : `${current},read-only`
+          )
+          return { status: 0, stdout: '', stderr: '' }
+        }
+        return { status: 0, stdout: '', stderr: '' }
+      },
+    })
+
+    await transport.setReadOnly('writer', true)
+    await transport.setReadOnly('observer', true)
+    await transport.detachClient('writer', 'quit')
+    expect(calls.filter((args) => args[0] === 'switch-client')).toHaveLength(1)
+    expect(calls.at(-1)).toEqual(['detach-client', '-t', 'writer'])
   })
 })
 
