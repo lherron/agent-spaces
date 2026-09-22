@@ -38,12 +38,12 @@ import {
 } from './broker-invocation.js'
 import { assertExecutionMatchesResolution } from './harness-selection/assert-execution-matches-resolution.js'
 import { BUILDER_REGISTRY } from './harness-selection/builders.js'
+import {
+  CompileProvisioningError,
+  resolveCompileProvisioningLayers,
+} from './harness-selection/compile-provisioning.js'
 import { resolveHarnessExecution } from './harness-selection/resolve.js'
-import type {
-  ExecutionRecipe,
-  ProvisioningLayers,
-  ResolvedHarnessExecution,
-} from './harness-selection/types.js'
+import type { ExecutionRecipe, ResolvedHarnessExecution } from './harness-selection/types.js'
 import { type AgentSpacesRuntimeDependencies, requireAgentSpacesRuntime } from './placement-api.js'
 import {
   buildPreparationExecutionContext,
@@ -91,8 +91,6 @@ export type CompileRuntimePlanOptions = {
   compileContext?: CompileContext | undefined
   /** Inspection/preview projects a launch plan but must not mutate CODEX_HOME. */
   materializeCodexRuntimeHome?: boolean | undefined
-  /** Already-merged producer provisioning below the explicit request layer. */
-  provisioningLayers?: ProvisioningLayers | undefined
   dispatch?: Omit<InvocationDispatchRequest, 'startRequest'> | undefined
 }
 
@@ -592,13 +590,16 @@ export async function compileRuntimePlan(
   const startedAtMs = performance.now()
   try {
     const placement = req.placement as CompilePlacement
+    const provisioningLayers = resolveCompileProvisioningLayers(req)
+    const consistencyAgentIds = [basename(placement.agentRoot)]
+    if (placement.bundle.kind === 'agent-project') {
+      consistencyAgentIds.push(placement.bundle.agentName)
+    }
     const resolved = resolveHarnessExecution({
       agent: req.agent,
       requested: req.requested,
-      ...(options?.provisioningLayers !== undefined
-        ? { provisioningLayers: options.provisioningLayers }
-        : {}),
-      consistency: { agentIds: [basename(placement.agentRoot)] },
+      provisioningLayers,
+      consistency: { agentIds: consistencyAgentIds },
     })
     if (!resolved.ok) {
       return {
@@ -613,6 +614,13 @@ export async function compileRuntimePlan(
     // with `materialization_hygiene_error` diagnostics HERE, at/below the compiler
     // boundary, before the aspc facade's generic catch can degrade it to
     // `compiler_exception` (T-05574 Cond 1). All other errors propagate unchanged.
+    if (error instanceof CompileProvisioningError) {
+      return {
+        schemaVersion: 'agent-runtime-compile-response/v2',
+        ok: false,
+        diagnostics: [compileError(error.code, error.message, error.details)],
+      }
+    }
     const blocked = hygieneBlockResponse(error)
     if (blocked !== undefined) {
       return blocked

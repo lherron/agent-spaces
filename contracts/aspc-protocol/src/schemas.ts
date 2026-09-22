@@ -1079,6 +1079,72 @@ function validateRuntimeCompileRequest(
       issues
     )
   }
+  const selectionContext =
+    request['selectionContext'] === undefined
+      ? undefined
+      : requireRecord(request['selectionContext'], path(basePath, 'selectionContext'), issues)
+  if (selectionContext !== undefined) {
+    const directives =
+      selectionContext['summonDirectives'] === undefined
+        ? undefined
+        : requireRecord(
+            selectionContext['summonDirectives'],
+            path(basePath, 'selectionContext.summonDirectives'),
+            issues
+          )
+    if (directives !== undefined) {
+      if (directives['harness'] !== undefined) {
+        requireEnum(
+          directives['harness'],
+          ['agent-harness', 'claude', 'codex', 'muse'],
+          path(basePath, 'selectionContext.summonDirectives.harness'),
+          issues
+        )
+      }
+      optionalString(
+        directives['model_provider'],
+        path(basePath, 'selectionContext.summonDirectives.model_provider'),
+        issues
+      )
+      optionalString(
+        directives['model'],
+        path(basePath, 'selectionContext.summonDirectives.model'),
+        issues
+      )
+      if (directives['reasoning_effort'] !== undefined) {
+        requireEnum(
+          directives['reasoning_effort'],
+          ['low', 'medium', 'high', 'xhigh'],
+          path(basePath, 'selectionContext.summonDirectives.reasoning_effort'),
+          issues
+        )
+      }
+      if (
+        directives['presentation'] !== undefined &&
+        typeof directives['presentation'] !== 'boolean'
+      ) {
+        issues.push(
+          issue(
+            path(basePath, 'selectionContext.summonDirectives.presentation'),
+            ISSUE_CODE.invalidType,
+            `${path(basePath, 'selectionContext.summonDirectives.presentation')} must be a boolean`
+          )
+        )
+      }
+      rejectUnknownParams(
+        directives,
+        new Set(['harness', 'model_provider', 'model', 'reasoning_effort', 'presentation']),
+        path(basePath, 'selectionContext.summonDirectives'),
+        issues
+      )
+    }
+    rejectUnknownParams(
+      selectionContext,
+      new Set(['summonDirectives']),
+      path(basePath, 'selectionContext'),
+      issues
+    )
+  }
   rejectUnknownParams(
     request,
     new Set([
@@ -1086,6 +1152,7 @@ function validateRuntimeCompileRequest(
       'agent',
       'identity',
       'placement',
+      'selectionContext',
       'requested',
       'materialization',
       'hrcPolicy',

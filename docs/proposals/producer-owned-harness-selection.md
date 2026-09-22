@@ -280,6 +280,15 @@ type RuntimeCompileRequestV2 = {
   agent: { id: string }
   identity: RuntimeIdentityAllocation
   placement: RuntimePlacement
+  selectionContext?: {
+    summonDirectives?: {
+      harness?: HarnessId
+      model_provider?: string
+      model?: string
+      reasoning_effort?: ReasoningEffort
+      presentation?: boolean
+    }
+  }
   requested: {
     harness?: HarnessId
     modelProvider?: string
@@ -293,6 +302,14 @@ type RuntimeCompileRequestV2 = {
   correlation: RuntimeCorrelation
 }
 ```
+
+Agent-profile and project-target layers are producer-owned sources loaded by
+the compiler from the request placement. Per-summon directives are necessarily
+carried out of band in `selectionContext`: the directive block is stripped
+before a canonical scope reference is formed and cannot be reconstructed from
+correlation. Its snake-case fields remain distinguishable from the camel-case,
+higher-precedence explicit `requested` overrides. ASPC validates the envelope
+but does not load, merge, default, or select from these layers.
 
 The top-level `agent` is the compilation subject, not a runtime preference.
 ASP validates the token and compares it with every explicit semantic identity

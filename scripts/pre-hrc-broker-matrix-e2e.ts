@@ -314,14 +314,16 @@ function createRequest(
 async function compileForMatrix(
   transport: CompileTransport,
   fixture: ReturnType<typeof createFixture>,
-  request: RuntimeCompileRequest
+  request: RuntimeCompileRequest,
+  marker: string
 ): Promise<RuntimeCompileResponse> {
+  const dispatchEnv = { ASP_MATRIX_FAKE_MARKER: marker }
   if (transport === 'sdk') {
     const { createAgentSpacesClient } = await import('../compiler/agent-spaces/src/index.js')
     return createAgentSpacesClient({
       aspHome: fixture.aspHome,
       runtime: await compilerRuntimeDependencies(),
-    }).compileRuntimePlan(request)
+    }).compileRuntimePlan(request, { dispatch: { dispatchEnv } })
   }
   const facade = await AspcClient.start({
     command: process.execPath,
@@ -332,6 +334,7 @@ async function compileForMatrix(
     const response = await facade.compileHarnessInvocation({
       compileRequest: request,
       aspHome: fixture.aspHome,
+      dispatchEnv,
     })
     return response
   } finally {
@@ -492,6 +495,9 @@ async function runRow(
   const originalFakeMarker = process.env['ASP_MATRIX_FAKE_MARKER']
   let broker: BrokerClient | undefined
   let invocationId: InvocationId | undefined
+  const trace = (stage: string): void => {
+    if (process.env['ASP_MATRIX_TRACE'] === '1') console.error(`[matrix:${row}] ${stage}`)
+  }
   try {
     if (row === 'real-codex') {
       const binary = realExecutable('codex')
@@ -517,11 +523,14 @@ async function runRow(
     process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
     process.env['ASP_MATRIX_FAKE_MARKER'] = marker
 
+    trace('compile.start')
     const response = await compileForMatrix(
       row === 'unix-jsonrpc-ndjson' ? 'aspc-rpc' : transport,
       fixture,
-      createRequest(row, fixture, marker)
+      createRequest(row, fixture, marker),
+      marker
     )
+    trace('compile.complete')
     if (!response.ok) {
       result.failures.push({
         code: 'compile_failed',
@@ -544,29 +553,36 @@ async function runRow(
       return result
     }
 
+    trace('broker.start')
     broker = await BrokerClient.start({
       command: process.execPath,
       args: ['harness/harness-broker/bin/harness-broker.js', 'run', '--transport', 'stdio'],
       cwd: new URL('..', import.meta.url).pathname,
     })
+    trace('broker.started')
     await broker.hello({
       clientInfo: { name: 'pre-hrc-broker-matrix', version: 'v2' },
       protocolVersions: ['harness-broker/0.2'],
       capabilities: { permissionRequests: true },
     })
+    trace('broker.hello')
     broker.onPermissionRequest(async () => ({ decision: 'deny' }))
     const dispatch = plan.execution.dispatchRequest
+    trace('invocation.start')
     const started = await broker.startInvocationFromRequest(dispatch.startRequest, {
       dispatchEnv: dispatch.dispatchEnv,
       runtime: dispatch.runtime,
       lifecyclePolicy: dispatch.lifecyclePolicy,
     })
+    trace('invocation.started')
     invocationId = started.invocationId as InvocationId
     const events: InvocationEventEnvelope[] = []
     const collecting = (async () => {
       for await (const event of started.events) events.push(event)
     })()
+    trace('terminal.wait')
     const terminal = await waitForTerminal(events, timeoutMs)
+    trace(`terminal.wait.complete:${terminal}`)
     result.events = events.length
     result.eventTypes = [...new Set(events.map((event) => event.type))].sort()
     result.terminalTurns = terminalTurns(events).length
@@ -592,7 +608,9 @@ async function runRow(
       }
     }
 
+    trace('snapshot.start')
     const snapshot = await broker.snapshot({ invocationId })
+    trace('snapshot.complete')
     const lastEvent = events.at(-1)
     if (snapshot.invocationId !== invocationId || snapshot.currentSeq < (lastEvent?.seq ?? 0)) {
       result.failures.push({
@@ -606,9 +624,15 @@ async function runRow(
         message: `terminal initial turn retained inputs=${snapshot.pendingInputIds.length} queue=${snapshot.brokerQueue.length}`,
       })
     }
+    trace('dispose.start')
     await broker.dispose({ invocationId }).catch(() => undefined)
-    await collecting.catch(() => undefined)
+    trace('dispose.complete')
     invocationId = undefined
+    await broker.close()
+    broker = undefined
+    trace('broker.close')
+    await collecting.catch(() => undefined)
+    trace('events.complete')
     result.status = result.failures.length === 0 ? 'OK' : 'FAIL'
     return result
   } catch (error) {

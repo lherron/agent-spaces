@@ -114,6 +114,42 @@ describe('ASPC protocol validators', () => {
     ).toMatchObject({ method: 'aspc.compileHarnessInvocation' })
   })
 
+  test('accepts closed summon directives and preserves directive false separately from requested', () => {
+    const request = {
+      compileRequest: {
+        ...compileRequest,
+        selectionContext: {
+          summonDirectives: {
+            harness: 'muse',
+            model_provider: 'mistral',
+            model: 'devstral-2',
+            reasoning_effort: 'high',
+            presentation: false,
+          },
+        },
+      },
+    }
+    expect(validateAspcCompileHarnessInvocationRequest(request)).toBe(request)
+    expect(request.compileRequest.selectionContext.summonDirectives.presentation).toBe(false)
+  })
+
+  test('rejects legacy and unknown summon directive keys at the wire boundary', () => {
+    const issues = captureCompileIssues({
+      compileRequest: {
+        ...compileRequest,
+        selectionContext: {
+          summonDirectives: { viewer: 'tmux', brokerDriver: 'muse-cli-tmux' },
+        },
+      },
+    })
+    expect(issues.map((entry) => entry.path)).toEqual(
+      expect.arrayContaining([
+        'params.compileRequest.selectionContext.summonDirectives.viewer',
+        'params.compileRequest.selectionContext.summonDirectives.brokerDriver',
+      ])
+    )
+  })
+
   test('rejects the removed compileAndStart method', () => {
     expect(() =>
       validateAspcCommand({

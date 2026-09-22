@@ -42,6 +42,19 @@ export type HarnessSelectionRequest = {
   presentation?: boolean | undefined
 }
 
+/**
+ * Raw per-summon selection directives. Directive spelling remains snake_case
+ * so this layer cannot be confused with the higher-precedence explicit
+ * `requested` overrides.
+ */
+export type HarnessSelectionDirectives = {
+  harness?: HarnessId | undefined
+  model_provider?: string | undefined
+  model?: string | undefined
+  reasoning_effort?: ReasoningEffort | undefined
+  presentation?: boolean | undefined
+}
+
 /** A diagnostic emitted while resolving or compiling a v2 runtime plan. */
 export type CompileDiagnostic = {
   level: 'info' | 'warning' | 'error'
@@ -57,6 +70,9 @@ export type RuntimeCompileRequest = {
   agent: { id: string }
   identity: RuntimeIdentityAllocation
   placement: RuntimePlacement
+  selectionContext?: {
+    summonDirectives?: HarnessSelectionDirectives | undefined
+  }
   requested: HarnessSelectionRequest
   materialization: {
     initialPrompt?: string | undefined
