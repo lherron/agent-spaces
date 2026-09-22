@@ -26,6 +26,9 @@ export {
   type ResidentApprovalDecision,
   type ResidentApprovalPending,
   type ResidentSurfaceController,
+  type ResidentSurfaceControllerOptions,
+  type ResidentSurfaceIdentity,
+  type ResidentSurfaceObservation,
   type ResidentSurfaceSnapshot,
   type ResidentSurfaceTransport,
 } from './resident-controller.js'

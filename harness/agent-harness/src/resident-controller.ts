@@ -11,10 +11,26 @@ export interface ResidentSurfaceTransport {
   detachClient(clientName: string, reason: ResidentDetachReason): void | Promise<void>
 }
 
+export interface ResidentSurfaceIdentity {
+  surfaceId: string
+  runtimeId: string
+  sessionId: string
+  incarnationId: string
+}
+
+export type ResidentSurfaceObservation =
+  | { type: 'attached'; clientName: string; role: 'writer' | 'observer' }
+  | { type: 'dropped'; clientName: string }
+  | { type: 'detached'; clientName: string; reason: ResidentDetachReason }
+  | { type: 'control-transferred'; from: string | undefined; to: string }
+  | { type: 'disposed' }
+
 export interface ResidentSurfaceSnapshot {
+  identity: ResidentSurfaceIdentity
   writer: string | undefined
   observers: string[]
   reservation: string | undefined
+  disposed: boolean
 }
 
 export interface ResidentSurfaceController {
@@ -25,14 +41,24 @@ export interface ResidentSurfaceController {
   clientDropped(clientName: string): Promise<void>
   detachWriter(reason: ResidentDetachReason): Promise<void>
   takeControl(clientName: string): Promise<void>
+  dispose(): Promise<void>
   snapshot(): ResidentSurfaceSnapshot
 }
 
-export function createResidentSurfaceController(
+export interface ResidentSurfaceControllerOptions {
+  identity: ResidentSurfaceIdentity
   transport: ResidentSurfaceTransport
+  onObservation?: ((observation: ResidentSurfaceObservation) => void | Promise<void>) | undefined
+  disposeHost(): void | Promise<void>
+}
+
+export function createResidentSurfaceController(
+  controllerOptions: ResidentSurfaceControllerOptions
 ): ResidentSurfaceController {
+  const identity = Object.freeze({ ...controllerOptions.identity })
   let writer: string | undefined
   let reservation: string | undefined
+  let disposed = false
   const observers = new Set<string>()
   let tail = Promise.resolve()
 
@@ -44,39 +70,53 @@ export function createResidentSurfaceController(
     )
     return result
   }
+  const assertLive = (): void => {
+    if (disposed) throw new Error('resident surface controller is disposed')
+  }
+  const observe = async (observation: ResidentSurfaceObservation): Promise<void> => {
+    await controllerOptions.onObservation?.(observation)
+  }
 
   return {
-    attachClient(clientName, options = {}) {
+    attachClient(clientName, attachOptions = {}) {
       return serialized(async () => {
+        assertLive()
         if (clientName === writer) return { role: 'writer' as const }
-        if (options.readOnly === true || writer !== undefined || reservation !== undefined) {
-          await transport.setReadOnly(clientName, true)
+        if (attachOptions.readOnly === true || writer !== undefined || reservation !== undefined) {
+          await controllerOptions.transport.setReadOnly(clientName, true)
           observers.add(clientName)
+          await observe({ type: 'attached', clientName, role: 'observer' })
           return { role: 'observer' as const }
         }
-        await transport.setReadOnly(clientName, false)
+        await controllerOptions.transport.setReadOnly(clientName, false)
         observers.delete(clientName)
         writer = clientName
+        await observe({ type: 'attached', clientName, role: 'writer' })
         return { role: 'writer' as const }
       })
     },
     clientDropped(clientName) {
       return serialized(async () => {
+        assertLive()
         if (writer === clientName) writer = undefined
         observers.delete(clientName)
         if (reservation === clientName) reservation = undefined
+        await observe({ type: 'dropped', clientName })
       })
     },
     detachWriter(reason) {
       return serialized(async () => {
+        assertLive()
         const target = writer
         if (target === undefined) throw new Error('resident surface has no writable client')
-        await transport.detachClient(target, reason)
+        await controllerOptions.transport.detachClient(target, reason)
         if (writer === target) writer = undefined
+        await observe({ type: 'detached', clientName: target, reason })
       })
     },
     takeControl(clientName) {
       return serialized(async () => {
+        assertLive()
         if (writer === clientName) return
         if (reservation !== undefined) {
           throw new Error(`resident surface takeover is reserved by ${reservation}`)
@@ -87,26 +127,42 @@ export function createResidentSurfaceController(
         const priorWriter = writer
         reservation = clientName
         try {
-          if (priorWriter !== undefined) await transport.setReadOnly(priorWriter, true)
+          if (priorWriter !== undefined)
+            await controllerOptions.transport.setReadOnly(priorWriter, true)
           try {
-            await transport.setReadOnly(clientName, false)
+            await controllerOptions.transport.setReadOnly(clientName, false)
           } catch (error) {
-            if (priorWriter !== undefined) await transport.setReadOnly(priorWriter, false)
+            if (priorWriter !== undefined)
+              await controllerOptions.transport.setReadOnly(priorWriter, false)
             throw error
           }
           if (priorWriter !== undefined) observers.add(priorWriter)
           observers.delete(clientName)
           writer = clientName
+          await observe({ type: 'control-transferred', from: priorWriter, to: clientName })
         } finally {
           reservation = undefined
         }
       })
     },
+    dispose() {
+      return serialized(async () => {
+        if (disposed) return
+        await controllerOptions.disposeHost()
+        disposed = true
+        writer = undefined
+        reservation = undefined
+        observers.clear()
+        await observe({ type: 'disposed' })
+      })
+    },
     snapshot() {
       return {
+        identity,
         writer,
         observers: [...observers].sort(),
         reservation,
+        disposed,
       }
     },
   }

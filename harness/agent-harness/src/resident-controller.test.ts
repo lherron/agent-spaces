@@ -5,6 +5,7 @@ import {
   createResidentApprovalControl,
   createResidentSurfaceController,
 } from './resident-controller'
+import type { ResidentSurfaceTransport } from './resident-controller'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -14,10 +15,58 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
+function surfaceController(transport: ResidentSurfaceTransport) {
+  return createResidentSurfaceController({
+    identity: {
+      surfaceId: 'surface-1',
+      runtimeId: 'runtime-1',
+      sessionId: 'session-1',
+      incarnationId: 'incarnation-1',
+    },
+    transport,
+    disposeHost: () => undefined,
+  })
+}
+
 describe('resident surface controller', () => {
+  test('owns immutable live identity, observations, and explicit disposal', async () => {
+    const observations: string[] = []
+    let disposed = false
+    const controller = createResidentSurfaceController({
+      identity: {
+        surfaceId: 'surface-1',
+        runtimeId: 'runtime-1',
+        sessionId: 'session-1',
+        incarnationId: 'incarnation-1',
+      },
+      transport: {
+        async setReadOnly() {},
+        async detachClient() {},
+      },
+      onObservation: (observation) => observations.push(observation.type),
+      disposeHost: async () => {
+        disposed = true
+      },
+    })
+
+    await controller.attachClient('writer')
+    expect(controller.snapshot().identity).toEqual({
+      surfaceId: 'surface-1',
+      runtimeId: 'runtime-1',
+      sessionId: 'session-1',
+      incarnationId: 'incarnation-1',
+    })
+    await controller.detachWriter('quit')
+    await controller.dispose()
+    expect(disposed).toBe(true)
+    expect(controller.snapshot().disposed).toBe(true)
+    expect(observations).toEqual(['attached', 'detached', 'disposed'])
+    await expect(controller.attachClient('later')).rejects.toThrow('disposed')
+  })
+
   test('keeps exactly one writer and targets detach at that client', async () => {
     const calls: string[] = []
-    const controller = createResidentSurfaceController({
+    const controller = surfaceController({
       async setReadOnly(clientName, readOnly) {
         calls.push(`readonly:${clientName}:${readOnly}`)
       },
@@ -28,7 +77,7 @@ describe('resident surface controller', () => {
 
     expect(await controller.attachClient('writer')).toEqual({ role: 'writer' })
     expect(await controller.attachClient('observer')).toEqual({ role: 'observer' })
-    expect(controller.snapshot()).toEqual({
+    expect(controller.snapshot()).toMatchObject({
       writer: 'writer',
       observers: ['observer'],
       reservation: undefined,
@@ -43,7 +92,7 @@ describe('resident surface controller', () => {
   test('serializes takeover and restores the prior writer when promotion fails', async () => {
     const calls: string[] = []
     let failPromotion = true
-    const controller = createResidentSurfaceController({
+    const controller = surfaceController({
       async setReadOnly(clientName, readOnly) {
         calls.push(`readonly:${clientName}:${readOnly}`)
         if (clientName === 'next' && !readOnly && failPromotion) throw new Error('attach failed')
@@ -54,7 +103,7 @@ describe('resident surface controller', () => {
     await controller.attachClient('next')
 
     await expect(controller.takeControl('next')).rejects.toThrow('attach failed')
-    expect(controller.snapshot()).toEqual({
+    expect(controller.snapshot()).toMatchObject({
       writer: 'current',
       observers: ['next'],
       reservation: undefined,
@@ -67,7 +116,7 @@ describe('resident surface controller', () => {
 
     failPromotion = false
     await controller.takeControl('next')
-    expect(controller.snapshot()).toEqual({
+    expect(controller.snapshot()).toMatchObject({
       writer: 'next',
       observers: ['current'],
       reservation: undefined,
