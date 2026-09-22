@@ -64,13 +64,13 @@ exit 0
     expect(adapter.name).toBe('Claude Agent SDK')
   })
 
-  test('is registered in the harness registry', () => {
+  test('is not registered as a selectable harness', () => {
     const harnesses = new HarnessRegistry()
     const sessions = new SessionRegistry()
 
     register({ harnesses, sessions })
 
-    expect(harnesses.get('claude-agent-sdk')).toBeDefined()
+    expect(harnesses.get('claude-agent-sdk')).toBeUndefined()
   })
 
   test('uses harness-specific output path', () => {

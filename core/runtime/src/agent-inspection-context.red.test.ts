@@ -68,7 +68,7 @@ describe('inspection evaluation context', () => {
     await writeFile(join(projectRoot, 'inspection-enabled.flag'), 'enabled\n')
 
     const explicitContext = {
-      schemaVersion: 'agent-inspection-evaluation-context/v1',
+      schemaVersion: 'agent-inspection-evaluation-context/v2',
       identifiers: {
         agentId: 'room-tester',
         agentName: 'Room Tester',
@@ -78,8 +78,7 @@ describe('inspection evaluation context', () => {
         taskId: 'T-06328',
         lane: 'main',
         harness: 'codex',
-        frontend: 'taskboard',
-        interaction: 'headless',
+        presentation: false,
       },
       paths: { agentRoot, agentsRoot, projectRoot, cwd: projectRoot },
       nowIso: '2026-07-18T12:34:56.000Z',

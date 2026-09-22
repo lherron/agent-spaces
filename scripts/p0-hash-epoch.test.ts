@@ -57,14 +57,6 @@ const CANONICAL_JSON_CENSUS_EXCLUSIONS = new Map([
     'Object.keys(lockedEnv).sort() emits a sorted key NAME LIST field; it serializes no values',
   ],
   [
-    'compiler/agent-spaces/src/compile-runtime-plan.ts#compileForegroundPlan',
-    'Object.keys(lockedEnv).sort() emits a sorted key NAME LIST field; it serializes no values',
-  ],
-  [
-    'compiler/agent-spaces/src/compile-runtime-plan.ts#compilePiSdkBrokerPlan',
-    'Object.keys(lockedEnv).sort() emits a sorted key NAME LIST field; it serializes no values',
-  ],
-  [
     'compiler/agent-spaces/src/compile-runtime-plan.ts#compileNativeAgentHarnessPlan',
     'Object.keys(lockedEnv).sort() emits a sorted key NAME LIST field; it serializes no values',
   ],
