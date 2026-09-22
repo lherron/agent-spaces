@@ -410,12 +410,7 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
         {
           turnId: neutral as TurnId,
           ownership: owned ? 'own' : 'foreign',
-          origin:
-            owned
-              ? 'broker'
-              : origin === 'attached_client'
-                ? 'human'
-                : 'autonomous',
+          origin: owned ? 'broker' : origin === 'attached_client' ? 'human' : 'autonomous',
           ...(inputId !== undefined ? { inputId } : {}),
         },
         { ...extra, turnId: neutral as TurnId, ...(inputId !== undefined ? { inputId } : {}) }

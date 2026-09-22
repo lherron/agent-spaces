@@ -5,19 +5,26 @@
  * It deliberately reaches the broker only through the one execution dispatch
  * request returned by `plan.execution`; no caller selects a profile or driver.
  */
+import { spawn } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { BrokerClient } from 'spaces-harness-broker-client'
-import type { InvocationEventEnvelope, InvocationId } from 'spaces-harness-broker-protocol'
+import type {
+  InvocationEventEnvelope,
+  InvocationId,
+  InvocationRuntimeContext,
+} from 'spaces-harness-broker-protocol'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 import type {
+  CompiledExecution,
   HarnessId,
   RuntimeCompileRequest,
   RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
 
+import { allocatePreHrcTmuxPane } from '../compiler/agent-spaces/src/testing/pre-hrc-tmux-allocator.js'
 import { AspcClient } from '../harness/aspc/src/client.js'
 
 export const MATRIX_ROW_NAMES = [
@@ -69,6 +76,12 @@ type CliArgs = {
   json: boolean
   timeoutMs: number
   help: boolean
+}
+
+type MatrixTmuxServer = {
+  tmuxBin: string
+  socketPath: string
+  env: Record<string, string | undefined>
 }
 
 async function compilerRuntimeDependencies() {
@@ -236,6 +249,65 @@ export function matrixRowSelection(row: RowName): {
         presentation: true,
       }
   }
+}
+
+/**
+ * Complete the compiled dispatch request with its HRC-owned runtime allocation.
+ * The plan declares terminal intent, while its concrete pane lease is allocated
+ * only by the pre-HRC harness immediately before broker dispatch.
+ */
+export function buildMatrixDispatchOptions(
+  execution: Pick<CompiledExecution, 'hosting' | 'dispatchRequest'>,
+  terminalSurface?: NonNullable<InvocationRuntimeContext['terminalSurface']>
+): {
+  dispatchEnv: Record<string, string> | undefined
+  runtime: InvocationRuntimeContext | undefined
+  lifecyclePolicy: CompiledExecution['dispatchRequest']['lifecyclePolicy']
+} {
+  if (execution.hosting.terminalRequired && terminalSurface === undefined) {
+    throw new Error(
+      'matrix presentation dispatch requires a runtime.terminalSurface lease from the pre-HRC harness'
+    )
+  }
+  const dispatch = execution.dispatchRequest
+  return {
+    dispatchEnv: dispatch.dispatchEnv,
+    runtime:
+      terminalSurface === undefined
+        ? dispatch.runtime
+        : { ...(dispatch.runtime ?? {}), terminalSurface },
+    lifecyclePolicy: dispatch.lifecyclePolicy,
+  }
+}
+
+function runTmux(
+  tmuxBin: string,
+  argv: string[],
+  env: Record<string, string | undefined>
+): Promise<void> {
+  const cleanEnv: Record<string, string> = {}
+  for (const [key, value] of Object.entries(env)) {
+    if (value !== undefined) cleanEnv[key] = value
+  }
+  return new Promise((resolvePromise, reject) => {
+    const proc = spawn(tmuxBin, argv, { env: cleanEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    proc.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8')
+    })
+    proc.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8')
+    })
+    proc.on('error', reject)
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || stdout.trim() || `tmux exited with ${code}`))
+        return
+      }
+      resolvePromise()
+    })
+  })
 }
 
 function identity(row: RowName, marker: string): RuntimeCompileRequest['identity'] {
@@ -495,11 +567,12 @@ async function runRow(
   const originalFakeMarker = process.env['ASP_MATRIX_FAKE_MARKER']
   let broker: BrokerClient | undefined
   let invocationId: InvocationId | undefined
+  let tmuxServer: MatrixTmuxServer | undefined
   const trace = (stage: string): void => {
     if (process.env['ASP_MATRIX_TRACE'] === '1') console.error(`[matrix:${row}] ${stage}`)
   }
   try {
-    if (row === 'real-codex') {
+    if (row === 'real-codex' || row === 'codex-tui') {
       const binary = realExecutable('codex')
       if (binary === undefined) throw new Error('real codex binary is unavailable')
       process.env['ASP_CODEX_PATH'] = binary
@@ -553,6 +626,27 @@ async function runRow(
       return result
     }
 
+    let terminalSurface: NonNullable<InvocationRuntimeContext['terminalSurface']> | undefined
+    if (plan.execution.hosting.terminalRequired) {
+      const tmuxBin = Bun.which('tmux')
+      if (tmuxBin === null) {
+        throw new Error('tmux is required to allocate a presentation runtime pane lease')
+      }
+      const socketPath = join(fixture.root, 'matrix.tmux.sock')
+      const env = { ...process.env }
+      trace('tmux.start-server')
+      await runTmux(tmuxBin, ['-S', socketPath, 'start-server'], env)
+      tmuxServer = { tmuxBin, socketPath, env }
+      trace('tmux.allocate-pane')
+      const allocated = await allocatePreHrcTmuxPane({
+        tmuxBin,
+        socketPath,
+        sessionName: `matrix-${row}-${Date.now()}`,
+        env,
+      })
+      terminalSurface = allocated.lease
+    }
+
     trace('broker.start')
     broker = await BrokerClient.start({
       command: process.execPath,
@@ -567,13 +661,12 @@ async function runRow(
     })
     trace('broker.hello')
     broker.onPermissionRequest(async () => ({ decision: 'deny' }))
-    const dispatch = plan.execution.dispatchRequest
+    const dispatchOptions = buildMatrixDispatchOptions(plan.execution, terminalSurface)
     trace('invocation.start')
-    const started = await broker.startInvocationFromRequest(dispatch.startRequest, {
-      dispatchEnv: dispatch.dispatchEnv,
-      runtime: dispatch.runtime,
-      lifecyclePolicy: dispatch.lifecyclePolicy,
-    })
+    const started = await broker.startInvocationFromRequest(
+      plan.execution.dispatchRequest.startRequest,
+      dispatchOptions
+    )
     trace('invocation.started')
     invocationId = started.invocationId as InvocationId
     const events: InvocationEventEnvelope[] = []
@@ -646,6 +739,14 @@ async function runRow(
       await broker.dispose({ invocationId }).catch(() => undefined)
     }
     await broker?.close().catch(() => undefined)
+    if (tmuxServer !== undefined) {
+      trace('tmux.kill-server')
+      await runTmux(
+        tmuxServer.tmuxBin,
+        ['-S', tmuxServer.socketPath, 'kill-server'],
+        tmuxServer.env
+      ).catch(() => undefined)
+    }
     if (originalCodex === undefined) process.env['ASP_CODEX_PATH'] = undefined
     else process.env['ASP_CODEX_PATH'] = originalCodex
     if (originalClaude === undefined) process.env['ASP_CLAUDE_PATH'] = undefined

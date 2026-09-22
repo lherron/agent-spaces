@@ -1,5 +1,6 @@
 import { AGENT_SDK_MODELS, DEFAULT_AGENT_SDK_MODEL } from 'spaces-config'
 import { PI_PROVIDER_MODEL_CATALOG } from 'spaces-runtime-contracts'
+import type { HarnessId } from 'spaces-runtime-contracts'
 
 import { CodedError } from './client-support.js'
 import type { HarnessContinuationRef, ProviderDomain } from './types.js'
@@ -11,6 +12,8 @@ type SessionFrontend = typeof AGENT_SDK_FRONTEND | typeof PI_SDK_FRONTEND
 
 export type SessionRuntimeFacts = {
   frontend: SessionFrontend
+  /** Explicit legacy SDK-operation adapter identity; never a compile selector. */
+  harnessId: HarnessId
   provider: ProviderDomain
   models: readonly string[]
   defaultModel: string
@@ -19,12 +22,14 @@ export type SessionRuntimeFacts = {
 const SESSION_RUNTIME_FACTS: Readonly<Record<SessionFrontend, SessionRuntimeFacts>> = {
   [AGENT_SDK_FRONTEND]: {
     frontend: AGENT_SDK_FRONTEND,
+    harnessId: 'claude',
     provider: 'anthropic',
     models: AGENT_SDK_MODELS,
     defaultModel: DEFAULT_AGENT_SDK_MODEL,
   },
   [PI_SDK_FRONTEND]: {
     frontend: PI_SDK_FRONTEND,
+    harnessId: 'agent-harness',
     provider: 'openai',
     // Pi's provider-qualified model metadata informs materialization only; it
     // carries no harness, driver, lifecycle, or presentation selection.

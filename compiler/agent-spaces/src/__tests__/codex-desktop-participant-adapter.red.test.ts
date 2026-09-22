@@ -76,15 +76,15 @@ describe('codex-desktop participant adapter', () => {
     const validation = validateParticipantAdapterPreparation(request, prepared)
     expect(validation.ok).toBe(true)
     if (prepared.status !== 'prepared') return
-    expect(prepared.profile.brokerOwnership).toBe('participant-owned-process')
-    expect(prepared.profile.brokerDriver).toBe('codex-desktop')
+    expect(prepared.descriptor.brokerOwnership).toBe('participant-owned-process')
+    expect(prepared.descriptor.brokerDriver).toBe('codex-desktop')
     const preparation = admission.preparation as unknown as {
       homeIdentity: string
       rolloutPath: string
       sqliteHome: string
       nativeAttemptStorePath: string
     }
-    expect(prepared.profile.harnessInvocation.startRequest.spec.driver).toMatchObject({
+    expect(prepared.descriptor.harnessInvocation.startRequest.spec.driver).toMatchObject({
       kind: 'codex-desktop',
       bundleExecutable: home.bundleExecutable,
       codexHome: preparation.homeIdentity,
@@ -93,18 +93,18 @@ describe('codex-desktop participant adapter', () => {
       rolloutPath: preparation.rolloutPath,
       nativeAttemptStorePath: preparation.nativeAttemptStorePath,
     })
-    expect(prepared.profile.expectedCapabilities.input).toMatchObject({
+    expect(prepared.descriptor.expectedCapabilities.input).toMatchObject({
       queue: 'required',
       steer: 'forbidden',
     })
-    expect(prepared.profile.expectedCapabilities.turns).toMatchObject({
+    expect(prepared.descriptor.expectedCapabilities.turns).toMatchObject({
       interrupt: 'forbidden',
     })
-    expect(prepared.profile.expectedCapabilities.lifecycle).toMatchObject({
+    expect(prepared.descriptor.expectedCapabilities.lifecycle).toMatchObject({
       runtimeRetention: ['keep-alive'],
       harnessRecovery: ['none'],
     })
-    expect(prepared.profile.observability.correlation).toMatchObject({
+    expect(prepared.descriptor.observability.correlation).toMatchObject({
       requestId: 'request:desktop-adapter',
       operationId: 'runtimeOperation:desktop-adapter',
       runtimeId: 'runtime:desktop-adapter',

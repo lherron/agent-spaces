@@ -7,7 +7,6 @@ import type {
   RuntimeReconcileResult,
   RuntimeStopResult,
 } from './controller'
-import type { ControllerOwnedTerminalHost } from './execution-profile'
 import type { AttachmentRef } from './external'
 import type {
   CompileId,
@@ -24,6 +23,7 @@ import type { HrcRuntimeSnapshot, RuntimeInputEnvelope, RuntimeOperation } from 
 import type { BrokerPermissionDecisionRecord } from './permissions'
 import type { BrokerInvocationRecord } from './persistence'
 import type {
+  ControllerOwnedTerminalHost,
   HarnessFamily,
   HarnessRuntime,
   InteractionMode,

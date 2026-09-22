@@ -232,7 +232,7 @@ describe('Resident participant broker path (T-08666)', () => {
       expect(validateParticipantAdapterPreparation(preparationRequest, prepared).ok).toBe(true)
       if (prepared.status !== 'prepared') throw new Error(`${productName} was not prepared`)
 
-      const startRequest = prepared.profile.harnessInvocation.startRequest
+      const startRequest = prepared.descriptor.harnessInvocation.startRequest
       // The REAL published protocol validator — the refusal T-08503 missed by
       // driving createBroker directly.
       expect(() => validateInvocationStartRequest(startRequest)).not.toThrow()
@@ -254,8 +254,8 @@ describe('Resident participant broker path (T-08666)', () => {
         generation: identity.generation,
         attachEpoch: 1,
         invocationId,
-        startRequestHash: prepared.profile.harnessInvocation.startRequestHash,
-        selectedProfileHash: prepared.profile.profileHash,
+        startRequestHash: prepared.descriptor.harnessInvocation.startRequestHash,
+        selectedProfileHash: prepared.descriptor.descriptorHash,
         attachToken: `attach:t08666-${productName}`,
       }
       const installed = await broker.installIdentity(install)
@@ -407,7 +407,7 @@ describe('Resident participant broker path (T-08666)', () => {
     cleanup.push(async () => {
       await unknownBroker.dispose({ invocationId: unknownInvocationId }).catch(() => {})
     })
-    const tampered = structuredClone(unknownPrepared.profile.harnessInvocation.startRequest)
+    const tampered = structuredClone(unknownPrepared.descriptor.harnessInvocation.startRequest)
     tampered.spec.harness.driver = 'no-such-driver'
     ;(tampered.spec.driver as Record<string, unknown>)['kind'] = 'no-such-driver'
     await expect(
@@ -506,15 +506,15 @@ describe('Resident participant broker path (T-08666)', () => {
       generation: foreignIdentity.generation,
       attachEpoch: 1,
       invocationId: foreignInvocationId,
-      startRequestHash: foreignPrepared.profile.harnessInvocation.startRequestHash,
-      selectedProfileHash: foreignPrepared.profile.profileHash,
+      startRequestHash: foreignPrepared.descriptor.harnessInvocation.startRequestHash,
+      selectedProfileHash: foreignPrepared.descriptor.descriptorHash,
       attachToken: 'attach:t08666-foreign',
     })
     const foreignResult = await foreignBroker.ensureInvocation({
       startAttemptId: 'attempt:t08666-foreign',
       invocationId: foreignInvocationId,
       attachEpoch: 1,
-      startRequest: foreignPrepared.profile.harnessInvocation.startRequest,
+      startRequest: foreignPrepared.descriptor.harnessInvocation.startRequest,
     })
     expect(foreignResult.receipt).toMatchObject({ state: 'indeterminate' })
     expect(foreignResult.receipt.failure?.message ?? '').toMatch(/foreign host/i)

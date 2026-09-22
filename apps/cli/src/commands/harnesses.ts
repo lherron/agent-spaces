@@ -10,7 +10,8 @@ import chalk from 'chalk'
 import type { Command } from 'commander'
 import figures from 'figures'
 
-import { type HarnessDetection, type HarnessModelInfo, harnessRegistry } from 'spaces-execution'
+import { catalogCapabilities } from 'agent-spaces'
+import { type HarnessDetection, harnessRegistry } from 'spaces-execution'
 
 import { DEFAULT_HARNESS_ID } from '../harness-validator.js'
 import { exitWithAspError } from '../helpers.js'
@@ -22,7 +23,11 @@ interface HarnessInfo {
   id: string
   name: string
   detection: HarnessDetection
-  models: HarnessModelInfo[]
+  modelProviders: Array<{
+    id: string
+    defaultModel: string
+    supportedModels: string[]
+  }>
   experimental?: boolean
 }
 
@@ -34,14 +39,9 @@ interface HarnessesOutput {
 /**
  * Format a single harness for text display.
  */
-function formatModels(models: HarnessModelInfo[]): string {
-  if (models.length === 0) return 'none'
-
-  return models
-    .map((m) => {
-      const defaultTag = m.default ? chalk.cyan(' (default)') : ''
-      return `${m.id}${defaultTag}`
-    })
+function formatModels(provider: HarnessInfo['modelProviders'][number]): string {
+  return provider.supportedModels
+    .map((model) => `${model}${model === provider.defaultModel ? chalk.cyan(' (default)') : ''}`)
     .join(', ')
 }
 
@@ -67,8 +67,8 @@ function formatHarnessText(harness: HarnessInfo, isDefault: boolean): void {
     if (harness.detection.capabilities?.length) {
       console.log(`    Capabilities: ${harness.detection.capabilities.join(', ')}`)
     }
-    if (harness.models.length > 0) {
-      console.log(`    Models: ${formatModels(harness.models)}`)
+    for (const provider of harness.modelProviders) {
+      console.log(`    Models (${provider.id}): ${formatModels(provider)}`)
     }
   } else {
     console.log(
@@ -115,20 +115,23 @@ export function registerHarnessesCommand(program: Command): void {
     .option('--json', 'Output as JSON')
     .action(async (options: { json?: boolean }) => {
       try {
-        // Detect all harnesses
+        // The catalog owns the public list/default/model projection. The
+        // registry contributes volatile binary detection and adapter display
+        // names only; it is never used to discover selectable harnesses.
         const detections = await harnessRegistry.detectAvailable()
-        const adapters = harnessRegistry.getAll()
-
-        const harnesses: HarnessInfo[] = adapters.map((adapter) => ({
-          id: adapter.id,
-          name: adapter.name,
-          detection: detections.get(adapter.id) ?? {
-            available: false,
-            error: 'Detection not run',
-          },
-          models: adapter.models,
-          experimental: EXPERIMENTAL_HARNESS_IDS.has(adapter.id),
-        }))
+        const harnesses: HarnessInfo[] = catalogCapabilities().map((capability) => {
+          const adapter = harnessRegistry.getOrThrow(capability.id)
+          return {
+            id: capability.id,
+            name: adapter.name,
+            detection: detections.get(capability.id) ?? {
+              available: false,
+              error: 'Detection not run',
+            },
+            modelProviders: capability.modelProviders,
+            experimental: EXPERIMENTAL_HARNESS_IDS.has(capability.id),
+          }
+        })
 
         const output: HarnessesOutput = {
           harnesses,

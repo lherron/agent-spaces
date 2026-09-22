@@ -202,7 +202,14 @@ export async function compileV2Request(
   try {
     const { compilerRuntime } = await import('./compiler-runtime.js')
     const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
-    const client = createAgentSpacesClient({ aspHome: fixture.aspHome, runtime: compilerRuntime })
+    // The fixture has no shared registry spaces. Pin both live and immutable
+    // registry placement to its local root so a compile test never acquires a
+    // network mirror merely to materialize an empty closure.
+    const client = createAgentSpacesClient({
+      aspHome: fixture.aspHome,
+      registryPath: fixture.agentRoot,
+      runtime: compilerRuntime,
+    })
     return await client.compileRuntimePlan(request)
   } finally {
     if (originalCodexPath === undefined) process.env['ASP_CODEX_PATH'] = undefined

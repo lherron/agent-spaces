@@ -20,27 +20,27 @@ import { dirname, join, resolve } from 'node:path'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
+import { resolveHarnessExecution } from 'agent-spaces'
 import {
   TARGETS_FILENAME,
   getAgentsRoot,
   getAspHome,
   getRegistryPath,
-  mergeAgentWithProjectTarget,
   parseAgentProfile,
   parseSpaceRef,
   parseTargetsToml,
   resolveAgentPlacementPaths,
+  toSelectionLayers,
 } from 'spaces-config'
-// Internal legacy seam (EN-15986): `asp run --harness` addresses v1 adapters.
-// T-08702 deletes it with the v1 flow.
-import type { HarnessId } from 'spaces-config'
 import {
   type RunResult,
+  harnessRegistry,
   isSpaceReference,
   run,
   runGlobalSpace,
   runLocalSpace,
 } from 'spaces-execution'
+import type { HarnessId, ResolvedHarnessSelection } from 'spaces-runtime-contracts'
 
 import { validateOptionalHarness } from '../harness-validator.js'
 import { exitWithAspError, logInvocationOutput } from '../helpers.js'
@@ -90,6 +90,14 @@ interface RunOptions {
   pagePrompts?: boolean
 }
 
+type ResolvedRunExecution = {
+  selection: ResolvedHarnessSelection
+  execution: {
+    harnessId: HarnessId
+    adapter: ReturnType<typeof harnessRegistry.getOrThrow>
+  }
+}
+
 /**
  * Build the run-option fields shared by every run mode.
  *
@@ -97,7 +105,7 @@ interface RunOptions {
  * easily. Each mode now spreads this common shape and adds only its
  * mode-specific keys (projectPath/projectId/taskId, interactive, prompt).
  */
-function buildCommonRunOptions(options: RunOptions) {
+function buildCommonRunOptions(options: RunOptions, execution: ResolvedRunExecution['execution']) {
   return {
     aspHome: options.aspHome,
     registryPath: options.registry,
@@ -109,7 +117,7 @@ function buildCommonRunOptions(options: RunOptions) {
     permissionMode: options.permissionMode,
     settingSources: buildSettingSources(options),
     settings: options.settings,
-    harness: options.harness,
+    execution,
     model: options.model,
     modelReasoningEffort: options.modelReasoningEffort,
     inheritProject: options.inheritProject,
@@ -130,8 +138,11 @@ function planDirectAgentHarness(
   target: ResolvedRunTarget,
   projectPath: string,
   prompt: string | undefined,
-  options: RunOptions
+  options: RunOptions,
+  execution: ResolvedRunExecution
 ): DirectAgentHarnessPlan | undefined {
+  if (execution.selection.harness !== 'agent-harness') return undefined
+
   const projectId = target.projectId ?? projectPath.split('/').filter(Boolean).at(-1)
   if (projectId === undefined) throw new Error('agent-harness requires a resolved project identity')
   const paths = resolveAgentPlacementPaths({
@@ -142,23 +153,14 @@ function planDirectAgentHarness(
     aspHome: options.aspHome,
     env: process.env,
   })
-  const explicitDirect = options.harness === 'agent-harness'
   if (paths.agentRoot === undefined) {
-    if (explicitDirect) throwDirectAgentProfileError(target.displayTarget)
-    return undefined
+    throwDirectAgentProfileError(target.displayTarget)
   }
 
   const profilePath = join(paths.agentRoot, 'agent-profile.toml')
   if (!existsSync(profilePath)) {
-    if (explicitDirect) throwDirectAgentProfileError(target.displayTarget)
-    return undefined
+    throwDirectAgentProfileError(target.displayTarget)
   }
-  const profile = parseAgentProfile(readFileSync(profilePath, 'utf8'), profilePath)
-  const targetDefinition = loadProjectTarget(projectPath, target.targetName)
-  const effectiveHarness =
-    options.harness ?? mergeAgentWithProjectTarget(profile, targetDefinition, 'task').harness
-  if (effectiveHarness !== 'agent-harness') return undefined
-
   rejectDirectCompilerOptions(options)
   if (options.interactive === false && prompt === undefined) {
     throw new Error(
@@ -182,9 +184,9 @@ function planDirectAgentHarness(
     '--asp-home',
     options.aspHome ?? getAspHome(),
   ]
-  if (options.model !== undefined) args.push('--model', options.model)
-  if (options.modelReasoningEffort !== undefined) {
-    args.push('--reasoning-effort', options.modelReasoningEffort)
+  args.push('--model', execution.selection.model)
+  if (execution.selection.reasoningEffort !== undefined) {
+    args.push('--reasoning-effort', execution.selection.reasoningEffort)
   }
   if (options.resume !== undefined) {
     args.push('--resume')
@@ -203,6 +205,60 @@ function loadProjectTarget(projectPath: string, targetName: string) {
   const targetsPath = join(projectPath, TARGETS_FILENAME)
   if (!existsSync(targetsPath)) return undefined
   return parseTargetsToml(readFileSync(targetsPath, 'utf8'), targetsPath).targets[targetName]
+}
+
+function resolveRunExecution(
+  target: ResolvedRunTarget,
+  projectPath: string | undefined,
+  options: RunOptions
+): ResolvedRunExecution {
+  let profile: ReturnType<typeof parseAgentProfile> | undefined
+  let targetDefinition: ReturnType<typeof loadProjectTarget>
+
+  if (projectPath !== undefined) {
+    const projectId = target.projectId ?? projectPath.split('/').filter(Boolean).at(-1)
+    if (projectId !== undefined) {
+      const paths = resolveAgentPlacementPaths({
+        agentId: target.targetName,
+        projectId,
+        projectRoot: projectPath,
+        cwd: process.cwd(),
+        aspHome: options.aspHome,
+        env: process.env,
+      })
+      if (paths.agentRoot !== undefined) {
+        const profilePath = join(paths.agentRoot, 'agent-profile.toml')
+        if (existsSync(profilePath)) {
+          profile = parseAgentProfile(readFileSync(profilePath, 'utf8'), profilePath)
+        }
+      }
+    }
+    targetDefinition = loadProjectTarget(projectPath, target.targetName)
+  }
+
+  const resolution = resolveHarnessExecution({
+    agent: { id: target.targetName },
+    provisioningLayers: toSelectionLayers(profile?.provisioning, targetDefinition?.provisioning),
+    requested: {
+      ...(options.harness === undefined ? {} : { harness: options.harness }),
+      ...(options.model === undefined ? {} : { model: options.model }),
+      ...(options.modelReasoningEffort === undefined
+        ? {}
+        : {
+            reasoningEffort:
+              options.modelReasoningEffort as ResolvedHarnessSelection['reasoningEffort'],
+          }),
+    },
+  })
+  if (!resolution.ok) throw new Error(resolution.message)
+
+  return {
+    selection: resolution.selection,
+    execution: {
+      harnessId: resolution.selection.harness,
+      adapter: harnessRegistry.getOrThrow(resolution.selection.harness),
+    },
+  }
 }
 
 function throwDirectAgentProfileError(target: string): never {
@@ -345,11 +401,12 @@ async function runProjectMode(
   target: string,
   prompt: string | undefined,
   projectPath: string,
-  options: RunOptions
+  options: RunOptions,
+  execution: ResolvedRunExecution['execution']
 ): Promise<RunResult> {
   const resolvedTarget: ResolvedRunTarget = resolveRunTarget(target)
   const runOptions = {
-    ...buildCommonRunOptions(options),
+    ...buildCommonRunOptions(options, execution),
     projectPath,
     projectId: resolvedTarget.projectId,
     taskId: resolvedTarget.taskId,
@@ -393,7 +450,8 @@ async function runProjectMode(
 async function runGlobalMode(
   target: string,
   prompt: string | undefined,
-  options: RunOptions
+  options: RunOptions,
+  execution: ResolvedRunExecution['execution']
 ): Promise<RunResult> {
   // Check if selector was defaulted to dev and warn the user
   const spaceRef = parseSpaceRef(target)
@@ -424,7 +482,7 @@ async function runGlobalMode(
   }
 
   const globalOptions = {
-    ...buildCommonRunOptions(options),
+    ...buildCommonRunOptions(options, execution),
     interactive: options.interactive !== false,
     prompt,
   }
@@ -443,7 +501,8 @@ async function runGlobalMode(
 async function runDevMode(
   target: string,
   prompt: string | undefined,
-  options: RunOptions
+  options: RunOptions,
+  execution: ResolvedRunExecution['execution']
 ): Promise<RunResult> {
   const targetPath = resolve(target)
   if (options.dryRun) {
@@ -455,7 +514,7 @@ async function runDevMode(
   }
 
   const devOptions = {
-    ...buildCommonRunOptions(options),
+    ...buildCommonRunOptions(options, execution),
     interactive: options.interactive !== false,
     prompt,
   }
@@ -495,7 +554,7 @@ export function registerRunCommand(program: Command): void {
     .argument('[prompt]', 'Optional initial prompt')
     .option(
       '--harness <id>',
-      'Coding agent harness to use (default: claude; supported: agent-harness, claude, codex, muse, pi)'
+      'Coding agent harness to use (default: agent-harness; supported: agent-harness, claude, codex, muse)'
     )
     .option('--model <model>', 'Model override')
     .option('--model-reasoning-effort <effort>', 'Codex model reasoning effort override')
@@ -531,17 +590,27 @@ export function registerRunCommand(program: Command): void {
 
       try {
         const mode = await detectRunMode(projectPath, target)
-        if (mode === 'global' || mode === 'dev') {
-          if (options.harness === 'agent-harness') throwDirectAgentProfileError(target)
+        const resolvedTarget = resolveRunTarget(target)
+        const selected = resolveRunExecution(
+          resolvedTarget,
+          mode === 'project' ? (projectPath ?? process.cwd()) : undefined,
+          options
+        )
+        if (
+          (mode === 'global' || mode === 'dev') &&
+          selected.selection.harness === 'agent-harness'
+        ) {
+          throwDirectAgentProfileError(target)
         }
         if (mode === 'project') {
-          // This branch must precede buildCommonRunOptions(), whose compiler
-          // runtime would otherwise make direct execution adapter-backed.
+          // Foreground agent-harness owns its process preparation, after the
+          // compiler catalog has resolved the canonical selection above.
           const directPlan = planDirectAgentHarness(
-            resolveRunTarget(target),
+            resolvedTarget,
             projectPath ?? process.cwd(),
             prompt,
-            options
+            options,
+            selected
           )
           if (directPlan !== undefined) {
             if (options.printCommand) {
@@ -561,13 +630,19 @@ export function registerRunCommand(program: Command): void {
         switch (mode) {
           case 'project':
             // projectPath may be null when falling back to agent profile mode (no asp-targets.toml)
-            result = await runProjectMode(target, prompt, projectPath ?? process.cwd(), options)
+            result = await runProjectMode(
+              target,
+              prompt,
+              projectPath ?? process.cwd(),
+              options,
+              selected.execution
+            )
             break
           case 'global':
-            result = await runGlobalMode(target, prompt, options)
+            result = await runGlobalMode(target, prompt, options, selected.execution)
             break
           case 'dev':
-            result = await runDevMode(target, prompt, options)
+            result = await runDevMode(target, prompt, options, selected.execution)
             break
           case 'invalid':
             showInvalidModeHelp()

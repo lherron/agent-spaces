@@ -85,7 +85,7 @@ describe('Resident participant adapter (T-08666)', () => {
     if (wrapperPrepared.status !== 'prepared' || genericPrepared.status !== 'prepared') {
       throw new Error('arris fixture was not prepared')
     }
-    expect(genericPrepared.profile).toEqual(wrapperPrepared.profile)
+    expect(genericPrepared.descriptor).toEqual(wrapperPrepared.descriptor)
   })
 
   test('nonvisual product yields its own identity over the same driver contract', async () => {
@@ -121,19 +121,19 @@ describe('Resident participant adapter (T-08666)', () => {
     expect(validateParticipantAdapterPreparation(request, prepared).ok).toBe(true)
     if (prepared.status !== 'prepared') throw new Error('nonvisual was not prepared')
     // Own frontend/profile identity ...
-    expect(prepared.profile.harnessInvocation.startRequest.spec.harness).toMatchObject({
+    expect(prepared.descriptor.harnessInvocation.startRequest.spec.harness).toMatchObject({
       frontend: 'nonvisual',
       driver: ARRIS_RESIDENT_DRIVER_KIND,
     })
-    expect(prepared.profile.harnessInvocation.startRequest.spec.process).toMatchObject({
+    expect(prepared.descriptor.harnessInvocation.startRequest.spec.process).toMatchObject({
       command: 'nonvisual-resident-external',
     })
-    expect(prepared.profile.harnessInvocation.startRequest.spec.labels).toMatchObject({
+    expect(prepared.descriptor.harnessInvocation.startRequest.spec.labels).toMatchObject({
       productId: 'nonvisual-resident-product',
       productProfile: 'lib/nonvisual-resident-product/profile/agent-profile.toml',
     })
     // ... same maintained driver/control contract and neutral continuity key.
-    expect(prepared.profile).toMatchObject({
+    expect(prepared.descriptor).toMatchObject({
       brokerDriver: ARRIS_RESIDENT_DRIVER_KIND,
       continuation: {
         broker: {
@@ -143,14 +143,14 @@ describe('Resident participant adapter (T-08666)', () => {
         },
       },
     })
-    expect(prepared.profile.harnessInvocation.startRequest.spec.driver).toMatchObject({
+    expect(prepared.descriptor.harnessInvocation.startRequest.spec.driver).toMatchObject({
       kind: ARRIS_RESIDENT_DRIVER_KIND,
       descriptorPath,
       hostLifecycleOwner: 'external',
       profilePath: 'lib/nonvisual-resident-product/profile/agent-profile.toml',
     })
     // The real published protocol validator admits the composed request.
-    const startRequest = prepared.profile.harnessInvocation.startRequest
+    const startRequest = prepared.descriptor.harnessInvocation.startRequest
     expect(() => validateInvocationStartRequest(startRequest)).not.toThrow()
     expect(validateInvocationStartRequest(startRequest)).toEqual(startRequest)
   })
@@ -268,7 +268,7 @@ describe('Resident participant adapter (T-08666)', () => {
       attachEpoch: 3,
     })
     if (prepared.status !== 'prepared') throw new Error('reconnect was not prepared')
-    expect(prepared.profile.continuation.broker).toMatchObject({
+    expect(prepared.descriptor.continuation.broker).toMatchObject({
       provider: 'arris',
       kind: 'host-incarnation',
       key: 'host-incarnation:0fff54f7-f6f7-473b-8776-1ba07803f87d',

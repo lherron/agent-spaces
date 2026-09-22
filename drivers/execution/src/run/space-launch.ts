@@ -28,13 +28,10 @@ import {
   resolveSpaceManifest,
   serializeLockJson,
 } from 'spaces-config'
-import { DEFAULT_HARNESS, type HarnessId } from 'spaces-config'
-
-import { harnessRegistry } from '../harness/index.js'
+import type { HarnessId } from 'spaces-runtime-contracts'
 
 import { executeHarnessRun } from './execute.js'
-import { assertHarnessAvailableForRun } from './placement-plan.js'
-import type { GlobalRunOptions, RunResult } from './types.js'
+import type { GlobalRunOptions, ResolvedHarnessAdapter, RunResult } from './types.js'
 import { cleanupTempDir, createTempDir, mergeDefined, toHarnessRunOptions } from './util.js'
 
 /**
@@ -44,6 +41,14 @@ import { cleanupTempDir, createTempDir, mergeDefined, toHarnessRunOptions } from
  * used by `runLocalSpace`.
  */
 const PLACEHOLDER_SNAPSHOT_INTEGRITY = `sha256:${'0'.repeat(64)}` as `sha256:${string}`
+
+function assertResolvedAdapter(execution: ResolvedHarnessAdapter): void {
+  if (execution.adapter.id !== execution.harnessId) {
+    throw new Error(
+      `Resolved adapter identity mismatch: harness ${execution.harnessId} received adapter ${execution.adapter.id}`
+    )
+  }
+}
 
 async function persistGlobalLock(newLock: LockFile, globalLockPath: string): Promise<void> {
   let existingLock: LockFile | undefined
@@ -229,13 +234,12 @@ async function materializeClosureArtifacts(
  */
 export async function runGlobalSpace(
   spaceRefString: SpaceRefString,
-  options: GlobalRunOptions = {}
+  options: GlobalRunOptions
 ): Promise<RunResult> {
   const aspHome = options.aspHome ?? getAspHome()
   const paths = new PathResolver({ aspHome })
-  const harnessId = options.harness ?? DEFAULT_HARNESS
-  assertHarnessAvailableForRun(harnessId)
-  const adapter = harnessRegistry.getOrThrow(harnessId)
+  const { harnessId, adapter } = options.execution
+  assertResolvedAdapter(options.execution)
   const detection = await adapter.detect()
 
   const ref = parseSpaceRef(spaceRefString)
@@ -327,12 +331,11 @@ export async function runGlobalSpace(
  */
 export async function runLocalSpace(
   spacePath: string,
-  options: GlobalRunOptions = {}
+  options: GlobalRunOptions
 ): Promise<RunResult> {
   const aspHome = options.aspHome ?? getAspHome()
-  const harnessId = options.harness ?? DEFAULT_HARNESS
-  assertHarnessAvailableForRun(harnessId)
-  const adapter = harnessRegistry.getOrThrow(harnessId)
+  const { harnessId, adapter } = options.execution
+  assertResolvedAdapter(options.execution)
   const detection = await adapter.detect()
 
   const manifestPath = join(spacePath, 'space.toml')

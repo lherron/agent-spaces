@@ -139,17 +139,18 @@ describe('MuseAdapter', () => {
     expect(museAdapter.buildRunArgs(bundle, runOptions())).not.toContain('--yolo')
   })
 
-  test('yolo adds --yolo on the interactive path and is omitted otherwise', () => {
+  test('interactive launches trust the workspace, with yolo only when requested', () => {
     const bundle = {
       harnessId: 'muse' as const,
       targetName: 'dev',
       rootDir: '/out',
     }
     expect(museAdapter.buildRunArgs(bundle, { prompt: 'hi', yolo: true })).toEqual([
+      '--trust-workspace',
       '--yolo',
       'hi',
     ])
-    expect(museAdapter.buildRunArgs(bundle, { prompt: 'hi' })).toEqual(['hi'])
+    expect(museAdapter.buildRunArgs(bundle, { prompt: 'hi' })).toEqual(['--trust-workspace', 'hi'])
   })
 
   test('resume maps to muse resume and rejects a prompt positional', () => {
@@ -160,7 +161,7 @@ describe('MuseAdapter', () => {
     }
     expect(
       museAdapter.buildRunArgs(bundle, { interactive: true, continuationKey: 'sess-1' })
-    ).toEqual(['resume', 'sess-1'])
+    ).toEqual(['resume', '--trust-workspace', 'sess-1'])
     expect(() =>
       museAdapter.buildRunArgs(bundle, { interactive: true, continuationKey: true, prompt: 'hi' })
     ).toThrow('does not accept a prompt')

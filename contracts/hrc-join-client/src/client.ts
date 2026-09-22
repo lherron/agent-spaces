@@ -225,7 +225,7 @@ export async function joinAsParticipant(args: JoinArgs): Promise<JoinResult> {
     attemptId: register.identity.attemptId,
     attachEpoch: register.identity.attachEpoch,
     ...(args.register.socketPath === undefined ? {} : { socketPath: args.register.socketPath }),
-    profile: prepared.profile,
+    descriptor: prepared.descriptor,
   })
   if (attach.outcome !== 'attached') {
     return { outcome: 'attach-refused', register, attach }

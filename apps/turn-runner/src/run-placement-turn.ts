@@ -77,7 +77,12 @@ export async function runPlacementTurnNonInteractive(
     runtimePlan = await planPlacementRuntime({
       placement,
       placementContext,
-      frontend: req.frontend,
+      execution: {
+        harnessId: sessionFacts.harnessId,
+        adapter: compilerRuntime.getHarnessAdapter(sessionFacts.harnessId),
+        frontend: req.frontend,
+        provider: sessionFacts.provider,
+      },
       aspHome,
       model: req.model,
       prompt: req.prompt,

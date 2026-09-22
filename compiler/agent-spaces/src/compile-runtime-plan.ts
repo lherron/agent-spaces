@@ -815,6 +815,9 @@ export async function compileNativeAgentHarnessPlan(
       ...(placement.lockedEnv !== undefined ? { lockedEnv: placement.lockedEnv } : {}),
       ...(placement.dispatchEnv !== undefined ? { dispatchEnv: placement.dispatchEnv } : {}),
       baseEnvironment: preparation.execEnv,
+      ...(options?.clientRegistryPath !== undefined
+        ? { registryPathOverride: options.clientRegistryPath }
+        : {}),
     },
     requireAgentSpacesRuntime(options?.clientRuntime)
   )
@@ -979,7 +982,7 @@ function buildTmuxLaunchSpec(prepared: PreparedPlacementCliRuntime): HarnessLaun
 
 /**
  * Compile an interactive claude-code request to an operator-attachable
- * claude-code-tmux BrokerExecutionProfile (Path 2, pre-HRC default).
+ * claude-code-tmux compiled execution (Path 2, pre-HRC default).
  *
  * The launch shape (command/args/cwd/lockedEnv/pathPrepend) is sourced from the
  * SAME preparePlacementCliRuntime path the foreground branch uses — so the

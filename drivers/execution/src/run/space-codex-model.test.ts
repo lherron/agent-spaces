@@ -9,8 +9,16 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, test } from 'bun:test'
 
+import { harnessRegistry } from '../harness/index.js'
 import { auditProjectModels } from './model-audit.js'
 import { planPlacementRuntime } from './placement-plan.js'
+
+const codexExecution = {
+  harnessId: 'codex' as const,
+  adapter: harnessRegistry.getOrThrow('codex'),
+  frontend: 'codex-cli' as const,
+  provider: 'openai' as const,
+}
 
 const SPACE_MODEL = 'muse-spark-1.3-contributor'
 
@@ -89,7 +97,7 @@ describe('space [codex.config] model reporting (T-08581)', () => {
           },
         },
       } as unknown as Parameters<typeof planPlacementRuntime>[0]['placementContext'],
-      frontend: 'codex-cli',
+      execution: codexExecution,
       aspHome,
     })
 
@@ -103,7 +111,11 @@ describe('space [codex.config] model reporting (T-08581)', () => {
 
   test('model audit reports the space model as ok', async () => {
     const { projectRoot, aspHome } = await createFixture()
-    const rows = await auditProjectModels({ projectPath: projectRoot, aspHome })
+    const rows = await auditProjectModels({
+      projectPath: projectRoot,
+      aspHome,
+      resolveExecution: () => codexExecution,
+    })
     const row = rows.find((candidate) => candidate.agentId === 'mux')
     expect(row).toMatchObject({
       harnessId: 'codex',
@@ -117,7 +129,11 @@ describe('space [codex.config] model reporting (T-08581)', () => {
 
   test('an explicit profile model still wins over the space model', async () => {
     const { projectRoot, aspHome } = await createFixture('gpt-5.6-sol')
-    const rows = await auditProjectModels({ projectPath: projectRoot, aspHome })
+    const rows = await auditProjectModels({
+      projectPath: projectRoot,
+      aspHome,
+      resolveExecution: () => codexExecution,
+    })
     const row = rows.find((candidate) => candidate.agentId === 'mux')
     expect(row).toMatchObject({ sourceModel: 'gpt-5.6-sol', sourceMode: 'explicit_profile' })
   })

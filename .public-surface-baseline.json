@@ -39,6 +39,14 @@
     },
     {
       "package": "agent-scope",
+      "symbol": "DENIED_PROVISION_OVERRIDE_KEYS",
+      "kind": "value",
+      "file": "contracts/agent-scope/src/provisioning.ts",
+      "hash": "agent-scope|DENIED_PROVISION_OVERRIDE_KEYS|value",
+      "count": 1
+    },
+    {
+      "package": "agent-scope",
       "symbol": "formatScopeHandle",
       "kind": "value",
       "file": "contracts/agent-scope/src/scope-handle.ts",
@@ -131,6 +139,46 @@
       "kind": "value",
       "file": "contracts/agent-scope/src/session-ref.ts",
       "hash": "agent-scope|parseSessionRef|value",
+      "count": 1
+    },
+    {
+      "package": "agent-scope",
+      "symbol": "ProvisionDirectiveError",
+      "kind": "value",
+      "file": "contracts/agent-scope/src/provisioning.ts",
+      "hash": "agent-scope|ProvisionDirectiveError|value",
+      "count": 1
+    },
+    {
+      "package": "agent-scope",
+      "symbol": "PROVISIONING_SCALAR_KEYS",
+      "kind": "value",
+      "file": "contracts/agent-scope/src/provisioning.ts",
+      "hash": "agent-scope|PROVISIONING_SCALAR_KEYS|value",
+      "count": 1
+    },
+    {
+      "package": "agent-scope",
+      "symbol": "PROVISIONING_SCALAR_KINDS",
+      "kind": "value",
+      "file": "contracts/agent-scope/src/provisioning.ts",
+      "hash": "agent-scope|PROVISIONING_SCALAR_KINDS|value",
+      "count": 1
+    },
+    {
+      "package": "agent-scope",
+      "symbol": "ProvisioningScalars",
+      "kind": "type",
+      "file": "contracts/agent-scope/src/provisioning.ts",
+      "hash": "agent-scope|ProvisioningScalars|type",
+      "count": 1
+    },
+    {
+      "package": "agent-scope",
+      "symbol": "ProvisionVocabulary",
+      "kind": "type",
+      "file": "contracts/agent-scope/src/provisioning.ts",
+      "hash": "agent-scope|ProvisionVocabulary|type",
       "count": 1
     },
     {
@@ -431,10 +479,26 @@
     },
     {
       "package": "spaces-aspc-protocol",
-      "symbol": "ASPC_COMPILE_AND_START_RESPONSE_VERSION",
+      "symbol": "agentCatalogResponseSchema",
       "kind": "value",
-      "file": "contracts/aspc-protocol/src/types.ts",
-      "hash": "spaces-aspc-protocol|ASPC_COMPILE_AND_START_RESPONSE_VERSION|value",
+      "file": "contracts/aspc-protocol/src/agent-inspection-schemas.ts",
+      "hash": "spaces-aspc-protocol|agentCatalogResponseSchema|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "agentInspectionOutcomeSchema",
+      "kind": "value",
+      "file": "contracts/aspc-protocol/src/agent-inspection-schemas.ts",
+      "hash": "spaces-aspc-protocol|agentInspectionOutcomeSchema|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "agentInspectionRequestSchema",
+      "kind": "value",
+      "file": "contracts/aspc-protocol/src/agent-inspection-schemas.ts",
+      "hash": "spaces-aspc-protocol|agentInspectionRequestSchema|value",
       "count": 1
     },
     {
@@ -447,10 +511,42 @@
     },
     {
       "package": "spaces-aspc-protocol",
+      "symbol": "ASPC_INSPECT_RUNTIME_PLACEMENT_RESPONSE_VERSION",
+      "kind": "value",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|ASPC_INSPECT_RUNTIME_PLACEMENT_RESPONSE_VERSION|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
       "symbol": "ASPC_METHODS",
       "kind": "value",
       "file": "contracts/aspc-protocol/src/types.ts",
       "hash": "spaces-aspc-protocol|ASPC_METHODS|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "ASPC_OBSERVE_CONTINUATION_ARTIFACT_RESPONSE_VERSION",
+      "kind": "value",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|ASPC_OBSERVE_CONTINUATION_ARTIFACT_RESPONSE_VERSION|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "ASPC_OBSERVE_RUNTIME_CAPABILITY_RESPONSE_VERSION",
+      "kind": "value",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|ASPC_OBSERVE_RUNTIME_CAPABILITY_RESPONSE_VERSION|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "ASPC_PREPARE_PROCESS_INVOCATION_RESPONSE_VERSION",
+      "kind": "value",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|ASPC_PREPARE_PROCESS_INVOCATION_RESPONSE_VERSION|value",
       "count": 1
     },
     {
@@ -463,10 +559,42 @@
     },
     {
       "package": "spaces-aspc-protocol",
-      "symbol": "AspcAgentCatalogRow",
+      "symbol": "ASPC_RESOLVE_RUNTIME_DECLARATION_RESPONSE_VERSION",
+      "kind": "value",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|ASPC_RESOLVE_RUNTIME_DECLARATION_RESPONSE_VERSION|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcAgentProfileSourceObservation",
       "kind": "type",
       "file": "contracts/aspc-protocol/src/types.ts",
-      "hash": "spaces-aspc-protocol|AspcAgentCatalogRow|type",
+      "hash": "spaces-aspc-protocol|AspcAgentProfileSourceObservation|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcArtifactObservation",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcArtifactObservation|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcCapabilityFactResponse",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcCapabilityFactResponse|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcCatalogAgentInspectionRequestValidationError",
+      "kind": "value",
+      "file": "contracts/aspc-protocol/src/schemas.ts",
+      "hash": "spaces-aspc-protocol|AspcCatalogAgentInspectionRequestValidationError|value",
       "count": 1
     },
     {
@@ -487,14 +615,6 @@
     },
     {
       "package": "spaces-aspc-protocol",
-      "symbol": "AspcCatalogAgentsResponse",
-      "kind": "type",
-      "file": "contracts/aspc-protocol/src/types.ts",
-      "hash": "spaces-aspc-protocol|AspcCatalogAgentsResponse|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-aspc-protocol",
       "symbol": "AspcCommand",
       "kind": "type",
       "file": "contracts/aspc-protocol/src/types.ts",
@@ -507,22 +627,6 @@
       "kind": "value",
       "file": "contracts/aspc-protocol/src/schemas.ts",
       "hash": "spaces-aspc-protocol|AspcCommandValidationError|value",
-      "count": 1
-    },
-    {
-      "package": "spaces-aspc-protocol",
-      "symbol": "AspcCompileAndStartRequest",
-      "kind": "type",
-      "file": "contracts/aspc-protocol/src/types.ts",
-      "hash": "spaces-aspc-protocol|AspcCompileAndStartRequest|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-aspc-protocol",
-      "symbol": "AspcCompileAndStartResponse",
-      "kind": "type",
-      "file": "contracts/aspc-protocol/src/types.ts",
-      "hash": "spaces-aspc-protocol|AspcCompileAndStartResponse|type",
       "count": 1
     },
     {
@@ -551,18 +655,26 @@
     },
     {
       "package": "spaces-aspc-protocol",
-      "symbol": "AspcCompileRuntimePlanRequest",
+      "symbol": "AspcDeclarationDiagnostic",
       "kind": "type",
       "file": "contracts/aspc-protocol/src/types.ts",
-      "hash": "spaces-aspc-protocol|AspcCompileRuntimePlanRequest|type",
+      "hash": "spaces-aspc-protocol|AspcDeclarationDiagnostic|type",
       "count": 1
     },
     {
       "package": "spaces-aspc-protocol",
-      "symbol": "AspcCompileRuntimePlanRequestValidationError",
-      "kind": "value",
-      "file": "contracts/aspc-protocol/src/schemas.ts",
-      "hash": "spaces-aspc-protocol|AspcCompileRuntimePlanRequestValidationError|value",
+      "symbol": "AspcDeclarationSourceObservation",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcDeclarationSourceObservation|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcExecutionRelease",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcExecutionRelease|type",
       "count": 1
     },
     {
@@ -591,6 +703,14 @@
     },
     {
       "package": "spaces-aspc-protocol",
+      "symbol": "AspcHistoricalExecutionEvidence",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcHistoricalExecutionEvidence|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
       "symbol": "AspcInspectAgentRequest",
       "kind": "type",
       "file": "contracts/aspc-protocol/src/types.ts",
@@ -607,18 +727,26 @@
     },
     {
       "package": "spaces-aspc-protocol",
-      "symbol": "AspcInspectAgentResponse",
-      "kind": "type",
-      "file": "contracts/aspc-protocol/src/types.ts",
-      "hash": "spaces-aspc-protocol|AspcInspectAgentResponse|type",
+      "symbol": "AspcInspectAgentSelectionRequestValidationError",
+      "kind": "value",
+      "file": "contracts/aspc-protocol/src/schemas.ts",
+      "hash": "spaces-aspc-protocol|AspcInspectAgentSelectionRequestValidationError|value",
       "count": 1
     },
     {
       "package": "spaces-aspc-protocol",
-      "symbol": "AspcInspectionDiagnostic",
+      "symbol": "AspcInspectRuntimePlacementRequest",
       "kind": "type",
       "file": "contracts/aspc-protocol/src/types.ts",
-      "hash": "spaces-aspc-protocol|AspcInspectionDiagnostic|type",
+      "hash": "spaces-aspc-protocol|AspcInspectRuntimePlacementRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcInspectRuntimePlacementResponse",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcInspectRuntimePlacementResponse|type",
       "count": 1
     },
     {
@@ -631,10 +759,66 @@
     },
     {
       "package": "spaces-aspc-protocol",
-      "symbol": "AspcProfileSelector",
+      "symbol": "AspcObservationFailure",
       "kind": "type",
       "file": "contracts/aspc-protocol/src/types.ts",
-      "hash": "spaces-aspc-protocol|AspcProfileSelector|type",
+      "hash": "spaces-aspc-protocol|AspcObservationFailure|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcObserveContinuationArtifactRequest",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcObserveContinuationArtifactRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcObserveContinuationArtifactResponse",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcObserveContinuationArtifactResponse|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcObserveRuntimeCapabilityRequest",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcObserveRuntimeCapabilityRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcObserveRuntimeCapabilityResponse",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcObserveRuntimeCapabilityResponse|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcPreparationFailure",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcPreparationFailure|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcPrepareProcessInvocationRequest",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcPrepareProcessInvocationRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcPrepareProcessInvocationResponse",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcPrepareProcessInvocationResponse|type",
       "count": 1
     },
     {
@@ -647,10 +831,114 @@
     },
     {
       "package": "spaces-aspc-protocol",
+      "symbol": "AspcProvisioningObservation",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcProvisioningObservation|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcResolvedCallerAgentSources",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcResolvedCallerAgentSources|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcResolvedRuntimePlacement",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcResolvedRuntimePlacement|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcResolveRuntimeDeclarationRequest",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcResolveRuntimeDeclarationRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcResolveRuntimeDeclarationResponse",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcResolveRuntimeDeclarationResponse|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcRuntimeDeclarationContext",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcRuntimeDeclarationContext|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcRuntimeDeclarationSources",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcRuntimeDeclarationSources|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcRuntimeObservationRequestValidationError",
+      "kind": "value",
+      "file": "contracts/aspc-protocol/src/schemas.ts",
+      "hash": "spaces-aspc-protocol|AspcRuntimeObservationRequestValidationError|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcRuntimePromptObservation",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcRuntimePromptObservation|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcSharedAgentInspectionSchemaError",
+      "kind": "value",
+      "file": "contracts/aspc-protocol/src/agent-inspection-schemas.ts",
+      "hash": "spaces-aspc-protocol|AspcSharedAgentInspectionSchemaError|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcSharedSchema",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/agent-inspection-schemas.ts",
+      "hash": "spaces-aspc-protocol|AspcSharedSchema|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcTransportKind",
+      "kind": "type",
+      "file": "contracts/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcTransportKind|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
       "symbol": "AspcValidationError",
       "kind": "value",
       "file": "contracts/aspc-protocol/src/schemas.ts",
       "hash": "spaces-aspc-protocol|AspcValidationError|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "validateAspcCatalogAgentInspectionRequest",
+      "kind": "value",
+      "file": "contracts/aspc-protocol/src/schemas.ts",
+      "hash": "spaces-aspc-protocol|validateAspcCatalogAgentInspectionRequest|value",
       "count": 1
     },
     {
@@ -671,26 +959,10 @@
     },
     {
       "package": "spaces-aspc-protocol",
-      "symbol": "validateAspcCompileAndStartRequest",
-      "kind": "value",
-      "file": "contracts/aspc-protocol/src/schemas.ts",
-      "hash": "spaces-aspc-protocol|validateAspcCompileAndStartRequest|value",
-      "count": 1
-    },
-    {
-      "package": "spaces-aspc-protocol",
       "symbol": "validateAspcCompileHarnessInvocationRequest",
       "kind": "value",
       "file": "contracts/aspc-protocol/src/schemas.ts",
       "hash": "spaces-aspc-protocol|validateAspcCompileHarnessInvocationRequest|value",
-      "count": 1
-    },
-    {
-      "package": "spaces-aspc-protocol",
-      "symbol": "validateAspcCompileRuntimePlanRequest",
-      "kind": "value",
-      "file": "contracts/aspc-protocol/src/schemas.ts",
-      "hash": "spaces-aspc-protocol|validateAspcCompileRuntimePlanRequest|value",
       "count": 1
     },
     {
@@ -707,6 +979,54 @@
       "kind": "value",
       "file": "contracts/aspc-protocol/src/schemas.ts",
       "hash": "spaces-aspc-protocol|validateAspcInspectAgentRequest|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "validateAspcInspectAgentSelectionRequest",
+      "kind": "value",
+      "file": "contracts/aspc-protocol/src/schemas.ts",
+      "hash": "spaces-aspc-protocol|validateAspcInspectAgentSelectionRequest|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "validateAspcInspectRuntimePlacementRequest",
+      "kind": "value",
+      "file": "contracts/aspc-protocol/src/schemas.ts",
+      "hash": "spaces-aspc-protocol|validateAspcInspectRuntimePlacementRequest|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "validateAspcObserveContinuationArtifactRequest",
+      "kind": "value",
+      "file": "contracts/aspc-protocol/src/schemas.ts",
+      "hash": "spaces-aspc-protocol|validateAspcObserveContinuationArtifactRequest|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "validateAspcObserveRuntimeCapabilityRequest",
+      "kind": "value",
+      "file": "contracts/aspc-protocol/src/schemas.ts",
+      "hash": "spaces-aspc-protocol|validateAspcObserveRuntimeCapabilityRequest|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "validateAspcPrepareProcessInvocationRequest",
+      "kind": "value",
+      "file": "contracts/aspc-protocol/src/schemas.ts",
+      "hash": "spaces-aspc-protocol|validateAspcPrepareProcessInvocationRequest|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "validateAspcResolveRuntimeDeclarationRequest",
+      "kind": "value",
+      "file": "contracts/aspc-protocol/src/schemas.ts",
+      "hash": "spaces-aspc-protocol|validateAspcResolveRuntimeDeclarationRequest|value",
       "count": 1
     },
     {
@@ -727,10 +1047,162 @@
     },
     {
       "package": "spaces-harness-broker-protocol",
+      "symbol": "AdmissionAdmittedPayload",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|AdmissionAdmittedPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "AdmissionLayer",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|AdmissionLayer|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "AdmissionRejectedPayload",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|AdmissionRejectedPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "AdmissionRequestedPayload",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|AdmissionRequestedPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "AgentHarnessControlValidationError",
+      "kind": "value",
+      "file": "contracts/harness-broker-protocol/src/errors.ts",
+      "hash": "spaces-harness-broker-protocol|AgentHarnessControlValidationError|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "AgentHarnessSpec",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/invocation.ts",
+      "hash": "spaces-harness-broker-protocol|AgentHarnessSpec|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
       "symbol": "AMBIENT_ENV_KEYS",
       "kind": "value",
       "file": "contracts/harness-broker-protocol/src/env-keys.ts",
       "hash": "spaces-harness-broker-protocol|AMBIENT_ENV_KEYS|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "ArrisApprovalResponder",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/arris-federation.ts",
+      "hash": "spaces-harness-broker-protocol|ArrisApprovalResponder|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "ArrisControlOutcome",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/arris-federation.ts",
+      "hash": "spaces-harness-broker-protocol|ArrisControlOutcome|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "ArrisControlReceipt",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/arris-federation.ts",
+      "hash": "spaces-harness-broker-protocol|ArrisControlReceipt|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "ArrisFederationValidationIssue",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/arris-federation.ts",
+      "hash": "spaces-harness-broker-protocol|ArrisFederationValidationIssue|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "ArrisFederationValidationResult",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/arris-federation.ts",
+      "hash": "spaces-harness-broker-protocol|ArrisFederationValidationResult|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "ArrisHostDescriptor",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/arris-federation.ts",
+      "hash": "spaces-harness-broker-protocol|ArrisHostDescriptor|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "ArrisHostLifecycleOwner",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/arris-federation.ts",
+      "hash": "spaces-harness-broker-protocol|ArrisHostLifecycleOwner|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "ArrisInputIdentity",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/arris-federation.ts",
+      "hash": "spaces-harness-broker-protocol|ArrisInputIdentity|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "ArrisJournalRecord",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/arris-federation.ts",
+      "hash": "spaces-harness-broker-protocol|ArrisJournalRecord|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "ArrisKnownReadinessState",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/arris-federation.ts",
+      "hash": "spaces-harness-broker-protocol|ArrisKnownReadinessState|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "ArrisParticipantIdentity",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/arris-federation.ts",
+      "hash": "spaces-harness-broker-protocol|ArrisParticipantIdentity|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "ArrisPendingApproval",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/arris-federation.ts",
+      "hash": "spaces-harness-broker-protocol|ArrisPendingApproval|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "AspReleaseIdentity",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/commands.ts",
+      "hash": "spaces-harness-broker-protocol|AspReleaseIdentity|type",
       "count": 1
     },
     {
@@ -791,6 +1263,54 @@
     },
     {
       "package": "spaces-harness-broker-protocol",
+      "symbol": "BrokerComparisonForm",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/offline-evidence.ts",
+      "hash": "spaces-harness-broker-protocol|BrokerComparisonForm|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "BrokerEnsureInvocationIndeterminateReason",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/participant.ts",
+      "hash": "spaces-harness-broker-protocol|BrokerEnsureInvocationIndeterminateReason|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "BrokerEnsureInvocationReceipt",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/participant.ts",
+      "hash": "spaces-harness-broker-protocol|BrokerEnsureInvocationReceipt|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "BrokerEnsureInvocationRequest",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/participant.ts",
+      "hash": "spaces-harness-broker-protocol|BrokerEnsureInvocationRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "BrokerEnsureInvocationResponse",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/participant.ts",
+      "hash": "spaces-harness-broker-protocol|BrokerEnsureInvocationResponse|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "BrokerEnsureInvocationState",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/participant.ts",
+      "hash": "spaces-harness-broker-protocol|BrokerEnsureInvocationState|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
       "symbol": "BrokerErrorCode",
       "kind": "value",
       "file": "contracts/harness-broker-protocol/src/errors.ts",
@@ -827,6 +1347,22 @@
       "kind": "type",
       "file": "contracts/harness-broker-protocol/src/commands.ts",
       "hash": "spaces-harness-broker-protocol|BrokerHelloResponse|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "BrokerInstallIdentityRequest",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/participant.ts",
+      "hash": "spaces-harness-broker-protocol|BrokerInstallIdentityRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "BrokerInstallIdentityResponse",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/participant.ts",
+      "hash": "spaces-harness-broker-protocol|BrokerInstallIdentityResponse|type",
       "count": 1
     },
     {
@@ -887,6 +1423,22 @@
     },
     {
       "package": "spaces-harness-broker-protocol",
+      "symbol": "BrokerMethodV3",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/commands.ts",
+      "hash": "spaces-harness-broker-protocol|BrokerMethodV3|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "BrokerMethodV4",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/commands.ts",
+      "hash": "spaces-harness-broker-protocol|BrokerMethodV4|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
       "symbol": "BrokerNotificationMethod",
       "kind": "type",
       "file": "contracts/harness-broker-protocol/src/commands.ts",
@@ -899,6 +1451,22 @@
       "kind": "type",
       "file": "contracts/harness-broker-protocol/src/invocation.ts",
       "hash": "spaces-harness-broker-protocol|BrokerProtocolVersion|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "BrokerQueueEntry",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|BrokerQueueEntry|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "BrokerRuntimeIdentity",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/participant.ts",
+      "hash": "spaces-harness-broker-protocol|BrokerRuntimeIdentity|type",
       "count": 1
     },
     {
@@ -935,6 +1503,70 @@
     },
     {
       "package": "spaces-harness-broker-protocol",
+      "symbol": "CAPTURE_RELEASE_NOT_BLOCKED",
+      "kind": "value",
+      "file": "contracts/harness-broker-protocol/src/capture.ts",
+      "hash": "spaces-harness-broker-protocol|CAPTURE_RELEASE_NOT_BLOCKED|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "CaptureBlockedUnknownSummary",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/capture.ts",
+      "hash": "spaces-harness-broker-protocol|CaptureBlockedUnknownSummary|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "CaptureReleasedPayload",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/capture.ts",
+      "hash": "spaces-harness-broker-protocol|CaptureReleasedPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "CaptureReleaseNormalizedAs",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/capture.ts",
+      "hash": "spaces-harness-broker-protocol|CaptureReleaseNormalizedAs|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "CaptureStateView",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/capture.ts",
+      "hash": "spaces-harness-broker-protocol|CaptureStateView|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "CaptureWarningPayload",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|CaptureWarningPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "ChildHarnessProcessSpec",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/invocation.ts",
+      "hash": "spaces-harness-broker-protocol|ChildHarnessProcessSpec|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "ChildHarnessTransportSpec",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/invocation.ts",
+      "hash": "spaces-harness-broker-protocol|ChildHarnessTransportSpec|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
       "symbol": "ClientCapabilities",
       "kind": "type",
       "file": "contracts/harness-broker-protocol/src/capabilities.ts",
@@ -955,6 +1587,14 @@
       "kind": "value",
       "file": "contracts/harness-broker-protocol/src/errors.ts",
       "hash": "spaces-harness-broker-protocol|CommandValidationError|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "ComparisonPayload",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/offline-evidence.ts",
+      "hash": "spaces-harness-broker-protocol|ComparisonPayload|type",
       "count": 1
     },
     {
@@ -1071,6 +1711,14 @@
     },
     {
       "package": "spaces-harness-broker-protocol",
+      "symbol": "ensureInvocationRequestDigest",
+      "kind": "value",
+      "file": "contracts/harness-broker-protocol/src/participant.ts",
+      "hash": "spaces-harness-broker-protocol|ensureInvocationRequestDigest|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
       "symbol": "ENV_KEY_PATTERN",
       "kind": "value",
       "file": "contracts/harness-broker-protocol/src/env-keys.ts",
@@ -1079,10 +1727,58 @@
     },
     {
       "package": "spaces-harness-broker-protocol",
+      "symbol": "EVENT_FAMILY_BY_TYPE",
+      "kind": "value",
+      "file": "contracts/harness-broker-protocol/src/capture.ts",
+      "hash": "spaces-harness-broker-protocol|EVENT_FAMILY_BY_TYPE|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
       "symbol": "EventEnvelopeValidationError",
       "kind": "value",
       "file": "contracts/harness-broker-protocol/src/errors.ts",
       "hash": "spaces-harness-broker-protocol|EventEnvelopeValidationError|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "EventFamily",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/capture.ts",
+      "hash": "spaces-harness-broker-protocol|EventFamily|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "EventProvenance",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/capture.ts",
+      "hash": "spaces-harness-broker-protocol|EventProvenance|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "EventSourceKind",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/capture.ts",
+      "hash": "spaces-harness-broker-protocol|EventSourceKind|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "EvidenceAuthority",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/capture.ts",
+      "hash": "spaces-harness-broker-protocol|EvidenceAuthority|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "EvidenceAuthorityMatrix",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/capture.ts",
+      "hash": "spaces-harness-broker-protocol|EvidenceAuthorityMatrix|type",
       "count": 1
     },
     {
@@ -1239,6 +1935,30 @@
     },
     {
       "package": "spaces-harness-broker-protocol",
+      "symbol": "InterruptDecisionPayload",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|InterruptDecisionPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "InterruptFailedPayload",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|InterruptFailedPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "INVOCATION_EVENT_TYPES",
+      "kind": "value",
+      "file": "contracts/harness-broker-protocol/src/schemas.ts",
+      "hash": "spaces-harness-broker-protocol|INVOCATION_EVENT_TYPES|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
       "symbol": "InvocationAckEventsRequest",
       "kind": "type",
       "file": "contracts/harness-broker-protocol/src/commands.ts",
@@ -1259,6 +1979,22 @@
       "kind": "type",
       "file": "contracts/harness-broker-protocol/src/capabilities.ts",
       "hash": "spaces-harness-broker-protocol|InvocationCapabilities|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "InvocationCaptureReleaseRequest",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/capture.ts",
+      "hash": "spaces-harness-broker-protocol|InvocationCaptureReleaseRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "InvocationCaptureReleaseResponse",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/capture.ts",
+      "hash": "spaces-harness-broker-protocol|InvocationCaptureReleaseResponse|type",
       "count": 1
     },
     {
@@ -1695,6 +2431,14 @@
     },
     {
       "package": "spaces-harness-broker-protocol",
+      "symbol": "isLoadBearingEventFamily",
+      "kind": "value",
+      "file": "contracts/harness-broker-protocol/src/capture.ts",
+      "hash": "spaces-harness-broker-protocol|isLoadBearingEventFamily|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
       "symbol": "IsoTimestamp",
       "kind": "type",
       "file": "contracts/harness-broker-protocol/src/primitives.ts",
@@ -1839,10 +2583,34 @@
     },
     {
       "package": "spaces-harness-broker-protocol",
+      "symbol": "LOAD_BEARING_EVENT_FAMILIES",
+      "kind": "value",
+      "file": "contracts/harness-broker-protocol/src/capture.ts",
+      "hash": "spaces-harness-broker-protocol|LOAD_BEARING_EVENT_FAMILIES|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
       "symbol": "MessageId",
       "kind": "type",
       "file": "contracts/harness-broker-protocol/src/ids.ts",
       "hash": "spaces-harness-broker-protocol|MessageId|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "MuseServeDriverSpec",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/invocation.ts",
+      "hash": "spaces-harness-broker-protocol|MuseServeDriverSpec|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "NativeWorkerProcessSpec",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/invocation.ts",
+      "hash": "spaces-harness-broker-protocol|NativeWorkerProcessSpec|type",
       "count": 1
     },
     {
@@ -1875,6 +2643,70 @@
       "kind": "value",
       "file": "contracts/harness-broker-protocol/src/lifecycle.ts",
       "hash": "spaces-harness-broker-protocol|normalizeLifecyclePolicyOverlay|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "OFFLINE_EVIDENCE_CAPABILITY",
+      "kind": "value",
+      "file": "contracts/harness-broker-protocol/src/offline-evidence.ts",
+      "hash": "spaces-harness-broker-protocol|OFFLINE_EVIDENCE_CAPABILITY|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "OFFLINE_EVIDENCE_SCHEMA",
+      "kind": "value",
+      "file": "contracts/harness-broker-protocol/src/offline-evidence.ts",
+      "hash": "spaces-harness-broker-protocol|OFFLINE_EVIDENCE_SCHEMA|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "OfflineArtifactSnapshot",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/offline-evidence.ts",
+      "hash": "spaces-harness-broker-protocol|OfflineArtifactSnapshot|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "OfflineEvidenceErrorCode",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/offline-evidence.ts",
+      "hash": "spaces-harness-broker-protocol|OfflineEvidenceErrorCode|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "OfflineEvidenceRequest",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/offline-evidence.ts",
+      "hash": "spaces-harness-broker-protocol|OfflineEvidenceRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "OfflineEvidenceResponse",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/offline-evidence.ts",
+      "hash": "spaces-harness-broker-protocol|OfflineEvidenceResponse|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "OfflineFileIdentity",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/offline-evidence.ts",
+      "hash": "spaces-harness-broker-protocol|OfflineFileIdentity|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "OfflineLedgerSnapshot",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/offline-evidence.ts",
+      "hash": "spaces-harness-broker-protocol|OfflineLedgerSnapshot|type",
       "count": 1
     },
     {
@@ -1983,6 +2815,14 @@
     },
     {
       "package": "spaces-harness-broker-protocol",
+      "symbol": "PROVIDER_OBSERVATION_SCHEMA",
+      "kind": "value",
+      "file": "contracts/harness-broker-protocol/src/offline-evidence.ts",
+      "hash": "spaces-harness-broker-protocol|PROVIDER_OBSERVATION_SCHEMA|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
       "symbol": "PROVIDER_TRANSCRIPT_ARTIFACT_KIND",
       "kind": "value",
       "file": "contracts/harness-broker-protocol/src/events.ts",
@@ -2023,6 +2863,22 @@
     },
     {
       "package": "spaces-harness-broker-protocol",
+      "symbol": "ProviderObservation",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/offline-evidence.ts",
+      "hash": "spaces-harness-broker-protocol|ProviderObservation|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "ProviderObservationType",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/offline-evidence.ts",
+      "hash": "spaces-harness-broker-protocol|ProviderObservationType|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
       "symbol": "ProviderTranscriptEmitContext",
       "kind": "type",
       "file": "contracts/harness-broker-protocol/src/events.ts",
@@ -2043,6 +2899,118 @@
       "kind": "type",
       "file": "contracts/harness-broker-protocol/src/events.ts",
       "hash": "spaces-harness-broker-protocol|ProviderTranscriptReportedPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "QueueCancelledPayload",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|QueueCancelledPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "QueueCancelRequest",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|QueueCancelRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "QueueCancelResponse",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|QueueCancelResponse|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "QueueEnqueuedPayload",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|QueueEnqueuedPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "QueueExpiredPayload",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|QueueExpiredPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "QueueJumpedPayload",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|QueueJumpedPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "QueueJumpRequest",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|QueueJumpRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "QueueJumpResponse",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|QueueJumpResponse|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "QueueListRequest",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|QueueListRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "QueueListResponse",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|QueueListResponse|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "QueueWithdrawnPayload",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|QueueWithdrawnPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "RawProviderRecord",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/capture.ts",
+      "hash": "spaces-harness-broker-protocol|RawProviderRecord|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "RawRecordDisposition",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/capture.ts",
+      "hash": "spaces-harness-broker-protocol|RawRecordDisposition|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "RawSourceCursor",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/capture.ts",
+      "hash": "spaces-harness-broker-protocol|RawSourceCursor|type",
       "count": 1
     },
     {
@@ -2079,10 +3047,170 @@
     },
     {
       "package": "spaces-harness-broker-protocol",
+      "symbol": "SeatProbeRequest",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|SeatProbeRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "SeatProbeResponse",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|SeatProbeResponse|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "SeatState",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|SeatState|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "Sha256Hex",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/offline-evidence.ts",
+      "hash": "spaces-harness-broker-protocol|Sha256Hex|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
       "symbol": "StallDetectionPolicy",
       "kind": "type",
       "file": "contracts/harness-broker-protocol/src/lifecycle.ts",
       "hash": "spaces-harness-broker-protocol|StallDetectionPolicy|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "SubmissionAdmission",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|SubmissionAdmission|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "SubmissionCancelledPayload",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|SubmissionCancelledPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "SubmissionClass",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|SubmissionClass|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "SubmissionEnqueueRequest",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|SubmissionEnqueueRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "SubmissionExpiredPayload",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|SubmissionExpiredPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "SubmissionInvokeRequest",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|SubmissionInvokeRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "SubmissionLostPayload",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|SubmissionLostPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "SubmissionOrigin",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|SubmissionOrigin|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "SubmissionPreemptRequest",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|SubmissionPreemptRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "SubmissionRejectedPayload",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|SubmissionRejectedPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "SubmissionResponse",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|SubmissionResponse|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "SubmissionSteerRequest",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|SubmissionSteerRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "SubmissionTurnDispositionPayload",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|SubmissionTurnDispositionPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "SubmissionWithdrawnPayload",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|SubmissionWithdrawnPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "SubmissionWithdrawRequest",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|SubmissionWithdrawRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "SubmissionWithdrawResponse",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|SubmissionWithdrawResponse|type",
       "count": 1
     },
     {
@@ -2143,6 +3271,14 @@
     },
     {
       "package": "spaces-harness-broker-protocol",
+      "symbol": "TurnAttributedPayload",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|TurnAttributedPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
       "symbol": "TurnCompletedPayload",
       "kind": "type",
       "file": "contracts/harness-broker-protocol/src/events.ts",
@@ -2171,6 +3307,30 @@
       "kind": "type",
       "file": "contracts/harness-broker-protocol/src/events.ts",
       "hash": "spaces-harness-broker-protocol|TurnInterruptedPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "TurnManifestRequest",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|TurnManifestRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "TurnManifestResponse",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|TurnManifestResponse|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "TurnPolicy",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/submission.ts",
+      "hash": "spaces-harness-broker-protocol|TurnPolicy|type",
       "count": 1
     },
     {
@@ -2215,6 +3375,22 @@
     },
     {
       "package": "spaces-harness-broker-protocol",
+      "symbol": "UsageModelIdentity",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|UsageModelIdentity|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "UsageModelSource",
+      "kind": "type",
+      "file": "contracts/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|UsageModelSource|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
       "symbol": "UsageUpdatedPayload",
       "kind": "type",
       "file": "contracts/harness-broker-protocol/src/events.ts",
@@ -2227,6 +3403,14 @@
       "kind": "type",
       "file": "contracts/harness-broker-protocol/src/events.ts",
       "hash": "spaces-harness-broker-protocol|UserMessagePayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "validateArrisHostDescriptor",
+      "kind": "value",
+      "file": "contracts/harness-broker-protocol/src/arris-federation.ts",
+      "hash": "spaces-harness-broker-protocol|validateArrisHostDescriptor|value",
       "count": 1
     },
     {
@@ -2615,14 +3799,6 @@
     },
     {
       "package": "spaces-runtime-contracts",
-      "symbol": "BrokerExecutionProfile",
-      "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/execution-profile.ts",
-      "hash": "spaces-runtime-contracts|BrokerExecutionProfile|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
       "symbol": "BrokerInputKind",
       "kind": "type",
       "file": "contracts/spaces-runtime-contracts/src/input.ts",
@@ -2759,6 +3935,30 @@
     },
     {
       "package": "spaces-runtime-contracts",
+      "symbol": "BuildProcessInvocationSpecRequest",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/process-invocation.ts",
+      "hash": "spaces-runtime-contracts|BuildProcessInvocationSpecRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "BuildProcessInvocationSpecResponse",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/process-invocation.ts",
+      "hash": "spaces-runtime-contracts|BuildProcessInvocationSpecResponse|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "CanonicalDispatchStartRequest",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/harness-selection.ts",
+      "hash": "spaces-runtime-contracts|CanonicalDispatchStartRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
       "symbol": "CanonicalHash",
       "kind": "type",
       "file": "contracts/spaces-runtime-contracts/src/hash.ts",
@@ -2799,14 +3999,6 @@
     },
     {
       "package": "spaces-runtime-contracts",
-      "symbol": "CommandExecutionProfile",
-      "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/execution-profile.ts",
-      "hash": "spaces-runtime-contracts|CommandExecutionProfile|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
       "symbol": "CommandProcessRuntimeState",
       "kind": "type",
       "file": "contracts/spaces-runtime-contracts/src/runtime-state.ts",
@@ -2831,17 +4023,17 @@
     },
     {
       "package": "spaces-runtime-contracts",
-      "symbol": "CompiledAgentPolicy",
+      "symbol": "CompiledExecution",
       "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/compiler-plan.ts",
-      "hash": "spaces-runtime-contracts|CompiledAgentPolicy|type",
+      "file": "contracts/spaces-runtime-contracts/src/harness-selection.ts",
+      "hash": "spaces-runtime-contracts|CompiledExecution|type",
       "count": 1
     },
     {
       "package": "spaces-runtime-contracts",
       "symbol": "CompileDiagnostic",
       "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/compiler-plan.ts",
+      "file": "contracts/spaces-runtime-contracts/src/harness-selection.ts",
       "hash": "spaces-runtime-contracts|CompileDiagnostic|type",
       "count": 1
     },
@@ -2849,7 +4041,7 @@
       "package": "spaces-runtime-contracts",
       "symbol": "CompiledRuntimePlan",
       "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/compiler-plan.ts",
+      "file": "contracts/spaces-runtime-contracts/src/harness-selection.ts",
       "hash": "spaces-runtime-contracts|CompiledRuntimePlan|type",
       "count": 1
     },
@@ -2895,14 +4087,6 @@
     },
     {
       "package": "spaces-runtime-contracts",
-      "symbol": "ControllerOwnedTerminalHost",
-      "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/execution-profile.ts",
-      "hash": "spaces-runtime-contracts|ControllerOwnedTerminalHost|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
       "symbol": "createCanonicalHasher",
       "kind": "value",
       "file": "contracts/spaces-runtime-contracts/src/hash.ts",
@@ -2923,14 +4107,6 @@
       "kind": "value",
       "file": "contracts/spaces-runtime-contracts/src/hash.ts",
       "hash": "spaces-runtime-contracts|DEFAULT_HASH_PROJECTION|value",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "defineRuntimeRouteCatalog",
-      "kind": "value",
-      "file": "contracts/spaces-runtime-contracts/src/route-catalog.ts",
-      "hash": "spaces-runtime-contracts|defineRuntimeRouteCatalog|value",
       "count": 1
     },
     {
@@ -2983,26 +4159,18 @@
     },
     {
       "package": "spaces-runtime-contracts",
-      "symbol": "findPiSdkModelCatalogEntry",
+      "symbol": "ExecutionRecipeDto",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/harness-selection.ts",
+      "hash": "spaces-runtime-contracts|ExecutionRecipeDto|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "findPiProviderModelCatalogEntry",
       "kind": "value",
-      "file": "contracts/spaces-runtime-contracts/src/route-catalog.ts",
-      "hash": "spaces-runtime-contracts|findPiSdkModelCatalogEntry|value",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "ForegroundTerminalHost",
-      "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/execution-profile.ts",
-      "hash": "spaces-runtime-contracts|ForegroundTerminalHost|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "GhosttyTerminalHost",
-      "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/execution-profile.ts",
-      "hash": "spaces-runtime-contracts|GhosttyTerminalHost|type",
+      "file": "contracts/spaces-runtime-contracts/src/provider-model-catalog.ts",
+      "hash": "spaces-runtime-contracts|findPiProviderModelCatalogEntry|value",
       "count": 1
     },
     {
@@ -3015,18 +4183,34 @@
     },
     {
       "package": "spaces-runtime-contracts",
-      "symbol": "HarnessFamily",
+      "symbol": "HarnessContinuationKey",
       "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/primitives.ts",
-      "hash": "spaces-runtime-contracts|HarnessFamily|type",
+      "file": "contracts/spaces-runtime-contracts/src/process-invocation.ts",
+      "hash": "spaces-runtime-contracts|HarnessContinuationKey|type",
       "count": 1
     },
     {
       "package": "spaces-runtime-contracts",
-      "symbol": "HarnessInvocationSpec",
+      "symbol": "HarnessContinuationRef",
       "kind": "type",
-      "file": "contracts/harness-broker-protocol/src/invocation.ts",
-      "hash": "spaces-runtime-contracts|HarnessInvocationSpec|type",
+      "file": "contracts/spaces-runtime-contracts/src/process-invocation.ts",
+      "hash": "spaces-runtime-contracts|HarnessContinuationRef|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "HarnessFrontend",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/process-invocation.ts",
+      "hash": "spaces-runtime-contracts|HarnessFrontend|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "HarnessId",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/harness-selection.ts",
+      "hash": "spaces-runtime-contracts|HarnessId|type",
       "count": 1
     },
     {
@@ -3039,10 +4223,18 @@
     },
     {
       "package": "spaces-runtime-contracts",
-      "symbol": "HarnessRuntime",
+      "symbol": "HarnessSelectionDirectives",
       "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/primitives.ts",
-      "hash": "spaces-runtime-contracts|HarnessRuntime|type",
+      "file": "contracts/spaces-runtime-contracts/src/harness-selection.ts",
+      "hash": "spaces-runtime-contracts|HarnessSelectionDirectives|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "HarnessSelectionRequest",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/harness-selection.ts",
+      "hash": "spaces-runtime-contracts|HarnessSelectionRequest|type",
       "count": 1
     },
     {
@@ -3087,6 +4279,22 @@
     },
     {
       "package": "spaces-runtime-contracts",
+      "symbol": "HostCorrelation",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/external.ts",
+      "hash": "spaces-runtime-contracts|HostCorrelation|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "HostingRequirements",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/harness-selection.ts",
+      "hash": "spaces-runtime-contracts|HostingRequirements|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
       "symbol": "HostSessionId",
       "kind": "type",
       "file": "contracts/spaces-runtime-contracts/src/ids.ts",
@@ -3119,26 +4327,10 @@
     },
     {
       "package": "spaces-runtime-contracts",
-      "symbol": "HrcRoutePolicy",
-      "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/route-decision.ts",
-      "hash": "spaces-runtime-contracts|HrcRoutePolicy|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
       "symbol": "HrcRunRecord",
       "kind": "type",
       "file": "contracts/spaces-runtime-contracts/src/operations.ts",
       "hash": "spaces-runtime-contracts|HrcRunRecord|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "HrcRuntimeIntent",
-      "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/route-decision.ts",
-      "hash": "spaces-runtime-contracts|HrcRuntimeIntent|type",
       "count": 1
     },
     {
@@ -3223,26 +4415,10 @@
     },
     {
       "package": "spaces-runtime-contracts",
-      "symbol": "InvocationDispatchRequest",
-      "kind": "type",
-      "file": "contracts/harness-broker-protocol/src/commands.ts",
-      "hash": "spaces-runtime-contracts|InvocationDispatchRequest|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
       "symbol": "InvocationId",
       "kind": "type",
       "file": "contracts/harness-broker-protocol/src/ids.ts",
       "hash": "spaces-runtime-contracts|InvocationId|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "InvocationInput",
-      "kind": "type",
-      "file": "contracts/harness-broker-protocol/src/commands.ts",
-      "hash": "spaces-runtime-contracts|InvocationInput|type",
       "count": 1
     },
     {
@@ -3255,18 +4431,18 @@
     },
     {
       "package": "spaces-runtime-contracts",
-      "symbol": "InvocationStartRequest",
-      "kind": "type",
-      "file": "contracts/harness-broker-protocol/src/commands.ts",
-      "hash": "spaces-runtime-contracts|InvocationStartRequest|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
       "symbol": "InvocationStartRequestProjection",
       "kind": "type",
       "file": "contracts/spaces-runtime-contracts/src/persistence.ts",
       "hash": "spaces-runtime-contracts|InvocationStartRequestProjection|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "IoMode",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/process-invocation.ts",
+      "hash": "spaces-runtime-contracts|IoMode|type",
       "count": 1
     },
     {
@@ -3319,14 +4495,6 @@
     },
     {
       "package": "spaces-runtime-contracts",
-      "symbol": "LegacyExecutionProfile",
-      "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/execution-profile.ts",
-      "hash": "spaces-runtime-contracts|LegacyExecutionProfile|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
       "symbol": "LegacyTransportAlias",
       "kind": "type",
       "file": "contracts/spaces-runtime-contracts/src/primitives.ts",
@@ -3363,6 +4531,14 @@
       "kind": "type",
       "file": "contracts/harness-broker-protocol/src/ids.ts",
       "hash": "spaces-runtime-contracts|MessageId|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "neutralParticipantBrokerDescriptorHash",
+      "kind": "value",
+      "file": "contracts/spaces-runtime-contracts/src/participant-broker-descriptor.ts",
+      "hash": "spaces-runtime-contracts|neutralParticipantBrokerDescriptorHash|value",
       "count": 1
     },
     {
@@ -3431,6 +4607,118 @@
     },
     {
       "package": "spaces-runtime-contracts",
+      "symbol": "PARTICIPANT_BROKER_DESCRIPTOR_SCHEMA_VERSION",
+      "kind": "value",
+      "file": "contracts/spaces-runtime-contracts/src/participant-broker-descriptor.ts",
+      "hash": "spaces-runtime-contracts|PARTICIPANT_BROKER_DESCRIPTOR_SCHEMA_VERSION|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ParticipantAdapter",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/participant-adapter.ts",
+      "hash": "spaces-runtime-contracts|ParticipantAdapter|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ParticipantAdapterAdmissionRequest",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/participant-adapter.ts",
+      "hash": "spaces-runtime-contracts|ParticipantAdapterAdmissionRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ParticipantAdapterAdmissionResult",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/participant-adapter.ts",
+      "hash": "spaces-runtime-contracts|ParticipantAdapterAdmissionResult|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ParticipantAdapterJoin",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/participant-adapter.ts",
+      "hash": "spaces-runtime-contracts|ParticipantAdapterJoin|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ParticipantAdapterPreparationRequest",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/participant-adapter.ts",
+      "hash": "spaces-runtime-contracts|ParticipantAdapterPreparationRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ParticipantAdapterPreparationResult",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/participant-adapter.ts",
+      "hash": "spaces-runtime-contracts|ParticipantAdapterPreparationResult|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ParticipantAdapterValidationIssue",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/participant-adapter.ts",
+      "hash": "spaces-runtime-contracts|ParticipantAdapterValidationIssue|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ParticipantAdapterValidationResult",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/participant-adapter.ts",
+      "hash": "spaces-runtime-contracts|ParticipantAdapterValidationResult|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ParticipantBrokerDescriptor",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/participant-broker-descriptor.ts",
+      "hash": "spaces-runtime-contracts|ParticipantBrokerDescriptor|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ParticipantBrokerDescriptorHash",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/participant-broker-descriptor.ts",
+      "hash": "spaces-runtime-contracts|ParticipantBrokerDescriptorHash|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ParticipantBrokerDescriptorId",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/participant-broker-descriptor.ts",
+      "hash": "spaces-runtime-contracts|ParticipantBrokerDescriptorId|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ParticipantBrokerDescriptorValidationIssue",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/participant-broker-descriptor.ts",
+      "hash": "spaces-runtime-contracts|ParticipantBrokerDescriptorValidationIssue|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ParticipantBrokerDescriptorValidationResult",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/participant-broker-descriptor.ts",
+      "hash": "spaces-runtime-contracts|ParticipantBrokerDescriptorValidationResult|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
       "symbol": "PermissionRequestId",
       "kind": "type",
       "file": "contracts/harness-broker-protocol/src/ids.ts",
@@ -3455,18 +4743,34 @@
     },
     {
       "package": "spaces-runtime-contracts",
-      "symbol": "PI_SDK_MODEL_CATALOG",
+      "symbol": "PI_PROVIDER_MODEL_CATALOG",
       "kind": "value",
-      "file": "contracts/spaces-runtime-contracts/src/route-catalog.ts",
-      "hash": "spaces-runtime-contracts|PI_SDK_MODEL_CATALOG|value",
+      "file": "contracts/spaces-runtime-contracts/src/provider-model-catalog.ts",
+      "hash": "spaces-runtime-contracts|PI_PROVIDER_MODEL_CATALOG|value",
       "count": 1
     },
     {
       "package": "spaces-runtime-contracts",
-      "symbol": "PiSdkModelCatalogEntry",
+      "symbol": "PiProviderModelCatalogEntry",
       "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/route-catalog.ts",
-      "hash": "spaces-runtime-contracts|PiSdkModelCatalogEntry|type",
+      "file": "contracts/spaces-runtime-contracts/src/provider-model-catalog.ts",
+      "hash": "spaces-runtime-contracts|PiProviderModelCatalogEntry|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "PlacementRuntimeModelResolution",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/run-compile.ts",
+      "hash": "spaces-runtime-contracts|PlacementRuntimeModelResolution|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "PlacementRuntimePlan",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/run-compile.ts",
+      "hash": "spaces-runtime-contracts|PlacementRuntimePlan|type",
       "count": 1
     },
     {
@@ -3475,6 +4779,78 @@
       "kind": "type",
       "file": "contracts/spaces-runtime-contracts/src/ids.ts",
       "hash": "spaces-runtime-contracts|PlanHash|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "PresentationSurface",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/harness-selection.ts",
+      "hash": "spaces-runtime-contracts|PresentationSurface|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "PriorRecovery",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/participant-adapter.ts",
+      "hash": "spaces-runtime-contracts|PriorRecovery|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ProcessAttachmentRef",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/process-invocation.ts",
+      "hash": "spaces-runtime-contracts|ProcessAttachmentRef|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ProcessHarnessFrontend",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/process-invocation.ts",
+      "hash": "spaces-runtime-contracts|ProcessHarnessFrontend|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ProcessInteractionMode",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/process-invocation.ts",
+      "hash": "spaces-runtime-contracts|ProcessInteractionMode|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ProcessInvocationSpec",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/process-invocation.ts",
+      "hash": "spaces-runtime-contracts|ProcessInvocationSpec|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ProcessIoMode",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/process-invocation.ts",
+      "hash": "spaces-runtime-contracts|ProcessIoMode|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ProcessResolvedRuntimeBundle",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/process-invocation.ts",
+      "hash": "spaces-runtime-contracts|ProcessResolvedRuntimeBundle|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ProcessRuntimePlacement",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/process-invocation.ts",
+      "hash": "spaces-runtime-contracts|ProcessRuntimePlacement|type",
       "count": 1
     },
     {
@@ -3511,6 +4887,14 @@
     },
     {
       "package": "spaces-runtime-contracts",
+      "symbol": "ReasoningEffort",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/harness-selection.ts",
+      "hash": "spaces-runtime-contracts|ReasoningEffort|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
       "symbol": "ReconcileRuntimesRequest",
       "kind": "type",
       "file": "contracts/spaces-runtime-contracts/src/public-api.ts",
@@ -3543,10 +4927,50 @@
     },
     {
       "package": "spaces-runtime-contracts",
+      "symbol": "ResolvedExecutionProfile",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/harness-selection.ts",
+      "hash": "spaces-runtime-contracts|ResolvedExecutionProfile|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ResolvedHarnessSelection",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/harness-selection.ts",
+      "hash": "spaces-runtime-contracts|ResolvedHarnessSelection|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ResolvedHosting",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/harness-selection.ts",
+      "hash": "spaces-runtime-contracts|ResolvedHosting|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ResolvedInstruction",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/external.ts",
+      "hash": "spaces-runtime-contracts|ResolvedInstruction|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
       "symbol": "ResolvedRuntimeBundle",
       "kind": "type",
       "file": "contracts/spaces-runtime-contracts/src/external.ts",
       "hash": "spaces-runtime-contracts|ResolvedRuntimeBundle|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "ResolvedSpace",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/external.ts",
+      "hash": "spaces-runtime-contracts|ResolvedSpace|type",
       "count": 1
     },
     {
@@ -3559,18 +4983,26 @@
     },
     {
       "package": "spaces-runtime-contracts",
-      "symbol": "RunStatus",
+      "symbol": "RunMode",
       "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/primitives.ts",
-      "hash": "spaces-runtime-contracts|RunStatus|type",
+      "file": "contracts/spaces-runtime-contracts/src/external.ts",
+      "hash": "spaces-runtime-contracts|RunMode|type",
       "count": 1
     },
     {
       "package": "spaces-runtime-contracts",
-      "symbol": "RUNTIME_ROUTE_CATALOG",
-      "kind": "value",
-      "file": "contracts/spaces-runtime-contracts/src/route-catalog.ts",
-      "hash": "spaces-runtime-contracts|RUNTIME_ROUTE_CATALOG|value",
+      "symbol": "RunScaffoldPacket",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/external.ts",
+      "hash": "spaces-runtime-contracts|RunScaffoldPacket|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "RunStatus",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/primitives.ts",
+      "hash": "spaces-runtime-contracts|RunStatus|type",
       "count": 1
     },
     {
@@ -3599,6 +5031,14 @@
     },
     {
       "package": "spaces-runtime-contracts",
+      "symbol": "RuntimeBundleRef",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/external.ts",
+      "hash": "spaces-runtime-contracts|RuntimeBundleRef|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
       "symbol": "RuntimeCapabilities",
       "kind": "type",
       "file": "contracts/spaces-runtime-contracts/src/capabilities.ts",
@@ -3609,7 +5049,7 @@
       "package": "spaces-runtime-contracts",
       "symbol": "RuntimeCompileRequest",
       "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/compiler-plan.ts",
+      "file": "contracts/spaces-runtime-contracts/src/harness-selection.ts",
       "hash": "spaces-runtime-contracts|RuntimeCompileRequest|type",
       "count": 1
     },
@@ -3617,7 +5057,7 @@
       "package": "spaces-runtime-contracts",
       "symbol": "RuntimeCompileResponse",
       "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/compiler-plan.ts",
+      "file": "contracts/spaces-runtime-contracts/src/harness-selection.ts",
       "hash": "spaces-runtime-contracts|RuntimeCompileResponse|type",
       "count": 1
     },
@@ -3723,30 +5163,6 @@
       "kind": "type",
       "file": "contracts/spaces-runtime-contracts/src/controller.ts",
       "hash": "spaces-runtime-contracts|RuntimeDisposeResult|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "RuntimeExecutionProfile",
-      "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/execution-profile.ts",
-      "hash": "spaces-runtime-contracts|RuntimeExecutionProfile|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "RuntimeExecutionProfileBase",
-      "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/execution-profile.ts",
-      "hash": "spaces-runtime-contracts|RuntimeExecutionProfileBase|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "RuntimeExecutionProfileKind",
-      "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/primitives.ts",
-      "hash": "spaces-runtime-contracts|RuntimeExecutionProfileKind|type",
       "count": 1
     },
     {
@@ -3903,38 +5319,6 @@
     },
     {
       "package": "spaces-runtime-contracts",
-      "symbol": "RuntimeRouteCatalogEntry",
-      "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/route-catalog.ts",
-      "hash": "spaces-runtime-contracts|RuntimeRouteCatalogEntry|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "RuntimeRouteDecision",
-      "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/route-decision.ts",
-      "hash": "spaces-runtime-contracts|RuntimeRouteDecision|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "RuntimeRouteHarnessRuntime",
-      "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/route-decision.ts",
-      "hash": "spaces-runtime-contracts|RuntimeRouteHarnessRuntime|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "RuntimeRouteInput",
-      "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/route-decision.ts",
-      "hash": "spaces-runtime-contracts|RuntimeRouteInput|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
       "symbol": "RuntimeStartResult",
       "kind": "type",
       "file": "contracts/spaces-runtime-contracts/src/controller.ts",
@@ -3995,6 +5379,22 @@
       "kind": "type",
       "file": "contracts/spaces-runtime-contracts/src/primitives.ts",
       "hash": "spaces-runtime-contracts|SchemaVersion|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "SelectionProvenance",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/harness-selection.ts",
+      "hash": "spaces-runtime-contracts|SelectionProvenance|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "SelectionProvenanceLayer",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/harness-selection.ts",
+      "hash": "spaces-runtime-contracts|SelectionProvenanceLayer|type",
       "count": 1
     },
     {
@@ -4063,34 +5463,10 @@
     },
     {
       "package": "spaces-runtime-contracts",
-      "symbol": "TerminalExecutionProfile",
-      "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/execution-profile.ts",
-      "hash": "spaces-runtime-contracts|TerminalExecutionProfile|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "TerminalHost",
-      "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/execution-profile.ts",
-      "hash": "spaces-runtime-contracts|TerminalHost|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
       "symbol": "TerminalRuntimeState",
       "kind": "type",
       "file": "contracts/spaces-runtime-contracts/src/runtime-state.ts",
       "hash": "spaces-runtime-contracts|TerminalRuntimeState|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "TmuxTerminalHost",
-      "kind": "type",
-      "file": "contracts/spaces-runtime-contracts/src/execution-profile.ts",
-      "hash": "spaces-runtime-contracts|TmuxTerminalHost|type",
       "count": 1
     },
     {
@@ -4151,26 +5527,90 @@
     },
     {
       "package": "spaces-runtime-contracts",
-      "symbol": "validateBrokerExecutionProfile",
+      "symbol": "validateParticipantAdapterAdmission",
       "kind": "value",
-      "file": "contracts/spaces-runtime-contracts/src/validate-execution-profile.ts",
-      "hash": "spaces-runtime-contracts|validateBrokerExecutionProfile|value",
+      "file": "contracts/spaces-runtime-contracts/src/participant-adapter.ts",
+      "hash": "spaces-runtime-contracts|validateParticipantAdapterAdmission|value",
       "count": 1
     },
     {
       "package": "spaces-runtime-contracts",
-      "symbol": "validateExecutionProfile",
+      "symbol": "validateParticipantAdapterPreparation",
       "kind": "value",
-      "file": "contracts/spaces-runtime-contracts/src/validate-execution-profile.ts",
-      "hash": "spaces-runtime-contracts|validateExecutionProfile|value",
+      "file": "contracts/spaces-runtime-contracts/src/participant-adapter.ts",
+      "hash": "spaces-runtime-contracts|validateParticipantAdapterPreparation|value",
       "count": 1
     },
     {
       "package": "spaces-runtime-contracts",
-      "symbol": "validateTerminalExecutionProfile",
+      "symbol": "validateParticipantBrokerDescriptor",
       "kind": "value",
-      "file": "contracts/spaces-runtime-contracts/src/validate-execution-profile.ts",
-      "hash": "spaces-runtime-contracts|validateTerminalExecutionProfile|value",
+      "file": "contracts/spaces-runtime-contracts/src/participant-broker-descriptor.ts",
+      "hash": "spaces-runtime-contracts|validateParticipantBrokerDescriptor|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "validateWriterEvidence",
+      "kind": "value",
+      "file": "contracts/spaces-runtime-contracts/src/participant-adapter.ts",
+      "hash": "spaces-runtime-contracts|validateWriterEvidence|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "WriterEvidence",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/participant-adapter.ts",
+      "hash": "spaces-runtime-contracts|WriterEvidence|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "WriterInspectionRequest",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/participant-adapter.ts",
+      "hash": "spaces-runtime-contracts|WriterInspectionRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "WriterLiveness",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/participant-adapter.ts",
+      "hash": "spaces-runtime-contracts|WriterLiveness|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "WriterPathState",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/participant-adapter.ts",
+      "hash": "spaces-runtime-contracts|WriterPathState|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "WriterRef",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/participant-adapter.ts",
+      "hash": "spaces-runtime-contracts|WriterRef|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "WriterRetirementRequest",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/participant-adapter.ts",
+      "hash": "spaces-runtime-contracts|WriterRetirementRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "WriterSubject",
+      "kind": "type",
+      "file": "contracts/spaces-runtime-contracts/src/participant-adapter.ts",
+      "hash": "spaces-runtime-contracts|WriterSubject|type",
       "count": 1
     }
   ]

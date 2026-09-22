@@ -1,4 +1,4 @@
-export { HARNESS_CATALOG, HARNESS_IDS } from './catalog.js'
+export { DEFAULT_HARNESS_ID, HARNESS_CATALOG, HARNESS_IDS } from './catalog.js'
 export { assertCatalogBuilderCoherence, BUILDER_REGISTRY_IDS } from './builders.js'
 export { catalogCapabilities, catalogHarnessIds, catalogRecipes } from './catalog-projections.js'
 export { resolveHarnessExecution } from './resolve.js'

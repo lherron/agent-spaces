@@ -23,6 +23,7 @@ import type {
   CompileContext,
   HarnessContinuationRef,
   HarnessFrontend,
+  HarnessId,
   ProviderDomain,
   RuntimeCompileRequest,
   RuntimeCompileResponse,
@@ -212,10 +213,8 @@ export interface DescribeRequest {
   aspHome: string
   spec: SpaceSpec
   registryPath?: string | undefined
-  frontend?: HarnessFrontend | undefined
+  harness?: HarnessId | undefined
   model?: string | undefined
-  cwd?: string | undefined
-  hostSessionId?: string | undefined
   runLint?: boolean | undefined
 }
 
@@ -223,7 +222,6 @@ export interface DescribeResponse {
   hooks: string[]
   skills: string[]
   tools: string[]
-  agentSdkSessionParams?: Array<{ paramName: string; paramValue: unknown }> | undefined
   lintWarnings?: LintWarning[] | undefined
 }
 

@@ -1,7 +1,15 @@
-import type { BuildResult, ResolveOptions } from 'spaces-config'
-// Internal legacy seam (EN-15986): the v1 run entrypoint addresses adapters
-// by their pre-cutover ids. T-08702 deletes it with the v1 flow.
-import type { HarnessId } from 'spaces-config'
+import type { BuildResult, HarnessAdapter, ResolveOptions } from 'spaces-config'
+import type { HarnessId } from 'spaces-runtime-contracts'
+
+/**
+ * An execution identity resolved by the compiler/catalog before it reaches the
+ * driver layer. Drivers consume this concrete adapter and never choose one
+ * from a frontend, profile, target, or local default.
+ */
+export interface ResolvedHarnessAdapter {
+  harnessId: HarnessId
+  adapter: HarnessAdapter
+}
 
 /**
  * Launch fields shared by both run paths (project-target `RunOptions` and
@@ -12,7 +20,8 @@ import type { HarnessId } from 'spaces-config'
  * single helper instead of two copy-pasted literals.
  */
 export interface BaseRunOptions {
-  harness?: HarnessId | undefined
+  /** Required compiler/catalog result for the foreground execution path. */
+  execution: ResolvedHarnessAdapter
   cwd?: string | undefined
   interactive?: boolean | undefined
   launchSurface?: 'terminal' | 'codex-app' | undefined

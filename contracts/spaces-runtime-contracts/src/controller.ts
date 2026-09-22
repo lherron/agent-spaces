@@ -1,7 +1,6 @@
 import type { InvocationStatusResponse } from 'spaces-harness-broker-protocol'
-import type { CompiledRuntimePlan } from './compiler-plan'
 import type { RuntimeControlError } from './errors'
-import type { RuntimeExecutionProfile } from './execution-profile'
+import type { CompiledExecution, CompiledRuntimePlan } from './harness-selection'
 import type { RunId, RuntimeId } from './ids'
 import type { HrcRuntimeSnapshot, RuntimeInputEnvelope, RuntimeOperation } from './operations'
 import type { BrokerInvocationRecord } from './persistence'
@@ -26,7 +25,7 @@ export interface RuntimeController<TDecision extends RuntimeRouteDecision = Runt
 export type RuntimeControllerStartInput<TDecision extends RuntimeRouteDecision> = {
   decision: TDecision
   compiledPlan: CompiledRuntimePlan
-  selectedProfile: RuntimeExecutionProfile
+  execution: CompiledExecution
   operation: RuntimeOperation
   existingRuntime?: HrcRuntimeSnapshot | undefined
   /**

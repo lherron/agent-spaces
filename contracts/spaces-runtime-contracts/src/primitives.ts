@@ -3,10 +3,6 @@ export type { IsoTimestamp, JsonValue } from 'spaces-harness-broker-protocol'
 export type JsonObject = Record<string, unknown>
 
 export type SchemaVersion =
-  | 'agent-runtime-compile-request/v1'
-  | 'agent-runtime-compile-response/v1'
-  | 'agent-runtime-plan/v1'
-  | 'agent-runtime-profile/v1'
   | 'hrc-route-decision/v1'
   | 'runtime-operation/v1'
   | 'runtime-state/v1'
@@ -41,10 +37,8 @@ export type RuntimeControllerKind =
   | 'command-process'
   | 'legacy-exec'
 
-// Invariant: the execution-profile kind intentionally mirrors the controller
-// kind — the two are kept identical by design. Kept as a distinct alias so the
-// profile kind can diverge later if profile-level distinctions ever emerge.
-export type RuntimeExecutionProfileKind = RuntimeControllerKind
+/** Terminal hosts that can be owned and addressed by the runtime controller. */
+export type ControllerOwnedTerminalHost = 'tmux' | 'ghostty'
 export type LegacyTransportAlias = 'tmux' | 'headless' | 'sdk'
 
 export const RUNTIME_STATE_STATUS_VALUES = [

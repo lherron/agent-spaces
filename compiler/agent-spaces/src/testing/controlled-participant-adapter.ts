@@ -1,15 +1,15 @@
 import {
-  type BrokerExecutionProfile,
   type ParticipantAdapter,
   type ParticipantAdapterAdmissionRequest,
   type ParticipantAdapterPreparationRequest,
+  type ParticipantBrokerDescriptor,
   type PriorRecovery,
   type WriterEvidence,
   type WriterLiveness,
   type WriterPathState,
   type WriterRef,
   createCanonicalHasher,
-  neutralBrokerExecutionProfileHash,
+  neutralParticipantBrokerDescriptorHash,
   neutralSpecHash,
   neutralStartRequestHash,
 } from 'spaces-runtime-contracts'
@@ -80,7 +80,7 @@ function controlledWriterEvidence(
   }
 }
 
-function stableId(prefix: 'profile' | 'compatibility', value: unknown): string {
+function stableId(prefix: 'descriptor' | 'compatibility', value: unknown): string {
   return `${prefix}_${createCanonicalHasher().hash(value, { timestampMode: 'omit-ephemeral' }).value.slice(0, 32)}`
 }
 
@@ -112,11 +112,11 @@ function controlledContinuityEvidence(
   return undefined
 }
 
-function buildProfile(
+function buildDescriptor(
   adapterId: string,
   request: ParticipantAdapterPreparationRequest,
   driver: ControlledParticipantAdapterDriver
-): BrokerExecutionProfile {
+): ParticipantBrokerDescriptor {
   const isNoop = driver === 'noop-driver'
   const startRequest = {
     spec: {
@@ -149,7 +149,7 @@ function buildProfile(
       },
     },
   }
-  const profileId = stableId('profile', {
+  const descriptorId = stableId('descriptor', {
     adapterId,
     join: request.join,
     startRequest: startRequest.spec,
@@ -159,12 +159,11 @@ function buildProfile(
     join: request.join,
     classId: request.classId,
   })
-  const profile: BrokerExecutionProfile = {
-    schemaVersion: 'agent-runtime-profile/v1',
-    profileId: profileId as BrokerExecutionProfile['profileId'],
-    profileHash: '',
+  const descriptor: ParticipantBrokerDescriptor = {
+    schemaVersion: 'participant-broker-descriptor/v1',
+    descriptorId: descriptorId as ParticipantBrokerDescriptor['descriptorId'],
+    descriptorHash: '',
     compatibilityHash,
-    kind: 'harness-broker',
     interactionMode: 'headless',
     expectedCapabilities: {
       input: {
@@ -230,13 +229,13 @@ function buildProfile(
       },
     },
   }
-  const profileHash = neutralBrokerExecutionProfileHash(profile)
-  const startRequestHash = profile.harnessInvocation.startRequestHash
+  const descriptorHash = neutralParticipantBrokerDescriptorHash(descriptor)
+  const startRequestHash = descriptor.harnessInvocation.startRequestHash
   return {
-    ...profile,
-    profileHash,
+    ...descriptor,
+    descriptorHash,
     harnessInvocation: {
-      ...profile.harnessInvocation,
+      ...descriptor.harnessInvocation,
       startRequest: {
         ...startRequest,
         spec: {
@@ -244,7 +243,7 @@ function buildProfile(
           correlation: {
             ...startRequest.spec.correlation,
             startRequestHash,
-            selectedProfileHash: profileHash,
+            selectedProfileHash: descriptorHash,
           },
         },
       },
@@ -276,16 +275,16 @@ export function createControlledParticipantAdapter(
       }
     },
     prepare(input) {
-      const profile = buildProfile(adapterId, input, driver)
+      const descriptor = buildDescriptor(adapterId, input, driver)
       if (options.dispatchEnv === undefined) {
         return {
           status: 'prepared',
-          profile,
+          descriptor,
         }
       }
       return {
         status: 'prepared',
-        profile,
+        descriptor,
         dispatchEnv: options.dispatchEnv,
       }
     },

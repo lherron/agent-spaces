@@ -74,6 +74,7 @@ export { createAgentSpacesClient } from './client.js'
 export {
   HARNESS_CATALOG,
   HARNESS_IDS,
+  DEFAULT_HARNESS_ID,
   assertCatalogBuilderCoherence,
   BUILDER_REGISTRY_IDS,
   catalogCapabilities,
@@ -104,8 +105,8 @@ export {
 } from './codex-desktop-participant-adapter.js'
 export type {
   CodexDesktopObserverIdentity,
-  CodexDesktopObserverProfileFailure,
-  CodexDesktopObserverProfileRequest,
+  CodexDesktopObserverDescriptorFailure,
+  CodexDesktopObserverDescriptorRequest,
 } from './desktop-observer-preparation.js'
 
 export {

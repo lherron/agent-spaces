@@ -104,7 +104,7 @@ describe('describe', () => {
       aspHome,
       spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
       registryPath: SAMPLE_REGISTRY_DIR,
-      frontend: 'agent-sdk',
+      harness: 'claude',
     })
 
     // Structure validation
@@ -113,41 +113,26 @@ describe('describe', () => {
     expect(Array.isArray(response.tools)).toBe(true)
   })
 
-  test('returns agentSdkSessionParams for agent-sdk frontend', async () => {
+  test('materializes a retained Claude description without SDK session parameters', async () => {
     const response = await client.describe({
       aspHome,
       spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
       registryPath: SAMPLE_REGISTRY_DIR,
-      frontend: 'agent-sdk',
-      hostSessionId: 'test-cp-session',
-      cwd: '/tmp',
+      harness: 'claude',
     })
 
-    // agent-sdk frontend should produce session params
-    expect(response.agentSdkSessionParams).toBeDefined()
-    expect(Array.isArray(response.agentSdkSessionParams)).toBe(true)
-
-    // Verify key param names
-    const paramNames = response.agentSdkSessionParams?.map((p) => p.paramName) ?? []
-    expect(paramNames).toContain('kind')
-    expect(paramNames).toContain('model')
-    expect(paramNames).toContain('plugins')
-    expect(paramNames).toContain('permissionHandler')
-
-    // Verify kind is agent-sdk
-    const kindParam = response.agentSdkSessionParams?.find((p) => p.paramName === 'kind')
-    expect(kindParam?.paramValue).toBe('agent-sdk')
+    expect('agentSdkSessionParams' in response).toBe(false)
   })
 
-  test('does not return agentSdkSessionParams for claude-code frontend', async () => {
-    const response = await client.describe({
-      aspHome,
-      spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
-      registryPath: SAMPLE_REGISTRY_DIR,
-      frontend: 'claude-code',
-    })
-
-    expect(response.agentSdkSessionParams).toBeUndefined()
+  test('rejects the retired frontend selector at runtime', async () => {
+    await expect(
+      client.describe({
+        aspHome,
+        spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
+        registryPath: SAMPLE_REGISTRY_DIR,
+        frontend: 'agent-sdk',
+      } as never)
+    ).rejects.toMatchObject({ code: 'unsupported_frontend' })
   })
 
   test('returns lintWarnings when runLint is true', async () => {
@@ -155,6 +140,7 @@ describe('describe', () => {
       aspHome,
       spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
       registryPath: SAMPLE_REGISTRY_DIR,
+      harness: 'claude',
       runLint: true,
     })
 
@@ -168,6 +154,7 @@ describe('describe', () => {
       aspHome,
       spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
       registryPath: SAMPLE_REGISTRY_DIR,
+      harness: 'claude',
     })
 
     expect(response.lintWarnings).toBeUndefined()

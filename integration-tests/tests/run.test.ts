@@ -13,7 +13,12 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { promisify } from 'node:util'
 
-import { install, run, runWithPrompt } from 'spaces-execution'
+import {
+  harnessRegistry,
+  install,
+  run as runExecution,
+  runWithPrompt as runWithPromptExecution,
+} from 'spaces-execution'
 
 import {
   SAMPLE_REGISTRY_DIR,
@@ -29,6 +34,28 @@ import {
 
 const execFileAsync = promisify(execFile)
 const CLI_PATH = path.join(import.meta.dir, '..', '..', 'apps', 'cli', 'bin', 'asp.js')
+const CLAUDE_EXECUTION = {
+  harnessId: 'claude' as const,
+  adapter: harnessRegistry.getOrThrow('claude'),
+}
+
+function run(
+  targetName: string,
+  options: Omit<Parameters<typeof runExecution>[1], 'execution'>
+): ReturnType<typeof runExecution> {
+  return runExecution(targetName, { ...options, execution: CLAUDE_EXECUTION })
+}
+
+function runWithPrompt(
+  targetName: string,
+  prompt: string,
+  options: Omit<Parameters<typeof runWithPromptExecution>[2], 'execution'>
+): ReturnType<typeof runWithPromptExecution> {
+  return runWithPromptExecution(targetName, prompt, {
+    ...options,
+    execution: CLAUDE_EXECUTION,
+  })
+}
 
 describe('asp run', () => {
   let aspHome: string
@@ -392,6 +419,9 @@ priming = "You are {{agentId}} in {{projectId}} working on {{taskId}}."
 version = 4
 
 priming = "You are {{agentId}} in {{projectId}} working on {{taskId}}."
+
+[provisioning]
+harness = "claude"
 `
     )
 

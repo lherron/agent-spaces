@@ -150,7 +150,7 @@ describe('desktop-join scope loop', () => {
         adapter: {
           adapterId: 'test/1',
           admit: () => ({ status: 'rejected' as const, reason: 'unused' }),
-          prepare: () => ({ status: 'prepared' as const, profile: { kind: 'p' } as never }),
+          prepare: () => ({ status: 'prepared' as const, descriptor: { kind: 'p' } as never }),
         },
       })
       expect(seen).toEqual([
@@ -193,7 +193,7 @@ describe('desktop-join scope loop', () => {
         adapter: {
           adapterId: 'test/1',
           admit: () => ({ status: 'rejected' as const, reason: 'unused' }),
-          prepare: () => ({ status: 'prepared' as const, profile: {} as never }),
+          prepare: () => ({ status: 'prepared' as const, descriptor: {} as never }),
         },
       })
       expect(outcome.exit).toBe('redirect')
@@ -221,7 +221,7 @@ describe('desktop-join scope loop', () => {
           admit: () => ({ status: 'rejected' as const, reason: 'unused' }),
           prepare: () => {
             prepared = true
-            return { status: 'prepared' as const, profile: {} as never }
+            return { status: 'prepared' as const, descriptor: {} as never }
           },
         },
       })
@@ -296,7 +296,7 @@ describe('desktop-join scope loop', () => {
         adapter: {
           adapterId: 'test/1',
           admit: () => ({ status: 'rejected' as const, reason: 'unused' }),
-          prepare: () => ({ status: 'prepared' as const, profile: { kind: 'p' } as never }),
+          prepare: () => ({ status: 'prepared' as const, descriptor: { kind: 'p' } as never }),
         },
       })
       expect(seen).toEqual(['agent:stella:project:demo:task:primary-nova', HELD])
@@ -368,7 +368,7 @@ describe('desktop-join write-ahead resume', () => {
         adapter: {
           adapterId: 'test/1',
           admit: () => ({ status: 'rejected' as const, reason: 'unused' }),
-          prepare: () => ({ status: 'prepared' as const, profile: { kind: 'p' } as never }),
+          prepare: () => ({ status: 'prepared' as const, descriptor: { kind: 'p' } as never }),
         },
       })
       expect(seen).toEqual([HELD])

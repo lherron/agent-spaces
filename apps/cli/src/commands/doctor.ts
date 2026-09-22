@@ -10,8 +10,14 @@ import { constants, access } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Command } from 'commander'
 
-import { ensureAspHome, gitExec, listRemotes } from 'spaces-config'
-import { type ModelAuditRow, auditProjectModels, detectClaude } from 'spaces-execution'
+import { HARNESS_CATALOG, resolveHarnessExecution } from 'agent-spaces'
+import { ensureAspHome, gitExec, listRemotes, toSelectionLayers } from 'spaces-config'
+import {
+  type ModelAuditRow,
+  auditProjectModels,
+  detectClaude,
+  harnessRegistry,
+} from 'spaces-execution'
 
 import { SHARED_AGENT_ROOT_FILES, buildAgentRootReport } from '../agent-roots.js'
 import { errorMessage, formatCheckResults, outputDoctorSummary, resolvePaths } from '../helpers.js'
@@ -278,7 +284,27 @@ async function checkModelAudit(
   }
 
   try {
-    const rows = await auditProjectModels({ projectPath, aspHome })
+    const rows = await auditProjectModels({
+      projectPath,
+      aspHome,
+      resolveExecution: ({ agentId, target, agentProfile }) => {
+        const resolution = resolveHarnessExecution({
+          agent: { id: agentId },
+          provisioningLayers: toSelectionLayers(
+            agentProfile?.profile.provisioning,
+            target?.provisioning
+          ),
+        })
+        if (!resolution.ok) throw new Error(resolution.message)
+        const implementation = HARNESS_CATALOG[resolution.selection.harness].processImplementation
+        if (implementation === undefined) return undefined
+        return {
+          harnessId: resolution.selection.harness,
+          adapter: harnessRegistry.getOrThrow(resolution.selection.harness),
+          frontend: implementation.frontend,
+        }
+      },
+    })
     if (rows.length === 0) {
       return [
         {

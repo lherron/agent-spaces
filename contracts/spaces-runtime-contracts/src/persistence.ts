@@ -26,7 +26,7 @@ import type { IsoTimestamp } from './primitives'
 export type CompiledRuntimePlanRecord = {
   planHash: PlanHash
   compileId: CompileId
-  schemaVersion: 'agent-runtime-plan/v1'
+  schemaVersion: 'agent-runtime-plan/v2'
   compilerName: 'agent-spaces'
   compilerVersion: string
   planProjectionJson: string

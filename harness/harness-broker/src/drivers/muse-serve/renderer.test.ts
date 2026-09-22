@@ -99,9 +99,9 @@ describe('buildMuseRendererLaunchCommand', () => {
       controlSocketPath: '/tmp/ctl.sock',
       launcher: { command: '/release/libexec/harness-broker', args: ['renderer'] },
     })
-    expect(command.startsWith('exec /release/libexec/harness-broker renderer --driver muse-serve')).toBe(
-      true
-    )
+    expect(
+      command.startsWith('exec /release/libexec/harness-broker renderer --driver muse-serve')
+    ).toBe(true)
     expect(command).toContain('--driver muse-serve')
     expect(command).not.toContain('renderer-entry')
   })
@@ -109,12 +109,17 @@ describe('buildMuseRendererLaunchCommand', () => {
 
 describe('resolveMuseRendererLauncher', () => {
   test('existing sibling entry keeps bun behavior', () => {
-    expect(resolveMuseRendererLauncher(resolveMuseRendererEntryPath(), '/release/bin')).toBeUndefined()
+    expect(
+      resolveMuseRendererLauncher(resolveMuseRendererEntryPath(), '/release/bin')
+    ).toBeUndefined()
   })
 
   test('missing sibling entry falls back to the broker binary itself', () => {
     expect(
-      resolveMuseRendererLauncher('/$bunfs/root/renderer-entry.js', '/release/libexec/harness-broker')
+      resolveMuseRendererLauncher(
+        '/$bunfs/root/renderer-entry.js',
+        '/release/libexec/harness-broker'
+      )
     ).toEqual({ command: '/release/libexec/harness-broker', args: ['renderer'] })
   })
 })

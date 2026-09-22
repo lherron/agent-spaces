@@ -31,9 +31,7 @@ import {
   readLockJson,
   sweepAspTempArtifacts,
 } from 'spaces-config'
-// Internal legacy seam (EN-15986): the v1 foreground run path addresses
-// adapters by their pre-cutover ids. T-08702 deletes it with the v1 flow.
-import type { HarnessId } from 'spaces-config'
+import type { HarnessId } from 'spaces-runtime-contracts'
 
 import { migrateLegacyProjectCodexRuntimeHome } from './run-codex.js'
 export {
@@ -69,6 +67,7 @@ import { runGlobalSpace, runLocalSpace } from './run/space-launch.js'
 import type {
   GlobalRunOptions,
   LaunchShape,
+  ResolvedHarnessAdapter,
   RunInvocationResult,
   RunOptions,
   RunResult,
@@ -223,6 +222,7 @@ export {
   type PlacementRuntimeModelResolution,
   type PlacementRuntimePlan,
   type PlanPlacementRuntimeOptions,
+  type ResolvedHarnessAdapter,
   type RunInvocationResult,
   type RunOptions,
   type RunResult,
@@ -251,7 +251,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   const runtimePlan = planProjectTargetRuntime(manifest, targetName, {
     aspHome,
     projectPath: options.projectPath,
-    harness: options.harness,
+    execution: options.execution,
   })
   debugLog('plan ok')
   const {

@@ -336,7 +336,10 @@ function buildExecArgs(bundle: ComposedTargetBundle, options: HarnessRunOptions)
 
 function buildResumeArgs(options: HarnessRunOptions): string[] {
   const key = options.continuationKey
-  const args = ['resume', key === true ? '--last' : String(key)]
+  // TUI invocations operate in the target project, which is freshly
+  // materialized for a broker launch. Trust it for this run so the initial
+  // compiled prompt is not blocked behind Muse's interactive trust picker.
+  const args = ['resume', '--trust-workspace', key === true ? '--last' : String(key)]
   if (options.extraArgs) {
     args.push(...options.extraArgs)
   }
@@ -349,7 +352,9 @@ function buildResumeArgs(options: HarnessRunOptions): string[] {
 }
 
 function buildInteractiveArgs(options: HarnessRunOptions): string[] {
-  const args: string[] = []
+  // Match the exec and serve routes: the compiler owns this immutable launch
+  // argv, so a runner cannot safely supply trust after dispatch.
+  const args: string[] = ['--trust-workspace']
   if (options.yolo) {
     args.push('--yolo')
   }

@@ -15,9 +15,6 @@ import {
   parseAgentProfile,
   resolveAgentPrimingPrompt,
 } from 'spaces-config'
-// Internal legacy seam (EN-15986): the v1 run path resolves adapter ids with
-// the pre-cutover catalog. T-08702 deletes it with the v1 flow.
-import { type HarnessId, isHarnessId } from 'spaces-config'
 
 async function isDirectory(path: string): Promise<boolean> {
   try {
@@ -37,7 +34,6 @@ export interface AgentRunDefaults {
   yolo?: boolean
   remoteControl?: boolean
   model?: string
-  harness?: string
   claude?: ClaudeOptions
   codex?: CodexOptions
   compose?: SpaceRefString[]
@@ -117,14 +113,6 @@ export function loadAgentProfileForRun(
   }
 }
 
-export function resolveProfileHarnessForRun(harness: string | undefined): HarnessId | undefined {
-  if (harness === undefined) return undefined
-  if (isHarnessId(harness)) return harness
-  throw new Error(
-    `Invalid harness "${harness}". Must be one of: agent-harness, claude, codex, muse`
-  )
-}
-
 export function resolveAgentPrimingPromptForRun(
   target:
     | {
@@ -169,7 +157,6 @@ export function resolveAgentRunDefaultsFromProfile(
   return {
     yolo: effective.yolo,
     remoteControl: effective.remoteControl,
-    ...(effective.harness !== undefined ? { harness: effective.harness } : {}),
     claude: effective.claude,
     codex: effective.codex,
     compose: effective.compose,

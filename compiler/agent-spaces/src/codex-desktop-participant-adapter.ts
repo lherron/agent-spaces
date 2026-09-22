@@ -1,5 +1,4 @@
 import type {
-  BrokerExecutionProfile,
   ParticipantAdapter,
   ParticipantAdapterAdmissionRequest,
   ParticipantAdapterPreparationRequest,
@@ -11,8 +10,8 @@ import {
   resolveDesktopIdentity,
 } from './desktop-native-identity.js'
 import {
-  type CodexDesktopObserverProfileFailure,
-  buildCodexDesktopObserverProfile,
+  type CodexDesktopObserverDescriptorFailure,
+  buildCodexDesktopObserverDescriptor,
 } from './desktop-observer-preparation.js'
 
 export const CODEX_DESKTOP_PARTICIPANT_ADAPTER_ID = 'codex-desktop-participant-adapter/v1'
@@ -139,7 +138,7 @@ function parsePreparation(value: unknown): CodexDesktopParticipantPreparation | 
   return value as CodexDesktopParticipantPreparation
 }
 
-const REJECTED_CODES: ReadonlySet<CodexDesktopObserverProfileFailure['code']> = new Set([
+const REJECTED_CODES: ReadonlySet<CodexDesktopObserverDescriptorFailure['code']> = new Set([
   'native_thread_mismatch',
   'rollout_home_mismatch',
   'rollout_archived',
@@ -228,7 +227,7 @@ export function createCodexDesktopParticipantAdapter(options?: {
     async prepare(request: ParticipantAdapterPreparationRequest) {
       const preparation = parsePreparation(request.preparation)
       if (preparation === undefined) return pending('codex_desktop_preparation_invalid')
-      const built = buildCodexDesktopObserverProfile({
+      const built = buildCodexDesktopObserverDescriptor({
         registration: {
           registrationKey: preparation.registrationKey,
           homeIdentity: preparation.homeIdentity,
@@ -266,8 +265,7 @@ export function createCodexDesktopParticipantAdapter(options?: {
         }
         return pending(`codex_desktop_${built.code}`)
       }
-      const profile: BrokerExecutionProfile = built.profile
-      return { status: 'prepared' as const, profile }
+      return { status: 'prepared' as const, descriptor: built.descriptor }
     },
   }
 }

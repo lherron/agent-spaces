@@ -170,6 +170,7 @@ describe('asp lint integration', () => {
       projectPath: projectDir,
       registryPath: SAMPLE_REGISTRY_DIR,
       aspHome,
+      harness: 'claude',
     })
 
     const result = await build('test', {
@@ -177,6 +178,7 @@ describe('asp lint integration', () => {
       registryPath: SAMPLE_REGISTRY_DIR,
       aspHome,
       outputDir,
+      harness: 'claude',
     })
 
     // Check for W203 warning

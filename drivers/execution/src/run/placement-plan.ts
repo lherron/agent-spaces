@@ -9,17 +9,13 @@ import type {
   SpaceRefString,
   TargetDefinition,
 } from 'spaces-config'
-// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
-// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
-import { DEFAULT_HARNESS, type HarnessId, isHarnessId } from 'spaces-config'
 import type {
   PlacementRuntimeModelResolution as ContractPlacementRuntimeModelResolution,
   PlacementRuntimePlan as ContractPlacementRuntimePlan,
   HarnessFrontend,
+  HarnessId,
   ProviderDomain as HarnessProvider,
 } from 'spaces-runtime-contracts'
-
-import { harnessRegistry } from '../harness/index.js'
 
 import {
   type LoadedAgentProfile,
@@ -27,9 +23,9 @@ import {
   resolveAgentPrimingPromptForRun,
   type resolveAgentRunDefaults,
   resolveAgentRunDefaultsFromProfile,
-  resolveProfileHarnessForRun,
 } from './agent-profile.js'
 import { resolveSpaceCodexConfigModel } from './space-codex-model.js'
+import type { ResolvedHarnessAdapter } from './types.js'
 
 export type PlacementRuntimeModelResolution = ContractPlacementRuntimeModelResolution
 type PlacementRuntimeModelInfo = Extract<PlacementRuntimeModelResolution, { ok: true }>['info']
@@ -44,7 +40,11 @@ export type PlacementRuntimePlan = ContractPlacementRuntimePlan<
 export interface PlanPlacementRuntimeOptions {
   placement: RuntimePlacement
   placementContext: ResolvedPlacementContext
-  frontend: HarnessFrontend
+  /** Identity supplied by the compiler/catalog boundary. */
+  execution: ResolvedHarnessAdapter & {
+    frontend: HarnessFrontend
+    provider: HarnessProvider
+  }
   aspHome: string
   model?: string | undefined
   prompt?: string | undefined
@@ -64,10 +64,10 @@ export interface ProjectTargetRuntimePlan {
   defaultRunOptions: Partial<HarnessRunOptions>
 }
 
-export function assertHarnessAvailableForRun(harnessId: HarnessId): void {
-  if (!isHarnessId(harnessId)) {
+function assertResolvedAdapter(execution: ResolvedHarnessAdapter): void {
+  if (execution.adapter.id !== execution.harnessId) {
     throw new Error(
-      `Invalid harness "${String(harnessId)}". Must be one of: agent-harness, claude, codex, muse`
+      `Resolved adapter identity mismatch: harness ${execution.harnessId} received adapter ${execution.adapter.id}`
     )
   }
 }
@@ -173,7 +173,8 @@ export function planProjectTargetRuntime(
   options: {
     aspHome: string
     projectPath: string
-    harness?: HarnessId | undefined
+    /** Already selected by the compiler/catalog; drivers do not re-resolve it. */
+    execution: ResolvedHarnessAdapter
   }
 ): ProjectTargetRuntimePlan {
   const target = manifest.targets[targetName]
@@ -184,13 +185,8 @@ export function planProjectTargetRuntime(
   const agentDefaults = agentProfile
     ? resolveAgentRunDefaultsFromProfile(target, agentProfile)
     : undefined
-  const harnessId =
-    resolveProfileHarnessForRun(options.harness) ??
-    resolveProfileHarnessForRun(agentDefaults?.harness) ??
-    resolveProfileHarnessForRun(target?.provisioning?.harness) ??
-    DEFAULT_HARNESS
-  assertHarnessAvailableForRun(harnessId)
-  const adapter = harnessRegistry.getOrThrow(harnessId)
+  assertResolvedAdapter(options.execution)
+  const { harnessId, adapter } = options.execution
   const primingPrompt = resolveAgentPrimingPromptForRun(target, agentProfile)
   const effectiveManifest =
     agentDefaults !== undefined
@@ -213,20 +209,9 @@ export function planProjectTargetRuntime(
 export async function planPlacementRuntime(
   options: PlanPlacementRuntimeOptions
 ): Promise<PlacementRuntimePlan> {
-  const { placement, placementContext, frontend, aspHome } = options
-  const harnessId =
-    frontend === 'claude-code'
-      ? 'claude'
-      : frontend === 'codex-cli'
-        ? 'codex'
-        : frontend === 'muse-cli'
-          ? 'muse'
-          : undefined
-  if (harnessId === undefined) {
-    throw new Error(`Unknown harness frontend "${frontend}"`)
-  }
-
-  const adapter = harnessRegistry.getOrThrow(harnessId)
+  const { placement, placementContext, aspHome, execution } = options
+  const { harnessId, adapter, frontend, provider } = execution
+  assertResolvedAdapter(execution)
   const defaultRunOptions = !placementContext.materialization.manifest
     ? {}
     : placement.bundle.kind === 'agent-project'
@@ -300,7 +285,7 @@ export async function planPlacementRuntime(
   return {
     frontend,
     harnessId,
-    provider: harnessId === 'claude' ? 'anthropic' : harnessId === 'muse' ? 'meta' : 'openai',
+    provider,
     cwd,
     defaultRunOptions,
     ...(prompt !== undefined ? { prompt } : {}),

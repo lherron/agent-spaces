@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test'
 import type {
-  BrokerExecutionProfile,
   ParticipantAdapter,
   ParticipantAdapterAdmissionRequest,
   ParticipantAdapterAdmissionResult,
@@ -9,6 +8,7 @@ import type {
   ParticipantAdapterPreparationResult,
   ParticipantAdapterValidationIssue,
   ParticipantAdapterValidationResult,
+  ParticipantBrokerDescriptor,
   PriorRecovery,
   WriterEvidence,
   WriterInspectionRequest,
@@ -19,11 +19,12 @@ import type {
   WriterSubject,
 } from '../src/index'
 import {
-  neutralBrokerExecutionProfileHash,
+  neutralParticipantBrokerDescriptorHash,
   neutralSpecHash,
   neutralStartRequestHash,
   validateParticipantAdapterAdmission,
   validateParticipantAdapterPreparation,
+  validateParticipantBrokerDescriptor,
   validateWriterEvidence,
 } from '../src/index'
 
@@ -48,7 +49,7 @@ function request(): ParticipantAdapterPreparationRequest {
   }
 }
 
-function profile(input: ParticipantAdapterPreparationRequest): BrokerExecutionProfile {
+function descriptor(input: ParticipantAdapterPreparationRequest): ParticipantBrokerDescriptor {
   const startRequest = {
     spec: {
       specVersion: 'harness-broker.invocation/v1' as const,
@@ -80,11 +81,10 @@ function profile(input: ParticipantAdapterPreparationRequest): BrokerExecutionPr
     },
   }
   const value = {
-    schemaVersion: 'agent-runtime-profile/v1',
-    profileId: 'profile:participant' as never,
-    profileHash: '',
+    schemaVersion: 'participant-broker-descriptor/v1',
+    descriptorId: 'participantBrokerDescriptor:participant' as never,
+    descriptorHash: '',
     compatibilityHash: 'compatibility:participant',
-    kind: 'harness-broker' as const,
     interactionMode: 'headless' as const,
     expectedCapabilities: {},
     brokerProtocol: 'harness-broker/0.2' as const,
@@ -115,11 +115,11 @@ function profile(input: ParticipantAdapterPreparationRequest): BrokerExecutionPr
         invocationId: input.identity.invocationId,
       },
     },
-  } as BrokerExecutionProfile
-  const profileHash = neutralBrokerExecutionProfileHash(value)
+  } as ParticipantBrokerDescriptor
+  const descriptorHash = neutralParticipantBrokerDescriptorHash(value)
   return {
     ...value,
-    profileHash,
+    descriptorHash,
     harnessInvocation: {
       ...value.harnessInvocation,
       startRequest: {
@@ -129,7 +129,7 @@ function profile(input: ParticipantAdapterPreparationRequest): BrokerExecutionPr
           correlation: {
             ...startRequest.spec.correlation,
             startRequestHash: value.harnessInvocation.startRequestHash,
-            selectedProfileHash: profileHash,
+            selectedProfileHash: descriptorHash,
           },
         },
       },
@@ -296,24 +296,34 @@ describe('participant adapter contract', () => {
     const input = request()
     const result = validateParticipantAdapterPreparation(input, {
       status: 'prepared',
-      profile: profile(input),
+      descriptor: descriptor(input),
       dispatchEnv: { CONTROLLED_PARTICIPANT: '1' },
     })
     expect(result.ok).toBe(true)
   })
 
-  test('refuses HRC-owned overlays and profile/hash drift', () => {
+  test('keeps compatibilityHash outside neutral descriptor hash material', () => {
+    const prepared = descriptor(request())
+    expect(
+      neutralParticipantBrokerDescriptorHash({
+        ...prepared,
+        compatibilityHash: 'compatibility:changed',
+      })
+    ).toBe(neutralParticipantBrokerDescriptorHash(prepared))
+  })
+
+  test('refuses HRC-owned overlays and descriptor/hash drift', () => {
     const input = request()
-    const prepared = profile(input)
+    const prepared = descriptor(input)
     const rejected = validateParticipantAdapterPreparation(input, {
       status: 'prepared',
-      profile: { ...prepared, profileHash: 'tampered' },
+      descriptor: { ...prepared, descriptorHash: 'tampered' },
       runtime: { terminalSurface: {} },
       lifecyclePolicy: { policyId: 'adapter-must-not-own-this' },
     })
     expect(rejected).toMatchObject({ ok: false })
     if (rejected.ok) return
-    expect(rejected.issues.map((issue) => issue.path)).toContain('profile.profileHash')
+    expect(rejected.issues.map((issue) => issue.path)).toContain('descriptor.descriptorHash')
     expect(rejected.issues.map((issue) => issue.message).join(' ')).toMatch(
       /runtime.*lifecyclePolicy/i
     )
@@ -323,19 +333,19 @@ describe('participant adapter contract', () => {
     const input = request()
     const rejected = validateParticipantAdapterPreparation(input, {
       status: 'prepared',
-      profile: { ...profile(input), brokerOwnership: 'hrc-owned-process' },
+      descriptor: { ...descriptor(input), brokerOwnership: 'hrc-owned-process' },
     })
     expect(rejected).toMatchObject({ ok: false })
     if (rejected.ok) return
-    expect(rejected.issues.map((issue) => issue.path)).toContain('profile.brokerOwnership')
+    expect(rejected.issues.map((issue) => issue.path)).toContain('descriptor.brokerOwnership')
   })
 
   test('refuses prepared output whose correlation cannot satisfy installed identity', () => {
     const input = request()
-    const prepared = profile(input)
+    const prepared = descriptor(input)
     const rejected = validateParticipantAdapterPreparation(input, {
       status: 'prepared',
-      profile: {
+      descriptor: {
         ...prepared,
         harnessInvocation: {
           ...prepared.harnessInvocation,
@@ -355,7 +365,43 @@ describe('participant adapter contract', () => {
     expect(rejected).toMatchObject({ ok: false })
     if (rejected.ok) return
     expect(rejected.issues.map((issue) => issue.path)).toContain(
-      'profile.harnessInvocation.startRequest.spec.correlation.startRequestHash'
+      'descriptor.harnessInvocation.startRequest.spec.correlation.startRequestHash'
+    )
+  })
+
+  test('accepts the participant descriptor schema and refuses the retired profile schema first', () => {
+    const input = request()
+    const accepted = descriptor(input)
+    expect(validateParticipantBrokerDescriptor(accepted)).toMatchObject({ ok: true })
+
+    const rejected = validateParticipantAdapterPreparation(input, {
+      status: 'prepared',
+      descriptor: {
+        ...accepted,
+        schemaVersion: 'agent-runtime-profile/v1',
+      },
+    })
+    expect(rejected).toMatchObject({ ok: false })
+    if (rejected.ok) return
+    expect(rejected.issues.map((issue) => issue.path)).toContain('descriptor.schemaVersion')
+
+    const invalidStartRequest = validateParticipantBrokerDescriptor({
+      ...accepted,
+      harnessInvocation: {
+        ...accepted.harnessInvocation,
+        startRequest: {
+          ...accepted.harnessInvocation.startRequest,
+          spec: {
+            ...accepted.harnessInvocation.startRequest.spec,
+            specVersion: 'retired-invocation-schema',
+          },
+        },
+      },
+    })
+    expect(invalidStartRequest).toMatchObject({ ok: false })
+    if (invalidStartRequest.ok) return
+    expect(invalidStartRequest.issues.map((issue) => issue.path)).toContain(
+      'harnessInvocation.startRequest'
     )
   })
 })

@@ -8,7 +8,8 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { type RunResult, run } from 'spaces-execution'
+import { resolveHarnessExecution } from 'agent-spaces'
+import { type RunResult, harnessRegistry, run } from 'spaces-execution'
 
 import { exitWithAspError } from '../helpers.js'
 import { findProjectRoot } from '../lib.js'
@@ -34,6 +35,11 @@ interface GuiOptions {
 async function runGui(agentId: string, options: GuiOptions): Promise<RunResult> {
   const projectPath = options.project ?? (await findProjectRoot()) ?? process.cwd()
   const target = resolveRunTarget(agentId)
+  const resolution = resolveHarnessExecution({
+    agent: { id: target.targetName },
+    requested: { harness: 'codex', presentation: true },
+  })
+  if (!resolution.ok) throw new Error(resolution.message)
 
   if (options.dryRun && !options.printCommand) {
     console.log(chalk.yellow('Dry run - building and showing Codex.app launch command...'))
@@ -47,7 +53,10 @@ async function runGui(agentId: string, options: GuiOptions): Promise<RunResult> 
     registryPath: options.registry,
     refresh: options.refresh,
     dryRun: options.dryRun,
-    harness: 'codex',
+    execution: {
+      harnessId: resolution.selection.harness,
+      adapter: harnessRegistry.getOrThrow(resolution.selection.harness),
+    },
     interactive: true,
     launchSurface: 'codex-app',
     projectPath,

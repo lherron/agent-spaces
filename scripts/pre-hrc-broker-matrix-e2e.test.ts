@@ -5,6 +5,7 @@ import {
   BROKER_MANAGED_MATRIX_ROWS,
   MATRIX_ROW_NAMES,
   SPARKY_CODEX_MATRIX_ROWS,
+  buildMatrixDispatchOptions,
   matrixRowSelection,
   verifyBrokerEventFloor,
 } from './pre-hrc-broker-matrix-e2e.ts'
@@ -50,6 +51,49 @@ function completeMarkerStream(): InvocationEventEnvelope[] {
 }
 
 describe('pre-HRC broker matrix v2 catalog', () => {
+  test('requires a harness-owned pane lease when the compiled recipe requires a terminal', () => {
+    const execution = {
+      hosting: { terminalRequired: true },
+      dispatchRequest: { startRequest: {} },
+    } as Parameters<typeof buildMatrixDispatchOptions>[0]
+
+    expect(() => buildMatrixDispatchOptions(execution)).toThrow(
+      'matrix presentation dispatch requires a runtime.terminalSurface lease'
+    )
+
+    const terminalSurface = {
+      kind: 'tmux-pane' as const,
+      ownership: 'hrc' as const,
+      socketPath: '/tmp/matrix.tmux.sock',
+      sessionId: '$1',
+      windowId: '@1',
+      paneId: '%1',
+      allowedOps: {
+        inspect: true as const,
+        sendInput: true as const,
+        sendInterrupt: true as const,
+      },
+    }
+    expect(buildMatrixDispatchOptions(execution, terminalSurface)).toEqual({
+      dispatchEnv: undefined,
+      runtime: { terminalSurface },
+      lifecyclePolicy: undefined,
+    })
+  })
+
+  test('preserves a headless compiled dispatch without inventing a terminal lease', () => {
+    const execution = {
+      hosting: { terminalRequired: false },
+      dispatchRequest: { startRequest: {} },
+    } as Parameters<typeof buildMatrixDispatchOptions>[0]
+
+    expect(buildMatrixDispatchOptions(execution)).toEqual({
+      dispatchEnv: undefined,
+      runtime: undefined,
+      lifecyclePolicy: undefined,
+    })
+  })
+
   test('keeps only broker-managed catalog routes', () => {
     expect(BROKER_MANAGED_MATRIX_ROWS).toEqual(MATRIX_ROW_NAMES)
     expect(MATRIX_ROW_NAMES).toEqual([

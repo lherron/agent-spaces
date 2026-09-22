@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 
-import { catalogAgentSources, inspectAgentForContext } from 'agent-spaces'
+import { DEFAULT_HARNESS_ID, catalogAgentSources, inspectAgentForContext } from 'agent-spaces'
 import {
   agentCatalogResponseSchema,
   agentInspectionOutcomeSchema,
@@ -16,10 +16,7 @@ import type {
   AspcInspectAgentResponse,
   AspcInspectAgentSelectionRequest,
 } from 'spaces-aspc-protocol'
-import { getAgentsRoot, parseAgentProfile } from 'spaces-config'
-// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
-// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
-import { DEFAULT_HARNESS, isHarnessId } from 'spaces-config'
+import { getAgentsRoot, isHarnessId, parseAgentProfile } from 'spaces-config'
 import type {
   AgentInspectionEvaluationContext,
   AgentInspectionScaffoldPacket,
@@ -266,7 +263,7 @@ function contextOptions(
 ): AspcAgentInspectionContextOption[] {
   const provisioning = asRecord(profile['provisioning'])
   const declaredHarness =
-    typeof provisioning?.['harness'] === 'string' ? provisioning['harness'] : DEFAULT_HARNESS
+    typeof provisioning?.['harness'] === 'string' ? provisioning['harness'] : DEFAULT_HARNESS_ID
   if (!isHarnessId(declaredHarness)) return []
   return [false, true].map((presentation) => ({
     identifiers: {

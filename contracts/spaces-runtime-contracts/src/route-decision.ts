@@ -1,7 +1,7 @@
 import type { CapabilityResolution, HrcCapabilityPolicy } from './capabilities'
-import type { CompiledRuntimePlan } from './compiler-plan'
 import type { AgentchatExposurePolicy } from './exposure'
 import type { AttachmentRef, HrcTaskContext, RuntimePlacement } from './external'
+import type { CompiledRuntimePlan } from './harness-selection'
 import type {
   CompatibilityHash,
   CompileId,
@@ -21,7 +21,6 @@ import type {
   LegacyTransportAlias,
   ProviderDomain,
   RuntimeControllerKind,
-  RuntimeExecutionProfileKind,
 } from './primitives'
 import type { RuntimeResourceLimits } from './resources'
 
@@ -80,7 +79,7 @@ export type RuntimeRouteDecision = {
 
   selectedProfileId: ProfileId
   selectedProfileHash: ProfileHash
-  selectedProfileKind: RuntimeExecutionProfileKind
+  selectedProfileKind: RuntimeControllerKind
   controller: RuntimeControllerKind
 
   admission: { decision: 'admit' } | { decision: 'reject'; reason: string; code: string }

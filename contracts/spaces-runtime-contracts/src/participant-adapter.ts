@@ -1,13 +1,11 @@
 import type { InvocationDispatchRequest, InvocationId } from 'spaces-harness-broker-protocol'
-import type { BrokerExecutionProfile } from './execution-profile'
-import {
-  createCanonicalHasher,
-  hashNeutralStartRequest,
-  neutralSpecHash,
-  neutralStartRequestHash,
-  project,
-} from './hash'
+import { createCanonicalHasher, neutralSpecHash, neutralStartRequestHash } from './hash'
 import type { RuntimeIdentityAllocation } from './ids'
+import {
+  type ParticipantBrokerDescriptor,
+  neutralParticipantBrokerDescriptorHash,
+  validateParticipantBrokerDescriptor,
+} from './participant-broker-descriptor'
 import type { JsonValue } from './primitives'
 
 /** The join direction controls broker-process ownership; it never grants lifecycle authority. */
@@ -50,7 +48,7 @@ export type ParticipantAdapterPreparationResult =
   | { status: 'pending' | 'rejected'; reason: string }
   | {
       status: 'prepared'
-      profile: BrokerExecutionProfile
+      descriptor: ParticipantBrokerDescriptor
       dispatchEnv?: InvocationDispatchRequest['dispatchEnv']
     }
 
@@ -274,30 +272,6 @@ export function validateWriterEvidence(
 }
 
 /**
- * Reproduces the existing compiler's profile projection material. It keeps the
- * neutral start request and generation-only observability correlation used by
- * compiler-produced broker profiles; no new hash semantics are introduced.
- */
-export function neutralBrokerExecutionProfileHash(profile: BrokerExecutionProfile): string {
-  const { profileHash: _profileHash, harnessInvocation, observability, ...material } = profile
-  return (
-    project(
-      {
-        ...material,
-        harnessInvocation: {
-          ...harnessInvocation,
-          startRequest: hashNeutralStartRequest(harnessInvocation.startRequest),
-        },
-        observability: {
-          correlation: { generation: observability.correlation.generation },
-        },
-      },
-      'profile'
-    ) as { profileHash: string }
-  ).profileHash
-}
-
-/**
  * Validates an adapter admission boundary without interpreting its opaque
  * preparation/evidence payloads. HRC can persist a successful value as JSON.
  */
@@ -353,7 +327,7 @@ export function validateParticipantAdapterAdmission(
 /**
  * Driver-agnostic validation for a prepared adapter result. This deliberately
  * does not call the compiler's harness-name selector: it verifies only the
- * transportable profile structure, ownership, HRC identity binding, and the
+ * transportable descriptor structure, ownership, HRC identity binding, and the
  * established neutral hashes.
  */
 export function validateParticipantAdapterPreparation(
@@ -392,49 +366,57 @@ export function validateParticipantAdapterPreparation(
     }
   }
 
-  if (!hasOnlyKeys(value, ['status', 'profile', 'dispatchEnv'])) {
+  if (!hasOnlyKeys(value, ['status', 'descriptor', 'dispatchEnv'])) {
     pushIssue(
       issues,
       '',
-      'Prepared result may contain only status, profile, and dispatchEnv; runtime and lifecyclePolicy are HRC-owned.'
+      'Prepared result may contain only status, descriptor, and dispatchEnv; runtime and lifecyclePolicy are HRC-owned.'
     )
   }
   if (!isStringRecord(value['dispatchEnv']) && value['dispatchEnv'] !== undefined) {
     pushIssue(issues, 'dispatchEnv', 'dispatchEnv must be a record of strings.')
   }
-  if (!isRecord(value['profile'])) {
-    pushIssue(issues, 'profile', 'Prepared result requires a broker execution profile.')
+  const descriptorValidation = validateParticipantBrokerDescriptor(value['descriptor'])
+  if (!descriptorValidation.ok) {
+    for (const issue of descriptorValidation.issues) {
+      pushIssue(
+        issues,
+        issue.path === '' ? 'descriptor' : `descriptor.${issue.path}`,
+        issue.message
+      )
+    }
     return { ok: false, issues }
   }
 
-  const profile = value['profile'] as BrokerExecutionProfile
-  if (profile.kind !== 'harness-broker') {
-    pushIssue(issues, 'profile.kind', 'Prepared profile must be a harness-broker profile.')
-  }
+  const descriptor = descriptorValidation.value
   const requiredOwnership =
     request.join === 'hrc-hosted' ? 'hrc-owned-process' : 'participant-owned-process'
-  if (profile.brokerOwnership !== requiredOwnership) {
+  if (descriptor.brokerOwnership !== requiredOwnership) {
     pushIssue(
       issues,
-      'profile.brokerOwnership',
-      `Prepared profile must use ${requiredOwnership} for ${request.join}.`
+      'descriptor.brokerOwnership',
+      `Prepared descriptor must use ${requiredOwnership} for ${request.join}.`
     )
   }
 
-  const invocation = profile.harnessInvocation
+  const invocation = descriptor.harnessInvocation
   if (
     !isRecord(invocation) ||
     !isRecord(invocation.startRequest) ||
     !isRecord(invocation.startRequest.spec)
   ) {
-    pushIssue(issues, 'profile.harnessInvocation', 'Prepared profile lacks a valid start request.')
+    pushIssue(
+      issues,
+      'descriptor.harnessInvocation',
+      'Prepared descriptor lacks a valid start request.'
+    )
     return { ok: false, issues }
   }
   const startRequest = invocation.startRequest
   if (startRequest.spec.invocationId !== request.identity.invocationId) {
     pushIssue(
       issues,
-      'profile.harnessInvocation.startRequest.spec.invocationId',
+      'descriptor.harnessInvocation.startRequest.spec.invocationId',
       'Start request invocationId must match the HRC allocation.'
     )
   }
@@ -448,20 +430,20 @@ export function validateParticipantAdapterPreparation(
     if (correlation?.[key] !== String(expected)) {
       pushIssue(
         issues,
-        `profile.harnessInvocation.startRequest.spec.correlation.${key}`,
+        `descriptor.harnessInvocation.startRequest.spec.correlation.${key}`,
         `Start request correlation ${key} must match the HRC allocation.`
       )
     }
   }
   for (const [key, expected] of [
     ['startRequestHash', invocation.startRequestHash],
-    ['selectedProfileHash', profile.profileHash],
+    ['selectedProfileHash', descriptor.descriptorHash],
   ] as const) {
     if (correlation?.[key] !== expected) {
       pushIssue(
         issues,
-        `profile.harnessInvocation.startRequest.spec.correlation.${key}`,
-        `Start request correlation ${key} must match the prepared profile.`
+        `descriptor.harnessInvocation.startRequest.spec.correlation.${key}`,
+        `Start request correlation ${key} must match the prepared descriptor.`
       )
     }
   }
@@ -472,49 +454,49 @@ export function validateParticipantAdapterPreparation(
   ) {
     pushIssue(
       issues,
-      'profile.harnessInvocation.startRequest.initialInput.inputId',
+      'descriptor.harnessInvocation.startRequest.initialInput.inputId',
       'Initial input id must match the HRC allocation.'
     )
   }
-  if (profile.observability?.correlation?.invocationId !== request.identity.invocationId) {
+  if (descriptor.observability?.correlation?.invocationId !== request.identity.invocationId) {
     pushIssue(
       issues,
-      'profile.observability.correlation.invocationId',
+      'descriptor.observability.correlation.invocationId',
       'Observability invocationId must match the HRC allocation.'
     )
   }
-  if (profile.observability?.correlation?.requestId !== request.identity.requestId) {
+  if (descriptor.observability?.correlation?.requestId !== request.identity.requestId) {
     pushIssue(
       issues,
-      'profile.observability.correlation.requestId',
+      'descriptor.observability.correlation.requestId',
       'Observability requestId must match the HRC allocation.'
     )
   }
-  if (profile.observability?.correlation?.operationId !== request.identity.operationId) {
+  if (descriptor.observability?.correlation?.operationId !== request.identity.operationId) {
     pushIssue(
       issues,
-      'profile.observability.correlation.operationId',
+      'descriptor.observability.correlation.operationId',
       'Observability operationId must match the HRC allocation.'
     )
   }
-  if (profile.observability?.correlation?.runtimeId !== request.identity.runtimeId) {
+  if (descriptor.observability?.correlation?.runtimeId !== request.identity.runtimeId) {
     pushIssue(
       issues,
-      'profile.observability.correlation.runtimeId',
+      'descriptor.observability.correlation.runtimeId',
       'Observability runtimeId must match the HRC allocation.'
     )
   }
-  if (profile.observability?.correlation?.hostSessionId !== request.identity.hostSessionId) {
+  if (descriptor.observability?.correlation?.hostSessionId !== request.identity.hostSessionId) {
     pushIssue(
       issues,
-      'profile.observability.correlation.hostSessionId',
+      'descriptor.observability.correlation.hostSessionId',
       'Observability hostSessionId must match the HRC allocation.'
     )
   }
-  if (profile.observability?.correlation?.generation !== request.identity.generation) {
+  if (descriptor.observability?.correlation?.generation !== request.identity.generation) {
     pushIssue(
       issues,
-      'profile.observability.correlation.generation',
+      'descriptor.observability.correlation.generation',
       'Observability generation must match the HRC allocation.'
     )
   }
@@ -522,15 +504,15 @@ export function validateParticipantAdapterPreparation(
   if (invocation.specHash !== neutralSpecHash(startRequest.spec)) {
     pushIssue(
       issues,
-      'profile.harnessInvocation.specHash',
-      'Profile specHash does not match neutral spec hash.'
+      'descriptor.harnessInvocation.specHash',
+      'Descriptor specHash does not match neutral spec hash.'
     )
   }
   if (invocation.startRequestHash !== neutralStartRequestHash(startRequest)) {
     pushIssue(
       issues,
-      'profile.harnessInvocation.startRequestHash',
-      'Profile startRequestHash does not match neutral start request hash.'
+      'descriptor.harnessInvocation.startRequestHash',
+      'Descriptor startRequestHash does not match neutral start request hash.'
     )
   }
   const actualInitialInputHash =
@@ -542,15 +524,15 @@ export function validateParticipantAdapterPreparation(
   if (invocation.initialInputHash !== actualInitialInputHash) {
     pushIssue(
       issues,
-      'profile.harnessInvocation.initialInputHash',
-      'Profile initialInputHash does not match the initial input payload.'
+      'descriptor.harnessInvocation.initialInputHash',
+      'Descriptor initialInputHash does not match the initial input payload.'
     )
   }
-  if (profile.profileHash !== neutralBrokerExecutionProfileHash(profile)) {
+  if (descriptor.descriptorHash !== neutralParticipantBrokerDescriptorHash(descriptor)) {
     pushIssue(
       issues,
-      'profile.profileHash',
-      'Profile hash does not match existing neutral profile hash semantics.'
+      'descriptor.descriptorHash',
+      'Descriptor hash does not match neutral participant descriptor semantics.'
     )
   }
 

@@ -14,6 +14,7 @@ import { TARGETS_FILENAME, formatWarnings, readTargetsToml } from 'spaces-config
 import type { LintWarning } from 'spaces-config'
 
 import { compilerRuntime } from '../compiler-runtime.js'
+import { validateOptionalHarness } from '../harness-validator.js'
 import { type CommonOptions, exitWithAspError, getProjectContext } from '../helpers.js'
 
 interface DescribeOptions extends CommonOptions {
@@ -53,6 +54,7 @@ export function registerDescribeCommand(program: Command): void {
     .option('--asp-home <path>', 'ASP_HOME override')
     .action(async (target: string | undefined, options: DescribeOptions) => {
       try {
+        const harness = validateOptionalHarness(options.harness)
         const ctx = await getProjectContext(options)
         const manifest = await readTargetsToml(join(ctx.projectPath, TARGETS_FILENAME))
         const targetNames = target ? [target] : Object.keys(manifest.targets)
@@ -76,7 +78,7 @@ export function registerDescribeCommand(program: Command): void {
             aspHome: ctx.aspHome,
             spec: { target: { targetName: name, targetDir: ctx.projectPath } },
             registryPath: ctx.registryPath,
-            ...(options.harness ? { harness: options.harness } : {}),
+            ...(harness === undefined ? {} : { harness }),
             ...(options.model ? { model: options.model } : {}),
             runLint: true,
           })

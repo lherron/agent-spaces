@@ -80,7 +80,7 @@ describe('Arris participant adapter', () => {
     const prepared = await adapter.prepare(request)
     expect(validateParticipantAdapterPreparation(request, prepared).ok).toBe(true)
     if (prepared.status !== 'prepared') throw new Error('fixture was not prepared')
-    expect(prepared.profile).toMatchObject({
+    expect(prepared.descriptor).toMatchObject({
       brokerDriver: ARRIS_RESIDENT_DRIVER_KIND,
       brokerOwnership: 'participant-owned-process',
       harnessInvocation: {
@@ -95,9 +95,9 @@ describe('Arris participant adapter', () => {
         },
       },
     })
-    expect(prepared.profile.harnessInvocation.startRequest.spec.correlation).toMatchObject({
-      startRequestHash: prepared.profile.harnessInvocation.startRequestHash,
-      selectedProfileHash: prepared.profile.profileHash,
+    expect(prepared.descriptor.harnessInvocation.startRequest.spec.correlation).toMatchObject({
+      startRequestHash: prepared.descriptor.harnessInvocation.startRequestHash,
+      selectedProfileHash: prepared.descriptor.descriptorHash,
     })
   })
 
@@ -133,7 +133,7 @@ describe('Arris participant adapter', () => {
     })
     if (prepared.status !== 'prepared') throw new Error('fixture was not prepared')
 
-    const startRequest = prepared.profile.harnessInvocation.startRequest
+    const startRequest = prepared.descriptor.harnessInvocation.startRequest
     // The profile really does declare in-process transport; if that ever
     // changes the validator assertion below stops covering this defect.
     expect(startRequest).toMatchObject({
@@ -258,7 +258,7 @@ describe('Arris participant adapter', () => {
       attachEpoch: 1,
     })
     if (prepared.status !== 'prepared') throw new Error('managed fixture was not prepared')
-    expect(prepared.profile).toMatchObject({
+    expect(prepared.descriptor).toMatchObject({
       brokerOwnership: 'hrc-owned-process',
       expectedCapabilities: { control: { stop: 'optional' } },
       harnessInvocation: {

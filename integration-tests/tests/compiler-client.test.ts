@@ -1,14 +1,9 @@
-import { rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-
 import { describe, expect, test } from 'bun:test'
 
 // Repo-level parity coverage deliberately composes the compiler and turn-runner
 // roots from integration-tests, which sits above the six package roots.
 import { createAgentSpacesClient as createTurnRunnerClient } from '../../apps/turn-runner/src/index.js'
 import { createAgentSpacesClient } from '../../compiler/agent-spaces/src/index.js'
-import type { AgentEvent } from '../../compiler/agent-spaces/src/types.js'
 import { compilerRuntime } from './compiler-runtime.js'
 
 const client = createAgentSpacesClient({ runtime: compilerRuntime })
@@ -21,34 +16,24 @@ const turnClient = createTurnRunnerClient()
 describe('getHarnessCapabilities', () => {
   test('returns provider-typed harnesses with correct structure', async () => {
     const caps = await client.getHarnessCapabilities()
-    expect(caps.harnesses.length).toBe(2)
+    expect(caps.harnesses.map((h) => h.id)).toEqual(['agent-harness', 'claude', 'codex', 'muse'])
 
-    const anthropic = caps.harnesses.find((h) => h.provider === 'anthropic')
-    expect(anthropic).toBeDefined()
-    expect(anthropic?.id).toBe('anthropic')
-    expect(anthropic?.frontends).toContain('agent-sdk')
-    expect(anthropic?.frontends).toContain('claude-code')
-    expect(anthropic?.models.length).toBeGreaterThan(0)
+    const claude = caps.harnesses.find((h) => h.id === 'claude')
+    expect(claude).toMatchObject({ provider: 'anthropic', frontends: ['claude-code'] })
+    expect(claude?.models.length).toBeGreaterThan(0)
 
-    const openai = caps.harnesses.find((h) => h.provider === 'openai')
-    expect(openai).toBeDefined()
-    expect(openai?.id).toBe('openai')
-    expect(openai?.frontends).toContain('pi-sdk')
-    expect(openai?.frontends).toContain('codex-cli')
-    expect(openai?.models.length).toBeGreaterThan(0)
+    const codex = caps.harnesses.find((h) => h.id === 'codex')
+    expect(codex).toMatchObject({ provider: 'openai-codex', frontends: ['codex-cli'] })
+    expect(codex?.models.length).toBeGreaterThan(0)
   })
 
-  test('includes both SDK and CLI models for each provider', async () => {
+  test('keeps provider and model identity separate for each harness', async () => {
     const caps = await client.getHarnessCapabilities()
-    const anthropic = caps.harnesses.find((h) => h.provider === 'anthropic')
-    // Should include agent-sdk models (provider/model format) and claude-code models (bare names)
-    expect(anthropic?.models).toContain('claude/sonnet')
-    expect(anthropic?.models).toContain('claude-opus-4-6')
-
-    const openai = caps.harnesses.find((h) => h.provider === 'openai')
-    // Should include pi-sdk models (provider/model format) and codex-cli models (bare names)
-    expect(openai?.models).toContain('openai-codex/gpt-5.3-codex')
-    expect(openai?.models).toContain('gpt-5.3-codex')
+    expect(caps.harnesses.find((h) => h.id === 'claude')?.models).toContain('opus[1m]')
+    expect(caps.harnesses.find((h) => h.id === 'codex')?.models).toContain('gpt-5.6-terra')
+    for (const harness of caps.harnesses) {
+      expect(harness.models.some((model) => model.includes('/'))).toBe(false)
+    }
   })
 })
 
@@ -289,360 +274,47 @@ describe('buildProcessInvocationSpec', () => {
 // ---------------------------------------------------------------------------
 
 describe('runTurnNonInteractive', () => {
-  test('returns model_not_supported and emits ordered events', async () => {
-    const events: Array<{ type: string; seq: number }> = []
+  test('fails closed for every retired direct SDK frontend before materialization', async () => {
+    const requests = [
+      { frontend: 'agent-sdk' as const, provider: 'anthropic' },
+      { frontend: 'pi-sdk' as const, provider: 'openai' },
+    ] as const
 
-    const response = await turnClient.runTurnNonInteractive({
-      hostSessionId: 'session-test',
-      runId: 'run-test',
-      aspHome: '/tmp/asp-test',
-      spec: { spaces: ['space:base@dev'] },
-      frontend: 'agent-sdk',
-      model: 'api/not-a-model',
-      cwd: '/tmp',
-      prompt: 'Hello',
-      callbacks: {
-        onEvent: (event) => {
-          events.push({ type: event.type, seq: event.seq })
-        },
-      },
-    })
-
-    expect(response.result.success).toBe(false)
-    expect(response.result.error?.code).toBe('model_not_supported')
-    expect(response.provider).toBe('anthropic')
-    expect(response.frontend).toBe('agent-sdk')
-    expect(events.map((e) => e.type)).toEqual(['state', 'message', 'state', 'complete'])
-    expect(events.map((e) => e.seq)).toEqual([1, 2, 3, 4])
-  })
-
-  test('emits events with hostSessionId and runId', async () => {
-    const events: Array<{ hostSessionId: string; runId: string }> = []
-
-    await turnClient.runTurnNonInteractive({
-      hostSessionId: 'cp-session-123',
-      runId: 'run-456',
-      aspHome: '/tmp/asp-test',
-      spec: { spaces: ['space:base@dev'] },
-      frontend: 'agent-sdk',
-      model: 'api/not-a-model',
-      cwd: '/tmp',
-      prompt: 'Hello',
-      callbacks: {
-        onEvent: (event) => {
-          events.push({ hostSessionId: event.hostSessionId, runId: event.runId })
-        },
-      },
-    })
-
-    expect(events.length).toBeGreaterThan(0)
-    for (const event of events) {
-      expect(event.hostSessionId).toBe('cp-session-123')
-      expect(event.runId).toBe('run-456')
-    }
-  })
-
-  test('returns continuation_not_found for missing pi session', async () => {
-    const missingSessionPath = join(tmpdir(), `asp-missing-${Date.now()}`)
-    await rm(missingSessionPath, { recursive: true, force: true })
-
-    const response = await turnClient.runTurnNonInteractive({
-      hostSessionId: 'session-missing',
-      runId: 'run-missing',
-      aspHome: '/tmp/asp-test',
-      spec: { spaces: ['space:base@dev'] },
-      frontend: 'pi-sdk',
-      model: 'openai-codex/gpt-5.3-codex',
-      continuation: { provider: 'openai', key: missingSessionPath },
-      cwd: '/tmp',
-      prompt: 'Hello',
-      callbacks: { onEvent: () => {} },
-    })
-
-    expect(response.result.success).toBe(false)
-    expect(response.result.error?.code).toBe('continuation_not_found')
-    expect(response.provider).toBe('openai')
-    expect(response.frontend).toBe('pi-sdk')
-  })
-
-  test('returns provider_mismatch for wrong continuation provider', async () => {
-    const events: Array<{ type: string }> = []
-
-    const response = await turnClient.runTurnNonInteractive({
-      hostSessionId: 'session-mismatch',
-      runId: 'run-mismatch',
-      aspHome: '/tmp/asp-test',
-      spec: { spaces: ['space:base@dev'] },
-      frontend: 'agent-sdk',
-      // Agent-sdk is anthropic, but continuation says openai
-      continuation: { provider: 'openai', key: 'some-key' },
-      cwd: '/tmp',
-      prompt: 'Hello',
-      callbacks: {
-        onEvent: (event) => {
-          events.push({ type: event.type })
-        },
-      },
-    })
-
-    expect(response.result.success).toBe(false)
-    expect(response.result.error?.message).toContain('Provider mismatch')
-    expect(response.result.error?.code).toBe('provider_mismatch')
-    // Provider mismatch is caught during validation and emits error events
-    expect(events.map((e) => e.type)).toEqual(['state', 'complete'])
-  })
-
-  test('sets pi-sdk continuation on first run', async () => {
-    const events: Array<{ type: string; continuation?: unknown }> = []
-
-    // This will fail during materialization since we don't have a real registry,
-    // but we can verify the continuation was set on events before the failure
-    await turnClient.runTurnNonInteractive({
-      hostSessionId: 'session-pi-first',
-      runId: 'run-pi-first',
-      aspHome: '/tmp/asp-test',
-      spec: { spaces: ['space:base@dev'] },
-      frontend: 'pi-sdk',
-      model: 'openai-codex/gpt-5.3-codex',
-      cwd: '/tmp',
-      prompt: 'Hello',
-      callbacks: {
-        onEvent: (event) => {
-          events.push({ type: event.type, continuation: event.continuation })
-        },
-      },
-    })
-
-    // The 'running' event should have a continuation set (pi session path)
-    const runningEvent = events.find((e) => e.type === 'state')
-    expect(runningEvent?.continuation).toBeDefined()
-    const cont = runningEvent?.continuation as { provider: string; key: string }
-    expect(cont.provider).toBe('openai')
-    expect(cont.key).toContain('sessions/pi/')
-  })
-
-  test('uses default model when none specified and passes model validation', async () => {
-    const events: AgentEvent[] = []
-
-    const response = await turnClient.runTurnNonInteractive({
-      hostSessionId: 'session-default-model',
-      runId: 'run-default-model',
-      aspHome: '/tmp/asp-test',
-      spec: { spaces: ['space:base@dev'] },
-      frontend: 'agent-sdk',
-      // No model specified → should use default 'claude/sonnet' which is in the allowed list
-      cwd: '/tmp',
-      prompt: 'Hello',
-      callbacks: {
-        onEvent: (event) => {
-          events.push(event)
-        },
-      },
-    })
-
-    // Should fail at materialization (no real registry), NOT at model validation
-    expect(response.result.success).toBe(false)
-    expect(response.result.error?.code).not.toBe('model_not_supported')
-    // Should emit running state + user message events before materialization failure
-    const eventTypes = events.map((e) => e.type)
-    expect(eventTypes).toContain('state')
-    expect(eventTypes).toContain('message')
-  })
-
-  test('emits events with valid ISO timestamps', async () => {
-    const events: AgentEvent[] = []
-
-    await turnClient.runTurnNonInteractive({
-      hostSessionId: 'session-ts',
-      runId: 'run-ts',
-      aspHome: '/tmp/asp-test',
-      spec: { spaces: ['space:base@dev'] },
-      frontend: 'agent-sdk',
-      model: 'api/not-a-model',
-      cwd: '/tmp',
-      prompt: 'Hello',
-      callbacks: {
-        onEvent: (event) => {
-          events.push(event)
-        },
-      },
-    })
-
-    expect(events.length).toBeGreaterThan(0)
-    for (const event of events) {
-      // Verify timestamp is a valid ISO 8601 string
-      expect(typeof event.ts).toBe('string')
-      const parsed = new Date(event.ts)
-      expect(parsed.getTime()).not.toBeNaN()
-      expect(parsed.toISOString()).toBe(event.ts)
-    }
-  })
-
-  test('seq counter starts at 1 and increments monotonically', async () => {
-    const seqs: number[] = []
-
-    await turnClient.runTurnNonInteractive({
-      hostSessionId: 'session-seq',
-      runId: 'run-seq',
-      aspHome: '/tmp/asp-test',
-      spec: { spaces: ['space:base@dev'] },
-      frontend: 'agent-sdk',
-      model: 'api/not-a-model',
-      cwd: '/tmp',
-      prompt: 'Hello',
-      callbacks: {
-        onEvent: (event) => {
-          seqs.push(event.seq)
-        },
-      },
-    })
-
-    expect(seqs.length).toBeGreaterThan(0)
-    expect(seqs[0]).toBe(1)
-    for (let i = 1; i < seqs.length; i++) {
-      expect(seqs[i]).toBe(seqs[i - 1]! + 1)
-    }
-  })
-
-  test('continuation_not_found response includes continuation ref', async () => {
-    const missingPath = join(tmpdir(), `asp-missing-ref-${Date.now()}`)
-    await rm(missingPath, { recursive: true, force: true })
-
-    const response = await turnClient.runTurnNonInteractive({
-      hostSessionId: 'session-cont-ref',
-      runId: 'run-cont-ref',
-      aspHome: '/tmp/asp-test',
-      spec: { spaces: ['space:base@dev'] },
-      frontend: 'pi-sdk',
-      model: 'openai-codex/gpt-5.3-codex',
-      continuation: { provider: 'openai', key: missingPath },
-      cwd: '/tmp',
-      prompt: 'Hello',
-      callbacks: { onEvent: () => {} },
-    })
-
-    // Response should include the continuation ref even on error
-    expect(response.continuation).toBeDefined()
-    expect(response.continuation?.provider).toBe('openai')
-    expect(response.continuation?.key).toBe(missingPath)
-  })
-
-  test('model_not_supported response includes the rejected model id', async () => {
-    const response = await turnClient.runTurnNonInteractive({
-      hostSessionId: 'session-bad-model',
-      runId: 'run-bad-model',
-      aspHome: '/tmp/asp-test',
-      spec: { spaces: ['space:base@dev'] },
-      frontend: 'agent-sdk',
-      model: 'claude/nonexistent-variant',
-      cwd: '/tmp',
-      prompt: 'Hello',
-      callbacks: { onEvent: () => {} },
-    })
-
-    expect(response.result.success).toBe(false)
-    expect(response.result.error?.code).toBe('model_not_supported')
-    expect(response.model).toBe('claude/nonexistent-variant')
-  })
-
-  test('pi-sdk first run generates deterministic continuation path from hostSessionId', async () => {
-    const events1: Array<{ continuation?: unknown }> = []
-    const events2: Array<{ continuation?: unknown }> = []
-
-    // Run twice with the same hostSessionId
-    for (const events of [events1, events2]) {
-      await turnClient.runTurnNonInteractive({
-        hostSessionId: 'deterministic-session',
-        runId: `run-${events === events1 ? '1' : '2'}`,
+    for (const { frontend, provider } of requests) {
+      const hostSessionId = `direct-${frontend}`
+      const runId = `${hostSessionId}-run`
+      const events: Array<{ type: string; hostSessionId: string; runId: string }> = []
+      const response = await turnClient.runTurnNonInteractive({
+        hostSessionId,
+        runId,
         aspHome: '/tmp/asp-test',
         spec: { spaces: ['space:base@dev'] },
-        frontend: 'pi-sdk',
-        model: 'openai-codex/gpt-5.3-codex',
+        frontend,
         cwd: '/tmp',
         prompt: 'Hello',
         callbacks: {
           onEvent: (event) => {
-            events.push({ continuation: event.continuation })
+            events.push({
+              type: event.type,
+              hostSessionId: event.hostSessionId,
+              runId: event.runId,
+            })
           },
         },
       })
-    }
 
-    // Same hostSessionId should produce the same continuation key
-    const cont1 = events1[0]?.continuation as { key: string } | undefined
-    const cont2 = events2[0]?.continuation as { key: string } | undefined
-    expect(cont1?.key).toBeDefined()
-    expect(cont1?.key).toBe(cont2?.key)
-  })
-
-  test('user message event contains the prompt text', async () => {
-    const events: AgentEvent[] = []
-
-    await turnClient.runTurnNonInteractive({
-      hostSessionId: 'session-prompt',
-      runId: 'run-prompt',
-      aspHome: '/tmp/asp-test',
-      spec: { spaces: ['space:base@dev'] },
-      frontend: 'agent-sdk',
-      model: 'api/not-a-model',
-      cwd: '/tmp',
-      prompt: 'This is my specific test prompt',
-      callbacks: {
-        onEvent: (event) => {
-          events.push(event)
-        },
-      },
-    })
-
-    const messageEvent = events.find(
-      (e) => e.type === 'message' && 'role' in e && e.role === 'user'
-    )
-    expect(messageEvent).toBeDefined()
-    if (messageEvent && 'content' in messageEvent) {
-      expect(messageEvent.content).toBe('This is my specific test prompt')
-    }
-  })
-
-  test('returns error for relative cwd path', async () => {
-    const response = await turnClient.runTurnNonInteractive({
-      hostSessionId: 'session-rel-cwd',
-      runId: 'run-rel-cwd',
-      aspHome: '/tmp/asp-test',
-      spec: { spaces: ['space:base@dev'] },
-      frontend: 'agent-sdk',
-      cwd: 'relative/path',
-      prompt: 'Hello',
-      callbacks: { onEvent: () => {} },
-    })
-
-    expect(response.result.success).toBe(false)
-    expect(response.result.error?.message).toContain('absolute path')
-  })
-
-  test('complete event contains RunResult', async () => {
-    const events: AgentEvent[] = []
-
-    await turnClient.runTurnNonInteractive({
-      hostSessionId: 'session-complete',
-      runId: 'run-complete',
-      aspHome: '/tmp/asp-test',
-      spec: { spaces: ['space:base@dev'] },
-      frontend: 'agent-sdk',
-      model: 'api/not-a-model',
-      cwd: '/tmp',
-      prompt: 'Hello',
-      callbacks: {
-        onEvent: (event) => {
-          events.push(event)
-        },
-      },
-    })
-
-    const completeEvent = events.find((e) => e.type === 'complete')
-    expect(completeEvent).toBeDefined()
-    if (completeEvent && 'result' in completeEvent) {
-      expect(completeEvent.result).toBeDefined()
-      expect(typeof completeEvent.result.success).toBe('boolean')
+      expect(response.result.success).toBe(false)
+      expect(response.result.error).toMatchObject({
+        code: 'unsupported_frontend',
+        message:
+          'Direct SDK turn requests are retired; supply placement so ASP resolves the canonical harness.',
+      })
+      expect(response.provider).toBe(provider)
+      expect(response.frontend).toBe(frontend)
+      expect(events).toEqual([
+        { type: 'state', hostSessionId, runId },
+        { type: 'complete', hostSessionId, runId },
+      ])
     }
   })
 })
@@ -652,7 +324,7 @@ describe('runTurnNonInteractive', () => {
 // ---------------------------------------------------------------------------
 
 describe('runTurnInFlight', () => {
-  test('returns unsupported_frontend for non-agent-sdk frontends', async () => {
+  test('also fails closed for a retired direct SDK request', async () => {
     const events: Array<{ type: string }> = []
 
     const response = await turnClient.runTurnInFlight({

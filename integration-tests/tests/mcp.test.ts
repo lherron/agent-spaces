@@ -12,7 +12,12 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 
-import { build, install, runWithPrompt } from 'spaces-execution'
+import {
+  build,
+  harnessRegistry,
+  install,
+  runWithPrompt as runWithPromptExecution,
+} from 'spaces-execution'
 
 import {
   SAMPLE_REGISTRY_DIR,
@@ -25,6 +30,22 @@ import {
   initSampleRegistry,
   readShimOutput,
 } from './setup.js'
+
+const CLAUDE_EXECUTION = {
+  harnessId: 'claude' as const,
+  adapter: harnessRegistry.getOrThrow('claude'),
+}
+
+function runWithPrompt(
+  targetName: string,
+  prompt: string,
+  options: Omit<Parameters<typeof runWithPromptExecution>[2], 'execution'>
+): ReturnType<typeof runWithPromptExecution> {
+  return runWithPromptExecution(targetName, prompt, {
+    ...options,
+    execution: CLAUDE_EXECUTION,
+  })
+}
 
 describe('MCP config composition', () => {
   let aspHome: string

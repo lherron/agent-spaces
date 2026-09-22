@@ -9,8 +9,8 @@ import { brokerProcessEnv } from './helpers'
  * The client is Node, not Bun, so its named `agent-spaces/testing` import takes
  * the package's `import` export (`dist/testing/...js`). The broker runner also
  * imports the compiled dist entry directly and adds only the shipped no-op
- * driver. The client hands the exact prepared profile through install, ensure,
- * and attach; it never changes profile, process, driver, or correlation fields.
+ * driver. The client hands the exact prepared descriptor through install, ensure,
+ * and attach; it never changes descriptor, process, driver, or correlation fields.
  */
 
 const repoRoot = new URL('../../..', import.meta.url).pathname
@@ -122,7 +122,7 @@ const prepared = await adapter.prepare(preparationRequest)
 const validation = validateParticipantAdapterPreparation(preparationRequest, prepared)
 if (!validation.ok) throw new Error(JSON.stringify(validation.issues))
 if (prepared.status !== 'prepared') throw new Error('adapter did not prepare')
-const profile = prepared.profile
+const descriptor = prepared.descriptor
 const rpc = await new Promise((resolve, reject) => {
   const socket = connect({ path: socketPath })
   socket.once('error', reject)
@@ -168,8 +168,8 @@ const installedIdentity = {
   generation: identity.generation,
   attachEpoch: preparationRequest.attachEpoch,
   invocationId: identity.invocationId,
-  startRequestHash: profile.harnessInvocation.startRequestHash,
-  selectedProfileHash: profile.profileHash,
+  startRequestHash: descriptor.harnessInvocation.startRequestHash,
+  selectedProfileHash: descriptor.descriptorHash,
   attachToken: 'attach_t08350_packaged',
 }
 const installed = await rpc.request('broker.installIdentity', installedIdentity)
@@ -177,7 +177,7 @@ const ensured = await rpc.request('broker.ensureInvocation', {
   startAttemptId: 'attempt_t08350_packaged',
   invocationId: identity.invocationId,
   attachEpoch: preparationRequest.attachEpoch,
-  startRequest: profile.harnessInvocation.startRequest,
+  startRequest: descriptor.harnessInvocation.startRequest,
   dispatchEnv: prepared.dispatchEnv,
 })
 const attached = await rpc.request('broker.attach', {
@@ -187,9 +187,9 @@ const attached = await rpc.request('broker.attach', {
 rpc.close()
 process.stdout.write(JSON.stringify({
   adapterModule: import.meta.resolve('agent-spaces/testing'),
-  ownership: profile.brokerOwnership,
+  ownership: descriptor.brokerOwnership,
   continuityEvidence: admitted.continuityEvidence,
-  correlation: profile.harnessInvocation.startRequest.spec.correlation,
+  correlation: descriptor.harnessInvocation.startRequest.spec.correlation,
   installed,
   ensured,
   attached,
@@ -213,7 +213,7 @@ async function installCompiledPackage(
 }
 
 describe('T-08350 packaged participant adapter roundtrip', () => {
-  test('uses the unchanged built adapter profile to install, start, and attach', async () => {
+  test('uses the unchanged built adapter descriptor to install, start, and attach', async () => {
     const { socketPath, dir } = await startCompiledNoopBroker()
     const installedRoot = join(dir, 'installed')
     // Model the package installed from its prepacked artifact: no `bun` source

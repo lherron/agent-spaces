@@ -4,7 +4,7 @@ import type {
   ReasoningEffort,
   SelectionProvenanceLayer,
 } from 'spaces-runtime-contracts'
-import { HARNESS_CATALOG } from './catalog.js'
+import { DEFAULT_HARNESS_ID, HARNESS_CATALOG } from './catalog.js'
 import type {
   CompileRefusal,
   ExecutionRecipe,
@@ -77,7 +77,7 @@ export function resolveHarnessExecution(input: ResolveHarnessExecutionInput): Ha
   if (consistencyFailure !== undefined) return consistencyFailure
 
   const harnessResolved = resolveScalar(input, 'harness')
-  const harness = (harnessResolved?.value ?? 'agent-harness') as HarnessId
+  const harness = (harnessResolved?.value ?? DEFAULT_HARNESS_ID) as HarnessId
   const definition = HARNESS_CATALOG[harness]
   if (definition === undefined)
     return refusal('unsupported_harness', `Unsupported harness ${String(harness)}`, { harness })

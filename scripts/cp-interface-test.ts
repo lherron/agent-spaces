@@ -277,18 +277,10 @@ async function main(): Promise<void> {
   const describeResult = await client.describe({
     aspHome,
     spec,
-    frontend: args.frontend,
-    ...(args.model ? { model: args.model } : {}),
-    cwd,
-    cpSessionId,
   })
   console.log('describe.hooks:', describeResult.hooks)
   console.log('describe.skills:', describeResult.skills)
   console.log('describe.tools:', describeResult.tools)
-  if (describeResult.agentSdkSessionParams) {
-    console.log('describe.agentSdkSessionParams:')
-    console.dir(describeResult.agentSdkSessionParams, { depth: null })
-  }
 
   console.log('starting runTurnNonInteractive...')
   const prompt = args.prompt ?? 'What skills are available?'

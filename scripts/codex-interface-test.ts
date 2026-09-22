@@ -294,10 +294,8 @@ async function main(): Promise<void> {
   const describeResult = await client.describe({
     aspHome,
     spec,
-    frontend: args.frontend,
+    harness: 'codex',
     ...(args.model ? { model: args.model } : {}),
-    cwd,
-    cpSessionId,
   })
   console.log('skills:', describeResult.skills)
   console.log('tools:', describeResult.tools?.length ?? 0, 'tools')

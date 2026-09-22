@@ -1,10 +1,6 @@
 import { isAbsolute } from 'node:path'
 
-import {
-  buildCodexAppServerLaunchDescriptor,
-  isHarnessId,
-  normalizeAgentSdkModel,
-} from 'spaces-config'
+import { buildCodexAppServerLaunchDescriptor, isHarnessId } from 'spaces-config'
 import type { RuntimePlacement } from 'spaces-config'
 import {
   toHarnessBrokerStartRequest,
@@ -26,6 +22,7 @@ import {
   catalogProcessImplementationForHarness,
   resolveCatalogProcessModel,
 } from './harness-selection/catalog-projections.js'
+import { resolveHarnessExecution } from './harness-selection/resolve.js'
 import type { AgentSpacesClientOptions } from './placement-api.js'
 import { requireAgentSpacesRuntime } from './placement-api.js'
 import {
@@ -40,11 +37,6 @@ import {
   toProcessInvocationSpec,
 } from './prepare-cli-runtime.js'
 import { resolveRuntimeDeclaration } from './runtime-declaration.js'
-import {
-  AGENT_SDK_FRONTEND,
-  resolveSessionRuntimeModel,
-  sessionRuntimeFacts,
-} from './session-runtime-facts.js'
 import type {
   AgentSpacesClient,
   BuildHarnessBrokerInvocationRequest,
@@ -313,25 +305,35 @@ export function createAgentSpacesClient(
 
     async describe(req: DescribeRequest): Promise<DescribeResponse> {
       return withAspHome(req.aspHome, async () => {
-        const spec = validateSpec(req.spec)
-        const sessionFacts =
-          req.frontend === undefined || req.frontend === AGENT_SDK_FRONTEND
-            ? sessionRuntimeFacts(AGENT_SDK_FRONTEND)
-            : undefined
-        const implementation =
-          sessionFacts || req.frontend === undefined
-            ? undefined
-            : catalogProcessImplementationForFrontend(req.frontend)
-        if (sessionFacts === undefined && implementation === undefined) {
+        if ('frontend' in (req as unknown as Record<string, unknown>)) {
           throw new CodedError(
-            `Describe does not select a process implementation for frontend ${req.frontend}`,
+            'Describe frontend selection is retired; select a canonical harness instead.',
             'unsupported_frontend'
           )
+        }
+        const spec = validateSpec(req.spec)
+        const resolution = resolveHarnessExecution({
+          agent: { id: 'describe' },
+          requested: {
+            ...(req.harness === undefined ? {} : { harness: req.harness }),
+            ...(req.model === undefined ? {} : { model: req.model }),
+          },
+        })
+        if (!resolution.ok) {
+          const code =
+            resolution.code === 'unsupported_model'
+              ? 'model_not_supported'
+              : resolution.code === 'unsupported_model_provider'
+                ? 'provider_mismatch'
+                : resolution.code === 'configured_context_mismatch'
+                  ? 'resolve_failed'
+                  : 'unsupported_frontend'
+          throw new CodedError(resolution.message, code)
         }
         const materialized = await materializeSpec(
           spec,
           req.aspHome,
-          implementation?.harness ?? 'agent-harness',
+          resolution.selection.harness,
           {
             registryPathOverride: req.registryPath ?? clientRegistryPath,
             runtime: requireAgentSpacesRuntime(clientRuntime),
@@ -351,27 +353,6 @@ export function createAgentSpacesClient(
 
         if (lintWarnings) {
           response.lintWarnings = lintWarnings
-        }
-
-        if (sessionFacts) {
-          const modelResolution = resolveSessionRuntimeModel(sessionFacts, req.model)
-          if (!modelResolution.ok) {
-            throw new Error(
-              `Model not supported for session frontend ${sessionFacts.frontend}: ${modelResolution.modelId}`
-            )
-          }
-          const plugins = materialized.materialization.pluginDirs.map((dir) => ({
-            type: 'local' as const,
-            path: dir,
-          }))
-          response.agentSdkSessionParams = [
-            { paramName: 'kind', paramValue: AGENT_SDK_FRONTEND },
-            { paramName: 'sessionId', paramValue: req.hostSessionId ?? null },
-            { paramName: 'cwd', paramValue: req.cwd ?? null },
-            { paramName: 'model', paramValue: normalizeAgentSdkModel(modelResolution.model) },
-            { paramName: 'plugins', paramValue: plugins },
-            { paramName: 'permissionHandler', paramValue: 'auto-allow' },
-          ]
         }
 
         return response

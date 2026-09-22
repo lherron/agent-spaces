@@ -28,6 +28,7 @@ export interface LoadAgentSemanticOptions {
   projectRoot?: string | undefined
   cwd?: string | undefined
   aspHome?: string | undefined
+  registryPathOverride?: string | undefined
   runMode?: RunMode | undefined
   scopeRef?: string | undefined
   laneRef?: string | undefined
@@ -95,6 +96,9 @@ export async function loadAgentSemantics(
   const sources = await resolveAgentResourceSources({
     placement,
     aspHome,
+    ...(options.registryPathOverride !== undefined
+      ? { registryPathOverride: options.registryPathOverride }
+      : {}),
     agentLocalComponents: localComponents,
     reqLockedEnv: options.lockedEnv,
     reqDispatchEnv: options.dispatchEnv,

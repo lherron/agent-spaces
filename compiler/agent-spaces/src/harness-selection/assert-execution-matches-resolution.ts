@@ -8,9 +8,7 @@ export function assertExecutionMatchesResolution(
 ): void {
   const actualDriver = startRequest.spec.driver.kind
   if (actualDriver !== resolved.recipe.driver) {
-    throw new Error(
-      `Resolved driver ${resolved.recipe.driver} was materialized as ${actualDriver}`
-    )
+    throw new Error(`Resolved driver ${resolved.recipe.driver} was materialized as ${actualDriver}`)
   }
   const actualTransport = startRequest.spec.process.harnessTransport.kind
   if (actualTransport !== resolved.recipe.hosting.executionTransport) {
@@ -19,7 +17,9 @@ export function assertExecutionMatchesResolution(
     )
   }
   const actualTerminalHost =
-    'terminalHost' in startRequest.spec.driver ? startRequest.spec.driver['terminalHost'] : undefined
+    'terminalHost' in startRequest.spec.driver
+      ? startRequest.spec.driver['terminalHost']
+      : undefined
   if (
     resolved.recipe.hosting.terminalHost !== undefined &&
     actualTerminalHost !== resolved.recipe.hosting.terminalHost &&

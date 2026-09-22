@@ -3,13 +3,13 @@ import { closeSync, existsSync, openSync, readSync, realpathSync } from 'node:fs
 import { isAbsolute, sep } from 'node:path'
 import type { InvocationStartRequest } from 'spaces-harness-broker-protocol'
 import {
-  type BrokerExecutionProfile,
   DEFAULT_CODEX_BROKER_INPUT_POLICY,
+  type ParticipantBrokerDescriptor,
   hashNeutralStartRequest,
-  neutralBrokerExecutionProfileHash,
+  neutralParticipantBrokerDescriptorHash,
   neutralSpecHash,
   neutralStartRequestHash,
-  validateBrokerExecutionProfile,
+  validateParticipantBrokerDescriptor,
 } from 'spaces-runtime-contracts'
 
 const MAX_HEADER_BYTES = 256 * 1024
@@ -49,7 +49,7 @@ export type CodexDesktopObserverIdentity = {
   traceId?: string | undefined
 }
 
-export type CodexDesktopObserverProfileRequest = {
+export type CodexDesktopObserverDescriptorRequest = {
   registration: {
     registrationKey: string
     homeIdentity: string
@@ -61,17 +61,17 @@ export type CodexDesktopObserverProfileRequest = {
   }
   operatorBundleExecutable?: string
   identity: CodexDesktopObserverIdentity
-  brokerOwnership: BrokerExecutionProfile['brokerOwnership']
+  brokerOwnership: ParticipantBrokerDescriptor['brokerOwnership']
   recoveryBoundary?: DesktopRecoveryBoundary
   nativeAttemptStorePath: string
 }
 
-export type CodexDesktopObserverProfileBuilt = {
-  profile: BrokerExecutionProfile
+export type CodexDesktopObserverDescriptorBuilt = {
+  descriptor: ParticipantBrokerDescriptor
   startRequest: InvocationStartRequest
 }
 
-export type CodexDesktopObserverProfileFailure = {
+export type CodexDesktopObserverDescriptorFailure = {
   code:
     | 'rollout_unavailable'
     | 'rollout_archived'
@@ -102,14 +102,14 @@ function firstLine(path: string): string {
   }
 }
 
-export function buildCodexDesktopObserverProfile(request: CodexDesktopObserverProfileRequest):
+export function buildCodexDesktopObserverDescriptor(request: CodexDesktopObserverDescriptorRequest):
   | {
       ok: true
-      profile: BrokerExecutionProfile
+      descriptor: ParticipantBrokerDescriptor
       startRequest: InvocationStartRequest
       bundleExecutable: string
     }
-  | { ok: false; code: CodexDesktopObserverProfileFailure['code']; detail: string } {
+  | { ok: false; code: CodexDesktopObserverDescriptorFailure['code']; detail: string } {
   const registration = request.registration
   if (!registration.rolloutPath) {
     return {
@@ -222,25 +222,24 @@ export function buildCodexDesktopObserverProfile(request: CodexDesktopObserverPr
   const specHash = neutralSpecHash(startRequest.spec)
   const startRequestHash = neutralStartRequestHash(startRequest)
   const requestId = request.identity
-    .requestId as BrokerExecutionProfile['observability']['correlation']['requestId']
+    .requestId as ParticipantBrokerDescriptor['observability']['correlation']['requestId']
   const operationId = request.identity
-    .operationId as BrokerExecutionProfile['observability']['correlation']['operationId']
+    .operationId as ParticipantBrokerDescriptor['observability']['correlation']['operationId']
   const traceId = request.identity.traceId as
-    | BrokerExecutionProfile['observability']['correlation']['traceId']
+    | ParticipantBrokerDescriptor['observability']['correlation']['traceId']
     | undefined
-  const unhashedProfile: BrokerExecutionProfile = {
-    schemaVersion: 'agent-runtime-profile/v1',
-    profileId: `profile_${hashValue({
+  const unhashedDescriptor: ParticipantBrokerDescriptor = {
+    schemaVersion: 'participant-broker-descriptor/v1',
+    descriptorId: `descriptor_${hashValue({
       driver: 'codex-desktop',
       startRequest: hashNeutralStartRequest(startRequest),
-    }).slice(0, 32)}` as BrokerExecutionProfile['profileId'],
-    profileHash: '' as BrokerExecutionProfile['profileHash'],
+    }).slice(0, 32)}` as ParticipantBrokerDescriptor['descriptorId'],
+    descriptorHash: '',
     compatibilityHash: hashValue({
       driver: 'codex-desktop',
       threadId: registration.nativeThreadId,
       codexHome: registration.homeIdentity,
-    }) as BrokerExecutionProfile['compatibilityHash'],
-    kind: 'harness-broker',
+    }),
     interactionMode: 'headless',
     expectedCapabilities: {
       input: {
@@ -296,24 +295,24 @@ export function buildCodexDesktopObserverProfile(request: CodexDesktopObserverPr
         requestId,
         operationId,
         hostSessionId: request.identity
-          .hostSessionId as BrokerExecutionProfile['observability']['correlation']['hostSessionId'],
+          .hostSessionId as ParticipantBrokerDescriptor['observability']['correlation']['hostSessionId'],
         generation: request.identity.generation,
         runtimeId: request.identity
-          .runtimeId as BrokerExecutionProfile['observability']['correlation']['runtimeId'],
+          .runtimeId as ParticipantBrokerDescriptor['observability']['correlation']['runtimeId'],
         invocationId,
         ...(request.identity.runId === undefined
           ? {}
           : {
               runId: request.identity.runId as NonNullable<
-                BrokerExecutionProfile['observability']['correlation']['runId']
+                ParticipantBrokerDescriptor['observability']['correlation']['runId']
               >,
             }),
         ...(traceId === undefined ? {} : { traceId }),
       },
     },
   }
-  const profileHash = neutralBrokerExecutionProfileHash(unhashedProfile)
-  const patchStartRequestHash = unhashedProfile.harnessInvocation.startRequestHash
+  const descriptorHash = neutralParticipantBrokerDescriptorHash(unhashedDescriptor)
+  const patchStartRequestHash = unhashedDescriptor.harnessInvocation.startRequestHash
   const patchedStartRequest: InvocationStartRequest = {
     ...startRequest,
     spec: {
@@ -321,29 +320,29 @@ export function buildCodexDesktopObserverProfile(request: CodexDesktopObserverPr
       correlation: {
         ...startRequest.spec.correlation,
         startRequestHash: patchStartRequestHash,
-        selectedProfileHash: profileHash,
+        selectedProfileHash: descriptorHash,
       },
     },
   }
-  const selectedProfile: BrokerExecutionProfile = {
-    ...unhashedProfile,
-    profileHash,
+  const selectedDescriptor: ParticipantBrokerDescriptor = {
+    ...unhashedDescriptor,
+    descriptorHash,
     harnessInvocation: {
-      ...unhashedProfile.harnessInvocation,
+      ...unhashedDescriptor.harnessInvocation,
       startRequest: patchedStartRequest,
     },
   }
-  const profileFindings = validateBrokerExecutionProfile(selectedProfile)
-  if (profileFindings.length > 0) {
+  const descriptorValidation = validateParticipantBrokerDescriptor(selectedDescriptor)
+  if (!descriptorValidation.ok) {
     return {
       ok: false as const,
       code: 'observer_plan_invalid',
-      detail: profileFindings.map((finding) => finding.message).join('; '),
+      detail: descriptorValidation.issues.map((finding) => finding.message).join('; '),
     }
   }
   return {
     ok: true as const,
-    profile: selectedProfile,
+    descriptor: selectedDescriptor,
     startRequest: patchedStartRequest,
     bundleExecutable,
   }

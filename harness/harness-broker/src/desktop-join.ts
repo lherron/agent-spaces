@@ -285,7 +285,7 @@ export async function chooseScopeAndJoin(input: ScopeJoinInput): Promise<ScopeJo
       attemptId: register.identity.attemptId,
       attachEpoch: register.identity.attachEpoch,
       socketPath: input.socketPath,
-      profile: prepared.profile,
+      descriptor: prepared.descriptor,
     })
     if (attach.outcome !== 'attached') {
       if (attach.outcome === 'pending') {

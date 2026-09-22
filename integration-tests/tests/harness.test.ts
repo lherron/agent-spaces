@@ -2,7 +2,7 @@
  * Integration tests for CLI --harness flag and harness management.
  *
  * WHY: The --harness flag allows users to select which coding agent harness
- * (Claude, Pi, etc.) to use. These tests verify:
+ * (agent-harness, Claude, Codex, or Muse) to use. These tests verify:
  * - The `asp harnesses` command correctly lists available harnesses
  * - The --harness flag on run/build/install/explain commands works correctly
  * - Invalid harness IDs produce helpful error messages
@@ -41,28 +41,6 @@ const MULTI_HARNESS_DIR = path.join(FIXTURES_DIR, 'multi-harness')
 const CLI_PATH = path.join(import.meta.dir, '..', '..', 'apps', 'cli', 'bin', 'asp.js')
 
 /**
- * The `pi` CLI entrypoint from this package's declared dependency.
- *
- * Resolved from the module graph rather than looked up on PATH so `--harness pi`
- * behaves identically under `bun run test:integration` (which prepends
- * `node_modules/.bin`) and under a bare `bun test` of this file.
- */
-const PI_ENTRYPOINT = path.join(
-  path.dirname(path.dirname(Bun.resolveSync('@earendil-works/pi-coding-agent', import.meta.dir))),
-  'dist',
-  'bundle',
-  'cli.js'
-)
-
-/** Replace the per-invocation `--session-id <uuid>` with a stable placeholder. */
-function normalizeSessionId(command: string): string {
-  return command.replace(
-    /--session-id [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g,
-    '--session-id <uuid>'
-  )
-}
-
-/**
  * Run CLI command and capture output.
  */
 async function runCli(
@@ -96,8 +74,10 @@ describe('asp harnesses', () => {
 
     expect(exitCode).toBe(0)
     expect(stdout).toContain('Available Harnesses')
+    expect(stdout).toContain('agent-harness (default)')
     expect(stdout).toContain('claude')
-    expect(stdout).toContain('(default)')
+    expect(stdout).toContain('codex')
+    expect(stdout).toContain('muse')
   })
 
   test('lists harnesses in JSON format with --json flag', async () => {
@@ -108,7 +88,7 @@ describe('asp harnesses', () => {
     const output = JSON.parse(stdout)
     expect(output).toHaveProperty('harnesses')
     expect(output).toHaveProperty('defaultHarness')
-    expect(output.defaultHarness).toBe('claude')
+    expect(output.defaultHarness).toBe('agent-harness')
 
     // Should have at least Claude harness
     const claudeHarness = output.harnesses.find((h: { id: string }) => h.id === 'claude')
@@ -117,18 +97,18 @@ describe('asp harnesses', () => {
     expect(claudeHarness.detection).toHaveProperty('available')
   })
 
-  test('includes Pi harnesses in registry', async () => {
+  test('lists exactly the four public harnesses', async () => {
     const { stdout, exitCode } = await runCli(['harnesses', '--json'])
 
     expect(exitCode).toBe(0)
 
     const output = JSON.parse(stdout)
-    const piHarness = output.harnesses.find((h: { id: string }) => h.id === 'pi')
-    const piSdkHarness = output.harnesses.find((h: { id: string }) => h.id === 'pi-sdk')
-    expect(piHarness).toBeDefined()
-    expect(piHarness.name).toBe('Pi Coding Agent')
-    expect(piSdkHarness).toBeDefined()
-    expect(piSdkHarness.name).toBe('Pi SDK')
+    expect(output.harnesses.map((h: { id: string }) => h.id)).toEqual([
+      'agent-harness',
+      'claude',
+      'codex',
+      'muse',
+    ])
   })
 
   test('shows detection status for each harness', async () => {
@@ -234,69 +214,37 @@ describe('asp run --harness', () => {
     expect(command).toContain('Register with agentchat and send READY\n\nplan-next-steps')
   })
 
-  // `pi-sdk` is deliberately retired from `asp run` (assertHarnessAvailableForRun
-  // in drivers/execution). The old test here asserted exit 0 for that path, i.e.
-  // it asserted the absence of the guard -- so it went red the day the product
-  // became correct (T-07685 bucket 7). Assert the retirement instead.
-  test('--harness pi-sdk is refused by asp run and names the replacement', async () => {
-    const testEnv = getTestEnv(aspHome)
-    const { stderr, exitCode } = await runCli(
-      ['run', 'claude-target', '--harness', 'pi-sdk', '--dry-run'],
-      { env: testEnv, cwd: projectDir }
-    )
+  test.each(['pi', 'pi-sdk'])(
+    '--harness %s is rejected by the closed public vocabulary',
+    async (harness) => {
+      const testEnv = getTestEnv(aspHome)
+      const { stderr, exitCode } = await runCli(
+        ['run', 'claude-target', '--harness', harness, '--dry-run'],
+        { env: testEnv, cwd: projectDir }
+      )
 
+      expect(exitCode).not.toBe(0)
+      expect(stderr).toContain(`Unknown harness "${harness}"`)
+      expect(stderr).toContain('agent-harness')
+      expect(stderr).toContain('claude')
+      expect(stderr).toContain('codex')
+      expect(stderr).toContain('muse')
+    }
+  )
+
+  test('omitted --harness resolves to agent-harness', async () => {
+    const testEnv = getTestEnv(aspHome)
+
+    const { stderr, exitCode } = await runCli(['run', 'claude-target', '--dry-run'], {
+      env: testEnv,
+      cwd: projectDir,
+    })
+
+    // This fixture intentionally has no agent profile. The default therefore
+    // selects agent-harness and refuses direct execution instead of silently
+    // selecting a different foreground harness.
     expect(exitCode).not.toBe(0)
-    expect(stderr).toContain('Harness "pi-sdk" is retired from asp run')
-    expect(stderr).toContain('use hrc to spawn non-foreground runtimes')
-  })
-
-  test('--dry-run works with --harness pi', async () => {
-    // Pin the pi entrypoint the same way the claude/codex rows pin their shims.
-    // Without the pin this row resolved pi off PATH, and the only reason it was
-    // ever on PATH is that `bun run` prepends `node_modules/.bin` -- so the test
-    // passed under `bun run test:integration` and failed under a bare `bun test`
-    // of the same file (T-07685 bucket 7). PI_ENTRYPOINT resolves the declared
-    // `@earendil-works/pi-coding-agent` dependency directly, so both agree.
-    const testEnv = { ...getTestEnv(aspHome), ASP_PI_PATH: PI_ENTRYPOINT }
-    const { stdout, exitCode } = await runCli(
-      ['run', 'claude-target', '--harness', 'pi', '--dry-run'],
-      { env: testEnv, cwd: projectDir }
-    )
-
-    expect(exitCode).toBe(0)
-    expect(stdout).toContain('Dry run')
-    expect(extractDryRunCommand(stdout)).not.toBe('')
-    expect(stdout).toContain('PI_CODING_AGENT_DIR=')
-    expect(stdout).toContain('pi')
-  })
-
-  test('--harness defaults to claude', async () => {
-    const testEnv = getTestEnv(aspHome)
-
-    // Run without --harness flag
-    const { stdout: withoutFlag, exitCode: exitWithout } = await runCli(
-      ['run', 'claude-target', '--dry-run'],
-      { env: testEnv, cwd: projectDir }
-    )
-
-    // Run with --harness claude
-    const { stdout: withFlag, exitCode: exitWith } = await runCli(
-      ['run', 'claude-target', '--harness', 'claude', '--dry-run'],
-      { env: testEnv, cwd: projectDir }
-    )
-
-    expect(exitWithout).toBe(0)
-    expect(exitWith).toBe(0)
-
-    // `--session-id` carries a fresh UUID per invocation, so comparing the two
-    // commands byte-for-byte asserted that a random value repeats. Normalise the
-    // one nondeterministic field and keep the byte comparison for the rest.
-    const commandWithout = normalizeSessionId(extractDryRunCommand(withoutFlag))
-    const commandWith = normalizeSessionId(extractDryRunCommand(withFlag))
-    expect(commandWithout).toEqual(commandWith)
-    // The field really is present -- otherwise the normalisation would be
-    // silently comparing two strings it never touched.
-    expect(commandWithout).toContain('--session-id <uuid>')
+    expect(stderr).toContain('agent-harness requires a validated agent profile')
   })
 
   test('output path includes harness subdirectory', async () => {
@@ -502,8 +450,9 @@ describe('invalid harness handling', () => {
     expect(exitCode).toBe(1)
     // Should list all registered harnesses
     expect(stderr).toContain('claude')
-    expect(stderr).toContain('pi')
-    expect(stderr).toContain('pi-sdk')
+    expect(stderr).toContain('agent-harness')
+    expect(stderr).toContain('codex')
+    expect(stderr).toContain('muse')
   })
 })
 
@@ -515,25 +464,14 @@ describe('harness registry', () => {
     expect(claude?.name).toBe('Claude Code')
   })
 
-  test('has pi adapter registered', () => {
-    expect(harnessRegistry.has('pi')).toBe(true)
-    const pi = harnessRegistry.get('pi')
-    expect(pi).toBeDefined()
-    expect(pi?.name).toBe('Pi Coding Agent')
-  })
-
-  test('has pi-sdk adapter registered', () => {
-    expect(harnessRegistry.has('pi-sdk')).toBe(true)
-    const piSdk = harnessRegistry.get('pi-sdk')
-    expect(piSdk).toBeDefined()
-    expect(piSdk?.name).toBe('Pi SDK')
+  test('does not expose retired Pi IDs', () => {
+    expect(harnessRegistry.has('pi')).toBe(false)
+    expect(harnessRegistry.has('pi-sdk')).toBe(false)
   })
 
   test('getAll returns all adapters', () => {
     const adapters = harnessRegistry.getAll()
-    const ids = adapters.map((a) => a.id)
-    expect(ids).toContain('claude')
-    expect(ids).toContain('pi')
-    expect(ids).toContain('pi-sdk')
+    const ids = adapters.map((a) => a.id).sort()
+    expect(ids).toEqual(['agent-harness', 'claude', 'codex', 'muse'])
   })
 })

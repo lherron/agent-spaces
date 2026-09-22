@@ -12,18 +12,14 @@
 
 import chalk from 'chalk'
 
-// Internal legacy seam (EN-15986): `--harness` addresses v1 adapters, not the
-// closed selection vocabulary. T-08702 deletes it with the v1 flow.
-import { type HarnessId, isHarnessId } from 'spaces-config'
-import { harnessRegistry } from 'spaces-execution'
+import { DEFAULT_HARNESS_ID, catalogHarnessIds } from 'agent-spaces'
+import type { HarnessId } from 'spaces-runtime-contracts'
 
-/**
- * Default harness id used when `--harness` is omitted.
- *
- * Centralizes the literal previously hard-coded in `validateHarness`,
- * `install.ts`, and the `harnesses` command's `defaultHarness` field.
- */
-export const DEFAULT_HARNESS_ID = 'claude'
+export { DEFAULT_HARNESS_ID }
+
+function isPublicHarnessId(harness: string): harness is HarnessId {
+  return catalogHarnessIds().includes(harness)
+}
 
 /**
  * Print the standard "unknown harness" error block and exit.
@@ -32,21 +28,22 @@ function exitWithUnknownHarness(harnessId: string): never {
   console.error(chalk.red(`Error: Unknown harness "${harnessId}"`))
   console.error(chalk.gray(''))
   console.error(chalk.gray('Available harnesses:'))
-  for (const adapter of harnessRegistry.getAll()) {
-    console.error(chalk.gray(`  - ${adapter.id}`))
+  for (const id of catalogHarnessIds()) {
+    console.error(chalk.gray(`  - ${id}`))
   }
   process.exit(1)
 }
 
 /**
- * Validate a `--harness` option, defaulting to `'claude'` when omitted.
+ * Validate a `--harness` option, defaulting to the catalog's agent-harness
+ * entry when omitted.
  *
  * Exits with the standard error block if the harness id is unknown.
  */
 export function validateHarness(harness: string | undefined): HarnessId {
   const harnessId = harness ?? DEFAULT_HARNESS_ID
 
-  if (!isHarnessId(harnessId)) {
+  if (!isPublicHarnessId(harnessId)) {
     exitWithUnknownHarness(harnessId)
   }
 
@@ -64,7 +61,7 @@ export function validateOptionalHarness(harness: string | undefined): HarnessId 
     return undefined
   }
 
-  if (!isHarnessId(harness)) {
+  if (!isPublicHarnessId(harness)) {
     exitWithUnknownHarness(harness)
   }
 

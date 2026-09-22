@@ -1,4 +1,4 @@
-import type { BrokerExecutionProfile, ParticipantAdapter } from 'spaces-runtime-contracts'
+import type { ParticipantAdapter, ParticipantBrokerDescriptor } from 'spaces-runtime-contracts'
 
 export type HrcSocketPath = string
 
@@ -61,7 +61,7 @@ export type JoinAttachRequest = {
   attemptId: string
   attachEpoch: number
   socketPath?: string | undefined
-  profile: BrokerExecutionProfile
+  descriptor: ParticipantBrokerDescriptor
   dispatchEnv?: Record<string, string> | undefined
 }
 

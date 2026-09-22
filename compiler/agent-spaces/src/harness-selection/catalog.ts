@@ -3,6 +3,9 @@ import type { HarnessDefinition } from './types.js'
 
 const broker = 'harness-broker/0.2' as const
 
+/** The only ordinary-selection harness default. */
+export const DEFAULT_HARNESS_ID: HarnessId = 'agent-harness'
+
 /**
  * The sole selection authority. Do not add harness/presentation-to-driver
  * mappings outside this table; projections and resolver output derive from it.

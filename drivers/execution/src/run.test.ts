@@ -551,6 +551,12 @@ describe('system prompt threading (T-01016)', () => {
 })
 
 describe('placement runtime planner (T-01097)', () => {
+  const claudeExecution = {
+    harnessId: 'claude' as const,
+    adapter: harnessRegistry.getOrThrow('claude'),
+    frontend: 'claude-code' as const,
+    provider: 'anthropic' as const,
+  }
   test('planPlacementRuntime is exported and callable', async () => {
     const planPlacementRuntime = (runModule as Record<string, unknown>)['planPlacementRuntime']
     expect(planPlacementRuntime).toBeDefined()
@@ -570,7 +576,7 @@ describe('placement runtime planner (T-01097)', () => {
     const plan = await runModule.planPlacementRuntime({
       placement,
       placementContext,
-      frontend: 'claude-code',
+      execution: claudeExecution,
       aspHome,
     })
 
@@ -584,7 +590,7 @@ describe('placement runtime planner (T-01097)', () => {
     expect(plan.model.ok === true || plan.model.ok === false).toBe(true)
   })
 
-  test('planPlacementRuntime throws on unknown frontend', async () => {
+  test('planPlacementRuntime rejects an adapter identity that disagrees with its resolved harness', async () => {
     const aspHome = await createTempDir('placement-plan-bad-')
     const placement = {
       bundle: { kind: 'agent-project' as const, agentName: 'x' },
@@ -598,15 +604,18 @@ describe('placement runtime planner (T-01097)', () => {
       runModule.planPlacementRuntime({
         placement,
         placementContext,
-        frontend: 'no-such-frontend' as never,
+        execution: {
+          ...claudeExecution,
+          harnessId: 'codex',
+        },
         aspHome,
       })
-    ).rejects.toThrow(/Unknown harness frontend/)
+    ).rejects.toThrow(/Resolved adapter identity mismatch/)
   })
 })
 
 describe('project-target runtime planner (T-01099)', () => {
-  test('refuses retired SDK harnesses after resolving the effective project harness', async () => {
+  test('requires a compiler-resolved adapter rather than reading retired SDK declarations', async () => {
     const { planProjectTargetRuntime } = await import('./run/placement-plan.js')
     const root = await createTempDir('proj-target-retired-sdk-')
     const manifest: ProjectManifest = {
@@ -621,57 +630,22 @@ describe('project-target runtime planner (T-01099)', () => {
       },
     }
 
-    const explicitError = (() => {
+    const mismatchError = (() => {
       try {
         planProjectTargetRuntime(manifest, 'sdk_target', {
           aspHome: join(root, 'asp-home'),
           projectPath: root,
-          harness: 'claude-agent-sdk',
+          execution: {
+            harnessId: 'claude',
+            adapter: harnessRegistry.getOrThrow('codex'),
+          },
         })
         return undefined
       } catch (error) {
         return error
       }
     })()
-    const declaredError = (() => {
-      try {
-        planProjectTargetRuntime(manifest, 'sdk_target', {
-          aspHome: join(root, 'asp-home'),
-          projectPath: root,
-        })
-        return undefined
-      } catch (error) {
-        return error
-      }
-    })()
-
-    expect(String(explicitError)).toMatch(/Invalid harness "claude-agent-sdk"/)
-    expect(String(declaredError)).toMatch(/Invalid harness "pi-sdk"/)
-  })
-
-  test('refuses retired SDK harnesses in global and local run modes', async () => {
-    const root = await createTempDir('space-launch-retired-sdk-')
-    const globalError = await runModule
-      .runGlobalSpace('not-a-space-ref' as SpaceRefString, {
-        aspHome: join(root, 'asp-home'),
-        harness: 'claude-agent-sdk',
-      })
-      .then(
-        () => undefined,
-        (error: unknown) => error
-      )
-    const localError = await runModule
-      .runLocalSpace(root, {
-        aspHome: join(root, 'asp-home'),
-        harness: 'pi-sdk',
-      })
-      .then(
-        () => undefined,
-        (error: unknown) => error
-      )
-
-    expect(String(globalError)).toMatch(/Invalid harness "claude-agent-sdk"/)
-    expect(String(localError)).toMatch(/Invalid harness "pi-sdk"/)
+    expect(String(mismatchError)).toMatch(/Resolved adapter identity mismatch/)
   })
 
   test('continues planning every retained project harness', async () => {
@@ -686,7 +660,7 @@ describe('project-target runtime planner (T-01099)', () => {
       const plan = planProjectTargetRuntime(manifest, 'retained_target', {
         aspHome: join(root, 'asp-home'),
         projectPath: root,
-        harness: harnessId,
+        execution: { harnessId, adapter: harnessRegistry.getOrThrow(harnessId) },
       })
       expect(plan.harnessId).toBe(harnessId)
       expect(plan.adapter).toBe(harnessRegistry.getOrThrow(harnessId))
@@ -708,7 +682,8 @@ describe('project-target runtime planner (T-01099)', () => {
 
     const plan = planProjectTargetRuntime(manifest, 'my_target', {
       aspHome,
-      harness: 'claude',
+      projectPath: aspHome,
+      execution: { harnessId: 'claude', adapter: harnessRegistry.getOrThrow('claude') },
     })
 
     expect(plan.harnessId).toBe('claude')
@@ -1115,13 +1090,7 @@ permission_mode = "plan"
     expect(defaults!.model).toBe('claude-sonnet-4-6')
   })
 
-  // -------------------------------------------------------------------------
-  // Gap 4: provisioning.harness is used when no --harness flag and no target harness
-  //
-  // When an agent's profile specifies provisioning.harness = "codex", asp run
-  // should select codex as the harness rather than the default ("claude").
-  // -------------------------------------------------------------------------
-  test('gap 4: provisioning.harness is used when no --harness and no target harness', async () => {
+  test('agent-profile defaults do not select a harness', async () => {
     const agentsDir = await createTempDir('smokey-agents-harness-')
     await writeAgentProfile(
       agentsDir,
@@ -1145,7 +1114,7 @@ harness = "codex"
     expect(resolveAgentRunDefaults).toBeDefined()
     const defaults = resolveAgentRunDefaults!('larry', target, { agentsRoot: agentsDir })
     expect(defaults).toBeDefined()
-    expect(defaults!.harness).toBe('codex')
+    expect(defaults).not.toHaveProperty('harness')
   })
 
   // -------------------------------------------------------------------------
@@ -1195,21 +1164,7 @@ base = ["space:smokey@dev"]
     expect(defaults!.compose).toContain('space:project@dev' as SpaceRefString)
   })
 
-  // -------------------------------------------------------------------------
-  // Gap 6 (T-00996): target-level harness precedence
-  //
-  // Precedence: CLI --harness > target.harness > profile.provisioning.harness > DEFAULT_HARNESS
-  //
-  // RED GATE: TargetDefinition does not have a `harness` field yet.
-  // resolveAgentRunDefaults must thread target.harness into the result.
-  //
-  // Pass condition: Larry adds `harness?: string` to TargetDefinition,
-  // updates mergeAgentWithProjectTarget to prefer target.harness over
-  // profile.provisioning.harness, and run.ts already chains via
-  // options.harness ?? agentDefaults.harness ?? DEFAULT_HARNESS.
-  // -------------------------------------------------------------------------
-
-  test('gap 6a: target-level harness overrides profile provisioning.harness', async () => {
+  test('target provisioning does not restore harness selection to profile defaults', async () => {
     const agentsDir = await createTempDir('smokey-agents-tgt-harness-')
     await writeAgentProfile(
       agentsDir,
@@ -1226,7 +1181,8 @@ harness = "codex"
 `
     )
 
-    // Target explicitly sets harness = "claude" → should override profile's "codex"
+    // Selection layers reach the compiler; execution defaults retain only
+    // launch/materialization data.
     const target: TargetDefinition = {
       compose: ['space:defaults@stable' as SpaceRefString],
       provisioning: { harness: 'claude' },
@@ -1235,10 +1191,10 @@ harness = "codex"
     expect(resolveAgentRunDefaults).toBeDefined()
     const defaults = resolveAgentRunDefaults!('larry', target, { agentsRoot: agentsDir })
     expect(defaults).toBeDefined()
-    expect(defaults!.harness).toBe('claude')
+    expect(defaults).not.toHaveProperty('harness')
   })
 
-  test('gap 6b: fallback to profile provisioning.harness when target has no harness', async () => {
+  test('profile harness declarations are not a driver fallback', async () => {
     const agentsDir = await createTempDir('smokey-agents-tgt-harness-fb-')
     await writeAgentProfile(
       agentsDir,
@@ -1263,8 +1219,7 @@ harness = "codex"
     expect(resolveAgentRunDefaults).toBeDefined()
     const defaults = resolveAgentRunDefaults!('larry', target, { agentsRoot: agentsDir })
     expect(defaults).toBeDefined()
-    // Profile provisioning.harness should be used as fallback
-    expect(defaults!.harness).toBe('codex')
+    expect(defaults).not.toHaveProperty('harness')
   })
 
   test('gap 6c: fallback to DEFAULT_HARNESS when neither target nor profile set harness', async () => {
@@ -1289,9 +1244,7 @@ role = "tester"
     expect(resolveAgentRunDefaults).toBeDefined()
     const defaults = resolveAgentRunDefaults!('smokey', target, { agentsRoot: agentsDir })
     expect(defaults).toBeDefined()
-    // Fail closed (T-08701): no harness is invented at the defaults layer.
-    // The v1 launch layer applies the legacy-seam DEFAULT_HARNESS downstream.
-    expect(defaults!.harness).toBeUndefined()
+    expect(defaults).not.toHaveProperty('harness')
   })
 
   // NOTE: CLI --harness precedence is tested implicitly at the run() call site:

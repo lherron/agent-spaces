@@ -6,7 +6,7 @@ export * from './continuation'
 export * from './controller'
 export * from './errors'
 export * from './event-mapper'
-export * from './execution-profile'
+export * from './participant-broker-descriptor'
 export * from './exposure'
 export * from './external'
 export * from './hash'
@@ -29,7 +29,6 @@ export type {
   ProviderDomain,
   RunStatus,
   RuntimeControllerKind,
-  RuntimeExecutionProfileKind,
   RuntimeStateStatus,
   RuntimeStatus,
   SchemaVersion,
@@ -45,4 +44,3 @@ export * from './provider-model-catalog'
 export * from './resources'
 export type { PlacementRuntimeModelResolution, PlacementRuntimePlan } from './run-compile'
 export * from './runtime-state'
-export * from './validate-execution-profile'

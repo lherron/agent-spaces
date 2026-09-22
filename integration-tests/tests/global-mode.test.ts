@@ -14,7 +14,11 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 
 import { PathResolver, readLockJson } from 'spaces-config'
-import { runGlobalSpace, runLocalSpace } from 'spaces-execution'
+import {
+  harnessRegistry,
+  runGlobalSpace as runGlobalSpaceExecution,
+  runLocalSpace as runLocalSpaceExecution,
+} from 'spaces-execution'
 
 import {
   CLAUDE_SHIM_PATH,
@@ -25,6 +29,25 @@ import {
   initSampleRegistry,
   readShimOutput,
 } from './setup.js'
+
+const CLAUDE_EXECUTION = {
+  harnessId: 'claude' as const,
+  adapter: harnessRegistry.getOrThrow('claude'),
+}
+
+function runGlobalSpace(
+  spaceRef: Parameters<typeof runGlobalSpaceExecution>[0],
+  options: Omit<Parameters<typeof runGlobalSpaceExecution>[1], 'execution'>
+): ReturnType<typeof runGlobalSpaceExecution> {
+  return runGlobalSpaceExecution(spaceRef, { ...options, execution: CLAUDE_EXECUTION })
+}
+
+function runLocalSpace(
+  spacePath: string,
+  options: Omit<Parameters<typeof runLocalSpaceExecution>[1], 'execution'>
+): ReturnType<typeof runLocalSpaceExecution> {
+  return runLocalSpaceExecution(spacePath, { ...options, execution: CLAUDE_EXECUTION })
+}
 
 describe('asp run global mode', () => {
   let aspHome: string

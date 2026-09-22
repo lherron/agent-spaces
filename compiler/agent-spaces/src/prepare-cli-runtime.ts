@@ -215,7 +215,12 @@ export async function preparePlacementCliRuntime(
   const unresolvedRuntimePlan = await runtime.planPlacementRuntime({
     placement,
     placementContext,
-    frontend: req.frontend,
+    execution: {
+      harnessId: implementation.harness,
+      adapter: runtime.getHarnessAdapter(implementation.harness),
+      frontend: implementation.frontend,
+      provider: implementation.provider,
+    },
     aspHome,
     model: req.model,
     prompt: req.prompt,

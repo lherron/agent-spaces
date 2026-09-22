@@ -140,27 +140,35 @@ describe('hrc join client', () => {
     }
   })
 
-  test('attach maps attached and epoch-stale / conflict refusals', async () => {
-    const attached = stubHrc(() => ({
-      status: 200,
-      body: {
-        status: 'attached',
-        registrationId: 'reg_1',
-        attemptId: 'att_1',
-        attachEpoch: 1,
-        prepared: true,
-        observation: { state: 'attached', detail: 'ok' },
-      },
-    }))
+  test('attach sends only the participant descriptor and maps epoch-stale / conflict refusals', async () => {
+    let attachedRequest: unknown
+    const attached = stubHrc((_path, body) => {
+      attachedRequest = body
+      return {
+        status: 200,
+        body: {
+          status: 'attached',
+          registrationId: 'reg_1',
+          attemptId: 'att_1',
+          attachEpoch: 1,
+          prepared: true,
+          observation: { state: 'attached', detail: 'ok' },
+        },
+      }
+    })
     try {
       const result = await attachParticipant(attached.sock, {
         registrationId: 'reg_1',
         attemptId: 'att_1',
         attachEpoch: 1,
         socketPath: '/tmp/broker.sock',
-        profile: { kind: 'profile' } as never,
+        descriptor: { kind: 'descriptor' } as never,
       })
       expect(result.outcome).toBe('attached')
+      expect(attachedRequest).toMatchObject({
+        descriptor: { kind: 'descriptor' },
+      })
+      expect(attachedRequest).not.toHaveProperty('profile')
     } finally {
       attached.stop()
     }
@@ -177,7 +185,7 @@ describe('hrc join client', () => {
         registrationId: 'reg_1',
         attemptId: 'att_1',
         attachEpoch: 1,
-        profile: { kind: 'profile' } as never,
+        descriptor: { kind: 'descriptor' } as never,
       })
       expect(isAttachEpochStale(result)).toBe(true)
       expect(isAttachConflict(result)).toBe(false)
@@ -193,7 +201,7 @@ describe('hrc join client', () => {
         registrationId: 'reg_1',
         attemptId: 'att_1',
         attachEpoch: 1,
-        profile: { kind: 'profile' } as never,
+        descriptor: { kind: 'descriptor' } as never,
       })
       expect(isAttachConflict(result)).toBe(true)
     } finally {
@@ -239,7 +247,7 @@ describe('hrc join client', () => {
           admit: () => ({ status: 'rejected' as const, reason: 'unused' }),
           prepare: (request) => {
             preparedWith = request
-            return { status: 'prepared' as const, profile: { kind: 'echo' } as never }
+            return { status: 'prepared' as const, descriptor: { kind: 'echo' } as never }
           },
         },
       })
@@ -279,7 +287,7 @@ describe('hrc join client', () => {
           admit: () => ({ status: 'rejected' as const, reason: 'unused' }),
           prepare: () => {
             prepared = true
-            return { status: 'prepared' as const, profile: {} as never }
+            return { status: 'prepared' as const, descriptor: {} as never }
           },
         },
       })

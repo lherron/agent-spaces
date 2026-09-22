@@ -7,12 +7,12 @@ import {
   validateArrisHostDescriptor,
 } from 'spaces-harness-broker-protocol'
 import {
-  type BrokerExecutionProfile,
   type ParticipantAdapter,
   type ParticipantAdapterAdmissionRequest,
   type ParticipantAdapterPreparationRequest,
+  type ParticipantBrokerDescriptor,
   createCanonicalHasher,
-  neutralBrokerExecutionProfileHash,
+  neutralParticipantBrokerDescriptorHash,
   neutralSpecHash,
   neutralStartRequestHash,
 } from 'spaces-runtime-contracts'
@@ -227,19 +227,19 @@ function continuityFrom(descriptor: ArrisHostDescriptor): ArrisParticipantContin
   }
 }
 
-function stableId(prefix: 'profile' | 'compatibility', value: unknown): string {
+function stableId(prefix: 'descriptor' | 'compatibility', value: unknown): string {
   const hash = createCanonicalHasher().hash(value, {
     timestampMode: 'omit-ephemeral',
   }).value
   return `${prefix}_${hash.slice(0, 32)}`
 }
 
-function buildProfile(
+function buildDescriptor(
   adapterId: string,
   product: ValidatedResidentProduct,
   request: ParticipantAdapterPreparationRequest,
   preparation: ArrisParticipantPreparation
-): BrokerExecutionProfile {
+): ParticipantBrokerDescriptor {
   const startRequest = {
     spec: {
       specVersion: 'harness-broker.invocation/v1' as const,
@@ -284,7 +284,7 @@ function buildProfile(
       },
     },
   }
-  const profileId = stableId('profile', {
+  const descriptorId = stableId('descriptor', {
     adapterId,
     join: request.join,
     startRequest,
@@ -295,12 +295,11 @@ function buildProfile(
     classId: request.classId,
     lifecycleOwner: preparation.lifecycleOwner,
   })
-  const profile: BrokerExecutionProfile = {
-    schemaVersion: 'agent-runtime-profile/v1',
-    profileId: profileId as BrokerExecutionProfile['profileId'],
-    profileHash: '',
+  const descriptor: ParticipantBrokerDescriptor = {
+    schemaVersion: 'participant-broker-descriptor/v1',
+    descriptorId: descriptorId as ParticipantBrokerDescriptor['descriptorId'],
+    descriptorHash: '',
     compatibilityHash,
-    kind: 'harness-broker',
     interactionMode: 'headless',
     expectedCapabilities: {
       input: {
@@ -379,13 +378,13 @@ function buildProfile(
       },
     },
   }
-  const profileHash = neutralBrokerExecutionProfileHash(profile)
-  const startRequestHash = profile.harnessInvocation.startRequestHash
+  const descriptorHash = neutralParticipantBrokerDescriptorHash(descriptor)
+  const startRequestHash = descriptor.harnessInvocation.startRequestHash
   return {
-    ...profile,
-    profileHash,
+    ...descriptor,
+    descriptorHash,
     harnessInvocation: {
-      ...profile.harnessInvocation,
+      ...descriptor.harnessInvocation,
       startRequest: {
         ...startRequest,
         spec: {
@@ -393,7 +392,7 @@ function buildProfile(
           correlation: {
             ...startRequest.spec.correlation,
             startRequestHash,
-            selectedProfileHash: profileHash,
+            selectedProfileHash: descriptorHash,
           },
         },
       },
@@ -454,7 +453,7 @@ export function createResidentParticipantAdapter(
       if (!descriptor.readiness.accepts_input) return admissionPending('arris_host_not_ready')
       return {
         status: 'prepared',
-        profile: buildProfile(adapterId, product, request, preparation),
+        descriptor: buildDescriptor(adapterId, product, request, preparation),
       }
     },
   }

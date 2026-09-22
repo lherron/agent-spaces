@@ -10,20 +10,12 @@ import {
   getAgentRootsForProject,
   loadProjectManifest,
 } from 'spaces-config'
-// Internal legacy seam (EN-15986): the pre-cutover routing catalog, frozen
-// for old v1 consumers. T-08702 deletes it with the last v1 consumer.
-import { DEFAULT_HARNESS, type HarnessId } from 'spaces-config'
-import type { HarnessFrontend } from 'spaces-runtime-contracts'
+import type { HarnessFrontend, HarnessId } from 'spaces-runtime-contracts'
 
-import { harnessRegistry } from '../harness/index.js'
-
-import {
-  type LoadedAgentProfile,
-  resolveAgentRunDefaultsFromProfile,
-  resolveProfileHarnessForRun,
-} from './agent-profile.js'
+import { type LoadedAgentProfile, loadAgentProfileForRun } from './agent-profile.js'
 import { planProjectTargetRuntime } from './placement-plan.js'
 import { resolveSpaceCodexConfigModel } from './space-codex-model.js'
+import type { ResolvedHarnessAdapter } from './types.js'
 
 export type ModelAuditSourceMode =
   | 'explicit_profile'
@@ -53,6 +45,12 @@ export interface AuditProjectModelsOptions {
   projectPath: string
   aspHome: string
   cliModel?: string | undefined
+  /** Compiler/catalog-owned selection supplied by the application boundary. */
+  resolveExecution: (input: {
+    agentId: string
+    target: TargetDefinition | undefined
+    agentProfile: LoadedAgentProfile | undefined
+  }) => (ResolvedHarnessAdapter & { frontend: HarnessFrontend }) | undefined
 }
 
 interface SelectedModelSource {
@@ -180,34 +178,25 @@ export async function auditProjectModels(
   ])
 
   for (const targetName of targetNames) {
+    const target = manifest.targets[targetName]
+    const agentProfile = loadAgentProfileForRun(targetName, {
+      projectRoot: options.projectPath,
+      aspHome: options.aspHome,
+    })
+    const execution = options.resolveExecution({ agentId: targetName, target, agentProfile })
+    if (execution === undefined) {
+      continue
+    }
     const runtimePlan = planProjectTargetRuntime(manifest, targetName, {
       aspHome: options.aspHome,
       projectPath: options.projectPath,
+      execution,
     })
     if (!runtimePlan.agentProfile) {
       continue
     }
 
-    const agentDefaults = resolveAgentRunDefaultsFromProfile(
-      runtimePlan.target,
-      runtimePlan.agentProfile
-    )
-    const harnessId =
-      resolveProfileHarnessForRun(agentDefaults.harness) ??
-      resolveProfileHarnessForRun(runtimePlan.target?.provisioning?.harness) ??
-      DEFAULT_HARNESS
-    const adapter = harnessRegistry.getOrThrow(harnessId)
-    const frontend =
-      harnessId === 'claude'
-        ? 'claude-code'
-        : harnessId === 'codex'
-          ? 'codex-cli'
-          : harnessId === 'muse'
-            ? 'muse-cli'
-            : undefined
-    if (!frontend) {
-      continue
-    }
+    const { harnessId, adapter, frontend } = execution
 
     const selected = selectTargetModelSource({
       cliModel: options.cliModel,

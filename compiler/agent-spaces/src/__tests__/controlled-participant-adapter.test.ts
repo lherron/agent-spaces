@@ -59,14 +59,14 @@ describe('controlled participant adapter', () => {
       )
       expect(validation.ok).toBe(true)
       if (prepared.status !== 'prepared') throw new Error('controlled adapter did not prepare')
-      expect(prepared.profile.brokerOwnership).toBe(
+      expect(prepared.descriptor.brokerOwnership).toBe(
         join === 'hrc-hosted' ? 'hrc-owned-process' : 'participant-owned-process'
       )
       expect('runtime' in prepared).toBe(false)
       expect('lifecyclePolicy' in prepared).toBe(false)
-      expect(prepared.profile.harnessInvocation.startRequest.spec.correlation).toMatchObject({
-        startRequestHash: prepared.profile.harnessInvocation.startRequestHash,
-        selectedProfileHash: prepared.profile.profileHash,
+      expect(prepared.descriptor.harnessInvocation.startRequest.spec.correlation).toMatchObject({
+        startRequestHash: prepared.descriptor.harnessInvocation.startRequestHash,
+        selectedProfileHash: prepared.descriptor.descriptorHash,
       })
     }
   })
