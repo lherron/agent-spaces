@@ -40,7 +40,7 @@ interface PlanArtifact {
   createdAt: string
   systemPromptFile: string
   agentRoot?: string | undefined
-  harnessFamily?: string | undefined
+  harness?: string | undefined
   planHash: string
 }
 
@@ -64,7 +64,7 @@ interface AgentRentReport {
   scopeRef?: string | undefined
   systemPromptFile?: string | undefined
   planCreatedAt?: string | undefined
-  harnessFamily?: string | undefined
+  harness?: string | undefined
   residentTokens: number
   residentTokensPerDay: number
   sections: PromptSectionRent[]
@@ -129,7 +129,7 @@ interface PlanRow {
   scope_ref?: string | undefined
   system_prompt_file?: string | undefined
   agent_root?: string | undefined
-  harness_family?: string | undefined
+  harness?: string | undefined
 }
 
 function estimateTokens(text: string): number {
@@ -300,7 +300,7 @@ async function loadLatestPlans(
     "json_extract(plan_projection_json, '$.placement.correlation.sessionRef.scopeRef') as scope_ref,",
     "json_extract(plan_projection_json, '$.artifacts.systemPromptFile') as system_prompt_file,",
     "json_extract(plan_projection_json, '$.placement.agentRoot') as agent_root,",
-    "json_extract(plan_projection_json, '$.harness.family') as harness_family",
+    "json_extract(plan_projection_json, '$.selection.harness') as harness",
     'from compiled_runtime_plans',
     "where json_extract(plan_projection_json, '$.artifacts.systemPromptFile') is not null",
     'order by created_at desc',
@@ -321,7 +321,7 @@ async function loadLatestPlans(
       createdAt: row.created_at,
       systemPromptFile,
       agentRoot: row.agent_root,
-      harnessFamily: row.harness_family,
+      harness: row.harness,
       planHash: row.plan_hash,
     })
   }
@@ -370,7 +370,7 @@ function buildAgentReports(
       scopeRef: plan.scopeRef,
       systemPromptFile: plan.systemPromptFile,
       planCreatedAt: plan.createdAt,
-      harnessFamily: plan.harnessFamily,
+      harness: plan.harness,
       residentTokens,
       residentTokensPerDay,
       sections,

@@ -136,7 +136,7 @@ describe('asp agent <scope-ref> <mode> (T-00865)', () => {
         '--agent-root',
         agentRoot,
         '--harness',
-        'claude-code',
+        'claude',
         '--dry-run',
       ],
       { expectError: true }
@@ -161,15 +161,14 @@ describe('asp agent <scope-ref> <mode> (T-00865)', () => {
           '--agent-root',
           agentRoot,
           '--harness',
-          'agent-sdk',
+          'claude',
           '--dry-run',
         ],
         { expectError: true }
       )
 
-      const output = result.stdout + result.stderr
       // heartbeat mode should not require a prompt
-      expect(output).not.toMatch(/prompt.*required/i)
+      expect(result.exitCode).toBe(0)
     }
   )
 
@@ -184,7 +183,7 @@ describe('asp agent <scope-ref> <mode> (T-00865)', () => {
         '--agent-root',
         agentRoot,
         '--harness',
-        'agent-sdk',
+        'claude',
         '--dry-run',
       ],
       { expectError: true }
@@ -207,7 +206,7 @@ describe('asp agent <scope-ref> <mode> (T-00865)', () => {
         '--agent-root',
         agentRoot,
         '--harness',
-        'claude-code',
+        'claude',
         '--dry-run',
         '--print-command',
       ],
@@ -220,21 +219,20 @@ describe('asp agent <scope-ref> <mode> (T-00865)', () => {
 })
 
 // ===================================================================
-// T-01092: pi-sdk provider mapping
+// T-01092: foreground process selection
 // ===================================================================
-describe('pi-sdk provider mapping (T-01092)', () => {
+describe('foreground process selection (T-01092)', () => {
   cliTest(
-    'normalizeHarness delegates provider/frontend resolution to shared catalog helpers',
+    'projects the selected harness from the compiler catalog without a local route table',
     () => {
       const source = readFileSync(
         join(import.meta.dirname, '..', 'commands', 'agent', 'index.ts'),
         'utf8'
       )
-      const fn = source.match(/function normalizeHarness[\s\S]*?\n}\n\nfunction /)?.[0]
 
-      expect(fn).toBeDefined()
-      expect(fn).toMatch(/const frontend = resolveHarnessFrontendName\(input\)/)
-      expect(fn).toMatch(/const provider = resolveHarnessProvider\(input\)/)
+      expect(source).toContain('resolveHarnessExecution')
+      expect(source).toContain('HARNESS_CATALOG[resolution.selection.harness]')
+      expect(source).not.toMatch(/if \(input === '(?:claude|codex|muse|agent-harness)'\)/)
     }
   )
 })
@@ -459,7 +457,7 @@ describe('bundle selection flags (T-00868)', () => {
         '--agent-root',
         agentRoot,
         '--harness',
-        'claude-code',
+        'claude',
         '--compose',
         'space:agent:private-ops',
         '--compose',
@@ -493,7 +491,7 @@ describe('hostSessionId regression (T-00872)', () => {
         '--agent-root',
         agentRoot,
         '--harness',
-        'claude-code',
+        'claude',
         '--host-session-id',
         'regression-hsid-42',
         '--dry-run',
@@ -519,7 +517,7 @@ describe('hostSessionId regression (T-00872)', () => {
         '--agent-root',
         agentRoot,
         '--harness',
-        'claude-code',
+        'claude',
         '--dry-run',
         '--json',
       ],
@@ -579,7 +577,7 @@ describe('CLI default correlation from positional ScopeRef (T-00892)', () => {
           '--agent-root',
           agentRoot,
           '--harness',
-          'claude-code',
+          'claude',
           '--dry-run',
           '--json',
         ],
@@ -610,7 +608,7 @@ describe('CLI default correlation from positional ScopeRef (T-00892)', () => {
         '--agent-root',
         agentRoot,
         '--harness',
-        'claude-code',
+        'claude',
         '--lane-ref',
         'deploy',
         '--dry-run',
@@ -639,7 +637,7 @@ describe('CLI default correlation from positional ScopeRef (T-00892)', () => {
         '--agent-root',
         agentRoot,
         '--harness',
-        'claude-code',
+        'claude',
         '--host-session-id',
         'hs-corr-test',
         '--dry-run',
@@ -671,7 +669,7 @@ describe('CLI default correlation from positional ScopeRef (T-00892)', () => {
         '--project-root',
         projectRoot,
         '--harness',
-        'claude-code',
+        'claude',
         '--dry-run',
         '--json',
       ],
@@ -703,7 +701,7 @@ describe('placement invocation produces full argv (T-00874)', () => {
         '--agent-root',
         agentRoot,
         '--harness',
-        'claude-code',
+        'claude',
         '--host-session-id',
         'argv-test-1',
         '--dry-run',
@@ -733,7 +731,7 @@ describe('placement invocation produces full argv (T-00874)', () => {
         '--agent-root',
         agentRoot,
         '--harness',
-        'codex-cli',
+        'codex',
         '--host-session-id',
         'argv-test-2',
         '--dry-run',
@@ -769,7 +767,7 @@ describe('placement invocation produces full argv (T-00874)', () => {
         '--agent-root',
         agentRoot,
         '--harness',
-        'claude-code',
+        'claude',
         '--dry-run',
         '--json',
       ],
@@ -794,7 +792,7 @@ describe('placement invocation produces full argv (T-00874)', () => {
         '--agent-root',
         agentRoot,
         '--harness',
-        'claude-code',
+        'claude',
         '--dry-run',
         '--json',
       ],
@@ -818,7 +816,7 @@ describe('placement invocation produces full argv (T-00874)', () => {
         '--agent-root',
         agentRoot,
         '--harness',
-        'claude-code',
+        'claude',
         '--dry-run',
         '--json',
       ],
@@ -842,7 +840,7 @@ describe('placement invocation produces full argv (T-00874)', () => {
         '--agent-root',
         agentRoot,
         '--harness',
-        'claude-code',
+        'claude',
         '--model',
         'not-a-real-model',
         '--dry-run',
@@ -854,7 +852,7 @@ describe('placement invocation produces full argv (T-00874)', () => {
     // Should fail with model not supported error
     expect(result.exitCode).not.toBe(0)
     const output = result.stdout + result.stderr
-    expect(output).toMatch(/[Mm]odel not supported/)
+    expect(output).toMatch(/does not support model|model not supported/i)
   })
 })
 
@@ -876,7 +874,7 @@ describe('prompt in argv (T-00875)', () => {
         '--agent-root',
         agentRoot,
         '--harness',
-        'claude-code',
+        'claude',
         '--dry-run',
         '--json',
       ],
@@ -902,7 +900,7 @@ describe('prompt in argv (T-00875)', () => {
         '--agent-root',
         agentRoot,
         '--harness',
-        'codex-cli',
+        'codex',
         '--dry-run',
         '--json',
       ],
@@ -928,7 +926,7 @@ describe('prompt in argv (T-00875)', () => {
           '--agent-root',
           agentRoot,
           '--harness',
-          'claude-code',
+          'claude',
           '--dry-run',
           '--json',
         ],
@@ -958,7 +956,7 @@ describe('gpt-5.5 model support (T-00878)', () => {
         '--agent-root',
         agentRoot,
         '--harness',
-        'codex-cli',
+        'codex',
         '--model',
         'gpt-5.5',
         '--dry-run',
@@ -986,7 +984,7 @@ describe('gpt-5.5 model support (T-00878)', () => {
         '--agent-root',
         agentRoot,
         '--harness',
-        'codex-cli',
+        'codex',
         '--dry-run',
         '--json',
       ],
@@ -1000,9 +998,9 @@ describe('gpt-5.5 model support (T-00878)', () => {
 })
 
 // ===================================================================
-// T-00879: pi-sdk placement path uses unified materialization
+// T-00879: retained session mechanics use unified materialization
 // ===================================================================
-describe('pi-sdk placement path (T-00879)', () => {
+describe('session runtime placement path (T-00879)', () => {
   cliTest('runPlacementTurnNonInteractive uses unified materializeSpec pipeline', () => {
     const source = readFileSync(
       join(import.meta.dirname, '..', '..', '..', 'turn-runner', 'src', 'run-placement-turn.ts'),
@@ -1018,7 +1016,7 @@ describe('pi-sdk placement path (T-00879)', () => {
     // Must use resolvePlacementContext + materializeSpec (unified pipeline)
     expect(runFn).toMatch(/resolvePlacementContext\(/)
     expect(runFn).toMatch(/materializeSpec\(/)
-    // Pi-sdk should load bundle from materialized output (composeTarget produces bundle.json)
+    // The retained native session runtime loads its bundle from materialized output.
     expect(runFn).toMatch(/loadPiSdkBundle\(materialized/)
   })
 })
