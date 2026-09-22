@@ -4,11 +4,15 @@ import {
   type AgentCatalogResult,
   type AgentInspectionOperationOutcome,
   catalogAgentsForContext,
+  createAgentSpacesClient,
   inspectAgentForContext,
 } from 'agent-spaces'
 import type { Command } from 'commander'
+import { compilerRuntime } from '../compiler-runtime.js'
 
 type OutputOptions = { json?: boolean | undefined }
+
+const compiler = createAgentSpacesClient({ runtime: compilerRuntime })
 
 function readJson(path: string): unknown {
   return JSON.parse(readFileSync(path, 'utf8')) as unknown
@@ -71,10 +75,16 @@ export function registerAgentInspectionCommands(program: Command): void {
     .requiredOption('--context <file>', 'agent-inspection-evaluation-context/v2 JSON file')
     .option('--json', 'Output JSON')
     .action(async (options: OutputOptions & { request: string; context: string }) => {
-      const outcome = await inspectAgentForContext({
-        request: readJson(options.request),
-        evaluationContext: readJson(options.context),
-      })
+      const outcome = await inspectAgentForContext(
+        {
+          request: readJson(options.request),
+          evaluationContext: readJson(options.context),
+        },
+        {
+          compileRuntimePlan: (request, compileOptions) =>
+            compiler.compileRuntimePlan(request, compileOptions),
+        }
+      )
       printInspection(outcome, options.json === true)
       if (!outcome.ok) process.exitCode = 1
     })
