@@ -19,4 +19,14 @@ export {
   type ResidentDetachControl,
   type ResidentDetachReason,
 } from './resident-detach.js'
+export {
+  createResidentApprovalControl,
+  createResidentSurfaceController,
+  type ResidentApprovalControl,
+  type ResidentApprovalDecision,
+  type ResidentApprovalPending,
+  type ResidentSurfaceController,
+  type ResidentSurfaceSnapshot,
+  type ResidentSurfaceTransport,
+} from './resident-controller.js'
 export { loadAgent, createSession } from 'agent-harness-runtime'
