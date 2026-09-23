@@ -2,6 +2,8 @@ import { expect, test } from 'bun:test'
 import { createBroker } from 'spaces-harness-broker'
 
 import { AGENT_HARNESS_TMUX_DRIVER_KIND, createAgentHarnessTmuxDriver } from './interactive-driver'
+import { createAgentHarnessTmuxLeafDriver } from './interactive-leaf-driver'
+import { createResidentLeafDriver } from './resident-leaf-driver'
 
 test('registers the interactive identity as an available external-child driver', async () => {
   const broker = createBroker({ drivers: [createAgentHarnessTmuxDriver()] })
@@ -54,4 +56,12 @@ test('requires the HRC-supplied pane lease before launching the TUI child', asyn
       }
     )
   ).rejects.toThrow('terminalSurface')
+})
+
+test('resident leaf builder serves only pane-owning native-worker kinds', () => {
+  expect(createResidentLeafDriver({ driverKind: 'foundry-resident' }).kind).toBe('foundry-resident')
+  expect(createAgentHarnessTmuxLeafDriver().kind).toBe(AGENT_HARNESS_TMUX_DRIVER_KIND)
+  expect(() => createResidentLeafDriver({ driverKind: 'agent-harness' })).toThrow(
+    "does not serve driver kind 'agent-harness'"
+  )
 })

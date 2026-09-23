@@ -102,6 +102,53 @@ test('runtime facade disposes the runtime once even when broker cleanup retries'
   expect(disposals).toBe(1)
 })
 
+test('appends caller contributions after the mandatory broker inputs', async () => {
+  const base = input()
+  base.spec.harness.provider = 'openai-codex'
+  base.additionalExtensions = [(() => undefined) as never]
+  base.structuredTool = { name: 'structured_output' } as never
+  const extension = (() => undefined) as never
+  const read = { name: 'read' } as never
+  const bashOperations = { exec: async () => ({ exitCode: 0 }) }
+  const calls: Array<Record<string, unknown>> = []
+  await createResolvedAgentSession(
+    base,
+    {
+      async loadAgent(options) {
+        calls.push(options as never)
+        return {} as never
+      },
+      async createRuntime(options) {
+        calls.push(options as never)
+        return { session: sessionStub(), dispose: async () => {} } as never
+      },
+    },
+    { extensionFactories: [extension], customTools: [read], bashOperations }
+  )
+  expect(calls[0]?.['provider']).toBe('openai-codex')
+  expect(calls[1]?.['extensionFactories']).toEqual([
+    base.permissionExtension,
+    base.additionalExtensions[0],
+    extension,
+  ])
+  // Contributed tools may replace Pi built-ins such as read; only structuredTool is protected.
+  expect(calls[1]?.['customTools']).toEqual([base.structuredTool, read])
+  expect(calls[1]?.['bashOperations']).toBe(bashOperations)
+})
+
+test('refuses unknown contribution keys and structured-tool replacement', async () => {
+  const base = input()
+  base.structuredTool = { name: 'structured_output' } as never
+  await expect(
+    createResolvedAgentSession(base, undefined, { agentDir: '/x' } as never)
+  ).rejects.toThrow("unknown key 'agentDir'")
+  await expect(
+    createResolvedAgentSession(base, undefined, {
+      customTools: [{ name: 'structured_output' } as never],
+    })
+  ).rejects.toThrow("cannot replace the structured tool 'structured_output'")
+})
+
 test('requires broker semantic agent inputs', async () => {
   const missing = input()
   missing.spec.agent = undefined

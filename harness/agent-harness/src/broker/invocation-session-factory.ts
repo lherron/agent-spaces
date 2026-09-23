@@ -1,5 +1,10 @@
-import type { AgentSessionRuntime } from '@earendil-works/pi-coding-agent'
-import { createAgentHarnessRuntime, loadAgent } from 'agent-harness-runtime'
+import type {
+  AgentSessionRuntime,
+  BashOperations,
+  ExtensionFactory,
+  ToolDefinition,
+} from '@earendil-works/pi-coding-agent'
+import { type LoadAgentOptions, createAgentHarnessRuntime, loadAgent } from 'agent-harness-runtime'
 import type { PiSdkSession, PiSdkSessionFactoryInput } from 'spaces-harness-broker-pi-sdk'
 
 export interface ResolvedAgentSessionDependencies {
@@ -12,6 +17,26 @@ const productionDependencies: ResolvedAgentSessionDependencies = {
   createRuntime: createAgentHarnessRuntime,
 }
 
+/**
+ * Caller additions to a resolved session. The mandatory broker inputs
+ * (permission extension, broker-supplied extensions, structured tool) are
+ * always placed first by the factory; callers only append.
+ */
+export interface ResolvedAgentSessionContribution {
+  extensionFactories?: ExtensionFactory[] | undefined
+  customTools?: ToolDefinition[] | undefined
+  bashOperations?: BashOperations | undefined
+}
+
+const CONTRIBUTION_KEYS = new Set(['extensionFactories', 'customTools', 'bashOperations'])
+
+const LOAD_AGENT_PROVIDERS = new Set<string>([
+  'openai',
+  'openai-codex',
+  'anthropic',
+  'anthropic-max',
+])
+
 const sessionRuntimes = new WeakMap<PiSdkSession, AgentSessionRuntime>()
 
 /**
@@ -21,8 +46,10 @@ const sessionRuntimes = new WeakMap<PiSdkSession, AgentSessionRuntime>()
  */
 export async function createResolvedAgentSession(
   input: PiSdkSessionFactoryInput,
-  dependencies: ResolvedAgentSessionDependencies = productionDependencies
+  dependencies: ResolvedAgentSessionDependencies = productionDependencies,
+  contribution: ResolvedAgentSessionContribution = {}
 ): Promise<PiSdkSession> {
+  assertContribution(contribution, input.structuredTool.name)
   const semantic = input.spec.agent
   if (semantic === undefined) {
     throw new Error('agent-harness requires spec.agent semantic inputs')
@@ -42,10 +69,7 @@ export async function createResolvedAgentSession(
     ...(semantic.hostSessionId !== undefined ? { hostSessionId: semantic.hostSessionId } : {}),
     ...(semantic.generation !== undefined ? { generation: semantic.generation } : {}),
     model: input.spec.sdk?.modelId,
-    provider:
-      input.spec.harness.provider === 'anthropic' || input.spec.harness.provider === 'openai'
-        ? input.spec.harness.provider
-        : undefined,
+    provider: loadAgentProvider(input.spec.harness.provider),
     reasoningEffort: input.spec.sdk?.thinkingLevel,
     lockedEnv: input.spec.process.lockedEnv,
     dispatchEnv: definedEnvironment(input.environment),
@@ -53,8 +77,15 @@ export async function createResolvedAgentSession(
   const runtime = await dependencies.createRuntime({
     agent,
     auth: input.auth,
-    extensionFactories: [input.permissionExtension, ...(input.additionalExtensions ?? [])],
-    customTools: [input.structuredTool],
+    extensionFactories: [
+      input.permissionExtension,
+      ...(input.additionalExtensions ?? []),
+      ...(contribution.extensionFactories ?? []),
+    ],
+    customTools: [input.structuredTool, ...(contribution.customTools ?? [])],
+    ...(contribution.bashOperations !== undefined
+      ? { bashOperations: contribution.bashOperations }
+      : {}),
     ...(input.spec.continuation?.key !== undefined
       ? { continuationKey: input.spec.continuation.key }
       : {}),
@@ -83,6 +114,28 @@ export function runtimeBackedPiSdkSession(runtime: AgentSessionRuntime): PiSdkSe
     },
   })
   return session
+}
+
+function loadAgentProvider(provider: string | undefined): LoadAgentOptions['provider'] {
+  return provider !== undefined && LOAD_AGENT_PROVIDERS.has(provider)
+    ? (provider as LoadAgentOptions['provider'])
+    : undefined
+}
+
+function assertContribution(
+  contribution: ResolvedAgentSessionContribution,
+  structuredToolName: string
+): void {
+  for (const key of Object.keys(contribution)) {
+    if (!CONTRIBUTION_KEYS.has(key)) {
+      throw new Error(`agent-harness session contribution has unknown key '${key}'`)
+    }
+  }
+  if (contribution.customTools?.some((tool) => tool.name === structuredToolName)) {
+    throw new Error(
+      `agent-harness session contribution cannot replace the structured tool '${structuredToolName}'`
+    )
+  }
 }
 
 function definedEnvironment(environment: NodeJS.ProcessEnv): Record<string, string> {

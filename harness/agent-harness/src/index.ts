@@ -8,9 +8,14 @@ export {
 export type { AgentHarnessTmuxDriverOptions } from './broker/interactive-driver.js'
 export { createAgentHarnessTmuxLeafDriver } from './broker/interactive-leaf-driver.js'
 export {
+  createResidentLeafDriver,
+  type ResidentLeafDriverOptions,
+} from './broker/resident-leaf-driver.js'
+export {
   createResolvedAgentSession,
   resolvedAgentSessionRuntime,
   runtimeBackedPiSdkSession,
+  type ResolvedAgentSessionContribution,
 } from './broker/invocation-session-factory.js'
 export { runAgentHarnessPrint } from './foreground/print.js'
 export { runAgentHarnessTui } from './foreground/tui.js'
