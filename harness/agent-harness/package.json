@@ -24,9 +24,9 @@
     "postpack": "git checkout HEAD -- package.json"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.87.0",
-    "@earendil-works/pi-server": "0.87.0",
-    "@earendil-works/pi-tui": "0.87.0",
+    "@earendil-works/pi-coding-agent": "0.87.1",
+    "@earendil-works/pi-server": "0.87.1",
+    "@earendil-works/pi-tui": "0.87.1",
     "agent-harness-runtime": "workspace:*",
     "spaces-harness-broker": "workspace:*",
     "spaces-harness-broker-client": "workspace:*",
