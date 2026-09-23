@@ -308,7 +308,6 @@
         "@earendil-works/pi-server": "0.87.0",
         "agent-scope": "workspace:*",
         "spaces-config": "workspace:*",
-        "spaces-execution": "workspace:*",
         "spaces-runtime": "workspace:*",
         "spaces-runtime-contracts": "workspace:*",
       },
