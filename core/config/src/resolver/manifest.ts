@@ -23,6 +23,11 @@ export interface ManifestReadOptions {
   cwd: string
 }
 
+/** Each schema error prefixed with the field it rejected, e.g. `/harness/supports/1: "pi" is not one of ...`. */
+function describeManifestErrors(errors: readonly { path: string; message: string }[]): string {
+  return errors.map((e) => `${e.path}: ${e.message}`).join('; ')
+}
+
 /**
  * Read a space manifest from a specific commit.
  * Throws if the manifest doesn't exist or is invalid.
@@ -47,7 +52,7 @@ export async function readSpaceManifest(
     const result = coreValidateManifest(data)
     if (!result.valid) {
       throw new ConfigParseError(
-        `Invalid space manifest: ${result.errors.map((e) => e.message).join(', ')}`,
+        `Invalid space manifest ${path}: ${describeManifestErrors(result.errors)}`,
         path
       )
     }
@@ -124,7 +129,7 @@ export async function readSpaceManifestFromFilesystem(
     const result = coreValidateManifest(data)
     if (!result.valid) {
       throw new ConfigParseError(
-        `Invalid space manifest: ${result.errors.map((e) => e.message).join(', ')}`,
+        `Invalid space manifest ${path}: ${describeManifestErrors(result.errors)}`,
         path
       )
     }

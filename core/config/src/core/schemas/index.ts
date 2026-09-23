@@ -71,6 +71,12 @@ function friendlyMessage(err: NonNullable<typeof validateSpaceSchema.errors>[num
     return `"${value}" is not a valid space reference. Use format: space:<id>@<selector> (e.g., space:${value}@dev or space:${value}@stable)`
   }
 
+  // Enum errors - name the rejected value and what would have been accepted
+  if (err.keyword === 'enum') {
+    const allowed = (err.params['allowedValues'] as unknown[] | undefined) ?? []
+    return `${JSON.stringify(err.data)} is not one of ${allowed.map((v) => JSON.stringify(v)).join(', ')}`
+  }
+
   return defaultMsg
 }
 
