@@ -243,6 +243,55 @@ void _eventTypesExhaustive
 const brokerMethods: ReadonlySet<BrokerMethod> = new Set(BROKER_METHODS)
 const eventTypes: ReadonlySet<InvocationEventType> = new Set(INVOCATION_EVENT_TYPES)
 
+/**
+ * Driver kinds admitted to `native-worker` process execution/transport.
+ * Driver kinds are open strings at the protocol layer; these sets gate the
+ * cross-field rules only, not which drivers a broker registers.
+ */
+export const NATIVE_WORKER_DRIVER_KINDS: ReadonlySet<string> = new Set([
+  'agent-harness',
+  'agent-harness-tmux',
+  'foundry-resident',
+])
+
+/**
+ * Pi SDK-backed driver kinds that carry (and require) a spec `sdk` block.
+ * Members that are also native-worker kinds get the agent-harness rules.
+ */
+export const SDK_BLOCK_DRIVER_KINDS: ReadonlySet<string> = new Set([
+  'pi-sdk',
+  'agent-harness',
+  'agent-harness-tmux',
+  'foundry-resident',
+])
+
+/**
+ * Driver kinds eligible for `in-process` harness transport. Distinct from
+ * SDK_BLOCK_DRIVER_KINDS: `arris-resident` dials the Arris control socket
+ * itself, so it is truthfully in-process without being Pi SDK-backed.
+ */
+export const IN_PROCESS_TRANSPORT_DRIVER_KINDS: ReadonlySet<string> = new Set([
+  'pi-sdk',
+  'arris-resident',
+])
+
+/**
+ * Driver kinds whose dispatch must present a terminal surface
+ * (runtime.terminalSurface lease or legacy runtime.tmux.socketPath).
+ * Membership means "must present a surface", not "has a pane".
+ */
+export const TMUX_SURFACE_DRIVER_KINDS: ReadonlySet<string> = new Set([
+  'claude-code-tmux',
+  'codex-cli-tmux',
+  'pi-tui-tmux',
+  'muse-cli-tmux',
+  'agent-harness-tmux',
+])
+
+function isDriverKindIn(kinds: ReadonlySet<string>, driverKind: unknown): boolean {
+  return typeof driverKind === 'string' && kinds.has(driverKind)
+}
+
 export function validateInvocationSpec(value: unknown): HarnessInvocationSpec {
   const issues: ValidationIssue[] = []
   validateSpec(value, issues)
@@ -559,8 +608,7 @@ function validateNativeWorkerProcessShape(
   prefix: string,
   issues: ValidationIssue[]
 ): void {
-  const driverKind = harness?.['driver']
-  const isAgentHarness = driverKind === 'agent-harness' || driverKind === 'agent-harness-tmux'
+  const isAgentHarness = isDriverKindIn(NATIVE_WORKER_DRIVER_KINDS, harness?.['driver'])
   const execution = process['execution']
   const transportKind = asRecord(process['harnessTransport'])?.['kind']
 
@@ -636,14 +684,9 @@ function validateSdkContract(
 ): void {
   const sdkPath = joinPath(prefix, 'sdk')
   const driverKind = harness?.['driver']
-  const isAgentHarness = driverKind === 'agent-harness' || driverKind === 'agent-harness-tmux'
-  const carriesSdkBlock = driverKind === 'pi-sdk' || isAgentHarness
-  // Eligibility for `in-process` transport is a DISTINCT predicate from carrying
-  // an `sdk` block. A driver that runs inside the broker process and opens its
-  // own transport — `arris-resident` dials the Arris control socket itself, so
-  // the broker spawns nothing — is truthfully in-process without being Pi
-  // SDK-backed, and must not be forced to carry an SDK block it never uses.
-  const allowsInProcessTransport = driverKind === 'pi-sdk' || driverKind === 'arris-resident'
+  const carriesSdkBlock = isDriverKindIn(SDK_BLOCK_DRIVER_KINDS, driverKind)
+  const isAgentHarness = carriesSdkBlock && isDriverKindIn(NATIVE_WORKER_DRIVER_KINDS, driverKind)
+  const allowsInProcessTransport = isDriverKindIn(IN_PROCESS_TRANSPORT_DRIVER_KINDS, driverKind)
   const requiresInProcessHost = driverKind === 'pi-sdk'
   const sdk = asRecord(spec['sdk'])
 
@@ -1622,13 +1665,7 @@ function validateDispatchRuntime(
     issues
   )
 
-  if (
-    driverKind !== 'claude-code-tmux' &&
-    driverKind !== 'codex-cli-tmux' &&
-    driverKind !== 'pi-tui-tmux' &&
-    driverKind !== 'muse-cli-tmux' &&
-    driverKind !== 'agent-harness-tmux'
-  ) {
+  if (!isDriverKindIn(TMUX_SURFACE_DRIVER_KINDS, driverKind)) {
     return
   }
 
