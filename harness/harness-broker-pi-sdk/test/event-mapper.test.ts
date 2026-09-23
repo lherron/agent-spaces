@@ -130,6 +130,127 @@ describe('PiSdkTurnEventMapper', () => {
     })
     expect(events.filter((event) => event.type === 'turn.failed')).toHaveLength(1)
   })
+
+  test('T-08823: a user abort mid-tool interrupts even when pi reports stopReason error', () => {
+    const { ctx, events } = createContext()
+    const controller = new AbortController()
+    let signal: AbortSignal | undefined = controller.signal
+    const mapper = new PiSdkTurnEventMapper({
+      ctx,
+      provider: 'openai',
+      sessionFile: () => '/tmp/pi-session.jsonl',
+      abortSignal: () => signal,
+    })
+    mapper.beginTurn({ turnId: 'turn-abort' as TurnId, structured: false })
+    emitAssistant(mapper, 'running it')
+    mapper.handle(
+      piEvent({
+        type: 'tool_execution_start',
+        toolCallId: 'tool-sleep',
+        toolName: 'bash',
+        args: { command: 'sleep 20' },
+      })
+    )
+    controller.abort()
+    mapper.handle(
+      piEvent({
+        type: 'message_end',
+        message: { ...(assistantMessage('') as object), stopReason: 'error', errorMessage: 'x' },
+      })
+    )
+    signal = undefined // pi clears the run signal before agent_settled
+    mapper.handle(piEvent({ type: 'agent_settled' }))
+
+    expect(events.filter((event) => event.type === 'turn.failed')).toHaveLength(0)
+    expect(events.find((event) => event.type === 'tool.call.failed')?.payload).toMatchObject({
+      toolCallId: 'tool-sleep',
+      code: 'tool_interrupted',
+      message: 'user-abort',
+    })
+    expect(events.slice(-2).map((event) => event.type)).toEqual([
+      'turn.interrupted',
+      'continuation.updated',
+    ])
+    expect(events.at(-2)?.payload).toEqual({
+      turnId: 'turn-abort',
+      status: 'interrupted',
+      reason: 'user-abort',
+      finalOutput: '',
+    })
+
+    // The latch is per turn: the next turn completes normally.
+    mapper.beginTurn({ turnId: 'turn-next' as TurnId, structured: false })
+    emitAssistant(mapper, 'PONG')
+    mapper.handle(piEvent({ type: 'agent_settled' }))
+    expect(events.find((event) => event.type === 'turn.completed')?.payload).toMatchObject({
+      turnId: 'turn-next',
+      finalOutput: 'PONG',
+    })
+  })
+
+  test('T-08823: stopReason aborted mid-stream interrupts; a provider error still fails', () => {
+    const { ctx, events } = createContext()
+    const mapper = new PiSdkTurnEventMapper({
+      ctx,
+      provider: 'openai',
+      sessionFile: () => '/tmp/pi-session.jsonl',
+    })
+    mapper.beginTurn({ turnId: 'turn-stream' as TurnId, structured: false })
+    mapper.handle(
+      piEvent({
+        type: 'message_end',
+        message: { ...(assistantMessage('partial essay') as object), stopReason: 'aborted' },
+      })
+    )
+    mapper.handle(piEvent({ type: 'agent_settled' }))
+    expect(events.find((event) => event.type === 'turn.interrupted')?.payload).toEqual({
+      turnId: 'turn-stream',
+      status: 'interrupted',
+      reason: 'user-abort',
+      finalOutput: 'partial essay',
+    })
+
+    mapper.beginTurn({ turnId: 'turn-provider-error' as TurnId, structured: false })
+    mapper.handle(
+      piEvent({
+        type: 'message_end',
+        message: { ...(assistantMessage('') as object), stopReason: 'error', errorMessage: '529' },
+      })
+    )
+    mapper.handle(piEvent({ type: 'agent_settled' }))
+    expect(events.find((event) => event.type === 'turn.failed')?.payload).toMatchObject({
+      turnId: 'turn-provider-error',
+      code: 'turn_failed',
+      message: '529',
+    })
+  })
+
+  test('T-08823: a broker interrupt keeps its reason and advances the continuation', () => {
+    const { ctx, events } = createContext()
+    const controller = new AbortController()
+    const mapper = new PiSdkTurnEventMapper({
+      ctx,
+      provider: 'openai',
+      sessionFile: () => '/tmp/pi-session.jsonl',
+      abortSignal: () => controller.signal,
+    })
+    mapper.beginTurn({ turnId: 'turn-broker' as TurnId, structured: false })
+    mapper.requestInterruption('operator-interrupt')
+    controller.abort()
+    mapper.handle(
+      piEvent({
+        type: 'message_end',
+        message: { ...(assistantMessage('half') as object), stopReason: 'aborted' },
+      })
+    )
+    mapper.handle(piEvent({ type: 'agent_settled' }))
+
+    expect(events.slice(-2).map((event) => event.type)).toEqual([
+      'turn.interrupted',
+      'continuation.updated',
+    ])
+    expect(events.at(-2)?.payload).toMatchObject({ reason: 'operator-interrupt' })
+  })
   test('T-08430: usage carries the response model as provider evidence', () => {
     const { ctx, events } = createContext()
     const mapper = new PiSdkTurnEventMapper({

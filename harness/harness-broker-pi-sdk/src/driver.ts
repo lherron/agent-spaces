@@ -96,6 +96,8 @@ export interface PiSdkSession {
   readonly isStreaming: boolean
   readonly agent: {
     readonly state: { readonly tools: MutableTool[] }
+    /** Abort signal of the active pi run, if any. */
+    readonly signal?: AbortSignal | undefined
   }
   subscribe(listener: (event: AgentSessionEvent) => void): () => void
   prompt(text: string, options?: { expandPromptTemplates?: boolean | undefined }): Promise<void>
@@ -323,6 +325,7 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
         ctx: driverCtx,
         provider: auth.providerId,
         sessionFile: () => session?.sessionFile,
+        abortSignal: () => session?.agent.signal,
         driverKind,
         ...(nextSpec.sdk?.modelId !== undefined ? { configuredModelId: nextSpec.sdk.modelId } : {}),
       })

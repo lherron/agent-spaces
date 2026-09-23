@@ -26,6 +26,12 @@ export interface PiSdkTurnEventMapperOptions {
    * its own, and marked `harness-config` when it is (T-08430).
    */
   configuredModelId?: string | undefined
+  /**
+   * The abort signal of the pi run currently driving events (pi Agent's
+   * `signal`). An abort the broker did not request (an Esc in the pane, an
+   * extension calling `abort()`) settles the turn as interrupted (T-08823).
+   */
+  abortSignal?: (() => AbortSignal | undefined) | undefined
 }
 
 /**
@@ -57,6 +63,7 @@ export class PiSdkTurnEventMapper {
   readonly #sessionFile: () => string | undefined
   readonly #driverKind: string
   readonly #configuredModelId: string | undefined
+  readonly #abortSignal: () => AbortSignal | undefined
 
   #turnId: TurnId | undefined
   #inputId: InputId | undefined
@@ -78,6 +85,7 @@ export class PiSdkTurnEventMapper {
     | { kind: 'failed'; code: string; message: string }
     | undefined
   #assistantFailure: string | undefined
+  #aborted = false
 
   constructor(options: PiSdkTurnEventMapperOptions) {
     this.#ctx = options.ctx
@@ -85,6 +93,7 @@ export class PiSdkTurnEventMapper {
     this.#sessionFile = options.sessionFile
     this.#driverKind = options.driverKind ?? 'pi-sdk'
     this.#configuredModelId = options.configuredModelId
+    this.#abortSignal = options.abortSignal ?? (() => undefined)
   }
 
   /**
@@ -138,6 +147,7 @@ export class PiSdkTurnEventMapper {
     this.#terminal = false
     this.#requestedTerminal = undefined
     this.#assistantFailure = undefined
+    this.#aborted = false
   }
 
   beginStructuredRetry(): void {
@@ -189,6 +199,9 @@ export class PiSdkTurnEventMapper {
 
   handle(event: AgentSessionEvent): void {
     if (this.#turnId === undefined || this.#terminal) return
+    // pi's run signal is live from agent_start through agent_end and gone by
+    // agent_settled, so latch it on any event of the aborted run.
+    if (this.#abortSignal()?.aborted === true) this.#aborted = true
 
     switch (event.type) {
       case 'agent_start':
@@ -232,7 +245,9 @@ export class PiSdkTurnEventMapper {
           { usage: event.message.usage, ...this.#modelIdentity(event.message) },
           this.#extra()
         )
-        if (event.message.stopReason === 'error') {
+        if (event.message.stopReason === 'aborted') {
+          this.#aborted = true
+        } else if (event.message.stopReason === 'error') {
           this.#assistantFailure = event.message.errorMessage ?? 'pi model turn failed'
         }
         return
@@ -296,6 +311,12 @@ export class PiSdkTurnEventMapper {
   #settle(): void {
     if (this.#requestedTerminal !== undefined) {
       this.#settleRequestedTerminal()
+      return
+    }
+
+    if (this.#aborted) {
+      this.#flushPendingAssistant(true)
+      this.#emitInterrupted('user-abort')
       return
     }
 
@@ -367,25 +388,29 @@ export class PiSdkTurnEventMapper {
     if (terminal === undefined) return
     this.#flushPendingAssistant(true)
     if (terminal.kind === 'interrupted') {
-      const turnId = this.#requireTurnId()
-      this.#failOpenTools('tool_interrupted', terminal.reason)
-      this.#ctx.emit(
-        'turn.interrupted',
-        {
-          turnId,
-          status: 'interrupted',
-          reason: terminal.reason,
-          ...(this.#lastAssistantText !== undefined
-            ? { finalOutput: this.#lastAssistantText }
-            : {}),
-        },
-        this.#extra()
-      )
-      this.#finishTerminal()
+      this.#emitInterrupted(terminal.reason)
       return
     }
     this.#failOpenTools(terminal.code, terminal.message)
     this.#emitFailed(terminal.code, terminal.message)
+  }
+
+  #emitInterrupted(reason: string): void {
+    const turnId = this.#requireTurnId()
+    this.#failOpenTools('tool_interrupted', reason)
+    this.#ctx.emit(
+      'turn.interrupted',
+      {
+        turnId,
+        status: 'interrupted',
+        reason,
+        ...(this.#lastAssistantText !== undefined ? { finalOutput: this.#lastAssistantText } : {}),
+      },
+      this.#extra()
+    )
+    // pi persisted the interrupted run's messages, so the session still advanced.
+    this.#emitContinuation()
+    this.#finishTerminal()
   }
 
   #emitCompleted(finalOutput: string | undefined): void {
@@ -400,6 +425,11 @@ export class PiSdkTurnEventMapper {
       },
       this.#extra()
     )
+    this.#emitContinuation()
+    this.#finishTerminal()
+  }
+
+  #emitContinuation(): void {
     const sessionFile = this.#sessionFile()
     if (sessionFile !== undefined) {
       this.#ctx.emit('continuation.updated', {
@@ -408,7 +438,6 @@ export class PiSdkTurnEventMapper {
         kind: 'session',
       })
     }
-    this.#finishTerminal()
   }
 
   #emitFailed(code: string, message: string): void {
