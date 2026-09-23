@@ -1,3 +1,9 @@
+export {
+  detectAgentLocalComponents,
+  prepareAgentToolRuntime,
+  validateAgentTools,
+} from './agent-local-runtime.js'
+export type { AgentToolEnvResult, AgentToolRuntimeContext } from './agent-local-runtime.js'
 export * from './harness/index.js'
 export * from './session/index.js'
 export * from './agent-memory/index.js'

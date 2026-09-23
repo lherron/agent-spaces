@@ -1,9 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { stat } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { join } from 'node:path'
 
 import {
-  type AgentLocalComponents,
   type AgentRuntimeProfile,
   type ClaudeOptions,
   type CodexOptions,
@@ -15,14 +13,8 @@ import {
   parseAgentProfile,
   resolveAgentPrimingPrompt,
 } from 'spaces-config'
-
-async function isDirectory(path: string): Promise<boolean> {
-  try {
-    return (await stat(path)).isDirectory()
-  } catch {
-    return false
-  }
-}
+import { detectAgentLocalComponents } from 'spaces-runtime'
+export { detectAgentLocalComponents }
 
 export interface LoadedAgentProfile {
   agentRoot: string
@@ -37,36 +29,6 @@ export interface AgentRunDefaults {
   claude?: ClaudeOptions
   codex?: CodexOptions
   compose?: SpaceRefString[]
-}
-
-export async function detectAgentLocalComponents(
-  agentRoot: string
-): Promise<AgentLocalComponents | undefined> {
-  const skillsDir = join(agentRoot, 'skills')
-  const commandsDir = join(agentRoot, 'commands')
-  const toolsDir = join(agentRoot, 'tools')
-  const toolsBinDir = join(toolsDir, 'bin')
-  const agentVarDir = join(agentRoot, 'var')
-  const hasSkills = await isDirectory(skillsDir)
-  const hasCommands = await isDirectory(commandsDir)
-  const hasTools = await isDirectory(toolsBinDir)
-
-  if (!hasSkills && !hasCommands && !hasTools) {
-    return undefined
-  }
-
-  return {
-    agentRoot,
-    agentName: basename(agentRoot),
-    hasSkills,
-    hasCommands,
-    hasTools,
-    skillsDir,
-    commandsDir,
-    toolsDir,
-    toolsBinDir,
-    agentVarDir,
-  }
 }
 
 export function loadAgentProfileForRun(

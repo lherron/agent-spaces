@@ -1,5 +1,8 @@
-import { detectAgentLocalComponents, prepareAgentToolRuntime } from 'spaces-execution'
-import { loadAgentSemantics } from 'spaces-runtime'
+import {
+  detectAgentLocalComponents,
+  loadAgentSemantics,
+  prepareAgentToolRuntime,
+} from 'spaces-runtime'
 import type { LoadAgentOptions, ResolvedAgent } from './types.js'
 
 /**
