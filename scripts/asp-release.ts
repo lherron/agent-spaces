@@ -316,6 +316,35 @@ function chmodTreeReadOnly(root: string): void {
   visit(root)
 }
 
+/**
+ * Seal a staged release and move it into place. The root is sealed only after
+ * the rename: moving a directory rewrites its `..` entry, and macOS 15 refuses
+ * that for a directory its owner cannot write (macOS 26 allows it), so sealing
+ * first made every build and install fail on macOS 15.
+ */
+function sealAndRename(staging: string, destination: string): void {
+  chmodTreeReadOnly(staging)
+  chmodSync(staging, 0o755)
+  renameSync(staging, destination)
+  chmodSync(destination, 0o555)
+}
+
+/**
+ * Remove a (possibly sealed) tree. A plain recursive rm cannot unlink entries
+ * of a 0555 directory, and its EACCES would replace the error that sent us here.
+ */
+function removeTree(root: string): void {
+  if (!statExists(root)) return
+  const unseal = (path: string): void => {
+    const stat = lstatSync(path)
+    if (!stat.isDirectory()) return
+    chmodSync(path, 0o755)
+    for (const entry of readdirSync(path)) unseal(join(path, entry))
+  }
+  unseal(root)
+  rmSync(root, { recursive: true, force: true })
+}
+
 function copyTree(source: string, destination: string): void {
   mkdirSync(destination, { recursive: false, mode: 0o755 })
   for (const entry of readdirSync(source)) {
@@ -654,11 +683,10 @@ async function buildRelease(outputRootInput: string): Promise<ReleaseInspection>
     writeFileSync(join(staging, 'release.json'), `${JSON.stringify(manifest, null, 2)}\n`, {
       mode: 0o644,
     })
-    chmodTreeReadOnly(staging)
-    renameSync(staging, destination)
+    sealAndRename(staging, destination)
     return inspectRelease(destination)
   } catch (error) {
-    rmSync(staging, { recursive: true, force: true })
+    removeTree(staging)
     throw error
   }
 }
@@ -688,13 +716,12 @@ function installRelease(artifactInput: string, rootInput: string): ReleaseInspec
       if (statExists(destination)) throw error
     }
     copyTree(artifact, staging)
-    chmodTreeReadOnly(staging)
-    renameSync(staging, destination)
+    sealAndRename(staging, destination)
     installed = true
     return inspectRelease(destination)
   } catch (error) {
-    rmSync(staging, { recursive: true, force: true })
-    if (installed) rmSync(destination, { recursive: true, force: true })
+    removeTree(staging)
+    if (installed) removeTree(destination)
     throw error
   }
 }
