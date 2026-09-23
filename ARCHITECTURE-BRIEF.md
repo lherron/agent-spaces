@@ -34,7 +34,9 @@ home. It does not own *where* or *when* an agent runs; that belongs to HRC.
 ## Layers
 
 The code is a Bun monorepo. Dependencies point inward: apps → harness → compiler → drivers →
-core → contracts.
+core → contracts. One exception: the compiler root may not import drivers
+(`scripts/lib/import-graph.ts`). `harness/aspc` and the CLI inject the driver plane through
+`AgentSpacesClientOptions.runtime`.
 
 - **contracts/**: wire and data contracts shared across the estate. These are the ASPC
   protocol (`aspc-protocol`), the harness-broker protocol and client, agent scope refs, the HRC
@@ -59,7 +61,8 @@ core → contracts.
 - **harness/**: long-running processes and facades.
   - `aspc` / `aspc-facade`: the single public compile RPC, `aspc.compileHarnessInvocation`,
     served by the `aspd` daemon on a unix socket.
-  - `harness-broker`: the process launcher that HRC talks to.
+  - `harness-broker`: the process launcher that HRC talks to. `harness-broker-pi-sdk` is its
+    driver for the embedded Pi SDK.
   - `agent-harness` and `agent-harness-runtime`: the in-house Pi-based harness. In the
     foreground it reads space sources directly and needs no materialized bundle.
 - **apps/**: the `asp` CLI (`run`, `install`, `build`, `describe`, `explain`, `lint`, `add`,
@@ -115,8 +118,9 @@ git-pinned lock entries.
 **Codex specifics.** Codex keeps session state in its home, so the composed template is never
 used directly. `prepareCodexRuntimeHome` builds a per-target runtime `CODEX_HOME` at
 `$ASP_HOME/codex-homes/<project>_<target>/`. It copies `AGENTS.md`, `config.toml`, hooks and
-MCP config, and symlinks skills and prompts to the managed versions. It also links
-`~/.codex/auth.json` for credentials, trusts the project path and re-trusts hooks. A fingerprint
+MCP config, and symlinks skills and prompts to the managed versions. It keeps the
+`~/.codex/auth.json` credentials symlink, which the Codex adapter creates at compose time, trusts
+the project path and re-trusts hooks. A fingerprint
 over template, target, cwd, interactivity, hook events, context and config lets an unchanged
 home be reused. The system prompt reaches Codex through a delimited `praesidium-context` block
 in `AGENTS.md`, not as a prepended message. Under HRC the process is a headless
