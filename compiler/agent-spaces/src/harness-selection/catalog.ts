@@ -60,7 +60,7 @@ export const HARNESS_CATALOG: Readonly<Record<HarnessId, HarnessDefinition>> = {
         supportedModels: ['claude-sonnet-4-5'],
       },
     ],
-    presentationDefault: false,
+    presentationDefault: true,
     executionVariants: {
       withoutPresentation: {
         recipeId: 'agent-harness-headless',
@@ -99,7 +99,7 @@ export const HARNESS_CATALOG: Readonly<Record<HarnessId, HarnessDefinition>> = {
         supportedModels: ['opus[1m]', 'opus', 'fable', 'sonnet', 'haiku', 'claude-sonnet-4-5'],
       },
     ],
-    presentationDefault: false,
+    presentationDefault: true,
     executionVariants: {
       withoutPresentation: {
         recipeId: 'claude-code',
@@ -148,7 +148,7 @@ export const HARNESS_CATALOG: Readonly<Record<HarnessId, HarnessDefinition>> = {
         ],
       },
     ],
-    presentationDefault: false,
+    presentationDefault: true,
     executionVariants: {
       withoutPresentation: {
         recipeId: 'codex-app-server',
@@ -189,7 +189,7 @@ export const HARNESS_CATALOG: Readonly<Record<HarnessId, HarnessDefinition>> = {
         supportedModels: ['muse-spark-1.3-contributor'],
       },
     ],
-    presentationDefault: false,
+    presentationDefault: true,
     executionVariants: {
       withoutPresentation: {
         recipeId: 'muse-serve',

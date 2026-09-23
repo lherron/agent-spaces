@@ -9,7 +9,7 @@ ASP release. Its sole public ordinary compile RPC is
 selection vocabulary — `agent-harness`, `claude`, `codex`, and `muse` — plus
 independent `modelProvider`, `model`, `reasoningEffort`, and boolean
 `presentation` inputs. The default harness is `agent-harness` and the default
-presentation is `false`.
+presentation is `true`.
 
 ASPC validates the envelope and invokes the compiler; it owns no route catalog,
 profile selector, or driver selector. The compiler catalog is the sole authority

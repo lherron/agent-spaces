@@ -96,7 +96,7 @@ describe('central harness selection catalog', () => {
     }
   )
 
-  test('defaults to agent-harness and false presentation', () => {
+  test('defaults to agent-harness and true presentation', () => {
     const result = resolveHarnessExecution({ agent: { id: 'cody' } })
     expect(result).toMatchObject({
       ok: true,
@@ -104,7 +104,7 @@ describe('central harness selection catalog', () => {
         harness: 'agent-harness',
         modelProvider: 'openai-codex',
         model: 'gpt-5.5',
-        presentation: false,
+        presentation: true,
         provenance: { harness: 'catalog-default', presentation: 'catalog-default' },
       },
     })

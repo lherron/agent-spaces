@@ -73,7 +73,7 @@ Key options:
 - `--permission-mode <mode>`: Claude permission mode
 - `--no-interactive`: foreground-process UI behavior only. It is not the v2
   `presentation` selection input; ordinary compilation uses an optional boolean
-  `requested.presentation`, whose omitted default is `false`.
+  `requested.presentation`, whose omitted default is `true`.
 - `--dry-run` / `--print-command`: print the harness invocation without spawning
 - `--no-refresh`: use cached project bundles
 - `--yolo`: skip all permission prompts (`--dangerously-skip-permissions`)

@@ -26,7 +26,7 @@ agent-harness | claude | codex | muse
 
 `agent-harness` is the default. A request separately supplies an optional
 `modelProvider`, `model`, `reasoningEffort`, and boolean `presentation`; the
-default presentation is `false`. A provider never selects a harness and a
+default presentation is `true`. A provider never selects a harness and a
 model never selects a provider. `presentation: false` is an explicit user
 value, not an omitted value or a prohibition on an implementation-required
 terminal.

@@ -129,7 +129,7 @@ are higher precedence for collision warnings and load order), and
 `reasoning_effort`, and boolean `presentation`. The harness field accepts
 exactly `agent-harness`, `claude`, `codex`, or `muse`; omission defaults through
 the compiler catalog to `agent-harness`. Omitted `presentation` defaults to
-`false`, while an explicit `presentation = false` remains explicit through
+`true`, while an explicit `presentation = false` remains explicit through
 every merge. Provider/model compatibility and every execution recipe remain
 compiler decisions, never TOML routing.
 

@@ -77,14 +77,14 @@ describe('repository harness-selection projections', () => {
     const resolved = resolveHarnessExecution({ agent: { id: 'consistency-agent' } })
     expect(resolved).toMatchObject({
       ok: true,
-      selection: { harness: 'agent-harness', presentation: false },
-      recipe: { driver: 'agent-harness' },
+      selection: { harness: 'agent-harness', presentation: true },
+      recipe: { driver: 'agent-harness-tmux' },
     })
     expect(catalogCapabilities().map(({ presentationDefault }) => presentationDefault)).toEqual([
-      false,
-      false,
-      false,
-      false,
+      true,
+      true,
+      true,
+      true,
     ])
   })
 

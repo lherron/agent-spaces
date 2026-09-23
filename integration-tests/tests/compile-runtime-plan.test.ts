@@ -119,7 +119,7 @@ describe('v2 runtime compile plan', () => {
     const response = await compileV2Request(value, omitted)
     expect(response.ok).toBe(true)
     if (!response.ok) return
-    expect(response.plan.selection.presentation).toBe(false)
+    expect(response.plan.selection.presentation).toBe(true)
     expect(response.plan.selection.provenance.presentation).toBe('catalog-default')
   })
 
