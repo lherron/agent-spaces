@@ -22,6 +22,7 @@ import {
 } from './broker-invocation.js'
 import { type MaterializedSpec, materializeSpec } from './client-materialization.js'
 import { CodedError, formatDisplayCommand } from './client-support.js'
+import { timeCompilePhase } from './compile-phases.js'
 import { composeAgentLocalEnv } from './compose-agent-local-env.js'
 import { catalogProcessImplementationForFrontend } from './harness-selection/catalog-projections.js'
 import type {
@@ -201,7 +202,9 @@ export async function preparePlacementCliRuntime(
     )
   }
 
-  const placementContext = await resolvePlacementContext({ ...placement, dryRun: true })
+  const placementContext = await timeCompilePhase('placement-context', () =>
+    resolvePlacementContext({ ...placement, dryRun: true })
+  )
   const { spec } = placementContext.materialization
 
   // Resolve placement to get audit metadata and materialization inputs
@@ -211,24 +214,26 @@ export async function preparePlacementCliRuntime(
   const cwd = resolvedBundle.cwd
 
   const aspHome = req.aspHome ?? defaultAspHome ?? getAspHome()
-  await sweepAspTempArtifactsWithinBudget(aspHome)
-  const unresolvedRuntimePlan = await runtime.planPlacementRuntime({
-    placement,
-    placementContext,
-    execution: {
-      harnessId: implementation.harness,
-      adapter: runtime.getHarnessAdapter(implementation.harness),
-      frontend: implementation.frontend,
-      provider: implementation.provider,
-    },
-    aspHome,
-    model: req.model,
-    prompt: req.prompt,
-    promptOverrideMode: 'exact',
-    yolo: req.yolo,
-    interactive: req.interactionMode === 'interactive',
-    continuationKey: req.continuation?.key,
-  })
+  await timeCompilePhase('temp-sweep', () => sweepAspTempArtifactsWithinBudget(aspHome))
+  const unresolvedRuntimePlan = await timeCompilePhase('plan-runtime', () =>
+    runtime.planPlacementRuntime({
+      placement,
+      placementContext,
+      execution: {
+        harnessId: implementation.harness,
+        adapter: runtime.getHarnessAdapter(implementation.harness),
+        frontend: implementation.frontend,
+        provider: implementation.provider,
+      },
+      aspHome,
+      model: req.model,
+      prompt: req.prompt,
+      promptOverrideMode: 'exact',
+      yolo: req.yolo,
+      interactive: req.interactionMode === 'interactive',
+      continuationKey: req.continuation?.key,
+    })
+  )
   const mayPrime = req.continuation === undefined
   const selectedLaunchPrompt = combineBrokerPrompts(
     mayPrime
@@ -259,7 +264,7 @@ export async function preparePlacementCliRuntime(
 
   // Get adapter from registry and detect binary
   const adapter = runtime.getHarnessAdapter(runtimePlan.harnessId)
-  const detection = await adapter.detect()
+  const detection = await timeCompilePhase('harness-detect', () => adapter.detect())
   if (!detection.available) {
     throw new Error(
       `Harness "${runtimePlan.harnessId}" is not available: ${detection.error ?? 'not found'}`
@@ -267,7 +272,9 @@ export async function preparePlacementCliRuntime(
   }
 
   // Detect agent-local skills/ and commands/ for materialization
-  const agentLocalComponents = await runtime.detectAgentLocalComponents(placement.agentRoot)
+  const agentLocalComponents = await timeCompilePhase('agent-local', () =>
+    runtime.detectAgentLocalComponents(placement.agentRoot)
+  )
 
   // Derive handle parts from the placement correlation, when present, so that
   // priming prompts and system prompt sections can reference {{agentId}},
@@ -313,24 +320,28 @@ export async function preparePlacementCliRuntime(
   })
 
   // Unified materialization: use the shared placement context, then materialize the resolved spec.
-  const materialized = await materializeSpec(spec, aspHome, runtimePlan.harnessId, {
-    ...(defaultRegistryPath !== undefined ? { registryPathOverride: defaultRegistryPath } : {}),
-    agentRoot: placement.agentRoot,
-    projectRoot: placement.projectRoot,
-    ...(placement.bundle.kind === 'agent-project'
-      ? { materializationTargetName: placement.bundle.agentName }
-      : {}),
-    ...(materializationIdentity ? { materializationIdentity } : {}),
-    agentLocalComponents,
-    runtime,
-  })
+  const materialized = await timeCompilePhase('materialize', () =>
+    materializeSpec(spec, aspHome, runtimePlan.harnessId, {
+      ...(defaultRegistryPath !== undefined ? { registryPathOverride: defaultRegistryPath } : {}),
+      agentRoot: placement.agentRoot,
+      projectRoot: placement.projectRoot,
+      ...(placement.bundle.kind === 'agent-project'
+        ? { materializationTargetName: placement.bundle.agentName }
+        : {}),
+      ...(materializationIdentity ? { materializationIdentity } : {}),
+      agentLocalComponents,
+      runtime,
+    })
+  )
   const launchOverlayDir = join(aspHome, 'tmp', 'launch-overlays', randomUUID())
   let systemPrompt: MaterializeResult | undefined
   try {
-    const materializedSystemPrompt = await materializeSystemPrompt(launchOverlayDir, {
-      ...preparation.promptInput,
-      ...(req.resolverContext !== undefined ? { resolverContext: req.resolverContext } : {}),
-    })
+    const materializedSystemPrompt = await timeCompilePhase('system-prompt', () =>
+      materializeSystemPrompt(launchOverlayDir, {
+        ...preparation.promptInput,
+        ...(req.resolverContext !== undefined ? { resolverContext: req.resolverContext } : {}),
+      })
+    )
     systemPrompt =
       materializedSystemPrompt !== undefined
         ? await persistSystemPromptArtifact(

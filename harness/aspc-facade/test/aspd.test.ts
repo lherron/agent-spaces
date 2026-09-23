@@ -457,12 +457,12 @@ describe('unix server and retirement', () => {
     await waitForLog('ready')
     const conn = await AspcUnixClient.connect({ socketPath, clientInfo: { name: 't' } })
     const inflight = conn.compileHarnessInvocation(compileRequest())
-    await waitForLog('method=aspc.compileHarnessInvocation')
+    await waitForLog('request.admitted')
     child.kill('SIGTERM')
     const answered = await inflight
     expect(answered.diagnostics).toHaveLength(4000)
     expect(await child.exited).toBe(0)
-    expect(stderr.join('')).toContain('retire.begin inFlight=1')
+    expect(stderr.join('')).toContain('retire.begin {"inFlight":1')
     await conn.close()
   })
 

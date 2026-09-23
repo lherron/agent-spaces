@@ -11,10 +11,18 @@
  * on every existing connection before in-flight requests drain, so a connection
  * opened before activation can never admit work into the retiring release.
  */
-import { constants, accessSync, readFileSync, realpathSync, statSync } from 'node:fs'
-import { unlink } from 'node:fs/promises'
+import {
+  constants,
+  accessSync,
+  appendFileSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+} from 'node:fs'
+import { appendFile, rename, stat, unlink } from 'node:fs/promises'
 import { type Server, type Socket, connect, createServer } from 'node:net'
 import { basename, dirname, join, resolve, sep } from 'node:path'
+import { recordCompilePhases } from 'agent-spaces'
 import type { AspcMethodServer, AspcService } from 'spaces-aspc'
 import {
   AspcInspectionAuthorityError,
@@ -202,7 +210,90 @@ export interface AspdServerOptions {
   socketPath: string
   service: AspcService
   log?: ((line: string) => void) | undefined
+  /** In-flight requests older than this log `request.slow` (default 2000ms). */
+  slowRequestMs?: number | undefined
 }
+
+export const ASPD_SLOW_REQUEST_MS = 2_000
+
+/**
+ * Launch-path methods also log `request.admitted`, so an in-flight launch is
+ * visible before it answers. The hello/observation churn (≈99.9% of requests)
+ * logs only its answered line.
+ */
+const ADMISSION_LOGGED_METHODS = new Set([
+  'aspc.compileHarnessInvocation',
+  'aspc.prepareProcessInvocation',
+])
+
+/** Methods whose answered line carries compiler phase timings. */
+const PHASED_METHODS = new Set(['aspc.compileHarnessInvocation'])
+
+type AspdLogLevel = 'INFO' | 'WARN' | 'ERROR'
+
+/** One aspd log line, HRC-style: `<iso> [aspd] <LEVEL> <event> <json fields>`. */
+export function formatAspdLogLine(
+  level: AspdLogLevel,
+  event: string,
+  fields: Record<string, unknown> = {}
+): string {
+  return `${new Date().toISOString()} [aspd] ${level} ${event} ${JSON.stringify(fields)}`
+}
+
+/**
+ * Caller correlation read from request params, never required. HRC's
+ * `broker.timing precompile-compile-rpc` line logs the same runtimeId it
+ * allocates into `compileRequest.identity`.
+ */
+function requestCorrelation(params: unknown): Record<string, string> {
+  const out: Record<string, string> = {}
+  const record = asRecord(params)
+  const compileRequest = asRecord(record?.['compileRequest'])
+  const identity = asRecord(compileRequest?.['identity'])
+  for (const key of ['runtimeId', 'traceId', 'invocationId'] as const) {
+    const value = identity?.[key]
+    if (typeof value === 'string') out[key] = value
+  }
+  const scopeRef = compileRequest?.['scopeRef']
+  if (typeof scopeRef === 'string') out['scopeRef'] = scopeRef
+  const agentId = asRecord(record?.['context'])?.['agentId']
+  if (typeof agentId === 'string') out['agentId'] = agentId
+  return out
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
+/** ok | rejected:<first diagnostic code> for an ok:false result body. */
+function resultOutcome(result: unknown): string {
+  const record = asRecord(result)
+  if (record?.['ok'] !== false) return 'ok'
+  const diagnostics = record['diagnostics']
+  const first = Array.isArray(diagnostics) ? asRecord(diagnostics[0]) : undefined
+  const resolution = asRecord(record['resolution'])
+  const code = first?.['code'] ?? resolution?.['code'] ?? record['code']
+  return `rejected:${typeof code === 'string' ? code : 'unknown'}`
+}
+
+function errorOutcome(error: unknown): string {
+  if (error instanceof BrokerError) return `error:${String(error.code)}`
+  const code = asRecord(error)?.['code']
+  return `error:${typeof code === 'string' || typeof code === 'number' ? String(code) : 'exception'}`
+}
+
+function replyBytes(result: unknown): number | undefined {
+  try {
+    const json = JSON.stringify(result)
+    return json === undefined ? undefined : Buffer.byteLength(json)
+  } catch {
+    return undefined
+  }
+}
+
+const round1 = (ms: number): number => Math.round(ms * 10) / 10
 
 export interface AspdServer {
   /** Requests admitted and not yet answered. */
@@ -218,6 +309,7 @@ const NEVER_ADMITTED = new Promise<never>(() => {})
 
 export async function startAspdServer(options: AspdServerOptions): Promise<AspdServer> {
   const log = options.log ?? ((line: string) => process.stderr.write(`${line}\n`))
+  const slowRequestMs = options.slowRequestMs ?? ASPD_SLOW_REQUEST_MS
   const { socketPath } = options
   let admitting = true
   let inFlight = 0
@@ -240,16 +332,60 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
           // Checked at dispatch, not at read: a frame already buffered when
           // retirement began is never admitted into this release.
           if (!admitting) {
-            log(`aspd request.refused-retiring conn=${connectionId} method=${request.method}`)
+            log(
+              formatAspdLogLine('WARN', 'request.refused-retiring', {
+                conn: connectionId,
+                id: String(request.id),
+                method: request.method,
+              })
+            )
             return NEVER_ADMITTED
           }
           inFlight += 1
-          log(
-            `aspd request.admitted conn=${connectionId} id=${String(request.id)} method=${method}`
-          )
+          const startedAt = new Date()
+          const startedMs = performance.now()
+          const base = {
+            conn: connectionId,
+            id: String(request.id),
+            method,
+            ...requestCorrelation(request.params),
+          }
+          if (ADMISSION_LOGGED_METHODS.has(method)) {
+            log(
+              formatAspdLogLine('INFO', 'request.admitted', {
+                ...base,
+                startedAt: startedAt.toISOString(),
+              })
+            )
+          }
+          const slowTimer = setTimeout(() => {
+            log(
+              formatAspdLogLine('WARN', 'request.slow', {
+                ...base,
+                startedAt: startedAt.toISOString(),
+                elapsedMs: round1(performance.now() - startedMs),
+                slowRequestMs,
+              })
+            )
+          }, slowRequestMs)
+          slowTimer.unref?.()
+          let outcome = 'ok'
+          let bytes: number | undefined
+          let phases: Record<string, number> | undefined
           try {
-            return await handler(request)
+            let result: unknown
+            if (PHASED_METHODS.has(method)) {
+              const recorded = await recordCompilePhases(() => handler(request))
+              result = recorded.result
+              phases = recorded.phases
+            } else {
+              result = await handler(request)
+            }
+            outcome = resultOutcome(result)
+            bytes = replyBytes(result)
+            return result
           } catch (error) {
+            outcome = errorOutcome(error)
             if (error instanceof AspcInspectionAuthorityError) {
               throw new BrokerError(-32603 as BrokerErrorCode, error.message, {
                 code: error.code,
@@ -258,13 +394,26 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
             }
             throw error
           } finally {
+            clearTimeout(slowTimer)
+            const durationMs = round1(performance.now() - startedMs)
             // Count the request as in flight until the protocol server has
             // written its reply frame (it does so in a microtask after this
             // handler settles), so retirement never closes ahead of the reply.
             setImmediate(() => {
               inFlight -= 1
               log(
-                `aspd request.answered conn=${connectionId} id=${String(request.id)} method=${method}`
+                formatAspdLogLine(
+                  durationMs >= slowRequestMs ? 'WARN' : 'INFO',
+                  'request.answered',
+                  {
+                    ...base,
+                    startedAt: startedAt.toISOString(),
+                    durationMs,
+                    outcome,
+                    ...(bytes !== undefined ? { replyBytes: bytes } : {}),
+                    ...(phases !== undefined && Object.keys(phases).length > 0 ? { phases } : {}),
+                  }
+                )
               )
               if (inFlight === 0) drained?.()
             })
@@ -297,7 +446,7 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
     async retire(): Promise<void> {
       if (!admitting) return
       admitting = false
-      log(`aspd retire.begin inFlight=${inFlight} connections=${connections.size}`)
+      log(formatAspdLogLine('INFO', 'retire.begin', { inFlight, connections: connections.size }))
       netServer.close()
       try {
         if (statSync(socketPath).ino === boundInode) await unlink(socketPath)
@@ -331,7 +480,7 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
             })
         )
       )
-      log('aspd retire.drained')
+      log(formatAspdLogLine('INFO', 'retire.drained'))
     },
   }
 }
@@ -354,35 +503,191 @@ async function reclaimStaleSocket(socketPath: string): Promise<void> {
   await unlink(socketPath).catch(() => {})
 }
 
+/**
+ * aspd's own bounded log (T-08787). Lines are buffered and appended
+ * asynchronously on a short interval so the request path never blocks on disk;
+ * rotation (rename to .1..N) happens at flush time. `flushSync` covers process
+ * exit so a clean shutdown or crash loses nothing that was buffered.
+ */
+export interface AspdFileLog {
+  write(line: string): void
+  flush(): Promise<void>
+  flushSync(): void
+  close(): Promise<void>
+}
+
+export interface AspdFileLogOptions {
+  path: string
+  maxBytes?: number | undefined
+  keep?: number | undefined
+  flushIntervalMs?: number | undefined
+  maxBufferedBytes?: number | undefined
+}
+
+export const ASPD_LOG_MAX_BYTES = 32 * 1024 * 1024
+export const ASPD_LOG_KEEP = 3
+
+export function createAspdFileLog(options: AspdFileLogOptions): AspdFileLog {
+  const { path } = options
+  const maxBytes = options.maxBytes ?? ASPD_LOG_MAX_BYTES
+  const keep = options.keep ?? ASPD_LOG_KEEP
+  const maxBufferedBytes = options.maxBufferedBytes ?? 8 * 1024 * 1024
+  let pending: string[] = []
+  let pendingBytes = 0
+  let dropped = 0
+  let size = 0
+  try {
+    size = statSync(path).size
+  } catch {
+    size = 0
+  }
+  let flushing: Promise<void> | undefined
+
+  const take = (): string | undefined => {
+    if (dropped > 0) {
+      pending.push(formatAspdLogLine('WARN', 'log.dropped', { lines: dropped }))
+      dropped = 0
+    }
+    if (pending.length === 0) return undefined
+    const chunk = `${pending.join('\n')}\n`
+    pending = []
+    pendingBytes = 0
+    return chunk
+  }
+
+  const rotate = async (): Promise<void> => {
+    for (let n = keep - 1; n >= 1; n--) {
+      await rename(`${path}.${n}`, `${path}.${n + 1}`).catch(() => {})
+    }
+    await rename(path, `${path}.1`).catch(() => {})
+    size = 0
+  }
+
+  const flushOnce = async (): Promise<void> => {
+    const chunk = take()
+    if (chunk === undefined) return
+    try {
+      if (size >= maxBytes) await rotate()
+      await appendFile(path, chunk)
+      size += Buffer.byteLength(chunk)
+    } catch (error) {
+      process.stderr.write(
+        `${formatAspdLogLine('ERROR', 'log.write_failed', { path, error: String(error) })}\n`
+      )
+      // Re-sync the size from disk (a rotation may have half-completed).
+      size = await stat(path)
+        .then((st) => st.size)
+        .catch(() => 0)
+    }
+  }
+
+  const flush = (): Promise<void> => {
+    flushing ??= flushOnce().finally(() => {
+      flushing = undefined
+    })
+    return flushing
+  }
+
+  const timer = setInterval(() => void flush(), options.flushIntervalMs ?? 250)
+  timer.unref?.()
+
+  return {
+    write(line) {
+      const bytes = Buffer.byteLength(line) + 1
+      if (pendingBytes + bytes > maxBufferedBytes) {
+        dropped += 1
+        return
+      }
+      pending.push(line)
+      pendingBytes += bytes
+    },
+    async flush() {
+      await flush()
+      // A write may have landed while the previous flush was in progress.
+      if (pending.length > 0 || dropped > 0) await flush()
+    },
+    flushSync() {
+      const chunk = take()
+      if (chunk === undefined) return
+      try {
+        appendFileSync(path, chunk)
+        size += Buffer.byteLength(chunk)
+      } catch {
+        process.stderr.write(chunk)
+      }
+    },
+    async close() {
+      clearInterval(timer)
+      await this.flush()
+    },
+  }
+}
+
 export interface RunAspdCliOptions {
   releaseIdentity?: AspReleaseIdentity | undefined
 }
 
-/** `aspd serve --socket <path>`: the release entrypoint's command surface. */
+const ASPD_USAGE = 'Usage: aspd serve --socket <absolute-path> [--log <absolute-path>]\n'
+
+function flagValue(args: string[], flag: string): string | undefined {
+  const index = args.indexOf(flag)
+  return index === -1 ? undefined : args[index + 1]
+}
+
+/** `aspd serve --socket <path> [--log <path>]`: the release entrypoint's command surface. */
 export async function runAspdCli(args: string[], options: RunAspdCliOptions): Promise<void> {
   const [command, ...rest] = args
   if (command !== 'serve') {
-    process.stderr.write('Usage: aspd serve --socket <absolute-path>\n')
+    process.stderr.write(ASPD_USAGE)
     process.exit(1)
   }
-  const socketIndex = rest.indexOf('--socket')
-  const socketPath = socketIndex === -1 ? undefined : rest[socketIndex + 1]
-  if (socketPath === undefined || !socketPath.startsWith('/')) {
-    process.stderr.write('Usage: aspd serve --socket <absolute-path>\n')
+  const socketPath = flagValue(rest, '--socket')
+  const logPath = flagValue(rest, '--log')
+  if (
+    socketPath === undefined ||
+    !socketPath.startsWith('/') ||
+    (rest.includes('--log') && (logPath === undefined || !logPath.startsWith('/')))
+  ) {
+    process.stderr.write(ASPD_USAGE)
     process.exit(1)
+  }
+  const fileLog = logPath === undefined ? undefined : createAspdFileLog({ path: logPath })
+  const log = fileLog
+    ? (line: string) => fileLog.write(line)
+    : (line: string) => process.stderr.write(`${line}\n`)
+  // Lifecycle lines also go synchronously to stderr (the supervisor's file),
+  // so starts, exits and fatal errors stay visible there.
+  const lifecycle = (level: AspdLogLevel, event: string, fields: Record<string, unknown>) => {
+    const line = formatAspdLogLine(level, event, fields)
+    process.stderr.write(`${line}\n`)
+    fileLog?.write(line)
+  }
+  if (fileLog) {
+    process.on('exit', () => fileLog.flushSync())
+    process.on('uncaughtException', (error) => {
+      lifecycle('ERROR', 'fatal', {
+        error: error instanceof Error ? (error.stack ?? error.message) : String(error),
+      })
+      process.exit(1)
+    })
   }
   const binding = resolveAspdReleaseBinding(options.releaseIdentity, process.execPath)
   const service = createAspdService(binding)
-  const server = await startAspdServer({ socketPath, service })
-  process.stderr.write(
-    `aspd serving release=${binding.identity.releaseId} sourceCommit=${binding.identity.sourceCommit} socket=${socketPath} pid=${process.pid}\n`
-  )
+  const server = await startAspdServer({ socketPath, service, log })
+  lifecycle('INFO', 'serving', {
+    release: binding.identity.releaseId,
+    sourceCommit: binding.identity.sourceCommit,
+    socket: socketPath,
+    pid: process.pid,
+    ...(logPath !== undefined ? { log: logPath } : {}),
+  })
   let retiring = false
   const retire = (): void => {
     if (retiring) return
     retiring = true
-    void server.retire().then(() => {
-      process.stderr.write(`aspd exit release=${binding.identity.releaseId}\n`)
+    void server.retire().then(async () => {
+      lifecycle('INFO', 'exit', { release: binding.identity.releaseId })
+      await fileLog?.close()
       process.exit(0)
     })
   }

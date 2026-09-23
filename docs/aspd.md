@@ -216,7 +216,38 @@ All state lives under one explicit namespace root:
 <ns>/service/activations.ndjson activation history with serving readback
 <ns>/run/aspd.sock              stable endpoint
 <ns>/run/aspd.json              running pid + release
-<ns>/logs/                      daemon logs
+<ns>/logs/                      aspd.log (rotated request log) + aspd-launchd.log (supervisor)
+```
+
+#### Logs
+
+Every aspd line is `<iso> [aspd] <LEVEL> <event> <json fields>`. Under launchd,
+`aspd serve --socket <p> --log <ns>/logs/aspd.log` writes its own log: lines are
+buffered and appended asynchronously (250 ms), rotated to `aspd.log.1..3` at
+32 MB (≤128 MB total), and flushed on retire/exit. `aspd-launchd.log` (the
+supervisor's stdout/stderr) keeps only `serving`/`exit`/`fatal` lines and
+uncaught stderr, and the launch script copy-truncates it to `.1` above 16 MB at
+start. Without `--log` (spawn-mode `start`), everything goes to stderr.
+
+| Event | When | Fields |
+| --- | --- | --- |
+| `request.answered` | every request, after its reply is written | `conn`, `id`, `method`, `startedAt`, `durationMs`, `outcome` (`ok` \| `rejected:<code>` \| `error:<code>`), `replyBytes`, correlation, `phases` (compile only) |
+| `request.admitted` | compile and prepare only | `conn`, `id`, `method`, `startedAt`, correlation |
+| `request.slow` (WARN) | still in flight after 2 s | `elapsedMs`, `slowRequestMs`, correlation; the answered line is also WARN |
+| `request.refused-retiring` (WARN) | a frame dispatched after retirement began | `conn`, `id`, `method` |
+| `retire.begin` / `retire.drained` / `serving` / `exit` | lifecycle | |
+
+Correlation is read from request params, never required: `runtimeId`,
+`traceId`, `invocationId` and `scopeRef` from `compileRequest.identity` on
+compiles, `agentId` on runtime-declaration reads. `runtimeId` joins a compile to
+HRC's `broker.timing {"phase":"precompile-compile-rpc","runtimeId":...}` line.
+Compile `phases` (ms) are `resolve`, `build`, and inside build
+`placement-context`, `temp-sweep`, `plan-runtime`, `harness-detect`,
+`agent-local`, `materialize`, `system-prompt` (or `load-semantics` for native
+agent-harness plans). Example:
+
+```bash
+grep '"runtimeId":"rt-…"' ~/praesidium/var/aspd/logs/aspd.log ~/praesidium/var/logs/hrc-server.err.log
 ```
 
 `just aspd-status <ns>` reports three separate facts: installed releases,

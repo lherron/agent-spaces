@@ -52,6 +52,13 @@ export type {
 export { buildCorrelationEnvVars } from './placement-api.js'
 
 export {
+  type CompilePhaseTimings,
+  recordCompilePhases,
+  timeCompilePhase,
+  timeCompilePhaseSync,
+} from './compile-phases.js'
+
+export {
   ARRIS_FRONTEND,
   ARRIS_PARTICIPANT_ADAPTER_ID,
   ARRIS_PROCESS_COMMAND,

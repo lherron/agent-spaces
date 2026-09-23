@@ -36,6 +36,7 @@ import {
   toHarnessBrokerStartRequest,
   validateBrokerInvocationRequest,
 } from './broker-invocation.js'
+import { timeCompilePhase, timeCompilePhaseSync } from './compile-phases.js'
 import { assertExecutionMatchesResolution } from './harness-selection/assert-execution-matches-resolution.js'
 import { BUILDER_REGISTRY } from './harness-selection/builders.js'
 import {
@@ -595,12 +596,14 @@ export async function compileRuntimePlan(
     if (placement.bundle.kind === 'agent-project') {
       consistencyAgentIds.push(placement.bundle.agentName)
     }
-    const resolved = resolveHarnessExecution({
-      agent: req.agent,
-      requested: req.requested,
-      provisioningLayers,
-      consistency: { agentIds: consistencyAgentIds },
-    })
+    const resolved = timeCompilePhaseSync('resolve', () =>
+      resolveHarnessExecution({
+        agent: req.agent,
+        requested: req.requested,
+        provisioningLayers,
+        consistency: { agentIds: consistencyAgentIds },
+      })
+    )
     if (!resolved.ok) {
       return {
         schemaVersion: 'agent-runtime-compile-response/v2',
@@ -608,7 +611,9 @@ export async function compileRuntimePlan(
         diagnostics: [compileError(resolved.code, resolved.message, resolved.details)],
       }
     }
-    return await BUILDER_REGISTRY[resolved.recipe.builder](req, placement, resolved, options)
+    return await timeCompilePhase('build', () =>
+      BUILDER_REGISTRY[resolved.recipe.builder](req, placement, resolved, options)
+    )
   } catch (error) {
     // Compose-time hygiene gate block — convert the typed error to `ok: false`
     // with `materialization_hygiene_error` diagnostics HERE, at/below the compiler
@@ -803,23 +808,25 @@ export async function compileNativeAgentHarnessPlan(
       ...(semanticAgent.projectId !== undefined ? { projectId: semanticAgent.projectId } : {}),
     },
   })
-  const semantics = await loadAgentSemantics(
-    {
-      ...semanticAgent,
-      cwd: placement.cwd,
-      provider: execution.selection.modelProvider as 'openai' | 'anthropic',
-      model: execution.selection.model,
-      ...(execution.selection.reasoningEffort !== undefined
-        ? { reasoningEffort: execution.selection.reasoningEffort }
-        : {}),
-      ...(placement.lockedEnv !== undefined ? { lockedEnv: placement.lockedEnv } : {}),
-      ...(placement.dispatchEnv !== undefined ? { dispatchEnv: placement.dispatchEnv } : {}),
-      baseEnvironment: preparation.execEnv,
-      ...(options?.clientRegistryPath !== undefined
-        ? { registryPathOverride: options.clientRegistryPath }
-        : {}),
-    },
-    requireAgentSpacesRuntime(options?.clientRuntime)
+  const semantics = await timeCompilePhase('load-semantics', () =>
+    loadAgentSemantics(
+      {
+        ...semanticAgent,
+        cwd: placement.cwd,
+        provider: execution.selection.modelProvider as 'openai' | 'anthropic',
+        model: execution.selection.model,
+        ...(execution.selection.reasoningEffort !== undefined
+          ? { reasoningEffort: execution.selection.reasoningEffort }
+          : {}),
+        ...(placement.lockedEnv !== undefined ? { lockedEnv: placement.lockedEnv } : {}),
+        ...(placement.dispatchEnv !== undefined ? { dispatchEnv: placement.dispatchEnv } : {}),
+        baseEnvironment: preparation.execEnv,
+        ...(options?.clientRegistryPath !== undefined
+          ? { registryPathOverride: options.clientRegistryPath }
+          : {}),
+      },
+      requireAgentSpacesRuntime(options?.clientRuntime)
+    )
   )
   const resolvedAgent = {
     ...semanticAgent,

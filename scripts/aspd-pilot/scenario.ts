@@ -268,7 +268,7 @@ async function main(): Promise<void> {
     readFileSync(aLog, 'utf8')
       .split('\n')
       .find((line) => line.includes('retire.begin')) ?? ''
-  check('retirement began with the A request in flight', /inFlight=[1-9]/.test(retireLine), {
+  check('retirement began with the A request in flight', /"inFlight":[1-9]/.test(retireLine), {
     retireLine,
   })
   check(

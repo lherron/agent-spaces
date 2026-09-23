@@ -16,6 +16,7 @@ describe('aspd launchd supervision rendering', () => {
     const releasePath = join(ns, 'releases', 'asp-test')
     mkdirSync(releasePath, { recursive: true })
     mkdirSync(join(ns, 'run'))
+    mkdirSync(join(ns, 'logs'))
     const fakeAspd = join(releasePath, 'aspd')
     writeFileSync(
       fakeAspd,
@@ -29,6 +30,7 @@ describe('aspd launchd supervision rendering', () => {
       releasePath,
       env: { HOME: '/home/it', ASP_HOME: "/state/o'brien home", PATH: '/usr/bin:/bin' },
       logPath: join(ns, 'logs', 'aspd-launchd.log'),
+      requestLogPath: join(ns, 'logs', 'aspd.log'),
     })
     const scriptPath = join(ns, 'launchd-run.sh')
     writeFileSync(scriptPath, script)
@@ -47,7 +49,9 @@ describe('aspd launchd supervision rendering', () => {
     expect(observed).toContain("ASP_HOME=/state/o'brien home")
     expect(observed).toContain('HOME=/home/it')
     expect(observed).not.toContain('AMBIENT_SECRET')
-    expect(observed).toContain(`argv=serve --socket ${join(ns, 'run', 'aspd.sock')}`)
+    expect(observed).toContain(
+      `argv=serve --socket ${join(ns, 'run', 'aspd.sock')} --log ${join(ns, 'logs', 'aspd.log')}`
+    )
   })
 
   test('the plist lints and names the launch script under KeepAlive', () => {
