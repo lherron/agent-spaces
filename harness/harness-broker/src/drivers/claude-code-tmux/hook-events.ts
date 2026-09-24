@@ -26,14 +26,6 @@ export type ClaudeCodeHookEventNormalizer = {
    */
   noteTranscriptTerminalMessage: () => void
   normalizeInterrupted: (turnId: string) => InvocationEventEnvelope[]
-  normalizeToolCallFailure: (failure: {
-    turnId: string
-    toolCallId: string
-    name: string
-    message: string
-    code?: string | undefined
-    data?: unknown
-  }) => InvocationEventEnvelope
 }
 
 export type ClaudeCodeHookEventNormalizerOptions = {
@@ -517,27 +509,6 @@ export function createClaudeCodeHookEventNormalizer(
       }
 
       return []
-    },
-
-    normalizeToolCallFailure(failure): InvocationEventEnvelope {
-      return sequencer.next(
-        invocationId,
-        'tool.call.failed',
-        {
-          toolCallId: failure.toolCallId as ToolCallId,
-          name: failure.name,
-          message: failure.message,
-          // ToolCallFailedPayload.code is always-populated (T-06550): fall back
-          // to a driver-scoped code when the caller supplies none.
-          code: failure.code ?? 'claude_code_driver_failure',
-          ...(failure.data !== undefined ? { data: failure.data } : {}),
-        },
-        {
-          turnId: asTurnId(failure.turnId),
-          itemId: failure.toolCallId,
-          driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType: 'driver.failure' },
-        }
-      )
     },
   }
 }
