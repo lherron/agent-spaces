@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import type { AgentSessionEvent, ToolDefinition } from '@earendil-works/pi-coding-agent'
-import type { DriverContext } from 'spaces-harness-broker'
+import { type DriverContext, defaultPiAuthStorePath } from 'spaces-harness-broker'
 import type {
   HarnessInvocationSpec,
   InvocationEventEnvelope,
@@ -299,21 +299,81 @@ describe('pi SDK authentication modes', () => {
     }
   })
 
-  test('oauth mode fails missing or unreadable stores before session construction', async () => {
-    const events: CapturedEvent[] = []
-    let factoryCalled = false
-    const driver = createPiSdkDriver({
-      async createSession() {
-        factoryCalled = true
-        return idleSession()
-      },
-    })
+  test('oauth mode without HARNESS_PI_AUTH_STORE fails a missing default store before session construction', async () => {
+    const temporaryDir = await mkdtemp(join(tmpdir(), 'pi-sdk-auth-default-missing-test-'))
+    const defaultAuthStorePath = join(temporaryDir, '.pi', 'agent', 'auth.json')
+    try {
+      const events: CapturedEvent[] = []
+      let factoryCalled = false
+      const driver = createPiSdkDriver({
+        defaultAuthStorePath,
+        async createSession() {
+          factoryCalled = true
+          return idleSession()
+        },
+      })
 
-    await expect(driver.start(spec('oauth'), createContext(events))).rejects.toThrow(
-      'HARNESS_PI_AUTH_STORE'
+      await expect(driver.start(spec('oauth'), createContext(events))).rejects.toThrow(
+        `missing or unreadable: ${defaultAuthStorePath}`
+      )
+      expect(factoryCalled).toBe(false)
+      expect(failure(events)).toMatchObject({ code: 'missing_auth_store' })
+    } finally {
+      await rm(temporaryDir, { recursive: true, force: true })
+    }
+  })
+
+  test('oauth mode without HARNESS_PI_AUTH_STORE binds the account default Pi store', async () => {
+    const temporaryDir = await mkdtemp(join(tmpdir(), 'pi-sdk-auth-default-test-'))
+    const defaultAuthStorePath = join(temporaryDir, '.pi', 'agent', 'auth.json')
+    await mkdir(join(temporaryDir, '.pi', 'agent'), { recursive: true })
+    await writeFile(
+      defaultAuthStorePath,
+      JSON.stringify({
+        'openai-codex': {
+          type: 'oauth',
+          access: 'test-access',
+          refresh: 'test-refresh',
+          expires: Date.now() + 3_600_000,
+        },
+      })
     )
-    expect(factoryCalled).toBe(false)
-    expect(failure(events)).toMatchObject({ code: 'missing_auth_store' })
+    try {
+      const events: CapturedEvent[] = []
+      let factoryInput: PiSdkSessionFactoryInput | undefined
+      const driver = createPiSdkDriver({
+        defaultAuthStorePath,
+        schedule() {},
+        async createSession(input) {
+          factoryInput = input
+          return idleSession()
+        },
+      })
+      await driver.start(
+        spec('oauth', 'openai-codex', 'openai-codex/gpt-5.5'),
+        createContext(events)
+      )
+
+      expect(requireFactoryInput(factoryInput).auth).toEqual({
+        authMode: 'oauth',
+        authPath: defaultAuthStorePath,
+        providerId: 'openai-codex',
+        credentialType: 'oauth',
+        storeBound: true,
+      })
+    } finally {
+      await rm(temporaryDir, { recursive: true, force: true })
+    }
+  })
+
+  test('the account default Pi store comes from the account home, not $HOME', () => {
+    const priorHome = process.env.HOME
+    process.env.HOME = '/nonexistent-home-override'
+    try {
+      expect(defaultPiAuthStorePath()).toBe(join(userInfo().homedir, '.pi', 'agent', 'auth.json'))
+    } finally {
+      process.env.HOME = priorHome
+    }
   })
 
   test('oauth mode classifies a malformed store as unreadable', async () => {

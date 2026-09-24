@@ -128,6 +128,8 @@ export interface PiSdkDriverOptions {
    * that boundary as native-worker instead.
    */
   requiredHarnessTransport?: 'in-process' | 'native-worker' | undefined
+  /** OAuth store used when dispatchEnv names none; defaults to the account's Pi store. */
+  defaultAuthStorePath?: string | undefined
   /** Worker-local lifecycle hooks used by an interactive shell around the SDK session. */
   onSessionStarted?:
     | ((
@@ -308,7 +310,7 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
 
       let auth: PiSdkAuthResolution
       try {
-        auth = await resolvePiSdkAuth(nextSpec, driverCtx)
+        auth = await resolvePiSdkAuth(nextSpec, driverCtx, options.defaultAuthStorePath)
       } catch (error) {
         if (error instanceof PiSdkAuthError) {
           driverCtx.emit(
@@ -522,9 +524,10 @@ export function composePiSdkEnvironment(
  */
 function resolvePiSdkAuth(
   spec: HarnessInvocationSpec,
-  ctx: Pick<DriverContext, 'dispatchEnv'>
+  ctx: Pick<DriverContext, 'dispatchEnv'>,
+  defaultAuthStorePath: string | undefined
 ): Promise<PiSdkAuthResolution> {
-  return resolveBrokerPiSdkAuth(spec, ctx, { readStoredCredential })
+  return resolveBrokerPiSdkAuth(spec, ctx, { readStoredCredential, defaultAuthStorePath })
 }
 
 async function createDefaultPiSdkSession(input: PiSdkSessionFactoryInput): Promise<PiSdkSession> {

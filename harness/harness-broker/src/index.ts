@@ -50,7 +50,12 @@ export type {
 export { BROKER_ADMISSION_JSON_SCHEMAS, validateJsonSchemaValue } from './json-schema'
 export type { JsonSchemaValidationResult } from './json-schema'
 
-export { PiSdkAuthError, piSdkAgentDir, resolvePiSdkAuth } from './runtime/pi-sdk-auth'
+export {
+  PiSdkAuthError,
+  defaultPiAuthStorePath,
+  piSdkAgentDir,
+  resolvePiSdkAuth,
+} from './runtime/pi-sdk-auth'
 export type { PiSdkAuthResolution, PiSdkStoredCredentialReader } from './runtime/pi-sdk-auth'
 
 export { buildProcessEnv } from './runtime/env'

@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import type { HarnessInvocationSpec } from 'spaces-harness-broker-protocol'
 import type { DriverContext } from '../drivers/driver'
@@ -44,6 +44,15 @@ export function piSdkAgentDir(spec: HarnessInvocationSpec): string {
 }
 
 /**
+ * Pi's default credential store for the account running the broker. The home
+ * comes from the user database, not `$HOME`, so a seat that overrides HOME
+ * still binds the account's store rather than an empty one.
+ */
+export function defaultPiAuthStorePath(accountHome: string = userInfo().homedir): string {
+  return join(accountHome, '.pi', 'agent', 'auth.json')
+}
+
+/**
  * Resolve the auth binding for a pi-SDK-backed invocation from the hash-covered
  * spec plus the dispatch env. The in-process Pi SDK driver and the first-party
  * release worker consume this same resolution without a private projection.
@@ -51,7 +60,11 @@ export function piSdkAgentDir(spec: HarnessInvocationSpec): string {
 export async function resolvePiSdkAuth(
   spec: HarnessInvocationSpec,
   ctx: Pick<DriverContext, 'dispatchEnv'>,
-  options: { readStoredCredential?: PiSdkStoredCredentialReader | undefined } = {}
+  options: {
+    readStoredCredential?: PiSdkStoredCredentialReader | undefined
+    /** OAuth store used when the dispatcher names none; defaults to the account's Pi store. */
+    defaultAuthStorePath?: string | undefined
+  } = {}
 ): Promise<PiSdkAuthResolution> {
   const sdk = spec.sdk
   if (sdk === undefined) throw new Error('pi-sdk invocation requires spec.sdk')
@@ -67,13 +80,11 @@ export async function resolvePiSdkAuth(
     }
   }
 
-  const authPath = ctx.dispatchEnv?.['HARNESS_PI_AUTH_STORE']
-  if (authPath === undefined || authPath.trim().length === 0) {
-    throw new PiSdkAuthError(
-      'missing_auth_store',
-      'OAuth mode requires dispatchEnv.HARNESS_PI_AUTH_STORE'
-    )
-  }
+  const explicitStore = ctx.dispatchEnv?.['HARNESS_PI_AUTH_STORE']
+  const authPath =
+    explicitStore !== undefined && explicitStore.trim().length > 0
+      ? explicitStore
+      : (options.defaultAuthStorePath ?? defaultPiAuthStorePath())
 
   try {
     const encoded = await readFile(authPath, 'utf8')
