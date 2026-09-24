@@ -99,8 +99,7 @@
     "spaces-harness-codex",
     "spaces-harness-muse",
     "spaces-harness-pi",
-    "spaces-harness-pi-sdk",
-    "spaces-turn-runner"
+    "spaces-harness-pi-sdk"
   ],
   "scripts": {
     "build": "tsc",
@@ -133,8 +132,7 @@
     "spaces-harness-broker-client": "*",
     "spaces-harness-broker-protocol": "*",
     "spaces-runtime-contracts": "*",
-    "spaces-runtime": "*",
-    "spaces-turn-runner": "workspace:*"
+    "spaces-runtime": "*"
   },
   "optionalDependencies": {
     "spaces-harness-claude": "*",

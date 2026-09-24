@@ -8,12 +8,11 @@
  *             T-00863 (client constructor), T-00864 (correlation env vars)
  *
  * PASS CONDITIONS:
- * 1. RunTurnNonInteractiveRequest uses placement field instead of SpaceSpec/cpSessionId.
- * 2. BuildProcessInvocationSpecRequest uses placement field instead of SpaceSpec/cpSessionId.
- * 3. hostSessionId replaces cpSessionId in correlation metadata.
- * 4. resolvedBundle is returned from runTurnNonInteractive and buildProcessInvocationSpec.
- * 5. createAgentSpacesClient accepts AgentSpacesClientOptions (aspHome, registryPath).
- * 6. AGENT_SCOPE_REF, AGENT_LANE_REF, AGENT_HOST_SESSION_ID emitted in env vars.
+ * 1. BuildProcessInvocationSpecRequest uses placement field instead of SpaceSpec/cpSessionId.
+ * 2. hostSessionId replaces cpSessionId in correlation metadata.
+ * 3. resolvedBundle is returned from buildProcessInvocationSpec.
+ * 4. createAgentSpacesClient accepts AgentSpacesClientOptions (aspHome, registryPath).
+ * 5. AGENT_SCOPE_REF, AGENT_LANE_REF, AGENT_HOST_SESSION_ID emitted in env vars.
  */
 
 import { beforeAll, describe, expect, test } from 'bun:test'
@@ -37,16 +36,15 @@ const PREPARE_CLI_RUNTIME_REGION = [
   'export async function preparePlacementCliRuntime',
   '\nexport function toProcessInvocationSpec',
 ] as const
-const RUN_PLACEMENT_TURN_DECL = 'export async function runPlacementTurnNonInteractive'
 const HEAVY_TEST_TIMEOUT_MS = 60_000
 const REPO_ROOT = join(import.meta.dirname, '..', '..')
 import type * as CompilerTypes from '../../compiler/agent-spaces/src/types.js'
 import { compilerRuntime } from './compiler-runtime.js'
 import { seedImmutableRegistryMirror } from './hermetic.js'
 
-async function createTurnClient(options?: { aspHome?: string; registryPath?: string }) {
-  const { createAgentSpacesClient } = await import('../../apps/turn-runner/src/index.js')
-  return createAgentSpacesClient(options)
+async function createClient(options?: { aspHome?: string; registryPath?: string }) {
+  const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
+  return createAgentSpacesClient({ ...options, runtime: compilerRuntime })
 }
 
 beforeAll(() => {
@@ -63,47 +61,6 @@ beforeAll(() => {
 // T-00860: Placement-based request/response types
 // ===================================================================
 describe('placement-based request types (T-00860)', () => {
-  test('RunTurnNonInteractiveRequest has placement field', async () => {
-    // The new request type should exist as an interface.
-    // We verify by constructing a conforming object and checking that
-    // the old SpaceSpec/cpSessionId fields are NOT required.
-    const req: CompilerTypes.RunTurnNonInteractiveRequest = {
-      placement: {
-        agentRoot: '/srv/agents/alice',
-        runMode: 'query',
-        bundle: { kind: 'agent-project', agentName: 'alice' },
-      },
-      frontend: 'agent-sdk',
-      prompt: 'Hello',
-      callbacks: { onEvent: () => {} },
-    } as any
-
-    expect(req.placement).toBeDefined()
-    expect((req as any).placement.agentRoot).toBe('/srv/agents/alice')
-    expect((req as any).placement.runMode).toBe('query')
-  })
-
-  test('RunTurnNonInteractiveResponse includes resolvedBundle', async () => {
-    // Verify the response type includes resolvedBundle field
-    // We construct a mock response matching the new shape
-    const mockResponse = {
-      provider: 'anthropic' as const,
-      frontend: 'agent-sdk' as const,
-      result: { success: true },
-      resolvedBundle: {
-        bundleIdentity: 'test-identity',
-        runMode: 'query',
-        cwd: '/srv/agents/alice',
-        instructions: [],
-        spaces: [],
-      },
-    }
-
-    // Import and verify the type accepts this shape
-    const response: CompilerTypes.RunTurnNonInteractiveResponse = mockResponse as any
-    expect(response.resolvedBundle).toBeDefined()
-  })
-
   test('BuildProcessInvocationSpecRequest has placement field', async () => {
     const req: CompilerTypes.BuildProcessInvocationSpecRequest = {
       placement: {
@@ -311,12 +268,11 @@ describe('resolvedBundle from APIs (T-00862)', () => {
 describe('createAgentSpacesClient options (T-00863)', () => {
   test('accepts AgentSpacesClientOptions with aspHome', async () => {
     // New signature should accept options object
-    const client = await createTurnClient({
+    const client = await createClient({
       aspHome: '/custom/asp/home',
     })
 
     expect(client).toBeDefined()
-    expect(typeof client.runTurnNonInteractive).toBe('function')
     expect(typeof client.buildProcessInvocationSpec).toBe('function')
   })
 
@@ -484,298 +440,25 @@ describe('correlation env vars (T-00864)', () => {
 })
 
 // ===================================================================
-// T-00873: placement-based runTurnNonInteractive
-// Defect: runTurnNonInteractive had no placement-aware dispatch, unlike
-// buildProcessInvocationSpec which already had one. SDK frontends using
-// placement were falling through to the legacy path and failing.
-// ===================================================================
-describe('placement-based runTurnNonInteractive (T-00873)', () => {
-  test('placement dispatch returns model_not_supported with structured events', async () => {
-    const client = await createTurnClient({ aspHome: '/tmp/asp-test-m5' })
-    const events: Array<{ type: string; seq: number }> = []
-
-    const response = await client.runTurnNonInteractive({
-      placement: {
-        agentRoot: '/tmp/asp-test-m5/agent-root',
-        runMode: 'query',
-        bundle: { kind: 'agent-project', agentName: 'alice' },
-      },
-      frontend: 'agent-sdk',
-      model: 'api/not-a-model',
-      prompt: 'Hello placement',
-      runId: 'run-placement-1',
-      hostSessionId: 'hs-placement-1',
-      callbacks: {
-        onEvent: (event: { type: string; seq: number }) => {
-          events.push({ type: event.type, seq: event.seq })
-        },
-      },
-    } as any)
-
-    expect(response.result.success).toBe(false)
-    expect(response.result.error?.code).toBe('model_not_supported')
-    expect(response.provider).toBe('anthropic')
-    expect(response.frontend).toBe('agent-sdk')
-    // Should emit state→message→state(error)→complete, same as legacy path
-    expect(events.map((e) => e.type)).toEqual(['state', 'message', 'state', 'complete'])
-    expect(events.map((e) => e.seq)).toEqual([1, 2, 3, 4])
-  })
-
-  test('placement dispatch emits hostSessionId and runId on events', async () => {
-    const client = await createTurnClient({ aspHome: '/tmp/asp-test-m5' })
-    const events: Array<{ hostSessionId: string; runId: string }> = []
-
-    await client.runTurnNonInteractive({
-      placement: {
-        agentRoot: '/tmp/asp-test-m5/agent-root',
-        runMode: 'query',
-        bundle: { kind: 'agent-project', agentName: 'alice' },
-      },
-      frontend: 'agent-sdk',
-      model: 'api/not-a-model',
-      prompt: 'Hello',
-      runId: 'run-hsid-test',
-      hostSessionId: 'hs-placement-hsid',
-      callbacks: {
-        onEvent: (event: { hostSessionId: string; runId: string }) => {
-          events.push({ hostSessionId: event.hostSessionId, runId: event.runId })
-        },
-      },
-    } as any)
-
-    expect(events.length).toBeGreaterThan(0)
-    for (const event of events) {
-      expect(event.hostSessionId).toBe('hs-placement-hsid')
-      expect(event.runId).toBe('run-hsid-test')
-    }
-  })
-
-  test('placement dispatch catches provider mismatch', async () => {
-    const client = await createTurnClient({ aspHome: '/tmp/asp-test-m5' })
-    const events: Array<{ type: string }> = []
-
-    const response = await client.runTurnNonInteractive({
-      placement: {
-        agentRoot: '/tmp/asp-test-m5/agent-root',
-        runMode: 'query',
-        bundle: { kind: 'agent-project', agentName: 'alice' },
-      },
-      frontend: 'agent-sdk',
-      // agent-sdk is anthropic, but continuation says openai
-      continuation: { provider: 'openai', key: 'some-key' },
-      prompt: 'Hello',
-      runId: 'run-mismatch',
-      hostSessionId: 'hs-mismatch',
-      callbacks: {
-        onEvent: (event: { type: string }) => {
-          events.push({ type: event.type })
-        },
-      },
-    } as any)
-
-    expect(response.result.success).toBe(false)
-    expect(response.result.error?.message).toContain('Provider mismatch')
-    expect(response.result.error?.code).toBe('provider_mismatch')
-    expect(events.map((e) => e.type)).toEqual(['state', 'complete'])
-  })
-
-  test('source code has req.placement dispatch in runTurnNonInteractive', () => {
-    // Static regression: ensure the placement dispatch is present
-    const { readFileSync } = require('node:fs')
-    const { join } = require('node:path')
-    const source = readFileSync(join(REPO_ROOT, 'apps', 'turn-runner', 'src', 'client.ts'), 'utf8')
-    // Must have the placement check inside runTurnNonInteractive
-    expect(source).toMatch(/runTurnNonInteractive[\s\S]*?if\s*\(req\.placement\)/)
-    // Must have the placement handler function
-    expect(source).toMatch(/runPlacementTurnNonInteractive/)
-  })
-})
-
-// ===================================================================
 // T-00876: unified placement materialization
 // Both placement functions use resolvePlacementContext + materializeSpec
 // instead of manual registryRefs filtering.
 // ===================================================================
 describe('unified placement materialization (T-00876)', () => {
-  test('both placement functions use resolvePlacementContext + planPlacementRuntime pipeline', () => {
+  test('the placement invocation builder uses resolvePlacementContext + planPlacementRuntime', () => {
     const { readFileSync } = require('node:fs')
     const { join } = require('node:path')
-    const source = readFileSync(join(REPO_ROOT, 'apps', 'turn-runner', 'src', 'client.ts'), 'utf8')
     const prepareSource = readFileSync(
       join(REPO_ROOT, 'compiler', 'agent-spaces', 'src', 'prepare-cli-runtime.ts'),
       'utf8'
     )
-    const runSource = readFileSync(
-      join(REPO_ROOT, 'apps', 'turn-runner', 'src', 'run-placement-turn.ts'),
-      'utf8'
-    )
-
-    // Extract the two placement functions
     const buildFn = fnRegion(prepareSource, ...PREPARE_CLI_RUNTIME_REGION)
-    const runFn = fnRegion(runSource, RUN_PLACEMENT_TURN_DECL)
 
     expect(buildFn).toBeDefined()
-    expect(runFn).toBeDefined()
-
-    // Both must use resolvePlacementContext for conversion
     expect(buildFn).toMatch(/resolvePlacementContext\(/)
-    expect(runFn).toMatch(/resolvePlacementContext\(/)
-
-    // Both must use the shared runtime planner after resolution.
     expect(buildFn).toMatch(/planPlacementRuntime\(/)
-    expect(runFn).toMatch(/planPlacementRuntime\(/)
-
-    // The planner cutover should remove client-local placement planning helpers.
-    expect(source).not.toMatch(/async function resolvePlacementDefaultRunOptions/)
-    expect(source).not.toMatch(/function resolvePlacementModel\(/)
     expect(prepareSource).not.toMatch(/async function resolvePlacementDefaultRunOptions/)
     expect(prepareSource).not.toMatch(/function resolvePlacementModel\(/)
-  })
-})
-
-// ===================================================================
-// T-01092: SDK placement defaults must match CLI planning defaults
-// ===================================================================
-describe('non-interactive placement defaults (T-01092)', () => {
-  test('runPlacementTurnNonInteractive consumes the shared placement runtime plan', () => {
-    const { readFileSync } = require('node:fs')
-    const { join } = require('node:path')
-    const source = readFileSync(
-      join(REPO_ROOT, 'apps', 'turn-runner', 'src', 'run-placement-turn.ts'),
-      'utf8'
-    )
-    const runFn = fnRegion(source, RUN_PLACEMENT_TURN_DECL)
-
-    expect(runFn).toBeDefined()
-    expect(runFn).toMatch(/planPlacementRuntime\(/)
-    expect(runFn).toMatch(/runtimePlan\.prompt/)
-    expect(runFn).toMatch(/runtimePlan\.yolo/)
-    expect(runFn).toMatch(/runtimePlan\.model/)
-  })
-
-  test('pi-sdk path does not hardcode yolo true', () => {
-    const { readFileSync } = require('node:fs')
-    const { join } = require('node:path')
-    const source = readFileSync(
-      join(REPO_ROOT, 'apps', 'turn-runner', 'src', 'run-placement-turn.ts'),
-      'utf8'
-    )
-    const runFn = fnRegion(source, RUN_PLACEMENT_TURN_DECL)
-
-    expect(runFn).toBeDefined()
-    expect(runFn).not.toMatch(/yolo:\s*true/)
-  })
-})
-
-// ===================================================================
-// T-00891: placement.correlation replaces top-level hostSessionId/runId
-//
-// Defect: runPlacementTurnNonInteractive reads req.hostSessionId via
-// resolveHostSessionId(req) and req.runId directly, ignoring
-// placement.correlation. Callers providing only placement.correlation
-// get "hostSessionId is required".
-//
-// PASS CONDITIONS:
-// 1. Providing correlation inside placement (no top-level hostSessionId/runId)
-//    must propagate hostSessionId and runId to emitted events.
-// 2. Top-level hostSessionId/runId must still work (backward compat).
-// ===================================================================
-describe('placement.correlation for hostSessionId/runId (T-00891)', () => {
-  test('placement.correlation.hostSessionId is used when top-level hostSessionId absent', async () => {
-    // RED: Currently throws "hostSessionId is required" because
-    // resolveHostSessionId(req) only reads req.hostSessionId
-    const client = await createTurnClient({ aspHome: '/tmp/asp-test-t891' })
-    const events: Array<{ hostSessionId: string; runId: string }> = []
-
-    // Call with correlation nested in placement, NO top-level hostSessionId/runId
-    await client.runTurnNonInteractive({
-      placement: {
-        agentRoot: '/tmp/asp-test-t891/agent-root',
-        runMode: 'query',
-        bundle: { kind: 'agent-project', agentName: 'alice' },
-        correlation: {
-          hostSessionId: 'hs-from-correlation',
-          runId: 'run-from-correlation',
-        },
-      },
-      frontend: 'agent-sdk',
-      model: 'api/not-a-model',
-      prompt: 'Hello',
-      callbacks: {
-        onEvent: (event: { hostSessionId: string; runId: string }) => {
-          events.push({ hostSessionId: event.hostSessionId, runId: event.runId })
-        },
-      },
-    } as any)
-
-    expect(events.length).toBeGreaterThan(0)
-    for (const event of events) {
-      expect(event.hostSessionId).toBe('hs-from-correlation')
-      expect(event.runId).toBe('run-from-correlation')
-    }
-  })
-
-  test('placement.correlation.runId is used when top-level runId absent', async () => {
-    // RED: Currently passes undefined runId to createEventEmitter because
-    // req.runId is not set and placement.correlation.runId is ignored
-    const client = await createTurnClient({ aspHome: '/tmp/asp-test-t891b' })
-    const events: Array<{ runId: string }> = []
-
-    await client.runTurnNonInteractive({
-      placement: {
-        agentRoot: '/tmp/asp-test-t891b/agent-root',
-        runMode: 'query',
-        bundle: { kind: 'agent-project', agentName: 'alice' },
-        correlation: {
-          hostSessionId: 'hs-t891b',
-          runId: 'run-only-in-correlation',
-        },
-      },
-      frontend: 'agent-sdk',
-      model: 'api/not-a-model',
-      prompt: 'Hello',
-      hostSessionId: 'hs-t891b', // provide hostSessionId at top-level to isolate the runId defect
-      callbacks: {
-        onEvent: (event: { runId: string }) => {
-          events.push({ runId: event.runId })
-        },
-      },
-    } as any)
-
-    expect(events.length).toBeGreaterThan(0)
-    for (const event of events) {
-      expect(event.runId).toBe('run-only-in-correlation')
-    }
-  })
-
-  test('top-level hostSessionId/runId still works (backward compat)', async () => {
-    // GREEN: This should already pass — existing behavior
-    const client = await createTurnClient({ aspHome: '/tmp/asp-test-t891c' })
-    const events: Array<{ hostSessionId: string; runId: string }> = []
-
-    await client.runTurnNonInteractive({
-      placement: {
-        agentRoot: '/tmp/asp-test-t891c/agent-root',
-        runMode: 'query',
-        bundle: { kind: 'agent-project', agentName: 'alice' },
-      },
-      frontend: 'agent-sdk',
-      model: 'api/not-a-model',
-      prompt: 'Hello',
-      runId: 'run-top-level',
-      hostSessionId: 'hs-top-level',
-      callbacks: {
-        onEvent: (event: { hostSessionId: string; runId: string }) => {
-          events.push({ hostSessionId: event.hostSessionId, runId: event.runId })
-        },
-      },
-    } as any)
-
-    expect(events.length).toBeGreaterThan(0)
-    for (const event of events) {
-      expect(event.hostSessionId).toBe('hs-top-level')
-      expect(event.runId).toBe('run-top-level')
-    }
   })
 })
 

@@ -14,7 +14,6 @@ import type {
   ResolvedRuntimeBundle,
   RuntimePlacement,
 } from 'spaces-config'
-import type { AttachmentRef } from 'spaces-runtime'
 import type { HarnessId, PlacementRuntimePlan } from 'spaces-runtime-contracts'
 import { buildAgentSessionEnv } from './agent-session-env.js'
 import type {
@@ -22,8 +21,6 @@ import type {
   HarnessContinuationRef,
   ProcessInvocationSpec,
   ProviderDomain,
-  RunResult,
-  SessionCallbacks,
 } from './types.js'
 
 // ============================================================================
@@ -94,31 +91,6 @@ export function requireAgentSpacesRuntime(
     )
   }
   return runtime
-}
-
-// ============================================================================
-// Request/Response: NonInteractive turn execution (placement-based)
-// ============================================================================
-
-export interface PlacementRunTurnRequest {
-  placement: RuntimePlacement
-  frontend: 'agent-sdk' | 'pi-sdk'
-  model?: string | undefined
-  continuation?: HarnessContinuationRef | undefined
-  lockedEnv?: Record<string, string> | undefined
-  dispatchEnv?: Record<string, string> | undefined
-  prompt: string
-  attachments?: Array<string | AttachmentRef> | undefined
-  callbacks: SessionCallbacks
-}
-
-export interface PlacementRunTurnResponse {
-  continuation?: HarnessContinuationRef | undefined
-  provider: ProviderDomain
-  frontend: 'agent-sdk' | 'pi-sdk'
-  model?: string | undefined
-  result: RunResult
-  resolvedBundle?: ResolvedRuntimeBundle | undefined
 }
 
 // ============================================================================

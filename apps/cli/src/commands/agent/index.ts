@@ -10,7 +10,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseScopeRef, resolveScopeInput } from 'agent-scope'
-import { HARNESS_CATALOG, resolveHarnessExecution } from 'agent-spaces'
+import { HARNESS_CATALOG, createAgentSpacesClient, resolveHarnessExecution } from 'agent-spaces'
 import type { Command } from 'commander'
 import {
   type RuntimePlacement,
@@ -24,7 +24,7 @@ import {
   toSelectionLayers,
 } from 'spaces-config'
 import type { HarnessSelectionRequest } from 'spaces-runtime-contracts'
-import { createAgentSpacesClient } from 'spaces-turn-runner'
+import { compilerRuntime } from '../../compiler-runtime.js'
 import { parseEnvFlags } from './shared.js'
 
 const VALID_MODES = ['query', 'heartbeat', 'task', 'maintenance', 'resolve'] as const
@@ -351,7 +351,7 @@ async function runProcessFrontend(
     options,
   }: FrontendExecContext
 ): Promise<void> {
-  const client = createAgentSpacesClient()
+  const client = createAgentSpacesClient({ runtime: compilerRuntime })
   const response = await client.buildProcessInvocationSpec({
     placement,
     provider,

@@ -27,7 +27,6 @@ export const FAST_WORKSPACE_SUITE_NAMES = [
   'spaces-harness-pi-sdk',
   'spaces-runtime',
   'spaces-runtime-contracts',
-  'spaces-turn-runner',
 ] as const
 
 export const ALWAYS_ON_PACKAGE_NAMES = new Set([

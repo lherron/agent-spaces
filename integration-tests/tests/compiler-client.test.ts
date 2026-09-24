@@ -1,13 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 
-// Repo-level parity coverage deliberately composes the compiler and turn-runner
-// roots from integration-tests, which sits above the six package roots.
-import { createAgentSpacesClient as createTurnRunnerClient } from '../../apps/turn-runner/src/index.js'
 import { createAgentSpacesClient } from '../../compiler/agent-spaces/src/index.js'
 import { compilerRuntime } from './compiler-runtime.js'
 
 const client = createAgentSpacesClient({ runtime: compilerRuntime })
-const turnClient = createTurnRunnerClient()
 
 // ---------------------------------------------------------------------------
 // getHarnessCapabilities
@@ -266,105 +262,5 @@ describe('buildProcessInvocationSpec', () => {
         cwd: '/tmp',
       })
     ).rejects.toThrow(/[Pp]rovider mismatch/)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// runTurnNonInteractive
-// ---------------------------------------------------------------------------
-
-describe('runTurnNonInteractive', () => {
-  test('fails closed for every retired direct SDK frontend before materialization', async () => {
-    const requests = [
-      { frontend: 'agent-sdk' as const, provider: 'anthropic' },
-      { frontend: 'pi-sdk' as const, provider: 'openai' },
-    ] as const
-
-    for (const { frontend, provider } of requests) {
-      const hostSessionId = `direct-${frontend}`
-      const runId = `${hostSessionId}-run`
-      const events: Array<{ type: string; hostSessionId: string; runId: string }> = []
-      const response = await turnClient.runTurnNonInteractive({
-        hostSessionId,
-        runId,
-        aspHome: '/tmp/asp-test',
-        spec: { spaces: ['space:base@dev'] },
-        frontend,
-        cwd: '/tmp',
-        prompt: 'Hello',
-        callbacks: {
-          onEvent: (event) => {
-            events.push({
-              type: event.type,
-              hostSessionId: event.hostSessionId,
-              runId: event.runId,
-            })
-          },
-        },
-      })
-
-      expect(response.result.success).toBe(false)
-      expect(response.result.error).toMatchObject({
-        code: 'unsupported_frontend',
-        message:
-          'Direct SDK turn requests are retired; supply placement so ASP resolves the canonical harness.',
-      })
-      expect(response.provider).toBe(provider)
-      expect(response.frontend).toBe(frontend)
-      expect(events).toEqual([
-        { type: 'state', hostSessionId, runId },
-        { type: 'complete', hostSessionId, runId },
-      ])
-    }
-  })
-})
-
-// ---------------------------------------------------------------------------
-// runTurnInFlight + in-flight controls
-// ---------------------------------------------------------------------------
-
-describe('runTurnInFlight', () => {
-  test('also fails closed for a retired direct SDK request', async () => {
-    const events: Array<{ type: string }> = []
-
-    const response = await turnClient.runTurnInFlight({
-      hostSessionId: 'inflight-unsupported',
-      runId: 'run-inflight-unsupported',
-      aspHome: '/tmp/asp-test',
-      spec: { spaces: ['space:base@dev'] },
-      frontend: 'pi-sdk',
-      model: 'openai-codex/gpt-5.3-codex',
-      cwd: '/tmp',
-      prompt: 'Hello',
-      callbacks: {
-        onEvent: (event) => {
-          events.push({ type: event.type })
-        },
-      },
-    })
-
-    expect(response.result.success).toBe(false)
-    expect(response.result.error?.code).toBe('unsupported_frontend')
-    expect(events.map((e) => e.type)).toEqual(['state', 'complete'])
-  })
-})
-
-describe('in-flight control methods', () => {
-  test('queueInFlightInput throws when no active run exists', async () => {
-    await expect(
-      turnClient.queueInFlightInput({
-        hostSessionId: 'missing-session',
-        runId: 'missing-run',
-        prompt: 'hello',
-      })
-    ).rejects.toThrow(/No active in-flight run/)
-  })
-
-  test('interruptInFlightTurn throws when no active run exists', async () => {
-    await expect(
-      turnClient.interruptInFlightTurn({
-        hostSessionId: 'missing-session',
-      })
-    ).rejects.toThrow(/No active in-flight run/)
   })
 })

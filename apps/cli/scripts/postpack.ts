@@ -35,7 +35,6 @@ const BUNDLED_DIRS = [
   'spaces-harness-pi',
   'spaces-harness-pi-sdk',
   'agent-spaces',
-  'spaces-turn-runner',
   'agent-scope',
   'agent-harness',
   'agent-harness-runtime',

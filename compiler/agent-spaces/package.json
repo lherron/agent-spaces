@@ -11,11 +11,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./turn-support": {
-      "bun": "./src/turn-support.ts",
-      "types": "./dist/turn-support.d.ts",
-      "import": "./dist/turn-support.js"
-    },
     "./testing": {
       "bun": "./src/testing/pre-hrc-broker-helpers.ts",
       "types": "./dist/testing/pre-hrc-broker-helpers.d.ts",

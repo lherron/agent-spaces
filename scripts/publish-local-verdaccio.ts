@@ -30,7 +30,6 @@ const DEV_PUBLISH_PACKAGES = [
   'drivers/harness-pi',
   'drivers/harness-pi-sdk',
   'compiler/agent-spaces',
-  'apps/turn-runner',
   'harness/aspc',
   'harness/aspc-facade',
 ] as const

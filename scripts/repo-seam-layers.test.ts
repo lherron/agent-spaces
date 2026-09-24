@@ -74,7 +74,7 @@ describe('root-prefix architecture layers', () => {
     expect(layerOf('integration-tests/tests/repo-conformance.test.ts')).toBe('Apps')
 
     const harness = rootLayer('harness')
-    expect(forbids(harness, 'spaces-turn-runner')).toBe(true)
+    expect(forbids(harness, '@lherron/agent-spaces')).toBe(true)
     expect(forbids(harness, 'hrc-server')).toBe(true)
 
     const perPackageRoots = layers.flatMap((layer) =>
@@ -95,7 +95,7 @@ describe('root-prefix architecture layers', () => {
         (edge) =>
           edge.file.startsWith('compiler/') &&
           edge.specifier.startsWith('.') &&
-          edge.targetPackage === 'apps/turn-runner'
+          edge.targetPackage.startsWith('apps/')
       )
     ).toEqual([])
 

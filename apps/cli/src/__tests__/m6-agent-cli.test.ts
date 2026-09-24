@@ -1006,27 +1006,3 @@ describe('gpt-5.5 model support (T-00878)', () => {
     expect(parsed.spec.codexAppServer?.model).toBe('gpt-5.6-terra')
   })
 })
-
-// ===================================================================
-// T-00879: retained session mechanics use unified materialization
-// ===================================================================
-describe('session runtime placement path (T-00879)', () => {
-  cliTest('runPlacementTurnNonInteractive uses unified materializeSpec pipeline', () => {
-    const source = readFileSync(
-      join(import.meta.dirname, '..', '..', '..', 'turn-runner', 'src', 'run-placement-turn.ts'),
-      'utf8'
-    )
-    // Scope to the runPlacementTurnNonInteractive function via its declaration to
-    // EOF (it is the only top-level function in run-placement-turn.ts) instead of
-    // a greedy whole-body regex, so the unified-pipeline wiring assertion stays
-    // scoped without pinning the whole body.
-    const declStart = source.indexOf('export async function runPlacementTurnNonInteractive')
-    const runFn = declStart === -1 ? undefined : source.slice(declStart)
-    expect(runFn).toBeDefined()
-    // Must use resolvePlacementContext + materializeSpec (unified pipeline)
-    expect(runFn).toMatch(/resolvePlacementContext\(/)
-    expect(runFn).toMatch(/materializeSpec\(/)
-    // The retained native session runtime loads its bundle from materialized output.
-    expect(runFn).toMatch(/loadPiSdkBundle\(materialized/)
-  })
-})

@@ -28,8 +28,7 @@ describe('legacy terminology cleanup (T-00869)', () => {
 
     // cpSessionId should not appear as a primary required field in new types.
     // It may appear in deprecated aliases or backward-compat wrappers, but
-    // RunTurnNonInteractiveRequest and BuildProcessInvocationSpecRequest
-    // should use placement.correlation.hostSessionId instead.
+    // BuildProcessInvocationSpecRequest should use placement.correlation.hostSessionId instead.
     const lines = content.split('\n')
     const primaryCpSessionIdFields = lines.filter(
       (line) =>
@@ -143,10 +142,10 @@ describe('final success criteria (T-00871)', () => {
 
   // Criterion 2: agent-spaces public APIs are placement-based
   test('criterion 2: public API has placement-based methods', async () => {
-    const { createAgentSpacesClient } = await import('spaces-turn-runner')
+    const { createAgentSpacesClient } = await import('agent-spaces')
     const client = createAgentSpacesClient()
     expect(typeof client.buildProcessInvocationSpec).toBe('function')
-    expect(typeof client.runTurnNonInteractive).toBe('function')
+    expect(typeof client.buildHarnessBrokerInvocation).toBe('function')
   })
 
   // Criterion 3: no legacy terminology in primary surface

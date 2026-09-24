@@ -54,73 +54,8 @@ export type HostCorrelation = HostCorrelationType
 // ---------------------------------------------------------------------------
 
 export type SpaceSpec = { spaces: string[] } | { target: { targetName: string; targetDir: string } }
-export type AgentSpacesAttachmentInput = string | AttachmentRef
-
-export interface SessionCallbacks {
-  onEvent(event: AgentEvent): void | Promise<void>
-}
 
 export type SessionState = 'running' | 'complete' | 'error'
-
-// ---------------------------------------------------------------------------
-// Request/Response: NonInteractive turn execution (spec §3.2)
-// ---------------------------------------------------------------------------
-
-export interface RunTurnNonInteractiveRequest {
-  hostSessionId?: string | undefined
-  runId: string
-  aspHome: string
-  spec: SpaceSpec
-  frontend: 'agent-sdk' | 'pi-sdk'
-  model?: string | undefined
-  yolo?: boolean | undefined
-  continuation?: HarnessContinuationRef | undefined
-  cwd: string
-  lockedEnv?: Record<string, string> | undefined
-  dispatchEnv?: Record<string, string> | undefined
-  prompt: string
-  attachments?: AgentSpacesAttachmentInput[] | undefined
-  callbacks: SessionCallbacks
-  /** Placement-based request (v2) — when set, legacy session/spec/aspHome/cwd are ignored */
-  placement?: RuntimePlacement | undefined
-}
-
-export interface RunTurnNonInteractiveResponse {
-  continuation?: HarnessContinuationRef | undefined
-  provider: ProviderDomain
-  frontend: 'agent-sdk' | 'pi-sdk'
-  model?: string | undefined
-  result: RunResult
-  resolvedBundle?: ResolvedRuntimeBundle | undefined
-}
-
-/**
- * In-flight turn execution request.
- * Uses the same payload shape as non-interactive turns, but allows additional
- * user messages to be queued/interrupts to be applied while the run is active.
- */
-export interface RunTurnInFlightRequest extends RunTurnNonInteractiveRequest {}
-
-export interface QueueInFlightInputRequest {
-  hostSessionId?: string | undefined
-  runId: string
-  inputApplicationId?: string | undefined
-  idempotencyKey?: string | undefined
-  semantics?: 'append_context' | 'interrupt_and_continue' | undefined
-  prompt: string
-  attachments?: AgentSpacesAttachmentInput[] | undefined
-}
-
-export interface QueueInFlightInputResponse {
-  accepted: boolean
-  pendingTurns: number
-}
-
-export interface InterruptInFlightTurnRequest {
-  hostSessionId?: string | undefined
-  runId?: string | undefined
-  reason?: string | undefined
-}
 
 // ---------------------------------------------------------------------------
 // Request/Response: CLI invocation preparation (spec §3.3)
@@ -358,15 +293,4 @@ export interface InvocationSpecBuilder {
   ): Promise<BuildHarnessBrokerInvocationResponse>
 }
 
-/** Executes turns and drives in-flight session input. */
-export interface TurnExecutor {
-  runTurnNonInteractive(req: RunTurnNonInteractiveRequest): Promise<RunTurnNonInteractiveResponse>
-  runTurnInFlight(req: RunTurnInFlightRequest): Promise<RunTurnNonInteractiveResponse>
-  queueInFlightInput(req: QueueInFlightInputRequest): Promise<QueueInFlightInputResponse>
-  interruptInFlightTurn(req: InterruptInFlightTurnRequest): Promise<void>
-}
-
-export type AgentSpacesClient = RuntimeCompiler &
-  SpaceResolver &
-  InvocationSpecBuilder &
-  TurnExecutor
+export type AgentSpacesClient = RuntimeCompiler & SpaceResolver & InvocationSpecBuilder

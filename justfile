@@ -422,11 +422,3 @@ publish-semver-dry-run version tag="latest":
 # Serve the ACP Session Dashboard (acp-ops-web) against the local dev stack
 serve-dashboard:
     cd packages/acp-ops-web && bun run dev
-
-# Run control-plane interface test with rex-home target
-cp-test prompt="List skills available. Use only what is in your context, no tools.":
-    ASP_HOME=/Users/lherron/praesidium/var/spaces-repo bun scripts/cp-interface-test.ts \
-        --target default \
-        --target-dir /Users/lherron/praesidium/rex-home \
-        --model claude/sonnet \
-        "{{prompt}}"

@@ -26,7 +26,6 @@
     "spaces-harness-broker-protocol": "workspace:*",
     "spaces-harness-pi-sdk": "workspace:*",
     "spaces-runtime": "workspace:*",
-    "spaces-runtime-contracts": "workspace:*",
-    "spaces-turn-runner": "*"
+    "spaces-runtime-contracts": "workspace:*"
   }
 }

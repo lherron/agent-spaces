@@ -15,25 +15,17 @@ export type {
   HarnessFrontend,
   HostCorrelation,
   InteractionMode,
-  InterruptInFlightTurnRequest,
   InvocationSpecBuilder,
   IoMode,
   ProcessInvocationSpec,
   ProviderDomain,
-  QueueInFlightInputRequest,
-  QueueInFlightInputResponse,
   ResolveRequest,
   ResolveResponse,
   RunResult,
   RuntimeCompiler,
-  RunTurnInFlightRequest,
-  RunTurnNonInteractiveRequest,
-  RunTurnNonInteractiveResponse,
-  SessionCallbacks,
   SessionState,
   SpaceResolver,
   SpaceSpec,
-  TurnExecutor,
 } from './types.js'
 
 export type {
@@ -45,8 +37,6 @@ export type {
   AgentSpacesClientOptions,
   PlacementBuildInvocationRequest,
   PlacementBuildInvocationResponse,
-  PlacementRunTurnRequest,
-  PlacementRunTurnResponse,
 } from './placement-api.js'
 
 export { buildCorrelationEnvVars } from './placement-api.js'

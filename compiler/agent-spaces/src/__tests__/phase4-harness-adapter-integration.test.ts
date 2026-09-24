@@ -25,20 +25,6 @@ const prepareCliRuntimeSource = readFileSync(
   join(import.meta.dirname, '..', 'prepare-cli-runtime.ts'),
   'utf8'
 )
-const runPlacementTurnSource = readFileSync(
-  join(
-    import.meta.dirname,
-    '..',
-    '..',
-    '..',
-    '..',
-    'apps',
-    'turn-runner',
-    'src',
-    'run-placement-turn.ts'
-  ),
-  'utf8'
-)
 const placementResolverSource = readFileSync(
   join(
     import.meta.dirname,
@@ -128,7 +114,6 @@ const PREPARE_CLI_RUNTIME_REGION = [
   'export async function preparePlacementCliRuntime',
   '\nexport function toProcessInvocationSpec',
 ] as const
-const RUN_PLACEMENT_TURN_DECL = 'export async function runPlacementTurnNonInteractive'
 
 // ===================================================================
 // Test 1: resolvePlacementContext returns effectiveConfig for agent-project
@@ -246,18 +231,6 @@ describe('agent-project placement context feeds harness pipeline (T-00994)', () 
       /\.\.\.\(req\.reqLockedEnv \?\? \{\}\)[\s\S]*ASP_HOME:\s*req\.aspHome/
     )
     expect(composeAgentLocalEnvSource).toMatch(/env = \{ \.\.\.env, \.\.\.toolRuntime\.env \}/)
-  })
-
-  test('runPlacementTurnNonInteractive applies scoped env with agent tool env', () => {
-    const fn = fnRegion(runPlacementTurnSource, RUN_PLACEMENT_TURN_DECL)
-    // The placement path detects agent-local components and delegates the env
-    // compose (incl. the prepareAgentToolRuntime tool-env merge) to the shared helper.
-    expect(fn).toMatch(/detectAgentLocalComponents\(placement\.agentRoot\)/)
-    expect(fn).toMatch(/composeAgentLocalEnv\(/)
-    expect(composeAgentLocalEnvSource).toMatch(/prepareAgentToolRuntime\(/)
-    expect(composeAgentLocalEnvSource).toMatch(/env = \{ \.\.\.env, \.\.\.toolRuntime\.env \}/)
-    expect(fn).toMatch(/restoreEnv = applyEnvOverlay\(harnessEnv\)/)
-    expect(fn).toMatch(/restoreEnv\?\.\(\)/)
   })
 
   test('materializeSpec target branch forwards agent-local context', () => {
