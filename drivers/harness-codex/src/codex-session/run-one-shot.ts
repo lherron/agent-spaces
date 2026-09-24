@@ -65,7 +65,6 @@ export interface CodexAppServerOneShotResult {
 export async function runCodexAppServerOneShot(
   options: CodexAppServerOneShotOptions
 ): Promise<CodexAppServerOneShotResult> {
-  const items = new Map<string, CodexThreadItem>()
   let threadId: string | undefined
   let currentTurnId: string | undefined
   let finalOutput: string | undefined
@@ -133,9 +132,6 @@ export async function runCodexAppServerOneShot(
       }
       case 'item/started': {
         const params = notification.params as ItemStartedNotification
-        if (params.item.id) {
-          items.set(params.item.id, params.item)
-        }
         for (const event of mapItemStarted(params.item)) {
           await emitEvent(event)
         }
@@ -143,9 +139,6 @@ export async function runCodexAppServerOneShot(
       }
       case 'item/completed': {
         const params = notification.params as ItemCompletedNotification
-        if (params.item.id) {
-          items.set(params.item.id, params.item)
-        }
         const mapped = mapItemCompleted(params.item)
         for (const event of mapped.events) {
           await emitEvent(event)
