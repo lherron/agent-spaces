@@ -107,10 +107,10 @@ describe('spaces-aspc is compile-only', () => {
     expect(interfaceBlock).not.toBeNull()
     expect(interfaceBlock?.[1] ?? '').not.toMatch(/\bcompileAndStart\b/)
 
-    // `startFromDispatch` belongs to the composition package now.
-    const withStartFromDispatch = sourceFiles(srcRoot).filter((file) =>
-      /\bstartFromDispatch\b/.test(readFileSync(file, 'utf8'))
+    // The compile package has no broker start route or implementation.
+    const withStartPlane = sourceFiles(srcRoot).filter((file) =>
+      /\b(?:broker|invocation)\.start\b/.test(readFileSync(file, 'utf8'))
     )
-    expect(withStartFromDispatch).toEqual([])
+    expect(withStartPlane).toEqual([])
   })
 })
