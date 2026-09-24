@@ -78,8 +78,6 @@ function replay(lines: string[]): Replay {
       if (payload.raw?.loadBearing === true) loadBearing.push(payload.raw.nativeType)
       return warnings.length
     },
-    emitReleased: () => 0,
-    emitNormalizedAs: () => 0,
     warn: () => {},
   })
 
@@ -130,8 +128,6 @@ function replayInOneRead(lines: string[]): Replay {
       if (payload.raw?.loadBearing === true) loadBearing.push(payload.raw.nativeType)
       return warnings.length
     },
-    emitReleased: () => 0,
-    emitNormalizedAs: () => 0,
     warn: () => {},
   })
   const reader = createCodexHookTranscriptReader({

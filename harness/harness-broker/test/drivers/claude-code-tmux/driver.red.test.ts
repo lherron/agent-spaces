@@ -833,8 +833,6 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       normalizer: { name: 'claude-code-tmux', version: 'test' },
       now,
       emitWarning: (payload) => ctx.emit('capture.warning', payload).seq,
-      emitReleased: (payload) => ctx.emit('capture.released', payload).seq,
-      emitNormalizedAs: () => 0,
       warn: (line) => void logged.push(line),
     })
     ctx.capture = capture
@@ -1360,8 +1358,6 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       normalizer: { name: 'claude-code-tmux', version: 'test' },
       now,
       emitWarning: (payload) => ctx.emit('capture.warning', payload).seq,
-      emitReleased: (payload) => ctx.emit('capture.released', payload).seq,
-      emitNormalizedAs: () => 0,
     })
     ctx.capture = capture
     const driver = createDriver({
