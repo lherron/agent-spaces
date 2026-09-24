@@ -15,7 +15,6 @@ import type { BrokerInputPolicy } from './input'
 import type { HrcRuntimeSnapshot } from './operations'
 import type { BrokerPermissionPolicy } from './permissions'
 import type {
-  HarnessRuntime,
   InteractionMode,
   IsoTimestamp,
   LegacyTransportAlias,
@@ -109,5 +108,3 @@ export type RuntimeRouteDecision = {
       }>
     | undefined
 }
-
-export type RuntimeRouteHarnessRuntime = HarnessRuntime | string
