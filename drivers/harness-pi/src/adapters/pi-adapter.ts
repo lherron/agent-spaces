@@ -45,7 +45,6 @@ import { WARNING_CODES } from 'spaces-config'
 import {
   PERMISSIONS_TOML_FILENAME,
   hasPermissions,
-  linkInstructionsFile,
   permissionsTomlExists,
   readHooksWithPrecedence,
   readPermissionsToml,
@@ -235,12 +234,6 @@ export class PiAdapter implements HarnessAdapter {
       await this.bundleSpaceExtensions(input, cacheDir, files, warnings)
       await this.copySpaceComponents(input, cacheDir, files)
 
-      // Link instructions file (AGENT.md → AGENT.md for Pi)
-      const instructionsResult = await linkInstructionsFile(input.snapshotPath, cacheDir, 'pi')
-      if (instructionsResult.linked && instructionsResult.destFile) {
-        files.push(instructionsResult.destFile)
-      }
-
       // Copy permissions.toml if present (for composition to read later)
       if (await permissionsTomlExists(input.snapshotPath)) {
         const srcPerms = join(input.snapshotPath, PERMISSIONS_TOML_FILENAME)
@@ -309,9 +302,8 @@ export class PiAdapter implements HarnessAdapter {
   }
 
   /**
-   * Copy the skills/hooks/shared/scripts component directories from a space
-   * snapshot into the cache dir, recording the per-entry file list where the
-   * original behavior did so.
+   * Copy the skills and hooks components consumed by Pi composition into the
+   * cache dir, recording their per-entry file list.
    */
   private async copySpaceComponents(
     input: MaterializeSpaceInput,
@@ -335,15 +327,6 @@ export class PiAdapter implements HarnessAdapter {
         files.push(`${COMPONENT_DIR_NAMES.HOOKS}/${entry}`)
       }
     }
-
-    // Copy shared directory (merged into the cache dir root)
-    await copyComponentDir(join(input.snapshotPath, COMPONENT_DIR_NAMES.SHARED), cacheDir)
-
-    // Copy scripts directory
-    await copyComponentDir(
-      join(input.snapshotPath, COMPONENT_DIR_NAMES.SCRIPTS),
-      join(cacheDir, COMPONENT_DIR_NAMES.SCRIPTS)
-    )
   }
 
   /**
