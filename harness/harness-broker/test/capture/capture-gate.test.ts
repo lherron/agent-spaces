@@ -1,3 +1,4 @@
+import { Database } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -78,6 +79,27 @@ function harness(options: { dir?: string } = {}): Harness {
     dispositions: () =>
       Object.fromEntries(index.list(invocationId).map((r) => [r.rawRecordId, r.disposition])),
     close: () => index.close(),
+  }
+}
+
+/** Seed persisted state from a pre-T-07883 broker without a production writer. */
+function seedLegacyCaptureBlock(dir: string): void {
+  const db = new Database(join(dir, 'ledger-index.db'))
+  try {
+    db.query(
+      `INSERT INTO capture_block
+         (invocation_id, raw_record_id, native_type, family, message, since_iso)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(
+      invocationId,
+      'raw_000001',
+      'queue-operation:hold',
+      'tool',
+      'unknown op',
+      '2026-09-02T08:21:00.000Z'
+    )
+  } finally {
+    db.close()
   }
 }
 
@@ -336,17 +358,10 @@ describe('capture gate: a blocked-unknown NEVER halts the cursor (T-07883)', () 
     // records behind it were committed but left `pending`.
     const first = harness({ dir })
     first.gate.ingest(row('queue-operation:hold', {}), blocked('tool', 'unknown op'))
-    first.index.block({
-      invocationId,
-      rawRecordId: 'raw_000001',
-      nativeType: 'queue-operation:hold',
-      family: 'tool',
-      message: 'unknown op',
-      sinceIso: '2026-09-02T08:21:00.000Z',
-    })
     first.gate.ingest(row('held', {}), normalized)
     first.index.dispose(invocationId, 'raw_000002', 'pending')
     first.close()
+    seedLegacyCaptureBlock(dir)
 
     const second = harness({ dir })
     expect(second.gate.state()).toMatchObject({ state: 'open', deferredCount: 0 })
