@@ -1,5 +1,5 @@
 /**
- * MSP notification → broker InvocationEvent mapping (T-08589, spike 3).
+ * MSP notification → broker event mapping (T-08589, spike 3).
  *
  * Every method name below is schema- or probe-verified against muse 1.3.0
  * R3401.1 (offline schema export fingerprint
@@ -14,7 +14,6 @@
  */
 import type {
   InputId,
-  InvocationEvent,
   InvocationEventPayloadMap,
   InvocationEventType,
   MessageId,
@@ -407,5 +406,3 @@ export function mapMuseNotification(
     }
   }
 }
-
-export type { InvocationEvent }
