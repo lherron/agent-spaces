@@ -1,12 +1,17 @@
-import { describe, expect, test } from 'bun:test'
+import { beforeEach, describe, expect, test } from 'bun:test'
 import { isLoadBearingEventFamily } from 'spaces-harness-broker-protocol'
 import {
   CODEX_METHOD_CLASSIFICATION,
   classifyCodexNotificationMethod,
   codexUnknownMethodFamily,
-  mapCodexNotification,
+  createCodexNotificationMapper,
 } from '../../../src/drivers/codex-app-server/event-map'
 import declared from '../../../testdata/codex-app-server/declared-notification-methods.json'
+
+let mapCodexNotification: ReturnType<typeof createCodexNotificationMapper>
+beforeEach(() => {
+  mapCodexNotification = createCodexNotificationMapper()
+})
 
 /**
  * Completeness oracle for the codex-app-server notification mapper (T-07726).

@@ -10,7 +10,7 @@ import type {
 import { createBroker } from '../../../src/broker'
 import { openCaptureIndex } from '../../../src/capture/capture-index'
 import { createCodexAppServerDriver } from '../../../src/drivers/codex-app-server/driver'
-import { mapCodexNotification } from '../../../src/drivers/codex-app-server/event-map'
+import { createCodexNotificationMapper } from '../../../src/drivers/codex-app-server/event-map'
 import { createEventLedger } from '../../../src/event-ledger'
 
 /**
@@ -191,6 +191,7 @@ describe('codex-app-server committed-row normalization', () => {
     // committed copy and the wire copy could ever differ, this is where it shows.
     for (const scenario of ['tool-calls', 'assistant-deltas', 'usage-update', 'start-fresh-turn']) {
       const run = await runScenario(scenario)
+      const mapCodexNotification = createCodexNotificationMapper()
       const fromCommittedBytes = run
         .journalRows()
         .flatMap((row) => mapCodexNotification(JSON.parse(frameOf(row))))

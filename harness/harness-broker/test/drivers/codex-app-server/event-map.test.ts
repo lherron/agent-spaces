@@ -1,9 +1,13 @@
-import { describe, expect, test } from 'bun:test'
+import { beforeEach, describe, expect, test } from 'bun:test'
 import {
   CODEX_DRIVER_KIND,
   createCodexNotificationMapper,
-  mapCodexNotification,
 } from '../../../src/drivers/codex-app-server/event-map'
+
+let mapCodexNotification: ReturnType<typeof createCodexNotificationMapper>
+beforeEach(() => {
+  mapCodexNotification = createCodexNotificationMapper()
+})
 
 function note(method: string, params: unknown) {
   return { jsonrpc: '2.0' as const, method, params }
