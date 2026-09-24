@@ -41,7 +41,7 @@ test('forwards all broker-owned inputs into the shared direct runtime without au
         hostSessionId: 'host-1',
         generation: 3,
         model: 'gpt-5.6-sol',
-        provider: 'openai',
+        provider: 'openai-codex',
         reasoningEffort: 'high',
         lockedEnv: { LOCKED: 'yes' },
         dispatchEnv: {
@@ -100,6 +100,27 @@ test('runtime facade disposes the runtime once even when broker cleanup retries'
   } as unknown as AgentSessionRuntime)
   await Promise.all([facade.dispose(), facade.dispose()])
   expect(disposals).toBe(1)
+})
+
+test('qualifies the model with the SDK model provider, not the harness provider domain', async () => {
+  // HRC compiles agent-harness specs with the process provider domain on
+  // spec.harness ('openai') and the model provider on spec.sdk ('openai-codex').
+  // Qualifying 'openai-codex/gpt-5.5' under 'openai' misses the Pi catalog.
+  const base = input()
+  base.spec.sdk = { ...base.spec.sdk!, provider: 'openai-codex', modelId: 'openai-codex/gpt-5.5' }
+  const calls: Array<Record<string, unknown>> = []
+  await createResolvedAgentSession(base, {
+    async loadAgent(options) {
+      calls.push(options as never)
+      return {} as never
+    },
+    async createRuntime() {
+      return { session: sessionStub(), dispose: async () => {} } as never
+    },
+  })
+  expect(base.spec.harness.provider).toBe('openai')
+  expect(calls[0]?.['provider']).toBe('openai-codex')
+  expect(calls[0]?.['model']).toBe('openai-codex/gpt-5.5')
 })
 
 test('appends caller contributions after the mandatory broker inputs', async () => {
