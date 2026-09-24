@@ -406,16 +406,8 @@ function optionalNumber(value: unknown, basePath: string, issues: ValidationIssu
   }
 }
 
-function validatePreparationRequest<T>(
-  value: unknown,
-  method: string,
-  validator: ParamsValidator
-): T {
-  return validateObservationRequest<T>(value, method, validator)
-}
-
 export const validateAspcPrepareProcessInvocationRequest = (value: unknown) =>
-  validatePreparationRequest<AspcPrepareProcessInvocationRequest>(
+  validateObservationRequest<AspcPrepareProcessInvocationRequest>(
     value,
     'aspc.prepareProcessInvocation',
     validatePrepareProcessParams
