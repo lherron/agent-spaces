@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
- * Boundary check for the pre-HRC runtime-contract broker harness (plan §11, PR8).
+ * Boundary check for the pre-HRC broker matrix and testing helpers (plan §11, PR8).
  *
- * The contract harness exists to prove that Agent Spaces compiler output can be
+ * The matrix exists to prove that Agent Spaces compiler output can be
  * consumed by an HRC-like caller WITHOUT boundary violations. To stay honest it
  * must depend only on the compiler + broker-client + protocol/runtime-contracts
  * surface — never HRC, never Codex driver/session internals, and never the
@@ -10,7 +10,7 @@
  *
  * Scanned harness surface:
  *   - compiler/agent-spaces/src/testing/**\/*.ts
- *   - scripts/smoke-runtime-contract-broker-*.ts
+ *   - scripts/pre-hrc-broker-matrix-e2e.ts
  *
  * FAILS (exit 1) if any scanned file:
  *   - imports HRC (specifier `hrc-*` or a `hrc-runtime` / `packages/hrc` path);
@@ -35,7 +35,7 @@ const repoRoot = new URL('..', import.meta.url).pathname
 
 const TESTING_DIR = 'compiler/agent-spaces/src/testing'
 const SCRIPTS_DIR = 'scripts'
-const SCRIPT_PREFIX = 'smoke-runtime-contract-broker-'
+const MATRIX_SCRIPT = 'pre-hrc-broker-matrix-e2e.ts'
 
 const ignoredDirectories = new Set([
   '.git',
@@ -84,7 +84,7 @@ async function harnessFiles(): Promise<string[]> {
     .filter(
       (entry) =>
         entry.isFile() &&
-        entry.name.startsWith(SCRIPT_PREFIX) &&
+        entry.name === MATRIX_SCRIPT &&
         /\.(ts|tsx)$/.test(entry.name) &&
         !entry.name.endsWith('.d.ts')
     )
@@ -113,7 +113,7 @@ function contractHarnessGuard(): Guard {
   return defineGuard({
     surface: {
       dirs: [TESTING_DIR],
-      scriptPrefixes: [{ dir: SCRIPTS_DIR, prefix: SCRIPT_PREFIX }],
+      scriptPrefixes: [{ dir: SCRIPTS_DIR, prefix: MATRIX_SCRIPT }],
       ignore: [...ignoredDirectories],
     },
     rules: [
