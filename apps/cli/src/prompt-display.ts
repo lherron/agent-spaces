@@ -1,17 +1,8 @@
 /**
- * Re-exports the shared prompt-display module from spaces-execution.
- *
- * The implementation lives in spaces-execution so `hrc launch exec`
- * can use the same renderer without depending on the cli package.
+ * Project CLI run results into the shared prompt display renderer.
  */
 
 import { type RunResult, displayPrompts } from 'spaces-execution'
-
-export {
-  displayPrompts,
-  formatDisplayCommand,
-  type DisplayPromptOptions,
-} from 'spaces-execution'
 
 /**
  * Render the dry-run prompt/command dump for a `RunResult`.
