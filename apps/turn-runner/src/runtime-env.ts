@@ -26,15 +26,6 @@ export function applyEnvOverlay(env: Record<string, string>): () => void {
   }
 }
 
-export async function withAspHome<T>(aspHome: string, fn: () => Promise<T>): Promise<T> {
-  const restore = applyEnvOverlay({ ASP_HOME: aspHome })
-  try {
-    return await fn()
-  } finally {
-    restore()
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Session path helpers
 // ---------------------------------------------------------------------------
