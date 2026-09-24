@@ -36,7 +36,6 @@ export interface PluginValidationResult {
 interface PluginJson {
   name?: string
   version?: string
-  description?: string
   commands?: string
   agents?: string
   skills?: string

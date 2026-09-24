@@ -121,21 +121,26 @@ describe('ASPC cohosted composition facade', () => {
 
   test('starts the compiled canonical dispatch through the separate broker route', async () => {
     const client = await startFacadeClient(fixture)
+    const lifecyclePolicy = conservativeDefaultLifecyclePolicyOverlay('policy_aspc_start')
     try {
       const compile = await client.compileHarnessInvocation({
         compileRequest: buildCompileRequest(fixture, 'compile_and_start'),
         aspHome: fixture.aspHome,
+        dispatchEnv: { EXTRA_FLAG: 'aspc-start' },
+        lifecyclePolicy,
       })
       expect(compile.ok).toBe(true)
       if (!compile.ok) return
 
+      const dispatch = compile.plan.execution.dispatchRequest
+      expect(dispatch.dispatchEnv).toEqual({ EXTRA_FLAG: 'aspc-start' })
+      expect(dispatch.lifecyclePolicy).toEqual(lifecyclePolicy)
+
       const startResponse = await client.request<{ invocationId: string }>('invocation.start', {
-        ...compile.plan.execution.dispatchRequest,
+        ...dispatch,
       })
 
-      expect(startResponse.invocationId).toBe(
-        compile.plan.execution.dispatchRequest.startRequest.spec.invocationId
-      )
+      expect(startResponse.invocationId).toBe(dispatch.startRequest.spec.invocationId)
 
       await client.request('invocation.stop', {
         invocationId: startResponse.invocationId,

@@ -314,9 +314,6 @@ type HeldAssistantCompletions = Map<string, MappedEventFor<'assistant.message.co
  */
 type LastDiffSignatures = Map<string, string>
 
-const defaultHeldAssistantCompletions: HeldAssistantCompletions = new Map()
-const defaultLastDiffSignatures: LastDiffSignatures = new Map()
-
 function asTurnId(value: string): TurnId {
   return value as TurnId
 }
@@ -327,21 +324,6 @@ function asMessageId(value: string): MessageId {
 
 function asToolCallId(value: string): ToolCallId {
   return value as ToolCallId
-}
-
-/**
- * Map a native Codex app-server notification to zero or more normalized broker
- * events. Every emitted event is stamped with `extra.driver` so consumers can
- * trace it back to the native method without that native type ever leaking into
- * the normalized `type`. Unknown native methods become a trace-level diagnostic
- * (again carrying `rawType`) rather than being silently dropped.
- */
-export function mapCodexNotification(notification: JsonRpcNotification): MappedEvent[] {
-  return mapCodexNotificationWithState(
-    notification,
-    defaultHeldAssistantCompletions,
-    defaultLastDiffSignatures
-  )
 }
 
 export interface CodexNotificationMapperOptions {

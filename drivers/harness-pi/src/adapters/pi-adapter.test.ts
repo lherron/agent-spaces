@@ -311,21 +311,69 @@ export function util() { return 42; }
       expect(result.files).toContain('extensions/utils__utility.js')
     })
 
-    test('links AGENT.md preserving name', async () => {
-      // Create AGENT.md in snapshot
+    test('omits inert artifact contents while composing live Pi resources', async () => {
       await writeFile(join(snapshotDir, 'AGENT.md'), '# Agent Instructions for Pi')
+      await mkdir(join(snapshotDir, 'shared'), { recursive: true })
+      await writeFile(join(snapshotDir, 'shared/shared-note.txt'), 'shared')
+      await mkdir(join(snapshotDir, 'scripts'), { recursive: true })
+      await writeFile(join(snapshotDir, 'scripts/helper.sh'), 'echo inert')
+      await mkdir(join(snapshotDir, 'extensions'), { recursive: true })
+      await writeFile(join(snapshotDir, 'extensions/tool.js'), 'export default {}')
+      await mkdir(join(snapshotDir, 'skills/my-skill'), { recursive: true })
+      await writeFile(join(snapshotDir, 'skills/my-skill/SKILL.md'), '# Skill')
+      await mkdir(join(snapshotDir, 'hooks/scripts'), { recursive: true })
+      await writeFile(join(snapshotDir, 'hooks/scripts/validate.sh'), 'echo hook')
+      await writeFile(
+        join(snapshotDir, 'hooks/hooks.toml'),
+        '[[hook]]\nevent = "pre_tool_use"\nscript = "scripts/validate.sh"\n'
+      )
 
       const input = createMaterializeInput(snapshotDir)
-
       const result = await adapter.materializeSpace(input, cacheDir, {})
+      expect(result.files).not.toContain('AGENT.md')
+      expect(await Bun.file(join(cacheDir, 'AGENT.md')).exists()).toBe(false)
+      expect(await Bun.file(join(cacheDir, 'shared-note.txt')).exists()).toBe(false)
+      expect(await Bun.file(join(cacheDir, 'scripts/helper.sh')).exists()).toBe(false)
+      expect(result.files).toContain('extensions/test-space__tool.js')
+      expect(result.files).toContain('skills/my-skill')
+      expect(result.files).toContain('hooks-scripts/hooks.toml')
 
-      // Should have linked AGENT.md → AGENT.md (Pi keeps the name)
-      expect(result.files).toContain('AGENT.md')
-
-      // Verify content is accessible
-      const agentMdPath = join(cacheDir, 'AGENT.md')
-      const content = await Bun.file(agentMdPath).text()
-      expect(content).toBe('# Agent Instructions for Pi')
+      const outputDir = join(tmpDir, 'bundle')
+      const composed = await adapter.composeTarget(
+        {
+          targetName: 'test-target',
+          compose: ['test-space' as any],
+          roots: [input.spaceKey],
+          loadOrder: [input.spaceKey],
+          artifacts: [
+            {
+              spaceKey: input.spaceKey,
+              spaceId: 'test-space',
+              artifactPath: result.artifactPath,
+              pluginName: 'test-plugin',
+            },
+          ],
+          settingsInputs: [],
+        },
+        outputDir,
+        {}
+      )
+      const bundle = composed.bundle
+      expect(await Bun.file(join(outputDir, 'extensions/test-space__tool.js')).exists()).toBe(true)
+      expect(await Bun.file(join(outputDir, 'skills/my-skill/SKILL.md')).exists()).toBe(true)
+      expect(await Bun.file(join(outputDir, 'hooks-scripts/scripts/validate.sh')).exists()).toBe(
+        true
+      )
+      expect(await Bun.file(join(outputDir, 'settings.json')).exists()).toBe(true)
+      expect(await Bun.file(bundle.pi!.hookBridgePath!).text()).toContain('validate.sh')
+      expect(await Bun.file(bundle.pi!.hrcEventsBridgePath!).exists()).toBe(true)
+      const args = adapter.buildRunArgs(bundle, {})
+      expect(args).toContain(join(outputDir, 'extensions/test-space__tool.js'))
+      expect(args).toContain(bundle.pi!.hookBridgePath!)
+      expect(args).toContain(bundle.pi!.hrcEventsBridgePath!)
+      expect(args).toContain('--no-skills')
+      expect(argValue(args, '--skill')).toBe(join(outputDir, 'skills'))
+      expect(adapter.getRunEnv(bundle, {}).PI_CODING_AGENT_DIR).toBe(outputDir)
     })
 
     test('copies skills directory', async () => {
@@ -392,21 +440,6 @@ allow = ["ls", "cat"]
       // Old file should be gone
       const oldFileExists = await Bun.file(join(cacheDir, 'old-file.txt')).exists()
       expect(oldFileExists).toBe(false)
-    })
-
-    test('copies scripts directory when present', async () => {
-      const scriptsDir = join(snapshotDir, 'scripts')
-      await mkdir(scriptsDir, { recursive: true })
-      await writeFile(join(scriptsDir, 'helper.sh'), '#!/bin/bash\necho "helper"')
-
-      const input = createMaterializeInput(snapshotDir)
-
-      await adapter.materializeSpace(input, cacheDir, {})
-
-      // Scripts directory should exist in output
-      const destScriptsDir = join(cacheDir, 'scripts')
-      const scriptsExists = await Bun.file(join(destScriptsDir, 'helper.sh')).exists()
-      expect(scriptsExists).toBe(true)
     })
 
     test('respects pi.build options from manifest', async () => {

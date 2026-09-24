@@ -37,10 +37,9 @@ export interface RawDispositionRow {
 }
 
 /**
- * The legacy halt row. Since T-07883 the broker never WRITES one: a gate that
- * finds a row a pre-ruling broker left behind clears it and logs at WARN. The
- * table, `block()` and `blockedOn()` stay so that clearing path has something
- * to read, and so a test can construct the pre-ruling state.
+ * The legacy halt row. Since T-07883 the broker never writes one: a gate that
+ * finds a row a pre-ruling broker left behind clears it and logs at WARN.
+ * The table and reader remain for that persisted-state migration.
  */
 export interface CaptureBlockRow {
   invocationId: string
@@ -62,7 +61,6 @@ export interface CaptureIndex {
   ): void
   get(invocationId: string, rawRecordId: string): RawDispositionRow | undefined
   list(invocationId: string): RawDispositionRow[]
-  block(row: CaptureBlockRow): void
   blockedOn(invocationId: string): CaptureBlockRow | undefined
   unblock(invocationId: string): void
   close(): void
@@ -137,16 +135,6 @@ export function openCaptureIndex(
   const selectAll = db.query<StoredRow, { $invocationId: string }>(
     'SELECT * FROM raw_record WHERE invocation_id = $invocationId ORDER BY raw_record_id'
   )
-  const upsertBlock = db.query(
-    `INSERT INTO capture_block (invocation_id, raw_record_id, native_type, family, message, since_iso)
-     VALUES ($invocationId, $rawRecordId, $nativeType, $family, $message, $sinceIso)
-     ON CONFLICT(invocation_id) DO UPDATE SET
-       raw_record_id = excluded.raw_record_id,
-       native_type   = excluded.native_type,
-       family        = excluded.family,
-       message       = excluded.message,
-       since_iso     = excluded.since_iso`
-  )
   const selectBlock = db.query<StoredBlock, { $invocationId: string }>(
     'SELECT * FROM capture_block WHERE invocation_id = $invocationId'
   )
@@ -187,17 +175,6 @@ export function openCaptureIndex(
 
     list(invocationId): RawDispositionRow[] {
       return selectAll.all({ $invocationId: invocationId }).map(toRow)
-    },
-
-    block(row: CaptureBlockRow): void {
-      upsertBlock.run({
-        $invocationId: row.invocationId,
-        $rawRecordId: row.rawRecordId,
-        $nativeType: row.nativeType,
-        $family: row.family,
-        $message: row.message,
-        $sinceIso: row.sinceIso,
-      })
     },
 
     blockedOn(invocationId): CaptureBlockRow | undefined {

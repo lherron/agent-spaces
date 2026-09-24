@@ -2,9 +2,13 @@ import type {
   AgentHarnessSpec,
   ChildHarnessProcessSpec,
   HarnessInvocationSpec,
+  HarnessProcessSpec,
   HarnessSdkSpec,
   NativeWorkerProcessSpec,
 } from '../src/index.js'
+
+type ExpectFalse<Value extends false> = Value
+type Assignable<Source, Target> = Source extends Target ? true : false
 
 const sdk = {
   runtime: 'pi-sdk',
@@ -36,44 +40,51 @@ const nativeInvocation = {
 } satisfies HarnessInvocationSpec
 void nativeInvocation
 
-const childCannotUseNativeTransport: HarnessInvocationSpec = {
-  specVersion: 'harness-broker.invocation/v1',
-  harness: { frontend: 'codex', driver: 'codex-app-server' },
-  // @ts-expect-error native-worker belongs only to the no-child process alternative.
-  process: {
-    command: 'codex',
-    args: [],
-    cwd: '/workspace/project',
-    harnessTransport: { kind: 'native-worker' },
-  },
-  driver: { kind: 'codex-app-server' },
-}
-void childCannotUseNativeTransport
+type _ChildCannotUseNativeTransport = ExpectFalse<
+  Assignable<
+    {
+      command: 'codex'
+      args: string[]
+      cwd: '/workspace/project'
+      harnessTransport: { kind: 'native-worker' }
+    },
+    HarnessProcessSpec
+  >
+>
 
-const workerCannotDeclareCommand: NativeWorkerProcessSpec = {
-  execution: 'native-worker',
-  cwd: '/workspace/project',
-  harnessTransport: { kind: 'native-worker' },
-  // @ts-expect-error native workers have no child command.
-  command: 'agent-harness',
-}
-void workerCannotDeclareCommand
+type _WorkerCannotDeclareCommand = ExpectFalse<
+  Assignable<
+    {
+      execution: 'native-worker'
+      cwd: string
+      harnessTransport: { kind: 'native-worker' }
+      command: string
+    },
+    NativeWorkerProcessSpec
+  >
+>
 
-const workerCannotDeclareArgs: NativeWorkerProcessSpec = {
-  execution: 'native-worker',
-  cwd: '/workspace/project',
-  harnessTransport: { kind: 'native-worker' },
-  // @ts-expect-error native workers have no child args.
-  args: [],
-}
-void workerCannotDeclareArgs
+type _WorkerCannotDeclareArgs = ExpectFalse<
+  Assignable<
+    {
+      execution: 'native-worker'
+      cwd: string
+      harnessTransport: { kind: 'native-worker' }
+      args: string[]
+    },
+    NativeWorkerProcessSpec
+  >
+>
 
-const childCannotDeclareExecution: ChildHarnessProcessSpec = {
-  command: 'codex',
-  args: [],
-  cwd: '/workspace/project',
-  harnessTransport: { kind: 'jsonrpc-stdio' },
-  // @ts-expect-error child processes cannot claim release-owned execution.
-  execution: 'native-worker',
-}
-void childCannotDeclareExecution
+type _ChildCannotDeclareExecution = ExpectFalse<
+  Assignable<
+    {
+      command: string
+      args: string[]
+      cwd: string
+      harnessTransport: { kind: 'jsonrpc-stdio' }
+      execution: 'native-worker'
+    },
+    ChildHarnessProcessSpec
+  >
+>

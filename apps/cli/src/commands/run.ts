@@ -55,7 +55,6 @@ import { buildSettingSources } from '../settings-helper.js'
 type RunMode = 'project' | 'global' | 'dev' | 'invalid'
 
 interface DirectAgentHarnessPlan {
-  kind: 'agent-harness'
   executable: string
   semanticCommand: string
   args: string[]
@@ -194,7 +193,6 @@ function planDirectAgentHarness(
   }
   if (prompt !== undefined) args.push(prompt)
   return {
-    kind: 'agent-harness',
     executable: resolveAgentHarnessEntrypoint(),
     semanticCommand: formatShellCommand('agent-harness', args),
     args,

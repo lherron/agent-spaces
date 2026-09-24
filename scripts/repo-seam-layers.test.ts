@@ -106,14 +106,12 @@ describe('root-prefix architecture layers', () => {
     expect(forbids(harness, 'spaces-harness-broker')).toBe(false)
     expect(forbids(contracts, 'spaces-harness-broker-pi-sdk')).toBe(true)
 
-    // Compiler -> broker protocol/client contracts retained by T-07314 AC-1.
-    for (const [name, dir] of [
-      ['spaces-harness-broker-protocol', 'contracts/harness-broker-protocol'],
-      ['spaces-harness-broker-client', 'contracts/harness-broker-client'],
-    ] as const) {
-      expect(resolvedEdge(graph.edges, 'compiler', dir)).toBe(true)
-      expect(forbids(compiler, name)).toBe(false)
-    }
+    // Compiler -> broker protocol remains live. The dead pre-HRC runner was
+    // the only compiler importer of the client, so that edge is now absent.
+    expect(resolvedEdge(graph.edges, 'compiler', 'contracts/harness-broker-protocol')).toBe(true)
+    expect(forbids(compiler, 'spaces-harness-broker-protocol')).toBe(false)
+    expect(resolvedEdge(graph.edges, 'compiler', 'contracts/harness-broker-client')).toBe(false)
+    expect(forbids(compiler, 'spaces-harness-broker-client')).toBe(false)
     expect(forbids(contracts, 'agent-spaces')).toBe(true)
 
     // Compiler is independently extractable: it reaches core/contracts only,

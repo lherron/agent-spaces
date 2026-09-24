@@ -18,10 +18,6 @@ import ora, { type Ora } from 'ora'
 export const colors = {
   // Primary actions and success
   success: chalk.hex('#10b981'), // emerald
-  // Informational, neutral
-  info: chalk.hex('#6366f1'), // indigo
-  // Warnings
-  warn: chalk.hex('#f59e0b'), // amber
   // Errors
   error: chalk.hex('#ef4444'), // red
   // Muted/secondary text
@@ -41,15 +37,7 @@ export const colors = {
 export const symbols = {
   success: colors.success(figures.tick),
   error: colors.error(figures.cross),
-  warning: colors.warn(figures.warning),
-  info: colors.info(figures.info),
   pointer: colors.muted(figures.pointer),
-  bullet: colors.muted(figures.bullet),
-  arrow: colors.muted('→'),
-  line: colors.dim('│'),
-  corner: colors.dim('└'),
-  tee: colors.dim('├'),
-  dash: colors.dim('─'),
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -91,25 +79,10 @@ export function error(text: string): void {
 }
 
 /**
- * Print a warning message
- */
-export function warning(text: string): void {
-  console.log(`${symbols.warning} ${colors.warn(text)}`)
-}
-
-/**
  * Print an info line
  */
 export function info(label: string, value: string): void {
   console.log(`  ${colors.muted(label)} ${value}`)
-}
-
-/**
- * Print a tree item (for hierarchical display)
- */
-export function treeItem(text: string, isLast = false): void {
-  const prefix = isLast ? symbols.corner : symbols.tee
-  console.log(`  ${prefix}${symbols.dash} ${text}`)
 }
 
 /**
@@ -125,44 +98,6 @@ export function commandBlock(label: string, command: string): void {
 
   for (const line of lines) {
     console.log(`    ${colors.code(line)}`)
-  }
-}
-
-/**
- * Print a target block with all its info
- */
-export function targetBlock(
-  name: string,
-  pluginCount: number,
-  hasMcp: boolean,
-  command: string
-): void {
-  console.log()
-  console.log(`  ${colors.emphasis(name)}`)
-  console.log(`  ${colors.dim('─'.repeat(name.length))}`)
-
-  // Stats line
-  const stats: string[] = []
-  stats.push(`${pluginCount} plugin${pluginCount !== 1 ? 's' : ''}`)
-  if (hasMcp) {
-    stats.push('mcp')
-  }
-  console.log(`  ${colors.muted(stats.join(' · '))}`)
-
-  // Command
-  commandBlock('run with', command)
-}
-
-/**
- * Print a summary block at the end
- */
-export function summaryBlock(items: { label: string; value: string }[]): void {
-  console.log()
-  console.log(colors.dim('  ─'.repeat(40)))
-  console.log()
-
-  for (const item of items) {
-    console.log(`  ${colors.muted(item.label.padEnd(12))} ${item.value}`)
   }
 }
 

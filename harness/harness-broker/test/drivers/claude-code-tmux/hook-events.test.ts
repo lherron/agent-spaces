@@ -6,14 +6,6 @@ const turnId = 'turn_cc_1'
 
 type ClaudeCodeHookEventNormalizer = {
   normalizeHook: (hook: Record<string, unknown>) => InvocationEventEnvelope[]
-  normalizeToolCallFailure: (failure: {
-    turnId: string
-    toolCallId: string
-    name: string
-    message: string
-    code?: string | undefined
-    data?: unknown
-  }) => InvocationEventEnvelope
 }
 
 type NormalizeHookEnvelope = (
@@ -150,29 +142,6 @@ describe('claude-code-tmux hook event normalization', () => {
         delta: 'anything',
       })
     ).toEqual([])
-  })
-
-  test('tool.call.failed is reserved for driver or normalization failures with no PostToolUse result', async () => {
-    const event = (await createNormalizer()).normalizeToolCallFailure({
-      turnId,
-      toolCallId: 'toolu_driver_1',
-      name: 'Read',
-      message: 'hook payload could not be normalized',
-      code: 'hook_normalization_failed',
-      data: { rawType: 'PostToolUse' },
-    })
-
-    expect(event).toMatchObject({
-      type: 'tool.call.failed',
-      driver: { kind: 'claude-code-tmux', rawType: 'driver.failure' },
-      payload: {
-        toolCallId: 'toolu_driver_1',
-        name: 'Read',
-        message: 'hook payload could not be normalized',
-        code: 'hook_normalization_failed',
-        data: { rawType: 'PostToolUse' },
-      },
-    })
   })
 
   test('Notification tied to a tool emits tool.call.delta with text and raw details', async () => {

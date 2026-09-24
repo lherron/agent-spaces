@@ -155,7 +155,15 @@ function brokerMethodTable(broker: Broker): ReadonlyArray<{
     },
     {
       method: BROKER_METHODS.start,
-      invoke: (params) => startFromDispatch(broker, params as InvocationDispatchRequest),
+      invoke: (params) => {
+        const dispatch = params as InvocationDispatchRequest
+        return broker.start(
+          dispatch.startRequest,
+          dispatch.dispatchEnv,
+          dispatch.runtime,
+          dispatch.lifecyclePolicy
+        )
+      },
     },
     {
       method: BROKER_METHODS.input,
@@ -223,16 +231,4 @@ function registerBrokerMethods(server: ProtocolServer, broker: Broker): void {
       return invoke(params)
     })
   }
-}
-
-function startFromDispatch(
-  broker: Broker,
-  dispatch: InvocationDispatchRequest
-): ReturnType<Broker['start']> {
-  return broker.start(
-    dispatch.startRequest,
-    dispatch.dispatchEnv,
-    dispatch.runtime,
-    dispatch.lifecyclePolicy
-  )
 }

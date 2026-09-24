@@ -379,13 +379,6 @@ describe('createEventEmitter lifecycle', () => {
     expect(events[1].continuation).toEqual({ provider: 'anthropic', key: 'sess-new' })
   })
 
-  test('getContinuation returns current ref', () => {
-    const emitter = createEventEmitter(() => {}, { hostSessionId: 'h', runId: 'r' })
-    expect(emitter.getContinuation()).toBeUndefined()
-    emitter.setContinuation({ provider: 'openai', key: 'thread-1' })
-    expect(emitter.getContinuation()).toEqual({ provider: 'openai', key: 'thread-1' })
-  })
-
   test('no continuation field when none set', async () => {
     const events: AgentEvent[] = []
     const emitter = createEventEmitter(

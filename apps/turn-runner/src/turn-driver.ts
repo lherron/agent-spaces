@@ -12,10 +12,8 @@ export interface AttachTurnDriverOptions {
    */
   onContinuationKey: (key: string) => void
   /**
-   * Invoked exactly when an outstanding turn drains to zero. The in-flight CLI
-   * driver resolves the completion promise via completeInFlightSuccess; the
-   * placement driver flips the completion sentinel and idles the emitter. The
-   * caller owns that distinction.
+   * Invoked exactly when an outstanding turn drains to zero. The placement
+   * caller flips the completion sentinel and idles the emitter.
    */
   onDrained: (context: InFlightRunContext) => void
 }

@@ -215,7 +215,6 @@ interface SurfaceState {
 
 interface StructuredTurnState {
   turnId: string
-  schema: Record<string, unknown>
   attempts: number
   validator: ValidateFunction
 }
@@ -1152,7 +1151,6 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     const validator = structuredOutputAjv.compile(schema)
     structuredTurns.set(turnId, {
       turnId,
-      schema,
       attempts: 0,
       validator,
     })
@@ -1249,9 +1247,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
   function validateStructuredCandidate(
     state: StructuredTurnState,
     candidate: string
-  ):
-    | { valid: true; normalized: string }
-    | { valid: false; errors: ErrorObject[]; parsed?: unknown | undefined } {
+  ): { valid: true; normalized: string } | { valid: false; errors: ErrorObject[] } {
     const parsed = parseStructuredJsonCandidate(candidate)
     if (!parsed.valid) {
       return {
@@ -1270,7 +1266,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     if (state.validator(parsed.value)) {
       return { valid: true, normalized: JSON.stringify(parsed.value) }
     }
-    return { valid: false, errors: [...(state.validator.errors ?? [])], parsed: parsed.value }
+    return { valid: false, errors: [...(state.validator.errors ?? [])] }
   }
 
   function parseStructuredJsonCandidate(

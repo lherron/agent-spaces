@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { mapCodexNotification } from '../../src/drivers/codex-app-server/event-map'
+import { createCodexNotificationMapper } from '../../src/drivers/codex-app-server/event-map'
 import { codexNativeToolIdentity } from '../../src/drivers/codex-tool-identity'
 
 describe('Codex cross-adapter tool identity conformance', () => {
   test('equivalent command item evidence shares native identity and semantic name', () => {
-    const rpc = mapCodexNotification({
+    const rpc = createCodexNotificationMapper()({
       method: 'item/started',
       params: {
         turnId: 'turn-1',
@@ -60,7 +60,7 @@ describe('Codex cross-adapter tool identity conformance', () => {
   })
 
   test('RPC command completion keeps its native identity and rich result unchanged', () => {
-    const rpc = mapCodexNotification({
+    const rpc = createCodexNotificationMapper()({
       method: 'item/completed',
       params: {
         turnId: 'turn-1',

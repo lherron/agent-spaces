@@ -17,8 +17,6 @@ export const COMPONENT_DIR_NAMES = {
   EXTENSIONS: 'extensions',
   SKILLS: 'skills',
   HOOKS: 'hooks-scripts',
-  SCRIPTS: 'scripts',
-  SHARED: 'shared',
   SESSIONS: 'sessions',
 } as const
 

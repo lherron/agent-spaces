@@ -1,11 +1,6 @@
 import { basename } from 'node:path'
 
-import type {
-  AttachmentRef,
-  PermissionHandler,
-  UnifiedSession,
-  UnifiedSessionEvent,
-} from 'spaces-execution'
+import type { AttachmentRef, PermissionHandler, UnifiedSessionEvent } from 'spaces-execution'
 
 import type { AgentEvent, HarnessContinuationRef } from 'agent-spaces'
 
@@ -33,7 +28,6 @@ export function createEventEmitter(
 ): {
   emit: (event: EventPayload) => Promise<void>
   setContinuation: (ref: HarnessContinuationRef) => void
-  getContinuation: () => HarnessContinuationRef | undefined
   idle: () => Promise<void>
 } {
   let seq = 0
@@ -61,7 +55,6 @@ export function createEventEmitter(
     setContinuation: (ref: HarnessContinuationRef) => {
       currentContinuation = ref
     },
-    getContinuation: () => currentContinuation,
     idle: () => lastEmission,
   }
 }
@@ -186,21 +179,6 @@ export function buildAutoPermissionHandler(): PermissionHandler {
     isAutoAllowed: () => true,
     requestPermission: async () => ({ allowed: true }),
   }
-}
-
-export async function runSession(
-  session: UnifiedSession,
-  prompt: string,
-  attachments: Array<string | AttachmentRef> | undefined,
-  runId: string
-): Promise<void> {
-  const attachmentRefs = normalizeAttachmentRefs(attachments)
-
-  await session.start()
-  await session.sendPrompt(prompt, {
-    ...(attachmentRefs ? { attachments: attachmentRefs } : {}),
-    runId,
-  })
 }
 
 export function normalizeAttachmentRefs(

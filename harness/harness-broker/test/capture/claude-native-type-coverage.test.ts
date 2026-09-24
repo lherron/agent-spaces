@@ -60,8 +60,6 @@ function replay(lines: string[]): Replay {
       warnings.push(payload.message)
       return warnings.length
     },
-    emitReleased: () => 0,
-    emitNormalizedAs: () => 0,
     warn: () => {},
   })
 

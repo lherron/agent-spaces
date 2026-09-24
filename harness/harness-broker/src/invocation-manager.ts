@@ -6,7 +6,6 @@ import type {
   BrokerListInvocationsResponse,
   BrokerQueueEntry,
   BrokerTerminalSurfaceReport,
-  CaptureReleasedPayload,
   CaptureStateView,
   CaptureWarningPayload,
   ClientCapabilities,
@@ -75,7 +74,7 @@ import {
   validateEventEnvelope,
 } from 'spaces-harness-broker-protocol'
 import type { CaptureGate } from './capture/capture-gate'
-import { CaptureRecordNotBlockedError, createCaptureGate } from './capture/capture-gate'
+import { createCaptureGate } from './capture/capture-gate'
 import { type CaptureIndex, openCaptureIndex } from './capture/capture-index'
 import { createRawJournal } from './capture/raw-journal'
 import type { ApplyInputResult, DeliveryEvidence, Driver, DriverContext } from './drivers/driver'
@@ -2551,25 +2550,6 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
             driver: { kind: driver.kind },
             provenance: brokerProvenance,
           }).seq,
-        emitReleased: (payload: CaptureReleasedPayload) =>
-          emit(inv, 'capture.released', payload, {
-            driver: { kind: driver.kind },
-            provenance: brokerProvenance,
-          }).seq,
-        emitNormalizedAs: (releaseSpec, provenance) =>
-          emitEvent(
-            inv,
-            {
-              type: releaseSpec.type,
-              payload: releaseSpec.payload,
-            } as InvocationEvent,
-            {
-              ...(releaseSpec.turnId !== undefined ? { turnId: releaseSpec.turnId } : {}),
-              ...(releaseSpec.itemId !== undefined ? { itemId: releaseSpec.itemId } : {}),
-              driver: { kind: driver.kind },
-              provenance,
-            }
-          ).seq,
       })
       invocations.set(invocationId, inv)
 
@@ -3232,45 +3212,18 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
 
     captureRelease(req: InvocationCaptureReleaseRequest): InvocationCaptureReleaseResponse {
       const inv = requireInvocation(req.invocationId)
-      try {
-        const outcome = inv.capture.release({
-          rawRecordId: req.rawRecordId,
-          disposition: req.disposition,
-          ...(req.normalizedAs !== undefined ? { normalizedAs: req.normalizedAs } : {}),
-          ...(req.note !== undefined ? { note: req.note } : {}),
-        })
-        return {
-          released: true,
+      // Since T-07883 the cursor never blocks. Keep the public refusal and
+      // report current state for both known and unknown record IDs.
+      throw new BrokerError(
+        -32602 as BrokerErrorCode,
+        `Raw record ${req.rawRecordId} is not the blocked-unknown record for ${req.invocationId}`,
+        {
+          reason: CAPTURE_RELEASE_NOT_BLOCKED,
           invocationId: req.invocationId,
           rawRecordId: req.rawRecordId,
-          disposition: outcome.disposition,
-          releasedSeq: outcome.releasedSeq,
-          ...(outcome.normalizedSeq !== undefined ? { normalizedSeq: outcome.normalizedSeq } : {}),
-          resumedRecords: outcome.resumedRecords,
-          capture: outcome.capture,
+          capture: inv.capture.state(),
         }
-      } catch (error) {
-        if (error instanceof CaptureRecordNotBlockedError) {
-          // A release naming a record that is not the blocking one is an
-          // operator mistake, not a broker fault: answer typed with the record
-          // the cursor IS blocked on so the operator can correct it.
-          throw new BrokerError(
-            // JSON-RPC Invalid Params. The enum has no member for it (it names
-            // broker-domain codes); -32602 is the standard code the transport
-            // already returns for a malformed request, and a release naming the
-            // wrong record is exactly that.
-            -32602 as BrokerErrorCode,
-            `Raw record ${req.rawRecordId} is not the blocked-unknown record for ${req.invocationId}`,
-            {
-              reason: CAPTURE_RELEASE_NOT_BLOCKED,
-              invocationId: req.invocationId,
-              rawRecordId: req.rawRecordId,
-              capture: inv.capture.state(),
-            }
-          )
-        }
-        throw error
-      }
+      )
     },
 
     captureState(invocationId: InvocationId): CaptureStateView | undefined {

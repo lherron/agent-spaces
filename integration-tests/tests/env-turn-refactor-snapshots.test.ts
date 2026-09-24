@@ -13,16 +13,18 @@ import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 
 import type { RuntimePlacement } from 'spaces-config'
-import { type UnifiedSession, prepareAgentToolRuntime } from 'spaces-execution'
+import {
+  type UnifiedSession,
+  type UnifiedSessionEvent,
+  prepareAgentToolRuntime,
+} from 'spaces-execution'
 import type { SessionMetadataSnapshot, UnifiedSessionState } from 'spaces-runtime'
 
 // Repo-level white-box coverage belongs here; these internals remain private.
-import {
-  type InFlightRunContext,
-  completeInFlightSuccess,
-} from '../../apps/turn-runner/src/run-tracker.js'
+import type { InFlightRunContext } from '../../apps/turn-runner/src/run-tracker.js'
 import { shouldDrainOutstandingTurn } from '../../apps/turn-runner/src/run-turn-helpers.js'
 import { createEventEmitter, mapUnifiedEvents } from '../../apps/turn-runner/src/session-events.js'
+import { attachTurnDriver } from '../../apps/turn-runner/src/turn-driver.js'
 import { buildCorrelationEnvVars } from '../../compiler/agent-spaces/src/placement-api.js'
 import { preparePlacementCliRuntime } from '../../compiler/agent-spaces/src/prepare-cli-runtime.js'
 import type { AgentEvent } from '../../compiler/agent-spaces/src/types.js'
@@ -38,20 +40,22 @@ type Fixture = {
 }
 
 /**
- * Minimal `UnifiedSession` stand-in for the env/turn snapshots.
- *
- * The turn helpers under test never drive the session -- they only need a value
- * of the right shape -- so every member is the smallest legal implementation.
- * The five members beyond start/stop/sendPrompt/onEvent are required by the
- * interface and were simply missing, which is why this class never typechecked.
+ * Minimal `UnifiedSession` stand-in for the env/turn snapshots. Its event
+ * callback lets the turn-driver test exercise the retained event loop.
  */
 class FakeSession implements UnifiedSession {
   readonly kind = 'agent-sdk'
   readonly sessionId = 'fake-session'
+  private listener?: (event: UnifiedSessionEvent) => void
   async start(): Promise<void> {}
   async stop(): Promise<void> {}
   async sendPrompt(): Promise<void> {}
-  onEvent(): void {}
+  onEvent(listener: (event: UnifiedSessionEvent) => void): void {
+    this.listener = listener
+  }
+  emit(event: UnifiedSessionEvent): void {
+    this.listener?.(event)
+  }
   isHealthy(): boolean {
     return true
   }
@@ -437,6 +441,7 @@ describe('T-04601 env-compose snapshots', () => {
 describe('T-04602 turn-driver loop snapshots', () => {
   test('in-flight outstanding-turn drain waits for all pending turns before completing', async () => {
     const emitted: AgentEvent[] = []
+    const session = new FakeSession()
     const eventEmitter = createEventEmitter(
       (event) => {
         emitted.push(event)
@@ -452,71 +457,58 @@ describe('T-04602 turn-driver loop snapshots', () => {
       provider: 'anthropic',
       frontend: 'agent-sdk',
       model: 'claude-opus-4.1',
-      session: new FakeSession(),
+      session,
       eventEmitter,
       assistantState: { assistantBuffer: '' },
       allowSessionIdUpdate: true,
       outstandingTurns: 2,
       acceptedInputApplicationIds: new Set(),
       started: Promise.resolve(),
-      completion: { done: false, resolve: () => {}, reject: () => {} },
+      completion: { done: false },
       sendChain: Promise.resolve(),
     }
 
     const continuationKeys: string[] = []
-    const agentStart = mapUnifiedEvents(
-      { type: 'agent_start', sessionId: 'sdk-session-1' },
-      (event) => void eventEmitter.emit(event),
-      (key) => {
+    let drained = 0
+    attachTurnDriver(session, context, {
+      onContinuationKey: (key) => {
         continuationKeys.push(key)
         context.continuationKey = key
         eventEmitter.setContinuation({ provider: context.provider, key })
       },
-      context.assistantState,
-      { allowSessionIdUpdate: context.allowSessionIdUpdate }
-    )
-    expect(agentStart.turnEnded).toBe(false)
+      onDrained: (activeContext) => {
+        activeContext.completion = { done: true }
+        drained += 1
+      },
+    })
+    session.emit({ type: 'agent_start', sessionId: 'sdk-session-1' })
     expect(continuationKeys).toEqual(['sdk-session-1'])
 
-    const firstTurnEnd = mapUnifiedEvents(
-      { type: 'turn_end' },
-      (event) => void eventEmitter.emit(event),
-      () => {},
-      context.assistantState,
-      { allowSessionIdUpdate: true }
-    )
-    expect(shouldDrainOutstandingTurn({ type: 'turn_end' }, firstTurnEnd, context)).toBe(true)
-    context.outstandingTurns = Math.max(0, context.outstandingTurns - 1)
+    session.emit({
+      type: 'message_end',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'first answer' }] },
+    })
+    session.emit({ type: 'turn_end' })
     expect(context.outstandingTurns).toBe(1)
     expect(context.completion.done).toBe(false)
+    expect(drained).toBe(0)
 
-    mapUnifiedEvents(
-      {
-        type: 'message_end',
-        message: { role: 'assistant', content: [{ type: 'text', text: 'final answer' }] },
-      },
-      (event) => void eventEmitter.emit(event),
-      () => {},
-      context.assistantState,
-      { allowSessionIdUpdate: true }
-    )
-    const secondTurnEnd = mapUnifiedEvents(
-      { type: 'turn_end' },
-      (event) => void eventEmitter.emit(event),
-      () => {},
-      context.assistantState,
-      { allowSessionIdUpdate: true }
-    )
-    expect(shouldDrainOutstandingTurn({ type: 'turn_end' }, secondTurnEnd, context)).toBe(true)
-    context.outstandingTurns = Math.max(0, context.outstandingTurns - 1)
+    session.emit({
+      type: 'message_end',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'final answer' }] },
+    })
+    session.emit({ type: 'turn_end' })
     expect(context.outstandingTurns).toBe(0)
+    expect(context.completion.done).toBe(true)
+    expect(drained).toBe(1)
 
-    const response = await completeInFlightSuccess(context)
+    session.emit({ type: 'turn_end' })
     await eventEmitter.idle()
-    expect(response.continuation).toEqual({ provider: 'anthropic', key: 'sdk-session-1' })
-    expect(response.result).toEqual({ success: true, finalOutput: 'final answer' })
-    expect(emitted.map((event) => event.type)).toEqual(['message', 'state', 'complete'])
-    expect(emitted.map((event) => event.seq)).toEqual([1, 2, 3])
+    expect(drained).toBe(1)
+    expect(context.assistantState.lastAssistantText).toBe('final answer')
+    expect(emitted.map((event) => event.type)).toEqual(['message', 'message'])
+    expect(emitted[0]?.continuation).toEqual({ provider: 'anthropic', key: 'sdk-session-1' })
+    expect(emitted.map((event) => event.seq)).toEqual([1, 2])
   })
 
   test('non-inflight turnEnded boolean completes once and preserves continuation capture', async () => {
@@ -596,7 +588,7 @@ describe('T-04602 turn-driver loop snapshots', () => {
       outstandingTurns: 1,
       acceptedInputApplicationIds: new Set(),
       started: Promise.resolve(),
-      completion: { done: false, resolve: () => {}, reject: () => {} },
+      completion: { done: false },
       sendChain: Promise.resolve(),
     }
     let continuationKey: string | undefined

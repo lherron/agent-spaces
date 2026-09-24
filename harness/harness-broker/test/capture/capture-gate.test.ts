@@ -1,9 +1,9 @@
+import { Database } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
-  CaptureReleasedPayload,
   CaptureStateView,
   CaptureWarningPayload,
   EventFamily,
@@ -20,7 +20,7 @@ import {
   isLoadBearingEventFamily,
 } from 'spaces-harness-broker-protocol'
 import type { CapturedRecord, NormalizeOutcome } from '../../src/capture/capture-gate'
-import { CaptureRecordNotBlockedError, createCaptureGate } from '../../src/capture/capture-gate'
+import { createCaptureGate } from '../../src/capture/capture-gate'
 import { openCaptureIndex } from '../../src/capture/capture-index'
 import { createRawJournal } from '../../src/capture/raw-journal'
 
@@ -37,8 +37,6 @@ interface Harness {
   warnings: CaptureWarningPayload[]
   /** Lines the gate wrote to the broker's own stderr. */
   logged: string[]
-  released: CaptureReleasedPayload[]
-  minted: Array<{ type: string; provenance: EventProvenance }>
   index: ReturnType<typeof openCaptureIndex>
   dispositions: () => Record<string, RawRecordDisposition>
   close: () => void
@@ -49,8 +47,6 @@ function harness(options: { dir?: string } = {}): Harness {
   if (options.dir === undefined) roots.push(dir)
   const warnings: CaptureWarningPayload[] = []
   const logged: string[] = []
-  const released: CaptureReleasedPayload[] = []
-  const minted: Array<{ type: string; provenance: EventProvenance }> = []
   let seq = 0
   let epochCounter = 0
   const index = openCaptureIndex(join(dir, 'ledger-index.db'))
@@ -72,16 +68,6 @@ function harness(options: { dir?: string } = {}): Harness {
       seq += 1
       return seq
     },
-    emitReleased: (payload) => {
-      released.push(payload)
-      seq += 1
-      return seq
-    },
-    emitNormalizedAs: (spec, provenance) => {
-      minted.push({ type: spec.type, provenance })
-      seq += 1
-      return seq
-    },
     warn: (line) => void logged.push(line),
   })
   return {
@@ -89,12 +75,31 @@ function harness(options: { dir?: string } = {}): Harness {
     gate,
     warnings,
     logged,
-    released,
-    minted,
     index,
     dispositions: () =>
       Object.fromEntries(index.list(invocationId).map((r) => [r.rawRecordId, r.disposition])),
     close: () => index.close(),
+  }
+}
+
+/** Seed persisted state from a pre-T-07883 broker without a production writer. */
+function seedLegacyCaptureBlock(dir: string): void {
+  const db = new Database(join(dir, 'ledger-index.db'))
+  try {
+    db.query(
+      `INSERT INTO capture_block
+         (invocation_id, raw_record_id, native_type, family, message, since_iso)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(
+      invocationId,
+      'raw_000001',
+      'queue-operation:hold',
+      'tool',
+      'unknown op',
+      '2026-09-02T08:21:00.000Z'
+    )
+  } finally {
+    db.close()
   }
 }
 
@@ -345,19 +350,6 @@ describe('capture gate: a blocked-unknown NEVER halts the cursor (T-07883)', () 
     h.close()
   })
 
-  test('release is refused: nothing is ever the blocked-unknown record', () => {
-    const h = harness()
-    h.gate.ingest(row('queue-operation:hold', {}), blocked('turn-bracket', 'unknown op'))
-    // The RPC, the CLI and the SDK types stay on the wire (T-07883 item 5); the
-    // gate answers with the existing typed refusal, and capture stays open.
-    expect(() =>
-      h.gate.release({ rawRecordId: 'raw_000001', disposition: 'ignored-known' })
-    ).toThrow(CaptureRecordNotBlockedError)
-    expect(h.released).toEqual([])
-    expect(h.gate.state().state).toBe('open')
-    h.close()
-  })
-
   test('a halt persisted by a PRE-T-07883 broker is cleared on load, not resurrected', () => {
     const dir = mkdtempSync(join(tmpdir(), 'capture-legacy-halt-'))
     roots.push(dir)
@@ -366,17 +358,10 @@ describe('capture gate: a blocked-unknown NEVER halts the cursor (T-07883)', () 
     // records behind it were committed but left `pending`.
     const first = harness({ dir })
     first.gate.ingest(row('queue-operation:hold', {}), blocked('tool', 'unknown op'))
-    first.index.block({
-      invocationId,
-      rawRecordId: 'raw_000001',
-      nativeType: 'queue-operation:hold',
-      family: 'tool',
-      message: 'unknown op',
-      sinceIso: '2026-09-02T08:21:00.000Z',
-    })
     first.gate.ingest(row('held', {}), normalized)
     first.index.dispose(invocationId, 'raw_000002', 'pending')
     first.close()
+    seedLegacyCaptureBlock(dir)
 
     const second = harness({ dir })
     expect(second.gate.state()).toMatchObject({ state: 'open', deferredCount: 0 })

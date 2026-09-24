@@ -36,8 +36,6 @@ function harness() {
     normalizer: { name: 'codex-cli-tmux', version: 'test' },
     now: () => new Date('2026-09-02T12:00:00.000Z'),
     emitWarning: () => 0,
-    emitReleased: () => 0,
-    emitNormalizedAs: () => 0,
   })
   const events: string[] = []
   const reader = createCodexHookTranscriptReader({

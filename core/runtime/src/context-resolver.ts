@@ -498,7 +498,7 @@ async function resolveFileSection(
   let filePath: string
   let content: string | undefined
   try {
-    filePath = await resolveTemplateFileRef(section.path, context)
+    filePath = resolveTemplateRef(section.path, context)
     content = await readFileOrUndefined(filePath)
   } catch (error) {
     if (section.required) {
@@ -621,7 +621,7 @@ async function resolveFileRefSlot(
 
   for (const [order, ref] of refs.entries()) {
     try {
-      const filePath = await resolveTemplateFileRef(ref, context)
+      const filePath = resolveTemplateRef(ref, context)
       const content = await readFileOrUndefined(filePath)
       const resolved = content === undefined ? undefined : interpolateVariables(content, context)
       contents.push(resolved)
@@ -937,13 +937,6 @@ function resolveTemplateRef(ref: string, context: ContextResolverContext): strin
     return resolveScopedRef(ref, context)
   }
   return resolveSearchPathRef(ref, context)
-}
-
-async function resolveTemplateFileRef(
-  ref: string,
-  context: ContextResolverContext
-): Promise<string> {
-  return resolveTemplateRef(ref, context)
 }
 
 function joinNonEmpty(contents: Array<string | undefined>, separator: string): string | undefined {

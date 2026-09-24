@@ -10,9 +10,8 @@ hashes, and starts the broker via `BrokerClient.startInvocationFromRequest(...)`
 it never uses the legacy direct-builder path. (The old per-harness scripts —
 `smoke-runtime-contract-broker-{fake,real}-codex` and the phase5
 `real-claude-tmux` / `ghostmux-attach` runners — were retired in favor of this
-matrix once it subsumed them; the signed interactive-tmux flow now lives in
-`compiler/agent-spaces/src/testing/pre-hrc-interactive-tmux-runner.ts` +
-`pre-hrc-ghostmux-operator.ts`.)
+matrix once it subsumed them; the active matrix uses
+`compiler/agent-spaces/src/testing/pre-hrc-tmux-allocator.ts` for tmux panes.)
 
 Full matrix (every row gated on availability; each SKIPs cleanly when its
 binary/auth/Ghostty is absent):

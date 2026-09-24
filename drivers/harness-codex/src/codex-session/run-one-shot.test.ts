@@ -79,3 +79,71 @@ describe('runCodexAppServerOneShot resume fallback', () => {
     ).rejects.toThrow(/invalid resume request/i)
   })
 })
+
+describe('runCodexAppServerOneShot item notifications', () => {
+  it('emits mapped item events and uses the completed message as final output', async () => {
+    const script = [
+      "const readline = require('node:readline')",
+      'const rl = readline.createInterface({ input: process.stdin })',
+      'function send(value) { process.stdout.write(JSON.stringify(value) + "\\n") }',
+      "rl.on('line', (line) => {",
+      '  const msg = JSON.parse(line)',
+      "  if (msg.method === 'initialize') send({ jsonrpc: '2.0', id: msg.id, result: {} })",
+      "  if (msg.method === 'thread/start') send({ jsonrpc: '2.0', id: msg.id, result: { thread: { id: 'thread-items' } } })",
+      "  if (msg.method === 'turn/start') {",
+      "    send({ jsonrpc: '2.0', id: msg.id, result: { turn: { id: 'turn-items' } } })",
+      "    send({ jsonrpc: '2.0', method: 'item/started', params: { item: { type: 'agentMessage', id: 'msg-items', text: '' } } })",
+      "    send({ jsonrpc: '2.0', method: 'item/completed', params: { item: { type: 'agentMessage', id: 'msg-items', text: 'notification reply' } } })",
+      "    send({ jsonrpc: '2.0', method: 'turn/completed', params: { turn: { id: 'turn-items', status: 'completed', items: [{ type: 'agentMessage', id: 'msg-items', text: 'payload reply' }] } } })",
+      '    setTimeout(() => process.exit(0), 10)',
+      '  }',
+      '})',
+    ].join('\n')
+    const events: Array<Record<string, unknown>> = []
+    const result = await runCodexAppServerOneShot({
+      proc: spawnAppServer(script),
+      cwd: process.cwd(),
+      prompt: 'reply',
+      onEvent: (event) => events.push(event as Record<string, unknown>),
+    })
+
+    expect(events.map((event) => event.type)).toEqual([
+      'agent_start',
+      'codex.user_prompt',
+      'message_start',
+      'message_end',
+      'turn_end',
+    ])
+    expect(events[2]).toMatchObject({ messageId: 'msg-items', message: { content: '' } })
+    expect(events[3]).toMatchObject({
+      messageId: 'msg-items',
+      message: { content: 'notification reply' },
+    })
+    expect(result.finalOutput).toBe('notification reply')
+  })
+
+  it('uses turn items when no completed agent message notification supplies output', async () => {
+    const script = [
+      "const readline = require('node:readline')",
+      'const rl = readline.createInterface({ input: process.stdin })',
+      'function send(value) { process.stdout.write(JSON.stringify(value) + "\\n") }',
+      "rl.on('line', (line) => {",
+      '  const msg = JSON.parse(line)',
+      "  if (msg.method === 'initialize') send({ jsonrpc: '2.0', id: msg.id, result: {} })",
+      "  if (msg.method === 'thread/start') send({ jsonrpc: '2.0', id: msg.id, result: { thread: { id: 'thread-items' } } })",
+      "  if (msg.method === 'turn/start') {",
+      "    send({ jsonrpc: '2.0', id: msg.id, result: { turn: { id: 'turn-items' } } })",
+      "    send({ jsonrpc: '2.0', method: 'turn/completed', params: { turn: { id: 'turn-items', status: 'completed', items: [{ type: 'agentMessage', id: 'msg-items', text: 'payload reply' }] } } })",
+      '    setTimeout(() => process.exit(0), 10)',
+      '  }',
+      '})',
+    ].join('\n')
+    const result = await runCodexAppServerOneShot({
+      proc: spawnAppServer(script),
+      cwd: process.cwd(),
+      prompt: 'reply',
+    })
+
+    expect(result.finalOutput).toBe('payload reply')
+  })
+})

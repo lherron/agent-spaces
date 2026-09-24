@@ -289,7 +289,7 @@ export async function runPlacementTurnNonInteractive(
           outstandingTurns: 0,
           acceptedInputApplicationIds: new Set<string>(),
           started,
-          completion: { done: false, resolve: () => {}, reject: () => {} },
+          completion: { done: false },
           sendChain: Promise.resolve(),
         }
         inFlightRuns.set(hostSessionId as string, context)

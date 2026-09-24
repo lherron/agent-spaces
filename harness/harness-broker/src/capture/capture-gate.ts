@@ -1,7 +1,5 @@
 import type {
   CaptureBlockedUnknownSummary,
-  CaptureReleaseNormalizedAs,
-  CaptureReleasedPayload,
   CaptureStateView,
   CaptureWarningPayload,
   EventFamily,
@@ -73,35 +71,7 @@ export interface CaptureGate {
   records(): RawProviderRecord[]
   /** Durable disposition for restart reconstruction; absent means no index row. */
   disposition(rawRecordId: string): RawRecordDisposition | undefined
-  /**
-   * Retained operator surface. Since T-07883 no record ever blocks the cursor,
-   * so every call throws {@link CaptureRecordNotBlockedError} — the same
-   * refusal an operator naming the wrong record has always received. The RPC,
-   * the `harness-broker capture release` command and the SDK types stay on the
-   * wire until the whole fleet is on a broker that cannot halt.
-   */
-  release(input: {
-    rawRecordId: string
-    disposition: 'ignored-known' | 'normalized-as'
-    normalizedAs?: CaptureReleaseNormalizedAs | undefined
-    note?: string | undefined
-  }): CaptureReleaseOutcome
   state(): CaptureStateView
-}
-
-export interface CaptureReleaseOutcome {
-  disposition: 'ignored-known' | 'normalized'
-  releasedSeq: number
-  normalizedSeq?: number | undefined
-  resumedRecords: number
-  capture: CaptureStateView
-}
-
-export class CaptureRecordNotBlockedError extends Error {
-  constructor(readonly rawRecordId: string) {
-    super(`Raw record ${rawRecordId} is not the blocked-unknown record`)
-    this.name = 'CaptureRecordNotBlockedError'
-  }
 }
 
 export interface CaptureGateOptions {
@@ -112,14 +82,6 @@ export interface CaptureGateOptions {
   now: () => Date
   /** Emit a committed `capture.warning`; returns the committed seq. */
   emitWarning: (payload: CaptureWarningPayload) => number
-  /**
-   * Emit a committed `capture.released`; returns the committed seq. Retained
-   * with the release surface (see {@link CaptureGate.release}) and unreachable
-   * while no record can block.
-   */
-  emitReleased: (payload: CaptureReleasedPayload) => number
-  /** Emit the operator-authored normalized event of a `normalized-as` release. */
-  emitNormalizedAs: (spec: CaptureReleaseNormalizedAs, provenance: EventProvenance) => number
   /**
    * ONE line at WARN on the broker process's own log — the seat's
    * `bipc/<id>/broker.err`. A human tailing that file must see an unclassified
@@ -334,14 +296,6 @@ export function createCaptureGate(options: CaptureGateOptions): CaptureGate {
         normalizeNow(record, normalize)
       }
       return replayed
-    },
-
-    release(input): CaptureReleaseOutcome {
-      // Nothing blocks, so nothing can be released. The refusal is the existing
-      // typed one, which names the record and reports `capture: open`, so a
-      // `hrc capture release` against a fleet on this broker reads as "there is
-      // nothing to release" rather than as a broker fault.
-      throw new CaptureRecordNotBlockedError(input.rawRecordId)
     },
 
     state: stateView,
