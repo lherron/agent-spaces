@@ -16,7 +16,7 @@ export interface CommandResult {
   stderr: string
 }
 
-const DISCOVERY_COMMAND_TIMEOUT_MS = 3000
+const DISCOVERY_COMMAND_TIMEOUT_MS = 15_000
 
 function parseSemver(version: string): [number, number, number] | null {
   const match = version.match(/(\d+)\.(\d+)\.(\d+)/)
