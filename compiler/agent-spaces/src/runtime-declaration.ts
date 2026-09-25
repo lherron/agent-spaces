@@ -306,6 +306,7 @@ export async function resolveRuntimeDeclaration(
       claimsTask: profile.claims_task === true,
       ...(profile.provisioning?.node ? { provisioningNode: profile.provisioning.node } : {}),
       placement: {
+        ...(profile.placement?.launch !== undefined ? { launch: profile.placement.launch } : {}),
         pins: { ...(profile.placement?.pins ?? {}) },
         homes: { ...(profile.placement?.homes ?? {}) },
       },

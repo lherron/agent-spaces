@@ -30,6 +30,39 @@ minisvc = "svc_1"
     })
   })
 
+  test('parses placement launch = "participant-only" (T-09061)', () => {
+    const profile = parseAgentProfile(`
+version = 4
+
+[placement]
+launch = "participant-only"
+
+[placement.homes]
+primary = "max3"
+`)
+
+    expect(profile.placement).toEqual({
+      launch: 'participant-only',
+      pins: {},
+      homes: { primary: 'max3' },
+    })
+  })
+
+  test.each(['hrc', 'never', '', 'Participant-Only'])(
+    'rejects placement launch value %j',
+    (value) => {
+      expect(() => parseAgentProfile(`version = 4\n\n[placement]\nlaunch = "${value}"\n`)).toThrow(
+        ConfigValidationError
+      )
+    }
+  )
+
+  test('rejects a non-string placement launch', () => {
+    expect(() => parseAgentProfile('version = 4\n\n[placement]\nlaunch = true\n')).toThrow(
+      ConfigValidationError
+    )
+  })
+
   test('defaults claims_task to false and leaves absent placement undeclared', () => {
     const profile = parseAgentProfile('version = 4\n')
 

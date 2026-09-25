@@ -443,7 +443,12 @@ export type AspcResolveRuntimeDeclarationResponse =
       policy: {
         claimsTask: boolean
         provisioningNode?: string | undefined
-        placement: { pins: Record<string, string>; homes: Record<string, string> }
+        placement: {
+          /** participant-only: HRC must never launch this agent (T-09061). */
+          launch?: 'participant-only' | undefined
+          pins: Record<string, string>
+          homes: Record<string, string>
+        }
       }
       baselineProvisioning: AspcProvisioningObservation
       provisioning: AspcProvisioningObservation

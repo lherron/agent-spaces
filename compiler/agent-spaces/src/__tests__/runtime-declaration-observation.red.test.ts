@@ -267,6 +267,24 @@ describe('T-08701 runtime declaration observation', () => {
     )
   })
 
+  test('returns placement launch = participant-only on the declaration (T-09061)', async () => {
+    const resolveDeclaration = operation()
+    const launchable = await resolveDeclaration(request(), daemonDefaults())
+    const profilePath = join(agentRoot, 'agent-profile.toml')
+    await writeFile(
+      profilePath,
+      `${await readFile(profilePath, 'utf8')}\n[placement]\nlaunch = "participant-only"\n`
+    )
+    const participantOnly = await resolveDeclaration(request(), daemonDefaults())
+
+    expect(launchable.policy.placement).toEqual({ pins: {}, homes: {} })
+    expect(participantOnly.policy.placement).toEqual({
+      launch: 'participant-only',
+      pins: {},
+      homes: {},
+    })
+  })
+
   test('keeps an existing agent root distinct from an absent profile declaration', async () => {
     await rm(join(agentRoot, 'agent-profile.toml'))
 

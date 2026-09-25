@@ -1,7 +1,8 @@
-import { basename } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
 
 import type { HygieneGateFinding, RuntimePlacement } from 'spaces-config'
-import { MaterializationHygieneError } from 'spaces-config'
+import { MaterializationHygieneError, parseAgentProfile } from 'spaces-config'
 import type {
   HarnessInvocationSpec,
   HarnessLaunchSpec,
@@ -584,6 +585,35 @@ function emitAspCompileTiming(req: RuntimeCompileRequest, startedAtMs: number): 
   )
 }
 
+/**
+ * Backstop for `[placement] launch = "participant-only"` (T-09061): such an
+ * agent's seat is hosted outside HRC and joins as a direct participant, so no
+ * compile may produce a launchable plan for it. HRC refuses before it gets
+ * here; this holds even if a SOUL.md is later added to the home. An absent or
+ * unparsable profile is left to the normal compile path to report.
+ */
+function participantOnlyRefusal(agentRoot: string): RuntimeCompileResponse | undefined {
+  const profilePath = join(agentRoot, 'agent-profile.toml')
+  let launch: string | undefined
+  try {
+    launch = parseAgentProfile(readFileSync(profilePath, 'utf8'), profilePath).placement?.launch
+  } catch {
+    return undefined
+  }
+  if (launch !== 'participant-only') return undefined
+  return {
+    schemaVersion: 'agent-runtime-compile-response/v2',
+    ok: false,
+    diagnostics: [
+      compileError(
+        'agent_participant_only',
+        `Agent at ${agentRoot} is participant-only ([placement] launch = "participant-only"): its seat joins HRC as a direct participant and is never launched`,
+        { agentRoot, launch }
+      ),
+    ],
+  }
+}
+
 export async function compileRuntimePlan(
   req: RuntimeCompileRequest,
   options?: CompileRuntimePlanOptions
@@ -591,6 +621,8 @@ export async function compileRuntimePlan(
   const startedAtMs = performance.now()
   try {
     const placement = req.placement as CompilePlacement
+    const refusal = participantOnlyRefusal(placement.agentRoot)
+    if (refusal !== undefined) return refusal
     const provisioningLayers = resolveCompileProvisioningLayers(req)
     const consistencyAgentIds = [basename(placement.agentRoot)]
     if (placement.bundle.kind === 'agent-project') {

@@ -385,11 +385,12 @@ describe('unix server and retirement', () => {
     const server = await startAspdServer({ socketPath, service, log: (line) => lines.push(line) })
     const client = await AspcUnixClient.connect({ socketPath, clientInfo: { name: 't' } })
     const answered = async (): Promise<Record<string, unknown>> => {
-      let line: string | undefined
-      while (
-        !(line = lines.find((l) => l.includes('request.answered') && l.includes('compileHarness')))
-      ) {
+      const find = () =>
+        lines.find((l) => l.includes('request.answered') && l.includes('compileHarness'))
+      let line = find()
+      while (line === undefined) {
         await Bun.sleep(5)
+        line = find()
       }
       lines.splice(lines.indexOf(line), 1)
       return JSON.parse(line.slice(line.indexOf('{')))

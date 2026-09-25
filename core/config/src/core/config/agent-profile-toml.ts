@@ -326,8 +326,15 @@ function parsePlacement(
     fail(source, path, 'must be a table', 'type')
   }
 
-  assertOnlyKeys(value, ['pins', 'homes'], source, path)
+  assertOnlyKeys(value, ['launch', 'pins', 'homes'], source, path)
   const placement: AgentProfilePlacement = { pins: {}, homes: {} }
+  const launch = value['launch']
+  if (launch !== undefined) {
+    if (launch !== 'participant-only') {
+      fail(source, `${path}/launch`, 'must be "participant-only" when set', 'const')
+    }
+    placement.launch = launch
+  }
   parsePlacementMap(value['pins'], placement.pins, SCOPE_PIN_PATTERN, source, `${path}/pins`, true)
   parsePlacementMap(value['homes'], placement.homes, HOME_PATTERN, source, `${path}/homes`, false)
   assertConsistentFamilyHomes(placement, source, path)

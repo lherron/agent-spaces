@@ -47,8 +47,16 @@ export interface AgentProfileJobs {
   default_node?: string[] | undefined
 }
 
+/**
+ * `participant-only`: HRC never launches this agent. Its seat is hosted
+ * elsewhere and joins HRC as a direct participant; compiles are refused.
+ */
+export type AgentPlacementLaunch = 'participant-only'
+
 /** Source-shaped federation placement declaration from agent-profile.toml. */
 export interface AgentProfilePlacement {
+  /** Absent means HRC may launch the agent. */
+  launch?: AgentPlacementLaunch | undefined
   pins: Record<string, string>
   homes: Record<string, string>
 }

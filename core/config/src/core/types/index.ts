@@ -84,6 +84,7 @@ export type {
   AgentIdentity,
   AgentProfileInstructions,
   AgentProfileJobs,
+  AgentPlacementLaunch,
   AgentProfilePlacement,
   AgentProfileSession,
   AgentProfileSpaces,
