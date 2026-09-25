@@ -8,7 +8,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import {
   constants,
   access,
@@ -189,6 +189,23 @@ function hashContent(content: string): string {
 }
 
 /**
+ * Successful probes keyed by candidate path. The fingerprint (resolved target,
+ * mtime, size) changes on reinstall, so a long-lived compiler re-probes a new
+ * binary without spawning codex on every compile. Failures are never cached.
+ */
+const detectionCache = new Map<string, { fingerprint: string; detection: HarnessDetection }>()
+
+function binaryFingerprint(candidate: string): string | undefined {
+  try {
+    const target = realpathSync(candidate)
+    const stat = statSync(target)
+    return `${target}:${stat.mtimeMs}:${stat.size}`
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Probe a single codex binary candidate: verify it runs, meets the minimum
  * version, and exposes `app-server`. Returns the detection on success or a
  * human-readable failure reason (never throws) so the caller can attribute a
@@ -348,8 +365,17 @@ export class CodexAdapter implements HarnessAdapter {
         continue
       }
 
+      const fingerprint = binaryFingerprint(candidate)
+      const cached = fingerprint ? detectionCache.get(candidate) : undefined
+      if (cached && cached.fingerprint === fingerprint) {
+        return cached.detection
+      }
+
       const probe = await probeCodexCandidate(candidate)
       if ('detection' in probe) {
+        if (fingerprint) {
+          detectionCache.set(candidate, { fingerprint, detection: probe.detection })
+        }
         return probe.detection
       }
       // Surface the real reason this otherwise-present binary failed instead of

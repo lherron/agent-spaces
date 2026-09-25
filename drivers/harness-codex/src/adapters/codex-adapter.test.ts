@@ -6,7 +6,17 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { chmod, lstat, mkdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises'
+import {
+  chmod,
+  lstat,
+  mkdir,
+  readFile,
+  readlink,
+  rm,
+  symlink,
+  utimes,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import TOML from '@iarna/toml'
@@ -165,6 +175,74 @@ exit 1
 
       expect(detection.available).toBe(true)
       expect(detection.path).toBe(overrideShim)
+    })
+
+    async function writeCountingShim(dir: string, version: string, exitCode = 0): Promise<string> {
+      await mkdir(dir, { recursive: true })
+      const shim = join(dir, 'codex')
+      await writeFile(
+        shim,
+        `#!/bin/sh
+echo x >> "${join(dir, 'probes')}"
+if [ "$1" = "--version" ]; then
+  echo "codex-cli ${version}"
+  exit ${exitCode}
+fi
+if [ "$1" = "app-server" ] && [ "$2" = "--help" ]; then
+  exit ${exitCode}
+fi
+exit 1
+`
+      )
+      await chmod(shim, 0o755)
+      return shim
+    }
+
+    async function probeCount(dir: string): Promise<number> {
+      try {
+        return (await readFile(join(dir, 'probes'), 'utf-8')).split('\n').filter(Boolean).length
+      } catch {
+        return 0
+      }
+    }
+
+    test('reuses a successful detection while the binary is unchanged', async () => {
+      const bin = join(tmpDir, 'cached-bin')
+      await writeCountingShim(bin, '0.124.0')
+      process.env.PATH = bin
+
+      const first = await adapter.detect()
+      const probesAfterFirst = await probeCount(bin)
+      const second = await adapter.detect()
+
+      expect(first.available).toBe(true)
+      expect(probesAfterFirst).toBe(2)
+      expect(second).toEqual(first)
+      expect(await probeCount(bin)).toBe(2)
+    })
+
+    test('re-probes after the binary is replaced', async () => {
+      const bin = join(tmpDir, 'replaced-bin')
+      const shim = await writeCountingShim(bin, '0.124.0')
+      process.env.PATH = bin
+
+      await adapter.detect()
+      await writeCountingShim(bin, '0.125.0')
+      await utimes(shim, new Date(), new Date(Date.now() + 5_000))
+      const detection = await adapter.detect()
+
+      expect(detection.version).toBe('0.125.0')
+      expect(await probeCount(bin)).toBe(4)
+    })
+
+    test('does not cache a failed probe', async () => {
+      const bin = join(tmpDir, 'failing-bin')
+      await writeCountingShim(bin, '0.124.0', 1)
+      process.env.PATH = bin
+
+      expect((await adapter.detect()).available).toBe(false)
+      expect((await adapter.detect()).available).toBe(false)
+      expect(await probeCount(bin)).toBe(2)
     })
 
     test('keeps common install paths ahead of PATH candidates', () => {

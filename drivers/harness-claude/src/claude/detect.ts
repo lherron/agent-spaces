@@ -9,7 +9,7 @@
  * The ASP_CLAUDE_PATH environment variable allows overriding for testing.
  */
 
-import { constants, access } from 'node:fs/promises'
+import { constants, access, realpath, stat } from 'node:fs/promises'
 import { delimiter, join } from 'node:path'
 import { ClaudeNotFoundError } from 'spaces-config'
 
@@ -204,6 +204,16 @@ async function exitWithTimeout(
   }
 }
 
+async function binaryFingerprint(path: string): Promise<string | undefined> {
+  try {
+    const target = await realpath(path)
+    const info = await stat(target)
+    return `${target}:${info.mtimeMs}:${info.size}`
+  } catch {
+    return undefined
+  }
+}
+
 function claudeDiscoveryEnv(): Record<string, string> {
   const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
@@ -228,31 +238,47 @@ function claudeDiscoveryEnv(): Record<string, string> {
  */
 export class ClaudeDetector {
   private cachedInfo: ClaudeInfo | null = null
+  private cachedFingerprint: string | undefined
 
   /**
    * Detect Claude installation and query capabilities.
+   *
+   * The cached result is reused only while the resolved binary is unchanged
+   * (same target, mtime and size), so a long-lived process picks up a
+   * reinstall. An unknown version (failed or timed-out query) is not cached.
    *
    * @param forceRefresh - If true, ignore cached info and re-detect
    * @returns Claude installation information
    * @throws ClaudeNotFoundError if claude cannot be found
    */
   async detect(forceRefresh = false): Promise<ClaudeInfo> {
-    // Return cached info if available
-    if (this.cachedInfo && !forceRefresh) {
+    const path = await findClaudeBinary()
+    const fingerprint = await binaryFingerprint(path)
+    if (
+      !forceRefresh &&
+      this.cachedInfo?.path === path &&
+      fingerprint !== undefined &&
+      this.cachedFingerprint === fingerprint
+    ) {
       return this.cachedInfo
     }
 
-    const path = await findClaudeBinary()
     const version = await queryVersion(path)
-
-    this.cachedInfo = {
+    const info: ClaudeInfo = {
       path,
       version,
       supportsPluginDir: true,
       supportsMcpConfig: true,
     }
 
-    return this.cachedInfo
+    if (version === UNKNOWN_VERSION || fingerprint === undefined) {
+      this.clear()
+    } else {
+      this.cachedInfo = info
+      this.cachedFingerprint = fingerprint
+    }
+
+    return info
   }
 
   /**
@@ -275,6 +301,7 @@ export class ClaudeDetector {
    */
   clear(): void {
     this.cachedInfo = null
+    this.cachedFingerprint = undefined
   }
 }
 

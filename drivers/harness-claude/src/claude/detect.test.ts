@@ -6,11 +6,13 @@
  */
 
 import { afterEach, describe, expect, it } from 'bun:test'
-import { chmod, mkdir, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  CLAUDE_PATH_ENV,
   CLAUDE_SKIP_COMMON_PATHS_ENV,
+  ClaudeDetector,
   claudeCommandCandidates,
   clearClaudeCache,
   findClaudeBinary,
@@ -19,6 +21,7 @@ import { buildClaudeArgs } from './invoke.js'
 
 const originalPath = process.env.PATH
 const originalSkipCommonPaths = process.env[CLAUDE_SKIP_COMMON_PATHS_ENV]
+const originalClaudePath = process.env[CLAUDE_PATH_ENV]
 
 // Clear cache after each test to ensure isolation
 afterEach(() => {
@@ -28,6 +31,11 @@ afterEach(() => {
     process.env[CLAUDE_SKIP_COMMON_PATHS_ENV] = undefined
   } else {
     process.env[CLAUDE_SKIP_COMMON_PATHS_ENV] = originalSkipCommonPaths
+  }
+  if (originalClaudePath === undefined) {
+    process.env[CLAUDE_PATH_ENV] = undefined
+  } else {
+    process.env[CLAUDE_PATH_ENV] = originalClaudePath
   }
 })
 
@@ -61,6 +69,73 @@ describe('findClaudeBinary', () => {
     )
     expect(candidates.at(-1)).toBe('/path-second/claude')
   })
+})
+
+describe('ClaudeDetector', () => {
+  async function writeCountingShim(dir: string, version: string, exitCode = 0): Promise<string> {
+    await mkdir(dir, { recursive: true })
+    const shim = join(dir, 'claude')
+    await writeFile(
+      shim,
+      `#!/bin/sh\necho x >> "${join(dir, 'probes')}"\necho "${version} (Claude Code)"\nexit ${exitCode}\n`
+    )
+    await chmod(shim, 0o755)
+    process.env[CLAUDE_PATH_ENV] = shim
+    return shim
+  }
+
+  async function probeCount(dir: string): Promise<number> {
+    try {
+      return (await readFile(join(dir, 'probes'), 'utf-8')).split('\n').filter(Boolean).length
+    } catch {
+      return 0
+    }
+  }
+
+  async function withTempDir(run: (dir: string) => Promise<void>): Promise<void> {
+    const dir = join(tmpdir(), `claude-detector-${Date.now()}-${Math.random()}`)
+    try {
+      await run(dir)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }
+
+  it('reuses a detection while the binary is unchanged', () =>
+    withTempDir(async (dir) => {
+      await writeCountingShim(dir, '2.1.0')
+      const detector = new ClaudeDetector()
+
+      const first = await detector.detect()
+      const second = await detector.detect()
+
+      expect(first.version).toBe('2.1.0')
+      expect(second).toEqual(first)
+      expect(await probeCount(dir)).toBe(1)
+    }))
+
+  it('re-probes after the binary is replaced', () =>
+    withTempDir(async (dir) => {
+      const shim = await writeCountingShim(dir, '2.1.0')
+      const detector = new ClaudeDetector()
+
+      await detector.detect()
+      await writeCountingShim(dir, '2.2.0')
+      await utimes(shim, new Date(), new Date(Date.now() + 5_000))
+
+      expect((await detector.detect()).version).toBe('2.2.0')
+      expect(await probeCount(dir)).toBe(2)
+    }))
+
+  it('does not cache an unknown version', () =>
+    withTempDir(async (dir) => {
+      await writeCountingShim(dir, '2.1.0', 1)
+      const detector = new ClaudeDetector()
+
+      expect((await detector.detect()).version).toBe('unknown')
+      expect((await detector.detect()).version).toBe('unknown')
+      expect(await probeCount(dir)).toBe(2)
+    }))
 })
 
 describe('buildClaudeArgs', () => {
