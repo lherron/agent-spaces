@@ -278,6 +278,29 @@ function resultOutcome(result: unknown): string {
   return `rejected:${typeof code === 'string' ? code : 'unknown'}`
 }
 
+const MAX_LOGGED_ERROR_CHARS = 2000
+
+function clipError(message: string): string {
+  return message.length > MAX_LOGGED_ERROR_CHARS
+    ? `${message.slice(0, MAX_LOGGED_ERROR_CHARS)}…`
+    : message
+}
+
+/** The first diagnostic message of an ok:false result body, for the request log. */
+function resultError(result: unknown): string | undefined {
+  const record = asRecord(result)
+  if (record?.['ok'] !== false) return undefined
+  const diagnostics = record['diagnostics']
+  const first = Array.isArray(diagnostics) ? asRecord(diagnostics[0]) : undefined
+  const resolution = asRecord(record['resolution'])
+  const message = first?.['message'] ?? resolution?.['message'] ?? record['message']
+  return typeof message === 'string' ? clipError(message) : undefined
+}
+
+function thrownError(error: unknown): string {
+  return clipError(error instanceof Error ? error.message : String(error))
+}
+
 function errorOutcome(error: unknown): string {
   if (error instanceof BrokerError) return `error:${String(error.code)}`
   const code = asRecord(error)?.['code']
@@ -370,6 +393,7 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
           }, slowRequestMs)
           slowTimer.unref?.()
           let outcome = 'ok'
+          let errorText: string | undefined
           let bytes: number | undefined
           let phases: Record<string, number> | undefined
           try {
@@ -382,10 +406,12 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
               result = await handler(request)
             }
             outcome = resultOutcome(result)
+            errorText = resultError(result)
             bytes = replyBytes(result)
             return result
           } catch (error) {
             outcome = errorOutcome(error)
+            errorText = thrownError(error)
             if (error instanceof AspcInspectionAuthorityError) {
               throw new BrokerError(-32603 as BrokerErrorCode, error.message, {
                 code: error.code,
@@ -410,6 +436,7 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
                     startedAt: startedAt.toISOString(),
                     durationMs,
                     outcome,
+                    ...(errorText !== undefined ? { error: errorText } : {}),
                     ...(bytes !== undefined ? { replyBytes: bytes } : {}),
                     ...(phases !== undefined && Object.keys(phases).length > 0 ? { phases } : {}),
                   }

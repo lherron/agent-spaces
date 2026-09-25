@@ -359,6 +359,60 @@ describe('release-bound service (W1/W2)', () => {
 })
 
 describe('unix server and retirement', () => {
+  test('request.answered records the rejection or error message', async () => {
+    const socketPath = join(tempBase(), 's.sock')
+    const lines: string[] = []
+    let mode: 'reject' | 'throw' = 'reject'
+    const service = createReleaseBoundAspcService(
+      fakeService({
+        compileHarnessInvocation: async () => {
+          if (mode === 'throw') throw new Error('service exploded')
+          return {
+            schemaVersion: 'aspc-compile-harness-invocation-response/v2',
+            ok: false,
+            diagnostics: [
+              {
+                level: 'error',
+                code: 'compiler_exception',
+                message: 'Harness "codex" is not available: codex: command timed out',
+              },
+            ],
+          }
+        },
+      }),
+      binding
+    )
+    const server = await startAspdServer({ socketPath, service, log: (line) => lines.push(line) })
+    const client = await AspcUnixClient.connect({ socketPath, clientInfo: { name: 't' } })
+    const answered = async (): Promise<Record<string, unknown>> => {
+      let line: string | undefined
+      while (
+        !(line = lines.find((l) => l.includes('request.answered') && l.includes('compileHarness')))
+      ) {
+        await Bun.sleep(5)
+      }
+      lines.splice(lines.indexOf(line), 1)
+      return JSON.parse(line.slice(line.indexOf('{')))
+    }
+    try {
+      await client.compileHarnessInvocation(compileRequest())
+      expect(await answered()).toMatchObject({
+        outcome: 'rejected:compiler_exception',
+        error: 'Harness "codex" is not available: codex: command timed out',
+      })
+
+      mode = 'throw'
+      await client.compileHarnessInvocation(compileRequest()).catch(() => undefined)
+      expect(await answered()).toMatchObject({
+        outcome: 'error:exception',
+        error: 'service exploded',
+      })
+    } finally {
+      await client.close()
+      await server.retire()
+    }
+  })
+
   test('serves only the compile plane; compileAndStart is not a route', async () => {
     const socketPath = join(tempBase(), 's.sock')
     const server = await startAspdServer({
