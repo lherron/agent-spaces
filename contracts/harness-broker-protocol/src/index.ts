@@ -12,5 +12,20 @@ export * from './ndjson'
 export * from './offline-evidence'
 export * from './participant'
 export * from './primitives'
-export * from './schemas'
+export * from './env-keys'
+export {
+  INVOCATION_EVENT_TYPES,
+  NATIVE_WORKER_DRIVER_KINDS,
+  SDK_BLOCK_DRIVER_KINDS,
+  IN_PROCESS_TRANSPORT_DRIVER_KINDS,
+  TMUX_SURFACE_DRIVER_KINDS,
+  validateInvocationSpec,
+  validateInvocationInput,
+  validateInvocationStartRequest,
+  validateInvocationDispatchRequest,
+  validatePermissionRequestParams,
+  validateCommand,
+  validateEventEnvelope,
+  type SchemaRecord,
+} from './schemas'
 export * from './submission'

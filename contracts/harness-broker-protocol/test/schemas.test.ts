@@ -2056,9 +2056,12 @@ describe('validateEventEnvelope', () => {
 
 describe('package boundaries', () => {
   test('event validator registry remains a total mapped type', () => {
-    const schemasSource = readFileSync(join(import.meta.dir, '..', 'src', 'schemas.ts'), 'utf8')
-    expect(schemasSource).toContain('satisfies EventPayloadValidators')
-    expect(schemasSource).not.toContain(
+    const eventPayloadSource = readFileSync(
+      join(import.meta.dir, '..', 'src', 'schema-event-payload.ts'),
+      'utf8'
+    )
+    expect(eventPayloadSource).toContain('satisfies EventPayloadValidators')
+    expect(eventPayloadSource).not.toContain(
       'Partial<Record<InvocationEventType, EventPayloadValidator>>'
     )
   })
