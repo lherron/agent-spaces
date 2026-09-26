@@ -1,4 +1,6 @@
+import { spawn } from 'node:child_process'
 import { appendFile, mkdir, readFile } from 'node:fs/promises'
+import { hostname } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 import type { ChangeClassification, ClassifiedChangeScope, HookName } from './hook-change-scope.ts'
@@ -49,6 +51,52 @@ export interface HookStepTimingRecord extends BaseTimingRecord {
 }
 
 export type TimingRecord = HookTimingRecord | HookStepTimingRecord
+
+export function hookSettledPostArgs(record: HookTimingRecord): string[] {
+  const args = [
+    'post',
+    'agent-spaces',
+    '--type',
+    'hook.settled',
+    '-m',
+    `${record.hook} ${record.result} in ${(record.durationMs / 1000).toFixed(1)}s`,
+    '--occurred-at',
+    record.finishedAt,
+    '--key',
+    `hook:${record.runId}`,
+  ]
+  const attributes: [string, string | number | undefined][] = [
+    ['source', 'agent-spaces-hook-timing'],
+    ['node', hostname()],
+    ['hook', record.hook],
+    ['result', record.result],
+    ['exit_code', record.exitCode ?? undefined],
+    ['duration_ms', Math.round(record.durationMs)],
+    ['change_kind', record.change.kind],
+    ['file_count', record.change.fileCount],
+    ['head', record.head],
+    ['branch', record.branch],
+    ['run_id', record.runId],
+    ['started_at', record.startedAt],
+  ]
+  for (const [key, value] of attributes) {
+    if (value !== undefined) args.push('--attr', `${key}=${value}`)
+  }
+  return args
+}
+
+function postHookSettled(record: HookTimingRecord): void {
+  try {
+    const child = spawn('wrkp', hookSettledPostArgs(record), {
+      detached: true,
+      stdio: 'ignore',
+    })
+    child.on('error', () => {})
+    child.unref()
+  } catch {
+    // The JSONL history can be replayed when wrkp is available.
+  }
+}
 
 export function roundDurationMs(value: number): number {
   return Math.round(value * 100) / 100
@@ -106,6 +154,7 @@ export async function appendTimingRecord(
     const path = options.path ?? resolveHookTimingsPath(options.cwd)
     await mkdir(dirname(path), { recursive: true })
     await appendFile(path, `${JSON.stringify(record)}\n`, 'utf8')
+    if (record.recordType === 'hook') postHookSettled(record)
     return true
   } catch (error) {
     console.error(`[hook-timing] unable to record timing: ${error}`)

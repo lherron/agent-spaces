@@ -25,6 +25,16 @@ bun run hook:stats --since 4w --json
 
 The report shows invocation counts, pass/failure/skip counts, p50, p95, maximum duration, and the slowest steps. Explicit hook bypasses such as `LEFTHOOK=0` do not execute and therefore cannot record telemetry.
 
+Each completed hook run also starts a best-effort, detached `wrkp post agent-spaces --type hook.settled`. The fact uses the hook finish time and `hook:<run_id>` as its idempotency key. Step records stay local. If posting fails, the hook keeps its own exit status and the JSONL record remains available for replay.
+
+Replay all local hook records, including any missed live posts:
+
+```bash
+bun run hook:backfill
+```
+
+The command reports created, existing, and failed counts. Repeating it reports the same facts as existing. Historical records do not store the node name, so replay attributes them to the host running the command.
+
 ## Optimized execution policy
 
 Pre-commit checks run concurrently. Workspace builds use package-manifest dependencies to run

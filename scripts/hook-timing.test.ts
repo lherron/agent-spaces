@@ -50,6 +50,8 @@ async function makeFixture(): Promise<{
   await mkdir(binDir, { recursive: true })
   await writeFile(join(binDir, 'hook-probe'), '#!/bin/sh\nprintf "%s\\n" "$*"\n')
   await chmod(join(binDir, 'hook-probe'), 0o755)
+  await writeFile(join(binDir, 'wrkp'), '#!/bin/sh\nexit 0\n')
+  await chmod(join(binDir, 'wrkp'), 0o755)
   run(['git', 'init', '-b', 'main'], work)
   run(['git', 'config', 'user.name', 'Hook Timing Test'], work)
   run(['git', 'config', 'user.email', 'hook-timing@example.com'], work)
