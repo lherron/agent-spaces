@@ -39,6 +39,7 @@ test-integration:
 release-test:
     bun run test:release
 
+# Verify agent resource parity across all integration-test run modes.
 verify-agent-resource-parity:
     bun run --filter spaces-integration-tests verify:agent-resources
 
@@ -112,6 +113,7 @@ debug-codex-tmux-live *args:
 debug-codex-tmux-live-ipc *args:
     bun scripts/debug-codex-tmux-live.ts --broker-transport ipc {{args}}
 
+# Run the live Pi TUI tmux debugger with any supplied script arguments.
 debug-pi-tui-tmux-live *args:
     bun scripts/debug-pi-tui-tmux-live.ts {{args}}
 
@@ -234,12 +236,15 @@ aspd-init ns codex_path="":
 aspd-activate ns release_id:
     bun scripts/aspd-service.ts activate "{{ ns }}" "{{ release_id }}"
 
+# Start the selected aspd release in the given namespace and read back readiness.
 aspd-start ns:
     bun scripts/aspd-service.ts start "{{ ns }}"
 
+# Stop the aspd daemon in the given namespace; safe when it is already stopped.
 aspd-stop ns:
     bun scripts/aspd-service.ts stop "{{ ns }}"
 
+# Restart the selected aspd release in the given namespace.
 aspd-restart ns:
     bun scripts/aspd-service.ts restart "{{ ns }}"
 
