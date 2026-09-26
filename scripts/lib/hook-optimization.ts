@@ -62,6 +62,11 @@ export function cleanFastTestEnvironment(source: NodeJS.ProcessEnv): NodeJS.Proc
   clean.GIT_DIR = undefined
   clean.GIT_WORK_TREE = undefined
   clean[HOOK_RUN_ID_ENV] = undefined
+  // An agent session's broker wiring (observer/callback sockets, invocation
+  // ids) must not leak into test subprocesses; tests that need it set it.
+  for (const key of Object.keys(clean)) {
+    if (key.startsWith('HARNESS_BROKER_')) clean[key] = undefined
+  }
   return clean
 }
 

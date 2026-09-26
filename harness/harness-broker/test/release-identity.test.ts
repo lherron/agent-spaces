@@ -8,6 +8,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { BrokerClient } from 'spaces-harness-broker-client'
 import { SUPPORTED_BROKER_PROTOCOL_VERSIONS } from 'spaces-harness-broker-protocol'
+import { brokerClientEnvOverrides, brokerProcessEnv } from './helpers'
 
 const repoRoot = new URL('../../..', import.meta.url).pathname
 const entry = 'harness/harness-broker/test/fixtures/release-entry/broker-with-release.ts'
@@ -27,6 +28,7 @@ describe('broker.hello release identity', () => {
       command: 'bun',
       args: [entry, 'run', '--transport', 'stdio'],
       cwd: repoRoot,
+      env: brokerClientEnvOverrides(),
     })
     try {
       expect((await client.hello(helloRequest)).release).toEqual(RELEASE)
@@ -41,6 +43,7 @@ describe('broker.hello release identity', () => {
     const proc = Bun.spawn({
       cmd: ['bun', entry, 'run', '--transport', 'unix', '--socket', socketPath],
       cwd: repoRoot,
+      env: brokerProcessEnv(),
       stdout: 'ignore',
       stderr: 'pipe',
     })
@@ -72,6 +75,7 @@ describe('broker.hello release identity', () => {
       command: 'bun',
       args: ['harness/harness-broker/bin/harness-broker.js', 'run', '--transport', 'stdio'],
       cwd: repoRoot,
+      env: brokerClientEnvOverrides(),
     })
     try {
       expect((await client.hello(helloRequest)).release).toBeUndefined()

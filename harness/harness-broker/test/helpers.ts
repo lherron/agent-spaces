@@ -27,6 +27,20 @@ export function brokerProcessEnv(
   return env
 }
 
+/**
+ * `BrokerClient.start` merges `env` over `process.env` (undefined deletes), so
+ * scrubbing inherited session broker wiring needs explicit deletions.
+ */
+export function brokerClientEnvOverrides(): Record<string, undefined> {
+  const overrides: Record<string, undefined> = {}
+  for (const key of Object.keys(process.env)) {
+    if (INHERITED_BROKER_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+      overrides[key] = undefined
+    }
+  }
+  return overrides
+}
+
 export const noopCapabilities: InvocationCapabilities = {
   admission: { classes: [] },
   bracketMintingMode: 'delivery-acknowledged',

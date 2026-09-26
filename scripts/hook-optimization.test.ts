@@ -87,16 +87,20 @@ describe('hook optimization graph', () => {
     expect(isPublicSurfaceRelevant('lefthook.yml')).toBeFalse()
   })
 
-  test('test subprocesses cannot impersonate the outer hook timing run', () => {
+  test('test subprocesses cannot impersonate the outer hook run or agent session', () => {
     const clean = cleanFastTestEnvironment({
       GIT_DIR: '/tmp/git-dir',
       GIT_WORK_TREE: '/tmp/work-tree',
       [HOOK_RUN_ID_ENV]: 'outer-hook',
+      HARNESS_BROKER_OBSERVER_SOCKET: '/tmp/live-session/observer.sock',
+      HARNESS_BROKER_CALLBACK_SOCKET: '/tmp/live-session/hooks.sock',
       PATH: '/usr/bin',
     })
     expect(clean.GIT_DIR).toBeUndefined()
     expect(clean.GIT_WORK_TREE).toBeUndefined()
     expect(clean[HOOK_RUN_ID_ENV]).toBeUndefined()
+    expect(clean['HARNESS_BROKER_OBSERVER_SOCKET']).toBeUndefined()
+    expect(clean['HARNESS_BROKER_CALLBACK_SOCKET']).toBeUndefined()
     expect(clean.PATH).toBe('/usr/bin')
   })
 })
