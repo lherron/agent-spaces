@@ -922,36 +922,46 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
     }
   }
 
-  function normalizeNotification(notification: JsonRpcNotification): NormalizeOutcome {
-    if (notification.method === 'error') {
-      ensureUnknownAttribution(currentTurnId)
-      const error = parseCodexError(notification.params)
-      emitDiagnostic('error', error.message, error.data, activeTurnExtra())
-      if (
-        !failActiveTurn({
-          message: error.message,
+  function normalizeErrorNotification(params: unknown): NormalizeOutcome {
+    ensureUnknownAttribution(currentTurnId)
+    const error = parseCodexError(params)
+    emitDiagnostic('error', error.message, error.data, activeTurnExtra())
+    // willRetry:true is codex reporting an attempt on a turn it is still
+    // running (e.g. "Reconnecting... 2/5"); it sends a final willRetry:false
+    // error or turn/completed once it gives up. Failing here ended the turn
+    // and then the invocation mid-retry, and the terminal latch swallowed
+    // the real final error (T-09238).
+    if (error.retryable === true) {
+      return { disposition: 'normalized', detail: 'error-will-retry' }
+    }
+    if (
+      !failActiveTurn({
+        message: error.message,
+        code: error.code,
+        data: error.data,
+        ...(error.retryable !== undefined ? { retryable: error.retryable } : {}),
+        ...(error.reason !== undefined ? { reason: error.reason } : {}),
+      })
+    ) {
+      emitTerminalFailure(error.message, error.code, error.data, error.retryable, error.reason)
+    }
+
+    if (starting) {
+      rejectStartup?.(
+        new BrokerError(BrokerErrorCode.HarnessError, error.message, {
           code: error.code,
           data: error.data,
-          ...(error.retryable !== undefined ? { retryable: error.retryable } : {}),
-          ...(error.reason !== undefined ? { reason: error.reason } : {}),
         })
-      ) {
-        emitTerminalFailure(error.message, error.code, error.data, error.retryable, error.reason)
-      }
-
-      if (starting) {
-        rejectStartup?.(
-          new BrokerError(BrokerErrorCode.HarnessError, error.message, {
-            code: error.code,
-            data: error.data,
-          })
-        )
-      }
-      // The error path always mints (a diagnostic, plus a turn or invocation
-      // terminal). It is a §6.1 disposition, not a special case outside the
-      // classification.
-      return { disposition: 'normalized', detail: 'error' }
+      )
     }
+    // A non-retry error always mints (a diagnostic, plus a turn or invocation
+    // terminal). It is a §6.1 disposition, not a special case outside the
+    // classification.
+    return { disposition: 'normalized', detail: 'error' }
+  }
+
+  function normalizeNotification(notification: JsonRpcNotification): NormalizeOutcome {
+    if (notification.method === 'error') return normalizeErrorNotification(notification.params)
 
     // After any invocation-terminal event, drop further native events so a late
     // turn/completed (or any other notification) can never follow a terminal.

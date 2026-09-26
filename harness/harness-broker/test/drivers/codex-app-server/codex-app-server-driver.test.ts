@@ -715,13 +715,6 @@ describe('Codex app-server driver red scenarios', () => {
       reason: undefined,
     },
     {
-      scenario: 'turn-error-rate-limit',
-      message: 'Too many requests',
-      code: 'rateLimitExceeded',
-      retryable: true,
-      reason: undefined,
-    },
-    {
       scenario: 'turn-error-auth',
       message: 'Authentication failed',
       code: 'authenticationFailed',
@@ -768,6 +761,51 @@ describe('Codex app-server driver red scenarios', () => {
       expect(events.some((event) => event.type === 'invocation.failed')).toBe(false)
     }
   )
+
+  // T-09238: willRetry:true is codex saying "still working on this turn".
+  const retryDiagnostics = (events: InvocationEventEnvelope[]) =>
+    events.filter(
+      (event) =>
+        event.type === 'diagnostic' &&
+        (event.payload as { data?: { willRetry?: boolean } }).data?.willRetry === true
+    )
+
+  test('a willRetry error is a diagnostic; the turn fails only from codex turn/completed', async () => {
+    const events = await runScenario('turn-error-rate-limit')
+    await Bun.sleep(50)
+
+    expect(retryDiagnostics(events)).toHaveLength(1)
+    const failed = events.filter((event) => event.type === 'turn.failed')
+    expect(failed).toHaveLength(1)
+    expect((failed[0]?.payload as { retryable?: boolean }).retryable).not.toBe(true)
+    expect(events.some((event) => event.type === 'invocation.failed')).toBe(false)
+  })
+
+  test('retries then a final willRetry:false error fail the turn once, with the final message', async () => {
+    const events = await runScenario('turn-error-retry-then-exhausted')
+    await Bun.sleep(50)
+
+    expect(
+      retryDiagnostics(events).map((event) => (event.payload as { message: string }).message)
+    ).toEqual(['Reconnecting... 2/5', 'Reconnecting... 3/5'])
+    const failed = events.filter((event) => event.type === 'turn.failed')
+    expect(failed).toHaveLength(1)
+    expect(failed[0]).toMatchObject({
+      turnId: 'turn_1',
+      payload: { message: 'unexpected status 401 Unauthorized', retryable: false },
+    })
+    expect(events.some((event) => event.type === 'invocation.failed')).toBe(false)
+  })
+
+  test('retries that codex recovers from leave the turn to complete normally', async () => {
+    const events = await runScenario('turn-error-retry-then-recovered')
+    await Bun.sleep(50)
+
+    expect(retryDiagnostics(events)).toHaveLength(2)
+    expect(events.some((event) => event.type === 'turn.completed')).toBe(true)
+    expect(events.some((event) => event.type === 'turn.failed')).toBe(false)
+    expect(events.some((event) => event.type === 'invocation.failed')).toBe(false)
+  })
 
   test('classifies a fatal mid-turn RPC protocol error with correlated durable terminals', async () => {
     const events = await runScenario('mid-turn-rpc-protocol-error')
