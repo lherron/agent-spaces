@@ -336,9 +336,11 @@ install no-sync="" force-sync="" force-link="":
       # the running daemon on the previous ASP set, silently, with nothing in the
       # output saying so. `pull-deps` is the command that stale message itself
       # names; it advances the lock, checks coherence, and COMMITS bun.lock in the
-      # consumer repo, so `publish-dev` downstream of it sees a clean tree.
+      # consumer repo. Build the synchronized HRC source here, but leave release
+      # selection and canonical publication to HRC's owner.
       if hrc_runtime="$(resolve_consumer hrc-runtime 2>/dev/null)"; then
-        ( cd "$hrc_runtime" && just pull-deps && bun run build && just publish-dev ) 2>&1 | sed 's/^/[hrc-sync] /'
+        ( cd "$hrc_runtime" && just pull-deps && bun run build ) 2>&1 | sed 's/^/[hrc-sync] /'
+        echo '[install] HRC release remains local until its owner runs `just install` and `just publish`.'
       else
         echo "[install] downstream consumer hrc-runtime not present on this node; skipping hrc sync" >&2
       fi
@@ -382,10 +384,11 @@ sync-downstream:
     # (an unguarded assignment from a failing substitution trips `set -e`).
     #
     # `just pull-deps` is what actually advances the consumer's lock; a bare
-    # `bun run sync:asp` only reports and exits 0 (T-07727). See the same note in
-    # the `install` recipe.
+    # `bun run sync:asp` only reports and exits 0 (T-07727). This caller builds
+    # the synchronized HRC source but does not select or publish an HRC release.
     if hrc_runtime="$(resolve_consumer hrc-runtime 2>/dev/null)"; then
-      ( cd "$hrc_runtime" && just pull-deps && bun run build && just publish-dev ) 2>&1 | sed 's/^/[hrc-sync] /'
+      ( cd "$hrc_runtime" && just pull-deps && bun run build ) 2>&1 | sed 's/^/[hrc-sync] /'
+      echo '[sync-downstream] HRC release remains local until its owner runs `just install` and `just publish`.'
     else
       echo "[sync-downstream] hrc-runtime not present on this node; skipping hrc sync" >&2
     fi
