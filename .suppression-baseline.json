@@ -24,7 +24,7 @@
       "count": 1
     },
     {
-      "file": "harness/harness-broker/src/invocation-manager.ts",
+      "file": "harness/harness-broker/src/invocation-state.ts",
       "rule": "lint/suspicious/noFallthroughSwitchClause",
       "hash": "db78e5431cbc7d29e0d14fac4cc1472b959ad3e110c18e5819e2287de8b8cc5e",
       "count": 1
