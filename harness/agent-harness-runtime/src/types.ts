@@ -22,6 +22,9 @@ export interface LoadAgentOptions {
   runId?: string | undefined
   hostSessionId?: string | undefined
   generation?: number | undefined
+  runtimeId?: string | undefined
+  invocationId?: string | undefined
+  initialInputId?: string | undefined
   model?: string | undefined
   provider?: 'openai' | 'openai-codex' | 'anthropic' | 'anthropic-max' | undefined
   reasoningEffort?: string | undefined

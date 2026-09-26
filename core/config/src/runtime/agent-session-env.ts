@@ -26,6 +26,9 @@ export const PHASE1_AGENT_SESSION_COMPAT_ENV_KEYS = new Set([
   'HRC_RUN_ID',
   'HRC_HOST_SESSION_ID',
   'HRC_GENERATION',
+  'HRC_RUNTIME_ID',
+  'HRC_INVOCATION_ID',
+  'HRC_INITIAL_INPUT_ID',
 ])
 
 export const RESERVED_AGENT_SESSION_ENV_KEYS = new Set([
@@ -112,6 +115,15 @@ export function buildAgentSessionEnv(
     const generation = String(placement.correlation.generation)
     env['AGENT_GENERATION'] = generation
     env['HRC_GENERATION'] = generation
+  }
+  if (placement.correlation?.runtimeId !== undefined) {
+    env['HRC_RUNTIME_ID'] = placement.correlation.runtimeId
+  }
+  if (placement.correlation?.invocationId !== undefined) {
+    env['HRC_INVOCATION_ID'] = placement.correlation.invocationId
+  }
+  if (placement.correlation?.initialInputId !== undefined) {
+    env['HRC_INITIAL_INPUT_ID'] = placement.correlation.initialInputId
   }
   if (placement.projectRoot !== undefined) {
     env['AGENT_PROJECT_ROOT'] = placement.projectRoot

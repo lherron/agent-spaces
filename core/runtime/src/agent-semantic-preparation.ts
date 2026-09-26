@@ -35,6 +35,9 @@ export interface LoadAgentSemanticOptions {
   runId?: string | undefined
   hostSessionId?: string | undefined
   generation?: number | undefined
+  runtimeId?: string | undefined
+  invocationId?: string | undefined
+  initialInputId?: string | undefined
   model?: string | undefined
   provider?: 'openai' | 'openai-codex' | 'anthropic' | 'anthropic-max' | undefined
   reasoningEffort?: string | undefined
@@ -183,7 +186,10 @@ function createPlacement(
     ...(options.scopeRef !== undefined ||
     options.runId !== undefined ||
     options.hostSessionId !== undefined ||
-    options.generation !== undefined
+    options.generation !== undefined ||
+    options.runtimeId !== undefined ||
+    options.invocationId !== undefined ||
+    options.initialInputId !== undefined
       ? {
           correlation: {
             ...(options.scopeRef !== undefined
@@ -194,6 +200,11 @@ function createPlacement(
               ? { hostSessionId: options.hostSessionId }
               : {}),
             ...(options.generation !== undefined ? { generation: options.generation } : {}),
+            ...(options.runtimeId !== undefined ? { runtimeId: options.runtimeId } : {}),
+            ...(options.invocationId !== undefined ? { invocationId: options.invocationId } : {}),
+            ...(options.initialInputId !== undefined
+              ? { initialInputId: options.initialInputId }
+              : {}),
           },
         }
       : {}),

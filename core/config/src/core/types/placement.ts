@@ -30,6 +30,9 @@ export interface HostCorrelation {
   runId?: string | undefined
   generation?: number | undefined
   sessionRef?: { scopeRef: string; laneRef: string } | undefined
+  runtimeId?: string | undefined
+  invocationId?: string | undefined
+  initialInputId?: string | undefined
 }
 
 /** Primary input for placement-driven resolution */

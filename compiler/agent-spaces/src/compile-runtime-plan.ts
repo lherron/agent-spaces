@@ -486,6 +486,8 @@ function brokerCorrelation(req: RuntimeCompileRequest): Record<string, string> {
     operationId: req.correlation.operationId,
     runtimeId: req.correlation.runtimeId,
     runId: req.correlation.runId,
+    invocationId: req.correlation.invocationId,
+    inputId: req.correlation.inputId,
     traceId: req.correlation.traceId,
     scopeRef: req.correlation.scopeRef,
     laneRef: req.correlation.laneRef,

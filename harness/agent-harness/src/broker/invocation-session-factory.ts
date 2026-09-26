@@ -55,6 +55,7 @@ export async function createResolvedAgentSession(
     throw new Error('agent-harness requires spec.agent semantic inputs')
   }
 
+  const launch = launchIdentity(input.spec)
   const agent = await dependencies.loadAgent({
     agentId: semantic.agentId,
     ...(semantic.projectId !== undefined ? { projectId: semantic.projectId } : {}),
@@ -68,6 +69,7 @@ export async function createResolvedAgentSession(
     ...(semantic.runId !== undefined ? { runId: semantic.runId } : {}),
     ...(semantic.hostSessionId !== undefined ? { hostSessionId: semantic.hostSessionId } : {}),
     ...(semantic.generation !== undefined ? { generation: semantic.generation } : {}),
+    ...launch,
     model: input.spec.sdk?.modelId,
     provider: loadAgentProvider(input.spec.sdk?.provider ?? input.spec.harness.provider),
     reasoningEffort: input.spec.sdk?.thinkingLevel,
@@ -114,6 +116,22 @@ export function runtimeBackedPiSdkSession(runtime: AgentSessionRuntime): PiSdkSe
     },
   })
   return session
+}
+
+/**
+ * Launch identity the broker already holds for this invocation. A missing
+ * source leaves its key absent; nothing here synthesizes an id.
+ */
+function launchIdentity(
+  spec: PiSdkSessionFactoryInput['spec']
+): Pick<LoadAgentOptions, 'runtimeId' | 'invocationId' | 'initialInputId'> {
+  const runtimeId = spec.correlation?.['runtimeId']
+  const initialInputId = spec.correlation?.['inputId']
+  return {
+    ...(runtimeId !== undefined ? { runtimeId } : {}),
+    ...(spec.invocationId !== undefined ? { invocationId: spec.invocationId } : {}),
+    ...(initialInputId !== undefined ? { initialInputId } : {}),
+  }
 }
 
 function loadAgentProvider(provider: string | undefined): LoadAgentOptions['provider'] {

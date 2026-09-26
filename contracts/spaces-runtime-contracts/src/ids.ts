@@ -49,6 +49,7 @@ export type RuntimeCorrelation = {
   runtimeId?: RuntimeId | undefined
   runId?: RunId | undefined
   invocationId?: InvocationId | undefined
+  inputId?: InputId | undefined
   traceId?: TraceId | undefined
   appId?: string | undefined
   appSessionKey?: string | undefined

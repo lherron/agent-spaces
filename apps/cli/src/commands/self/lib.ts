@@ -285,6 +285,9 @@ const COMPATIBILITY_ENV_KEYS = [
   'HRC_RUN_ID',
   'HRC_HOST_SESSION_ID',
   'HRC_GENERATION',
+  'HRC_RUNTIME_ID',
+  'HRC_INVOCATION_ID',
+  'HRC_INITIAL_INPUT_ID',
 ] as const
 
 function absentInspectionValue(): InspectionValue {
