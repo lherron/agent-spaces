@@ -6,7 +6,7 @@
  * normal `available: false` result, never an exception.
  */
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
 
@@ -32,6 +32,25 @@ export interface MuseDiscoveryOptions {
 }
 
 const DISCOVERY_COMMAND_TIMEOUT_MS = 3000
+
+/**
+ * Successful probes keyed by candidate path. The fingerprint changes when the
+ * binary is replaced, so the long-lived ASPD compiler avoids two process
+ * launches per compile without retaining stale harness capability data.
+ * Failed probes deliberately stay uncached: a transiently busy Muse binary
+ * must be retried by the next compile.
+ */
+const detectionCache = new Map<string, { fingerprint: string; detection: MuseDetection }>()
+
+function binaryFingerprint(candidate: string): string | undefined {
+  try {
+    const target = realpathSync(candidate)
+    const info = statSync(target)
+    return `${target}:${info.mtimeMs}:${info.size}`
+  } catch {
+    return undefined
+  }
+}
 
 function readEnv(options: MuseDiscoveryOptions): NodeJS.ProcessEnv {
   return options.env ?? process.env
@@ -209,11 +228,24 @@ async function probeMuseCandidate(
 export async function detectMuse(options: MuseDiscoveryOptions = {}): Promise<MuseDetection> {
   const exists = options.exists ?? existsSync
   const run = options.run ?? runMuseCommand
+  // Injected filesystem or process seams make a caller-specific detector, so
+  // they must not share state with the production process cache.
+  const cacheable = options.exists === undefined && options.run === undefined
   const errors: string[] = []
   for (const candidate of museCommandCandidates(options)) {
     if (!exists(candidate)) continue
+    const fingerprint = cacheable ? binaryFingerprint(candidate) : undefined
+    const cached = fingerprint === undefined ? undefined : detectionCache.get(candidate)
+    if (cached !== undefined && cached.fingerprint === fingerprint) {
+      return cached.detection
+    }
     const probe = await probeMuseCandidate(candidate, run)
-    if ('detection' in probe) return probe.detection
+    if ('detection' in probe) {
+      if (fingerprint !== undefined) {
+        detectionCache.set(candidate, { fingerprint, detection: probe.detection })
+      }
+      return probe.detection
+    }
     errors.push(`${candidate}: ${probe.error}`)
   }
   return {
