@@ -21,6 +21,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { RuntimePlacement } from 'spaces-config'
+import { validateAspcCommand } from '../../../../contracts/aspc-protocol/src/schemas.js'
 import { compilerRuntime } from '../../../../integration-tests/tests/compiler-runtime.js'
 import { createAgentSpacesClient } from '../index.js'
 import type { BuildProcessInvocationSpecRequest } from '../types.js'
@@ -305,6 +306,49 @@ describe('direct process preparation (T-08577)', () => {
       failure: { kind: 'incompatible', code: 'declaration_changed' },
     })
     expect(Object.hasOwn(response, 'spec')).toBe(false)
+    expectOnlyAvailabilityProbes(f)
+  })
+  test('T-09271: CLI-route format 2 exports launch identity from the wire correlation and never a run id', async () => {
+    const f = fixture()
+    const correlation = {
+      sessionRef: {
+        scopeRef: 'agent:cody:project:agent-spaces:task:T-08577:role:tester',
+        laneRef: 'lane:repair',
+      },
+      hostSessionId: 'hsid-t09271',
+      generation: 1,
+      runtimeId: 'rt-t09271',
+      invocationId: 'inv-t09271',
+      initialInputId: 'input-t09271',
+    }
+    const params = preparationRequest(f, correlation)
+    params['dispatchEnv'] = {
+      CALLER_FLAG: 't08577',
+      HRC_RUNTIME_ID: 'spoof',
+      HRC_INVOCATION_ID: 'spoof',
+      HRC_INITIAL_INPUT_ID: 'spoof',
+      HRC_RUN_ID: 'spoof',
+    }
+    expect(() =>
+      validateAspcCommand({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'aspc.prepareProcessInvocation',
+        params,
+      })
+    ).not.toThrow()
+
+    const client = createAgentSpacesClient({ aspHome: f.aspHome, runtime: compilerRuntime })
+    const response = await requirePreparation(client).call(client, params)
+
+    expect(response['ok']).toBe(true)
+    const env = ((response['spec'] as UnknownRecord)['env'] ?? {}) as UnknownRecord
+    expect(env['HRC_RUNTIME_ID']).toBe('rt-t09271')
+    expect(env['HRC_INVOCATION_ID']).toBe('inv-t09271')
+    expect(env['HRC_INITIAL_INPUT_ID']).toBe('input-t09271')
+    expect(env['HRC_RUN_ID']).toBeUndefined()
+    expect(env['AGENT_RUN_ID']).toBeUndefined()
+    expect(env['CALLER_FLAG']).toBe('t08577')
     expectOnlyAvailabilityProbes(f)
   })
 })

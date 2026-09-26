@@ -302,7 +302,9 @@ function validatePreparationCorrelation(
       path(base, 'preparationCorrelation.hostSessionId'),
       issues
     )
-    optionalString(correlation['runId'], path(base, 'preparationCorrelation.runId'), issues)
+    for (const key of ['runId', 'runtimeId', 'invocationId', 'initialInputId'] as const) {
+      optionalString(correlation[key], path(base, `preparationCorrelation.${key}`), issues)
+    }
     optionalNumber(
       correlation['generation'],
       path(base, 'preparationCorrelation.generation'),
@@ -333,7 +335,15 @@ function validatePreparationCorrelation(
     }
     rejectUnknownParams(
       correlation,
-      new Set(['hostSessionId', 'runId', 'generation', 'sessionRef']),
+      new Set([
+        'hostSessionId',
+        'runId',
+        'runtimeId',
+        'invocationId',
+        'initialInputId',
+        'generation',
+        'sessionRef',
+      ]),
       path(base, 'preparationCorrelation'),
       issues
     )

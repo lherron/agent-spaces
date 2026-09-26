@@ -142,6 +142,9 @@ export type AspcPrepareProcessInvocationRequest = {
   preparationCorrelation: {
     hostSessionId?: string
     runId?: string
+    runtimeId?: string
+    invocationId?: string
+    initialInputId?: string
     generation?: number
     sessionRef?: { scopeRef: string; laneRef: string }
   }
