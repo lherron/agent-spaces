@@ -132,17 +132,12 @@ describe('Resident participant adapter (T-08666)', () => {
       productId: 'nonvisual-resident-product',
       productProfile: 'lib/nonvisual-resident-product/profile/agent-profile.toml',
     })
-    // ... same maintained driver/control contract and neutral continuity key.
+    // ... same maintained driver/control contract without native continuation.
     expect(prepared.descriptor).toMatchObject({
       brokerDriver: ARRIS_RESIDENT_DRIVER_KIND,
-      continuation: {
-        broker: {
-          provider: 'arris',
-          kind: 'host-incarnation',
-          key: 'host-incarnation:0fff54f7-f6f7-473b-8776-1ba07803f87d',
-        },
-      },
+      expectedCapabilities: { continuation: 'forbidden' },
     })
+    expect(prepared.descriptor.continuation).toBeUndefined()
     expect(prepared.descriptor.harnessInvocation.startRequest.spec.driver).toMatchObject({
       kind: ARRIS_RESIDENT_DRIVER_KIND,
       descriptorPath,
@@ -268,10 +263,6 @@ describe('Resident participant adapter (T-08666)', () => {
       attachEpoch: 3,
     })
     if (prepared.status !== 'prepared') throw new Error('reconnect was not prepared')
-    expect(prepared.descriptor.continuation.broker).toMatchObject({
-      provider: 'arris',
-      kind: 'host-incarnation',
-      key: 'host-incarnation:0fff54f7-f6f7-473b-8776-1ba07803f87d',
-    })
+    expect(prepared.descriptor.continuation).toBeUndefined()
   })
 })

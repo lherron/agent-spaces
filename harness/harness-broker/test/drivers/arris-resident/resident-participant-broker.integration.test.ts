@@ -320,8 +320,8 @@ describe('Resident participant broker path (T-08666)', () => {
       expect(fake.operations.map((entry) => entry.op)).not.toContain('stop')
       expect(fake.operations.map((entry) => entry.op)).not.toContain('kill')
 
-      // Controller reconnect to the same incarnation keeps runtime continuity:
-      // the untouched host serves a fresh ensure with the same incarnation key.
+      // Controller reconnect to the same incarnation can reattach its bridge;
+      // a new host never claims native continuation from this one.
       const reconnected = await broker.ensureInvocation({
         startAttemptId: `attempt:t08666-${productName}-2`,
         invocationId,
@@ -330,11 +330,7 @@ describe('Resident participant broker path (T-08666)', () => {
       })
       expect(reconnected.receipt).toMatchObject({ state: 'started' })
       const resnapshot = await broker.snapshot({ invocationId })
-      expect(resnapshot.continuation).toMatchObject({
-        provider: 'arris',
-        kind: 'host-incarnation',
-        key: fake.hostId,
-      })
+      expect(resnapshot.continuation).toBeUndefined()
       const readmission = await adapter.admit({
         classId: 'arris-resident',
         join: 'participant-served',

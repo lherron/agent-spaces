@@ -104,7 +104,7 @@ const ARRIS_CAPABILITIES: InvocationCapabilities = {
     queue: true,
   },
   turns: { concurrency: 'single', interrupt: 'unsupported' },
-  continuation: { supported: true, provider: 'arris', keyKind: 'host-incarnation' },
+  continuation: { supported: false },
   events: {
     assistantDeltas: true,
     toolCalls: true,
@@ -789,11 +789,6 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
         },
         { driver: { kind: ARRIS_RESIDENT_DRIVER_KIND, rawType: 'host-descriptor' } }
       )
-      driverCtx.emit('continuation.updated', {
-        provider: 'arris',
-        kind: 'host-incarnation',
-        key: active.host_incarnation.host_incarnation_id,
-      })
       announcingHostState = true
       announceHostState(active)
       readJournal()
@@ -867,6 +862,12 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
 function parseSpec(startSpec: HarnessInvocationSpec): ArrisResidentDriverSpec {
   if (startSpec.driver.kind !== ARRIS_RESIDENT_DRIVER_KIND)
     throw new BrokerError(BrokerErrorCode.DriverUnavailable, 'Invalid Arris resident driver spec')
+  if (startSpec.continuation !== undefined) {
+    throw new BrokerError(
+      BrokerErrorCode.DispatchValidationFailed,
+      'arris-resident cannot resume a previous host incarnation'
+    )
+  }
   const value = startSpec.driver as Record<string, unknown>
   if (typeof value['descriptorPath'] !== 'string' || !isAbsolute(value['descriptorPath'])) {
     throw new BrokerError(

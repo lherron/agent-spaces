@@ -311,7 +311,7 @@ function buildDescriptor(
         queue: 'required',
       },
       turns: { concurrency: 'single', interrupt: 'forbidden' },
-      continuation: 'required',
+      continuation: 'forbidden',
       permissions: 'none',
       events: {
         assistantDeltas: 'required',
@@ -343,17 +343,6 @@ function buildDescriptor(
       startRequest,
       specHash: neutralSpecHash(startRequest.spec),
       startRequestHash: neutralStartRequestHash(startRequest),
-    },
-    continuation: {
-      broker: {
-        // Neutral control-protocol provider: the reused ResidentServer
-        // descriptor/control/event contract, not product branding. Preserved
-        // for every product so reconnect continuity keys stay comparable.
-        provider: 'arris',
-        continuationId: preparation.hostIncarnationId,
-        key: preparation.hostIncarnationId,
-        kind: 'host-incarnation',
-      },
     },
     policy: {
       permissionPolicy: { mode: 'deny', audit: true },

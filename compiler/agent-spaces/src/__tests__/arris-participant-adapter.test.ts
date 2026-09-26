@@ -99,6 +99,9 @@ describe('Arris participant adapter', () => {
       startRequestHash: prepared.descriptor.harnessInvocation.startRequestHash,
       selectedProfileHash: prepared.descriptor.descriptorHash,
     })
+    expect(prepared.descriptor.expectedCapabilities.continuation).toBe('forbidden')
+    expect(prepared.descriptor.harnessInvocation.startRequest.spec.continuation).toBeUndefined()
+    expect(prepared.descriptor.continuation).toBeUndefined()
   })
 
   // The wire gap that hid T-08518: T-08503's real-host smoke drove `createBroker`

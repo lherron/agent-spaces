@@ -214,7 +214,9 @@ describe('Arris resident driver control seam', () => {
       readDescriptor: async () => descriptor(),
       createControlClient: () => control,
     })
+    expect(driver.capabilities().continuation).toEqual({ supported: false })
     await driver.start(spec(), context(events))
+    expect(events.filter((event) => event.type === 'continuation.updated')).toHaveLength(0)
 
     await expect(
       driver.applyInputNow({
