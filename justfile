@@ -1,5 +1,8 @@
 # Agent Spaces v2 justfile
 
+# Each recipe run posts a run.settled fact through the wrkp `just` shim.
+# wrkp: run.settled
+
 # Default recipe
 default:
     @just info
