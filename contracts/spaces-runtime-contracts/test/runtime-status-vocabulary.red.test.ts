@@ -142,14 +142,17 @@ describe('T-05007 runtime status vocabulary contract', () => {
       const hrcRoot = HRC_REPO_ROOT as string
       const hrcSource = readHrcSource(hrcRoot)
 
+      // HRC now emits awaiting_input through the runtime status helper.
+      expect(hrcSource).toContain("setRuntimeStatus(db, ctx.runtimeId, 'awaiting_input'")
+
       for (const status of EXPECTED_HRC_RUNTIME_STATE_JSON_STATUSES) {
-        expect(hrcSource).toContain(`status: '${status}'`)
+        if (status !== 'awaiting_input') expect(hrcSource).toContain(`status: '${status}'`)
         expect(RUNTIME_STATE_STATUS_VALUES).toContain(status)
         expect(RUNTIME_STATUS_VALUES).toContain(status)
       }
 
       for (const status of EXPECTED_HRC_RUNTIME_ROW_STATUSES) {
-        expect(hrcSource).toContain(`status: '${status}'`)
+        if (status !== 'awaiting_input') expect(hrcSource).toContain(`status: '${status}'`)
         expect(RUNTIME_STATUS_VALUES).toContain(status)
       }
 
