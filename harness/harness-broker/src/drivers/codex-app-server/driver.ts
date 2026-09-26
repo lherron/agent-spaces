@@ -930,8 +930,9 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
     // running (e.g. "Reconnecting... 2/5"); it sends a final willRetry:false
     // error or turn/completed once it gives up. Failing here ended the turn
     // and then the invocation mid-retry, and the terminal latch swallowed
-    // the real final error (T-09238).
-    if (error.retryable === true) {
+    // the real final error (T-09238). Startup stays terminal because no
+    // thread has become usable yet (T-08557).
+    if (error.retryable === true && !starting) {
       return { disposition: 'normalized', detail: 'error-will-retry' }
     }
     if (

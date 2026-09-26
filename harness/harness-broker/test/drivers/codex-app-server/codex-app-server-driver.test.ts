@@ -305,10 +305,14 @@ async function expectGolden(scenario: string, events: InvocationEventEnvelope[])
   expect(actual).toBe(expected)
 }
 
-async function runScenario(
+async function startScenario(
   scenario: string,
   overrides: Partial<HarnessInvocationSpec> = {}
-): Promise<InvocationEventEnvelope[]> {
+): Promise<{
+  broker: ReturnType<typeof createBroker>
+  events: InvocationEventEnvelope[]
+  invocationId: string
+}> {
   const events: InvocationEventEnvelope[] = []
   const broker = createBroker({
     drivers: [createCodexAppServerDriver()],
@@ -323,6 +327,14 @@ async function runScenario(
     input: userInput,
     policy: { whenBusy: 'reject' },
   })
+  return { broker, events, invocationId: spec.invocationId ?? '' }
+}
+
+async function runScenario(
+  scenario: string,
+  overrides: Partial<HarnessInvocationSpec> = {}
+): Promise<InvocationEventEnvelope[]> {
+  const { events } = await startScenario(scenario, overrides)
   await waitFor(
     () =>
       events.some(
@@ -704,6 +716,67 @@ describe('Codex app-server driver red scenarios', () => {
       code: BrokerErrorCode.HarnessError,
     })
     await expectGolden('startup-error', events)
+  })
+
+  test('keeps a retryable startup error terminal', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createCodexAppServerDriver()],
+      onEvent: (event) => events.push(event),
+      now,
+    })
+    await expect(broker.start({ spec: scenarioSpec('startup-retryable-error') })).rejects.toMatchObject({
+      code: BrokerErrorCode.HarnessError,
+    })
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'invocation.failed',
+        payload: expect.objectContaining({ retryable: true }),
+      })
+    )
+    expect(events.some((event) => event.type === 'invocation.ready')).toBe(false)
+  })
+
+  describe('T-08557 retryable reconnect notifications', () => {
+    test('keeps one retryable error diagnostic until Codex completes the turn', async () => {
+      const events = await runScenario('turn-error-rate-limit')
+      expect(events.filter((event) => event.type === 'diagnostic')).toHaveLength(1)
+      // Codex reports this completion with status=failed, which intentionally
+      // normalizes to turn.failed. Its finalOutput proves that terminal came
+      // from turn/completed rather than the reconnect diagnostic.
+      expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(0)
+      expect(events.filter((event) => event.type === 'turn.failed')).toEqual([
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            status: 'failed',
+            finalOutput: 'Too many requests',
+          }),
+        }),
+      ])
+      expect(events.filter((event) => event.type === 'invocation.failed')).toHaveLength(0)
+    })
+
+    test('keeps the recorded reconnect sequence live through completion', async () => {
+      const { broker, events, invocationId } = await startScenario('turn-error-reconnect-completes')
+      await waitFor(
+        () => events.filter((event) => event.type === 'diagnostic').length === 3,
+        `events:\n${events.map((event) => JSON.stringify(event)).join('\n')}`
+      )
+
+      expect((await broker.seatProbe({ invocationId })).seat).toMatchObject({
+        state: 'turn-active',
+        turnId: 'turn_1',
+      })
+
+      await waitFor(
+        () => events.some((event) => event.type === 'turn.completed'),
+        `events:\n${events.map((event) => JSON.stringify(event)).join('\n')}`
+      )
+      expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(1)
+      expect(events.filter((event) => event.type === 'turn.failed')).toHaveLength(0)
+      expect(events.filter((event) => event.type === 'invocation.failed')).toHaveLength(0)
+      expect((await broker.seatProbe({ invocationId })).seat).toEqual({ state: 'idle' })
+    })
   })
 
   test.each([

@@ -24,6 +24,7 @@ import type {
   InvocationEventFor,
   InvocationEventPayloadMap,
   InvocationEventType,
+  InvocationFailedPayload,
   InvocationId,
   InvocationInput,
   InvocationInputRequest,
@@ -1694,6 +1695,10 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         return
       }
       case 'invocation.failed':
+        // Retryable invocation failures are evidence of a provider attempt,
+        // matching HRC's broker-failure contract. They do not close the active
+        // turn, evict input, or turn an otherwise live seat terminal.
+        if (event.payload.retryable === true) return
         inv.state = 'failed'
         inv.terminalEmitted = true
         inv.terminalReason = 'failed'
@@ -1993,7 +1998,10 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         'Tool call did not report a terminal result before the turn ended',
         (call) => terminalTurnId === undefined || call.turnId === terminalTurnId
       )
-    } else if (INVOCATION_TEARDOWN_TYPES.has(type)) {
+    } else if (
+      INVOCATION_TEARDOWN_TYPES.has(type) &&
+      !(type === 'invocation.failed' && (payload as InvocationFailedPayload).retryable === true)
+    ) {
       synthesizeOpenToolFailures(
         inv,
         TOOL_CALL_TEARDOWN_CODE,
@@ -2168,6 +2176,10 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     type: K,
     payload: InvocationEventPayloadMap[K]
   ): void {
+    if (type === 'invocation.failed' && (payload as InvocationFailedPayload).retryable === true) {
+      emit(inv, type, payload)
+      return
+    }
     if (inv.terminalEmitted) {
       return
     }
