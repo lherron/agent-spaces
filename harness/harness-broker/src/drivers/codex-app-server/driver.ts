@@ -924,9 +924,17 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
 
   function normalizeNotification(notification: JsonRpcNotification): NormalizeOutcome {
     if (notification.method === 'error') {
-      ensureUnknownAttribution(currentTurnId)
       const error = parseCodexError(notification.params)
       emitDiagnostic('error', error.message, error.data, activeTurnExtra())
+      // Codex emits these while it reconnects an already-running request. They
+      // are diagnostic evidence, not a turn or invocation terminal; the same
+      // turn subsequently reports turn/completed after recovery. Startup stays
+      // terminal because no thread has become usable yet.
+      if (error.retryable === true && !starting) {
+        return { disposition: 'normalized', detail: 'error' }
+      }
+
+      ensureUnknownAttribution(currentTurnId)
       if (
         !failActiveTurn({
           message: error.message,
@@ -947,9 +955,8 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
           })
         )
       }
-      // The error path always mints (a diagnostic, plus a turn or invocation
-      // terminal). It is a §6.1 disposition, not a special case outside the
-      // classification.
+      // The error path always mints a diagnostic. Non-retryable and startup
+      // errors also mint their terminal, so this remains a §6.1 disposition.
       return { disposition: 'normalized', detail: 'error' }
     }
 

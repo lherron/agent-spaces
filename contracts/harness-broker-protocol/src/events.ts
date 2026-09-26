@@ -572,6 +572,10 @@ export interface InvocationFailedPayload {
   message: string
   code?: string | undefined
   data?: unknown
+  /**
+   * `true` is retryable attempt evidence: emit it without terminalizing the
+   * invocation or its active turn. False or absent is an invocation terminal.
+   */
   retryable?: boolean | undefined
   reason?:
     | 'idle-retire-timeout'
