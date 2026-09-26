@@ -169,6 +169,7 @@ describe('asp codex harness', () => {
     const config = await fs.readFile(configPath, 'utf-8')
     expect(config).toContain('sandbox_mode = "workspace-write"')
     expect(config).toContain('approval_policy = "on-request"')
+    expect(config).toContain('check_for_update_on_startup = false')
     expect(config).toContain('project_doc_fallback_filenames')
     expect(config).toContain('AGENTS.md')
     expect(config).toContain('AGENT.md')

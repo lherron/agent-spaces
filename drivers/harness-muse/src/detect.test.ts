@@ -4,8 +4,8 @@
  */
 import { afterEach, describe, expect, test } from 'bun:test'
 import { chmod, mkdir, readFile, rm, utimes, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { MUSE_PATH_ENV, detectMuse, museCommandCandidates } from './detect.js'
 
 const originalPath = process.env.PATH
@@ -104,11 +104,7 @@ describe('detectMuse', () => {
     }
   }
 
-  async function writeCountingShim(
-    dir: string,
-    version: string,
-    exitCode = 0
-  ): Promise<string> {
+  async function writeCountingShim(dir: string, version: string, exitCode = 0): Promise<string> {
     await mkdir(dir, { recursive: true })
     const shim = join(dir, 'muse')
     await writeFile(

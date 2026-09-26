@@ -725,7 +725,9 @@ describe('Codex app-server driver red scenarios', () => {
       onEvent: (event) => events.push(event),
       now,
     })
-    await expect(broker.start({ spec: scenarioSpec('startup-retryable-error') })).rejects.toMatchObject({
+    await expect(
+      broker.start({ spec: scenarioSpec('startup-retryable-error') })
+    ).rejects.toMatchObject({
       code: BrokerErrorCode.HarnessError,
     })
     expect(events).toContainEqual(

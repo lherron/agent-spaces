@@ -15,6 +15,8 @@ describe('T-08559 ASP downstream handoff', () => {
       '        ( cd "$hrc_runtime" && just pull-deps && bun run build ) 2>&1 | sed \'s/^/[hrc-sync] /\'',
       '      ( cd "$hrc_runtime" && just pull-deps && bun run build ) 2>&1 | sed \'s/^/[hrc-sync] /\'',
     ])
-    expect(content).toContain('HRC release remains local until its owner runs `just install` and `just publish`.')
+    expect(content).toContain(
+      'HRC release remains local until its owner runs `just install` and `just publish`.'
+    )
   })
 })

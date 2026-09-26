@@ -69,6 +69,8 @@ export function buildCodexConfig(
     sandbox_mode: DEFAULT_SANDBOX_MODE,
     approval_policy: DEFAULT_APPROVAL_POLICY,
     project_doc_fallback_filenames: ['AGENTS.md', 'AGENT.md'],
+    // Seats must never self-update the shared global codex install.
+    check_for_update_on_startup: false,
     tui: {
       status_line: DEFAULT_TUI_STATUS_LINE,
     },
