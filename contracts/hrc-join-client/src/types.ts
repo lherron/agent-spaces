@@ -51,6 +51,8 @@ export type JoinRegisterRefused = {
   httpStatus: number
   reason: string
   detail: string
+  /** HRC's structured refusal reason from the error detail, when it sent one. */
+  refusalReason?: string | undefined
   observed?: { homeNodeId?: string | undefined } | undefined
 }
 

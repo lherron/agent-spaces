@@ -21,6 +21,7 @@ import {
   isIncarnationBoundElsewhere,
   isRedirect,
   isScopeOccupied,
+  isScopeRetired,
   registerParticipant,
 } from 'spaces-hrc-join-client'
 import type { ParticipantAdapter } from 'spaces-runtime-contracts'
@@ -222,7 +223,15 @@ export async function chooseScopeAndJoin(input: ScopeJoinInput): Promise<ScopeJo
       if (register.outcome === 'pending') {
         return { exit: 'pending-hold', scopeRef, reason: register.reason, detail: register.detail }
       }
-      if (isScopeOccupied(register) || isHostBindingConflict(register)) {
+      // A slot this node permanently retired can never be ours again, so it
+      // advances like an occupied one. Stopping there left the thread on its
+      // provisional codex-<uuid> address, and mail to that address cold-birthed
+      // a CLI seat (2026-09-26, arris:primary-quasar).
+      if (
+        isScopeOccupied(register) ||
+        isHostBindingConflict(register) ||
+        isScopeRetired(register)
+      ) {
         if (input.scopeRef !== undefined) {
           return {
             exit: 'register-refused',

@@ -31,13 +31,24 @@ async function postJoin(
   return { httpStatus: response.status, body: parsed }
 }
 
-function toHrcError(body: unknown): { reason: string; detail: string } | undefined {
+function toHrcError(
+  body: unknown
+): { reason: string; detail: string; refusalReason?: string } | undefined {
   if (!isRecord(body) || !isRecord(body['error'])) return undefined
   const code =
     typeof body['error']['code'] === 'string' ? (body['error']['code'] as string) : 'unknown'
   const message =
     typeof body['error']['message'] === 'string' ? (body['error']['message'] as string) : ''
-  return { reason: `hrc_${code}`, detail: message }
+  // The summon gate's refusal reason (`scope-retired`, `pin-mismatch`, ...)
+  // rides in the error detail; `hrc_stale_context` alone cannot tell them apart.
+  const refusalReason = isRecord(body['error']['detail'])
+    ? body['error']['detail']['reason']
+    : undefined
+  return {
+    reason: `hrc_${code}`,
+    detail: message,
+    ...(typeof refusalReason === 'string' ? { refusalReason } : {}),
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -177,6 +188,15 @@ export function isScopeOccupied(result: JoinRegisterResult): boolean {
 
 export function isHostBindingConflict(result: JoinRegisterResult): boolean {
   return result.outcome !== 'registered' && result.reason === 'host_binding_conflict'
+}
+
+/** This node permanently retired the requested address; a fresh slot is needed. */
+export function isScopeRetired(result: JoinRegisterResult): boolean {
+  return (
+    result.outcome !== 'registered' &&
+    result.reason === 'hrc_stale_context' &&
+    result.refusalReason === 'scope-retired'
+  )
 }
 
 export function isIncarnationBoundElsewhere(result: JoinRegisterResult): boolean {

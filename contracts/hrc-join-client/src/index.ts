@@ -21,6 +21,7 @@ export {
   isIncarnationBoundElsewhere,
   isRedirect,
   isScopeOccupied,
+  isScopeRetired,
   joinAsParticipant,
   registerParticipant,
 } from './client'

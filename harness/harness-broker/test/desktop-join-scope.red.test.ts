@@ -307,6 +307,162 @@ describe('desktop-join scope loop', () => {
   })
 })
 
+describe('desktop-join retired slots', () => {
+  // The exact envelope live HRC returns for a scope this node permanently
+  // retired (captured 2026-09-26 against max3 for arris:primary-quasar).
+  const retiredRefusal = (scopeRef: string) => ({
+    status: 409,
+    body: {
+      error: {
+        code: 'stale_context',
+        message: `${scopeRef} is permanently retired on max3; establish it fresh on another node after the shared binding is absent.`,
+        detail: { scopeRef, path: 'resolve-session', reason: 'scope-retired', retryable: false },
+      },
+    },
+  })
+  const registered = (scopeRef: string) => ({
+    status: 200,
+    body: {
+      status: 'registered',
+      scopeRef,
+      hostSessionId: 'hs_r',
+      generation: 1,
+      created: true,
+      resumed: false,
+      observation: { state: 'attachment_pending', detail: 'ok' },
+      identity: {
+        registrationId: 'reg_r',
+        laneRef: 'main',
+        runtimeId: 'rt_r',
+        attemptId: 'att_r',
+        invocationId: 'inv_r',
+        attachEpoch: 1,
+        requestId: 'req_r',
+        operationId: 'op_r',
+      },
+    },
+  })
+  const attached = {
+    status: 200,
+    body: {
+      status: 'attached',
+      registrationId: 'reg_r',
+      attemptId: 'att_r',
+      attachEpoch: 1,
+      prepared: true,
+      observation: { state: 'attached', detail: 'ok' },
+    },
+  }
+  const joinInput = (sock: string) => ({
+    hrcSocketPath: sock,
+    projectId: 'demo',
+    hostIncarnationId: 'host-incarnation:test',
+    socketPath: '/tmp/desktop-broker.sock',
+    classId: 'codex-desktop',
+    preparation: { schema: 'x' },
+    participantKey: 'rk',
+    workspaceCwd: '/tmp/ws',
+    adapter: {
+      adapterId: 'test/1',
+      admit: () => ({ status: 'rejected' as const, reason: 'unused' }),
+      prepare: () => ({ status: 'prepared' as const, descriptor: { kind: 'p' } as never }),
+    },
+  })
+  const NOVA = 'agent:stella:project:demo:task:primary-nova'
+  const COMET = 'agent:stella:project:demo:task:primary-comet'
+  const PULSAR = 'agent:stella:project:demo:task:primary-pulsar'
+
+  test('a retired slot advances to the next one instead of ending the join', async () => {
+    // Incident 2026-09-26: the loop stopped on retired primary-quasar, the
+    // thread kept its provisional codex-<uuid> address, and mail to that
+    // address cold-birthed a codex CLI seat.
+    const seen: string[] = []
+    const { sock, stop } = stubHrc((path, body) => {
+      if (path !== '/v1/participants/register') return attached
+      const scopeRef = (body as any).requestedSessionRef as string
+      seen.push(scopeRef)
+      if (scopeRef === NOVA) {
+        return {
+          status: 409,
+          body: { status: 'rejected', reason: 'participant_scope_occupied', detail: 'held' },
+        }
+      }
+      if (scopeRef === COMET) return retiredRefusal(scopeRef)
+      return registered(scopeRef)
+    })
+    try {
+      const outcome = await chooseScopeAndJoin(joinInput(sock))
+      expect(seen).toEqual([NOVA, COMET, PULSAR])
+      expect(outcome.exit).toBe('joined')
+      if (outcome.exit === 'joined') expect(outcome.scopeRef).toBe(PULSAR)
+    } finally {
+      stop()
+    }
+  })
+
+  test('a retired write-ahead candidate falls back to the slot sequence', async () => {
+    const seen: string[] = []
+    const { sock, stop } = stubHrc((path, body) => {
+      if (path !== '/v1/participants/register') return attached
+      const scopeRef = (body as any).requestedSessionRef as string
+      seen.push(scopeRef)
+      if (scopeRef === COMET) return retiredRefusal(scopeRef)
+      return registered(scopeRef)
+    })
+    try {
+      const outcome = await chooseScopeAndJoin({ ...joinInput(sock), resumeFromScope: COMET })
+      expect(seen).toEqual([COMET, NOVA])
+      expect(outcome.exit).toBe('joined')
+    } finally {
+      stop()
+    }
+  })
+
+  test('a pinned respawn address that is retired still refuses', async () => {
+    const seen: string[] = []
+    const { sock, stop } = stubHrc((path, body) => {
+      if (path !== '/v1/participants/register') return attached
+      const scopeRef = (body as any).requestedSessionRef as string
+      seen.push(scopeRef)
+      return retiredRefusal(scopeRef)
+    })
+    try {
+      const outcome = await chooseScopeAndJoin({ ...joinInput(sock), scopeRef: COMET })
+      expect(seen).toEqual([COMET])
+      expect(outcome.exit).toBe('register-refused')
+      if (outcome.exit === 'register-refused') expect(outcome.reason).toBe('hrc_stale_context')
+    } finally {
+      stop()
+    }
+  })
+
+  test('any other stale_context refusal still ends the join', async () => {
+    const seen: string[] = []
+    const { sock, stop } = stubHrc((path, body) => {
+      if (path !== '/v1/participants/register') return attached
+      const scopeRef = (body as any).requestedSessionRef as string
+      seen.push(scopeRef)
+      return {
+        status: 409,
+        body: {
+          error: {
+            code: 'stale_context',
+            message: 'pin mismatch',
+            detail: { scopeRef, reason: 'pin-mismatch', retryable: false },
+          },
+        },
+      }
+    })
+    try {
+      const outcome = await chooseScopeAndJoin(joinInput(sock))
+      expect(seen).toEqual([NOVA])
+      expect(outcome.exit).toBe('register-refused')
+    } finally {
+      stop()
+    }
+  })
+})
+
 describe('desktop-join write-ahead resume', () => {
   test('resumeFromScope is tried before the slot sequence', async () => {
     const seen: string[] = []
