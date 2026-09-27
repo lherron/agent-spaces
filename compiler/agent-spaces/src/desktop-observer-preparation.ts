@@ -13,7 +13,13 @@ import {
 } from 'spaces-runtime-contracts'
 
 const MAX_HEADER_BYTES = 256 * 1024
-const DEFAULT_DESKTOP_BUNDLE = '/Applications/ChatGPT.app/Contents/Resources/codex'
+// ChatGPT.app 154 moved the bundled CLI from Resources/codex into
+// Resources/codex-cli (bin/codex is a sh wrapper that execs the CodexCLI.app
+// binary). Keep the older layout so hosts that have not updated still resolve.
+const DEFAULT_DESKTOP_BUNDLES = [
+  '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex',
+  '/Applications/ChatGPT.app/Contents/Resources/codex',
+]
 
 type DesktopRecoveryBoundary = {
   sourceKind?: string
@@ -167,7 +173,7 @@ export function buildCodexDesktopObserverDescriptor(request: CodexDesktopObserve
   const bundleExecutable = [
     registration.reportedBundleExecutable,
     request.operatorBundleExecutable,
-    DEFAULT_DESKTOP_BUNDLE,
+    ...DEFAULT_DESKTOP_BUNDLES,
   ].find((candidate): candidate is string => typeof candidate === 'string' && existsSync(candidate))
   if (!bundleExecutable) {
     return {
