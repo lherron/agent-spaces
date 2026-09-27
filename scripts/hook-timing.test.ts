@@ -152,7 +152,7 @@ pre-push:
     const lfsLog = join(fixture.work, 'lfs.log')
     await writeFile(
       join(fixture.binDir, 'git-lfs'),
-      '#!/bin/sh\nif [ "$1" = "pre-push" ]; then printf "%s %s %s\\n" "$GIT_CONFIG_COUNT" "$GIT_CONFIG_KEY_0" "$GIT_CONFIG_VALUE_0" > "$HOOK_LFS_LOG"; fi\n'
+      '#!/bin/sh\nif [ "$1" = "pre-push" ]; then env | grep "^GIT_CONFIG_" > "$HOOK_LFS_LOG"; fi\n'
     )
     await chmod(join(fixture.binDir, 'git-lfs'), 0o755)
     await writeFile(
@@ -181,7 +181,11 @@ pre-push:
         stdin,
       }
     )
-    expect(await Bun.file(lfsLog).text()).toBe('1 lfs.sshtransfer never\n')
+    const priorCount = Number(process.env.GIT_CONFIG_COUNT ?? '0')
+    const lfsEnvironment = await Bun.file(lfsLog).text()
+    expect(lfsEnvironment).toContain(`GIT_CONFIG_COUNT=${priorCount + 1}\n`)
+    expect(lfsEnvironment).toContain(`GIT_CONFIG_KEY_${priorCount}=lfs.sshtransfer\n`)
+    expect(lfsEnvironment).toContain(`GIT_CONFIG_VALUE_${priorCount}=never\n`)
   })
 
   test('records failure while returning Lefthook failure unchanged', async () => {
