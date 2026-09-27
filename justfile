@@ -36,6 +36,8 @@ test-integration:
 # Full unit + integration qualification. Required before a release, not on
 # pre-push: the integration suite alone runs ~5 minutes, which is why it sat in
 # no gate at all and rotted to 51 reds unnoticed (T-07685).
+
+# Run full unit and integration release qualification.
 release-test:
     bun run test:release
 
@@ -150,12 +152,16 @@ check:
 
 # Validate every direct-child agent profile through the production v4 parser
 # (T-08701). Defaults to ~/agents; pass one explicit agents root to override.
+
+# Validate direct-child agent profiles with the production parser.
 validate-agent-profiles *args:
     bun scripts/validate-agent-profiles.ts {{args}}
 
 # User-runnable resolver capability-matrix gate (T-08706). Sequencing gate for
 # the producer-owned harness-selection campaign leg; intentionally NOT wired
 # into `verify` or `check`.
+
+# Check the resolver capability matrix for harness selection.
 check-harness-selection-matrix:
     bun scripts/check-harness-selection-matrix.ts
 
@@ -167,12 +173,13 @@ overlay-codex *args:
 architecture-records *args:
     bun scripts/check-architecture-records.ts {{args}}
 
-# Run all verification (build + architecture + check + lint + typecheck + test)
 # `build` runs FIRST so the gate is self-provisioning from a virgin clone: consumer
 # packages typecheck/test against the workspace's built dist/*.d.ts (imports like
 # `spaces-execution` / `agent-scope` resolve from dist, and source-only inference
 # widens some keyof types to `string | symbol`). Without a prior build a fresh clone
 # fails typecheck where a warm host tree passes — room-readiness gate (T-06887).
+
+# Run build, architecture, checks, lint, typecheck, and tests.
 verify: build architecture-records check lint typecheck test
 
 # Bump the pinned pi agent SDK (@earendil-works/pi-coding-agent, plus the companion
@@ -180,6 +187,8 @@ verify: build architecture-records check lint typecheck test
 # read the versions back off disk, and import the SDK to prove the tree actually loads.
 # No argument targets the registry's `latest`; pass a version to pin a specific
 # release. `--check` reports drift without writing; `--no-install` skips install.
+
+# Update the pinned Pi SDK and verify its installed version.
 update-pi *args:
     bun scripts/update-pi.ts {{args}}
 
@@ -188,6 +197,8 @@ update-pi *args:
 # TypeScript resolves from the nearest node_modules — so a corrected manifest plus a
 # "no changes" lockfile can still build against the wrong types (T-07690).
 # Pass --check to report without deleting.
+
+# Prune stale nested dependencies that shadow pinned packages.
 doctor *args:
     bun scripts/workspace-doctor.ts {{args}}
 
@@ -201,6 +212,8 @@ rebuild:
 
 # Build the preparation facade and broker with their Bun runtime dependency
 # closure. This does not install/activate anything or touch downstream repos.
+
+# Build an immutable standalone ASP release artifact.
 build-asp-release output_root="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -212,6 +225,8 @@ build-asp-release output_root="":
 
 # Copy one already-built immutable release into a retained release root. There
 # is deliberately no current symlink: installation is distinct from activation.
+
+# Install an existing ASP release artifact into a retained release root.
 install-asp-release artifact release_root="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -223,12 +238,16 @@ install-asp-release artifact release_root="":
 
 # Verify identity, immutability, content digests, and in-artifact executable
 # resolution for a retained standalone release.
+
+# Inspect a retained ASP release for identity and integrity.
 inspect-asp-release release:
     bun scripts/asp-release.ts inspect --release "{{ release }}"
 
 # Isolated aspd preparation-service lifecycle (T-08539, docs/aspd.md). Every
 # recipe takes an explicit absolute namespace root; nothing global is touched.
 # Install releases with `just install-asp-release <artifact> <ns>/releases`.
+
+# Initialize an isolated aspd namespace.
 aspd-init ns codex_path="":
     bun scripts/aspd-service.ts init "{{ ns }}" "{{ codex_path }}"
 
@@ -254,6 +273,8 @@ aspd-status ns:
 
 # Build the standalone aspd pilot client (the HRC stand-in) and verify its
 # bundled closure is contracts/framing/transport only.
+
+# Build and verify the standalone aspd pilot client.
 build-aspd-pilot-client output_root:
     bun scripts/aspd-pilot/build-client.ts "{{ output_root }}"
 
@@ -265,6 +286,8 @@ build-aspd-pilot-client output_root:
 #   build ─┬─→ publish-canonical ─→ hrc sync
 #          └─→ bun link (asp + harness-broker)
 # Executable package links run alongside publish+sync.
+
+# Install, build, link, and publish the ASP package set.
 install no-sync="" force-sync="" force-link="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -366,7 +389,8 @@ install no-sync="" force-sync="" force-link="":
 # calling it from here failed every install.
 #
 # This is the only place ASP knows where its consumer lives; it never appears in source.
-# Sync the one downstream consumer that follows `latest`: hrc-runtime.
+
+# Sync the downstream hrc-runtime consumer to the latest ASP packages.
 sync-downstream:
     #!/usr/bin/env bash
     set -euo pipefail
