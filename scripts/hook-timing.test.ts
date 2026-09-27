@@ -147,6 +147,43 @@ pre-push:
     expect(hook?.change).toEqual({ kind: 'documentation', fileCount: 1 })
   })
 
+  test('uses GitHub hybrid LFS transport while keeping the pre-push LFS check', async () => {
+    const fixture = await makeFixture()
+    const lfsLog = join(fixture.work, 'lfs.log')
+    await writeFile(
+      join(fixture.binDir, 'git-lfs'),
+      '#!/bin/sh\nif [ "$1" = "pre-push" ]; then printf "%s %s %s\\n" "$GIT_CONFIG_COUNT" "$GIT_CONFIG_KEY_0" "$GIT_CONFIG_VALUE_0" > "$HOOK_LFS_LOG"; fi\n'
+    )
+    await chmod(join(fixture.binDir, 'git-lfs'), 0o755)
+    await writeFile(
+      join(fixture.work, 'lefthook.yml'),
+      `min_version: "2.1.10"
+pre-push:
+  files: printf 'lefthook.yml\\n'
+  commands:
+    validation:
+      use_stdin: true
+      run: bun ${JSON.stringify(scopeWrapper)} pre-push {lefthook_job_name} -- hook-probe should-not-run
+`
+    )
+    const remoteOid = run(['git', 'rev-parse', 'HEAD'], fixture.work).trim()
+    await writeFile(join(fixture.work, 'README.md'), '# documentation update\n')
+    run(['git', 'add', 'README.md'], fixture.work)
+    run(['git', 'commit', '-m', 'docs'], fixture.work)
+    const localOid = run(['git', 'rev-parse', 'HEAD'], fixture.work).trim()
+    const stdin = `refs/heads/main ${localOid} refs/heads/main ${remoteOid}\n`
+
+    run(
+      ['bun', wrapper, 'run', 'pre-push', 'origin', 'git@github.com:example/repo.git'],
+      fixture.work,
+      {
+        env: { ...hookEnv(fixture), HOOK_LFS_LOG: lfsLog },
+        stdin,
+      }
+    )
+    expect(await Bun.file(lfsLog).text()).toBe('1 lfs.sshtransfer never\n')
+  })
+
   test('records failure while returning Lefthook failure unchanged', async () => {
     const fixture = await makeFixture()
     await writeFile(

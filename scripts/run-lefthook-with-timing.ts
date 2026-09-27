@@ -57,9 +57,22 @@ async function lefthookVersion(): Promise<string | undefined> {
 }
 
 function spawnLefthook(args: string[], input?: string): number {
+  const env = { ...process.env }
+  // GitHub does not support Git LFS's pure SSH transfer negotiation. Lefthook
+  // still runs its usual LFS pre-push hook (including lock verification); this
+  // selects the supported SSH authentication + HTTP transfer path directly.
+  const remoteUrl = args[0] === 'run' && args[1] === 'pre-push' ? args[3] : undefined
+  if (remoteUrl && /^(?:git@github\.com:|ssh:\/\/(?:[^@/]+@)?github\.com[/:])/.test(remoteUrl)) {
+    const count = Number(env.GIT_CONFIG_COUNT ?? '0')
+    if (Number.isSafeInteger(count) && count >= 0) {
+      env[`GIT_CONFIG_KEY_${count}`] = 'lfs.sshtransfer'
+      env[`GIT_CONFIG_VALUE_${count}`] = 'never'
+      env.GIT_CONFIG_COUNT = String(count + 1)
+    }
+  }
   const result = spawnSync(lefthookBinary, args, {
     cwd: process.cwd(),
-    env: process.env,
+    env,
     input,
     stdio: [input === undefined ? 'inherit' : 'pipe', 'inherit', 'inherit'],
   })
