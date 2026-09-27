@@ -14,6 +14,10 @@ import { testGitGuardEnvironment } from './lib/test-git-guard.ts'
 import { discoverWorkspacePackages } from './lib/workspace-graph.ts'
 
 const FAST_TEST_TIMEOUT_MS = 60_000
+// Large packages run as several bun processes so one suite does not own the critical path.
+const FAST_SUITE_SHARDS: Readonly<Record<string, number>> = {
+  'spaces-harness-broker': 4,
+}
 const root = join(import.meta.dir, '..')
 const requestedConcurrency = Number.parseInt(
   process.env['ASP_TEST_CONCURRENCY'] ?? String(Math.min(4, availableParallelism())),
@@ -63,6 +67,17 @@ function hookChangedPaths(): { paths?: string[]; ambiguous: boolean } {
   }
 }
 
+function shardSuite(id: string, paths: string[], shardCount: number): FastSuite[] {
+  const count = Math.min(shardCount, paths.length)
+  if (count <= 1) return paths.length > 0 ? [{ id, paths }] : []
+  const shards = Array.from({ length: count }, () => [] as string[])
+  paths.forEach((path, index) => shards[index % count]?.push(path))
+  return shards.map((shardPaths, index) => ({
+    id: `${id}#${index + 1}/${count}`,
+    paths: shardPaths,
+  }))
+}
+
 async function makeSuites(): Promise<{ suites: FastSuite[]; mode: 'affected' | 'full' }> {
   const packages = await discoverWorkspacePackages(root)
   const byName = new Map(packages.map((workspace) => [workspace.name, workspace]))
@@ -76,12 +91,7 @@ async function makeSuites(): Promise<{ suites: FastSuite[]; mode: 'affected' | '
     if (!workspace) throw new Error(`Missing fast-test workspace ${packageName}`)
     const paths =
       packageName === '@lherron/agent-spaces' ? [] : await collectTestFiles(workspace.relativePath)
-    if (paths.length > 0) {
-      suites.push({
-        id: packageName,
-        paths,
-      })
-    }
+    suites.push(...shardSuite(packageName, paths, FAST_SUITE_SHARDS[packageName] ?? 1))
   }
 
   if (selection.full || selection.packageNames.has('@lherron/agent-spaces')) {
@@ -106,6 +116,8 @@ async function makeSuites(): Promise<{ suites: FastSuite[]; mode: 'affected' | '
     })
   }
 
+  // Longest-first scheduling: start the heaviest suites before the short tail.
+  suites.sort((left, right) => right.paths.length - left.paths.length)
   return { suites, mode: selection.full ? 'full' : 'affected' }
 }
 
