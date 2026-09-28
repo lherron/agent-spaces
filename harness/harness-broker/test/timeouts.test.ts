@@ -23,7 +23,7 @@ const scenarioSpec = (
     driver: 'codex-app-server',
   },
   process: {
-    command: Bun.execPath,
+    command: process.execPath,
     args: [join(fixtureDir, `${scenario}.ts`)],
     cwd: process.cwd(),
     harnessTransport: { kind: 'jsonrpc-stdio' },

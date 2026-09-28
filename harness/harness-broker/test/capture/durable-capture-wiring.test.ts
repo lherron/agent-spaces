@@ -35,7 +35,7 @@ const spec = (invocationId: string): HarnessInvocationSpec => ({
   invocationId,
   harness: { frontend: 'codex', provider: 'openai', driver: 'codex-app-server' },
   process: {
-    command: Bun.execPath,
+    command: process.execPath,
     args: [join(fixtureDir, 'tool-calls.ts')],
     cwd: process.cwd(),
     lockedEnv: { CODEX_HOME: '/tmp/harness-broker-codex-home' },

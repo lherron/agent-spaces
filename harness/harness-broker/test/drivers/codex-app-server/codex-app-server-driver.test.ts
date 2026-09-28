@@ -49,7 +49,7 @@ const scenarioSpec = (
     driver: 'codex-app-server',
   },
   process: {
-    command: Bun.execPath,
+    command: process.execPath,
     args: [join(fixtureDir, `${scenario}.ts`), '--literal', '$NO_EXPAND', '*.ts'],
     cwd: repoRoot,
     lockedEnv: {
@@ -254,7 +254,7 @@ function normalizeEvent(event: InvocationEventEnvelope): InvocationEventEnvelope
       // asserted by capture tests; golden event projections must be portable.
       if (key === 'rawSha256') return '<rawSha256>'
       if (key === 'durationMs') return '<durationMs>'
-      if (key === 'command' && value === Bun.execPath) return '<bun>'
+      if (key === 'command' && value === process.execPath) return '<bun>'
       if (typeof value === 'string' && value.startsWith(`${repoRoot}/`)) {
         return `<cwd>/${value.slice(repoRoot.length + 1)}`
       }
@@ -1463,7 +1463,7 @@ describe('Codex app-server process behavior red tests', () => {
     const events = await runScenario('argv-exact')
     const started = events.find((event) => event.type === 'invocation.started')
     expect(started?.payload).toMatchObject({
-      command: Bun.execPath,
+      command: process.execPath,
       args: [join(fixtureDir, 'argv-exact.ts'), '--literal', '$NO_EXPAND', '*.ts'],
       cwd: repoRoot,
     })

@@ -4,7 +4,7 @@ import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { spawnHarnessProcess } from '../../src/runtime/process-runner'
 
 const baseProcessSpec = (overrides: Partial<HarnessProcessSpec>): HarnessProcessSpec => ({
-  command: Bun.execPath,
+  command: process.execPath,
   args: ['--version'],
   cwd: process.cwd(),
   harnessTransport: { kind: 'jsonrpc-stdio' },

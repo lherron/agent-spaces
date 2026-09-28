@@ -41,7 +41,7 @@ function scenarioSpec(
       driver: 'codex-app-server',
     },
     process: {
-      command: Bun.execPath,
+      command: process.execPath,
       args: [join(fixtureDir, `${scenario}.ts`), '--literal', '$NO_EXPAND', '*.ts'],
       cwd: process.cwd(),
       lockedEnv: {},
