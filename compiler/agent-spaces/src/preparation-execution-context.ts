@@ -5,7 +5,9 @@
  * direct preparation) and runtime-placement inspection derive prompt identity,
  * prompt-source authority, the template exec/predicate/interpolation
  * environment, and its canonical hash from this module only. `dispatchEnv` is
- * never an input here: it stays launch-process and dispatch input.
+ * never an input here: it stays launch-process and dispatch input. An optional
+ * producer taskContext is a typed prompt input (T-09860): it supplies task
+ * facts only, never identity or environment, and joins the hash when present.
  */
 import { basename, resolve } from 'node:path'
 
@@ -13,7 +15,7 @@ import { parseScopeRef } from 'agent-scope'
 
 import { type RuntimePlacement, getAspHome } from 'spaces-config'
 import type { MaterializeSystemPromptInput, SharedRootOptions } from 'spaces-runtime'
-import { createCanonicalHasher } from 'spaces-runtime-contracts'
+import { type HrcTaskContext, createCanonicalHasher } from 'spaces-runtime-contracts'
 
 import { deriveHandleParts } from './broker-invocation.js'
 import { buildCorrelationEnvVars } from './placement-api.js'
@@ -154,15 +156,33 @@ function assertNoConflict(
   }
 }
 
+/**
+ * taskContext is refused when a canonical agent ScopeRef states a different
+ * task (T-09860). A scope without a task segment has nothing to conflict with
+ * and keeps its identity; taskContext then supplies prompt facts only.
+ */
+export function assertPreparationTaskContext(
+  placement: RuntimePlacement,
+  taskContext: HrcTaskContext | undefined
+): void {
+  const sessionRef = placement.correlation?.sessionRef
+  if (taskContext === undefined || sessionRef === undefined) return
+  if (!isCanonicalAgentScope(sessionRef.scopeRef)) return
+  const scopedTaskId = deriveHandleParts({ ...placement, projectRoot: undefined }).taskId
+  assertNoConflict('taskId', scopedTaskId, taskContext.taskId)
+}
+
 export function buildPreparationExecutionContext(
   placement: RuntimePlacement,
   inputs: {
     promptSources: PreparationPromptSources
     ambientEnv?: Environment | undefined
     identityHints?: PreparationIdentityHints | undefined
+    taskContext?: HrcTaskContext | undefined
   }
 ): PreparationExecutionContext {
   const identity = resolvePreparationIdentity(placement, inputs.identityHints)
+  assertPreparationTaskContext(placement, inputs.taskContext)
   const ambientEnv = inputs.ambientEnv ?? process.env
   const execEnv: Environment = {
     ...ambientEnv,
@@ -178,7 +198,10 @@ export function buildPreparationExecutionContext(
     identity,
     promptSources: inputs.promptSources,
     execEnv: definedEnv,
-    effectiveEnvironmentHash: hashPreparationEnvironment(definedEnv),
+    effectiveEnvironmentHash:
+      inputs.taskContext === undefined
+        ? hashPreparationEnvironment(definedEnv)
+        : hasher.hash({ environment: definedEnv, taskContext: inputs.taskContext }).value,
     promptInput: {
       ...placement,
       aspHome: inputs.promptSources.aspHome,
@@ -189,6 +212,7 @@ export function buildPreparationExecutionContext(
       ...(identity.projectId !== undefined ? { projectId: identity.projectId } : {}),
       ...(identity.taskId !== undefined ? { taskId: identity.taskId } : {}),
       ...(identity.lane !== undefined ? { lane: identity.lane } : {}),
+      ...(inputs.taskContext !== undefined ? { taskContext: inputs.taskContext } : {}),
       env: execEnv,
     },
   }

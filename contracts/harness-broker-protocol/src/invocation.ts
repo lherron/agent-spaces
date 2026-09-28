@@ -261,6 +261,21 @@ export interface AgentHarnessSpec {
   runId?: string | undefined
   hostSessionId?: string | undefined
   generation?: number | undefined
+  /**
+   * Producer task context the compile prepared the prompt with (T-09860).
+   * Typed task prompt facts only; the worker re-materializes with the same
+   * facts on birth and replacement within this compiled invocation.
+   */
+  taskContext?:
+    | {
+        /** Structurally the HRC task context (spaces-runtime-contracts HrcTaskContext). */
+        taskId: string
+        phase: string | null
+        role: string
+        requiredEvidenceKinds: string[]
+        hintsText: string
+      }
+    | undefined
 }
 
 export interface HarnessLaunchSpec {
@@ -369,6 +384,12 @@ export interface CodexAppServerDriverSpec {
   defaultImageAttachments?: string[] | undefined
   permissionPolicy?: DriverPermissionPolicy | undefined
   resumeFallback?: 'start-fresh' | 'fail' | undefined
+  /**
+   * Task-scoped prompt content for THIS invocation (T-09860, EN-20252), sent as
+   * `developerInstructions` on every `thread/start` and `thread/resume`. The
+   * shared CODEX_HOME AGENTS.md stays task-invariant. Absent = today's null.
+   */
+  developerInstructions?: string | undefined
 }
 
 /**

@@ -48,6 +48,8 @@ import { resolveHarnessExecution } from './harness-selection/resolve.js'
 import type { ExecutionRecipe, ResolvedHarnessExecution } from './harness-selection/types.js'
 import { type AgentSpacesRuntimeDependencies, requireAgentSpacesRuntime } from './placement-api.js'
 import {
+  PreparationContextMismatchError,
+  assertPreparationTaskContext,
   buildPreparationExecutionContext,
   promptSourcesForCompile,
 } from './preparation-execution-context.js'
@@ -625,6 +627,9 @@ export async function compileRuntimePlan(
     const placement = req.placement as CompilePlacement
     const refusal = participantOnlyRefusal(placement.agentRoot)
     if (refusal !== undefined) return refusal
+    // A taskContext naming a different task than the scope states is refused
+    // before any builder materializes anything (T-09860).
+    assertPreparationTaskContext(placement, req.materialization.taskContext)
     const provisioningLayers = resolveCompileProvisioningLayers(req)
     const consistencyAgentIds = [basename(placement.agentRoot)]
     if (placement.bundle.kind === 'agent-project') {
@@ -653,6 +658,13 @@ export async function compileRuntimePlan(
     // with `materialization_hygiene_error` diagnostics HERE, at/below the compiler
     // boundary, before the aspc facade's generic catch can degrade it to
     // `compiler_exception` (T-05574 Cond 1). All other errors propagate unchanged.
+    if (error instanceof PreparationContextMismatchError) {
+      return {
+        schemaVersion: 'agent-runtime-compile-response/v2',
+        ok: false,
+        diagnostics: [compileError(error.code, error.message)],
+      }
+    }
     if (error instanceof CompileProvisioningError) {
       return {
         schemaVersion: 'agent-runtime-compile-response/v2',
@@ -733,7 +745,13 @@ export async function compileBrokerPlan(
 
   validateBrokerInvocationRequest(brokerReq)
   const prepared = await preparePlacementCliRuntime(
-    { ...brokerReq, materializeCodexRuntimeHome: options?.materializeCodexRuntimeHome },
+    {
+      ...brokerReq,
+      materializeCodexRuntimeHome: options?.materializeCodexRuntimeHome,
+      ...(req.materialization.taskContext !== undefined
+        ? { taskContext: req.materialization.taskContext }
+        : {}),
+    },
     options?.clientAspHome,
     options?.clientRegistryPath,
     options?.clientRuntime
@@ -807,6 +825,9 @@ function nativeAgentHarnessSpec(
     ...(req.identity.runId !== undefined ? { runId: req.identity.runId } : {}),
     hostSessionId: req.identity.hostSessionId,
     generation: req.identity.generation,
+    ...(req.materialization.taskContext !== undefined
+      ? { taskContext: req.materialization.taskContext }
+      : {}),
   }
 }
 
@@ -841,6 +862,7 @@ export async function compileNativeAgentHarnessPlan(
       agentId: semanticAgent.agentId,
       ...(semanticAgent.projectId !== undefined ? { projectId: semanticAgent.projectId } : {}),
     },
+    taskContext: semanticAgent.taskContext,
   })
   const semantics = await timeCompilePhase('load-semantics', () =>
     loadAgentSemantics(
@@ -855,6 +877,9 @@ export async function compileNativeAgentHarnessPlan(
         ...(placement.lockedEnv !== undefined ? { lockedEnv: placement.lockedEnv } : {}),
         ...(placement.dispatchEnv !== undefined ? { dispatchEnv: placement.dispatchEnv } : {}),
         baseEnvironment: preparation.execEnv,
+        ...(semanticAgent.taskContext !== undefined
+          ? { taskContext: semanticAgent.taskContext }
+          : {}),
         ...(options?.clientRegistryPath !== undefined
           ? { registryPathOverride: options.clientRegistryPath }
           : {}),
@@ -1116,6 +1141,9 @@ export async function compileTmuxBrokerPlan(
       ...(placement.lockedEnv !== undefined ? { lockedEnv: placement.lockedEnv } : {}),
       ...(placement.dispatchEnv !== undefined ? { dispatchEnv: placement.dispatchEnv } : {}),
       materializeCodexRuntimeHome: options?.materializeCodexRuntimeHome,
+      ...(req.materialization.taskContext !== undefined
+        ? { taskContext: req.materialization.taskContext }
+        : {}),
       placement,
     },
     options?.clientAspHome,

@@ -69,6 +69,7 @@ export async function createResolvedAgentSession(
     ...(semantic.runId !== undefined ? { runId: semantic.runId } : {}),
     ...(semantic.hostSessionId !== undefined ? { hostSessionId: semantic.hostSessionId } : {}),
     ...(semantic.generation !== undefined ? { generation: semantic.generation } : {}),
+    ...(semantic.taskContext !== undefined ? { taskContext: semantic.taskContext } : {}),
     ...launch,
     model: input.spec.sdk?.modelId,
     provider: loadAgentProvider(input.spec.sdk?.provider ?? input.spec.harness.provider),

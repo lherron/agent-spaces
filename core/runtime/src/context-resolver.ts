@@ -7,6 +7,7 @@ import type {
   AgentInspectionDisposition,
   AgentInspectionFailureSource,
   AgentInspectionProvenance,
+  HrcTaskContext,
 } from 'spaces-runtime-contracts'
 import type {
   ContextSection,
@@ -26,6 +27,7 @@ import {
 } from './dynamic-replay.js'
 import { readFileOrUndefined } from './file-reader.js'
 import { resolveServiceProbeSection } from './service-probe-resolver.js'
+import { derivePromptTaskFacts } from './task-prompt-facts.js'
 import { interpolateVariables } from './template-vars.js'
 import { isRecord } from './type-guards.js'
 
@@ -47,6 +49,11 @@ export interface ContextResolverContext {
   agentId?: string | undefined
   agentName?: string | undefined
   taskId?: string | undefined
+  /**
+   * Producer-structured task context (T-09860). Supplies typed task prompt
+   * facts only; it never changes `taskId` or any identity-derived variable.
+   */
+  taskContext?: HrcTaskContext | undefined
   lane?: string | undefined
   runMode: string
   scaffoldPackets?:
@@ -146,10 +153,29 @@ export interface ResolvedContextDetailed extends ResolvedContext {
   diagnostics: ResolvedContextDiagnostics
   promptSections: ResolvedContextSection[]
   reminderSections: ResolvedContextSection[]
+  /**
+   * Present only when a task-scoped section (one gated by `when.taskField`)
+   * was included (T-09860). `prompt` / `reminder` are each zone joined WITHOUT
+   * task-scoped sections — byte-identical to what the zone renders with no
+   * task facts — and `content` is the included task-scoped sections joined.
+   * Harnesses whose prompt lands in a home shared across tasks use this to
+   * deliver task-scoped content per invocation instead.
+   */
+  taskScoped?: ResolvedTaskScopedSplit | undefined
+}
+
+export interface ResolvedTaskScopedSplit {
+  content: string
+  prompt: string | undefined
+  reminder: string | undefined
 }
 
 interface ResolvedZone {
   content: string | undefined
+  /** The zone joined without task-scoped sections. */
+  invariantContent: string | undefined
+  /** Included task-scoped section contents, in order. */
+  taskScopedContents: string[]
   sectionSizes: string[]
   totalChars: number
   sections: ResolvedContextSection[]
@@ -203,6 +229,22 @@ export async function resolveContextTemplateDetailed(
     },
     promptSections: prompt.sections,
     reminderSections: reminder.sections,
+    ...taskScopedSplit(prompt, reminder),
+  }
+}
+
+function taskScopedSplit(
+  prompt: ResolvedZone,
+  reminder: ResolvedZone
+): { taskScoped?: ResolvedTaskScopedSplit } {
+  const contents = [...prompt.taskScopedContents, ...reminder.taskScopedContents]
+  if (contents.length === 0) return {}
+  return {
+    taskScoped: {
+      content: contents.join(SECTION_SEPARATOR),
+      prompt: prompt.invariantContent,
+      reminder: reminder.invariantContent,
+    },
   }
 }
 
@@ -309,6 +351,8 @@ async function resolveZone(
   zoneName: ResolvedContextZoneName
 ): Promise<ResolvedZone> {
   const resolvedSections: string[] = []
+  const invariantSections: string[] = []
+  const taskScopedContents: string[] = []
   const sectionSizes: string[] = []
   const inspectedSections: ResolvedContextSection[] = []
 
@@ -320,12 +364,21 @@ async function resolveZone(
     }
 
     resolvedSections.push(outcome.content)
+    if (section.when?.taskField !== undefined) {
+      taskScopedContents.push(outcome.content)
+    } else {
+      invariantSections.push(outcome.content)
+    }
     sectionSizes.push(`${zoneName}.${section.name}=${outcome.content.length}`)
   }
 
+  const invariantContent =
+    invariantSections.length > 0 ? invariantSections.join(SECTION_SEPARATOR) : undefined
   if (resolvedSections.length === 0) {
     return {
       content: undefined,
+      invariantContent,
+      taskScopedContents,
       sectionSizes,
       totalChars: 0,
       sections: inspectedSections,
@@ -335,6 +388,8 @@ async function resolveZone(
   const content = resolvedSections.join(SECTION_SEPARATOR)
   return {
     content,
+    invariantContent,
+    taskScopedContents,
     sectionSizes,
     totalChars: content.length,
     sections: inspectedSections,
@@ -344,6 +399,8 @@ async function resolveZone(
 function emptyZone(): ResolvedZone {
   return {
     content: undefined,
+    invariantContent: undefined,
+    taskScopedContents: [],
     sectionSizes: [],
     totalChars: 0,
     sections: [],
@@ -407,7 +464,10 @@ function describeSectionSource(section: ContextSection, context: ContextResolver
  * ALL declared conditions hold (runMode match, path existence, and env
  * set/equals/not-equals checks). A section without a predicate always matches.
  */
-function matchesWhenPredicate(section: ContextSection, context: ContextResolverContext): boolean {
+function matchesWhenPredicate(
+  section: Pick<ContextSection, 'when'>,
+  context: ContextResolverContext
+): boolean {
   const when = section.when
   if (when === undefined) {
     return true
@@ -422,6 +482,13 @@ function matchesWhenPredicate(section: ContextSection, context: ContextResolverC
     !existsSync(join(context.predicateCwd ?? context.cwd ?? process.cwd(), when.exists))
   ) {
     return false
+  }
+
+  if (when.taskField !== undefined) {
+    const facts = derivePromptTaskFacts(context)
+    if (facts === undefined || facts[when.taskField] === undefined) {
+      return false
+    }
   }
 
   const env = context.predicateEnv ?? context.env ?? process.env
@@ -469,7 +536,13 @@ async function resolveSection(
     case 'file':
       return resolveFileSection(section, context)
     case 'inline': {
-      const content = interpolateVariables(section.content, context)
+      const content =
+        section.parts === undefined
+          ? interpolateVariables(section.content, context)
+          : section.parts
+              .filter((part) => matchesWhenPredicate(part, context))
+              .map((part) => interpolateVariables(part.content, context))
+              .join('\n')
       return asSectionResolution(content.length > 0 ? content : undefined)
     }
     case 'exec':

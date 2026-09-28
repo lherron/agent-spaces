@@ -172,6 +172,14 @@ export class AspcUnixClient {
   ): Promise<AspcInspectRuntimePlacementResponse> {
     // T-08579: never send preparationCorrelation to a producer that did not
     // advertise it; the caller must fail closed rather than inspect uncorrelated.
+    // T-09860: likewise for the producer task context.
+    if (req.preparationTaskContext !== undefined) {
+      return this.#capabilityRequest(
+        'inspectRuntimePlacementPreparationTaskContext',
+        'aspc.inspectRuntimePlacement',
+        req
+      )
+    }
     if (req.preparationCorrelation !== undefined) {
       return this.#capabilityRequest(
         'inspectRuntimePlacementPreparationCorrelation',
@@ -197,6 +205,13 @@ export class AspcUnixClient {
   prepareProcessInvocation(
     req: AspcPrepareProcessInvocationRequest
   ): Promise<AspcPrepareProcessInvocationResponse> {
+    if (req.taskContext !== undefined) {
+      return this.#capabilityRequest(
+        'prepareProcessInvocationTaskContext',
+        'aspc.prepareProcessInvocation',
+        req
+      )
+    }
     return this.#capabilityRequest('prepareProcessInvocation', 'aspc.prepareProcessInvocation', req)
   }
 

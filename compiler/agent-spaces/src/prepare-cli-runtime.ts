@@ -14,6 +14,7 @@ import {
 import type { AttachmentRef, ContextResolverContext } from 'spaces-runtime'
 import type { MaterializeResult } from 'spaces-runtime'
 import { expandTemplate, materializeSystemPrompt } from 'spaces-runtime'
+import type { HrcTaskContext } from 'spaces-runtime-contracts'
 
 import {
   buildPromptExpansionContext,
@@ -33,6 +34,7 @@ import {
   type PreparationExecutionContext,
   type PreparationIdentityHints,
   type PreparationPromptSources,
+  assertPreparationTaskContext,
   buildPreparationExecutionContext,
   promptSourcesForCompile,
   resolvePreparationIdentity,
@@ -70,6 +72,11 @@ export interface PreparedPlacementCliRuntime {
   displayCommand: string
   continuation?: HarnessContinuationRef | undefined
   codexAppServer?: ProcessInvocationSpec['codexAppServer'] | undefined
+  /**
+   * Task-scoped prompt content for a codex route (T-09860, EN-20252): kept out
+   * of the shared CODEX_HOME AGENTS.md and delivered per invocation instead.
+   */
+  codexDeveloperInstructions?: string | undefined
   /** The one preparation execution context this launch was prepared under (T-08579). */
   preparation: PreparationExecutionContext
   warnings: string[]
@@ -101,6 +108,8 @@ export interface PreparePlacementCliRuntimeRequest {
   promptSources?: PreparationPromptSources | undefined
   /** Context identity hints for a context surface (T-08579 §4.1). */
   identityHints?: PreparationIdentityHints | undefined
+  /** Producer task context: typed task prompt facts only (T-09860). */
+  taskContext?: HrcTaskContext | undefined
   /**
    * Inspection/preview compiles need the stable CODEX_HOME path in their plan,
    * but must not materialize that shared home. Launch preparation leaves this
@@ -175,6 +184,7 @@ export async function preparePlacementCliRuntime(
   const warnings: string[] = []
   // Refuse a contradictory identity before any preparation side effect.
   resolvePreparationIdentity(placement, req.identityHints)
+  assertPreparationTaskContext(placement, req.taskContext)
 
   const implementation = catalogProcessImplementationForFrontend(req.frontend)
   if (implementation === undefined) {
@@ -317,6 +327,7 @@ export async function preparePlacementCliRuntime(
   const preparation = buildPreparationExecutionContext(placement, {
     promptSources: req.promptSources ?? promptSourcesForCompile(req.aspHome ?? defaultAspHome),
     identityHints: req.identityHints,
+    taskContext: req.taskContext,
   })
 
   // Unified materialization: use the shared placement context, then materialize the resolved spec.
@@ -427,9 +438,24 @@ export async function preparePlacementCliRuntime(
   // self-healing for stale blocks). Codex reads AGENTS.md on both interactive and
   // exec routes, so the model receives the system prompt without it appearing in
   // the visible launch message.
+  let codexDeveloperInstructions: string | undefined
   if (implementation.harness === 'codex') {
+    // The codex home is shared by every seat of this agent+project, so its
+    // AGENTS.md takes only the task-invariant prompt (byte-identical to a
+    // render with no task facts). Task-scoped sections — those gated by
+    // `when.taskField` — travel per invocation as developerInstructions.
+    const taskScoped = systemPrompt?.taskScoped
+    codexDeveloperInstructions = taskScoped?.content
+    const homePrompt =
+      taskScoped === undefined
+        ? {}
+        : {
+            systemPrompt: taskScoped.prompt,
+            reminderContent: taskScoped.reminder,
+          }
     const codexRunOptions = {
       ...runOptions,
+      ...homePrompt,
       aspHome,
       interactive: req.interactionMode === 'interactive',
       ...(req.codexHookEvents !== undefined ? { codexHookEvents: req.codexHookEvents } : {}),
@@ -524,6 +550,7 @@ export async function preparePlacementCliRuntime(
     ...(continuation ? { continuation } : {}),
     displayCommand,
     ...(codexAppServer ? { codexAppServer } : {}),
+    ...(codexDeveloperInstructions !== undefined ? { codexDeveloperInstructions } : {}),
     preparation,
     warnings,
   }

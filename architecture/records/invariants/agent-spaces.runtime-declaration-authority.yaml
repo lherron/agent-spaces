@@ -81,6 +81,8 @@ source:
   - architecture/records/invariants/agent-spaces.producer-owned-harness-selection.yaml
   - docs/proposals/producer-owned-harness-selection.md
   - "wrkq:T-09860 amendment r2 sha256:6902430b4946a44933a605da59d429a20c077e1885510e69341c40d816d2a87d"
+  - core/runtime/src/task-prompt-facts.ts
+  - compiler/agent-spaces/src/preparation-execution-context.ts
 required_tests:
   - caller source roots are canonical and echoed while exact agent roots perform no search or substitution
   - root infer-from-cwd and none project modes remain distinct and none reads no project declaration

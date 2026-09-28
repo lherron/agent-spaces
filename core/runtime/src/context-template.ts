@@ -1,4 +1,5 @@
 import { parse as parseToml } from '@iarna/toml'
+import { PROMPT_TASK_FIELDS, type PromptTaskField } from './task-prompt-facts.js'
 import { isRecord } from './type-guards.js'
 
 export type SystemPromptMode = 'replace' | 'append'
@@ -16,6 +17,8 @@ export interface WhenPredicate {
   envSet?: string | undefined
   envEquals?: EnvEqualsPredicate | undefined
   envNotEquals?: EnvEqualsPredicate | undefined
+  /** True iff that typed task prompt fact is present (T-09860); never reads env. */
+  taskField?: PromptTaskField | undefined
 }
 
 export interface SectionWrap {
@@ -37,10 +40,16 @@ export interface FileSectionDef extends ContextSectionBase {
   required?: boolean | undefined
 }
 
-export interface InlineSectionDef extends ContextSectionBase {
-  type: 'inline'
+/** One conditional line group of an inline section; included parts join with `\n`. */
+export interface InlineSectionPart {
   content: string
+  when?: WhenPredicate | undefined
 }
+
+export type InlineSectionDef = ContextSectionBase & { type: 'inline' } & (
+    | { content: string; parts?: undefined }
+    | { parts: InlineSectionPart[]; content?: undefined }
+  )
 
 export interface ExecSectionDef extends ContextSectionBase {
   type: 'exec'
@@ -194,12 +203,12 @@ function parseSection(
     }
 
     case 'inline': {
-      const content = parseRequiredString(input['content'], `${sectionLocation}.content`)
+      const body = parseInlineBody(input, sectionLocation)
 
       return {
         name,
         type,
-        content,
+        ...body,
         ...(when ? { when } : {}),
         ...(maxChars !== undefined ? { maxChars } : {}),
         ...(wrap !== undefined ? { wrap } : {}),
@@ -253,6 +262,38 @@ function parseSection(
   }
 }
 
+function parseInlineBody(
+  input: Record<string, unknown>,
+  location: string
+): { content: string } | { parts: InlineSectionPart[] } {
+  if (input['parts'] === undefined) {
+    return { content: parseRequiredString(input['content'], `${location}.content`) }
+  }
+  if (input['content'] !== undefined) {
+    throw new Error(`${location} must declare either content or parts, not both`)
+  }
+  const parts = input['parts']
+  if (!Array.isArray(parts) || parts.length === 0) {
+    throw new Error(`${location}.parts must be a non-empty array of { content, when? } tables`)
+  }
+  return {
+    parts: parts.map((part, index) => {
+      const where = `${location}.parts[${index}]`
+      if (!isRecord(part)) {
+        throw new Error(`${where} must be a TOML table, received ${describeValue(part)}`)
+      }
+      for (const key of Object.keys(part)) {
+        if (key !== 'content' && key !== 'when') {
+          throw new Error(`${where}.${key} is not supported; only content and when are allowed`)
+        }
+      }
+      const content = parseRequiredString(part['content'], `${where}.content`)
+      const when = parseWhenPredicate(part['when'], `${where}.when`)
+      return { content, ...(when ? { when } : {}) }
+    }),
+  }
+}
+
 function parseServiceProbeServices(input: unknown, fieldName: string): ServiceProbeSpec[] {
   if (!Array.isArray(input)) {
     throw new Error(`${fieldName} must be an array of {name, endpoint} tables`)
@@ -281,7 +322,14 @@ function parseSectionType(input: unknown, fieldName: string): ContextSectionType
   return input
 }
 
-const SUPPORTED_WHEN_KEYS = ['runMode', 'exists', 'envSet', 'envEquals', 'envNotEquals'] as const
+const SUPPORTED_WHEN_KEYS = [
+  'runMode',
+  'exists',
+  'envSet',
+  'envEquals',
+  'envNotEquals',
+  'taskField',
+] as const
 
 function parseWhenPredicate(input: unknown, fieldName: string): WhenPredicate | undefined {
   if (input === undefined) {
@@ -306,6 +354,7 @@ function parseWhenPredicate(input: unknown, fieldName: string): WhenPredicate | 
   const envSet = parseOptionalString(input['envSet'], `${fieldName}.envSet`)
   const envEquals = parseEnvEqualsPredicate(input['envEquals'], `${fieldName}.envEquals`)
   const envNotEquals = parseEnvEqualsPredicate(input['envNotEquals'], `${fieldName}.envNotEquals`)
+  const taskField = parseTaskField(input['taskField'], `${fieldName}.taskField`)
 
   if (envSet !== undefined && envSet.length === 0) {
     throw new Error(`${fieldName}.envSet must be a non-empty env var name`)
@@ -316,7 +365,8 @@ function parseWhenPredicate(input: unknown, fieldName: string): WhenPredicate | 
     exists === undefined &&
     envSet === undefined &&
     envEquals === undefined &&
-    envNotEquals === undefined
+    envNotEquals === undefined &&
+    taskField === undefined
   ) {
     return {}
   }
@@ -327,7 +377,20 @@ function parseWhenPredicate(input: unknown, fieldName: string): WhenPredicate | 
     ...(envSet !== undefined ? { envSet } : {}),
     ...(envEquals !== undefined ? { envEquals } : {}),
     ...(envNotEquals !== undefined ? { envNotEquals } : {}),
+    ...(taskField !== undefined ? { taskField } : {}),
   }
+}
+
+function parseTaskField(input: unknown, fieldName: string): PromptTaskField | undefined {
+  if (input === undefined) {
+    return undefined
+  }
+  if (!isOneOf(input, PROMPT_TASK_FIELDS)) {
+    throw new Error(
+      `${fieldName} must be one of ${PROMPT_TASK_FIELDS.join(', ')}, received ${describeValue(input)}`
+    )
+  }
+  return input
 }
 
 function parseEnvEqualsPredicate(

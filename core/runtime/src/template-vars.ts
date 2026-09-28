@@ -1,4 +1,5 @@
 import type { ContextResolverContext } from './context-resolver.js'
+import { derivePromptTaskFacts, promptTaskVariables } from './task-prompt-facts.js'
 import { isRecord } from './type-guards.js'
 
 const ENV_PREFIX = 'env.'
@@ -58,7 +59,10 @@ const VARIABLE_ALIASES: Record<string, string> = {
 
 function buildVariableMap(context: ContextResolverContext): Record<string, string> {
   const canonical = buildCanonicalVariables(context)
-  const variables: Record<string, string> = { ...canonical }
+  const variables: Record<string, string> = {
+    ...canonical,
+    ...promptTaskVariables(derivePromptTaskFacts(context)),
+  }
   for (const [alias, target] of Object.entries(VARIABLE_ALIASES)) {
     variables[alias] = canonical[target] ?? ''
   }

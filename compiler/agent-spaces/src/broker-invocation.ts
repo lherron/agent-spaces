@@ -528,6 +528,9 @@ export function toHarnessBrokerStartRequest(
       : {}),
     permissionPolicy: req.permissionPolicy ?? { mode: 'deny' },
     resumeFallback: req.resumeFallback ?? 'start-fresh',
+    ...(childPrepared.codexDeveloperInstructions !== undefined
+      ? { developerInstructions: childPrepared.codexDeveloperInstructions }
+      : {}),
   }
 
   const spec: HarnessInvocationSpec = {

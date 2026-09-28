@@ -14,6 +14,7 @@ import type {
   CompileContext,
   CompileDiagnostic,
   CompiledRuntimePlan,
+  HrcTaskContext,
   ProcessAttachmentRef,
   RuntimeCompileRequest,
   RuntimePlacement,
@@ -97,9 +98,11 @@ export interface AspcHelloRequest {
         resolveRuntimeDeclaration?: boolean | undefined
         inspectRuntimePlacement?: boolean | undefined
         inspectRuntimePlacementPreparationCorrelation?: boolean | undefined
+        inspectRuntimePlacementPreparationTaskContext?: boolean | undefined
         observeRuntimeCapability?: boolean | undefined
         observeContinuationArtifact?: boolean | undefined
         prepareProcessInvocation?: boolean | undefined
+        prepareProcessInvocationTaskContext?: boolean | undefined
       }
     | undefined
 }
@@ -120,9 +123,13 @@ export interface AspcHelloResponse {
     inspectRuntimePlacement: true
     /** T-08579: inspect accepts `preparationCorrelation`; parity consumers require it. */
     inspectRuntimePlacementPreparationCorrelation: true
+    /** T-09860: inspect accepts `preparationTaskContext`; role-launch parity consumers require it. */
+    inspectRuntimePlacementPreparationTaskContext: true
     observeRuntimeCapability: true
     observeContinuationArtifact: true
     prepareProcessInvocation: true
+    /** T-09860: direct preparation accepts `taskContext`. */
+    prepareProcessInvocationTaskContext: true
     cohostedBroker: boolean
     transports: AspcTransportKind[]
   }
@@ -163,6 +170,11 @@ export type AspcPrepareProcessInvocationRequest = {
   dispatchEnv?: Record<string, string>
   lockedEnv?: Record<string, string>
   artifactDir?: string
+  /**
+   * Producer task context: typed task prompt facts only (T-09860). Send only
+   * when hello advertises `prepareProcessInvocationTaskContext`.
+   */
+  taskContext?: HrcTaskContext | undefined
 }
 
 export type AspcPreparationFailure = {
@@ -283,6 +295,11 @@ export type AspcInspectRuntimePlacementRequest = {
    * only when hello advertises `inspectRuntimePlacementPreparationCorrelation`.
    */
   preparationCorrelation?: AspcPrepareProcessInvocationRequest['preparationCorrelation'] | undefined
+  /**
+   * The producer task context the paired preparation compiled (T-09860). Send
+   * only when hello advertises `inspectRuntimePlacementPreparationTaskContext`.
+   */
+  preparationTaskContext?: HrcTaskContext | undefined
   /** Accepted for parity with preparation; never a prompt input (T-08563 rev 5.2). */
   dispatchEnv?: Record<string, string> | undefined
 }

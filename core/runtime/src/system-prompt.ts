@@ -10,11 +10,13 @@ import {
 import type {
   AgentInspectionDisposition,
   AgentInspectionProvenance,
+  HrcTaskContext,
 } from 'spaces-runtime-contracts'
 import {
   type ContextResolverContext,
   type ResolvedContextDiagnostics,
   type ResolvedContextSection,
+  type ResolvedTaskScopedSplit,
   resolveContextTemplateDetailed,
 } from './context-resolver.js'
 import {
@@ -38,6 +40,8 @@ export interface MaterializeSystemPromptInput {
   projectId?: string | undefined
   agentId?: string | undefined
   taskId?: string | undefined
+  /** Producer task context: typed task prompt facts only (T-09860). */
+  taskContext?: HrcTaskContext | undefined
   lane?: string | undefined
   runMode: RunMode
   scaffoldPackets?: RunScaffoldPacket[] | undefined
@@ -132,6 +136,8 @@ export interface AgentSystemPromptInspection {
   reminder: InspectedPromptZone
   diagnostics: ResolvedContextDiagnostics
   provenanceRecords: AgentCompilationProvenanceRecord[]
+  /** Task-invariant vs task-scoped split, present only when a task-scoped section rendered (T-09860). */
+  taskScoped?: ResolvedTaskScopedSplit | undefined
 }
 
 export function discoverContextTemplate(
@@ -203,6 +209,7 @@ export async function materializeSystemPrompt(
       maxChars: inspected.template.maxChars,
     }),
     ...diagnostics,
+    ...(inspected.taskScoped !== undefined ? { taskScoped: inspected.taskScoped } : {}),
   }
 }
 
@@ -236,6 +243,7 @@ export async function inspectAgentSystemPrompt(
       projectRoot: input.projectRoot,
       projectId: input.projectId,
       taskId: input.taskId,
+      ...(input.taskContext !== undefined ? { taskContext: input.taskContext } : {}),
       lane: input.lane,
       runMode: input.runMode,
       scaffoldPackets: input.scaffoldPackets,
@@ -284,6 +292,7 @@ export async function inspectAgentSystemPrompt(
     },
     diagnostics: resolved.diagnostics,
     provenanceRecords: discovered.provenanceRecords,
+    ...(resolved.taskScoped !== undefined ? { taskScoped: resolved.taskScoped } : {}),
   }
 }
 

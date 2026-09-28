@@ -7,7 +7,7 @@ import type {
 } from '@earendil-works/pi-coding-agent'
 import type { ResolvedAgentResourceSources, RunMode, RuntimePlacement } from 'spaces-config'
 import type { AgentSystemPromptInspection, ContextResolverContext } from 'spaces-runtime'
-import type { PiProviderModelCatalogEntry } from 'spaces-runtime-contracts'
+import type { HrcTaskContext, PiProviderModelCatalogEntry } from 'spaces-runtime-contracts'
 
 export interface LoadAgentOptions {
   agentId: string
@@ -36,6 +36,8 @@ export interface LoadAgentOptions {
    * the caller's process environment.
    */
   baseEnvironment?: NodeJS.ProcessEnv | undefined
+  /** Producer task context: typed task prompt facts only (T-09860). */
+  taskContext?: HrcTaskContext | undefined
   resolverContext?: ContextResolverContext | undefined
 }
 

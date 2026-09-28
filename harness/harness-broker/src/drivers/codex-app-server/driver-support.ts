@@ -498,7 +498,7 @@ export function buildThreadStartParams(
         ? { model_reasoning_effort: driver.modelReasoningEffort }
         : null,
     baseInstructions: null,
-    developerInstructions: null,
+    developerInstructions: driver.developerInstructions ?? null,
     experimentalRawEvents: false,
   }
 }

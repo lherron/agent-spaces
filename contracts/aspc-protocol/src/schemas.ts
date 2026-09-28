@@ -228,9 +228,20 @@ export function validateAspcInspectRuntimePlacementRequest(
     if (request) {
       validateOptionalStringRecord(request['dispatchEnv'], path(base, 'dispatchEnv'), issues)
       validatePreparationCorrelation(request['preparationCorrelation'], base, issues, false)
+      validateTaskContext(
+        request['preparationTaskContext'],
+        path(base, 'preparationTaskContext'),
+        issues
+      )
       rejectUnknownParams(
         request,
-        new Set(['schemaVersion', 'context', 'dispatchEnv', 'preparationCorrelation']),
+        new Set([
+          'schemaVersion',
+          'context',
+          'dispatchEnv',
+          'preparationCorrelation',
+          'preparationTaskContext',
+        ]),
         base,
         issues
       )
@@ -286,6 +297,30 @@ function validatePreparationEnvelope(
   }
   rejectUnknownParams(request, new Set(allowed), base, issues)
   return request
+}
+
+/** HRC task context (T-09860): typed task prompt facts only. */
+function validateTaskContext(value: unknown, base: string, issues: ValidationIssue[]): void {
+  if (value === undefined) return
+  const context = requireRecord(value, base, issues)
+  if (!context) return
+  requireString(context['taskId'], path(base, 'taskId'), issues)
+  if (!Object.hasOwn(context, 'phase')) {
+    issues.push(
+      issue(path(base, 'phase'), ISSUE_CODE.required, 'phase is required (string or null)')
+    )
+  } else if (context['phase'] !== null) {
+    requireString(context['phase'], path(base, 'phase'), issues)
+  }
+  requireString(context['role'], path(base, 'role'), issues)
+  requireStringArray(context['requiredEvidenceKinds'], path(base, 'requiredEvidenceKinds'), issues)
+  requireString(context['hintsText'], path(base, 'hintsText'), issues)
+  rejectUnknownParams(
+    context,
+    new Set(['taskId', 'phase', 'role', 'requiredEvidenceKinds', 'hintsText']),
+    base,
+    issues
+  )
 }
 
 function validatePreparationCorrelation(
@@ -365,12 +400,14 @@ const validatePrepareProcessParams: ParamsValidator = (value, base, issues) => {
       'dispatchEnv',
       'lockedEnv',
       'artifactDir',
+      'taskContext',
     ],
     ['context', 'preparationCorrelation', 'expected', 'launch']
   )
   if (!request) return
   validateRuntimeObservation(value, base, issues, 'aspc-prepare-process-invocation-request/v1')
   validatePreparationCorrelation(request['preparationCorrelation'], base, issues, true)
+  validateTaskContext(request['taskContext'], path(base, 'taskContext'), issues)
   const expected = requireRecord(request['expected'], path(base, 'expected'), issues)
   if (expected) {
     requireEnum(
@@ -456,9 +493,20 @@ const ASPC_PARAMS_VALIDATORS: Record<AspcMethod, ParamsValidator> = {
     if (request) {
       validateOptionalStringRecord(request['dispatchEnv'], path(base, 'dispatchEnv'), issues)
       validatePreparationCorrelation(request['preparationCorrelation'], base, issues, false)
+      validateTaskContext(
+        request['preparationTaskContext'],
+        path(base, 'preparationTaskContext'),
+        issues
+      )
       rejectUnknownParams(
         request,
-        new Set(['schemaVersion', 'context', 'dispatchEnv', 'preparationCorrelation']),
+        new Set([
+          'schemaVersion',
+          'context',
+          'dispatchEnv',
+          'preparationCorrelation',
+          'preparationTaskContext',
+        ]),
         base,
         issues
       )

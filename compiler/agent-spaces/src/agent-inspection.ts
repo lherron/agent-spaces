@@ -21,6 +21,7 @@ import {
   type AgentInspectionResult,
   type CompileDiagnostic,
   type HarnessId,
+  type HrcTaskContext,
   type RuntimeCompileRequest,
   type RuntimeCompileResponse,
   createCanonicalHasher,
@@ -165,6 +166,7 @@ export async function inspectRuntimePlacement(
         projectId: declaration['markerProjectId'] as string | undefined,
         taskId: context.taskId,
       },
+      taskContext: request['preparationTaskContext'] as HrcTaskContext | undefined,
     })
   } catch (error) {
     if (error instanceof PreparationContextMismatchError) {
@@ -610,20 +612,9 @@ function buildInspectionCompileRequest(
       reasoningEffort: request.declaredOverrides.reasoningEffort,
       presentation: request.identifiers.presentation,
     },
-    materialization: {
-      initialPrompt,
-      ...(request.identifiers.taskId !== undefined
-        ? {
-            taskContext: {
-              taskId: request.identifiers.taskId,
-              phase: null,
-              role: 'agent-inspection',
-              requiredEvidenceKinds: [],
-              hintsText: '',
-            },
-          }
-        : {}),
-    },
+    // No taskContext: inspection shows what a real launch with these inputs
+    // shows, and never synthesizes task metadata (T-09860).
+    materialization: { initialPrompt },
     hrcPolicy: {
       permissionPolicy: { mode: 'deny', audit: true },
       exposurePolicy: { mode: 'none' },

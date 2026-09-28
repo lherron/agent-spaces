@@ -676,6 +676,41 @@ function validateAgentHarnessSpec(value: unknown, prefix: string, issues: Valida
   optionalString(agent['runId'], joinPath(prefix, 'runId'), issues)
   optionalString(agent['hostSessionId'], joinPath(prefix, 'hostSessionId'), issues)
   optionalNumber(agent['generation'], joinPath(prefix, 'generation'), issues)
+  validateAgentHarnessTaskContext(agent['taskContext'], joinPath(prefix, 'taskContext'), issues)
+}
+
+function validateAgentHarnessTaskContext(
+  value: unknown,
+  prefix: string,
+  issues: ValidationIssue[]
+): void {
+  if (value === undefined) return
+  const context = asRecord(value)
+  if (!context) {
+    issues.push(makeIssue(prefix, 'invalid_type', 'taskContext must be an object'))
+    return
+  }
+  requireNonEmptyString(context['taskId'], joinPath(prefix, 'taskId'), issues)
+  if (context['phase'] !== null && typeof context['phase'] !== 'string') {
+    issues.push(
+      makeIssue(joinPath(prefix, 'phase'), 'invalid_type', 'phase must be a string or null')
+    )
+  }
+  for (const field of ['role', 'hintsText'] as const) {
+    if (typeof context[field] !== 'string') {
+      issues.push(makeIssue(joinPath(prefix, field), 'invalid_type', `${field} must be a string`))
+    }
+  }
+  const kinds = context['requiredEvidenceKinds']
+  if (!Array.isArray(kinds) || kinds.some((kind) => typeof kind !== 'string')) {
+    issues.push(
+      makeIssue(
+        joinPath(prefix, 'requiredEvidenceKinds'),
+        'invalid_type',
+        'requiredEvidenceKinds must be an array of strings'
+      )
+    )
+  }
 }
 
 function validateSdkContract(

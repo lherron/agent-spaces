@@ -10,6 +10,7 @@ import {
   resolveAgentResourceSources,
 } from 'spaces-config'
 import {
+  type HrcTaskContext,
   type PiProviderModelCatalogEntry,
   findPiProviderModelCatalogEntry,
 } from 'spaces-runtime-contracts'
@@ -44,6 +45,8 @@ export interface LoadAgentSemanticOptions {
   lockedEnv?: Record<string, string> | undefined
   dispatchEnv?: Record<string, string> | undefined
   baseEnvironment?: NodeJS.ProcessEnv | undefined
+  /** Producer task context: typed task prompt facts only (T-09860). */
+  taskContext?: HrcTaskContext | undefined
   resolverContext?: Parameters<typeof inspectAgentSystemPrompt>[0]['resolverContext'] | undefined
 }
 
@@ -119,6 +122,7 @@ export async function loadAgentSemantics(
       : {}),
     agentId: promptScope.agentId ?? options.agentId,
     ...(promptScope.taskId !== undefined ? { taskId: promptScope.taskId } : {}),
+    ...(options.taskContext !== undefined ? { taskContext: options.taskContext } : {}),
     ...(promptScope.lane !== undefined ? { lane: promptScope.lane } : {}),
     runMode: placement.runMode,
     env: sources.environment,

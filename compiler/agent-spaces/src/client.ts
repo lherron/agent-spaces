@@ -2,6 +2,7 @@ import { isAbsolute } from 'node:path'
 
 import { buildCodexAppServerLaunchDescriptor, isHarnessId } from 'spaces-config'
 import type { RuntimePlacement } from 'spaces-config'
+import type { HrcTaskContext } from 'spaces-runtime-contracts'
 import {
   toHarnessBrokerStartRequest,
   validateBrokerInvocationRequest,
@@ -27,6 +28,7 @@ import type { AgentSpacesClientOptions } from './placement-api.js'
 import { requireAgentSpacesRuntime } from './placement-api.js'
 import {
   PreparationContextMismatchError,
+  assertPreparationTaskContext,
   placementFromDeclaration,
   promptSourcesForDeclaration,
   resolvePreparationIdentity,
@@ -95,6 +97,8 @@ type PrepareProcessInvocationRequest = {
   dispatchEnv?: Record<string, string> | undefined
   lockedEnv?: Record<string, string> | undefined
   artifactDir?: string | undefined
+  /** Producer task context: typed task prompt facts only (T-09860). */
+  taskContext?: HrcTaskContext | undefined
 }
 
 type SuccessfulDeclaration = {
@@ -189,6 +193,7 @@ export function createAgentSpacesClient(
       }
       try {
         resolvePreparationIdentity(placement, identityHints)
+        assertPreparationTaskContext(placement, req.taskContext)
       } catch (error) {
         if (error instanceof PreparationContextMismatchError) {
           return {
@@ -222,8 +227,9 @@ export function createAgentSpacesClient(
           ...(req.artifactDir !== undefined ? { artifactDir: req.artifactDir } : {}),
           promptSources: promptSourcesForDeclaration(resolved.agentSources),
           identityHints,
+          ...(req.taskContext !== undefined ? { taskContext: req.taskContext } : {}),
         } as unknown as BuildProcessInvocationSpecRequest &
-          Pick<PreparePlacementCliRuntimeRequest, 'promptSources' | 'identityHints'>
+          Pick<PreparePlacementCliRuntimeRequest, 'promptSources' | 'identityHints' | 'taskContext'>
         const prepared = await preparePlacementCliRuntime(
           invocationRequest,
           clientAspHome,

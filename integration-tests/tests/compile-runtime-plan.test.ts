@@ -342,6 +342,14 @@ describe('v2 runtime compile plan', () => {
       namespace: 'correlation-mechanics-b',
       scopeRef: 'agent:cody:project:agent-spaces:task:T-99999',
       laneRef: 'main',
+      // The producer's taskContext must name the scope's task (T-09860).
+      taskContext: {
+        taskId: 'T-99999',
+        phase: 'v2-integration',
+        role: 'test',
+        requiredEvidenceKinds: ['contract-artifacts'],
+        hintsText: 'v2 compile integration fixture',
+      },
     })
     expect(first.ok).toBe(true)
     expect(second.ok).toBe(true)
@@ -354,6 +362,24 @@ describe('v2 runtime compile plan', () => {
       scopeRef: 'agent:cody:project:agent-spaces:task:T-99999',
       laneRef: 'main',
     })
+  })
+
+  test('refuses a taskContext naming a different task than the scope before materializing (T-09860)', async () => {
+    const value = fixture()
+    const result = await compileV2(value, {
+      harness: 'codex' as const,
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+      namespace: 'task-context-mismatch',
+      scopeRef: 'agent:cody:project:agent-spaces:task:T-99999',
+      laneRef: 'main',
+    })
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      'configured_context_mismatch',
+    ])
   })
 
   test('retains requested reasoning effort as selection data without exposing a selectable driver', async () => {

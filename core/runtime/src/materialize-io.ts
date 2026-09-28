@@ -12,6 +12,13 @@ export interface MaterializeResult {
   reminderSectionSizes?: string[] | undefined
   totalContextChars?: number | undefined
   nearMaxChars?: boolean | undefined
+  /**
+   * Task-invariant vs task-scoped split (T-09860). The materialized file keeps
+   * the full content; shared-home harnesses use the split instead.
+   */
+  taskScoped?:
+    | { content: string; prompt: string | undefined; reminder: string | undefined }
+    | undefined
 }
 
 const SYSTEM_PROMPT_FILENAME = 'system-prompt.md'

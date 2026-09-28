@@ -32,7 +32,8 @@ export type V2CompileOptions = {
   attachments?: RuntimeCompileRequest['materialization']['attachments'] | undefined
   omitPriming?: boolean | undefined
   responseFormat?: RuntimeCompileRequest['materialization']['responseFormat'] | undefined
-  taskContext?: RuntimeCompileRequest['materialization']['taskContext'] | undefined
+  /** `null` sends no taskContext (T-09860); undefined uses the fixture default. */
+  taskContext?: RuntimeCompileRequest['materialization']['taskContext'] | null | undefined
   permissionPolicy?: RuntimeCompileRequest['hrcPolicy']['permissionPolicy'] | undefined
   inputPolicy?: RuntimeCompileRequest['hrcPolicy']['inputPolicy'] | undefined
   exposurePolicy?: RuntimeCompileRequest['hrcPolicy']['exposurePolicy'] | undefined
@@ -140,13 +141,17 @@ export function buildV2CompileRequest(
       ...(options.attachments === undefined ? {} : { attachments: options.attachments }),
       ...(options.omitPriming === undefined ? {} : { omitPriming: options.omitPriming }),
       ...(options.responseFormat === undefined ? {} : { responseFormat: options.responseFormat }),
-      taskContext: options.taskContext ?? {
-        taskId: 'T-08704',
-        phase: 'v2-integration',
-        role: 'test',
-        requiredEvidenceKinds: ['contract-artifacts'],
-        hintsText: 'v2 compile integration fixture',
-      },
+      ...(options.taskContext === null
+        ? {}
+        : {
+            taskContext: options.taskContext ?? {
+              taskId: 'T-08704',
+              phase: 'v2-integration',
+              role: 'test',
+              requiredEvidenceKinds: ['contract-artifacts'],
+              hintsText: 'v2 compile integration fixture',
+            },
+          }),
     },
     hrcPolicy: {
       permissionPolicy: options.permissionPolicy ?? { mode: 'deny', audit: true },
