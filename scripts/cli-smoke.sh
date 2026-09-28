@@ -16,15 +16,13 @@ if [[ -f "$ENV_LOCAL" ]]; then
   set +a
 fi
 
-: "${WRKQ_DB_PATH:=/Users/lherron/praesidium/var/db/wrkq.db}"
-: "${WRKQ_ACTOR:=local-human}"
 : "${ASP_PROJECT:=agent-spaces}"
 : "${ASP_HOME:=/Users/lherron/praesidium/var/spaces-repo}"
 : "${ASP_ROOT_DIR:=/Users/lherron/praesidium/var/spaces-repo}"
 
 ASP_BIN="${ASP_BIN:-asp}"
 
-ENV_PREFIX="WRKQ_DB_PATH=$WRKQ_DB_PATH WRKQ_ACTOR=$WRKQ_ACTOR ASP_PROJECT=$ASP_PROJECT ASP_HOME=$ASP_HOME ASP_ROOT_DIR=$ASP_ROOT_DIR"
+ENV_PREFIX="ASP_PROJECT=$ASP_PROJECT ASP_HOME=$ASP_HOME ASP_ROOT_DIR=$ASP_ROOT_DIR"
 
 PASS_COUNT=0
 FAIL_COUNT=0
