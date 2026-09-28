@@ -1,5 +1,7 @@
 # Development Rules
 
+> Vendored from upstream pi-mono (`github.com/earendil-works/pi`). Repo paths below such as `packages/ai/...` are relative to a pi-mono checkout, not to agent-spaces.
+
 ## First Message
 If the user did not give you a concrete task in their first message,
 read README.md, then ask which module(s) to work on. Based on the answer, read the relevant README.md files in parallel.
@@ -102,9 +104,19 @@ Create provider file exporting:
 - Map to standardized `Model` interface
 
 ### 5. Tests (`packages/ai/test/`)
-Add provider to: `stream.test.ts`, `tokens.test.ts`, `abort.test.ts`, `empty.test.ts`, `context-overflow.test.ts`, `image-limits.test.ts`, `unicode-surrogate.test.ts`, `tool-call-without-result.test.ts`, `image-tool-result.test.ts`, `total-tokens.test.ts`
+Add provider to these upstream pi-mono suites (paths relative to the pi-mono repo root, not this repo):
+- `packages/ai/test/stream.test.ts`
+- `packages/ai/test/tokens.test.ts`
+- `packages/ai/test/abort.test.ts`
+- `packages/ai/test/empty.test.ts`
+- `packages/ai/test/context-overflow.test.ts`
+- `packages/ai/test/image-limits.test.ts`
+- `packages/ai/test/unicode-surrogate.test.ts`
+- `packages/ai/test/tool-call-without-result.test.ts`
+- `packages/ai/test/image-tool-result.test.ts`
+- `packages/ai/test/total-tokens.test.ts`
 
-For non-standard auth, create utility (e.g., `bedrock-utils.ts`) with credential detection.
+For non-standard auth, create a credential-detection utility alongside the provider (e.g., upstream's Bedrock helper, `packages/ai/src/providers/bedrock-utils.ts` in pi-mono; the name is illustrative, not a file in this repo).
 
 ### 6. Coding Agent (`packages/coding-agent/`)
 - `src/core/model-resolver.ts`: Add default model ID to `DEFAULT_MODELS`
