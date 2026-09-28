@@ -177,7 +177,7 @@ describe('mapMuseNotification', () => {
   })
 })
 
-describe('muse wire vocabulary coverage (1.3.0 R3401.1 export)', () => {
+describe('muse wire vocabulary coverage (1.4.0 R4302.1 export)', () => {
   const mapped = [
     'turn/started',
     'turn/completed',
@@ -201,6 +201,8 @@ describe('muse wire vocabulary coverage (1.3.0 R3401.1 export)', () => {
     'session/modelChanged',
     'session/modelRouteUnserved',
     'session/listChanged',
+    'session/closed',
+    'session/deleteCompleted',
     'session/nameChanged',
     'session/reasoningEffortChanged',
     'session/todoListChanged',
@@ -220,6 +222,7 @@ describe('muse wire vocabulary coverage (1.3.0 R3401.1 export)', () => {
     'session/start',
     'session/resume',
     'session/compact',
+    'session/delete',
     'session/fork',
     'session/list',
     'session/read',
@@ -279,8 +282,11 @@ describe('muse wire vocabulary coverage (1.3.0 R3401.1 export)', () => {
       'item/updated',
       'session/approvalModeChanged',
       'session/branchChanged',
+      'session/closed',
       'session/contextUsage',
+      'session/deleteCompleted',
       'session/goalChanged',
+      'session/listChanged',
       'session/modelChanged',
       'session/modelRouteUnserved',
       'session/nameChanged',

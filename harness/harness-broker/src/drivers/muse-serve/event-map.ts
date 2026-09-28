@@ -1,16 +1,16 @@
 /**
  * MSP notification → broker event mapping (T-08589, spike 3).
  *
- * Every method name below is schema- or probe-verified against muse 1.3.0
- * R3401.1 (offline schema export fingerprint
- * sha256:7469c9e352e67def4a59df7e439984d7194fa351e1c8b7abb34060fd977ced81
+ * Every method name below is schema- or probe-verified against muse 1.4.0
+ * R4302.1 (offline schema export fingerprint
+ * sha256:99a7458c70a670dda3dda45512bdd1e270aba156f46a1324515de45dce95a658
  * plus credential-free echo-turn probes). turn/completed terminal vocabulary
  * (completed|failed|cancelled), the authRequired failure shape, and the
  * commandRejected/missing_run fence were all OBSERVED live; assistant
  * delta shapes beyond userMessage are schema-derived and marked
  * accordingly — the MATRIX model row promotes them to observed. toolCall
  * turn-item fields (tool, callId, args, visibleOutput, failureReason) are
- * verified against the 1.3.0 schema export.
+ * verified against the 1.4.0 schema export.
  */
 import type {
   InputId,
@@ -67,6 +67,9 @@ const IGNORED_KNOWN_METHODS = new Set([
   'session/reasoningEffortChanged',
   'session/todoListChanged',
   'session/viewHealthChanged',
+  'session/listChanged',
+  'session/closed',
+  'session/deleteCompleted',
   'skill/changed',
   'approval/requested',
   'approval/updated',
