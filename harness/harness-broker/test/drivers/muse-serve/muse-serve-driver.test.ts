@@ -22,6 +22,7 @@ import { deliveryEvidenceOf } from '../../../src/drivers/driver'
 import { postEnvelope } from '../../../src/drivers/hook-bridge-transport'
 import { MUSE_CAPABILITIES } from '../../../src/drivers/muse-serve/capabilities'
 import { createMuseServeDriver } from '../../../src/drivers/muse-serve/driver'
+import { MSP_LAST_VERIFIED_SCHEMA_FINGERPRINT } from '../../../src/drivers/muse-serve/schema-surface'
 
 const root = new URL('../../..', import.meta.url).pathname
 const fixture = join(root, 'test/fixtures/fake-muse/serve.ts')
@@ -37,7 +38,7 @@ const scenarioSpec = (
   harness: { frontend: 'muse-cli', provider: 'meta', driver: 'muse-serve' },
   process: {
     command: process.execPath,
-    args: [fixture, scenario],
+    args: [fixture, scenario, 'serve'],
     cwd: process.cwd(),
     harnessTransport: { kind: 'jsonrpc-stdio' },
     limits: { startupTimeoutMs: 5000, turnTimeoutMs: 10000, stopGraceMs: 500 },
@@ -293,10 +294,61 @@ describe('muse-serve driver', () => {
     await broker.stop({ invocationId: 'inv_muse_interrupt' })
   })
 
-  test('rejects startup on schema fingerprint mismatch', async () => {
+  test('the last-verified schema starts with no drift warning', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createMuseServeDriver()],
+      onEvent: (event) => events.push(event),
+      now,
+    })
+    const spec = scenarioSpec('ok', 'inv_muse_schema_ok')
+    await broker.start({ spec })
+    const drift = events.filter(
+      (event) =>
+        event.type === 'diagnostic' && String(event.payload.message).includes('schema drift')
+    )
+    expect(drift).toHaveLength(0)
+    await broker.stop({ invocationId: 'inv_muse_schema_ok' })
+  })
+
+  test('compatible schema drift starts and warns exactly once per start', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createMuseServeDriver()],
+      onEvent: (event) => events.push(event),
+      now,
+    })
+    const spec = scenarioSpec('drift-compatible', 'inv_muse_drift')
+    await broker.start({ spec })
+    const drift = events.filter(
+      (event) =>
+        event.type === 'diagnostic' && String(event.payload.message).includes('schema drift')
+    )
+    expect(drift).toHaveLength(1)
+    expect(drift[0]?.payload).toMatchObject({ level: 'warn' })
+    expect(String(drift[0]?.payload.message)).toContain(`sha256:${'a'.repeat(64)}`)
+    expect(String(drift[0]?.payload.message)).toContain(MSP_LAST_VERIFIED_SCHEMA_FINGERPRINT)
+    await broker.stop({ invocationId: 'inv_muse_drift' })
+  })
+
+  test('refuses startup when the installed schema drops a driver-used method', async () => {
     const broker = createBroker({ drivers: [createMuseServeDriver()], now })
-    const spec = scenarioSpec('bad-fingerprint', 'inv_muse_badfp')
-    await expect(broker.start({ spec })).rejects.toThrow('fingerprint mismatch')
+    const spec = scenarioSpec('drift-incompatible', 'inv_muse_incompat')
+    await expect(broker.start({ spec })).rejects.toThrow(
+      'method turn/start was removed (the driver calls it)'
+    )
+  })
+
+  test('refuses startup when the schema export belongs to another binary', async () => {
+    const broker = createBroker({ drivers: [createMuseServeDriver()], now })
+    const spec = scenarioSpec('export-mismatch', 'inv_muse_export_mismatch')
+    await expect(broker.start({ spec })).rejects.toThrow('does not match the served')
+  })
+
+  test('refuses startup when the drifted schema cannot be exported', async () => {
+    const broker = createBroker({ drivers: [createMuseServeDriver()], now })
+    const spec = scenarioSpec('export-fails', 'inv_muse_export_fails')
+    await expect(broker.start({ spec })).rejects.toThrow('cannot verify schema sha256:dddd')
   })
 
   test('fails closed before invocation readiness when the renderer never acknowledges startup', async () => {

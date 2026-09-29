@@ -9,9 +9,9 @@
  * Lifecycle: validate kind → prepare isolated HOME (prepare-home.ts) → spawn
  * with HOME/XDG overrides (isolated HOME is mandatory and cannot ride
  * lockedEnv — HOME is ambient-class, so the driver spawns directly with
- * buildProcessEnv composition plus the HOME override) → initialize
- * (fingerprint-checked) → initialized → session/start|resume → turn/start per
- * input (broker owns queueing; never ifBusy) → turn/steer with the
+ * buildProcessEnv composition plus the HOME override) → initialize (structural
+ * schema gate, schema-compat.ts) → initialized → session/start|resume →
+ * turn/start per input (broker owns queueing; never ifBusy) → turn/steer with the
  * expectedTurnId fence (an accepted steer absorbed after a native turn roll
  * re-arms to the absorbing turn instead of failing) → turn/interrupt for
  * broker interrupt.
@@ -82,21 +82,10 @@ import type { PermissionRequestIdAllocator } from './permissions'
 import { buildMuseRendererLaunchCommand, resolveMuseRendererLauncher } from './renderer'
 import { MuseRpcClient } from './rpc-client'
 import type { MuseJsonRpcNotification, MuseJsonRpcRequest, MuseRpcPeer } from './rpc-client'
+import { exportMuseSchema, gateMuseSchema } from './schema-compat'
+import type { MuseSchemaGateOutcome } from './schema-compat'
 
 export const MUSE_SERVE_DRIVER_VERSION = '0.1.0'
-
-/**
- * Stable-surface fingerprint from the committed schema export
- * (`muse schema generate-json-schema`, muse 1.4.1 R4503.1). initialize results
- * carrying any other fingerprint fail startup — the SDK
- * checkServedFingerprint precedent. R4503.1 is additive over R4302.1: no new
- * methods or notifications; optional workspaceRoots on session/start and
- * turn/start (omitted keeps single-root behavior), optional reasoning-effort
- * fields on model catalog rows, and turnId descriptions. Everything the
- * driver uses is unchanged.
- */
-export const MSP_SCHEMA_FINGERPRINT =
-  'sha256:e0e163db6ccf00dbe68402ce55d6319b3edc33c421f31e9583b587b2de8a118f'
 
 export interface MuseServeDriverOptions {
   /** Base dir for per-invocation isolated HOMEs. */
@@ -656,17 +645,29 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
     return undefined
   }
 
-  function validateInitializeHandshake(result: unknown): void {
-    const record = (result ?? {}) as Record<string, unknown>
+  /**
+   * Structural schema gate (T-09879): refuse startup only when the installed
+   * muse's schema breaks the driver-used surface (schema-surface.ts); any
+   * other drift from the last-verified export warns once per start.
+   */
+  async function gateInstalledSchema(
+    initializeResult: unknown,
+    exportCommand: { command: string; serveArgs: readonly string[]; env: NodeJS.ProcessEnv }
+  ): Promise<void> {
+    const record = (initializeResult ?? {}) as Record<string, unknown>
     const schema = record['schema'] as Record<string, unknown> | undefined
     const fingerprint =
       typeof schema?.['fingerprint'] === 'string' ? schema['fingerprint'] : undefined
-    if (fingerprint !== MSP_SCHEMA_FINGERPRINT) {
+    let outcome: MuseSchemaGateOutcome
+    try {
+      outcome = await gateMuseSchema(fingerprint, () => exportMuseSchema(exportCommand))
+    } catch (error) {
       throw new BrokerError(
         BrokerCodes.HarnessError,
-        `muse-serve schema fingerprint mismatch: expected ${MSP_SCHEMA_FINGERPRINT}, got ${fingerprint ?? 'absent'}`
+        error instanceof Error ? error.message : String(error)
       )
     }
+    if (outcome.kind === 'compatible-drift') emitDiagnostic('warn', outcome.warning)
   }
 
   return {
@@ -824,7 +825,13 @@ export function createMuseServeDriver(options: MuseServeDriverOptions = {}): Dri
             clientInfo: { name: 'harness_broker', version: MUSE_SERVE_DRIVER_VERSION },
           })
         )
-        validateInitializeHandshake(initializeResult)
+        await withStartupRace(
+          gateInstalledSchema(initializeResult, {
+            command,
+            serveArgs: startSpec.process.args,
+            env,
+          })
+        )
         armStartupTimer()
         await withStartupRace((rpc as MuseRpcPeer).sendNotification('initialized', {}))
 

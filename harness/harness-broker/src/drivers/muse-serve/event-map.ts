@@ -21,6 +21,7 @@ import type {
   TurnId,
 } from 'spaces-harness-broker-protocol'
 import type { MuseJsonRpcNotification } from './rpc-client'
+import { MUSE_DRIVER_SCHEMA_SURFACE } from './schema-surface'
 
 export const MUSE_DRIVER_KIND = 'muse-serve'
 
@@ -40,19 +41,8 @@ export type MappedEvent = {
 
 export type MuseMethodClass = 'mapped' | 'ignored-known' | 'unknown'
 
-const MAPPED_METHODS = new Set([
-  'turn/started',
-  'turn/completed',
-  'turn/retracted',
-  'item/started',
-  'item/delta',
-  'item/updated',
-  'item/completed',
-  'session/tokenUsage',
-  'usage/changed',
-  'session/contextUsage',
-  'view/gap',
-])
+/** Notifications this map handles: the driver-used surface's declaration. */
+const MAPPED_METHODS = new Set(Object.keys(MUSE_DRIVER_SCHEMA_SURFACE.notifications))
 
 const IGNORED_KNOWN_METHODS = new Set([
   'initialized',

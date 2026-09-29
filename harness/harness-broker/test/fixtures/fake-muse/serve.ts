@@ -8,17 +8,60 @@
  * - long: turn stays running until turn/interrupt (→ cancelled) or turn/cancel.
  * - approve: turn opens an approval/request; the decided choiceId is echoed in
  *   the closing agentMessage text, then the turn completes.
- * - bad-fingerprint: initialize answers a non-matching schema fingerprint.
+ * - drift-compatible: serves a fingerprint other than last-verified; the
+ *   schema export is the real 1.4.1 bundle (compatible drift → one warning).
+ * - drift-incompatible: as above, but the export drops turn/start.
+ * - export-mismatch: the export's manifest fingerprint differs from the served one.
+ * - export-fails: `schema generate-json-schema` exits nonzero.
  * - steer-roll: like long, but turn/steer absorbs into a rolled turn and
  *   reports the absorbing turn id with no prior turn/started notification.
  */
-import { MSP_SCHEMA_FINGERPRINT } from '../../../src/drivers/muse-serve/driver'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { MSP_LAST_VERIFIED_SCHEMA_FINGERPRINT } from '../../../src/drivers/muse-serve/schema-surface'
 
 process.on('SIGTERM', () => {
   process.exit(0)
 })
 
 const scenario = process.argv[2] ?? 'ok'
+
+const DRIFT_FINGERPRINTS: Record<string, string> = {
+  'drift-compatible': `sha256:${'a'.repeat(64)}`,
+  'drift-incompatible': `sha256:${'b'.repeat(64)}`,
+  'export-mismatch': `sha256:${'c'.repeat(64)}`,
+  'export-fails': `sha256:${'d'.repeat(64)}`,
+}
+const servedFingerprint = DRIFT_FINGERPRINTS[scenario] ?? MSP_LAST_VERIFIED_SCHEMA_FINGERPRINT
+
+// `<fixture> <scenario> schema generate-json-schema --out DIR`: the driver's
+// schema export, derived from the `<fixture> <scenario> serve` command line.
+if (process.argv[3] === 'schema') {
+  if (scenario === 'export-fails') {
+    process.stderr.write('fake-muse: schema export unavailable\n')
+    process.exit(2)
+  }
+  const outDir = process.argv[process.argv.indexOf('--out') + 1] as string
+  const bundle = JSON.parse(
+    new TextDecoder().decode(
+      Bun.gunzipSync(
+        readFileSync(join(import.meta.dir, '../muse-schema/msp-1.4.1-R4503.1.schema.json.gz'))
+      )
+    )
+  ) as { methods: Record<string, unknown> }
+  if (scenario === 'drift-incompatible') Reflect.deleteProperty(bundle.methods, 'turn/start')
+  mkdirSync(outDir, { recursive: true })
+  writeFileSync(join(outDir, 'msp.schema.json'), JSON.stringify(bundle))
+  writeFileSync(
+    join(outDir, 'manifest.json'),
+    JSON.stringify({
+      experimental: false,
+      fingerprint: scenario === 'export-mismatch' ? `sha256:${'e'.repeat(64)}` : servedFingerprint,
+      schemaVersion: 1,
+    })
+  )
+  process.exit(0)
+}
 
 interface RpcMessage {
   jsonrpc: '2.0'
@@ -156,7 +199,7 @@ async function handle(message: RpcMessage): Promise<void> {
         platformOs: 'macos',
         schema: {
           version: 1,
-          fingerprint: scenario === 'bad-fingerprint' ? 'sha256:deadbeef' : MSP_SCHEMA_FINGERPRINT,
+          fingerprint: servedFingerprint,
         },
         grantedCapabilities: [],
         experimentalApi: false,

@@ -3,8 +3,9 @@
  * Muse-serve credential-free contract certification (T-08592, campaign P-00522).
  *
  * No-creds contract check against the REAL `muse serve` binary (MSP over
- * stdio) under a disposable HOME: initialize fingerprint gate, session/start,
- * echo turn lifecycle, steer/cancel fences, and wire-vocabulary discipline.
+ * stdio) under a disposable HOME: the driver's structural schema gate
+ * (T-09879), session/start, echo turn lifecycle, steer/cancel fences, and
+ * wire-vocabulary discipline.
  * Model-calling turns are OUT OF SCOPE here (they need credentials and run in
  * the ghostmux HRC e2e, T-08595) — this row asserts the no-creds expectation
  * explicitly: the turn MUST settle terminal=failed with error.kind from the
@@ -20,45 +21,18 @@ import { spawn } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { classifyMuseNotificationMethod } from '../harness/harness-broker/src/drivers/muse-serve/event-map'
+import {
+  exportMuseSchema,
+  gateMuseSchema,
+} from '../harness/harness-broker/src/drivers/muse-serve/schema-compat'
 
-const EXPECTED_FINGERPRINT =
-  'sha256:e0e163db6ccf00dbe68402ce55d6319b3edc33c421f31e9583b587b2de8a118f'
-
-// NOTE: session/started is emitted on the real wire (session/start opens with
-// it) but is absent from the `muse schema` notification index — an export gap
-// recorded as a T-08592 finding, not a vocabulary violation.
-const KNOWN_NOTIFICATIONS = new Set([
-  'initialized',
-  'session/started',
-  'approval/requested',
-  'approval/resolved',
-  'approval/updated',
-  'item/completed',
-  'item/delta',
-  'item/started',
-  'item/updated',
-  'session/approvalModeChanged',
-  'session/branchChanged',
-  'session/contextUsage',
-  'session/goalChanged',
-  'session/modelChanged',
-  'session/nameChanged',
-  'session/reasoningEffortChanged',
-  'session/statusChanged',
-  'session/todoListChanged',
-  'session/tokenUsage',
-  'session/viewHealthChanged',
-  'skill/changed',
-  'turn/completed',
-  'turn/retracted',
-  'turn/retryScheduled',
-  'turn/started',
-  'turn/unqueued',
-  'usage/changed',
-  'userInput/requested',
-  'userInput/settled',
-  'view/gap',
-])
+// The schema check is the driver's own gate: it refuses only schema changes
+// that break the driver-used surface, and newer compatible releases pass with
+// a WARN line naming the drift. The wire-vocabulary check uses the driver's
+// notification classification. session/started is emitted on the real wire
+// but is absent from the `muse schema` notification index (a T-08592 export
+// gap), and the driver classifies it as ignored-known.
 
 interface Check {
   name: string
@@ -176,11 +150,24 @@ async function main(): Promise<void> {
     const result = (init['result'] ?? {}) as Record<string, unknown>
     const schema = (result['schema'] ?? {}) as Record<string, unknown>
     check('initialize accepted', true)
-    check(
-      'schema fingerprint matches committed export',
-      schema['fingerprint'] === EXPECTED_FINGERPRINT,
-      String(schema['fingerprint'] ?? 'absent')
-    )
+    const served = typeof schema['fingerprint'] === 'string' ? schema['fingerprint'] : undefined
+    try {
+      const gate = await gateMuseSchema(served, () =>
+        exportMuseSchema({ command: bin, serveArgs: ['serve'], env })
+      )
+      if (gate.kind === 'compatible-drift') console.log(`WARN ${gate.warning}`)
+      check(
+        'schema compatible with the driver-used surface',
+        true,
+        gate.kind === 'last-verified' ? `last-verified ${served}` : `compatible drift ${served}`
+      )
+    } catch (error) {
+      check(
+        'schema compatible with the driver-used surface',
+        false,
+        error instanceof Error ? error.message : String(error)
+      )
+    }
     child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'initialized' })}\n`)
     await new Promise((resolve) => setTimeout(resolve, 500))
 
@@ -287,9 +274,11 @@ async function main(): Promise<void> {
       )
     )
 
-    const unknown = notifications.filter((n) => !KNOWN_NOTIFICATIONS.has(n.method))
+    const unknown = notifications.filter(
+      (n) => classifyMuseNotificationMethod(n.method) === 'unknown'
+    )
     check(
-      'wire vocabulary stays within the 1.4.1 export',
+      'wire vocabulary stays within what the driver classifies',
       unknown.length === 0,
       unknown.map((n) => n.method).join(',') || undefined
     )
