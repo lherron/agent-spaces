@@ -16,6 +16,13 @@ package set to the producer's loopback Verdaccio; and synchronizes the one
 consumer that follows `latest` — **hrc-runtime** — unless `no-sync=1` is passed.
 All packages in a published ASP set must share the same version.
 
+If the system namespace at `../var/aspd` is configured, a main-checkout
+`just install` also builds and installs an immutable ASP release, activates
+it through `aspd-activate` (restarting the service), and verifies that the
+serving source commit matches the installed checkout. Linked worktrees never
+activate the system aspd. Run this service-affecting install through Mable's
+primary seat, or as Lance.
+
 That sync runs `just pull-deps` and `bun run build` in hrc-runtime, so expect it
 to advance and **commit `bun.lock` in that repo** — an install here leaves a
 commit to push there. It does not select or publish an HRC release: the HRC

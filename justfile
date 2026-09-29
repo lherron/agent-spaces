@@ -380,6 +380,24 @@ install no-sync="" force-sync="" force-link="":
       wait $link_pid
     done
 
+    # HRC compiles through the system aspd, not the linked CLI. Activate the
+    # immutable release from this install so profiles and compiler stay aligned.
+    # Worktree installs must never replace the system compiler service.
+    aspd_namespace="$repo_root/../var/aspd"
+    if [ "$PRAESIDIUM_INSTALL_CONTEXT" = "main" ] && [ -f "$aspd_namespace/service/config.json" ]; then
+      echo "[install] building and activating system aspd in $aspd_namespace"
+      aspd_build_root="${ASP_RELEASE_BUILD_ROOT:-$HOME/.local/state/praesidium/asp-release-builds}"
+      aspd_build_report="$(bun scripts/asp-release.ts build --output-root "$aspd_build_root")"
+      aspd_artifact="$(bun -e 'console.log(JSON.parse(await Bun.stdin.text()).releasePath)' <<< "$aspd_build_report")"
+      aspd_release_id="$(bun -e 'console.log(JSON.parse(await Bun.stdin.text()).releaseId)' <<< "$aspd_build_report")"
+      just install-asp-release "$aspd_artifact" "$aspd_namespace/releases"
+      just aspd-activate "$aspd_namespace" "$aspd_release_id"
+      aspd_status="$(bun scripts/aspd-service.ts status "$aspd_namespace")"
+      bun -e 'const s = JSON.parse(await Bun.stdin.text()); if (!s.runningEqualsSelected || s.serving?.release?.sourceCommit !== process.argv[1]) throw new Error("system aspd did not activate the installed source commit"); console.log("[install] system aspd serving " + s.serving.release.sourceCommit)' "$(git rev-parse HEAD)" <<< "$aspd_status"
+    else
+      echo "[install] skipping system aspd activation (context=$PRAESIDIUM_INSTALL_CONTEXT; namespace=$aspd_namespace)"
+    fi
+
 # ACP is deliberately NOT synced here. It pins ASP/HRC as operator-managed
 # producer tuples and advances them only through its own governed
 # `just advance-producers` inside a coordinated deployment window; its

@@ -11,6 +11,13 @@ independent `modelProvider`, `model`, `reasoningEffort`, and boolean
 `presentation` inputs. The default harness is `agent-harness` and the default
 presentation is `true`.
 
+On a main checkout with the system namespace at `../var/aspd` configured,
+`just install` builds and installs a new immutable release, activates it on
+the system socket, and checks that the running service reports the checkout's
+source commit. This service-affecting install runs under Mable primary or
+Lance's authority. Worktree installs leave the system service alone. The
+explicit namespace recipes below remain available for isolated deployments.
+
 ASPC validates the envelope and invokes the compiler; it owns no route catalog,
 profile selector, or driver selector. The compiler catalog is the sole authority
 that resolves harness and presentation to a recipe, frozen driver, transport,
