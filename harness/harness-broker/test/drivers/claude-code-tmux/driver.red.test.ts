@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { EventEmitter } from 'node:events'
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
@@ -1010,7 +1010,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     const secondTranscript = join(root, 'second.jsonl')
     writeFileSync(secondTranscript, '')
     const hookSocket = '/tmp/harness-broker/claude-hooks.sock'
-    let watchCalls = 0
+    const watchers: Array<EventEmitter & { close: () => void }> = []
     const driver = createDriver({
       tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
       hooks: {
@@ -1019,9 +1019,12 @@ describe('claude-code-tmux driver RED lifecycle', () => {
           return { socketPath: hookSocket, close: async () => undefined }
         },
       },
-      watchTranscript: (path, options, listener) => {
-        watchCalls += 1
-        return watch(path, options, listener)
+      watchTranscript: (_path, _options, listener) => {
+        const watcher = new EventEmitter() as EventEmitter & { close: () => void }
+        watcher.close = () => watcher.removeAllListeners()
+        watcher.on('change', listener)
+        watchers.push(watcher)
+        return watcher
       },
       now,
     })
@@ -1041,7 +1044,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       // MTJE0CA6: SessionStart names the eventual path before Claude creates
       // it. Absence is an expected lazy-arm state, never a warning.
       expect(events.filter((event) => event.type === 'capture.warning')).toHaveLength(0)
-      expect(watchCalls).toBe(0)
+      expect(watchers).toHaveLength(0)
       writeFileSync(firstTranscript, '')
       await hookHandler?.({
         invocationId: 'inv_claude_tmux_1',
@@ -1050,12 +1053,12 @@ describe('claude-code-tmux driver RED lifecycle', () => {
         turnId: 'turn_7ec78cf3',
         hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'long tool turn' },
       })
-      expect(watchCalls).toBe(1)
+      expect(watchers).toHaveLength(1)
 
       // Exact native SHAPES from 7ec78cf3 rows 153-154: Claude writes the
       // rejected tool result and interrupt marker after PreToolUse, then emits
-      // no later hook. The fs.watch notification must therefore be sufficient
-      // to surface the truthful terminal.
+      // no later hook. Deliver the file-change notification explicitly so the
+      // test exercises that intake without depending on OS watcher scheduling.
       appendFileSync(
         firstTranscript,
         `${[
@@ -1086,6 +1089,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
           .map((row) => JSON.stringify(row))
           .join('\n')}\n`
       )
+      watchers[0]?.emit('change')
 
       await waitFor(
         () =>
@@ -1104,6 +1108,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
         firstTranscript,
         `${JSON.stringify({ type: 'user', message: { role: 'user', content: 'preempt after watch' } })}\n`
       )
+      watchers[0]?.emit('change')
       await waitFor(
         () =>
           events.some(
@@ -1138,6 +1143,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
         firstTranscript,
         `${JSON.stringify({ type: 'user', message: { role: 'user', content: 'watch hook race' } })}\n`
       )
+      watchers[0]?.emit('change')
       await hookHandler?.({
         invocationId: 'inv_claude_tmux_1',
         generation: 1,
@@ -1169,6 +1175,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       })
 
       await sessionStart(secondTranscript)
+      expect(watchers).toHaveLength(2)
       const retargeted = await driver.applyInputNow({
         inputId: 'input_retargeted_watch',
         kind: 'user',
@@ -1178,6 +1185,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
         secondTranscript,
         `${JSON.stringify({ type: 'user', message: { role: 'user', content: 'retargeted watch' } })}\n`
       )
+      watchers[1]?.emit('change')
       await waitFor(
         () =>
           events.some(
