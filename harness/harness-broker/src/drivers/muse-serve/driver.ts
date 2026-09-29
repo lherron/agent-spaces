@@ -87,14 +87,16 @@ export const MUSE_SERVE_DRIVER_VERSION = '0.1.0'
 
 /**
  * Stable-surface fingerprint from the committed schema export
- * (`muse schema generate-json-schema`, muse 1.4.0 R4302.1). initialize results
+ * (`muse schema generate-json-schema`, muse 1.4.1 R4503.1). initialize results
  * carrying any other fingerprint fail startup — the SDK
- * checkServedFingerprint precedent. R4302.1 is additive over R3401.1
- * (session/delete; session/closed, session/deleteCompleted); everything the
+ * checkServedFingerprint precedent. R4503.1 is additive over R4302.1: no new
+ * methods or notifications; optional workspaceRoots on session/start and
+ * turn/start (omitted keeps single-root behavior), optional reasoning-effort
+ * fields on model catalog rows, and turnId descriptions. Everything the
  * driver uses is unchanged.
  */
 export const MSP_SCHEMA_FINGERPRINT =
-  'sha256:99a7458c70a670dda3dda45512bdd1e270aba156f46a1324515de45dce95a658'
+  'sha256:e0e163db6ccf00dbe68402ce55d6319b3edc33c421f31e9583b587b2de8a118f'
 
 export interface MuseServeDriverOptions {
   /** Base dir for per-invocation isolated HOMEs. */

@@ -22,7 +22,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const EXPECTED_FINGERPRINT =
-  'sha256:99a7458c70a670dda3dda45512bdd1e270aba156f46a1324515de45dce95a658'
+  'sha256:e0e163db6ccf00dbe68402ce55d6319b3edc33c421f31e9583b587b2de8a118f'
 
 // NOTE: session/started is emitted on the real wire (session/start opens with
 // it) but is absent from the `muse schema` notification index — an export gap
@@ -289,7 +289,7 @@ async function main(): Promise<void> {
 
     const unknown = notifications.filter((n) => !KNOWN_NOTIFICATIONS.has(n.method))
     check(
-      'wire vocabulary stays within the 1.4.0 export',
+      'wire vocabulary stays within the 1.4.1 export',
       unknown.length === 0,
       unknown.map((n) => n.method).join(',') || undefined
     )

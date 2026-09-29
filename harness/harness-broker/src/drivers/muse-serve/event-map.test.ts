@@ -177,7 +177,7 @@ describe('mapMuseNotification', () => {
   })
 })
 
-describe('muse wire vocabulary coverage (1.4.0 R4302.1 export)', () => {
+describe('muse wire vocabulary coverage (1.4.1 R4503.1 export)', () => {
   const mapped = [
     'turn/started',
     'turn/completed',

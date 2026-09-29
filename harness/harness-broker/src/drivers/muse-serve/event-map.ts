@@ -1,16 +1,16 @@
 /**
  * MSP notification → broker event mapping (T-08589, spike 3).
  *
- * Every method name below is schema- or probe-verified against muse 1.4.0
- * R4302.1 (offline schema export fingerprint
- * sha256:99a7458c70a670dda3dda45512bdd1e270aba156f46a1324515de45dce95a658
+ * Every method name below is schema- or probe-verified against muse 1.4.1
+ * R4503.1 (offline schema export fingerprint
+ * sha256:e0e163db6ccf00dbe68402ce55d6319b3edc33c421f31e9583b587b2de8a118f
  * plus credential-free echo-turn probes). turn/completed terminal vocabulary
  * (completed|failed|cancelled), the authRequired failure shape, and the
  * commandRejected/missing_run fence were all OBSERVED live; assistant
  * delta shapes beyond userMessage are schema-derived and marked
  * accordingly — the MATRIX model row promotes them to observed. toolCall
  * turn-item fields (tool, callId, args, visibleOutput, failureReason) are
- * verified against the 1.4.0 schema export.
+ * verified against the 1.4.1 schema export.
  */
 import type {
   InputId,
