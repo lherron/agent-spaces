@@ -81,6 +81,7 @@ const CLAUDE_CODE_TMUX_DRIVER_VERSION = '0.1.0'
  * Live hook generation stamped into the launch env (HARNESS_BROKER_HOOK_GENERATION)
  * and used to fence out-of-band hook envelopes. A durable broker restart would
  * bump this; envelopes carrying a stale generation are rejected (T-01794 Phase D).
+ * Hook-protocol fence version, NOT the HRC session generation (that is HRC_GENERATION).
  */
 const CLAUDE_HOOK_GENERATION = 1
 

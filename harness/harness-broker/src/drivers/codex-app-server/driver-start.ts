@@ -197,6 +197,7 @@ export function createCodexDriverStart(
             HRC_LAUNCH_HOOK_CLI: hookCliPath,
             HARNESS_BROKER_INVOCATION_ID: driverCtx.invocationId,
             HARNESS_BROKER_CALLBACK_SOCKET: s.hookListener.socketPath,
+            // Hook-protocol fence version, NOT the HRC session generation (that is HRC_GENERATION).
             HARNESS_BROKER_HOOK_GENERATION: '1',
             ...(expectedRuntimeId !== undefined
               ? { HARNESS_BROKER_RUNTIME_ID: expectedRuntimeId }

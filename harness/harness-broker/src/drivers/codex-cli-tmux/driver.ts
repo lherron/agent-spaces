@@ -55,6 +55,7 @@ const CODEX_CLI_TMUX_DRIVER_VERSION = '0.1.0'
  * Live hook generation stamped into the launch env (HARNESS_BROKER_HOOK_GENERATION)
  * and used to fence out-of-band hook envelopes against stale durable runtimes
  * (T-01794 Phase D).
+ * Hook-protocol fence version, NOT the HRC session generation (that is HRC_GENERATION).
  */
 const CODEX_HOOK_GENERATION = 1
 

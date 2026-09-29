@@ -53,6 +53,7 @@ import type { PiTuiTmuxHookEnvelope } from './hook-ingestion'
 import { PI_KNOWN_HOOK_NAMES } from './native-types'
 
 const PI_TUI_TMUX_DRIVER_VERSION = '0.1.0'
+// Hook-protocol fence version, NOT the HRC session generation (that is HRC_GENERATION).
 const PI_HOOK_GENERATION = 1
 const INPUT_SUBMIT_GAP_MS = 1_000
 

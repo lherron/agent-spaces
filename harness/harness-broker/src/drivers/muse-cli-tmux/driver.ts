@@ -135,6 +135,7 @@ export interface MuseCliTmuxHookEnvelope {
   hookData?: unknown
 }
 
+// Hook-protocol fence version, NOT the HRC session generation (that is HRC_GENERATION).
 const MUSE_HOOK_GENERATION = 1
 
 export function buildMuseHookSocketPath(
