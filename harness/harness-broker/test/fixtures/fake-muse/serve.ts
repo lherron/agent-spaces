@@ -110,7 +110,7 @@ async function handleApproval(turnId: string): Promise<void> {
       { choiceId: 'allow-once', decision: 'approved', label: 'Allow once', scope: 'turn' },
       { choiceId: 'deny-once', decision: 'denied', label: 'Deny', scope: 'turn' },
     ],
-    currentRequirementId: 'req-1',
+    currentRequirementId: { approvalId, sourceIndex: 0 },
     itemId: 'item-tool-1',
     judgeEscalated: false,
     protectedWrite: false,
@@ -291,6 +291,20 @@ async function handle(message: RpcMessage): Promise<void> {
       return
     }
     case 'approval/decide': {
+      // Live muse (1.4.1) answers invalidParams when the schema-required
+      // sessionId/requirementId are absent; mirror that strictness.
+      const requirement = params['requirementId'] as Record<string, unknown> | undefined
+      if (
+        typeof params['sessionId'] !== 'string' ||
+        typeof requirement?.['approvalId'] !== 'string' ||
+        typeof requirement?.['sourceIndex'] !== 'number'
+      ) {
+        respondError(id, -32602, 'Invalid params: approval/decide params', {
+          kind: 'invalidParams',
+          retryable: false,
+        })
+        return
+      }
       respond(id, { commandId: params['commandId'], status: 'accepted' })
       const resolve = pendingDecide.get(String(params['approvalId'] ?? ''))
       resolve?.(String(params['choiceId'] ?? ''))

@@ -29,7 +29,7 @@ const approvalRequest = (): MuseJsonRpcRequest => ({
   params: {
     approvalId: 'apr-1',
     availableChoices: choices,
-    currentRequirementId: 'req-1',
+    currentRequirementId: { approvalId: 'apr-1', sourceIndex: 0 },
     itemId: 'item-1',
     toolName: 'shell',
     turnId: 't1',
@@ -90,7 +90,12 @@ describe('handleMuseApprovalRequest', () => {
       events.emit
     )
     expect(receipt).toEqual({ presented: true })
-    expect(seen[0]).toMatchObject({ approvalId: 'apr-1', choiceId: 'allow-once' })
+    expect(seen[0]).toMatchObject({
+      approvalId: 'apr-1',
+      choiceId: 'allow-once',
+      sessionId: 's1',
+      requirementId: { approvalId: 'apr-1', sourceIndex: 0 },
+    })
     expect(events.resolved).toEqual([
       expect.objectContaining({ decision: 'allow', decidedBy: 'policy' }),
     ])

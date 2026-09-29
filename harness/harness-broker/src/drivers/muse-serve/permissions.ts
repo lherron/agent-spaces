@@ -3,8 +3,10 @@
  *
  * Server-initiated `approval/request` is a must-answer presentation: the
  * response is a receipt only, and the decision travels separately as
- * `approval/decide {approvalId, choiceId, commandId}` guarded by the current
- * requirement id (schema + spike-5 findings, muse 1.3.0). Choice selection
+ * `approval/decide {approvalId, choiceId, commandId, sessionId, requirementId}`
+ * guarded by the current requirement id echoed from the request (schema +
+ * spike-5 findings; live muse 1.4.1 answers invalidParams without sessionId
+ * and requirementId, T-09879). Choice selection
  * prefers the narrowest approval scope; default-deny everywhere, mirroring
  * the codex permission module's decision lattice.
  */
@@ -40,6 +42,10 @@ export interface MuseApprovalChoice {
 export interface MuseApprovalParams {
   approvalId: string
   availableChoices: MuseApprovalChoice[]
+  /** Owning session; echoed on approval/decide (schema-required). */
+  sessionId?: string | undefined
+  /** Current requirement token; echoed verbatim as approval/decide requirementId. */
+  currentRequirementId?: unknown
   toolName?: string | undefined
   turnId?: string | undefined
   subject?: unknown
@@ -76,10 +82,30 @@ function parseApprovalParams(request: MuseJsonRpcRequest): MuseApprovalParams | 
   return {
     approvalId: record['approvalId'] as string,
     availableChoices,
+    ...(typeof record['sessionId'] === 'string' ? { sessionId: record['sessionId'] } : {}),
+    ...(record['currentRequirementId'] !== undefined
+      ? { currentRequirementId: record['currentRequirementId'] }
+      : {}),
     ...(typeof record['toolName'] === 'string' ? { toolName: record['toolName'] } : {}),
     ...(typeof record['turnId'] === 'string' ? { turnId: record['turnId'] } : {}),
     ...(record['subject'] !== undefined ? { subject: record['subject'] } : {}),
     ...(typeof record['rawArgs'] === 'string' ? { rawArgs: record['rawArgs'] } : {}),
+  }
+}
+
+/** approval/decide params for one chosen answer to a parsed approval/request. */
+export function buildMuseApprovalDecideParams(
+  parsed: MuseApprovalParams,
+  choice: Pick<MuseApprovalChoice, 'choiceId'>
+): Record<string, unknown> {
+  return {
+    approvalId: parsed.approvalId,
+    choiceId: choice.choiceId,
+    commandId: newMuseCommandId(),
+    ...(parsed.sessionId !== undefined ? { sessionId: parsed.sessionId } : {}),
+    ...(parsed.currentRequirementId !== undefined
+      ? { requirementId: parsed.currentRequirementId }
+      : {}),
   }
 }
 
@@ -154,19 +180,11 @@ export async function handleMuseApprovalRequest(
       )
     }
     if (ctx.brokerOwnsPermissionLifecycle) {
-      await rpc.sendRequest('approval/decide', {
-        approvalId: parsed.approvalId,
-        choiceId: choice.choiceId,
-        commandId: newMuseCommandId(),
-      })
+      await rpc.sendRequest('approval/decide', buildMuseApprovalDecideParams(parsed, choice))
       return { presented: true }
     }
     emit.resolved({ permissionRequestId, decision, decidedBy })
-    await rpc.sendRequest('approval/decide', {
-      approvalId: parsed.approvalId,
-      choiceId: choice.choiceId,
-      commandId: newMuseCommandId(),
-    })
+    await rpc.sendRequest('approval/decide', buildMuseApprovalDecideParams(parsed, choice))
     return { presented: true }
   }
 
