@@ -247,6 +247,45 @@ describe('codex desktop command env injection', () => {
       await rm(overlay.root, { recursive: true, force: true })
     }
   })
+
+  test('mid-thread switch: a command started pending keeps its address, the next one is registered', async () => {
+    // Contract (docs/codex-desktop-join.md, "Mail across the switch"): the
+    // address is fixed per command when it starts. A `wrkc say --wait` begun
+    // during pending waits as codex-<id> and consumes the reply sent there
+    // (incident EN-21812, consumed_by_wait); every command after the joiner
+    // writes the cache uses the registered address. Nothing is re-addressed.
+    const overlay = await buildOverlay()
+    try {
+      const toolCall = (command: string) => ({
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Bash',
+        session_id: NATIVE_THREAD_ID,
+        cwd: sessionStart.cwd,
+        tool_input: { command },
+      })
+      const pending = runHook(overlay, overlay.preToolUse, toolCall('wrkc say mable --wait -'))
+      expect(injectedCommand(pending.stdout)).toContain(`ASP_TASK_ID='codex-${NATIVE_THREAD_ID}'`)
+      expect(hookContext(pending.stdout)).toContain('HRC registration: pending')
+
+      // The joiner reaches `joined` and writes the address cache.
+      writeFileSync(
+        join(overlay.cacheDir, `${NATIVE_THREAD_ID}.json`),
+        JSON.stringify({
+          scopeRef: CANONICAL_SCOPE,
+          agentId: 'stella',
+          projectId: 'hrc-ios',
+          slotToken: 'primary-nova',
+          laneRef: 'main',
+        })
+      )
+      const established = runHook(overlay, overlay.preToolUse, toolCall('wrkc inbox --json'))
+      expect(injectedCommand(established.stdout)).toContain(`ASP_SCOPE_REF='${CANONICAL_SCOPE}'`)
+      expect(injectedCommand(established.stdout)).not.toContain(`codex-${NATIVE_THREAD_ID}`)
+      expect(hookContext(established.stdout)).toContain('HRC registration: established')
+    } finally {
+      await rm(overlay.root, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('managed hook installation preserves what it does not own', () => {

@@ -10,16 +10,26 @@ import type {
   JoinResult,
 } from './types'
 
+/**
+ * Per-request options. `timeoutMs` bounds the whole exchange (connect, HRC's
+ * handling, body read): an HRC that accepts the connection and never answers
+ * otherwise holds the caller forever (T-09977). The timeout rejects like any
+ * other transport failure, so callers keep a single transport-error path.
+ */
+export type JoinRequestOptions = { timeoutMs?: number | undefined }
+
 async function postJoin(
   hrcSocketPath: HrcSocketPath,
   path: '/v1/participants/register' | '/v1/participants/attach',
-  body: unknown
+  body: unknown,
+  options: JoinRequestOptions = {}
 ): Promise<{ httpStatus: number; body: unknown }> {
   const response = await fetch(`http://localhost${path}`, {
     method: 'POST',
     unix: hrcSocketPath,
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
+    ...(options.timeoutMs === undefined ? {} : { signal: AbortSignal.timeout(options.timeoutMs) }),
   } as never)
   const text = await response.text()
   let parsed: unknown
@@ -57,9 +67,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export async function registerParticipant(
   hrcSocketPath: HrcSocketPath,
-  request: JoinRegisterRequest
+  request: JoinRegisterRequest,
+  options: JoinRequestOptions = {}
 ): Promise<JoinRegisterResult> {
-  const { httpStatus, body } = await postJoin(hrcSocketPath, '/v1/participants/register', request)
+  const { httpStatus, body } = await postJoin(
+    hrcSocketPath,
+    '/v1/participants/register',
+    request,
+    options
+  )
   if (!isRecord(body) || typeof body['status'] !== 'string') {
     const envelope = toHrcError(body)
     if (envelope !== undefined) return { outcome: 'rejected', httpStatus, ...envelope }
@@ -138,9 +154,15 @@ export async function registerParticipant(
 
 export async function attachParticipant(
   hrcSocketPath: HrcSocketPath,
-  request: JoinAttachRequest
+  request: JoinAttachRequest,
+  options: JoinRequestOptions = {}
 ): Promise<JoinAttachResult> {
-  const { httpStatus, body } = await postJoin(hrcSocketPath, '/v1/participants/attach', request)
+  const { httpStatus, body } = await postJoin(
+    hrcSocketPath,
+    '/v1/participants/attach',
+    request,
+    options
+  )
   if (!isRecord(body) || typeof body['status'] !== 'string') {
     const envelope = toHrcError(body)
     if (envelope !== undefined) return { outcome: 'rejected', httpStatus, ...envelope }

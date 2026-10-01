@@ -110,6 +110,14 @@ function spawnedPids(seenFile: string): number[] {
   return pids
 }
 
+function readIfExists(path: string): string {
+  try {
+    return readFileSync(path, 'utf8')
+  } catch {
+    return ''
+  }
+}
+
 function pidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0)
@@ -162,6 +170,35 @@ describe('desktop self-join discovery hook', () => {
       expect(seen.argv[0]).toBe('desktop-join')
       expect(seen.argv).toContain('--thread')
       expect(seen.argv).toContain(THREAD_ID)
+    } finally {
+      reapSpawned(release.seenFile)
+    }
+  })
+
+  test("the detached joiner's stderr lands in the thread's joiner.stderr.log, not /dev/null", async () => {
+    // T-09977: joiner 77901 died on an uncaught rejection whose Bun stack
+    // went to stdio 'ignore'; nothing on disk said why.
+    const overlay = await buildOverlay()
+    const root = await mkdtemp(join(tmpdir(), 'self-join-release-'))
+    const release = installRelease(root, 'asp-test-1')
+    writeFileSync(
+      release.brokerBin,
+      `#!/usr/bin/env node\nconst fs = require('node:fs')\nfs.appendFileSync(${JSON.stringify(release.seenFile)}, JSON.stringify({ pid: process.pid }) + '\\n')\nprocess.stderr.write('error: Command failed: wrkq projects --json\\n')\nprocess.exit(1)\n`
+    )
+    try {
+      const { result } = runDiscovery(
+        overlay.discovery,
+        overlay.codexHome,
+        JSON.stringify(sessionStartPayload()),
+        { ASPD_ACTIVE_JSON: release.activeJson }
+      )
+      expect(result.status).toBe(0)
+      expect(spawnedPids(release.seenFile).length).toBe(1)
+      const stderrLog = join(overlay.codexHome, 'hrc-desktop', THREAD_ID, 'joiner.stderr.log')
+      for (let i = 0; i < 30 && !readIfExists(stderrLog).includes('wrkq'); i++) {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
+      }
+      expect(readIfExists(stderrLog)).toContain('error: Command failed: wrkq projects --json')
     } finally {
       reapSpawned(release.seenFile)
     }

@@ -13,6 +13,7 @@ export type {
   JoinResult,
   RegisteredIdentity,
 } from './types'
+export type { JoinRequestOptions } from './client'
 export {
   attachParticipant,
   isAttachConflict,

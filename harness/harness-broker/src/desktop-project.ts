@@ -23,7 +23,6 @@ export type DesktopProjectResolution =
 
 export type DesktopProjectInput = {
   workspaceCwd: string
-  env?: Record<string, string | undefined>
   registryProjects?: readonly WrkqRegistryProject[] | undefined
   agentsRoot?: string | undefined
 }
@@ -48,21 +47,26 @@ function expandHome(root: string, env: Record<string, string | undefined>): stri
   return root
 }
 
-async function readRegistryProjects(
-  env: Record<string, string | undefined>
-): Promise<WrkqRegistryProject[]> {
+/**
+ * `wrkq projects --json`, bounded by `timeoutMs`. Rejects on every failure
+ * (spawn error, non-zero exit, timeout kill, unparsable output): wrkq is an RPC
+ * client of a remote ledger, so callers must treat a rejection as a retryable
+ * outage, never as fatal (T-09977).
+ */
+export async function readRegistryProjects(timeoutMs = 10_000): Promise<WrkqRegistryProject[]> {
   const output = await new Promise<string>((resolvePromise, reject) => {
     execFile(
       'wrkq',
       ['projects', '--json'],
-      { env: process.env, timeout: 10_000 },
+      { env: process.env, timeout: timeoutMs, killSignal: 'SIGKILL' },
       (error, stdout) => {
-        if (error) reject(error)
-        else resolvePromise(stdout)
+        if (error === null) resolvePromise(stdout)
+        else if (error.killed === true) {
+          reject(new Error(`wrkq projects --json did not answer within ${timeoutMs}ms`))
+        } else reject(error)
       }
     )
   })
-  void env
   const parsed: unknown = JSON.parse(output)
   if (!Array.isArray(parsed)) return []
   const projects: WrkqRegistryProject[] = []
@@ -170,9 +174,7 @@ export function resolveDesktopProjectSync(
 export async function resolveDesktopProject(
   input: DesktopProjectInput
 ): Promise<DesktopProjectResolution> {
-  const projects =
-    input.registryProjects ??
-    (await readRegistryProjects(input.env ?? (process.env as Record<string, string | undefined>)))
+  const projects = input.registryProjects ?? (await readRegistryProjects())
   return resolveDesktopProjectSync(input.workspaceCwd, projects, { agentsRoot: input.agentsRoot })
 }
 

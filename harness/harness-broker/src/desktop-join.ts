@@ -1,8 +1,11 @@
+import { execFileSync } from 'node:child_process'
 import {
   appendFileSync,
   mkdirSync,
   readFileSync,
   readdirSync,
+  renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
@@ -33,6 +36,7 @@ import {
   desktopHostIncarnationId,
   desktopScopeRef,
   desktopSlotTokenSequence,
+  readRegistryProjects,
   resolveDesktopProject,
 } from './desktop-project.js'
 import { assertSocketPathWithinBudget } from './socket-path.js'
@@ -51,6 +55,8 @@ export type DesktopJoinInput = {
   projectRoot?: string | undefined
   registryProjects?: readonly WrkqRegistryProject[] | undefined
   agentsRoot?: string | undefined
+  /** Join deadline; defaults to DEFAULT_JOIN_DEADLINE_MS. */
+  deadlineMs?: number | undefined
 }
 
 export type DesktopAdmission =
@@ -135,6 +141,8 @@ export type ScopeJoinInput = {
   maxSlots?: number | undefined
   resumeFromScope?: string | undefined
   onCandidateScope?: ((scopeRef: string) => void) | undefined
+  /** Bound on each HRC register/attach exchange; a timeout throws like any transport failure. */
+  requestTimeoutMs?: number | undefined
 }
 
 export type ScopeJoinOutcome =
@@ -200,25 +208,30 @@ export async function chooseScopeAndJoin(input: ScopeJoinInput): Promise<ScopeJo
       if (!tried.has(fromSlots.value)) return fromSlots.value
     }
   }
+  const requestOptions = { timeoutMs: input.requestTimeoutMs }
   let examined = 0
   let scopeRef = next()
   while (scopeRef !== undefined) {
     tried.add(scopeRef)
     examined += 1
     input.onCandidateScope?.(scopeRef)
-    const register = await registerParticipant(input.hrcSocketPath, {
-      registrationMode: 'direct',
-      requestedSessionRef: scopeRef,
-      hostIncarnationId: input.hostIncarnationId,
-      laneRef: DESKTOP_LANE_REF,
-      classId: input.classId,
-      participantKey: input.participantKey,
-      workspaceCwd: input.workspaceCwd,
-      socketPath: input.socketPath,
-      ...(input.expectedPredecessor === undefined
-        ? {}
-        : { expectedPredecessor: input.expectedPredecessor }),
-    })
+    const register = await registerParticipant(
+      input.hrcSocketPath,
+      {
+        registrationMode: 'direct',
+        requestedSessionRef: scopeRef,
+        hostIncarnationId: input.hostIncarnationId,
+        laneRef: DESKTOP_LANE_REF,
+        classId: input.classId,
+        participantKey: input.participantKey,
+        workspaceCwd: input.workspaceCwd,
+        socketPath: input.socketPath,
+        ...(input.expectedPredecessor === undefined
+          ? {}
+          : { expectedPredecessor: input.expectedPredecessor }),
+      },
+      requestOptions
+    )
     if (register.outcome !== 'registered') {
       if (register.outcome === 'pending') {
         return { exit: 'pending-hold', scopeRef, reason: register.reason, detail: register.detail }
@@ -289,13 +302,17 @@ export async function chooseScopeAndJoin(input: ScopeJoinInput): Promise<ScopeJo
     if (prepared.status !== 'prepared') {
       return { exit: 'not-prepared', scopeRef, reason: prepared.reason }
     }
-    const attach = await attachParticipant(input.hrcSocketPath, {
-      registrationId: register.identity.registrationId,
-      attemptId: register.identity.attemptId,
-      attachEpoch: register.identity.attachEpoch,
-      socketPath: input.socketPath,
-      descriptor: prepared.descriptor,
-    })
+    const attach = await attachParticipant(
+      input.hrcSocketPath,
+      {
+        registrationId: register.identity.registrationId,
+        attemptId: register.identity.attemptId,
+        attachEpoch: register.identity.attachEpoch,
+        socketPath: input.socketPath,
+        descriptor: prepared.descriptor,
+      },
+      requestOptions
+    )
     if (attach.outcome !== 'attached') {
       if (attach.outcome === 'pending') {
         return { exit: 'pending-hold', scopeRef, reason: attach.reason, detail: attach.detail }
@@ -357,10 +374,13 @@ export function writeJoinLog(
   detail: Record<string, unknown>
 ): void {
   mkdirSync(dirname(joinLog), { recursive: true, mode: 0o700 })
-  appendFileSync(
-    joinLog,
-    `${JSON.stringify({ at: new Date().toISOString(), pid: process.pid, event, ...detail })}\n`
-  )
+  // `pid` and `event` are the writer's and always win over the detail: a holder
+  // pid in the detail once overwrote the writer, so the incident log could not
+  // say which process wrote a line (T-09977). Holders are `holderPid`.
+  const line = { at: new Date().toISOString(), pid: process.pid, event, ...detail }
+  line.pid = process.pid
+  line.event = event
+  appendFileSync(joinLog, `${JSON.stringify(line)}\n`)
 }
 
 function processAlive(pid: number): boolean {
@@ -457,293 +477,584 @@ export type DesktopJoinOutcome =
   | { exit: 0; reason: string; scopeRef?: string | undefined }
   | { exit: 1; reason: string }
 
+/** Where a joiner is; every termination line in join.log carries it. */
+export type JoinPhase =
+  | 'starting'
+  | 'admitting'
+  | 'claiming'
+  | 'resolving-project'
+  | 'serving-socket'
+  | 'registering'
+  | 'joined'
+
+/**
+ * Process-level join state, shared with the CLI's termination logging so an
+ * uncaught throw, a signal or the deadline can name the phase, release the
+ * broker.pid claim and close the socket, wherever the joiner was.
+ */
+export type JoinLifecycle = {
+  phase: JoinPhase
+  log?: DesktopJoinLog | undefined
+  /** Removes broker.pid when, and only when, it still names this process. */
+  release?: (() => void) | undefined
+  closeBroker?: (() => Promise<void>) | undefined
+}
+
 export type DesktopJoinDeps = {
   serve?: typeof serveUnixBroker | undefined
   blockForever?: (() => Promise<never>) | undefined
+  lifecycle?: JoinLifecycle | undefined
+  /** Called when the join deadline fires before `joined`. Defaults to releasing and exiting 0. */
+  onDeadline?: (() => void) | undefined
 }
+
+/**
+ * A joiner that has not reached `joined` by this deadline logs `join-deadline`,
+ * releases broker.pid and exits: the respawn door is never held by a joiner
+ * that is not making progress (T-09977).
+ */
+export const DEFAULT_JOIN_DEADLINE_MS = 60_000
+/**
+ * How long past its own deadline a later joiner waits on a live, unjoined
+ * holder before calling it stalled. The holder's own deadline normally fires
+ * first; this covers a holder that cannot run its timer (blocked event loop)
+ * and a pid reused by an unrelated process.
+ */
+export const STALLED_HOLDER_GRACE_MS = 15_000
+const REGISTRY_CACHE_FILE = 'hrc-desktop-registry.json'
+const MAX_BACKOFF_MS = 5_000
+
+function backoffMs(attempt: number): number {
+  return Math.min(MAX_BACKOFF_MS, 500 * 2 ** (attempt - 1))
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+type PidClaim =
+  | { claimed: true; previousHolder?: { holderPid: number | null; state: 'dead' | 'stalled' } }
+  | {
+      claimed: false
+      event: 'already-serving' | 'join-in-progress'
+      detail: Record<string, unknown>
+    }
+
+function readPidHolder(
+  pidFile: string
+): { raw: string; pid: number | undefined; mtimeMs: number } | undefined {
+  try {
+    const raw = readFileSync(pidFile, 'utf8')
+    const pid = Number(raw.trim())
+    return {
+      raw,
+      // pid 0 or 1 would make `kill(pid, 0)` probe a process group or init.
+      pid: Number.isSafeInteger(pid) && pid > 1 ? pid : undefined,
+      mtimeMs: statSync(pidFile).mtimeMs,
+    }
+  } catch {
+    return undefined
+  }
+}
+
+/** True only when `ps` shows the pid is a desktop-join for this very thread. */
+function holderIsOurJoiner(pid: number, threadId: string): boolean {
+  try {
+    const command = execFileSync('ps', ['-o', 'command=', '-p', String(pid)], {
+      encoding: 'utf8',
+      timeout: 1_000,
+    })
+    return command.includes('desktop-join') && command.includes(threadId)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Take broker.pid, the per-thread respawn door. A live holder blocks the door
+ * only while it is either serving (join.json says `joined` for that pid) or
+ * still inside its join window. A live holder past deadline+grace that never
+ * joined is stalled: it is SIGKILLed only when `ps` proves it is our joiner for
+ * this thread, and its claim is replaced either way. A stale claim is removed
+ * only if it is still the exact claim judged, so two joiners racing for one
+ * dead claim cannot both win by overwriting each other.
+ */
+function claimBrokerPid(
+  paths: ReturnType<typeof threadPaths>,
+  threadId: string,
+  staleAfterMs: number,
+  log: DesktopJoinLog
+): PidClaim {
+  let previousHolder: { holderPid: number | null; state: 'dead' | 'stalled' } | undefined
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      writeFileSync(paths.pidFile, `${process.pid}\n`, { flag: 'wx', mode: 0o600 })
+      return previousHolder === undefined ? { claimed: true } : { claimed: true, previousHolder }
+    } catch (error) {
+      if ((error as { code?: string }).code !== 'EEXIST') throw error
+    }
+    const holder = readPidHolder(paths.pidFile)
+    if (holder === undefined) continue
+    if (holder.pid !== undefined && processAlive(holder.pid)) {
+      const joined = readJoinFile(paths.joinFile)
+      if (joined?.['phase'] === 'joined' && joined['pid'] === holder.pid) {
+        return { claimed: false, event: 'already-serving', detail: { holderPid: holder.pid } }
+      }
+      const ageMs = Math.round(Date.now() - holder.mtimeMs)
+      if (ageMs < staleAfterMs) {
+        return {
+          claimed: false,
+          event: 'join-in-progress',
+          detail: { holderPid: holder.pid, ageMs },
+        }
+      }
+      let killed = false
+      if (holderIsOurJoiner(holder.pid, threadId)) {
+        try {
+          process.kill(holder.pid, 'SIGKILL')
+          killed = true
+        } catch {}
+      }
+      log('stalled-holder', { holderPid: holder.pid, ageMs, staleAfterMs, killed })
+      previousHolder = { holderPid: holder.pid, state: 'stalled' }
+    } else {
+      previousHolder = { holderPid: holder.pid ?? null, state: 'dead' }
+    }
+    if (readPidHolder(paths.pidFile)?.raw === holder.raw) {
+      try {
+        unlinkSync(paths.pidFile)
+      } catch {}
+    }
+  }
+  return { claimed: false, event: 'join-in-progress', detail: { reason: 'claim-contended' } }
+}
+
+function releaseBrokerPid(pidFile: string): void {
+  try {
+    if (readFileSync(pidFile, 'utf8').trim() === String(process.pid)) unlinkSync(pidFile)
+  } catch {}
+}
+
+type RegistryCache = { fetchedAt: string; projects: WrkqRegistryProject[] }
+
+function readRegistryCache(cacheFile: string): RegistryCache | undefined {
+  try {
+    const parsed = JSON.parse(readFileSync(cacheFile, 'utf8')) as Partial<RegistryCache>
+    if (typeof parsed.fetchedAt !== 'string' || !Array.isArray(parsed.projects)) return undefined
+    return { fetchedAt: parsed.fetchedAt, projects: parsed.projects }
+  } catch {
+    return undefined
+  }
+}
+
+function writeRegistryCache(cacheFile: string, projects: WrkqRegistryProject[]): void {
+  try {
+    mkdirSync(dirname(cacheFile), { recursive: true, mode: 0o700 })
+    const temp = `${cacheFile}.${process.pid}.tmp`
+    writeFileSync(
+      temp,
+      `${JSON.stringify({ fetchedAt: new Date().toISOString(), projects }, null, 2)}\n`,
+      { mode: 0o600 }
+    )
+    renameSync(temp, cacheFile)
+  } catch {
+    // A missed refresh only ages the last-good copy.
+  }
+}
+
+/**
+ * The wrkq project registry, or the last copy that answered. wrkq is an RPC
+ * client of a remote ledger: a slow or failed read is an outage to ride out,
+ * the same way HRC's own registry serves last-good (T-09977).
+ */
+async function readRegistry(
+  cacheFile: string,
+  timeoutMs: number,
+  log: DesktopJoinLog
+): Promise<{ projects: WrkqRegistryProject[] } | { error: string }> {
+  try {
+    const projects = await readRegistryProjects(timeoutMs)
+    writeRegistryCache(cacheFile, projects)
+    return { projects }
+  } catch (error) {
+    const message = errorMessage(error)
+    const cache = readRegistryCache(cacheFile)
+    if (cache === undefined) return { error: message }
+    log('registry-last-good', {
+      message,
+      ageMs: Math.max(0, Date.now() - Date.parse(cache.fetchedAt)),
+    })
+    return { projects: cache.projects }
+  }
+}
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolveSleep) => setTimeout(resolveSleep, Math.max(0, ms)))
 
 /**
  * `harness-broker desktop-join`: hook-started self-join for one Desktop thread.
  * Every non-serving path exits 0 with a typed reason in join.log — a missed
  * join is normal state (subagent thread, daemon restarting), never a hook
  * failure. Only malformed input exits 1.
+ *
+ * Every blocking step is bounded: the wrkq registry read and each HRC request
+ * carry a timeout, transient failures retry with backoff inside one deadline,
+ * and a joiner that misses the deadline logs `join-deadline` and releases
+ * broker.pid so the next hook can try (T-09977).
  */
 export async function runDesktopJoin(
   input: DesktopJoinInput,
   deps: DesktopJoinDeps = {}
 ): Promise<DesktopJoinOutcome> {
+  const startedAt = Date.now()
   const paths = threadPaths(input.codexHome, input.threadId)
   const log: DesktopJoinLog = (event, detail) => writeJoinLog(paths.joinLog, event, detail)
+  const lifecycle: JoinLifecycle = deps.lifecycle ?? { phase: 'starting' }
+  lifecycle.log = log
+  const deadlineMs = input.deadlineMs ?? DEFAULT_JOIN_DEADLINE_MS
+  const registryTimeoutMs = Math.min(5_000, Math.max(250, Math.floor(deadlineMs / 4)))
+  const requestTimeoutMs = Math.min(10_000, Math.max(500, Math.floor(deadlineMs / 3)))
+  const deadlineAt = startedAt + deadlineMs
+  const remainingMs = (): number => deadlineAt - Date.now()
 
-  const admission = await admitDesktopThread({
-    threadId: input.threadId,
-    codexHome: input.codexHome,
-    ...(input.rolloutPath === undefined ? {} : { rolloutPath: input.rolloutPath }),
-    ...(input.workspaceCwd === undefined ? {} : { workspaceCwd: input.workspaceCwd }),
-    ...(input.fallbackHomeDir === undefined ? {} : { fallbackHomeDir: input.fallbackHomeDir }),
-    ...(input.sqliteHome === undefined ? {} : { sqliteHome: input.sqliteHome }),
-    ...(input.reportedBundleExecutable === undefined
-      ? {}
-      : { reportedBundleExecutable: input.reportedBundleExecutable }),
-    ...(input.operatorBundleExecutable === undefined
-      ? {}
-      : { operatorBundleExecutable: input.operatorBundleExecutable }),
-    ...(input.projectRoot === undefined ? {} : { projectRoot: input.projectRoot }),
-    nativeAttemptStorePath: join(paths.threadDir, 'native-attempts.db'),
-  })
-  if (!admission.admitted) {
-    log('not-admitted', { reason: admission.reason, source: input.hookSource ?? 'unknown' })
-    return { exit: 0, reason: `not-admitted:${admission.reason}` }
-  }
-
-  mkdirSync(paths.threadDir, { recursive: true, mode: 0o700 })
-  try {
-    writeFileSync(paths.pidFile, `${process.pid}\n`, { flag: 'wx', mode: 0o600 })
-  } catch (error) {
-    const code = (error as { code?: string }).code
-    if (code !== 'EEXIST') throw error
-    const existing = Number(readFileSync(paths.pidFile, 'utf8').trim())
-    if (Number.isInteger(existing) && processAlive(existing)) {
-      log('already-serving', { pid: existing })
-      return { exit: 0, reason: 'already-serving' }
+  let expired = false
+  const expire = (): DesktopJoinOutcome => {
+    if (!expired) {
+      expired = true
+      log('join-deadline', {
+        phase: lifecycle.phase,
+        deadlineMs,
+        elapsedMs: Date.now() - startedAt,
+      })
     }
-    writeFileSync(paths.pidFile, `${process.pid}\n`, { mode: 0o600 })
+    return { exit: 0, reason: 'join-deadline' }
   }
-
-  const reaped = reapStaleSiblingSockets(paths.threadDir)
-  if (reaped.length > 0) {
-    log('reaped-stale-sockets', { sockets: reaped })
-  }
-
-  const prior = readJoinFile(paths.joinFile)
-  if (prior !== undefined) {
-    const priorPid = typeof prior['pid'] === 'number' ? (prior['pid'] as number) : undefined
-    if (priorPid !== undefined && priorPid !== process.pid && processAlive(priorPid)) {
-      log('already-serving', { pid: priorPid, via: 'join.json' })
-      return { exit: 0, reason: 'already-serving' }
+  // Backstop for a step that never returns: the loops below check the
+  // deadline between attempts, this fires inside a hung await.
+  const deadlineTimer = setTimeout(() => {
+    if (lifecycle.phase === 'joined') return
+    expire()
+    if (deps.onDeadline !== undefined) {
+      deps.onDeadline()
+      return
     }
-    if (typeof prior['socketPath'] === 'string') {
-      const alive = await probeBrokerSocket(prior['socketPath'] as string)
-      if (alive) {
-        log('already-serving', { socketPath: prior['socketPath'] })
-        return { exit: 0, reason: 'already-serving' }
-      }
-    }
-  }
-
-  const project =
-    input.projectRoot !== undefined
-      ? {
-          bound: {
-            projectId: basenameOf(input.projectRoot),
-            projectRoot: input.projectRoot,
-            resolvedBy: 'override',
-          },
-        }
-      : await resolveDesktopProject({
-          workspaceCwd: admission.workspaceCwd,
-          ...(input.registryProjects === undefined
-            ? {}
-            : { registryProjects: input.registryProjects }),
-          ...(input.agentsRoot === undefined ? {} : { agentsRoot: input.agentsRoot }),
-        })
-  if (!('bound' in project)) {
-    log('no-project', { reason: project.reason, detail: project.detail })
-    return { exit: 0, reason: `no-project:${project.reason}` }
-  }
-
-  const hostIncarnationId = desktopHostIncarnationId(admission.homeIdentity, input.threadId)
-  const socketPath = join(paths.threadDir, `broker-${process.pid}.sock`)
-  try {
-    assertSocketPathWithinBudget(socketPath)
-  } catch (error) {
-    log('socket-path-over-budget', {
-      message: error instanceof Error ? error.message : String(error),
-    })
-    return { exit: 0, reason: 'socket-path-over-budget' }
-  }
-
-  const serve = deps.serve ?? serveUnixBroker
-  let closeBroker: (() => Promise<void>) | undefined
-  try {
-    const served = await serve({
-      socketPath,
-      cliOptions: {},
-      participantBootstrap: true,
-      // HRC's controller reattach replays events (eventsSince) and acks them;
-      // without a durable ledger both throw EventReplayUnavailable and the
-      // runtime never leaves starting. The ledger lives in the thread dir so
-      // a respawn replays rather than re-emits pre-kill turns.
-      ledgerPath: join(paths.threadDir, 'event-ledger.sqlite'),
-      onServerError: (error) => {
-        writeJoinLog(paths.joinLog, 'server-error', { message: error.message })
-      },
-    })
-    closeBroker = served.close
-  } catch (error) {
-    log('serve-failed', { message: error instanceof Error ? error.message : String(error) })
-    return { exit: 0, reason: 'serve-failed' }
-  }
-  // Serve until killed: release the socket and ledger handles on a clean
-  // signal so a SIGTERM respawn starts from a dead socket, not a stale file.
-  // A kill -9 skips this; the next hook's liveness probe covers that path.
-  const shutdown = (): void => {
+    lifecycle.release?.()
     void Promise.resolve()
-      .then(() => closeBroker?.())
+      .then(() => lifecycle.closeBroker?.())
       .catch(() => {})
       .then(() => process.exit(0))
-  }
-  process.once('SIGTERM', shutdown)
-  process.once('SIGINT', shutdown)
+  }, deadlineMs)
 
-  // Write-ahead resume (component 3(v), primary): a previous run persisted
-  // its candidate scope with phase 'registering' before calling register. Resume
-  // the loop there instead of restarting at primary-nova, so a crash between
-  // register and completion converges without parsing refusal text.
-  const writeAhead =
-    prior !== undefined &&
-    prior['phase'] === 'registering' &&
-    typeof prior['candidateScope'] === 'string' &&
-    prior['hostIncarnationId'] === hostIncarnationId
-      ? { resumeFromScope: prior['candidateScope'] as string }
-      : undefined
-
-  const writeCandidate = (scopeRef: string): void => {
-    try {
-      writeFileSync(
-        paths.joinFile,
-        `${JSON.stringify(
-          {
-            phase: 'registering',
-            candidateScope: scopeRef,
-            hostIncarnationId,
-            pid: process.pid,
-          },
-          null,
-          2
-        )}\n`,
-        { mode: 0o600 }
-      )
-    } catch {
-      // A missed write-ahead only loses the resume shortcut; the join proceeds.
-    }
-  }
-
-  const respawn =
-    prior !== undefined &&
-    typeof prior['registrationId'] === 'string' &&
-    typeof prior['runtimeId'] === 'string' &&
-    typeof prior['generation'] === 'number' &&
-    typeof prior['scopeRef'] === 'string'
-      ? {
-          scopeRef: prior['scopeRef'] as string,
-          expectedPredecessor: {
-            hostIncarnationId:
-              typeof prior['hostIncarnationId'] === 'string'
-                ? (prior['hostIncarnationId'] as string)
-                : hostIncarnationId,
-            runtimeId: prior['runtimeId'] as string,
-            generation: prior['generation'] as number,
-          },
-        }
-      : undefined
-
-  let outcome: Awaited<ReturnType<typeof chooseScopeAndJoin>>
   try {
-    outcome = await chooseScopeAndJoin({
-      hrcSocketPath: input.hrcSocketPath,
-      projectId: project.bound.projectId,
-      hostIncarnationId,
-      socketPath,
-      classId: 'codex-desktop',
-      participantKey: admission.participantKey,
-      workspaceCwd: admission.workspaceCwd,
-      preparation: {
-        schema: 'codex-desktop.participant-preparation/1',
-        nativeThreadId: input.threadId,
-        homeIdentity: admission.homeIdentity,
-        sqliteHome: admission.preparation.sqliteHome,
-        registrationKey: admission.preparation.registrationKey,
-        rolloutPath: admission.preparation.rolloutPath,
-        workspaceCwd: admission.workspaceCwd,
-        ...(admission.preparation.reportedBundleExecutable === undefined
-          ? {}
-          : { reportedBundleExecutable: admission.preparation.reportedBundleExecutable }),
-        ...(admission.preparation.operatorBundleExecutable === undefined
-          ? {}
-          : { operatorBundleExecutable: admission.preparation.operatorBundleExecutable }),
-        projectRoot: admission.preparation.projectRoot,
-        nativeAttemptStorePath: join(paths.threadDir, 'native-attempts.db'),
-      },
-      ...(respawn === undefined ? {} : respawn),
-      ...(writeAhead === undefined ? {} : writeAhead),
-      onCandidateScope: writeCandidate,
+    lifecycle.phase = 'admitting'
+    const admission = await admitDesktopThread({
+      threadId: input.threadId,
+      codexHome: input.codexHome,
+      ...(input.rolloutPath === undefined ? {} : { rolloutPath: input.rolloutPath }),
+      ...(input.workspaceCwd === undefined ? {} : { workspaceCwd: input.workspaceCwd }),
+      ...(input.fallbackHomeDir === undefined ? {} : { fallbackHomeDir: input.fallbackHomeDir }),
+      ...(input.sqliteHome === undefined ? {} : { sqliteHome: input.sqliteHome }),
+      ...(input.reportedBundleExecutable === undefined
+        ? {}
+        : { reportedBundleExecutable: input.reportedBundleExecutable }),
+      ...(input.operatorBundleExecutable === undefined
+        ? {}
+        : { operatorBundleExecutable: input.operatorBundleExecutable }),
+      ...(input.projectRoot === undefined ? {} : { projectRoot: input.projectRoot }),
+      nativeAttemptStorePath: join(paths.threadDir, 'native-attempts.db'),
     })
-  } catch (error) {
-    log('join-transport-error', { message: error instanceof Error ? error.message : String(error) })
-    return { exit: 0, reason: 'join-transport-error' }
-  }
+    if (!admission.admitted) {
+      log('not-admitted', { reason: admission.reason, source: input.hookSource ?? 'unknown' })
+      return { exit: 0, reason: `not-admitted:${admission.reason}` }
+    }
 
-  if (outcome.exit !== 'joined') {
-    log('join-refused', { ...outcome })
-    return { exit: 0, reason: `join-${outcome.exit}` }
-  }
+    lifecycle.phase = 'claiming'
+    mkdirSync(paths.threadDir, { recursive: true, mode: 0o700 })
+    const claim = claimBrokerPid(paths, input.threadId, deadlineMs + STALLED_HOLDER_GRACE_MS, log)
+    if (!claim.claimed) {
+      log(claim.event, claim.detail)
+      return { exit: 0, reason: claim.event }
+    }
+    lifecycle.release = () => releaseBrokerPid(paths.pidFile)
+    log('claimed', {
+      source: input.hookSource ?? 'unknown',
+      deadlineMs,
+      ...(claim.previousHolder === undefined
+        ? {}
+        : {
+            previousHolderPid: claim.previousHolder.holderPid,
+            previousHolder: claim.previousHolder.state,
+          }),
+    })
 
-  const brokerInstanceId = `broker_${process.pid}`
-  writeFileSync(
-    paths.joinFile,
-    `${JSON.stringify(
-      {
-        phase: 'joined',
-        registrationId: outcome.registrationId,
-        attemptId: outcome.attemptId,
-        attachEpoch: outcome.attachEpoch,
-        hostIncarnationId,
-        runtimeId: outcome.runtimeId,
-        generation: outcome.generation,
-        scopeRef: outcome.scopeRef,
+    const reaped = reapStaleSiblingSockets(paths.threadDir)
+    if (reaped.length > 0) {
+      log('reaped-stale-sockets', { sockets: reaped })
+    }
+
+    const prior = readJoinFile(paths.joinFile)
+    if (prior !== undefined) {
+      const priorPid = typeof prior['pid'] === 'number' ? (prior['pid'] as number) : undefined
+      if (priorPid !== undefined && priorPid !== process.pid && processAlive(priorPid)) {
+        log('already-serving', { holderPid: priorPid, via: 'join.json' })
+        return { exit: 0, reason: 'already-serving' }
+      }
+      if (typeof prior['socketPath'] === 'string') {
+        const alive = await probeBrokerSocket(prior['socketPath'] as string)
+        if (alive) {
+          log('already-serving', { socketPath: prior['socketPath'] })
+          return { exit: 0, reason: 'already-serving' }
+        }
+      }
+    }
+
+    lifecycle.phase = 'resolving-project'
+    let project: Awaited<ReturnType<typeof resolveDesktopProject>>
+    if (input.projectRoot !== undefined) {
+      project = {
+        bound: {
+          projectId: basenameOf(input.projectRoot),
+          projectRoot: input.projectRoot,
+          resolvedBy: 'override',
+        },
+      }
+    } else {
+      let registryProjects = input.registryProjects
+      for (let attempt = 1; registryProjects === undefined; attempt += 1) {
+        const registry = await readRegistry(
+          join(input.codexHome, REGISTRY_CACHE_FILE),
+          Math.min(registryTimeoutMs, Math.max(1, remainingMs())),
+          log
+        )
+        if ('projects' in registry) {
+          registryProjects = registry.projects
+          break
+        }
+        const waitMs = backoffMs(attempt)
+        const retryable = remainingMs() > waitMs
+        log('registry-unavailable', {
+          message: registry.error,
+          attempt,
+          retryable,
+          ...(retryable ? { nextRetryMs: waitMs } : {}),
+        })
+        if (!retryable) return expire()
+        await sleep(waitMs)
+      }
+      project = await resolveDesktopProject({
+        workspaceCwd: admission.workspaceCwd,
+        registryProjects,
+        ...(input.agentsRoot === undefined ? {} : { agentsRoot: input.agentsRoot }),
+      })
+    }
+    if (!('bound' in project)) {
+      log('no-project', { reason: project.reason, detail: project.detail })
+      return { exit: 0, reason: `no-project:${project.reason}` }
+    }
+
+    const hostIncarnationId = desktopHostIncarnationId(admission.homeIdentity, input.threadId)
+    const socketPath = join(paths.threadDir, `broker-${process.pid}.sock`)
+    try {
+      assertSocketPathWithinBudget(socketPath)
+    } catch (error) {
+      log('socket-path-over-budget', { message: errorMessage(error) })
+      return { exit: 0, reason: 'socket-path-over-budget' }
+    }
+
+    lifecycle.phase = 'serving-socket'
+    const serve = deps.serve ?? serveUnixBroker
+    try {
+      const served = await serve({
         socketPath,
-        brokerInstanceId,
-        pid: process.pid,
-      },
-      null,
-      2
-    )}\n`,
-    { mode: 0o600 }
-  )
-  // The address cache the overlay's PreToolUse hook reads
-  // (readEstablishedScope): same path and same shape the hook expects —
-  // scopeRef plus the parsed agent/project/slot identity it injects.
-  const slotToken = outcome.scopeRef.includes(':task:')
-    ? outcome.scopeRef.slice(outcome.scopeRef.lastIndexOf(':task:') + ':task:'.length)
-    : outcome.scopeRef
-  mkdirSync(dirname(paths.scopeCacheFile), { recursive: true, mode: 0o700 })
-  writeFileSync(
-    paths.scopeCacheFile,
-    `${JSON.stringify(
-      {
-        scopeRef: outcome.scopeRef,
-        agentId: DESKTOP_AGENT_ID,
-        projectId: project.bound.projectId,
-        slotToken,
-        laneRef: DESKTOP_LANE_REF,
-        registrationId: outcome.registrationId,
-        hostIncarnationId,
-        threadId: input.threadId,
-        projectRoot: admission.workspaceCwd,
-        updatedAt: new Date().toISOString(),
-      },
-      null,
-      2
-    )}\n`,
-    { mode: 0o600 }
-  )
-  log('joined', {
-    scopeRef: outcome.scopeRef,
-    registrationId: outcome.registrationId,
-    attachEpoch: outcome.attachEpoch,
-    respawn: respawn !== undefined,
-  })
+        cliOptions: {},
+        participantBootstrap: true,
+        // HRC's controller reattach replays events (eventsSince) and acks them;
+        // without a durable ledger both throw EventReplayUnavailable and the
+        // runtime never leaves starting. The ledger lives in the thread dir so
+        // a respawn replays rather than re-emits pre-kill turns.
+        ledgerPath: join(paths.threadDir, 'event-ledger.sqlite'),
+        onServerError: (error) => {
+          writeJoinLog(paths.joinLog, 'server-error', { message: error.message })
+        },
+      })
+      // Released on every exit path (signal, deadline, crash) by the CLI's
+      // termination handling, so a respawn starts from a dead socket. A kill -9
+      // skips it; the next hook's liveness probe covers that path.
+      lifecycle.closeBroker = served.close
+    } catch (error) {
+      log('serve-failed', { message: errorMessage(error) })
+      return { exit: 0, reason: 'serve-failed' }
+    }
+
+    // Write-ahead resume (component 3(v), primary): a previous run persisted
+    // its candidate scope with phase 'registering' before calling register. Resume
+    // the loop there instead of restarting at primary-nova, so a crash between
+    // register and completion converges without parsing refusal text.
+    let resumeFromScope =
+      prior !== undefined &&
+      prior['phase'] === 'registering' &&
+      typeof prior['candidateScope'] === 'string' &&
+      prior['hostIncarnationId'] === hostIncarnationId
+        ? (prior['candidateScope'] as string)
+        : undefined
+
+    const writeCandidate = (scopeRef: string): void => {
+      // A retry after a lost register reply resumes at the same address,
+      // where the same-incarnation register replays.
+      resumeFromScope = scopeRef
+      try {
+        writeFileSync(
+          paths.joinFile,
+          `${JSON.stringify(
+            {
+              phase: 'registering',
+              candidateScope: scopeRef,
+              hostIncarnationId,
+              pid: process.pid,
+            },
+            null,
+            2
+          )}\n`,
+          { mode: 0o600 }
+        )
+      } catch {
+        // A missed write-ahead only loses the resume shortcut; the join proceeds.
+      }
+    }
+
+    const respawn =
+      prior !== undefined &&
+      typeof prior['registrationId'] === 'string' &&
+      typeof prior['runtimeId'] === 'string' &&
+      typeof prior['generation'] === 'number' &&
+      typeof prior['scopeRef'] === 'string'
+        ? {
+            scopeRef: prior['scopeRef'] as string,
+            expectedPredecessor: {
+              hostIncarnationId:
+                typeof prior['hostIncarnationId'] === 'string'
+                  ? (prior['hostIncarnationId'] as string)
+                  : hostIncarnationId,
+              runtimeId: prior['runtimeId'] as string,
+              generation: prior['generation'] as number,
+            },
+          }
+        : undefined
+
+    lifecycle.phase = 'registering'
+    let outcome: Awaited<ReturnType<typeof chooseScopeAndJoin>> | undefined
+    for (let attempt = 1; outcome === undefined; attempt += 1) {
+      try {
+        outcome = await chooseScopeAndJoin({
+          hrcSocketPath: input.hrcSocketPath,
+          projectId: project.bound.projectId,
+          hostIncarnationId,
+          socketPath,
+          classId: 'codex-desktop',
+          participantKey: admission.participantKey,
+          workspaceCwd: admission.workspaceCwd,
+          preparation: {
+            schema: 'codex-desktop.participant-preparation/1',
+            nativeThreadId: input.threadId,
+            homeIdentity: admission.homeIdentity,
+            sqliteHome: admission.preparation.sqliteHome,
+            registrationKey: admission.preparation.registrationKey,
+            rolloutPath: admission.preparation.rolloutPath,
+            workspaceCwd: admission.workspaceCwd,
+            ...(admission.preparation.reportedBundleExecutable === undefined
+              ? {}
+              : { reportedBundleExecutable: admission.preparation.reportedBundleExecutable }),
+            ...(admission.preparation.operatorBundleExecutable === undefined
+              ? {}
+              : { operatorBundleExecutable: admission.preparation.operatorBundleExecutable }),
+            projectRoot: admission.preparation.projectRoot,
+            nativeAttemptStorePath: join(paths.threadDir, 'native-attempts.db'),
+          },
+          ...(respawn === undefined ? {} : respawn),
+          ...(resumeFromScope === undefined ? {} : { resumeFromScope }),
+          onCandidateScope: writeCandidate,
+          requestTimeoutMs: Math.min(requestTimeoutMs, Math.max(1, remainingMs())),
+        })
+      } catch (error) {
+        const waitMs = backoffMs(attempt)
+        const retryable = remainingMs() > waitMs
+        log('join-transport-error', {
+          message: errorMessage(error),
+          attempt,
+          retryable,
+          ...(retryable ? { nextRetryMs: waitMs } : {}),
+        })
+        if (!retryable) return expire()
+        await sleep(waitMs)
+      }
+    }
+
+    if (outcome.exit !== 'joined') {
+      log('join-refused', { ...outcome })
+      return { exit: 0, reason: `join-${outcome.exit}` }
+    }
+
+    const brokerInstanceId = `broker_${process.pid}`
+    writeFileSync(
+      paths.joinFile,
+      `${JSON.stringify(
+        {
+          phase: 'joined',
+          registrationId: outcome.registrationId,
+          attemptId: outcome.attemptId,
+          attachEpoch: outcome.attachEpoch,
+          hostIncarnationId,
+          runtimeId: outcome.runtimeId,
+          generation: outcome.generation,
+          scopeRef: outcome.scopeRef,
+          socketPath,
+          brokerInstanceId,
+          pid: process.pid,
+        },
+        null,
+        2
+      )}\n`,
+      { mode: 0o600 }
+    )
+    // The address cache the overlay's PreToolUse hook reads
+    // (readEstablishedScope): same path and same shape the hook expects —
+    // scopeRef plus the parsed agent/project/slot identity it injects.
+    const slotToken = outcome.scopeRef.includes(':task:')
+      ? outcome.scopeRef.slice(outcome.scopeRef.lastIndexOf(':task:') + ':task:'.length)
+      : outcome.scopeRef
+    mkdirSync(dirname(paths.scopeCacheFile), { recursive: true, mode: 0o700 })
+    writeFileSync(
+      paths.scopeCacheFile,
+      `${JSON.stringify(
+        {
+          scopeRef: outcome.scopeRef,
+          agentId: DESKTOP_AGENT_ID,
+          projectId: project.bound.projectId,
+          slotToken,
+          laneRef: DESKTOP_LANE_REF,
+          registrationId: outcome.registrationId,
+          hostIncarnationId,
+          threadId: input.threadId,
+          projectRoot: admission.workspaceCwd,
+          updatedAt: new Date().toISOString(),
+        },
+        null,
+        2
+      )}\n`,
+      { mode: 0o600 }
+    )
+    lifecycle.phase = 'joined'
+    clearTimeout(deadlineTimer)
+    log('joined', {
+      scopeRef: outcome.scopeRef,
+      registrationId: outcome.registrationId,
+      attachEpoch: outcome.attachEpoch,
+      respawn: respawn !== undefined,
+      elapsedMs: Date.now() - startedAt,
+    })
+  } finally {
+    clearTimeout(deadlineTimer)
+  }
 
   const blockForever = deps.blockForever ?? (async () => new Promise<never>(() => {}))
   await blockForever()
@@ -770,12 +1081,18 @@ export function parseDesktopJoinArgs(args: string[]): DesktopJoinInput {
     join(process.env['HOME'] ?? tmpdir(), 'praesidium', 'var', 'run', 'hrc', 'hrc.sock')
   if (threadId === undefined || threadId.length === 0) {
     throw new Error(
-      'Usage: harness-broker desktop-join --thread <id> [--rollout <path> --cwd <dir> --codex-home <dir> --hrc-socket <path> --source <hook>]'
+      'Usage: harness-broker desktop-join --thread <id> [--rollout <path> --cwd <dir> --codex-home <dir> --hrc-socket <path> --source <hook> --deadline-ms <ms>]'
     )
   }
   const rolloutPath = flag('--rollout')
   const workspaceCwd = flag('--cwd')
+  const deadlineFlag = flag('--deadline-ms')
+  const deadlineMs = deadlineFlag === undefined ? undefined : Number(deadlineFlag)
+  if (deadlineMs !== undefined && !(Number.isSafeInteger(deadlineMs) && deadlineMs > 0)) {
+    throw new Error(`--deadline-ms must be a positive integer, got ${deadlineFlag}`)
+  }
   return {
+    ...(deadlineMs === undefined ? {} : { deadlineMs }),
     threadId,
     codexHome,
     hrcSocketPath,
@@ -814,7 +1131,61 @@ export function readHookStdinIds(raw: string): {
   }
 }
 
+/**
+ * Every way a joiner process ends leaves a typed join.log line naming the
+ * phase: `crashed` (uncaught throw / unhandled rejection), `signal`, and a
+ * final `exit` with the code. Each path releases broker.pid and closes the
+ * socket first. Only SIGKILL escapes; the next joiner logs the takeover of its
+ * dead claim (T-09977).
+ */
+function installTerminationLogging(lifecycle: JoinLifecycle): void {
+  const write = (event: string, detail: Record<string, unknown>): void => {
+    try {
+      if (lifecycle.log !== undefined) {
+        lifecycle.log(event, { phase: lifecycle.phase, ...detail })
+        return
+      }
+    } catch {}
+    // No thread yet (bad argv), or join.log unwritable: stderr goes to the
+    // hook's joiner.stderr.log.
+    process.stderr.write(`desktop-join ${event} ${JSON.stringify(detail)}\n`)
+  }
+  let finishing = false
+  const finish = (code: number): void => {
+    if (finishing) return
+    finishing = true
+    try {
+      lifecycle.release?.()
+    } catch {}
+    void Promise.resolve()
+      .then(() => lifecycle.closeBroker?.())
+      .catch(() => {})
+      .then(() => process.exit(code))
+  }
+  const crashed = (kind: string, error: unknown): void => {
+    write('crashed', {
+      kind,
+      message: errorMessage(error),
+      ...(error instanceof Error && error.stack !== undefined
+        ? { stack: error.stack.split('\n').slice(0, 6).join('\n') }
+        : {}),
+    })
+    finish(1)
+  }
+  process.on('uncaughtException', (error) => crashed('uncaughtException', error))
+  process.on('unhandledRejection', (reason) => crashed('unhandledRejection', reason))
+  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) {
+    process.on(signal, () => {
+      write('signal', { signal })
+      finish(0)
+    })
+  }
+  process.on('exit', (code) => write('exit', { code }))
+}
+
 export async function runDesktopJoinCli(args: string[]): Promise<void> {
+  const lifecycle: JoinLifecycle = { phase: 'starting' }
+  installTerminationLogging(lifecycle)
   let stdin = ''
   if (!process.stdin.isTTY) {
     stdin = await new Promise((resolve) => {
@@ -829,22 +1200,28 @@ export async function runDesktopJoinCli(args: string[]): Promise<void> {
   }
   const fromStdin = stdin.trim().length > 0 ? readHookStdinIds(stdin) : {}
   const fromArgs = parseDesktopJoinArgs(args)
-  const outcome = await runDesktopJoin({
-    ...fromArgs,
-    ...(fromStdin.threadId !== undefined && args.indexOf('--thread') === -1
-      ? { threadId: fromStdin.threadId }
-      : {}),
-    ...(fromStdin.rolloutPath !== undefined && args.indexOf('--rollout') === -1
-      ? { rolloutPath: fromStdin.rolloutPath }
-      : {}),
-    ...(fromStdin.workspaceCwd !== undefined && args.indexOf('--cwd') === -1
-      ? { workspaceCwd: fromStdin.workspaceCwd }
-      : {}),
-    ...(fromStdin.source !== undefined ? { hookSource: fromStdin.source } : {}),
-  })
+  const outcome = await runDesktopJoin(
+    {
+      ...fromArgs,
+      ...(fromStdin.threadId !== undefined && args.indexOf('--thread') === -1
+        ? { threadId: fromStdin.threadId }
+        : {}),
+      ...(fromStdin.rolloutPath !== undefined && args.indexOf('--rollout') === -1
+        ? { rolloutPath: fromStdin.rolloutPath }
+        : {}),
+      ...(fromStdin.workspaceCwd !== undefined && args.indexOf('--cwd') === -1
+        ? { workspaceCwd: fromStdin.workspaceCwd }
+        : {}),
+      ...(fromStdin.source !== undefined ? { hookSource: fromStdin.source } : {}),
+    },
+    { lifecycle }
+  )
+  // Not serving: give the door back and close a socket that never joined.
+  lifecycle.release?.()
+  await lifecycle.closeBroker?.().catch(() => {})
   process.exit(outcome.exit)
 }
 
 export function desktopJoinUsage(): string {
-  return 'Usage: harness-broker desktop-join --thread <id> [--rollout <path> --cwd <dir> --codex-home <dir> --hrc-socket <path> --source <hook>]'
+  return 'Usage: harness-broker desktop-join --thread <id> [--rollout <path> --cwd <dir> --codex-home <dir> --hrc-socket <path> --source <hook> --deadline-ms <ms>]'
 }

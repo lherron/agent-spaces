@@ -901,7 +901,7 @@ function buildDiscoveryHookScript(agentId: string, aspHome: string): string {
   const escapedActiveJson = JSON.stringify(ASPD_ACTIVE_JSON_PATH)
   return `#!/usr/bin/env node
 import { spawn } from 'node:child_process'
-import { appendFileSync, mkdirSync, readFileSync } from 'node:fs'
+import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 
@@ -1003,17 +1003,32 @@ const source =
       : 'startup'
 args.push('--source', source)
 
+// The joiner's stdout/stderr go to an append-only file in the thread dir, never
+// /dev/null: a joiner that dies before it can write join.log (an uncaught throw,
+// a runtime crash) still leaves its last words on disk (T-09977).
+let output = 'ignore'
+try {
+  const stderrPath = join(dirname(joinLogPath(threadId)), 'joiner.stderr.log')
+  mkdirSync(dirname(stderrPath), { recursive: true, mode: 0o700 })
+  output = openSync(stderrPath, 'a', 0o600)
+} catch {}
+
 // The 4 s timer covers only this spawn call: detached + unref'd, the broker
 // outlives the hook and the hook exits 0 the moment the spawn returns.
 try {
   const child = spawn(resolved.bin, args, {
     detached: true,
-    stdio: 'ignore',
+    stdio: ['ignore', output, output],
     env: { ...process.env, CODEX_HOME: codexHome() },
   })
   child.unref()
 } catch (error) {
   logJoin(threadId, 'spawn-failed', { message: error instanceof Error ? error.message : String(error) })
+}
+if (typeof output === 'number') {
+  try {
+    closeSync(output)
+  } catch {}
 }
 clearTimeout(backstop)
 process.exit(0)
