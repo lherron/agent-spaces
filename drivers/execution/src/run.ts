@@ -20,7 +20,7 @@ import {
   PathResolver,
   type SpaceRefString,
   install as configInstall,
-  ensureImmutableRegistry,
+  deferImmutableRegistry,
   getAspHome,
   getLegacyProjectHarnessOutputPath,
   getRegistryPath,
@@ -142,7 +142,7 @@ async function installRunTarget(args: RunInstallArgs): Promise<string> {
 async function materializeComposedRunTarget(
   args: RunInstallArgs & { effectiveCompose: SpaceRefString[] }
 ): Promise<string> {
-  const immutableRegistryPath = await ensureImmutableRegistry(
+  const immutableRegistryPath = deferImmutableRegistry(
     {
       projectPath: args.options.projectPath,
       ...(args.options.aspHome !== undefined ? { aspHome: args.options.aspHome } : {}),
@@ -180,22 +180,12 @@ async function materializeComposedRunTarget(
 }
 
 async function installConfiguredRunTarget(args: RunInstallArgs): Promise<string> {
-  const immutableRegistryPath = await ensureImmutableRegistry(
-    {
-      projectPath: args.options.projectPath,
-      ...(args.options.aspHome !== undefined ? { aspHome: args.options.aspHome } : {}),
-      ...(args.options.registryPath !== undefined
-        ? { registryPath: args.effectiveRegistryPath }
-        : {}),
-    },
-    { fetch: false }
-  )
+  // install() acquires the immutable mirror itself, only if a registry entry needs it.
   const installOptions = {
     ...args.options,
     harness: args.harnessId,
     targets: [args.targetName],
     registryPath: args.effectiveRegistryPath,
-    immutableRegistryPath,
     adapter: args.adapter,
     fetchRegistry: false,
     ...(args.agentRoot ? { agentPath: args.agentRoot } : {}),

@@ -31,6 +31,7 @@ import type { HarnessId } from '../core/types/harness.js'
 
 import {
   type ClosureOptions,
+  type ImmutableSourceRoot,
   type LockGeneratorOptions,
   classifySpaceEntry,
   computeClosure,
@@ -73,7 +74,7 @@ export interface MaterializeFromRefsOptions {
   /** ASP_HOME directory */
   aspHome?: string
   /** Explicit node-local placement used only for immutable registry entries. */
-  immutableRegistryPath?: string
+  immutableRegistryPath?: ImmutableSourceRoot
   /** Path to lock file (read and write) */
   lockPath: string
   /** Pinned spaces (skip re-resolution) */

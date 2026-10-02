@@ -45,7 +45,7 @@ export interface SnapshotOptions {
  */
 export async function snapshotExists(
   integrity: Sha256Integrity,
-  options: SnapshotOptions
+  options: Pick<SnapshotOptions, 'paths'>
 ): Promise<boolean> {
   const snapshotPath = options.paths.snapshot(integrity)
   try {

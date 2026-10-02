@@ -22,6 +22,7 @@ import type {
 } from '../core/index.js'
 import { LOCK_HARNESSES, derivePluginIdentity } from '../core/index.js'
 import type { ClosureResult, ResolvedSpace } from './closure.js'
+import type { ImmutableSourceRoot } from './immutable-root.js'
 import { computeEnvHash, computeHarnessEnvHash, computeIntegrity } from './integrity.js'
 
 /** Warning code for plugin name collisions */
@@ -80,7 +81,7 @@ export interface LockGeneratorOptions {
   /** Working directory (registry repo root) */
   cwd: string
   /** Node-local mirror used only for immutable registry entries. */
-  immutableCwd?: string | undefined
+  immutableCwd?: ImmutableSourceRoot | undefined
   /** Registry information */
   registry: LockRegistry
   /** Project root for project-local spaces */

@@ -14,12 +14,9 @@ import {
   discoverSkills,
   materializeFromRefs,
 } from '../orchestration/materialize-refs.js'
-import {
-  ensureImmutableRegistry,
-  getRegistryPath,
-  resolveTarget,
-} from '../orchestration/resolve.js'
+import { deferImmutableRegistry, getRegistryPath, resolveTarget } from '../orchestration/resolve.js'
 import { computeClosure } from '../resolver/closure.js'
+import type { ImmutableSourceRoot } from '../resolver/immutable-root.js'
 import { generateLockFileForTarget } from '../resolver/lock-generator.js'
 import { PathResolver } from '../store/paths.js'
 
@@ -65,14 +62,8 @@ function resolveSharedSpacesRoot(options: MaterializeAgentRuntimeOptions): strin
   })
 }
 
-async function resolveImmutableSpacesRoot(
-  refs: readonly string[],
-  options: MaterializeAgentRuntimeOptions
-): Promise<string> {
-  if (refs.length === 0) {
-    return resolveSharedSpacesRoot(options)
-  }
-  return await ensureImmutableRegistry(
+function resolveImmutableSpacesRoot(options: MaterializeAgentRuntimeOptions): ImmutableSourceRoot {
+  return deferImmutableRegistry(
     {
       aspHome: options.aspHome,
       projectPath: options.projectRoot ?? process.cwd(),
@@ -104,7 +95,7 @@ export async function resolveAgentRuntimeSpecToLock(
   const refs = spec.spaces
   const targetName = options.materializationTargetName ?? computeSpacesTargetName(refs)
   const registryPath = resolveSharedSpacesRoot(options)
-  const immutableRegistryPath = await resolveImmutableSpacesRoot(refs, options)
+  const immutableRegistryPath = resolveImmutableSpacesRoot(options)
   const closure = await computeClosure(refs, {
     cwd: registryPath,
     immutableCwd: immutableRegistryPath,
@@ -161,7 +152,7 @@ export async function materializeAgentRuntimeResources(
   const targetName = options.materializationTargetName ?? computeSpacesTargetName(spec.spaces)
   const paths = new PathResolver({ aspHome: options.aspHome })
   const registryPath = resolveSharedSpacesRoot(options)
-  const immutableRegistryPath = await resolveImmutableSpacesRoot(spec.spaces, options)
+  const immutableRegistryPath = resolveImmutableSpacesRoot(options)
   const materializeOptions: MaterializeFromRefsOptions = {
     targetName,
     refs: spec.spaces as SpaceRefString[],

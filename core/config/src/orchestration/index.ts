@@ -13,6 +13,8 @@ export {
   getRegistryPath,
   getImmutableRegistryPath,
   ensureImmutableRegistry,
+  deferImmutableRegistry,
+  refreshImmutableRegistryIfPresent,
   getSpacesInOrder,
   type ResolveOptions,
   type ResolveResult,

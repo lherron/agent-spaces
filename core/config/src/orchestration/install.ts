@@ -65,8 +65,10 @@ import {
 import { evaluateHygieneGate, forceComposeEnabled } from '../materializer/hygiene-gate.js'
 import { linkDirectory } from '../materializer/link-components.js'
 import {
+  type ImmutableSourceRoot,
   classifySpaceEntry,
   mergeLockFiles,
+  resolveImmutableSourceRoot,
   resolveSpaceContentDir,
   spaceKeyForEntry,
 } from '../resolver/index.js'
@@ -100,10 +102,11 @@ import {
 import {
   type ResolveOptions,
   type ResolveResult,
-  ensureImmutableRegistry,
+  deferImmutableRegistry,
   getRegistryPath,
   loadLockFileIfExists,
   loadProjectManifest,
+  refreshImmutableRegistryIfPresent,
   resolveTarget,
 } from './resolve.js'
 
@@ -232,7 +235,9 @@ export async function ensureRegistry(options: InstallOptions): Promise<string> {
     }
   }
 
-  await ensureImmutableRegistry(options, { fetch: options.fetchRegistry !== false })
+  if (options.fetchRegistry !== false) {
+    await refreshImmutableRegistryIfPresent(options)
+  }
 
   return repoPath
 }
@@ -245,14 +250,13 @@ export async function ensureRegistry(options: InstallOptions): Promise<string> {
  */
 export async function populateSnapshotsFromLock(
   lock: LockFile,
-  registryPath: string,
+  registryPath: ImmutableSourceRoot,
   aspHome: string
 ): Promise<number> {
   const paths = new PathResolver({ aspHome })
-  const snapshotOptions: SnapshotOptions = {
-    paths,
-    cwd: registryPath,
-  }
+  // Placed on the first snapshot that must be created; filesystem-backed and
+  // already-snapshotted entries never acquire the immutable mirror.
+  let snapshotOptions: SnapshotOptions | undefined
 
   let created = 0
 
@@ -263,9 +267,11 @@ export async function populateSnapshotsFromLock(
     }
 
     // Check if snapshot already exists
-    if (await snapshotExists(entry.integrity, snapshotOptions)) {
+    if (await snapshotExists(entry.integrity, { paths })) {
       continue
     }
+
+    snapshotOptions ??= { paths, cwd: await resolveImmutableSourceRoot(registryPath, '') }
 
     // Create snapshot from registry
     await createSnapshot(entry.id, entry.commit, snapshotOptions)
@@ -281,7 +287,7 @@ export async function populateSnapshotsFromLock(
  */
 export async function populateStore(lock: LockFile, options: InstallOptions): Promise<number> {
   const aspHome = options.aspHome ?? getAspHome()
-  const immutableRegistryPath = await ensureImmutableRegistry(options, { fetch: false })
+  const immutableRegistryPath = deferImmutableRegistry(options, { fetch: false })
   return populateSnapshotsFromLock(lock, immutableRegistryPath, aspHome)
 }
 

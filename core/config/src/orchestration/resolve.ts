@@ -5,6 +5,7 @@
  * manifests, abstracting the resolver package's lower-level APIs.
  */
 
+import { stat } from 'node:fs/promises'
 import * as path from 'node:path'
 
 import type { CompileContext } from 'spaces-runtime-contracts'
@@ -31,6 +32,7 @@ import type { CommitSha, SpaceId, SpaceRefString } from '../core/index.js'
 import {
   type ClosureOptions,
   type ClosureResult,
+  type ImmutableSourceRoot,
   type LockGeneratorOptions,
   type ResolvedSpace,
   computeClosure,
@@ -145,6 +147,46 @@ export async function ensureImmutableRegistry(
 }
 
 /**
+ * Defer {@link ensureImmutableRegistry} until a registry entry actually needs
+ * the mirror. Concurrent first callers share one acquisition; a failed
+ * acquisition is not cached, so the next registry use retries.
+ */
+export function deferImmutableRegistry(
+  options: ResolveOptions,
+  mirrorOptions: { fetch?: boolean | undefined } = {}
+): ImmutableSourceRoot {
+  if (options.immutableRegistryPath || options.registryPath) {
+    return getImmutableRegistryPath(options)
+  }
+  let pending: Promise<string> | undefined
+  return () => {
+    pending ??= ensureImmutableRegistry(options, mirrorOptions).catch((err: unknown) => {
+      pending = undefined
+      throw err
+    })
+    return pending
+  }
+}
+
+async function pathExists(target: string): Promise<boolean> {
+  try {
+    await stat(target)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Refresh the default immutable mirror if it is already placed; never create it. */
+export async function refreshImmutableRegistryIfPresent(options: ResolveOptions): Promise<void> {
+  if (options.immutableRegistryPath || options.registryPath) return
+  const mirrorPath = getImmutableRegistryPath(options)
+  if (await pathExists(mirrorPath)) {
+    await ensureImmutableRegistry(options, { fetch: true })
+  }
+}
+
+/**
  * Load default manifest from $ASP_HOME/default-targets.toml.
  *
  * Returns null if the file does not exist (no error).
@@ -237,7 +279,7 @@ export async function resolveTarget(
 
   // Get registry path
   const registryPath = getRegistryPath(options)
-  const immutableRegistryPath = await ensureImmutableRegistry(options, { fetch: false })
+  const immutableRegistryPath = deferImmutableRegistry(options, { fetch: false })
 
   // All refs are now resolvable (including @dev)
   const refs = target.compose as SpaceRefString[]

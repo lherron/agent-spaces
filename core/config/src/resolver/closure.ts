@@ -23,6 +23,7 @@ import {
   asSpaceKey,
   parseSpaceRef,
 } from '../core/index.js'
+import { type ImmutableSourceRoot, resolveImmutableSourceRoot } from './immutable-root.js'
 import {
   type ManifestReadOptions,
   getSpaceDependencies,
@@ -76,7 +77,7 @@ export interface ClosureResult {
  */
 export interface ClosureOptions extends SelectorResolveOptions, ManifestReadOptions {
   /** Node-local mirror used only for immutable registry entries. */
-  immutableCwd?: string | undefined
+  immutableCwd?: ImmutableSourceRoot | undefined
   /**
    * Pinned spaces to use instead of resolving.
    * Map from SpaceId to CommitSha. When a space is in this map,
@@ -216,7 +217,7 @@ export async function computeClosure(
     } else {
       resolved = await resolveSelector(ref.id, ref.selector, {
         ...options,
-        cwd: options.immutableCwd ?? options.cwd,
+        cwd: await resolveImmutableSourceRoot(options.immutableCwd, options.cwd),
       })
       key = buildSpaceKey(ref.id, resolved.commit)
     }
@@ -260,7 +261,7 @@ export async function computeClosure(
       // Registry space: read from git
       manifest = await readSpaceManifest(ref.id, resolved.commit, {
         ...options,
-        cwd: options.immutableCwd ?? options.cwd,
+        cwd: await resolveImmutableSourceRoot(options.immutableCwd, options.cwd),
       })
     }
 

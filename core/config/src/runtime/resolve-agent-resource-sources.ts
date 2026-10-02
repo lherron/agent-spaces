@@ -11,7 +11,7 @@ import { getLoadOrderEntries } from '../core/types/lock.js'
 import type { ResolvedPlacementContext, RuntimePlacement } from '../core/types/placement.js'
 import type { SpaceKey, SpaceRefString } from '../core/types/refs.js'
 import { populateSnapshotsFromLock } from '../orchestration/install.js'
-import { ensureImmutableRegistry } from '../orchestration/resolve.js'
+import { deferImmutableRegistry } from '../orchestration/resolve.js'
 import { resolvePlacementContext } from '../resolver/placement-resolver.js'
 import { type SpaceEntryKind, classifySpaceEntry } from '../resolver/space-classification.js'
 import { PathResolver } from '../store/paths.js'
@@ -163,7 +163,7 @@ export async function resolveAgentResourceSources(
 
   const projectPath =
     options.placement.projectRoot ?? options.placement.cwd ?? placementContext.resolvedBundle.cwd
-  const immutableRegistryPath = await ensureImmutableRegistry(
+  const immutableRegistryPath = deferImmutableRegistry(
     {
       projectPath,
       aspHome: options.aspHome,

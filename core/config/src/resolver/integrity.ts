@@ -17,6 +17,7 @@ import { type TreeEntry, filterTreeEntries, listTreeRecursive } from '../git/ind
 
 import { DEV_COMMIT_MARKER } from './closure.js'
 import { shouldUseFilesystemRegistryFallback } from './filesystem-registry.js'
+import { type ImmutableSourceRoot, resolveImmutableSourceRoot } from './immutable-root.js'
 
 /** Placeholder integrity for @dev refs (filesystem is mutable, uses special marker) */
 export const DEV_INTEGRITY = 'sha256:dev' as Sha256Integrity
@@ -28,7 +29,7 @@ export interface IntegrityOptions {
   /** Working directory (registry repo root) */
   cwd: string
   /** Node-local mirror used only for immutable registry entries. */
-  immutableCwd?: string | undefined
+  immutableCwd?: ImmutableSourceRoot | undefined
   /** Project root for project-local spaces */
   projectRoot?: string | undefined
   /** Agent root for agent-local spaces */
@@ -77,7 +78,7 @@ export async function computeIntegrity(
   const treePath = `spaces/${spaceId}`
   const ref = commit
 
-  const immutableCwd = options.immutableCwd ?? options.cwd
+  const immutableCwd = await resolveImmutableSourceRoot(options.immutableCwd, options.cwd)
 
   if (await shouldUseFilesystemRegistryFallback(immutableCwd)) {
     return computeFilesystemIntegrity(join(immutableCwd, treePath))

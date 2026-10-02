@@ -11,7 +11,9 @@ import {
   generateLockFileForTarget,
   git,
 } from '../index.js'
+import { PathResolver } from '../store/paths.js'
 import { populateSnapshotsFromLock } from './install.js'
+import { deferImmutableRegistry } from './resolve.js'
 
 const roots: string[] = []
 
@@ -81,6 +83,80 @@ describe('portable immutable source locks', () => {
     )
 
     await expect(populateSnapshotsFromLock(lock, immutableRoot, aspHome)).resolves.toBe(1)
+  })
+
+  test('a filesystem-only compile never acquires the immutable mirror', async () => {
+    const { mutableRoot } = await createMixedSources()
+    const aspHome = await fixtureRoot('asp-portable-home')
+    const refs = ['space:current@dev'] as const
+    let acquisitions = 0
+    const immutableCwd = async (): Promise<string> => {
+      acquisitions++
+      throw new Error('immutable mirror must not be acquired for @dev-only refs')
+    }
+
+    const closure = await computeClosure([...refs], { cwd: mutableRoot, immutableCwd })
+    const lock = await generateLockFileForTarget('dev-only', [...refs], closure, {
+      cwd: mutableRoot,
+      immutableCwd,
+      registry: PORTABLE_SPACES_REGISTRY,
+    })
+    await expect(populateSnapshotsFromLock(lock, immutableCwd, aspHome)).resolves.toBe(0)
+
+    expect(acquisitions).toBe(0)
+    expect(lock.spaces['current@dev']?.commit).toBe('dev')
+  })
+
+  test('a registry entry acquires the deferred mirror on first use', async () => {
+    const { mutableRoot, immutableRoot, immutableCommit } = await createMixedSources()
+    const aspHome = await fixtureRoot('asp-portable-home')
+    const refs = ['space:current@dev', `space:legacy@git:${immutableCommit}`] as const
+    let acquisitions = 0
+    const immutableCwd = async (): Promise<string> => {
+      acquisitions++
+      return immutableRoot
+    }
+
+    const closure = await computeClosure([...refs], { cwd: mutableRoot, immutableCwd })
+    const lock = await generateLockFileForTarget('mixed', [...refs], closure, {
+      cwd: mutableRoot,
+      immutableCwd,
+      registry: PORTABLE_SPACES_REGISTRY,
+    })
+    await expect(populateSnapshotsFromLock(lock, immutableCwd, aspHome)).resolves.toBe(1)
+
+    expect(acquisitions).toBeGreaterThan(0)
+    expect(lock.spaces[`legacy@${immutableCommit.slice(0, 12)}`]?.commit).toBe(
+      asCommitSha(immutableCommit)
+    )
+  })
+
+  test('deferred mirror acquisition is single-flight and retries after failure', async () => {
+    const aspHome = await fixtureRoot('asp-portable-home')
+    // A non-git directory at the mirror placement fails acquisition before any
+    // clone or network access.
+    const mirror = new PathResolver({ aspHome }).immutableRepository(
+      PORTABLE_SPACES_REGISTRY.repository
+    )
+    await mkdir(mirror, { recursive: true })
+
+    const root = deferImmutableRegistry({ projectPath: aspHome, aspHome }, { fetch: false })
+    if (typeof root === 'string') throw new Error('expected a deferred root')
+
+    const first = root()
+    const concurrent = root()
+    expect(concurrent).toBe(first)
+    await expect(first).rejects.toThrow('not a git repository')
+
+    const retry = root()
+    expect(retry).not.toBe(first)
+    await expect(retry).rejects.toThrow('not a git repository')
+  })
+
+  test('an explicit placement is used as-is and never deferred', () => {
+    expect(deferImmutableRegistry({ projectPath: '/p', registryPath: '/explicit/registry' })).toBe(
+      '/explicit/registry'
+    )
   })
 
   test('regenerates a legacy path-bearing registry into the portable identity', async () => {

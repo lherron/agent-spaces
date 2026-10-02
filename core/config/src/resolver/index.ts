@@ -9,6 +9,9 @@
  * - Validate resolution results
  */
 
+// Lazily placed immutable-source root
+export { type ImmutableSourceRoot, resolveImmutableSourceRoot } from './immutable-root.js'
+
 // Re-export ref parsing
 export {
   parseSpaceRef,
