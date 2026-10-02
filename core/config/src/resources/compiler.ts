@@ -67,13 +67,29 @@ type Target = {
   roleName?: string | undefined
 }
 
-type JobOutput = {
-  sinks: Array<{
-    kind: 'webhook'
-    url: string
-    format: string
-  }>
+// Mirrors ACP's validateJobOutputConfig (acp-server jobs/job-output-config.ts), which refuses
+// unknown keys, so anything ASP accepts here ACP accepts on apply.
+type JobOutputSink = {
+  kind: 'webhook'
+  url: string
+  format?: string
+  include?: string[]
 }
+
+type JobOutputDelivery = { maxAttempts?: number; maxAgeSeconds?: number }
+
+type JobOutput = {
+  sinks: JobOutputSink[]
+  delivery?: JobOutputDelivery
+}
+
+const OUTPUT_KEYS = new Set(['sinks', 'delivery'])
+const OUTPUT_SINK_KEYS = new Set(['kind', 'url', 'format', 'include'])
+const OUTPUT_DELIVERY_BOUNDS: Record<keyof JobOutputDelivery, readonly [number, number]> = {
+  maxAttempts: [1, 1000],
+  maxAgeSeconds: [60, 604_800],
+}
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]'])
 
 const hasher = createCanonicalHasher()
 const RESOURCE_DIRECTORIES: ReadonlyArray<{ dir: string; kind: ResourceKind }> = [
@@ -207,6 +223,7 @@ function compileSchedule(
   const lane = target.lane ?? 'main'
   const scopeRef = scopeRefFor(owner.agentId, owner.projectId, task)
   const executionNodes = readScheduleExecutionNodes(source, file.relPath, defaultExecutionNodes)
+  const output = readOutput(source, file.relPath)
   const desiredJson = {
     kind: 'scheduled-job',
     slug: projectionPk(owner.agentId, name),
@@ -232,6 +249,7 @@ function compileSchedule(
       : isRecord(source['flow'])
         ? { flow: cloneRecord(source['flow']) }
         : {}),
+    ...(output !== undefined ? { output } : {}),
   }
 
   return resourceProjection(file, owner, name, 'scheduled-job', 'jobs', desiredJson)
@@ -449,10 +467,29 @@ function validateEventTargetTemplates(eventSource: string, target: Target, relPa
 }
 
 function assertSameOwnerTarget(target: Target, owner: Owner, relPath: string): void {
-  if (target.project !== owner.projectId || target.agent !== owner.agentId) {
+  const planned = `${owner.agentId}@${owner.projectId}`
+  if (target.agent === undefined) {
     throw resourceError(
       'CROSS_OWNER_TARGET',
-      `${relPath}: target agent ${target.agent ?? '(missing)'} is outside owner ${owner.agentId}`
+      `${relPath}: target.agent is required (planning for ${planned})`
+    )
+  }
+  if (target.agent !== owner.agentId) {
+    throw resourceError(
+      'CROSS_OWNER_TARGET',
+      `${relPath}: target agent ${target.agent} is outside owner agent ${owner.agentId} (planning for ${planned})`
+    )
+  }
+  if (target.project === undefined) {
+    throw resourceError(
+      'CROSS_OWNER_TARGET',
+      `${relPath}: target.project is required (planning for ${planned})`
+    )
+  }
+  if (target.project !== owner.projectId) {
+    throw resourceError(
+      'CROSS_OWNER_TARGET',
+      projectMismatchMessage(target.project, owner, relPath)
     )
   }
 }
@@ -461,7 +498,7 @@ function assertSameOwnerEventTarget(target: Target, owner: Owner, relPath: strin
   if (target.agent !== undefined && target.agent !== owner.agentId) {
     throw resourceError(
       'CROSS_OWNER_EVENT_HOOK',
-      `${relPath}: event hook target agent ${target.agent} is outside owner ${owner.agentId}`
+      `${relPath}: event hook target agent ${target.agent} is outside owner agent ${owner.agentId} (planning for ${owner.agentId}@${owner.projectId})`
     )
   }
   if (
@@ -471,9 +508,15 @@ function assertSameOwnerEventTarget(target: Target, owner: Owner, relPath: strin
   ) {
     throw resourceError(
       'CROSS_OWNER_EVENT_HOOK',
-      `${relPath}: event hook target project ${target.project} is outside owner ${owner.projectId}`
+      projectMismatchMessage(target.project, owner, relPath)
     )
   }
+}
+
+// A plan compiles for one project: projectId and scopeRef come from the owner, so a resource
+// whose target names another project belongs to that project's plan.
+function projectMismatchMessage(targetProject: string, owner: Owner, relPath: string): string {
+  return `${relPath}: target project ${targetProject} does not match the planned project ${owner.projectId} (planning for ${owner.agentId}@${owner.projectId}); plan with --project ${targetProject}`
 }
 
 function readOriginPolicy(source: ParsedToml, relPath: string): { agent: 'deny' | 'deny-self' } {
@@ -508,50 +551,95 @@ function readOutput(source: ParsedToml, relPath: string): JobOutput | undefined 
   if (!isRecord(output)) {
     throw resourceError('INVALID_OUTPUT', `${relPath}: [output] must be a table`)
   }
+  const unknown = Object.keys(output).find((key) => !OUTPUT_KEYS.has(key))
+  if (unknown !== undefined) {
+    throw resourceError('INVALID_OUTPUT', `${relPath}: output.${unknown} is not supported`)
+  }
 
   const sinks = output['sinks']
   if (!Array.isArray(sinks) || sinks.length === 0) {
     throw resourceError('INVALID_OUTPUT', `${relPath}: [[output.sinks]] is required`)
   }
 
+  const delivery = readOutputDelivery(output['delivery'], relPath)
   return {
     sinks: sinks.map((sink, index) => readOutputSink(sink, index, relPath)),
+    ...(delivery !== undefined ? { delivery } : {}),
   }
 }
 
-function readOutputSink(sink: unknown, index: number, relPath: string): JobOutput['sinks'][number] {
+function readOutputSink(sink: unknown, index: number, relPath: string): JobOutputSink {
+  const prefix = `output.sinks[${index}]`
   if (!isRecord(sink)) {
-    throw resourceError('INVALID_OUTPUT', `${relPath}: output sink ${index} must be a table`)
+    throw resourceError('INVALID_OUTPUT', `${relPath}: ${prefix} must be a table`)
+  }
+  const unknown = Object.keys(sink).find((key) => !OUTPUT_SINK_KEYS.has(key))
+  if (unknown !== undefined) {
+    throw resourceError('INVALID_OUTPUT', `${relPath}: ${prefix}.${unknown} is not supported`)
   }
   if (sink['kind'] !== 'webhook') {
-    throw resourceError(
-      'UNSUPPORTED_OUTPUT_SINK',
-      `${relPath}: output sink ${index} kind must be webhook`
-    )
+    throw resourceError('UNSUPPORTED_OUTPUT_SINK', `${relPath}: ${prefix}.kind must be webhook`)
   }
   const url = sink['url']
-  if (typeof url !== 'string' || !isLoopbackHttpUrl(url)) {
+  if (typeof url !== 'string' || !isLoopbackWebhookUrl(url.trim())) {
     throw resourceError(
       'INVALID_OUTPUT_SINK_URL',
-      `${relPath}: output sink ${index} url must be a loopback http URL`
+      `${relPath}: ${prefix}.url must be a loopback http(s) URL`
     )
   }
   const format = sink['format']
-  if (typeof format !== 'string' || format.trim() === '') {
+  if (format !== undefined && (typeof format !== 'string' || format.trim() === '')) {
     throw resourceError(
       'INVALID_OUTPUT_SINK_FORMAT',
-      `${relPath}: output sink ${index} format must be a non-empty string`
+      `${relPath}: ${prefix}.format must be a non-empty string when present`
     )
   }
-  return { kind: 'webhook', url, format }
+  const include = sink['include']
+  if (
+    include !== undefined &&
+    (!Array.isArray(include) || include.some((entry) => typeof entry !== 'string'))
+  ) {
+    throw resourceError(
+      'INVALID_OUTPUT',
+      `${relPath}: ${prefix}.include must be an array of strings when present`
+    )
+  }
+  return {
+    kind: 'webhook',
+    url: url.trim(),
+    ...(typeof format === 'string' ? { format: format.trim() } : {}),
+    ...(Array.isArray(include) ? { include: [...include] } : {}),
+  }
 }
 
-function isLoopbackHttpUrl(value: string): boolean {
+function readOutputDelivery(value: unknown, relPath: string): JobOutputDelivery | undefined {
+  if (value === undefined) return undefined
+  if (!isRecord(value)) {
+    throw resourceError('INVALID_OUTPUT_DELIVERY', `${relPath}: [output.delivery] must be a table`)
+  }
+  const delivery: JobOutputDelivery = {}
+  for (const [key, field] of Object.entries(value)) {
+    if (!Object.hasOwn(OUTPUT_DELIVERY_BOUNDS, key)) {
+      throw resourceError('INVALID_OUTPUT', `${relPath}: output.delivery.${key} is not supported`)
+    }
+    const name = key as keyof JobOutputDelivery
+    const [min, max] = OUTPUT_DELIVERY_BOUNDS[name]
+    if (typeof field !== 'number' || !Number.isInteger(field) || field < min || field > max) {
+      throw resourceError(
+        'INVALID_OUTPUT_DELIVERY',
+        `${relPath}: output.delivery.${name} must be an integer from ${min} to ${max}`
+      )
+    }
+    delivery[name] = field
+  }
+  return delivery
+}
+
+function isLoopbackWebhookUrl(value: string): boolean {
   try {
     const url = new URL(value)
     return (
-      url.protocol === 'http:' &&
-      (url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '[::1]')
+      (url.protocol === 'http:' || url.protocol === 'https:') && LOOPBACK_HOSTS.has(url.hostname)
     )
   } catch {
     return false

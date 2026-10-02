@@ -232,6 +232,26 @@ Agent-authored runtime resources:
 - `asp resources plan <agent>` — compile an agent-authored runtime resources plan
   (schedules/channels/event-hooks declared under the agent home)
 
+A plan compiles for one project (`--project`): every resource's `[target]`
+must name the planned agent and project. A resource targeting another project
+fails with `target project X does not match the planned project Y ...; plan
+with --project X`; plan that project separately (or narrow with `--include`).
+
+Schedules and event hooks may declare `[output]`, passed to ACP as authored and
+validated against ACP's job-output schema; any other key is refused at plan time:
+
+```toml
+[[output.sinks]]
+kind = "webhook"                 # only kind
+url = "http://127.0.0.1:18551/x" # loopback http(s) only
+format = "discord_markdown"      # optional
+include = ["final"]              # optional string array
+
+[output.delivery]                # optional; ACP defaults: 24 attempts / 86400s
+maxAttempts = 6                  # integer 1..1000
+maxAgeSeconds = 3600             # integer 60..604800
+```
+
 ## `asp agent`
 
 Placement-driven agent execution — the scope/session entry point:
