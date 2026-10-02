@@ -1,6 +1,6 @@
 [
   {
-    "agentId": "arris",
+    "agentId": "foundry",
     "expectedDiagnostic": "SOUL.md is required in agent root: {agentRoot}"
   }
 ]
