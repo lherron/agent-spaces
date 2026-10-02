@@ -101,7 +101,7 @@ export interface PiSdkSession {
   }
   subscribe(listener: (event: AgentSessionEvent) => void): () => void
   prompt(text: string, options?: { expandPromptTemplates?: boolean | undefined }): Promise<void>
-  steer(text: string): Promise<void>
+  steer(text: string): Promise<unknown>
   abort(): Promise<void>
   waitForIdle(): Promise<void>
   getActiveToolNames(): string[]
