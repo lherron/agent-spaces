@@ -14,8 +14,9 @@ presentation is `true`.
 On a main checkout with the system namespace at `../var/aspd` configured,
 `just install` builds and installs a new immutable release, activates it on
 the system socket, and checks that the running service reports the checkout's
-source commit. This service-affecting install runs under Mable primary or
-Lance's authority. Worktree installs leave the system service alone. The
+source commit. Any seat may run this install from the main checkout, including the activation
+(Lance ruling 2026-10-01). Standalone `aspd-activate` and `aspd-restart` stay with
+Mable primary. Worktree installs leave the system service alone. The
 explicit namespace recipes below remain available for isolated deployments.
 
 ASPC validates the envelope and invokes the compiler; it owns no route catalog,

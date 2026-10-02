@@ -20,8 +20,9 @@ If the system namespace at `../var/aspd` is configured, a main-checkout
 `just install` also builds and installs an immutable ASP release, activates
 it through `aspd-activate` (restarting the service), and verifies that the
 serving source commit matches the installed checkout. Linked worktrees never
-activate the system aspd. Run this service-affecting install through Mable's
-primary seat, or as Lance.
+activate the system aspd. Any seat may run this install from the main checkout,
+including its aspd activation (Lance ruling 2026-10-01). Standalone
+`aspd-activate` or `aspd-restart` stays with Mable primary.
 
 That sync runs `just pull-deps` and `bun run build` in hrc-runtime, so expect it
 to advance and **commit `bun.lock` in that repo** — an install here leaves a
