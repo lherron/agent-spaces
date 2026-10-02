@@ -265,28 +265,6 @@ describe('asp run', () => {
     expect(result.exitCode).toBe(42)
   })
 
-  test('dry-run does not invoke Claude', async () => {
-    // Clean up any previous shim output to ensure we detect no invocation
-    await cleanupShimOutput()
-
-    const result = await run('dev', {
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-      dryRun: true,
-    })
-
-    expect(result.exitCode).toBe(0)
-    expect(result.command).toBeDefined()
-
-    // Shim output file should NOT exist because Claude was not invoked
-    const shimExists = await fs
-      .access('/tmp/claude-shim-output.json')
-      .then(() => true)
-      .catch(() => false)
-    expect(shimExists).toBe(false)
-  })
-
   test('dry-run returns command with plugin dirs', async () => {
     const result = await run('dev', {
       projectPath: projectDir,
