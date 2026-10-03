@@ -13,7 +13,7 @@ Verification is limited to correctness, implementability and fit within these de
 
 ## 2. Evidence and reuse
 
-See `codex_desktop_queue_analysis.md` and the accompanying `codex-desktop-compatibility.md` for live readback. Desktop bundle on the observed host: `/Applications/ChatGPT.app/Contents/Resources/codex`, version 0.153.3; Codex home `/Users/lherron/.codex`. These are observed installation values, not hardcoded production paths.
+See the Codex desktop queue analysis (wrkq T-08295 attachment `codex_desktop_queue_analysis.md`) and the accompanying `codex-desktop-compatibility.md` for live readback. Desktop bundle on the observed host: `/Applications/ChatGPT.app/Contents/Resources/codex`, version 0.153.3; Codex home `/Users/lherron/.codex`. These are observed installation values, not hardcoded production paths.
 
 The native queue supports add/list/delete and preserves caller `clientUserMessageId`. Desktop rollout `event_msg/item_completed` with `item.type=UserMessage` preserves it as `item.client_id` alongside thread_id and turn_id. `task_started`, `task_complete`, assistant items, tool results and usage provide durable observation. Queue add is not idempotent merely because the client ID is stable.
 
