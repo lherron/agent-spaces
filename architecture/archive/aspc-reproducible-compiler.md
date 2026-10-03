@@ -1,9 +1,11 @@
+> **Design history — reviewed 2026-10-03.** Historical June 10 study and proposed roadmap, not a current gap list. Stable default input IDs now exist in `compiler/agent-spaces/src/broker-invocation.ts`; `CompileContext` and output-manifest types exist in `contracts/spaces-runtime-contracts/src/`. See [the hash epoch](../../docs/p0-hash-epoch.md) for the landed determinism contract. The phase plan and observations below retain their original date; they do not assert that every proposed release-differential command shipped.
+
 # aspc as a True Compiler: Reproducibility, Output Capture, and Release Verification
 
 - **Status**: proposal (no implementation)
 - **Date**: 2026-06-10
 - **Author**: clod (study session with Lance)
-- **Scope**: `packages/aspc`, `packages/aspc-protocol`, `packages/agent-spaces` (compile path), `packages/config` (materialization), `packages/spaces-runtime-contracts` (hash machinery)
+- **Scope**: `harness/aspc`, `contracts/aspc-protocol`, `compiler/agent-spaces` (compile path), `core/config` (materialization), `contracts/spaces-runtime-contracts` (hash machinery)
 
 ## Motivation
 
@@ -20,7 +22,7 @@ Goals (Lance's list, extended):
 
 ### The RPC surface
 
-`packages/aspc` (facade) + `packages/aspc-protocol` (types/validators), transport = stdio JSON-RPC NDJSON:
+`harness/aspc` (facade) + `contracts/aspc-protocol` (types/validators), transport = stdio JSON-RPC NDJSON:
 
 - **`aspc.hello`** — capability handshake (`aspc/0.1`; advertises `compileAndStart`/`cohostedBroker` only when a broker is co-hosted).
 - **`aspc.compileRuntimePlan`** — in: `{compileRequest: RuntimeCompileRequest, aspHome?}`; out: `RuntimeCompileResponse` (`CompiledRuntimePlan` + diagnostics).
@@ -34,14 +36,14 @@ Every route validates the JSON-RPC envelope (`validateAspcCommand`) then narrows
 - **Canonical hashing** (`spaces-runtime-contracts/src/hash.ts`): `sha256-canonical-json/v1` — sorted keys, `undefined` omitted, `omit-ephemeral` drops fields matching `/_at|At|_ts|Ts|timestamp$/`. Plan projection omits `/planHash`; profile omits `/profileHash`, `/compatibilityHash`; a hard guard forbids omitting `process.lockedEnv` from hash material.
 - **`compileId` is derived, not random**: `stableId('compile', {requestId, operationId, generation, profileHash})`.
 - **`createdAt`** is the only wall-clock in the plan and is regex-excluded from every hash.
-- **Materialized bundle root is content-addressed**: `bundles/.versions/<fingerprint>` via `computeTargetFingerprint` (artifact content hashes + identity + settings + codexOptions), published under a scope lock with prune (`packages/config/src/orchestration/install.ts:742`). System-prompt artifacts are sha256-content-addressed (`packages/config/src/store/temp-lifecycle.ts:151`); the random `tmp/launch-overlays/<uuid>` dir is removed in `finally` and never enters the plan.
+- **Materialized bundle root is content-addressed**: `bundles/.versions/<fingerprint>` via `computeTargetFingerprint` (artifact content hashes + identity + settings + codexOptions), published under a scope lock with prune (`core/config/src/orchestration/install.ts:742`). System-prompt artifacts are sha256-content-addressed (`core/config/src/store/temp-lifecycle.ts:151`); the random `tmp/launch-overlays/<uuid>` dir is removed in `finally` and never enters the plan.
 - **`dispatchEnv` is stripped** from compiled placement and all hash material (test-proven: differing dispatchEnv → identical planHash/compileId/profileHash).
 - **Two hash altitudes by design**: `planHash` is identity-coupled (requestId/operationId/correlation); `compatibilityHash` is the identity-invariant mechanics hash (command/args/cwd/lockedEnv/pathPrepend/transport/limits/driver/bundle/model/continuation) — invariant to id and prompt-text changes, sensitive to model/PATH changes (test-proven).
-- Recompile-stability test exists: identical request twice → same planHash/startRequestHash/compatibilityHash (`packages/agent-spaces/src/__tests__/compile-runtime-plan.test.ts:845`).
+- Recompile-stability test exists: identical request twice → same planHash/startRequestHash/compatibilityHash (`compiler/agent-spaces/src/__tests__/compile-runtime-plan.test.ts:845`).
 
 ### Where reproducibility breaks today
 
-1. **The one true RNG leak: `initialInput.inputId`** — `packages/agent-spaces/src/broker-invocation.ts:279`: `req.initialInputId ?? `input_${randomUUID()}``. The inputId sits inside `startRequest.initialInput`, which is inside profile material → it poisons `startRequestHash`, `initialInputHash`, `profileHash`, and therefore `compileId` and `planHash`. `inputId` does not match the ephemeral-timestamp regex, so nothing filters it. Stability tests pass only because every fixture supplies `identity.initialInputId`. Any wire caller that omits it (with a non-empty prompt) gets a different planHash on every compile of the same request.
+1. **The one true RNG leak: `initialInput.inputId`** — `compiler/agent-spaces/src/broker-invocation.ts:279`: `req.initialInputId ?? `input_${randomUUID()}``. The inputId sits inside `startRequest.initialInput`, which is inside profile material → it poisons `startRequestHash`, `initialInputHash`, `profileHash`, and therefore `compileId` and `planHash`. `inputId` does not match the ephemeral-timestamp regex, so nothing filters it. Stability tests pass only because every fixture supplies `identity.initialInputId`. Any wire caller that omits it (with a non-empty prompt) gets a different planHash on every compile of the same request.
 2. **Caller-side identity generation**: the `asp run` path (`run-compile.ts`) mints `requestId`/`operationId`/`idempotencyKey` via `randomUUID()` per run — planHash/compileId are per-run there by construction; only `compatibilityHash` is comparable across runs. HRC-supplied identity is what makes top-level hashes reproducible.
 3. **Response envelope is never byte-identical**: `createdAt = new Date().toISOString()` at all four plan-builder sites. Hashes stable; raw JSON-RPC responses not.
 4. **Host/toolchain coupling**: `adapter.detect()` binary path, PATH-derived `pathPrepend`, absolute `aspHome` paths in artifacts and lockedEnv, and model-alias→catalog resolution all feed hash material. "Reproducible" today means same host, same toolchain, same catalog — `compatibilityHash` exists precisely to detect that drift, but verification tooling must control for it.

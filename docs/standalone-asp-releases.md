@@ -1,9 +1,11 @@
 # Standalone ASP releases
 
 ASP can stage its existing preparation facade and harness broker as one immutable,
-explicitly selected artifact. This release path is intentionally separate from
-`just install`: it does not publish packages, link global commands, select a
-current release, synchronize a consumer, or touch HRC/ACP.
+explicitly selected artifact. The explicit staging recipes below do not publish
+packages, link global commands, select a current release, synchronize a
+consumer, or touch HRC/ACP. Canonical `just install` also builds and activates
+an immutable release when the system aspd namespace is configured; see
+[aspd](aspd.md) and the repository install contract for that integrated path.
 
 ```bash
 just build-asp-release /absolute/build-root

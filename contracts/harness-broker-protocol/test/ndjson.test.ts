@@ -121,7 +121,7 @@ describe('NDJSON JSON-RPC framing', () => {
     })
   })
 
-  // BUGS.md harness-broker-protocol A1: `NdjsonDecoder.push` constructs a fresh
+  // wrkq T-10129 attachment BUGS.md (ATT-00153) harness-broker-protocol A1: `NdjsonDecoder.push` constructs a fresh
   // `TextDecoder` per call and decodes without `{ stream: true }`, so a
   // multi-byte UTF-8 codepoint split across two byte chunks is corrupted into
   // U+FFFD replacement characters. This test documents the intended streaming

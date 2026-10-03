@@ -1,3 +1,5 @@
+> **Design history — reviewed 2026-10-03.** Historical approved and delivered T-08561 producer design. Worker bindings, statusline assets and immutable inspection are implemented in `scripts/asp-release.ts`; serving preparation and worker refusal are in `harness/aspc-facade/src/aspd.ts`. Use [standalone releases](../../docs/standalone-asp-releases.md), [aspd](../../docs/aspd.md), and AGENTS.md for current operations. The worktree-only delivery instructions and activation exclusions below belonged to that task, not today's canonical `just install` contract.
+
 # T-08561 — Package supported Claude and Pi workers in immutable ASP releases
 
 Status: Daedalus-approved specification (EN-13188); implementation opened as

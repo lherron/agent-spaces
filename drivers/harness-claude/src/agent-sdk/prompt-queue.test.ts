@@ -95,7 +95,7 @@ describe('PromptQueue', () => {
     expect(yielded).toEqual([])
   })
 
-  // BUGS.md harness-claude A1: close() previously nulled the waiting resolver
+  // wrkq T-10129 attachment BUGS.md (ATT-00153) harness-claude A1: close() previously nulled the waiting resolver
   // WITHOUT calling it, so a consumer that parked BEFORE close() never resolved
   // — its `await` hung forever, wedging the SDK input loop on normal teardown.
   // close() now resolves the parked waiter with null (the iterator's completion

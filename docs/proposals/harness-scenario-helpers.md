@@ -3,9 +3,16 @@
 - **Status**: proposal; rollout tracked; no implementation
 - **Date**: 2026-07-15
 - **Scope**: `agent-spaces` first, with an intentional consumption seam for `hrc-runtime`
-- **Proposed package**: `packages/harness-scenarios` published as `spaces-harness-scenarios`
+- **Proposed package**: `harness/harness-scenarios` published as `spaces-harness-scenarios`
 - **Architecture review**: Daedalus approved with the conditions incorporated below (hrcchat message 14755)
 - **Rollout container**: `agent-spaces/harness-scenario-helpers` (`T-06393` through `T-06397`)
+
+## Implementation scope at review (2026-10-03)
+
+No `spaces-harness-scenarios` workspace package is present. The proposed API
+and rollout below remain design intent. Protocol hardening prerequisites may
+land independently (for example T-06393); completion of a prerequisite does
+not mean the helper package or its consumers shipped.
 
 ## Decision
 
@@ -373,7 +380,7 @@ Codex app-server
 so add a refresh script that runs the installed, pinned Codex toolchain and writes a reviewed snapshot under the adapter, for example:
 
 ```text
-packages/harness-scenarios/src/codex-app-server/generated/
+harness/harness-scenarios/src/codex-app-server/generated/
 ├── types/
 ├── json-schema/
 └── SOURCE.json
@@ -451,7 +458,7 @@ No adapter may silently return zero frames for an unsupported semantic step. Tar
 
 The implementation needs the normal publishable-package plumbing:
 
-- `packages/harness-scenarios/package.json`, `tsconfig.json`, source, and tests;
+- `harness/harness-scenarios/package.json`, `tsconfig.json`, source, and tests;
 - `prepack` stripping of `exports.*.bun`;
 - root build, test, and typecheck ordering;
 - boundary/import-graph registration;

@@ -13,8 +13,8 @@
  *   - drain backpressure on a full stdin buffer
  *
  * Tests that would only pass once a tracked correctness bug is fixed are added as
- * `.todo` with a BUGS.md reference, so the suite stays green (these are NOT bug
- * fixes — see BUGS.md harness-codex A2/A3/A5).
+ * `.todo` with a wrkq T-10129 attachment BUGS.md (ATT-00153) reference, so the suite stays green (these are NOT bug
+ * fixes — see wrkq T-10129 attachment BUGS.md (ATT-00153) harness-codex A2/A3/A5).
  */
 import { describe, expect, it } from 'bun:test'
 import { EventEmitter } from 'node:events'
@@ -374,18 +374,18 @@ describe('CodexRpcClient handler requests', () => {
 })
 
 /*
- * Tracked correctness bugs (BUGS.md). These are intentionally NOT asserted as
+ * Tracked correctness bugs (wrkq T-10129 attachment BUGS.md (ATT-00153)). These are intentionally NOT asserted as
  * passing tests here because A10 is a behavior-preserving cleanup, not a fix.
  * They are recorded as `.todo` so the gap is documented without going red.
  */
 describe('CodexRpcClient — tracked bugs (todo, do not fix here)', () => {
-  // BUGS.md harness-codex A2: close() leaks the readline interface + the
+  // wrkq T-10129 attachment BUGS.md (ATT-00153) harness-codex A2: close() leaks the readline interface + the
   // proc 'error'/'exit' listeners. A passing assertion requires detaching
   // listeners in close(), which is the fix — left as todo.
-  it.todo('close() detaches readline + proc listeners (BUGS.md harness-codex A2)')
+  it.todo('close() detaches readline + proc listeners (ATT-00153 harness-codex A2)')
 
-  // BUGS.md harness-codex A1: child stderr is never drained, so a large
+  // wrkq T-10129 attachment BUGS.md (ATT-00153) harness-codex A1: child stderr is never drained, so a large
   // stderr write can deadlock the pipe. Drain wiring lives in codex-session,
   // not rpc-client; documented here for the riskiest-surface inventory.
-  it.todo('drains child stderr to avoid pipe-buffer deadlock (BUGS.md harness-codex A1)')
+  it.todo('drains child stderr to avoid pipe-buffer deadlock (ATT-00153 harness-codex A1)')
 })

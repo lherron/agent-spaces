@@ -1,3 +1,5 @@
+> **Design history — reviewed 2026-10-03.** Historical shipped overlay-root design. `core/config/src/store/asp-config.ts` now resolves an existing declared project root before the canonical root and warns when the declaration is missing; whole-agent resolution lives in `core/config/src/store/runtime-placement.ts`. The old survey, delivery recipe and open questions below are historical. Use [materialization and install flow](../../docs/materialization-install-flow.md) and the repository install contract for current operations.
+
 # Project-Local Agent Config Roots (T-04141, Phase 1 proposal)
 
 **Status:** shipped — T-04141 (project-local agent roots), with follow-ons T-04143 (`agents-root:///` ref scheme) and T-04144 (spaces re-home, registry retirement)
@@ -9,10 +11,10 @@
 archagent needs a cohort of agent configs (experiment personas, bench variants, daedalus
 priming variants, empirical-run roles) that live inside `~/praesidium/archagent`, versioned
 with that repo. Today the agents root is a single global directory: `getAgentsRoot()`
-(`packages/config/src/store/asp-config.ts:16-24`) resolves **one** root via
+(`core/config/src/store/asp-config.ts:16-24`) resolves **one** root via
 `ASP_AGENTS_ROOT` env → `agents-root` in `$ASP_HOME/config.toml` → convention fallback
 `~/praesidium/var/agents`, and agentId → config is a bare `join(agentsRoot, agentId)`
-(`packages/config/src/store/runtime-placement.ts:155-160`). The only choices today are
+(`core/config/src/store/runtime-placement.ts:155-160`). The only choices today are
 forking the whole root or polluting the canonical one.
 
 **Hard constraint (Lance, via C-04049):** daedalus stays canonical in `var/agents` and is

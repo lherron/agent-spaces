@@ -1,3 +1,5 @@
+> **Design history — reviewed 2026-10-03.** Historical May 8 design rationale. The alternatives below explain why tools stay in the agent source root rather than a copied bundle. Current validation and environment behavior live in `core/runtime/src/agent-local-runtime.ts`; state variables no longer require a tools directory. See [the implementation history](agent-tools-implementation.md) for the original detailed contract.
+
 # Agent-Owned Personal Tools — Revised Proposal
 
 Date: 2026-05-08  

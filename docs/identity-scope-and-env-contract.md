@@ -18,7 +18,7 @@ as a stable seam rather than an implementation detail.
 
 ## `agent-scope`: the identity vocabulary
 
-`packages/agent-scope` defines four related types. It is intentionally
+`contracts/agent-scope` defines four related types. It is intentionally
 standalone in the package graph (not layered under `spaces-config`)
 because scope/session identity is a semantic seam used by every layer, not
 just a CLI convenience.
@@ -87,11 +87,12 @@ Codex maps it to `resumeThreadId` internally.
 ## Agent-Session environment contract
 
 Owner/producer: agent-spaces placement/materialization. Writer: the
-canonical agent-session env builder in `packages/agent-spaces`
-(`agent-session-env.ts`, `buildCorrelationEnvVars`). Readers: agent
-processes, HRC launch paths, hrcchat, hooks, wrkq/wrkf tooling. Every
-launched agent process receives these variables so that its own actions
-(e.g. wrkq writes) are attributable back to the launching identity.
+canonical agent-session env builder in `core/config/src/runtime/agent-session-env.ts`,
+re-exported by `compiler/agent-spaces/src/agent-session-env.ts`;
+`buildCorrelationEnvVars` delegates to that same builder. Readers: agent
+processes, HRC launch paths, hrcchat, hooks, wrkq/wrkf tooling. Variables are emitted when their placement/correlation inputs are present; this
+is not a promise that every launch receives every field. Actor attribution
+defaults to the parsed agent id and may be overridden by the caller.
 
 | Variable | Format | Legacy fallback |
 | --- | --- | --- |
@@ -106,6 +107,13 @@ launched agent process receives these variables so that its own actions
 | `AGENT_GENERATION` | Decimal generation of the authoritative host session | `HRC_GENERATION` during migration |
 | `AGENT_PROJECT_ROOT` | Absolute project root path | `ASP_PROJECT_ROOT` during migration |
 | `AGENT_ACTOR` | Bare actor slug for task writes | legacy `WRKQ_ACTOR` alias is killed; wrkq now reads `WRKQ_PRINCIPAL_REF` |
+
+The writer also reserves/emits `HRC_RUNTIME_ID`, `HRC_INVOCATION_ID`, and
+`HRC_INITIAL_INPUT_ID` when the corresponding correlation input exists. Scope,
+lane, run, host-session, generation and project-root fields are conditional on
+placement data; they are not synthesized for every launch. `ASP_PROJECT_ROOT`
+is supplied by the shared tool/environment composition when a project root is
+present, rather than by `buildAgentSessionEnv` itself.
 
 `AGENT_SCOPE_REF` and `AGENT_SESSION_REF` are both canonical but name
 different concepts: use `AGENT_SCOPE_REF` for durable identity/ownership

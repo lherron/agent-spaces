@@ -92,7 +92,7 @@ describe('JSON-RPC 2.0 message parsing and discrimination', () => {
     )
   })
 
-  // BUGS.md harness-broker-protocol A4: `isJsonRpcResponse` keys off
+  // wrkq T-10129 attachment BUGS.md (ATT-00153) harness-broker-protocol A4: `isJsonRpcResponse` keys off
   // `Object.hasOwn(value, 'result')` without checking the value is non-undefined,
   // so an in-memory object carrying `result: undefined` (which JSON parsing can
   // never produce, but a standalone guard call can) is wrongly classified as a

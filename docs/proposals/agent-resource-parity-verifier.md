@@ -1,6 +1,6 @@
 # Agent Resource Parity Verifier
 
-- **Status:** deployed baseline; direct-loader revision accepted in `hrcchat#20779`
+- **Status:** direct-loader revision implemented; accepted design in `hrcchat#20779`
 - **Date:** 2026-08-24
 - **Owner:** agent-spaces
 - **Primary package:** `spaces-integration-tests`
@@ -8,9 +8,9 @@
 
 ## Decision
 
-Retain the deployed test-only verifier, but change its direct producer from the
-compiler-materializing `agent-harness-sdk` to the custom `ResourceLoader` in
-`agent-harness-runtime`. The verifier independently asks the compatibility
+The test-only verifier now uses the custom `ResourceLoader` in
+`agent-harness-runtime` as its direct producer, replacing the original
+compiler-materializing `agent-harness-sdk` observation. The verifier independently asks the compatibility
 compiler and the direct loader to resolve the same agent placement, projects
 their ASP-authored prompts and effective skills into a stable observation
 format, and byte-compares the two projections.
@@ -28,7 +28,7 @@ independent-producer test.
 
 ## Current evidence and reopened boundary
 
-The deployed verifier passes all four modes for the current live fleet: 41
+The recorded August 24 baseline passed all four modes for that live fleet: 41
 valid agents, one exact invalid-root exclusion, and 164 compared rows. That
 evidence proved parity between the compiler and the initial SDK implementation,
 but the SDK achieved its result by consuming the Pi adapter's generated merged
@@ -41,10 +41,15 @@ direct producer observes the reloaded `AgentSpacesResourceLoader` constructed
 from ordered raw/snapshot ASP sources. There is no baseline or bless operation
 that makes a regression acceptable.
 
+The revision is implemented in `integration-tests/lib/agent-resource-parity/observe-direct-loader.ts`: it reloads the production loader once, verifies
+ASP skill-source attribution, and rejects compiler materialization residue.
+The old fleet counts above are historical evidence, not a fresh fleet result.
+The live command prints the current inventory and compared rows on each run.
+
 ## Goals
 
 - Prove task-mode prompt, reminder, skill-catalog, and skill-package parity for
-  every valid agent under `~/agents`.
+  every valid agent under the resolved `ASP_AGENTS_ROOT` (default `~/praesidium/var/agents`).
 - Cover query, heartbeat, and maintenance through the same parameterized code.
 - Exercise the compiler and direct resource-loader integration seams
   independently.
@@ -83,12 +88,12 @@ integration-tests/
       types.ts
   tests/
     agent-resource-parity.test.ts
-    fixtures/agent-resource-parity/
-      agents/
-      project/
-      registry/
-      replay.json
-      exclusions.json
+  fixtures/agent-resource-parity/
+    agents/
+    project/
+    registry/
+    replay.json
+    exclusions.json
 ```
 
 `integration-tests/package.json` carries an explicit workspace dependency on
@@ -404,8 +409,8 @@ Negative controls must demonstrate that each of these changes fails:
 
 ### Live fleet gate
 
-Run the installed/source-equivalent producers against every valid `~/agents`
-candidate and all four modes. Before the run, hash all agent and registry input
+Run the installed/source-equivalent producers against every valid candidate in
+the resolved `ASP_AGENTS_ROOT` and all four modes. Before the run, hash all agent and registry input
 files used by the matrix. Restore a clean temporary `ASP_HOME` before each
 producer observation and verify the input hashes again afterward.
 

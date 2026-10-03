@@ -333,7 +333,7 @@ describe('invokeClaude', () => {
     // Documents CURRENT behavior: when the timeout fires it kills the child,
     // and invokeClaude resolves normally (the kill produces a non-zero exit
     // code). It does NOT throw or otherwise signal that a timeout occurred —
-    // that missing surface is tracked as BUGS.md harness-claude A4 and is
+    // that missing surface is tracked as wrkq T-10129 attachment BUGS.md (ATT-00153) harness-claude A4 and is
     // asserted in the `.todo` below.
     //
     // `exec sleep` so the kill signal reaches the sleep directly (otherwise
@@ -346,7 +346,7 @@ describe('invokeClaude', () => {
     expect(result.exitCode).not.toBe(0)
   }, 10_000)
 
-  // BUGS.md harness-claude A4: the timeout outcome is silent — invokeClaude
+  // wrkq T-10129 attachment BUGS.md (ATT-00153) harness-claude A4: the timeout outcome is silent — invokeClaude
   // gives the caller no signal (no thrown ClaudeInvocationError, no `timedOut`
   // flag) that the child was killed by the timeout. Skipped until that bug is
   // fixed; enabling this test would require surfacing the timeout.

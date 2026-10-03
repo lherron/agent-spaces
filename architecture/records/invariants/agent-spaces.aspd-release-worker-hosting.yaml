@@ -48,7 +48,7 @@ source:
   - wrkq:T-08594
   - wrkq:T-08561
   - commit:c6d821ce
-  - docs/proposals/aspd-release-supported-claude-pi-workers.md
+  - architecture/archive/aspd-release-supported-claude-pi-workers.md
   - scripts/asp-release.ts
   - harness/aspc-facade/src/aspd.ts
   - contracts/aspc-protocol/src/types.ts

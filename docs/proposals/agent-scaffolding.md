@@ -4,6 +4,13 @@
 **Date:** 2026-07-08
 **Author:** mable@agent-spaces
 
+## Implementation scope at review (2026-10-03)
+
+This scaffolding design remains unimplemented. The installed `asp agents --help`
+and `apps/cli/src/commands/agents.ts` expose read-only `catalog` and `inspect`;
+they do not expose the `init`, `list`, `validate`, or `where` commands proposed
+below. Those commands and their acceptance criteria remain design intent.
+
 ## Problem
 
 The toolkit can scaffold a *space* (`asp repo new-space`, `asp spaces init` — both
@@ -13,7 +20,7 @@ works. The v2 agent-root contract is shipped and enforced (`validateAgentRoot` r
 `SOUL.md`, parses `agent-profile.toml` schemaVersion 1/2, allows optional `HEARTBEAT.md`),
 but nothing user-facing *emits* a conforming root. Onboarding knowledge lives outside the
 repo (`var/agents/AGENT_ONBOARDING.md`), and the only executable example is a test fixture
-(`packages/config/src/__fixtures__/v2/agent-root/`).
+(`core/config/src/__fixtures__/v2/agent-root/`).
 
 Consequences: every new agent is folklore-driven, project-local agent roots (T-04141) have
 no paved adoption path, and "build an agent" — the toolkit's headline verb — has no CLI
@@ -72,12 +79,12 @@ project-local shadowing).
 ## Implementation notes
 
 - Single source of truth: the scaffold templates must be validated by the same code that
-  gates runtime (`packages/config/src/resolver/agent-root.ts`,
-  `core/config/agent-profile-toml.ts`). A round-trip test (scaffold → validate → resolve
+  gates runtime (`core/config/src/resolver/agent-root.ts`,
+  `core/config/src/core/config/agent-profile-toml.ts`). A round-trip test (scaffold → validate → resolve
   placement) prevents template drift.
 - Template basis: promote the v2 fixture shapes into a `scaffold/` module in
   `spaces-config` (fixtures stay test-only); CLI command is a thin registrar in
-  `packages/cli/src/commands/agents/`.
+  `apps/cli/src/commands/agents/`.
 - `list`/`where` reuse the existing agents-root search-path resolution
   (`store/runtime-placement.ts`) — no new resolution logic.
 - Tests: unit (scaffold output validity, force/exists behavior, project placement gating),

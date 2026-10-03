@@ -113,7 +113,7 @@ describe('canonical JSON hasher', () => {
     expect(h.canonicalize({ dropped: 'x', kept: 1 }, policy)).toBe('{"kept":1}')
   })
 
-  // BUGS.md spaces-runtime-contracts A1: omitting an *array element* via
+  // wrkq T-10129 attachment BUGS.md (ATT-00153) spaces-runtime-contracts A1: omitting an *array element* via
   // omitPaths makes serialize() return '' for that element, so joining with ','
   // yields a malformed canonical token (e.g. `[1,,3]`) and project() then throws
   // on JSON.parse. These document the intended post-fix contract; they are
@@ -139,7 +139,7 @@ describe('canonical JSON hasher', () => {
     expect(() => project({ items: [1, 2, 3], specVersion: 'x' }, 'spec')).not.toThrow()
   })
 
-  // BUGS.md spaces-runtime-contracts A3: a top-level undefined/function/symbol
+  // wrkq T-10129 attachment BUGS.md (ATT-00153) spaces-runtime-contracts A3: a top-level undefined/function/symbol
   // silently hashes the literal 'null' instead of being rejected. Document the
   // intended post-fix throw as .todo so the suite stays green until A3 is fixed.
   test.todo('top-level non-serializable values are rejected, not coerced to null (BUGS A3)', () => {

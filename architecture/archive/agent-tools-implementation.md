@@ -1,8 +1,10 @@
+> **Design history — reviewed 2026-10-03.** Historical approved May 8 implementation specification. Preserve its validation and PATH rationale; current behavior lives in `core/runtime/src/agent-local-runtime.ts` and `core/config/src/runtime/compose-agent-env.ts`. State/cache/log and project-state variables are now emitted even when tools are absent; only tools variables and PATH require tools. The old integration layout and acceptance plan below describe the original slice.
+
 # Agent-Owned Personal Tools — Implementation Spec
 
 Date: 2026-05-08  
 Status: Approved for implementation  
-Source proposal: `AGENT_TOOLS_PROPOSAL.md` revised direction: agent-local source-path tools on `PATH`, no materialized tools bundle in v1.
+Source proposal: [revised tools proposal](agent-tools-proposal.md): agent-local source-path tools on `PATH`, no materialized tools bundle in v1.
 
 ## 1. Objective
 
@@ -25,22 +27,22 @@ The goal is for an agent such as `project-minder` to invoke deterministic comman
 
 Relevant existing seams:
 
-- `packages/config/src/core/types/agent-local.ts`
+- `core/config/src/core/types/agent-local.ts`
   - defines `AgentLocalComponents` for agent-local `skills/` and `commands/`.
-- `packages/execution/src/run/agent-profile.ts`
+- `drivers/execution/src/run/agent-profile.ts`
   - exports `detectAgentLocalComponents(agentRoot)`.
-- `packages/config/src/orchestration/install.ts`
+- `core/config/src/orchestration/install.ts`
   - `materializeTarget()` appends agent-local skills/commands as a synthetic plugin artifact.
   - `materializeAgentLocalComponents()` currently ignores tools, which should remain true for v1.
-- `packages/config/src/orchestration/materialize-refs.ts`
+- `core/config/src/orchestration/materialize-refs.ts`
   - `materializeFromRefs()` threads `agentRoot`, `projectRoot`, and `agentLocalComponents` into resolution/materialization for explicit ref runs.
-- `packages/agent-spaces/src/client-materialization.ts`
+- `compiler/agent-spaces/src/client-materialization.ts`
   - `materializeSpec()` currently passes agent-local context through for `kind: 'spaces'` but not for `kind: 'target'`.
-- `packages/execution/src/run.ts`
+- `drivers/execution/src/run.ts`
   - direct `asp run` detects agent-local components and calls `executeHarnessRun()`.
-- `packages/execution/src/run/execute.ts`
+- `drivers/execution/src/run/execute.ts`
   - central direct harness process spawn path.
-- `packages/agent-spaces/src/client.ts`
+- `compiler/agent-spaces/src/client.ts`
   - placement `buildProcessInvocationSpec()` builds CLI env.
   - placement SDK/non-interactive paths apply scoped process env overlays before session execution.
 - `packages/hrc-server/src/agent-spaces-adapter/cli-adapter.ts`
@@ -150,7 +152,7 @@ No HRC code change should be necessary beyond tests if current `mergeEnv()` beha
 
 ### 6.1 Extend `AgentLocalComponents`
 
-Update `packages/config/src/core/types/agent-local.ts`:
+Update `core/config/src/core/types/agent-local.ts`:
 
 ```ts
 export interface AgentLocalComponents {
@@ -183,7 +185,7 @@ Existing consumers that only need skills/commands should keep working by ignorin
 
 ### 6.2 Update detection
 
-Update `packages/execution/src/run/agent-profile.ts`:
+Update `drivers/execution/src/run/agent-profile.ts`:
 
 - Detect directories with `stat().isDirectory()`, not simple existence.
 - Check:
@@ -203,9 +205,9 @@ const components = await detectAgentLocalComponents(agentRoot)
 
 ### 6.3 Export project storage id helper
 
-`packages/config/src/store/paths.ts` currently has an internal `getProjectStorageId(projectPath: string)`. Export it and re-export from:
+`core/config/src/store/paths.ts` currently has an internal `getProjectStorageId(projectPath: string)`. Export it and re-export from:
 
-- `packages/config/src/store/index.ts`
+- `core/config/src/store/index.ts`
 - root `spaces-config` export path through existing `export * from './store/index.js'`
 
 Keep the existing algorithm unchanged:
@@ -214,17 +216,17 @@ Keep the existing algorithm unchanged:
 sanitize basename -> lowercase slug + '-' + first 8 hex chars of sha256(resolve(projectPath))
 ```
 
-Add/adjust tests in `packages/config/src/store/paths.test.ts` to assert that `getProjectStorageId('/work/My Project')` matches `my-project-[0-9a-f]{8}` and is used by `getProjectDataPath()`.
+Add/adjust tests in `core/config/src/store/paths.test.ts` to assert that `getProjectStorageId('/work/My Project')` matches `my-project-[0-9a-f]{8}` and is used by `getProjectDataPath()`.
 
 ## 7. Agent tool runtime helper
 
 Add a new runtime helper in:
 
 ```text
-packages/execution/src/run/agent-tools.ts
+drivers/execution/src/run/agent-tools.ts
 ```
 
-Export it from `packages/execution/src/run.ts` and `packages/execution/src/index.ts` so `agent-spaces` can import it from `spaces-execution`.
+Export it from `drivers/execution/src/run.ts` and `drivers/execution/src/index.ts` so `agent-spaces` can import it from `spaces-execution`.
 
 ### 7.1 Public helper shape
 
@@ -413,7 +415,7 @@ if (!components || (!components.hasSkills && !components.hasCommands)) {
 
 A tools-only agent root should still produce `AgentLocalComponents`, but `materializeAgentLocalComponents()` should return `undefined` because there is no prompt/capability artifact to compose.
 
-Fix the existing pass-through gap in `packages/agent-spaces/src/client-materialization.ts` for every branch of `materializeSpec()`:
+Fix the existing pass-through gap in `compiler/agent-spaces/src/client-materialization.ts` for every branch of `materializeSpec()`:
 
 - `spec.kind === 'target'`;
 - `spec.kind === 'spaces' && refs.length === 0`;
@@ -436,7 +438,7 @@ In both spaces branches, continue passing `agentRoot`, `projectRoot`, and `agent
 
 This pass-through fix is required for existing agent-local skills/commands and agent-local spaces in project-target placement paths. It is not a tools materialization feature, but it must be fixed in the same implementation because placement tools depend on the same agent-root detection flow.
 
-Also update direct `asp run` in `packages/execution/src/run.ts`: when it falls through to `configInstall(...)` rather than `materializeFromRefs(...)`, pass `agentPath` and `agentLocalComponents` when an agent profile exists. Current explicit-ref materialization already threads these values.
+Also update direct `asp run` in `drivers/execution/src/run.ts`: when it falls through to `configInstall(...)` rather than `materializeFromRefs(...)`, pass `agentPath` and `agentLocalComponents` when an agent profile exists. Current explicit-ref materialization already threads these values.
 
 Agent-local skills and commands are mutable source material. Direct `asp run` should force re-materialization when `agentLocalComponents.hasSkills || agentLocalComponents.hasCommands` is true, even if the lock and output bundle already exist. Tools alone do not require re-materialization because they are read directly from `<agentRoot>/tools/bin`, but they still require validation before every launch.
 
@@ -460,9 +462,9 @@ const needsInstall =
 
 Files:
 
-- `packages/execution/src/run.ts`
-- `packages/execution/src/run/execute.ts`
-- new `packages/execution/src/run/agent-tools.ts`
+- `drivers/execution/src/run.ts`
+- `drivers/execution/src/run/execute.ts`
+- new `drivers/execution/src/run/agent-tools.ts`
 
 Changes:
 
@@ -518,7 +520,7 @@ const execution = await executeHarnessRun(adapter, detection, bundle, runOptions
 
 File:
 
-- `packages/agent-spaces/src/client.ts`, `buildPlacementInvocationSpec()`
+- `compiler/agent-spaces/src/client.ts`, `buildPlacementInvocationSpec()`
 
 Changes:
 
@@ -568,7 +570,7 @@ if (agentLocalComponents?.hasTools) {
 
 File:
 
-- `packages/agent-spaces/src/client.ts`, `runPlacementTurnNonInteractive()` and any adjacent placement SDK/session path that executes with `applyEnvOverlay()`.
+- `compiler/agent-spaces/src/client.ts`, `runPlacementTurnNonInteractive()` and any adjacent placement SDK/session path that executes with `applyEnvOverlay()`.
 
 Current code builds `harnessEnv`, applies it to `process.env`, then materializes and creates an SDK session. Update this so the tool env is included in the scoped overlay before session creation and turn execution.
 
@@ -604,7 +606,7 @@ Use Bun tests consistent with the repo.
 
 ### 12.1 Detection tests
 
-Update `packages/execution/src/run.test.ts` existing agent-local discovery tests:
+Update `drivers/execution/src/run.test.ts` existing agent-local discovery tests:
 
 - skills-only returns new fields with `hasTools: false`;
 - commands-only returns new fields with `hasTools: false`;
@@ -615,7 +617,7 @@ Update `packages/execution/src/run.test.ts` existing agent-local discovery tests
 
 ### 12.2 Runtime helper tests
 
-Add `packages/execution/src/run/agent-tools.test.ts`:
+Add `drivers/execution/src/run/agent-tools.test.ts`:
 
 - no tools returns empty env/path/warnings;
 - valid executable in `tools/bin` prepends `PATH` and sets all `ASP_AGENT_*` vars;
@@ -633,7 +635,7 @@ Add `packages/execution/src/run/agent-tools.test.ts`:
 
 ### 12.3 Direct run tests
 
-Update or add tests in `packages/execution/src/run.test.ts`:
+Update or add tests in `drivers/execution/src/run.test.ts`:
 
 - dry-run with agent tools includes `<agentRoot>/tools/bin` at the front of `PATH` in the generated command/env;
 - direct run still works when an agent has tools only and no skills/commands;
@@ -642,7 +644,7 @@ Update or add tests in `packages/execution/src/run.test.ts`:
 
 ### 12.4 Placement/materialization pass-through tests
 
-Update `packages/agent-spaces/src/__tests__/phase4-harness-adapter-integration.test.ts` or add a focused client-materialization test:
+Update `compiler/agent-spaces/src/__tests__/phase4-harness-adapter-integration.test.ts` or add a focused client-materialization test:
 
 - `materializeSpec()` target branch passes `agentRoot` as `agentPath` to `resolveTarget()`/`materializeTarget()`;
 - `materializeSpec()` target branch passes `agentLocalComponents` to `materializeTarget()`;
@@ -650,7 +652,7 @@ Update `packages/agent-spaces/src/__tests__/phase4-harness-adapter-integration.t
 
 ### 12.5 Placement invocation env tests
 
-Add or update `packages/agent-spaces/src/__tests__/placement-correlation-env.test.ts` or a new focused test:
+Add or update `compiler/agent-spaces/src/__tests__/placement-correlation-env.test.ts` or a new focused test:
 
 - placement `buildProcessInvocationSpec()` with a tools-only agent returns `spec.env.PATH` beginning with `<agentRoot>/tools/bin`;
 - returned env includes `ASP_AGENT_ROOT`, `ASP_AGENT_TOOLS_BIN`, `ASP_AGENT_STATE_DIR`, and project state vars when `placement.projectRoot` is set;
@@ -671,17 +673,17 @@ expect(finalEnv.PATH).toBe('/hrc/bin:/agent/tools/bin:/usr/bin')
 
 ### 12.7 Store path helper tests
 
-Update `packages/config/src/store/paths.test.ts` to cover exported `getProjectStorageId()`.
+Update `core/config/src/store/paths.test.ts` to cover exported `getProjectStorageId()`.
 
 ## 13. Verification commands
 
 Run targeted tests first:
 
 ```bash
-bun test packages/execution/src/run/agent-tools.test.ts
-bun test packages/execution/src/run.test.ts
-bun test packages/config/src/store/paths.test.ts
-bun test packages/agent-spaces/src/__tests__/placement-correlation-env.test.ts
+bun test drivers/execution/src/run/agent-tools.test.ts
+bun test drivers/execution/src/run.test.ts
+bun test core/config/src/store/paths.test.ts
+bun test compiler/agent-spaces/src/__tests__/placement-correlation-env.test.ts
 ```
 
 Then run typecheck/build for touched packages:

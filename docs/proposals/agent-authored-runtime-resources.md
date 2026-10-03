@@ -2,6 +2,14 @@
 
 Status: approved by Daedalus; event-hooks folded into T-04867 and T-04868
 
+## Implementation scope at review (2026-10-03)
+
+ASP implements resource-source validation and plan compilation in
+`core/config/src/resources/compiler.ts`; the installed `asp resources --help`
+exposes `plan` only. The reconcile/apply and consumer lifecycle sections below
+remain approved design intent owned by ACP, not additional ASP CLI verbs.
+The original current-state survey is dated to the proposal.
+
 ## Thesis
 
 Praesidium should let an agent directory declare the runtime resources it wants:

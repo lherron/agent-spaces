@@ -14,7 +14,7 @@ service are out of scope for this contract. Examples include `ACP_JOB_FLOW_EXEC_
 ## Agent-Session Contract
 
 Owner/producer: agent-spaces placement/materialization.
-Writer: the canonical agent-session env builder in `packages/agent-spaces`.
+Writer: `core/config/src/runtime/agent-session-env.ts`, re-exported by `compiler/agent-spaces/src/agent-session-env.ts`.
 Readers: agent processes, HRC launch paths, hrcchat, hooks, wrkq/wrkf tooling.
 Format: strings; IDs are bare slugs unless noted.
 Phase: Phase 1 writes canonical names plus compatibility aliases.
@@ -32,6 +32,13 @@ Phase: Phase 1 writes canonical names plus compatibility aliases.
 | `AGENT_GENERATION` | Decimal generation of the authoritative host session | `HRC_GENERATION` during migration |
 | `AGENT_PROJECT_ROOT` | Absolute project root path | `ASP_PROJECT_ROOT` during migration |
 | `AGENT_ACTOR` | Bare actor slug for task writes | `WRKQ_ACTOR` is the killed legacy alias; wrkq now reads `WRKQ_PRINCIPAL_REF` |
+
+The writer also reserves/emits `HRC_RUNTIME_ID`, `HRC_INVOCATION_ID`, and
+`HRC_INITIAL_INPUT_ID` when the corresponding correlation input exists. Scope,
+lane, run, host-session, generation and project-root fields are conditional on
+placement data; they are not synthesized for every launch. `ASP_PROJECT_ROOT`
+is supplied by the shared tool/environment composition when a project root is
+present, rather than by `buildAgentSessionEnv` itself.
 
 `AGENT_SCOPE_REF` and `AGENT_SESSION_REF` are both canonical and name different
 concepts. Use `AGENT_SCOPE_REF` for durable identity and ownership logic. Use
