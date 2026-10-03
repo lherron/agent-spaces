@@ -8,6 +8,7 @@ import type { RuntimeCompileRequest } from 'spaces-runtime-contracts'
 import {
   CompileProvisioningError,
   resolveCompileProvisioningLayers,
+  resolveCompileSources,
 } from './compile-provisioning.js'
 import { resolveHarnessExecution } from './resolve.js'
 
@@ -119,5 +120,67 @@ describe('compile provisioning source resolution', () => {
       expect(error).toBeInstanceOf(CompileProvisioningError)
       expect((error as CompileProvisioningError).code).toBe('project_targets_invalid')
     }
+  })
+})
+
+describe('session metadata compile envelope sources', () => {
+  test('layers dotted leaves independently without validating registered meanings', () => {
+    const { request, agentRoot, projectRoot } = fixture()
+    writeFileSync(
+      join(agentRoot, 'agent-profile.toml'),
+      `version = 4
+[session.metadata]
+title = "Profile"
+[session.metadata.appearance]
+color = "#123456"
+terminalFg = "#FFFFFF"
+`
+    )
+    writeFileSync(
+      join(projectRoot, 'asp-targets.toml'),
+      `schema = 2
+[targets.cody.session.metadata.appearance]
+color = "deliberately-invalid-color"
+`
+    )
+    expect(resolveCompileSources(request).sessionMetadata).toEqual({
+      title: 'Profile',
+      'appearance.color': 'deliberately-invalid-color',
+      'appearance.terminalFg': '#FFFFFF',
+    })
+    writeFileSync(join(projectRoot, 'asp-targets.toml'), 'schema = 2\n')
+    expect(resolveCompileSources(request).sessionMetadata['appearance.color']).toBe('#123456')
+  })
+
+  test('absent metadata carries an empty set and grammar, prefix, and size violations drop', () => {
+    const { request, agentRoot } = fixture()
+    expect(resolveCompileSources(request).sessionMetadata).toEqual({})
+    writeFileSync(
+      join(agentRoot, 'agent-profile.toml'),
+      `version = 4
+[session.metadata]
+valid = [1, 2, 3]
+Bad = "invalid key"
+"${'a'.repeat(65)}" = "long segment"
+"${'a'.repeat(64)}.${'b'.repeat(64)}" = "129 byte key"
+huge = "${'x'.repeat(4097)}"
+"appearance" = "prefix"
+"appearance.color" = "collision"
+`
+    )
+    const result = resolveCompileSources(request)
+    expect(result.sessionMetadata).toEqual({ valid: [1, 2, 3], appearance: 'prefix' })
+    expect(result.metadataDiagnostics).toHaveLength(5)
+  })
+
+  test('limits the layered envelope to 64 distinct keys', () => {
+    const { request, agentRoot } = fixture()
+    writeFileSync(
+      join(agentRoot, 'agent-profile.toml'),
+      `version = 4\n[session.metadata]\n${Array.from({ length: 65 }, (_, i) => `key${i} = ${i}`).join('\n')}`
+    )
+    const result = resolveCompileSources(request)
+    expect(Object.keys(result.sessionMetadata)).toHaveLength(64)
+    expect(result.metadataDiagnostics).toHaveLength(1)
   })
 })

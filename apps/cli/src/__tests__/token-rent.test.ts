@@ -58,19 +58,24 @@ describe('token-rent', () => {
       execFileSync('sqlite3', [
         db,
         [
-          'create table runs (scope_ref text not null, updated_at text not null);',
+          'create table runs (scope_ref text not null, lane_ref text not null, updated_at text not null);',
+          'create table continuities (scope_ref text not null, lane_ref text not null, agent_id text not null, primary key(scope_ref, lane_ref));',
           'create table compiled_runtime_plans (plan_hash text primary key, created_at text not null, plan_projection_json text not null);',
-          "insert into runs values ('agent:alice:project:demo:task:one', '2026-06-01T12:00:00.000Z');",
-          "insert into runs values ('agent:alice:project:demo:task:two', '2026-06-02T12:00:00.000Z');",
+          "insert into continuities values ('agent:historical-label:project:demo:task:one', 'main', 'alice'), ('agent:historical-label:project:demo:task:two', 'main', 'alice');",
+          "insert into runs values ('agent:historical-label:project:demo:task:one', 'main', '2026-06-01T12:00:00.000Z');",
+          "insert into runs values ('agent:historical-label:project:demo:task:two', 'main', '2026-06-02T12:00:00.000Z');",
         ].join('\n'),
       ])
       execFileSync('sqlite3', [
         db,
         `insert into compiled_runtime_plans values ('hash1', '2026-06-02T13:00:00.000Z', ${sqlString(
           JSON.stringify({
+            agent: { id: 'alice' },
             placement: {
               agentRoot: join(agentsRoot, 'alice'),
-              correlation: { sessionRef: { scopeRef: 'agent:alice:project:demo:task:two' } },
+              correlation: {
+                sessionRef: { scopeRef: 'agent:historical-label:project:demo:task:two' },
+              },
             },
             selection: { harness: 'codex' },
             artifacts: { systemPromptFile: promptFile },

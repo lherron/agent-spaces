@@ -1,6 +1,6 @@
 import { basename, dirname, resolve } from 'node:path'
 
-import { parseScopeRef } from 'agent-scope'
+import { parseScopeHandle, parseScopeRef } from 'agent-scope'
 import { type RuntimePlacement, getAgentRootsForProject } from 'spaces-config'
 import { buildCodexAppServerLaunchDescriptor } from 'spaces-config'
 import type {
@@ -77,20 +77,12 @@ const DEFAULT_BROKER_PROCESS_LIMITS: NonNullable<HarnessInvocationSpec['process'
  * ScopeRef. Pure: emits no diagnostics and never throws.
  */
 function parseShorthandHandle(scopeRef: string): HandleParts {
-  const atIndex = scopeRef.indexOf('@')
-  if (atIndex === -1) {
-    return { agentId: scopeRef }
-  }
-  const agentId = scopeRef.slice(0, atIndex)
-  const rest = scopeRef.slice(atIndex + 1)
-  const colonIndex = rest.indexOf(':')
-  if (colonIndex === -1) {
-    return { agentId, projectId: rest }
-  }
-  return {
-    agentId,
-    projectId: rest.slice(0, colonIndex),
-    taskId: rest.slice(colonIndex + 1),
+  // Direct-process caller labels are opaque prompt input, not agent identity.
+  if (scopeRef.startsWith('app:')) return { agentId: scopeRef }
+  try {
+    return parseScopeHandle(scopeRef)
+  } catch {
+    return {}
   }
 }
 

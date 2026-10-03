@@ -97,6 +97,9 @@ export async function registerParticipant(
       }
     }
     return {
+      ...(Array.isArray(body['rejectedMetadata'])
+        ? { rejectedMetadata: body['rejectedMetadata'] as { key: string; reason: string }[] }
+        : {}),
       outcome: 'registered',
       httpStatus,
       scopeRef: String(body['scopeRef'] ?? request.requestedSessionRef),
@@ -175,6 +178,9 @@ export async function attachParticipant(
   }
   if (body['status'] === 'attached') {
     return {
+      ...(Array.isArray(body['rejectedMetadata'])
+        ? { rejectedMetadata: body['rejectedMetadata'] as { key: string; reason: string }[] }
+        : {}),
       outcome: 'attached',
       httpStatus,
       registrationId: String(body['registrationId'] ?? request.registrationId),

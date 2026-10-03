@@ -68,6 +68,7 @@ export interface ResolverConfig {
 
 /** A Run Target definition */
 export interface TargetDefinition {
+  session?: { metadata?: Record<string, unknown> | undefined } | undefined
   /** Human-readable description */
   description?: string | undefined
   /** Initial prompt sent when running this target unless overridden by CLI prompt */

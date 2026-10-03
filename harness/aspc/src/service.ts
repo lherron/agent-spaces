@@ -325,6 +325,7 @@ async function compileHarnessInvocation(
     schemaVersion: ASPC_COMPILE_HARNESS_INVOCATION_RESPONSE_VERSION,
     ok: true,
     plan: compileResponse.plan,
+    sessionMetadata: compileResponse.sessionMetadata ?? {},
     diagnostics: compileResponse.diagnostics,
     ...(compileResponse.effectiveEnvironmentHash !== undefined
       ? { effectiveEnvironmentHash: compileResponse.effectiveEnvironmentHash }

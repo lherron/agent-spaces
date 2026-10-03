@@ -257,6 +257,10 @@ export type AspcCompileHarnessInvocationResponse =
       ok: true
       plan: CompiledRuntimePlan
       diagnostics: CompileDiagnostic[]
+      /** Cosmetic declaration; never part of the immutable plan or its hash. */
+      sessionMetadata?:
+        | Record<string, string | number | boolean | null | (string | number | boolean | null)[]>
+        | undefined
       /** Canonical hash of the preparation execution environment (T-08579). */
       effectiveEnvironmentHash?: string | undefined
       /** Present when the compile plane serves from an immutable release. */

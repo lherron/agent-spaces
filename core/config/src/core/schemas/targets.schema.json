@@ -67,6 +67,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "session": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "metadata": { "type": "object", "additionalProperties": true } }
+        },
         "description": { "type": "string", "maxLength": 300 },
         "priming": { "type": "string" },
         "priming_append": { "type": "string" },

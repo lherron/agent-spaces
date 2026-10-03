@@ -42,7 +42,7 @@ import { assertExecutionMatchesResolution } from './harness-selection/assert-exe
 import { BUILDER_REGISTRY } from './harness-selection/builders.js'
 import {
   CompileProvisioningError,
-  resolveCompileProvisioningLayers,
+  resolveCompileSources,
 } from './harness-selection/compile-provisioning.js'
 import { resolveHarnessExecution } from './harness-selection/resolve.js'
 import type { ExecutionRecipe, ResolvedHarnessExecution } from './harness-selection/types.js'
@@ -630,7 +630,7 @@ export async function compileRuntimePlan(
     // A taskContext naming a different task than the scope states is refused
     // before any builder materializes anything (T-09860).
     assertPreparationTaskContext(placement, req.materialization.taskContext)
-    const provisioningLayers = resolveCompileProvisioningLayers(req)
+    const { provisioningLayers, sessionMetadata, metadataDiagnostics } = resolveCompileSources(req)
     const consistencyAgentIds = [basename(placement.agentRoot)]
     if (placement.bundle.kind === 'agent-project') {
       consistencyAgentIds.push(placement.bundle.agentName)
@@ -650,9 +650,16 @@ export async function compileRuntimePlan(
         diagnostics: [compileError(resolved.code, resolved.message, resolved.details)],
       }
     }
-    return await timeCompilePhase('build', () =>
+    const response = await timeCompilePhase('build', () =>
       BUILDER_REGISTRY[resolved.recipe.builder](req, placement, resolved, options)
     )
+    return response.ok
+      ? {
+          ...response,
+          sessionMetadata,
+          diagnostics: [...response.diagnostics, ...metadataDiagnostics],
+        }
+      : response
   } catch (error) {
     // Compose-time hygiene gate block — convert the typed error to `ok: false`
     // with `materialization_hygiene_error` diagnostics HERE, at/below the compiler

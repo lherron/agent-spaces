@@ -1,4 +1,4 @@
-import { parseScopeRef } from 'agent-scope'
+import { parseScopeHandle, parseScopeRef } from 'agent-scope'
 import {
   type AgentLocalComponents,
   type AgentToolRuntimePreparer,
@@ -226,6 +226,9 @@ function derivePromptScope(placement: RuntimePlacement): {
   const lane =
     laneRef === undefined ? undefined : laneRef.startsWith('lane:') ? laneRef.slice(5) : laneRef
   if (scopeRef === undefined) return lane === undefined ? {} : { lane }
+  // Preserve caller-supplied app labels literally for direct-process prompts.
+  if (scopeRef.startsWith('app:'))
+    return { agentId: scopeRef, ...(lane !== undefined ? { lane } : {}) }
   try {
     const parsed = parseScopeRef(scopeRef)
     return {
@@ -235,13 +238,16 @@ function derivePromptScope(placement: RuntimePlacement): {
       ...(lane !== undefined ? { lane } : {}),
     }
   } catch {
-    const at = scopeRef.indexOf('@')
-    const agentId = at === -1 ? scopeRef : scopeRef.slice(0, at)
-    const [projectId, taskId] = (at === -1 ? '' : scopeRef.slice(at + 1)).split(':', 2)
+    let parsed: ReturnType<typeof parseScopeHandle>
+    try {
+      parsed = parseScopeHandle(scopeRef)
+    } catch {
+      return lane === undefined ? {} : { lane }
+    }
     return {
-      ...(agentId ? { agentId } : {}),
-      ...(projectId ? { projectId } : {}),
-      ...(taskId ? { taskId } : {}),
+      ...(parsed.agentId ? { agentId: parsed.agentId } : {}),
+      ...(parsed.projectId ? { projectId: parsed.projectId } : {}),
+      ...(parsed.taskId ? { taskId: parsed.taskId } : {}),
       ...(lane !== undefined ? { lane } : {}),
     }
   }

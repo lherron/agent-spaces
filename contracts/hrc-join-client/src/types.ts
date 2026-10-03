@@ -9,6 +9,7 @@ export type ExpectedPredecessor = {
 }
 
 export type JoinRegisterRequest = {
+  metadata?: Record<string, unknown> | undefined
   registrationMode: 'direct'
   requestedSessionRef: string
   hostIncarnationId: string
@@ -32,6 +33,7 @@ export type RegisteredIdentity = {
 }
 
 export type JoinRegisterRegistered = {
+  rejectedMetadata?: { key: string; reason: string }[] | undefined
   outcome: 'registered'
   httpStatus: number
   scopeRef: string
@@ -59,6 +61,7 @@ export type JoinRegisterRefused = {
 export type JoinRegisterResult = JoinRegisterRegistered | JoinRegisterRefused
 
 export type JoinAttachRequest = {
+  metadata?: Record<string, unknown> | undefined
   registrationId: string
   attemptId: string
   attachEpoch: number
@@ -68,6 +71,7 @@ export type JoinAttachRequest = {
 }
 
 export type JoinAttachAttached = {
+  rejectedMetadata?: { key: string; reason: string }[] | undefined
   outcome: 'attached'
   httpStatus: number
   registrationId: string

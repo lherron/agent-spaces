@@ -646,8 +646,14 @@ export function parseAgentProfile(content: string, filePath?: string): AgentRunt
       fail(source, '/session', 'must be a table', 'type')
     }
 
-    assertOnlyKeys(session, ['additionalContext', 'additionalExec'], source, '/session')
+    assertOnlyKeys(session, ['additionalContext', 'additionalExec', 'metadata'], source, '/session')
+    if (session['metadata'] !== undefined && !isPlainObject(session['metadata'])) {
+      fail(source, '/session/metadata', 'must be a table', 'type')
+    }
     profile.session = {
+      ...(session['metadata'] !== undefined
+        ? { metadata: session['metadata'] as Record<string, unknown> }
+        : {}),
       additionalContext: parseStringArray(
         session['additionalContext'],
         source,

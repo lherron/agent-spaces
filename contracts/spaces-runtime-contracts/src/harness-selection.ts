@@ -185,6 +185,9 @@ export type RuntimeCompileResponse =
       ok: true
       plan: CompiledRuntimePlan
       diagnostics: CompileDiagnostic[]
+      sessionMetadata?:
+        | Record<string, string | number | boolean | null | (string | number | boolean | null)[]>
+        | undefined
       effectiveEnvironmentHash?: string | undefined
     }
   | {

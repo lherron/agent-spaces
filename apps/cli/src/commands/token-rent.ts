@@ -117,13 +117,14 @@ interface TokenRentReport {
 }
 
 interface RunsRow {
-  scope_ref?: string | undefined
+  agent_id?: string | undefined
   runs?: number | undefined
   first_run_at?: string | null | undefined
   last_run_at?: string | null | undefined
 }
 
 interface PlanRow {
+  agent_id?: string | undefined
   plan_hash?: string | undefined
   created_at?: string | undefined
   scope_ref?: string | undefined
@@ -161,11 +162,6 @@ async function sqliteJson<T>(dbPath: string, sql: string): Promise<T[]> {
   const text = String(stdout)
   if (text.trim().length === 0) return []
   return JSON.parse(text) as T[]
-}
-
-function agentFromScopeRef(scopeRef: string): string | null {
-  const match = /^agent:([^:]+)/.exec(scopeRef)
-  return match?.[1] ?? null
 }
 
 function normalizePreview(text: string, maxLength = 120): string {
@@ -236,10 +232,10 @@ async function loadUsage(
   agentFilter: string | undefined
 ): Promise<Map<string, RunUsage>> {
   const sql = [
-    'select scope_ref, count(*) as runs, min(updated_at) as first_run_at, max(updated_at) as last_run_at',
-    'from runs',
-    `where scope_ref like 'agent:%' and updated_at >= ${sqlString(usageSince)} and updated_at <= ${sqlString(usageNow)}`,
-    'group by scope_ref',
+    'select c.agent_id, count(*) as runs, min(r.updated_at) as first_run_at, max(r.updated_at) as last_run_at',
+    'from runs r join continuities c on c.scope_ref = r.scope_ref and c.lane_ref = r.lane_ref',
+    `where c.agent_id is not null and r.updated_at >= ${sqlString(usageSince)} and r.updated_at <= ${sqlString(usageNow)}`,
+    'group by c.agent_id',
   ].join(' ')
   const rows = await sqliteJson<RunsRow>(dbPath, sql)
   const usage = new Map<
@@ -248,8 +244,7 @@ async function loadUsage(
   >()
 
   for (const row of rows) {
-    if (typeof row.scope_ref !== 'string') continue
-    const agent = agentFromScopeRef(row.scope_ref)
+    const agent = row.agent_id
     if (!agent || (agentFilter && agent !== agentFilter)) continue
     const existing = usage.get(agent)
     usage.set(agent, {
@@ -297,6 +292,7 @@ async function loadLatestPlans(
     'select',
     'plan_hash,',
     'created_at,',
+    "json_extract(plan_projection_json, '$.agent.id') as agent_id,",
     "json_extract(plan_projection_json, '$.placement.correlation.sessionRef.scopeRef') as scope_ref,",
     "json_extract(plan_projection_json, '$.artifacts.systemPromptFile') as system_prompt_file,",
     "json_extract(plan_projection_json, '$.placement.agentRoot') as agent_root,",
@@ -313,7 +309,7 @@ async function loadLatestPlans(
     const scopeRef = row.scope_ref
     const systemPromptFile = row.system_prompt_file
     if (!scopeRef || !systemPromptFile || !existsSync(systemPromptFile)) continue
-    const agent = agentFromScopeRef(scopeRef)
+    const agent = row.agent_id
     if (!agent || plans.has(agent) || (agentFilter && agent !== agentFilter)) continue
     plans.set(agent, {
       agent,

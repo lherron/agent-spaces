@@ -1,3 +1,6 @@
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 import { afterEach, describe, expect, test } from 'bun:test'
 import { validateInvocationStartRequest } from 'spaces-harness-broker-protocol'
 
@@ -435,4 +438,38 @@ describe('v2 runtime compile plan', () => {
       expect.arrayContaining(['selection', 'execution', 'agent', 'identity', 'placement'])
     )
   })
+})
+
+test('metadata edits change only the envelope and never the frozen plan hash', async () => {
+  const value = fixture()
+  const request = buildV2CompileRequest(value, {
+    namespace: 'metadata-envelope',
+    harness: 'codex',
+    modelProvider: 'openai-codex',
+    model: 'gpt-5.6-terra',
+    presentation: false,
+    prompt: 'same mechanics',
+  })
+  const targetsPath = join(value.projectRoot, 'asp-targets.toml')
+  const compileColor = async (color: string) => {
+    writeFileSync(
+      targetsPath,
+      `schema = 2\n[targets.cody.session.metadata.appearance]\ncolor = "${color}"\n`
+    )
+    const response = await compileV2Request(value, request)
+    expect(response.ok).toBe(true)
+    if (!response.ok) throw new Error(JSON.stringify(response.diagnostics))
+    expect(response.sessionMetadata).toEqual({ 'appearance.color': color })
+    expect(response.plan).not.toHaveProperty('sessionMetadata')
+    return response
+  }
+  const first = await compileColor('#123456')
+  const second = await compileColor('invalid-but-cosmetic')
+  expect(second.plan.planHash).toBe(first.plan.planHash)
+  writeFileSync(targetsPath, 'schema = 2\n')
+  const third = await compileV2Request(value, request)
+  expect(third.ok).toBe(true)
+  if (!third.ok) return
+  expect(third.sessionMetadata).toEqual({})
+  expect(third.plan.planHash).toBe(first.plan.planHash)
 })

@@ -38,6 +38,7 @@ export interface AgentProfileTarget {
 }
 
 export interface AgentProfileSession {
+  metadata?: Record<string, unknown> | undefined
   additionalContext?: string[] | undefined
   additionalExec?: string[] | undefined
 }
