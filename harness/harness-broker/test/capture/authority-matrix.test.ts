@@ -28,12 +28,15 @@ import {
 } from '../../src/drivers/evidence-authority'
 
 /**
- * `AUTHORITY.md` is the PUBLISHED form of the code declaration (T-07853 §6,
- * spec item 1: "check in AUTHORITY.md AND a per-driver code declaration"). A
+ * `harness-broker-evidence-authority.md` is the PUBLISHED form of the code declaration (T-07853 §6,
+ * spec item 1: "check in harness-broker-evidence-authority.md AND a per-driver code declaration"). A
  * published matrix that has drifted from the enforced one is worse than no
  * published matrix, so the two are checked against each other here.
  */
-const AUTHORITY_MD = readFileSync(join(import.meta.dir, '../../AUTHORITY.md'), 'utf8')
+const AUTHORITY_MD = readFileSync(
+  join(import.meta.dir, '../../../../architecture/contracts/harness-broker-evidence-authority.md'),
+  'utf8'
+)
 
 const DECLARED: Record<string, Record<EventFamily, EvidenceAuthority>> = {
   'claude-code-tmux': CLAUDE_CODE_TMUX_AUTHORITY,
@@ -78,7 +81,7 @@ function publishedMatrix(): Record<string, Record<string, string>> {
   return out
 }
 
-describe('AUTHORITY.md matches the enforced declaration', () => {
+describe('harness-broker-evidence-authority.md matches the enforced declaration', () => {
   const published = publishedMatrix()
 
   test('the published table names exactly the drivers that declare a matrix', () => {
@@ -190,7 +193,7 @@ describe('Phase 3: the source facts the codex-cli-tmux decisions rest on', () =>
   test('the turn bracket rows EXIST — this one is a wakeup gap, not a vocabulary gap', () => {
     // Stated as a test so the distinction survives: `task_complete` is pinned
     // and always persisted; what the reader lacks is a wakeup that reaches it
-    // after the Stop hook. See AUTHORITY.md "the reader has no wakeup".
+    // after the Stop hook. See harness-broker-evidence-authority.md "the reader has no wakeup".
     for (const type of ['task_started', 'task_complete', 'turn_aborted']) {
       expect(CODEX_KNOWN_ROLLOUT_EVENT_MSG_TYPES.has(type)).toBe(true)
     }
@@ -205,7 +208,7 @@ describe('Phase 3: the source facts the codex-cli-tmux decisions rest on', () =>
  * test below is one of those facts. If a future Claude release changes one —
  * starts writing permission rows, stops writing usage on assistant rows — the
  * corresponding family decision has to be revisited, so it fails here rather
- * than quietly making AUTHORITY.md wrong.
+ * than quietly making harness-broker-evidence-authority.md wrong.
  */
 describe('Phase 4: the source facts the claude-code-tmux decisions rest on', () => {
   const phase4 = AUTHORITY_MD.split('## Phase 4:')[1]?.split('\n## ')[0] ?? ''

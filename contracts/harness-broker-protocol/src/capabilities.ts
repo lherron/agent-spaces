@@ -137,7 +137,7 @@ export interface DriverSummary {
   /**
    * Declared per-event-family evidence authority (T-07853 §6). Published so a
    * consumer or parity report reads the live broker's declaration rather than a
-   * checked-in copy of `harness/harness-broker/AUTHORITY.md`. Absent on a
+   * checked-in copy of `architecture/contracts/harness-broker-evidence-authority.md`. Absent on a
    * broker predating the capture contract.
    */
   evidenceAuthority?: EvidenceAuthorityMatrix | undefined

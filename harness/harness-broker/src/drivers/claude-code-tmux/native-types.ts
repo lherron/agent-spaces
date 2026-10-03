@@ -52,7 +52,7 @@ export const CLAUDE_IGNORED_ROW_TYPES: ReadonlySet<string> = new Set([
  *
  * - `turn_duration` / `stop_hook_summary` — the transcript's turn terminal.
  *   READ (they carry `durationMs`, `stopReason`, `preventedContinuation`) but
- *   `duplicate`: `turn-bracket` stays `hook`, and AUTHORITY.md "Phase 4" holds
+ *   `duplicate`: `turn-bracket` stays `hook`, and harness-broker-evidence-authority.md "Phase 4" holds
  *   the measurement that decided it.
  * - `bridge_status` — the `/remote-control is active …` notice. Cosmetic;
  *   `ignored-known`. Found by MEASURING the corpus, not from the spec baseline:

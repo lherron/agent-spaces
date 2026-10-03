@@ -26,7 +26,7 @@ export function createDriverRegistry(drivers: Driver[]): DriverRegistry {
           ...(unavailableReason !== undefined ? { unavailableReason } : {}),
           capabilities: d.capabilities(),
           // Published so a consumer or the parity report reads the LIVE broker's
-          // declared authority matrix rather than a checked-in copy of AUTHORITY.md.
+          // declared authority matrix rather than a checked-in copy of harness-broker-evidence-authority.md.
           evidenceAuthority: d.evidenceAuthority,
         }
       })

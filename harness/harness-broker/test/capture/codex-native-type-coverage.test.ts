@@ -18,7 +18,7 @@ import { createCodexHookTranscriptReader } from '../../src/drivers/codex-cli-tmu
 
 /**
  * The Codex rollout drift guard (T-07870) — the codex analogue of
- * `claude-native-type-coverage.test.ts`, and the thing AUTHORITY.md's "a named
+ * `claude-native-type-coverage.test.ts`, and the thing harness-broker-evidence-authority.md's "a named
  * gap: the Codex rollout vocabulary is not pinned yet" was waiting for.
  *
  * Law `agent-spaces.harness-broker-local-commit-observation`: every raw row

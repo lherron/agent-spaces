@@ -516,7 +516,7 @@ describe('claude-code-tmux hook event normalization', () => {
   })
 
   test('Stop mints the fallback final when the transcript held NOTHING for the turn', async () => {
-    // The named exception in AUTHORITY.md: a turn that really answered but whose
+    // The named exception in harness-broker-evidence-authority.md: a turn that really answered but whose
     // prose the reader never saw would otherwise redden on HRC's
     // `final_message_count`. It fires only in that case, never as a second
     // opinion, and the claim is scoped to one turn.

@@ -1,5 +1,5 @@
 /**
- * All tier-1 hygiene rules (W4xx). See ../RULES.md for the ledger.
+ * All tier-1 hygiene rules (W4xx). See docs/agent-hygiene/lint-rules.md for the ledger.
  */
 
 import type { LintWarning } from '../../types.js'

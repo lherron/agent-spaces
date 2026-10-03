@@ -2,10 +2,10 @@
  * RED test suite for scripts/check-rule-authoring.ts (S8 authoring-ledger meta-check).
  *
  * WHY: These tests FAIL now because check-rule-authoring.ts does not exist yet
- * and checks/AUTHORING.md has not been created. Larry implements both in Phase 2.
+ * and architecture/contracts/check-authoring.md has not been created. Larry implements both in Phase 2.
  *
  * Encodes all 6 daedalus-required cases from T-04406:
- *   1. green path   — fixture justfile check: recipe with N checks + AUTHORING.md with
+ *   1. green path   — fixture justfile check: recipe with N checks + check-authoring.md with
  *                     exactly those N rows, all cells valid → exit 0.
  *   2. missing-row  — recipe has `bun scripts/check-example.ts` with NO ledger row → exit 1;
  *                     diagnostic carries all seven §3 fields.
@@ -25,13 +25,13 @@
  *
  *   --root <dir>   Fixture root. The script resolves:
  *                    <root>/justfile           — source of the check: recipe
- *                    <root>/checks/AUTHORING.md — authoring ledger
+ *                    <root>/architecture/contracts/check-authoring.md — authoring ledger
  *                  Defaults to the repo root (CWD of the invoking process) when omitted.
  *
  *   Exit 0 = all invariants satisfied.
  *   Exit 1 = at least one violation; teaching diagnostic on stdout/stderr.
  *
- * ## AUTHORING.md table contract
+ * ## check-authoring.md table contract
  *
  *   Header MUST be EXACTLY (pipe-delimited markdown table, in this order):
  *     | check | rule | why | bad | good | exception | rung | sunset-condition |
@@ -46,7 +46,7 @@
  *
  *   The seven required fields mirror archagent/agent-enablement/checks/conformance-diagnostic.md:
  *     1. what-failed / rule-code  — which invariant was violated
- *     2. file:line                — the AUTHORING.md path with a concrete line number
+ *     2. file:line                — the check-authoring.md path with a concrete line number
  *     3. expected-vs-got          — both "expected" and "got" phrasing
  *     4. FIX →                   — blessed correction action
  *     5. WHY →                   — rationale pointer
@@ -106,7 +106,7 @@ async function writeJustfile(dir: string, checkBasenames: string[]): Promise<voi
 }
 
 /**
- * Write checks/AUTHORING.md with the given rows.
+ * Write architecture/contracts/check-authoring.md with the given rows.
  * Each row is { check, rule, why, bad, good, exception, rung, sunsetCondition }.
  */
 async function writeAuthoring(
@@ -122,7 +122,7 @@ async function writeAuthoring(
     sunsetCondition: string
   }>
 ): Promise<void> {
-  const checksDir = join(dir, 'checks')
+  const checksDir = join(dir, 'architecture', 'contracts')
   await mkdir(checksDir, { recursive: true })
 
   const header = '| check | rule | why | bad | good | exception | rung | sunset-condition |'
@@ -134,7 +134,7 @@ async function writeAuthoring(
 
   const content = ['# Check Authoring Ledger', '', header, separator, ...dataRows].join('\n')
 
-  await writeFile(join(checksDir, 'AUTHORING.md'), content)
+  await writeFile(join(checksDir, 'check-authoring.md'), content)
 }
 
 /** A valid row for check-alpha.ts used across multiple tests. */
@@ -191,7 +191,7 @@ describe('check-rule-authoring.ts', () => {
   // Case 2 — missing-row red: recipe check has no ledger entry
   // -------------------------------------------------------------------------
   test('case 2: missing ledger row → exit 1 with §3 diagnostic', async () => {
-    // Recipe has check-alpha.ts but AUTHORING.md only covers check-beta.ts.
+    // Recipe has check-alpha.ts but check-authoring.md only covers check-beta.ts.
     await writeJustfile(tmpDir, ['check-alpha.ts', 'check-beta.ts'])
     await writeAuthoring(tmpDir, [VALID_ROW_BETA]) // check-alpha.ts is MISSING
 
@@ -207,8 +207,8 @@ describe('check-rule-authoring.ts', () => {
     // §3 field 1 — what-failed / rule-code.
     expect(combined).toMatch(/missing|uncatalogued|not in ledger/i)
 
-    // §3 field 2 — file:line (AUTHORING.md with a concrete line number).
-    expect(combined).toMatch(/AUTHORING\.md:\d+/)
+    // §3 field 2 — file:line (check-authoring.md with a concrete line number).
+    expect(combined).toMatch(/check-authoring\.md:\d+/)
 
     // §3 field 3 — expected-vs-got.
     expect(combined).toMatch(/expected/i)
@@ -231,7 +231,7 @@ describe('check-rule-authoring.ts', () => {
   // Case 3 — add-row green: adding the missing row makes it pass
   // -------------------------------------------------------------------------
   test('case 3: after adding the missing row the check exits 0', async () => {
-    // Same recipe as case 2 but now AUTHORING.md has BOTH rows.
+    // Same recipe as case 2 but now check-authoring.md has BOTH rows.
     await writeJustfile(tmpDir, ['check-alpha.ts', 'check-beta.ts'])
     await writeAuthoring(tmpDir, [VALID_ROW_ALPHA, VALID_ROW_BETA])
 
@@ -276,7 +276,7 @@ describe('check-rule-authoring.ts', () => {
     // 5a — wrong-order / malformed header
     test('5a: wrong-order header → exit 1', async () => {
       await writeJustfile(tmpDir, ['check-alpha.ts'])
-      await mkdir(join(tmpDir, 'checks'), { recursive: true })
+      await mkdir(join(tmpDir, 'architecture', 'contracts'), { recursive: true })
 
       // Header has columns in wrong order (rule before check).
       const badHeader = '| rule | check | why | bad | good | exception | rung | sunset-condition |'
@@ -285,7 +285,7 @@ describe('check-rule-authoring.ts', () => {
         '| R-ALPHA-01 | check-alpha.ts | why text | bad text | good text | EXCEPTION(T-01): reason | GUARD | Remove when done |'
 
       await writeFile(
-        join(tmpDir, 'checks', 'AUTHORING.md'),
+        join(tmpDir, 'architecture', 'contracts', 'check-authoring.md'),
         ['# Check Authoring Ledger', '', badHeader, separator, row].join('\n')
       )
 

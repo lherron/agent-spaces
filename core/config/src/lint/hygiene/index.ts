@@ -8,7 +8,7 @@
  * Tier 2: `--judge` runs the agent-hygiene rubric as a headless agent turn over one
  * unit and emits the §7 JSON scorecard, embedding tier-1 results.
  *
- * See ./RULES.md for the W4xx ledger.
+ * See docs/agent-hygiene/lint-rules.md for the W4xx ledger.
  */
 
 export type {

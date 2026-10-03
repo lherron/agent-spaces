@@ -10,7 +10,7 @@ import type { EvidenceAuthorityMatrix } from 'spaces-harness-broker-protocol'
  * the authority cutovers are Phases 2-5 and each one changes an entry here
  * together with the code that actually moves the evidence.
  *
- * `harness/harness-broker/AUTHORITY.md` is the published prose form, including
+ * `architecture/contracts/harness-broker-evidence-authority.md` is the published prose form, including
  * the per-driver EXCEPTION matrix: a family whose primary source is `hook` may
  * still take one or two specific event types from the native transcript (and
  * vice versa), and those exceptions are named there rather than smeared into a
@@ -53,7 +53,7 @@ const BROKER_OWNED_BASE: EvidenceAuthorityMatrix = {
  * serialized drain chain as the hooks), so a session-JSONL fact is timely
  * without a hook to trigger the read. Phase 4 promotes the three families the
  * JSONL proves complete and leaves the rest hook with the measured gap recorded
- * in AUTHORITY.md "Phase 4".
+ * in harness-broker-evidence-authority.md "Phase 4".
  */
 export const CLAUDE_CODE_TMUX_AUTHORITY: EvidenceAuthorityMatrix = {
   ...BROKER_OWNED_BASE,
@@ -122,7 +122,7 @@ export const CODEX_APP_SERVER_AUTHORITY: EvidenceAuthorityMatrix = {
  * Muse serve (T-08589, campaign P-00522). Same shape as codex-app-server: the
  * native MSP JSON-RPC stream owns everything the model does; the broker owns
  * only its own decisions. Declared here so the driver file stays lifecycle
- * code; AUTHORITY.md prose (T-08592) must agree with this matrix.
+ * code; harness-broker-evidence-authority.md prose (T-08592) must agree with this matrix.
  */
 export const MUSE_SERVE_AUTHORITY: EvidenceAuthorityMatrix = {
   ...BROKER_OWNED_BASE,
@@ -142,7 +142,7 @@ export const MUSE_SERVE_AUTHORITY: EvidenceAuthorityMatrix = {
  * diagnostics; no `permission.requested` is emitted yet) and
  * `harness-lifecycle` stays broker (no hooks; the session-log poll loop is
  * driver-internal). Declared here so the driver file stays lifecycle code;
- * AUTHORITY.md prose must agree with this matrix.
+ * harness-broker-evidence-authority.md prose must agree with this matrix.
  */
 export const MUSE_CLI_TMUX_AUTHORITY: EvidenceAuthorityMatrix = {
   ...BROKER_OWNED_BASE,
@@ -185,7 +185,7 @@ export const ARRIS_RESIDENT_AUTHORITY: EvidenceAuthorityMatrix = {
  * session (3 hook-observed against 1 broker-authored in the smoke). The
  * manager-authored initial bracket is real but it is ONE bracket — the bounded
  * accepted risk `agent-spaces.pi-delivery-asserted-turn-start`, recorded as the
- * documented exception in AUTHORITY.md rather than promoted to the family's
+ * documented exception in harness-broker-evidence-authority.md rather than promoted to the family's
  * primary. Pi session JSONL stays non-authoritative until a separately approved
  * evidence change.
  */

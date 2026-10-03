@@ -6,7 +6,7 @@ CROSS-LAYER XL-block, reference/SKILL-RUBRIC `[MECHANICAL]` checks).
 
 **This linter is advisory** (`asp lint --hygiene` exits 0 by default; `--strict` exits
 nonzero only on `error`-severity findings). It is deliberately NOT wired into
-`just check`, so it does NOT get a `checks/AUTHORING.md` row — that ledger governs
+`just check`, so it does NOT get a `architecture/contracts/check-authoring.md` row — that ledger governs
 verify-gating `scripts/check-*.ts` only, and an unwired row is a `RULE-AUTHORING-STALE-ROW`
 violation. This file is the W4xx ledger instead.
 

@@ -490,7 +490,7 @@ export function createClaudeHookTranscriptReader(
       // The transcript's turn terminal. READ and pinned, but NOT the primary:
       // `turn-bracket` stays `hook` because this row does not exist for an
       // interrupted turn and is written only after the Stop hooks return.
-      // AUTHORITY.md "Phase 4" carries the measurement.
+      // harness-broker-evidence-authority.md "Phase 4" carries the measurement.
       return { disposition: 'duplicate', detail: describeTurnTerminalRow(entry, subtype) }
     }
     return { disposition: 'ignored-known', detail: `system:${subtype}` }

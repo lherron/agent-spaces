@@ -4,7 +4,7 @@
  * the mapped criterion; they never fail --strict on their own.
  *
  * Scanned over the primary file only (line-accurate evidence). Supporting-file
- * coverage is deferred to the tier-2 judge. See RULES.md.
+ * coverage is deferred to the tier-2 judge. See docs/agent-hygiene/lint-rules.md.
  */
 
 import type { LintWarning, WarningSeverity } from '../../types.js'

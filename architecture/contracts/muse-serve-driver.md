@@ -9,7 +9,7 @@ Implemented (campaign P-00522, T-08585–T-08592). The driver
 and the `real-muse-serve` matrix row
 (`scripts/pre-hrc-broker-matrix-e2e.ts --config real-muse-serve`, green
 via ghostmux) are delivered; evidence authority lives in
-`harness/harness-broker/AUTHORITY.md` under `### muse-serve`. Everything
+`architecture/contracts/harness-broker-evidence-authority.md` under `### muse-serve`. Everything
 under "MSP wire shape" below was probe-reported and each item names the
 spike that confirmed it. T-08592 corrections to the proposal: the driver
 sends `clientInfo.name: harness_broker` (hyphens are rejected by SS1.4.1);
@@ -110,7 +110,7 @@ Required changes, across CLI + broker + protocol + one helper package:
   (§3) consume the same composer; the broker driver itself stays
   protocol-only.
 - **Evidence authority**: declare the per-family matrix in the driver and
-  update `harness/harness-broker/AUTHORITY.md` — new family column in the
+  update `architecture/contracts/harness-broker-evidence-authority.md` — new family column in the
   matrix plus an exception-matrix entry (the published prose must agree;
   codex precedent lives in its `driver.ts`).
 - **MATRIX smoke**: new `muse-serve` row in
@@ -204,7 +204,7 @@ one:
   kills this); model-calling rows need creds and run in the MATRIX row via
   ghostmux.
 - Gates: package tests, `typecheck`, `lint`, `check:boundaries`,
-  `check:manifests`, MATRIX `muse-serve` row green, AUTHORITY.md agreement.
+  `check:manifests`, MATRIX `muse-serve` row green, harness-broker-evidence-authority.md agreement.
 
 ## 6. Spikes (ordered)
 
@@ -255,7 +255,7 @@ it, it doesn't block the driver.
 
 Estimate: spike 1 ~1 day (composer + unit tests); spikes 2–10 ~1–2 days
 (spike 8 is the long pole); spike 11 ~1–2 days (adapter + HarnessId
-plumbing); broker driver + tests ~1 week; MATRIX row + AUTHORITY.md in the
+plumbing); broker driver + tests ~1 week; MATRIX row + harness-broker-evidence-authority.md in the
 same change. No broker-door policy work.
 
 ## 7. Open questions

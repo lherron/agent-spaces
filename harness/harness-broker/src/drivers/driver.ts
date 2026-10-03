@@ -162,7 +162,7 @@ export interface Driver {
    * The declaration is DESCRIPTIVE — it states where this driver's facts come
    * from TODAY. Changing an entry is an authority cutover and must ship with
    * the code change that actually moves the evidence, plus a parity report.
-   * `harness/harness-broker/AUTHORITY.md` is the published prose form of the
+   * `architecture/contracts/harness-broker-evidence-authority.md` is the published prose form of the
    * same matrix and must agree with it.
    */
   readonly evidenceAuthority: EvidenceAuthorityMatrix

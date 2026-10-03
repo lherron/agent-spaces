@@ -19,7 +19,7 @@ export const CODEX_CLI_KNOWN_HOOK_NAMES: ReadonlySet<string> = new Set([
 ])
 
 /**
- * Codex ROLLOUT vocabulary (T-07870; the gap AUTHORITY.md named under Phase 0).
+ * Codex ROLLOUT vocabulary (T-07870; the gap harness-broker-evidence-authority.md named under Phase 0).
  *
  * BEHAVIOUR-PINNED AND SOURCE-CONFIRMED, in that order:
  *

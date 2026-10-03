@@ -73,7 +73,9 @@ function toViolation(input: Omit<Violation, 'doNotSuppress'>): Violation {
 }
 
 function printViolations(violations: Violation[]): void {
-  console.error('Rule authoring check failed: verify-gating checks must match checks/AUTHORING.md.')
+  console.error(
+    'Rule authoring check failed: verify-gating checks must match architecture/contracts/check-authoring.md.'
+  )
 
   for (const violation of violations) {
     console.error('')
@@ -231,7 +233,7 @@ function parseLedger(
           fix: `add the exact header '${expectedHeader}' before ledger rows`,
           why: 'a stable schema keeps rule, rationale, examples, exceptions, rung, and sunset data reviewable',
           exception:
-            'reviewed schema change in scripts/check-rule-authoring.ts and checks/AUTHORING.md',
+            'reviewed schema change in scripts/check-rule-authoring.ts and architecture/contracts/check-authoring.md',
         }),
       ],
     }
@@ -253,7 +255,7 @@ function parseLedger(
         fix: `replace the ledger header with '${expectedHeader}' in this exact order`,
         why: 'the authoring ledger is a contract for rule ownership and sunset discipline',
         exception:
-          'reviewed schema change in scripts/check-rule-authoring.ts and checks/AUTHORING.md',
+          'reviewed schema change in scripts/check-rule-authoring.ts and architecture/contracts/check-authoring.md',
       })
     )
     return { rows, violations, headerLine }
@@ -287,7 +289,7 @@ function parseLedger(
           fix: 'rewrite the row with exactly one cell for each ledger column',
           why: 'partial rows hide required rule-authoring metadata',
           exception:
-            'reviewed schema change in scripts/check-rule-authoring.ts and checks/AUTHORING.md',
+            'reviewed schema change in scripts/check-rule-authoring.ts and architecture/contracts/check-authoring.md',
         })
       )
       continue
@@ -412,7 +414,7 @@ function validateRecipeParity(
           ruleCode: 'RULE-AUTHORING-MISSING-ROW',
           file: ledgerPath,
           line: headerLine,
-          expected: `AUTHORING.md ledger row for ${check}`,
+          expected: `check-authoring.md ledger row for ${check}`,
           got: `no ledger row for ${check}`,
           fix: `add a ${check} row with rule, why, bad, good, exception, rung, and sunset-condition cells`,
           why: 'every verify-gating check must carry authoring and sunset metadata before it runs in just check',
@@ -455,7 +457,7 @@ async function main(): Promise<number> {
   }
 
   const justfilePath = 'justfile'
-  const ledgerPath = 'checks/AUTHORING.md'
+  const ledgerPath = 'architecture/contracts/check-authoring.md'
   const violations: Violation[] = []
 
   let justfileContent: string
@@ -490,9 +492,9 @@ async function main(): Promise<number> {
         ruleCode: 'RULE-AUTHORING-LEDGER-READ',
         file: ledgerPath,
         line: 1,
-        expected: 'readable checks/AUTHORING.md ledger',
+        expected: 'readable architecture/contracts/check-authoring.md ledger',
         got: error instanceof Error ? error.message : String(error),
-        fix: `create checks/AUTHORING.md with header '${expectedHeader}' and one row per just check script`,
+        fix: `create architecture/contracts/check-authoring.md with header '${expectedHeader}' and one row per just check script`,
         why: 'verify-gating checks need visible authoring metadata and sunset conditions',
         exception: 'no missing-ledger exception; create the ledger before adding checks',
       })

@@ -319,7 +319,7 @@ export function createClaudeCodeHookEventNormalizer(
         // a second opinion: it fires only when the transcript held nothing at
         // Stop. That happens when the transcript reader has no prose for the
         // turn at all, and HRC's `final_message_count` gate would otherwise
-        // redden a turn that really did answer. It is recorded in AUTHORITY.md.
+        // redden a turn that really did answer. It is recorded in harness-broker-evidence-authority.md.
         const transcriptOwnsTerminalMessage = transcriptTerminalMessagePending
         transcriptTerminalMessagePending = false
         const lastAssistantMessage = getString(unwrapped, 'last_assistant_message')?.trim()

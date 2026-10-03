@@ -9,7 +9,7 @@
  *
  * Criteria are ported from ~/praesidium/archagent/agent-hygiene (PROMPT-HYGIENE-CORE,
  * profiles/, CROSS-LAYER XL0, reference/SKILL-RUBRIC [MECHANICAL] checks). See
- * ./RULES.md for the W4xx ledger (code -> criterion -> severity -> rationale).
+ * docs/agent-hygiene/lint-rules.md for the W4xx ledger (code -> criterion -> severity -> rationale).
  */
 
 import type { LintWarning } from '../types.js'
