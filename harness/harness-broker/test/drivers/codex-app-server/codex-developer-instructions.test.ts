@@ -9,11 +9,10 @@
 
 import { describe, expect, test } from 'bun:test'
 import { rm } from 'node:fs/promises'
-import type { HarnessInvocationSpec } from 'spaces-harness-broker-protocol'
 import { buildThreadStartParams } from '../../../src/drivers/codex-app-server/driver-support'
-import { FakeCodexRpc, lease, setupDriver } from './codex-tui-transport-support'
+import { FakeCodexRpc, lease, setupDriver, spec } from './codex-tui-transport-support'
 
-const SPEC = { process: { cwd: '/tmp/project' } } as unknown as HarnessInvocationSpec
+const SPEC = spec('inv_developer_instructions_params')
 
 const TASK_SECTION = '## Current task context\n- Task ID: T-00042'
 
