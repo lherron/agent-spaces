@@ -120,6 +120,7 @@ describe('identifier-only ASPC inspection authority protocol', () => {
         {
           agentId: 'cody',
           displayName: 'Cody',
+          avatarUrl: 'https://example.com/cody.png',
           role: null,
           sourceAvailability: { profile: true, soul: true, contextTemplate: true },
           diagnostics: [],
@@ -130,6 +131,14 @@ describe('identifier-only ASPC inspection authority protocol', () => {
       contexts: {},
     }
     expect(agentCatalogResponseSchema.parse(neutral)).toBe(neutral)
+    for (const avatarUrl of ['pfp.png', 'http://example.com/pfp.png', '', 'https://']) {
+      expect(() =>
+        agentCatalogResponseSchema.parse({
+          ...neutral,
+          agents: [{ ...neutral.agents[0], avatarUrl }],
+        })
+      ).toThrow()
+    }
     expect(() => agentCatalogResponseSchema.parse({ ...neutral, agentsRoot: '/leak' })).toThrow(
       AspcSharedAgentInspectionSchemaError
     )

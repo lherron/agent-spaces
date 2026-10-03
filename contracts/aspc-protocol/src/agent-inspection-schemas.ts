@@ -153,6 +153,7 @@ function validateCatalogRow(value: unknown, basePath: string, issues: Validation
     new Set([
       'agentId',
       'displayName',
+      'avatarUrl',
       'role',
       'sourceAvailability',
       'defaultContextSummary',
@@ -165,6 +166,18 @@ function validateCatalogRow(value: unknown, basePath: string, issues: Validation
   )
   identifier(row['agentId'], `${basePath}.agentId`, issues)
   nonEmptyString(row['displayName'], `${basePath}.displayName`, issues)
+  if (row['avatarUrl'] !== undefined) {
+    try {
+      const raw = row['avatarUrl']
+      if (typeof raw !== 'string' || raw !== raw.trim()) throw new Error('invalid URL')
+      const url = new URL(raw)
+      if (url.protocol !== 'https:' || url.username || url.password) throw new Error('invalid URL')
+    } catch {
+      issues.push(
+        issue(`${basePath}.avatarUrl`, 'invalid_type', 'avatarUrl must be an HTTPS image URL')
+      )
+    }
+  }
   if (row['role'] !== null && typeof row['role'] !== 'string') {
     issues.push(
       issue(`${basePath}.role`, 'invalid_type', `${basePath}.role must be a string or null`)

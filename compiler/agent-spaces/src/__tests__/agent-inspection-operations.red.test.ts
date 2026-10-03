@@ -90,6 +90,20 @@ afterEach(async () => {
 })
 
 describe('T-06330 agent catalog and contextual inspection operations', () => {
+  test('catalog exposes a profile HTTPS avatar and diagnoses local paths', async () => {
+    const path = join(fixture.validRoot, 'agent-profile.toml')
+    await writeFile(path, 'version = 4\n[identity]\navatar = "https://example.com/cody.png"\n')
+    const catalog = await AgentSpaces.catalogAgentSources({ agentsRoot: fixture.agentsRoot })
+    expect(catalog.agents.find((row) => row.agentId === 'valid-agent')?.avatarUrl).toBe(
+      'https://example.com/cody.png'
+    )
+    await writeFile(path, 'version = 4\n[identity]\navatar = "pfp.png"\n')
+    const invalid = await AgentSpaces.catalogAgentSources({ agentsRoot: fixture.agentsRoot })
+    const row = invalid.agents.find((row) => row.agentId === 'valid-agent')
+    expect(row?.avatarUrl).toBeUndefined()
+    expect(row?.errorCount).toBe(1)
+  })
+
   test('performs one canonical compile and exposes that producer to both CLI and wire surfaces', async () => {
     const { inspectAgentForContext } = operations()
     await writeFile(

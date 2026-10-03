@@ -296,12 +296,22 @@ function parseIdentity(value: unknown, source: string, path: string): AgentIdent
     fail(source, path, 'must be a table', 'type')
   }
 
-  assertOnlyKeys(value, ['display', 'role'], source, path)
+  assertOnlyKeys(value, ['display', 'role', 'avatar'], source, path)
 
   const identity: AgentIdentity = {}
   for (const [key, raw] of Object.entries(value)) {
     if (typeof raw !== 'string') {
       fail(source, `${path}/${key}`, 'must be a string', 'type')
+    }
+    if (key === 'avatar') {
+      try {
+        const url = new URL(raw)
+        if (url.protocol !== 'https:' || raw !== raw.trim() || url.username || url.password) {
+          fail(source, `${path}/${key}`, 'must be a public HTTPS image URL', 'pattern')
+        }
+      } catch {
+        fail(source, `${path}/${key}`, 'must be a public HTTPS image URL', 'pattern')
+      }
     }
     if (key === 'role') {
       const error = validateToken(raw, 'role')

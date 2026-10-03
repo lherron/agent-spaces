@@ -52,6 +52,7 @@ export type AgentCatalogDiagnostic = {
 export type AgentCatalogRow = {
   agentId: string
   displayName: string
+  avatarUrl?: string | undefined
   role: string | null
   sourceAvailability: {
     profile: boolean
@@ -484,6 +485,7 @@ function catalogRow(
   const root = join(agentsRoot, agentId)
   const profilePath = join(root, 'agent-profile.toml')
   const diagnostics: AgentCatalogDiagnostic[] = []
+  let avatarUrl: string | undefined
   let displayName = agentId
   let role: string | null = null
   if (!existsSync(profilePath)) {
@@ -495,6 +497,7 @@ function catalogRow(
   } else {
     try {
       const profile = parseAgentProfile(readFileSync(profilePath, 'utf8'), profilePath)
+      avatarUrl = profile.identity?.avatar
       displayName = profile.identity?.display ?? agentId
       role = profile.identity?.role ?? null
     } catch (error) {
@@ -518,6 +521,7 @@ function catalogRow(
   return {
     agentId,
     displayName,
+    ...(avatarUrl !== undefined ? { avatarUrl } : {}),
     role,
     sourceAvailability: {
       profile: existsSync(profilePath),

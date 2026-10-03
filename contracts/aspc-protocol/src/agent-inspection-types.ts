@@ -27,6 +27,7 @@ export type AspcInspectAgentResponse =
 export type AspcAgentCatalogRow = {
   agentId: string
   displayName: string
+  avatarUrl?: string | undefined
   role: string | null
   sourceAvailability: {
     profile: boolean

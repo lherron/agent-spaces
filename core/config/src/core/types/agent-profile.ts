@@ -18,6 +18,8 @@ export const ROSTER_SLOT_TOKENS = [
 ] as const
 
 export interface AgentIdentity {
+  /** Public HTTPS image URL used by human-facing consumers. */
+  avatar?: string | undefined
   display?: string | undefined
   /** Default role used by scope resolution for task-bearing handles that omit a role. */
   role?: string | undefined
