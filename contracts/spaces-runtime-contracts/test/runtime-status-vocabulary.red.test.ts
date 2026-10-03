@@ -52,10 +52,12 @@ const EXPECTED_HRC_RUNTIME_STATE_JSON_STATUSES = [
   'detached',
 ] as const
 
+// HRC stopped producing 'adopted' when `hrc runtime adopt` was retired (T-10146,
+// migration 0121). RUNTIME_STATUS_VALUES still admits it as a legacy readable
+// row status, so the contract keeps covering the producer vocabulary.
 const EXPECTED_HRC_RUNTIME_ROW_STATUSES = [
   ...EXPECTED_HRC_RUNTIME_STATE_JSON_STATUSES,
   'dead',
-  'adopted',
 ] as const
 
 function collectSourceFiles(hrcRoot: string, root: string): string[] {
