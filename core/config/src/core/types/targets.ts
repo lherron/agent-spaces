@@ -26,6 +26,12 @@ export interface ClaudeOptions {
   permission_mode?: string | undefined
   /** Pass-through CLI args to claude */
   args?: string[] | undefined
+  /**
+   * Allow the AskUserQuestion tool. Denied by default: with Remote Control on,
+   * Claude Code never auto-continues the dialog, so an unanswered question
+   * blocks the seat indefinitely.
+   */
+  ask_user_question?: boolean | undefined
 }
 
 /** Codex CLI options */
@@ -136,6 +142,7 @@ export function mergeClaudeOptions(
     model: overrides.model ?? defaults.model,
     permission_mode: overrides.permission_mode ?? defaults.permission_mode,
     args: overrides.args ?? defaults.args,
+    ask_user_question: overrides.ask_user_question ?? defaults.ask_user_question,
   }
 }
 

@@ -19,6 +19,10 @@
       "properties": {
         "model": { "type": "string" },
         "permission_mode": { "type": "string" },
+        "ask_user_question": {
+          "type": "boolean",
+          "description": "Allow the AskUserQuestion tool (denied by default)"
+        },
         "args": {
           "type": "array",
           "description": "Pass-through CLI args to `claude` (stable escape hatch as Claude evolves)",
@@ -106,6 +110,7 @@
               "properties": {
                 "model": { "type": "string" },
                 "permission_mode": { "type": "string" },
+                "ask_user_question": { "type": "boolean" },
                 "args": { "type": "array", "items": { "type": "string" } }
               }
             },

@@ -83,6 +83,7 @@ remote = true
 [provisioning.claude]
 permission_mode = "default"
 args = ["--verbose"]
+ask_user_question = true
 
 [provisioning.codex]
 model_reasoning_summary = "concise"
@@ -99,12 +100,18 @@ status_line = ["model", "cwd"]
       sandbox: 'workspace-write',
       approval: 'never',
       remote: true,
-      claude: { permission_mode: 'default', args: ['--verbose'] },
+      claude: { permission_mode: 'default', args: ['--verbose'], ask_user_question: true },
       codex: {
         model_reasoning_summary: 'concise',
         status_line: ['model', 'cwd'],
       },
     })
+  })
+
+  test('rejects a non-boolean provisioning.claude.ask_user_question', () => {
+    expect(() =>
+      parseAgentProfile('version = 4\n[provisioning.claude]\nask_user_question = "yes"\n')
+    ).toThrow(/ask_user_question/)
   })
 
   test('accepts the first-party agent harness', () => {

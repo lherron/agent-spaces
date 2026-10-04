@@ -450,7 +450,7 @@ function parseClaudeOptions(
     fail(source, path, 'must be a table', 'type')
   }
 
-  assertOnlyKeys(value, ['model', 'permission_mode', 'args'], source, path)
+  assertOnlyKeys(value, ['model', 'permission_mode', 'args', 'ask_user_question'], source, path)
 
   const options: ClaudeOptions = {}
   const model = parseOptionalString(value, 'model', source, path)
@@ -466,6 +466,12 @@ function parseClaudeOptions(
     if (args) {
       options.args = args
     }
+  }
+  if (value['ask_user_question'] !== undefined) {
+    if (typeof value['ask_user_question'] !== 'boolean') {
+      fail(source, `${path}/ask_user_question`, 'must be a boolean', 'type')
+    }
+    options.ask_user_question = value['ask_user_question']
   }
   return options
 }

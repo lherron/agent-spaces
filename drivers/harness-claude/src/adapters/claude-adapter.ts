@@ -480,7 +480,10 @@ export class ClaudeAdapter implements HarnessAdapter {
       mcpConfig: bundle.mcpConfigPath,
       settings: options.settings ?? bundle.settingsPath,
       permissionMode,
-      ...(options.disallowedTools ? { disallowedTools: options.disallowedTools } : {}),
+      disallowedTools: [
+        ...(options.disallowedTools ?? []),
+        ...(options.askUserQuestion === true ? [] : ['AskUserQuestion']),
+      ],
       settingSources,
       debug: options.debug,
       model: options.model ?? DEFAULT_CLAUDE_CODE_MODEL,
@@ -553,6 +556,7 @@ export class ClaudeAdapter implements HarnessAdapter {
       prompt: target?.priming,
       yolo: target?.provisioning?.yolo ?? false,
       remoteControl: target?.provisioning?.remote ?? false,
+      askUserQuestion: claudeOptions.ask_user_question,
     }
   }
 

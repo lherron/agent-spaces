@@ -728,6 +728,25 @@ paths = ["/var/log"]
       expect(args[args.indexOf('--permission-mode') + 1]).toBe('plan')
     })
 
+    test('denies AskUserQuestion by default', () => {
+      const args = adapter.buildRunArgs(yoloBundle, {})
+
+      expect(args[args.indexOf('--disallowedTools') + 1]).toBe('AskUserQuestion')
+    })
+
+    test('keeps AskUserQuestion when the agent opts in', () => {
+      const args = adapter.buildRunArgs(yoloBundle, { askUserQuestion: true })
+
+      expect(args).not.toContain('AskUserQuestion')
+    })
+
+    test('adds the AskUserQuestion deny to a requested deny-list', () => {
+      const args = adapter.buildRunArgs(yoloBundle, { disallowedTools: ['WebFetch'] })
+      const start = args.indexOf('--disallowedTools') + 1
+
+      expect(args.slice(start, start + 2)).toEqual(['WebFetch', 'AskUserQuestion'])
+    })
+
     test('builds args from bundle with plugin dirs', () => {
       const bundle = {
         harnessId: 'claude' as const,
@@ -1071,6 +1090,20 @@ paths = ["/var/log"]
 
       const defaults = adapter.getDefaultRunOptions(manifest, 'claude')
       expect(defaults.prompt).toBe('Register and send READY')
+    })
+
+    test('carries provisioning.claude.ask_user_question into run options', () => {
+      const manifest: ProjectManifest = {
+        schema: 1,
+        targets: {
+          claude: {
+            compose: ['space:claude-space@stable'],
+            provisioning: { claude: { ask_user_question: true } },
+          },
+        },
+      }
+
+      expect(adapter.getDefaultRunOptions(manifest, 'claude').askUserQuestion).toBe(true)
     })
   })
 
