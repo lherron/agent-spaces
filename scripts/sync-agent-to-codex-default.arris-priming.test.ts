@@ -52,72 +52,77 @@ afterEach(() => {
  * clone of this repository alone. Where it IS present, a missing `arris` agent
  * is a failure, not a skip: the overlay this asserts would be broken.
  */
-describe.skipIf(!agentsRootPresent)('the Arris resident overlay priming', () => {
-  let rendered = ''
-  let root = ''
+// Renders the host's live agents root and probes its services, so it runs
+// under `just smoke-live`, not verify (T-10161).
+describe.skipIf(process.env['ASP_LIVE_TESTS'] !== '1' || !agentsRootPresent)(
+  'the Arris resident overlay priming',
+  () => {
+    let rendered = ''
+    let root = ''
 
-  beforeAll(async () => {
-    expect(existsSync(join(agentsRoot, 'arris', 'agent-profile.toml'))).toBe(true)
-    root = await mkdtemp(join(tmpdir(), 'arris-priming-overlay-'))
-    const codexHome = join(root, 'codex-home')
-    await syncAgentToCodexDefault({
-      agentId: 'arris',
-      codexHome,
-      aspHome: join(root, 'asp-home'),
-      agentsRoot,
-      projectRoot: join(homedir(), 'praesidium'),
-      apply: true,
-      fetchRegistry: false,
-      installHooks: false,
+    beforeAll(async () => {
+      expect(existsSync(join(agentsRoot, 'arris', 'agent-profile.toml'))).toBe(true)
+      root = await mkdtemp(join(tmpdir(), 'arris-priming-overlay-'))
+      const codexHome = join(root, 'codex-home')
+      await syncAgentToCodexDefault({
+        agentId: 'arris',
+        codexHome,
+        aspHome: join(root, 'asp-home'),
+        agentsRoot,
+        projectRoot: join(homedir(), 'praesidium'),
+        apply: true,
+        fetchRegistry: false,
+        installHooks: false,
+      })
+      rendered = await readFile(join(codexHome, 'AGENTS.md'), 'utf8')
     })
-    rendered = await readFile(join(codexHome, 'AGENTS.md'), 'utf8')
-  })
 
-  afterAll(async () => {
-    if (root.length === 0) return
-    await rm(root, { recursive: true, force: true })
-  })
+    afterAll(async () => {
+      if (root.length === 0) return
+      await rm(root, { recursive: true, force: true })
+    })
 
-  test('renders the mandated sentence verbatim', () => {
-    expect(rendered).toContain(MANDATED_SENTENCE)
-  })
+    test('renders the mandated sentence verbatim', () => {
+      expect(rendered).toContain(MANDATED_SENTENCE)
+    })
 
-  /**
-   * The bar is "no `wrkc say` COMMAND lines", not "the string never appears":
-   * the mandated sentence names the command in order to forbid it, and the
-   * shared `AGENT_MOTD.md` -- untouched on purpose, since it is what the
-   * sentence overrides -- mentions it in prose. Both write it as inline code.
-   * A command line does not: it is followed by an argument.
-   */
-  test('leaves no wrkc say command line for the resident to run', () => {
-    const commandForm = /wrkc say(?!`)/g
-    const offenders = [...rendered.matchAll(commandForm)].map((match) =>
-      rendered.slice(match.index, match.index + 60)
-    )
-    expect(offenders).toEqual([])
-  })
+    /**
+     * The bar is "no `wrkc say` COMMAND lines", not "the string never appears":
+     * the mandated sentence names the command in order to forbid it, and the
+     * shared `AGENT_MOTD.md` -- untouched on purpose, since it is what the
+     * sentence overrides -- mentions it in prose. Both write it as inline code.
+     * A command line does not: it is followed by an argument.
+     */
+    test('leaves no wrkc say command line for the resident to run', () => {
+      const commandForm = /wrkc say(?!`)/g
+      const offenders = [...rendered.matchAll(commandForm)].map((match) =>
+        rendered.slice(match.index, match.index + 60)
+      )
+      expect(offenders).toEqual([])
+    })
 
-  test('drops the wrkq and wrkc guides, which are pages of shell recipes', () => {
-    // Recipe markers unique to the injected `wrkq info` / `wrkc info` output.
-    expect(rendered).not.toContain('wrkq touch')
-    expect(rendered).not.toContain('wrkc inbox')
-    expect(rendered).not.toContain('task_tracking_rules')
-    expect(rendered).not.toContain('wrkc agent guide')
-  })
+    test('drops the wrkq and wrkc guides, which are pages of shell recipes', () => {
+      // Recipe markers unique to the injected `wrkq info` / `wrkc info` output.
+      expect(rendered).not.toContain('wrkq touch')
+      expect(rendered).not.toContain('wrkc inbox')
+      expect(rendered).not.toContain('task_tracking_rules')
+      expect(rendered).not.toContain('wrkc agent guide')
+    })
 
-  /**
-   * The sentence overrides the shared platform preamble; it does not replace
-   * it. If this ever fails, someone edited `AGENT_MOTD.md` -- which every other
-   * agent also renders -- instead of the Arris agent source.
-   */
-  test('overrides the shared platform mail prose rather than editing it', () => {
-    expect(rendered).toContain('Answer addressed mail through')
-    const sentenceAt = rendered.indexOf(MANDATED_SENTENCE)
-    expect(sentenceAt).toBeGreaterThan(rendered.indexOf('Answer addressed mail through'))
-  })
+    /**
+     * The sentence overrides the shared platform preamble; it does not replace
+     * it. If this ever fails, someone edited `AGENT_MOTD.md` -- which every other
+     * agent also renders -- instead of the Arris agent source.
+     */
+    test('overrides the shared platform mail prose rather than editing it', () => {
+      expect(rendered).toContain('Answer addressed mail through')
+      const sentenceAt = rendered.indexOf(MANDATED_SENTENCE)
+      expect(sentenceAt).toBeGreaterThan(rendered.indexOf('Answer addressed mail through'))
+    })
 
-  test('keeps the rest of the resident priming intact', () => {
-    expect(rendered).toContain('arris.document.save')
-    expect(rendered).toContain('arris.mutation.apply_batch')
-  })
-})
+    test('keeps the rest of the resident priming intact', () => {
+      expect(rendered).toContain('arris.document.save')
+      expect(rendered).toContain('arris.mutation.apply_batch')
+    })
+  }
+)

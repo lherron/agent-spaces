@@ -531,8 +531,12 @@ const preemptStopHookCancelledArchive = join(
   import.meta.dir,
   '../../fixtures/claude-preempt-stop-hook-cancelled-a3da8a7e.rows168-180.jsonl'
 )
-const archiveTest = existsSync(archiveOne) && existsSync(archiveTwo) ? test : test.skip
-const archiveThreeTest = existsSync(archiveThree) ? test : test.skip
+// The T-07849 archives live in this host's artifacts, so these replays run
+// under `just smoke-live`, not verify (T-10161).
+const liveArchives = process.env['ASP_LIVE_TESTS'] === '1'
+const archiveTest =
+  liveArchives && existsSync(archiveOne) && existsSync(archiveTwo) ? test : test.skip
+const archiveThreeTest = liveArchives && existsSync(archiveThree) ? test : test.skip
 
 const readArchive = (path: string): ArchiveRow[] =>
   readFileSync(path, 'utf8')

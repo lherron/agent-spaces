@@ -179,6 +179,18 @@ architecture-records *args:
 # widens some keyof types to `string | symbol`). Without a prior build a fresh clone
 # fails typecheck where a warm host tree passes — room-readiness gate (T-06887).
 
+# Tests that read this host's live state: the agents root and its services,
+# archived transcripts under ~/praesidium/var/wrkq-artifacts, and the sibling
+# hrc-runtime checkout. They skip unless ASP_LIVE_TESTS=1, so `verify` stays
+# self-contained (T-10161).
+smoke-live:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export ASP_LIVE_TESTS=1
+    bun test scripts/sync-agent-to-codex-default.arris-priming.test.ts
+    (cd harness/harness-broker && bun test test/capture/claude-native-type-coverage.test.ts test/capture/codex-native-type-coverage.test.ts test/drivers/claude-code-tmux/turn-attribution.test.ts)
+    (cd contracts/spaces-runtime-contracts && bun test test/runtime-status-vocabulary.red.test.ts)
+
 # Run build, architecture, checks, lint, typecheck, and tests.
 verify: build architecture-records check lint typecheck test
 

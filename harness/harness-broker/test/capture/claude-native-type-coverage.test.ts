@@ -299,16 +299,20 @@ const archived = existsSync(archiveDir)
   ? readdirSync(archiveDir).filter((f) => f.endsWith('.jsonl'))
   : []
 
-describe.if(archived.length > 0)('archived T-07849 transcripts (real sessions)', () => {
-  for (const file of archived) {
-    test(`${file}: every row reaches a terminal disposition, none blocked-unknown`, () => {
-      const lines = readFileSync(join(archiveDir, file), 'utf8')
-        .split('\n')
-        .filter((line) => line.trim().length > 0)
-      const { dispositions, warnings } = replay(lines)
-      expect(dispositions).toHaveLength(lines.length)
-      expect(dispositions.filter((d) => d.disposition === 'pending')).toEqual([])
-      expect({ file, warnings }).toEqual({ file, warnings: [] })
-    })
+// Reads this host's artifacts, so it runs under `just smoke-live`, not verify (T-10161).
+describe.if(process.env['ASP_LIVE_TESTS'] === '1' && archived.length > 0)(
+  'archived T-07849 transcripts (real sessions)',
+  () => {
+    for (const file of archived) {
+      test(`${file}: every row reaches a terminal disposition, none blocked-unknown`, () => {
+        const lines = readFileSync(join(archiveDir, file), 'utf8')
+          .split('\n')
+          .filter((line) => line.trim().length > 0)
+        const { dispositions, warnings } = replay(lines)
+        expect(dispositions).toHaveLength(lines.length)
+        expect(dispositions.filter((d) => d.disposition === 'pending')).toEqual([])
+        expect({ file, warnings }).toEqual({ file, warnings: [] })
+      })
+    }
   }
-})
+)

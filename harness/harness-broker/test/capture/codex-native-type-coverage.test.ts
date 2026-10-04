@@ -267,20 +267,24 @@ const corpusJournals = existsSync(corpusDir)
       .flatMap((dir) => readdirSync(dir).map((file) => join(dir, file)))
   : []
 
-describe.if(corpusJournals.length > 0)('T-07870 live corpus (real codex-cli-tmux rollouts)', () => {
-  for (const journal of corpusJournals) {
-    test(`${journal.split('/').slice(-3)[0]}: every real rollout row classifies with no warning`, () => {
-      const lines = readFileSync(journal, 'utf8')
-        .split('\n')
-        .filter((line) => line.trim().length > 0)
-        .map((line) => JSON.parse(line) as { sourceKind: string; rawBase64: string })
-        .filter((record) => record.sourceKind === 'provider-jsonl')
-        .map((record) => Buffer.from(record.rawBase64, 'base64').toString('utf8'))
-      expect(lines.length).toBeGreaterThan(0)
-      const { dispositions, warnings } = replay(lines)
-      expect(warnings).toEqual([])
-      expect(dispositions.filter((row) => row.disposition === 'pending')).toEqual([])
-      expect(dispositions.filter((row) => row.disposition === 'blocked-unknown')).toEqual([])
-    })
+// Reads this host's artifacts, so it runs under `just smoke-live`, not verify (T-10161).
+describe.if(process.env['ASP_LIVE_TESTS'] === '1' && corpusJournals.length > 0)(
+  'T-07870 live corpus (real codex-cli-tmux rollouts)',
+  () => {
+    for (const journal of corpusJournals) {
+      test(`${journal.split('/').slice(-3)[0]}: every real rollout row classifies with no warning`, () => {
+        const lines = readFileSync(journal, 'utf8')
+          .split('\n')
+          .filter((line) => line.trim().length > 0)
+          .map((line) => JSON.parse(line) as { sourceKind: string; rawBase64: string })
+          .filter((record) => record.sourceKind === 'provider-jsonl')
+          .map((record) => Buffer.from(record.rawBase64, 'base64').toString('utf8'))
+        expect(lines.length).toBeGreaterThan(0)
+        const { dispositions, warnings } = replay(lines)
+        expect(warnings).toEqual([])
+        expect(dispositions.filter((row) => row.disposition === 'pending')).toEqual([])
+        expect(dispositions.filter((row) => row.disposition === 'blocked-unknown')).toEqual([])
+      })
+    }
   }
-})
+)

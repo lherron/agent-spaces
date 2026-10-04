@@ -25,6 +25,11 @@ function resolveHrcRepoRoot(
   override: string | undefined = process.env['HRC_REPO_ROOT'],
   aspRoot: string = ASP_REPO_ROOT
 ): string | undefined {
+  // The sibling checkout is host state, so it is read only under
+  // `just smoke-live` (T-10161); an explicit override still runs anywhere.
+  if ((override === undefined || override.length === 0) && process.env['ASP_LIVE_TESTS'] !== '1') {
+    return undefined
+  }
   const candidate =
     override !== undefined && override.length > 0
       ? resolve(override)
