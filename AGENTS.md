@@ -77,7 +77,7 @@ Read `~/praesidium/build_deploy_guide.md` before building, installing, or promot
 
 ## Validation
 
-Run these after implementing to get immediate feedback:
+Use the [documentation index](docs/README.md) for references and runbooks; run these after implementing:
 
 - Only run tests (`bun run test`) **after modifying workspace package files AND after manually testing if possible**.
 - Tests: `bun run test`
