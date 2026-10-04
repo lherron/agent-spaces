@@ -1,3 +1,8 @@
+---
+name: space-authoring
+description: Create, structure, or debug an Agent Space and its components (commands, skills, agents, hooks).
+---
+
 # Space Authoring Expert
 
 Expert guidance for creating and maintaining Agent Spaces - reusable, versioned capability modules for Claude Code.
