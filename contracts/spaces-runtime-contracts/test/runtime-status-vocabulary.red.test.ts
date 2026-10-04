@@ -180,6 +180,12 @@ describe('HRC repo-root resolution (T-06661)', () => {
 
   test('falls back to the ../hrc-runtime sibling default when no override is set', () => {
     const resolved = resolveHrcRepoRoot('', ASP_REPO_ROOT)
+    // Without an override the sibling is host state, read only under
+    // `just smoke-live` (T-10161); elsewhere the resolver reports absence.
+    if (process.env['ASP_LIVE_TESTS'] !== '1') {
+      expect(resolved).toBeUndefined()
+      return
+    }
     // Presence is environment-dependent; when the sibling exists it must be the
     // sibling path, and when it does not the resolver reports absence.
     if (resolved !== undefined) {
