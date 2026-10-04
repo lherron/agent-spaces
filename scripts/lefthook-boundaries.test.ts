@@ -228,21 +228,16 @@ describe('lefthook v2 configuration', () => {
     }
   })
 
-  test('uses one fail-safe pre-push stdin consumer', async () => {
+  test('pre-push only reports the push', async () => {
     const config = await readConfig()
     const prePush = config['pre-push']
     expect(prePush.files).toBe("printf 'lefthook.yml\\n'")
-    expect(Object.keys(prePush.commands)).toEqual(['code-validation'])
-    const codeValidation = prePush.commands['code-validation']
-    expect(codeValidation.use_stdin).toBeTrue()
-    expect(codeValidation.run).toContain('refs=$(cat)')
-    expect(codeValidation.run).toContain(
-      'bun scripts/run-if-code-changed.ts pre-push {lefthook_job_name} -- sh -c'
-    )
-    expect(codeValidation.run).toContain('bun install && bun run test:fast')
-    expect(codeValidation.run.indexOf('wrkp git push "$@"')).toBeGreaterThan(
-      codeValidation.run.indexOf('bun install && bun run test:fast')
-    )
+    // Verify runs post-push on mini (T-10161), so the hook never runs tests.
+    expect(Object.keys(prePush.commands)).toEqual(['git-push-fact'])
+    expect(prePush.commands['git-push-fact']).toEqual({
+      use_stdin: true,
+      run: `sh -c 'command -v wrkp >/dev/null 2>&1 && wrkp git push "$@" || true' sh {0}`,
+    })
     expect(config['post-commit'].commands['wrkp-git-commit'].run).toBe(
       'command -v wrkp >/dev/null 2>&1 && wrkp git commit || true'
     )

@@ -6,16 +6,18 @@ scope: local handoff gate
 predicate: >
   just verify is agent-spaces' local handoff gate and must include the
   architecture-records structure and projection-freshness check. Enforcement
-  note (T-08054): pre-push captures stdin once, replays the refs through the
-  unchanged code-validation gate, and posts `git.push` only at the successful
-  tail; `bun x lefthook install` supplies the executable post-commit entrypoint
-  for the best-effort `git.commit` producer.
+  note (T-10161): `just verify` runs after each push to main on mini's
+  self-hosted runner (`.github/workflows/post-push-verify.yml`), not in a git
+  hook; pre-push only hands the refs to the best-effort `git.push` producer.
+  `bun x lefthook install` supplies the executable post-commit entrypoint for
+  the best-effort `git.commit` producer.
 authority:
   repo: agent-spaces
   surface: justfile verify recipe
 source:
   - justfile
   - lefthook.yml
+  - .github/workflows/post-push-verify.yml
   - scripts/check-architecture-records.ts
   - scripts/lefthook-boundaries.test.ts
 required_tests:

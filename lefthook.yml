@@ -37,15 +37,12 @@ pre-push:
   # Keep the hook alive for deleted paths, which Lefthook omits from push_files.
   files: printf 'lefthook.yml\n'
   commands:
-    code-validation:
+    # `just verify` runs after the push on mini's self-hosted runner (T-10161,
+    # .github/workflows/post-push-verify.yml); the hook only reports the push.
+    # One stdin consumer: Lefthook cannot fan pre-push stdin out to commands.
+    git-push-fact:
       use_stdin: true
-      # One stdin consumer is intentional: Lefthook cannot fan pre-push stdin out to commands.
-      run: >-
-        sh -c 'refs=$(cat);
-        printf "%s\n" "$refs" | bun scripts/run-if-code-changed.ts pre-push {lefthook_job_name} -- sh -c '"'"'bun install && bun run test:fast'"'"' {files}; rc=$?;
-        if [ $rc -eq 0 ] && command -v wrkp >/dev/null 2>&1; then
-          printf "%s\n" "$refs" | wrkp git push "$@" || true;
-        fi; exit $rc' sh {0}
+      run: sh -c 'command -v wrkp >/dev/null 2>&1 && wrkp git push "$@" || true' sh {0}
 
 post-commit:
   commands:

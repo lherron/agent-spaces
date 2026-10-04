@@ -56,4 +56,4 @@ Agent Spaces alone interprets mutable agent profiles, project targets, property-
 
 ## agent-spaces.verify-gate
 
-just verify is agent-spaces' local handoff gate and must include the architecture-records structure and projection-freshness check. Enforcement note (T-08054): pre-push captures stdin once, replays the refs through the unchanged code-validation gate, and posts `git.push` only at the successful tail; `bun x lefthook install` supplies the executable post-commit entrypoint for the best-effort `git.commit` producer.
+just verify is agent-spaces' local handoff gate and must include the architecture-records structure and projection-freshness check. Enforcement note (T-10161): `just verify` runs after each push to main on mini's self-hosted runner (`.github/workflows/post-push-verify.yml`), not in a git hook; pre-push only hands the refs to the best-effort `git.push` producer. `bun x lefthook install` supplies the executable post-commit entrypoint for the best-effort `git.commit` producer.
