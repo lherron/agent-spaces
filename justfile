@@ -179,10 +179,12 @@ architecture-records *args:
 # widens some keyof types to `string | symbol`). Without a prior build a fresh clone
 # fails typecheck where a warm host tree passes — room-readiness gate (T-06887).
 
-# Tests that read this host's live state: the agents root and its services,
-# archived transcripts under ~/praesidium/var/wrkq-artifacts, and the sibling
-# hrc-runtime checkout. They skip unless ASP_LIVE_TESTS=1, so `verify` stays
-# self-contained (T-10161).
+# smoke-live covers tests that read this host's live state: the agents root and
+# its services, archived transcripts under ~/praesidium/var/wrkq-artifacts, and
+# the sibling hrc-runtime checkout. They skip unless ASP_LIVE_TESTS=1, so
+# `verify` stays self-contained (T-10161).
+
+# Run the tests that need this host's live state.
 smoke-live:
     #!/usr/bin/env bash
     set -euo pipefail
