@@ -6,3 +6,16 @@
 73408a1f79f0afa0c5ef98063752103c5f17cce8:asp_modules/ralph-build/claude/plugins/000-ralph-build-loop/.asp-cache.json:generic-api-key:5
 73408a1f79f0afa0c5ef98063752103c5f17cce8:asp_modules/ralph-plan/claude/plugins/000-ralph-plan-loop/.asp-cache.json:generic-api-key:5
 73408a1f79f0afa0c5ef98063752103c5f17cce8:asp_modules/ralph-plan/claude/plugins/001-praesidium-defaults/.asp-cache.json:generic-api-key:5
+
+# Mable ruling R-00282 2026-10-04 (T-10192): deliberately fake redaction-test token fixture.
+0e5ce2bb6562bfb578a4cef378d2902df7126fb5:packages/harness-broker/test/security/redaction.test.ts:curl-auth-header:222
+# Mable ruling R-00282 2026-10-04 (T-10192): spec prose about credential channel, not a credential.
+532280efd25108f3932217af52cf2379b238c9c6:refactor/AGENT_RUNTIME_CONTRACT_PLANE_SPEC.md:generic-api-key:597
+# Mable ruling R-00282 2026-10-04 (T-10192): deliberately fake redaction-test token fixture.
+6a69997ccae0653a1c70898fa28812da106ce2a4:packages/spaces-runtime-contracts/test/redaction.test.ts:curl-auth-header:30
+# Mable ruling R-00282 2026-10-04 (T-10192): test idempotency identifier, not a credential.
+a5bdd978decf195031b3cec6c1ff1473f31c7a3f:packages/agent-spaces/src/__tests__/headless-v02-activation.red.test.ts:generic-api-key:171
+# Mable ruling R-00282 2026-10-04 (T-10192): test session identifier, not a credential.
+a5bdd978decf195031b3cec6c1ff1473f31c7a3f:packages/agent-spaces/src/__tests__/headless-v02-activation.red.test.ts:generic-api-key:221
+# Mable ruling R-00282 2026-10-04 (T-10192): spec prose about credential channel, not a credential.
+c2393a9f79328bf8b62f563a32dabd48160bc98d:refactor/AGENT_RUNTIME_CONTRACT_PLANE_SPEC.md:generic-api-key:714
