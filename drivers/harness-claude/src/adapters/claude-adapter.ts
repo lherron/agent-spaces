@@ -72,9 +72,10 @@ const STATUSLINE_ASSET_PATH = join(
 /**
  * Idle timeout applied to AskUserQuestion dialogs. Claude Code no longer
  * auto-continues these by default; this opts agents back into a bounded wait so
- * a headless run does not block forever on an unanswered dialog.
+ * a headless run does not block forever on an unanswered dialog. Must be one of
+ * Claude Code's enum values; an unrecognized value is silently ignored.
  */
-const ASK_USER_QUESTION_TIMEOUT = '2m'
+const ASK_USER_QUESTION_TIMEOUT = '60s'
 
 export interface ClaudeAdapterOptions {
   statuslineSource?:

@@ -36,11 +36,12 @@ export interface ComposedSettings {
       }
     | undefined
   /**
-   * Idle timeout for AskUserQuestion dialogs. Duration string (e.g. "2m").
-   * When set, dialogs auto-continue with the default choice after the timeout
-   * instead of blocking indefinitely.
+   * Idle timeout for AskUserQuestion dialogs. When set, dialogs auto-continue
+   * with any answers selected so far after the timeout instead of blocking
+   * indefinitely. Claude Code accepts only these values and silently drops any
+   * other (e.g. "2m"), which leaves the timeout at "never".
    */
-  askUserQuestionTimeout?: string | undefined
+  askUserQuestionTimeout?: '60s' | '5m' | '10m' | 'never' | undefined
   /**
    * TUI rendering mode. "fullscreen" selects the alt-screen renderer with the
    * app's own virtualized scrollback; "default" is the classic main-screen
