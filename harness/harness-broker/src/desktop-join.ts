@@ -28,7 +28,6 @@ import {
   registerParticipant,
 } from 'spaces-hrc-join-client'
 import type { ParticipantAdapter } from 'spaces-runtime-contracts'
-import { serveUnixBroker } from './cli.js'
 import {
   DESKTOP_AGENT_ID,
   DESKTOP_LANE_REF,
@@ -40,6 +39,7 @@ import {
   resolveDesktopProject,
 } from './desktop-project.js'
 import { assertSocketPathWithinBudget } from './socket-path.js'
+import { serveUnixBroker } from './unix-broker.js'
 
 export type DesktopJoinInput = {
   threadId: string

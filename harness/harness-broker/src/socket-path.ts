@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs'
+import { unlink } from 'node:fs/promises'
+import { connect } from 'node:net'
 import { platform } from 'node:os'
 
 /**
@@ -30,4 +33,28 @@ export function assertSocketPathWithinBudget(socketPath: string): void {
   if (needed > budget) {
     throw new SocketPathTooLongError(socketPath, needed, budget)
   }
+}
+
+/** Probe an existing socket node and unlink it only if no live listener answers. */
+export async function reclaimStaleSocket(socketPath: string): Promise<void> {
+  if (!existsSync(socketPath)) {
+    return
+  }
+  if (await probeSocketAlive(socketPath)) {
+    process.stderr.write(`Broker socket already in use by a live listener: ${socketPath}\n`)
+    process.exit(1)
+  }
+  await unlink(socketPath).catch(() => {})
+}
+
+function probeSocketAlive(socketPath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = connect({ path: socketPath })
+    const done = (alive: boolean): void => {
+      probe.destroy()
+      resolve(alive)
+    }
+    probe.once('connect', () => done(true))
+    probe.once('error', () => done(false))
+  })
 }
