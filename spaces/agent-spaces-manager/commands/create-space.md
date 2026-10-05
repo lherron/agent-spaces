@@ -42,7 +42,7 @@ When you run this command, I will:
 1. **Ask for space details**:
    - Space ID (kebab-case identifier)
    - Description
-   - Initial version (default: 0.1.0)
+   - Initial version for the manifest (default: 0.1.0)
    - Which components to include
 
 2. **Run the deterministic scaffold command**:
@@ -63,18 +63,18 @@ To create a space for frontend development tools:
 3. Enter description: "Frontend development commands and skills"
 4. Select components: commands, skills
 5. I will run `asp repo new-space frontend-tools --description "Frontend development commands and skills"`
-6. The space will be created at `~/.asp/repo/spaces/frontend-tools/`
+6. The space will be created at `<agents-root>/spaces/frontend-tools/` (see `asp repo status` for the resolved root)
 
 ## Next Steps After Creation
 
 1. Add content to your commands/skills/agents
-2. Test locally: `asp run ~/.asp/repo/spaces/<space-id>`
-3. Bump version: `/agent-spaces-manager:bump-version`
-4. Publish: `/agent-spaces-manager:publish`
+2. Validate: `asp lint`
+3. Test locally: `asp run <agents-root>/spaces/<space-id>`
+4. Compose it into a target: `asp add space:<space-id>@dev --target <name>`
 
 ## Important Notes
 
-- Space IDs must be unique within the registry
+- Space IDs must be unique within the shared spaces root
 - The space.toml file is required and must pass validation
 - Component directories (commands/, skills/, etc.) are only needed if you have content for them
 - Always use `${CLAUDE_PLUGIN_ROOT}` in hook scripts for paths

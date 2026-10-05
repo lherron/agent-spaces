@@ -1,5 +1,5 @@
 /**
- * Spaces init command - Create a new space in the registry.
+ * Spaces init command - Create a new space in the shared spaces root.
  *
  * WHY: Provides a quick way to scaffold a new space without
  * needing to run Claude or the manager space.
@@ -9,13 +9,13 @@ import chalk from 'chalk'
 import type { Command } from 'commander'
 
 import { exitWithAspError, resolvePaths } from '../../helpers.js'
-import { registryExists } from '../repo/registry-fs.js'
-import { validateSpaceId, writeSpaceScaffold } from './scaffold.js'
+import { spacesDirExists, validateSpaceId, writeSpaceScaffold } from './scaffold.js'
 
 interface InitOptions {
   description?: string | undefined
   version?: string | undefined
   aspHome?: string | undefined
+  registry?: string | undefined
 }
 
 /**
@@ -24,10 +24,11 @@ interface InitOptions {
 export function registerSpacesInitCommand(parent: Command): void {
   parent
     .command('init')
-    .description('Create a new space in the registry')
+    .description('Create a new space in the shared spaces root')
     .argument('<spaceId>', 'Space ID (kebab-case, e.g., my-awesome-space)')
     .option('-d, --description <text>', 'Space description')
     .option('-v, --version <version>', 'Initial version (default: 0.1.0)')
+    .option('--registry <path>', 'Shared spaces root override (default: agents root)')
     .option('--asp-home <path>', 'ASP_HOME override')
     .action(async (spaceId: string, options: InitOptions) => {
       try {
@@ -39,14 +40,12 @@ export function registerSpacesInitCommand(parent: Command): void {
         }
 
         // Get paths
-        const { paths } = resolvePaths(options)
-        const spaceDir = `${paths.repo}/spaces/${spaceId}`
+        const { registryPath } = resolvePaths(options)
+        const spaceDir = `${registryPath}/spaces/${spaceId}`
 
-        // Check if registry exists
-        const repoExists = await registryExists(paths.repo)
-        if (!repoExists) {
-          console.error(chalk.red('Error: Registry not initialized'))
-          console.error(chalk.gray('Run "asp repo init" first to create the registry'))
+        if (!(await spacesDirExists(registryPath))) {
+          console.error(chalk.red(`Error: No shared spaces dir at ${registryPath}/spaces`))
+          console.error(chalk.gray('Run "asp repo init" to create it'))
           process.exit(1)
         }
 
@@ -60,7 +59,7 @@ export function registerSpacesInitCommand(parent: Command): void {
 
         console.log(chalk.blue(`Creating space "${spaceId}"...`))
 
-        await writeSpaceScaffold(paths.repo, spaceId, { ...options, withExample: true })
+        await writeSpaceScaffold(registryPath, spaceId, { ...options, withExample: true })
 
         console.log(chalk.green(`Space "${spaceId}" created successfully`))
         console.log('')
@@ -72,7 +71,7 @@ export function registerSpacesInitCommand(parent: Command): void {
         console.log(`  2. Add commands in ${chalk.cyan('commands/')}`)
         console.log(`  3. Add skills in ${chalk.cyan('skills/')}`)
         console.log(`  4. Test locally: ${chalk.cyan(`asp run ${spaceDir}`)}`)
-        console.log(`  5. Publish: ${chalk.cyan(`asp repo publish ${spaceId} --tag v0.1.0`)}`)
+        console.log(`  5. Compose it: ${chalk.cyan(`space:${spaceId}@dev`)}`)
       } catch (error) {
         exitWithAspError(error)
       }

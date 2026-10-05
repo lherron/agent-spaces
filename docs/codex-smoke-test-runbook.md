@@ -94,7 +94,7 @@ cat >> asp-targets.toml << 'EOF'
 
 [targets.codex-test]
 description = "Codex smoke test target"
-compose = ["space:smokey@dev", "space:defaults@stable"]
+compose = ["space:smokey@dev", "space:defaults@dev"]
 
 [targets.codex-test.codex]
 model = "gpt-5.3-codex"
@@ -370,7 +370,7 @@ curl -s "$BASE/admin/projects" -H "$TOKEN" | jq -r '.[] | "\(.projectId): \(.ses
 |------|----------|
 | Codex detection | `asp harnesses` shows `codex (experimental)` |
 | Target creation | `codex-test` target added (no `harness` property) |
-| Space resolution | Resolves `space:smokey@dev` and `space:defaults@stable` |
+| Space resolution | Resolves `space:smokey@dev` and `space:defaults@dev` |
 | Materialization | `asp install --targets codex-test --harness codex` completes |
 | auth.json | Symlink created to `~/.codex/auth.json` |
 | Skills | `smoke-testing` skill copied to `codex/codex.home/skills/` |

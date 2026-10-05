@@ -5,7 +5,7 @@
  * shape from one code path, with only the legacy example command toggled.
  */
 
-import { mkdir } from 'node:fs/promises'
+import { mkdir, stat } from 'node:fs/promises'
 
 import { resolver } from 'spaces-config'
 
@@ -17,6 +17,19 @@ export interface SpaceScaffoldOptions {
 
 export interface SpaceScaffoldResult {
   spaceDir: string
+}
+
+/**
+ * Whether `<root>/spaces/` exists. The shared spaces root is a plain directory
+ * (the agents root by default), so this is the only precondition the
+ * repo/spaces command families check before reading or writing spaces.
+ */
+export async function spacesDirExists(root: string): Promise<boolean> {
+  try {
+    return (await stat(`${root}/spaces`)).isDirectory()
+  } catch {
+    return false
+  }
 }
 
 const SPACE_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/

@@ -68,7 +68,7 @@ function friendlyMessage(err: NonNullable<typeof validateSpaceSchema.errors>[num
   // Space reference pattern errors
   if (err.keyword === 'pattern' && err.instancePath.includes('/compose/')) {
     const value = err.data as string
-    return `"${value}" is not a valid space reference. Use format: space:<id>@<selector> (e.g., space:${value}@dev or space:${value}@stable)`
+    return `"${value}" is not a valid space reference. Use format: space:<id>@<selector> (e.g., space:${value}@dev)`
   }
 
   // Enum errors - name the rejected value and what would have been accepted

@@ -65,7 +65,7 @@ When you run this command, I will:
 
 3. **Create the skill directory and file**:
    ```bash
-   mkdir -p ~/.asp/repo/spaces/<space-id>/skills/<skill-name>
+   mkdir -p <agents-root>/spaces/<space-id>/skills/<skill-name>
    ```
 
 4. **Generate SKILL.md** with best-practice template

@@ -206,24 +206,24 @@ Introspect this agent's runtime launch and locate edit targets:
 - `asp self memory <subcommand>` — manage agent memory targets (memory, user, persona):
   `inspect`, `read`, `add`, `replace`, `remove`, `scan`, `snapshot`, `diff`, `paths`
 
-## `asp repo` (legacy)
+## `asp repo`
 
-Git-registry management commands, retained for legacy registry workflows:
+Shared spaces root commands. The root is the agents root by default
+(`<agentsRoot>/spaces/<id>/`); every verb takes `--registry <path>` to point
+elsewhere. The git registry (`publish`, `tags`, `gc`, dist-tags, release tags)
+was retired in T-04144 and its verbs removed in T-10367.
 
-- `asp repo init [--clone <url>] [--no-manager]` — initialize or clone a spaces registry
-- `asp repo new-space <spaceId>` — create a new space scaffold in the registry
-- `asp repo status` — show registry status
-- `asp repo publish <spaceId>` — create version tag and update dist-tags
-- `asp repo tags <spaceId>` — list version tags for a space
-- `asp repo gc` — garbage-collect the registry repository
+- `asp repo init [--no-manager]` — create `<root>/spaces/` and install the agent-spaces-manager space if absent
+- `asp repo new-space <spaceId>` — scaffold a new space in the shared root
+- `asp repo status [--json]` — show the shared root, its spaces, and uncommitted edits under `spaces/`
 
-New spaces should live in the agents root (`<agentsRoot>/spaces/`), a project
-(`<projectRoot>/spaces/`), or an agent root — not in a git registry.
+Project (`<projectRoot>/spaces/`) and agent-root spaces need no command; create
+the directory directly.
 
 ## `asp spaces`
 
-- `asp spaces init <spaceId>` — create a new space in the registry (legacy placement)
-- `asp spaces list` — list spaces
+- `asp spaces init <spaceId>` — create a new space (with an example command) in the shared root
+- `asp spaces list [--json]` — list spaces in the shared root
 
 ## `asp resources`
 

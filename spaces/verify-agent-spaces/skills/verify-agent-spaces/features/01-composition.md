@@ -19,8 +19,9 @@ list,path,diff}.ts`, `apps/cli/src/commands/{repo,spaces}/`, resolution in `core
   found (`canonical` for `~/praesidium/var/agents/<id>`).
 - `asp path <spaceId>`: the filesystem path of a shared space.
 - `asp diff [--json]`: pending lock changes without writing.
-- `asp repo …` and `asp spaces …`: the git spaces registry verbs. The registry was retired (T-04144); they refuse
-  without one.
+- `asp repo init|new-space|status` and `asp spaces init|list`: the shared spaces root (`<agentsRoot>/spaces/`,
+  `--registry <path>` overrides). The git registry verbs `asp repo publish|tags|gc` were removed (T-10367) and exit
+  1 `unknown command`.
 
 ## How to get to it
 
@@ -41,7 +42,7 @@ asp list                         # demo/local-only locked, env hashes, agent roo
 asp path defaults                # ~/praesidium/var/agents/spaces/defaults
 asp path avs-demo                # refuses: project spaces have no registry path
 asp diff --json                  # {"diffs": []} right after install
-asp spaces list; asp repo status # refuse: registry not initialized
+asp spaces list; asp repo status # the shared root ~/praesidium/var/agents and its spaces (read-only)
 cd ~/praesidium/agent-spaces && asp lint --json
 ```
 
@@ -52,8 +53,9 @@ cd ~/praesidium/agent-spaces && asp lint --json
 - `explain` exits 1 `Target not found in lock` when the target is in `asp-targets.toml` but not the lock (a
   hand-edited targets file); rerun `asp install`.
 - `asp path` resolves only shared spaces; a project space refuses `Space "<id>" not found`.
-- `asp spaces list` and `asp repo status` refuse with "Registry not initialized" / "No registry found … Run asp
-  repo init". The registry is retired; don't init one to make them pass.
+- `asp repo init`, `asp repo new-space` and `asp spaces init` WRITE into the resolved shared root, which is the
+  live `~/praesidium/var/agents` even on a scratch ASP_HOME. Drive them only with `--registry <tmpdir>`.
+- `asp repo status` lists `git.changes` for `spaces/` only; other dirt in the agents repo is not shown.
 - `explain` (and `explain --json` `registryUrl`) still prints `Registry: git@github.com:lherron/spaces-repo.git`, the
   retired registry's URL, on a scratch with no registry. Informational only (2026-10-05,
   `T-10364/01-composition/drive.txt`).

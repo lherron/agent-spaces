@@ -32,7 +32,7 @@ export function registerAddCommand(program: Command): void {
   program
     .command('add')
     .description('Add a space reference to a target')
-    .argument('<spaceRef>', 'Space reference (e.g., space:my-space@stable)')
+    .argument('<spaceRef>', 'Space reference (e.g., space:my-space@dev)')
     .requiredOption('--target <name>', 'Target to add the space to')
     .option('--no-install', 'Skip running install after adding')
     .option('--project <path>', 'Project directory (default: auto-detect)')

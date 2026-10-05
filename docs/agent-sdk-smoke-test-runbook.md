@@ -92,7 +92,7 @@ cat >> asp-targets.toml << 'EOF'
 [targets.agent-sdk-test]
 description = "Claude Agent SDK smoke test target"
 harness = "claude-agent-sdk"
-compose = ["space:smokey@dev", "space:defaults@stable"]
+compose = ["space:smokey@dev", "space:defaults@dev"]
 
 [targets.agent-sdk-test.claude]
 model = "claude-sonnet-4-5"
@@ -379,7 +379,7 @@ curl -s "$BASE/admin/projects" -H "$TOKEN" | jq -r '.[] | "\(.projectId): \(.ses
 |------|----------|
 | SDK detection | `asp harnesses` shows `claude-agent-sdk` |
 | Target creation | `agent-sdk-test` target added with `harness = "claude-agent-sdk"` |
-| Space resolution | Resolves `space:smokey@dev` and `space:defaults@stable` |
+| Space resolution | Resolves `space:smokey@dev` and `space:defaults@dev` |
 | Materialization | `asp install --targets agent-sdk-test --harness claude-agent-sdk` completes |
 | Plugin directories | Created in `asp_modules/agent-sdk-test/claude-agent-sdk/plugins/` |
 | Skills | Skills from composed spaces available in plugin directories |

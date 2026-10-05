@@ -92,7 +92,7 @@ cat >> asp-targets.toml << 'EOF'
 [targets.pi-sdk-test]
 description = "Pi SDK smoke test target"
 harness = "pi-sdk"
-compose = ["space:smokey@dev", "space:defaults@stable"]
+compose = ["space:smokey@dev", "space:defaults@dev"]
 
 [targets.pi-sdk-test.pi]
 model = "gpt-4o"
@@ -378,7 +378,7 @@ curl -s "$BASE/admin/projects" -H "$TOKEN" | jq -r '.[] | "\(.projectId): \(.ses
 |------|----------|
 | SDK detection | `asp harnesses` shows `pi-sdk` |
 | Target creation | `pi-sdk-test` target added with `harness = "pi-sdk"` |
-| Space resolution | Resolves `space:smokey@dev` and `space:defaults@stable` |
+| Space resolution | Resolves `space:smokey@dev` and `space:defaults@dev` |
 | Materialization | `asp install --targets pi-sdk-test --harness pi-sdk` completes |
 | Bundle manifest | `bundle.json` generated with correct schema |
 | auth.json | Symlink created to `~/.pi/agent/auth.json` |

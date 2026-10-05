@@ -72,7 +72,7 @@ When you run this command, I will:
 
 3. **Create the commands directory** (if needed):
    ```bash
-   mkdir -p ~/.asp/repo/spaces/<space-id>/commands
+   mkdir -p <agents-root>/spaces/<space-id>/commands
    ```
 
 4. **Generate <command-name>.md** with best-practice template

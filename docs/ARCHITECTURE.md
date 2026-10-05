@@ -303,7 +303,7 @@ These packages translate the shared runtime/execution contracts into provider-sp
 `packages/cli` is the top-level distribution package and exposes:
 
 - classic target-oriented commands such as `run`, `install`, `build`, `describe`, `explain`, `lint`, `list`, and `doctor`
-- registry commands under `asp repo`
+- shared spaces root commands under `asp repo`
 - space authoring commands under `asp spaces`
 - placement-driven execution through `asp agent`
 

@@ -6,8 +6,9 @@
  * PASS once implementation lands. Do NOT implement — tests only.
  *
  * Command contract (daedalus ruling C-04456):
- * - `asp repo new-space <spaceId>` with --description, --version, --asp-home
- * - Requires initialized registry (asp repo init first)
+ * - `asp repo new-space <spaceId>` with --description, --version, --registry
+ * - Requires the shared spaces root's spaces/ dir (asp repo init creates it);
+ *   T-10367 retargeted this from the retired $ASP_HOME/repo git registry
  * - Rejects existing spaces/<spaceId>/space.toml
  * - Writes spaces/<spaceId>/space.toml + dirs: commands/ skills/ agents/ hooks/scripts/ mcp/
  * - NO commands/example.md (new-space only; example stays behind spaces-init compat option)
@@ -64,16 +65,16 @@ function runAsp(args: string[], env?: Record<string, string>): RunResult {
 }
 
 /**
- * Initialize a fresh temp registry and return paths.
- * Uses asp repo init --no-manager so git setup is fast.
+ * Create a fresh temp shared spaces root and return it.
+ * Uses asp repo init --no-manager so only spaces/ is created.
  */
-async function setupTempRegistry(): Promise<{ aspHome: string; repoPath: string }> {
-  const aspHome = await mkdtemp(join(tmpdir(), 'asp-ns-'))
-  const result = runAsp(['repo', 'init', '--no-manager', '--asp-home', aspHome])
+async function setupTempRegistry(): Promise<{ root: string; repoPath: string }> {
+  const root = await mkdtemp(join(tmpdir(), 'asp-ns-'))
+  const result = runAsp(['repo', 'init', '--no-manager', '--registry', root])
   if (result.exitCode !== 0) {
-    throw new Error(`registry init failed: ${result.stderr}`)
+    throw new Error(`spaces root init failed: ${result.stderr}`)
   }
-  return { aspHome, repoPath: join(aspHome, 'repo') }
+  return { root, repoPath: root }
 }
 
 /** Return true if the filesystem path exists. */
@@ -93,7 +94,7 @@ describe('asp repo new-space creates blessed file/dir shape (T-04410 #1)', () =>
   test(
     'creates exact space.toml + required dirs, no example.md',
     async () => {
-      const { aspHome, repoPath } = await setupTempRegistry()
+      const { root, repoPath } = await setupTempRegistry()
       try {
         // RED: command does not exist yet — this exits 2 ("unknown command")
         const result = runAsp([
@@ -104,8 +105,8 @@ describe('asp repo new-space creates blessed file/dir shape (T-04410 #1)', () =>
           'A sample space for testing',
           '--version',
           '0.2.0',
-          '--asp-home',
-          aspHome,
+          '--registry',
+          root,
         ])
         expect(result.exitCode).toBe(0)
 
@@ -133,7 +134,7 @@ describe('asp repo new-space creates blessed file/dir shape (T-04410 #1)', () =>
         expect(toml).toContain('[plugin]')
         expect(toml).toContain('name = "sample-space"')
       } finally {
-        await rm(aspHome, { recursive: true, force: true })
+        await rm(root, { recursive: true, force: true })
       }
     },
     CLI_TEST_TIMEOUT_MS
@@ -142,9 +143,9 @@ describe('asp repo new-space creates blessed file/dir shape (T-04410 #1)', () =>
   test(
     'default version is 0.1.0 when --version omitted',
     async () => {
-      const { aspHome, repoPath } = await setupTempRegistry()
+      const { root, repoPath } = await setupTempRegistry()
       try {
-        const result = runAsp(['repo', 'new-space', 'default-ver-space', '--asp-home', aspHome])
+        const result = runAsp(['repo', 'new-space', 'default-ver-space', '--registry', root])
         expect(result.exitCode).toBe(0)
 
         const toml = await readFile(
@@ -153,7 +154,7 @@ describe('asp repo new-space creates blessed file/dir shape (T-04410 #1)', () =>
         )
         expect(toml).toContain('version = "0.1.0"')
       } finally {
-        await rm(aspHome, { recursive: true, force: true })
+        await rm(root, { recursive: true, force: true })
       }
     },
     CLI_TEST_TIMEOUT_MS
@@ -162,9 +163,9 @@ describe('asp repo new-space creates blessed file/dir shape (T-04410 #1)', () =>
   test(
     'description field omitted when --description not supplied',
     async () => {
-      const { aspHome, repoPath } = await setupTempRegistry()
+      const { root, repoPath } = await setupTempRegistry()
       try {
-        const result = runAsp(['repo', 'new-space', 'no-desc-space', '--asp-home', aspHome])
+        const result = runAsp(['repo', 'new-space', 'no-desc-space', '--registry', root])
         expect(result.exitCode).toBe(0)
 
         const toml = await readFile(
@@ -174,7 +175,7 @@ describe('asp repo new-space creates blessed file/dir shape (T-04410 #1)', () =>
         // description must NOT appear when not supplied
         expect(toml).not.toContain('description')
       } finally {
-        await rm(aspHome, { recursive: true, force: true })
+        await rm(root, { recursive: true, force: true })
       }
     },
     CLI_TEST_TIMEOUT_MS
@@ -188,7 +189,7 @@ describe('generated space.toml passes readSpaceManifestFromFilesystem + validate
   test(
     'manifest parses and validates without errors',
     async () => {
-      const { aspHome, repoPath } = await setupTempRegistry()
+      const { root, repoPath } = await setupTempRegistry()
       try {
         // RED: command absent → exits 2
         const result = runAsp([
@@ -197,8 +198,8 @@ describe('generated space.toml passes readSpaceManifestFromFilesystem + validate
           'validated-space',
           '--description',
           'Validate me',
-          '--asp-home',
-          aspHome,
+          '--registry',
+          root,
         ])
         expect(result.exitCode).toBe(0)
 
@@ -214,7 +215,7 @@ describe('generated space.toml passes readSpaceManifestFromFilesystem + validate
         expect(validation.valid).toBe(true)
         expect(validation.errors).toHaveLength(0)
       } finally {
-        await rm(aspHome, { recursive: true, force: true })
+        await rm(root, { recursive: true, force: true })
       }
     },
     CLI_TEST_TIMEOUT_MS
@@ -228,10 +229,10 @@ describe('asp repo new-space rejects existing space (T-04410 #3)', () => {
   test(
     'second run for same id exits nonzero and does not overwrite',
     async () => {
-      const { aspHome, repoPath } = await setupTempRegistry()
+      const { root, repoPath } = await setupTempRegistry()
       try {
         // First run: should succeed (RED now — command absent)
-        const first = runAsp(['repo', 'new-space', 'dup-space', '--asp-home', aspHome])
+        const first = runAsp(['repo', 'new-space', 'dup-space', '--registry', root])
         expect(first.exitCode).toBe(0)
 
         // Record the original content
@@ -241,7 +242,7 @@ describe('asp repo new-space rejects existing space (T-04410 #3)', () => {
         )
 
         // Second run: must exit nonzero
-        const second = runAsp(['repo', 'new-space', 'dup-space', '--asp-home', aspHome])
+        const second = runAsp(['repo', 'new-space', 'dup-space', '--registry', root])
         expect(second.exitCode).not.toBe(0)
 
         // Error output should mention the conflict
@@ -255,7 +256,7 @@ describe('asp repo new-space rejects existing space (T-04410 #3)', () => {
         )
         expect(afterToml).toBe(originalToml)
       } finally {
-        await rm(aspHome, { recursive: true, force: true })
+        await rm(root, { recursive: true, force: true })
       }
     },
     CLI_TEST_TIMEOUT_MS
@@ -269,10 +270,10 @@ describe('asp repo new-space rejects invalid space IDs before writing (T-04410 #
   test(
     'non-kebab-case ID exits nonzero',
     async () => {
-      const { aspHome, repoPath } = await setupTempRegistry()
+      const { root, repoPath } = await setupTempRegistry()
       try {
         // PascalCase is invalid
-        const result = runAsp(['repo', 'new-space', 'NotKebabCase', '--asp-home', aspHome])
+        const result = runAsp(['repo', 'new-space', 'NotKebabCase', '--registry', root])
         expect(result.exitCode).not.toBe(0)
 
         const output = result.stdout + result.stderr
@@ -281,7 +282,7 @@ describe('asp repo new-space rejects invalid space IDs before writing (T-04410 #
         // No files must have been written
         expect(await exists(join(repoPath, 'spaces', 'NotKebabCase'))).toBe(false)
       } finally {
-        await rm(aspHome, { recursive: true, force: true })
+        await rm(root, { recursive: true, force: true })
       }
     },
     CLI_TEST_TIMEOUT_MS
@@ -290,10 +291,10 @@ describe('asp repo new-space rejects invalid space IDs before writing (T-04410 #
   test(
     'space ID longer than 64 chars exits nonzero',
     async () => {
-      const { aspHome, repoPath } = await setupTempRegistry()
+      const { root, repoPath } = await setupTempRegistry()
       const longId = 'a'.repeat(65)
       try {
-        const result = runAsp(['repo', 'new-space', longId, '--asp-home', aspHome])
+        const result = runAsp(['repo', 'new-space', longId, '--registry', root])
         expect(result.exitCode).not.toBe(0)
 
         const output = result.stdout + result.stderr
@@ -302,7 +303,7 @@ describe('asp repo new-space rejects invalid space IDs before writing (T-04410 #
         // No files must have been written
         expect(await exists(join(repoPath, 'spaces', longId))).toBe(false)
       } finally {
-        await rm(aspHome, { recursive: true, force: true })
+        await rm(root, { recursive: true, force: true })
       }
     },
     CLI_TEST_TIMEOUT_MS
@@ -311,9 +312,9 @@ describe('asp repo new-space rejects invalid space IDs before writing (T-04410 #
   test(
     'ID starting with a digit exits nonzero',
     async () => {
-      const { aspHome, repoPath } = await setupTempRegistry()
+      const { root, repoPath } = await setupTempRegistry()
       try {
-        const result = runAsp(['repo', 'new-space', '1bad-start', '--asp-home', aspHome])
+        const result = runAsp(['repo', 'new-space', '1bad-start', '--registry', root])
         expect(result.exitCode).not.toBe(0)
 
         // Error must describe the ID constraint (not just "unknown command")
@@ -323,7 +324,7 @@ describe('asp repo new-space rejects invalid space IDs before writing (T-04410 #
 
         expect(await exists(join(repoPath, 'spaces', '1bad-start'))).toBe(false)
       } finally {
-        await rm(aspHome, { recursive: true, force: true })
+        await rm(root, { recursive: true, force: true })
       }
     },
     CLI_TEST_TIMEOUT_MS
@@ -337,10 +338,10 @@ describe('validation gate: malformed space.toml is caught by readSpaceManifestFr
   test(
     'generated manifest passes; injected malformed manifest rejected by same validator',
     async () => {
-      const { aspHome, repoPath } = await setupTempRegistry()
+      const { root, repoPath } = await setupTempRegistry()
       try {
         // RED: command absent → exits 2; GREEN once command exists
-        const result = runAsp(['repo', 'new-space', 'validate-gate-space', '--asp-home', aspHome])
+        const result = runAsp(['repo', 'new-space', 'validate-gate-space', '--registry', root])
         expect(result.exitCode).toBe(0)
 
         // Verify the generated manifest is valid (warm path — command succeeded)
@@ -385,7 +386,7 @@ describe('validation gate: malformed space.toml is caught by readSpaceManifestFr
         }
         expect(threw).toBe(true)
       } finally {
-        await rm(aspHome, { recursive: true, force: true })
+        await rm(root, { recursive: true, force: true })
       }
     },
     CLI_TEST_TIMEOUT_MS
@@ -399,14 +400,14 @@ describe('asp spaces init compatibility (T-04410 #6)', () => {
   test(
     'asp spaces init still creates a valid space alongside asp repo new-space',
     async () => {
-      const { aspHome, repoPath } = await setupTempRegistry()
+      const { root, repoPath } = await setupTempRegistry()
       try {
         // Run new command (RED now — command absent)
-        const newResult = runAsp(['repo', 'new-space', 'new-cmd-space', '--asp-home', aspHome])
+        const newResult = runAsp(['repo', 'new-space', 'new-cmd-space', '--registry', root])
         expect(newResult.exitCode).toBe(0)
 
         // Run existing command (currently GREEN — tests regression)
-        const initResult = runAsp(['spaces', 'init', 'legacy-cmd-space', '--asp-home', aspHome])
+        const initResult = runAsp(['spaces', 'init', 'legacy-cmd-space', '--registry', root])
         expect(initResult.exitCode).toBe(0)
 
         // Both spaces must exist and produce valid manifests
@@ -436,7 +437,7 @@ describe('asp spaces init compatibility (T-04410 #6)', () => {
           await exists(join(repoPath, 'spaces', 'legacy-cmd-space', 'commands', 'example.md'))
         ).toBe(true)
       } finally {
-        await rm(aspHome, { recursive: true, force: true })
+        await rm(root, { recursive: true, force: true })
       }
     },
     CLI_TEST_TIMEOUT_MS

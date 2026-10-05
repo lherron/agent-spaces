@@ -1,29 +1,24 @@
 /**
- * Repo commands - Registry/repository management.
+ * Repo commands - shared spaces root management.
  *
- * WHY: Provides commands for initializing, managing, and publishing
- * to the spaces registry.
+ * WHY: Shared spaces live as plain directories under the shared spaces root
+ * (the agents root by default). The git registry these commands used to manage
+ * (release tags, dist-tags, `asp repo publish/tags/gc`) was retired in T-04144.
  */
 
 import type { Command } from 'commander'
 
-import { registerRepoGcCommand } from './gc.js'
 import { registerRepoInitCommand } from './init.js'
 import { registerRepoNewSpaceCommand } from './new-space.js'
-import { registerRepoPublishCommand } from './publish.js'
 import { registerRepoStatusCommand } from './status.js'
-import { registerRepoTagsCommand } from './tags.js'
 
 /**
  * Register all repo subcommands.
  */
 export function registerRepoCommands(program: Command): void {
-  const repo = program.command('repo').description('Registry/repository management commands')
+  const repo = program.command('repo').description('Shared spaces root commands')
 
   registerRepoInitCommand(repo)
   registerRepoNewSpaceCommand(repo)
   registerRepoStatusCommand(repo)
-  registerRepoPublishCommand(repo)
-  registerRepoTagsCommand(repo)
-  registerRepoGcCommand(repo)
 }

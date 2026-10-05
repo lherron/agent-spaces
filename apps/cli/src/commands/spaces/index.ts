@@ -1,8 +1,8 @@
 /**
- * Spaces commands - Space management in the registry.
+ * Spaces commands - Space management in the shared spaces root.
  *
  * WHY: Provides commands for creating and managing spaces
- * in the local registry.
+ * in the shared spaces root (the agents root by default).
  */
 
 import type { Command } from 'commander'

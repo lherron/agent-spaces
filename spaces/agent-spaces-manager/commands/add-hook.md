@@ -69,7 +69,7 @@ When you run this command, I will:
 
 3. **Create the hooks structure** (if needed):
    ```bash
-   mkdir -p ~/.asp/repo/spaces/<space-id>/hooks/scripts
+   mkdir -p <agents-root>/spaces/<space-id>/hooks/scripts
    ```
 
 4. **Create or update hooks.json**:

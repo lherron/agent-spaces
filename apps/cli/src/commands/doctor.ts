@@ -133,7 +133,7 @@ async function checkRegistry(repoPath: string): Promise<{ result: CheckResult; e
         name: 'registry',
         status: 'warning',
         message: 'No local registry found',
-        detail: `Expected at: ${repoPath}. Run 'asp repo init' to create one.`,
+        detail: `Expected at: ${repoPath}. Run 'asp repo init' to create its spaces/ dir.`,
       },
       exists: false,
     }

@@ -9,7 +9,7 @@ description: Create, structure, or debug an Agent Space and its components (comm
 
 # Space Authoring Expert
 
-Expert guidance for creating and maintaining Agent Spaces - reusable, versioned capability modules for Claude Code.
+Expert guidance for creating and maintaining Agent Spaces - reusable capability modules for Claude Code.
 
 ## When to Use
 
@@ -17,7 +17,6 @@ Activate this skill when:
 - Creating a new space from scratch
 - Adding components (commands, skills, agents, hooks) to a space
 - Structuring a space for maintainability
-- Publishing and versioning spaces
 - Debugging space-related issues
 - Understanding space composition and dependencies
 
@@ -25,10 +24,10 @@ Activate this skill when:
 
 ### What is a Space?
 
-A Space is a versioned, reusable capability module stored in a git-backed registry. It materializes into a Claude Code plugin directory at runtime.
+A Space is a reusable capability module stored as a plain directory. Shared spaces live under the shared spaces root (\`<agents-root>/spaces/<id>/\`) and compose as \`space:<id>@dev\`; project and agent spaces live under \`<projectRoot>/spaces/\` and \`<agentRoot>/spaces/\`. A space materializes into a Claude Code plugin directory at runtime.
 
 Key properties:
-- **Versioned**: Uses semantic versioning via git tags
+- **Live from disk**: Composition reads the space directory directly; there is no registry, tag or publish step
 - **Composable**: Multiple spaces combine into run targets
 - **Self-contained**: Each space is an independent plugin
 
@@ -78,7 +77,7 @@ email = "you@example.com"
 
 [deps]
 spaces = [               # Dependencies on other spaces
-  "space:base-tools@stable"
+  "space:base-tools@dev"
 ]
 \`\`\`
 
@@ -117,26 +116,14 @@ spaces = [               # Dependencies on other spaces
 - Handle errors gracefully (exit 0)
 - Make scripts executable
 
-### Versioning Strategy
+### Making Changes Live
 
-\`\`\`
-1.0.0 -> 1.0.1  (patch: bug fixes)
-1.0.0 -> 1.1.0  (minor: new features)
-1.0.0 -> 2.0.0  (major: breaking changes)
-\`\`\`
+1. Edit the space content in place
+2. Validate: \`asp lint\`
+3. Commit the change in the repo that holds the space
+4. Reinstall consuming projects (\`asp install\`) so their locks pick up the new content
 
-Breaking changes include:
-- Removing commands/skills
-- Changing command behavior incompatibly
-- Restructuring dependencies
-
-### Publishing Workflow
-
-1. Make changes to space content
-2. Bump version: \`/agent-spaces-manager:bump-version\`
-3. Commit changes
-4. Publish: \`/agent-spaces-manager:publish\`
-5. Push to remote (if using shared registry)
+Breaking changes (removing commands/skills, changing behavior incompatibly, restructuring dependencies) take effect for every consumer on their next install, so coordinate them.
 
 ## Common Patterns
 
@@ -151,7 +138,7 @@ base-tools/          # Shared utilities
     └── common.md
 
 frontend-tools/      # Depends on base
-├── space.toml       # deps.spaces = ["space:base-tools@stable"]
+├── space.toml       # deps.spaces = ["space:base-tools@dev"]
 └── commands/
     └── build-ui.md
 \`\`\`
@@ -163,12 +150,12 @@ Instead of configuring features, compose different spaces:
 \`\`\`toml
 # asp-targets.toml
 [targets.minimal]
-compose = ["space:core@stable"]
+compose = ["space:core@dev"]
 
 [targets.full]
 compose = [
-  "space:core@stable",
-  "space:advanced-features@stable"
+  "space:core@dev",
+  "space:advanced-features@dev"
 ]
 \`\`\`
 
@@ -192,15 +179,14 @@ Add automation via hooks:
 
 ### Common Issues
 
-1. **Space not found in registry**
+1. **Space not found**
    - Verify space ID matches exactly
-   - Check the space is committed and tagged
-   - Ensure registry is up to date: \`cd ~/.asp/repo && git pull\`
+   - Check the space exists: \`asp spaces list\` (shared) or \`<projectRoot>/spaces/<id>/\`
+   - Confirm \`asp repo status\` points at the shared spaces root you expect
 
-2. **Version resolution fails**
-   - Check available tags: \`asp repo tags <space-id>\`
-   - Verify selector format is correct
-   - Try explicit version instead of range
+2. **Selector resolution fails**
+   - Use \`@dev\` (or no selector for project/agent spaces)
+   - \`@stable\`, dist-tags, semver ranges and \`git:\` pins are retired and no longer resolve
 
 3. **Hooks not running**
    - Check hooks.json syntax
@@ -217,7 +203,7 @@ Add automation via hooks:
 
 \`\`\`bash
 # Lint a space
-asp lint ~/.asp/repo/spaces/<space-id>
+asp lint <agents-root>/spaces/<space-id>
 
 # Explain resolution
 asp explain <target>
@@ -231,10 +217,8 @@ ls -la ./debug-plugins/<plugin-name>/
 
 1. **Single Responsibility**: Each space should have a focused purpose
 2. **Document Everything**: Commands, skills, and agents need clear docs
-3. **Test Locally First**: Use \`asp run <path>\` before publishing
-4. **Version Thoughtfully**: Follow semver conventions
-5. **Use Dist-tags**: Promote stable versions explicitly
-6. **Minimize Dependencies**: Only depend on what you need
-7. **Fully-Qualified References**: Always use \`/plugin:command\` format
+3. **Test Locally First**: Use \`asp run <path>\` before composing it into targets
+4. **Minimize Dependencies**: Only depend on what you need
+5. **Fully-Qualified References**: Always use \`/plugin:command\` format
 `,
 }

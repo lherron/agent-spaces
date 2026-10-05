@@ -13,8 +13,8 @@ below. Those commands and their acceptance criteria remain design intent.
 
 ## Problem
 
-The toolkit can scaffold a *space* (`asp repo new-space`, `asp spaces init` — both
-registry-bound and legacy) but not an *agent*. Creating a new agent home today means
+The toolkit can scaffold a *space* (`asp repo new-space`, `asp spaces init`, both
+writing to the shared spaces root) but not an *agent*. Creating a new agent home today means
 hand-copying an existing one under `~/praesidium/var/agents/<id>/` and editing it until it
 works. The v2 agent-root contract is shipped and enforced (`validateAgentRoot` requires
 `SOUL.md`, parses `agent-profile.toml` schemaVersion 1/2, allows optional `HEARTBEAT.md`),

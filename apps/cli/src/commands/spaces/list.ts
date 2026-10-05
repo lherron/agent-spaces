@@ -1,5 +1,5 @@
 /**
- * Spaces list command - List spaces in the registry.
+ * Spaces list command - List spaces in the shared spaces root.
  *
  * WHY: Provides visibility into available spaces without
  * needing to navigate the filesystem.
@@ -12,37 +12,25 @@ import type { Command } from 'commander'
 import { readSpaceToml } from 'spaces-config'
 
 import { exitWithAspError, resolvePaths } from '../../helpers.js'
-import { loadAllDistTags, registryExists } from '../repo/registry-fs.js'
+import { spacesDirExists } from './scaffold.js'
 
 interface SpaceInfo {
   id: string
   version: string | undefined
   description: string | undefined
-  tags: Record<string, string>
   path: string
 }
 
 interface ListOutput {
-  repoPath: string
+  spacesRoot: string
   spaces: SpaceInfo[]
-}
-
-/**
- * Check if registry exists.
- */
-async function ensureRegistryExists(repoPath: string): Promise<boolean> {
-  return registryExists(repoPath)
 }
 
 /**
  * Get info for a single space.
  */
-async function getSpaceInfo(
-  repoPath: string,
-  spaceId: string,
-  distTags: Record<string, Record<string, string>>
-): Promise<SpaceInfo | null> {
-  const spacePath = `${repoPath}/spaces/${spaceId}`
+async function getSpaceInfo(root: string, spaceId: string): Promise<SpaceInfo | null> {
+  const spacePath = `${root}/spaces/${spaceId}`
   const spaceTomlPath = `${spacePath}/space.toml`
 
   try {
@@ -51,7 +39,6 @@ async function getSpaceInfo(
       id: manifest.id,
       version: manifest.version,
       description: manifest.description,
-      tags: distTags[spaceId] ?? {},
       path: spacePath,
     }
   } catch {
@@ -61,11 +48,10 @@ async function getSpaceInfo(
 }
 
 /**
- * List all spaces in registry.
+ * List all spaces in the shared spaces root.
  */
-async function listSpaces(repoPath: string): Promise<SpaceInfo[]> {
-  const distTags = await loadAllDistTags(repoPath)
-  const spacesDir = `${repoPath}/spaces`
+async function listSpaces(root: string): Promise<SpaceInfo[]> {
+  const spacesDir = `${root}/spaces`
 
   try {
     const entries = await readdir(spacesDir, { withFileTypes: true })
@@ -73,7 +59,7 @@ async function listSpaces(repoPath: string): Promise<SpaceInfo[]> {
 
     const spaces: SpaceInfo[] = []
     for (const dir of dirs) {
-      const info = await getSpaceInfo(repoPath, dir, distTags)
+      const info = await getSpaceInfo(root, dir)
       if (info) {
         spaces.push(info)
       }
@@ -107,16 +93,10 @@ function formatListText(output: ListOutput): void {
       console.log(`    ${chalk.gray(space.description)}`)
     }
 
-    const tagEntries = Object.entries(space.tags)
-    if (tagEntries.length > 0) {
-      const tagList = tagEntries.map(([tag, ver]) => `${tag}=${ver}`).join(', ')
-      console.log(`    Tags: ${chalk.yellow(tagList)}`)
-    }
-
     console.log('')
   }
 
-  console.log(chalk.gray(`Registry: ${output.repoPath}`))
+  console.log(chalk.gray(`Shared spaces root: ${output.spacesRoot}`))
 }
 
 /**
@@ -125,25 +105,23 @@ function formatListText(output: ListOutput): void {
 export function registerSpacesListCommand(parent: Command): void {
   parent
     .command('list')
-    .description('List spaces in the registry')
+    .description('List spaces in the shared spaces root')
     .option('--json', 'Output as JSON')
+    .option('--registry <path>', 'Shared spaces root override (default: agents root)')
     .option('--asp-home <path>', 'ASP_HOME override')
     .action(async (options) => {
       try {
-        const { paths } = resolvePaths(options)
+        const { registryPath } = resolvePaths(options)
 
-        const exists = await ensureRegistryExists(paths.repo)
-        if (!exists) {
-          console.error(chalk.red('Error: Registry not initialized'))
-          console.error(chalk.gray('Run "asp repo init" first to create the registry'))
+        if (!(await spacesDirExists(registryPath))) {
+          console.error(chalk.red(`Error: No shared spaces dir at ${registryPath}/spaces`))
+          console.error(chalk.gray('Run "asp repo init" to create it'))
           process.exit(1)
         }
 
-        const spaces = await listSpaces(paths.repo)
-
         const output: ListOutput = {
-          repoPath: paths.repo,
-          spaces,
+          spacesRoot: registryPath,
+          spaces: await listSpaces(registryPath),
         }
 
         if (options.json) {

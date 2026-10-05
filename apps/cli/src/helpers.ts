@@ -86,8 +86,7 @@ export function errorMessage(error: unknown): string {
 /**
  * Format a byte count as a human-readable string (e.g. "1.5 MB").
  *
- * Shared by the project-level (`asp gc`) and registry-level (`asp repo gc`)
- * garbage-collection commands, which previously carried byte-for-byte copies.
+ * Used by the `asp gc` garbage-collection report.
  */
 export function formatBytes(bytes: number): string {
   const units = ['B', 'KB', 'MB', 'GB', 'TB']

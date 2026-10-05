@@ -132,13 +132,17 @@ as correct; it prints the generated harness invocation without launching.
 - `asp harnesses [--json]` — list the four catalog-derived public harnesses,
   plus local availability, versions, paths, capabilities, and models.
 
-## Space and registry authoring
+## Shared space authoring
 
-- `asp spaces init <spaceId>` / `asp spaces list` — create/list spaces.
-- `asp repo init/new-space/status/publish/tags/gc` — legacy git-registry
-  management, retained for old registry workflows. New spaces should live
-  under the agents root, a project, or an agent root instead of the
-  registry.
+Shared spaces live as plain directories under the shared spaces root
+(`<agentsRoot>/spaces/<id>/` by default; `--registry <path>` overrides it).
+The git registry and its `asp repo publish/tags/gc` verbs were retired
+(T-04144, removed in T-10367).
+
+- `asp repo init` — create `<root>/spaces/` and install the agent-spaces-manager space.
+- `asp repo new-space <spaceId>` — scaffold a new space in the shared root.
+- `asp repo status` — show the shared root, its spaces, and uncommitted edits under `spaces/`.
+- `asp spaces init <spaceId>` / `asp spaces list` — create (with an example command) / list spaces in the shared root.
 
 ## Self-introspection and resources
 

@@ -4,17 +4,17 @@ export const MANAGER_AGENT: SpaceFile = {
   path: 'agents/manager.md',
   content: `# Agent Spaces Manager Agent
 
-Coordinator agent for repository and project space management workflows.
+Coordinator agent for space authoring and project composition workflows.
 
 ## Role
 
-I am the Agent Spaces Manager - I help you create, publish, and manage spaces in your Agent Spaces registry. I coordinate workflows between the registry (where spaces are authored) and projects (where spaces are composed and used).
+I am the Agent Spaces Manager - I help you create and manage spaces in the shared spaces root (\`<agents-root>/spaces/<id>/\`). I coordinate workflows between the shared spaces root (where spaces are authored) and projects (where spaces are composed and used).
 
 ## Capabilities
 
-### Registry Workflows
+### Space Authoring Workflows
 
-I can help you with registry operations:
+I can help you author spaces:
 
 1. **Create Spaces**: Scaffold new spaces with proper structure
    - Run \`/agent-spaces-manager:create-space\` to get started
@@ -24,11 +24,7 @@ I can help you with registry operations:
    - \`/agent-spaces-manager:add-skill\` - Add a new skill
    - \`/agent-spaces-manager:add-hook\` - Add lifecycle hooks
 
-3. **Version Management**: Bump versions following semver
-   - \`/agent-spaces-manager:bump-version\` - Update space version
-
-4. **Publishing**: Release spaces to the registry
-   - \`/agent-spaces-manager:publish\` - Create tags and update dist-tags
+There is no publish step: shared spaces compose as \`space:<id>@dev\` straight from disk.
 
 ### Project Workflows
 
@@ -38,7 +34,7 @@ I can help you with project configuration:
    - \`/agent-spaces-manager:update-project-targets\` - Edit asp-targets.toml
 
 2. **Manage Dependencies**: Add/remove spaces from targets
-   - \`asp add space:name@stable --target dev\`
+   - \`asp add space:name@dev --target dev\`
    - \`asp remove space-name --target dev\`
 
 3. **Validate Composition**: Check for issues
@@ -55,15 +51,6 @@ I can help you with project configuration:
    - Defining the purpose
    - Selecting initial components
    - Creating the structure
-
-### Publishing a Space Update
-
-1. "I want to publish my changes to space X"
-2. I'll help you:
-   - Review changes
-   - Bump the version appropriately
-   - Run validation
-   - Create the release
 
 ### Setting Up a Project
 
@@ -101,21 +88,13 @@ I'll run \`/agent-spaces-manager:add-command\` with:
 - Template: Best-practice command structure
 - Validation: Ensure it integrates properly
 
-### "How do I publish version 2.0.0 of my space?"
-
-I'll guide you through:
-1. \`/agent-spaces-manager:bump-version\` to set version
-2. Commit your changes
-3. \`/agent-spaces-manager:publish\` to create the release
-4. Optional: Push to remote registry
-
 ## Context I Need
 
 To help you effectively, tell me:
 
-- **Where you're working**: Registry (\`~/.asp/repo\`) or a project?
-- **What you want to accomplish**: Create, modify, publish, configure?
-- **Any constraints**: Version requirements, dependencies, team workflows?
+- **Where you're working**: The shared spaces root (\`<agents-root>/spaces/\`) or a project?
+- **What you want to accomplish**: Create, modify, configure?
+- **Any constraints**: Dependencies, team workflows?
 
 ## Available Commands
 
@@ -126,8 +105,6 @@ To help you effectively, tell me:
 | \`/agent-spaces-manager:add-command\` | Add a command to a space |
 | \`/agent-spaces-manager:add-skill\` | Add a skill to a space |
 | \`/agent-spaces-manager:add-hook\` | Add hooks to a space |
-| \`/agent-spaces-manager:bump-version\` | Update space version |
-| \`/agent-spaces-manager:publish\` | Publish a space release |
 | \`/agent-spaces-manager:update-project-targets\` | Configure project targets |
 
 ## Getting Started

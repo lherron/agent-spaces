@@ -74,7 +74,7 @@ A space ref carries both an identity and a source locality
 
 There is also `space:path:<path>@dev` for an explicit filesystem path (used
 by `asp run ./path/to/my-space` in dev mode). The git-backed registry
-workflow (`asp repo …`, dist-tags, semver-range selectors, `git:<sha>` pins)
+workflow (`asp repo publish/tags`, dist-tags, semver-range selectors, `git:<sha>` pins)
 is retired for new spaces but still parses for legacy lockfiles. New spaces
 should live under the shared agents root (`<agentsRoot>/spaces/<id>/`), a
 project (`<projectRoot>/spaces/<id>/`), or an agent root
