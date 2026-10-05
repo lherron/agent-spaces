@@ -1,0 +1,235 @@
+import { describe, expect, test } from 'bun:test'
+import {
+  CODEX_DRIVER_KIND,
+  createCodexNotificationMapper,
+} from '../../../src/drivers/codex-app-server/event-map'
+import { codexMapperPerTest, note } from './codex-notifications'
+
+const { map: mapCodexNotification } = codexMapperPerTest()
+
+describe('mapCodexNotification — plan, reasoning and diff cards', () => {
+  describe('turn/plan/updated (T-06325)', () => {
+    test('projects a plan diagnostic carrying structured steps for the renderer', () => {
+      const events = mapCodexNotification(
+        note('turn/plan/updated', {
+          explanation: null,
+          plan: [
+            { step: 'Add failing tests', status: 'inProgress' },
+            { step: 'Implement', status: 'pending' },
+          ],
+        })
+      )
+      expect(events).toHaveLength(1)
+      expect(events[0]?.type).toBe('diagnostic')
+      const payload = events[0]?.payload as Record<string, unknown>
+      expect(payload['kind']).toBe('plan')
+      expect(payload['data']).toEqual({
+        steps: [
+          { step: 'Add failing tests', status: 'inProgress' },
+          { step: 'Implement', status: 'pending' },
+        ],
+      })
+      expect(events[0]?.extra?.driver?.rawType).toBe('turn/plan/updated')
+    })
+
+    test('empty plan yields no event', () => {
+      expect(mapCodexNotification(note('turn/plan/updated', { plan: [] }))).toEqual([])
+    })
+  })
+
+  describe('reasoning summary capture (T-06380)', () => {
+    test('collapses streamed summary churn into one durable diagnostic at item completion', () => {
+      const map = createCodexNotificationMapper()
+      const beforeCompletion = [
+        note('item/started', {
+          turnId: 'turn_1',
+          item: { type: 'reasoning', id: 'reason_1', summary: [], content: [] },
+        }),
+        note('item/reasoning/summaryPartAdded', {
+          turnId: 'turn_1',
+          itemId: 'reason_1',
+          summaryIndex: 0,
+        }),
+        note('item/reasoning/summaryTextDelta', {
+          turnId: 'turn_1',
+          itemId: 'reason_1',
+          summaryIndex: 0,
+          delta: '**Planning the inspection**',
+        }),
+      ].flatMap(map)
+
+      expect(beforeCompletion).toEqual([])
+
+      const events = map(
+        note('item/completed', {
+          turnId: 'turn_1',
+          item: {
+            type: 'reasoning',
+            id: 'reason_1',
+            summary: ['**Planning the inspection**', 'Checking the package name'],
+            content: [],
+          },
+        })
+      )
+
+      expect(events).toHaveLength(1)
+      expect(events[0]).toMatchObject({
+        type: 'diagnostic',
+        payload: {
+          level: 'debug',
+          source: 'driver',
+          kind: 'reasoning',
+          message: 'Codex reasoning summary captured',
+          data: {
+            summary: '**Planning the inspection**\n\nChecking the package name',
+            truncated: false,
+          },
+        },
+        extra: {
+          turnId: 'turn_1',
+          itemId: 'reason_1',
+          driver: { kind: CODEX_DRIVER_KIND, rawType: 'item/completed' },
+        },
+      })
+    })
+
+    test('never persists raw reasoning text when no provider summary is present', () => {
+      const map = createCodexNotificationMapper()
+      expect(
+        map(
+          note('item/reasoning/textDelta', {
+            turnId: 'turn_1',
+            itemId: 'reason_1',
+            contentIndex: 0,
+            delta: 'raw chain of thought',
+          })
+        )
+      ).toEqual([])
+      expect(
+        map(
+          note('item/completed', {
+            turnId: 'turn_1',
+            item: {
+              type: 'reasoning',
+              id: 'reason_1',
+              summary: [],
+              content: ['raw chain of thought'],
+            },
+          })
+        )
+      ).toEqual([])
+    })
+
+    test('bounds a captured summary by both part count and character count', () => {
+      const map = createCodexNotificationMapper()
+      const events = map(
+        note('item/completed', {
+          turnId: 'turn_1',
+          item: {
+            type: 'reasoning',
+            id: 'reason_1',
+            summary: ['x'.repeat(5_000), ...Array.from({ length: 9 }, (_, i) => `part ${i}`)],
+          },
+        })
+      )
+      const payload = events[0]?.payload as {
+        data: { summary: string; truncated: boolean }
+      }
+      expect(payload.data.summary).toHaveLength(4_096)
+      expect(payload.data.truncated).toBe(true)
+    })
+  })
+
+  describe('turn/diff/updated (T-06325)', () => {
+    test('summarizes a unified diff into compact per-file add/remove counts', () => {
+      const diff = [
+        'diff --git a/src/a.ts b/src/a.ts',
+        'index 000..111 100644',
+        '--- a/src/a.ts',
+        '+++ b/src/a.ts',
+        '@@ -1,2 +1,3 @@',
+        ' context',
+        '-old line',
+        '+new line',
+        '+extra line',
+        'diff --git a/src/b.ts b/src/b.ts',
+        '--- a/src/b.ts',
+        '+++ b/src/b.ts',
+        '@@ -1 +1 @@',
+        '-removed',
+      ].join('\n')
+      const events = mapCodexNotification(note('turn/diff/updated', { diff }))
+      expect(events).toHaveLength(1)
+      const payload = events[0]?.payload as Record<string, unknown>
+      expect(payload['kind']).toBe('diff')
+      expect(payload['data']).toEqual({
+        files: [
+          { path: 'src/a.ts', added: 2, removed: 1 },
+          { path: 'src/b.ts', added: 0, removed: 1 },
+        ],
+        totalAdded: 2,
+        totalRemoved: 2,
+        truncated: 0,
+      })
+    })
+
+    test('empty diff yields no event', () => {
+      expect(mapCodexNotification(note('turn/diff/updated', { diff: '   ' }))).toEqual([])
+    })
+  })
+
+  describe('turn/diff/updated dedupe (T-06350)', () => {
+    // Codex re-emits the whole turn's CUMULATIVE diff on every rate-limit telemetry
+    // heartbeat, unchanged. Measured over real captures: 822/822 heartbeat-triggered
+    // fires carried a byte-identical diff, so the pane repainted the same card.
+    const diffFor = (added: string[]) =>
+      [
+        'diff --git a/src/a.ts b/src/a.ts',
+        '--- a/src/a.ts',
+        '+++ b/src/a.ts',
+        '@@ -0,0 +1 @@',
+        ...added.map((l) => `+${l}`),
+      ].join('\n')
+
+    const diffNote = (diff: string, turnId = 'turn_1') =>
+      note('turn/diff/updated', { threadId: 'thread_1', turnId, diff })
+    const heartbeat = () => note('account/rateLimits/updated', { rateLimits: { used: 1 } })
+    const diffEvents = (events: ReturnType<typeof mapCodexNotification>) =>
+      events.filter((e) => (e.payload as Record<string, unknown>)['kind'] === 'diff')
+
+    test('an unchanged cumulative diff re-sent on heartbeats renders once, not once per beat', () => {
+      const map = createCodexNotificationMapper()
+      const diff = diffFor(['one'])
+      const first = diffEvents(map(diffNote(diff)))
+      expect(first).toHaveLength(1)
+      // The real firing pattern: heartbeat, then the same diff again, over and over.
+      for (let i = 0; i < 5; i++) {
+        expect(map(heartbeat())).toEqual([])
+        expect(diffEvents(map(diffNote(diff)))).toEqual([])
+      }
+    })
+
+    test('a diff that actually changed still renders', () => {
+      const map = createCodexNotificationMapper()
+      expect(diffEvents(map(diffNote(diffFor(['one']))))).toHaveLength(1)
+      expect(diffEvents(map(diffNote(diffFor(['one']))))).toHaveLength(0)
+      // An edit lands: the cumulative diff grows, so the summary changes.
+      expect(diffEvents(map(diffNote(diffFor(['one', 'two']))))).toHaveLength(1)
+    })
+
+    test('a new turn re-renders its first diff even if identical to the previous turn', () => {
+      const map = createCodexNotificationMapper()
+      const diff = diffFor(['one'])
+      expect(diffEvents(map(diffNote(diff, 'turn_1')))).toHaveLength(1)
+      expect(diffEvents(map(diffNote(diff, 'turn_1')))).toHaveLength(0)
+      map(note('turn/started', { turnId: 'turn_1' }))
+      expect(diffEvents(map(diffNote(diff, 'turn_1')))).toHaveLength(1)
+    })
+
+    test('dedupe is per-invocation, so a fresh mapper never inherits another turn state', () => {
+      const diff = diffFor(['one'])
+      expect(diffEvents(createCodexNotificationMapper()(diffNote(diff)))).toHaveLength(1)
+      expect(diffEvents(createCodexNotificationMapper()(diffNote(diff)))).toHaveLength(1)
+    })
+  })
+})
