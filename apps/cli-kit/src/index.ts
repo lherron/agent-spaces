@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs'
 import type { Command } from 'commander'
 
+export { ensureBlockingStdio } from './blocking-stdio.js'
+
 export class CliUsageError extends Error {
   constructor(message: string) {
     super(message)

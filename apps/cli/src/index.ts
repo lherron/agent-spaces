@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { CliUsageError, exitWithError } from 'cli-kit'
+import { CliUsageError, ensureBlockingStdio, exitWithError } from 'cli-kit'
 import { Command, CommanderError } from 'commander'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -50,6 +50,8 @@ function createProgram(): Command {
  * Main entry point.
  */
 export async function main(): Promise<void> {
+  // Large output (e.g. `token-rent --json`) must survive a slow pipe reader.
+  ensureBlockingStdio()
   const program = createProgram()
 
   try {
