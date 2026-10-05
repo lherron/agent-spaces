@@ -30,7 +30,7 @@ describe('prepareMuseHome', () => {
       )
       expect(home.warnings.some((warning) => warning.includes('invalid-skill-package'))).toBe(true)
       expect(home.warnings.some((warning) => warning.includes('auth.json not found'))).toBe(true)
-      expect(museHomeEnv(home).HOME).toBe(home.home)
+      expect(museHomeEnv(home)['HOME']).toBe(home.home)
     } finally {
       await rm(base, { recursive: true, force: true })
     }
@@ -74,7 +74,7 @@ describe('prepareMuseHome', () => {
       })
       expect(home.home).toBe(operator)
       expect(home.configDir).toBe(join(stable, '.config', 'muse'))
-      expect(museHomeEnv(home).HOME).toBe(operator)
+      expect(museHomeEnv(home)['HOME']).toBe(operator)
     } finally {
       await rm(base, { recursive: true, force: true })
     }

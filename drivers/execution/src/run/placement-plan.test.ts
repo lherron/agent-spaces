@@ -102,7 +102,7 @@ describe('project-target runtime planner (T-01099)', () => {
   test('continues planning every retained project harness', async () => {
     const root = await createTempDir('proj-target-retained-harness-')
     const manifest: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       targets: { retained_target: { compose: [] } },
     }
 
@@ -120,7 +120,7 @@ describe('project-target runtime planner (T-01099)', () => {
   test('planProjectTargetRuntime resolves a project target into a runtime plan', async () => {
     const aspHome = await createTempDir('proj-target-plan-')
     const manifest = {
-      schema: 1 as const,
+      schema: 2 as const,
       targets: {
         my_target: {
           compose: ['space:defaults@stable' as SpaceRefString],

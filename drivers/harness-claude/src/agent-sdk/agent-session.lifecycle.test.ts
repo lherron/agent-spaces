@@ -140,7 +140,7 @@ describe('AgentSession lifecycle event stream characterization (T-04632)', () =>
       'turn_end',
       'agent_end',
     ])
-    expect(events.findLast((event) => event.type === 'agent_end')).toMatchObject({
+    expect(events.filter((event) => event.type === 'agent_end').at(-1)).toMatchObject({
       type: 'agent_end',
       reason: 'complete',
       sdkSessionId: 'sdk-lifecycle',

@@ -256,7 +256,7 @@ describe('ClaudeAdapter.getRunEnv', () => {
 describe('ClaudeAdapter.getDefaultRunOptions', () => {
   test('includes priming_prompt as default prompt', () => {
     const manifest: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       targets: {
         claude: {
           compose: ['space:claude-space@stable'],
@@ -270,7 +270,7 @@ describe('ClaudeAdapter.getDefaultRunOptions', () => {
 
   test('carries provisioning.claude.ask_user_question into run options', () => {
     const manifest: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       targets: {
         claude: {
           compose: ['space:claude-space@stable'],

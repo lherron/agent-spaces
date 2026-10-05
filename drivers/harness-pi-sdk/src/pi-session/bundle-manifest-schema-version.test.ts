@@ -50,7 +50,7 @@ describe('Pi SDK bundle schemaVersion loader characterization (T-04641)', () => 
 
       expect(bundle.harnessId).toBe('pi-sdk')
       expect(bundle.targetName).toBe('target-under-test')
-      expect(bundle.piSdk.bundleManifestPath).toBe(join(tmpDir, 'bundle.json'))
+      expect(bundle.piSdk?.bundleManifestPath).toBe(join(tmpDir, 'bundle.json'))
     })
 
     test('accepts the current schemaVersion when the harness matches', async () => {

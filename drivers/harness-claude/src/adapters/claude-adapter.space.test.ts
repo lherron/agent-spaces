@@ -7,18 +7,31 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { chmod, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { MaterializeSpaceInput, ResolvedSpaceManifest, SpaceKey } from 'spaces-config'
+import {
+  type MaterializeSpaceInput,
+  type ResolvedSpaceManifest,
+  type SpaceId,
+  type SpaceKey,
+  type SpaceManifest,
+  asSpaceId,
+  resolveSpaceManifest,
+} from 'spaces-config'
 import { ClaudeAdapter } from './claude-adapter.js'
 
 const adapter = new ClaudeAdapter()
 
 function createMaterializeInput(
   snapshotPath: string,
-  manifestOverrides: Partial<ResolvedSpaceManifest> = {}
+  manifestOverrides: Partial<SpaceManifest> = {}
 ): MaterializeSpaceInput {
   return {
     spaceKey: 'test-space@abc123' as SpaceKey,
-    manifest: { id: 'test-space', name: 'Test Space', version: '1.0.0', ...manifestOverrides },
+    manifest: resolveSpaceManifest({
+      schema: 1,
+      id: asSpaceId('test-space'),
+      version: '1.0.0',
+      ...manifestOverrides,
+    }),
     snapshotPath,
     integrity: 'sha256-test',
   }
@@ -27,7 +40,7 @@ function createMaterializeInput(
 describe('ClaudeAdapter.validateSpace', () => {
   test('validates space with valid id', () => {
     const result = adapter.validateSpace(
-      createMaterializeInput('/test/snapshot', { id: 'valid-space' })
+      createMaterializeInput('/test/snapshot', { id: asSpaceId('valid-space') })
     )
 
     expect(result.valid).toBe(true)
@@ -36,7 +49,10 @@ describe('ClaudeAdapter.validateSpace', () => {
 
   test('validates space with plugin name', () => {
     const result = adapter.validateSpace(
-      createMaterializeInput('/test/snapshot', { id: 'test', plugin: { name: 'my-plugin' } })
+      createMaterializeInput('/test/snapshot', {
+        id: asSpaceId('test'),
+        plugin: { name: 'my-plugin' },
+      })
     )
 
     expect(result.valid).toBe(true)
@@ -44,17 +60,25 @@ describe('ClaudeAdapter.validateSpace', () => {
   })
 
   test('rejects space without id or plugin name', () => {
-    const result = adapter.validateSpace(
-      createMaterializeInput('/test/snapshot', { id: undefined, plugin: undefined })
-    )
+    // deliberately invalid: a manifest with neither id nor plugin.name exercises the rejection path
+    const manifestWithoutIdentity = {
+      schema: 1,
+      version: '1.0.0',
+    } as unknown as ResolvedSpaceManifest
+    const result = adapter.validateSpace({
+      ...createMaterializeInput('/test/snapshot'),
+      manifest: manifestWithoutIdentity,
+    })
 
     expect(result.valid).toBe(false)
     expect(result.errors).toContain('Space must have an id or plugin.name')
   })
 
   test('warns about non-kebab-case plugin names', () => {
+    // deliberately not kebab-case: exercises the non-kebab-case warning path
+    const nonKebabId = 'InvalidCaseName' as SpaceId
     const result = adapter.validateSpace(
-      createMaterializeInput('/test/snapshot', { id: 'InvalidCaseName' })
+      createMaterializeInput('/test/snapshot', { id: nonKebabId })
     )
 
     // Still valid, but with warning
@@ -64,7 +88,7 @@ describe('ClaudeAdapter.validateSpace', () => {
 
   test('accepts kebab-case plugin names without warning', () => {
     const result = adapter.validateSpace(
-      createMaterializeInput('/test/snapshot', { id: 'my-valid-plugin' })
+      createMaterializeInput('/test/snapshot', { id: asSpaceId('my-valid-plugin') })
     )
 
     expect(result.valid).toBe(true)
@@ -91,7 +115,7 @@ describe('ClaudeAdapter.materializeSpace', () => {
   })
 
   function materialize(
-    manifestOverrides: Partial<ResolvedSpaceManifest> = {},
+    manifestOverrides: Partial<SpaceManifest> = {},
     options: { force?: boolean } = {}
   ) {
     return adapter.materializeSpace(
@@ -102,7 +126,7 @@ describe('ClaudeAdapter.materializeSpace', () => {
   }
 
   test('creates plugin.json file', async () => {
-    const result = await materialize({ id: 'test-plugin' })
+    const result = await materialize({ id: asSpaceId('test-plugin') })
 
     expect(result.files).toContain('.claude-plugin/plugin.json')
     const pluginJson = await Bun.file(join(cacheDir, '.claude-plugin/plugin.json')).json()

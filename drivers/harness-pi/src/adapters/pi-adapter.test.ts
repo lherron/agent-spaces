@@ -11,7 +11,14 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { chmod, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { MaterializeSpaceInput, ResolvedSpaceManifest, SpaceKey } from 'spaces-config'
+import {
+  type MaterializeSpaceInput,
+  type ProjectManifest,
+  type ResolvedSpaceManifest,
+  type SpaceId,
+  type SpaceKey,
+  asSpaceId,
+} from 'spaces-config'
 import {
   type HookDefinition,
   PiAdapter,
@@ -28,10 +35,12 @@ import {
  * Create a minimal space manifest for testing
  */
 function createTestManifest(overrides: Partial<ResolvedSpaceManifest> = {}): ResolvedSpaceManifest {
+  const id = overrides.id ?? asSpaceId('test-space')
   return {
-    id: 'test-space',
-    name: 'Test Space',
+    schema: 1,
+    id,
     version: '1.0.0',
+    plugin: { name: id },
     ...overrides,
   }
 }
@@ -221,7 +230,7 @@ exit 0
 
   describe('validateSpace', () => {
     test('validates any space as valid', () => {
-      const input = createMaterializeInput('/test/snapshot', { id: 'valid-space' })
+      const input = createMaterializeInput('/test/snapshot', { id: asSpaceId('valid-space') })
 
       const result = adapter.validateSpace(input)
 
@@ -230,7 +239,7 @@ exit 0
     })
 
     test('accepts space without extensions', () => {
-      const input = createMaterializeInput('/test/snapshot', { id: 'no-extensions' })
+      const input = createMaterializeInput('/test/snapshot', { id: asSpaceId('no-extensions') })
 
       const result = adapter.validateSpace(input)
 
@@ -239,7 +248,9 @@ exit 0
     })
 
     test('accepts space with any id format', () => {
-      const input = createMaterializeInput('/test/snapshot', { id: 'MySpaceId_123' })
+      // deliberately not kebab-case: asserts the Pi adapter does not validate id format
+      const nonKebabId = 'MySpaceId_123' as SpaceId
+      const input = createMaterializeInput('/test/snapshot', { id: nonKebabId })
 
       const result = adapter.validateSpace(input)
 
@@ -286,7 +297,7 @@ export function hello() {
 `
       )
 
-      const input = createMaterializeInput(snapshotDir, { id: 'my-space' })
+      const input = createMaterializeInput(snapshotDir, { id: asSpaceId('my-space') })
 
       const result = await adapter.materializeSpace(input, cacheDir, {})
 
@@ -304,7 +315,7 @@ export function util() { return 42; }
 `
       )
 
-      const input = createMaterializeInput(snapshotDir, { id: 'utils' })
+      const input = createMaterializeInput(snapshotDir, { id: asSpaceId('utils') })
 
       const result = await adapter.materializeSpace(input, cacheDir, {})
 
@@ -373,7 +384,7 @@ export function util() { return 42; }
       expect(args).toContain(bundle.pi!.hrcEventsBridgePath!)
       expect(args).toContain('--no-skills')
       expect(argValue(args, '--skill')).toBe(join(outputDir, 'skills'))
-      expect(adapter.getRunEnv(bundle, {}).PI_CODING_AGENT_DIR).toBe(outputDir)
+      expect(adapter.getRunEnv(bundle, {})['PI_CODING_AGENT_DIR']).toBe(outputDir)
     })
 
     test('copies skills directory', async () => {
@@ -454,21 +465,19 @@ export function tool() { return 'built with options'; }
       )
 
       // Manifest with pi build options
-      const manifestWithPi = {
-        id: 'config-space',
-        name: 'Config Space',
-        version: '1.0.0',
+      const manifestWithPi = createTestManifest({
+        id: asSpaceId('config-space'),
         pi: {
           build: {
-            format: 'cjs' as const,
-            target: 'node' as const,
+            format: 'cjs',
+            target: 'node',
           },
         },
-      }
+      })
 
       const input: MaterializeSpaceInput = {
         spaceKey: createSpaceKey('config-space'),
-        manifest: manifestWithPi as ResolvedSpaceManifest,
+        manifest: manifestWithPi,
         snapshotPath: snapshotDir,
         integrity: 'sha256-test',
       }
@@ -2008,9 +2017,7 @@ describe('getRunEnv', () => {
 describe('getDefaultRunOptions', () => {
   test('returns an empty options object (Pi opts out of defaults)', () => {
     const adapter = new PiAdapter()
-    const manifest = createTestManifest({ id: 'any-space' }) as unknown as Parameters<
-      PiAdapter['getDefaultRunOptions']
-    >[0]
+    const manifest: ProjectManifest = { schema: 2, targets: { 'some-target': { compose: [] } } }
 
     const options = adapter.getDefaultRunOptions(manifest, 'some-target')
 

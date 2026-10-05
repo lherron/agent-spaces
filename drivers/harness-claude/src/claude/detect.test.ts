@@ -19,14 +19,14 @@ import {
 } from './detect.js'
 import { buildClaudeArgs } from './invoke.js'
 
-const originalPath = process.env.PATH
+const originalPath = process.env['PATH']
 const originalSkipCommonPaths = process.env[CLAUDE_SKIP_COMMON_PATHS_ENV]
 const originalClaudePath = process.env[CLAUDE_PATH_ENV]
 
 // Clear cache after each test to ensure isolation
 afterEach(() => {
   clearClaudeCache()
-  process.env.PATH = originalPath
+  process.env['PATH'] = originalPath
   if (originalSkipCommonPaths === undefined) {
     process.env[CLAUDE_SKIP_COMMON_PATHS_ENV] = undefined
   } else {
@@ -49,7 +49,7 @@ describe('findClaudeBinary', () => {
 
     try {
       process.env[CLAUDE_SKIP_COMMON_PATHS_ENV] = '1'
-      process.env.PATH = tempDir
+      process.env['PATH'] = tempDir
 
       expect(await findClaudeBinary()).toBe(shim)
     } finally {
@@ -59,7 +59,7 @@ describe('findClaudeBinary', () => {
 
   it('keeps common install paths ahead of PATH candidates', () => {
     process.env[CLAUDE_SKIP_COMMON_PATHS_ENV] = undefined
-    process.env.PATH = '/path-first:/path-second'
+    process.env['PATH'] = '/path-first:/path-second'
 
     const candidates = claudeCommandCandidates()
 

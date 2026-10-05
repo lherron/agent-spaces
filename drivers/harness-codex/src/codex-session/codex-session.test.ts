@@ -329,6 +329,7 @@ describe('CodexSession', () => {
 
     const approvalRaw = await readFile(approvalLog, 'utf-8')
     const approvalLine = approvalRaw.trim().split('\n')[0]
+    if (approvalLine === undefined) throw new Error('expected an approval log line')
     const approval = JSON.parse(approvalLine) as { decision?: string }
     expect(approval.decision).toBe('acceptForSession')
   })

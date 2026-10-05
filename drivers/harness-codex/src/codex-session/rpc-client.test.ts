@@ -105,7 +105,7 @@ describe('CodexRpcClient request/response framing', () => {
       params: { cwd: '/tmp' },
     })
 
-    proc.emitMessage({ jsonrpc: '2.0', id: sent.id as number, result: { ok: true } })
+    proc.emitMessage({ jsonrpc: '2.0', id: sent['id'] as number, result: { ok: true } })
     await expect(pending).resolves.toEqual({ ok: true })
   })
 
@@ -382,10 +382,14 @@ describe('CodexRpcClient — tracked bugs (todo, do not fix here)', () => {
   // wrkq T-10129 attachment BUGS.md (ATT-00153) harness-codex A2: close() leaks the readline interface + the
   // proc 'error'/'exit' listeners. A passing assertion requires detaching
   // listeners in close(), which is the fix — left as todo.
-  it.todo('close() detaches readline + proc listeners (ATT-00153 harness-codex A2)')
+  it.todo('close() detaches readline + proc listeners (ATT-00153 harness-codex A2)', () => {
+    throw new Error('not yet asserted: requires close() to detach listeners (the fix)')
+  })
 
   // wrkq T-10129 attachment BUGS.md (ATT-00153) harness-codex A1: child stderr is never drained, so a large
   // stderr write can deadlock the pipe. Drain wiring lives in codex-session,
   // not rpc-client; documented here for the riskiest-surface inventory.
-  it.todo('drains child stderr to avoid pipe-buffer deadlock (ATT-00153 harness-codex A1)')
+  it.todo('drains child stderr to avoid pipe-buffer deadlock (ATT-00153 harness-codex A1)', () => {
+    throw new Error('not yet asserted: stderr drain wiring lives in codex-session')
+  })
 })

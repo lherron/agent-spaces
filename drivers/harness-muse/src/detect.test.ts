@@ -8,15 +8,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { MUSE_PATH_ENV, detectMuse, museCommandCandidates } from './detect.js'
 
-const originalPath = process.env.PATH
-const originalSkipCommonPaths = process.env.ASP_MUSE_SKIP_COMMON_PATHS
+const originalPath = process.env['PATH']
+const originalSkipCommonPaths = process.env['ASP_MUSE_SKIP_COMMON_PATHS']
 
 afterEach(() => {
-  process.env.PATH = originalPath
+  process.env['PATH'] = originalPath
   if (originalSkipCommonPaths === undefined) {
-    process.env.ASP_MUSE_SKIP_COMMON_PATHS = undefined
+    process.env['ASP_MUSE_SKIP_COMMON_PATHS'] = undefined
   } else {
-    process.env.ASP_MUSE_SKIP_COMMON_PATHS = originalSkipCommonPaths
+    process.env['ASP_MUSE_SKIP_COMMON_PATHS'] = originalSkipCommonPaths
   }
 })
 
@@ -124,8 +124,8 @@ describe('detectMuse', () => {
   }
 
   function useOnlyShim(dir: string): void {
-    process.env.PATH = dir
-    process.env.ASP_MUSE_SKIP_COMMON_PATHS = '1'
+    process.env['PATH'] = dir
+    process.env['ASP_MUSE_SKIP_COMMON_PATHS'] = '1'
   }
 
   test('reuses a successful detection while the binary is unchanged', () =>

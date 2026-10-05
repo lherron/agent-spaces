@@ -62,9 +62,11 @@ describe('MuseAdapter', () => {
         { clean: true }
       )
       expect(bundle.harnessId).toBe('muse')
-      expect(bundle.muse?.workspaceDir.endsWith('muse.workspace')).toBe(true)
-      expect(bundle.pluginDirs).toEqual([bundle.muse?.workspaceDir])
-      const agents = await readFile(bundle.muse?.agentsPath ?? '', 'utf-8')
+      const muse = bundle.muse
+      if (!muse) throw new Error('expected composeTarget to produce a muse bundle section')
+      expect(muse.workspaceDir.endsWith('muse.workspace')).toBe(true)
+      expect(bundle.pluginDirs).toEqual([muse.workspaceDir])
+      const agents = await readFile(muse.agentsPath, 'utf-8')
       expect(agents).toContain('# Test space')
 
       const loaded = await adapter.loadTargetBundle(join(root, 'bundle'), 'dev')

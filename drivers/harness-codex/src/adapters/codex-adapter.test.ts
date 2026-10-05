@@ -20,11 +20,13 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import TOML from '@iarna/toml'
-import type {
-  MaterializeSpaceInput,
-  ProjectManifest,
-  ResolvedSpaceManifest,
-  SpaceKey,
+import {
+  type ComposeTargetInput,
+  type MaterializeSpaceInput,
+  type ProjectManifest,
+  type ResolvedSpaceManifest,
+  type SpaceKey,
+  asSpaceId,
 } from 'spaces-config'
 import {
   CODEX_INTERACTIVE_HOOK_EVENTS,
@@ -36,10 +38,12 @@ import {
 import { codexCommandCandidates } from './codex-discovery.js'
 
 function createTestManifest(overrides: Partial<ResolvedSpaceManifest> = {}): ResolvedSpaceManifest {
+  const id = overrides.id ?? asSpaceId('test-space')
   return {
-    id: 'test-space',
-    name: 'Test Space',
+    schema: 1,
+    id,
     version: '1.0.0',
+    plugin: { name: id },
     ...overrides,
   }
 }
@@ -91,9 +95,9 @@ describe('CodexAdapter', () => {
   })
 
   describe('detect', () => {
-    const originalPath = process.env.PATH
-    const originalAspCodexPath = process.env.ASP_CODEX_PATH
-    const originalSkipCommonPaths = process.env.ASP_CODEX_SKIP_COMMON_PATHS
+    const originalPath = process.env['PATH']
+    const originalAspCodexPath = process.env['ASP_CODEX_PATH']
+    const originalSkipCommonPaths = process.env['ASP_CODEX_SKIP_COMMON_PATHS']
     let tmpDir: string
 
     async function writeCodexShim(dir: string, version: string): Promise<string> {
@@ -119,21 +123,21 @@ exit 1
 
     beforeEach(async () => {
       tmpDir = join(tmpdir(), `codex-adapter-detect-${Date.now()}`)
-      process.env.ASP_CODEX_PATH = undefined
-      process.env.ASP_CODEX_SKIP_COMMON_PATHS = '1'
+      process.env['ASP_CODEX_PATH'] = undefined
+      process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
     })
 
     afterEach(async () => {
-      process.env.PATH = originalPath
+      process.env['PATH'] = originalPath
       if (originalAspCodexPath === undefined) {
-        process.env.ASP_CODEX_PATH = undefined
+        process.env['ASP_CODEX_PATH'] = undefined
       } else {
-        process.env.ASP_CODEX_PATH = originalAspCodexPath
+        process.env['ASP_CODEX_PATH'] = originalAspCodexPath
       }
       if (originalSkipCommonPaths === undefined) {
-        process.env.ASP_CODEX_SKIP_COMMON_PATHS = undefined
+        process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = undefined
       } else {
-        process.env.ASP_CODEX_SKIP_COMMON_PATHS = originalSkipCommonPaths
+        process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = originalSkipCommonPaths
       }
       await rm(tmpDir, { recursive: true, force: true })
     })
@@ -143,7 +147,7 @@ exit 1
       const newBin = join(tmpDir, 'new-bin')
       await writeCodexShim(oldBin, '0.92.0')
       const newShim = await writeCodexShim(newBin, '0.124.0')
-      process.env.PATH = `${oldBin}:${newBin}`
+      process.env['PATH'] = `${oldBin}:${newBin}`
 
       const detection = await adapter.detect()
 
@@ -155,7 +159,7 @@ exit 1
     test('reports the stale codex version when no candidate is new enough', async () => {
       const oldBin = join(tmpDir, 'old-bin')
       await writeCodexShim(oldBin, '0.92.0')
-      process.env.PATH = oldBin
+      process.env['PATH'] = oldBin
 
       const detection = await adapter.detect()
 
@@ -168,8 +172,8 @@ exit 1
       const overrideBin = join(tmpDir, 'override-bin')
       await writeCodexShim(oldBin, '0.92.0')
       const overrideShim = await writeCodexShim(overrideBin, '0.124.0')
-      process.env.PATH = oldBin
-      process.env.ASP_CODEX_PATH = overrideShim
+      process.env['PATH'] = oldBin
+      process.env['ASP_CODEX_PATH'] = overrideShim
 
       const detection = await adapter.detect()
 
@@ -209,7 +213,7 @@ exit 1
     test('reuses a successful detection while the binary is unchanged', async () => {
       const bin = join(tmpDir, 'cached-bin')
       await writeCountingShim(bin, '0.124.0')
-      process.env.PATH = bin
+      process.env['PATH'] = bin
 
       const first = await adapter.detect()
       const probesAfterFirst = await probeCount(bin)
@@ -224,7 +228,7 @@ exit 1
     test('re-probes after the binary is replaced', async () => {
       const bin = join(tmpDir, 'replaced-bin')
       const shim = await writeCountingShim(bin, '0.124.0')
-      process.env.PATH = bin
+      process.env['PATH'] = bin
 
       await adapter.detect()
       await writeCountingShim(bin, '0.125.0')
@@ -238,7 +242,7 @@ exit 1
     test('does not cache a failed probe', async () => {
       const bin = join(tmpDir, 'failing-bin')
       await writeCountingShim(bin, '0.124.0', 1)
-      process.env.PATH = bin
+      process.env['PATH'] = bin
 
       expect((await adapter.detect()).available).toBe(false)
       expect((await adapter.detect()).available).toBe(false)
@@ -246,8 +250,8 @@ exit 1
     })
 
     test('keeps common install paths ahead of PATH candidates', () => {
-      process.env.ASP_CODEX_SKIP_COMMON_PATHS = undefined
-      process.env.PATH = join(tmpDir, 'path-bin')
+      process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = undefined
+      process.env['PATH'] = join(tmpDir, 'path-bin')
 
       const candidates = codexCommandCandidates()
       const fixedCandidate = '/opt/homebrew/bin/codex'
@@ -261,8 +265,8 @@ exit 1
     test('prefers the user-local codex over version-manager copies', async () => {
       const home = join(tmpDir, 'home')
       await mkdir(join(home, '.nvm', 'versions', 'node', 'v22.20.0'), { recursive: true })
-      process.env.ASP_CODEX_SKIP_COMMON_PATHS = undefined
-      process.env.PATH = ''
+      process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = undefined
+      process.env['PATH'] = ''
 
       const candidates = codexCommandCandidates(home)
       const localCandidate = join(home, '.local', 'bin', 'codex')
@@ -460,7 +464,7 @@ exit 1
     })
 
     test('composes codex.home with overrides and merged content', async () => {
-      const input = {
+      const input: ComposeTargetInput = {
         targetName: 'test-target',
         compose: [],
         roots: [],
@@ -719,7 +723,7 @@ exit 1
   describe('getDefaultRunOptions', () => {
     test('includes priming_prompt as default prompt', () => {
       const manifest: ProjectManifest = {
-        schema: 1,
+        schema: 2,
         targets: {
           codex: {
             compose: ['space:codex-space@stable'],
@@ -734,7 +738,7 @@ exit 1
 
     test('prefers target codex model_reasoning_effort over top-level defaults', () => {
       const manifest: ProjectManifest = {
-        schema: 1,
+        schema: 2,
         codex: {
           model_reasoning_effort: 'low',
         },

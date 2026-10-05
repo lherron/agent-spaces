@@ -539,12 +539,19 @@ describe('spawnClaude', () => {
 
     const { proc } = await spawnClaude()
 
+    // spawnClaude pipes stdio unless inheritStdio is set; narrow the generic Subprocess streams
+    const { stdin, stdout: stdoutStream } = proc
+    if (!stdin || typeof stdin === 'number') throw new Error('expected piped stdin FileSink')
+    if (!stdoutStream || typeof stdoutStream === 'number') {
+      throw new Error('expected piped stdout stream')
+    }
+
     // Write to stdin using Bun's FileSink interface
-    proc.stdin.write('test input\n')
-    proc.stdin.end()
+    stdin.write('test input\n')
+    stdin.end()
 
     // Read stdout
-    const stdout = await new Response(proc.stdout).text()
+    const stdout = await new Response(stdoutStream).text()
     expect(stdout).toContain('received: test input')
 
     await proc.exited

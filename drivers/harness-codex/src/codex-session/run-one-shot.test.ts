@@ -104,10 +104,12 @@ describe('runCodexAppServerOneShot item notifications', () => {
       proc: spawnAppServer(script),
       cwd: process.cwd(),
       prompt: 'reply',
-      onEvent: (event) => events.push(event as Record<string, unknown>),
+      onEvent: (event) => {
+        events.push(event as Record<string, unknown>)
+      },
     })
 
-    expect(events.map((event) => event.type)).toEqual([
+    expect(events.map((event) => event['type'])).toEqual([
       'agent_start',
       'codex.user_prompt',
       'message_start',
