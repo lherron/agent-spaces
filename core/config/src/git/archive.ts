@@ -7,8 +7,10 @@
  */
 
 import { spawn } from 'node:child_process'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { gitExec } from './exec.js'
 
 /**
  * Options for archive extraction.
@@ -49,70 +51,55 @@ export async function extractTree(
   // Ensure destination directory exists
   await mkdir(destPath, { recursive: true })
 
-  // Build archive command
-  // git archive outputs a tar stream which we pipe to tar for extraction
-  const archiveArgs = ['archive', '--format=tar', commitish]
+  // git writes the archive to a file and tar reads that file; no stream links
+  // the two processes. Piping git's stdout into tar's stdin through Bun's
+  // node:child_process streams could leave git's stdout without an 'end' after
+  // both processes exited (so extraction never settled) and could drop data
+  // (T-10366).
+  const workDir = await mkdtemp(join(tmpdir(), 'asp-archive-'))
+  const archivePath = join(workDir, 'tree.tar')
 
-  // If srcPath is specified, only archive that subtree
-  if (srcPath) {
-    archiveArgs.push(srcPath)
+  try {
+    const archiveArgs = ['archive', '--format=tar', `--output=${archivePath}`, commitish]
+
+    // If srcPath is specified, only archive that subtree
+    if (srcPath) {
+      archiveArgs.push(srcPath)
+    }
+
+    const archive = await gitExec(archiveArgs, { cwd, ignoreExitCode: true })
+    if (archive.exitCode !== 0) {
+      throw new Error(`Git archive failed (exit ${archive.exitCode}): ${archive.stderr.trim()}`)
+    }
+
+    // Determine strip-components based on srcPath depth
+    const stripComponents = srcPath ? srcPath.split('/').filter(Boolean).length : 0
+
+    const tarArgs = ['-x', '-f', archivePath, '-C', destPath]
+    if (stripComponents > 0) {
+      tarArgs.push(`--strip-components=${stripComponents}`)
+    }
+
+    const tar = await runTar(tarArgs)
+    if (tar.exitCode !== 0) {
+      throw new Error(`Tar extraction failed (exit ${tar.exitCode}): ${tar.stderr.trim()}`)
+    }
+  } finally {
+    await rm(workDir, { recursive: true, force: true })
   }
+}
 
-  // Create archive and extract in one pipeline
-  // Use spawn directly for pipeline support
-  const archiveSpawnOpts: {
-    cwd?: string
-    stdio: ['ignore', 'pipe', 'pipe']
-  } = {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }
-  if (cwd !== undefined) {
-    archiveSpawnOpts.cwd = cwd
-  }
-  const archiveProc = spawn('git', archiveArgs, archiveSpawnOpts)
-
-  // Determine strip-components based on srcPath depth
-  const stripComponents = srcPath ? srcPath.split('/').filter(Boolean).length : 0
-
-  const tarArgs = ['-x', '-C', destPath]
-  if (stripComponents > 0) {
-    tarArgs.push(`--strip-components=${stripComponents}`)
-  }
-
-  const tarProc = spawn('tar', tarArgs, {
-    stdio: ['pipe', 'pipe', 'pipe'],
+async function runTar(args: string[]): Promise<{ exitCode: number; stderr: string }> {
+  const proc = spawn('tar', args, { stdio: ['ignore', 'ignore', 'pipe'] })
+  let stderr = ''
+  proc.stderr?.on('data', (data) => {
+    stderr += data.toString()
   })
-
-  if (archiveProc.stdout && tarProc.stdin) {
-    archiveProc.stdout.pipe(tarProc.stdin)
-  }
-
-  let archiveStderr = ''
-  let tarStderr = ''
-  archiveProc.stderr?.on('data', (data) => {
-    archiveStderr += data.toString()
+  const exitCode = await new Promise<number>((resolve, reject) => {
+    proc.on('error', reject)
+    proc.on('close', (code) => resolve(typeof code === 'number' ? code : -1))
   })
-  tarProc.stderr?.on('data', (data) => {
-    tarStderr += data.toString()
-  })
-
-  // Wait for both processes
-  const [archiveExitCode, tarExitCode] = await Promise.all([
-    new Promise<number>((resolve) => {
-      archiveProc.on('close', (code) => resolve(typeof code === 'number' ? code : -1))
-    }),
-    new Promise<number>((resolve) => {
-      tarProc.on('close', (code) => resolve(typeof code === 'number' ? code : -1))
-    }),
-  ])
-
-  if (archiveExitCode !== 0) {
-    throw new Error(`Git archive failed (exit ${archiveExitCode}): ${archiveStderr.trim()}`)
-  }
-
-  if (tarExitCode !== 0) {
-    throw new Error(`Tar extraction failed (exit ${tarExitCode}): ${tarStderr.trim()}`)
-  }
+  return { exitCode, stderr }
 }
 
 /**

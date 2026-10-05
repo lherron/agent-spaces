@@ -106,7 +106,8 @@ export function selectAffectedPackageNames(
         path === 'scripts/lib/workspace-graph.ts' ||
         path === 'scripts/lib/hook-optimization.ts' ||
         path === 'scripts/lib/test-git-guard.ts' ||
-        path === 'scripts/run-tests-no-git-clone.ts'
+        path === 'scripts/run-tests-no-git-clone.ts' ||
+        path === 'scripts/test-packages.ts'
       ) {
         return fullSelection()
       }
