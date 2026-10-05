@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'bun:test'
+import { materialPackageFingerprint } from './lib/asp-publish/fingerprint'
+import { timestampVersion } from './lib/asp-publish/options'
+import { RELEASE_PUBLISH_PACKAGES } from './lib/asp-publish/package-set'
+import { PRAESIDIUM_BUILD_FIELDS, createPraesidiumBuild } from './lib/asp-publish/provenance'
 import {
-  PRAESIDIUM_BUILD_FIELDS,
-  RELEASE_PUBLISH_PACKAGES,
-  assertNoCanonicalVersionReplacement,
-  createPraesidiumBuild,
-  timestampVersion,
-} from './publish-local-verdaccio'
+  type PublishDecisionInput,
+  resolvePublishPlanForActiveTag,
+} from './lib/asp-publish/publish-plan'
+import { assertNoCanonicalVersionReplacement } from './publish-local-verdaccio'
 
 test('publishes the installable public CLI after its workspace package set', () => {
   expect(RELEASE_PUBLISH_PACKAGES.at(-1)).toBe('apps/cli')
@@ -77,43 +79,12 @@ type PackageManifestSnapshot = {
   optionalDependencies?: Record<string, string>
 }
 
-type FingerprintInput = {
-  manifest: PackageManifestSnapshot
-  files: Record<string, string>
-  internalPackageNames: string[]
-}
+type FingerprintInput = Parameters<typeof materialPackageFingerprint>[0]
 
 type FingerprintInputOverrides = {
   manifest?: Partial<PackageManifestSnapshot>
   files?: Record<string, string>
   internalPackageNames?: string[]
-}
-
-type PublishDecisionInput = {
-  tag: string
-  normalTimestampedDevPublish: boolean
-  packages: Array<{
-    name: string
-    localVersion: string
-    localFingerprint: string
-    activeTagVersion?: string
-    registryVersions: Record<string, { fingerprint: string }>
-  }>
-}
-
-async function loadPublishPlanningApi() {
-  const mod = (await import('./publish-local-verdaccio')) as Record<string, unknown>
-  expect(mod.materialPackageFingerprint).toBeFunction()
-  expect(mod.resolvePublishPlanForActiveTag).toBeFunction()
-
-  return mod as {
-    materialPackageFingerprint(input: FingerprintInput): string
-    resolvePublishPlanForActiveTag(input: PublishDecisionInput): {
-      action: 'skip' | 'publish'
-      publishPackageNames: string[]
-      reason: string
-    }
-  }
 }
 
 function packageSnapshot(overrides: FingerprintInputOverrides = {}): FingerprintInput {
@@ -146,7 +117,6 @@ function packageSnapshot(overrides: FingerprintInputOverrides = {}): Fingerprint
 
 describe('publish-local-verdaccio material publish planning', () => {
   test('material package fingerprints ignore generated versions and internal ASP pins only', async () => {
-    const { materialPackageFingerprint } = await loadPublishPlanningApi()
     const baseline = materialPackageFingerprint(packageSnapshot())
 
     // Generated publish-wave data must not force a new Verdaccio wave by itself.
@@ -189,7 +159,6 @@ describe('publish-local-verdaccio material publish planning', () => {
   })
 
   test('active tag must be a coherent full matching set before skipping a publish wave', async () => {
-    const { resolvePublishPlanForActiveTag } = await loadPublishPlanningApi()
     const coherentPackages: PublishDecisionInput['packages'] = [
       {
         name: 'agent-scope',

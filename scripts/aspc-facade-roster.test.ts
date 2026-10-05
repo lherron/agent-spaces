@@ -55,7 +55,7 @@ describe('spaces-aspc-facade roster membership', () => {
     expect(aspPackages).toContain(DIR_NAME)
 
     // Local dev publish roster, before the public CLI.
-    const publish = read('scripts/publish-local-verdaccio.ts')
+    const publish = read('scripts/lib/asp-publish/package-set.ts')
     const devPublishBlock = /const DEV_PUBLISH_PACKAGES = \[([\s\S]*?)\] as const/.exec(publish)
     expect(devPublishBlock).not.toBeNull()
     expect(devPublishBlock?.[1] ?? '').toContain(`'${DIR_NAME}'`)

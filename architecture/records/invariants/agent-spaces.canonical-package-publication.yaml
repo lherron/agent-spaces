@@ -18,6 +18,7 @@ authority:
 source:
   - scripts/publish-local-verdaccio.ts
   - scripts/publish-local-verdaccio.test.ts
+  - scripts/lib/asp-publish
   - scripts/install-policy.ts
   - scripts/install-policy.test.ts
   - justfile
