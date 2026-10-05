@@ -72,7 +72,7 @@ export async function runBrokerCli(options: RunBrokerCliOptions): Promise<void> 
       process.exit(1)
     }
   } else if (command === 'desktop-join') {
-    const { runDesktopJoinCli } = await import('./desktop-join.js')
+    const { runDesktopJoinCli } = await import('./desktop-join-cli.js')
     await runDesktopJoinCli(args.slice(1))
   } else if (command === 'drivers') {
     const json = args.includes('--json')

@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { realpathSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { resolve, sep } from 'node:path'
+import { dirname, resolve, sep } from 'node:path'
 import { ROSTER_SLOT_TOKENS, findProjectMarker } from 'spaces-config'
 
 export const DESKTOP_AGENT_ID = 'stella'
@@ -207,4 +207,57 @@ export function desktopHostIncarnationId(homeIdentity: string, nativeThreadId: s
     .update('\0')
     .update(nativeThreadId.toLowerCase(), 'utf8')
     .digest('hex')}`
+}
+
+type RegistryCache = { fetchedAt: string; projects: WrkqRegistryProject[] }
+
+function readRegistryCache(cacheFile: string): RegistryCache | undefined {
+  try {
+    const parsed = JSON.parse(readFileSync(cacheFile, 'utf8')) as Partial<RegistryCache>
+    if (typeof parsed.fetchedAt !== 'string' || !Array.isArray(parsed.projects)) return undefined
+    return { fetchedAt: parsed.fetchedAt, projects: parsed.projects }
+  } catch {
+    return undefined
+  }
+}
+
+function writeRegistryCache(cacheFile: string, projects: WrkqRegistryProject[]): void {
+  try {
+    mkdirSync(dirname(cacheFile), { recursive: true, mode: 0o700 })
+    const temp = `${cacheFile}.${process.pid}.tmp`
+    writeFileSync(
+      temp,
+      `${JSON.stringify({ fetchedAt: new Date().toISOString(), projects }, null, 2)}\n`,
+      { mode: 0o600 }
+    )
+    renameSync(temp, cacheFile)
+  } catch {
+    // A missed refresh only ages the last-good copy.
+  }
+}
+
+/**
+ * The wrkq project registry, or the last copy that answered. wrkq is an RPC
+ * client of a remote ledger: a slow or failed read is an outage to ride out,
+ * the same way HRC's own registry serves last-good (T-09977).
+ */
+export async function readRegistryWithLastGood(
+  cacheFile: string,
+  timeoutMs: number,
+  log: (event: string, detail: Record<string, unknown>) => void
+): Promise<{ projects: WrkqRegistryProject[] } | { error: string }> {
+  try {
+    const projects = await readRegistryProjects(timeoutMs)
+    writeRegistryCache(cacheFile, projects)
+    return { projects }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    const cache = readRegistryCache(cacheFile)
+    if (cache === undefined) return { error: message }
+    log('registry-last-good', {
+      message,
+      ageMs: Math.max(0, Date.now() - Date.parse(cache.fetchedAt)),
+    })
+    return { projects: cache.projects }
+  }
 }

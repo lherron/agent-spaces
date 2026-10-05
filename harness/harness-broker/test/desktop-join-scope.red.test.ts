@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { admitDesktopThread, chooseScopeAndJoin } from '../src/desktop-join.js'
+import { chooseScopeAndJoin } from '../src/desktop-join-scope.js'
+import { admitDesktopThread } from '../src/desktop-join.js'
 
 const THREAD_ID = '0199abcd-1234-5678-9abc-def012345678'
 
@@ -507,7 +508,7 @@ describe('desktop-join write-ahead resume', () => {
       }
     })
     try {
-      const { chooseScopeAndJoin: choose } = await import('../src/desktop-join.js')
+      const { chooseScopeAndJoin: choose } = await import('../src/desktop-join-scope.js')
       const outcome = await choose({
         hrcSocketPath: sock,
         projectId: 'demo',
@@ -536,9 +537,8 @@ describe('desktop-join write-ahead resume', () => {
   })
 
   test('runDesktopJoin resumes a registering write-ahead instead of restarting at nova', async () => {
-    const { runDesktopJoin, threadPaths, admitDesktopThread } = await import(
-      '../src/desktop-join.js'
-    )
+    const { runDesktopJoin, admitDesktopThread } = await import('../src/desktop-join.js')
+    const { threadPaths } = await import('../src/desktop-join-thread.js')
     const { desktopHostIncarnationId } = await import('../src/desktop-project.js')
     const dir = await mkdtemp('/tmp/djr-')
     const codexHome = join(dir, 'codex-home')
@@ -670,7 +670,7 @@ describe('desktop-join write-ahead resume', () => {
 
 describe('desktop-join stale socket reap', () => {
   test('unlinks dead-pid sibling sockets, keeps live ones and other files', async () => {
-    const { reapStaleSiblingSockets } = await import('../src/desktop-join.js')
+    const { reapStaleSiblingSockets } = await import('../src/desktop-join-thread.js')
     const dir = await mkdtemp('/tmp/djreap-')
     const dead = join(dir, 'broker-999999919.sock')
     const live = join(dir, `broker-${process.pid}.sock`)
@@ -689,7 +689,8 @@ describe('desktop-join stale socket reap', () => {
   })
 
   test('runDesktopJoin reaps a dead predecessor socket at startup', async () => {
-    const { runDesktopJoin, threadPaths } = await import('../src/desktop-join.js')
+    const { runDesktopJoin } = await import('../src/desktop-join.js')
+    const { threadPaths } = await import('../src/desktop-join-thread.js')
     const dir = await mkdtemp('/tmp/djrun-')
     const codexHome = join(dir, 'codex-home')
     const rolloutDir = join(codexHome, 'sessions')
