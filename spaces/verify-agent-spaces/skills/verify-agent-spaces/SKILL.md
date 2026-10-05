@@ -40,9 +40,8 @@ Scratch or live:
   every `asp` call at it with `cd <project>` and `ASP_HOME=<asp_home>` (`eval "$(avs env <name> --sh)"` exports
   `ASP_HOME` and `AVS_PROJECT`). Isolated aspd namespaces, scratch Codex homes, release builds and a scratch clone
   all live under the same root, so `avs scratch down` removes them together.
-- **Scratch clone.** Anything that needs a clean tree (`just build-asp-release`) or that rewrites tracked files
-  (`just publish-dev-dry-run`) runs in `git clone ~/praesidium/agent-spaces <root>/clone`, then `bun install` and
-  `bun run build` there (about 20 s). Never in the shared checkout.
+- **Scratch clone.** Anything that needs a clean tree (`just build-asp-release`) runs in
+  `git clone ~/praesidium/agent-spaces <root>/clone`, then `bun install` and `bun run build` there (about 20 s). Never in the shared checkout.
 - **Live (read-only).** The system aspd (`just aspd-status ~/praesidium/var/aspd`, `avs aspc
   ~/praesidium/var/aspd/run/aspd.sock <read method>`), `asp self` from inside a seat, `asp explain`/`lint` on
   the canonical project, `asp token-rent`, and the HRC state DB opened `-readonly`. Never `aspd-activate`,

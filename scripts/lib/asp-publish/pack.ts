@@ -1,10 +1,11 @@
 /**
- * Pack one workspace package for publication: stage a publish manifest in
- * place, `bun pm pack` it, restore the source manifest, and validate the
- * tarball before anything reaches the registry.
+ * Pack one workspace package for publication: copy it to a staging dir, write
+ * the publish manifest there, `bun pm pack` the copy, and validate the tarball
+ * before anything reaches the registry. The checkout is only ever read: other
+ * seats share it, and a killed pack must not leave tracked files rewritten.
  */
 
-import { access, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { access, cp, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -108,7 +109,7 @@ function pinInternalDependencies(
   return changed ? next : deps
 }
 
-/** The manifest written over package.json for the duration of the pack. */
+/** The manifest the staged copy's package.json carries. */
 function publishManifest(manifest: PackageManifest, version: string, context: PublicationContext) {
   const { private: _private, ...manifestWithoutPrivate } = manifest
   const { versionsByName } = context
@@ -153,46 +154,57 @@ async function assertPublishableTarball(packageDir: string, name: string): Promi
   }
 }
 
+/**
+ * Copy a package dir into stageDir, minus its node_modules (symlinks into the
+ * workspace; the CLI's bundled copies are rebuilt by its prepack) and the
+ * prepack backup.
+ */
+async function stagePackage(pkgDir: string, stageDir: string): Promise<void> {
+  const skipped = new Set(['node_modules', '.asp-prepack-backup'].map((dir) => join(pkgDir, dir)))
+  await cp(pkgDir, stageDir, {
+    recursive: true,
+    verbatimSymlinks: true,
+    filter: (source) => !skipped.has(source),
+  })
+}
+
 export async function packForPublish(
   rel: string,
   context: PublicationContext
 ): Promise<PackedPackage> {
   const pkgDir = join(REPO_ROOT, rel)
-  const packageJsonPath = join(pkgDir, 'package.json')
-  const originalPackageJson = await readFile(packageJsonPath, 'utf8')
-  let tmp = ''
-  let ranPackagePrepack = false
-  let packedPackage: PackedPackage | undefined
-  let operationError: unknown
+  const manifest = JSON.parse(
+    await readFile(join(pkgDir, 'package.json'), 'utf8')
+  ) as PackageManifest
+  if (!manifest.name || !manifest.version) {
+    throw new Error(`${rel}/package.json must include name and version`)
+  }
+  const packagePublishVersion = context.versionsByName.get(manifest.name)
+  if (!packagePublishVersion) {
+    throw new Error(`no publish version resolved for ${manifest.name}`)
+  }
 
+  const tmp = await mkdtemp(join(tmpdir(), 'asp-publish-'))
   try {
-    tmp = await mkdtemp(join(tmpdir(), 'asp-publish-'))
-    const manifest = JSON.parse(originalPackageJson) as PackageManifest
-    if (!manifest.name || !manifest.version) {
-      throw new Error(`${rel}/package.json must include name and version`)
-    }
-    const packagePublishVersion = context.versionsByName.get(manifest.name)
-    if (!packagePublishVersion) {
-      throw new Error(`no publish version resolved for ${manifest.name}`)
-    }
-
+    const stageDir = join(tmp, 'stage')
+    await stagePackage(pkgDir, stageDir)
     await writeFile(
-      packageJsonPath,
+      join(stageDir, 'package.json'),
       `${JSON.stringify(publishManifest(manifest, packagePublishVersion, context), null, 2)}\n`
     )
 
     if (rel === PUBLIC_CLI_PACKAGE) {
       // The public CLI's package is self-contained. Its prepack copies and
-      // rewrites workspace dependencies under node_modules; --ignore-scripts
-      // intentionally prevents npm/bun from doing this implicitly.
-      ranPackagePrepack = true
-      const prepack = run('bun', ['scripts/prepack.ts'], pkgDir)
+      // rewrites workspace dependencies under the staged node_modules;
+      // --ignore-scripts intentionally prevents npm/bun from doing this
+      // implicitly (in place).
+      const prepack = run('bun', ['scripts/prepack.ts', '--into', stageDir], pkgDir)
       if (prepack.status !== 0) {
         throw new Error(`prepack failed for ${manifest.name}: ${prepack.out}`)
       }
     }
 
-    const pack = run('bun', ['pm', 'pack', '--destination', tmp, '--ignore-scripts'], pkgDir)
+    const pack = run('bun', ['pm', 'pack', '--destination', tmp, '--ignore-scripts'], stageDir)
     if (pack.status !== 0) {
       throw new Error(`bun pm pack failed for ${manifest.name}: ${pack.out}`)
     }
@@ -207,7 +219,7 @@ export async function packForPublish(
     const extractedPackageDir = extractTarball(tarballPath, join(tmp, 'extract'), manifest.name)
     await assertPublishableTarball(extractedPackageDir, manifest.name)
 
-    packedPackage = {
+    return {
       name: manifest.name,
       version: packagePublishVersion,
       tarballPath,
@@ -217,28 +229,7 @@ export async function packForPublish(
       ]),
     }
   } catch (error) {
-    operationError = error
+    await rm(tmp, { recursive: true, force: true })
+    throw error
   }
-
-  const cleanupErrors: Error[] = []
-  if (ranPackagePrepack) {
-    const postpack = run('bun', ['scripts/postpack.ts'], pkgDir)
-    if (postpack.status !== 0) {
-      cleanupErrors.push(new Error(`postpack failed for ${rel}: ${postpack.out}`))
-    }
-  }
-  try {
-    await writeFile(packageJsonPath, originalPackageJson)
-  } catch (error) {
-    cleanupErrors.push(error instanceof Error ? error : new Error(String(error)))
-  }
-
-  const failures = operationError ? [operationError, ...cleanupErrors] : cleanupErrors
-  if (failures.length > 0) {
-    if (tmp) await rm(tmp, { recursive: true, force: true })
-    if (failures.length === 1) throw failures[0]
-    throw new AggregateError(failures, `packing ${rel} failed and cleanup also reported errors`)
-  }
-  if (!packedPackage) throw new Error(`packing ${rel} produced no package`)
-  return packedPackage
 }

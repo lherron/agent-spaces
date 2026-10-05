@@ -3,14 +3,23 @@
 // specifiers. This script copies workspace dist output into ./node_modules/
 // and rewrites every bare workspace import under bundled dirs, apps/cli/dist,
 // and the root shim entrypoints to point at the bundled payload by relative path.
+//
+// `--into <dir>` does all of that to a staged copy of this package instead
+// (the publisher's path), so the checkout is never written. Without it the
+// npm lifecycle runs in place and postpack restores the backup.
 
 import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
-import { dirname, join, relative, sep } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CLI_ROOT = dirname(HERE)
-const BUNDLED = join(CLI_ROOT, 'node_modules')
+const intoIndex = process.argv.indexOf('--into')
+if (intoIndex !== -1 && !process.argv[intoIndex + 1]) throw new Error('--into needs a directory')
+const STAGED_ROOT = intoIndex === -1 ? undefined : resolve(process.argv[intoIndex + 1] as string)
+// The package being rewritten; workspace sources always resolve from CLI_ROOT.
+const PACK_ROOT = STAGED_ROOT ?? CLI_ROOT
+const BUNDLED = join(PACK_ROOT, 'node_modules')
 const BACKUP = join(CLI_ROOT, '.asp-prepack-backup')
 
 const WORKSPACES: Array<{ src: string; dest: string; includeBin?: boolean }> = [
@@ -150,7 +159,7 @@ async function stripBunExportCondition() {
   // (which do not honor bundleDependencies) soft-fail registry resolution
   // and pick up the bundled node_modules at import time. Committed manifest
   // keeps them in dependencies so check-manifest-edges stays green.
-  const pkgPath = join(CLI_ROOT, 'package.json')
+  const pkgPath = join(PACK_ROOT, 'package.json')
   const pkg = JSON.parse(await readFile(pkgPath, 'utf8'))
   if (pkg.exports) {
     for (const key of Object.keys(pkg.exports)) {
@@ -175,7 +184,7 @@ async function stripBunExportCondition() {
 }
 
 async function main() {
-  await backupMutableFiles()
+  if (!STAGED_ROOT) await backupMutableFiles()
   await copyWorkspaces()
 
   for (const { dest } of WORKSPACES) {
@@ -183,8 +192,8 @@ async function main() {
       await rewriteFile(f)
     }
   }
-  for await (const f of walkJs(join(CLI_ROOT, 'dist'))) await rewriteFile(f)
-  for (const shim of SHIMS) await rewriteFile(join(CLI_ROOT, shim))
+  for await (const f of walkJs(join(PACK_ROOT, 'dist'))) await rewriteFile(f)
+  for (const shim of SHIMS) await rewriteFile(join(PACK_ROOT, shim))
 
   await stripBunExportCondition()
 }

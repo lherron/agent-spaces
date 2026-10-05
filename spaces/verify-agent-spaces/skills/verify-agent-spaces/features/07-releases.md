@@ -25,9 +25,10 @@ hrc-runtime follows. `just install` on the canonical checkout does both and acti
 
 ## How to get to it
 
-Build and publish dry-runs run in a scratch clone: `git clone ~/praesidium/agent-spaces <scratch>/clone && cd
-<scratch>/clone && bun install && bun run build`. Inspect and install use an existing release, e.g. the system
-one under `~/praesidium/var/aspd/releases/`, into a scratch release root.
+Release builds run in a scratch clone: `git clone ~/praesidium/agent-spaces <scratch>/clone && cd
+<scratch>/clone && bun install && bun run build`. Publish dry-runs only read the checkout (each package is
+packed from a staged copy under `$TMPDIR`), so they also run in the built shared checkout. Inspect and install
+use an existing release, e.g. the system one under `~/praesidium/var/aspd/releases/`, into a scratch release root.
 
 ## Driving it
 
@@ -42,10 +43,6 @@ just publish-dev-dry-run; git status --porcelain | wc -l                      # 
 
 ## Gotchas
 
-- **`publish-*-dry-run` rewrites tracked files.** `packForPublish` writes each package's `package.json` with the
-  publish version in place and restores it in `finally`, and the CLI package's prepack copies into
-  `node_modules`. In the shared checkout another seat can read or commit the rewritten manifest. Run dry-runs in a
-  scratch clone only (2026-10-05, `scripts/lib/asp-publish/pack.ts:156-191`).
 - `build-asp-release` refuses `source checkout must be clean` when any path is dirty or untracked, including other
   seats' work. Build from a scratch clone. Through `just` in the canonical root that refusal posts a failed
   `run.settled` for recipe `build-asp-release`; call `bun scripts/asp-release.ts build` for the refusal probe
