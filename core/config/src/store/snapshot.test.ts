@@ -40,7 +40,7 @@ describe('snapshot storage', () => {
       const integrity = asSha256Integrity(
         'sha256:0000000000000000000000000000000000000000000000000000000000000000'
       )
-      const exists = await snapshotExists(integrity, { paths, cwd: tmpDir })
+      const exists = await snapshotExists(integrity, { paths })
       expect(exists).toBe(false)
     })
 
@@ -51,7 +51,7 @@ describe('snapshot storage', () => {
       const snapshotPath = join(tmpDir, 'snapshots', hash)
       await mkdir(snapshotPath, { recursive: true })
 
-      const exists = await snapshotExists(integrity, { paths, cwd: tmpDir })
+      const exists = await snapshotExists(integrity, { paths })
       expect(exists).toBe(true)
     })
 
@@ -61,7 +61,7 @@ describe('snapshot storage', () => {
       await mkdir(join(tmpDir, 'snapshots'), { recursive: true })
       await writeFile(join(tmpDir, 'snapshots', hash), 'not a directory')
 
-      const exists = await snapshotExists(integrity, { paths, cwd: tmpDir })
+      const exists = await snapshotExists(integrity, { paths })
       expect(exists).toBe(false)
     })
   })
@@ -126,7 +126,7 @@ describe('snapshot storage', () => {
 
       await deleteSnapshot(integrity, { paths, cwd: tmpDir })
 
-      const exists = await snapshotExists(integrity, { paths, cwd: tmpDir })
+      const exists = await snapshotExists(integrity, { paths })
       expect(exists).toBe(false)
     })
 

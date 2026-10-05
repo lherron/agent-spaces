@@ -77,7 +77,7 @@ describe('portable immutable source locks', () => {
     expect(lock.registry).toEqual(PORTABLE_SPACES_REGISTRY)
     expect(JSON.stringify(lock)).not.toContain(mutableRoot)
     expect(JSON.stringify(lock)).not.toContain(immutableRoot)
-    expect(lock.spaces['current@dev']?.commit).toBe('dev')
+    expect<string | undefined>(lock.spaces['current@dev']?.commit).toBe('dev')
     expect(lock.spaces[`legacy@${immutableCommit.slice(0, 12)}`]?.commit).toBe(
       asCommitSha(immutableCommit)
     )
@@ -104,7 +104,7 @@ describe('portable immutable source locks', () => {
     await expect(populateSnapshotsFromLock(lock, immutableCwd, aspHome)).resolves.toBe(0)
 
     expect(acquisitions).toBe(0)
-    expect(lock.spaces['current@dev']?.commit).toBe('dev')
+    expect<string | undefined>(lock.spaces['current@dev']?.commit).toBe('dev')
   })
 
   test('a registry entry acquires the deferred mirror on first use', async () => {
@@ -180,6 +180,6 @@ describe('portable immutable source locks', () => {
     const regenerated = mergeLockFiles(legacy, update)
     expect(regenerated.registry).toEqual(PORTABLE_SPACES_REGISTRY)
     expect(JSON.stringify(regenerated)).not.toContain('/Users/someone-else')
-    expect(asSpaceId('legacy')).toBe('legacy')
+    expect<string>(asSpaceId('legacy')).toBe('legacy')
   })
 })

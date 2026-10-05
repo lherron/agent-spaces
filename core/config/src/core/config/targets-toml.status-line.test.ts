@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { must } from '../../test-support/must.js'
 import type { ProjectManifest } from '../types/targets.js'
 import { getEffectiveCodexOptions, mergeCodexOptions } from '../types/targets.js'
 import { parseTargetsToml, serializeTargetsToml } from './targets-toml.js'
@@ -33,7 +34,7 @@ compose = ["space:my-space@stable"]
 status_line = ["model", "context-remaining", "git-branch"]
 `
     const result = parseTargetsToml(toml)
-    expect(result.targets.default.provisioning?.codex?.status_line).toEqual([
+    expect(must(result.targets['default']).provisioning?.codex?.status_line).toEqual([
       'model',
       'context-remaining',
       'git-branch',

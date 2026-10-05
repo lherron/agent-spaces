@@ -18,6 +18,7 @@
  */
 
 import { describe, expect, test } from 'bun:test'
+import { must } from '../../test-support/must.js'
 import { ConfigValidationError } from '../errors.js'
 import { parseTargetsToml, serializeTargetsToml } from './targets-toml.js'
 
@@ -35,7 +36,7 @@ compose_mode = "replace"
 compose = ["space:defaults@dev"]
 `
     const result = parseTargetsToml(toml)
-    expect(result.targets.larry.compose_mode).toBe('replace')
+    expect(must(result.targets['larry']).compose_mode).toBe('replace')
   })
 
   test('parses compose_mode = "merge"', () => {
@@ -47,7 +48,7 @@ compose_mode = "merge"
 compose = ["space:praesidium-defaults@dev"]
 `
     const result = parseTargetsToml(toml)
-    expect(result.targets.larry.compose_mode).toBe('merge')
+    expect(must(result.targets['larry']).compose_mode).toBe('merge')
   })
 
   test('compose_mode defaults to undefined when not specified', () => {
@@ -58,7 +59,7 @@ schema = 2
 compose = ["space:defaults@dev"]
 `
     const result = parseTargetsToml(toml)
-    expect(result.targets.larry.compose_mode).toBeUndefined()
+    expect(must(result.targets['larry']).compose_mode).toBeUndefined()
   })
 
   test('rejects invalid compose_mode value', () => {
@@ -87,7 +88,7 @@ compose = ["space:defaults@dev"]
 priming_append = "\\n## Project: agent-spaces\\nUses Bun workspace."
 `
     const result = parseTargetsToml(toml)
-    expect(result.targets.larry.priming_append).toContain('## Project: agent-spaces')
+    expect(must(result.targets['larry']).priming_append).toContain('## Project: agent-spaces')
   })
 
   test('parses multiline priming_append', () => {
@@ -104,8 +105,8 @@ priming_append = """
 """
 `
     const result = parseTargetsToml(toml)
-    expect(result.targets.larry.priming_append).toContain('## Project: agent-spaces')
-    expect(result.targets.larry.priming_append).toContain('Run just verify')
+    expect(must(result.targets['larry']).priming_append).toContain('## Project: agent-spaces')
+    expect(must(result.targets['larry']).priming_append).toContain('Run just verify')
   })
 
   test('rejects both priming and priming_append on same target', () => {
@@ -129,8 +130,8 @@ compose = ["space:defaults@dev"]
 priming = "You are Larry."
 `
     const result = parseTargetsToml(toml)
-    expect(result.targets.larry.priming).toBe('You are Larry.')
-    expect(result.targets.larry.priming_append).toBeUndefined()
+    expect(must(result.targets['larry']).priming).toBe('You are Larry.')
+    expect(must(result.targets['larry']).priming_append).toBeUndefined()
   })
 
   test('allows priming_append alone (no conflict)', () => {
@@ -142,8 +143,8 @@ compose = ["space:defaults@dev"]
 priming_append = "Extra context only."
 `
     const result = parseTargetsToml(toml)
-    expect(result.targets.larry.priming_append).toBe('Extra context only.')
-    expect(result.targets.larry.priming).toBeUndefined()
+    expect(must(result.targets['larry']).priming_append).toBe('Extra context only.')
+    expect(must(result.targets['larry']).priming).toBeUndefined()
   })
 })
 
@@ -164,7 +165,7 @@ describe('round-trip: compose_mode and priming_append', () => {
     }
     const serialized = serializeTargetsToml(original)
     const parsed = parseTargetsToml(serialized)
-    expect(parsed.targets.larry.compose_mode).toBe('merge')
+    expect(must(parsed.targets['larry']).compose_mode).toBe('merge')
   })
 
   test('priming_append survives serialize/parse cycle', () => {
@@ -179,6 +180,6 @@ describe('round-trip: compose_mode and priming_append', () => {
     }
     const serialized = serializeTargetsToml(original)
     const parsed = parseTargetsToml(serialized)
-    expect(parsed.targets.larry.priming_append).toBe('Extra project context.')
+    expect(must(parsed.targets['larry']).priming_append).toBe('Extra project context.')
   })
 })

@@ -58,7 +58,7 @@ describe('isSpaceId', () => {
 
 describe('asSpaceId', () => {
   test('returns valid id', () => {
-    expect(asSpaceId('foo-bar')).toBe('foo-bar')
+    expect<string>(asSpaceId('foo-bar')).toBe('foo-bar')
   })
 
   test('throws for invalid id', () => {
@@ -88,7 +88,7 @@ describe('isCommitSha', () => {
 
 describe('asCommitSha', () => {
   test('returns valid SHA', () => {
-    expect(asCommitSha('abc1234')).toBe('abc1234')
+    expect<string>(asCommitSha('abc1234')).toBe('abc1234')
   })
 
   test('throws for invalid SHA', () => {
@@ -117,7 +117,7 @@ describe('isSha256Integrity', () => {
 describe('asSha256Integrity', () => {
   test('returns valid integrity', () => {
     const valid = `sha256:${'a'.repeat(64)}`
-    expect(asSha256Integrity(valid)).toBe(valid)
+    expect<string>(asSha256Integrity(valid)).toBe(valid)
   })
 
   test('throws for invalid integrity', () => {
@@ -154,8 +154,8 @@ describe('parseSpaceKey', () => {
   test('parses valid space key', () => {
     const key = 'my-space@abc1234' as SpaceKey
     const result = parseSpaceKey(key)
-    expect(result.id).toBe('my-space')
-    expect(result.commit).toBe('abc1234')
+    expect<string>(result.id).toBe('my-space')
+    expect<string>(result.commit).toBe('abc1234')
   })
 
   test('handles multiple @ symbols', () => {
@@ -164,8 +164,8 @@ describe('parseSpaceKey', () => {
     // Let's test a normal case
     const key = 'foo-bar@abc1234567' as SpaceKey
     const result = parseSpaceKey(key)
-    expect(result.id).toBe('foo-bar')
-    expect(result.commit).toBe('abc1234567')
+    expect<string>(result.id).toBe('foo-bar')
+    expect<string>(result.commit).toBe('abc1234567')
   })
 
   test('throws for missing @', () => {
@@ -254,10 +254,10 @@ describe('parseSelector', () => {
 
   describe('git-pin', () => {
     test('parses git pin', () => {
-      expect(parseSelector('git:abc1234')).toEqual({ kind: 'git-pin', sha: 'abc1234' })
+      expect(parseSelector('git:abc1234')).toEqual({ kind: 'git-pin', sha: asCommitSha('abc1234') })
       expect(parseSelector(`git:${'a'.repeat(40)}`)).toEqual({
         kind: 'git-pin',
-        sha: 'a'.repeat(40),
+        sha: asCommitSha('a'.repeat(40)),
       })
     })
 
@@ -271,28 +271,28 @@ describe('parseSelector', () => {
 describe('parseSpaceRef', () => {
   test('parses complete space ref', () => {
     const result = parseSpaceRef('space:my-space@stable')
-    expect(result.id).toBe('my-space')
+    expect<string>(result.id).toBe('my-space')
     expect(result.selectorString).toBe('stable')
     expect(result.selector).toEqual({ kind: 'dist-tag', tag: 'stable' })
   })
 
   test('parses semver ref', () => {
     const result = parseSpaceRef('space:foo-bar@^1.2.3')
-    expect(result.id).toBe('foo-bar')
+    expect<string>(result.id).toBe('foo-bar')
     expect(result.selectorString).toBe('^1.2.3')
     expect(result.selector).toEqual({ kind: 'semver', range: '^1.2.3', exact: false })
   })
 
   test('parses git pin ref', () => {
     const result = parseSpaceRef('space:foo@git:abc1234')
-    expect(result.id).toBe('foo')
+    expect<string>(result.id).toBe('foo')
     expect(result.selectorString).toBe('git:abc1234')
-    expect(result.selector).toEqual({ kind: 'git-pin', sha: 'abc1234' })
+    expect(result.selector).toEqual({ kind: 'git-pin', sha: asCommitSha('abc1234') })
   })
 
   test('parses ref without selector (defaults to dev)', () => {
     const result = parseSpaceRef('space:foo')
-    expect(result.id).toBe('foo')
+    expect<string>(result.id).toBe('foo')
     expect(result.selectorString).toBe('dev')
     expect(result.selector).toEqual({ kind: 'dev' })
     expect(result.defaultedToDev).toBe(true)
@@ -300,7 +300,7 @@ describe('parseSpaceRef', () => {
 
   test('parses explicit HEAD selector', () => {
     const result = parseSpaceRef('space:foo@HEAD')
-    expect(result.id).toBe('foo')
+    expect<string>(result.id).toBe('foo')
     expect(result.selectorString).toBe('HEAD')
     expect(result.selector).toEqual({ kind: 'head' })
     expect(result.defaultedToDev).toBeUndefined()
@@ -308,7 +308,7 @@ describe('parseSpaceRef', () => {
 
   test('parses explicit dev selector', () => {
     const result = parseSpaceRef('space:foo@dev')
-    expect(result.id).toBe('foo')
+    expect<string>(result.id).toBe('foo')
     expect(result.selectorString).toBe('dev')
     expect(result.selector).toEqual({ kind: 'dev' })
     expect(result.defaultedToDev).toBeUndefined()
@@ -347,7 +347,7 @@ describe('isKnownDistTag', () => {
 
 describe('PROJECT_COMMIT_MARKER', () => {
   test('is defined', () => {
-    expect(PROJECT_COMMIT_MARKER).toBe('project')
+    expect<string>(PROJECT_COMMIT_MARKER).toBe('project')
   })
 })
 
@@ -368,7 +368,7 @@ describe('isProjectSpaceRef', () => {
 describe('parseSpaceRef (project spaces)', () => {
   test('parses project space ref without selector', () => {
     const result = parseSpaceRef('space:project:my-workflow')
-    expect(result.id).toBe('my-workflow')
+    expect<string>(result.id).toBe('my-workflow')
     expect(result.selectorString).toBe('dev')
     expect(result.selector).toEqual({ kind: 'dev' })
     expect(result.projectSpace).toBe(true)
@@ -377,7 +377,7 @@ describe('parseSpaceRef (project spaces)', () => {
 
   test('parses project space ref with explicit dev selector', () => {
     const result = parseSpaceRef('space:project:foo-bar@dev')
-    expect(result.id).toBe('foo-bar')
+    expect<string>(result.id).toBe('foo-bar')
     expect(result.selectorString).toBe('dev')
     expect(result.selector).toEqual({ kind: 'dev' })
     expect(result.projectSpace).toBe(true)
@@ -387,7 +387,7 @@ describe('parseSpaceRef (project spaces)', () => {
   test('parses project space ref with other selectors (treated as dev)', () => {
     // While other selectors are parsed, project spaces always read from filesystem
     const result = parseSpaceRef('space:project:my-space@stable')
-    expect(result.id).toBe('my-space')
+    expect<string>(result.id).toBe('my-space')
     expect(result.selectorString).toBe('stable')
     expect(result.selector).toEqual({ kind: 'dist-tag', tag: 'stable' })
     expect(result.projectSpace).toBe(true)

@@ -9,9 +9,11 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { must } from '../../test-support/must.js'
 
 import { ConfigParseError, ConfigValidationError } from '../errors.js'
 import type { LockFile } from '../types/lock.js'
+import { asCommitSha, asSpaceId } from '../types/refs.js'
 import {
   LOCK_FILENAME,
   lockFileExists,
@@ -48,8 +50,8 @@ function createLockWithSpace(): LockFile {
     },
     spaces: {
       'my-space@abc1234': {
-        id: 'my-space',
-        commit: 'abc1234',
+        id: asSpaceId('my-space'),
+        commit: asCommitSha('abc1234'),
         path: 'spaces/my-space',
         integrity: 'sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
         plugin: {
@@ -99,10 +101,10 @@ describe('parseLockJson', () => {
       const result = parseLockJson(json)
 
       expect(result.spaces['my-space@abc1234']).toBeDefined()
-      expect(result.spaces['my-space@abc1234'].id).toBe('my-space')
-      expect(result.spaces['my-space@abc1234'].plugin.name).toBe('my-space')
-      expect(result.targets.default).toBeDefined()
-      expect(result.targets.default.loadOrder).toEqual(['my-space@abc1234'])
+      expect<string>(must(result.spaces['my-space@abc1234']).id).toBe('my-space')
+      expect(must(result.spaces['my-space@abc1234']).plugin.name).toBe('my-space')
+      expect(result.targets['default']).toBeDefined()
+      expect(must(result.targets['default']).loadOrder).toEqual(['my-space@abc1234'])
     })
 
     test('parses lock file with optional defaultBranch', () => {
@@ -116,7 +118,7 @@ describe('parseLockJson', () => {
 
     test('parses lock file with resolvedFrom', () => {
       const lock = createLockWithSpace()
-      lock.spaces['my-space@abc1234'].resolvedFrom = {
+      must(lock.spaces['my-space@abc1234']).resolvedFrom = {
         selector: 'stable',
         tag: 'space/my-space/stable',
         semver: '1.0.0',
@@ -124,7 +126,7 @@ describe('parseLockJson', () => {
       const json = JSON.stringify(lock)
       const result = parseLockJson(json)
 
-      expect(result.spaces['my-space@abc1234'].resolvedFrom).toEqual({
+      expect(must(result.spaces['my-space@abc1234']).resolvedFrom).toEqual({
         selector: 'stable',
         tag: 'space/my-space/stable',
         semver: '1.0.0',
@@ -133,14 +135,14 @@ describe('parseLockJson', () => {
 
     test('parses lock file with warnings', () => {
       const lock = createLockWithSpace()
-      lock.targets.default.warnings = [
+      must(lock.targets['default']).warnings = [
         { code: 'W201', message: 'Command collision detected', details: { command: 'build' } },
       ]
       const json = JSON.stringify(lock)
       const result = parseLockJson(json)
 
-      expect(result.targets.default.warnings).toHaveLength(1)
-      expect(result.targets.default.warnings?.[0].code).toBe('W201')
+      expect(must(result.targets['default']).warnings).toHaveLength(1)
+      expect(must(result.targets['default']).warnings?.[0]?.code).toBe('W201')
     })
 
     test('uses provided filePath in error messages', () => {
@@ -222,7 +224,7 @@ describe('parseLockJson', () => {
 
     test('throws ConfigValidationError for invalid integrity format', () => {
       const lock = createLockWithSpace()
-      lock.spaces['my-space@abc1234'].integrity = 'md5:invalid' as never
+      must(lock.spaces['my-space@abc1234']).integrity = 'md5:invalid' as never
       const json = JSON.stringify(lock)
       expect(() => parseLockJson(json)).toThrow(ConfigValidationError)
     })
@@ -348,7 +350,7 @@ describe('serializeLockJson', () => {
 
   test('serializes complex lock file', () => {
     const lock = createLockWithSpace()
-    lock.targets.default.warnings = [{ code: 'W201', message: 'Test warning' }]
+    must(lock.targets['default']).warnings = [{ code: 'W201', message: 'Test warning' }]
     const result = serializeLockJson(lock)
 
     expect(result).toContain('"my-space@abc1234"')

@@ -65,10 +65,15 @@ async function createAgentLocalComponents(options: {
 
   return {
     agentRoot,
+    agentName: basename(agentRoot),
     hasSkills: options.hasSkills ?? false,
     hasCommands: options.hasCommands ?? false,
+    hasTools: false,
     skillsDir,
     commandsDir,
+    toolsDir: join(agentRoot, 'tools'),
+    toolsBinDir: join(agentRoot, 'tools', 'bin'),
+    agentVarDir: join(agentRoot, 'var'),
   }
 }
 

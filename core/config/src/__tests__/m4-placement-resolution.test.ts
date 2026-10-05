@@ -544,7 +544,7 @@ model = "gpt-5.3-codex"
         harness: 'codex',
         model: 'gpt-5.3-codex',
       })
-      expect(context.materialization.manifest?.targets.smokey).toMatchObject({
+      expect(context.materialization.manifest?.targets['smokey']).toMatchObject({
         compose: ['space:agent-base@dev', 'space:project-extra@dev'],
         priming: 'Agent prompt\nProject append',
         provisioning: expect.objectContaining({ yolo: true, harness: 'codex' }),

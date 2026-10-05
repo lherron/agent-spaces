@@ -8,6 +8,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { CommitSha, SpaceId, SpaceKey, SpaceManifest } from '../core/index.js'
 import { LOCK_HARNESSES } from '../core/index.js'
+import { must } from '../test-support/must.js'
 import type { ClosureResult, ResolvedSpace } from './closure.js'
 import { type LockGeneratorOptions, type TargetInput, generateLockFile } from './lock-generator.js'
 
@@ -160,12 +161,13 @@ describe('lock-generator', () => {
       const lock = await generateLockFile([target], options)
       const targetEntry = lock.targets['test-target']
       if (!targetEntry) throw new Error('targetEntry is undefined')
+      const harnesses = must(targetEntry.harnesses, 'targetEntry.harnesses')
 
       // Behavior is driven by the shared enumeration, not an inline literal.
-      expect(Object.keys(targetEntry.harnesses).sort()).toEqual([...LOCK_HARNESSES].sort())
+      expect(Object.keys(harnesses).sort()).toEqual([...LOCK_HARNESSES].sort())
       // Preserved default: only the agent-harness entry (T-08701 contract default).
       expect(LOCK_HARNESSES).toEqual(['agent-harness'])
-      expect(targetEntry.harnesses['agent-harness']?.envHash).toBeDefined()
+      expect(harnesses['agent-harness']?.envHash).toBeDefined()
     })
   })
 

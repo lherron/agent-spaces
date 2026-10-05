@@ -25,7 +25,7 @@ export type ResourcesPlan = {
     name: 'spaces-config/resources'
     version: 1
   }
-  resources: unknown[]
+  resources: ResourceProjection[]
 }
 
 type ResourceKind = 'scheduled-job' | 'interface-binding' | 'event-hook'
@@ -38,7 +38,7 @@ type ResourceFile = {
   parsed: ParsedToml
 }
 
-type ResourceProjection = {
+export type ResourceProjection = {
   projectionId: string
   resourceKind: ResourceKind
   projectionTable: 'jobs' | 'interface_bindings'

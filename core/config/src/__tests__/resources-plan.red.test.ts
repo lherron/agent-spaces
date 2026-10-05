@@ -22,6 +22,15 @@ type CompileResult =
   | { ok: true; plan: ResourcesPlan }
   | { ok: false; code: string; message: string }
 
+function planOf(result: CompileResult): ResourcesPlan {
+  if (!result.ok) throw new Error(`expected compile success, got ${result.code}: ${result.message}`)
+  return result.plan
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 async function compileFixture(agentRoot: string, includePaths?: string[]): Promise<CompileResult> {
   try {
     const plan = await compileResourcesPlan({
@@ -108,7 +117,7 @@ describe('agent-authored runtime resources plan compiler', () => {
     const first = await compileFixture('agents/smokey')
     const second = await compileFixture('agents/smokey')
 
-    expect(first).toEqual({ ok: true, plan: expectedPlan })
+    expect<unknown>(first).toEqual({ ok: true, plan: expectedPlan })
     expect(second).toEqual(first)
     expect(JSON.stringify((first as { plan: unknown }).plan)).toBe(
       JSON.stringify((second as { plan: unknown }).plan)
@@ -147,16 +156,10 @@ describe('agent-authored runtime resources plan compiler', () => {
     const first = await compileFixture('agents/smokey')
     const second = await compileFixture('agents/smokey')
 
-    expect(first).toEqual({ ok: true, plan: expectedPlan })
-    expect(second).toEqual({ ok: true, plan: expectedPlan })
-    expect(
-      (first as { plan: typeof expectedPlan }).plan.resources.map(
-        (resource) => resource.desiredProjectionHash
-      )
-    ).toEqual(
-      (second as { plan: typeof expectedPlan }).plan.resources.map(
-        (resource) => resource.desiredProjectionHash
-      )
+    expect<unknown>(first).toEqual({ ok: true, plan: expectedPlan })
+    expect<unknown>(second).toEqual({ ok: true, plan: expectedPlan })
+    expect(planOf(first).resources.map((resource) => resource.desiredProjectionHash)).toEqual(
+      planOf(second).resources.map((resource) => resource.desiredProjectionHash)
     )
   })
 
@@ -499,9 +502,10 @@ freshSession = false`
 
     const laneRefs = result.plan.resources.map((resource) => {
       if (resource.resourceKind === 'interface-binding') {
-        return String(resource.desiredJson.routing.laneRef)
+        const routing = resource.desiredJson['routing']
+        return String(isRecord(routing) ? routing['laneRef'] : undefined)
       }
-      return String(resource.desiredJson.laneRef)
+      return String(resource.desiredJson['laneRef'])
     })
 
     for (const laneRef of laneRefs) {
@@ -710,6 +714,6 @@ freshSession = false`
     expect(resourcesCompiler).not.toHaveProperty('applyResourcesPlan')
 
     const result = await compileFixture('agents/smokey')
-    expect(result).toEqual({ ok: true, plan: expectedPlan })
+    expect<unknown>(result).toEqual({ ok: true, plan: expectedPlan })
   })
 })

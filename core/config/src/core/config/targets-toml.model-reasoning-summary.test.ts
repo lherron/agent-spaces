@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { must } from '../../test-support/must.js'
 import type { ProjectManifest } from '../types/targets.js'
 import { getEffectiveCodexOptions, mergeCodexOptions } from '../types/targets.js'
 import { parseTargetsToml, serializeTargetsToml } from './targets-toml.js'
@@ -19,7 +20,9 @@ model_reasoning_summary = "detailed"
 `)
 
     expect(parsed.codex?.model_reasoning_summary).toBe('concise')
-    expect(parsed.targets.default.provisioning?.codex?.model_reasoning_summary).toBe('detailed')
+    expect(must(parsed.targets['default']).provisioning?.codex?.model_reasoning_summary).toBe(
+      'detailed'
+    )
   })
 
   test('rejects unsupported values', () => {
@@ -61,6 +64,8 @@ model_reasoning_summary = "verbose"
 
     const parsed = parseTargetsToml(serializeTargetsToml(original))
     expect(parsed.codex?.model_reasoning_summary).toBe('auto')
-    expect(parsed.targets.default.provisioning?.codex?.model_reasoning_summary).toBe('none')
+    expect(must(parsed.targets['default']).provisioning?.codex?.model_reasoning_summary).toBe(
+      'none'
+    )
   })
 })

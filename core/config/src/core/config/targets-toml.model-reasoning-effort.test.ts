@@ -18,6 +18,7 @@
  */
 
 import { describe, expect, test } from 'bun:test'
+import { must } from '../../test-support/must.js'
 import type { ProjectManifest } from '../types/targets.js'
 import { getEffectiveCodexOptions, mergeCodexOptions } from '../types/targets.js'
 import { parseTargetsToml, serializeTargetsToml } from './targets-toml.js'
@@ -52,7 +53,7 @@ compose = ["space:my-space@stable"]
 model_reasoning_effort = "low"
 `
     const result = parseTargetsToml(toml)
-    expect(result.targets.default.provisioning?.codex?.model_reasoning_effort).toBe('low')
+    expect(must(result.targets['default']).provisioning?.codex?.model_reasoning_effort).toBe('low')
   })
 
   test('parses both top-level and target-level together', () => {
@@ -73,9 +74,11 @@ compose = ["space:light@stable"]
 `
     const result = parseTargetsToml(toml)
     expect(result.codex?.model_reasoning_effort).toBe('medium')
-    expect(result.targets.heavy.provisioning?.codex?.model_reasoning_effort).toBe('high')
+    expect(must(result.targets['heavy']).provisioning?.codex?.model_reasoning_effort).toBe('high')
     // light target inherits top-level, has no override
-    expect(result.targets.light.provisioning?.codex?.model_reasoning_effort).toBeUndefined()
+    expect(
+      must(result.targets['light']).provisioning?.codex?.model_reasoning_effort
+    ).toBeUndefined()
   })
 })
 
@@ -171,6 +174,8 @@ describe('round-trip: model_reasoning_effort', () => {
     }
     const serialized = serializeTargetsToml(original)
     const parsed = parseTargetsToml(serialized)
-    expect(parsed.targets.reasoning.provisioning?.codex?.model_reasoning_effort).toBe('medium')
+    expect(must(parsed.targets['reasoning']).provisioning?.codex?.model_reasoning_effort).toBe(
+      'medium'
+    )
   })
 })

@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { must } from '../../test-support/must.js'
 
 import { ConfigParseError, ConfigValidationError } from '../errors.js'
 import type { ProjectManifest } from '../types/targets.js'
@@ -86,7 +87,11 @@ function toToml(manifest: ProjectManifest): string {
     lines.push(`[targets.${name}]`)
     if (target.description) lines.push(`description = "${target.description}"`)
     if (target.priming) lines.push(`priming = "${target.priming}"`)
-    lines.push(`compose = [${target.compose.map((c) => `"${c}"`).join(', ')}]`)
+    lines.push(
+      `compose = [${must(target.compose, `targets.${name}.compose`)
+        .map((c) => `"${c}"`)
+        .join(', ')}]`
+    )
 
     if (target.provisioning?.claude) {
       lines.push('')
@@ -135,8 +140,8 @@ compose = ["space:my-space@stable"]
       const result = parseTargetsToml(toml)
 
       expect(result.schema).toBe(2)
-      expect(result.targets.default).toBeDefined()
-      expect(result.targets.default.compose).toEqual(['space:my-space@stable'])
+      expect(result.targets['default']).toBeDefined()
+      expect(must(result.targets['default']).compose).toEqual(['space:my-space@stable'])
     })
 
     test('parses manifest with multiple targets', () => {
@@ -152,8 +157,8 @@ compose = ["space:prod@stable"]
       const result = parseTargetsToml(toml)
 
       expect(Object.keys(result.targets)).toHaveLength(2)
-      expect(result.targets.dev.compose).toEqual(['space:dev@latest'])
-      expect(result.targets.prod.compose).toEqual(['space:prod@stable'])
+      expect(must(result.targets['dev']).compose).toEqual(['space:dev@latest'])
+      expect(must(result.targets['prod']).compose).toEqual(['space:prod@stable'])
     })
 
     test('parses manifest with global claude options', () => {
@@ -211,9 +216,11 @@ sandbox_mode = "danger-full-access"
       expect(result.codex?.model).toBe('gpt-5.3-codex')
       expect(result.codex?.approval_policy).toBe('on-request')
       expect(result.codex?.sandbox_mode).toBe('workspace-write')
-      expect(result.targets.default.provisioning?.codex?.model).toBe('gpt-5.1-codex-mini')
-      expect(result.targets.default.provisioning?.codex?.approval_policy).toBe('never')
-      expect(result.targets.default.provisioning?.codex?.sandbox_mode).toBe('danger-full-access')
+      expect(must(result.targets['default']).provisioning?.codex?.model).toBe('gpt-5.1-codex-mini')
+      expect(must(result.targets['default']).provisioning?.codex?.approval_policy).toBe('never')
+      expect(must(result.targets['default']).provisioning?.codex?.sandbox_mode).toBe(
+        'danger-full-access'
+      )
     })
 
     test('rejects a codex profile selector (T-08581)', () => {
@@ -239,7 +246,7 @@ model = "claude-3-sonnet"
 `
       const result = parseTargetsToml(toml)
 
-      expect(result.targets.default.provisioning?.claude?.model).toBe('claude-3-sonnet')
+      expect(must(result.targets['default']).provisioning?.claude?.model).toBe('claude-3-sonnet')
     })
 
     test('parses manifest with resolver options', () => {
@@ -255,8 +262,8 @@ allow_dirty = false
 `
       const result = parseTargetsToml(toml)
 
-      expect(result.targets.default.resolver?.locked).toBe(true)
-      expect(result.targets.default.resolver?.allow_dirty).toBe(false)
+      expect(must(result.targets['default']).resolver?.locked).toBe(true)
+      expect(must(result.targets['default']).resolver?.allow_dirty).toBe(false)
     })
 
     test('parses manifest with description', () => {
@@ -269,7 +276,7 @@ compose = ["space:my-space@stable"]
 `
       const result = parseTargetsToml(toml)
 
-      expect(result.targets.default.description).toBe('My development target')
+      expect(must(result.targets['default']).description).toBe('My development target')
     })
 
     test('parses manifest with priming', () => {
@@ -282,7 +289,7 @@ compose = ["space:my-space@stable"]
 `
       const result = parseTargetsToml(toml)
 
-      expect(result.targets.default.priming).toBe('Register with agentchat and send READY')
+      expect(must(result.targets['default']).priming).toBe('Register with agentchat and send READY')
     })
 
     test('parses manifest with multiple compose entries', () => {
@@ -294,9 +301,9 @@ compose = ["space:core@stable", "space:frontend@^1.0.0", "space:backend@latest"]
 `
       const result = parseTargetsToml(toml)
 
-      expect(result.targets.default.compose).toHaveLength(3)
-      expect(result.targets.default.compose).toContain('space:core@stable')
-      expect(result.targets.default.compose).toContain('space:frontend@^1.0.0')
+      expect(must(result.targets['default']).compose).toHaveLength(3)
+      expect(must(result.targets['default']).compose).toContain('space:core@stable')
+      expect(must(result.targets['default']).compose).toContain('space:frontend@^1.0.0')
     })
 
     test('uses provided filePath in error messages', () => {
@@ -386,7 +393,7 @@ description = "No compose — agent-profile provides defaults"
 `
       const manifest = parseTargetsToml(toml)
       expect(manifest.targets['default']).toBeDefined()
-      expect(manifest.targets['default'].compose).toBeUndefined()
+      expect(must(manifest.targets['default']).compose).toBeUndefined()
     })
 
     test('allows target with empty compose array', () => {
@@ -397,7 +404,7 @@ schema = 2
 compose = []
 `
       const manifest = parseTargetsToml(toml)
-      expect(manifest.targets['default'].compose).toEqual([])
+      expect(must(manifest.targets['default']).compose).toEqual([])
     })
 
     test('throws ConfigValidationError for invalid space ref format', () => {
@@ -475,7 +482,7 @@ compose = ["space:my-space@stable"]
 
     const result = await readTargetsToml(filePath)
     expect(result.schema).toBe(2)
-    expect(result.targets.default).toBeDefined()
+    expect(result.targets['default']).toBeDefined()
   })
 
   test('reads and parses full-featured manifest', async () => {
@@ -486,7 +493,7 @@ compose = ["space:my-space@stable"]
     const result = await readTargetsToml(filePath)
     expect(result.schema).toBe(2)
     expect(result.claude?.model).toBe('claude-3-opus')
-    expect(result.targets.default.resolver?.locked).toBe(true)
+    expect(must(result.targets['default']).resolver?.locked).toBe(true)
   })
 
   test('throws ConfigParseError for non-existent file', async () => {
@@ -547,7 +554,9 @@ describe('serializeTargetsToml', () => {
     const parsed = parseTargetsToml(serialized)
 
     expect(parsed.schema).toBe(original.schema)
-    expect(parsed.targets.default.compose).toEqual(original.targets.default.compose)
+    expect(must(parsed.targets['default']).compose).toEqual(
+      must(original.targets['default']).compose
+    )
   })
 
   test('round-trip with full manifest', () => {
@@ -557,9 +566,13 @@ describe('serializeTargetsToml', () => {
 
     expect(parsed.schema).toBe(original.schema)
     expect(parsed.claude?.model).toBe(original.claude?.model)
-    expect(parsed.targets.default.compose).toEqual(original.targets.default.compose)
-    expect(parsed.targets.default.resolver?.locked).toBe(original.targets.default.resolver?.locked)
-    expect(parsed.targets.default.priming).toBe(original.targets.default.priming)
+    expect(must(parsed.targets['default']).compose).toEqual(
+      must(original.targets['default']).compose
+    )
+    expect(must(parsed.targets['default']).resolver?.locked).toBe(
+      must(original.targets['default']).resolver?.locked
+    )
+    expect(must(parsed.targets['default']).priming).toBe(must(original.targets['default']).priming)
   })
 })
 
@@ -587,7 +600,7 @@ reasoning_effort = "high"
 presentation = false
 yolo = true
 `)
-    expect(manifest.targets.default.provisioning).toEqual({
+    expect(must(manifest.targets['default']).provisioning).toEqual({
       harness: 'codex',
       model_provider: 'openai-codex',
       model: 'gpt-5.5',
@@ -595,7 +608,9 @@ yolo = true
       presentation: false,
       yolo: true,
     })
-    expect(Object.hasOwn(manifest.targets.default.provisioning ?? {}, 'presentation')).toBe(true)
+    expect(
+      Object.hasOwn(must(manifest.targets['default']).provisioning ?? {}, 'presentation')
+    ).toBe(true)
   })
 
   test('omitted presentation stays absent through parse and round-trip', () => {
@@ -608,11 +623,13 @@ compose = ["space:my-space@stable"]
 [targets.default.provisioning]
 harness = "codex"
 `)
-    expect(Object.hasOwn(manifest.targets.default.provisioning ?? {}, 'presentation')).toBe(false)
+    expect(
+      Object.hasOwn(must(manifest.targets['default']).provisioning ?? {}, 'presentation')
+    ).toBe(false)
     const roundTripped = parseTargetsToml(serializeTargetsToml(manifest))
-    expect(Object.hasOwn(roundTripped.targets.default.provisioning ?? {}, 'presentation')).toBe(
-      false
-    )
+    expect(
+      Object.hasOwn(must(roundTripped.targets['default']).provisioning ?? {}, 'presentation')
+    ).toBe(false)
   })
 
   test('rejects removed viewer and reasoning keys', () => {

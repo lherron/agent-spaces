@@ -57,7 +57,7 @@ describe('agentRoot fixture layout (T-00841)', () => {
       const spaceDir = join(AGENT_ROOT, 'spaces', spaceId)
       expect(existsSync(join(spaceDir, 'AGENTS.md'))).toBe(true)
       const manifest = parseSpaceToml(readFileSync(join(spaceDir, 'space.toml'), 'utf8'))
-      expect(manifest.id).toBe(spaceId)
+      expect<string>(manifest.id).toBe(spaceId)
     }
   })
 })
@@ -86,7 +86,7 @@ describe('projectRoot fixture layout (T-00841)', () => {
       const spaceDir = join(PROJECT_ROOT, 'spaces', spaceId)
       expect(existsSync(join(spaceDir, 'AGENTS.md'))).toBe(true)
       const manifest = parseSpaceToml(readFileSync(join(spaceDir, 'space.toml'), 'utf8'))
-      expect(manifest.id).toBe(spaceId)
+      expect<string>(manifest.id).toBe(spaceId)
     }
   })
 

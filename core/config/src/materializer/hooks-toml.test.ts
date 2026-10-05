@@ -208,13 +208,13 @@ describe('toClaudeHooksConfig', () => {
 
     const config = toClaudeHooksConfig(hooks)
 
-    expect(config.hooks.PreToolUse).toEqual([
+    expect(config.hooks['PreToolUse']).toEqual([
       {
         matcher: '*',
         hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/hooks/validate.sh' }],
       },
     ])
-    expect(config.hooks.PostToolUse).toEqual([
+    expect(config.hooks['PostToolUse']).toEqual([
       {
         matcher: '*',
         hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/hooks/log.sh' }],
@@ -230,9 +230,9 @@ describe('toClaudeHooksConfig', () => {
 
     const config = toClaudeHooksConfig(hooks)
 
-    expect(config.hooks.PreToolUse).toHaveLength(1)
-    expect(config.hooks.PreToolUse?.[0]?.matcher).toBe('*')
-    expect(config.hooks.PreToolUse?.[0]?.hooks).toHaveLength(2)
+    expect(config.hooks['PreToolUse']).toHaveLength(1)
+    expect(config.hooks['PreToolUse']?.[0]?.matcher).toBe('*')
+    expect(config.hooks['PreToolUse']?.[0]?.hooks).toHaveLength(2)
   })
 
   it('uses matcher from tools list when provided', () => {
@@ -242,8 +242,8 @@ describe('toClaudeHooksConfig', () => {
 
     const config = toClaudeHooksConfig(hooks)
 
-    expect(config.hooks.PreToolUse).toHaveLength(1)
-    expect(config.hooks.PreToolUse?.[0]?.matcher).toBe('Write|Edit')
+    expect(config.hooks['PreToolUse']).toHaveLength(1)
+    expect(config.hooks['PreToolUse']?.[0]?.matcher).toBe('Write|Edit')
   })
 
   it('filters out Pi-only hooks', () => {
@@ -254,8 +254,8 @@ describe('toClaudeHooksConfig', () => {
 
     const config = toClaudeHooksConfig(hooks)
 
-    expect(config.hooks.PreToolUse).toHaveLength(1)
-    expect(config.hooks.PreToolUse?.[0]?.matcher).toBe('*')
+    expect(config.hooks['PreToolUse']).toHaveLength(1)
+    expect(config.hooks['PreToolUse']?.[0]?.matcher).toBe('*')
   })
 
   it('skips events that have no Claude mapping', () => {
@@ -266,8 +266,8 @@ describe('toClaudeHooksConfig', () => {
 
     const config = toClaudeHooksConfig(hooks)
 
-    expect(config.hooks.PreToolUse).toHaveLength(1)
-    expect(config.hooks.PreToolUse?.[0]?.matcher).toBe('*')
+    expect(config.hooks['PreToolUse']).toHaveLength(1)
+    expect(config.hooks['PreToolUse']?.[0]?.matcher).toBe('*')
     expect(Object.keys(config.hooks)).toHaveLength(1)
   })
 
@@ -278,9 +278,9 @@ describe('toClaudeHooksConfig', () => {
 
     const config = toClaudeHooksConfig(hooks)
 
-    expect(config.hooks.SessionStart).toHaveLength(1)
-    expect(config.hooks.SessionStart?.[0]?.matcher).toBe('compact')
-    expect(config.hooks.SessionStart?.[0]?.hooks).toEqual([
+    expect(config.hooks['SessionStart']).toHaveLength(1)
+    expect(config.hooks['SessionStart']?.[0]?.matcher).toBe('compact')
+    expect(config.hooks['SessionStart']?.[0]?.hooks).toEqual([
       { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/hooks/inject-priming.sh' },
     ])
   })
@@ -293,8 +293,8 @@ describe('toClaudeHooksConfig', () => {
 
     const config = toClaudeHooksConfig(hooks)
 
-    expect(config.hooks.SessionStart).toHaveLength(2)
-    const matchers = config.hooks.SessionStart?.map((h) => h.matcher)
+    expect(config.hooks['SessionStart']).toHaveLength(2)
+    const matchers = config.hooks['SessionStart']?.map((h) => h.matcher)
     expect(matchers).toContain('compact')
     expect(matchers).toContain('startup')
   })
@@ -304,8 +304,8 @@ describe('toClaudeHooksConfig', () => {
 
     const config = toClaudeHooksConfig(hooks)
 
-    expect(config.hooks.SessionStart).toHaveLength(1)
-    expect(config.hooks.SessionStart?.[0]?.matcher).toBeUndefined()
+    expect(config.hooks['SessionStart']).toHaveLength(1)
+    expect(config.hooks['SessionStart']?.[0]?.matcher).toBeUndefined()
   })
 
   it('materializes Claude lifecycle hooks with matcher and plugin-rooted commands', () => {
@@ -330,7 +330,7 @@ describe('toClaudeHooksConfig', () => {
 
     const config = toClaudeHooksConfig(hooks)
 
-    expect(config.hooks.SessionStart).toEqual([
+    expect(config.hooks['SessionStart']).toEqual([
       {
         matcher: 'startup',
         hooks: [
@@ -341,7 +341,7 @@ describe('toClaudeHooksConfig', () => {
         ],
       },
     ])
-    expect(config.hooks.UserPromptSubmit).toEqual([
+    expect(config.hooks['UserPromptSubmit']).toEqual([
       {
         hooks: [
           {
@@ -351,7 +351,7 @@ describe('toClaudeHooksConfig', () => {
         ],
       },
     ])
-    expect(config.hooks.Stop).toEqual([
+    expect(config.hooks['Stop']).toEqual([
       {
         hooks: [
           {

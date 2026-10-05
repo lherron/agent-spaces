@@ -36,7 +36,7 @@ class DirectoryArtifactAdapter implements HarnessAdapter {
   readonly models: HarnessModelInfo[] = []
 
   async detect(): Promise<HarnessDetection> {
-    return { available: true, command: 'fake-codex' }
+    return { available: true, path: 'fake-codex' }
   }
 
   validateSpace(_input: MaterializeSpaceInput): HarnessValidationResult {

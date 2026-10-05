@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { must } from '../test-support/must.js'
 // loadDefaultManifest does not exist yet — this import will cause a compile/runtime error (RED)
 import { loadDefaultManifest, loadProjectManifest } from './resolve.js'
 
@@ -60,8 +61,8 @@ compose = ["space:defaults@stable"]
     expect(result).not.toBeNull()
     expect(result!.schema).toBe(2)
     expect(result!.claude?.model).toBe('claude-3-opus')
-    expect(result!.targets.shared).toBeDefined()
-    expect(result!.targets.shared.compose).toEqual(['space:defaults@stable'])
+    expect(result!.targets['shared']).toBeDefined()
+    expect(must(result!.targets['shared']).compose).toEqual(['space:defaults@stable'])
   })
 
   test('returns null when default-targets.toml does not exist (no error)', async () => {
@@ -85,7 +86,7 @@ compose = ["space:custom@stable"]
 
     const result = await loadDefaultManifest()
     expect(result).not.toBeNull()
-    expect(result!.targets.custom).toBeDefined()
+    expect(result!.targets['custom']).toBeDefined()
 
     await rm(customHome, { recursive: true, force: true })
   })
@@ -151,12 +152,12 @@ compose = ["space:dev@latest"]
     const result = await loadProjectManifest(testProjectDir)
 
     // Project target is present
-    expect(result.targets.dev).toBeDefined()
-    expect(result.targets.dev.compose).toEqual(['space:dev@latest'])
+    expect(result.targets['dev']).toBeDefined()
+    expect(must(result.targets['dev']).compose).toEqual(['space:dev@latest'])
 
     // Default target is merged in
-    expect(result.targets.shared).toBeDefined()
-    expect(result.targets.shared.compose).toEqual(['space:defaults@stable'])
+    expect(result.targets['shared']).toBeDefined()
+    expect(must(result.targets['shared']).compose).toEqual(['space:defaults@stable'])
 
     // Claude options are field-merged: project model wins, defaults permission_mode inherited
     expect(result.claude?.model).toBe('claude-3-sonnet')
@@ -186,9 +187,9 @@ compose = ["space:project-dev@latest"]
     const result = await loadProjectManifest(testProjectDir)
 
     // Project's dev target wins entirely
-    expect(result.targets.dev.compose).toEqual(['space:project-dev@latest'])
+    expect(must(result.targets['dev']).compose).toEqual(['space:project-dev@latest'])
     // Description from defaults is NOT inherited
-    expect(result.targets.dev.description).toBeUndefined()
+    expect(must(result.targets['dev']).description).toBeUndefined()
   })
 
   test('no default-targets.toml → loadProjectManifest works as before', async () => {
@@ -203,8 +204,8 @@ compose = ["space:dev@latest"]
     await writeFile(join(testProjectDir, 'asp-targets.toml'), projectTargets, 'utf8')
 
     const result = await loadProjectManifest(testProjectDir)
-    expect(result.targets.dev).toBeDefined()
-    expect(result.targets.dev.compose).toEqual(['space:dev@latest'])
+    expect(result.targets['dev']).toBeDefined()
+    expect(must(result.targets['dev']).compose).toEqual(['space:dev@latest'])
   })
 
   test('uses explicit aspHome argument over process env for defaults merge', async () => {
@@ -239,8 +240,8 @@ compose = ["space:dev@latest"]
       process.env['ASP_HOME'] = envAspHome
       const result = await loadProjectManifest(testProjectDir, explicitAspHome)
 
-      expect(result.targets.from_explicit).toBeDefined()
-      expect(result.targets.from_env).toBeUndefined()
+      expect(result.targets['from_explicit']).toBeDefined()
+      expect(result.targets['from_env']).toBeUndefined()
     } finally {
       await rm(envAspHome, { recursive: true, force: true })
       await rm(explicitAspHome, { recursive: true, force: true })
@@ -274,9 +275,9 @@ compose = ["space:defaults@stable"]
     // The returned manifest should contain the default targets
     expect(result).toBeDefined()
     expect(result.schema).toBe(2)
-    expect(result.targets.shared).toBeDefined()
-    expect(result.targets.shared.compose).toEqual(['space:defaults@stable'])
-    expect(result.targets.shared.description).toBe('Shared defaults target')
+    expect(result.targets['shared']).toBeDefined()
+    expect(must(result.targets['shared']).compose).toEqual(['space:defaults@stable'])
+    expect(must(result.targets['shared']).description).toBe('Shared defaults target')
 
     // Claude options from defaults should be present
     expect(result.claude?.model).toBe('claude-3-opus')

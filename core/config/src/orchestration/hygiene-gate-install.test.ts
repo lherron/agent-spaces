@@ -74,7 +74,7 @@ class SkillAdapter implements HarnessAdapter {
   constructor(private readonly skillBody: string) {}
 
   async detect(): Promise<HarnessDetection> {
-    return { available: true, command: 'fake-codex' }
+    return { available: true, path: 'fake-codex' }
   }
   validateSpace(_input: MaterializeSpaceInput): HarnessValidationResult {
     return { valid: true, errors: [], warnings: [] }

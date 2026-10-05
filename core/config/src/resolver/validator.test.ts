@@ -62,7 +62,7 @@ describe('validateSpaceManifest', () => {
 describe('validateProjectManifest', () => {
   it('should pass for valid manifest', () => {
     const manifest: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       targets: {
         default: {
           compose: ['space:my-space@stable' as SpaceRefString],
@@ -75,7 +75,7 @@ describe('validateProjectManifest', () => {
 
   it('should fail for empty targets', () => {
     const manifest: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       targets: {},
     }
     const result = validateProjectManifest(manifest)
@@ -85,7 +85,7 @@ describe('validateProjectManifest', () => {
 
   it('should fail for empty compose', () => {
     const manifest: ProjectManifest = {
-      schema: 1,
+      schema: 2,
       targets: {
         default: {
           compose: [],

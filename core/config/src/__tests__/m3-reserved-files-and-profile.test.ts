@@ -129,7 +129,7 @@ describe('agent-profile.toml parser (T-00853)', () => {
     const profile = parseAgentProfile(content)
 
     expect(profile.spaces).toBeDefined()
-    expect(profile.spaces!.base).toEqual(['space:agent:private-ops'])
+    expect<string[] | undefined>(profile.spaces!.base).toEqual(['space:agent:private-ops'])
     expect(profile.spaces!.modes?.heartbeat).toBeDefined()
   })
 
@@ -140,11 +140,11 @@ describe('agent-profile.toml parser (T-00853)', () => {
 
     expect(profile.targets).toBeDefined()
     expect(profile.targets!['review']).toBeDefined()
-    expect(profile.targets!['review']!.compose).toEqual([
+    expect<string[] | undefined>(profile.targets!['review']!.compose).toEqual([
       'space:agent:private-ops',
       'space:project:repo-defaults',
     ])
-    expect(profile.targets!['delivery']!.compose).toEqual([
+    expect<string[] | undefined>(profile.targets!['delivery']!.compose).toEqual([
       'space:agent:task-worker',
       'space:project:task-scaffolds',
     ])

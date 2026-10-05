@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { ConfigParseError, ConfigValidationError } from '../errors.js'
+import { asSpaceId } from '../types/refs.js'
 import type { SpaceManifest } from '../types/space.js'
 import { parseSpaceToml, readSpaceToml, serializeSpaceToml } from './space-toml.js'
 
@@ -19,7 +20,7 @@ import { parseSpaceToml, readSpaceToml, serializeSpaceToml } from './space-toml.
 function createValidManifest(): SpaceManifest {
   return {
     schema: 1,
-    id: 'my-space',
+    id: asSpaceId('my-space'),
   }
 }
 
@@ -27,7 +28,7 @@ function createValidManifest(): SpaceManifest {
 function createFullManifest(): SpaceManifest {
   return {
     schema: 1,
-    id: 'my-space',
+    id: asSpaceId('my-space'),
     version: '1.0.0',
     description: 'A test space',
     plugin: {
@@ -100,7 +101,7 @@ describe('parseSpaceToml', () => {
       const result = parseSpaceToml(toml)
 
       expect(result.schema).toBe(1)
-      expect(result.id).toBe('my-space')
+      expect<string>(result.id).toBe('my-space')
     })
 
     test('parses manifest with version and description', () => {
@@ -198,14 +199,14 @@ enabled = true
       const toml = 'schema = 1\nid = "my-awesome-space"\n'
       const result = parseSpaceToml(toml)
 
-      expect(result.id).toBe('my-awesome-space')
+      expect<string>(result.id).toBe('my-awesome-space')
     })
 
     test('parses id with numbers', () => {
       const toml = 'schema = 1\nid = "space123"\n'
       const result = parseSpaceToml(toml)
 
-      expect(result.id).toBe('space123')
+      expect<string>(result.id).toBe('space123')
     })
 
     test('uses provided filePath in error messages', () => {
@@ -345,7 +346,7 @@ describe('readSpaceToml', () => {
 
     const result = await readSpaceToml(filePath)
     expect(result.schema).toBe(1)
-    expect(result.id).toBe('my-space')
+    expect<string>(result.id).toBe('my-space')
   })
 
   test('reads and parses full-featured space.toml', async () => {
@@ -354,7 +355,7 @@ describe('readSpaceToml', () => {
     await Bun.write(filePath, toToml(manifest))
 
     const result = await readSpaceToml(filePath)
-    expect(result.id).toBe('my-space')
+    expect<string>(result.id).toBe('my-space')
     expect(result.version).toBe('1.0.0')
     expect(result.plugin?.name).toBe('my-plugin')
   })
@@ -405,7 +406,7 @@ describe('serializeSpaceToml', () => {
   test('serializes dependencies correctly', () => {
     const manifest: SpaceManifest = {
       schema: 1,
-      id: 'my-space',
+      id: asSpaceId('my-space'),
       deps: {
         spaces: ['space:dep-a@stable', 'space:dep-b@latest'],
       },

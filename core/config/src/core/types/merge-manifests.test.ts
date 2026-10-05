@@ -13,6 +13,7 @@
  */
 
 import { describe, expect, test } from 'bun:test'
+import { must } from '../../test-support/must.js'
 
 import type { ProjectManifest } from './targets.js'
 // mergeManifests does not exist yet — this import will cause a compile/runtime error (RED)
@@ -48,7 +49,7 @@ describe('mergeManifests', () => {
       dev: {
         description: 'Dev target',
         compose: ['space:dev@latest'],
-        claude: { model: 'claude-3-haiku' },
+        provisioning: { claude: { model: 'claude-3-haiku' } },
       },
     },
   }
@@ -57,14 +58,14 @@ describe('mergeManifests', () => {
 
   test('target exists only in defaults → included in result', () => {
     const result = mergeManifests(defaultsManifest, projectManifest)
-    expect(result.targets.shared).toBeDefined()
-    expect(result.targets.shared.compose).toEqual(['space:defaults@stable'])
+    expect(result.targets['shared']).toBeDefined()
+    expect(must(result.targets['shared']).compose).toEqual(['space:defaults@stable'])
   })
 
   test('target exists only in project → included in result', () => {
     const result = mergeManifests(defaultsManifest, projectManifest)
-    expect(result.targets.dev).toBeDefined()
-    expect(result.targets.dev.compose).toEqual(['space:dev@latest'])
+    expect(result.targets['dev']).toBeDefined()
+    expect(must(result.targets['dev']).compose).toEqual(['space:dev@latest'])
   })
 
   test('target exists in both → project wins entirely (no field-level merge)', () => {
@@ -74,7 +75,7 @@ describe('mergeManifests', () => {
         overlap: {
           description: 'Default description',
           compose: ['space:defaults@stable'],
-          claude: { model: 'claude-3-opus' },
+          provisioning: { claude: { model: 'claude-3-opus' } },
         },
       },
     }
@@ -83,16 +84,16 @@ describe('mergeManifests', () => {
       targets: {
         overlap: {
           compose: ['space:project@latest'],
-          // No description, no claude — project target replaces entirely
+          // No description, no provisioning — project target replaces entirely
         },
       },
     }
     const result = mergeManifests(defaults, project)
-    expect(result.targets.overlap.compose).toEqual(['space:project@latest'])
+    expect(must(result.targets['overlap']).compose).toEqual(['space:project@latest'])
     // Project target had no description → should be undefined, NOT inherited from defaults
-    expect(result.targets.overlap.description).toBeUndefined()
-    // Project target had no claude → should be undefined, NOT inherited from defaults
-    expect(result.targets.overlap.claude).toBeUndefined()
+    expect(must(result.targets['overlap']).description).toBeUndefined()
+    // Project target had no provisioning → should be undefined, NOT inherited from defaults
+    expect(must(result.targets['overlap']).provisioning).toBeUndefined()
   })
 
   // -- Top-level claude options merge --
