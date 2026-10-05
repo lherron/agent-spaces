@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import { createBroker } from 'spaces-harness-broker'
+import type { InvocationId } from 'spaces-harness-broker-protocol'
 
 import { AGENT_HARNESS_TMUX_DRIVER_KIND, createAgentHarnessTmuxDriver } from './interactive-driver'
 import { createAgentHarnessTmuxLeafDriver } from './interactive-leaf-driver'
@@ -32,7 +33,7 @@ test('requires the HRC-supplied pane lease before launching the TUI child', asyn
     driver.start(
       {
         specVersion: 'harness-broker.invocation/v1',
-        invocationId: 'agent-harness-interactive-no-lease',
+        invocationId: 'agent-harness-interactive-no-lease' as InvocationId,
         harness: { frontend: 'agent-harness', provider: 'openai', driver: 'agent-harness-tmux' },
         driver: { kind: 'agent-harness-tmux', permissionPolicy: { mode: 'deny' } },
         sdk: {
@@ -49,7 +50,7 @@ test('requires the HRC-supplied pane lease before launching the TUI child', asyn
         },
       } as never,
       {
-        invocationId: 'agent-harness-interactive-no-lease',
+        invocationId: 'agent-harness-interactive-no-lease' as InvocationId,
         clientCapabilities: {},
         emit: () => ({}) as never,
         emitEvent: () => ({}) as never,

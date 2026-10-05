@@ -20,14 +20,11 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { createAgentSpacesClient } from 'agent-spaces'
 import type { OutputManifest, RuntimeCompileRequest } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
-import { createAgentSpacesClient } from '../../../compiler/agent-spaces/src/index.js'
 
-import {
-  allocatePreHrcRuntimeIdentity,
-  buildPlacementFromScopeRef,
-} from '../../../compiler/agent-spaces/src/testing/pre-hrc-broker-helpers.js'
+import { allocatePreHrcRuntimeIdentity, buildPlacementFromScopeRef } from 'agent-spaces/testing'
 import { runtimeDependencies } from '../src/compiler-runtime.js'
 import { AspcClient } from '../src/index.js'
 import { buildOutputManifest, canonicalJson } from '../src/manifest.js'
@@ -640,6 +637,7 @@ function buildCompileRequest(
         phase: 'red-acceptance',
         role: 'smoke',
         requiredEvidenceKinds: ['contract-artifacts'],
+        hintsText: '',
       },
     },
     hrcPolicy: {

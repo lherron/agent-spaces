@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import type { AspcCompileHarnessInvocationRequest } from 'spaces-aspc-protocol'
+import {
+  ASPC_PROTOCOL_VERSION,
+  type AspcCompileHarnessInvocationRequest,
+  type AspcHelloRequest,
+} from 'spaces-aspc-protocol'
+import { conservativeDefaultLifecyclePolicyOverlay } from 'spaces-harness-broker-protocol'
 import type {
   CompiledRuntimePlan,
   RuntimeCompileRequest,
@@ -8,6 +13,11 @@ import type {
 } from 'spaces-runtime-contracts'
 import type { AspcCompiler } from '../src/service.js'
 import { createAspcService } from '../src/service.js'
+
+const HELLO_REQUEST: AspcHelloRequest = {
+  clientInfo: { name: 'aspc-service-test' },
+  protocolVersions: [ASPC_PROTOCOL_VERSION],
+}
 
 const COMPILE_REQUEST = {
   schemaVersion: 'agent-runtime-compile-request/v2',
@@ -65,7 +75,7 @@ function packageVersion(): string {
 
 describe('AspcService', () => {
   test('hello reports the package version and one ordinary compile capability', async () => {
-    const response = await createAspcService({}).hello({})
+    const response = await createAspcService({}).hello(HELLO_REQUEST)
     expect(response.facadeInfo.version).toBe(packageVersion())
     expect(response.capabilities.compileHarnessInvocation).toBe(true)
     expect(response.capabilities).not.toHaveProperty('compileRuntimePlan')
@@ -93,16 +103,18 @@ describe('AspcService', () => {
       return OK_RESPONSE
     }
     const service = createAspcService({ compiler })
+    const runtime = { tmux: { socketPath: '/tmp/aspc-service-test.sock' } }
+    const lifecyclePolicy = conservativeDefaultLifecyclePolicyOverlay('aspc-service-test')
     await service.compileHarnessInvocation({
       ...buildRequest(),
       dispatchEnv: { EXTRA: '1' },
-      runtime: { runtimeId: 'runtime-1' },
-      lifecyclePolicy: { runtimeRetention: 'keep-alive' },
+      runtime,
+      lifecyclePolicy,
     })
     expect(observedOptions?.dispatch).toEqual({
       dispatchEnv: { EXTRA: '1' },
-      runtime: { runtimeId: 'runtime-1' },
-      lifecyclePolicy: { runtimeRetention: 'keep-alive' },
+      runtime,
+      lifecyclePolicy,
     })
   })
 

@@ -5,6 +5,13 @@ import { createResidentDetachControl } from './resident-detach'
 
 type EditorFactory = NonNullable<ReturnType<ExtensionContext['ui']['getEditorComponent']>>
 
+// Another extension's editor factory: only its identity matters, it is never invoked.
+function foreignEditorFactory(): EditorFactory {
+  return () => {
+    throw new Error('foreign editor factory is never invoked')
+  }
+}
+
 function harness(existing?: EditorFactory) {
   let handler: ((event: unknown, ctx: ExtensionContext) => unknown) | undefined
   let current = existing
@@ -35,7 +42,7 @@ function harness(existing?: EditorFactory) {
 
 describe('resident detach custom-editor ownership', () => {
   test('refuses when another extension owns the slot first', () => {
-    const prior = (() => ({})) as EditorFactory
+    const prior = foreignEditorFactory()
     const subject = harness(prior)
     expect(() => subject.start()).toThrow('custom-editor slot is already owned')
   })
@@ -44,7 +51,7 @@ describe('resident detach custom-editor ownership', () => {
     const subject = harness()
     subject.start()
     expect(() => subject.control.assertReady()).not.toThrow()
-    subject.replace((() => ({})) as EditorFactory)
+    subject.replace(foreignEditorFactory())
     expect(() => subject.control.assertReady()).toThrow('custom-editor slot was replaced')
   })
 })

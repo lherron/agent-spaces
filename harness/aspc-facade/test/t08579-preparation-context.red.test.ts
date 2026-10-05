@@ -27,7 +27,12 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import { type AspcService, createAspcService } from 'spaces-aspc'
-import { validateAspcInspectRuntimePlacementRequest } from 'spaces-aspc-protocol'
+import {
+  type AspcCompileHarnessInvocationResponse,
+  type AspcInspectRuntimePlacementResponse,
+  type AspcPrepareProcessInvocationResponse,
+  validateAspcInspectRuntimePlacementRequest,
+} from 'spaces-aspc-protocol'
 import { createRuntimeCompiler, runtimeDependencies } from '../src/runtime-compiler.js'
 
 type UnknownRecord = Record<string, any>
@@ -273,17 +278,46 @@ function normalize(value: string | undefined): string | undefined {
   return value?.split(root).join('<ROOT>')
 }
 
-async function compile(c: Case): Promise<{ prompt: string; response: UnknownRecord }> {
-  const response = (await service.compileHarnessInvocation(
-    compileRequest(c) as never
-  )) as UnknownRecord
-  expect(response.ok, JSON.stringify(response.diagnostics ?? response)).toBe(true)
-  const file = response.plan.artifacts.systemPromptFile as string
+type OkCompile = Extract<AspcCompileHarnessInvocationResponse, { ok: true }>
+type OkPlacement = Extract<AspcInspectRuntimePlacementResponse, { ok: true }>
+type OkPrepare = Extract<AspcPrepareProcessInvocationResponse, { ok: true }>
+
+async function compile(c: Case): Promise<{ prompt: string; response: OkCompile }> {
+  const response = await service.compileHarnessInvocation(compileRequest(c) as never)
+  if (!response.ok) throw new Error(`compile failed: ${JSON.stringify(response.diagnostics)}`)
+  const file = response.plan.artifacts.systemPromptFile
+  if (file === undefined) throw new Error('compile produced no systemPromptFile')
   return { prompt: readFileSync(file, 'utf8'), response }
 }
 
-async function inspect(c: Case, extra: UnknownRecord = {}): Promise<UnknownRecord> {
-  return (await service.inspectRuntimePlacement(inspectRequest(c, extra) as never)) as UnknownRecord
+async function inspect(
+  c: Case,
+  extra: UnknownRecord = {}
+): Promise<AspcInspectRuntimePlacementResponse> {
+  return await service.inspectRuntimePlacement(inspectRequest(c, extra) as never)
+}
+
+async function inspectOk(c: Case, extra: UnknownRecord = {}): Promise<OkPlacement> {
+  const inspected = await inspect(c, extra)
+  if (!inspected.ok) throw new Error(`inspect failed: ${JSON.stringify(inspected.declaration)}`)
+  return inspected
+}
+
+function systemPromptOf(inspected: OkPlacement): string {
+  if (inspected.prompt.state !== 'present') {
+    throw new Error(`expected a present prompt, got ${JSON.stringify(inspected.prompt)}`)
+  }
+  return inspected.prompt.value.systemPrompt
+}
+
+async function prepare(request: UnknownRecord): Promise<AspcPrepareProcessInvocationResponse> {
+  return await service.prepareProcessInvocation(request as never)
+}
+
+async function prepareOk(request: UnknownRecord): Promise<OkPrepare> {
+  const prepared = await prepare(request)
+  if (!prepared.ok) throw new Error(`prepare failed: ${JSON.stringify(prepared)}`)
+  return prepared
 }
 
 function caseKey(c: Case): string {
@@ -336,9 +370,8 @@ describe('T-08579 P1 preview/compile parity', () => {
   ] as Case[]) {
     test(`inspection systemPrompt and environment hash equal compile for ${caseKey(c)}`, async () => {
       const { prompt, response } = await compile(c)
-      const inspected = await inspect(c)
-      expect(inspected.ok, JSON.stringify(inspected.declaration)).toBe(true)
-      expect(normalize(inspected.prompt?.value?.systemPrompt)).toEqual(normalize(prompt))
+      const inspected = await inspectOk(c)
+      expect(normalize(systemPromptOf(inspected))).toEqual(normalize(prompt))
       expect(inspected.effectiveEnvironmentHash).toEqual(expect.any(String))
       expect(response.effectiveEnvironmentHash).toBe(inspected.effectiveEnvironmentHash)
       // T-08701: the declaration carries closed-vocabulary scalars only; the
@@ -353,38 +386,37 @@ describe('T-08579 P1 preview/compile parity', () => {
   test('T-08580: inspection is read-only for the already prepared Codex home', async () => {
     const c: Case = { agent: 'pov', project: 'projplain' }
     const { response } = await compile(c)
-    const codexHome = response.plan.execution.dispatchRequest.startRequest.spec.process.lockedEnv
-      .CODEX_HOME as string
+    const codexHome =
+      response.plan.execution.dispatchRequest.startRequest.spec.process.lockedEnv?.['CODEX_HOME']
+    if (codexHome === undefined) throw new Error('compile locked no CODEX_HOME')
     const agentsPath = join(codexHome, 'AGENTS.md')
     const before = readFileSync(agentsPath, 'utf8')
     const beforeMtime = statSync(agentsPath).mtimeMs
 
-    const inspected = await inspect(c)
+    await inspectOk(c)
 
-    expect(inspected.ok, JSON.stringify(inspected.declaration)).toBe(true)
     expect(readFileSync(agentsPath, 'utf8')).toBe(before)
     expect(statSync(agentsPath).mtimeMs).toBe(beforeMtime)
   })
 
   test('ND-1: dispatchEnv changes neither inspection prompt nor environment hash', async () => {
     const base: Case = { agent: 'pov', project: 'projplain' }
-    const without = await inspect(base)
-    const withDispatch = await inspect({ ...base, dispatchEnv: DISPATCH })
-    const other = await inspect({
+    const without = await inspectOk(base)
+    const withDispatch = await inspectOk({ ...base, dispatchEnv: DISPATCH })
+    const other = await inspectOk({
       ...base,
       dispatchEnv: { ...DISPATCH, T08579_PARITY_PROBE: 'other' },
     })
-    expect(withDispatch.prompt.value.systemPrompt).toBe(without.prompt.value.systemPrompt)
-    expect(other.prompt.value.systemPrompt).toBe(without.prompt.value.systemPrompt)
+    expect(systemPromptOf(withDispatch)).toBe(systemPromptOf(without))
+    expect(systemPromptOf(other)).toBe(systemPromptOf(without))
     expect(withDispatch.effectiveEnvironmentHash).toBe(without.effectiveEnvironmentHash)
     expect(other.effectiveEnvironmentHash).toBe(without.effectiveEnvironmentHash)
-    expect(without.prompt.value.systemPrompt).toContain('PROBE=unset')
-    expect(without.prompt.value.systemPrompt).not.toContain('TASKCTX=')
+    expect(systemPromptOf(without)).toContain('PROBE=unset')
+    expect(systemPromptOf(without)).not.toContain('TASKCTX=')
   })
 
   test('ND-2/ND-3: lane and correlation environment come from preparationCorrelation', async () => {
-    const inspected = await inspect({ agent: 'pov', project: 'projplain' })
-    const prompt = inspected.prompt.value.systemPrompt as string
+    const prompt = systemPromptOf(await inspectOk({ agent: 'pov', project: 'projplain' }))
     expect(prompt).toContain('lane=main')
     expect(prompt).toContain('AGENT_SCOPE_REF=agent:pov:project:projplain:task:T-08579;')
     expect(prompt).toContain('HRC_SESSION_REF=agent:pov:project:projplain:task:T-08579/lane:main;')
@@ -392,17 +424,17 @@ describe('T-08579 P1 preview/compile parity', () => {
   })
 
   test('ND-4: bare relative file paths use the shared search path, never agentRoot', async () => {
-    const plain = await inspect({ agent: 'pov', project: 'projplain' })
-    const overlay = await inspect({ agent: 'pov', project: 'projoverlay' })
-    expect(plain.prompt.value.systemPrompt).toContain('MOTD=roster')
-    expect(overlay.prompt.value.systemPrompt).toContain('MOTD=project-overlay')
-    expect(plain.prompt.value.systemPrompt).not.toContain('MOTD=agent-local')
+    const plain = await inspectOk({ agent: 'pov', project: 'projplain' })
+    const overlay = await inspectOk({ agent: 'pov', project: 'projoverlay' })
+    expect(systemPromptOf(plain)).toContain('MOTD=roster')
+    expect(systemPromptOf(overlay)).toContain('MOTD=project-overlay')
+    expect(systemPromptOf(plain)).not.toContain('MOTD=agent-local')
   })
 
   test('ND-5: template discovery does not inject the daemon-default agentsRoot', async () => {
-    const inspected = await inspect({ agent: 'pov2', project: 'projplain' })
-    expect(inspected.prompt.value.systemPrompt).not.toContain('TPL=ambient-roster')
-    expect(inspected.prompt.value.systemPrompt).toContain('TPL=ambient-home')
+    const inspected = await inspectOk({ agent: 'pov2', project: 'projplain' })
+    expect(systemPromptOf(inspected)).not.toContain('TPL=ambient-roster')
+    expect(systemPromptOf(inspected)).toContain('TPL=ambient-home')
   })
 })
 
@@ -428,26 +460,22 @@ function prepareRequest(
 describe('T-08579 P3 prepareProcessInvocation', () => {
   test('system prompt and effectiveEnvironmentHash equal inspection for the same context', async () => {
     const c: Case = { agent: 'pov', project: 'projplain', dispatchEnv: DISPATCH }
-    const prepared = (await service.prepareProcessInvocation(
-      prepareRequest(c) as never
-    )) as UnknownRecord
-    const inspected = await inspect(c)
-    expect(prepared.ok, JSON.stringify(prepared.failure)).toBe(true)
-    expect(prepared.spec.prompts.system.content).toBe(inspected.prompt.value.systemPrompt)
+    const prepared = await prepareOk(prepareRequest(c))
+    const inspected = await inspectOk(c)
+    expect(prepared.spec.prompts.system?.content).toBe(systemPromptOf(inspected))
     expect(prepared.effectiveEnvironmentHash).toBe(inspected.effectiveEnvironmentHash)
   })
 
   test('ND-11(a): context identity hints render when sessionRef is absent', async () => {
     const c: Case = { agent: 'pov', project: 'projplain' }
-    const prepared = (await service.prepareProcessInvocation(
+    const prepared = await prepareOk(
       prepareRequest(
         c,
         { project: { mode: 'root', projectRoot: join(root, 'projplain'), projectId: 'hinted' } },
         false
-      ) as never
-    )) as UnknownRecord
-    expect(prepared.ok, JSON.stringify(prepared.failure)).toBe(true)
-    expect(prepared.spec.prompts.system.content).toContain(
+      )
+    )
+    expect(prepared.spec.prompts.system?.content).toContain(
       'IDENT agent=pov project=hinted task=T-08579 lane='
     )
   })
@@ -478,9 +506,7 @@ describe('T-08579 P4 identity conflict refusal', () => {
           failure: { kind: 'incompatible', code: 'configured_context_mismatch' },
         },
       })
-      const prepared = (await service.prepareProcessInvocation(
-        prepareRequest(c, fixed) as never
-      )) as UnknownRecord
+      const prepared = await prepare(prepareRequest(c, fixed))
       expect(prepared).toMatchObject({
         ok: false,
         failure: { kind: 'incompatible', code: 'configured_context_mismatch' },
@@ -496,10 +522,10 @@ describe('T-08579 P4 identity conflict refusal', () => {
 
 describe('T-08579 P6 capability', () => {
   test('hello advertises inspectRuntimePlacementPreparationCorrelation exactly', async () => {
-    const hello = (await service.hello({
+    const hello = await service.hello({
       clientInfo: { name: 't08579' },
       protocolVersions: ['aspc/0.1'],
-    })) as UnknownRecord
+    })
     expect(hello.capabilities.inspectRuntimePlacementPreparationCorrelation).toBe(true)
   })
 
@@ -538,13 +564,12 @@ describe('T-08579 P7 explicit source arms never merge with ambient', () => {
 
   test('inspect: validated caller agentSources anchor discovery exclusively', async () => {
     const sources = { agentSources: { aspHome: join(root, 'explicit-home') } }
-    const overlay = await inspect({ agent: 'pov2', project: 'projoverlay' }, sources)
-    expect(overlay.ok, JSON.stringify(overlay.declaration)).toBe(true)
-    expect(overlay.prompt.value.systemPrompt).toContain('TPL=explicit-roster')
-    expect(overlay.prompt.value.systemPrompt).toContain('USER=explicit')
-    expect(overlay.prompt.value.systemPrompt).not.toContain('ambient')
-    const plain = await inspect({ agent: 'pov2', project: 'projplain' }, sources)
-    expect(plain.prompt.value.systemPrompt).toContain('TPL=explicit-home')
+    const overlay = await inspectOk({ agent: 'pov2', project: 'projoverlay' }, sources)
+    expect(systemPromptOf(overlay)).toContain('TPL=explicit-roster')
+    expect(systemPromptOf(overlay)).toContain('USER=explicit')
+    expect(systemPromptOf(overlay)).not.toContain('ambient')
+    const plain = await inspectOk({ agent: 'pov2', project: 'projplain' }, sources)
+    expect(systemPromptOf(plain)).toContain('TPL=explicit-home')
   })
 
   test('inspect and compile agree on the explicit arm', async () => {
@@ -553,10 +578,10 @@ describe('T-08579 P7 explicit source arms never merge with ambient', () => {
       project: 'projoverlay',
       compileAspHome: 'explicit-home',
     })
-    const inspected = await inspect(
+    const inspected = await inspectOk(
       { agent: 'pov2', project: 'projoverlay' },
       { agentSources: { aspHome: join(root, 'explicit-home') } }
     )
-    expect(normalize(inspected.prompt.value.systemPrompt)).toBe(normalize(compiled.prompt))
+    expect(normalize(systemPromptOf(inspected))).toBe(normalize(compiled.prompt))
   })
 })

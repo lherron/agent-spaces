@@ -3,7 +3,11 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { RuntimeCompileRequest, RuntimeCompileResponse } from 'spaces-runtime-contracts'
+import type {
+  CompileId,
+  RuntimeCompileRequest,
+  RuntimeCompileResponse,
+} from 'spaces-runtime-contracts'
 
 import { AspcInspectionAuthorityError, createAspcService } from '../src/index.js'
 import type { AspcCompiler } from '../src/service.js'
@@ -225,10 +229,15 @@ describe('ASPC identifier-only inspection authority', () => {
       'INVALID_AGENT_INSPECTION_SELECTION',
       400
     )
+    // Deliberately ill-typed: the wire validator must reject a non-boolean presentation.
+    const nonBooleanPresentation: unknown = 'bogus'
     await expect(
       service.inspectAgentSelection({
         agentId: 'cody',
-        request: { ...request, identifiers: { ...request.identifiers, presentation: 'bogus' } },
+        request: {
+          ...request,
+          identifiers: { ...request.identifiers, presentation: nonBooleanPresentation as boolean },
+        },
       })
     ).rejects.toThrow('Invalid ASPC inspectAgentSelection request')
     await expectAuthorityError(
@@ -300,7 +309,7 @@ function successfulCompileResponse(): RuntimeCompileResponse {
     plan: {
       schemaVersion: 'agent-runtime-plan/v2',
       compiler: { name: 'agent-spaces', version: 'test' },
-      compileId: 'compile-authority',
+      compileId: 'compile-authority' as CompileId,
       planHash: 'plan-authority',
       createdAt: '2026-08-23T14:00:00.000Z',
       agent: { id: 'cody' },

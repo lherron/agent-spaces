@@ -3,6 +3,7 @@ import * as AgentSpaces from 'agent-spaces'
 import * as AspcProtocol from 'spaces-aspc-protocol'
 import type {
   AgentInspectionEvaluationContext,
+  AgentInspectionIdentity,
   AgentInspectionRequest,
 } from 'spaces-runtime-contracts'
 
@@ -95,7 +96,7 @@ function evaluationContext(): AgentInspectionEvaluationContext {
   }
 }
 
-function identity() {
+function identity(): AgentInspectionIdentity {
   return {
     agentId: 'room-tester',
     projectId: 'agent-spaces',

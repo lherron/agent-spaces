@@ -7,12 +7,16 @@
  * facade with no co-hosted broker surfaces no `brokerProtocol` at all.
  */
 import { describe, expect, test } from 'bun:test'
+import { ASPC_PROTOCOL_VERSION } from 'spaces-aspc-protocol'
 import { createAspcService } from '../src/service.js'
 
 describe('Ph6 red: aspc.hello brokerProtocol surface (T-01867)', () => {
   test('hello() without broker does not surface brokerProtocol at all', async () => {
     const service = createAspcService({})
-    const response = await service.hello({})
+    const response = await service.hello({
+      clientInfo: { name: 'v01-removal-test' },
+      protocolVersions: [ASPC_PROTOCOL_VERSION],
+    })
     expect(response.brokerProtocol).toBeUndefined()
   })
 })

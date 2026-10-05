@@ -132,7 +132,7 @@ const binding: AspdReleaseBinding = {
 function okCompile(
   brokerProtocol: string,
   brokerDriver = 'codex-app-server'
-): AspcCompileHarnessInvocationResponse {
+): Extract<AspcCompileHarnessInvocationResponse, { ok: true }> {
   return {
     schemaVersion: 'aspc-compile-harness-invocation-response/v2',
     ok: true,
@@ -150,6 +150,10 @@ function okCompile(
   }
 }
 
+async function unusedMethod(): Promise<never> {
+  throw new Error('fakeService method not exercised by this test')
+}
+
 function fakeService(overrides: Partial<AspcService> = {}): AspcService {
   return {
     hello: async () => ({
@@ -161,6 +165,14 @@ function fakeService(overrides: Partial<AspcService> = {}): AspcService {
         catalogAgentInspection: true,
         inspectAgentSelection: true,
         compileHarnessInvocation: true,
+        resolveRuntimeDeclaration: true,
+        inspectRuntimePlacement: true,
+        inspectRuntimePlacementPreparationCorrelation: true,
+        inspectRuntimePlacementPreparationTaskContext: true,
+        observeRuntimeCapability: true,
+        observeContinuationArtifact: true,
+        prepareProcessInvocation: true,
+        prepareProcessInvocationTaskContext: true,
         cohostedBroker: false,
         transports: ['stdio-jsonrpc-ndjson'],
       },
@@ -170,6 +182,11 @@ function fakeService(overrides: Partial<AspcService> = {}): AspcService {
     catalogAgentInspection: async () => ({}) as never,
     inspectAgentSelection: async () => ({}) as never,
     compileHarnessInvocation: async () => okCompile('harness-broker/0.2'),
+    resolveRuntimeDeclaration: unusedMethod,
+    inspectRuntimePlacement: unusedMethod,
+    observeRuntimeCapability: unusedMethod,
+    observeContinuationArtifact: unusedMethod,
+    prepareProcessInvocation: unusedMethod,
     ...overrides,
   }
 }
@@ -254,7 +271,7 @@ describe('release-bound service (W1/W2)', () => {
   })
 
   test('adds executionRelease with the selected profile protocol and leaves the dispatch untouched', async () => {
-    for (const protocol of ['harness-broker/0.2', 'harness-broker/0.3']) {
+    for (const protocol of ['harness-broker/0.2', 'harness-broker/0.3'] as const) {
       const underlying = okCompile(protocol)
       const service = createReleaseBoundAspcService(
         fakeService({ compileHarnessInvocation: async () => underlying }),
@@ -375,6 +392,7 @@ describe('unix server and retirement', () => {
                 level: 'error',
                 code: 'compiler_exception',
                 message: 'Harness "codex" is not available: codex: command timed out',
+                plane: 'asp-compiler',
               },
             ],
           }

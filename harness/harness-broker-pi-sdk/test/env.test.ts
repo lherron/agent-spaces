@@ -4,51 +4,55 @@ import type { HarnessInvocationSpec } from 'spaces-harness-broker-protocol'
 import { composePiSdkEnvironment } from '../src/driver'
 
 test('environment composition does not mutate broker process.env', () => {
-  const priorApiKey = process.env.OPENAI_API_KEY
-  const priorMarker = process.env.PI_SDK_ENV_TEST_MARKER
-  process.env.OPENAI_API_KEY = 'test-secret'
-  process.env.PI_SDK_ENV_TEST_MARKER = 'must-not-leak'
+  const priorApiKey = process.env['OPENAI_API_KEY']
+  const priorMarker = process.env['PI_SDK_ENV_TEST_MARKER']
+  process.env['OPENAI_API_KEY'] = 'test-secret'
+  process.env['PI_SDK_ENV_TEST_MARKER'] = 'must-not-leak'
   const before = { ...process.env }
   try {
     const env = composePiSdkEnvironment(spec(), {
-      dispatchEnv: Object.freeze({ ASP_RUN_ID: 'run-1' }) as DriverContext['dispatchEnv'],
+      dispatchEnv: dispatchEnv({ ASP_RUN_ID: 'run-1' }),
     })
-    expect(env.OPENAI_API_KEY).toBe('test-secret')
-    expect(env.LOCKED_FLAG).toBe('locked')
-    expect(env.ASP_RUN_ID).toBe('run-1')
-    expect(env.PI_SDK_ENV_TEST_MARKER).toBeUndefined()
+    expect(env['OPENAI_API_KEY']).toBe('test-secret')
+    expect(env['LOCKED_FLAG']).toBe('locked')
+    expect(env['ASP_RUN_ID']).toBe('run-1')
+    expect(env['PI_SDK_ENV_TEST_MARKER']).toBeUndefined()
     expect(process.env).toEqual(before)
   } finally {
-    if (priorApiKey === undefined) process.env.OPENAI_API_KEY = undefined
-    else process.env.OPENAI_API_KEY = priorApiKey
-    if (priorMarker === undefined) process.env.PI_SDK_ENV_TEST_MARKER = undefined
-    else process.env.PI_SDK_ENV_TEST_MARKER = priorMarker
+    if (priorApiKey === undefined) process.env['OPENAI_API_KEY'] = undefined
+    else process.env['OPENAI_API_KEY'] = priorApiKey
+    if (priorMarker === undefined) process.env['PI_SDK_ENV_TEST_MARKER'] = undefined
+    else process.env['PI_SDK_ENV_TEST_MARKER'] = priorMarker
   }
 })
 
 test('oauth environment composition starves credential variables', () => {
-  const priorOpenAiKey = process.env.OPENAI_API_KEY
-  const priorAnthropicToken = process.env.ANTHROPIC_AUTH_TOKEN
-  process.env.OPENAI_API_KEY = 'openai-secret'
-  process.env.ANTHROPIC_AUTH_TOKEN = 'anthropic-secret'
+  const priorOpenAiKey = process.env['OPENAI_API_KEY']
+  const priorAnthropicToken = process.env['ANTHROPIC_AUTH_TOKEN']
+  process.env['OPENAI_API_KEY'] = 'openai-secret'
+  process.env['ANTHROPIC_AUTH_TOKEN'] = 'anthropic-secret'
   const before = { ...process.env }
   try {
     const env = composePiSdkEnvironment(spec('oauth'), {
-      dispatchEnv: Object.freeze({
-        HARNESS_PI_AUTH_STORE: '/managed/auth.json',
-      }) as DriverContext['dispatchEnv'],
+      dispatchEnv: dispatchEnv({ HARNESS_PI_AUTH_STORE: '/managed/auth.json' }),
     })
-    expect(env.OPENAI_API_KEY).toBeUndefined()
-    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
-    expect(env.HARNESS_PI_AUTH_STORE).toBe('/managed/auth.json')
+    expect(env['OPENAI_API_KEY']).toBeUndefined()
+    expect(env['ANTHROPIC_AUTH_TOKEN']).toBeUndefined()
+    expect(env['HARNESS_PI_AUTH_STORE']).toBe('/managed/auth.json')
     expect(process.env).toEqual(before)
   } finally {
-    if (priorOpenAiKey === undefined) process.env.OPENAI_API_KEY = undefined
-    else process.env.OPENAI_API_KEY = priorOpenAiKey
-    if (priorAnthropicToken === undefined) process.env.ANTHROPIC_AUTH_TOKEN = undefined
-    else process.env.ANTHROPIC_AUTH_TOKEN = priorAnthropicToken
+    if (priorOpenAiKey === undefined) process.env['OPENAI_API_KEY'] = undefined
+    else process.env['OPENAI_API_KEY'] = priorOpenAiKey
+    if (priorAnthropicToken === undefined) process.env['ANTHROPIC_AUTH_TOKEN'] = undefined
+    else process.env['ANTHROPIC_AUTH_TOKEN'] = priorAnthropicToken
   }
 })
+
+// The broker brands dispatchEnv once parseDispatchEnv has validated it; these
+// fixture keys are already valid, so this one cast stands in for that parse.
+function dispatchEnv(values: Record<string, string>): DriverContext['dispatchEnv'] {
+  return Object.freeze({ ...values }) as DriverContext['dispatchEnv']
+}
 
 function spec(authMode: 'api-key' | 'oauth' = 'api-key'): HarnessInvocationSpec {
   return {

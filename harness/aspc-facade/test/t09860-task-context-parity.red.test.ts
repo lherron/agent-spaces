@@ -14,6 +14,9 @@ import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { type AspcService, createAspcService } from 'spaces-aspc'
 import {
+  type AspcCompileHarnessInvocationResponse,
+  type AspcInspectRuntimePlacementResponse,
+  type AspcPrepareProcessInvocationResponse,
   validateAspcInspectRuntimePlacementRequest,
   validateAspcPrepareProcessInvocationRequest,
 } from 'spaces-aspc-protocol'
@@ -134,7 +137,10 @@ function context(scopeTask: string | undefined): UnknownRecord {
   }
 }
 
-async function compile(scopeTask: string | undefined, taskContext?: typeof ROLE) {
+async function compile(
+  scopeTask: string | undefined,
+  taskContext?: typeof ROLE
+): Promise<AspcCompileHarnessInvocationResponse> {
   const projectRoot = join(root, 'proj')
   const ids = {
     requestId: 'req-t09860',
@@ -145,7 +151,7 @@ async function compile(scopeTask: string | undefined, taskContext?: typeof ROLE)
     invocationId: 'inv-t09860',
     traceId: 'trace-t09860',
   }
-  const response = (await service.compileHarnessInvocation({
+  return await service.compileHarnessInvocation({
     compileRequest: {
       schemaVersion: 'agent-runtime-compile-request/v2',
       agent: { id: 'pov' },
@@ -170,42 +176,52 @@ async function compile(scopeTask: string | undefined, taskContext?: typeof ROLE)
       correlation: ids,
     },
     aspHome: join(root, 'home'),
-  } as never)) as UnknownRecord
-  return response
+  } as never)
 }
 
-async function inspect(scopeTask: string | undefined, taskContext?: typeof ROLE) {
-  return (await service.inspectRuntimePlacement({
+async function inspect(
+  scopeTask: string | undefined,
+  taskContext?: typeof ROLE
+): Promise<AspcInspectRuntimePlacementResponse> {
+  return await service.inspectRuntimePlacement({
     schemaVersion: 'aspc-inspect-runtime-placement-request/v1',
     context: context(scopeTask),
     preparationCorrelation: correlation(scopeTask),
     ...(taskContext !== undefined ? { preparationTaskContext: taskContext } : {}),
-  } as never)) as UnknownRecord
+  } as never)
 }
 
-async function prepare(scopeTask: string | undefined, taskContext?: typeof ROLE) {
-  return (await service.prepareProcessInvocation({
+async function prepare(
+  scopeTask: string | undefined,
+  taskContext?: typeof ROLE
+): Promise<AspcPrepareProcessInvocationResponse> {
+  return await service.prepareProcessInvocation({
     schemaVersion: 'aspc-prepare-process-invocation-request/v1',
     context: context(scopeTask),
     preparationCorrelation: correlation(scopeTask),
     expected: { provider: 'openai', frontend: 'codex-cli' },
     launch: { interactionMode: 'headless', ioMode: 'pipes' },
     ...(taskContext !== undefined ? { taskContext } : {}),
-  } as never)) as UnknownRecord
+  } as never)
 }
 
 async function threeSurfaces(scopeTask: string | undefined, taskContext?: typeof ROLE) {
   const compiled = await compile(scopeTask, taskContext)
-  expect(compiled.ok, JSON.stringify(compiled.diagnostics)).toBe(true)
+  if (!compiled.ok) throw new Error(`compile failed: ${JSON.stringify(compiled.diagnostics)}`)
   const inspected = await inspect(scopeTask, taskContext)
-  expect(inspected.ok, JSON.stringify(inspected.declaration)).toBe(true)
+  if (!inspected.ok) throw new Error(`inspect failed: ${JSON.stringify(inspected.declaration)}`)
   const prepared = await prepare(scopeTask, taskContext)
-  expect(prepared.ok, JSON.stringify(prepared.failure)).toBe(true)
+  if (!prepared.ok) throw new Error(`prepare failed: ${JSON.stringify(prepared)}`)
+  const compiledPromptFile = compiled.plan.artifacts.systemPromptFile
+  if (compiledPromptFile === undefined) throw new Error('compile produced no systemPromptFile')
+  if (inspected.prompt.state !== 'present') {
+    throw new Error(`expected a present prompt, got ${JSON.stringify(inspected.prompt)}`)
+  }
   return {
     prompts: [
-      readFileSync(compiled.plan.artifacts.systemPromptFile as string, 'utf8'),
-      inspected.prompt.value.systemPrompt as string,
-      prepared.spec.prompts.system.content as string,
+      readFileSync(compiledPromptFile, 'utf8'),
+      inspected.prompt.value.systemPrompt,
+      prepared.spec.prompts.system?.content,
     ],
     hashes: [
       compiled.effectiveEnvironmentHash,
@@ -257,9 +273,7 @@ describe('T-09860 conflicting task identity is refused before materialization', 
   test('compile', async () => {
     const response = await compile(TASK, other)
     expect(response.ok).toBe(false)
-    expect(response.diagnostics.map((d: UnknownRecord) => d.code)).toEqual([
-      'configured_context_mismatch',
-    ])
+    expect(response.diagnostics.map((d) => d.code)).toEqual(['configured_context_mismatch'])
   })
 
   test('inspect', async () => {
@@ -281,10 +295,10 @@ describe('T-09860 conflicting task identity is refused before materialization', 
 
 describe('T-09860 capabilities and validators', () => {
   test('hello advertises both exact taskContext capabilities', async () => {
-    const hello = (await service.hello({
+    const hello = await service.hello({
       clientInfo: { name: 't09860' },
       protocolVersions: ['aspc/0.1'],
-    })) as UnknownRecord
+    })
     expect(hello.capabilities.inspectRuntimePlacementPreparationTaskContext).toBe(true)
     expect(hello.capabilities.prepareProcessInvocationTaskContext).toBe(true)
   })

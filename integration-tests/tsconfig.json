@@ -7,7 +7,7 @@
     "noEmit": true,
     "types": ["bun-types"]
   },
-  "include": ["tests/**/*.ts", "lib/**/*.ts", "bin/**/*.ts"],
+  "include": ["tests/**/*.ts", "lib/**/*.ts", "bin/**/*.ts", "fixtures/**/*.ts"],
   // The typecheck debt ledger T-07687 opened here (23 leaf test files, 375
   // errors) was cleared to zero by T-07689 and is gone. Every file this package
   // includes is typechecked. Do not reintroduce a per-file exclusion to get a

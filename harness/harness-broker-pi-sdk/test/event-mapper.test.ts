@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent'
 import type { DriverContext } from 'spaces-harness-broker'
-import type { InvocationEventEnvelope, TurnId } from 'spaces-harness-broker-protocol'
+import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import { PiSdkTurnEventMapper } from '../src/event-mapper'
+import { messageIdFrom, turnIdFrom } from './ids'
 
 type CapturedEvent = Pick<InvocationEventEnvelope, 'type' | 'payload' | 'turnId' | 'itemId'>
 
@@ -14,7 +15,7 @@ describe('PiSdkTurnEventMapper', () => {
       provider: 'openai',
       sessionFile: () => '/tmp/pi-session.jsonl',
     })
-    mapper.beginTurn({ turnId: 'turn-1' as TurnId, structured: false })
+    mapper.beginTurn({ turnId: turnIdFrom('turn-1'), structured: false })
 
     mapper.handle(piEvent({ type: 'agent_start' }))
     mapper.handle(piEvent({ type: 'turn_start' }))
@@ -62,7 +63,7 @@ describe('PiSdkTurnEventMapper', () => {
       provider: 'anthropic',
       sessionFile: () => '/tmp/structured.jsonl',
     })
-    mapper.beginTurn({ turnId: 'turn-structured' as TurnId, structured: true })
+    mapper.beginTurn({ turnId: turnIdFrom('turn-structured'), structured: true })
     emitAssistant(mapper, 'I will call the tool.')
     mapper.recordStructuredResult('{"answer":42}')
     mapper.handle(piEvent({ type: 'agent_settled' }))
@@ -74,7 +75,7 @@ describe('PiSdkTurnEventMapper', () => {
     )
     expect(finalMessages).toHaveLength(1)
     expect(finalMessages[0]?.payload).toEqual({
-      messageId: 'turn-structured_structured_final',
+      messageId: messageIdFrom('turn-structured_structured_final'),
       content: [{ type: 'text', text: '{"answer":42}' }],
       final: true,
     })
@@ -88,7 +89,7 @@ describe('PiSdkTurnEventMapper', () => {
       provider: 'openai',
       sessionFile: () => '/tmp/must-not-advance.jsonl',
     })
-    mapper.beginTurn({ turnId: 'turn-miss' as TurnId, structured: true })
+    mapper.beginTurn({ turnId: turnIdFrom('turn-miss'), structured: true })
     mapper.recordStructuredMiss('invalid args')
     mapper.handle(piEvent({ type: 'agent_settled' }))
 
@@ -112,7 +113,7 @@ describe('PiSdkTurnEventMapper', () => {
       provider: 'openai',
       sessionFile: () => '/tmp/not-advanced.jsonl',
     })
-    mapper.beginTurn({ turnId: 'turn-infra' as TurnId, structured: false })
+    mapper.beginTurn({ turnId: turnIdFrom('turn-infra'), structured: false })
     mapper.handle(
       piEvent({
         type: 'tool_execution_start',
@@ -141,7 +142,7 @@ describe('PiSdkTurnEventMapper', () => {
       sessionFile: () => '/tmp/pi-session.jsonl',
       abortSignal: () => signal,
     })
-    mapper.beginTurn({ turnId: 'turn-abort' as TurnId, structured: false })
+    mapper.beginTurn({ turnId: turnIdFrom('turn-abort'), structured: false })
     emitAssistant(mapper, 'running it')
     mapper.handle(
       piEvent({
@@ -172,14 +173,14 @@ describe('PiSdkTurnEventMapper', () => {
       'continuation.updated',
     ])
     expect(events.at(-2)?.payload).toEqual({
-      turnId: 'turn-abort',
+      turnId: turnIdFrom('turn-abort'),
       status: 'interrupted',
       reason: 'user-abort',
       finalOutput: '',
     })
 
     // The latch is per turn: the next turn completes normally.
-    mapper.beginTurn({ turnId: 'turn-next' as TurnId, structured: false })
+    mapper.beginTurn({ turnId: turnIdFrom('turn-next'), structured: false })
     emitAssistant(mapper, 'PONG')
     mapper.handle(piEvent({ type: 'agent_settled' }))
     expect(events.find((event) => event.type === 'turn.completed')?.payload).toMatchObject({
@@ -195,7 +196,7 @@ describe('PiSdkTurnEventMapper', () => {
       provider: 'openai',
       sessionFile: () => '/tmp/pi-session.jsonl',
     })
-    mapper.beginTurn({ turnId: 'turn-stream' as TurnId, structured: false })
+    mapper.beginTurn({ turnId: turnIdFrom('turn-stream'), structured: false })
     mapper.handle(
       piEvent({
         type: 'message_end',
@@ -204,13 +205,13 @@ describe('PiSdkTurnEventMapper', () => {
     )
     mapper.handle(piEvent({ type: 'agent_settled' }))
     expect(events.find((event) => event.type === 'turn.interrupted')?.payload).toEqual({
-      turnId: 'turn-stream',
+      turnId: turnIdFrom('turn-stream'),
       status: 'interrupted',
       reason: 'user-abort',
       finalOutput: 'partial essay',
     })
 
-    mapper.beginTurn({ turnId: 'turn-provider-error' as TurnId, structured: false })
+    mapper.beginTurn({ turnId: turnIdFrom('turn-provider-error'), structured: false })
     mapper.handle(
       piEvent({
         type: 'message_end',
@@ -234,7 +235,7 @@ describe('PiSdkTurnEventMapper', () => {
       sessionFile: () => '/tmp/pi-session.jsonl',
       abortSignal: () => controller.signal,
     })
-    mapper.beginTurn({ turnId: 'turn-broker' as TurnId, structured: false })
+    mapper.beginTurn({ turnId: turnIdFrom('turn-broker'), structured: false })
     mapper.requestInterruption('operator-interrupt')
     controller.abort()
     mapper.handle(
@@ -259,7 +260,7 @@ describe('PiSdkTurnEventMapper', () => {
       sessionFile: () => '/tmp/pi-session.jsonl',
       configuredModelId: 'claude-opus-5',
     })
-    mapper.beginTurn({ turnId: 'turn-1' as TurnId, structured: false })
+    mapper.beginTurn({ turnId: turnIdFrom('turn-1'), structured: false })
     mapper.handle(
       piEvent({
         type: 'message_end',
@@ -285,7 +286,7 @@ describe('PiSdkTurnEventMapper', () => {
       sessionFile: () => '/tmp/pi-session.jsonl',
       configuredModelId: 'claude-opus-5',
     })
-    mapper.beginTurn({ turnId: 'turn-1' as TurnId, structured: false })
+    mapper.beginTurn({ turnId: turnIdFrom('turn-1'), structured: false })
     mapper.handle(piEvent({ type: 'message_end', message: assistantMessage('done') }))
 
     const usage = events.find((event) => event.type === 'usage.updated')
@@ -301,7 +302,7 @@ describe('PiSdkTurnEventMapper', () => {
       provider: 'anthropic',
       sessionFile: () => '/tmp/pi-session.jsonl',
     })
-    mapper.beginTurn({ turnId: 'turn-1' as TurnId, structured: false })
+    mapper.beginTurn({ turnId: turnIdFrom('turn-1'), structured: false })
     mapper.handle(piEvent({ type: 'message_end', message: assistantMessage('done') }))
 
     const usage = events.find((event) => event.type === 'usage.updated')
@@ -341,8 +342,8 @@ function createContext(): { ctx: DriverContext; events: CapturedEvent[] } {
     const event = {
       type,
       payload,
-      ...(typeof extra?.turnId === 'string' ? { turnId: extra.turnId } : {}),
-      ...(typeof extra?.itemId === 'string' ? { itemId: extra.itemId } : {}),
+      ...(typeof extra?.['turnId'] === 'string' ? { turnId: extra['turnId'] } : {}),
+      ...(typeof extra?.['itemId'] === 'string' ? { itemId: extra['itemId'] } : {}),
     } as CapturedEvent
     events.push(event)
     return event

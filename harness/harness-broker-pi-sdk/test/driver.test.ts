@@ -16,6 +16,7 @@ import {
   createPiSdkDriver,
   resolvePiSdkModelReference,
 } from '../src/driver'
+import { inputIdFrom, invocationIdFrom } from './ids'
 
 type CapturedEvent = Pick<InvocationEventEnvelope, 'seq' | 'type' | 'payload'>
 
@@ -159,7 +160,7 @@ describe('pi SDK driver structured output', () => {
     const activeStructuredTool = session.agent.state.tools.find(
       (tool) => tool.name === 'respond_structured'
     )
-    expect(activeStructuredTool?.parameters).toEqual(structuredInput().responseFormat?.schema)
+    expect(activeStructuredTool?.parameters).toEqual(STRUCTURED_SCHEMA)
 
     scheduled?.()
     await waitForEvent(events, 'turn.completed')
@@ -255,8 +256,8 @@ describe('pi SDK authentication modes', () => {
         },
       })
     )
-    const priorKey = process.env.OPENAI_API_KEY
-    process.env.OPENAI_API_KEY = 'must-not-reach-oauth'
+    const priorKey = process.env['OPENAI_API_KEY']
+    process.env['OPENAI_API_KEY'] = 'must-not-reach-oauth'
 
     try {
       const events: CapturedEvent[] = []
@@ -278,7 +279,7 @@ describe('pi SDK authentication modes', () => {
         credentialType: 'oauth',
         storeBound: true,
       })
-      expect(requireFactoryInput(factoryInput).environment.OPENAI_API_KEY).toBeUndefined()
+      expect(requireFactoryInput(factoryInput).environment['OPENAI_API_KEY']).toBeUndefined()
       expect(authNotice(events)).toMatchObject({
         kind: 'auth-resolved',
         providerId: 'openai-codex',
@@ -293,8 +294,8 @@ describe('pi SDK authentication modes', () => {
         events.findIndex((event) => event.type === 'turn.started')
       )
     } finally {
-      if (priorKey === undefined) process.env.OPENAI_API_KEY = undefined
-      else process.env.OPENAI_API_KEY = priorKey
+      if (priorKey === undefined) process.env['OPENAI_API_KEY'] = undefined
+      else process.env['OPENAI_API_KEY'] = priorKey
       await rm(temporaryDir, { recursive: true, force: true })
     }
   })
@@ -367,12 +368,12 @@ describe('pi SDK authentication modes', () => {
   })
 
   test('the account default Pi store comes from the account home, not $HOME', () => {
-    const priorHome = process.env.HOME
-    process.env.HOME = '/nonexistent-home-override'
+    const priorHome = process.env['HOME']
+    process.env['HOME'] = '/nonexistent-home-override'
     try {
       expect(defaultPiAuthStorePath()).toBe(join(userInfo().homedir, '.pi', 'agent', 'auth.json'))
     } finally {
-      process.env.HOME = priorHome
+      process.env['HOME'] = priorHome
     }
   })
 
@@ -487,23 +488,22 @@ function requireFactoryInput(
   return input
 }
 
+const STRUCTURED_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['answer', 'count'],
+  properties: {
+    answer: { type: 'string' },
+    count: { type: 'integer' },
+  },
+}
+
 function structuredInput(): InvocationInput {
   return {
-    inputId: 'input-1',
+    inputId: inputIdFrom('input-1'),
     kind: 'user',
     content: [{ type: 'text', text: 'answer' }],
-    responseFormat: {
-      kind: 'json_schema',
-      schema: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['answer', 'count'],
-        properties: {
-          answer: { type: 'string' },
-          count: { type: 'integer' },
-        },
-      },
-    },
+    responseFormat: { kind: 'json_schema', schema: STRUCTURED_SCHEMA },
   }
 }
 
@@ -514,7 +514,7 @@ function spec(
 ): HarnessInvocationSpec {
   return {
     specVersion: 'harness-broker.invocation/v1',
-    invocationId: 'invocation-driver-test',
+    invocationId: invocationIdFrom('invocation-driver-test'),
     harness: { frontend: 'pi', provider: 'openai', driver: 'pi-sdk' },
     driver: { kind: 'pi-sdk', permissionPolicy: { mode: 'deny' } },
     sdk: { runtime: 'pi-sdk', provider, modelId, authMode },
@@ -557,7 +557,7 @@ function createContext(
     return event
   }) as DriverContext['emit']
   return {
-    invocationId: 'invocation-driver-test',
+    invocationId: invocationIdFrom('invocation-driver-test'),
     clientCapabilities: {},
     ...(dispatchEnv !== undefined ? { dispatchEnv } : {}),
     emit,
@@ -611,7 +611,7 @@ function failure(events: CapturedEvent[]): Record<string, unknown> | undefined {
 
 function userInput(): InvocationInput {
   return {
-    inputId: 'input-auth-test',
+    inputId: inputIdFrom('input-auth-test'),
     kind: 'user',
     content: [{ type: 'text', text: 'hello' }],
   }

@@ -268,7 +268,11 @@ async function request(method: string, params: unknown): Promise<any> {
   return transport?.request(method, params)
 }
 
-function fakeObservationService(): Record<string, unknown> {
+// The daemon forwards service responses verbatim, so these wire tests only need
+// abridged response shapes; the single cast at the call site admits the fake.
+type AbridgedAspcService = { [K in keyof AspcService]?: (...args: never[]) => Promise<unknown> }
+
+function fakeObservationService(): AbridgedAspcService {
   return {
     hello: async () => ({
       facadeInfo: { name: 'aspc-facade', version: 'red' },

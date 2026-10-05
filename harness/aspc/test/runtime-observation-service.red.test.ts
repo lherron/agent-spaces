@@ -3,11 +3,16 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { RuntimeCompileResponse } from 'spaces-runtime-contracts'
+import type {
+  AspcInspectRuntimePlacementRequest,
+  AspcInspectRuntimePlacementResponse,
+  AspcResolveRuntimeDeclarationRequest,
+  AspcRuntimePromptObservation,
+} from 'spaces-aspc-protocol'
+import type { CompileId, RuntimeCompileResponse } from 'spaces-runtime-contracts'
 import * as Aspc from '../src/index.js'
 
 type Handler = (request: { id: string | number; method: string; params: unknown }) => Promise<any>
-type DynamicService = Record<string, (...args: any[]) => Promise<any>>
 const METHODS = [
   'aspc.resolveRuntimeDeclaration',
   'aspc.inspectRuntimePlacement',
@@ -119,12 +124,13 @@ describe('T-08563 ASPC runtime observation service', () => {
 
   test('returns a present composed prompt and its summary', async () => {
     const service = dynamicService()
-    const response = await service.inspectRuntimePlacement(
-      inspectRequest('prompted', {
-        RUNTIME_PROMPT_VALUE: 'from-dispatch',
-      })
+    const response = okPlacement(
+      await service.inspectRuntimePlacement(
+        inspectRequest('prompted', {
+          RUNTIME_PROMPT_VALUE: 'from-dispatch',
+        })
+      )
     )
-    expect(response.ok).toBe(true)
     // T-08579 (T-08563 rev 5.2): dispatchEnv is launch-process input only and
     // never a template interpolation input, so the ambient value renders.
     expect(response.prompt).toMatchObject({
@@ -135,14 +141,15 @@ describe('T-08563 ASPC runtime observation service', () => {
         nearMaxChars: false,
       },
     })
-    expect(response.prompt.value.promptTotalChars).toBeGreaterThan(0)
-    expect(response.prompt.value.totalContextChars).toBeGreaterThan(0)
-    expect(response.prompt.value.promptSectionSizes).toEqual(
+    const prompt = presentPrompt(response.prompt)
+    expect(prompt.promptTotalChars).toBeGreaterThan(0)
+    expect(prompt.totalContextChars).toBeGreaterThan(0)
+    expect(prompt.promptSectionSizes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: expect.any(String), chars: expect.any(Number) }),
       ])
     )
-    expect(response.prompt.value.reminderSectionSizes).toEqual(
+    expect(prompt.reminderSectionSizes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: expect.any(String), chars: expect.any(Number) }),
       ])
@@ -162,8 +169,8 @@ describe('T-08563 ASPC runtime observation service', () => {
   })
 
   test('keeps prompt resolution failure ok with partial inspection and compiled plan facts', async () => {
-    const response = await dynamicService().inspectRuntimePlacement(
-      inspectRequest('invalid-prompt')
+    const response = okPlacement(
+      await dynamicService().inspectRuntimePlacement(inspectRequest('invalid-prompt'))
     )
     expect(response).toMatchObject({
       ok: true,
@@ -174,7 +181,7 @@ describe('T-08563 ASPC runtime observation service', () => {
       expect.arrayContaining([expect.objectContaining({ code: 'prompt_resolution_failed' })])
     )
     expect(
-      response.inspection.parts.some((part: { kind?: string }) => part.kind !== 'prompt'),
+      response.inspection.parts.some((part) => part.kind !== 'prompt'),
       'successful compile facts must survive prompt failure'
     ).toBe(true)
     expect(JSON.stringify(response.inspection)).toContain('plan_runtime_observation_red')
@@ -182,19 +189,25 @@ describe('T-08563 ASPC runtime observation service', () => {
 
   test('T-08579: dispatchEnv changes neither prompt facts nor the environment hash', async () => {
     const service = dynamicService()
-    const first = await service.inspectRuntimePlacement(
-      inspectRequest('prompted', { RUNTIME_PROMPT_VALUE: 'A' })
+    const first = okPlacement(
+      await service.inspectRuntimePlacement(
+        inspectRequest('prompted', { RUNTIME_PROMPT_VALUE: 'A' })
+      )
     )
-    const repeat = await service.inspectRuntimePlacement(
-      inspectRequest('prompted', { RUNTIME_PROMPT_VALUE: 'A' })
+    const repeat = okPlacement(
+      await service.inspectRuntimePlacement(
+        inspectRequest('prompted', { RUNTIME_PROMPT_VALUE: 'A' })
+      )
     )
-    const changed = await service.inspectRuntimePlacement(
-      inspectRequest('prompted', { RUNTIME_PROMPT_VALUE: 'B' })
+    const changed = okPlacement(
+      await service.inspectRuntimePlacement(
+        inspectRequest('prompted', { RUNTIME_PROMPT_VALUE: 'B' })
+      )
     )
     expect(repeat.prompt).toEqual(first.prompt)
     expect(repeat.effectiveEnvironmentHash).toBe(first.effectiveEnvironmentHash)
     expect(changed.prompt).toEqual(first.prompt)
-    expect(changed.prompt.value.systemPrompt).toContain('present=ambient')
+    expect(presentPrompt(changed.prompt).systemPrompt).toContain('present=ambient')
     expect(changed.effectiveEnvironmentHash).toBe(first.effectiveEnvironmentHash)
   })
 
@@ -280,12 +293,12 @@ model = "gpt-5.6-sol"
   })
 })
 
-function dynamicService(): DynamicService {
+function dynamicService(): Aspc.AspcService {
   const service = Aspc.createAspcService({
     compiler: async () => successfulCompileResponse(),
     agentsRoot,
     environment: { RUNTIME_PROMPT_VALUE: 'ambient' },
-  }) as unknown as DynamicService
+  })
   expect(
     service.inspectRuntimePlacement,
     'AspcService.inspectRuntimePlacement must compose declaration, partial inspection, and prompt state'
@@ -293,7 +306,24 @@ function dynamicService(): DynamicService {
   return service
 }
 
-function inspectRequest(agentId: string, dispatchEnv?: Record<string, string>) {
+function okPlacement(
+  response: AspcInspectRuntimePlacementResponse
+): Extract<AspcInspectRuntimePlacementResponse, { ok: true }> {
+  if (!response.ok) throw new Error(`expected ok placement, got ${JSON.stringify(response)}`)
+  return response
+}
+
+function presentPrompt(
+  prompt: AspcRuntimePromptObservation
+): Extract<AspcRuntimePromptObservation, { state: 'present' }>['value'] {
+  if (prompt.state !== 'present') throw new Error(`expected present prompt, got ${prompt.state}`)
+  return prompt.value
+}
+
+function inspectRequest(
+  agentId: string,
+  dispatchEnv?: Record<string, string>
+): AspcInspectRuntimePlacementRequest {
   return {
     schemaVersion: 'aspc-inspect-runtime-placement-request/v1',
     context: {
@@ -312,7 +342,7 @@ function declarationRequest(
   agentId: string,
   agentRoot: string,
   project: { mode: 'root'; projectRoot: string; projectId: string } | { mode: 'none' }
-) {
+): AspcResolveRuntimeDeclarationRequest {
   return {
     schemaVersion: 'aspc-resolve-runtime-declaration-request/v1',
     context: {
@@ -368,7 +398,7 @@ function successfulCompileResponse(): RuntimeCompileResponse {
     plan: {
       schemaVersion: 'agent-runtime-plan/v2',
       compiler: { name: 'agent-spaces', version: 'red' },
-      compileId: 'compile_runtime_observation_red',
+      compileId: 'compile_runtime_observation_red' as CompileId,
       planHash: 'plan_runtime_observation_red',
       createdAt: '2026-09-17T04:00:00.000Z',
       agent: { id: 'prompted' },

@@ -156,6 +156,7 @@ export function buildCompileRequest(
         phase: 'aspc-test',
         role: 'smoke',
         requiredEvidenceKinds: ['contract-artifacts'],
+        hintsText: '',
       },
     },
     hrcPolicy: {

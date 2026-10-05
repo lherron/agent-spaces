@@ -44,7 +44,9 @@ describe('resident surface controller', () => {
         async setReadOnly() {},
         async detachClient() {},
       },
-      onObservation: (observation) => observations.push(observation.type),
+      onObservation: (observation) => {
+        observations.push(observation.type)
+      },
       disposeHost: async () => {
         disposed = true
       },
@@ -218,8 +220,12 @@ describe('resident native approval control', () => {
     const observations: string[] = []
     const control = createResidentApprovalControl({
       requiresApproval: () => true,
-      onPending: (pending) => observations.push(`pending:${pending.toolCallId}`),
-      onDecision: (decision) => observations.push(`decision:${decision.decision}`),
+      onPending: (pending) => {
+        observations.push(`pending:${pending.toolCallId}`)
+      },
+      onDecision: (decision) => {
+        observations.push(`decision:${decision.decision}`)
+      },
     })
     control.extensionFactory({
       on(event: string, handler: typeof toolCall) {
@@ -258,7 +264,9 @@ describe('resident native approval control', () => {
     const observations: string[] = []
     const control = createResidentApprovalControl({
       requiresApproval: () => true,
-      onDecision: (decision) => observations.push(decision.decision),
+      onDecision: (decision) => {
+        observations.push(decision.decision)
+      },
     })
     control.extensionFactory({
       on(event: string, handler: typeof toolCall) {

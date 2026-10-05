@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { AgentSessionRuntime } from '@earendil-works/pi-coding-agent'
 import type { PiSdkSession, PiSdkSessionFactoryInput } from 'spaces-harness-broker-pi-sdk'
+import type { InvocationId } from 'spaces-harness-broker-protocol'
 
 import { createResolvedAgentSession, runtimeBackedPiSdkSession } from './invocation-session-factory'
 
@@ -81,7 +82,7 @@ test('forwards all broker-owned inputs into the shared direct runtime without au
   expect(runtimeOptions.customTools).toHaveLength(1)
 
   let disposed = false
-  const disposal = created.dispose().then(() => {
+  const disposal = Promise.resolve(created.dispose()).then(() => {
     disposed = true
   })
   expect(disposed).toBe(false)
@@ -182,7 +183,7 @@ function input(): PiSdkSessionFactoryInput {
   return {
     spec: {
       specVersion: 'harness-broker.invocation/v1',
-      invocationId: 'invocation-1',
+      invocationId: 'invocation-1' as InvocationId,
       harness: { frontend: 'pi', provider: 'openai', driver: 'agent-harness' },
       driver: { kind: 'agent-harness' },
       sdk: {
@@ -199,7 +200,7 @@ function input(): PiSdkSessionFactoryInput {
         lockedEnv: { LOCKED: 'yes' },
         harnessTransport: { kind: 'in-process' },
       },
-      continuation: { key: 'session-key' },
+      continuation: { provider: 'openai', key: 'session-key' },
       agent: {
         agentId: 'cody',
         projectId: 'agent-spaces',

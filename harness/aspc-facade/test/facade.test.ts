@@ -140,7 +140,9 @@ describe('ASPC cohosted composition facade', () => {
         ...dispatch,
       })
 
-      expect(startResponse.invocationId).toBe(dispatch.startRequest.spec.invocationId)
+      const expectedInvocationId = dispatch.startRequest.spec.invocationId
+      if (expectedInvocationId === undefined) throw new Error('compiled spec has no invocationId')
+      expect(startResponse.invocationId).toBe(expectedInvocationId)
 
       await client.request('invocation.stop', {
         invocationId: startResponse.invocationId,
