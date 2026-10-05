@@ -174,6 +174,21 @@ overlay-codex *args:
 sync-manager-space *args:
     bun scripts/sync-manager-space.ts {{args}}
 
+# `install` depends on this gate so a manager-space copy that drifted from the
+# canonical <agents-root>/spaces/agent-spaces-manager never ships (T-10369).
+# Nodes without the agents root skip it.
+
+# Fail when the agent-spaces manager-space copies drifted from the canonical one.
+check-manager-space:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    canonical="${ASP_AGENTS_ROOT:-$HOME/praesidium/var/agents}/spaces/agent-spaces-manager"
+    if [ ! -f "$canonical/space.toml" ]; then
+      echo "[check-manager-space] no canonical manager space at $canonical; skipping"
+      exit 0
+    fi
+    bun scripts/sync-manager-space.ts --check --source "$canonical"
+
 # Validate durable architecture records and generated projections
 architecture-records *args:
     bun scripts/check-architecture-records.ts {{args}}
@@ -195,6 +210,7 @@ smoke-live:
     set -euo pipefail
     export ASP_LIVE_TESTS=1
     bun test scripts/sync-agent-to-codex-default.arris-priming.test.ts
+    (cd apps/cli && bun test src/commands/repo/__tests__/manager-space-parity.test.ts)
     (cd harness/harness-broker && bun test test/capture/claude-native-type-coverage.test.ts test/capture/codex-native-type-coverage.test.ts test/drivers/claude-code-tmux/turn-attribution.test.ts)
     (cd contracts/spaces-runtime-contracts && bun test test/runtime-status-vocabulary.red.test.ts)
 
@@ -307,7 +323,7 @@ build-aspd-pilot-client output_root:
 # Executable package links run alongside publish+sync.
 
 # Install, build, link, and publish the ASP package set.
-install no-sync="" force-sync="" force-link="":
+install no-sync="" force-sync="" force-link="": check-manager-space
     #!/usr/bin/env bash
     set -euo pipefail
     repo_root="$(git rev-parse --show-toplevel)"

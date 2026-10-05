@@ -60,16 +60,17 @@ describe('embedded manager space parity', () => {
     expect(driftFrom(SPACE_DIR)).toEqual([])
   })
 
-  // The agents root is host state: CI and other nodes may not have it.
-  test.skipIf(!existsSync(join(CANONICAL_DIR, 'space.toml')))(
-    `embedded copy matches the canonical ${CANONICAL_DIR}`,
-    () => {
-      const drift = driftFrom(CANONICAL_DIR)
-      if (drift.length > 0) {
-        throw new Error(
-          `manager space drifted from ${CANONICAL_DIR}; ${SYNC_HINT}:\n  ${drift.join('\n  ')}`
-        )
-      }
+  // The agents root is host state, so this runs only under `just smoke-live`
+  // (ASP_LIVE_TESTS=1, T-10161); `just install` enforces it via
+  // `just check-manager-space`.
+  test.skipIf(
+    process.env['ASP_LIVE_TESTS'] !== '1' || !existsSync(join(CANONICAL_DIR, 'space.toml'))
+  )(`embedded copy matches the canonical ${CANONICAL_DIR}`, () => {
+    const drift = driftFrom(CANONICAL_DIR)
+    if (drift.length > 0) {
+      throw new Error(
+        `manager space drifted from ${CANONICAL_DIR}; ${SYNC_HINT}:\n  ${drift.join('\n  ')}`
+      )
     }
-  )
+  })
 })
