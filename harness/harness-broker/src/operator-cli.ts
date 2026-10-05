@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { type Socket, connect } from 'node:net'
 import { formatError, readFlag } from './cli-args'
 
@@ -55,8 +56,8 @@ export async function submissionCommand(args: string[]): Promise<void> {
     return
   }
 
-  const call = await connectControlClient(socketPath)
   try {
+    const call = await connectControlClient(socketPath)
     const response = await call('submission.withdraw', {
       ...(submissionId !== undefined ? { submissionId } : { envelopeId }),
       reason,
@@ -82,8 +83,8 @@ export async function captureCommand(args: string[]): Promise<void> {
     return
   }
 
-  const call = await connectControlClient(socketPath)
   try {
+    const call = await connectControlClient(socketPath)
     if (sub === 'status') {
       // Capture state rides the ordinary snapshot rather than a second read
       // surface, so the operator sees it in the same place a controller does. `probeLiveness` is deliberately not requested: reading capture
@@ -178,6 +179,36 @@ function formatCaptureState(capture: unknown): string {
 }
 
 /**
+ * A failed connect to the operator socket. Its message is the one line the CLI
+ * prints, naming the socket path, so a missing, stale or unreadable socket
+ * never surfaces as a raw runtime stack (T-10321).
+ */
+export class BrokerSocketConnectError extends Error {
+  readonly socketPath: string
+  readonly code: string | undefined
+
+  constructor(socketPath: string, cause: unknown) {
+    const code = (cause as { code?: unknown } | null)?.code
+    // Bun reports ENOENT for a stale socket file with no listener too, so the
+    // path's existence picks the wording rather than the code alone.
+    const reason =
+      code === 'ENOENT' && !existsSync(socketPath)
+        ? 'no socket at that path'
+        : code === 'ENOENT' || code === 'ECONNREFUSED'
+          ? 'connection refused (no broker listening)'
+          : code === 'EACCES' || code === 'EPERM'
+            ? 'permission denied'
+            : cause instanceof Error
+              ? cause.message
+              : String(cause)
+    super(`cannot connect to broker socket ${socketPath}: ${reason}`)
+    this.name = 'BrokerSocketConnectError'
+    this.socketPath = socketPath
+    this.code = typeof code === 'string' ? code : undefined
+  }
+}
+
+/**
  * Minimal one-shot NDJSON JSON-RPC client for the operator subcommands. It does
  * NOT attach: `invocation.capture.release` is a control-connection method, and
  * attaching would fence the live HRC controller off its own runtime.
@@ -188,7 +219,7 @@ async function connectControlClient(
   const socket = await new Promise<Socket>((resolve, reject) => {
     const s = connect({ path: socketPath })
     s.once('connect', () => resolve(s))
-    s.once('error', reject)
+    s.once('error', (error) => reject(new BrokerSocketConnectError(socketPath, error)))
   })
   let nextId = 1
   let buffer = ''

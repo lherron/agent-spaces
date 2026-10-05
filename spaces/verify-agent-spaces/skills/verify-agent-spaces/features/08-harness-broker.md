@@ -32,7 +32,7 @@ rows belong to a harness-broker change's own acceptance; a verification pass dri
 avs broker-hello                                            # harness-broker/0.3, six drivers available
 env -u CLAUDECODE … bun run smoke:matrix --config fake-codex --json
 env -u CLAUDECODE … bun run smoke:matrix --config unix-jsonrpc-ndjson --compile-transport aspc-rpc --json
-harness-broker capture status --socket /tmp/avs-no-such.sock --invocation inv-none --json   # exit 1
+harness-broker capture status --socket /tmp/avs-no-such.sock --invocation inv-none --json   # one-line error naming the path, exit 1
 harness-broker bogus-verb                                   # usage, exit 1
 ```
 
@@ -42,8 +42,6 @@ harness-broker bogus-verb                                   # usage, exit 1
   canonical checkout and runs `src/` (its stack traces name `agent-spaces/harness/harness-broker/src/…`), so the
   shim rows and `broker-hello` exercise whatever is saved in the shared tree. HRC's durable runtimes run the aspd
   release's `libexec/harness-broker` instead (2026-10-05, `T-10300/08-harness-broker/drive.txt`).
-- `capture status` against a missing socket dies with a raw Bun stack trace (`connect ENOENT`) instead of a typed
-  error. Product gap.
 - Inline from a Claude seat, the leaked `CLAUDE_CODE_*` variables make a child `claude` skip transcript persistence
   and the `real-claude-tmux-midturn` check false-negatives (`AGENTS.md`); strip them as above.
 - `--compile-transport aspc-rpc` spawns a checkout aspc-facade over stdio; it does not go through aspd.
