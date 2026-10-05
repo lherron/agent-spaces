@@ -309,6 +309,123 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     }
   })
 
+  // T-10332: both doors into a compaction, rows in the order Claude Code 2.1.289
+  // appended them (idle auto-compaction on rt-b77e9114; typed `/compact` on the
+  // fresh probe seat rt-15d64e71).
+  const compactBoundary = {
+    type: 'system',
+    subtype: 'compact_boundary',
+    content: 'Conversation compacted',
+    compactMetadata: { trigger: 'manual', preTokens: 257556, postTokens: 9353 },
+  }
+  const compactSummary = {
+    type: 'user',
+    isVisibleInTranscriptOnly: true,
+    isCompactSummary: true,
+    message: {
+      role: 'user',
+      content:
+        'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nSummary:\n1. ...',
+    },
+  }
+  const userRow = (content: string, extra: Record<string, unknown> = {}) => ({
+    type: 'user',
+    ...extra,
+    message: { role: 'user', content },
+  })
+  const compactionDoors: Array<[string, Array<Record<string, unknown>>]> = [
+    ['idle auto-compaction', [compactBoundary, compactSummary]],
+    [
+      'typed /compact',
+      [
+        userRow('/compact'),
+        compactBoundary,
+        compactSummary,
+        userRow(
+          "<local-command-caveat>The command below was run directly in Claude Code, not sent to you as a request, and its output goes straight to the user. It's recorded here as context.</local-command-caveat>",
+          { isMeta: true }
+        ),
+        userRow(
+          '<command-name>/compact</command-name>\n            <command-message>compact</command-message>\n            <command-args></command-args>'
+        ),
+        userRow(
+          '<local-command-stdout>\u001b[2mCompacted (ctrl+o to see full summary)\u001b[22m</local-command-stdout>'
+        ),
+      ],
+    ],
+  ]
+
+  test.each(compactionDoors)(
+    '%s mints no turn and the seat stays idle (T-10332)',
+    async (_door, rows) => {
+      // Reproduced live on rt-b77e9114 (2026-10-05 17:39:31Z): Claude Code's
+      // idle compaction ("Compacted while idle") writes a compact_boundary system
+      // row and then a `type:'user'` row carrying the summary, flagged
+      // `isCompactSummary`. Routed as an operator prompt it minted
+      // submission.executed + turn.started, and no Stop hook ever follows a
+      // compaction, so the seat sat at busy for hours at an idle prompt.
+      const createDriver = await loadFactory()
+      const tmuxCalls: TmuxExecCall[] = []
+      let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
+      const events: InvocationEventEnvelope[] = []
+      const root = mkdtempSync(join(tmpdir(), 'claude-idle-compact-'))
+      const transcriptPath = join(root, 'session.jsonl')
+      writeFileSync(transcriptPath, '')
+      const hookSocket = '/tmp/harness-broker/claude-hooks.sock'
+      const driver = createDriver({
+        tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
+        hooks: {
+          listen: async (handler) => {
+            hookHandler = handler as (envelope: HookEnvelope) => Promise<void>
+            return { socketPath: hookSocket, close: async () => undefined }
+          },
+        },
+        now,
+      })
+      const hook = (hookData: Record<string, unknown>, turnId?: string) =>
+        hookHandler?.({
+          invocationId: 'inv_claude_tmux_1',
+          generation: 1,
+          callbackSocket: hookSocket,
+          ...(turnId !== undefined ? { turnId } : {}),
+          hookData,
+        })
+
+      try {
+        await driver.start(claudeTmuxSpec(), createCtx(events, { terminalSurface: defaultLease() }))
+        await hook({ hook_event_name: 'SessionStart', transcript_path: transcriptPath })
+        await hook({
+          hook_event_name: 'SessionStart',
+          source: 'compact',
+          transcript_path: transcriptPath,
+        })
+        appendFileSync(transcriptPath, `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`)
+        const before = events.length
+        await hook({ hook_event_name: 'Notification', message: 'after compaction' })
+
+        const types = events.slice(before).map((event) => event.type)
+        expect(types).not.toContain('turn.started')
+        expect(types).not.toContain('submission.executed')
+        expect(types).not.toContain('user.message')
+        expect(events.map((event) => event.type)).not.toContain('turn.started')
+
+        // An ordinary turn after the compaction still brackets busy -> idle.
+        await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'what next?' }, 'turn_after')
+        appendFileSync(
+          transcriptPath,
+          `${JSON.stringify({ type: 'user', message: { role: 'user', content: 'what next?' } })}\n`
+        )
+        await hook({ hook_event_name: 'Stop', last_assistant_message: 'done' }, 'turn_after')
+        const after = events.map((event) => event.type)
+        expect(after.filter((type) => type === 'turn.started')).toHaveLength(1)
+        expect(after.filter((type) => type === 'turn.completed')).toHaveLength(1)
+      } finally {
+        await driver.dispose().catch(() => undefined)
+        rmSync(root, { recursive: true, force: true })
+      }
+    }
+  )
+
   test('a plain user row mid-turn warns loudly and the turn still completes (T-07883)', async () => {
     // The exact shape that stalled three real seats overnight: a HUMAN typing
     // into the seat's pane (or a `wrkc` resend landing) while a turn is active

@@ -169,6 +169,9 @@ export function createClaudeAttributionEventSink(options: {
     if (userObservation?.kind === 'hook-feedback') {
       return { disposition: 'ignored-known', detail: 'stop hook feedback' }
     }
+    if (userObservation?.kind === 'compaction') {
+      return { disposition: 'ignored-known', detail: userObservation.detail }
+    }
     if (userObservation?.kind === 'interrupted') {
       const hadActiveTurn = attribution.activeTurnId !== undefined
       const minted = emitActions(
@@ -209,10 +212,18 @@ function classifyTranscriptUserEntry(
   | { kind: 'prompt'; content: string }
   | { kind: 'interrupted' }
   | { kind: 'hook-feedback' }
+  | { kind: 'compaction'; detail: string }
   | undefined {
+  // Compaction and Claude's local commands write `user` rows that no operator
+  // submitted to the model: no UserPromptSubmit precedes them and no Stop hook
+  // follows, so minting a turn from one pins the seat busy forever (T-10332).
+  if (entry['isCompactSummary'] === true)
+    return { kind: 'compaction', detail: 'compaction summary' }
   const message = asHookRecord(entry['message'])
   const content = message['content']
   if (typeof content === 'string') {
+    const localCommand = classifyLocalCommandRow(content)
+    if (localCommand !== undefined) return { kind: 'compaction', detail: localCommand }
     // A hook the broker BLOCKED writes its reason back into the conversation as
     // an ordinary user row. It is harness feedback about a broker decision, not
     // an operator prompt — routing it to the disposition mirror would warn
@@ -234,4 +245,23 @@ function classifyTranscriptUserEntry(
     text === '[Request interrupted by user for tool use]'
     ? { kind: 'interrupted' }
     : undefined
+}
+
+/**
+ * The rows a typed `/compact` writes around the summary: the bare command row,
+ * then the caveat / command-name / stdout records Claude keeps for every local
+ * command. Only `/compact` is matched by name — a `<command-name>` row can also
+ * echo a skill or custom command that DOES run a model turn.
+ */
+function classifyLocalCommandRow(content: string): string | undefined {
+  if (/^\/compact(?:\s|$)/.test(content)) return 'compact command'
+  if (content.startsWith('<command-name>/compact</command-name>')) return 'compact command record'
+  if (
+    content.startsWith('<local-command-caveat>') ||
+    content.startsWith('<local-command-stdout>') ||
+    content.startsWith('<local-command-stderr>')
+  ) {
+    return 'local command output'
+  }
+  return undefined
 }
