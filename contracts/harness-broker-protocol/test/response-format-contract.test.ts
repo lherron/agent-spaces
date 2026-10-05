@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { InvocationInput, InvocationResponseFormat } from '../src/commands'
 import { validateInvocationInput } from '../src/schemas'
+import { inputIdFrom } from './ids'
 
 /**
  * Symbol-level contract coverage for the per-turn `InvocationResponseFormat`
@@ -11,7 +12,7 @@ describe('InvocationResponseFormat contract', () => {
   test('text variant validates and composes onto InvocationInput', () => {
     const responseFormat: InvocationResponseFormat = { kind: 'text' }
     const input: InvocationInput = {
-      inputId: 'input_text',
+      inputId: inputIdFrom('input_text'),
       kind: 'user',
       content: [{ type: 'text', text: 'plain' }],
       responseFormat,
@@ -30,7 +31,7 @@ describe('InvocationResponseFormat contract', () => {
       },
     }
     const input: InvocationInput = {
-      inputId: 'input_schema',
+      inputId: inputIdFrom('input_schema'),
       kind: 'user',
       content: [{ type: 'text', text: 'structured' }],
       responseFormat,

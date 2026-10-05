@@ -24,6 +24,7 @@ import {
   isLoadBearingEventFamily,
   validateEventEnvelope,
 } from '../src/index'
+import { invocationIdFrom } from './ids'
 
 const envelope = (extra: Record<string, unknown> = {}): unknown => ({
   invocationId: 'inv_1',
@@ -242,7 +243,7 @@ describe('capture types compile against their documented shapes', () => {
     const cursor: RawSourceCursor = { byteOffset: 0, line: 1, nativeSequence: 'n1' }
     const record: RawProviderRecord = {
       rawRecordId: 'raw_1',
-      invocationId: 'inv_1',
+      invocationId: invocationIdFrom('inv_1'),
       provider: 'anthropic',
       driverKind: 'claude-code-tmux',
       sourceKind: 'provider-jsonl',
@@ -285,14 +286,14 @@ describe('capture types compile against their documented shapes', () => {
       payload: { submissionId: 's1' },
     }
     const request: InvocationCaptureReleaseRequest = {
-      invocationId: 'inv_1',
+      invocationId: invocationIdFrom('inv_1'),
       rawRecordId: 'raw_1',
       disposition: 'normalized-as',
       normalizedAs,
     }
     const response: InvocationCaptureReleaseResponse = {
       released: true,
-      invocationId: 'inv_1',
+      invocationId: invocationIdFrom('inv_1'),
       rawRecordId: 'raw_1',
       disposition: 'normalized',
       releasedSeq: 9,

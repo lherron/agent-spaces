@@ -12,8 +12,8 @@ import { describe, expect, test } from 'bun:test'
 import {
   type PreparedPlacementCliRuntime,
   toProcessInvocationSpec,
-} from '../../../compiler/agent-spaces/src/prepare-cli-runtime.js'
-import type { BuildProcessInvocationSpecRequest } from '../../../compiler/agent-spaces/src/types.js'
+} from '../prepare-cli-runtime.js'
+import type { BuildProcessInvocationSpecRequest } from '../types.js'
 
 function request(): BuildProcessInvocationSpecRequest {
   return {
@@ -39,12 +39,10 @@ function prepared(input: {
     >,
     runtimePlan: { provider: 'openai' } as PreparedPlacementCliRuntime['runtimePlan'],
     materialized: {} as PreparedPlacementCliRuntime['materialized'],
+    preparation: {} as PreparedPlacementCliRuntime['preparation'],
     ...(input.systemPrompt !== undefined
       ? {
-          systemPrompt: {
-            ...input.systemPrompt,
-            contentHash: 'sha256-system',
-          },
+          systemPrompt: input.systemPrompt,
         }
       : {}),
     ...(input.expandedPrompt !== undefined ? { expandedPrompt: input.expandedPrompt } : {}),

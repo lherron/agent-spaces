@@ -1,25 +1,33 @@
 import { describe, expect, test } from 'bun:test'
+import type {
+  BrokerCommand,
+  InvocationDispatchRequest,
+  PermissionRequestParams,
+} from '../src/commands'
 import { conservativeDefaultLifecyclePolicyOverlay, lifecyclePolicyHash } from '../src/lifecycle'
+import type { BrokerLifecyclePolicyOverlay } from '../src/lifecycle'
 import {
   validateCommand,
   validateInvocationDispatchRequest,
   validatePermissionRequestParams,
 } from '../src/schemas'
+import { inputIdFrom, invocationIdFrom, permissionRequestIdFrom, turnIdFrom } from './ids'
 import {
   claudeCodeTmuxSpec,
   expectInvalidCommand,
   expectInvalidDispatchRequest,
   expectInvalidPermissionRequestParams,
   specSection19InvocationStartSpec,
+  withValueAt,
 } from './schema-test-helpers'
 
 describe('validateInvocationDispatchRequest', () => {
   test('accepts a dispatch envelope with a verbatim start request and dispatchEnv', () => {
-    const request = {
+    const request: InvocationDispatchRequest = {
       startRequest: {
         spec: specSection19InvocationStartSpec,
         initialInput: {
-          inputId: 'input_1',
+          inputId: inputIdFrom('input_1'),
           kind: 'user',
           content: [{ type: 'text', text: 'hello' }],
         },
@@ -75,7 +83,7 @@ describe('validateInvocationDispatchRequest', () => {
     expect(accepted.policyHash).toBe(lifecyclePolicyHash(accepted))
 
     // Same digest string, but material changed -> hash no longer canonical.
-    const tampered = {
+    const tampered: BrokerLifecyclePolicyOverlay = {
       ...accepted,
       turnRetry: {
         mode: 'safe-retry',
@@ -297,10 +305,7 @@ describe('validateInvocationDispatchRequest', () => {
   })
 
   test('rejects terminalSurface with wrong ownership or kind', () => {
-    const badOwnership = structuredClone(validTerminalSurface) as typeof validTerminalSurface & {
-      ownership: string
-    }
-    badOwnership.ownership = 'driver'
+    const badOwnership = withValueAt(validTerminalSurface, ['ownership'], 'driver')
     expectInvalidDispatchRequest(
       {
         startRequest: { spec: claudeCodeTmuxSpec },
@@ -312,10 +317,7 @@ describe('validateInvocationDispatchRequest', () => {
       }
     )
 
-    const badKind = structuredClone(validTerminalSurface) as typeof validTerminalSurface & {
-      kind: string
-    }
-    badKind.kind = 'tmux-session'
+    const badKind = withValueAt(validTerminalSurface, ['kind'], 'tmux-session')
     expectInvalidDispatchRequest(
       {
         startRequest: { spec: claudeCodeTmuxSpec },
@@ -329,14 +331,11 @@ describe('validateInvocationDispatchRequest', () => {
   })
 
   test('rejects terminalSurface allowedOps without inspect/sendInput/sendInterrupt = true', () => {
-    const surface = structuredClone(validTerminalSurface) as typeof validTerminalSurface & {
-      allowedOps: Record<string, unknown>
-    }
-    surface.allowedOps = {
+    const surface = withValueAt(validTerminalSurface, ['allowedOps'], {
       inspect: false,
       sendInput: true,
       sendInterrupt: true,
-    }
+    })
     expectInvalidDispatchRequest(
       {
         startRequest: { spec: claudeCodeTmuxSpec },
@@ -386,7 +385,7 @@ describe('validateInvocationDispatchRequest', () => {
 
 describe('validateCommand', () => {
   test('validates invocation.start as a dispatch envelope', () => {
-    const command = {
+    const command: BrokerCommand = {
       jsonrpc: '2.0',
       id: 1,
       method: 'invocation.start',
@@ -508,8 +507,11 @@ describe('validateCommand', () => {
     (method, validParams, malformedParams, expectedIssue) => {
       // T-01791 Phase A: HRC restart durability depends on these v2 IPC commands
       // being accepted by schema validation before broker/client behavior exists.
+      // `method` is a test.each row value, so the command is untyped wire input;
+      // compare the validated result as plain data.
       const command = { jsonrpc: '2.0', id: 1, method, params: validParams }
-      expect(validateCommand(command)).toEqual(command)
+      const validated: unknown = validateCommand(command)
+      expect(validated).toEqual(command)
 
       expectInvalidCommand(
         { jsonrpc: '2.0', id: 2, method, params: malformedParams },
@@ -521,11 +523,11 @@ describe('validateCommand', () => {
   test('invocation.status accepts an optional bounded liveness probe flag', () => {
     // T-01850: status uses the same cached-by-default inspection surface as
     // snapshot/list, with probeLiveness requesting a bounded active probe.
-    const command = {
+    const command: BrokerCommand = {
       jsonrpc: '2.0',
       id: 1,
       method: 'invocation.status',
-      params: { invocationId: 'inv_1', probeLiveness: true },
+      params: { invocationId: invocationIdFrom('inv_1'), probeLiveness: true },
     }
     expect(validateCommand(command)).toEqual(command)
 
@@ -543,10 +545,10 @@ describe('validateCommand', () => {
 
 describe('validatePermissionRequestParams', () => {
   test('accepts broker-to-client permission request params', () => {
-    const params = {
-      invocationId: 'inv_1',
-      turnId: 'turn_1',
-      permissionRequestId: 'perm_1',
+    const params: PermissionRequestParams = {
+      invocationId: invocationIdFrom('inv_1'),
+      turnId: turnIdFrom('turn_1'),
+      permissionRequestId: permissionRequestIdFrom('perm_1'),
       kind: 'command',
       subject: { argv: ['ls'] },
       defaultDecision: 'deny',

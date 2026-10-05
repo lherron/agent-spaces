@@ -1,4 +1,5 @@
 import { expect } from 'bun:test'
+import type { HarnessInvocationSpec, HarnessSdkSpec } from '../src/invocation'
 import {
   validateCommand,
   validateEventEnvelope,
@@ -21,7 +22,45 @@ export const expectInvalidCommand = (
   )
 }
 
-export const specSection62Example = {
+type FixturePath = readonly (string | number)[]
+
+const containerAt = (root: unknown, path: FixturePath): object => {
+  let node: unknown = root
+  for (const key of path) {
+    if (typeof node !== 'object' || node === null) {
+      throw new Error(`fixture path ${path.join('.')} does not resolve to an object`)
+    }
+    node = Reflect.get(node, key)
+  }
+  if (typeof node !== 'object' || node === null) {
+    throw new Error(`fixture path ${path.join('.')} does not resolve to an object`)
+  }
+  return node
+}
+
+/**
+ * Clone of a typed fixture with the value at `path` replaced. Used by tests
+ * that deliberately corrupt a valid fixture to exercise validator rejection
+ * paths, so the result is untyped input.
+ */
+export const withValueAt = (source: unknown, path: FixturePath, value: unknown): unknown => {
+  const copy = structuredClone(source)
+  const key = path.at(-1)
+  if (key === undefined) throw new Error('fixture path must not be empty')
+  Reflect.set(containerAt(copy, path.slice(0, -1)), key, value)
+  return copy
+}
+
+/** Clone of a typed fixture with the key at `path` removed (deliberately invalid input). */
+export const withoutKeyAt = (source: unknown, path: FixturePath): unknown => {
+  const copy = structuredClone(source)
+  const key = path.at(-1)
+  if (key === undefined) throw new Error('fixture path must not be empty')
+  Reflect.deleteProperty(containerAt(copy, path.slice(0, -1)), key)
+  return copy
+}
+
+export const specSection62Example: HarnessInvocationSpec = {
   specVersion: 'harness-broker.invocation/v1',
   harness: {
     frontend: 'codex',
@@ -57,7 +96,7 @@ export const specSection62Example = {
   },
 }
 
-export const specSection19InvocationStartSpec = {
+export const specSection19InvocationStartSpec: HarnessInvocationSpec = {
   specVersion: 'harness-broker.invocation/v1',
   harness: {
     frontend: 'codex',
@@ -87,7 +126,7 @@ export const specSection19InvocationStartSpec = {
   },
 }
 
-export const claudeCodeTmuxSpec = {
+export const claudeCodeTmuxSpec: HarnessInvocationSpec = {
   specVersion: 'harness-broker.invocation/v1',
   harness: {
     frontend: 'claude-code',
@@ -111,7 +150,15 @@ export const claudeCodeTmuxSpec = {
   },
 }
 
-export const piSdkSpec = {
+export const piSdkSpecSdk: HarnessSdkSpec = {
+  runtime: 'pi-sdk',
+  provider: 'anthropic',
+  modelId: 'claude-sonnet-4-5',
+  authMode: 'api-key',
+  thinkingLevel: 'medium',
+}
+
+export const piSdkSpec: HarnessInvocationSpec = {
   specVersion: 'harness-broker.invocation/v1',
   harness: {
     frontend: 'pi',
@@ -132,20 +179,14 @@ export const piSdkSpec = {
   driver: {
     kind: 'pi-sdk',
   },
-  sdk: {
-    runtime: 'pi-sdk',
-    provider: 'anthropic',
-    modelId: 'claude-sonnet-4-5',
-    authMode: 'api-key',
-    thinkingLevel: 'medium',
-  },
+  sdk: piSdkSpecSdk,
 }
 
 // Shaped exactly like the profile `createArrisParticipantAdapter().prepare()`
 // composes: an in-process driver that opens the Arris control socket itself,
 // keeps a real command string (the broker spawns nothing from it) and carries
 // no `sdk` block.
-export const arrisResidentSpec = {
+export const arrisResidentSpec: HarnessInvocationSpec = {
   specVersion: 'harness-broker.invocation/v1',
   harness: {
     frontend: 'arris',

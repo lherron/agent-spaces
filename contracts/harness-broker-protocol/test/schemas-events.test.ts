@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import * as protocol from '../src'
 import type {
+  CaptureReleasedPayload,
   CaptureWarningPayload,
   InputId,
   InvocationEventPayloadMap,
@@ -35,6 +36,13 @@ describe('validateEventEnvelope', () => {
       normalizer: { name: 'test', version: '1' },
     },
   })
+
+  // `envelope` builds untyped wire input (it also feeds the rejection tests),
+  // so round-trips compare the validated envelope as plain data.
+  const expectValidatesTo = (input: unknown, expected: unknown = input) => {
+    const validated: unknown = validateEventEnvelope(input)
+    expect(validated).toEqual(expected)
+  }
 
   const eventPayloads = {
     'invocation.started': {
@@ -153,6 +161,12 @@ describe('validateEventEnvelope', () => {
       message: 'unknown queue operation',
       raw: { type: 'queue-operation', operation: 'unknown' },
     } satisfies CaptureWarningPayload,
+    'capture.released': {
+      rawRecordId: 'raw_1',
+      disposition: 'normalized',
+      normalizedAs: { type: 'submission.cancelled' },
+      resumedRecords: 2,
+    } satisfies CaptureReleasedPayload,
     'turn.started': { turnId: 'turn_1' as TurnId, source: 'observed' },
     'turn.attributed': {
       turnId: 'turn_1' as TurnId,
@@ -233,7 +247,7 @@ describe('validateEventEnvelope', () => {
 
   test('accepts every final v1 invocation event type', () => {
     for (const [type, payload] of Object.entries(eventPayloads)) {
-      expect(validateEventEnvelope(envelope(type, payload))).toEqual(envelope(type, payload))
+      expectValidatesTo(envelope(type, payload), envelope(type, payload))
     }
   })
 
@@ -244,17 +258,13 @@ describe('validateEventEnvelope', () => {
     for (const source of sources) {
       const model: UsageModelIdentity = { id: 'claude-opus-5', source }
       const payload: UsageUpdatedPayload = { usage: { inputTokens: 1 }, model }
-      expect(validateEventEnvelope(envelope('usage.updated', payload))).toEqual(
-        envelope('usage.updated', payload)
-      )
+      expectValidatesTo(envelope('usage.updated', payload), envelope('usage.updated', payload))
     }
   })
 
   test('T-08430: the model field is optional, so a driver may omit it', () => {
     const payload: UsageUpdatedPayload = { usage: { inputTokens: 1 } }
-    expect(validateEventEnvelope(envelope('usage.updated', payload))).toEqual(
-      envelope('usage.updated', payload)
-    )
+    expectValidatesTo(envelope('usage.updated', payload), envelope('usage.updated', payload))
   })
 
   test('T-08430: usage.updated rejects a half model identity', () => {
@@ -322,15 +332,12 @@ describe('validateEventEnvelope', () => {
   })
 
   test('turn.attributed enforces ownership identity and origin literals', () => {
-    expect(
-      validateEventEnvelope(
-        envelope('turn.attributed', {
-          turnId: 'turn_foreign',
-          ownership: 'foreign',
-          origin: 'human',
-        })
-      )
-    ).toEqual(
+    expectValidatesTo(
+      envelope('turn.attributed', {
+        turnId: 'turn_foreign',
+        ownership: 'foreign',
+        origin: 'human',
+      }),
       envelope('turn.attributed', {
         turnId: 'turn_foreign',
         ownership: 'foreign',
@@ -366,7 +373,7 @@ describe('validateEventEnvelope', () => {
       sessionName: 'asp-claude',
       windowName: 'main',
     })
-    expect(validateEventEnvelope(env)).toEqual(env)
+    expectValidatesTo(env)
   })
 
   test('accepts provider transcript reported with protocol-owned constants', () => {
@@ -393,7 +400,7 @@ describe('validateEventEnvelope', () => {
         harnessGeneration: 1,
       }
     )
-    expect(validateEventEnvelope(env)).toEqual(env)
+    expectValidatesTo(env)
   })
 
   test('rejects provider transcript reported without an absolute string artifactPath', () => {
@@ -542,7 +549,7 @@ describe('validateEventEnvelope', () => {
       message: 'boom',
       code: 'codex_mcp_error',
     })
-    expect(validateEventEnvelope(valid)).toEqual(valid)
+    expectValidatesTo(valid)
   })
 
   test('tool.call.started and tool.call.completed require toolCallId and name', () => {

@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 
+import type {
+  AgentInspectionIdentity,
+  AgentInspectionRequest,
+} from 'spaces-runtime-contracts/agent-inspection'
 import {
   AspcCatalogAgentInspectionRequestValidationError,
   AspcInspectAgentSelectionRequestValidationError,
@@ -13,7 +17,7 @@ import {
   validateAspcInspectAgentSelectionRequest,
 } from '../src/index.js'
 
-const identifiers = {
+const identifiers: AgentInspectionIdentity = {
   agentId: 'cody',
   projectId: 'agent-spaces',
   mode: 'task',
@@ -23,7 +27,7 @@ const identifiers = {
   presentation: true,
 }
 
-const request = {
+const request: AgentInspectionRequest = {
   schemaVersion: 'agent-inspection-request/v2',
   identifiers,
   declaredOverrides: {},

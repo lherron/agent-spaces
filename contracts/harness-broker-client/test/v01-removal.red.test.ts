@@ -7,12 +7,9 @@
  * pass after Ph6 adds response validation to BrokerClient.hello().
  */
 import { describe, expect, test } from 'bun:test'
-import type {
-  BrokerJsonRpcTransport,
-  JsonRpcNotification,
-  JsonRpcRequest,
-} from 'spaces-harness-broker-client'
+import type { BrokerJsonRpcTransport, CloseHandler } from 'spaces-harness-broker-client'
 import { BrokerClient } from 'spaces-harness-broker-client'
+import type { JsonRpcNotification, JsonRpcRequest } from 'spaces-harness-broker-protocol'
 
 /** Minimal mock transport that returns a fixed reply for every request method. */
 class FixedReplyTransport implements BrokerJsonRpcTransport {
@@ -24,7 +21,7 @@ class FixedReplyTransport implements BrokerJsonRpcTransport {
   }
   onNotification(_h: (n: JsonRpcNotification) => void): void {}
   onRequest(_h: (r: JsonRpcRequest) => Promise<unknown>): void {}
-  onClose(_h: () => void): void {}
+  onClose(_h: CloseHandler): void {}
   async close(): Promise<void> {}
 }
 

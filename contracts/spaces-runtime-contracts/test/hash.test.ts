@@ -6,16 +6,9 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import * as contracts from '../src/index'
 import type { HashMaterialPolicy } from '../src/index'
+import { inputIdFrom, invocationIdFrom } from './ids'
 
-const createCanonicalHasher = (contracts as any).createCanonicalHasher as
-  | (() => contracts.CanonicalHasher)
-  | undefined
-const project = (contracts as any).project as
-  | ((
-      source: unknown,
-      kind: contracts.RuntimeContractProjectionKind
-    ) => contracts.RuntimeContractProjection)
-  | undefined
+const { createCanonicalHasher, project } = contracts
 
 const defaultPolicy = {
   hashProjection: 'runtime-contract-semantic/v2',
@@ -268,7 +261,7 @@ describe('canonical projection helper', () => {
 function brokerSpec(overrides: Partial<HarnessInvocationSpec> = {}): HarnessInvocationSpec {
   return {
     specVersion: 'harness-broker.invocation/v1',
-    invocationId: 'invocation_a',
+    invocationId: invocationIdFrom('invocation_a'),
     correlation: { requestId: 'request_a' },
     harness: {
       frontend: 'codex',
@@ -288,7 +281,7 @@ function brokerSpec(overrides: Partial<HarnessInvocationSpec> = {}): HarnessInvo
 
 function brokerStartRequest(
   initialInput: InvocationInput = {
-    inputId: 'input_a',
+    inputId: inputIdFrom('input_a'),
     kind: 'user',
     content: [{ type: 'text', text: 'first prompt' }],
     responseFormat: { kind: 'text' },
@@ -321,7 +314,7 @@ describe('broker start-request neutral hash authority', () => {
     const first = contracts.neutralSpecHash(brokerSpec())
     const second = contracts.neutralSpecHash(
       brokerSpec({
-        invocationId: 'invocation_b',
+        invocationId: invocationIdFrom('invocation_b'),
         correlation: { requestId: 'request_b', traceId: 'trace_b' },
       })
     )
@@ -333,7 +326,7 @@ describe('broker start-request neutral hash authority', () => {
     expect(contracts.hashNeutralStartRequest(brokerStartRequest())).toEqual({
       spec: contracts.hashNeutralInvocationSpec(brokerSpec()),
       initialInput: {
-        inputId: 'input_a',
+        inputId: inputIdFrom('input_a'),
         responseFormat: { kind: 'text' },
       },
     })
@@ -343,7 +336,7 @@ describe('broker start-request neutral hash authority', () => {
     const base = contracts.neutralStartRequestHash(brokerStartRequest())
     const changedInputId = contracts.neutralStartRequestHash(
       brokerStartRequest({
-        inputId: 'input_b',
+        inputId: inputIdFrom('input_b'),
         kind: 'user',
         content: [{ type: 'text', text: 'first prompt' }],
         responseFormat: { kind: 'text' },
@@ -351,7 +344,7 @@ describe('broker start-request neutral hash authority', () => {
     )
     const changedResponseFormat = contracts.neutralStartRequestHash(
       brokerStartRequest({
-        inputId: 'input_a',
+        inputId: inputIdFrom('input_a'),
         kind: 'user',
         content: [{ type: 'text', text: 'first prompt' }],
         responseFormat: {
@@ -367,14 +360,17 @@ describe('broker start-request neutral hash authority', () => {
 
   test('content and all other initial-input payload fields are excluded', () => {
     const base = brokerStartRequest()
-    const evolvedPayload = brokerStartRequest({
-      inputId: 'input_a',
-      kind: 'steer',
-      content: [{ type: 'text', text: 'different prompt' }],
-      responseFormat: { kind: 'text' },
+    // futurePayloadField is deliberately unknown to InvocationInput: it proves
+    // payload fields the type does not model are excluded from the hash too.
+    const evolvedInput = {
+      inputId: inputIdFrom('input_a'),
+      kind: 'steer' as const,
+      content: [{ type: 'text' as const, text: 'different prompt' }],
+      responseFormat: { kind: 'text' as const },
       metadata: { source: 'different' },
       futurePayloadField: { nested: true },
-    } as InvocationInput)
+    }
+    const evolvedPayload = brokerStartRequest(evolvedInput)
 
     expect(contracts.neutralStartRequestHash(evolvedPayload)).toBe(
       contracts.neutralStartRequestHash(base)
@@ -387,7 +383,7 @@ describe('broker start-request neutral hash authority', () => {
   test('raw project semantics remain payload-sensitive', () => {
     const base = brokerStartRequest()
     const changedContent = brokerStartRequest({
-      inputId: 'input_a',
+      inputId: inputIdFrom('input_a'),
       kind: 'user',
       content: [{ type: 'text', text: 'different prompt' }],
       responseFormat: { kind: 'text' },

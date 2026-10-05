@@ -23,7 +23,6 @@ import { describe, expect, test } from 'bun:test'
 // Import from the package that doesn't exist yet (RED)
 // ---------------------------------------------------------------------------
 import {
-  type ScopeKind,
   ancestorScopeRefs,
   buildScopeRef,
   formatScopeRef,
@@ -35,6 +34,8 @@ import {
   validateLaneRef,
   validateScopeRef,
 } from '../../index.js'
+// ScopeKind is not part of the public barrel; read it from its defining module.
+import type { ScopeKind } from '../types.js'
 
 // ===================================================================
 // Token grammar: [A-Za-z0-9._-]+ length 1..64

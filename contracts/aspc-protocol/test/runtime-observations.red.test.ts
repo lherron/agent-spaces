@@ -89,7 +89,7 @@ describe('T-08563 ASPC observation protocol', () => {
     for (const [name, version] of validators) {
       const validator = requiredValidator(name)
       const method = OBSERVATION_METHODS.find(
-        (candidate) => VALID_REQUESTS[candidate].schemaVersion === version
+        (candidate) => VALID_REQUESTS[candidate]['schemaVersion'] === version
       )
       expect(method).toBeDefined()
       const valid = VALID_REQUESTS[method as (typeof OBSERVATION_METHODS)[number]]

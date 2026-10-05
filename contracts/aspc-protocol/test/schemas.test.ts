@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test'
+import { conservativeDefaultLifecyclePolicyOverlay } from 'spaces-harness-broker-protocol'
+import type { RuntimeCompileRequest } from 'spaces-runtime-contracts'
 import {
   ASPC_METHODS,
   ASPC_PROTOCOL_VERSION,
@@ -9,16 +11,18 @@ import {
   validateAspcCompileHarnessInvocationRequest,
   validateAspcHelloRequest,
 } from '../src/index.js'
+import type { AspcCompileHarnessInvocationRequest } from '../src/index.js'
+import { hostSessionIdFrom, operationIdFrom, requestIdFrom, runtimeIdFrom } from './ids'
 
-const compileRequest = {
+const compileRequest: RuntimeCompileRequest = {
   schemaVersion: 'agent-runtime-compile-request/v2',
   agent: { id: 'cody' },
   identity: {
-    requestId: 'req_1',
-    operationId: 'op_1',
-    hostSessionId: 'host_1',
+    requestId: requestIdFrom('req_1'),
+    operationId: operationIdFrom('op_1'),
+    hostSessionId: hostSessionIdFrom('host_1'),
     generation: 1,
-    runtimeId: 'runtime_1',
+    runtimeId: runtimeIdFrom('runtime_1'),
   },
   placement: {
     agentRoot: '/tmp/agent',
@@ -36,13 +40,13 @@ const compileRequest = {
   materialization: { initialPrompt: 'hello' },
   hrcPolicy: { disallowedTools: ['AskUserQuestion'] },
   correlation: {
-    requestId: 'req_1',
-    operationId: 'op_1',
-    hostSessionId: 'host_1',
+    requestId: requestIdFrom('req_1'),
+    operationId: operationIdFrom('op_1'),
+    hostSessionId: hostSessionIdFrom('host_1'),
     generation: 1,
-    runtimeId: 'runtime_1',
+    runtimeId: runtimeIdFrom('runtime_1'),
   },
-} as const
+}
 
 function captureCompileIssues(value: unknown) {
   try {
@@ -96,11 +100,11 @@ describe('ASPC protocol validators', () => {
   })
 
   test('validates the sole v2 ordinary compile operation and preserves explicit false', () => {
-    const request = {
+    const request: AspcCompileHarnessInvocationRequest = {
       compileRequest,
       dispatchEnv: { EXTRA_FLAG: '1' },
-      runtime: { runtimeId: 'runtime_1' },
-      lifecyclePolicy: { runtimeRetention: 'keep-alive' },
+      runtime: { tmux: { socketPath: '/tmp/aspc-runtime.sock' } },
+      lifecyclePolicy: conservativeDefaultLifecyclePolicyOverlay('policy_aspc_compile'),
     }
     expect(validateAspcCompileHarnessInvocationRequest(request)).toBe(request)
     expect(request.compileRequest.requested.presentation).toBe(false)
@@ -115,7 +119,7 @@ describe('ASPC protocol validators', () => {
   })
 
   test('accepts closed summon directives and preserves directive false separately from requested', () => {
-    const request = {
+    const request: AspcCompileHarnessInvocationRequest = {
       compileRequest: {
         ...compileRequest,
         selectionContext: {
@@ -130,7 +134,7 @@ describe('ASPC protocol validators', () => {
       },
     }
     expect(validateAspcCompileHarnessInvocationRequest(request)).toBe(request)
-    expect(request.compileRequest.selectionContext.summonDirectives.presentation).toBe(false)
+    expect(request.compileRequest.selectionContext?.summonDirectives?.presentation).toBe(false)
   })
 
   test('rejects legacy and unknown summon directive keys at the wire boundary', () => {

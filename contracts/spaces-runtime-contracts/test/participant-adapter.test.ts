@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type {
+  CapabilityRequirements,
   ParticipantAdapter,
   ParticipantAdapterAdmissionRequest,
   ParticipantAdapterAdmissionResult,
@@ -49,6 +50,39 @@ function request(): ParticipantAdapterPreparationRequest {
   }
 }
 
+const HEADLESS_PARTICIPANT_REQUIREMENTS: CapabilityRequirements = {
+  input: {
+    user: 'required',
+    steer: 'optional',
+    appendContext: 'optional',
+    localImages: 'forbidden',
+    fileRefs: 'forbidden',
+    queue: 'optional',
+  },
+  turns: { concurrency: 'single', interrupt: 'optional' },
+  continuation: 'optional',
+  permissions: 'broker-request',
+  events: {
+    assistantDeltas: 'optional',
+    toolCalls: 'optional',
+    usage: 'optional',
+    diagnostics: 'optional',
+  },
+  control: {
+    stop: 'required',
+    dispose: 'required',
+    reconcile: 'optional',
+    attachReplay: 'optional',
+  },
+  lifecycle: {
+    runtimeRetention: ['unmanaged'],
+    harnessRecovery: ['none'],
+    turnRetry: ['none'],
+    generationFencing: 'optional',
+    permissionCancellation: 'optional',
+  },
+}
+
 function descriptor(input: ParticipantAdapterPreparationRequest): ParticipantBrokerDescriptor {
   const startRequest = {
     spec: {
@@ -80,13 +114,13 @@ function descriptor(input: ParticipantAdapterPreparationRequest): ParticipantBro
       },
     },
   }
-  const value = {
+  const value: ParticipantBrokerDescriptor = {
     schemaVersion: 'participant-broker-descriptor/v1',
     descriptorId: 'participantBrokerDescriptor:participant' as never,
     descriptorHash: '',
     compatibilityHash: 'compatibility:participant',
     interactionMode: 'headless' as const,
-    expectedCapabilities: {},
+    expectedCapabilities: HEADLESS_PARTICIPANT_REQUIREMENTS,
     brokerProtocol: 'harness-broker/0.2' as const,
     brokerDriver: 'controlled-driver',
     brokerOwnership: 'participant-owned-process' as const,
@@ -115,7 +149,7 @@ function descriptor(input: ParticipantAdapterPreparationRequest): ParticipantBro
         invocationId: input.identity.invocationId,
       },
     },
-  } as ParticipantBrokerDescriptor
+  }
   const descriptorHash = neutralParticipantBrokerDescriptorHash(value)
   return {
     ...value,

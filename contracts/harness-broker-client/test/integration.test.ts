@@ -11,6 +11,7 @@ import {
   repoRoot,
   userInput,
 } from './helpers'
+import { invocationIdFrom } from './ids'
 
 describe('BrokerClient integration', () => {
   test('spawns the real broker binary and drives a full Codex fake turn', async () => {
@@ -33,7 +34,7 @@ describe('BrokerClient integration', () => {
       )
 
       const { invocationId, events } = await client.startInvocation(codexSpec('start-fresh-turn'))
-      expect(invocationId).toBe('inv_client_start_fresh_turn')
+      expect(invocationId).toBe(invocationIdFrom('inv_client_start_fresh_turn'))
 
       const startupEvents = await collectUntil(events, 'invocation.ready')
       expect(startupEvents.map((event) => event.type)).toEqual([

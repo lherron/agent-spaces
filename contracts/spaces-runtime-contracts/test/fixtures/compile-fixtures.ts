@@ -69,12 +69,29 @@ const RUNTIME_CAPABILITIES = {
 
 // Shared invocation-capabilities sub-blocks. The compile-only and durable-unix
 // fixtures differ only in events.replay/ack and control.attach (see overrides
-// at each composition site); these three blocks are identical across both.
+// at each composition site); these blocks are identical across both.
 const BASE_INVOCATION_INPUT_BLOCKS = {
+  admission: { classes: ['queue'] },
+  bracketMintingMode: 'harness-evidence',
+  queue: { cancelHarnessLocal: false },
+  preempt: { mode: null },
+  steer: { landingEvidence: null },
+  interrupt: { landingEvidence: null },
   input: BASE_INPUT_CAPABILITIES,
   turns: BASE_TURNS_CAPABILITIES,
   continuation: BASE_CONTINUATION_CAPABILITIES,
-} as const
+} satisfies Pick<
+  InvocationCapabilities,
+  | 'admission'
+  | 'bracketMintingMode'
+  | 'queue'
+  | 'preempt'
+  | 'steer'
+  | 'interrupt'
+  | 'input'
+  | 'turns'
+  | 'continuation'
+>
 
 const BASE_INVOCATION_PERMISSIONS = {
   brokerToClientRequests: true,

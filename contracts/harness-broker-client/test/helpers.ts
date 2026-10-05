@@ -4,8 +4,11 @@ import type {
   HarnessInvocationSpec,
   InvocationEventEnvelope,
   InvocationEventType,
+  InvocationId,
   InvocationInput,
+  InvocationStartRequest,
 } from 'spaces-harness-broker-protocol'
+import { inputIdFrom, invocationIdFrom } from './ids'
 
 export const repoRoot = new URL('../../..', import.meta.url).pathname
 export const brokerCommand = 'bun'
@@ -63,7 +66,8 @@ export function codexSpec(
   scenario: string,
   overrides: Partial<HarnessInvocationSpec> = {}
 ): HarnessInvocationSpec {
-  const invocationId = overrides.invocationId ?? `inv_client_${scenario.replaceAll('-', '_')}`
+  const invocationId =
+    overrides.invocationId ?? invocationIdFrom(`inv_client_${scenario.replaceAll('-', '_')}`)
   return {
     specVersion: 'harness-broker.invocation/v1',
     invocationId,
@@ -97,8 +101,17 @@ export function codexSpec(
   }
 }
 
+/** The invocationId a fixture start request pinned; every fixture here pins one. */
+export function requestedInvocationId(request: InvocationStartRequest): InvocationId {
+  const invocationId = request.spec.invocationId
+  if (invocationId === undefined) {
+    throw new Error('fixture start request must pin spec.invocationId')
+  }
+  return invocationId
+}
+
 export const userInput = (text = 'Run one client-library integration turn.'): InvocationInput => ({
-  inputId: `input_${Math.random().toString(36).slice(2, 8)}`,
+  inputId: inputIdFrom(`input_${Math.random().toString(36).slice(2, 8)}`),
   kind: 'user',
   content: [{ type: 'text', text }],
 })
@@ -163,7 +176,7 @@ export function findBrokerChildPid(): number {
     const [, pidRaw, ppidRaw, command] = match
     if (
       Number(ppidRaw) === process.pid &&
-      command.includes('harness/harness-broker/bin/harness-broker.js run --transport stdio')
+      command?.includes('harness/harness-broker/bin/harness-broker.js run --transport stdio')
     ) {
       return Number(pidRaw)
     }

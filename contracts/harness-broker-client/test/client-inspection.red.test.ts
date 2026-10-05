@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 
-import { BrokerClient, type BrokerJsonRpcTransport } from 'spaces-harness-broker-client'
+import {
+  BrokerClient,
+  type BrokerJsonRpcTransport,
+  type CloseHandler,
+} from 'spaces-harness-broker-client'
 import type {
   BrokerListInvocationsRequest,
   BrokerListInvocationsResponse,
@@ -11,6 +15,7 @@ import type {
   JsonRpcNotification,
   JsonRpcRequest,
 } from 'spaces-harness-broker-protocol'
+import { invocationIdFrom } from './ids'
 
 class RecordingTransport implements BrokerJsonRpcTransport {
   calls: Array<{ method: string; params?: unknown }> = []
@@ -27,7 +32,7 @@ class RecordingTransport implements BrokerJsonRpcTransport {
 
   onNotification(_handler: (notification: JsonRpcNotification) => void): void {}
   onRequest(_handler: (request: JsonRpcRequest) => Promise<unknown>): void {}
-  onClose(_handler: () => void): void {}
+  onClose(_handler: CloseHandler): void {}
   async close(): Promise<void> {}
 }
 
@@ -39,7 +44,7 @@ describe('BrokerClient inspection passthroughs (T-01852 red)', () => {
     const response: BrokerListInvocationsResponse = {
       invocations: [
         {
-          invocationId: 'inv_client_inspection',
+          invocationId: invocationIdFrom('inv_client_inspection'),
           state: 'ready',
           driver: 'codex-app-server',
           startedAt: '2026-06-03T21:00:00.000Z',
@@ -71,12 +76,16 @@ describe('BrokerClient inspection passthroughs (T-01852 red)', () => {
     const client = BrokerClient.fromTransport(transport)
 
     await expect(
-      client.eventsSince({ invocationId: 'inv_client_events_filter', afterSeq: 2, types })
+      client.eventsSince({
+        invocationId: invocationIdFrom('inv_client_events_filter'),
+        afterSeq: 2,
+        types,
+      })
     ).resolves.toBe(response)
     expect(transport.calls).toEqual([
       {
         method: 'invocation.eventsSince',
-        params: { invocationId: 'inv_client_events_filter', afterSeq: 2, types },
+        params: { invocationId: invocationIdFrom('inv_client_events_filter'), afterSeq: 2, types },
       },
     ])
     expect(
@@ -91,14 +100,14 @@ describe('BrokerClient inspection passthroughs (T-01852 red)', () => {
     // fenced BrokerClient (HRC's) could not release a halted capture cursor at
     // all. This pins the passthrough that closes that gap.
     const request: InvocationCaptureReleaseRequest = {
-      invocationId: 'inv_client_capture_release',
+      invocationId: invocationIdFrom('inv_client_capture_release'),
       rawRecordId: 'raw_000123',
       disposition: 'ignored-known',
       note: 'reviewed: cosmetic',
     }
     const response: InvocationCaptureReleaseResponse = {
       released: true,
-      invocationId: 'inv_client_capture_release',
+      invocationId: invocationIdFrom('inv_client_capture_release'),
       rawRecordId: 'raw_000123',
       disposition: 'ignored-known',
       releasedSeq: 42,
@@ -117,7 +126,7 @@ describe('BrokerClient inspection passthroughs (T-01852 red)', () => {
 
   test('captureRelease forwards an operator-authored normalized-as unchanged', async () => {
     const request: InvocationCaptureReleaseRequest = {
-      invocationId: 'inv_client_capture_normalized',
+      invocationId: invocationIdFrom('inv_client_capture_normalized'),
       rawRecordId: 'raw_000124',
       disposition: 'normalized-as',
       normalizedAs: {
@@ -127,7 +136,7 @@ describe('BrokerClient inspection passthroughs (T-01852 red)', () => {
     }
     const response: InvocationCaptureReleaseResponse = {
       released: true,
-      invocationId: 'inv_client_capture_normalized',
+      invocationId: invocationIdFrom('inv_client_capture_normalized'),
       rawRecordId: 'raw_000124',
       disposition: 'normalized',
       releasedSeq: 43,

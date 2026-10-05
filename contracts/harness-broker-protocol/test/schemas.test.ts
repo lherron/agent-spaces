@@ -1,12 +1,15 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { InvocationInput, InvocationStartRequest } from '../src/commands'
+import type { HarnessInvocationSpec } from '../src/invocation'
 import { conservativeDefaultLifecyclePolicyOverlay } from '../src/lifecycle'
 import {
   validateInvocationInput,
   validateInvocationSpec,
   validateInvocationStartRequest,
 } from '../src/schemas'
+import { inputIdFrom } from './ids'
 import {
   arrisResidentSpec,
   expectInvalidInput,
@@ -14,8 +17,11 @@ import {
   expectInvalidSpec,
   expectInvalidStartRequest,
   piSdkSpec,
+  piSdkSpecSdk,
   specSection19InvocationStartSpec,
   specSection62Example,
+  withValueAt,
+  withoutKeyAt,
 } from './schema-test-helpers'
 
 describe('validateInvocationSpec', () => {
@@ -72,8 +78,7 @@ describe('validateInvocationSpec', () => {
   })
 
   test('rejects a spec missing process.command with a stable validation code', () => {
-    const invalid = structuredClone(specSection62Example)
-    Reflect.deleteProperty(invalid.process, 'command')
+    const invalid = withoutKeyAt(specSection62Example, ['process', 'command'])
 
     expectInvalidSpec(invalid, {
       path: 'process.command',
@@ -92,15 +97,21 @@ describe('validateInvocationSpec', () => {
   })
 
   test('rejects env keys that cannot be passed to spawn safely', () => {
-    const invalidWithEquals = structuredClone(specSection62Example)
-    invalidWithEquals.process.lockedEnv['BAD=KEY'] = 'value'
+    const invalidWithEquals = withValueAt(
+      specSection62Example,
+      ['process', 'lockedEnv', 'BAD=KEY'],
+      'value'
+    )
     expectInvalidSpec(invalidWithEquals, {
       path: 'process.lockedEnv.BAD=KEY',
       code: 'invalid_env_key',
     })
 
-    const invalidWithNull = structuredClone(specSection62Example)
-    invalidWithNull.process.lockedEnv['BAD\u0000KEY'] = 'value'
+    const invalidWithNull = withValueAt(
+      specSection62Example,
+      ['process', 'lockedEnv', 'BAD\u0000KEY'],
+      'value'
+    )
     expectInvalidSpec(invalidWithNull, {
       path: 'process.lockedEnv.BAD\u0000KEY',
       code: 'invalid_env_key',
@@ -108,22 +119,31 @@ describe('validateInvocationSpec', () => {
   })
 
   test('rejects lockedEnv keys from ambient, credential, and reserved classes', () => {
-    const ambient = structuredClone(specSection62Example)
-    ambient.process.lockedEnv.HOME = '/Users/lherron'
+    const ambient = withValueAt(
+      specSection62Example,
+      ['process', 'lockedEnv', 'HOME'],
+      '/Users/lherron'
+    )
     expectInvalidSpec(ambient, {
       path: 'process.lockedEnv.HOME',
       code: 'ambient_env_key',
     })
 
-    const credential = structuredClone(specSection62Example)
-    credential.process.lockedEnv.OPENAI_API_KEY = 'sk-test'
+    const credential = withValueAt(
+      specSection62Example,
+      ['process', 'lockedEnv', 'OPENAI_API_KEY'],
+      'sk-test'
+    )
     expectInvalidSpec(credential, {
       path: 'process.lockedEnv.OPENAI_API_KEY',
       code: 'credential_env_key',
     })
 
-    const reserved = structuredClone(specSection62Example)
-    reserved.process.lockedEnv.NODE_OPTIONS = '--inspect'
+    const reserved = withValueAt(
+      specSection62Example,
+      ['process', 'lockedEnv', 'NODE_OPTIONS'],
+      '--inspect'
+    )
     expectInvalidSpec(reserved, {
       path: 'process.lockedEnv.NODE_OPTIONS',
       code: 'reserved_env_key',
@@ -131,18 +151,19 @@ describe('validateInvocationSpec', () => {
   })
 
   test('accepts process.pathPrepend as an array of strings', () => {
-    const valid = structuredClone(specSection62Example) as typeof specSection62Example & {
-      process: { pathPrepend?: string[] }
+    const valid: HarnessInvocationSpec = {
+      ...specSection62Example,
+      process: { ...specSection62Example.process, pathPrepend: ['/agent/tools/bin', '/opt/bin'] },
     }
-    valid.process.pathPrepend = ['/agent/tools/bin', '/opt/bin']
     expect(validateInvocationSpec(valid)).toEqual(valid)
   })
 
   test('rejects process.pathPrepend that is not an array', () => {
-    const invalid = structuredClone(specSection62Example) as typeof specSection62Example & {
-      process: { pathPrepend?: unknown }
-    }
-    invalid.process.pathPrepend = '/agent/tools/bin'
+    const invalid = withValueAt(
+      specSection62Example,
+      ['process', 'pathPrepend'],
+      '/agent/tools/bin'
+    )
     expectInvalidSpec(invalid, {
       path: 'process.pathPrepend',
       code: 'invalid_type',
@@ -150,10 +171,11 @@ describe('validateInvocationSpec', () => {
   })
 
   test('rejects process.pathPrepend entries that are not strings', () => {
-    const invalid = structuredClone(specSection62Example) as typeof specSection62Example & {
-      process: { pathPrepend?: unknown[] }
-    }
-    invalid.process.pathPrepend = ['/agent/tools/bin', 42]
+    const invalid = withValueAt(
+      specSection62Example,
+      ['process', 'pathPrepend'],
+      ['/agent/tools/bin', 42]
+    )
     expectInvalidSpec(invalid, {
       path: 'process.pathPrepend.1',
       code: 'invalid_type',
@@ -161,8 +183,11 @@ describe('validateInvocationSpec', () => {
   })
 
   test('rejects unsupported specVersion literals', () => {
-    const invalid = structuredClone(specSection62Example)
-    invalid.specVersion = 'harness-broker.invocation/v2'
+    const invalid = withValueAt(
+      specSection62Example,
+      ['specVersion'],
+      'harness-broker.invocation/v2'
+    )
 
     expectInvalidSpec(invalid, {
       path: 'specVersion',
@@ -171,11 +196,10 @@ describe('validateInvocationSpec', () => {
   })
 
   test('rejects unsupported driver permission default decisions', () => {
-    const invalid = structuredClone(specSection62Example)
-    invalid.driver.permissionPolicy = {
+    const invalid = withValueAt(specSection62Example, ['driver', 'permissionPolicy'], {
       mode: 'ask-client',
       defaultDecision: 'prompt',
-    }
+    })
 
     expectInvalidSpec(invalid, {
       path: 'driver.permissionPolicy.defaultDecision',
@@ -184,8 +208,7 @@ describe('validateInvocationSpec', () => {
   })
 
   test('reports required (not invalid_literal) for missing harnessTransport.kind', () => {
-    const invalid = structuredClone(specSection62Example)
-    Reflect.deleteProperty(invalid.process.harnessTransport, 'kind')
+    const invalid = withoutKeyAt(specSection62Example, ['process', 'harnessTransport', 'kind'])
 
     expectInvalidSpec(invalid, {
       path: 'process.harnessTransport.kind',
@@ -194,8 +217,11 @@ describe('validateInvocationSpec', () => {
   })
 
   test('reports invalid_literal for unsupported harnessTransport.kind', () => {
-    const invalid = structuredClone(specSection62Example)
-    invalid.process.harnessTransport.kind = 'websocket'
+    const invalid = withValueAt(
+      specSection62Example,
+      ['process', 'harnessTransport', 'kind'],
+      'websocket'
+    )
 
     expectInvalidSpec(invalid, {
       path: 'process.harnessTransport.kind',
@@ -204,8 +230,7 @@ describe('validateInvocationSpec', () => {
   })
 
   test('reports required (not invalid_literal) for missing interaction.mode', () => {
-    const invalid = structuredClone(specSection62Example)
-    Reflect.deleteProperty(invalid.interaction, 'mode')
+    const invalid = withoutKeyAt(specSection62Example, ['interaction', 'mode'])
 
     expectInvalidSpec(invalid, {
       path: 'interaction.mode',
@@ -214,8 +239,7 @@ describe('validateInvocationSpec', () => {
   })
 
   test('reports invalid_literal for unsupported interaction.mode', () => {
-    const invalid = structuredClone(specSection62Example)
-    invalid.interaction.mode = 'batch'
+    const invalid = withValueAt(specSection62Example, ['interaction', 'mode'], 'batch')
 
     expectInvalidSpec(invalid, {
       path: 'interaction.mode',
@@ -224,8 +248,7 @@ describe('validateInvocationSpec', () => {
   })
 
   test('reports invalid_literal for unsupported interaction.inputQueue', () => {
-    const invalid = structuredClone(specSection62Example)
-    invalid.interaction.inputQueue = 'lifo'
+    const invalid = withValueAt(specSection62Example, ['interaction', 'inputQueue'], 'lifo')
 
     expectInvalidSpec(invalid, {
       path: 'interaction.inputQueue',
@@ -234,8 +257,7 @@ describe('validateInvocationSpec', () => {
   })
 
   test('accepts spec with optional interaction.inputQueue omitted', () => {
-    const valid = structuredClone(specSection62Example)
-    Reflect.deleteProperty(valid.interaction, 'inputQueue')
+    const valid = withoutKeyAt(specSection62Example, ['interaction', 'inputQueue'])
 
     expect(() => validateInvocationSpec(valid)).not.toThrow()
   })
@@ -245,8 +267,8 @@ describe('validateInvocationSpec', () => {
     [
       'without thinkingLevel',
       (() => {
-        const spec = structuredClone(piSdkSpec)
-        Reflect.deleteProperty(spec.sdk, 'thinkingLevel')
+        const { thinkingLevel: _omitted, ...sdk } = piSdkSpecSdk
+        const spec: HarnessInvocationSpec = { ...piSdkSpec, sdk }
         return spec
       })(),
     ],
@@ -257,96 +279,78 @@ describe('validateInvocationSpec', () => {
   test.each([
     [
       'process block',
-      (spec: typeof piSdkSpec) => Reflect.deleteProperty(spec, 'process'),
+      () => withoutKeyAt(piSdkSpec, ['process']),
       { path: 'process', code: 'required' },
     ],
-    [
-      'sdk block',
-      (spec: typeof piSdkSpec) => Reflect.deleteProperty(spec, 'sdk'),
-      { path: 'sdk', code: 'required' },
-    ],
+    ['sdk block', () => withoutKeyAt(piSdkSpec, ['sdk']), { path: 'sdk', code: 'required' }],
     [
       'in-process transport',
-      (spec: typeof piSdkSpec) => {
-        spec.process.harnessTransport.kind = 'pipes'
-      },
+      () => withValueAt(piSdkSpec, ['process', 'harnessTransport', 'kind'], 'pipes'),
       { path: 'process.harnessTransport.kind', code: 'invalid_literal' },
     ],
     [
       'command sentinel',
-      (spec: typeof piSdkSpec) => {
-        spec.process.command = 'pi'
-      },
+      () => withValueAt(piSdkSpec, ['process', 'command'], 'pi'),
       { path: 'process.command', code: 'invalid_literal' },
     ],
     [
       'empty args',
-      (spec: typeof piSdkSpec) => {
-        spec.process.args = ['--print']
-      },
+      () => withValueAt(piSdkSpec, ['process', 'args'], ['--print']),
       { path: 'process.args', code: 'invalid_literal' },
     ],
-  ])('rejects a pi-sdk spec without the required %s', (_name, mutate, expectedIssue) => {
-    const invalid = structuredClone(piSdkSpec)
-    mutate(invalid)
+  ])('rejects a pi-sdk spec without the required %s', (_name, corrupt, expectedIssue) => {
+    const invalid = corrupt()
     expectInvalidSpec(invalid, expectedIssue)
   })
 
   test.each([
     [
       'runtime literal',
-      (spec: typeof piSdkSpec) => {
-        spec.sdk.runtime = 'other-sdk'
-      },
+      () => withValueAt(piSdkSpec, ['sdk', 'runtime'], 'other-sdk'),
       { path: 'sdk.runtime', code: 'invalid_literal' },
     ],
     [
       'provider',
-      (spec: typeof piSdkSpec) => Reflect.deleteProperty(spec.sdk, 'provider'),
+      () => withoutKeyAt(piSdkSpec, ['sdk', 'provider']),
       { path: 'sdk.provider', code: 'required' },
     ],
     [
       'modelId',
-      (spec: typeof piSdkSpec) => Reflect.deleteProperty(spec.sdk, 'modelId'),
+      () => withoutKeyAt(piSdkSpec, ['sdk', 'modelId']),
       { path: 'sdk.modelId', code: 'required' },
     ],
     [
       'authMode',
-      (spec: typeof piSdkSpec) => Reflect.deleteProperty(spec.sdk, 'authMode'),
+      () => withoutKeyAt(piSdkSpec, ['sdk', 'authMode']),
       { path: 'sdk.authMode', code: 'required' },
     ],
     [
       'authMode literal',
-      (spec: typeof piSdkSpec) => {
-        spec.sdk.authMode = 'ambient'
-      },
+      () => withValueAt(piSdkSpec, ['sdk', 'authMode'], 'ambient'),
       { path: 'sdk.authMode', code: 'invalid_literal' },
     ],
     [
       'thinkingLevel type',
-      (spec: typeof piSdkSpec) => {
-        spec.sdk.thinkingLevel = 42
-      },
+      () => withValueAt(piSdkSpec, ['sdk', 'thinkingLevel'], 42),
       { path: 'sdk.thinkingLevel', code: 'invalid_type' },
     ],
-  ])('rejects a pi-sdk spec with invalid %s', (_name, mutate, expectedIssue) => {
-    const invalid = structuredClone(piSdkSpec)
-    mutate(invalid)
+  ])('rejects a pi-sdk spec with invalid %s', (_name, corrupt, expectedIssue) => {
+    const invalid = corrupt()
     expectInvalidSpec(invalid, expectedIssue)
   })
 
   test('rejects an sdk block for another driver', () => {
-    const invalid = structuredClone(specSection62Example) as typeof specSection62Example & {
-      sdk?: typeof piSdkSpec.sdk
-    }
-    invalid.sdk = structuredClone(piSdkSpec.sdk)
+    const invalid = withValueAt(specSection62Example, ['sdk'], piSdkSpecSdk)
 
     expectInvalidSpec(invalid, { path: 'sdk', code: 'forbidden' })
   })
 
   test('rejects in-process transport for another driver', () => {
-    const invalid = structuredClone(specSection62Example)
-    invalid.process.harnessTransport.kind = 'in-process'
+    const invalid = withValueAt(
+      specSection62Example,
+      ['process', 'harnessTransport', 'kind'],
+      'in-process'
+    )
 
     expectInvalidSpec(invalid, {
       path: 'process.harnessTransport.kind',
@@ -359,10 +363,7 @@ describe('validateInvocationSpec', () => {
   })
 
   test('still forbids an sdk block on the arris-resident driver', () => {
-    const invalid = structuredClone(arrisResidentSpec) as typeof arrisResidentSpec & {
-      sdk?: typeof piSdkSpec.sdk
-    }
-    invalid.sdk = structuredClone(piSdkSpec.sdk)
+    const invalid = withValueAt(arrisResidentSpec, ['sdk'], piSdkSpecSdk)
 
     expectInvalidSpec(invalid, { path: 'sdk', code: 'forbidden' })
   })
@@ -372,10 +373,15 @@ describe('validateInvocationSpec', () => {
     ['noop-driver', 'noop-driver'],
     ['an unknown driver', 'totally-unknown-driver'],
   ])('still rejects in-process transport for %s', (_name, driverKind) => {
-    const invalid = structuredClone(specSection62Example) as Record<string, any>
-    invalid.harness.driver = driverKind
-    invalid.driver.kind = driverKind
-    invalid.process.harnessTransport.kind = 'in-process'
+    const invalid = withValueAt(
+      withValueAt(
+        withValueAt(specSection62Example, ['harness', 'driver'], driverKind),
+        ['driver', 'kind'],
+        driverKind
+      ),
+      ['process', 'harnessTransport', 'kind'],
+      'in-process'
+    )
 
     expectInvalidSpec(invalid, {
       path: 'process.harnessTransport.kind',
@@ -384,8 +390,7 @@ describe('validateInvocationSpec', () => {
   })
 
   test('does not relax the pi-sdk in-process host requirements', () => {
-    const invalid = structuredClone(piSdkSpec)
-    invalid.process.command = 'arris-resident-external'
+    const invalid = withValueAt(piSdkSpec, ['process', 'command'], 'arris-resident-external')
 
     expectInvalidSpec(invalid, { path: 'process.command', code: 'invalid_literal' })
   })
@@ -393,8 +398,8 @@ describe('validateInvocationSpec', () => {
 
 describe('validateInvocationInput', () => {
   test('accepts text and local image content', () => {
-    const input = {
-      inputId: 'input_1',
+    const input: InvocationInput = {
+      inputId: inputIdFrom('input_1'),
       kind: 'user',
       content: [
         { type: 'text', text: 'hello' },
@@ -407,8 +412,8 @@ describe('validateInvocationInput', () => {
   })
 
   test('accepts per-turn response formats for text and JSON Schema object roots', () => {
-    const jsonSchemaInput = {
-      inputId: 'input_structured_response',
+    const jsonSchemaInput: InvocationInput = {
+      inputId: inputIdFrom('input_structured_response'),
       kind: 'user',
       content: [{ type: 'text', text: 'return a status object' }],
       responseFormat: {
@@ -425,9 +430,9 @@ describe('validateInvocationInput', () => {
         },
       },
     }
-    const textInput = {
+    const textInput: InvocationInput = {
       ...jsonSchemaInput,
-      inputId: 'input_text_response',
+      inputId: inputIdFrom('input_text_response'),
       responseFormat: { kind: 'text' },
     }
 
@@ -516,10 +521,10 @@ describe('validateInvocationInput', () => {
 
 describe('validateInvocationStartRequest', () => {
   test('accepts a start request with initial input', () => {
-    const request = {
+    const request: InvocationStartRequest = {
       spec: specSection19InvocationStartSpec,
       initialInput: {
-        inputId: 'input_1',
+        inputId: inputIdFrom('input_1'),
         kind: 'user',
         content: [{ type: 'text', text: 'hello' }],
       },
@@ -529,8 +534,7 @@ describe('validateInvocationStartRequest', () => {
   })
 
   test('rejects an invalid nested spec with prefixed issue paths', () => {
-    const invalidSpec = structuredClone(specSection19InvocationStartSpec)
-    Reflect.deleteProperty(invalidSpec.process, 'command')
+    const invalidSpec = withoutKeyAt(specSection19InvocationStartSpec, ['process', 'command'])
 
     expectInvalidStartRequest(
       {
@@ -577,54 +581,47 @@ describe('validateInvocationStartRequest', () => {
   test.each([
     [
       'missing sdk block',
-      (spec: typeof piSdkSpec) => Reflect.deleteProperty(spec, 'sdk'),
+      () => withoutKeyAt(piSdkSpec, ['sdk']),
       { path: 'spec.sdk', code: 'required' },
     ],
     [
       'child-process transport',
-      (spec: typeof piSdkSpec) => {
-        spec.process.harnessTransport.kind = 'pipes'
-      },
+      () => withValueAt(piSdkSpec, ['process', 'harnessTransport', 'kind'], 'pipes'),
       { path: 'spec.process.harnessTransport.kind', code: 'invalid_literal' },
     ],
     [
       'non-sentinel command',
-      (spec: typeof piSdkSpec) => {
-        spec.process.command = 'pi'
-      },
+      () => withValueAt(piSdkSpec, ['process', 'command'], 'pi'),
       { path: 'spec.process.command', code: 'invalid_literal' },
     ],
     [
       'non-empty args',
-      (spec: typeof piSdkSpec) => {
-        spec.process.args = ['--print']
-      },
+      () => withValueAt(piSdkSpec, ['process', 'args'], ['--print']),
       { path: 'spec.process.args', code: 'invalid_literal' },
     ],
-  ])('rejects a pi-sdk start request with %s', (_name, mutate, expectedIssue) => {
-    const invalidSpec = structuredClone(piSdkSpec)
-    mutate(invalidSpec)
+  ])('rejects a pi-sdk start request with %s', (_name, corrupt, expectedIssue) => {
+    const invalidSpec = corrupt()
     expectInvalidStartRequest({ spec: invalidSpec }, expectedIssue)
   })
 
   test.each([
     [
       'sdk block',
-      (spec: typeof specSection19InvocationStartSpec & { sdk?: typeof piSdkSpec.sdk }) => {
-        spec.sdk = structuredClone(piSdkSpec.sdk)
-      },
+      () => withValueAt(specSection19InvocationStartSpec, ['sdk'], piSdkSpecSdk),
       { path: 'spec.sdk', code: 'forbidden' },
     ],
     [
       'in-process transport',
-      (spec: typeof specSection19InvocationStartSpec) => {
-        spec.process.harnessTransport.kind = 'in-process'
-      },
+      () =>
+        withValueAt(
+          specSection19InvocationStartSpec,
+          ['process', 'harnessTransport', 'kind'],
+          'in-process'
+        ),
       { path: 'spec.process.harnessTransport.kind', code: 'forbidden' },
     ],
-  ])('rejects a non-pi-sdk start request with %s', (_name, mutate, expectedIssue) => {
-    const invalidSpec = structuredClone(specSection19InvocationStartSpec)
-    mutate(invalidSpec)
+  ])('rejects a non-pi-sdk start request with %s', (_name, corrupt, expectedIssue) => {
+    const invalidSpec = corrupt()
     expectInvalidStartRequest({ spec: invalidSpec }, expectedIssue)
   })
 
@@ -634,10 +631,7 @@ describe('validateInvocationStartRequest', () => {
   })
 
   test('rejects an arris-resident start request carrying an sdk block', () => {
-    const invalidSpec = structuredClone(arrisResidentSpec) as typeof arrisResidentSpec & {
-      sdk?: typeof piSdkSpec.sdk
-    }
-    invalidSpec.sdk = structuredClone(piSdkSpec.sdk)
+    const invalidSpec = withValueAt(arrisResidentSpec, ['sdk'], piSdkSpecSdk)
     expectInvalidStartRequest({ spec: invalidSpec }, { path: 'spec.sdk', code: 'forbidden' })
   })
 })

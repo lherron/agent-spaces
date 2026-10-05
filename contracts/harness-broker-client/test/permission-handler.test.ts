@@ -6,6 +6,7 @@ import type {
   PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
 import { brokerEnvOverrides, collectUntil, repoRoot } from './helpers'
+import { inputIdFrom, invocationIdFrom, permissionRequestIdFrom } from './ids'
 
 const fakeBrokerScript = String.raw`
 const readline = require('node:readline')
@@ -178,7 +179,7 @@ async function runClientScenario(options: {
 
     const { invocationId, events } = await client.startInvocation({
       specVersion: 'harness-broker.invocation/v1',
-      invocationId: 'inv_client_permission_contract',
+      invocationId: invocationIdFrom('inv_client_permission_contract'),
       harness: {
         frontend: 'codex',
         provider: 'openai',
@@ -204,7 +205,7 @@ async function runClientScenario(options: {
     await client.input({
       invocationId,
       input: {
-        inputId: 'input_permission_client_contract',
+        inputId: inputIdFrom('input_permission_client_contract'),
         kind: 'user',
         content: [{ type: 'text', text: 'Trigger permission request.' }],
       },
@@ -225,9 +226,9 @@ describe('BrokerClient permission request callback', () => {
 
     expect(requests).toHaveLength(1)
     expect(requests[0]).toMatchObject({
-      invocationId: 'inv_client_permission_contract',
+      invocationId: invocationIdFrom('inv_client_permission_contract'),
       turnId: 'turn_client_permission_contract',
-      permissionRequestId: 'perm_client_contract',
+      permissionRequestId: permissionRequestIdFrom('perm_client_contract'),
       kind: 'command',
       defaultDecision: 'allow',
     })

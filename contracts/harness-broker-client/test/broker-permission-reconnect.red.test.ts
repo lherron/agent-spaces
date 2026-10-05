@@ -19,6 +19,7 @@ import {
   userInput,
   withTimeout,
 } from './helpers'
+import { invocationIdFrom, permissionRequestIdFrom } from './ids'
 
 const tmpDirs: string[] = []
 
@@ -26,7 +27,7 @@ const runtimeIdentity = {
   runtimeId: 'runtime_T01796_c2',
   hostSessionId: 'hostSession_T01796_c2',
   generation: 1,
-  invocationId: 'inv_client_t01796_c2',
+  invocationId: invocationIdFrom('inv_client_t01796_c2'),
   startRequestHash: 'start_hash_T01796_c2',
   selectedProfileHash: 'profile_hash_T01796_c2',
   attachToken: 'attach-token-T01796-c2',
@@ -46,7 +47,8 @@ const waitForSocket = async (
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (proc.exitCode !== null) {
-      const stderr = await new Response(proc.stderr).text()
+      const stderr =
+        proc.stderr instanceof ReadableStream ? await new Response(proc.stderr).text() : ''
       throw new Error(`broker exited before creating unix socket: ${stderr.trim()}`)
     }
     try {
@@ -117,7 +119,7 @@ const attachRequest = (
 ): BrokerAttachRequest => ({
   ...runtimeIdentity,
   controllerInstanceId,
-  clientCapabilities: { eventReplay: true, permissionRequests: true },
+  clientCapabilities: { permissionRequests: true },
   ...overrides,
 })
 
@@ -125,7 +127,7 @@ const helloWithPermissions = (client: BrokerClient): Promise<unknown> =>
   client.hello({
     clientInfo: { name: 'permission-reconnect-red-test', version: '0.1.0' },
     protocolVersions: ['harness-broker/0.2'],
-    capabilities: { eventReplay: true, permissionRequests: true },
+    capabilities: { permissionRequests: true },
   })
 
 const permissionSpec = (timeoutMs = 600) =>
@@ -335,7 +337,7 @@ describe('broker permission reconnect red tests for T-01796 Phase C2', () => {
       await expect(
         client.permissionRespond({
           invocationId,
-          permissionRequestId: 'perm_T01796_unknown',
+          permissionRequestId: permissionRequestIdFrom('perm_T01796_unknown'),
           decision: 'deny',
           controllerInstanceId: 'controller-respond',
         })

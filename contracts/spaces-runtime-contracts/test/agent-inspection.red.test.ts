@@ -192,8 +192,10 @@ describe('agent-inspection/v2 contract', () => {
     candidate.parts[0] = part('prompt:prompt:soul', 'mystery', {}, { kind: 'invented' })
     candidate.completeness = { kind: 'maybe' }
     candidate.freshness = { kind: 'ancient' } as typeof candidate.freshness
+    const firstDiagnostic = candidate.diagnostics[0]
+    if (!firstDiagnostic) throw new Error('inspection fixture must carry a diagnostic')
     candidate.diagnostics[0] = {
-      ...candidate.diagnostics[0],
+      ...firstDiagnostic,
       kind: 'mystery',
     }
 

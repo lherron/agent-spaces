@@ -10,8 +10,10 @@ import {
   collectUntil,
   helloRequest,
   repoRoot,
+  requestedInvocationId,
   withTimeout,
 } from './helpers'
+import { inputIdFrom, invocationIdFrom } from './ids'
 
 const fakeBrokerScript = String.raw`
 const assert = require('node:assert/strict')
@@ -131,7 +133,7 @@ function fakeBrokerArgs(mode: string, expectedParams?: unknown): string[] {
 }
 
 const initialInput: InvocationInput = {
-  inputId: 'input_start_request',
+  inputId: inputIdFrom('input_start_request'),
   kind: 'user',
   content: [{ type: 'text', text: 'Initial input must pass through unchanged.' }],
   metadata: { source: 'red-test' },
@@ -141,7 +143,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
   test('sends the InvocationDispatchRequest envelope wrapping a verbatim startRequest', async () => {
     const request: InvocationStartRequest = {
       spec: codexSpec('start-fresh-turn', {
-        invocationId: 'inv_client_start_request_exact_params',
+        invocationId: invocationIdFrom('inv_client_start_request_exact_params'),
         labels: {
           package: 'harness-broker-client',
           scenario: 'start-fresh-turn',
@@ -162,7 +164,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
       await client.hello(helloRequest())
       const { invocationId, response, events } = await client.startInvocationFromRequest(request)
 
-      expect(invocationId).toBe(request.spec.invocationId)
+      expect(invocationId).toBe(requestedInvocationId(request))
       expect(response).toMatchObject({ invocationId, state: 'ready' })
       const startupEvents = await collectUntil(events, 'invocation.ready')
       expect(startupEvents.map((event) => event.type)).toEqual([
@@ -177,7 +179,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
   test('threads dispatchEnv into the InvocationDispatchRequest envelope alongside the verbatim startRequest', async () => {
     const request: InvocationStartRequest = {
       spec: codexSpec('start-fresh-turn', {
-        invocationId: 'inv_client_start_request_dispatch_env',
+        invocationId: invocationIdFrom('inv_client_start_request_dispatch_env'),
       }),
       initialInput,
     }
@@ -195,7 +197,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
         request,
         dispatchEnv
       )
-      expect(invocationId).toBe(request.spec.invocationId)
+      expect(invocationId).toBe(requestedInvocationId(request))
       expect(response).toMatchObject({ invocationId, state: 'ready' })
     } finally {
       await client.close()
@@ -205,7 +207,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
   test('threads runtime into the InvocationDispatchRequest envelope alongside the verbatim startRequest', async () => {
     const request: InvocationStartRequest = {
       spec: codexSpec('start-fresh-turn', {
-        invocationId: 'inv_client_start_request_runtime',
+        invocationId: invocationIdFrom('inv_client_start_request_runtime'),
       }),
       initialInput,
     }
@@ -224,7 +226,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
         undefined,
         runtime
       )
-      expect(invocationId).toBe(request.spec.invocationId)
+      expect(invocationId).toBe(requestedInvocationId(request))
       expect(response).toMatchObject({ invocationId, state: 'ready' })
     } finally {
       await client.close()
@@ -234,7 +236,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
   test('threads lifecyclePolicy through the options-object dispatch envelope', async () => {
     const request: InvocationStartRequest = {
       spec: codexSpec('start-fresh-turn', {
-        invocationId: 'inv_client_start_request_lifecycle_policy',
+        invocationId: invocationIdFrom('inv_client_start_request_lifecycle_policy'),
       }),
       initialInput,
     }
@@ -257,7 +259,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
         dispatchEnv,
         lifecyclePolicy,
       })
-      expect(invocationId).toBe(request.spec.invocationId)
+      expect(invocationId).toBe(requestedInvocationId(request))
       expect(response).toMatchObject({ invocationId, state: 'ready' })
     } finally {
       await client.close()
@@ -277,7 +279,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
       const request: InvocationStartRequest = { spec: codexSpec('start-fresh-turn') }
       const { invocationId, response, events } = await client.startInvocationFromRequest(request)
 
-      expect(invocationId).toBe(request.spec.invocationId)
+      expect(invocationId).toBe(requestedInvocationId(request))
       expect(response).toMatchObject({ invocationId, state: 'ready' })
 
       const startupEvents = await collectUntil(events, 'invocation.ready')
@@ -306,7 +308,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
       await client.hello(helloRequest())
       const request: InvocationStartRequest = {
         spec: codexSpec('start-fresh-turn', {
-          invocationId: 'inv_client_start_request_success_immutable',
+          invocationId: invocationIdFrom('inv_client_start_request_success_immutable'),
         }),
         initialInput,
       }
@@ -336,7 +338,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
       const request = {
         spec: {
           ...codexSpec('start-fresh-turn', {
-            invocationId: 'inv_client_start_request_reject_immutable',
+            invocationId: invocationIdFrom('inv_client_start_request_reject_immutable'),
           }),
           specVersion: 'invalid-spec-version',
         },
@@ -363,7 +365,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
       await client.hello(helloRequest())
       const request: InvocationStartRequest = {
         spec: codexSpec('start-fresh-turn', {
-          invocationId: 'inv_client_start_request_early_started',
+          invocationId: invocationIdFrom('inv_client_start_request_early_started'),
         }),
       }
 
@@ -389,18 +391,18 @@ describe('BrokerClient startInvocationFromRequest', () => {
     try {
       await client.hello(helloRequest())
       const input: InvocationInput = {
-        inputId: 'input_legacy_delegate',
+        inputId: inputIdFrom('input_legacy_delegate'),
         kind: 'user',
         content: [{ type: 'text', text: 'legacy path should delegate' }],
       }
       const { invocationId, events } = await client.startInvocation(
         codexSpec('start-fresh-turn', {
-          invocationId: 'inv_client_start_request_legacy_delegate',
+          invocationId: invocationIdFrom('inv_client_start_request_legacy_delegate'),
         }),
         input
       )
 
-      expect(invocationId).toBe('inv_client_start_request_legacy_delegate')
+      expect(invocationId).toBe(invocationIdFrom('inv_client_start_request_legacy_delegate'))
       const startupEvents = await collectUntil(events, 'invocation.ready')
       expect(startupEvents.map((event) => event.type)).toEqual([
         'invocation.started',
@@ -427,7 +429,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
       await client.hello(helloRequest())
       const { events } = await client.startInvocationFromRequest({
         spec: codexSpec('start-fresh-turn', {
-          invocationId: 'inv_client_start_request_on_close',
+          invocationId: invocationIdFrom('inv_client_start_request_on_close'),
         }),
       })
       await collectUntil(events, 'invocation.ready')

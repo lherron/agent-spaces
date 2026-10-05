@@ -10,6 +10,7 @@ import {
   type BrokerInstallIdentityResponse,
 } from 'spaces-harness-broker-protocol'
 import { brokerCommand, brokerProcessEnv, codexSpec, helloRequest, repoRoot } from './helpers'
+import { invocationIdFrom } from './ids'
 
 /**
  * T-08346 — the participant establishment sequence through the PUBLIC client,
@@ -32,7 +33,7 @@ const identity = {
   hostSessionId: 'host_session_t08346_client',
   generation: 4,
   attachEpoch: 1,
-  invocationId: 'inv_client_t08346',
+  invocationId: invocationIdFrom('inv_client_t08346'),
   startRequestHash: 'start_hash_t08346_client',
   selectedProfileHash: 'profile_hash_t08346_client',
   attachToken: 'attach_token_t08346_client',
@@ -118,7 +119,7 @@ describe('T-08346 participant establishment through the public client', () => {
     clients.push(client)
 
     // Bootstrap posture: the client's ordinary handshake is refused.
-    await expect(client.hello(helloRequest({ eventReplay: true }))).rejects.toMatchObject({
+    await expect(client.hello(helloRequest())).rejects.toMatchObject({
       code: BrokerErrorCode.BrokerBootstrapRequired,
     })
 
@@ -133,7 +134,7 @@ describe('T-08346 participant establishment through the public client', () => {
       code: BrokerErrorCode.IdentityInstallConflict,
     })
 
-    const hello = await client.hello(helloRequest({ eventReplay: true }))
+    const hello = await client.hello(helloRequest())
     expect(hello.capabilities.attachReplay).toBe(true)
 
     // Install and hello do NOT make the participant resident.

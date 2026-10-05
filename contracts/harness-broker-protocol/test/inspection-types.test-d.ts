@@ -155,6 +155,12 @@ const brokerCapabilities = {
 void brokerCapabilities
 
 const invocationCapabilities = {
+  admission: { classes: ['steer', 'queue'] },
+  bracketMintingMode: 'harness-evidence',
+  queue: { cancelHarnessLocal: false },
+  preempt: { mode: null },
+  steer: { landingEvidence: 'ack' },
+  interrupt: { landingEvidence: 'ack' },
   input: {
     user: true,
     steer: true,

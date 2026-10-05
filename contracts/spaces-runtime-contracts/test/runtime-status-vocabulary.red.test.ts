@@ -7,7 +7,7 @@ import {
   RUNTIME_STATUS_VALUES,
   isRuntimeStateStatus,
   isRuntimeStatus,
-} from '../src/index.ts'
+} from '../src/index'
 
 const ASP_REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 

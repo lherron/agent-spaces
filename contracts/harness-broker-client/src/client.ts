@@ -22,6 +22,7 @@ import type {
   InvocationEventEnvelope,
   InvocationEventsSinceRequest,
   InvocationEventsSinceResponse,
+  InvocationId,
   InvocationInput,
   InvocationInputRequest,
   InvocationInputResponse,
@@ -83,7 +84,7 @@ export type { PermissionRequestHandler }
 export type Disposer = () => void
 
 export interface InvocationStartResult {
-  invocationId: string
+  invocationId: InvocationId
   response: InvocationStartResponse
   events: AsyncIterable<InvocationEventEnvelope>
 }

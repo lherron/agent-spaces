@@ -18,6 +18,7 @@ import {
   userInput,
   withTimeout,
 } from './helpers'
+import { inputIdFrom, invocationIdFrom } from './ids'
 
 const tmpDirs: string[] = []
 
@@ -25,7 +26,7 @@ const runtimeIdentity = {
   runtimeId: 'runtime_T01793_c1',
   hostSessionId: 'hostSession_T01793_c1',
   generation: 1,
-  invocationId: 'inv_client_t01793_c1',
+  invocationId: invocationIdFrom('inv_client_t01793_c1'),
   startRequestHash: 'start_hash_T01793_c1',
   selectedProfileHash: 'profile_hash_T01793_c1',
   attachToken: 'attach-token-T01793-c1',
@@ -39,7 +40,8 @@ const waitForSocket = async (
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (proc.exitCode !== null) {
-      const stderr = await new Response(proc.stderr).text()
+      const stderr =
+        proc.stderr instanceof ReadableStream ? await new Response(proc.stderr).text() : ''
       throw new Error(`broker exited before creating unix socket: ${stderr.trim()}`)
     }
     try {
@@ -110,12 +112,12 @@ const attachRequest = (
 ): BrokerAttachRequest => ({
   ...runtimeIdentity,
   controllerInstanceId,
-  clientCapabilities: { eventReplay: true },
+  clientCapabilities: {},
   ...overrides,
 })
 
 const startDurableInvocation = async (client: BrokerClient, scenario = 'start-fresh-turn') => {
-  await client.hello(helloRequest({ eventReplay: true }))
+  await client.hello(helloRequest())
   const startRequest = {
     spec: codexSpec(scenario, {
       invocationId: runtimeIdentity.invocationId,
@@ -255,7 +257,7 @@ describe('broker durability unix red tests for T-01793 Phase C1', () => {
       client = await connect(socketPath)
       const { invocationId } = await startDurableInvocation(client, 'three-turns')
       const firstInput = {
-        inputId: 'input_T01793_snapshot',
+        inputId: inputIdFrom('input_T01793_snapshot'),
         kind: 'user' as const,
         content: [{ type: 'text' as const, text: 'Record this disposition in snapshot.' }],
       }
@@ -287,7 +289,7 @@ describe('broker durability unix red tests for T-01793 Phase C1', () => {
       client = await connect(socketPath)
       const { invocationId } = await startDurableInvocation(client, 'three-turns')
       const input = {
-        inputId: 'input_T01793_idempotent',
+        inputId: inputIdFrom('input_T01793_idempotent'),
         kind: 'user' as const,
         content: [{ type: 'text' as const, text: 'Idempotent retry payload.' }],
       }

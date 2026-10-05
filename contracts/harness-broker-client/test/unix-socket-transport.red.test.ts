@@ -13,6 +13,7 @@ import {
   repoRoot,
   userInput,
 } from './helpers'
+import { invocationIdFrom } from './ids'
 
 type UnixCapableBrokerClient = typeof BrokerClient & {
   connectUnix(options: {
@@ -40,7 +41,8 @@ const waitForSocket = async (
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (proc.exitCode !== null) {
-      const stderr = await new Response(proc.stderr).text()
+      const stderr =
+        proc.stderr instanceof ReadableStream ? await new Response(proc.stderr).text() : ''
       throw new Error(`broker exited before creating unix socket: ${stderr.trim()}`)
     }
     try {
@@ -99,7 +101,7 @@ describe('BrokerClient unix socket transport red tests for T-01792', () => {
       expect(hello.capabilities.transports).toContain('stdio-jsonrpc-ndjson')
 
       const { invocationId, events } = await client.startInvocation(codexSpec('start-fresh-turn'))
-      expect(invocationId).toBe('inv_client_start_fresh_turn')
+      expect(invocationId).toBe(invocationIdFrom('inv_client_start_fresh_turn'))
       expect((await collectUntil(events, 'invocation.ready')).map((event) => event.type)).toContain(
         'invocation.ready'
       )

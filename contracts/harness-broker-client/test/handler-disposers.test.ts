@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { BrokerClient } from 'spaces-harness-broker-client'
 import type { PermissionDecision, PermissionRequestParams } from 'spaces-harness-broker-protocol'
 import { brokerEnvOverrides, collectUntil, repoRoot } from './helpers'
+import { inputIdFrom, invocationIdFrom } from './ids'
 
 // Fake broker that, on `invocation.input`, issues a single inbound
 // `invocation.permission.request` JSON-RPC request and reports the decision it
@@ -99,7 +100,7 @@ async function runDecisionScenario(
     })
     const { invocationId, events } = await client.startInvocation({
       specVersion: 'harness-broker.invocation/v1',
-      invocationId: 'inv_client_handler_disposer',
+      invocationId: invocationIdFrom('inv_client_handler_disposer'),
       harness: { frontend: 'codex', provider: 'openai', driver: 'codex-app-server' },
       process: {
         command: process.execPath,
@@ -114,7 +115,7 @@ async function runDecisionScenario(
     await client.input({
       invocationId,
       input: {
-        inputId: 'input_handler_disposer',
+        inputId: inputIdFrom('input_handler_disposer'),
         kind: 'user',
         content: [{ type: 'text', text: 'trigger permission' }],
       },

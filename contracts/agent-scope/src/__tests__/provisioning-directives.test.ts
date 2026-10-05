@@ -151,7 +151,9 @@ describe('provisioning directives: sender-side validation', () => {
       approval: 'string',
       remote: 'boolean',
     })
-    expect(PROVISIONING_SCALAR_KEYS).toEqual(Object.keys(PROVISIONING_SCALAR_KINDS))
+    // Object.keys is string[]; compare the typed key list as plain strings.
+    const scalarKeys: readonly string[] = PROVISIONING_SCALAR_KEYS
+    expect(scalarKeys).toEqual(Object.keys(PROVISIONING_SCALAR_KINDS))
 
     const typedSelection = {
       harness: 'codex',
