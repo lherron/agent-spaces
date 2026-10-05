@@ -9,10 +9,8 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../../../src/broker'
 import { createCodexDesktopDriver } from '../../../src/drivers/codex-desktop/driver'
-import type {
-  CodexDesktopDriverOptions,
-  CodexDesktopQueueHelper,
-} from '../../../src/drivers/codex-desktop/driver'
+import type { CodexDesktopDriverOptions } from '../../../src/drivers/codex-desktop/driver'
+import type { CodexDesktopQueueHelper } from '../../../src/drivers/codex-desktop/queue-helper'
 import type { EventLedger } from '../../../src/event-ledger'
 
 const cleanups: Array<() => void> = []

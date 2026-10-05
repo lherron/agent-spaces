@@ -3,10 +3,8 @@ import { appendFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { InvocationEventEnvelope, InvocationId } from 'spaces-harness-broker-protocol'
 import { CodexRpcError } from '../../../src/drivers/codex-app-server/rpc-client'
-import type {
-  CodexDesktopDriverOptions,
-  CodexDesktopQueueHelper,
-} from '../../../src/drivers/codex-desktop/driver'
+import type { CodexDesktopDriverOptions } from '../../../src/drivers/codex-desktop/driver'
+import type { CodexDesktopQueueHelper } from '../../../src/drivers/codex-desktop/queue-helper'
 import {
   type NativeQueueRow,
   noticeData,

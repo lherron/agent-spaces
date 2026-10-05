@@ -106,14 +106,10 @@ export type { ArrisControlClient } from './drivers/arris-resident/control-client
 export { CLAUDE_CODE_TMUX_DRIVER_KIND } from './drivers/claude-code-tmux/hook-events'
 export { CODEX_DRIVER_KIND } from './drivers/codex-app-server/event-map'
 export { MUSE_DRIVER_KIND } from './drivers/muse-serve/event-map'
-export {
-  CODEX_DESKTOP_DRIVER_KIND,
-  createCodexDesktopDriver,
-} from './drivers/codex-desktop/driver'
-export type {
-  CodexDesktopDriverOptions,
-  CodexDesktopDriverSpec,
-} from './drivers/codex-desktop/driver'
+export { createCodexDesktopDriver } from './drivers/codex-desktop/driver'
+export type { CodexDesktopDriverOptions } from './drivers/codex-desktop/driver'
+export { CODEX_DESKTOP_DRIVER_KIND } from './drivers/codex-desktop/spec'
+export type { CodexDesktopDriverSpec } from './drivers/codex-desktop/spec'
 export {
   MUSE_CLI_TMUX_DRIVER_KIND,
   createMuseCliTmuxLogEventNormalizer,

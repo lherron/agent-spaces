@@ -1,47 +1,24 @@
-import { spawn } from 'node:child_process'
-import {
-  type FSWatcher,
-  accessSync,
-  closeSync,
-  openSync,
-  readFileSync,
-  readSync,
-  watch,
-} from 'node:fs'
-import { dirname, isAbsolute, join } from 'node:path'
+import { type FSWatcher, accessSync, watch } from 'node:fs'
+import { dirname } from 'node:path'
 import type {
-  EventProvenance,
   HarnessInvocationSpec,
-  InputId,
   InvocationCapabilities,
   InvocationInput,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
   InvocationStopRequest,
   InvocationStopResponse,
-  MessageId,
-  RawProviderRecord,
-  ToolCallId,
-  TurnId,
 } from 'spaces-harness-broker-protocol'
 import {
   BrokerErrorCode,
   CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 } from 'spaces-harness-broker-protocol'
-import type { CapturedRecord, NormalizeOutcome } from '../../capture/capture-gate'
-import { BrokerError } from '../../errors'
-import { buildCodexInput } from '../codex-app-server/input'
-import { CodexRpcClient, CodexRpcError, type CodexRpcPeer } from '../codex-app-server/rpc-client'
+import { BrokerError, errorMessage } from '../../errors'
 import {
-  asCodexRecord,
   classifyCodexRolloutLine,
-  codexContentText,
   codexNativeTypeOf,
   codexResponseItemOf,
-  codexTurnContextModel,
-  parseCodexRolloutLine,
 } from '../codex-rollout/native'
-import { codexNativeToolIdentity } from '../codex-tool-identity'
 import type {
   ApplyInputResult,
   CancelInputResult,
@@ -49,74 +26,25 @@ import type {
   DriverContext,
   DriverStartResult,
 } from '../driver'
-import { withDeliveryEvidence } from '../driver'
 import { CODEX_DESKTOP_AUTHORITY } from '../evidence-authority'
 import { getString } from '../hook-json'
 import { createJsonlByteOffsetTailer } from '../jsonl-byte-tailer'
+import { createNativeDelivery } from './native-delivery'
+import { type CodexDesktopQueueHelper, openBundledQueueHelper } from './queue-helper'
+import { createRolloutNormalizer } from './rollout-normalizer'
+import { capturedRecord, rolloutResumeOffset } from './rollout-resume'
 import {
-  type CodexDesktopNativeAttempt,
-  type CodexDesktopNativeAttemptStore,
-  isUnresolvedCodexDesktopAttempt,
-  openCodexDesktopNativeAttemptStore,
-} from './native-attempt-store'
-
-export const CODEX_DESKTOP_DRIVER_KIND = 'codex-desktop'
-const CODEX_DESKTOP_DRIVER_VERSION = '0.1.0'
-
-export interface CodexDesktopDriverSpec {
-  kind: typeof CODEX_DESKTOP_DRIVER_KIND
-  bundleExecutable: string
-  codexHome: string
-  sqliteHome: string
-  threadId: string
-  rolloutPath: string
-  recoveryBoundary?: CodexDesktopRecoveryBoundary | undefined
-  nativeAttemptStorePath?: string | undefined
-  /** Legacy producer-EOF hint. Unsafe for recovery and deliberately ignored. */
-  adoptionWatermark?: { byteOffset: number } | undefined
-}
-
-export interface CodexDesktopRecoveryBoundary {
-  sourceKind?: string | undefined
-  sourceEpoch?: string | undefined
-  furthestCommittedRecord?:
-    | {
-        rawRecordId: string
-        byteOffset: number
-        line?: number | undefined
-        rawSha256?: string | undefined
-        nativeType?: string | undefined
-      }
-    | undefined
-  earliestPendingRecord?:
-    | {
-        rawRecordId: string
-        byteOffset: number
-      }
-    | undefined
-  committedProjections: readonly {
-    seq: number
-    type: string
-    turnId?: string | undefined
-    itemId?: string | undefined
-    nativeId?: string | undefined
-    rawRecordId?: string | undefined
-  }[]
-  appliedThroughSeq: number
-  empty: boolean
-}
+  CODEX_DESKTOP_DRIVER_KIND,
+  CODEX_DESKTOP_DRIVER_VERSION,
+  type CodexDesktopDriverSpec,
+  parseDesktopSpec,
+  sourceKey,
+} from './spec'
 
 export interface CodexDesktopDriverOptions {
   pollIntervalMs?: number | undefined
   watchFile?: boolean | undefined
   openQueueHelper?: ((spec: CodexDesktopDriverSpec) => Promise<CodexDesktopQueueHelper>) | undefined
-}
-
-export interface CodexDesktopQueueHelper {
-  list(threadId: string, cursor?: string): Promise<unknown>
-  add(threadId: string, input: InvocationInput, clientUserMessageId: string): Promise<unknown>
-  delete(threadId: string, queuedSubmissionId: string): Promise<unknown>
-  close(): void
 }
 
 const CODEX_DESKTOP_CAPABILITIES: InvocationCapabilities = {
@@ -158,22 +86,9 @@ const CODEX_DESKTOP_CAPABILITIES: InvocationCapabilities = {
   lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 }
 
-type HeldAssistant = {
-  messageId: MessageId
-  content: string
-  turnId: TurnId
-  provenance?: EventProvenance | undefined
-}
-
-type NativeOrchestration = {
-  callId: ToolCallId
-  turnId: TurnId
-}
-
 /** Observe one desktop-owned rollout. This driver never starts or signals Codex. */
 export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}): Driver {
   const pollIntervalMs = options.pollIntervalMs ?? 250
-  const openQueueHelper = options.openQueueHelper ?? openBundledQueueHelper
   let ctx: DriverContext | undefined
   let spec: CodexDesktopDriverSpec | undefined
   let watcher: FSWatcher | undefined
@@ -181,32 +96,19 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
   let drain = Promise.resolve()
   let stopped = false
   let healthReason: string | undefined
-  let deliveryReason: string | undefined
-  let lastNativeActivity: string | undefined
-  let currentTurnId: TurnId | undefined
-  let heldAssistant: HeldAssistant | undefined
-  const seenItems = new Set<string>()
-  const seenUsers = new Set<string>()
-  const seenTurnStarts = new Set<string>()
-  const seenTurnTerminals = new Set<string>()
-  const attributedTurns = new Set<string>()
-  const contentTurns = new Set<string>()
-  const seenToolStarts = new Set<string>()
-  const seenToolTerminals = new Set<string>()
-  const nativeOrchestrations = new Map<string, NativeOrchestration>()
-  /**
-   * Model named by each turn's `turn_context` row (T-08430). Codex's
-   * `token_count` rows carry no model, so usage borrows the identity its turn
-   * opened with; `lastTurnModel` covers a usage row whose turn id is unknown,
-   * which can only be the turn currently in flight.
-   */
-  const turnModels = new Map<string, string>()
-  let lastTurnModel: string | undefined
-  const ownedInputIds = new Set<string>()
-  let attemptStore: CodexDesktopNativeAttemptStore | undefined
-  let installationKey = ''
-  let normalizedEventCount = 0
   let tailer = createTailer()
+
+  const delivery = createNativeDelivery({
+    ctx: requireCtx,
+    spec: activeSpec,
+    openQueueHelper: options.openQueueHelper ?? openBundledQueueHelper,
+    readRows,
+  })
+  const normalizer = createRolloutNormalizer({
+    emit: (type, payload, extra) => requireCtx().emit(type, payload, extra),
+    threadId: () => activeSpec().threadId,
+    claimOwnUserMessage: (message) => delivery.claimOwnUserMessage(message),
+  })
 
   function createTailer() {
     return createJsonlByteOffsetTailer({
@@ -231,19 +133,11 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
     return spec
   }
 
-  function emit(
-    type: Parameters<DriverContext['emit']>[0],
-    payload: Parameters<DriverContext['emit']>[1],
-    extra: Parameters<DriverContext['emit']>[2]
-  ): void {
-    normalizedEventCount += 1
-    requireCtx().emit(type as never, payload as never, extra)
-  }
-
   function emitHealth(nextReason: string | undefined): void {
     if (healthReason === nextReason) return
     healthReason = nextReason
     if (ctx === undefined) return
+    const lastNativeActivity = normalizer.lastNativeActivity()
     ctx.emit('driver.notice', {
       message:
         nextReason === undefined
@@ -261,436 +155,13 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
     })
   }
 
-  function resetParserState(): void {
-    currentTurnId = undefined
-    heldAssistant = undefined
-    seenItems.clear()
-    seenUsers.clear()
-    seenTurnStarts.clear()
-    seenTurnTerminals.clear()
-    attributedTurns.clear()
-    contentTurns.clear()
-    seenToolStarts.clear()
-    seenToolTerminals.clear()
-    nativeOrchestrations.clear()
-    ownedInputIds.clear()
-  }
-
-  function requireAttemptStore(): CodexDesktopNativeAttemptStore {
-    if (attemptStore === undefined) {
-      throw new BrokerError(BrokerErrorCode.ResourceError, 'Codex desktop attempt store is closed')
-    }
-    return attemptStore
-  }
-
-  function attemptData(row: CodexDesktopNativeAttempt): Record<string, unknown> {
-    return {
-      attemptState: row.state,
-      inputId: row.inputId,
-      clientUserMessageId: row.clientUserMessageId,
-      nativeThreadId: row.threadId,
-      observationWatermark: row.observationWatermark,
-      ...(row.principalRef !== undefined ? { principalRef: row.principalRef } : {}),
-      ...(row.scopeRef !== undefined ? { scopeRef: row.scopeRef } : {}),
-      ...(row.envelopeId !== undefined ? { envelopeId: row.envelopeId } : {}),
-      ...(row.queuedSubmissionId !== undefined
-        ? { queuedSubmissionId: row.queuedSubmissionId }
-        : {}),
-      ...(row.turnId !== undefined ? { turnId: row.turnId } : {}),
-      ...(row.detail !== undefined ? { detail: row.detail } : {}),
-    }
-  }
-
-  function emitAttempt(row: CodexDesktopNativeAttempt, code: string, message: string): void {
-    requireCtx().emit(
-      'driver.notice',
-      { message, code, data: attemptData(row) },
-      {
-        inputId: row.inputId as InputId,
-        ...(row.turnId !== undefined ? { turnId: row.turnId as TurnId } : {}),
-        driver: { kind: CODEX_DESKTOP_DRIVER_KIND, rawType: 'broker.native-attempt' },
-      }
-    )
-  }
-
-  function updateAttempt(
-    inputId: string,
-    patch: Parameters<CodexDesktopNativeAttemptStore['update']>[2],
-    code?: string,
-    message?: string
-  ): CodexDesktopNativeAttempt {
-    const row = requireAttemptStore().update(installationKey, inputId, patch)
-    if (code !== undefined && message !== undefined) emitAttempt(row, code, message)
-    return row
-  }
-
-  function stampExtra(
-    captured: CapturedRecord,
-    turnId?: TurnId,
-    inputId?: InputId,
-    itemId?: string,
-    preserveSourceTime = false
-  ) {
-    return {
-      ...(turnId !== undefined ? { turnId } : {}),
-      ...(inputId !== undefined ? { inputId } : {}),
-      ...(itemId !== undefined ? { itemId } : {}),
-      ...(preserveSourceTime ? { sourceTime: sourceTimeOf(captured) } : {}),
-      driver: { kind: CODEX_DESKTOP_DRIVER_KIND, rawType: captured.record.nativeType },
-      provenance: captured.provenance(),
-    }
-  }
-
-  function flushAssistant(captured: CapturedRecord, final: boolean, publish: boolean): void {
-    const held = heldAssistant
-    if (held === undefined) return
-    heldAssistant = undefined
-    contentTurns.add(held.turnId)
-    if (!publish) return
-    emit(
-      'assistant.message.completed',
-      { messageId: held.messageId, content: [{ type: 'text', text: held.content }], final },
-      {
-        turnId: held.turnId,
-        itemId: held.messageId,
-        driver: { kind: CODEX_DESKTOP_DRIVER_KIND, rawType: captured.record.nativeType },
-        provenance: held.provenance ?? captured.provenance(),
-      }
-    )
-  }
-
-  function turnIdOf(payload: Record<string, unknown>): TurnId | undefined {
-    return getString(payload, 'turn_id') as TurnId | undefined
-  }
-
-  function itemBelongsToThread(payload: Record<string, unknown>): boolean {
-    const threadId = getString(payload, 'thread_id')
-    return threadId === undefined || threadId === activeSpec().threadId
-  }
-
-  // The branches deliberately mirror Codex's persisted EventMsg vocabulary so
-  // every native family remains auditable in one normalization switch.
-  // EXCEPTION(T-08293): keeping the closed native vocabulary in one mapper makes drift fail visibly.
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: native vocabulary mapper
-  function normalizeRecord(captured: CapturedRecord, publish = true): NormalizeOutcome {
-    const line = Buffer.from(captured.record.rawBytes).toString('utf8')
-    const responseItem = codexResponseItemOf(line)
-    if (
-      responseItem?.itemType === 'custom_tool_call' ||
-      responseItem?.itemType === 'custom_tool_call_output'
-    ) {
-      const metadata = asCodexRecord(
-        responseItem.payload['internal_chat_message_metadata_passthrough']
-      )
-      const turnId = getString(metadata ?? {}, 'turn_id') as TurnId | undefined
-      const callId = getString(responseItem.payload, 'call_id') as ToolCallId | undefined
-      if (turnId === undefined || callId === undefined) {
-        return {
-          disposition: 'ignored-known',
-          detail: `${responseItem.itemType} without stable turn/call identity`,
-        }
-      }
-      lastNativeActivity = captured.record.observedAt
-
-      if (responseItem.itemType === 'custom_tool_call_output') {
-        const orchestration = nativeOrchestrations.get(callId)
-        if (orchestration === undefined || orchestration.turnId !== turnId) {
-          return {
-            disposition: 'ignored-known',
-            detail: 'custom_tool_call_output without matching exec orchestration',
-          }
-        }
-        if (seenToolTerminals.has(callId)) {
-          return { disposition: 'duplicate', detail: 'response_item:custom_tool_call_output' }
-        }
-        seenToolTerminals.add(callId)
-        contentTurns.add(turnId)
-        const codeModeOutput = responseItem.payload['output']
-        const outputText =
-          typeof codeModeOutput === 'string' ? codeModeOutput : codexContentText(codeModeOutput)
-        if (publish) {
-          emit(
-            'tool.call.completed',
-            {
-              toolCallId: callId,
-              name: 'exec/orchestration',
-              ...(codeModeOutput !== undefined
-                ? {
-                    result: {
-                      output: `[exec/orchestration output]${outputText.length > 0 ? `\n${outputText}` : ''}`,
-                      codeModeOutput,
-                    },
-                  }
-                : {}),
-            },
-            stampExtra(captured, turnId, undefined, callId, true)
-          )
-        }
-        return { disposition: 'normalized', detail: 'response_item:custom_tool_call_output' }
-      }
-
-      // The response item is a code-mode orchestration boundary, not evidence
-      // that any one child CommandExecution started at this timestamp.
-      if (getString(responseItem.payload, 'name') !== 'exec') {
-        return {
-          disposition: 'ignored-known',
-          detail: 'response_item:custom_tool_call without proven completion pairing',
-        }
-      }
-      if (seenToolStarts.has(callId)) {
-        return { disposition: 'duplicate', detail: 'response_item:custom_tool_call' }
-      }
-      seenToolStarts.add(callId)
-      nativeOrchestrations.set(callId, { callId, turnId })
-      contentTurns.add(turnId)
-      if (publish) {
-        emit(
-          'tool.call.started',
-          {
-            toolCallId: callId,
-            name: 'exec/orchestration',
-            ...(responseItem.payload['input'] !== undefined
-              ? { input: { codeMode: responseItem.payload['input'] } }
-              : {}),
-          },
-          stampExtra(captured, turnId, undefined, callId, true)
-        )
-      }
-      return { disposition: 'normalized', detail: 'response_item:custom_tool_call' }
-    }
-    const turnContextModel = codexTurnContextModel(line)
-    if (turnContextModel !== undefined) {
-      lastTurnModel = turnContextModel.model
-      if (turnContextModel.turnId !== undefined) {
-        turnModels.set(turnContextModel.turnId, turnContextModel.model)
-      }
-    }
-    const classified = classifyCodexRolloutLine(line)
-    if ('outcome' in classified) return classified.outcome
-    const { payload, payloadType, item } = classified
-    if (!itemBelongsToThread(payload)) {
-      return { disposition: 'ignored-known', detail: 'different desktop thread' }
-    }
-    lastNativeActivity = captured.record.observedAt
-    const turnId = turnIdOf(payload) ?? currentTurnId
-    const before = eventCount()
-
-    if (payloadType === 'task_started') {
-      const startedTurn = turnIdOf(payload)
-      if (startedTurn !== undefined) {
-        currentTurnId = startedTurn
-        if (!seenTurnStarts.has(startedTurn)) {
-          seenTurnStarts.add(startedTurn)
-          if (publish) {
-            emit(
-              'turn.started',
-              { turnId: startedTurn, source: 'observed', sessionId: activeSpec().threadId },
-              stampExtra(captured, startedTurn)
-            )
-          }
-        }
-      }
-    } else if (payloadType === 'item_completed' && item !== undefined && turnId !== undefined) {
-      const itemType = getString(item, 'type')
-      const itemId = (getString(item, 'id') ??
-        `${itemType ?? 'item'}:${captured.record.rawRecordId}`) as string
-      if (itemType === 'UserMessage' && !seenUsers.has(itemId)) {
-        seenUsers.add(itemId)
-        const content = codexContentText(item['content'])
-        const clientId = getString(item, 'client_id')
-        const cursor = captured.record.sourceCursor['byteOffset']
-        const attempt =
-          clientId === undefined ? undefined : requireAttemptStore().get(installationKey, clientId)
-        const attemptWatermark =
-          attempt?.observationWatermark ?? activeSpec().adoptionWatermark?.byteOffset ?? 0
-        const afterAdoption = typeof cursor !== 'number' || cursor >= attemptWatermark
-        const own =
-          clientId !== undefined &&
-          afterAdoption &&
-          seenTurnStarts.has(turnId) &&
-          ownedInputIds.has(clientId)
-        const inputId = own ? (clientId as InputId) : undefined
-        if (own && attempt !== undefined && attempt.state !== 'executed') {
-          updateAttempt(
-            attempt.inputId,
-            { state: 'executed', turnId },
-            publish ? 'CODEX_DESKTOP_NATIVE_ATTEMPT_EXECUTED' : undefined,
-            publish ? 'Codex desktop native input execution observed' : undefined
-          )
-          requireCtx().admissionStateChanged?.()
-        }
-        if (publish) {
-          emit(
-            'user.message',
-            { content, role: 'user', turnId, ...(inputId !== undefined ? { inputId } : {}) },
-            stampExtra(captured, turnId, inputId, itemId)
-          )
-          emit(
-            'turn.attributed',
-            {
-              turnId,
-              ownership: own ? 'own' : 'foreign',
-              origin: own ? 'broker' : 'human',
-              ...(inputId !== undefined ? { inputId } : {}),
-            },
-            stampExtra(captured, turnId, inputId)
-          )
-        }
-        attributedTurns.add(turnId)
-      } else if (itemType === 'AgentMessage' && !seenItems.has(itemId)) {
-        seenItems.add(itemId)
-        const content = codexContentText(item['content'])
-        if (content.length > 0) {
-          const phase = getString(item, 'phase')
-          if (phase === 'commentary') {
-            flushAssistant(captured, false, publish)
-            contentTurns.add(turnId)
-            if (publish) {
-              emit(
-                'assistant.message.completed',
-                {
-                  messageId: itemId as MessageId,
-                  content: [{ type: 'text', text: content }],
-                  final: false,
-                },
-                stampExtra(captured, turnId, undefined, itemId)
-              )
-            }
-          } else {
-            flushAssistant(captured, false, publish)
-            heldAssistant = {
-              messageId: itemId as MessageId,
-              content,
-              turnId,
-              provenance: captured.provenance(),
-            }
-          }
-        }
-      } else if (isRecordedTool(itemType) && !seenItems.has(itemId)) {
-        seenItems.add(itemId)
-        contentTurns.add(turnId)
-        const identity = codexNativeToolIdentity(
-          itemType ?? '',
-          item,
-          toolName(itemType, item)
-        ) ?? {
-          itemId,
-          toolCallId: itemId as ToolCallId,
-          name: toolName(itemType, item),
-        }
-        if (publish) {
-          emit(
-            'tool.call.completed',
-            {
-              toolCallId: identity.toolCallId,
-              name: identity.name,
-              result: recordedToolResult(itemType, item),
-              ...(item['is_error'] === true ? { isError: true } : {}),
-            },
-            stampExtra(captured, turnId, undefined, identity.itemId, true)
-          )
-        }
-      }
-    } else if (payloadType === 'agent_message' && turnId !== undefined) {
-      const content = getString(payload, 'message')
-      const itemId = getString(payload, 'id') ?? `agent:${turnId}:${captured.record.rawRecordId}`
-      if (content !== undefined && !seenItems.has(itemId)) {
-        seenItems.add(itemId)
-        flushAssistant(captured, false, publish)
-        heldAssistant = {
-          messageId: itemId as MessageId,
-          content,
-          turnId,
-          provenance: captured.provenance(),
-        }
-      }
-    } else if (payloadType === 'token_count') {
-      const usage = payload['info']
-      if (usage !== undefined && publish) {
-        const model = (turnId !== undefined ? turnModels.get(turnId) : undefined) ?? lastTurnModel
-        emit(
-          'usage.updated',
-          {
-            usage,
-            ...(model !== undefined ? { model: { id: model, source: 'provider-response' } } : {}),
-          },
-          stampExtra(captured, turnId)
-        )
-      }
-    } else if (payloadType === 'task_complete') {
-      const completedTurn = turnIdOf(payload) ?? currentTurnId
-      if (completedTurn !== undefined && !seenTurnTerminals.has(completedTurn)) {
-        if (heldAssistant === undefined) {
-          const fallback = getString(payload, 'last_agent_message')
-          if (fallback !== undefined && fallback.length > 0) {
-            heldAssistant = {
-              messageId: `agent:${completedTurn}:terminal` as MessageId,
-              content: fallback,
-              turnId: completedTurn,
-              provenance: captured.provenance(),
-            }
-          }
-        }
-        flushAssistant(captured, true, publish)
-        if (!attributedTurns.has(completedTurn) && publish) {
-          emit(
-            'turn.attributed',
-            { turnId: completedTurn, ownership: 'unknown', origin: 'unknown' },
-            stampExtra(captured, completedTurn)
-          )
-        }
-        attributedTurns.add(completedTurn)
-        seenTurnTerminals.add(completedTurn)
-        if (publish) {
-          emit(
-            'turn.completed',
-            {
-              turnId: completedTurn,
-              status: 'completed',
-              ...(getString(payload, 'last_agent_message') !== undefined
-                ? { finalOutput: getString(payload, 'last_agent_message') }
-                : {}),
-              producedContent: contentTurns.has(completedTurn),
-            },
-            stampExtra(captured, completedTurn)
-          )
-        }
-        if (currentTurnId === completedTurn) currentTurnId = undefined
-      }
-    } else if (payloadType === 'turn_aborted') {
-      const abortedTurn = turnIdOf(payload) ?? currentTurnId
-      if (abortedTurn !== undefined && !seenTurnTerminals.has(abortedTurn)) {
-        flushAssistant(captured, false, publish)
-        seenTurnTerminals.add(abortedTurn)
-        if (publish) {
-          emit(
-            'turn.interrupted',
-            { turnId: abortedTurn, status: 'interrupted', reason: getString(payload, 'reason') },
-            stampExtra(captured, abortedTurn)
-          )
-        }
-        if (currentTurnId === abortedTurn) currentTurnId = undefined
-      }
-    }
-
-    return eventCount() > before
-      ? { disposition: 'normalized', detail: `event_msg:${payloadType}` }
-      : { disposition: 'state-only', detail: `event_msg:${payloadType}` }
-  }
-
-  // State changes count as normalization even during reconstruction; this is
-  // deliberately a cheap monotonic proxy, not a public event counter.
-  function eventCount(): number {
-    return normalizedEventCount
-  }
-
   function readRows(): void {
     const active = activeSpec()
     try {
       accessSync(active.rolloutPath)
       emitHealth(undefined)
     } catch (error) {
-      emitHealth(`rollout unreadable or not materialized: ${describe(error)}`)
+      emitHealth(`rollout unreadable or not materialized: ${errorMessage(error)}`)
       return
     }
     tailer.readNewLines((line, cursor) => {
@@ -708,67 +179,16 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
           rawBytes: Buffer.from(line, 'utf8'),
           correlationHints: { threadId: active.threadId },
         },
-        (captured) => normalizeRecord(captured)
+        (captured) => normalizer.normalize(captured)
       )
     })
-  }
-
-  function recoveryNotice(code: string, message: string, data: Record<string, unknown>): void {
-    requireCtx().emit('driver.notice', { code, message, data })
-  }
-
-  function freshRecoveryOffset(parsed: CodexDesktopDriverSpec): number {
-    const boundary = parsed.recoveryBoundary
-    if (boundary === undefined) return 0
-    // HRC can prove which projections it committed, but no nonzero cursor can
-    // prove that every earlier projection reached it. The former broker may
-    // have died with an immediate projection in flight or normalization still
-    // buffered locally. Replay the complete source; HRC suppresses only the
-    // projection identities it durably committed.
-    let replaySnapshot: Record<string, number> = {}
-    try {
-      const bytes = readFileSync(parsed.rolloutPath)
-      let completeRecordCount = 0
-      let lastCompleteByte = 0
-      for (let index = 0; index < bytes.length; index += 1) {
-        if (bytes[index] !== 0x0a) continue
-        completeRecordCount += 1
-        lastCompleteByte = index + 1
-      }
-      replaySnapshot = {
-        replaySnapshotBytes: bytes.length,
-        replaySnapshotCompleteRecords: completeRecordCount,
-        replaySnapshotTrailingPartialBytes: bytes.length - lastCompleteByte,
-      }
-    } catch {
-      // readRows owns the visible observer-health error. Recovery still starts
-      // losslessly at zero if the rollout materializes after this snapshot.
-    }
-    recoveryNotice(
-      'CODEX_DESKTOP_RECOVERY_BOUNDARY_APPLIED',
-      'Codex desktop recovery is replaying from byte zero against durable committed projections',
-      {
-        replayByteOffset: 0,
-        ...replaySnapshot,
-        appliedThroughSeq: boundary.appliedThroughSeq,
-        committedProjectionCount: boundary.committedProjections.length,
-        empty: boundary.empty,
-        ...(boundary.furthestCommittedRecord === undefined
-          ? {}
-          : { furthestCommittedByteOffset: boundary.furthestCommittedRecord.byteOffset }),
-        ...(boundary.earliestPendingRecord === undefined
-          ? {}
-          : { earliestPendingByteOffset: boundary.earliestPendingRecord.byteOffset }),
-      }
-    )
-    return 0
   }
 
   function scheduleRead(): void {
     if (stopped) return
     drain = drain
       .then(() => readRows())
-      .catch((error) => emitHealth(`observer read failed: ${describe(error)}`))
+      .catch((error) => emitHealth(`observer read failed: ${errorMessage(error)}`))
   }
 
   function setupWatch(path: string): void {
@@ -777,9 +197,9 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
         watcher = watch(dirname(path), { persistent: false }, (_event, filename) => {
           if (filename === null || path.endsWith(String(filename))) scheduleRead()
         })
-        watcher.on('error', (error) => emitHealth(`rollout watch failed: ${describe(error)}`))
+        watcher.on('error', (error) => emitHealth(`rollout watch failed: ${errorMessage(error)}`))
       } catch (error) {
-        emitHealth(`rollout watch unavailable: ${describe(error)}`)
+        emitHealth(`rollout watch unavailable: ${errorMessage(error)}`)
       }
     }
     poller = setInterval(scheduleRead, pollIntervalMs)
@@ -811,24 +231,22 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
     },
 
     captureNormalizer() {
-      return (captured) => normalizeRecord(captured)
+      return (captured) => normalizer.normalize(captured)
     },
 
     runtimeHealth() {
-      const reason = healthReason ?? deliveryReason
+      const reason = healthReason ?? delivery.deliveryReason()
       return reason === undefined
         ? ({ state: 'healthy' } as const)
         : ({ state: 'degraded', reason } as const)
     },
 
     admissionRejectionReason(admissionClass) {
-      return admissionClass === 'queue' ? deliveryReason : undefined
+      return admissionClass === 'queue' ? delivery.deliveryReason() : undefined
     },
 
     probeAdmissionState() {
-      return {
-        harnessLocalQueueDepth: attemptStore?.unresolved(installationKey) === undefined ? 0 : 1,
-      }
+      return { harnessLocalQueueDepth: delivery.harnessLocalQueueDepth() }
     },
 
     async start(
@@ -840,222 +258,37 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
       stopped = false
       ctx = driverCtx
       spec = parsed
-      deliveryReason = undefined
-      resetParserState()
-      attemptStore?.close()
-      attemptStore = openCodexDesktopNativeAttemptStore(
-        parsed.nativeAttemptStorePath ??
-          (driverCtx.durableStateDir === undefined
-            ? undefined
-            : join(driverCtx.durableStateDir, 'codex-desktop-native-attempts.db'))
-      )
-      installationKey = desktopInstallationKey(parsed)
-      for (const attempt of attemptStore.list(installationKey)) {
-        ownedInputIds.add(attempt.clientUserMessageId)
-      }
-      normalizedEventCount = 0
+      normalizer.reset()
+      delivery.open(parsed, driverCtx.durableStateDir)
       tailer = createTailer()
 
+      // Rebuild dedupe state from records this capture already settled...
       const records = driverCtx.capture?.records() ?? []
       for (const record of records) {
         if (
           record.driverKind === CODEX_DESKTOP_DRIVER_KIND &&
           driverCtx.capture?.disposition(record.rawRecordId) !== 'pending'
         ) {
-          normalizeRecord(capturedRecord(record), false)
+          normalizer.normalize(capturedRecord(record), false)
         }
       }
-      // Re-drive the crash window before moving the physical file cursor.
-      driverCtx.capture?.replayPending((captured) => normalizeRecord(captured))
-      const resumeOffset = records.some(
-        (record) =>
-          record.driverKind === CODEX_DESKTOP_DRIVER_KIND &&
-          typeof record.sourceCursor['byteOffset'] === 'number'
-      )
-        ? durableResumeOffset(parsed.rolloutPath, records)
-        : freshRecoveryOffset(parsed)
-      tailer.retarget(parsed.rolloutPath, { startAtOffset: resumeOffset })
+      // ...and re-drive the crash window before moving the physical file cursor.
+      driverCtx.capture?.replayPending((captured) => normalizer.normalize(captured))
+      tailer.retarget(parsed.rolloutPath, {
+        startAtOffset: rolloutResumeOffset(driverCtx, parsed, records),
+      })
       readRows()
-      const unresolved = attemptStore.unresolved(installationKey)
-      if (unresolved !== undefined) await reconcileAttempt(unresolved)
+      await delivery.reconcileUnresolved()
       setupWatch(parsed.rolloutPath)
       return { ok: true }
     },
 
-    async applyInputNow(input: InvocationInput): Promise<ApplyInputResult> {
-      const inputId = input.inputId
-      if (inputId === undefined) {
-        throw withDeliveryEvidence(
-          new BrokerError(
-            BrokerErrorCode.DispatchValidationFailed,
-            'Desktop queue inputId is required'
-          ),
-          'not_written'
-        )
-      }
-      const store = requireAttemptStore()
-      const unresolved = store.unresolved(installationKey)
-      if (unresolved !== undefined) {
-        if (unresolved.inputId !== inputId) {
-          throw withDeliveryEvidence(
-            new BrokerError(
-              BrokerErrorCode.InvalidInvocationState,
-              `Desktop native write remains unresolved for ${unresolved.inputId}`
-            ),
-            'not_written'
-          )
-        }
-        await reconcileAttempt(unresolved)
-        if (isUnresolvedCodexDesktopAttempt(store.get(installationKey, inputId) ?? unresolved)) {
-          return {}
-        }
-      }
-
-      const existing = store.get(installationKey, inputId)
-      if (existing?.state === 'executed' || existing?.state === 'cancelled') return {}
-      const observationWatermark = currentObservationWatermark()
-      const prepared =
-        existing?.state === 'rejected'
-          ? updateAttempt(inputId, {
-              state: 'prepared',
-              detail: 'retry after definitive rejection',
-            })
-          : store.prepare({
-              installationKey,
-              invocationId: requireCtx().invocationId,
-              inputId,
-              clientUserMessageId: inputId,
-              threadId: activeSpec().threadId,
-              principalRef: input.metadata?.['principalRef'],
-              scopeRef: input.metadata?.['scopeRef'],
-              envelopeId: input.metadata?.['envelopeId'],
-              observationWatermark,
-            })
-      ownedInputIds.add(inputId)
-      emitAttempt(
-        prepared,
-        'CODEX_DESKTOP_NATIVE_ATTEMPT_PREPARED',
-        'Codex desktop native input persisted before queue write'
-      )
-
-      const beforeAdd = await reconcileAttempt(prepared)
-      if (beforeAdd.state !== 'prepared') return {}
-      if (deliveryReason !== undefined) {
-        updateAttempt(inputId, {
-          state: 'rejected',
-          detail: `definitive pre-write helper failure: ${deliveryReason}`,
-        })
-        throw withDeliveryEvidence(
-          new BrokerError(BrokerErrorCode.DriverUnavailable, deliveryReason),
-          'not_written'
-        )
-      }
-      let helper: CodexDesktopQueueHelper | undefined
-      try {
-        helper = await openQueueHelper(activeSpec())
-        updateAttempt(inputId, { state: 'writing', detail: 'thread/queue/add request begun' })
-        const response = await helper.add(activeSpec().threadId, input, inputId)
-        const queuedSubmissionId = queueSubmissionId(response)
-        if (queuedSubmissionId === undefined) {
-          throw new Error('Codex thread/queue/add response did not carry queuedSubmission.id')
-        }
-        deliveryReason = undefined
-        updateAttempt(
-          inputId,
-          { state: 'queued', queuedSubmissionId, detail: 'native queue add acknowledged' },
-          'CODEX_DESKTOP_NATIVE_ATTEMPT_QUEUED',
-          'Codex desktop queued input accepted'
-        )
-        return {}
-      } catch (error) {
-        if (error instanceof CodexRpcError) {
-          updateAttempt(
-            inputId,
-            { state: 'rejected', detail: describe(error) },
-            'CODEX_DESKTOP_NATIVE_ATTEMPT_REJECTED',
-            'Codex desktop native queue rejected the input'
-          )
-          throw withDeliveryEvidence(error, 'not_written')
-        }
-        updateAttempt(inputId, { state: 'indeterminate', detail: describe(error) })
-        const reconciled = await reconcileAttempt(
-          store.get(installationKey, inputId) as CodexDesktopNativeAttempt
-        )
-        if (reconciled.state === 'indeterminate') {
-          emitAttempt(
-            reconciled,
-            'CODEX_DESKTOP_NATIVE_ATTEMPT_INDETERMINATE',
-            'Codex desktop queue write outcome is indeterminate; automatic resend is fenced'
-          )
-        }
-        return {}
-      } finally {
-        helper?.close()
-      }
+    applyInputNow(input: InvocationInput): Promise<ApplyInputResult> {
+      return delivery.applyInput(input)
     },
 
-    async cancelInput(inputId): Promise<CancelInputResult> {
-      const row = requireAttemptStore().get(installationKey, inputId)
-      if (row === undefined) return { outcome: 'not_owned' }
-      readRows()
-      const refreshed = requireAttemptStore().get(
-        installationKey,
-        inputId
-      ) as CodexDesktopNativeAttempt
-      if (refreshed.state === 'executed')
-        return { outcome: 'executed', turnId: refreshed.turnId as TurnId }
-      if (refreshed.queuedSubmissionId === undefined) {
-        return { outcome: 'indeterminate', reason: 'native queue id was not acknowledged' }
-      }
-      let helper: CodexDesktopQueueHelper | undefined
-      try {
-        helper = await openQueueHelper(activeSpec())
-        const queued = await listAllQueued(helper, activeSpec().threadId)
-        const owned = queued.find(
-          (entry) =>
-            queueEntryId(entry) === refreshed.queuedSubmissionId &&
-            queueEntryClientId(entry) === refreshed.clientUserMessageId
-        )
-        if (owned === undefined) {
-          updateAttempt(inputId, {
-            state: 'indeterminate',
-            detail: 'owned queue row disappeared before delete',
-          })
-          return { outcome: 'indeterminate', reason: 'owned native queue row disappeared' }
-        }
-        await helper.delete(activeSpec().threadId, refreshed.queuedSubmissionId)
-        readRows()
-        const afterDelete = requireAttemptStore().get(
-          installationKey,
-          inputId
-        ) as CodexDesktopNativeAttempt
-        if (afterDelete.state === 'executed') {
-          return { outcome: 'executed', turnId: afterDelete.turnId as TurnId }
-        }
-        const remaining = await listAllQueued(helper, activeSpec().threadId)
-        if (remaining.some((entry) => queueEntryId(entry) === refreshed.queuedSubmissionId)) {
-          updateAttempt(inputId, {
-            state: 'indeterminate',
-            detail: 'native delete did not remove owned row',
-          })
-          return { outcome: 'indeterminate', reason: 'native delete outcome is indeterminate' }
-        }
-        const cancelled = updateAttempt(
-          inputId,
-          { state: 'cancelled', detail: 'owned native queue row delete acknowledged' },
-          'CODEX_DESKTOP_NATIVE_ATTEMPT_CANCELLED',
-          'Codex desktop owned queued input cancelled'
-        )
-        requireCtx().admissionStateChanged?.()
-        return cancelled.state === 'cancelled'
-          ? { outcome: 'cancelled' }
-          : { outcome: 'indeterminate', reason: cancelled.detail ?? 'cancel state changed' }
-      } catch (error) {
-        updateAttempt(inputId, { state: 'indeterminate', detail: describe(error) })
-        return { outcome: 'indeterminate', reason: describe(error) }
-      } finally {
-        helper?.close()
-      }
+    cancelInput(inputId): Promise<CancelInputResult> {
+      return delivery.cancel(inputId)
     },
 
     async interrupt(_req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
@@ -1073,206 +306,11 @@ export function createCodexDesktopDriver(options: CodexDesktopDriverOptions = {}
 
     async dispose(): Promise<void> {
       cleanup()
-      attemptStore?.close()
-      attemptStore = undefined
+      delivery.close()
       ctx = undefined
       spec = undefined
     },
   }
-
-  async function reconcileAttempt(
-    attempt: CodexDesktopNativeAttempt
-  ): Promise<CodexDesktopNativeAttempt> {
-    readRows()
-    const committedTurnId = findCommittedExecution(attempt)
-    if (committedTurnId !== undefined) {
-      const executed = updateAttempt(attempt.inputId, {
-        state: 'executed',
-        turnId: committedTurnId,
-        detail: 'reconciled from committed rollout evidence',
-      })
-      requireCtx().admissionStateChanged?.()
-      return executed
-    }
-    const afterRollout = requireAttemptStore().get(installationKey, attempt.inputId) ?? attempt
-    if (afterRollout.state === 'executed') return afterRollout
-    let helper: CodexDesktopQueueHelper | undefined
-    try {
-      helper = await openQueueHelper(activeSpec())
-      const entries = await listAllQueued(helper, activeSpec().threadId)
-      deliveryReason = undefined
-      const queued = entries.find(
-        (entry) => queueEntryClientId(entry) === attempt.clientUserMessageId
-      )
-      if (queued !== undefined) {
-        const queuedSubmissionId = queueEntryId(queued)
-        if (queuedSubmissionId === undefined) {
-          throw new Error('Matching native queue row did not carry queuedSubmission.id')
-        }
-        deliveryReason = undefined
-        return updateAttempt(
-          attempt.inputId,
-          { state: 'queued', queuedSubmissionId, detail: 'reconciled from native queue/list' },
-          'CODEX_DESKTOP_NATIVE_ATTEMPT_RECONCILED_QUEUED',
-          'Codex desktop native queued input recovered without a second add'
-        )
-      }
-      if (attempt.state === 'writing' || attempt.state === 'indeterminate') {
-        return updateAttempt(attempt.inputId, {
-          state: 'indeterminate',
-          detail: 'possibly-written attempt absent from queue and committed rollout',
-        })
-      }
-      return requireAttemptStore().get(installationKey, attempt.inputId) ?? attempt
-    } catch (error) {
-      deliveryReason = `desktop queue helper unavailable: ${describe(error)}`
-      requireCtx().emit('driver.notice', {
-        message: `Codex desktop delivery degraded: ${deliveryReason}`,
-        code: 'CODEX_DESKTOP_DELIVERY_DEGRADED',
-        data: { desktopAvailability: 'unknown', delivery: 'disabled' },
-      })
-      return requireAttemptStore().get(installationKey, attempt.inputId) ?? attempt
-    } finally {
-      helper?.close()
-    }
-  }
-
-  function currentObservationWatermark(): number {
-    return (ctx?.capture?.records() ?? [])
-      .filter(
-        (record) =>
-          record.driverKind === CODEX_DESKTOP_DRIVER_KIND &&
-          typeof record.sourceCursor['byteOffset'] === 'number'
-      )
-      .reduce((maximum, record) => Math.max(maximum, Number(record.sourceCursor['byteOffset'])), 0)
-  }
-
-  function findCommittedExecution(attempt: CodexDesktopNativeAttempt): TurnId | undefined {
-    const records = ctx?.capture?.records() ?? []
-    const startedTurns = new Set<string>()
-    for (const record of records) {
-      if (record.driverKind !== CODEX_DESKTOP_DRIVER_KIND) continue
-      const classified = classifyCodexRolloutLine(Buffer.from(record.rawBytes).toString('utf8'))
-      if ('outcome' in classified) continue
-      if (classified.payloadType === 'task_started') {
-        const turnId = turnIdOf(classified.payload)
-        if (turnId !== undefined) startedTurns.add(turnId)
-        continue
-      }
-      if (classified.payloadType !== 'item_completed' || classified.item === undefined) continue
-      if (getString(classified.item, 'type') !== 'UserMessage') continue
-      if (getString(classified.item, 'client_id') !== attempt.clientUserMessageId) continue
-      const cursor = record.sourceCursor['byteOffset']
-      if (typeof cursor === 'number' && cursor < attempt.observationWatermark) continue
-      const turnId = turnIdOf(classified.payload)
-      if (turnId !== undefined && startedTurns.has(turnId)) return turnId
-    }
-    return undefined
-  }
-}
-
-function parseDesktopSpec(spec: HarnessInvocationSpec): CodexDesktopDriverSpec {
-  if (spec.driver.kind !== CODEX_DESKTOP_DRIVER_KIND) {
-    throw new BrokerError(BrokerErrorCode.DriverUnavailable, 'Invalid codex-desktop driver spec')
-  }
-  const value = spec.driver as Record<string, unknown>
-  const required = [
-    'bundleExecutable',
-    'codexHome',
-    'sqliteHome',
-    'threadId',
-    'rolloutPath',
-  ] as const
-  for (const field of required) {
-    if (typeof value[field] !== 'string' || value[field].length === 0) {
-      throw new BrokerError(
-        BrokerErrorCode.DispatchValidationFailed,
-        `codex-desktop driver.${field} must be a non-empty string`
-      )
-    }
-  }
-  const watermark = asCodexRecord(value['adoptionWatermark'])
-  if (
-    watermark !== undefined &&
-    (typeof watermark['byteOffset'] !== 'number' || watermark['byteOffset'] < 0)
-  ) {
-    throw new BrokerError(
-      BrokerErrorCode.DispatchValidationFailed,
-      'codex-desktop driver.adoptionWatermark.byteOffset must be a non-negative number'
-    )
-  }
-  const attemptStorePath = value['nativeAttemptStorePath']
-  if (
-    attemptStorePath !== undefined &&
-    (typeof attemptStorePath !== 'string' ||
-      attemptStorePath.length === 0 ||
-      !isAbsolute(attemptStorePath))
-  ) {
-    throw new BrokerError(
-      BrokerErrorCode.DispatchValidationFailed,
-      'codex-desktop driver.nativeAttemptStorePath must be an absolute non-empty path'
-    )
-  }
-  const boundary = asCodexRecord(value['recoveryBoundary'])
-  if (value['recoveryBoundary'] !== undefined && boundary === undefined) {
-    throw new BrokerError(
-      BrokerErrorCode.DispatchValidationFailed,
-      'codex-desktop driver.recoveryBoundary must be an object'
-    )
-  }
-  if (boundary !== undefined) validateRecoveryBoundary(boundary)
-  return value as unknown as CodexDesktopDriverSpec
-}
-
-function validateRecoveryBoundary(boundary: Record<string, unknown>): void {
-  const projections = boundary['committedProjections']
-  const appliedThroughSeq = boundary['appliedThroughSeq']
-  if (
-    typeof boundary['empty'] !== 'boolean' ||
-    !Array.isArray(projections) ||
-    typeof appliedThroughSeq !== 'number' ||
-    !Number.isSafeInteger(appliedThroughSeq) ||
-    appliedThroughSeq < 0
-  ) {
-    throw new BrokerError(
-      BrokerErrorCode.DispatchValidationFailed,
-      'codex-desktop driver.recoveryBoundary has invalid summary fields'
-    )
-  }
-  for (const projection of projections) {
-    const value = asCodexRecord(projection)
-    if (
-      value === undefined ||
-      typeof value['seq'] !== 'number' ||
-      !Number.isSafeInteger(value['seq']) ||
-      typeof value['type'] !== 'string'
-    ) {
-      throw new BrokerError(
-        BrokerErrorCode.DispatchValidationFailed,
-        'codex-desktop driver.recoveryBoundary has an invalid committed projection'
-      )
-    }
-  }
-  for (const name of ['furthestCommittedRecord', 'earliestPendingRecord']) {
-    const record = asCodexRecord(boundary[name])
-    if (
-      boundary[name] !== undefined &&
-      (record === undefined ||
-        typeof record['rawRecordId'] !== 'string' ||
-        typeof record['byteOffset'] !== 'number' ||
-        !Number.isSafeInteger(record['byteOffset']) ||
-        record['byteOffset'] < 0)
-    ) {
-      throw new BrokerError(
-        BrokerErrorCode.DispatchValidationFailed,
-        `codex-desktop driver.recoveryBoundary has an invalid ${name}`
-      )
-    }
-  }
-}
-
-function sourceKey(spec: CodexDesktopDriverSpec): string {
-  return `provider-jsonl:${spec.threadId}:${spec.rolloutPath}`
 }
 
 function nativeIdOf(line: string): string | undefined {
@@ -1285,217 +323,4 @@ function nativeIdOf(line: string): string | undefined {
   const turnId = getString(classified.payload, 'turn_id')
   const itemId = classified.item === undefined ? undefined : getString(classified.item, 'id')
   return itemId ?? turnId
-}
-
-function sourceTimeOf(captured: CapturedRecord): string | undefined {
-  const entry = parseCodexRolloutLine(Buffer.from(captured.record.rawBytes).toString('utf8'))
-  const timestamp = getString(entry ?? {}, 'timestamp')
-  return timestamp !== undefined && !Number.isNaN(Date.parse(timestamp)) ? timestamp : undefined
-}
-
-function capturedRecord(record: RawProviderRecord): CapturedRecord {
-  return {
-    record,
-    provenance: () => ({
-      rawRecordId: record.rawRecordId,
-      sourceKind: record.sourceKind,
-      sourceEpoch: record.sourceEpoch,
-      ...(Object.keys(record.sourceCursor).length > 0
-        ? { sourceCursor: record.sourceCursor as Record<string, string | number> }
-        : {}),
-      nativeType: record.nativeType,
-      ...(record.nativeId !== undefined ? { nativeId: record.nativeId } : {}),
-      rawSha256: record.sha256,
-      normalizer: { name: CODEX_DESKTOP_DRIVER_KIND, version: CODEX_DESKTOP_DRIVER_VERSION },
-    }),
-  }
-}
-
-function durableResumeOffset(path: string, records: RawProviderRecord[]): number {
-  const relevant = records
-    .filter(
-      (record) =>
-        record.driverKind === CODEX_DESKTOP_DRIVER_KIND &&
-        typeof record.sourceCursor['byteOffset'] === 'number'
-    )
-    .sort(
-      (left, right) =>
-        Number(left.sourceCursor['byteOffset']) - Number(right.sourceCursor['byteOffset'])
-    )
-  const last = relevant.at(-1)
-  if (last === undefined) return 0
-  const offset = Number(last.sourceCursor['byteOffset'])
-  const fd = safeOpen(path)
-  if (fd === undefined) return 0
-  try {
-    const probe = Buffer.alloc(last.rawBytes.length)
-    const read = readSync(fd, probe, 0, probe.length, offset)
-    if (read !== probe.length || !probe.equals(Buffer.from(last.rawBytes))) return 0
-    return offset + last.rawBytes.length + 1
-  } catch {
-    return 0
-  } finally {
-    closeSync(fd)
-  }
-}
-
-function safeOpen(path: string): number | undefined {
-  try {
-    return openSync(path, 'r')
-  } catch {
-    return undefined
-  }
-}
-
-function isRecordedTool(itemType: string | undefined): boolean {
-  return new Set([
-    'CommandExecution',
-    'DynamicToolCall',
-    'CollabAgentToolCall',
-    'WebSearch',
-    'ImageView',
-    'Extension',
-    'ImageGeneration',
-    'FileChange',
-    'McpToolCall',
-    'FunctionCallOutput',
-  ]).has(itemType ?? '')
-}
-
-function toolName(itemType: string | undefined, item: Record<string, unknown>): string {
-  return getString(item, 'tool') ?? getString(item, 'name') ?? itemType ?? 'recorded-tool'
-}
-
-function recordedToolResult(itemType: string | undefined, item: Record<string, unknown>): unknown {
-  if (itemType === 'CommandExecution') {
-    return {
-      status: item['status'],
-      stdout: item['stdout'],
-      stderr: item['stderr'],
-      output: item['aggregated_output'],
-      exitCode: item['exit_code'],
-      duration: item['duration'],
-    }
-  }
-  return item
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-function desktopInstallationKey(spec: CodexDesktopDriverSpec): string {
-  return `${spec.codexHome}\u0000${spec.sqliteHome}\u0000${spec.threadId}`
-}
-
-function queueSubmissionId(value: unknown): string | undefined {
-  const record = asCodexRecord(value) ?? {}
-  return (
-    getString(record, 'queuedSubmissionId') ??
-    getString(record, 'id') ??
-    getString(asCodexRecord(record['queuedSubmission']) ?? {}, 'id') ??
-    getString(asCodexRecord(record['submission']) ?? {}, 'id')
-  )
-}
-
-function queueEntries(value: unknown): Record<string, unknown>[] {
-  if (Array.isArray(value)) return value.map((entry) => asCodexRecord(entry) ?? {})
-  const record = asCodexRecord(value) ?? {}
-  for (const key of ['data', 'items', 'queue', 'submissions']) {
-    const entries = record[key]
-    if (Array.isArray(entries)) return entries.map((entry) => asCodexRecord(entry) ?? {})
-  }
-  return []
-}
-
-function queueEntryId(entry: Record<string, unknown>): string | undefined {
-  return (
-    getString(entry, 'queuedSubmissionId') ??
-    getString(entry, 'id') ??
-    getString(asCodexRecord(entry['queuedSubmission']) ?? {}, 'id')
-  )
-}
-
-function queueEntryClientId(entry: Record<string, unknown>): string | undefined {
-  return (
-    getString(entry, 'clientUserMessageId') ??
-    getString(entry, 'client_id') ??
-    getString(asCodexRecord(entry['queuedSubmission']) ?? {}, 'clientUserMessageId')
-  )
-}
-
-async function listAllQueued(
-  helper: CodexDesktopQueueHelper,
-  threadId: string
-): Promise<Record<string, unknown>[]> {
-  const entries: Record<string, unknown>[] = []
-  const seenCursors = new Set<string>()
-  let cursor: string | undefined
-  for (;;) {
-    const page = await helper.list(threadId, cursor)
-    entries.push(...queueEntries(page))
-    const nextCursor = getString(asCodexRecord(page) ?? {}, 'nextCursor')
-    if (nextCursor === undefined || nextCursor.length === 0) return entries
-    if (seenCursors.has(nextCursor)) {
-      throw new Error(`Codex thread/queue/list repeated cursor ${nextCursor}`)
-    }
-    seenCursors.add(nextCursor)
-    cursor = nextCursor
-  }
-}
-
-async function openBundledQueueHelper(
-  spec: CodexDesktopDriverSpec
-): Promise<CodexDesktopQueueHelper> {
-  const proc = spawn(spec.bundleExecutable, ['app-server'], {
-    stdio: ['pipe', 'pipe', 'pipe'],
-    env: {
-      ...process.env,
-      CODEX_HOME: spec.codexHome,
-      CODEX_SQLITE_HOME: spec.sqliteHome,
-    },
-  })
-  let stderr = ''
-  proc.stderr.setEncoding('utf8')
-  proc.stderr.on('data', (chunk: string) => {
-    stderr = `${stderr}${chunk}`.slice(-4096)
-  })
-  const rpc: CodexRpcPeer = new CodexRpcClient(proc)
-  try {
-    await rpc.sendRequest('initialize', {
-      clientInfo: { name: 'harness-broker-codex-desktop', version: CODEX_DESKTOP_DRIVER_VERSION },
-      capabilities: { experimentalApi: true },
-    })
-    await rpc.sendNotification('initialized', {})
-  } catch (error) {
-    rpc.close()
-    if (proc.exitCode === null) proc.kill('SIGTERM')
-    throw new Error(
-      `Desktop-bundled Codex app-server initialization failed: ${describe(error)}${
-        stderr.trim().length > 0 ? `; stderr: ${stderr.trim()}` : ''
-      }`
-    )
-  }
-  return {
-    list(threadId, cursor) {
-      return rpc.sendRequest('thread/queue/list', {
-        threadId,
-        ...(cursor !== undefined ? { cursor } : {}),
-      })
-    },
-    add(threadId, input, clientUserMessageId) {
-      return rpc.sendRequest('thread/queue/add', {
-        threadId,
-        input: buildCodexInput(input, undefined),
-        clientUserMessageId,
-      })
-    },
-    delete(threadId, queuedSubmissionId) {
-      return rpc.sendRequest('thread/queue/delete', { threadId, queuedSubmissionId })
-    },
-    close() {
-      rpc.close()
-      if (proc.exitCode === null) proc.kill('SIGTERM')
-    },
-  }
 }

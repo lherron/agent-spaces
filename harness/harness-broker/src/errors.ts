@@ -37,6 +37,11 @@ export function toInvalidParamsBrokerError(err: unknown): BrokerError | undefine
   return new BrokerError(-32602 as BrokerErrorCode, 'Invalid params', { issues: err.issues })
 }
 
+/** The message of a thrown value, whatever was thrown. */
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 export function timeoutError(message: string): BrokerError {
   return new BrokerError(BrokerErrorCode.Timeout, message)
 }
