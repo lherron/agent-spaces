@@ -10,8 +10,8 @@ import type {
   InvocationInput,
 } from 'spaces-harness-broker-protocol'
 import { createClaudeCodeTmuxDriver } from '../../../src/drivers/claude-code-tmux/driver'
-import { buildClaudeHookSettingsOverlay } from '../../../src/drivers/claude-code-tmux/driver'
 import type { ClaudeCodeHookEnvelope } from '../../../src/drivers/claude-code-tmux/hook-events'
+import { buildClaudeHookSettingsOverlay } from '../../../src/drivers/claude-code-tmux/launch'
 import type { DriverContext } from '../../../src/drivers/driver'
 import { listenForHookEnvelopes } from '../../../src/drivers/tmux-shared'
 

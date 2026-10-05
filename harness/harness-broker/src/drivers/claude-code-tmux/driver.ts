@@ -1,13 +1,8 @@
-import { type FSWatcher, existsSync, watch } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
-import Ajv, { type ErrorObject, type ValidateFunction } from 'ajv'
+import { join } from 'node:path'
 import type {
-  EventProvenance,
   HarnessInvocationSpec,
   InvocationCapabilities,
-  InvocationEventPayloadMap,
-  InvocationEventType,
   InvocationInput,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
@@ -20,19 +15,12 @@ import {
   BrokerErrorCode,
   CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 } from 'spaces-harness-broker-protocol'
-import type { NormalizeOutcome } from '../../capture/capture-gate'
 import { BrokerError } from '../../errors'
 import type { TmuxExec, TmuxPaneController } from '../../runtime/tmux'
 import { TmuxPaneNotQuiescentError } from '../../runtime/tmux'
-import {
-  type TmuxHelperLauncher,
-  tmuxHelperCommand,
-  tmuxHelperRunner,
-  writeTmuxLaunchExecFiles,
-} from '../../runtime/tmux-launch-exec'
+import { type TmuxHelperLauncher, tmuxHelperCommand } from '../../runtime/tmux-launch-exec'
 import type {
   ApplyInputResult,
-  ChildProcessInvocationSpec,
   DeliveryEvidence,
   Driver,
   DriverContext,
@@ -40,9 +28,7 @@ import type {
 } from '../driver'
 import { hasChildHarnessProcess, withDeliveryEvidence } from '../driver'
 import { CLAUDE_CODE_TMUX_AUTHORITY } from '../evidence-authority'
-import { asRecord as asHookRecord, getString } from '../hook-json'
 import {
-  type HookEnvelopeDecision,
   type HookEnvelopeResult,
   type HookListenerHandle,
   buildHookSocketPath,
@@ -51,39 +37,29 @@ import {
   getInvocationRuntimeId,
   listenForHookEnvelopes,
   selectClaudeCodePaneInput,
-  shellQuote,
 } from '../tmux-shared'
+import { type CapturedEmit, createClaudeAttributionEventSink } from './attribution-events'
 import {
   CLAUDE_CODE_TMUX_DRIVER_KIND,
   type ClaudeCodeHookEnvelope,
   createClaudeCodeHookEventNormalizer,
-  normalizeHookEnvelope,
 } from './hook-events'
+import { createClaudeHookRecordHandler } from './hook-record-handler'
 import {
   type ClaudeHookTranscriptReader,
   createClaudeHookTranscriptReader,
 } from './hook-transcript'
+import { buildClaudeLaunchCommandLine } from './launch'
+import { createClaudeRecordProvenance } from './record-provenance'
+import { createClaudeStructuredOutputGate } from './structured-output'
 import {
-  CLAUDE_KNOWN_HOOK_NAMES,
-  CLAUDE_STOP_HOOK_FEEDBACK_PREFIX,
-  CLAUDE_TRANSCRIPT_OWNED_HOOK_FACTS,
-} from './native-types'
-import {
-  type ClaudeAttributionAction,
-  type ClaudeTranscriptQueueOperation,
-  type ClaudeTurnAttribution,
-  createClaudeTurnAttribution,
-} from './turn-attribution'
+  type ClaudeTranscriptWakeup,
+  type TranscriptWatch,
+  createClaudeTranscriptWakeup,
+} from './transcript-wakeup'
+import { type ClaudeTurnAttribution, createClaudeTurnAttribution } from './turn-attribution'
 
 const CLAUDE_CODE_TMUX_DRIVER_VERSION = '0.1.0'
-
-/**
- * Live hook generation stamped into the launch env (HARNESS_BROKER_HOOK_GENERATION)
- * and used to fence out-of-band hook envelopes. A durable broker restart would
- * bump this; envelopes carrying a stale generation are rejected (T-01794 Phase D).
- * Hook-protocol fence version, NOT the HRC session generation (that is HRC_GENERATION).
- */
-const CLAUDE_HOOK_GENERATION = 1
 
 /**
  * Classify what a failed `sendSteer` proves about the body.
@@ -167,12 +143,6 @@ export type HookEnvelopeHandler = (
   envelope: ClaudeCodeHookEnvelope
 ) => Promise<HookEnvelopeResult> | HookEnvelopeResult
 
-export type TranscriptWatch = (
-  path: string,
-  options: { persistent: false },
-  listener: () => void
-) => FSWatcher
-
 export interface ClaudeCodeTmuxDriverOptions {
   tmux: {
     /**
@@ -214,24 +184,6 @@ interface SurfaceState {
   windowName?: string | undefined
 }
 
-interface StructuredTurnState {
-  turnId: string
-  attempts: number
-  validator: ValidateFunction
-}
-
-const STRUCTURED_OUTPUT_MAX_ATTEMPTS = 3
-
-// Broker-synthesized structured-output enforcement for claude-code-tmux uses
-// Ajv draft-07 defaults with strict schema linting disabled, allErrors enabled,
-// and schema validation enabled. This intentionally mirrors the advertised
-// strict:false capability: Claude is prompted, then the driver validates the
-// Stop-hook candidate before allowing final capture.
-const structuredOutputAjv = new Ajv({
-  strict: false,
-  allErrors: true,
-})
-
 /**
  * Phase 3 broker driver: launches an OPERATOR-ATTACHABLE interactive Claude
  * Code in a tmux session (pty transport, terminal host = tmux), delivers turns
@@ -248,10 +200,6 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
   let surface: SurfaceState | undefined
   let hookListener: HookListenerHandle | undefined
   let transcriptReader: ClaudeHookTranscriptReader | undefined
-  let transcriptWatcher: FSWatcher | undefined
-  let transcriptPath: string | undefined
-  let watcherRecoveryUsed = false
-  let nativeWakeupLostReason: string | undefined
   let attribution: ClaudeTurnAttribution | undefined
   let hookDrain: Promise<HookEnvelopeResult> = Promise.resolve(undefined)
   // The runtime hands the driver a pane LEASE — `runtime.terminalSurface`
@@ -262,42 +210,14 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
   // lease's `allowedOps` set.
   let paneController: TmuxPaneController | undefined
   let turnCounter = 0
-  /**
-   * Provenance of the raw record currently being normalized (§7.2). Set by the
-   * capture gate's normalize callback and stamped onto every event minted while
-   * it is set; broker-authored facts outside any record leave it undefined and
-   * the invocation manager stamps broker provenance instead.
-   */
-  let activeProvenance: EventProvenance | undefined
-  /**
-   * Events minted while normalizing the current raw record. It is what decides
-   * `normalized` vs `state-only` for that record, so it is counted at the single
-   * emit seam rather than at each of the ~20 call sites.
-   */
-  let mintedForRecord = 0
-
-  /**
-   * Run `body` with `provenance` active on {@link emitCaptured}, restoring the
-   * previous value afterwards. This is a STACK, not a slot: transcript rows are
-   * normalized inside a hook record's normalization, and the inner row's
-   * provenance must not leak out to what the outer hook mints afterwards.
-   */
-  function withProvenance<T>(provenance: EventProvenance, body: () => T): T {
-    const previousProvenance = activeProvenance
-    const previousMinted = mintedForRecord
-    activeProvenance = provenance
-    mintedForRecord = 0
-    try {
-      return body()
-    } finally {
-      activeProvenance = previousProvenance
-      mintedForRecord = previousMinted
-    }
-  }
-  const structuredTurns = new Map<string, StructuredTurnState>()
-  const completedStructuredTurns = new Set<string>()
+  const provenance = createClaudeRecordProvenance()
   const apiErrorTurns = new Set<string>()
   const startedAssistantMessages = new Set<string>()
+  const structuredOutput = createClaudeStructuredOutputGate({
+    getContext: () => ctx,
+    apiErrorTurns,
+    onTurnFailed: (turnId) => attribution?.observeTurnTerminal(turnId),
+  })
 
   // Single shared per-invocation turn-id allocator (cody's blessed scheme,
   // C-02755). BOTH applyInputNow (manager path) and the hook normalizer (which
@@ -306,33 +226,6 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
   function allocateTurnId(): string {
     turnCounter += 1
     return `turn_${requireCtx().invocationId}_${turnCounter}`
-  }
-
-  /**
-   * The driver's ONLY emit seam. Stamps the raw record's provenance and counts
-   * the mint, so provenance and disposition cannot drift apart per call site.
-   */
-  function emitCaptured<K extends InvocationEventType>(
-    driverCtx: DriverContext,
-    type: K,
-    payload: InvocationEventPayloadMap[K],
-    extra?: Parameters<DriverContext['emit']>[2]
-  ): ReturnType<DriverContext['emit']> {
-    mintedForRecord += 1
-    return driverCtx.emit(type, payload, {
-      ...extra,
-      ...(activeProvenance !== undefined ? { provenance: activeProvenance } : {}),
-    })
-  }
-
-  /** Disposition for a record whose normalization minted (or did not mint). */
-  function mintOutcome(detail: string): NormalizeOutcome {
-    if (mintedForRecord > 0) return { disposition: 'normalized', detail }
-    // A hook whose FACT the transcript now owns is not "state only" — it is
-    // real evidence of a fact another record already carried (T-07873 scope A).
-    const duplicated = CLAUDE_TRANSCRIPT_OWNED_HOOK_FACTS.get(detail)
-    if (duplicated !== undefined) return { disposition: 'duplicate', detail: duplicated }
-    return { disposition: 'state-only', detail }
   }
 
   function requireCtx(): DriverContext {
@@ -371,85 +264,32 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     }
   }
 
-  const transcriptWatch: TranscriptWatch =
-    options.watchTranscript ??
-    ((path, watchOptions, listener) => watch(path, watchOptions, listener))
-
-  function enqueueTranscriptDrain(): void {
-    const drain = (): HookEnvelopeResult => {
-      transcriptReader?.drain()
-      return undefined
-    }
+  const transcriptWakeup: ClaudeTranscriptWakeup = createClaudeTranscriptWakeup({
+    watch: options.watchTranscript,
     // Native transcript notifications and hooks share ONE chain. A
     // notification reads to EOF; a hook queued beside it then sees the
     // byte-offset tailer already advanced (or vice versa), so rows are ordered
     // once and never double-normalized.
-    hookDrain = hookDrain.then(drain, drain)
-  }
-
-  function describeError(error: unknown): string {
-    return error instanceof Error ? error.message : String(error)
-  }
-
-  function isEnoent(error: unknown): boolean {
-    return (
-      error !== null &&
-      typeof error === 'object' &&
-      'code' in error &&
-      (error as { code?: unknown }).code === 'ENOENT'
-    )
-  }
-
-  function degradeNativeWakeup(path: string, error: unknown): void {
-    if (nativeWakeupLostReason !== undefined) return
-    const detail = describeError(error)
-    nativeWakeupLostReason = 'native_wakeup_lost'
-    transcriptWatcher?.close()
-    transcriptWatcher = undefined
-    ctx?.emit(
-      'capture.warning',
-      {
-        kind: 'native_wakeup_lost',
-        message: `Claude transcript native wakeup lost: ${detail}`,
-        raw: { transcriptPath: path, detail },
-      },
-      { driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType: 'transcript.watch' } }
-    )
-    ctx?.admissionStateChanged?.()
-  }
-
-  function armTranscriptWatcher(path: string, phase: 'session-start' | 'hook' | 'rearm'): boolean {
-    if (
-      nativeWakeupLostReason !== undefined ||
-      transcriptPath !== path ||
-      transcriptWatcher !== undefined
-    ) {
-      return transcriptWatcher !== undefined
-    }
-    try {
-      const watcher = transcriptWatch(path, { persistent: false }, enqueueTranscriptDrain)
-      transcriptWatcher = watcher
-      watcher.on('error', (error) => {
-        if (transcriptWatcher !== watcher || transcriptPath !== path) return
-        watcher.close()
-        transcriptWatcher = undefined
-        if (watcherRecoveryUsed) {
-          degradeNativeWakeup(path, error)
-          return
-        }
-        watcherRecoveryUsed = true
-        if (armTranscriptWatcher(path, 'rearm')) enqueueTranscriptDrain()
-      })
-      return true
-    } catch (error) {
-      // Claude names the eventual transcript path before creating the file.
-      // That SessionStart ENOENT is an expected lazy-arm state, not capture
-      // degradation and must never escape through the hook normalizer.
-      if (phase === 'session-start' && isEnoent(error)) return false
-      degradeNativeWakeup(path, error)
-      return false
-    }
-  }
+    onChange: () => {
+      const drain = (): HookEnvelopeResult => {
+        transcriptReader?.drain()
+        return undefined
+      }
+      hookDrain = hookDrain.then(drain, drain)
+    },
+    onLost: (path, detail) => {
+      ctx?.emit(
+        'capture.warning',
+        {
+          kind: 'native_wakeup_lost',
+          message: `Claude transcript native wakeup lost: ${detail}`,
+          raw: { transcriptPath: path, detail },
+        },
+        { driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType: 'transcript.watch' } }
+      )
+      ctx?.admissionStateChanged?.()
+    },
+  })
 
   return {
     kind: CLAUDE_CODE_TMUX_DRIVER_KIND,
@@ -467,13 +307,14 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     },
 
     admissionRejectionReason(admissionClass) {
-      return admissionClass === 'preempt' ? nativeWakeupLostReason : undefined
+      return admissionClass === 'preempt' ? transcriptWakeup.lostReason : undefined
     },
 
     runtimeHealth() {
-      return nativeWakeupLostReason === undefined
+      const lostReason = transcriptWakeup.lostReason
+      return lostReason === undefined
         ? ({ state: 'healthy' } as const)
-        : ({ state: 'degraded', reason: nativeWakeupLostReason } as const)
+        : ({ state: 'degraded', reason: lostReason } as const)
     },
 
     async start(spec: HarnessInvocationSpec, driverCtx: DriverContext): Promise<DriverStartResult> {
@@ -483,11 +324,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
           'claude-code-tmux requires a child harness process'
         )
       }
-      transcriptWatcher?.close()
-      transcriptWatcher = undefined
-      transcriptPath = undefined
-      watcherRecoveryUsed = false
-      nativeWakeupLostReason = undefined
+      transcriptWakeup.reset()
       // T-01725 Phase C: the driver consumes a pane LEASE supplied on the
       // dispatch envelope as `runtime.terminalSurface` (kind: 'tmux-pane',
       // ownership: 'hrc'). It reads ONLY this field — never the legacy
@@ -521,155 +358,15 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       })
       attribution = turnAttribution
 
-      /**
-       * Mirror warnings raised while normalizing the CURRENT raw record. The
-       * record's normalize callback drains this into exactly one
-       * blocked-unknown disposition, so the durable disposition and the warning
-       * come from the single place that owns both.
-       */
-      const unclassified: Array<{ message: string; raw: unknown }> = []
-
-      /**
-       * Turn the disposition mirror's actions into broker events. Returns TRUE
-       * when the batch produced at least one action, which is how the raw row
-       * that triggered it earns `normalized` rather than `state-only`.
-       */
-      const emitAttributionActions = (
-        actions: ClaudeAttributionAction[],
-        rawType: string
-      ): boolean => {
-        for (const action of actions) {
-          const inputExtra =
-            'inputId' in action && action.inputId !== undefined ? { inputId: action.inputId } : {}
-          if (action.kind === 'prompt-echo') {
-            // `conversation` is transcript-primary: the prompt text is minted
-            // from the `user` row, not from the hook that disposed it.
-            emitCaptured(
-              driverCtx,
-              'user.message',
-              { content: action.content, turnId: action.turnId },
-              {
-                turnId: action.turnId,
-                driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType },
-              }
-            )
-            continue
-          }
-          if (action.kind === 'executed') {
-            normalizer.activateTurn(action.turnId)
-            emitCaptured(
-              driverCtx,
-              'turn.started',
-              {
-                turnId: action.turnId,
-                source: 'hook-observed',
-                ...(action.inputId !== undefined ? { inputId: action.inputId } : {}),
-              },
-              {
-                turnId: action.turnId,
-                ...inputExtra,
-                driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType },
-              }
-            )
-            if (action.mintsConversation) {
-              emitCaptured(
-                driverCtx,
-                'user.message',
-                {
-                  content: action.content,
-                  turnId: action.turnId,
-                  ...(action.inputId !== undefined ? { inputId: action.inputId } : {}),
-                },
-                {
-                  turnId: action.turnId,
-                  ...inputExtra,
-                  driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType },
-                }
-              )
-            }
-            emitCaptured(
-              driverCtx,
-              'submission.executed',
-              { submissionId: action.submissionId, turnId: action.turnId },
-              {
-                turnId: action.turnId,
-                ...inputExtra,
-                driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType },
-              }
-            )
-            continue
-          }
-          if (action.kind === 'absorbed') {
-            emitCaptured(
-              driverCtx,
-              'user.message',
-              {
-                content: action.content,
-                turnId: action.turnId,
-                ...(action.inputId !== undefined ? { inputId: action.inputId } : {}),
-              },
-              {
-                turnId: action.turnId,
-                ...inputExtra,
-                driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType },
-              }
-            )
-            emitCaptured(
-              driverCtx,
-              'submission.absorbed',
-              { submissionId: action.submissionId, turnId: action.turnId },
-              {
-                turnId: action.turnId,
-                ...inputExtra,
-                driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType },
-              }
-            )
-            continue
-          }
-          if (action.kind === 'cancelled') {
-            emitCaptured(
-              driverCtx,
-              'submission.cancelled',
-              { submissionId: action.submissionId, reason: action.reason },
-              {
-                ...inputExtra,
-                driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType },
-              }
-            )
-            continue
-          }
-          if (action.kind === 'started') {
-            normalizer.activateTurn(action.turnId)
-            emitCaptured(
-              driverCtx,
-              'turn.started',
-              { turnId: action.turnId, source: 'hook-observed' },
-              {
-                turnId: action.turnId,
-                driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType },
-              }
-            )
-            continue
-          }
-          if (action.kind === 'interrupted') {
-            for (const event of normalizer.normalizeInterrupted(action.turnId)) {
-              emitCaptured(driverCtx, event.type, event.payload, {
-                ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
-                ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
-                ...(event.driver !== undefined ? { driver: event.driver } : {}),
-              })
-            }
-            continue
-          }
-          // A mirror warning is a blocked-unknown in `submission-disposition`
-          // (T-07849 item 11). Do NOT emit a bare capture.warning here — the
-          // capture gate owns that event so it can ALSO record the durable
-          // disposition and the broker.err line; emitting one here too would
-          // put two warnings on the stream for one fact.
-          unclassified.push({ message: action.message, raw: action.raw })
-        }
-        return actions.length > 0
+      const emit: CapturedEmit = (type, payload, extra) => {
+        provenance.emit(driverCtx, type, payload, extra)
       }
+      const attributionEvents = createClaudeAttributionEventSink({
+        emit,
+        normalizer,
+        attribution: turnAttribution,
+        admissionStateChanged: () => driverCtx.admissionStateChanged?.(),
+      })
 
       const expectedRuntimeId = getInvocationRuntimeId(spec)
       hookDrain = Promise.resolve(undefined)
@@ -682,33 +379,20 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         // that start boundary; fresh launches retain byte-zero capture.
         resumeFromTranscriptEnd: spec.continuation !== undefined,
         ...(driverCtx.capture !== undefined ? { capture: driverCtx.capture } : {}),
-        withProvenance,
-        onTranscriptPath: (selectedPath) => {
-          transcriptWatcher?.close()
-          transcriptWatcher = undefined
-          transcriptPath = selectedPath
-          watcherRecoveryUsed = false
-          if (existsSync(selectedPath)) armTranscriptWatcher(selectedPath, 'session-start')
-        },
-        onTranscriptAvailable: (availablePath) => {
-          if (transcriptPath === availablePath && transcriptWatcher === undefined) {
-            armTranscriptWatcher(availablePath, 'hook')
-          }
-        },
-        emit: (type, payload, extra) => {
-          emitCaptured(driverCtx, type, payload, extra)
-        },
+        withProvenance: provenance.withProvenance,
+        onTranscriptPath: (selectedPath) => transcriptWakeup.select(selectedPath),
+        onTranscriptAvailable: (availablePath) => transcriptWakeup.available(availablePath),
+        emit,
         onApiError: (turnId) => apiErrorTurns.add(turnId),
         onAssistantMessageStarted: (messageId) => {
           const turnId = turnAttribution.activeTurnId
           if (turnId === undefined || startedAssistantMessages.has(messageId)) return
           startedAssistantMessages.add(messageId)
-          // MUST go through `emitCaptured`: the plain `driverCtx.emit` skips the
+          // MUST go through the provenance seam: the plain `driverCtx.emit` skips the
           // provenance stamp, and this event was reporting `sourceKind:'hook'`
           // for a fact read out of the session JSONL — the exact falsehood §7.2
           // exists to prevent (observed on a live seat, 25/25 events).
-          emitCaptured(
-            driverCtx,
+          emit(
             'assistant.message.started',
             { messageId: messageId as MessageId },
             {
@@ -718,238 +402,21 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
             }
           )
         },
-        onTranscriptEntry: (entry, context) => {
-          const entryType = getString(entry, 'type')
-          if (entryType === 'queue-operation') {
-            const actions = turnAttribution.observeQueueOperation(
-              entry as ClaudeTranscriptQueueOperation
-            )
-            const minted = emitAttributionActions(actions, 'queue-operation')
-            driverCtx.admissionStateChanged?.()
-            return minted
-          }
-          if (entryType === 'attachment') {
-            const attachment = asHookRecord(entry['attachment'])
-            if (getString(attachment, 'type') !== 'queued_command') return false
-            return emitAttributionActions(
-              turnAttribution.observeQueuedCommand(getString(attachment, 'prompt'), entry),
-              'queued_command'
-            )
-          }
-          const userObservation = classifyTranscriptUserEntry(entry)
-          if (userObservation?.kind === 'hook-feedback') {
-            return { disposition: 'ignored-known', detail: 'stop hook feedback' }
-          }
-          if (userObservation?.kind === 'interrupted') {
-            const hadActiveTurn = turnAttribution.activeTurnId !== undefined
-            const minted = emitAttributionActions(
-              turnAttribution.observeInterrupt(entry, context),
-              'transcript.interrupt'
-            )
-            if (!minted && !hadActiveTurn && context.precededByStopHookCancelled) {
-              return {
-                disposition: 'ignored-known',
-                detail: 'late interrupt marker; Stop hook cancelled after delivery',
-              }
-            }
-            return minted
-          }
-          if (userObservation?.kind === 'prompt') {
-            return emitAttributionActions(
-              turnAttribution.observePlainUser(userObservation.content, entry),
-              'transcript.user'
-            )
-          }
-          return false
-        },
+        onTranscriptEntry: attributionEvents.observeTranscriptEntry,
       })
       transcriptReader = reader
-      /**
-       * Normalize ONE hook payload. Runs inside the capture gate's normalize
-       * callback (or directly, in the isolated unit harness), so everything it
-       * emits carries the hook record's provenance and its return value is the
-       * record's durable disposition.
-       */
-      const normalizeHookRecord = (
-        envelope: ClaudeCodeHookEnvelope,
-        rawHook: Record<string, unknown>
-      ): { outcome: NormalizeOutcome; decision: HookEnvelopeResult } => {
-        const rawType = getString(rawHook, 'hook_event_name')
-        // Transcript rows are their OWN raw records: this read commits and
-        // normalizes each appended line before the hook's own normalization
-        // continues, which is the true arrival order.
-        reader.handleHook(rawHook, envelope.turnId ?? turnAttribution.activeTurnId)
-        if (rawType === 'Stop' || rawType === 'SessionEnd') {
-          // Claude writes a turn's closing `system` rows only AFTER the Stop
-          // hooks return, so nothing in the transcript will end the held
-          // message at the moment the terminal is needed. The hook is the
-          // synchronous CONTROL that says the turn is over; the flushed event
-          // still names the `assistant` row that carried the prose.
-          if (reader.flushTerminalAssistantMessage()) {
-            normalizer.noteTranscriptTerminalMessage()
-          }
-        }
-
-        const finish = (decision: HookEnvelopeResult = undefined) => {
-          if (unclassified.length > 0) {
-            const message = unclassified.map((entry) => entry.message).join('; ')
-            const raw =
-              unclassified.length === 1 ? unclassified[0]?.raw : unclassified.map((e) => e.raw)
-            unclassified.length = 0
-            pendingUnclassifiedRaw = raw
-            // Turn attribution is load-bearing, so an unclassifiable queue
-            // signal is reported at the loudest level (T-07849 item 11 → law
-            // 6d04d5de). Since T-07883 that is a warning, not a stop: capture
-            // advances and the seat keeps being observed.
-            return {
-              outcome: {
-                disposition: 'blocked-unknown',
-                family: 'submission-disposition',
-                message,
-              } as NormalizeOutcome,
-              decision,
-            }
-          }
-          if (rawType === undefined || !CLAUDE_KNOWN_HOOK_NAMES.has(rawType)) {
-            // Reported, never dropped, in the quieter class. A hook name the
-            // normalizer does not handle mints nothing, so it cannot be shown
-            // to be load-bearing, and the first live pi session proved the
-            // "the broker registers every hook it can receive" premise wrong
-            // in general. Unknown queue OPERATIONS are load-bearing (above).
-            return {
-              outcome: {
-                disposition: 'blocked-unknown',
-                family: 'diagnostic',
-                message: `Unknown Claude hook: ${rawType ?? '(none)'}`,
-              } as NormalizeOutcome,
-              decision,
-            }
-          }
-          return { outcome: mintOutcome(rawType), decision }
-        }
-
-        if (rawType === 'UserPromptSubmit') {
-          emitAttributionActions(
-            turnAttribution.observePromptHook(
-              getString(rawHook, 'prompt'),
-              envelope.turnId as TurnId | undefined
-            ),
-            rawType
-          )
-          return finish()
-        }
-        if (rawType === 'Stop') {
-          emitAttributionActions(turnAttribution.settleOutstandingRemovals(rawHook), rawType)
-        }
-        let effectiveEnvelope =
-          envelope.turnId === undefined && turnAttribution.activeTurnId !== undefined
-            ? { ...envelope, turnId: turnAttribution.activeTurnId }
-            : envelope
-        const structuredDecision = handleStructuredOutputHook(effectiveEnvelope)
-        if (structuredDecision.action === 'drop') {
-          return finish(structuredDecision.decision)
-        }
-        effectiveEnvelope = structuredDecision.envelope
-        for (const event of normalizeHookEnvelope(effectiveEnvelope, { normalizer })) {
-          emitCaptured(driverCtx, event.type, event.payload, {
-            ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
-            ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
-            ...(event.driver !== undefined ? { driver: event.driver } : {}),
-          })
-          if (event.type === 'turn.started' && event.turnId !== undefined) {
-            turnAttribution.observeTurnStarted(event.turnId, event.inputId)
-          } else if (
-            event.type === 'turn.completed' ||
-            event.type === 'turn.failed' ||
-            event.type === 'turn.interrupted'
-          ) {
-            if (event.turnId !== undefined) turnAttribution.observeTurnTerminal(event.turnId)
-          }
-        }
-        return finish()
-      }
-
-      /**
-       * The raw op behind the most recent blocked-unknown outcome, so the
-       * no-capture-gate path can still put the verbatim evidence on the warning.
-       */
-      let pendingUnclassifiedRaw: unknown
-
-      /**
-       * Warn on a blocked-unknown outcome when NO capture gate is wired (the
-       * isolated driver unit harness). With a gate the gate owns this event —
-       * it is the only place that also records the durable disposition and the
-       * broker.err line — so emitting here too would double-report it.
-       */
-      const warnWithoutCapture = (outcome: NormalizeOutcome, rawType: string): void => {
-        if (outcome.disposition !== 'blocked-unknown') return
-        emitCaptured(
-          driverCtx,
-          'capture.warning',
-          { message: outcome.message, raw: pendingUnclassifiedRaw ?? outcome.message },
-          { driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType } }
-        )
-        pendingUnclassifiedRaw = undefined
-      }
-
-      const handleHookEnvelope = async (
-        envelope: ClaudeCodeHookEnvelope
-      ): Promise<HookEnvelopeResult> => {
-        if (envelope.invocationId !== driverCtx.invocationId) {
-          return
-        }
-        if (
-          expectedRuntimeId !== undefined &&
-          envelope.runtimeId !== undefined &&
-          envelope.runtimeId !== expectedRuntimeId
-        ) {
-          return
-        }
-        // T-01794 Phase D: durable identity fencing. Reject an envelope whose
-        // generation does not match the live launch generation — but STRICTLY
-        // only when the field is present, so legacy/stdio rows that omit it are
-        // never rejected for an absent field.
-        if (envelope.generation !== undefined && envelope.generation !== CLAUDE_HOOK_GENERATION) {
-          return
-        }
-        if (hookListener !== undefined && envelope.callbackSocket !== hookListener.socketPath) {
-          return
-        }
-        const rawHook = asHookRecord(envelope.hookData)
-        const capture = driverCtx.capture
-        if (capture === undefined) {
-          const result = normalizeHookRecord(envelope, rawHook)
-          warnWithoutCapture(result.outcome, getString(rawHook, 'hook_event_name') ?? '(none)')
-          return result.decision
-        }
-
-        // Commit the hook payload verbatim BEFORE normalizing it (§7.1). The
-        // synchronous decision a PreToolUse hook is waiting for is returned
-        // from inside the same callback, so a blocked cursor cannot leave the
-        // harness hanging on a permission answer — a deferred record simply
-        // returns no decision, exactly as an unhandled hook does today.
-        let decision: HookEnvelopeResult
-        capture.ingest(
-          {
-            provider: 'anthropic',
-            driverKind: CLAUDE_CODE_TMUX_DRIVER_KIND,
-            sourceKind: 'hook',
-            sourceKey: `hook:${driverCtx.invocationId}`,
-            nativeType: getString(rawHook, 'hook_event_name') ?? '(none)',
-            rawBytes: Buffer.from(JSON.stringify(envelope.hookData ?? null), 'utf8'),
-            ...(envelope.turnId !== undefined
-              ? { correlationHints: { turnId: envelope.turnId } }
-              : {}),
-          },
-          (captured) =>
-            withProvenance(captured.provenance(), () => {
-              const result = normalizeHookRecord(envelope, rawHook)
-              decision = result.decision
-              return result.outcome
-            })
-        )
-        return decision
-      }
+      const handleHookEnvelope = createClaudeHookRecordHandler({
+        driverCtx,
+        expectedRuntimeId,
+        getListenerSocketPath: () => hookListener?.socketPath,
+        provenance,
+        emit,
+        reader,
+        normalizer,
+        attribution: turnAttribution,
+        attributionEvents,
+        structuredOutput,
+      })
 
       hookListener = await options.hooks.listen(
         (envelope) => {
@@ -988,7 +455,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       // PreToolUse / PostToolUse / Stop… to the broker callback socket
       // OUT-OF-BAND (not via stdout). Env vars alone do not make Claude
       // invoke hooks.
-      const launchCommand = await buildLaunchCommandLine(spec, driverCtx, {
+      const launchCommand = await buildClaudeLaunchCommandLine(spec, driverCtx, {
         invocationId: driverCtx.invocationId,
         ...(expectedRuntimeId !== undefined ? { runtimeId: expectedRuntimeId } : {}),
         callbackSocket: hookListener.socketPath,
@@ -1015,7 +482,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       // transcript disposition mirror will either open this id on a plain user
       // row or announce that the submission joined the live turn.
       const turnId = allocateTurnId()
-      const prompt = promptForStructuredOutput(input, text, turnId)
+      const prompt = structuredOutput.promptFor(input, text, turnId)
       attribution?.trackBrokerSubmission({
         ...(input.inputId !== undefined
           ? { submissionId: input.inputId, inputId: input.inputId }
@@ -1070,11 +537,11 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     },
 
     async interrupt(_req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
-      if (nativeWakeupLostReason !== undefined) {
+      if (transcriptWakeup.lostReason !== undefined) {
         return {
           accepted: false,
           effect: 'unsupported',
-          reason: nativeWakeupLostReason,
+          reason: transcriptWakeup.lostReason,
         }
       }
       // Parity with codex-cli-tmux: a stopped driver clears `surface`, so an
@@ -1100,19 +567,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       // releases its hook listener. It also drops the surface so post-stop
       // interrupt/applyInputNow observe a not-live driver (codex parity); the
       // pane controller ref is retained until dispose, like codex-cli-tmux.
-      await closeHookListener()
-      // T-05092: final transcript drain BEFORE reset/turn-id loss, so a trailing
-      // API-error row that no post-error hook would surface still reaches the
-      // broker. The byte-offset tailer dedupes — already-read rows are not
-      // replayed. Emitted through the live ctx so the broker sequences them.
-      if (transcriptReader !== undefined && ctx !== undefined) {
-        // The reader now emits through the driver's provenance-stamping seam,
-        // so the drain reaches the broker without the caller re-emitting.
-        transcriptReader.drain()
-      }
-      emitDriverTeardownDispositions('driver.stop')
-      transcriptReader?.reset()
-      transcriptReader = undefined
+      await releaseCapture('driver.stop')
       surface = undefined
       return { accepted: true, state: 'exited' }
     },
@@ -1121,354 +576,36 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       // T-01725: dispose releases driver-owned resources only — the hook
       // listener and the in-memory pane controller. tmux server / session
       // lifecycle stays with the runtime control plane.
-      await closeHookListener()
-      // T-05092: drain a trailing API-error row on a dispose-without-stop path.
-      // After stop() the reader is already nulled, so a stop→dispose sequence
-      // does not double-emit; the byte-offset tailer dedupes either way.
-      if (transcriptReader !== undefined && ctx !== undefined) {
-        // The reader now emits through the driver's provenance-stamping seam,
-        // so the drain reaches the broker without the caller re-emitting.
-        transcriptReader.drain()
-      }
-      emitDriverTeardownDispositions('driver.dispose')
-      transcriptReader?.reset()
-      transcriptReader = undefined
+      await releaseCapture('driver.dispose')
       attribution = undefined
       ctx = undefined
       surface = undefined
       paneController = undefined
-      structuredTurns.clear()
-      completedStructuredTurns.clear()
+      structuredOutput.clear()
       apiErrorTurns.clear()
       startedAssistantMessages.clear()
     },
   }
 
-  function promptForStructuredOutput(input: InvocationInput, text: string, turnId: string): string {
-    if (input.responseFormat?.kind !== 'json_schema') {
-      return text
+  /**
+   * Shared stop/dispose teardown: close the hook listener, then drain the
+   * transcript one last time BEFORE reset/turn-id loss (T-05092), so a
+   * trailing API-error row that no post-error hook would surface still reaches
+   * the broker through the live ctx. The byte-offset tailer dedupes, and after
+   * stop() the reader is already nulled, so stop→dispose never double-emits.
+   */
+  async function releaseCapture(rawType: 'driver.stop' | 'driver.dispose'): Promise<void> {
+    await closeHookListener()
+    if (transcriptReader !== undefined && ctx !== undefined) {
+      transcriptReader.drain()
     }
-    const schema = input.responseFormat.schema
-    const validator = structuredOutputAjv.compile(schema)
-    structuredTurns.set(turnId, {
-      turnId,
-      attempts: 0,
-      validator,
-    })
-    completedStructuredTurns.delete(turnId)
-    return `${text}\n\nreturn ONLY JSON matching this schema, no prose/markdown.\nSchema:\n${JSON.stringify(schema)}`
-  }
-
-  type StructuredHookDecision =
-    | { action: 'continue'; envelope: ClaudeCodeHookEnvelope }
-    | { action: 'drop'; decision?: HookEnvelopeDecision | undefined }
-
-  function handleStructuredOutputHook(envelope: ClaudeCodeHookEnvelope): StructuredHookDecision {
-    const hook = asHookRecord(envelope.hookData)
-    const rawType =
-      typeof hook['hook_event_name'] === 'string' ? hook['hook_event_name'] : undefined
-    const mailDecision = rawType === 'Stop' ? envelope.mailStopDecision : undefined
-    const turnId = envelope.turnId
-    if (
-      turnId !== undefined &&
-      completedStructuredTurns.has(turnId) &&
-      rawType === 'MessageDisplay'
-    ) {
-      return { action: 'drop' }
-    }
-    if (turnId === undefined) {
-      return mailDecision === undefined
-        ? { action: 'continue', envelope }
-        : { action: 'drop', decision: mailDecision }
-    }
-    const state = structuredTurns.get(turnId)
-    if (state === undefined) {
-      return mailDecision === undefined
-        ? { action: 'continue', envelope }
-        : { action: 'drop', decision: mailDecision }
-    }
-
-    if (rawType === 'MessageDisplay') {
-      // T-05145 invariant: for claude-code-tmux a structured turn may NOT pass
-      // final capture unless its turn-local validator positively cleared the
-      // candidate. MessageDisplay is racy with Stop and is never authoritative
-      // for structured final capture; Stop's last_assistant_message is the gate.
-      return { action: 'drop' }
-    }
-    if (rawType !== 'Stop') {
-      if (rawType === 'SessionEnd') {
-        failStructuredTurn(state, 'Structured output ended before Stop validation cleared')
-        return { action: 'drop' }
-      }
-      return { action: 'continue', envelope }
-    }
-
-    const candidate =
-      typeof hook['last_assistant_message'] === 'string' ? hook['last_assistant_message'] : ''
-    const validation = validateStructuredCandidate(state, candidate)
-    if (validation.valid) {
-      if (mailDecision !== undefined) {
-        return { action: 'drop', decision: mailDecision }
-      }
-      structuredTurns.delete(turnId)
-      completedStructuredTurns.add(turnId)
-      return {
-        action: 'continue',
-        envelope: {
-          ...envelope,
-          hookData: {
-            ...hook,
-            last_assistant_message: validation.normalized,
-          },
-        },
-      }
-    }
-
-    state.attempts += 1
-    const reason = formatValidationErrors(validation.errors)
-    emitStructuredValidationNotice(state, reason, validation.errors)
-    if (state.attempts < STRUCTURED_OUTPUT_MAX_ATTEMPTS) {
-      return {
-        action: 'drop',
-        decision: {
-          decision: 'block',
-          reason:
-            mailDecision === undefined
-              ? reason
-              : `${reason}\n\nMailbox drain is also required:\n${mailDecision.reason}`,
-        },
-      }
-    }
-
-    emitStructuredDiagnostic(state, candidate)
-    failStructuredTurn(state, reason, validation.errors)
-    return { action: 'drop' }
-  }
-
-  function validateStructuredCandidate(
-    state: StructuredTurnState,
-    candidate: string
-  ): { valid: true; normalized: string } | { valid: false; errors: ErrorObject[] } {
-    const parsed = parseStructuredJsonCandidate(candidate)
-    if (!parsed.valid) {
-      return {
-        valid: false,
-        errors: [
-          {
-            instancePath: '',
-            schemaPath: '',
-            keyword: 'parse',
-            params: {},
-            message: parsed.message,
-          } as ErrorObject,
-        ],
-      }
-    }
-    if (state.validator(parsed.value)) {
-      return { valid: true, normalized: JSON.stringify(parsed.value) }
-    }
-    return { valid: false, errors: [...(state.validator.errors ?? [])] }
-  }
-
-  function parseStructuredJsonCandidate(
-    candidate: string
-  ): { valid: true; value: unknown } | { valid: false; message: string } {
-    const trimmed = candidate.trim()
-    const bare = tryParseJson(trimmed)
-    if (bare.valid) {
-      return bare
-    }
-    const fenced = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i)
-    if (fenced?.[1] !== undefined) {
-      const fencedJson = tryParseJson(fenced[1].trim())
-      if (fencedJson.valid) {
-        return fencedJson
-      }
-      return { valid: false, message: 'must be valid JSON matching schema' }
-    }
-    const prefixed = tryParsePrefixedJsonRoot(trimmed)
-    if (prefixed.valid) {
-      return prefixed
-    }
-    return { valid: false, message: 'must be valid JSON matching schema' }
-  }
-
-  function tryParseJson(raw: string): { valid: true; value: unknown } | { valid: false } {
-    try {
-      return { valid: true, value: JSON.parse(raw) as unknown }
-    } catch {
-      return { valid: false }
-    }
-  }
-
-  function tryParsePrefixedJsonRoot(
-    raw: string
-  ): { valid: true; value: unknown } | { valid: false } {
-    for (let index = 0; index < raw.length; index += 1) {
-      const char = raw[index]
-      if (char !== '{' && char !== '[') {
-        continue
-      }
-      const endIndex = findJsonRootEnd(raw, index)
-      if (endIndex === undefined) {
-        continue
-      }
-      const json = raw.slice(index, endIndex)
-      const parsed = tryParseJson(json)
-      if (!parsed.valid) {
-        continue
-      }
-      if (raw.slice(endIndex).trim().length > 0) {
-        return { valid: false }
-      }
-      return parsed
-    }
-    return { valid: false }
-  }
-
-  function findJsonRootEnd(raw: string, startIndex: number): number | undefined {
-    const stack: string[] = []
-    let inString = false
-    let escaped = false
-
-    for (let index = startIndex; index < raw.length; index += 1) {
-      const char = raw[index]
-      if (char === undefined) {
-        return undefined
-      }
-      if (inString) {
-        if (escaped) {
-          escaped = false
-        } else if (char === '\\') {
-          escaped = true
-        } else if (char === '"') {
-          inString = false
-        }
-        continue
-      }
-      if (char === '"') {
-        inString = true
-        continue
-      }
-      if (char === '{') {
-        stack.push('}')
-        continue
-      }
-      if (char === '[') {
-        stack.push(']')
-        continue
-      }
-      if (char === '}' || char === ']') {
-        if (stack.pop() !== char) {
-          return undefined
-        }
-        if (stack.length === 0) {
-          return index + 1
-        }
-      }
-    }
-    return undefined
-  }
-
-  function formatValidationErrors(errors: ErrorObject[]): string {
-    if (errors.length === 0) {
-      return 'must match schema'
-    }
-    return errors
-      .slice(0, 3)
-      .map((error) => {
-        const path = error.instancePath.length > 0 ? error.instancePath : '/'
-        return `${path} ${error.message ?? error.keyword}`.trim()
-      })
-      .join('; ')
-  }
-
-  function emitStructuredValidationNotice(
-    state: StructuredTurnState,
-    reason: string,
-    errors: ErrorObject[]
-  ): void {
-    ctx?.emit(
-      'driver.notice',
-      {
-        message: reason,
-        code: 'structured_output_validation_retry',
-        data: { validation: formatValidationData(errors), attempts: state.attempts },
-      },
-      {
-        turnId: state.turnId as ApplyInputResult['turnId'],
-        driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND },
-      }
-    )
-  }
-
-  function emitStructuredDiagnostic(state: StructuredTurnState, candidate: string): void {
-    const code = apiErrorTurns.has(state.turnId)
-      ? 'provider_error_truncated_output'
-      : 'StructuredOutputValidationFailed'
-    ctx?.emit(
-      'diagnostic',
-      {
-        level: 'warn',
-        source: 'harness',
-        message: 'Structured output validation failed after retry cap',
-        data: {
-          code,
-          rawCandidate: candidate,
-        },
-      },
-      {
-        turnId: state.turnId as ApplyInputResult['turnId'],
-        driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND },
-      }
-    )
-  }
-
-  function failStructuredTurn(
-    state: StructuredTurnState,
-    reason: string,
-    errors: ErrorObject[] = []
-  ): void {
-    const providerError = apiErrorTurns.has(state.turnId)
-    const code = providerError
-      ? 'provider_error_truncated_output'
-      : 'StructuredOutputValidationFailed'
-    structuredTurns.delete(state.turnId)
-    completedStructuredTurns.add(state.turnId)
-    apiErrorTurns.delete(state.turnId)
-    ctx?.emit(
-      'turn.failed',
-      {
-        turnId: state.turnId as TurnId,
-        status: 'failed',
-        message: reason,
-        code,
-        retryable: false,
-        data: {
-          validation: formatValidationData(errors),
-          attempts: state.attempts,
-        },
-      },
-      {
-        turnId: state.turnId as ApplyInputResult['turnId'],
-        driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND },
-      }
-    )
-    attribution?.observeTurnTerminal(state.turnId as TurnId)
-  }
-
-  function formatValidationData(errors: ErrorObject[]): Array<Record<string, unknown>> {
-    return errors.map((error) => ({
-      path: error.instancePath.length > 0 ? error.instancePath : '/',
-      keyword: error.keyword,
-      message: error.message ?? error.keyword,
-      params: error.params,
-    }))
+    emitDriverTeardownDispositions(rawType)
+    transcriptReader?.reset()
+    transcriptReader = undefined
   }
 
   async function closeHookListener(): Promise<void> {
-    transcriptWatcher?.close()
-    transcriptWatcher = undefined
+    transcriptWakeup.close()
     await hookDrain.catch(() => undefined)
     if (hookListener !== undefined) {
       const handle = hookListener
@@ -1476,184 +613,6 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       await handle.close()
     }
   }
-}
-
-/** Claude Code hook events the broker overlay subscribes to. */
-const HOOK_EVENT_NAMES = [
-  'SessionStart',
-  'UserPromptSubmit',
-  'MessageDisplay',
-  'PreToolUse',
-  'PostToolUse',
-  'Stop',
-  'Notification',
-  'SubagentStop',
-  'SessionEnd',
-] as const
-
-const DEFAULT_HOOK_BRIDGE_COMMAND = 'harness-broker claude-hook'
-
-/**
- * Build the Claude Code `--settings` overlay (H1). Env vars alone do NOT make
- * Claude invoke hooks; the runtime needs an actual `hooks` settings block whose
- * commands POST each hook payload to the broker callback socket. The bridge
- * command reads the hook JSON on stdin and the `HARNESS_BROKER_*` env to build
- * the envelope, then writes it to the callback socket (broker-owned, H3).
- */
-export function buildClaudeHookSettingsOverlay(options: {
-  callbackSocket: string
-  bridgeCommand?: string | undefined
-}): { hooks: Record<string, unknown> } {
-  const bridge = options.bridgeCommand ?? DEFAULT_HOOK_BRIDGE_COMMAND
-  const command = `${bridge} --socket ${shellQuote(options.callbackSocket)}`
-  const legacyCommandMarker = `${bridge} --socket ${options.callbackSocket}`
-  const decisionCommand = `${toDecisionBridgeCommand(bridge)} --socket ${shellQuote(
-    options.callbackSocket
-  )} --legacy-command ${shellQuote(legacyCommandMarker)}`
-  const matchAll = ['PreToolUse', 'PostToolUse']
-  const hooks: Record<string, unknown> = {}
-  for (const event of HOOK_EVENT_NAMES) {
-    const entry: Record<string, unknown> = {
-      hooks: [
-        {
-          type: 'command',
-          command: event === 'Stop' || event === 'PostToolUse' ? decisionCommand : command,
-        },
-      ],
-    }
-    if (matchAll.includes(event)) {
-      entry['matcher'] = '*'
-    }
-    hooks[event] = [entry]
-  }
-  return { hooks }
-}
-
-function toDecisionBridgeCommand(bridgeCommand: string): string {
-  return bridgeCommand.replace(/\bclaude-hook\b/, 'claude-hook-decision')
-}
-
-function classifyTranscriptUserEntry(
-  entry: Record<string, unknown>
-):
-  | { kind: 'prompt'; content: string }
-  | { kind: 'interrupted' }
-  | { kind: 'hook-feedback' }
-  | undefined {
-  const message = asHookRecord(entry['message'])
-  const content = message['content']
-  if (typeof content === 'string') {
-    // A hook the broker BLOCKED writes its reason back into the conversation as
-    // an ordinary user row. It is harness feedback about a broker decision, not
-    // an operator prompt — routing it to the disposition mirror would warn
-    // "a plain user row arrived while a turn is active" on every retry.
-    if (content.startsWith(CLAUDE_STOP_HOOK_FEEDBACK_PREFIX)) return { kind: 'hook-feedback' }
-    return content.length > 0 ? { kind: 'prompt', content } : undefined
-  }
-  if (!Array.isArray(content)) return undefined
-  const text = content
-    .map((part) =>
-      part !== null && typeof part === 'object' && !Array.isArray(part)
-        ? getString(part as Record<string, unknown>, 'text')
-        : undefined
-    )
-    .filter((part): part is string => part !== undefined)
-    .join('')
-    .trim()
-  return text === '[Request interrupted by user]' ||
-    text === '[Request interrupted by user for tool use]'
-    ? { kind: 'interrupted' }
-    : undefined
-}
-
-async function buildLaunchCommandLine(
-  spec: ChildProcessInvocationSpec,
-  ctx: DriverContext,
-  hookEnv: {
-    invocationId: string
-    runtimeId?: string | undefined
-    callbackSocket: string
-    bridgeCommand?: string | undefined
-    helperLauncher?: TmuxHelperLauncher | undefined
-  }
-): Promise<string> {
-  const env = {
-    ...spec.process.lockedEnv,
-    ...(ctx.dispatchEnv ?? {}),
-    HARNESS_BROKER_INVOCATION_ID: hookEnv.invocationId,
-    HARNESS_BROKER_CALLBACK_SOCKET: hookEnv.callbackSocket,
-    HARNESS_BROKER_HOOK_EVENTS: HOOK_EVENT_NAMES.join(','),
-    HARNESS_BROKER_HOOK_GENERATION: String(CLAUDE_HOOK_GENERATION),
-    ...(hookEnv.runtimeId !== undefined ? { HARNESS_BROKER_RUNTIME_ID: hookEnv.runtimeId } : {}),
-  }
-  const launchArgs = await buildArgsWithMergedSettings(spec.process.args, hookEnv)
-  const launch = await writeTmuxLaunchExecFiles(
-    `${hookEnv.callbackSocket}.claude`,
-    {
-      argv: [spec.process.command, ...launchArgs],
-      cwd: spec.process.cwd,
-      env,
-      pathPrepend: spec.process.pathPrepend,
-      ...(spec.launch !== undefined ? { prompts: spec.launch } : {}),
-    },
-    hookEnv.helperLauncher !== undefined
-      ? { runner: tmuxHelperRunner(hookEnv.helperLauncher, 'tmux-launch') }
-      : {}
-  )
-  return launch.commandLine
-}
-
-async function buildArgsWithMergedSettings(
-  args: string[],
-  hookEnv: { callbackSocket: string; bridgeCommand?: string | undefined }
-): Promise<string[]> {
-  const separatorIndex = args.indexOf('--')
-  const preSeparatorArgs = separatorIndex === -1 ? args : args.slice(0, separatorIndex)
-  const postSeparatorArgs = separatorIndex === -1 ? [] : args.slice(separatorIndex)
-  const durableSettingsPaths: string[] = []
-  const cleanedPreSeparatorArgs: string[] = []
-
-  for (let i = 0; i < preSeparatorArgs.length; i += 1) {
-    const arg = preSeparatorArgs[i]
-    if (arg === undefined) continue
-    if (arg === '--settings') {
-      const settingsPath = preSeparatorArgs[i + 1]
-      if (settingsPath !== undefined) {
-        durableSettingsPaths.push(settingsPath)
-        i += 1
-      }
-      continue
-    }
-    cleanedPreSeparatorArgs.push(arg)
-  }
-
-  const mergedSettingsPath = await writeMergedSettingsFile(durableSettingsPaths, hookEnv)
-  return [...cleanedPreSeparatorArgs, '--settings', mergedSettingsPath, ...postSeparatorArgs]
-}
-
-async function writeMergedSettingsFile(
-  durableSettingsPaths: string[],
-  hookEnv: { callbackSocket: string; bridgeCommand?: string | undefined }
-): Promise<string> {
-  const { mkdir, readFile, writeFile } = await import('node:fs/promises')
-  const mergedSettings: Record<string, unknown> = {}
-  for (const settingsPath of durableSettingsPaths) {
-    const raw = await readFile(settingsPath, 'utf8')
-    const parsed = JSON.parse(raw) as Record<string, unknown>
-    Object.assign(mergedSettings, parsed)
-  }
-  Object.assign(
-    mergedSettings,
-    buildClaudeHookSettingsOverlay({
-      callbackSocket: hookEnv.callbackSocket,
-      bridgeCommand: hookEnv.bridgeCommand,
-    })
-  )
-
-  const settingsPath = `${hookEnv.callbackSocket}.settings.json`
-  await mkdir(dirname(settingsPath), { recursive: true })
-  await writeFile(settingsPath, JSON.stringify(mergedSettings, null, 2), 'utf8')
-  return settingsPath
 }
 
 /**
