@@ -47,7 +47,9 @@ export function createResidentDetachControl(options: {
             requestDetach('quit', ctx, options.onDetachRequest)
             return
           }
-          if (ctx.isIdle() && this.keys.matches(data, 'app.exit') && this.getText().length === 0) {
+          // Ctrl-D on an empty editor detaches, busy or idle: Pi's own app.exit
+          // would end the resident's process mid-turn (T-10269).
+          if (this.keys.matches(data, 'app.exit') && this.getText().length === 0) {
             requestDetach('ctrl-d', ctx, options.onDetachRequest)
             return
           }
