@@ -79,6 +79,24 @@ export class AspcProtocolIncompatibleError extends Error {
   }
 }
 
+/**
+ * The service accepted the request but did not answer before the deadline. The
+ * client closes its socket on expiry: the service may still act on the request,
+ * and the caller decides whether to connect again (R-00307).
+ */
+export class AspcRequestTimeoutError extends Error {
+  readonly code = 'aspc_request_timeout'
+  readonly method: string
+  readonly timeoutMs: number
+
+  constructor(method: string, timeoutMs: number) {
+    super(`ASPC service did not answer ${method} within ${timeoutMs}ms`)
+    this.name = 'AspcRequestTimeoutError'
+    this.method = method
+    this.timeoutMs = timeoutMs
+  }
+}
+
 export class AspcCapabilityMissingError extends Error {
   readonly code = 'missing_capability'
   constructor(readonly capability: string) {
@@ -90,32 +108,37 @@ export class AspcCapabilityMissingError extends Error {
 export interface AspcUnixClientConnectOptions {
   socketPath: string
   clientInfo: AspcHelloRequest['clientInfo']
+  /** Deadline for connect AND the `aspc.hello` negotiation together (default 5s). */
   timeoutMs?: number | undefined
+  /** Deadline for each later request; unbounded when omitted. Expiry closes the client. */
+  requestTimeoutMs?: number | undefined
 }
 
 export class AspcUnixClient {
   readonly socketPath: string
   readonly hello: AspcHelloResponse
   #transport: UnixSocketTransport
+  #requestTimeoutMs: number | undefined
 
   private constructor(
     socketPath: string,
     transport: UnixSocketTransport,
-    hello: AspcHelloResponse
+    hello: AspcHelloResponse,
+    requestTimeoutMs: number | undefined
   ) {
     this.socketPath = socketPath
     this.#transport = transport
     this.hello = hello
+    this.#requestTimeoutMs = requestTimeoutMs
   }
 
   /** Connect and negotiate `aspc.hello`. Throws {@link AspcServiceUnavailableError} when nothing listens. */
   static async connect(options: AspcUnixClientConnectOptions): Promise<AspcUnixClient> {
+    const timeoutMs = options.timeoutMs ?? 5_000
+    const deadline = performance.now() + timeoutMs
     let transport: UnixSocketTransport
     try {
-      transport = await UnixSocketTransport.connect({
-        socketPath: options.socketPath,
-        timeoutMs: options.timeoutMs ?? 5_000,
-      })
+      transport = await UnixSocketTransport.connect({ socketPath: options.socketPath, timeoutMs })
     } catch (error) {
       if (error instanceof BrokerTransportError) {
         throw new AspcServiceUnavailableError(options.socketPath, error.causeError ?? error)
@@ -123,14 +146,24 @@ export class AspcUnixClient {
       throw error
     }
     try {
-      const hello = await transport.request<AspcHelloResponse>('aspc.hello', {
+      const negotiation = transport.request<AspcHelloResponse>('aspc.hello', {
         clientInfo: options.clientInfo,
         protocolVersions: [ASPC_PROTOCOL_VERSION],
       } satisfies AspcHelloRequest)
+      // timeoutMs <= 0 keeps the transport's "no deadline" meaning.
+      const hello =
+        timeoutMs > 0
+          ? await withDeadline(
+              negotiation,
+              'aspc.hello',
+              timeoutMs,
+              Math.max(1, deadline - performance.now())
+            )
+          : await negotiation
       if (hello.protocolVersion !== ASPC_PROTOCOL_VERSION) {
         throw new AspcProtocolIncompatibleError(String(hello.protocolVersion))
       }
-      return new AspcUnixClient(options.socketPath, transport, hello)
+      return new AspcUnixClient(options.socketPath, transport, hello, options.requestTimeoutMs)
     } catch (error) {
       await transport.close()
       throw error
@@ -223,9 +256,12 @@ export class AspcUnixClient {
   }
 
   async #request<T>(method: string, params: unknown): Promise<T> {
+    const pending = this.#transport.request<T>(method, params)
     try {
-      return await this.#transport.request<T>(method, params)
+      if (this.#requestTimeoutMs === undefined) return await pending
+      return await withDeadline(pending, method, this.#requestTimeoutMs, this.#requestTimeoutMs)
     } catch (error) {
+      if (error instanceof AspcRequestTimeoutError) await this.#transport.close()
       if (error instanceof BrokerTransportError) throw new AspcConnectionClosedError(method, error)
       throw error
     }
@@ -237,5 +273,23 @@ export class AspcUnixClient {
 
   close(): Promise<void> {
     return this.#transport.close()
+  }
+}
+
+/** Reject with {@link AspcRequestTimeoutError} if `pending` has not settled within `remainingMs`. */
+async function withDeadline<T>(
+  pending: Promise<T>,
+  method: string,
+  timeoutMs: number,
+  remainingMs: number
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new AspcRequestTimeoutError(method, timeoutMs)), remainingMs)
+  })
+  try {
+    return await Promise.race([pending, expired])
+  } finally {
+    clearTimeout(timer)
   }
 }
