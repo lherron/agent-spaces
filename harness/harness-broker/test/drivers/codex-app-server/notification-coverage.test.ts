@@ -33,7 +33,7 @@ beforeEach(() => {
  * `error` is dispositioned one layer up: driver.ts `onNotification` intercepts it
  * and returns BEFORE calling the mapper, converting it to a diagnostic plus a
  * turn/invocation terminal. The mapper is never asked about it. That path is
- * covered by codex-app-server-driver.test.ts, not here.
+ * covered by app-server-failures.test.ts, not here.
  */
 const DISPOSITIONED_IN_DRIVER = new Set(['error'])
 
