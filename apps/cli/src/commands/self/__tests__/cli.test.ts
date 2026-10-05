@@ -146,7 +146,9 @@ describe('asp self inspect', () => {
       agentName: string
       envSource: string
       runtime: { harness: string }
-      collaboration: { principal: { value: string; source: string } }
+      collaboration: {
+        principal: { key: string; value: string; source: string; derivedFrom?: string }
+      }
       prompt: { system: { mode: string; chars: number }; primingChars: number }
       diagnostics: Record<string, unknown>
     }

@@ -7,7 +7,8 @@ import * as AgentSpaces from '../index.js'
 
 type RuntimeContext = {
   agentId: string
-  agentRoot?: string
+  // `| undefined`: tests clear the default agentRoot by overriding it with undefined.
+  agentRoot?: string | undefined
   project:
     | { mode: 'root'; projectRoot: string; projectId?: string }
     | { mode: 'infer-from-cwd' }
@@ -92,16 +93,16 @@ describe('T-08701 runtime declaration observation', () => {
     )
 
     expect(response.ok).toBe(true)
-    expect(response.agentSources.provenance).toBe('caller-agent-root')
-    expect(await realpath(response.placement.agentRoot)).toBe(await realpath(outsideRoot))
-    expect(await realpath(response.agentSources.aspHome)).toBe(await realpath(aspHome))
-    expect(await realpath(response.agentSources.agentsRoot)).toBe(await realpath(agentsRoot))
-    expect(response.baselineProvisioning).toEqual({
+    expect(response['agentSources'].provenance).toBe('caller-agent-root')
+    expect(await realpath(response['placement'].agentRoot)).toBe(await realpath(outsideRoot))
+    expect(await realpath(response['agentSources'].aspHome)).toBe(await realpath(aspHome))
+    expect(await realpath(response['agentSources'].agentsRoot)).toBe(await realpath(agentsRoot))
+    expect(response['baselineProvisioning']).toEqual({
       scalars: { harness: 'codex', model: 'gpt-5.6-sol', yolo: false, remote: false },
       declaredHarness: 'claude',
       effectiveHarness: 'codex',
     })
-    expect(response.provisioning).toEqual({
+    expect(response['provisioning']).toEqual({
       scalars: {
         harness: 'muse',
         model_provider: 'meta',
@@ -117,14 +118,14 @@ describe('T-08701 runtime declaration observation', () => {
   test('reports closed-vocabulary baseline scalars without driver projections', async () => {
     const response = await operation()(request(), daemonDefaults())
     expect(response.ok).toBe(true)
-    expect(response.baselineProvisioning).toEqual({
+    expect(response['baselineProvisioning']).toEqual({
       scalars: { harness: 'codex', model: 'gpt-5.6-sol', yolo: false, remote: false },
       declaredHarness: 'claude',
       effectiveHarness: 'codex',
     })
     for (const key of ['frontend', 'transport', 'provider', 'family', 'runtime']) {
-      expect(response.baselineProvisioning).not.toHaveProperty(key)
-      expect(response.provisioning).not.toHaveProperty(key)
+      expect(response['baselineProvisioning']).not.toHaveProperty(key)
+      expect(response['provisioning']).not.toHaveProperty(key)
     }
   })
 
@@ -134,7 +135,7 @@ describe('T-08701 runtime declaration observation', () => {
       daemonDefaults()
     )
     expect(response.ok).toBe(true)
-    expect(response.provisioning).toEqual({
+    expect(response['provisioning']).toEqual({
       scalars: { harness: 'claude', model: 'gpt-5.6-sol', yolo: false, remote: false },
       declaredHarness: 'claude',
       effectiveHarness: 'claude',
@@ -148,7 +149,7 @@ describe('T-08701 runtime declaration observation', () => {
     )
 
     expect(response.ok).toBe(true)
-    expect(response.provisioning).toEqual({
+    expect(response['provisioning']).toEqual({
       scalars: {
         harness: 'agent-harness',
         model: 'gpt-5.6-terra',
@@ -166,7 +167,7 @@ describe('T-08701 runtime declaration observation', () => {
       daemonDefaults()
     )
     expect(response.ok).toBe(false)
-    expect(response.failure).toMatchObject({ kind: 'incompatible', code: 'unsupported_harness' })
+    expect(response['failure']).toMatchObject({ kind: 'incompatible', code: 'unsupported_harness' })
   })
 
   test('keeps root, infer-from-cwd, and none as three observable modes', async () => {
@@ -182,16 +183,16 @@ describe('T-08701 runtime declaration observation', () => {
     })
 
     expect(rootMode.ok).toBe(true)
-    expect(await realpath(rootMode.placement.projectRoot)).toBe(await realpath(projectRoot))
-    expect(rootMode.baselineProvisioning.effectiveHarness).toBe('codex')
+    expect(await realpath(rootMode['placement'].projectRoot)).toBe(await realpath(projectRoot))
+    expect(rootMode['baselineProvisioning'].effectiveHarness).toBe('codex')
     expect(inferred.ok).toBe(true)
-    expect(inferred.markerProjectId).toBe('project')
+    expect(inferred['markerProjectId']).toBe('project')
     // K6: an exact caller agentRoot performs no roster search or substitution.
-    expect(inferred.searchedAgentRoots).toEqual([])
+    expect(inferred['searchedAgentRoots']).toEqual([])
     expect(none.ok).toBe(true)
-    expect(none.placement).not.toHaveProperty('projectRoot')
-    expect(none.source.projectTargets).toEqual({ state: 'absent', code: 'not_declared' })
-    expect(none.baselineProvisioning).toEqual({
+    expect(none['placement']).not.toHaveProperty('projectRoot')
+    expect(none['source'].projectTargets).toEqual({ state: 'absent', code: 'not_declared' })
+    expect(none['baselineProvisioning']).toEqual({
       scalars: { harness: 'claude', model: 'fixture-model', yolo: false, remote: false },
       declaredHarness: 'claude',
       effectiveHarness: 'claude',
@@ -224,10 +225,10 @@ describe('T-08701 runtime declaration observation', () => {
         options
       )
       expect(response.ok).toBe(true)
-      expect(await realpath(response.placement.agentRoot)).toBe(canonicalAgentRoot)
-      expect(response.identity.role).toBe('verify')
-      expect(response.searchedAgentRoots).toEqual([canonicalAgentRoot])
-      expect(response.agentSources).toMatchObject({
+      expect(await realpath(response['placement'].agentRoot)).toBe(canonicalAgentRoot)
+      expect(response['identity'].role).toBe('verify')
+      expect(response['searchedAgentRoots']).toEqual([canonicalAgentRoot])
+      expect(response['agentSources']).toMatchObject({
         agentsRoot: await realpath(agentsRoot),
         provenance: 'caller',
       })
@@ -238,9 +239,9 @@ describe('T-08701 runtime declaration observation', () => {
       options
     )
     expect(aspHomeOnly.ok).toBe(true)
-    expect(await realpath(aspHomeOnly.placement.agentRoot)).toBe(await realpath(agentRoot))
-    expect(aspHomeOnly.identity.role).toBe('verify')
-    expect(aspHomeOnly.agentSources).toMatchObject({
+    expect(await realpath(aspHomeOnly['placement'].agentRoot)).toBe(await realpath(agentRoot))
+    expect(aspHomeOnly['identity'].role).toBe('verify')
+    expect(aspHomeOnly['agentSources']).toMatchObject({
       aspHome: await realpath(aspHome),
       agentsRoot: await realpath(agentsRoot),
       provenance: 'caller-asp-home-config',
@@ -258,12 +259,14 @@ describe('T-08701 runtime declaration observation', () => {
     )
     const third = await resolveDeclaration(request(), daemonDefaults())
 
-    expect(first.identity.role).toBe('verify')
-    expect(second.identity.role).toBe('changed-without-restart')
-    expect(second.source.agentProfile.contentHash).not.toBe(first.source.agentProfile.contentHash)
-    expect(third.baselineProvisioning.effectiveHarness).toBe('claude')
-    expect(third.source.projectTargets.contentHash).not.toBe(
-      first.source.projectTargets.contentHash
+    expect(first['identity'].role).toBe('verify')
+    expect(second['identity'].role).toBe('changed-without-restart')
+    expect(second['source'].agentProfile.contentHash).not.toBe(
+      first['source'].agentProfile.contentHash
+    )
+    expect(third['baselineProvisioning'].effectiveHarness).toBe('claude')
+    expect(third['source'].projectTargets.contentHash).not.toBe(
+      first['source'].projectTargets.contentHash
     )
   })
 
@@ -277,8 +280,8 @@ describe('T-08701 runtime declaration observation', () => {
     )
     const participantOnly = await resolveDeclaration(request(), daemonDefaults())
 
-    expect(launchable.policy.placement).toEqual({ pins: {}, homes: {} })
-    expect(participantOnly.policy.placement).toEqual({
+    expect(launchable['policy'].placement).toEqual({ pins: {}, homes: {} })
+    expect(participantOnly['policy'].placement).toEqual({
       launch: 'participant-only',
       pins: {},
       homes: {},
@@ -297,7 +300,7 @@ describe('T-08701 runtime declaration observation', () => {
         effectiveHarness: 'codex',
       },
     })
-    expect(targetOnly.baselineProvisioning).not.toHaveProperty('declaredHarness')
+    expect(targetOnly['baselineProvisioning']).not.toHaveProperty('declaredHarness')
 
     const defaultOnly = await operation()(request({ project: { mode: 'none' } }), daemonDefaults())
     expect(defaultOnly).toMatchObject({
@@ -309,8 +312,8 @@ describe('T-08701 runtime declaration observation', () => {
       baselineProvisioning: { scalars: {} },
     })
     // Fail closed: with no harness declared anywhere, none is invented.
-    expect(defaultOnly.baselineProvisioning).not.toHaveProperty('effectiveHarness')
-    expect(defaultOnly.baselineProvisioning).not.toHaveProperty('declaredHarness')
+    expect(defaultOnly['baselineProvisioning']).not.toHaveProperty('effectiveHarness')
+    expect(defaultOnly['baselineProvisioning']).not.toHaveProperty('declaredHarness')
   })
 
   test.each([
@@ -342,7 +345,7 @@ describe('T-08701 runtime declaration observation', () => {
     expect(response).not.toHaveProperty('failure')
     expect(response).not.toHaveProperty('provisioning')
     expect(response).not.toHaveProperty('baselineProvisioning')
-    expect(response.source.agentProfile).not.toHaveProperty('declaredHarness')
+    expect(response['source'].agentProfile).not.toHaveProperty('declaredHarness')
   })
 
   test('does not invent a harness scalar when the selected target omits one', async () => {
@@ -365,16 +368,16 @@ model = "target-model-only"
     )
 
     expect(response.ok).toBe(true)
-    expect(response.baselineProvisioning).toEqual({
+    expect(response['baselineProvisioning']).toEqual({
       scalars: { model: 'target-model-only', yolo: false, remote: false },
     })
-    expect(response.baselineProvisioning).not.toHaveProperty('declaredHarness')
-    expect(response.baselineProvisioning).not.toHaveProperty('effectiveHarness')
-    expect(response.provisioning).toEqual({
+    expect(response['baselineProvisioning']).not.toHaveProperty('declaredHarness')
+    expect(response['baselineProvisioning']).not.toHaveProperty('effectiveHarness')
+    expect(response['provisioning']).toEqual({
       scalars: { model: 'target-model-only', harness: 'agent-harness', yolo: false, remote: false },
       effectiveHarness: 'agent-harness',
     })
-    expect(response.provisioning).not.toHaveProperty('declaredHarness')
+    expect(response['provisioning']).not.toHaveProperty('declaredHarness')
   })
 
   test.each([
@@ -415,11 +418,11 @@ remote = ${remote}
       )
 
       expect(response.ok).toBe(true)
-      expect(response.baselineProvisioning).toEqual({
+      expect(response['baselineProvisioning']).toEqual({
         scalars: { harness: 'codex', model: 'gpt-5.6-sol', yolo, remote },
         effectiveHarness: 'codex',
       })
-      expect(response.provisioning).toEqual({
+      expect(response['provisioning']).toEqual({
         scalars: {
           harness: 'codex',
           model: 'gpt-5.6-sol',
@@ -510,7 +513,7 @@ remote = ${remote}
         effectiveHarness: 'codex',
       },
     })
-    expect(before.source.agentProfile).not.toHaveProperty('declaredProvider')
+    expect(before['source'].agentProfile).not.toHaveProperty('declaredProvider')
   })
 
   test('distinguishes declaration absent/invalid from unavailable/incompatible evidence', async () => {

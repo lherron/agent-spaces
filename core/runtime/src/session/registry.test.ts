@@ -15,6 +15,20 @@ function createMockSession(kind: 'agent-sdk' | 'pi' | 'codex'): UnifiedSession {
     getState() {
       return 'idle'
     },
+    getMetadata() {
+      return {
+        sessionId: 'session-1',
+        kind,
+        state: 'idle',
+        lastActivityAt: 0,
+        capabilities: {
+          supportsInterrupt: false,
+          supportsInFlightInput: false,
+          supportsNativeResume: false,
+          supportsAttach: false,
+        },
+      }
+    },
     async sendPrompt() {},
     onEvent() {},
     setPermissionHandler() {},

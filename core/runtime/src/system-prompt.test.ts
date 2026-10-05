@@ -55,7 +55,7 @@ describe('materializeSystemPrompt canonical helper', () => {
   test('exports materializeSystemPrompt as the canonical runtime helper', async () => {
     const runtimeModule = (await import('./index.js')) as Record<string, unknown>
 
-    expect(typeof runtimeModule.materializeSystemPrompt).toBe('function')
+    expect(typeof runtimeModule['materializeSystemPrompt']).toBe('function')
   })
 
   test('inspects the constructed prompt with context-template section content', async () => {
@@ -599,6 +599,7 @@ type InspectAgentSystemPromptFn = (
 interface MaterializeSystemPromptTestInput {
   agentRoot: string
   agentsRoot?: string | undefined
+  agentRootSearchPath?: string[] | undefined
   aspHome?: string | undefined
   projectRoot?: string | undefined
   projectId?: string | undefined

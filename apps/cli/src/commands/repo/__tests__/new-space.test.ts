@@ -30,7 +30,7 @@ import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { resolver } from 'spaces-config'
+import { asSpaceId, resolver } from 'spaces-config'
 
 // ============================================================================
 // Helpers
@@ -207,7 +207,7 @@ describe('generated space.toml passes readSpaceManifestFromFilesystem + validate
           cwd: repoPath,
         })
         expect(manifest).toBeDefined()
-        expect(manifest.id).toBe('validated-space')
+        expect(manifest.id).toBe(asSpaceId('validated-space'))
         expect(manifest.version).toBe('0.1.0')
 
         const validation = resolver.validateSpaceManifest(manifest)
@@ -415,14 +415,14 @@ describe('asp spaces init compatibility (T-04410 #6)', () => {
         })
         const newValidation = resolver.validateSpaceManifest(newManifest)
         expect(newValidation.valid).toBe(true)
-        expect(newManifest.id).toBe('new-cmd-space')
+        expect(newManifest.id).toBe(asSpaceId('new-cmd-space'))
 
         const legacyManifest = await resolver.readSpaceManifestFromFilesystem('legacy-cmd-space', {
           cwd: repoPath,
         })
         const legacyValidation = resolver.validateSpaceManifest(legacyManifest)
         expect(legacyValidation.valid).toBe(true)
-        expect(legacyManifest.id).toBe('legacy-cmd-space')
+        expect(legacyManifest.id).toBe(asSpaceId('legacy-cmd-space'))
 
         // Both should produce the same schema version and plugin structure
         expect(newManifest.plugin?.name).toBe('new-cmd-space')

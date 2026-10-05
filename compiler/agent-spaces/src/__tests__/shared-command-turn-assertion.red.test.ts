@@ -1,36 +1,45 @@
 import { describe, expect, test } from 'bun:test'
-import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
+import type {
+  InvocationEventEnvelope,
+  InvocationEventEnvelopeFor,
+  InvocationEventType,
+  InvocationId,
+  MessageId,
+  ToolCallId,
+  TurnId,
+} from 'spaces-harness-broker-protocol'
 
 import { assertSharedCommandTurn } from '../testing/pre-hrc-broker-contract-assertions.js'
 
-const invocationId = 'inv_shared_command'
-const turnId = 'turn_command'
+const invocationId = 'inv_shared_command' as InvocationId
+const messageId = 'msg_shared_command' as MessageId
+const turnId = 'turn_command' as TurnId
 const expectedMarker = 'SHARED_MARKER'
 
-function event(
+function event<K extends InvocationEventType>(
   seq: number,
-  type: InvocationEventEnvelope['type'],
-  overrides: Partial<InvocationEventEnvelope> = {}
-): InvocationEventEnvelope {
+  type: K,
+  overrides: Partial<InvocationEventEnvelopeFor<K>> = {}
+): InvocationEventEnvelopeFor<K> {
   return {
     invocationId,
     seq,
     time: '2026-05-26T00:00:00.000Z',
     type,
     ...overrides,
-  } as InvocationEventEnvelope
+  } as InvocationEventEnvelopeFor<K>
 }
 
 function commandTurnEvents({
   toolName,
-  toolCallId = 'tool_call_1',
+  toolCallId = 'tool_call_1' as ToolCallId,
   completedToolCallId = toolCallId,
   completedIsError,
   markerLocation = 'assistant-delta',
 }: {
   toolName: string
-  toolCallId?: string
-  completedToolCallId?: string
+  toolCallId?: ToolCallId
+  completedToolCallId?: ToolCallId
   completedIsError?: boolean | undefined
   markerLocation?: 'assistant-delta' | 'assistant-completed' | 'turn-completed' | 'absent'
 }): InvocationEventEnvelope[] {
@@ -59,13 +68,15 @@ function commandTurnEvents({
   )
 
   if (markerLocation === 'assistant-delta') {
-    events.push(event(4, 'assistant.message.delta', { turnId, payload: { text: expectedMarker } }))
+    events.push(
+      event(4, 'assistant.message.delta', { turnId, payload: { messageId, text: expectedMarker } })
+    )
   }
   if (markerLocation === 'assistant-completed') {
     events.push(
       event(4, 'assistant.message.completed', {
         turnId,
-        payload: { content: [{ type: 'text', text: expectedMarker }] },
+        payload: { messageId, content: [{ type: 'text', text: expectedMarker }] },
       })
     )
   }
@@ -115,7 +126,10 @@ describe('assertSharedCommandTurn RED', () => {
 
     expect(
       assertSharedCommandTurn(
-        commandTurnEvents({ toolName: 'command', completedToolCallId: 'different_tool_call' }),
+        commandTurnEvents({
+          toolName: 'command',
+          completedToolCallId: 'different_tool_call' as ToolCallId,
+        }),
         { turnId, expectedMarker }
       )
     ).not.toEqual([])

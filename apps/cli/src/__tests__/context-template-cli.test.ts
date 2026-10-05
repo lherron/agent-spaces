@@ -140,7 +140,7 @@ model = "gpt-5.5"
 
   const env = {
     ASP_AGENTS_ROOT: agentsRoot,
-    PATH: `${CODEX_SHIM_DIR}:${process.env.PATH ?? ''}`,
+    PATH: `${CODEX_SHIM_DIR}:${process.env['PATH'] ?? ''}`,
   }
 
   return {

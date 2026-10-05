@@ -122,6 +122,7 @@ describe('controlled participant adapter', () => {
             : { brokerInstanceId: `broker:${index}` }),
         }
         const priorRecovery = recoveryStates[index % recoveryStates.length]
+        if (priorRecovery === undefined) throw new Error('recovery state index out of range')
         const adapter = createControlledAdapter({
           workspaceCwd: process.cwd(),
           writerEvidence: {

@@ -13,9 +13,9 @@ describe('T-01017 runtime cleanup', () => {
   test('runtime entrypoint keeps the canonical materializeSystemPrompt helper and v2 context exports without reviving the old alias', async () => {
     const runtimeModule = (await import('./index.js')) as Record<string, unknown>
 
-    expect(typeof runtimeModule.materializeSystemPrompt).toBe('function')
-    expect(typeof runtimeModule.parseContextTemplate).toBe('function')
-    expect(typeof runtimeModule.resolveContextTemplateDetailed).toBe('function')
-    expect(runtimeModule.materializeSystemPromptV2).toBeUndefined()
+    expect(typeof runtimeModule['materializeSystemPrompt']).toBe('function')
+    expect(typeof runtimeModule['parseContextTemplate']).toBe('function')
+    expect(typeof runtimeModule['resolveContextTemplateDetailed']).toBe('function')
+    expect(runtimeModule['materializeSystemPromptV2']).toBeUndefined()
   })
 })

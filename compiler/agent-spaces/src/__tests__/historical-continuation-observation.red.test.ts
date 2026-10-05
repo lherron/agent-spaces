@@ -54,7 +54,7 @@ describe('T-08563 historical continuation observation', () => {
       artifact: { state: 'present', code: 'artifact_present' },
       basis: 'frozen-home',
     })
-    expect(response.diagnostics).toEqual(expect.any(Array))
+    expect(response['diagnostics']).toEqual(expect.any(Array))
 
     const invalid = await operation()(
       codexRequest({
@@ -84,7 +84,7 @@ describe('T-08563 historical continuation observation', () => {
       artifact: { state: 'missing', code: 'artifact_missing' },
       basis: 'frozen-home',
     })
-    expect(response.artifact.state).not.toBe('present')
+    expect(response['artifact'].state).not.toBe('present')
   })
 
   test('treats unbound recorded placement as presence-only, including its negative guard', async () => {
@@ -114,7 +114,7 @@ describe('T-08563 historical continuation observation', () => {
       artifact: { state: 'unknown', code: 'home_not_historical' },
       basis: 'recorded-placement-rule',
     })
-    expect(notHistorical.artifact.state).not.toBe('missing')
+    expect(notHistorical['artifact'].state).not.toBe('missing')
   })
 
   test('preserves absolute Pi present/missing and rejects a relative key as unknown', async () => {
@@ -130,9 +130,9 @@ describe('T-08563 historical continuation observation', () => {
 
     await rm(piKey)
     const missing = await operation()(continuationRequest('pi-sdk', piKey, 'pi'))
-    expect(missing.artifact).toEqual({ state: 'missing', code: 'artifact_missing' })
+    expect(missing['artifact']).toEqual({ state: 'missing', code: 'artifact_missing' })
     const relative = await operation()(continuationRequest('pi-sdk', 'relative.jsonl', 'pi'))
-    expect(relative.artifact).toEqual({ state: 'unknown', code: 'key_not_absolute' })
+    expect(relative['artifact']).toEqual({ state: 'unknown', code: 'key_not_absolute' })
   })
 
   test('never guesses an ambiguous bare-openai artifact format or fresh-session fallback', async () => {
@@ -191,7 +191,7 @@ function recordedEvidence(recordedAspHome: string): Record<string, unknown> {
   const value = placement()
   return {
     placement: value,
-    bundle: value.bundle,
+    bundle: value['bundle'],
     aspHome: recordedAspHome,
   }
 }

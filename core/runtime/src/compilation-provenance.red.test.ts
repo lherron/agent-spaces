@@ -269,10 +269,9 @@ function template(overrides: Partial<ContextTemplate>): ContextTemplate {
   } as ContextTemplate
 }
 
-function asProvenanceReport(
-  report: ResolvedContextSection | undefined
-): ProvenanceReport | undefined {
-  return report as ProvenanceReport | undefined
+function asProvenanceReport(report: ResolvedContextSection | undefined): ProvenanceReport {
+  if (report === undefined) throw new Error('expected a resolved context section')
+  return report as ProvenanceReport
 }
 
 function failedReason(disposition: AgentInspectionDisposition | undefined): string {

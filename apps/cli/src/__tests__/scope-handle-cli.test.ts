@@ -18,7 +18,8 @@ import { describe, expect, test } from 'bun:test'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 
-type TestFn = () => unknown | Promise<unknown>
+// The callback type bun:test itself accepts.
+type TestFn = Parameters<typeof test>[1]
 
 const FIXTURES_DIR = join(
   import.meta.dirname,

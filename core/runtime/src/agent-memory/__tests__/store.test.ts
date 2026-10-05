@@ -51,7 +51,7 @@ interface StoreModule {
   MemoryStore: new (options: {
     agentName: string
     agentsRoot: string
-    testHooks?: TestHooks
+    testHooks?: TestHooks | undefined
   }) => MemoryStore
 }
 

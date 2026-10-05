@@ -392,6 +392,7 @@
         "agent-harness-runtime": "workspace:*",
         "agent-scope": "*",
         "agent-spaces": "workspace:*",
+        "spaces-aspc-protocol": "workspace:*",
         "spaces-config": "*",
         "spaces-execution": "*",
         "spaces-harness-broker-protocol": "workspace:*",

@@ -21,6 +21,7 @@ function createMockAdapter(
   return {
     id,
     name,
+    models: [],
     detect: async () => detection,
     validateSpace: () => ({ valid: true, errors: [], warnings: [] }),
     materializeSpace: async () => ({ artifactPath: '/test', files: [], warnings: [] }),
@@ -70,13 +71,13 @@ describe('HarnessRegistry', () => {
 
     test('allows registering multiple different adapters', () => {
       const claudeAdapter = createMockAdapter('claude', 'Claude Code', { available: true })
-      const piAdapter = createMockAdapter('pi', 'Pi Agent', { available: true })
+      const codexAdapter = createMockAdapter('codex', 'Codex', { available: true })
 
       registry.register(claudeAdapter)
-      registry.register(piAdapter)
+      registry.register(codexAdapter)
 
       expect(registry.has('claude')).toBe(true)
-      expect(registry.has('pi')).toBe(true)
+      expect(registry.has('codex')).toBe(true)
       expect(registry.getAll()).toHaveLength(2)
     })
   })
@@ -106,8 +107,8 @@ describe('HarnessRegistry', () => {
       expect(() => registry.getOrThrow('claude')).toThrow('Harness adapter not found: claude')
     })
 
-    test('throws for pi when not registered', () => {
-      expect(() => registry.getOrThrow('pi')).toThrow('Harness adapter not found: pi')
+    test('throws for codex when not registered', () => {
+      expect(() => registry.getOrThrow('codex')).toThrow('Harness adapter not found: codex')
     })
   })
 
@@ -121,7 +122,7 @@ describe('HarnessRegistry', () => {
 
     test('returns false for unregistered adapter', () => {
       expect(registry.has('claude')).toBe(false)
-      expect(registry.has('pi')).toBe(false)
+      expect(registry.has('codex')).toBe(false)
     })
   })
 
@@ -132,15 +133,15 @@ describe('HarnessRegistry', () => {
 
     test('returns all registered adapters', () => {
       const claudeAdapter = createMockAdapter('claude', 'Claude Code', { available: true })
-      const piAdapter = createMockAdapter('pi', 'Pi Agent', { available: true })
+      const codexAdapter = createMockAdapter('codex', 'Codex', { available: true })
 
       registry.register(claudeAdapter)
-      registry.register(piAdapter)
+      registry.register(codexAdapter)
 
       const all = registry.getAll()
       expect(all).toHaveLength(2)
       expect(all).toContain(claudeAdapter)
-      expect(all).toContain(piAdapter)
+      expect(all).toContain(codexAdapter)
     })
   })
 
@@ -151,15 +152,15 @@ describe('HarnessRegistry', () => {
 
     test('returns all registered harness IDs', () => {
       const claudeAdapter = createMockAdapter('claude', 'Claude Code', { available: true })
-      const piAdapter = createMockAdapter('pi', 'Pi Agent', { available: true })
+      const codexAdapter = createMockAdapter('codex', 'Codex', { available: true })
 
       registry.register(claudeAdapter)
-      registry.register(piAdapter)
+      registry.register(codexAdapter)
 
       const ids = registry.getIds()
       expect(ids).toHaveLength(2)
       expect(ids).toContain('claude')
-      expect(ids).toContain('pi')
+      expect(ids).toContain('codex')
     })
   })
 
@@ -170,21 +171,21 @@ describe('HarnessRegistry', () => {
         version: '1.0.0',
         path: '/usr/local/bin/claude',
       })
-      const piAdapter = createMockAdapter('pi', 'Pi Agent', {
+      const codexAdapter = createMockAdapter('codex', 'Codex', {
         available: false,
-        error: 'Pi not found',
+        error: 'Codex not found',
       })
 
       registry.register(claudeAdapter)
-      registry.register(piAdapter)
+      registry.register(codexAdapter)
 
       const results = await registry.detectAvailable()
 
       expect(results.size).toBe(2)
       expect(results.get('claude')?.available).toBe(true)
       expect(results.get('claude')?.version).toBe('1.0.0')
-      expect(results.get('pi')?.available).toBe(false)
-      expect(results.get('pi')?.error).toBe('Pi not found')
+      expect(results.get('codex')?.available).toBe(false)
+      expect(results.get('codex')?.error).toBe('Codex not found')
     })
 
     test('returns empty map when no adapters registered', async () => {
@@ -196,6 +197,7 @@ describe('HarnessRegistry', () => {
       const errorAdapter: HarnessAdapter = {
         id: 'claude',
         name: 'Claude Code',
+        models: [],
         detect: async () => {
           throw new Error('Detection failed')
         },
@@ -231,6 +233,7 @@ describe('HarnessRegistry', () => {
       const errorAdapter: HarnessAdapter = {
         id: 'claude',
         name: 'Claude Code',
+        models: [],
         detect: async () => {
           throw thrown
         },
@@ -285,6 +288,7 @@ describe('HarnessRegistry', () => {
       const errorAdapter: HarnessAdapter = {
         id: 'claude',
         name: 'Claude Code',
+        models: [],
         detect: async () => {
           throw new Error('Detection failed')
         },
@@ -335,6 +339,7 @@ describe('HarnessRegistry', () => {
       const errorAdapter: HarnessAdapter = {
         id: 'claude',
         name: 'Claude Code',
+        models: [],
         detect: async () => {
           throw 'string error'
         },
@@ -369,6 +374,7 @@ describe('HarnessRegistry', () => {
       const slowClaudeAdapter: HarnessAdapter = {
         id: 'claude',
         name: 'Claude Code',
+        models: [],
         detect: async () => {
           await new Promise((resolve) => setTimeout(resolve, 50))
           detectionOrder.push('claude')
@@ -391,44 +397,49 @@ describe('HarnessRegistry', () => {
         getDefaultRunOptions: (_manifest: ProjectManifest, _targetName: string) => ({}),
       }
 
-      const fastPiAdapter: HarnessAdapter = {
-        id: 'pi',
-        name: 'Pi Agent',
+      const fastCodexAdapter: HarnessAdapter = {
+        id: 'codex',
+        name: 'Codex',
+        models: [],
         detect: async () => {
           await new Promise((resolve) => setTimeout(resolve, 10))
-          detectionOrder.push('pi')
+          detectionOrder.push('codex')
           return { available: true }
         },
         validateSpace: () => ({ valid: true, errors: [], warnings: [] }),
         materializeSpace: async () => ({ artifactPath: '/test', files: [], warnings: [] }),
         composeTarget: async () => ({
-          bundle: { harnessId: 'pi', targetName: 'test', rootDir: '/test' },
+          bundle: { harnessId: 'codex', targetName: 'test', rootDir: '/test' },
           warnings: [],
         }),
         buildRunArgs: () => [],
-        getTargetOutputPath: (dir, target) => `${dir}/${target}/pi`,
-        loadTargetBundle: async () => ({ harnessId: 'pi', targetName: 'test', rootDir: '/test' }),
+        getTargetOutputPath: (dir, target) => `${dir}/${target}/codex`,
+        loadTargetBundle: async () => ({
+          harnessId: 'codex',
+          targetName: 'test',
+          rootDir: '/test',
+        }),
         getRunEnv: () => ({}),
         getDefaultRunOptions: (_manifest: ProjectManifest, _targetName: string) => ({}),
       }
 
       registry.register(slowClaudeAdapter)
-      registry.register(fastPiAdapter)
+      registry.register(fastCodexAdapter)
 
       await registry.detectAvailable()
 
-      // Pi should finish first because it's faster
-      expect(detectionOrder).toEqual(['pi', 'claude'])
+      // Codex should finish first because it's faster
+      expect(detectionOrder).toEqual(['codex', 'claude'])
     })
   })
 
   describe('getAvailable', () => {
     test('returns only available adapters', async () => {
       const claudeAdapter = createMockAdapter('claude', 'Claude Code', { available: true })
-      const piAdapter = createMockAdapter('pi', 'Pi Agent', { available: false })
+      const codexAdapter = createMockAdapter('codex', 'Codex', { available: false })
 
       registry.register(claudeAdapter)
-      registry.register(piAdapter)
+      registry.register(codexAdapter)
 
       const available = await registry.getAvailable()
 
@@ -452,10 +463,10 @@ describe('HarnessRegistry', () => {
 
     test('returns all adapters when all are available', async () => {
       const claudeAdapter = createMockAdapter('claude', 'Claude Code', { available: true })
-      const piAdapter = createMockAdapter('pi', 'Pi Agent', { available: true })
+      const codexAdapter = createMockAdapter('codex', 'Codex', { available: true })
 
       registry.register(claudeAdapter)
-      registry.register(piAdapter)
+      registry.register(codexAdapter)
 
       const available = await registry.getAvailable()
 
@@ -466,10 +477,10 @@ describe('HarnessRegistry', () => {
   describe('clear', () => {
     test('removes all registered adapters', () => {
       const claudeAdapter = createMockAdapter('claude', 'Claude Code', { available: true })
-      const piAdapter = createMockAdapter('pi', 'Pi Agent', { available: true })
+      const codexAdapter = createMockAdapter('codex', 'Codex', { available: true })
 
       registry.register(claudeAdapter)
-      registry.register(piAdapter)
+      registry.register(codexAdapter)
 
       expect(registry.getAll()).toHaveLength(2)
 
@@ -477,7 +488,7 @@ describe('HarnessRegistry', () => {
 
       expect(registry.getAll()).toHaveLength(0)
       expect(registry.has('claude')).toBe(false)
-      expect(registry.has('pi')).toBe(false)
+      expect(registry.has('codex')).toBe(false)
     })
 
     test('allows re-registration after clear', () => {

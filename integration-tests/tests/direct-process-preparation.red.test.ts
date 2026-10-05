@@ -20,11 +20,11 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createAgentSpacesClient } from 'agent-spaces'
+import type { BuildProcessInvocationSpecRequest } from 'agent-spaces'
+import { validateAspcCommand } from 'spaces-aspc-protocol'
 import type { RuntimePlacement } from 'spaces-config'
-import { validateAspcCommand } from '../../../../contracts/aspc-protocol/src/schemas.js'
-import { compilerRuntime } from '../../../../integration-tests/tests/compiler-runtime.js'
-import { createAgentSpacesClient } from '../index.js'
-import type { BuildProcessInvocationSpecRequest } from '../types.js'
+import { compilerRuntime } from './compiler-runtime.js'
 
 type UnknownRecord = Record<string, unknown>
 type PrepareProcessInvocation = (request: UnknownRecord) => Promise<UnknownRecord>

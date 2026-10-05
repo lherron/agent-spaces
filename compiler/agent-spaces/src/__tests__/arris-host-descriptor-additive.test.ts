@@ -183,7 +183,7 @@ describe('the published descriptor validator is additive under arris.host-descri
 
   test('the top-level identity block alone no longer refuses the host', async () => {
     const base = await fixture()
-    const descriptor = {
+    const descriptor: Record<string, unknown> = {
       ...base,
       control: without(controlOf(base), 'approval_responder', 'pending_approvals', 'mail_reply'),
     }

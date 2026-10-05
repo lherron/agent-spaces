@@ -4,8 +4,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
   AgentInspectionEvaluationContext,
+  AgentInspectionIdentity,
   AgentInspectionRequest,
   AgentInspectionResult,
+  CompileId,
+  RuntimeCompileRequest,
   RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
 import { validateAgentInspectionResult } from 'spaces-runtime-contracts'
@@ -379,7 +382,7 @@ function evaluationContext(agentId = 'valid-agent'): AgentInspectionEvaluationCo
   }
 }
 
-function identity(agentId: string) {
+function identity(agentId: string): AgentInspectionIdentity {
   return {
     agentId,
     agentName: agentId === 'valid-agent' ? 'Valid Agent' : 'Broken Agent',
@@ -400,7 +403,7 @@ function successfulCompileResponse(): RuntimeCompileResponse {
     plan: {
       schemaVersion: 'agent-runtime-plan/v2',
       compiler: { name: 'agent-spaces', version: 'test' },
-      compileId: 'compile_t06330',
+      compileId: 'compile_t06330' as CompileId,
       planHash: 'plan_t06330',
       createdAt: '2026-07-18T12:34:56.000Z',
       agent: { id: 'valid-agent' },
