@@ -32,7 +32,7 @@ describe('desktop project resolution', () => {
       ],
     })
     expect(result).toMatchObject({ bound: { projectId: 'hrc-ios' } })
-    if (result.bound !== undefined) {
+    if ('bound' in result) {
       const { realpathSync } = await import('node:fs')
       expect(result.bound.projectRoot).toBe(realpathSync(inner))
     }

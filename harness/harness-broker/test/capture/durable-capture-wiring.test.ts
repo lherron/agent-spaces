@@ -3,9 +3,10 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { HarnessInvocationSpec, InvocationId } from 'spaces-harness-broker-protocol'
+import type { HarnessInvocationSpec } from 'spaces-harness-broker-protocol'
 import { createDefaultBroker } from '../../src/default-broker'
 import { createEventLedger } from '../../src/event-ledger'
+import { inputIdFrom, invocationIdFrom } from '../ids'
 
 /**
  * T-07868 — capture durability must survive the DEFAULT broker factory.
@@ -32,7 +33,7 @@ afterAll(() => {
 
 const spec = (invocationId: string): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId,
+  invocationId: invocationIdFrom(invocationId),
   harness: { frontend: 'codex', provider: 'openai', driver: 'codex-app-server' },
   process: {
     command: process.execPath,
@@ -54,7 +55,7 @@ describe('durable capture wiring through createDefaultBroker', () => {
   test('a ledger-backed default broker writes the raw journal and the disposition index to disk', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'default-broker-capture-'))
     scratch.push(dir)
-    const invocationId = 'inv_default_broker_capture' as InvocationId
+    const invocationId = invocationIdFrom('inv_default_broker_capture')
 
     let resolveTerminal!: () => void
     const terminal = new Promise<void>((resolve) => {
@@ -73,7 +74,11 @@ describe('durable capture wiring through createDefaultBroker', () => {
     await broker.start({ spec: spec(invocationId) })
     await broker.input({
       invocationId,
-      input: { inputId: 'input_1', kind: 'user', content: [{ type: 'text', text: 'go' }] },
+      input: {
+        inputId: inputIdFrom('input_1'),
+        kind: 'user',
+        content: [{ type: 'text', text: 'go' }],
+      },
       policy: { whenBusy: 'reject' },
     })
     // turn/start acknowledgement now deliberately returns before trailing

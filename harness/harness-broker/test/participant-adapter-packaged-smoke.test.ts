@@ -205,7 +205,7 @@ async function installCompiledPackage(
   const target = join(installRoot, 'node_modules', name)
   await mkdir(target, { recursive: true })
   const manifest = JSON.parse(await readFile(join(sourceDir, 'package.json'), 'utf8')) as {
-    exports?: Record<string, Record<string, string>>
+    exports?: Record<string, Record<string, string | undefined>>
   }
   for (const entry of Object.values(manifest.exports ?? {})) entry['bun'] = undefined
   await writeFile(join(target, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`)
@@ -263,8 +263,8 @@ describe('T-08350 packaged participant adapter roundtrip', () => {
       runtimeId: 'runtime_t08350_packaged',
       hostSessionId: 'host_session_t08350_packaged',
     })
-    expect(result.correlation.startRequestHash).toMatch(/^[a-f0-9]{64}$/)
-    expect(result.correlation.selectedProfileHash).toMatch(/^[a-f0-9]{64}$/)
+    expect(result.correlation['startRequestHash']).toMatch(/^[a-f0-9]{64}$/)
+    expect(result.correlation['selectedProfileHash']).toMatch(/^[a-f0-9]{64}$/)
     expect(result.installed).toMatchObject({ installed: true })
     expect(result.ensured.receipt).toMatchObject({ state: 'started' })
     expect(result.attached).toMatchObject({ attached: true })

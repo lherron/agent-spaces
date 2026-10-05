@@ -2,8 +2,9 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { type Socket, connect } from 'node:net'
 import { join } from 'node:path'
-import type { HarnessInvocationSpec } from 'spaces-harness-broker-protocol'
+import type { HarnessInvocationSpec, InvocationId } from 'spaces-harness-broker-protocol'
 import { brokerProcessEnv } from './helpers'
+import { invocationIdFrom } from './ids'
 
 /**
  * T-08346 acceptance RED (DESIGN rev6 C.5.1).
@@ -61,7 +62,7 @@ interface RuntimeIdentity {
   hostSessionId: string
   generation: number
   attachEpoch: number
-  invocationId: string
+  invocationId: InvocationId
   startRequestHash: string
   selectedProfileHash: string
   attachToken: string
@@ -73,7 +74,7 @@ interface BrokerProcess {
   ledgerPath: string
   tokenPath: string
   effectsPath: string
-  process: ReturnType<typeof Bun.spawn>
+  process: Bun.Subprocess<'ignore', 'pipe', 'pipe'>
   hosted: boolean
   delayMs: number
 }
@@ -91,7 +92,7 @@ const identity = (suffix: string, attachEpoch = 1): RuntimeIdentity => ({
   hostSessionId: `host_session_t08346_${suffix}`,
   generation: 7,
   attachEpoch,
-  invocationId: `inv_t08346_${suffix}`,
+  invocationId: invocationIdFrom(`inv_t08346_${suffix}`),
   startRequestHash: `start_hash_t08346_${suffix}`,
   selectedProfileHash: `profile_hash_t08346_${suffix}`,
   attachToken: `attach_token_t08346_${suffix}`,
@@ -582,7 +583,7 @@ describe('T-08346 participant bootstrap and resident invocation acceptance', () 
     await stopAndDispose(rpc, who.invocationId)
     const stranger = {
       ...who,
-      invocationId: 'inv_t08346_conflict_stranger',
+      invocationId: invocationIdFrom('inv_t08346_conflict_stranger'),
       startRequestHash: 'start_hash_t08346_conflict_stranger',
       selectedProfileHash: 'profile_hash_t08346_conflict_stranger',
     }

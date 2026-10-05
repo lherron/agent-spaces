@@ -8,13 +8,14 @@ import type {
 import { createBroker } from '../src/broker'
 import type { DriverContext } from '../src/drivers/driver'
 import { createTestDriver } from '../src/testing/test-driver'
+import { inputIdFrom, invocationIdFrom } from './ids'
 
 const now = () => new Date('2026-07-24T19:30:00.000Z')
 const flushMicrotasks = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 const testSpec = (invocationId: string): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId,
+  invocationId: invocationIdFrom(invocationId),
   harness: { frontend: 'test', provider: 'test', driver: 'test-driver' },
   process: {
     command: 'test-driver',
@@ -27,7 +28,7 @@ const testSpec = (invocationId: string): HarnessInvocationSpec => ({
 })
 
 const userInput = (inputId: string, text: string): InvocationInput => ({
-  inputId,
+  inputId: inputIdFrom(inputId),
   kind: 'user',
   content: [{ type: 'text', text }],
 })
@@ -52,7 +53,7 @@ describe('broker-central turn-terminal idempotency', () => {
       return originalStart(spec, context)
     }
 
-    const invocationId = 'inv_terminal_error_completion_queue'
+    const invocationId = invocationIdFrom('inv_terminal_error_completion_queue')
     const broker = createBroker({
       drivers: [driver],
       onEvent: (event) => events.push(event),
@@ -85,7 +86,7 @@ describe('broker-central turn-terminal idempotency', () => {
         status: 'completed',
         finalOutput: 'late completion after recovery',
       },
-      { turnId: failedTurnId, inputId: 'input_active' }
+      { turnId: failedTurnId, inputId: inputIdFrom('input_active') }
     )
 
     // The sender's retry uses the same inputId. Existing input idempotency must
@@ -94,7 +95,7 @@ describe('broker-central turn-terminal idempotency', () => {
     await flushMicrotasks()
 
     expect(turnTerminals(events, failedTurnId).map((event) => event.type)).toEqual(['turn.failed'])
-    expect(controller.inputs.map((input) => input.inputId)).toEqual([
+    expect<(string | undefined)[]>(controller.inputs.map((input) => input.inputId)).toEqual([
       'input_active',
       'input_queued_once',
     ])
@@ -104,7 +105,7 @@ describe('broker-central turn-terminal idempotency', () => {
     const firstQueuedTurnId = controller.activeTurnId!
     controller.completeActiveTurn('first queued input completed')
     await flushMicrotasks()
-    expect(controller.inputs.map((input) => input.inputId)).toEqual([
+    expect<(string | undefined)[]>(controller.inputs.map((input) => input.inputId)).toEqual([
       'input_active',
       'input_queued_once',
       'input_queued_second',
@@ -128,7 +129,7 @@ describe('broker-central turn-terminal idempotency', () => {
       accepted: true,
       disposition: 'started',
     })
-    expect(controller.inputs.map((input) => input.inputId)).toEqual([
+    expect<(string | undefined)[]>(controller.inputs.map((input) => input.inputId)).toEqual([
       'input_active',
       'input_queued_once',
       'input_queued_second',

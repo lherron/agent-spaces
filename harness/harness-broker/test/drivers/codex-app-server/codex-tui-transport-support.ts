@@ -16,6 +16,7 @@ import type {
   RpcHandlers,
 } from '../../../src/drivers/codex-app-server/rpc-client'
 import type { TmuxExec } from '../../../src/runtime/tmux'
+import { invocationIdFrom } from '../../ids'
 
 export const websocketServers = new Set<ChildProcess>()
 
@@ -46,7 +47,7 @@ export const spec = (
   overrides: Partial<Extract<HarnessInvocationSpec['driver'], { kind: 'codex-app-server' }>> = {}
 ): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId,
+  invocationId: invocationIdFrom(invocationId),
   harness: {
     frontend: 'codex-cli',
     provider: 'openai',

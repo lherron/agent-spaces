@@ -8,6 +8,7 @@ import type {
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../src/broker'
 import { createTestDriver } from '../src/testing/test-driver'
+import { inputIdFrom, invocationIdFrom } from './ids'
 
 const now = () => new Date('2026-05-21T19:30:00.000Z')
 
@@ -23,7 +24,7 @@ const testSpec = (
   }
 ): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId: 'inv_input_queue',
+  invocationId: invocationIdFrom('inv_input_queue'),
   harness: {
     frontend: 'test',
     provider: 'test',
@@ -43,16 +44,20 @@ const testSpec = (
 })
 
 const userInput = (inputId: string | undefined, text: string): InvocationInput => ({
-  ...(inputId === undefined ? {} : { inputId }),
+  ...(inputId === undefined ? {} : { inputId: inputIdFrom(inputId) }),
   kind: 'user',
   content: [{ type: 'text', text }],
 })
 
 const nonUserInput = (kind: 'steer' | 'append_context', inputId: string): InvocationInput => ({
-  inputId,
+  inputId: inputIdFrom(inputId),
   kind,
   content: [{ type: 'text', text: kind }],
 })
+
+/** Widens branded input ids so assertions can compare against plain literals. */
+const inputIds = (inputs: readonly InvocationInput[]): (string | undefined)[] =>
+  inputs.map((input) => input.inputId)
 
 const eventPayload = <T extends Record<string, unknown>>(event: InvocationEventEnvelope): T =>
   event.payload as T
@@ -116,7 +121,7 @@ const setup = async (
   }
   const broker = createBroker(brokerOptions)
   const spec = testSpec(
-    { invocationId: options.invocationId ?? 'inv_input_queue' },
+    { invocationId: invocationIdFrom(options.invocationId ?? 'inv_input_queue') },
     {
       mode: options.interactionMode ?? 'headless',
       turnConcurrency: 'single',
@@ -209,7 +214,9 @@ describe('broker-owned FIFO input queue', () => {
 
     await expect(
       broker.start({
-        spec: testSpec({ invocationId: 'inv_structured_response_unsupported_initial' }),
+        spec: testSpec({
+          invocationId: invocationIdFrom('inv_structured_response_unsupported_initial'),
+        }),
         initialInput: {
           ...userInput('input_initial_schema_unsupported', 'return json'),
           responseFormat: structuredResponse({
@@ -278,7 +285,7 @@ describe('broker-owned FIFO input queue', () => {
 
     expect(replay).toEqual(first)
     expect(omitted).toEqual(text)
-    expect(controller.inputs.map((input) => input.inputId)).toEqual(['input_schema_replay'])
+    expect(inputIds(controller.inputs)).toEqual(['input_schema_replay'])
 
     await expect(
       broker.input({
@@ -334,7 +341,7 @@ describe('broker-owned FIFO input queue', () => {
       inputId: 'input_queued',
       payload: { inputId: 'input_queued' },
     })
-    expect(controller.inputs.map((input) => input.inputId)).toEqual(['input_active'])
+    expect(inputIds(controller.inputs)).toEqual(['input_active'])
   })
 
   test('interactive driver with steer support attempts steer immediately instead of broker-queueing', async () => {
@@ -357,10 +364,8 @@ describe('broker-owned FIFO input queue', () => {
       disposition: 'attempted_steer',
     })
     expect(response.turnId).toBeUndefined()
-    expect(controller.inputs.map((input) => input.inputId)).toEqual(['input_active'])
-    expect(controller.steeredInputs.map((input) => input.inputId)).toEqual([
-      'input_attempted_steer',
-    ])
+    expect(inputIds(controller.inputs)).toEqual(['input_active'])
+    expect(inputIds(controller.steeredInputs)).toEqual(['input_attempted_steer'])
     expect(inputEvents(events, 'input.queued')).toHaveLength(0)
     expect(inputEvents(events, 'input.accepted').at(-1)).toMatchObject({
       inputId: 'input_attempted_steer',
@@ -385,9 +390,7 @@ describe('broker-owned FIFO input queue', () => {
     const replayed = await broker.input(request)
 
     expect(first).toEqual(replayed)
-    expect(controller.steeredInputs.map((input) => input.inputId)).toEqual([
-      'input_attempted_steer_replay',
-    ])
+    expect(inputIds(controller.steeredInputs)).toEqual(['input_attempted_steer_replay'])
   })
 
   test('turn.completed drains the next queued input on a microtask', async () => {
@@ -404,10 +407,7 @@ describe('broker-owned FIFO input queue', () => {
     controller.completeActiveTurn()
     await flushMicrotasks()
 
-    expect(controller.inputs.map((input) => input.inputId)).toEqual([
-      'input_active',
-      'input_after_completed',
-    ])
+    expect(inputIds(controller.inputs)).toEqual(['input_active', 'input_after_completed'])
     expect(inputEvents(events, 'turn.started').at(-1)).toMatchObject({
       inputId: 'input_after_completed',
     })
@@ -427,10 +427,7 @@ describe('broker-owned FIFO input queue', () => {
     controller.failActiveTurn()
     await flushMicrotasks()
 
-    expect(controller.inputs.map((input) => input.inputId)).toEqual([
-      'input_active',
-      'input_after_failed',
-    ])
+    expect(inputIds(controller.inputs)).toEqual(['input_active', 'input_after_failed'])
     expect(inputEvents(events, 'turn.started').at(-1)).toMatchObject({
       inputId: 'input_after_failed',
     })
@@ -450,10 +447,7 @@ describe('broker-owned FIFO input queue', () => {
     controller.interruptActiveTurn()
     await flushMicrotasks()
 
-    expect(controller.inputs.map((input) => input.inputId)).toEqual([
-      'input_active',
-      'input_after_interrupted',
-    ])
+    expect(inputIds(controller.inputs)).toEqual(['input_active', 'input_after_interrupted'])
     expect(inputEvents(events, 'turn.started').at(-1)).toMatchObject({
       inputId: 'input_after_interrupted',
     })
@@ -476,7 +470,7 @@ describe('broker-owned FIFO input queue', () => {
       await flushMicrotasks()
     }
 
-    expect(controller.inputs.map((input) => input.inputId)).toEqual(['input_active', 'a', 'b', 'c'])
+    expect(inputIds(controller.inputs)).toEqual(['input_active', 'a', 'b', 'c'])
   })
 
   test('inputQueue none with queue policy rejects with a stable structured reason', async () => {
@@ -568,10 +562,12 @@ describe('broker-owned FIFO input queue', () => {
     await broker.stop({ invocationId, reason: 'test stop' })
     await flushMicrotasks()
 
-    const rejectedIds = inputEvents(events, 'input.rejected').map((event) => ({
-      inputId: event.inputId,
-      reason: eventPayload<{ reason: string }>(event).reason,
-    }))
+    const rejectedIds = inputEvents(events, 'input.rejected').map(
+      (event): { inputId: string | undefined; reason: string } => ({
+        inputId: event.inputId,
+        reason: eventPayload<{ reason: string }>(event).reason,
+      })
+    )
     expect(rejectedIds).toEqual([
       {
         inputId: 'queued_stop_1',
@@ -582,7 +578,7 @@ describe('broker-owned FIFO input queue', () => {
         reason: expect.stringMatching(/^invocation_(terminated|stopping)$/),
       },
     ])
-    expect(controller.inputs.map((input) => input.inputId)).toEqual(['input_active'])
+    expect(inputIds(controller.inputs)).toEqual(['input_active'])
   })
 
   test.each(['steer', 'append_context'] as const)(
@@ -713,10 +709,7 @@ describe('broker-owned FIFO input queue', () => {
     expect(inputEvents(events, 'input.rejected').at(-1)).toMatchObject({
       inputId: 'queued_fails',
     })
-    expect(controller.inputs.map((input) => input.inputId)).toEqual([
-      'input_active',
-      'queued_after_failure',
-    ])
+    expect(inputIds(controller.inputs)).toEqual(['input_active', 'queued_after_failure'])
     expect(inputEvents(events, 'turn.started').at(-1)).toMatchObject({
       inputId: 'queued_after_failure',
     })

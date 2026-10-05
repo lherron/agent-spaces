@@ -5,6 +5,10 @@ import type {
   JsonRpcResponse,
 } from 'spaces-harness-broker-protocol'
 import { CONSERVATIVE_LIFECYCLE_CAPABILITIES } from 'spaces-harness-broker-protocol'
+import type { Driver } from '../src/drivers/driver'
+import { BROKER_ONLY_AUTHORITY } from '../src/drivers/evidence-authority'
+
+import { invocationIdFrom } from './ids'
 
 const INHERITED_BROKER_ENV_PREFIXES = ['HARNESS_BROKER_']
 
@@ -76,11 +80,33 @@ export const noopCapabilities: InvocationCapabilities = {
   lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 }
 
+/**
+ * The static evidence declarations every `Driver` must carry, matching the
+ * noop driver: broker-owned evidence, delivery-acknowledged brackets, and no
+ * preempt/steer/interrupt landing evidence. Spread into hand-rolled test
+ * drivers so they declare the same facts a real driver would.
+ */
+export const stubDriverDeclarations: Pick<
+  Driver,
+  | 'bracketMintingMode'
+  | 'evidenceAuthority'
+  | 'nativeSourceKind'
+  | 'preemptMode'
+  | 'steerLandingEvidence'
+  | 'interruptLandingEvidence'
+> = {
+  bracketMintingMode: 'delivery-acknowledged',
+  evidenceAuthority: BROKER_ONLY_AUTHORITY,
+  nativeSourceKind: 'provider-jsonl',
+  preemptMode: null,
+  steerLandingEvidence: null,
+  interruptLandingEvidence: null,
+}
+
 export const noopSpec = (
-  overrides: Partial<HarnessInvocationSpec> = {}
+  overrides: Omit<Partial<HarnessInvocationSpec>, 'invocationId'> & { invocationId?: string } = {}
 ): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId: 'inv_noop_1',
   labels: { test: 'phase-1' },
   harness: {
     frontend: 'noop',
@@ -102,12 +128,13 @@ export const noopSpec = (
     kind: 'noop-driver',
   },
   ...overrides,
+  invocationId: invocationIdFrom(overrides.invocationId ?? 'inv_noop_1'),
 })
 
 /** An interactive invocation of the in-process test driver (src/testing/test-driver). */
 export const testDriverSpec = (invocationId: string): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId,
+  invocationId: invocationIdFrom(invocationId),
   harness: { frontend: 'test', provider: 'test', driver: 'test-driver' },
   process: {
     command: 'test-driver',
@@ -132,21 +159,27 @@ export const parseFrames = (output: string): JsonRpcMessage[] =>
     .map((line) => JSON.parse(line) as JsonRpcMessage)
 
 export const expectResult = <TResult>(
-  frame: JsonRpcMessage,
+  frame: JsonRpcMessage | undefined,
   id: string | number
 ): JsonRpcResponse<TResult> & { result: TResult } => {
-  if (!('id' in frame) || frame.id !== id || !('result' in frame)) {
+  if (frame === undefined || !('id' in frame) || frame.id !== id || !('result' in frame)) {
     throw new Error(`expected result response ${String(id)}, got ${JSON.stringify(frame)}`)
   }
   return frame as JsonRpcResponse<TResult> & { result: TResult }
 }
 
 export const expectError = (
-  frame: JsonRpcMessage,
+  frame: JsonRpcMessage | undefined,
   id: string | number | null,
   code: number
 ): JsonRpcResponse & { error: { code: number; message: string; data?: unknown } } => {
-  if (!('id' in frame) || frame.id !== id || !('error' in frame) || frame.error.code !== code) {
+  if (
+    frame === undefined ||
+    !('id' in frame) ||
+    frame.id !== id ||
+    !('error' in frame) ||
+    frame.error.code !== code
+  ) {
     throw new Error(
       `expected error response ${String(id)} code ${code}, got ${JSON.stringify(frame)}`
     )

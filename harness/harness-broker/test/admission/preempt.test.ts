@@ -204,7 +204,7 @@ describe('broker admission API: preempt delivery and native wakeup degradation',
     expect(eventsFor(events, 'interrupt.landed')).toHaveLength(3)
     expect(eventsFor(events, 'turn.interrupted')).toHaveLength(3)
     expect(eventsFor(events, 'turn.completed')).toHaveLength(1)
-    expect(controller.activeInput?.inputId).toBe(preempt.submissionId)
+    expect<string | undefined>(controller.activeInput?.inputId).toBe(preempt.submissionId)
   })
 
   test('quiescence injects preempt immediately when queue ops dequeue a dropped prompt', async () => {
@@ -225,7 +225,7 @@ describe('broker admission API: preempt delivery and native wakeup degradation',
 
     controller.setHarnessLocalQueueDepth(0)
     await flush()
-    expect(controller.activeInput?.inputId).toBe(preempt.submissionId)
+    expect<string | undefined>(controller.activeInput?.inputId).toBe(preempt.submissionId)
     expect(eventsFor(events, 'submission.executed').at(-1)?.payload).toMatchObject({
       submissionId: preempt.submissionId,
     })

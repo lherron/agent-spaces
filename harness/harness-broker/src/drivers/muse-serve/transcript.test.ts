@@ -3,15 +3,19 @@
  */
 import { describe, expect, test } from 'bun:test'
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
+import { invocationIdFrom } from '../../../test/ids'
 import { createMuseTranscriptModel } from './transcript'
 
 let seq = 0
+// The muse transcript model reads payloads loosely, and these fixtures keep
+// the partial shapes it tolerates (untyped content blocks, bare ids), so the
+// builder takes a free-form type/payload pair and narrows once here.
 const envelope = (type: string, payload: Record<string, unknown>): InvocationEventEnvelope => {
   seq += 1
   return {
     seq,
-    invocationId: 'inv_muse_r',
-    time: 1789672000000,
+    invocationId: invocationIdFrom('inv_muse_r'),
+    time: '2026-09-17T12:26:40.000Z',
     type,
     payload,
   } as InvocationEventEnvelope

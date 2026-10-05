@@ -23,13 +23,13 @@ async function startHintDecisionServer(options: {
   status?: number | undefined
 }): Promise<{
   socketPath: string
-  requests: Array<{ url?: string; body: string }>
+  requests: Array<{ url?: string | undefined; body: string }>
   close: () => Promise<void>
 }> {
   const root = await mkdtemp(join(tmpdir(), 'mail-hint-decision-'))
   tempRoots.push(root)
   const socketPath = join(root, 'hrc.sock')
-  const requests: Array<{ url?: string; body: string }> = []
+  const requests: Array<{ url?: string | undefined; body: string }> = []
   const server = createHttpServer((request, reply) => {
     const chunks: Buffer[] = []
     request.on('data', (chunk: Buffer) => chunks.push(chunk))

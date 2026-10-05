@@ -9,13 +9,14 @@ import { createBroker } from '../src/broker'
 import type { Driver } from '../src/drivers/driver'
 import { createNoopDriver } from '../src/drivers/noop-driver'
 import { createTestDriver } from '../src/testing/test-driver'
-import { noopCapabilities, noopSpec } from './helpers'
+import { noopCapabilities, noopSpec, stubDriverDeclarations } from './helpers'
+import { inputIdFrom, invocationIdFrom } from './ids'
 
 const now = () => new Date('2026-05-20T18:00:00.000Z')
 
 const testDriverSpec = (invocationId: string): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId,
+  invocationId: invocationIdFrom(invocationId),
   harness: { frontend: 'test', provider: 'test', driver: 'test-driver' },
   process: {
     command: 'test-driver',
@@ -28,7 +29,7 @@ const testDriverSpec = (invocationId: string): HarnessInvocationSpec => ({
 })
 
 const userInput = (inputId: string) => ({
-  inputId,
+  inputId: inputIdFrom(inputId),
   kind: 'user' as const,
   content: [{ type: 'text' as const, text: 'go' }],
 })
@@ -108,7 +109,9 @@ describe('broker lifecycle', () => {
   test('invocation.status on an unknown id fails with UnknownInvocation', async () => {
     const broker = createTestBroker()
 
-    await expect(broker.status({ invocationId: 'missing' })).rejects.toMatchObject({
+    await expect(
+      broker.status({ invocationId: invocationIdFrom('missing') })
+    ).rejects.toMatchObject({
       code: BrokerErrorCode.UnknownInvocation,
     })
   })
@@ -135,6 +138,7 @@ describe('broker lifecycle', () => {
     const driver: Driver = {
       kind: 'noop-driver',
       version: 'test',
+      ...stubDriverDeclarations,
       capabilities: () => noopCapabilities,
       start: async () => {
         startCalls += 1
@@ -162,12 +166,16 @@ describe('broker lifecycle', () => {
   test('invocation.dispose succeeds after terminal state', async () => {
     const broker = createTestBroker()
     await broker.start({ spec: noopSpec({ invocationId: 'inv_dispose' }) })
-    await broker.stop({ invocationId: 'inv_dispose', reason: 'test complete' })
+    await broker.stop({ invocationId: invocationIdFrom('inv_dispose'), reason: 'test complete' })
 
-    await expect(broker.dispose({ invocationId: 'inv_dispose' })).resolves.toEqual({
+    await expect(
+      broker.dispose({ invocationId: invocationIdFrom('inv_dispose') })
+    ).resolves.toEqual({
       disposed: true,
     })
-    await expect(broker.status({ invocationId: 'inv_dispose' })).resolves.toMatchObject({
+    await expect(
+      broker.status({ invocationId: invocationIdFrom('inv_dispose') })
+    ).resolves.toMatchObject({
       invocationId: 'inv_dispose',
       state: 'disposed',
     })
@@ -182,7 +190,10 @@ describe('broker lifecycle', () => {
     })
 
     await broker.start({ spec: noopSpec({ invocationId: 'inv_terminal' }) })
-    await broker.stop({ invocationId: 'inv_terminal', reason: 'terminal uniqueness' })
+    await broker.stop({
+      invocationId: invocationIdFrom('inv_terminal'),
+      reason: 'terminal uniqueness',
+    })
 
     const terminalEvents = events.filter(
       (event) => event.type === 'invocation.exited' || event.type === 'invocation.failed'
@@ -295,12 +306,16 @@ describe('broker lifecycle', () => {
       now,
     })
     await broker.start({ spec: noopSpec({ invocationId: 'inv_disposed_once' }) })
-    await broker.stop({ invocationId: 'inv_disposed_once' })
+    await broker.stop({ invocationId: invocationIdFrom('inv_disposed_once') })
 
-    await expect(broker.dispose({ invocationId: 'inv_disposed_once' })).resolves.toEqual({
+    await expect(
+      broker.dispose({ invocationId: invocationIdFrom('inv_disposed_once') })
+    ).resolves.toEqual({
       disposed: true,
     })
-    await expect(broker.dispose({ invocationId: 'inv_disposed_once' })).resolves.toEqual({
+    await expect(
+      broker.dispose({ invocationId: invocationIdFrom('inv_disposed_once') })
+    ).resolves.toEqual({
       disposed: true,
     })
 
@@ -313,15 +328,18 @@ describe('broker lifecycle', () => {
     const { driver, controller } = createTestDriver()
     const broker = createBroker({ drivers: [driver], now })
     await broker.start({ spec: testDriverSpec('inv_status_turn') })
-    await broker.input({ invocationId: 'inv_status_turn', input: userInput('in_1') })
+    await broker.input({
+      invocationId: invocationIdFrom('inv_status_turn'),
+      input: userInput('in_1'),
+    })
 
-    const active = await broker.status({ invocationId: 'inv_status_turn' })
+    const active = await broker.status({ invocationId: invocationIdFrom('inv_status_turn') })
     expect(active.state).toBe('turn_active')
     expect(active.currentTurnId).toBe(controller.activeTurnId!)
 
     controller.completeActiveTurn()
 
-    const idle = await broker.status({ invocationId: 'inv_status_turn' })
+    const idle = await broker.status({ invocationId: invocationIdFrom('inv_status_turn') })
     expect(idle.state).toBe('ready')
     expect(idle.currentTurnId).toBeUndefined()
   })
@@ -330,6 +348,7 @@ describe('broker lifecycle', () => {
     const driver: Driver = {
       kind: 'pid-driver',
       version: 'test',
+      ...stubDriverDeclarations,
       capabilities: () => noopCapabilities,
       start: async (_spec, ctx) => {
         ctx.emit('invocation.started', {
@@ -354,7 +373,7 @@ describe('broker lifecycle', () => {
     }
     await broker.start({ spec })
 
-    const status = await broker.status({ invocationId: 'inv_pid' })
+    const status = await broker.status({ invocationId: invocationIdFrom('inv_pid') })
     expect(status.process).toMatchObject({ pid: 4242 })
   })
 
@@ -364,7 +383,7 @@ describe('broker lifecycle', () => {
     const broker = createBroker({ drivers: [driver], onEvent: (event) => events.push(event), now })
 
     await broker.start({ spec: testDriverSpec('inv_summary') })
-    await broker.input({ invocationId: 'inv_summary', input: userInput('in_1') })
+    await broker.input({ invocationId: invocationIdFrom('inv_summary'), input: userInput('in_1') })
     controller.completeActiveTurn()
 
     // /quit → user-exit continuation.cleared → broker pushes the session summary.

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { eventsFor, eventsForSubmission, flush, origin, setup } from './fixture'
+import { eventsFor, eventsForSubmission, flush, origin, setup, submissionIdOf } from './fixture'
 
 describe('broker admission API: broker-held queue and withdrawal', () => {
   test('enqueue holds while busy, supports list/jump/cancel, then drains FIFO as own turns', async () => {
@@ -31,10 +31,10 @@ describe('broker admission API: broker-held queue and withdrawal', () => {
 
     controller.completeActiveTurn()
     await flush()
-    expect(controller.activeInput?.inputId).toBe(one.submissionId)
+    expect<string | undefined>(controller.activeInput?.inputId).toBe(one.submissionId)
     controller.completeActiveTurn()
     await flush()
-    expect(controller.activeInput?.inputId).toBe(three.submissionId)
+    expect<string | undefined>(controller.activeInput?.inputId).toBe(three.submissionId)
     controller.completeActiveTurn()
     await flush()
 
@@ -70,7 +70,7 @@ describe('broker admission API: broker-held queue and withdrawal', () => {
     expect((await broker.queueList({ invocationId })).entries).toEqual([])
     expect(
       events
-        .filter((event) => event.payload.submissionId === queued.submissionId)
+        .filter((event) => submissionIdOf(event) === queued.submissionId)
         .map((event) => event.type)
         .slice(-2)
     ).toEqual(['queue.withdrawn', 'submission.withdrawn'])

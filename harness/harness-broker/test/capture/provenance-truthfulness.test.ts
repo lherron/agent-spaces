@@ -16,7 +16,8 @@ import {
   CODEX_CLI_TMUX_AUTHORITY,
   PI_TUI_TMUX_AUTHORITY,
 } from '../../src/drivers/evidence-authority'
-import { createTestDriver } from '../../src/testing/test-driver'
+import { type TestDriverController, createTestDriver } from '../../src/testing/test-driver'
+import { invocationIdFrom } from '../ids'
 
 /**
  * Provenance truthfulness — a MECHANICAL cross-driver rule (T-07870 §4,
@@ -88,7 +89,7 @@ const PROBE_BY_FAMILY: Partial<
  */
 const spec = (invocationId: string): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId,
+  invocationId: invocationIdFrom(invocationId),
   harness: { frontend: 'test', provider: 'test', driver: 'test-driver' },
   process: {
     command: 'test-driver',
@@ -104,7 +105,11 @@ async function emitProbes(
   kind: string,
   declaration: { authority: EvidenceAuthorityMatrix; native: Driver['nativeSourceKind'] },
   extraEmits?: (
-    emit: (type: InvocationEventType, payload: unknown, extra?: unknown) => void
+    emit: (
+      type: InvocationEventType,
+      payload: unknown,
+      extra?: Parameters<TestDriverController['emitRaw']>[2]
+    ) => void
   ) => void
 ): Promise<InvocationEventEnvelope[]> {
   const events: InvocationEventEnvelope[] = []
@@ -113,7 +118,7 @@ async function emitProbes(
     nativeSourceKind: declaration.native,
   })
   const broker = createBroker({ drivers: [driver], onEvent: (event) => events.push(event) })
-  const invocationId = `inv_provenance_${kind.replace(/-/g, '_')}`
+  const invocationId = invocationIdFrom(`inv_provenance_${kind.replace(/-/g, '_')}`)
   const started = await broker.start({ spec: spec(invocationId) })
   for (const probe of Object.values(PROBE_BY_FAMILY)) {
     if (probe === undefined) continue

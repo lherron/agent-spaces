@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { BROKER_ADMISSION_JSON_SCHEMAS } from '../../src/json-schema'
+import { invocationIdFrom } from '../ids'
 import { eventsFor, eventsForSubmission, flush, origin, setup } from './fixture'
 
 describe('broker admission API: admission classes, invoke policy and authority', () => {
@@ -11,7 +12,7 @@ describe('broker admission API: admission classes, invoke policy and authority',
   for (const admissionClass of ['steer', 'enqueue', 'invoke', 'preempt'] as const) {
     for (const seatState of ['idle', 'busy'] as const) {
       test(`${admissionClass} has the specified immediate admission result while ${seatState}`, async () => {
-        const invocationId = `inv_admission_${admissionClass}_${seatState}`
+        const invocationId = invocationIdFrom(`inv_admission_${admissionClass}_${seatState}`)
         const { broker } = await setup(invocationId)
         if (seatState === 'busy') {
           await broker.invoke({ invocationId, origin, body: 'active' })
@@ -49,7 +50,8 @@ describe('broker admission API: admission classes, invoke policy and authority',
     const executed = eventsFor(events, 'submission.executed')
     expect(executed).toHaveLength(1)
     expect(executed[0]?.provenance).toMatchObject({ sourceKind: 'broker' })
-    const turnId = (executed[0]?.payload as { turnId: string }).turnId
+    const turnId = executed[0]?.payload.turnId
+    if (turnId === undefined) throw new Error('expected an executed submission turn')
     expect(await broker.turnManifest({ invocationId, turnId })).toEqual({
       invocationId,
       turnId,
@@ -95,6 +97,6 @@ describe('broker admission API: admission classes, invoke policy and authority',
     await flush()
     expect(preempt.admission).toBe('admitted')
     expect(eventsFor(atomic.events, 'interrupt.landed')).toHaveLength(1)
-    expect(atomic.controller.activeInput?.inputId).toBe(preempt.submissionId)
+    expect<string | undefined>(atomic.controller.activeInput?.inputId).toBe(preempt.submissionId)
   })
 })

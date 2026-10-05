@@ -3,10 +3,16 @@ import type { EventEmitter } from 'node:events'
 import { readFileSync } from 'node:fs'
 import type {
   HarnessInvocationSpec,
+  InvocationEvent,
   InvocationEventEnvelope,
+  InvocationEventFor,
+  InvocationEventType,
   InvocationInput,
+  InvocationInterruptRequest,
+  InvocationStopRequest,
 } from 'spaces-harness-broker-protocol'
-import type { DriverContext } from '../../../src/drivers/driver'
+import type { Driver, DriverContext } from '../../../src/drivers/driver'
+import { invocationIdFrom } from '../../ids'
 
 export type TmuxExecCall = {
   argv: string[]
@@ -80,16 +86,17 @@ type ClaudeCodeTmuxDriverFactory = (options: {
     | undefined
 }) => {
   kind: string
+  capabilities: Driver['capabilities']
   start: (spec: HarnessInvocationSpec, ctx: DriverContext) => Promise<{ ok: true }>
   applyInputNow: (input: InvocationInput) => Promise<{ turnId?: string | undefined }>
   admissionRejectionReason: (admissionClass: string) => string | undefined
   runtimeHealth: () => { state: 'healthy' } | { state: 'degraded'; reason: string }
-  interrupt: (req: { scope: 'turn' | 'invocation' }) => Promise<{
+  interrupt: (req: InvocationInterruptRequest) => Promise<{
     accepted: boolean
     effect: string
     reason?: string | undefined
   }>
-  stop: (req: { reason?: string | undefined }) => Promise<{ accepted: boolean; state: string }>
+  stop: (req: InvocationStopRequest) => Promise<{ accepted: boolean; state: string }>
   dispose: () => Promise<void>
 }
 
@@ -139,7 +146,7 @@ export function defaultLease(): PaneLease {
 
 export const claudeTmuxSpec = (): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId: 'inv_claude_tmux_1',
+  invocationId: invocationIdFrom('inv_claude_tmux_1'),
   harness: {
     frontend: 'claude-code',
     provider: 'anthropic',
@@ -267,23 +274,32 @@ export function createCtx(
   runtime?: BrokerRuntimeContext | undefined,
   invocationId = 'inv_claude_tmux_1'
 ): DriverContext {
+  const id = invocationIdFrom(invocationId)
+  function emitEvent<K extends InvocationEventType>(
+    event: InvocationEventFor<K>,
+    extra?: Parameters<DriverContext['emitEvent']>[1]
+  ): InvocationEventEnvelope<K>
+  function emitEvent(
+    event: InvocationEvent,
+    extra?: Parameters<DriverContext['emitEvent']>[1]
+  ): InvocationEventEnvelope {
+    const envelope: InvocationEventEnvelope = {
+      invocationId: id,
+      seq: events.length + 1,
+      time: now().toISOString(),
+      ...event,
+      ...extra,
+    }
+    events.push(envelope)
+    return envelope
+  }
   return {
-    invocationId,
+    invocationId: id,
     clientCapabilities: {},
     ...(runtime !== undefined ? { runtime } : {}),
-    emit(type, payload, extra) {
-      const event = {
-        invocationId,
-        seq: events.length + 1,
-        time: now().toISOString(),
-        type,
-        payload,
-        ...extra,
-      } as InvocationEventEnvelope
-      events.push(event)
-      return event
-    },
-  } as DriverContext
+    emit: (type, payload, extra) => emitEvent({ type, payload }, extra),
+    emitEvent,
+  }
 }
 
 export async function waitFor(
@@ -301,7 +317,7 @@ export async function waitFor(
 export function specWithIds(invocationId: string, runtimeId: string): HarnessInvocationSpec {
   return {
     ...claudeTmuxSpec(),
-    invocationId,
+    invocationId: invocationIdFrom(invocationId),
     correlation: {
       hostSessionId: `host-${runtimeId}`,
       runtimeId,

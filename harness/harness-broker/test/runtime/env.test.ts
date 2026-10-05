@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { delimiter } from 'node:path'
-import { buildProcessEnv } from '../../src/runtime/env'
+import { buildProcessEnv, parseDispatchEnv } from '../../src/runtime/env'
 
 describe('buildProcessEnv — pathPrepend PATH mutation', () => {
   // Computed key dodges biome's noDelete (literal-member) rule while letting us
@@ -79,7 +79,7 @@ describe('buildProcessEnv — pathPrepend PATH mutation', () => {
     process.env['PATH'] = '/usr/bin'
     const env = buildProcessEnv({
       lockedEnv: { CODEX_HOME: '/workspace/.codex-home' },
-      dispatchEnv: { ASP_RUN_ID: 'run_123' },
+      dispatchEnv: parseDispatchEnv({ ASP_RUN_ID: 'run_123' }),
       pathPrepend: ['/agent/tools/bin'],
     })
     expect(env['CODEX_HOME']).toBe('/workspace/.codex-home')

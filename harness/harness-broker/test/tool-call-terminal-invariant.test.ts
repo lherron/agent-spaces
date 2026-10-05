@@ -7,6 +7,7 @@ import {
 } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../src/broker'
 import { type TestDriverController, createTestDriver } from '../src/testing/test-driver'
+import { inputIdFrom, invocationIdFrom } from './ids'
 
 // T-06550: the broker MUST guarantee that every `tool.call.started` gets EXACTLY
 // ONE terminal (`tool.call.completed` | `tool.call.failed`). The burn-in-19
@@ -24,7 +25,7 @@ const flushMicrotasks = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 const testSpec = (invocationId: string): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId,
+  invocationId: invocationIdFrom(invocationId),
   harness: { frontend: 'test', provider: 'test', driver: 'test-driver' },
   process: {
     command: 'test-driver',
@@ -37,7 +38,7 @@ const testSpec = (invocationId: string): HarnessInvocationSpec => ({
 })
 
 const userInput = (inputId: string, text: string): InvocationInput => ({
-  inputId,
+  inputId: inputIdFrom(inputId),
   kind: 'user',
   content: [{ type: 'text', text }],
 })
@@ -47,7 +48,7 @@ const setup = async (invocationId: string) => {
   const { driver, controller } = createTestDriver({ suppressTurnStarted: true })
   const broker = createBroker({ drivers: [driver], onEvent: (event) => events.push(event), now })
   await broker.start({ spec: testSpec(invocationId) })
-  return { broker, controller, events, invocationId }
+  return { broker, controller, events, invocationId: invocationIdFrom(invocationId) }
 }
 
 const ofType = (events: InvocationEventEnvelope[], type: InvocationEventEnvelope['type']) =>

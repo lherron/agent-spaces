@@ -6,12 +6,14 @@ import type {
   HarnessInvocationSpec,
   InvocationEventEnvelope,
   InvocationId,
+  InvocationInput,
 } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../../../src/broker'
 import { openCaptureIndex } from '../../../src/capture/capture-index'
 import { createCodexAppServerDriver } from '../../../src/drivers/codex-app-server/driver'
 import { createCodexNotificationMapper } from '../../../src/drivers/codex-app-server/event-map'
 import { createEventLedger } from '../../../src/event-ledger'
+import { inputIdFrom } from '../../ids'
 
 /**
  * T-07868 — Codex app-server committed-row normalization (T-07853 §§5.2, 6.1,
@@ -37,7 +39,7 @@ function scratchDir(): string {
   return dir
 }
 
-const spec = (scenario: string, invocationId: string): HarnessInvocationSpec => ({
+const spec = (scenario: string, invocationId: InvocationId): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
   invocationId,
   harness: { frontend: 'codex', provider: 'openai', driver: 'codex-app-server' },
@@ -57,10 +59,10 @@ const spec = (scenario: string, invocationId: string): HarnessInvocationSpec => 
   },
 })
 
-const userInput = {
-  inputId: 'input_1',
-  kind: 'user' as const,
-  content: [{ type: 'text' as const, text: 'Please respond.' }],
+const userInput: InvocationInput = {
+  inputId: inputIdFrom('input_1'),
+  kind: 'user',
+  content: [{ type: 'text', text: 'Please respond.' }],
 }
 
 interface Run {

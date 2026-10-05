@@ -104,6 +104,9 @@ describe('codex-desktop native queue delivery', () => {
     const nativeAttemptStorePath = join(dir, 'stable-observer-state', 'native-attempts.db')
     writeFileSync(path, '')
     let queued: NativeQueueRow | undefined
+    // The fake helper re-assigns `queued` inside closures, which control-flow
+    // narrowing cannot see; read it through a getter with its declared type.
+    const currentQueued = (): NativeQueueRow | undefined => queued
     let adds = 0
     const cursors: Array<string | undefined> = []
     const openQueueHelper = async (): Promise<CodexDesktopQueueHelper> => ({
@@ -198,7 +201,7 @@ describe('codex-desktop native queue delivery', () => {
       )
     ).toHaveLength(1)
     expect(executed(secondEvents, later.submissionId)).toBe(false)
-    expect(queued?.clientUserMessageId).toBe(later.submissionId)
+    expect(currentQueued()?.clientUserMessageId).toBe(later.submissionId)
   })
 
   test('fences an absent possibly-written attempt and retries only a definitive rejection', async () => {
@@ -244,7 +247,9 @@ describe('codex-desktop native queue delivery', () => {
     expect(indeterminate.adds).toBe(1)
     expect(
       indeterminate.events.some(
-        (event) => event.payload.code === 'CODEX_DESKTOP_NATIVE_ATTEMPT_INDETERMINATE'
+        (event) =>
+          'code' in event.payload &&
+          event.payload.code === 'CODEX_DESKTOP_NATIVE_ATTEMPT_INDETERMINATE'
       )
     ).toBe(true)
     expect(
@@ -255,7 +260,8 @@ describe('codex-desktop native queue delivery', () => {
     expect(rejected.adds).toBe(2)
     expect(
       rejected.events.some(
-        (event) => event.payload.code === 'CODEX_DESKTOP_NATIVE_ATTEMPT_REJECTED'
+        (event) =>
+          'code' in event.payload && event.payload.code === 'CODEX_DESKTOP_NATIVE_ATTEMPT_REJECTED'
       )
     ).toBe(true)
   })

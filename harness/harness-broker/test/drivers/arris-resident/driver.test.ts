@@ -17,6 +17,7 @@ import {
   createArrisResidentDriver,
 } from '../../../src/drivers/arris-resident/driver'
 import type { DriverContext } from '../../../src/drivers/driver'
+import { turnIdFrom } from '../../ids'
 
 const hostId = 'host-incarnation:0fff54f7-f6f7-473b-8776-1ba07803f87d'
 
@@ -176,8 +177,9 @@ function captured(sequence: number, kind: string, detail: Record<string, unknown
       rawRecordId: record.rawRecordId,
       sourceKind: record.sourceKind,
       sourceEpoch: record.sourceEpoch,
-      sourceCursor: record.sourceCursor,
+      sourceCursor: { nativeSequence: String(sequence) },
       nativeType: kind,
+      normalizer: { name: 'arris-resident-fixture', version: '1' },
     }),
   }
 }
@@ -225,7 +227,7 @@ describe('Arris resident driver control seam', () => {
         content: [{ type: 'text', text: 'queue me' }],
         metadata: { envelopeId: 'EN-1', principalRef: 'agent:lance' },
       })
-    ).resolves.toEqual({ turnId: 'turn:neutral-1' })
+    ).resolves.toEqual({ turnId: turnIdFrom('turn:neutral-1') })
     await driver.applySteerNow?.({
       inputId: 'submission-2' as never,
       kind: 'user',
@@ -248,7 +250,7 @@ describe('Arris resident driver control seam', () => {
       },
     ])
     expect(events.filter((event) => event.type === 'driver.notice')).toHaveLength(2)
-    expect(
+    expect<Array<string | undefined>>(
       events.filter((event) => event.type === 'driver.notice').map((event) => event.inputId)
     ).toEqual(['submission-1', 'submission-2'])
     await driver.dispose()
@@ -356,9 +358,8 @@ describe('Arris resident driver control seam', () => {
 
     expect(lookupCalls).toBe(1)
     expect(queueCalls).toBe(0)
-    expect(events.findLast((event) => event.type === 'driver.notice')?.inputId).toBe(
-      'new-broker-submission'
-    )
+    const notices = events.filter((event) => event.type === 'driver.notice')
+    expect<string | undefined>(notices[notices.length - 1]?.inputId).toBe('new-broker-submission')
     await driver.dispose()
   })
 

@@ -1,10 +1,16 @@
 /** Drive the codex-app-server driver against a scripted fake Codex from test/fixtures/fake-codex. */
 import { expect } from 'bun:test'
 import { join, resolve } from 'node:path'
-import type { HarnessInvocationSpec, InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
+import type {
+  HarnessInvocationSpec,
+  InvocationEventEnvelope,
+  InvocationId,
+  InvocationInput,
+} from 'spaces-harness-broker-protocol'
 import { createBroker } from '../../../src/broker'
 import { createCodexAppServerDriver } from '../../../src/drivers/codex-app-server/driver'
 import type { EventLedger } from '../../../src/event-ledger'
+import { inputIdFrom, invocationIdFrom } from '../../ids'
 
 const root = new URL('../../..', import.meta.url).pathname
 export const fixtureDir = join(root, 'test/fixtures/fake-codex')
@@ -24,12 +30,14 @@ export const repoRoot = resolve(root, '../..')
 
 export const now = () => new Date('2026-05-20T18:00:00.000Z')
 
+/** A scenario spec always carries its invocation id. */
+export type ScenarioSpec = HarnessInvocationSpec & { invocationId: InvocationId }
+
 export const scenarioSpec = (
   scenario: string,
   overrides: Partial<HarnessInvocationSpec> = {}
-): HarnessInvocationSpec => ({
+): ScenarioSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId: `inv_${scenario.replaceAll('-', '_')}`,
   harness: {
     frontend: 'codex',
     provider: 'openai',
@@ -61,12 +69,13 @@ export const scenarioSpec = (
     permissionPolicy: { mode: 'deny' },
   },
   ...overrides,
+  invocationId: overrides.invocationId ?? invocationIdFrom(`inv_${scenario.replaceAll('-', '_')}`),
 })
 
-export const userInput = {
-  inputId: 'input_1',
-  kind: 'user' as const,
-  content: [{ type: 'text' as const, text: 'Please respond.' }],
+export const userInput: InvocationInput = {
+  inputId: inputIdFrom('input_1'),
+  kind: 'user',
+  content: [{ type: 'text', text: 'Please respond.' }],
 }
 
 export const eventTypes = (events: InvocationEventEnvelope[]) => events.map((event) => event.type)
@@ -117,11 +126,11 @@ export async function startScenario(
 
   await broker.start({ spec })
   await broker.input({
-    invocationId: spec.invocationId ?? '',
+    invocationId: spec.invocationId,
     input: userInput,
     policy: { whenBusy: 'reject' },
   })
-  return { broker, events, invocationId: spec.invocationId ?? '' }
+  return { broker, events, invocationId: spec.invocationId }
 }
 
 /** Start `scenario`, submit one input, and wait for the first terminal or warning. */

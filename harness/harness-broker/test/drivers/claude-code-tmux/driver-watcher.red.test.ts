@@ -7,6 +7,7 @@ import type { InvocationEventEnvelope, InvocationId } from 'spaces-harness-broke
 import { createCaptureGate } from '../../../src/capture/capture-gate'
 import { openCaptureIndex } from '../../../src/capture/capture-index'
 import { createRawJournal } from '../../../src/capture/raw-journal'
+import { inputIdFrom, invocationIdFrom } from '../../ids'
 import type { HookEnvelope, TmuxExecCall } from './driver-red.helpers'
 import {
   claudeTmuxSpec,
@@ -119,7 +120,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       )
 
       const preempt = await driver.applyInputNow({
-        inputId: 'input_preempt_after_watch',
+        inputId: inputIdFrom('input_preempt_after_watch'),
         kind: 'user',
         content: [{ type: 'text', text: 'preempt after watch' }],
       })
@@ -154,7 +155,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       // Race a native notification against a hook read. Both enqueue onto the
       // same drain chain; the byte-offset tailer must normalize this row once.
       const raced = await driver.applyInputNow({
-        inputId: 'input_watch_hook_race',
+        inputId: inputIdFrom('input_watch_hook_race'),
         kind: 'user',
         content: [{ type: 'text', text: 'watch hook race' }],
       })
@@ -196,7 +197,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       await sessionStart(secondTranscript)
       expect(watchers).toHaveLength(2)
       const retargeted = await driver.applyInputNow({
-        inputId: 'input_retargeted_watch',
+        inputId: inputIdFrom('input_retargeted_watch'),
         kind: 'user',
         content: [{ type: 'text', text: 'retargeted watch' }],
       })
@@ -348,7 +349,12 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       })
       expect(driver.admissionRejectionReason('preempt')).toBe('native_wakeup_lost')
       expect(driver.admissionRejectionReason('exclusive')).toBeUndefined()
-      expect(await driver.interrupt({ scope: 'turn' })).toEqual({
+      expect(
+        await driver.interrupt({
+          invocationId: invocationIdFrom('inv_claude_tmux_1'),
+          scope: 'turn',
+        })
+      ).toEqual({
         accepted: false,
         effect: 'unsupported',
         reason: 'native_wakeup_lost',

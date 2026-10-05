@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { rm } from 'node:fs/promises'
+import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
+import { invocationIdFrom, turnIdFrom } from '../../ids'
 import {
   FakeCodexRpc,
   emitUserMessageItem,
@@ -50,7 +52,7 @@ describe('codex-tui steer races and autonomous turns', () => {
       }
       throw new Error(`unhandled fake RPC request: ${method}`)
     }
-    const invocationId = 'inv_codex_tui_steer_identity_race'
+    const invocationId = invocationIdFrom('inv_codex_tui_steer_identity_race')
     const run = await setupDriver(rpc, invocationId)
     try {
       await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
@@ -127,7 +129,7 @@ describe('codex-tui steer races and autonomous turns', () => {
       if (method === 'turn/steer') return { turnId: 'turn_wrong_response' }
       throw new Error(`unhandled fake RPC request: ${method}`)
     }
-    const invocationId = 'inv_codex_tui_steer_response_mismatch'
+    const invocationId = invocationIdFrom('inv_codex_tui_steer_response_mismatch')
     const run = await setupDriver(rpc, invocationId)
     try {
       await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
@@ -205,7 +207,7 @@ describe('codex-tui steer races and autonomous turns', () => {
       if (method === 'turn/interrupt') return {}
       throw new Error(`unhandled fake RPC request: ${method}`)
     }
-    const invocationId = 'inv_codex_tui_interrupted_steer'
+    const invocationId = invocationIdFrom('inv_codex_tui_interrupted_steer')
     const run = await setupDriver(rpc, invocationId)
     try {
       await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
@@ -306,7 +308,7 @@ describe('codex-tui steer races and autonomous turns', () => {
       }
       throw new Error(`unhandled fake RPC request: ${method}`)
     }
-    const invocationId = 'inv_codex_tui_provider_death_steer'
+    const invocationId = invocationIdFrom('inv_codex_tui_provider_death_steer')
     const run = await setupDriver(rpc, invocationId)
     try {
       await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
@@ -390,7 +392,7 @@ describe('codex-tui steer races and autonomous turns', () => {
         }
         throw new Error(`unhandled fake RPC request: ${method}`)
       }
-      const invocationId = `inv_codex_tui_rpc_failure_${nativeFirst}`
+      const invocationId = invocationIdFrom(`inv_codex_tui_rpc_failure_${nativeFirst}`)
       const run = await setupDriver(rpc, invocationId)
       try {
         await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
@@ -491,13 +493,13 @@ describe('codex-tui steer races and autonomous turns', () => {
       expect(
         (
           await run.broker.seatProbe({
-            invocationId: 'inv_codex_tui_attribution',
+            invocationId: invocationIdFrom('inv_codex_tui_attribution'),
           })
         ).seat
-      ).toEqual({ state: 'turn-observed', turnId: 'turn_goal' })
+      ).toEqual({ state: 'turn-observed', turnId: turnIdFrom('turn_goal') })
       expect(
         await run.broker.steer({
-          invocationId: 'inv_codex_tui_attribution',
+          invocationId: invocationIdFrom('inv_codex_tui_attribution'),
           origin,
           body: 'mid-turn before attribution',
         })
@@ -522,7 +524,7 @@ describe('codex-tui steer races and autonomous turns', () => {
       )
       expect(
         await run.broker.steer({
-          invocationId: 'inv_codex_tui_attribution',
+          invocationId: invocationIdFrom('inv_codex_tui_attribution'),
           origin,
           body: 'land after attribution',
         })
@@ -561,16 +563,16 @@ describe('codex-tui steer races and autonomous turns', () => {
       expect(unknownIndex).toBeLessThan(terminalIndex)
       expect(
         await run.broker.turnManifest({
-          invocationId: 'inv_codex_tui_attribution',
-          turnId: 'turn_itemless',
+          invocationId: invocationIdFrom('inv_codex_tui_attribution'),
+          turnId: turnIdFrom('turn_itemless'),
         })
       ).toMatchObject({ policy: 'open' })
     } finally {
       await run.broker.stop({
-        invocationId: 'inv_codex_tui_attribution',
+        invocationId: invocationIdFrom('inv_codex_tui_attribution'),
         reason: 'test cleanup',
       })
-      await run.broker.dispose({ invocationId: 'inv_codex_tui_attribution' })
+      await run.broker.dispose({ invocationId: invocationIdFrom('inv_codex_tui_attribution') })
       await rm(run.socketDir, { recursive: true, force: true })
     }
   })
@@ -598,7 +600,7 @@ describe('codex-tui steer races and autonomous turns', () => {
         }
         throw new Error(`unhandled fake RPC request: ${method}`)
       }
-      const invocationId = `inv_codex_tui_itemless_${terminalPath}`
+      const invocationId = invocationIdFrom(`inv_codex_tui_itemless_${terminalPath}`)
       const run = await setupDriver(rpc, invocationId)
       if (terminalPath === 'turn-timeout') {
         run.invocationSpec.process.limits = { startupTimeoutMs: 2_000, turnTimeoutMs: 25 }
@@ -662,7 +664,10 @@ describe('codex-tui steer races and autonomous turns', () => {
           )
         ).toBe(false)
         expect(
-          await run.broker.turnManifest({ invocationId, turnId: 'turn_itemless_pending' })
+          await run.broker.turnManifest({
+            invocationId,
+            turnId: turnIdFrom('turn_itemless_pending'),
+          })
         ).toMatchObject({ policy: 'open', submissionIds: [] })
         expect(pendingInputId).toBe(queued.submissionId)
       } finally {

@@ -245,7 +245,7 @@ describe('every protocol event has a rendering decision (T-07906)', () => {
 
   test('the suppressed set is exactly the events that render nothing', () => {
     const silent = INVOCATION_EVENT_TYPES.filter((type) => render(type).length === 0)
-    expect([...silent].sort()).toEqual([...SUPPRESSED].sort())
+    expect<string[]>([...silent].sort()).toEqual([...SUPPRESSED].sort())
   })
 
   test('the roster covers every event this test claims to have exercised', () => {

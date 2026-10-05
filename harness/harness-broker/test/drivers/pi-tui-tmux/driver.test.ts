@@ -1,7 +1,15 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import type { HarnessInvocationSpec, InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
+import type {
+  HarnessInvocationSpec,
+  InvocationEvent,
+  InvocationEventEnvelope,
+  InvocationEventFor,
+  InvocationEventType,
+} from 'spaces-harness-broker-protocol'
 import type { DriverContext } from '../../../src/drivers/driver'
+import { parseDispatchEnv } from '../../../src/runtime/env'
+import { invocationIdFrom } from '../../ids'
 
 type TmuxExecCall = {
   argv: string[]
@@ -15,25 +23,24 @@ type LaunchArtifact = {
   env?: Record<string, string | undefined> | undefined
 }
 
-const invocationId = 'inv_pi_tui_tmux_driver_1'
+const invocationId = invocationIdFrom('inv_pi_tui_tmux_driver_1')
 const now = () => new Date('2026-06-17T04:45:00.000Z')
 
-const piTmuxSpec = (): HarnessInvocationSpec =>
-  ({
-    specVersion: 'harness-broker.invocation/v1',
-    invocationId,
-    harness: { frontend: 'pi-cli', provider: 'openai', driver: 'pi-tui-tmux' },
-    process: {
-      command: '/opt/bin/pi',
-      args: ['--no-context-files', '--extension', '/tmp/asp-hrc-events.bridge.js'],
-      cwd: process.cwd(),
-      lockedEnv: { PI_CODING_AGENT_DIR: '/tmp/pi-bundle' },
-      harnessTransport: { kind: 'pty' },
-    },
-    interaction: { mode: 'interactive', turnConcurrency: 'single', inputQueue: 'fifo' },
-    driver: { kind: 'pi-tui-tmux', terminalHost: 'tmux', hookBridge: 'pi-hrc-events/v1' },
-    correlation: { hostSessionId: 'host-pi-driver', runtimeId: 'runtime-pi-driver' },
-  }) as HarnessInvocationSpec
+const piTmuxSpec = (): HarnessInvocationSpec => ({
+  specVersion: 'harness-broker.invocation/v1',
+  invocationId,
+  harness: { frontend: 'pi-cli', provider: 'openai', driver: 'pi-tui-tmux' },
+  process: {
+    command: '/opt/bin/pi',
+    args: ['--no-context-files', '--extension', '/tmp/asp-hrc-events.bridge.js'],
+    cwd: process.cwd(),
+    lockedEnv: { PI_CODING_AGENT_DIR: '/tmp/pi-bundle' },
+    harnessTransport: { kind: 'pty' },
+  },
+  interaction: { mode: 'interactive', turnConcurrency: 'single', inputQueue: 'fifo' },
+  driver: { kind: 'pi-tui-tmux', terminalHost: 'tmux', hookBridge: 'pi-hrc-events/v1' },
+  correlation: { hostSessionId: 'host-pi-driver', runtimeId: 'runtime-pi-driver' },
+})
 
 const paneLease = () => ({
   kind: 'tmux-pane' as const,
@@ -44,28 +51,37 @@ const paneLease = () => ({
   paneId: '%42',
   sessionName: 'hrc-owned-pi',
   windowName: 'main',
-  allowedOps: { inspect: true, sendInput: true, sendInterrupt: true },
+  allowedOps: { inspect: true as const, sendInput: true as const, sendInterrupt: true as const },
 })
 
-const createCtx = (events: InvocationEventEnvelope[]): DriverContext =>
-  ({
+const createCtx = (events: InvocationEventEnvelope[]): DriverContext => {
+  function emitEvent<K extends InvocationEventType>(
+    event: InvocationEventFor<K>,
+    extra?: Parameters<DriverContext['emitEvent']>[1]
+  ): InvocationEventEnvelope<K>
+  function emitEvent(
+    event: InvocationEvent,
+    extra?: Parameters<DriverContext['emitEvent']>[1]
+  ): InvocationEventEnvelope {
+    const envelope: InvocationEventEnvelope = {
+      invocationId,
+      seq: events.length + 1,
+      time: now().toISOString(),
+      ...event,
+      ...extra,
+    }
+    events.push(envelope)
+    return envelope
+  }
+  return {
     invocationId,
     clientCapabilities: {},
     runtime: { terminalSurface: paneLease() },
-    dispatchEnv: { ASP_PROJECT: 'agent-spaces' },
-    emit(type, payload, extra) {
-      const event = {
-        invocationId,
-        seq: events.length + 1,
-        time: now().toISOString(),
-        type,
-        payload,
-        ...extra,
-      } as InvocationEventEnvelope
-      events.push(event)
-      return event
-    },
-  }) as DriverContext
+    dispatchEnv: parseDispatchEnv({ ASP_PROJECT: 'agent-spaces' }),
+    emit: (type, payload, extra) => emitEvent({ type, payload }, extra),
+    emitEvent,
+  }
+}
 
 const recordingExec = (calls: TmuxExecCall[]) => {
   return async (

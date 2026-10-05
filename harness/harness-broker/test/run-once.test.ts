@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { HarnessInvocationSpec, InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import { brokerProcessEnv } from './helpers'
+import { invocationIdFrom } from './ids'
 
 const packageRoot = new URL('..', import.meta.url).pathname
 const repoRoot = new URL('../../..', import.meta.url).pathname
@@ -17,7 +18,7 @@ afterEach(async () => {
 
 const runOnceSpec = (scenario: string): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId: `inv_run_once_${scenario.replaceAll('-', '_')}`,
+  invocationId: invocationIdFrom(`inv_run_once_${scenario.replaceAll('-', '_')}`),
   harness: {
     frontend: 'codex',
     provider: 'openai',

@@ -92,7 +92,7 @@ describe('turn lifecycle', () => {
     const user = events.filter((e) => e.type === 'user.message')
     expect(started).toHaveLength(1)
     expect((started[0]?.payload as { prompt?: string }).prompt).toBe('say hello spike')
-    expect(started[0]?.turnId).toBe(RUN)
+    expect<string | undefined>(started[0]?.turnId).toBe(RUN)
     expect(user).toHaveLength(1)
   })
 
@@ -247,7 +247,7 @@ describe('interrupt and steer', () => {
     ])
     const interrupted = events.filter((e) => e.type === 'turn.interrupted')
     expect(interrupted).toHaveLength(1)
-    expect(interrupted[0]?.turnId).toBe(RUN)
+    expect<string | undefined>(interrupted[0]?.turnId).toBe(RUN)
   })
 
   test('Escape order (terminal cancelled, then retraction) mints one terminal', () => {
@@ -300,7 +300,7 @@ describe('interrupt and steer', () => {
     // One from the turn open, one from the steer.
     expect(user).toHaveLength(2)
     expect((user[1]?.payload as { content?: string }).content).toBe('hurry')
-    expect(user[1]?.turnId).toBe(RUN)
+    expect<string | undefined>(user[1]?.turnId).toBe(RUN)
   })
 
   test('non-steer inbox items are ignored', () => {

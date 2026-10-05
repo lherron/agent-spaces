@@ -421,8 +421,10 @@ describe('Resident participant broker path (T-08666)', () => {
     // missing driver registration.
     const piped = structuredClone(tampered)
     ;(piped.spec.process.harnessTransport as Record<string, unknown>)['kind'] = 'pipes'
-    piped.spec.correlation['startRequestHash'] = 'restamped:t08666-unknown-driver'
-    piped.spec.correlation['selectedProfileHash'] = 'restamped:t08666-unknown-driver'
+    const pipedCorrelation = piped.spec.correlation
+    if (pipedCorrelation === undefined) throw new Error('prepared start request has no correlation')
+    pipedCorrelation['startRequestHash'] = 'restamped:t08666-unknown-driver'
+    pipedCorrelation['selectedProfileHash'] = 'restamped:t08666-unknown-driver'
     await unknownBroker.installIdentity({
       runtimeId: unknownIdentity.runtimeId as string,
       hostSessionId: unknownIdentity.hostSessionId as string,

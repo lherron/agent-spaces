@@ -9,7 +9,9 @@
 
 import { describe, expect, test } from 'bun:test'
 import { rm } from 'node:fs/promises'
+import type { InvocationId } from 'spaces-harness-broker-protocol'
 import { buildThreadStartParams } from '../../../src/drivers/codex-app-server/driver-support'
+import { invocationIdFrom } from '../../ids'
 import { FakeCodexRpc, lease, setupDriver, spec } from './codex-tui-transport-support'
 
 const SPEC = spec('inv_developer_instructions_params')
@@ -35,7 +37,7 @@ describe('codex developerInstructions (headless thread/start params)', () => {
 })
 
 describe('codex developerInstructions (codex-tui start and resume)', () => {
-  async function firstThreadRequest(invocationId: string, resumeThreadId?: string) {
+  async function firstThreadRequest(invocationId: InvocationId, resumeThreadId?: string) {
     const rpc = new FakeCodexRpc()
     rpc.onRequest = async (method) => {
       if (method === 'initialize') return {}
@@ -62,13 +64,16 @@ describe('codex developerInstructions (codex-tui start and resume)', () => {
   }
 
   test('thread/start carries the invocation task section', async () => {
-    const request = await firstThreadRequest('inv_codex_devinstr_start')
+    const request = await firstThreadRequest(invocationIdFrom('inv_codex_devinstr_start'))
     expect(request?.method).toBe('thread/start')
     expect(request?.params).toMatchObject({ developerInstructions: TASK_SECTION })
   })
 
   test('thread/resume carries the invocation task section', async () => {
-    const request = await firstThreadRequest('inv_codex_devinstr_resume', 'thread_prior')
+    const request = await firstThreadRequest(
+      invocationIdFrom('inv_codex_devinstr_resume'),
+      'thread_prior'
+    )
     expect(request?.method).toBe('thread/resume')
     expect(request?.params).toMatchObject({
       threadId: 'thread_prior',

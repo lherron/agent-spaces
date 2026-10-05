@@ -1,20 +1,20 @@
 import { describe, expect, test } from 'bun:test'
 import type {
   HarnessInvocationSpec,
-  InputId,
   InvocationEventEnvelope,
   InvocationInput,
   SubmissionOrigin,
 } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../src/broker'
 import { createTestDriver } from '../src/testing/test-driver'
+import { invocationIdFrom } from './ids'
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 const origin: SubmissionOrigin = { principalRef: 'agent:test', scopeRef: 'test@mobile' }
 
 const spec = (invocationId: string): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId,
+  invocationId: invocationIdFrom(invocationId),
   harness: { frontend: 'test', provider: 'test', driver: 'test-driver' },
   process: {
     command: 'test-driver',
@@ -61,7 +61,7 @@ async function arrisLikeSetup(invocationId: string) {
     broker,
     controller,
     events,
-    invocationId,
+    invocationId: invocationIdFrom(invocationId),
     delivered,
     releaseDelivery: () => releaseDelivery?.(),
   }
@@ -74,7 +74,9 @@ describe('T-08527 a steer to a busy harness is injected immediately', () => {
 
     const queued = await broker.enqueue({ invocationId, origin, body: 'queued turn body' })
     await flush()
-    expect(delivered.map((input) => input.inputId)).toEqual([queued.submissionId as InputId])
+    expect<(string | undefined)[]>(delivered.map((input) => input.inputId)).toEqual([
+      queued.submissionId,
+    ])
     expect((await broker.seatProbe({ invocationId })).seat).toEqual({ state: 'starting' })
 
     const steer = await broker.steer({ invocationId, origin, body: 'single-shot steer' })
@@ -82,8 +84,8 @@ describe('T-08527 a steer to a busy harness is injected immediately', () => {
     await flush()
 
     // Injected now, in the window — not deferred to turn start, not refused.
-    expect(controller.steeredInputs.map((input) => input.inputId)).toEqual([
-      steer.submissionId as InputId,
+    expect<(string | undefined)[]>(controller.steeredInputs.map((input) => input.inputId)).toEqual([
+      steer.submissionId,
     ])
     expect(
       events.find(
@@ -108,9 +110,9 @@ describe('T-08527 a steer to a busy harness is injected immediately', () => {
     const first = await broker.steer({ invocationId, origin, body: 'first' })
     const second = await broker.steer({ invocationId, origin, body: 'second' })
     await flush()
-    expect(controller.steeredInputs.map((input) => input.inputId)).toEqual([
-      first.submissionId as InputId,
-      second.submissionId as InputId,
+    expect<(string | undefined)[]>(controller.steeredInputs.map((input) => input.inputId)).toEqual([
+      first.submissionId,
+      second.submissionId,
     ])
   })
 

@@ -6,13 +6,14 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../src/broker'
 import { createTestDriver } from '../src/testing/test-driver'
+import { invocationIdFrom, turnIdFrom } from './ids'
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 const origin: SubmissionOrigin = { principalRef: 'agent:test', scopeRef: 'test@mobile' }
 
 const spec = (invocationId: string): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId,
+  invocationId: invocationIdFrom(invocationId),
   harness: { frontend: 'test', provider: 'test', driver: 'test-driver' },
   process: {
     command: 'test-driver',
@@ -63,7 +64,7 @@ describe('T-08514 uncorrelated own-turn delivery must not pin the seat', () => {
       },
     })
     const broker = createBroker({ drivers: [driver], onEvent: (event) => events.push(event) })
-    const invocationId = 'inv_t08514_seat_pin'
+    const invocationId = invocationIdFrom('inv_t08514_seat_pin')
     await broker.start({ spec: spec(invocationId) })
 
     const submission = await broker.enqueue({
@@ -81,7 +82,7 @@ describe('T-08514 uncorrelated own-turn delivery must not pin the seat', () => {
     // An observed turn runs and completes without ever correlating to the
     // submission — `turn.started` carries no inputId, and `source: 'observed'`
     // means observePendingOwnTurnStart is never consulted at all.
-    const turnId = '01a0a672-432f-7080-8682-bf339b26eb7e' as const
+    const turnId = turnIdFrom('01a0a672-432f-7080-8682-bf339b26eb7e')
     controller.emitRaw('turn.started', { turnId, source: 'observed' }, { turnId })
     await flush()
     controller.emitRaw('turn.completed', { turnId, status: 'completed' }, { turnId })

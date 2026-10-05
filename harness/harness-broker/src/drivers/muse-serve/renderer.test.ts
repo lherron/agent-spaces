@@ -4,6 +4,7 @@
  */
 import { describe, expect, test } from 'bun:test'
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
+import { invocationIdFrom } from '../../../test/ids'
 import type { RendererDurableReadSurface } from '../codex-app-server/renderer'
 import {
   buildMuseRendererLaunchCommand,
@@ -13,21 +14,30 @@ import {
 } from './renderer'
 
 let seq = 0
+// The projection reads payloads loosely; fixtures pass free-form type/payload
+// pairs and narrow once here.
 const envelope = (type: string, payload: Record<string, unknown>): InvocationEventEnvelope => {
   seq += 1
   return {
     seq,
-    invocationId: 'inv_muse_proj',
-    time: 1789672000000,
+    invocationId: invocationIdFrom('inv_muse_proj'),
+    time: '2026-09-17T12:26:40.000Z',
     type,
     payload,
   } as InvocationEventEnvelope
 }
 
-const memorySurface = (history: InvocationEventEnvelope[]): RendererDurableReadSurface => {
+type MemorySurface = RendererDurableReadSurface & {
+  __push: (event: InvocationEventEnvelope) => void
+}
+
+const memorySurface = (history: InvocationEventEnvelope[]): MemorySurface => {
   const handlers = new Set<(event: InvocationEventEnvelope) => void>()
   return {
-    eventsSince: async () => ({ events: history, floor: 0 }),
+    eventsSince: async () => ({
+      events: history,
+      currentSeq: history[history.length - 1]?.seq ?? 0,
+    }),
     observe: (handler) => {
       handlers.add(handler)
       return { close: () => handlers.delete(handler) }
@@ -35,8 +45,6 @@ const memorySurface = (history: InvocationEventEnvelope[]): RendererDurableReadS
     __push: (event: InvocationEventEnvelope) => {
       for (const handler of handlers) handler(event)
     },
-  } as unknown as RendererDurableReadSurface & {
-    __push: (event: InvocationEventEnvelope) => void
   }
 }
 
@@ -54,7 +62,7 @@ describe('createMuseServeRendererProjection', () => {
       onEvent: () => undefined,
     })
     await projection.start()
-    ;(surface as unknown as { __push: (event: InvocationEventEnvelope) => void }).__push(
+    surface.__push(
       envelope('assistant.message.completed', {
         messageId: 'm1',
         content: [{ type: 'text', text: 'hello' }],

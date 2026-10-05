@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { CODEX_DRIVER_KIND } from '../../../src/drivers/codex-app-server/event-map'
+import { toolCallIdFrom, turnIdFrom } from '../../ids'
 import { codexMapperPerTest, note } from './codex-notifications'
 
 const { map: mapCodexNotification, sequence: mapSequence } = codexMapperPerTest()
@@ -21,7 +22,7 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
       expect(events).toHaveLength(1)
       expect(events[0]?.type).toBe('tool.call.started')
       expect(events[0]?.payload).toEqual({
-        toolCallId: 'cmd_1',
+        toolCallId: toolCallIdFrom('cmd_1'),
         name: 'command',
         input: { command: 'pwd', cwd: '/tmp/work' },
       })
@@ -45,7 +46,7 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
       expect(events).toHaveLength(1)
       expect(events[0]?.type).toBe('tool.call.completed')
       expect(events[0]?.payload).toEqual({
-        toolCallId: 'cmd_1',
+        toolCallId: toolCallIdFrom('cmd_1'),
         name: 'command',
         result: { output: '/tmp/work\n', exitCode: 0 },
         isError: false,
@@ -199,7 +200,7 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
       )
       expect(events[0]?.type).toBe('tool.call.started')
       expect(events[0]?.payload).toEqual({
-        toolCallId: 'file_1',
+        toolCallId: toolCallIdFrom('file_1'),
         name: 'file_change',
         input: { changes: [{ path: 'src/a.ts', kind: 'modify' }] },
       })
@@ -218,7 +219,7 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
       )
       expect(events[0]?.type).toBe('tool.call.completed')
       expect(events[0]?.payload).toEqual({
-        toolCallId: 'file_1',
+        toolCallId: toolCallIdFrom('file_1'),
         name: 'file_change',
         result: { changes: [{ path: 'src/a.ts', kind: 'modify' }] },
         isError: false,
@@ -260,7 +261,7 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
         })
       )
       expect(events[0]?.payload).toEqual({
-        toolCallId: 'mcp_1',
+        toolCallId: toolCallIdFrom('mcp_1'),
         name: 'mcp_tool',
         input: { server: 'fs', tool: 'read', arguments: { path: '/etc/hosts' } },
       })
@@ -355,7 +356,7 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
         })
       )
       expect(events[0]?.payload).toEqual({
-        toolCallId: 'web_1',
+        toolCallId: toolCallIdFrom('web_1'),
         name: 'web_search',
         input: { query: 'codex' },
       })
@@ -370,7 +371,7 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
       )
       expect(events[0]?.type).toBe('tool.call.completed')
       expect(events[0]?.payload).toEqual({
-        toolCallId: 'web_1',
+        toolCallId: toolCallIdFrom('web_1'),
         name: 'web_search',
         result: { query: 'codex' },
         isError: false,
@@ -387,7 +388,7 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
         })
       )
       expect(events[0]?.payload).toEqual({
-        toolCallId: 'img_1',
+        toolCallId: toolCallIdFrom('img_1'),
         name: 'image_view',
         input: { path: '/tmp/image.png' },
       })
@@ -401,7 +402,7 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
         })
       )
       expect(events[0]?.payload).toEqual({
-        toolCallId: 'img_1',
+        toolCallId: toolCallIdFrom('img_1'),
         name: 'image_view',
         result: { path: '/tmp/image.png' },
         isError: false,
@@ -425,11 +426,11 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
       expect(events).toHaveLength(1)
       expect(events[0]?.type).toBe('tool.call.delta')
       expect(events[0]?.payload).toEqual({
-        toolCallId: 'cmd_1',
+        toolCallId: toolCallIdFrom('cmd_1'),
         text: '\\dt\n',
         data: { stream: 'stdin' },
       })
-      expect(events[0]?.extra?.turnId).toBe('turn_1')
+      expect<string | undefined>(events[0]?.extra?.turnId).toBe('turn_1')
       expect(events[0]?.extra?.itemId).toBe('cmd_1')
     })
 
@@ -487,9 +488,9 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
       expect(events).toEqual([
         {
           type: 'tool.call.started',
-          payload: { toolCallId: 'img_1', name: 'image_generation' },
+          payload: { toolCallId: toolCallIdFrom('img_1'), name: 'image_generation' },
           extra: {
-            turnId: 'turn_1',
+            turnId: turnIdFrom('turn_1'),
             itemId: 'img_1',
             driver: { kind: CODEX_DRIVER_KIND, rawType: 'item/started' },
           },
@@ -516,7 +517,7 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
       expect(events[0]).toEqual({
         type: 'tool.call.completed',
         payload: {
-          toolCallId: 'img_1',
+          toolCallId: toolCallIdFrom('img_1'),
           name: 'image_generation',
           result: {
             savedPath: '/tmp/codex/img_1.png',
@@ -526,7 +527,7 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
           isError: false,
         },
         extra: {
-          turnId: 'turn_1',
+          turnId: turnIdFrom('turn_1'),
           itemId: 'img_1',
           driver: { kind: CODEX_DRIVER_KIND, rawType: 'item/completed' },
         },

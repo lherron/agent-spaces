@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import type { HarnessProcessSpec } from 'spaces-harness-broker-protocol'
+import type { ChildHarnessProcessSpec } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { spawnHarnessProcess } from '../../src/runtime/process-runner'
 
-const baseProcessSpec = (overrides: Partial<HarnessProcessSpec>): HarnessProcessSpec => ({
+const baseProcessSpec = (overrides: Partial<ChildHarnessProcessSpec>): ChildHarnessProcessSpec => ({
   command: process.execPath,
   args: ['--version'],
   cwd: process.cwd(),

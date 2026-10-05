@@ -7,6 +7,7 @@ import type {
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../src/broker'
 import { createTestDriver } from '../src/testing/test-driver'
+import { inputIdFrom, invocationIdFrom } from './ids'
 
 /**
  * T-07155 stage 2 — `whenBusy: 'steer'` busy-input policy.
@@ -24,7 +25,7 @@ const testSpec = (
   interaction: HarnessInvocationSpec['interaction']
 ): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId,
+  invocationId: invocationIdFrom(invocationId),
   harness: { frontend: 'test', provider: 'test', driver: 'test-driver' },
   process: {
     command: 'test-driver',
@@ -37,7 +38,7 @@ const testSpec = (
 })
 
 const userInput = (inputId: string, text: string) => ({
-  inputId,
+  inputId: inputIdFrom(inputId),
   kind: 'user' as const,
   content: [{ type: 'text' as const, text }],
 })
@@ -111,8 +112,12 @@ describe('T-07155 whenBusy: steer', () => {
     // A steer joins the ACTIVE turn, so it must not mint a turn of its own.
     expect(response.turnId).toBeUndefined()
     // It went to the driver's steer path, not the turn-start path...
-    expect(controller.steeredInputs.map((input) => input.inputId)).toEqual(['input_urgent'])
-    expect(controller.inputs.map((input) => input.inputId)).toEqual(['input_active'])
+    expect<(string | undefined)[]>(controller.steeredInputs.map((input) => input.inputId)).toEqual([
+      'input_urgent',
+    ])
+    expect<(string | undefined)[]>(controller.inputs.map((input) => input.inputId)).toEqual([
+      'input_active',
+    ])
     // ...and nothing was parked on the FIFO drain queue.
     expect(inputEvents(events, 'input.queued')).toHaveLength(0)
     expect(inputEvents(events, 'input.accepted').at(-1)).toMatchObject({
@@ -383,6 +388,8 @@ describe('T-07155 whenBusy: steer', () => {
 
     expect(response).toMatchObject({ accepted: true, disposition: 'started' })
     expect(controller.steeredInputs).toHaveLength(0)
-    expect(controller.inputs.map((input) => input.inputId)).toEqual(['input_first'])
+    expect<(string | undefined)[]>(controller.inputs.map((input) => input.inputId)).toEqual([
+      'input_first',
+    ])
   })
 })

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { inputIdFrom } from '../ids'
 import { eventsFor, eventsForSubmission, flush, origin, setup } from './fixture'
 
 describe('broker admission API: steer semantics', () => {
@@ -42,9 +43,9 @@ describe('broker admission API: steer semantics', () => {
     await flush()
 
     expect(run.controller.inputs).toHaveLength(0)
-    expect(run.controller.steeredInputs.map((input) => input.inputId)).toEqual([
-      steered.submissionId,
-    ])
+    expect<(string | undefined)[]>(
+      run.controller.steeredInputs.map((input) => input.inputId)
+    ).toEqual([steered.submissionId])
     expect(eventsFor(run.events, 'turn.started')).toHaveLength(0)
     expect(eventsFor(run.events, 'input.accepted').at(-1)?.payload).toMatchObject({
       inputId: steered.submissionId,
@@ -77,7 +78,7 @@ describe('broker admission API: steer semantics', () => {
     open.controller.emitRaw(
       'submission.absorbed',
       { submissionId: steered.submissionId, turnId: turnId! },
-      { turnId: turnId!, inputId: steered.submissionId }
+      { turnId: turnId!, inputId: inputIdFrom(steered.submissionId) }
     )
     expect(
       await open.broker.turnManifest({ invocationId: open.invocationId, turnId: turnId! })

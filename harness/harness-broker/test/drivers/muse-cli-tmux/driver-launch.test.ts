@@ -2,9 +2,16 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ClientCapabilities, HarnessInvocationSpec } from 'spaces-harness-broker-protocol'
+import type {
+  HarnessInvocationSpec,
+  InvocationEvent,
+  InvocationEventEnvelope,
+  InvocationEventFor,
+  InvocationEventType,
+} from 'spaces-harness-broker-protocol'
 import type { DriverContext } from '../../../src/drivers/driver'
 import { createMuseCliTmuxDriver } from '../../../src/drivers/muse-cli-tmux/driver'
+import { invocationIdFrom } from '../../ids'
 
 type ExecResult = { stdout: string; stderr: string }
 type ExecFn = (
@@ -34,13 +41,20 @@ function createCtx(
   invocationId = 'inv-test-muse-launch',
   emitted: EmittedEvent[] = []
 ): DriverContext {
+  const id = invocationIdFrom(invocationId)
+  function emitEvent<K extends InvocationEventType>(
+    event: InvocationEventFor<K>
+  ): InvocationEventEnvelope<K>
+  function emitEvent(event: InvocationEvent): InvocationEventEnvelope {
+    emitted.push({ type: event.type, payload: event.payload })
+    return { invocationId: id, seq: emitted.length, time: new Date(0).toISOString(), ...event }
+  }
   return {
-    invocationId,
-    clientCapabilities: {} as ClientCapabilities,
+    invocationId: id,
+    clientCapabilities: {},
     runtime: { terminalSurface: { ...LEASE } },
-    emit: (type, payload) => {
-      emitted.push({ type: String(type), payload })
-    },
+    emit: (type, payload) => emitEvent({ type, payload }),
+    emitEvent,
   }
 }
 

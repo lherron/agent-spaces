@@ -123,9 +123,7 @@ describe('T-04408 red 4 — runtime preservation (setup needs parseDispatchEnv)'
     // SyntaxError at module load → never reaches this line.
     // Green: valid DispatchEnv({ASP_RUN_ID}) + lockedEnv({CODEX_HOME}) compose without collision;
     // raw cross-channel collision still throws (defense-in-depth guard preserved).
-    const validDispatch = (parseDispatchEnv as unknown as (x: unknown) => Record<string, string>)({
-      ASP_RUN_ID: 'run_123',
-    })
+    const validDispatch = parseDispatchEnv({ ASP_RUN_ID: 'run_123' })
     // Clean compose (different keys)
     const env = buildProcessEnv({
       lockedEnv: { CODEX_HOME: '/workspace' },
@@ -136,7 +134,11 @@ describe('T-04408 red 4 — runtime preservation (setup needs parseDispatchEnv)'
     // Cross-channel collision still detected (defense-in-depth — parseDispatchEnv prevents
     // this at the boundary, but buildProcessEnv's own guard remains)
     expect(() =>
-      buildProcessEnv({ lockedEnv: { MY_KEY: 'locked' }, dispatchEnv: { MY_KEY: 'dispatch' } })
+      buildProcessEnv({
+        lockedEnv: { MY_KEY: 'locked' },
+        // Parsed without the lockedEnv, so the collision reaches buildProcessEnv's own guard.
+        dispatchEnv: parseDispatchEnv({ MY_KEY: 'dispatch' }),
+      })
     ).toThrow()
   })
 })

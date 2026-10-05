@@ -98,7 +98,7 @@ describe('harness-broker-evidence-authority.md matches the enforced declaration'
   test('every event family appears in the published table', () => {
     const families = new Set(Object.values(EVENT_FAMILY_BY_TYPE))
     const publishedFamilies = new Set(Object.keys(published['claude-code-tmux'] ?? {}))
-    expect([...families].sort()).toEqual([...publishedFamilies].sort())
+    expect<string[]>([...families].sort()).toEqual([...publishedFamilies].sort())
   })
 
   test('the load-bearing families section lists the families and the T-07883 ruling', () => {

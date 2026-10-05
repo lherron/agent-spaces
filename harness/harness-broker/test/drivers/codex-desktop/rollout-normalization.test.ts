@@ -22,7 +22,7 @@ function desktopProjectionIdentityForTest(event: {
   type?: unknown
   itemId?: unknown
   turnId?: unknown
-  provenance?: { rawSha256?: unknown; nativeId?: unknown }
+  provenance?: { rawSha256?: unknown; nativeId?: unknown } | undefined
 }): string | undefined {
   const rawSha256 = event.provenance?.rawSha256
   if (typeof rawSha256 !== 'string' || typeof event.type !== 'string') return undefined
@@ -155,7 +155,7 @@ describe('codex-desktop rollout normalization', () => {
     expect(observed.filter((event) => event.type === 'assistant.message.started')).toHaveLength(0)
     expect(observed.filter((event) => event.type === 'usage.updated')).toHaveLength(1)
     expect(observed.filter((event) => event.type === 'turn.completed')).toHaveLength(1)
-    expect(observed.every((event) => event.provenance.rawRecordId !== undefined)).toBe(true)
+    expect(observed.every((event) => event.provenance?.rawRecordId !== undefined)).toBe(true)
   })
 
   test('does not fabricate a start when native call identity or turn identity is incomplete', async () => {
@@ -216,18 +216,15 @@ describe('codex-desktop rollout normalization', () => {
       ].join('')
     )
 
-    const parents = events.filter(
-      (event) => event.type === 'tool.call.completed' && event.payload.name === 'exec/orchestration'
-    )
-    const children = events.filter(
-      (event) => event.type === 'tool.call.completed' && event.payload.name === 'command'
-    )
-    expect(parents.map((event) => event.payload.toolCallId)).toEqual([
+    const completions = events.filter((event) => event.type === 'tool.call.completed')
+    const parents = completions.filter((event) => event.payload.name === 'exec/orchestration')
+    const children = completions.filter((event) => event.payload.name === 'command')
+    expect<string[]>(parents.map((event) => event.payload.toolCallId)).toEqual([
       'call-zero',
       'call-one',
       'call-parallel',
     ])
-    expect(children.map((event) => event.payload.toolCallId)).toEqual([
+    expect<string[]>(children.map((event) => event.payload.toolCallId)).toEqual([
       'exec-parallel-b',
       'exec-one',
       'exec-parallel-a',
@@ -326,16 +323,15 @@ describe('codex-desktop rollout normalization', () => {
     )
 
     const starts = events.filter((event) => event.type === 'tool.call.started')
-    const parentCompletions = events.filter(
-      (event) => event.type === 'tool.call.completed' && event.payload.name === 'exec/orchestration'
+    const completions = events.filter((event) => event.type === 'tool.call.completed')
+    const parentCompletions = completions.filter(
+      (event) => event.payload.name === 'exec/orchestration'
     )
-    const childCompletions = events.filter(
-      (event) => event.type === 'tool.call.completed' && event.payload.name === 'command'
-    )
-    expect(starts.map((event) => event.payload.toolCallId)).toEqual(
+    const childCompletions = completions.filter((event) => event.payload.name === 'command')
+    expect<string[]>(starts.map((event) => event.payload.toolCallId)).toEqual(
       specimens.map((sample) => sample.callId)
     )
-    expect(parentCompletions.map((event) => event.payload.toolCallId)).toEqual(
+    expect<string[]>(parentCompletions.map((event) => event.payload.toolCallId)).toEqual(
       specimens.map((sample) => sample.callId)
     )
     expect(starts.map((event) => event.time)).toEqual(specimens.map((sample) => sample.start))
@@ -348,7 +344,7 @@ describe('codex-desktop rollout normalization', () => {
         codeModeOutput: [{ type: 'input_text', text: `orchestration ${n}\n` }],
       }))
     )
-    expect(childCompletions.map((event) => event.payload.toolCallId)).toEqual(
+    expect<string[]>(childCompletions.map((event) => event.payload.toolCallId)).toEqual(
       specimens.map((sample) => sample.completionId)
     )
     expect(childCompletions.map((event) => event.time)).toEqual(

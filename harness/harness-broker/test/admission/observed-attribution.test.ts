@@ -3,12 +3,13 @@ import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../../src/broker'
 import { createTestDriver } from '../../src/testing/test-driver'
 import { testDriverSpec } from '../helpers'
+import { inputIdFrom, invocationIdFrom, turnIdFrom } from '../ids'
 import { eventsFor, flush, origin, setup } from './fixture'
 
 describe('broker admission API: observed-bracket attribution holds and fails closed', () => {
   test('observed mode holds launch input in the real queue across an unattributed turn', async () => {
     const events: InvocationEventEnvelope[] = []
-    const foreignTurn = 'turn_observed_launch' as const
+    const foreignTurn = turnIdFrom('turn_observed_launch')
     const { driver, controller } = createTestDriver({
       bracketMintingMode: 'observed',
       admissionClasses: ['steer', 'queue'],
@@ -23,9 +24,9 @@ describe('broker admission API: observed-bracket attribution holds and fails clo
       },
     })
     const broker = createBroker({ drivers: [driver], onEvent: (event) => events.push(event) })
-    const invocationId = 'inv_observed_launch'
+    const invocationId = invocationIdFrom('inv_observed_launch')
     const initialInput = {
-      inputId: 'input_observed_launch',
+      inputId: inputIdFrom('input_observed_launch'),
       kind: 'user' as const,
       content: [{ type: 'text' as const, text: 'launch through queue' }],
     }
@@ -44,8 +45,8 @@ describe('broker admission API: observed-bracket attribution holds and fails clo
     const steer = await broker.steer({ invocationId, origin, body: 'mid-turn' })
     expect(steer).toMatchObject({ admission: 'admitted' })
     await flush()
-    expect(controller.steeredInputs.map((input) => input.inputId)).toEqual([
-      steer.submissionId as never,
+    expect<(string | undefined)[]>(controller.steeredInputs.map((input) => input.inputId)).toEqual([
+      steer.submissionId,
     ])
 
     controller.emitRaw(
@@ -69,11 +70,13 @@ describe('broker admission API: observed-bracket attribution holds and fails clo
       { turnId: foreignTurn }
     )
     await flush()
-    expect(controller.inputs.map((input) => input.inputId)).toEqual(['input_observed_launch'])
+    expect<(string | undefined)[]>(controller.inputs.map((input) => input.inputId)).toEqual([
+      'input_observed_launch',
+    ])
   })
 
   test('observed launch input can be withdrawn while held behind startup attribution', async () => {
-    const foreignTurn = 'turn_observed_withdraw' as const
+    const foreignTurn = turnIdFrom('turn_observed_withdraw')
     const { driver, controller } = createTestDriver({
       bracketMintingMode: 'observed',
       admissionClasses: ['steer', 'queue'],
@@ -86,11 +89,11 @@ describe('broker admission API: observed-bracket attribution holds and fails clo
       },
     })
     const broker = createBroker({ drivers: [driver] })
-    const invocationId = 'inv_observed_launch_withdraw'
+    const invocationId = invocationIdFrom('inv_observed_launch_withdraw')
     await broker.start({
       spec: testDriverSpec(invocationId),
       initialInput: {
-        inputId: 'input_observed_launch_withdraw',
+        inputId: inputIdFrom('input_observed_launch_withdraw'),
         kind: 'user',
         content: [{ type: 'text', text: 'withdraw me' }],
       },
@@ -161,7 +164,9 @@ describe('broker admission API: observed-bracket attribution holds and fails clo
     run.controller.notifyAdmissionStateChanged()
     await flush()
     expect(attempts).toBe(2)
-    expect(run.controller.inputs.map((input) => input.inputId)).toEqual([admitted.submissionId])
+    expect<(string | undefined)[]>(run.controller.inputs.map((input) => input.inputId)).toEqual([
+      admitted.submissionId,
+    ])
     expect((await run.broker.queueList({ invocationId: run.invocationId })).entries).toHaveLength(0)
   })
 
@@ -181,7 +186,7 @@ describe('broker admission API: observed-bracket attribution holds and fails clo
     )
     const pending = await broker.enqueue({ invocationId, origin, body: 'pending' })
     await flush()
-    const unknownTurn = 'turn_observed_unknown' as const
+    const unknownTurn = turnIdFrom('turn_observed_unknown')
     controller.emitRaw(
       'turn.started',
       { turnId: unknownTurn, source: 'observed' },

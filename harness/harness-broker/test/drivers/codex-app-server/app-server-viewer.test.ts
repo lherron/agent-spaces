@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import { readFile } from 'node:fs/promises'
-import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
+import type { InvocationEventEnvelope, InvocationId } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { postEnvelope } from '../../../src/drivers/hook-bridge-transport'
+import { invocationIdFrom } from '../../ids'
 import {
   appServerBroker,
   eventTypes,
@@ -29,7 +30,7 @@ async function withRendererControl(
   fn: (ctx: {
     broker: ReturnType<typeof appServerBroker>['broker']
     events: InvocationEventEnvelope[]
-    invocationId: string
+    invocationId: InvocationId
     runtimeId: string
     controlSocket: string
   }) => Promise<void>
@@ -38,7 +39,7 @@ async function withRendererControl(
   const runtimeId = `runtime_codex_app_server_${name}`
   const lease = paneLease()
   const spec = scenarioSpec('stop-active', {
-    invocationId: `inv_renderer_${name}`,
+    invocationId: invocationIdFrom(`inv_renderer_${name}`),
     correlation: { runtimeId },
   })
 
@@ -47,7 +48,7 @@ async function withRendererControl(
     async (logPath) => {
       await broker.start({ spec }, undefined, viewerRuntime(lease, { required: true }))
       await broker.input({
-        invocationId: spec.invocationId ?? '',
+        invocationId: spec.invocationId,
         input: userInput,
         policy: { whenBusy: 'reject' },
       })
@@ -55,7 +56,7 @@ async function withRendererControl(
       await fn({
         broker,
         events,
-        invocationId: spec.invocationId ?? '',
+        invocationId: spec.invocationId,
         runtimeId,
         controlSocket,
       })
@@ -163,7 +164,7 @@ describe('Codex app-server renderer process red tests (T-04909 Phase B)', () => 
       async (logPath) => {
         await broker.start({ spec }, undefined, viewerRuntime(lease, { required: true }))
         await broker.input({
-          invocationId: spec.invocationId ?? '',
+          invocationId: spec.invocationId,
           input: userInput,
           policy: { whenBusy: 'reject' },
         })

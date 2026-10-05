@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import { readFile, readdir } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
-import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { createEventLedger } from '../../../src/event-ledger'
+import { inputIdFrom, invocationIdFrom } from '../../ids'
 import {
   appServerBroker,
   eventTypes,
@@ -120,9 +120,9 @@ describe('Codex app-server golden scenarios', () => {
   test('stops an active invocation with graceful child termination', async () => {
     const { broker, events } = appServerBroker()
     await broker.start({ spec: scenarioSpec('stop-active') })
-    await broker.input({ invocationId: 'inv_stop_active', input: userInput })
+    await broker.input({ invocationId: invocationIdFrom('inv_stop_active'), input: userInput })
     await broker.stop({
-      invocationId: 'inv_stop_active',
+      invocationId: invocationIdFrom('inv_stop_active'),
       reason: 'operator stop',
       graceMs: 500,
     })
@@ -135,23 +135,23 @@ describe('Codex app-server golden scenarios', () => {
 
     await expect(
       broker.input({
-        invocationId: 'inv_unsupported_controls',
-        input: { ...userInput, inputId: 'steer_1', kind: 'steer' },
+        invocationId: invocationIdFrom('inv_unsupported_controls'),
+        input: { ...userInput, inputId: inputIdFrom('steer_1'), kind: 'steer' },
         policy: { whenBusy: 'reject' },
       })
     ).rejects.toMatchObject({ code: BrokerErrorCode.UnsupportedCapability })
 
     await expect(
       broker.input({
-        invocationId: 'inv_unsupported_controls',
-        input: { ...userInput, inputId: 'append_1', kind: 'append_context' },
+        invocationId: invocationIdFrom('inv_unsupported_controls'),
+        input: { ...userInput, inputId: inputIdFrom('append_1'), kind: 'append_context' },
         policy: { whenBusy: 'reject' },
       })
     ).rejects.toMatchObject({ code: BrokerErrorCode.UnsupportedCapability })
 
     await expect(
       broker.interrupt({
-        invocationId: 'inv_unsupported_controls',
+        invocationId: invocationIdFrom('inv_unsupported_controls'),
         scope: 'turn',
         reason: 'red test',
       })
@@ -171,7 +171,7 @@ describe('Codex app-server turn brackets and input', () => {
     await broker.start({ spec })
 
     const first = await broker.input({
-      invocationId: spec.invocationId ?? '',
+      invocationId: spec.invocationId,
       input: userInput,
       policy: { whenBusy: 'reject' },
     })
@@ -180,14 +180,14 @@ describe('Codex app-server turn brackets and input', () => {
       (event) => event.type === 'turn.completed' && event.turnId === 'turn_1'
     )
     const second = await broker.input({
-      invocationId: spec.invocationId ?? '',
-      input: { ...userInput, inputId: 'input_2' },
+      invocationId: spec.invocationId,
+      input: { ...userInput, inputId: inputIdFrom('input_2') },
       policy: { whenBusy: 'reject' },
     })
 
-    expect(first.turnId).toBe('turn_1')
-    expect(second.turnId).toBe('turn_2')
-    expect(
+    expect<string | undefined>(first.turnId).toBe('turn_1')
+    expect<string | undefined>(second.turnId).toBe('turn_2')
+    expect<Array<string | undefined>>(
       events.filter((event) => event.type === 'turn.started').map((event) => event.turnId)
     ).toEqual(['turn_1', 'turn_2'])
     expect(events.filter((event) => event.type === 'capture.warning')).toHaveLength(0)
@@ -199,13 +199,13 @@ describe('Codex app-server turn brackets and input', () => {
     await broker.start({ spec })
 
     const response = await broker.input({
-      invocationId: spec.invocationId ?? '',
+      invocationId: spec.invocationId,
       input: userInput,
       policy: { whenBusy: 'reject' },
     })
     await waitForEvent(events, (event) => event.type === 'capture.warning')
 
-    expect(response.turnId).toBe('turn_acknowledged')
+    expect<string | undefined>(response.turnId).toBe('turn_acknowledged')
     expect(
       events.some((event) => event.type === 'turn.started' && event.turnId === 'turn_different')
     ).toBe(false)
@@ -231,7 +231,7 @@ describe('Codex app-server turn brackets and input', () => {
 
     await broker.start({ spec })
     await broker.input({
-      invocationId: spec.invocationId ?? '',
+      invocationId: spec.invocationId,
       input: userInput,
       policy: { whenBusy: 'reject' },
     })
@@ -271,14 +271,14 @@ describe('Codex app-server turn brackets and input', () => {
 
     await broker.start({ spec })
     await broker.input({
-      invocationId: spec.invocationId ?? '',
+      invocationId: spec.invocationId,
       input: userInput,
       policy: { whenBusy: 'reject' },
     })
     await waitForEvent(events, (event) => (event.type as string) === 'provider.transcript.reported')
 
     const replay = await broker.eventsSince({
-      invocationId: spec.invocationId ?? '',
+      invocationId: spec.invocationId,
       afterSeq: 0,
     })
     const liveReports = events.filter(
@@ -294,11 +294,10 @@ describe('Codex app-server turn brackets and input', () => {
     expect(replayReports).toHaveLength(1)
     expect(replayReports[0]).toEqual(liveReports[0])
 
-    const report = liveReports[0] as InvocationEventEnvelope<{
-      kind?: unknown
-      artifactPath?: unknown
-      provider?: unknown
-    }>
+    const report = liveReports[0]
+    if (report?.type !== 'provider.transcript.reported') {
+      throw new Error('expected a provider.transcript.reported event')
+    }
     expect(report.payload).toMatchObject({
       kind: 'provider-transcript-jsonl',
       provider: 'codex',
@@ -327,7 +326,7 @@ describe('Codex app-server turn brackets and input', () => {
     expect(rows.some((row) => row.method === 'turn.completed')).toBe(false)
   })
 
-  test.todo('permission request policies are Phase 3 scope per T-01544')
+  test.todo('permission request policies are Phase 3 scope per T-01544', () => {})
 
   test('encodes sandboxMode as Codex internally tagged sandboxPolicy', async () => {
     const { broker, events } = appServerBroker()
@@ -343,7 +342,7 @@ describe('Codex app-server turn brackets and input', () => {
     await broker.start({ spec })
     await expect(
       broker.input({
-        invocationId: spec.invocationId ?? '',
+        invocationId: spec.invocationId,
         input: userInput,
         policy: { whenBusy: 'reject' },
       })
@@ -355,17 +354,20 @@ describe('Codex app-server turn brackets and input', () => {
   test('interrupts the active Codex turn with exact thread and turn ids', async () => {
     const { broker } = appServerBroker()
     await broker.start({ spec: scenarioSpec('interrupt-active') })
-    await broker.input({ invocationId: 'inv_interrupt_active', input: userInput })
+    await broker.input({ invocationId: invocationIdFrom('inv_interrupt_active'), input: userInput })
 
     await expect(
       broker.interrupt({
-        invocationId: 'inv_interrupt_active',
+        invocationId: invocationIdFrom('inv_interrupt_active'),
         scope: 'turn',
         reason: 'unit test',
       })
     ).resolves.toEqual({ accepted: true, effect: 'turn_interrupted' })
 
-    await broker.stop({ invocationId: 'inv_interrupt_active', reason: 'test done' })
+    await broker.stop({
+      invocationId: invocationIdFrom('inv_interrupt_active'),
+      reason: 'test done',
+    })
   })
 })
 

@@ -4,6 +4,7 @@ import type { HarnessInvocationSpec, InvocationEventEnvelope } from 'spaces-harn
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../src/broker'
 import { createCodexAppServerDriver } from '../src/drivers/codex-app-server/driver'
+import { inputIdFrom, invocationIdFrom } from './ids'
 
 const root = new URL('..', import.meta.url).pathname
 const fixtureDir = join(root, 'test/fixtures/fake-codex')
@@ -12,7 +13,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 const scenarioSpec = (scenario: string): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId: `inv_input_${scenario.replaceAll('-', '_')}`,
+  invocationId: invocationIdFrom(`inv_input_${scenario.replaceAll('-', '_')}`),
   harness: {
     frontend: 'codex',
     provider: 'openai',
@@ -38,7 +39,7 @@ const scenarioSpec = (scenario: string): HarnessInvocationSpec => ({
 })
 
 const userInput = {
-  inputId: 'input_user_1',
+  inputId: inputIdFrom('input_user_1'),
   kind: 'user' as const,
   content: [{ type: 'text' as const, text: 'Start a turn.' }],
 }
@@ -52,7 +53,7 @@ describe('Invocation input policy', () => {
     await expect(
       broker.input({
         invocationId: spec.invocationId!,
-        input: { ...userInput, inputId: 'steer_1', kind: 'steer' },
+        input: { ...userInput, inputId: inputIdFrom('steer_1'), kind: 'steer' },
         policy: { whenBusy: 'reject' },
       })
     ).rejects.toMatchObject({ code: BrokerErrorCode.UnsupportedCapability })
@@ -66,7 +67,7 @@ describe('Invocation input policy', () => {
     await expect(
       broker.input({
         invocationId: spec.invocationId!,
-        input: { ...userInput, inputId: 'append_1', kind: 'append_context' },
+        input: { ...userInput, inputId: inputIdFrom('append_1'), kind: 'append_context' },
         policy: { whenBusy: 'reject' },
       })
     ).rejects.toMatchObject({ code: BrokerErrorCode.UnsupportedCapability })
@@ -90,7 +91,7 @@ describe('Invocation input policy', () => {
     await expect(
       broker.input({
         invocationId: spec.invocationId!,
-        input: { ...userInput, inputId: 'input_user_2' },
+        input: { ...userInput, inputId: inputIdFrom('input_user_2') },
         policy: { whenBusy: 'reject' },
       })
     ).rejects.toMatchObject({ code: BrokerErrorCode.InputRejected })

@@ -4,6 +4,7 @@ import type { HarnessInvocationSpec, InvocationEventEnvelope } from 'spaces-harn
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../src/broker'
 import { createCodexAppServerDriver } from '../src/drivers/codex-app-server/driver'
+import { inputIdFrom, invocationIdFrom } from './ids'
 
 const root = new URL('..', import.meta.url).pathname
 const fixtureDir = join(root, 'test/fixtures/fake-codex')
@@ -16,7 +17,7 @@ const scenarioSpec = (
   overrides: Partial<HarnessInvocationSpec> = {}
 ): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId: `inv_timeout_${scenario.replaceAll('-', '_')}`,
+  invocationId: invocationIdFrom(`inv_timeout_${scenario.replaceAll('-', '_')}`),
   harness: {
     frontend: 'codex',
     provider: 'openai',
@@ -47,7 +48,7 @@ const scenarioSpec = (
 })
 
 const userInput = {
-  inputId: 'input_timeout_1',
+  inputId: inputIdFrom('input_timeout_1'),
   kind: 'user' as const,
   content: [{ type: 'text' as const, text: 'Wait long enough to timeout.' }],
 }

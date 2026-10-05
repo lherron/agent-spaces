@@ -6,6 +6,7 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../src/broker'
 import { createTestDriver } from '../src/testing/test-driver'
+import { inputIdFrom, invocationIdFrom } from './ids'
 
 const now = () => new Date('2026-07-10T09:00:00.000Z')
 
@@ -13,7 +14,7 @@ const flushMicrotasks = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 const testSpec = (invocationId: string): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId,
+  invocationId: invocationIdFrom(invocationId),
   harness: {
     frontend: 'test',
     provider: 'test',
@@ -36,7 +37,7 @@ const testSpec = (invocationId: string): HarnessInvocationSpec => ({
 })
 
 const userInput = (inputId: string, text: string): InvocationInput => ({
-  inputId,
+  inputId: inputIdFrom(inputId),
   kind: 'user',
   content: [{ type: 'text', text }],
 })
@@ -60,7 +61,7 @@ describe('event delivery order', () => {
       onEvent: (event) => events.push(event),
       now,
     })
-    const invocationId = 'inv_event_order_queued_drain'
+    const invocationId = invocationIdFrom('inv_event_order_queued_drain')
     await broker.start({ spec: testSpec(invocationId) })
 
     await expect(
@@ -103,7 +104,7 @@ describe('event delivery order', () => {
       onEvent: (event) => events.push(event),
       now,
     })
-    const invocationId = 'inv_event_order_evict'
+    const invocationId = invocationIdFrom('inv_event_order_evict')
     await broker.start({ spec: testSpec(invocationId) })
 
     await broker.input({ invocationId, input: userInput('input_active', 'first turn') })

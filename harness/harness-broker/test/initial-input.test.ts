@@ -7,6 +7,7 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../src/broker'
 import { createCodexAppServerDriver } from '../src/drivers/codex-app-server/driver'
+import { inputIdFrom, invocationIdFrom } from './ids'
 
 const root = new URL('..', import.meta.url).pathname
 const fixtureDir = join(root, 'test/fixtures/fake-codex')
@@ -14,7 +15,7 @@ const now = () => new Date('2026-05-20T19:30:00.000Z')
 
 const scenarioSpec = (scenario: string): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId: `inv_initial_input_${scenario.replaceAll('-', '_')}`,
+  invocationId: invocationIdFrom(`inv_initial_input_${scenario.replaceAll('-', '_')}`),
   harness: {
     frontend: 'codex',
     provider: 'openai',
@@ -40,7 +41,7 @@ const scenarioSpec = (scenario: string): HarnessInvocationSpec => ({
 })
 
 const userInput: InvocationInput = {
-  inputId: 'input_initial_1',
+  inputId: inputIdFrom('input_initial_1'),
   kind: 'user',
   content: [{ type: 'text', text: 'Initial input via start request.' }],
 }
@@ -57,7 +58,7 @@ describe('initialInput on InvocationStartRequest', () => {
     const spec = scenarioSpec('start-fresh-turn')
     const response = await broker.start({ spec, initialInput: userInput })
 
-    expect(response.invocationId).toBe(spec.invocationId)
+    expect<string | undefined>(response.invocationId).toBe(spec.invocationId)
 
     // Wait for turn to complete (fake-codex completes synchronously after turn/start)
     const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -106,7 +107,7 @@ describe('initialInput on InvocationStartRequest', () => {
     const spec = scenarioSpec('start-fresh-turn')
     const response = await broker.start({ spec })
 
-    expect(response.invocationId).toBe(spec.invocationId)
+    expect<string | undefined>(response.invocationId).toBe(spec.invocationId)
     expect(response.state).toBe('ready')
 
     const eventTypes = events.map((e) => e.type)
@@ -129,7 +130,7 @@ describe('initialInput on InvocationStartRequest', () => {
 
     const spec1 = scenarioSpec('start-fresh-turn')
     await broker1.start({
-      spec: { ...spec1, invocationId: 'inv_with_initial' },
+      spec: { ...spec1, invocationId: invocationIdFrom('inv_with_initial') },
       initialInput: userInput,
     })
 
@@ -147,9 +148,9 @@ describe('initialInput on InvocationStartRequest', () => {
     })
 
     const spec2 = scenarioSpec('start-fresh-turn')
-    await broker2.start({ spec: { ...spec2, invocationId: 'inv_separate' } })
+    await broker2.start({ spec: { ...spec2, invocationId: invocationIdFrom('inv_separate') } })
     await broker2.input({
-      invocationId: 'inv_separate',
+      invocationId: invocationIdFrom('inv_separate'),
       input: userInput,
     })
 

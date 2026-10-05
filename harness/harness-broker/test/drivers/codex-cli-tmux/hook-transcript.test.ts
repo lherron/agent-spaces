@@ -96,13 +96,18 @@ const stop = (extra: Record<string, unknown> = {}): Record<string, unknown> => (
 const eventTypes = (events: InvocationEventEnvelope[]): InvocationEventType[] =>
   events.map((event) => event.type)
 
+// Payload interfaces carry no index signature; a spread copy reads any field.
+const payloadFields = (event: InvocationEventEnvelope): Record<string, unknown> => ({
+  ...event.payload,
+})
+
 const text = (event: InvocationEventEnvelope): string => {
-  const content = event.payload['content'] as Array<{ text?: string }> | undefined
+  const content = payloadFields(event)['content'] as Array<{ text?: string }> | undefined
   return content?.[0]?.text ?? ''
 }
 
 const finals = (events: InvocationEventEnvelope[]): (boolean | undefined)[] =>
-  events.map((event) => event.payload['final'] as boolean | undefined)
+  events.map((event) => payloadFields(event)['final'] as boolean | undefined)
 
 const createHarness = async () => {
   const factory = await loadFactory()

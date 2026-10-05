@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { inputIdFrom, turnIdFrom } from '../ids'
 import {
   codexPromptCorrelation,
   eventsFor,
@@ -25,14 +26,14 @@ describe('broker admission API: harness-evidence delivery correlation', () => {
     expect((await broker.queueList({ invocationId })).entries).toHaveLength(2)
 
     for (let index = 0; index < queued.length; index += 1) {
-      expect(controller.activeInput?.inputId).toBe(queued[index]?.submissionId)
+      expect<string | undefined>(controller.activeInput?.inputId).toBe(queued[index]?.submissionId)
       controller.observeActiveTurnStart()
       await flush()
       controller.completeActiveTurn()
       await flush()
     }
 
-    expect(controller.inputs.map((input) => input.inputId)).toEqual(
+    expect<(string | undefined)[]>(controller.inputs.map((input) => input.inputId)).toEqual(
       queued.map((submission) => submission.submissionId)
     )
     expect(eventsFor(events, 'submission.executed')).toHaveLength(3)
@@ -52,7 +53,7 @@ describe('broker admission API: harness-evidence delivery correlation', () => {
     await flush()
     expect((await broker.seatProbe({ invocationId })).seat).toEqual({ state: 'starting' })
 
-    const foreignTurnId = 'turn_foreign' as const
+    const foreignTurnId = turnIdFrom('turn_foreign')
     controller.emitRaw(
       'turn.started',
       { turnId: foreignTurnId, source: 'hook-observed' },
@@ -80,7 +81,7 @@ describe('broker admission API: harness-evidence delivery correlation', () => {
     controller.emitRaw(
       'submission.executed',
       { submissionId: pending.submissionId, turnId: 'turn_own' },
-      { turnId: 'turn_own', inputId: pending.submissionId }
+      { turnId: turnIdFrom('turn_own'), inputId: inputIdFrom(pending.submissionId) }
     )
     await flush()
     expect(eventsForSubmission(events, 'submission.executed', pending.submissionId)).toHaveLength(1)
@@ -100,12 +101,12 @@ describe('broker admission API: harness-evidence delivery correlation', () => {
     controller.emitRaw(
       'turn.started',
       { turnId: 'turn_unowned', source: 'hook-observed' },
-      { turnId: 'turn_unowned' }
+      { turnId: turnIdFrom('turn_unowned') }
     )
     controller.emitRaw(
       'turn.completed',
       { turnId: 'turn_unowned', status: 'completed' },
-      { turnId: 'turn_unowned' }
+      { turnId: turnIdFrom('turn_unowned') }
     )
     await flush()
 
@@ -143,7 +144,7 @@ describe('broker admission API: harness-evidence delivery correlation', () => {
     await flush()
     expect(controller.inputs).toHaveLength(1)
 
-    const firstTurn = 'turn_codex_first' as const
+    const firstTurn = turnIdFrom('turn_codex_first')
     controller.emitRaw(
       'turn.started',
       { turnId: firstTurn, source: 'hook-observed', prompt: 'first codex prompt' },
@@ -157,7 +158,7 @@ describe('broker admission API: harness-evidence delivery correlation', () => {
     await flush()
 
     expect(controller.inputs).toHaveLength(2)
-    const secondTurn = 'turn_codex_second' as const
+    const secondTurn = turnIdFrom('turn_codex_second')
     controller.emitRaw(
       'turn.started',
       { turnId: secondTurn, source: 'hook-observed', prompt: 'second codex prompt' },
@@ -170,12 +171,12 @@ describe('broker admission API: harness-evidence delivery correlation', () => {
     )
     await flush()
 
-    expect(eventsFor(events, 'turn.started').map((event) => [event.turnId, event.inputId])).toEqual(
-      [
-        [firstTurn, first.submissionId],
-        [secondTurn, second.submissionId],
-      ]
-    )
+    expect<(string | undefined)[][]>(
+      eventsFor(events, 'turn.started').map((event) => [event.turnId, event.inputId])
+    ).toEqual([
+      [firstTurn, first.submissionId],
+      [secondTurn, second.submissionId],
+    ])
     expect(eventsFor(events, 'submission.executed').map((event) => event.payload)).toEqual([
       { submissionId: first.submissionId, turnId: firstTurn },
       { submissionId: second.submissionId, turnId: secondTurn },
@@ -197,7 +198,7 @@ describe('broker admission API: harness-evidence delivery correlation', () => {
     const pending = await broker.enqueue({ invocationId, origin, body: 'broker delivery' })
     const held = await broker.enqueue({ invocationId, origin, body: 'must use a fresh seat' })
     await flush()
-    const foreignTurn = 'turn_codex_foreign' as const
+    const foreignTurn = turnIdFrom('turn_codex_foreign')
     controller.emitRaw(
       'turn.started',
       { turnId: foreignTurn, source: 'hook-observed', prompt: 'operator prompt' },

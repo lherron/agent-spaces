@@ -38,9 +38,11 @@ const approvalRequest = (): MuseJsonRpcRequest => ({
 })
 
 const stubRpc = (seen: Array<Record<string, unknown>>): MuseRpcPeer => ({
-  sendRequest: async (_method: string, params?: unknown) => {
+  sendRequest: async <T>(_method: string, params?: unknown): Promise<T> => {
     seen.push((params ?? {}) as Record<string, unknown>)
-    return {}
+    // Like the real peer, the result is decoded from a JSON frame; the
+    // permission handler ignores it.
+    return JSON.parse('{}')
   },
   sendNotification: async () => undefined,
   close: () => undefined,

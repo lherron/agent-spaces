@@ -3,6 +3,7 @@ import {
   CODEX_DRIVER_KIND,
   createCodexNotificationMapper,
 } from '../../../src/drivers/codex-app-server/event-map'
+import { messageIdFrom, toolCallIdFrom, turnIdFrom } from '../../ids'
 import { agentMessageCompleted, codexMapperPerTest, note } from './codex-notifications'
 
 const { map: mapCodexNotification, sequence: mapSequence } = codexMapperPerTest()
@@ -37,12 +38,12 @@ describe('mapCodexNotification — turn and message flow', () => {
       expect(assistantCompleted).toHaveLength(2)
       expect(assistantCompleted.map((event) => event.payload)).toEqual([
         {
-          messageId: 'msg_1',
+          messageId: messageIdFrom('msg_1'),
           content: [{ type: 'text', text: 'First answer.' }],
           final: false,
         },
         {
-          messageId: 'msg_2',
+          messageId: messageIdFrom('msg_2'),
           content: [{ type: 'text', text: 'Final answer.' }],
           final: true,
         },
@@ -72,7 +73,7 @@ describe('mapCodexNotification — turn and message flow', () => {
         'turn.completed',
       ])
       expect(terminalEvents[0]?.payload).toEqual({
-        messageId: 'msg_1',
+        messageId: messageIdFrom('msg_1'),
         content: [{ type: 'text', text: 'Only answer.' }],
         final: true,
       })
@@ -93,13 +94,13 @@ describe('mapCodexNotification — turn and message flow', () => {
         'assistant.message.delta',
       ])
       expect(beforeTerminal.slice(1).map((event) => event.payload)).toEqual([
-        { messageId: 'msg_1' },
-        { messageId: 'msg_1', text: 'Hel' },
-        { messageId: 'msg_1', text: 'lo' },
+        { messageId: messageIdFrom('msg_1') },
+        { messageId: messageIdFrom('msg_1'), text: 'Hel' },
+        { messageId: messageIdFrom('msg_1'), text: 'lo' },
       ])
 
       const terminalEvents = mapCodexNotification(
-        note('turn/completed', { turnId: 'turn_1', status: 'completed' })
+        note('turn/completed', { turnId: turnIdFrom('turn_1'), status: 'completed' })
       )
 
       expect(terminalEvents.map((event) => event.type)).toEqual([
@@ -107,7 +108,7 @@ describe('mapCodexNotification — turn and message flow', () => {
         'turn.completed',
       ])
       expect(terminalEvents[0]?.payload).toEqual({
-        messageId: 'msg_1',
+        messageId: messageIdFrom('msg_1'),
         content: [{ type: 'text', text: 'Hello' }],
         final: true,
       })
@@ -171,7 +172,7 @@ describe('mapCodexNotification — turn and message flow', () => {
             message: 'Codex compacted the thread context',
           },
           extra: {
-            turnId: 'turn_1',
+            turnId: turnIdFrom('turn_1'),
             itemId: 'compact_1',
             driver: { kind: CODEX_DRIVER_KIND, rawType: 'item/completed' },
           },
@@ -201,7 +202,7 @@ describe('mapCodexNotification — turn and message flow', () => {
       )
       expect(events).toHaveLength(1)
       expect(events[0]?.payload).toEqual({
-        toolCallId: 'cmd_x',
+        toolCallId: toolCallIdFrom('cmd_x'),
         name: 'command',
       })
     })
@@ -216,7 +217,7 @@ describe('mapCodexNotification — turn and message flow', () => {
       expect(events).toHaveLength(1)
       expect(events[0]?.type).toBe('tool.call.completed')
       expect(events[0]?.payload).toEqual({
-        toolCallId: 'cmd_x',
+        toolCallId: toolCallIdFrom('cmd_x'),
         name: 'command',
         isError: false,
       })

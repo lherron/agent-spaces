@@ -7,7 +7,9 @@ import type {
   InvocationEventEnvelope,
   InvocationInput,
 } from 'spaces-harness-broker-protocol'
+import type { createCodexCliTmuxDriver } from '../../../src/drivers/codex-cli-tmux/driver'
 import type { DriverContext } from '../../../src/drivers/driver'
+import { inputIdFrom, invocationIdFrom, turnIdFrom } from '../../ids'
 
 type TmuxExecCall = {
   argv: string[]
@@ -33,34 +35,7 @@ type LaunchArtifact = {
   env?: Record<string, string | undefined> | undefined
 }
 
-type CodexCliTmuxDriverFactory = (options: {
-  tmux: {
-    socketPath: string
-    tmuxBin?: string | undefined
-    exec: (
-      argv: string[],
-      options?: { env?: Record<string, string | undefined> | undefined }
-    ) => Promise<{ stdout: string; stderr: string }>
-  }
-  hooks: {
-    listen: (handler: (envelope: HookEnvelope) => Promise<HookResult> | HookResult) => Promise<{
-      socketPath: string
-      close: () => Promise<void>
-    }>
-  }
-  now: () => Date
-}) => {
-  kind: string
-  failPendingOwnTurnOnForeignTurn?: boolean | undefined
-  correlatePendingOwnTurnStart?: import(
-    '../../../src/drivers/driver'
-  ).Driver['correlatePendingOwnTurnStart']
-  capabilities: () => ReturnType<import('../../../src/drivers/driver').Driver['capabilities']>
-  start: (spec: HarnessInvocationSpec, ctx: DriverContext) => Promise<{ ok: true }>
-  applyInputNow: (input: InvocationInput) => Promise<Record<string, never>>
-  stop: (req: { reason?: string | undefined }) => Promise<{ accepted: boolean; state: string }>
-  dispose: () => Promise<void>
-}
+type CodexCliTmuxDriverFactory = typeof createCodexCliTmuxDriver
 
 type TerminalSurfaceLease = {
   kind: 'tmux-pane'
@@ -81,7 +56,7 @@ type TerminalSurfaceLease = {
 }
 
 const now = () => new Date('2026-05-27T17:31:00.000Z')
-const invocationId = 'inv_codex_tmux_driver_1'
+const invocationId = invocationIdFrom('inv_codex_tmux_driver_1')
 
 const codexTmuxSpec = (): HarnessInvocationSpec =>
   ({
@@ -163,7 +138,7 @@ const paneLease = (overrides: Partial<TerminalSurfaceLease> = {}): TerminalSurfa
 const codexTmuxSpecWithIds = (nextInvocationId: string, runtimeId: string): HarnessInvocationSpec =>
   ({
     ...codexTmuxSpec(),
-    invocationId: nextInvocationId,
+    invocationId: invocationIdFrom(nextInvocationId),
     correlation: {
       hostSessionId: `host-${runtimeId}`,
       runtimeId,
@@ -173,15 +148,15 @@ const codexTmuxSpecWithIds = (nextInvocationId: string, runtimeId: string): Harn
 const createCtx = (
   events: InvocationEventEnvelope[],
   runtime?: { terminalSurface?: unknown; tmux?: { socketPath: string } } | undefined,
-  ctxInvocationId = invocationId
+  ctxInvocationId: string = invocationId
 ): DriverContext =>
   ({
-    invocationId: ctxInvocationId,
+    invocationId: invocationIdFrom(ctxInvocationId),
     clientCapabilities: {},
     ...(runtime !== undefined ? { runtime } : {}),
     emit(type, payload, extra) {
       const event = {
-        invocationId: ctxInvocationId,
+        invocationId: invocationIdFrom(ctxInvocationId),
         seq: events.length + 1,
         time: now().toISOString(),
         type,
@@ -264,7 +239,7 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
       now,
     })
     const input: InvocationInput = {
-      inputId: 'input_codex_match',
+      inputId: inputIdFrom('input_codex_match'),
       kind: 'user',
       content: [{ type: 'text', text: 'the broker prompt' }],
     }
@@ -272,19 +247,19 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     expect(driver.failPendingOwnTurnOnForeignTurn).toBe(true)
     expect(
       driver.correlatePendingOwnTurnStart?.(
-        { turnId: 'turn_match', prompt: 'the broker prompt' },
+        { turnId: turnIdFrom('turn_match'), prompt: 'the broker prompt' },
         input
       )
     ).toBe(true)
     expect(
       driver.correlatePendingOwnTurnStart?.(
-        { turnId: 'turn_priming', prompt: 'launch priming' },
+        { turnId: turnIdFrom('turn_priming'), prompt: 'launch priming' },
         input
       )
     ).toBe(false)
-    expect(driver.correlatePendingOwnTurnStart?.({ turnId: 'turn_missing_prompt' }, input)).toBe(
-      false
-    )
+    expect(
+      driver.correlatePendingOwnTurnStart?.({ turnId: turnIdFrom('turn_missing_prompt') }, input)
+    ).toBe(false)
 
     // The astra@arris:primary specimen (2026-09-05): a human typed `ack han`
     // into the same pane while mail was being pasted, so Codex observed our
@@ -293,7 +268,7 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     // consecutive invocations even though every turn ran fine.
     expect(
       driver.correlatePendingOwnTurnStart?.(
-        { turnId: 'turn_interleaved', prompt: 'athe broker promptck han' },
+        { turnId: turnIdFrom('turn_interleaved'), prompt: 'athe broker promptck han' },
         input
       )
     ).toBe(true)
@@ -303,7 +278,7 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     // lossy-paste direction, which containment deliberately does not rescue.
     expect(
       driver.correlatePendingOwnTurnStart?.(
-        { turnId: 'turn_truncated', prompt: 'the broker pro' },
+        { turnId: turnIdFrom('turn_truncated'), prompt: 'the broker pro' },
         input
       )
     ).toBe(false)
@@ -313,8 +288,12 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     // foreign turn as ours.
     expect(
       driver.correlatePendingOwnTurnStart?.(
-        { turnId: 'turn_foreign', prompt: 'something unrelated' },
-        { inputId: 'input_codex_empty', kind: 'user', content: [{ type: 'text', text: '' }] }
+        { turnId: turnIdFrom('turn_foreign'), prompt: 'something unrelated' },
+        {
+          inputId: inputIdFrom('input_codex_empty'),
+          kind: 'user',
+          content: [{ type: 'text', text: '' }],
+        }
       )
     ).toBe(false)
   })
@@ -478,7 +457,7 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
 
     await driver.start(codexTmuxSpec(), createCtx(events, { terminalSurface: lease }))
     await driver.applyInputNow({
-      inputId: 'input_codex_driver_1',
+      inputId: inputIdFrom('input_codex_driver_1'),
       kind: 'user',
       content: [{ type: 'text', text: 'continue $WITHOUT_EXPANSION' }],
     })
@@ -528,7 +507,7 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     const createDriver = await loadFactory()
     const tmuxCalls: TmuxExecCall[] = []
     const events: InvocationEventEnvelope[] = []
-    let hookHandler: ((envelope: HookEnvelope) => Promise<HookResult>) | undefined
+    let hookHandler: ((envelope: HookEnvelope) => Promise<HookResult> | HookResult) | undefined
     const hookSocket =
       '/tmp/praesidium/runtime/broker-ipc/runtime-codex/hooks/codex-hooks.live.sock'
     const liveInvocationId = 'inv_codex_identity_live'
@@ -582,7 +561,7 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     const createDriver = await loadFactory()
     const tmuxCalls: TmuxExecCall[] = []
     const events: InvocationEventEnvelope[] = []
-    let hookHandler: ((envelope: HookEnvelope) => Promise<HookResult>) | undefined
+    let hookHandler: ((envelope: HookEnvelope) => Promise<HookResult> | HookResult) | undefined
     const hookSocket = '/tmp/harness-broker/codex-hooks.sock'
     const driver = createDriver({
       tmux: {
@@ -623,7 +602,7 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     const createDriver = await loadFactory()
     const tmuxCalls: TmuxExecCall[] = []
     const events: InvocationEventEnvelope[] = []
-    let hookHandler: ((envelope: HookEnvelope) => Promise<HookResult>) | undefined
+    let hookHandler: ((envelope: HookEnvelope) => Promise<HookResult> | HookResult) | undefined
     const hookSocket = '/tmp/harness-broker/codex-mail-stop.sock'
     const driver = createDriver({
       tmux: {
@@ -685,7 +664,7 @@ describe('codex-cli-tmux driver: hook-ordered transcript reading', () => {
     try {
       const createDriver = await loadFactory()
       const tmuxCalls: TmuxExecCall[] = []
-      let hookHandler: ((envelope: HookEnvelope) => Promise<HookResult>) | undefined
+      let hookHandler: ((envelope: HookEnvelope) => Promise<HookResult> | HookResult) | undefined
       const events: InvocationEventEnvelope[] = []
       const socketPath = '/tmp/harness-broker/codex-tmux.sock'
       const driver = createDriver({

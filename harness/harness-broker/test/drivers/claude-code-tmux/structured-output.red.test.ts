@@ -9,11 +9,15 @@ import type {
   InvocationEventEnvelope,
   InvocationInput,
 } from 'spaces-harness-broker-protocol'
-import { createClaudeCodeTmuxDriver } from '../../../src/drivers/claude-code-tmux/driver'
+import {
+  type HookEnvelopeHandler,
+  createClaudeCodeTmuxDriver,
+} from '../../../src/drivers/claude-code-tmux/driver'
 import type { ClaudeCodeHookEnvelope } from '../../../src/drivers/claude-code-tmux/hook-events'
 import { buildClaudeHookSettingsOverlay } from '../../../src/drivers/claude-code-tmux/launch'
 import type { DriverContext } from '../../../src/drivers/driver'
 import { listenForHookEnvelopes } from '../../../src/drivers/tmux-shared'
+import { inputIdFrom, invocationIdFrom } from '../../ids'
 
 type TmuxExecCall = {
   argv: string[]
@@ -37,9 +41,7 @@ type PaneLease = {
   }
 }
 
-type HookHandler = (
-  envelope: ClaudeCodeHookEnvelope
-) => Promise<Record<string, unknown> | undefined>
+type HookHandler = HookEnvelopeHandler
 
 const now = () => new Date('2026-06-24T02:20:00.000Z')
 
@@ -61,7 +63,7 @@ const lease = (): PaneLease => ({
 
 const spec = (): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId: 'inv_claude_structured',
+  invocationId: invocationIdFrom('inv_claude_structured'),
   harness: {
     frontend: 'claude-code',
     provider: 'anthropic',
@@ -116,7 +118,7 @@ function input(
   responseFormat?: InvocationInput['responseFormat']
 ): InvocationInput {
   return {
-    inputId,
+    inputId: inputIdFrom(inputId),
     kind: 'user',
     content: [{ type: 'text', text }],
     ...(responseFormat !== undefined ? { responseFormat } : {}),

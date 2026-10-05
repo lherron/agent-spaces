@@ -7,7 +7,10 @@ type ClaudeCodeHookEventNormalizer = {
 
 const now = () => new Date('2026-05-26T22:30:00.000Z')
 
-const eventShape = (event: InvocationEventEnvelope) => ({
+// Plain-string projection: the expectations below compare against literals.
+const eventShape = (
+  event: InvocationEventEnvelope
+): { type: string; turnId: string | undefined; invocationId: string } => ({
   type: event.type,
   turnId: event.turnId,
   invocationId: event.invocationId,

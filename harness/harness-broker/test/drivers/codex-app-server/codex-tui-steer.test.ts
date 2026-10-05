@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { rm } from 'node:fs/promises'
 import { CodexRpcError } from '../../../src/drivers/codex-app-server/rpc-client'
+import { invocationIdFrom, turnIdFrom } from '../../ids'
 import {
   FakeCodexRpc,
   emitUserMessageItem,
@@ -39,7 +40,7 @@ describe('codex-tui steer', () => {
       }
       throw new Error(`unhandled fake RPC request: ${method}`)
     }
-    const invocationId = 'inv_codex_tui_native_steers'
+    const invocationId = invocationIdFrom('inv_codex_tui_native_steers')
     const run = await setupDriver(rpc, invocationId, {}, true)
     try {
       await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
@@ -148,7 +149,9 @@ describe('codex-tui steer', () => {
         },
       ])
       expect(absorptions[0]?.provenance).toMatchObject({ sourceKind: 'provider-jsonrpc' })
-      expect(await run.broker.turnManifest({ invocationId, turnId: 'turn_owned' })).toMatchObject({
+      expect(
+        await run.broker.turnManifest({ invocationId, turnId: turnIdFrom('turn_owned') })
+      ).toMatchObject({
         submissionIds: [owner.submissionId, first.submissionId, second.submissionId],
       })
     } finally {
@@ -197,7 +200,7 @@ describe('codex-tui steer', () => {
       nextCursor: null,
       backwardsCursor: null,
     }
-    const invocationId = 'inv_codex_tui_steer_rollover'
+    const invocationId = invocationIdFrom('inv_codex_tui_steer_rollover')
     const run = await setupDriver(rpc, invocationId)
     try {
       await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
@@ -255,7 +258,7 @@ describe('codex-tui steer', () => {
           ),
         'native item should absorb the steer into the provider-selected turn'
       )
-      expect(
+      expect<string | undefined>(
         run.events.find(
           (event) =>
             event.type === 'submission.absorbed' &&
@@ -299,7 +302,7 @@ describe('codex-tui steer', () => {
       }
       throw new Error(`unexpected request: ${method}`)
     }
-    const invocationId = 'inv_codex_tui_idle_steer'
+    const invocationId = invocationIdFrom('inv_codex_tui_idle_steer')
     const run = await setupDriver(rpc, invocationId)
     try {
       await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
@@ -383,7 +386,7 @@ describe('codex-tui steer', () => {
       }
       throw new Error(`unexpected request: ${method}`)
     }
-    const invocationId = 'inv_codex_tui_provider_idle_steer'
+    const invocationId = invocationIdFrom('inv_codex_tui_provider_idle_steer')
     const run = await setupDriver(rpc, invocationId)
     try {
       await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
@@ -487,7 +490,7 @@ describe('codex-tui steer', () => {
         backwardsCursor: null,
       }
     }
-    const invocationId = 'inv_codex_tui_steer_actuation_rollover'
+    const invocationId = invocationIdFrom('inv_codex_tui_steer_actuation_rollover')
     const run = await setupDriver(rpc, invocationId)
     try {
       await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
@@ -600,7 +603,7 @@ describe('codex-tui steer', () => {
       throw new Error(`unexpected request: ${method}`)
     }
     rpc.threadTurnsListResponse = readResponse
-    const invocationId = `inv_codex_tui_steer_${name.replaceAll(/[^a-z]+/g, '_')}`
+    const invocationId = invocationIdFrom(`inv_codex_tui_steer_${name.replaceAll(/[^a-z]+/g, '_')}`)
     const run = await setupDriver(rpc, invocationId)
     try {
       await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })

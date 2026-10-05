@@ -3,10 +3,12 @@ import { join } from 'node:path'
 import type {
   HarnessInvocationSpec,
   InvocationEventEnvelope,
+  InvocationInput,
   SubmissionOrigin,
 } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../../src/broker'
 import { createCodexAppServerDriver } from '../../src/drivers/codex-app-server/driver'
+import { inputIdFrom, invocationIdFrom } from '../ids'
 
 /**
  * T-07155 gate G3 — the codex-app-server driver's mid-turn steer.
@@ -27,7 +29,7 @@ const origin: SubmissionOrigin = {
 
 const scenarioSpec = (scenario: string, invocationId: string): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId,
+  invocationId: invocationIdFrom(invocationId),
   harness: { frontend: 'codex', provider: 'openai', driver: 'codex-app-server' },
   process: {
     command: process.execPath,
@@ -44,10 +46,10 @@ const scenarioSpec = (scenario: string, invocationId: string): HarnessInvocation
   },
 })
 
-const userInput = (inputId: string, text: string) => ({
-  inputId,
-  kind: 'user' as const,
-  content: [{ type: 'text' as const, text }],
+const userInput = (inputId: string, text: string): InvocationInput => ({
+  inputId: inputIdFrom(inputId),
+  kind: 'user',
+  content: [{ type: 'text', text }],
 })
 
 const waitFor = async (predicate: () => boolean, timeoutMs = 3000): Promise<void> => {

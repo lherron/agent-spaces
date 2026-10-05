@@ -1,9 +1,28 @@
 import { describe, expect, test } from 'bun:test'
-import { normalizeEventPayload, safeStartedPayload } from '../../src/runtime/event-normalize'
+import type { InvocationEventType } from 'spaces-harness-broker-protocol'
+import {
+  type NormalizeEventPayloadInput,
+  normalizeEventPayload,
+  safeStartedPayload,
+} from '../../src/runtime/event-normalize'
+import { messageIdFrom } from '../ids'
+
+/**
+ * Feeds the normalizer a payload that breaks its declared shape (extra keys,
+ * missing fields, foreign leaves), as a misbehaving driver would at runtime.
+ * Repairing exactly that is the normalizer's job.
+ */
+const normalizeMalformed = <K extends InvocationEventType>(input: {
+  type: K
+  payload: object
+  maxEventBytes?: number
+}) =>
+  // deliberately invalid: the payload does not satisfy InvocationEventPayloadMap[K].
+  normalizeEventPayload(input as NormalizeEventPayloadInput<K>)
 
 describe('normalizeEventPayload — central event normalization + size bounding', () => {
   test('normalizes invocation.ready payload to { state: "ready" }', () => {
-    const { payload } = normalizeEventPayload({
+    const { payload } = normalizeMalformed({
       type: 'invocation.ready',
       payload: { extra: 'ignored' },
     })
@@ -11,7 +30,7 @@ describe('normalizeEventPayload — central event normalization + size bounding'
   })
 
   test('normalizes invocation.disposed payload to { disposed: true }', () => {
-    const { payload } = normalizeEventPayload({
+    const { payload } = normalizeMalformed({
       type: 'invocation.disposed',
       payload: { disposed: true, extra: 'ignored' },
     })
@@ -19,7 +38,7 @@ describe('normalizeEventPayload — central event normalization + size bounding'
   })
 
   test('constrains invocation.started to pid/command/args/cwd only', () => {
-    const { payload } = normalizeEventPayload({
+    const { payload } = normalizeMalformed({
       type: 'invocation.started',
       payload: {
         pid: 7,
@@ -30,12 +49,7 @@ describe('normalizeEventPayload — central event normalization + size bounding'
         env: { CODEX_HOME: '/tmp/codex-home' },
       },
     })
-    expect(Object.keys(payload as Record<string, unknown>).sort()).toEqual([
-      'args',
-      'command',
-      'cwd',
-      'pid',
-    ])
+    expect(Object.keys(payload).sort()).toEqual(['args', 'command', 'cwd', 'pid'])
     expect(JSON.stringify(payload)).not.toContain('CODEX_HOME')
   })
 
@@ -65,7 +79,7 @@ describe('normalizeEventPayload — central event normalization + size bounding'
     const big = 'x'.repeat(5000)
     const { payload, diagnostics } = normalizeEventPayload({
       type: 'assistant.message.delta',
-      payload: { messageId: 'm1', text: big },
+      payload: { messageId: messageIdFrom('m1'), text: big },
       maxEventBytes: 256,
     })
     expect((payload as { messageId: string }).messageId).toBe('m1')
@@ -81,7 +95,7 @@ describe('normalizeEventPayload — central event normalization + size bounding'
   test('does not truncate payloads within maxEventBytes', () => {
     const { payload, diagnostics } = normalizeEventPayload({
       type: 'assistant.message.delta',
-      payload: { messageId: 'm1', text: 'short' },
+      payload: { messageId: messageIdFrom('m1'), text: 'short' },
       maxEventBytes: 4096,
     })
     expect((payload as { text: string }).text).toBe('short')
@@ -104,11 +118,11 @@ describe('normalizeEventPayload — central event normalization + size bounding'
       payload: { small: 'tiny', big: 'z'.repeat(4000), medium: 'm'.repeat(500) },
       maxEventBytes: 600,
     }
-    const first = normalizeEventPayload(input)
-    const second = normalizeEventPayload(input)
+    const first = normalizeMalformed(input)
+    const second = normalizeMalformed(input)
     expect(first.payload).toEqual(second.payload)
     // The largest leaf (`big`) is truncated; the smallest survives.
-    expect((first.payload as { big: string }).big).toBe('[TRUNCATED]')
-    expect((first.payload as { small: string }).small).toBe('tiny')
+    expect(first.payload).toHaveProperty('big', '[TRUNCATED]')
+    expect(first.payload).toHaveProperty('small', 'tiny')
   })
 })

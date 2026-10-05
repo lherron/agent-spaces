@@ -112,7 +112,7 @@ describe('codex-cli-tmux hook event normalization', () => {
     )
 
     expect(eventTypes(events)).toEqual(['turn.started', 'user.message'])
-    expect(events.map((event) => event.turnId)).toEqual([
+    expect<Array<string | undefined>>(events.map((event) => event.turnId)).toEqual([
       'turn_from_hook_event_envelope',
       'turn_from_hook_event_envelope',
     ])
@@ -136,23 +136,23 @@ describe('codex-cli-tmux hook event normalization', () => {
     expect(events.map((event) => event.type)).toEqual(['turn.started', 'user.message'])
     expect(events[0]).toMatchObject({
       invocationId,
-      turnId: hook.turn_id,
+      turnId: hook['turn_id'],
       type: 'turn.started',
       driver: { kind: 'codex-cli-tmux', rawType: 'UserPromptSubmit' },
       payload: {
-        turnId: hook.turn_id,
-        sessionId: hook.session_id,
-        prompt: hook.prompt,
+        turnId: hook['turn_id'],
+        sessionId: hook['session_id'],
+        prompt: hook['prompt'],
       },
     })
     expect(events[1]).toMatchObject({
       invocationId,
-      turnId: hook.turn_id,
+      turnId: hook['turn_id'],
       type: 'user.message',
       driver: { kind: 'codex-cli-tmux', rawType: 'UserPromptSubmit' },
       payload: {
-        content: hook.prompt,
-        turnId: hook.turn_id,
+        content: hook['prompt'],
+        turnId: hook['turn_id'],
       },
     })
   })
@@ -163,12 +163,12 @@ describe('codex-cli-tmux hook event normalization', () => {
 
     expect(events).toHaveLength(1)
     expect(events[0]).toMatchObject({
-      turnId: hook.turn_id,
+      turnId: hook['turn_id'],
       type: 'tool.call.started',
-      itemId: hook.tool_use_id,
+      itemId: hook['tool_use_id'],
       driver: { kind: 'codex-cli-tmux', rawType: 'PreToolUse' },
       payload: {
-        toolCallId: hook.tool_use_id,
+        toolCallId: hook['tool_use_id'],
         name: 'Bash',
         input: { command: "printf 'SPIKE_T01681_OK'" },
       },
@@ -184,12 +184,12 @@ describe('codex-cli-tmux hook event normalization', () => {
 
     expect(eventTypes(events)).toEqual(['tool.call.started', 'tool.call.completed'])
     expect(events[1]).toMatchObject({
-      turnId: post.turn_id,
+      turnId: post['turn_id'],
       type: 'tool.call.completed',
-      itemId: post.tool_use_id,
+      itemId: post['tool_use_id'],
       driver: { kind: 'codex-cli-tmux', rawType: 'PostToolUse' },
       payload: {
-        toolCallId: post.tool_use_id,
+        toolCallId: post['tool_use_id'],
         name: 'Bash',
         isError: false,
         result: {
@@ -214,11 +214,11 @@ describe('codex-cli-tmux hook event normalization', () => {
     expect(eventTypes(events)).toEqual(['tool.call.started', 'permission.requested'])
     expect(permission).not.toHaveProperty('tool_use_id')
     expect(events[1]).toMatchObject({
-      turnId: permission.turn_id,
+      turnId: permission['turn_id'],
       type: 'permission.requested',
       driver: { kind: 'codex-cli-tmux', rawType: 'PermissionRequest' },
       correlation: {
-        toolCallId: pre.tool_use_id,
+        toolCallId: pre['tool_use_id'],
       },
       payload: {
         permissionRequestId: expect.any(String),
@@ -237,12 +237,12 @@ describe('codex-cli-tmux hook event normalization', () => {
 
     expect(eventTypes(events)).toEqual(['turn.completed', 'continuation.updated'])
     expect(events[0]).toMatchObject({
-      turnId: hook.turn_id,
+      turnId: hook['turn_id'],
       type: 'turn.completed',
       payload: {
-        turnId: hook.turn_id,
+        turnId: hook['turn_id'],
         status: 'completed',
-        finalOutput: hook.last_assistant_message,
+        finalOutput: hook['last_assistant_message'],
         producedContent: true,
       },
     })
@@ -251,7 +251,7 @@ describe('codex-cli-tmux hook event normalization', () => {
       payload: {
         provider: 'openai',
         kind: 'session',
-        key: hook.session_id,
+        key: hook['session_id'],
       },
     })
     expect(eventTypes(events)).not.toContain('assistant.message.completed')

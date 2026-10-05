@@ -14,6 +14,8 @@ import { join } from 'node:path'
 import type {
   HarnessInvocationSpec,
   InvocationEventEnvelope,
+  InvocationEventEnvelopeFor,
+  InvocationInput,
   InvocationRuntimeContext,
 } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../../../src/broker'
@@ -23,6 +25,7 @@ import { postEnvelope } from '../../../src/drivers/hook-bridge-transport'
 import { MUSE_CAPABILITIES } from '../../../src/drivers/muse-serve/capabilities'
 import { createMuseServeDriver } from '../../../src/drivers/muse-serve/driver'
 import { MSP_LAST_VERIFIED_SCHEMA_FINGERPRINT } from '../../../src/drivers/muse-serve/schema-surface'
+import { inputIdFrom, invocationIdFrom } from '../../ids'
 
 const root = new URL('../../..', import.meta.url).pathname
 const fixture = join(root, 'test/fixtures/fake-muse/serve.ts')
@@ -34,7 +37,7 @@ const scenarioSpec = (
   overrides: Partial<HarnessInvocationSpec> = {}
 ): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId,
+  invocationId: invocationIdFrom(invocationId),
   harness: { frontend: 'muse-cli', provider: 'meta', driver: 'muse-serve' },
   process: {
     command: process.execPath,
@@ -52,8 +55,8 @@ const scenarioSpec = (
   ...overrides,
 })
 
-const userInput = (inputId: string, text: string) => ({
-  inputId,
+const userInput = (inputId: string, text: string): InvocationInput => ({
+  inputId: inputIdFrom(inputId),
   kind: 'user' as const,
   content: [{ type: 'text' as const, text }],
 })
@@ -154,7 +157,7 @@ describe('muse-serve driver', () => {
     const spec = scenarioSpec('ok', 'inv_muse_ok')
     await broker.start({ spec })
     const result = await broker.input({
-      invocationId: 'inv_muse_ok',
+      invocationId: invocationIdFrom('inv_muse_ok'),
       input: userInput('input_ok', 'say ECHO'),
     })
     expect(result.turnId).toBeString()
@@ -164,7 +167,7 @@ describe('muse-serve driver', () => {
       )
     )
     expect(events.some((event) => event.type === 'usage.updated')).toBe(true)
-    await broker.stop({ invocationId: 'inv_muse_ok' })
+    await broker.stop({ invocationId: invocationIdFrom('inv_muse_ok') })
   })
 
   test('holds assistant completions: intermediate final:false, last final:true before turn.completed', async () => {
@@ -177,7 +180,7 @@ describe('muse-serve driver', () => {
     const spec = scenarioSpec('multi', 'inv_muse_multi')
     await broker.start({ spec })
     await broker.input({
-      invocationId: 'inv_muse_multi',
+      invocationId: invocationIdFrom('inv_muse_multi'),
       input: userInput('input_multi', 'two messages'),
     })
     await waitFor(() =>
@@ -194,7 +197,7 @@ describe('muse-serve driver', () => {
     )
     expect(finalIndex).toBeGreaterThanOrEqual(0)
     expect(finalIndex).toBeLessThan(terminalIndex)
-    await broker.stop({ invocationId: 'inv_muse_multi' })
+    await broker.stop({ invocationId: invocationIdFrom('inv_muse_multi') })
   })
 
   test('steers the active turn and observes the steered text', async () => {
@@ -207,13 +210,13 @@ describe('muse-serve driver', () => {
     const spec = scenarioSpec('long', 'inv_muse_steer')
     await broker.start({ spec })
     await broker.input({
-      invocationId: 'inv_muse_steer',
+      invocationId: invocationIdFrom('inv_muse_steer'),
       input: userInput('input_long', 'long task'),
     })
     await waitFor(() => events.some((event) => event.type === 'turn.started'))
 
     const response = await broker.steer({
-      invocationId: 'inv_muse_steer',
+      invocationId: invocationIdFrom('inv_muse_steer'),
       origin: { principalRef: 'agent:muse-steer-test', scopeRef: 'muse-steer-test@agent-spaces' },
       body: 'STOP - do not push',
     })
@@ -223,7 +226,7 @@ describe('muse-serve driver', () => {
         (event) => event.type === 'assistant.message.delta' && event.payload.text === 'steered'
       )
     )
-    await broker.stop({ invocationId: 'inv_muse_steer' })
+    await broker.stop({ invocationId: invocationIdFrom('inv_muse_steer') })
   })
 
   test('steer absorbed after a native turn roll re-arms instead of failing', async () => {
@@ -236,13 +239,13 @@ describe('muse-serve driver', () => {
     const spec = scenarioSpec('steer-roll', 'inv_muse_steer_roll')
     await broker.start({ spec })
     await broker.input({
-      invocationId: 'inv_muse_steer_roll',
+      invocationId: invocationIdFrom('inv_muse_steer_roll'),
       input: userInput('input_roll', 'long task'),
     })
     await waitFor(() => events.some((event) => event.type === 'turn.started'))
 
     const response = await broker.steer({
-      invocationId: 'inv_muse_steer_roll',
+      invocationId: invocationIdFrom('inv_muse_steer_roll'),
       origin: { principalRef: 'agent:muse-steer-test', scopeRef: 'muse-steer-test@agent-spaces' },
       body: 'STOP - do not push',
     })
@@ -269,7 +272,7 @@ describe('muse-serve driver', () => {
         (event) => event.type === 'assistant.message.delta' && event.payload.text === 'steered'
       )
     )
-    await broker.stop({ invocationId: 'inv_muse_steer_roll' })
+    await broker.stop({ invocationId: invocationIdFrom('inv_muse_steer_roll') })
   })
 
   test('interrupts the running turn via turn/interrupt', async () => {
@@ -282,16 +285,20 @@ describe('muse-serve driver', () => {
     const spec = scenarioSpec('long', 'inv_muse_interrupt')
     await broker.start({ spec })
     await broker.input({
-      invocationId: 'inv_muse_interrupt',
+      invocationId: invocationIdFrom('inv_muse_interrupt'),
       input: userInput('input_i', 'long task'),
     })
     await waitFor(() => events.some((event) => event.type === 'turn.started'))
 
     await expect(
-      broker.interrupt({ invocationId: 'inv_muse_interrupt', scope: 'turn', reason: 'unit test' })
+      broker.interrupt({
+        invocationId: invocationIdFrom('inv_muse_interrupt'),
+        scope: 'turn',
+        reason: 'unit test',
+      })
     ).resolves.toEqual({ accepted: true, effect: 'turn_interrupted' })
     await waitFor(() => events.some((event) => event.type === 'turn.interrupted'))
-    await broker.stop({ invocationId: 'inv_muse_interrupt' })
+    await broker.stop({ invocationId: invocationIdFrom('inv_muse_interrupt') })
   })
 
   test('the last-verified schema starts with no drift warning', async () => {
@@ -304,11 +311,11 @@ describe('muse-serve driver', () => {
     const spec = scenarioSpec('ok', 'inv_muse_schema_ok')
     await broker.start({ spec })
     const drift = events.filter(
-      (event) =>
+      (event): event is InvocationEventEnvelopeFor<'diagnostic'> =>
         event.type === 'diagnostic' && String(event.payload.message).includes('schema drift')
     )
     expect(drift).toHaveLength(0)
-    await broker.stop({ invocationId: 'inv_muse_schema_ok' })
+    await broker.stop({ invocationId: invocationIdFrom('inv_muse_schema_ok') })
   })
 
   test('compatible schema drift starts and warns exactly once per start', async () => {
@@ -321,14 +328,14 @@ describe('muse-serve driver', () => {
     const spec = scenarioSpec('drift-compatible', 'inv_muse_drift')
     await broker.start({ spec })
     const drift = events.filter(
-      (event) =>
+      (event): event is InvocationEventEnvelopeFor<'diagnostic'> =>
         event.type === 'diagnostic' && String(event.payload.message).includes('schema drift')
     )
     expect(drift).toHaveLength(1)
     expect(drift[0]?.payload).toMatchObject({ level: 'warn' })
     expect(String(drift[0]?.payload.message)).toContain(`sha256:${'a'.repeat(64)}`)
     expect(String(drift[0]?.payload.message)).toContain(MSP_LAST_VERIFIED_SCHEMA_FINGERPRINT)
-    await broker.stop({ invocationId: 'inv_muse_drift' })
+    await broker.stop({ invocationId: invocationIdFrom('inv_muse_drift') })
   })
 
   test('refuses startup when the installed schema drops a driver-used method', async () => {
@@ -352,7 +359,7 @@ describe('muse-serve driver', () => {
   })
 
   test('fails closed before invocation readiness when the renderer never acknowledges startup', async () => {
-    const invocationId = 'inv_muse_renderer_submit_lost'
+    const invocationId = invocationIdFrom('inv_muse_renderer_submit_lost')
     const events: InvocationEventEnvelope[] = []
     const lease = rendererLease()
     const driver = createMuseServeDriver({ rendererStartAckTimeoutMs: 5 })
@@ -402,7 +409,7 @@ describe('muse-serve driver', () => {
   })
 
   test('uses the renderer started envelope, not terminal scroll, for observer readiness', async () => {
-    const invocationId = 'inv_muse_renderer_ack'
+    const invocationId = invocationIdFrom('inv_muse_renderer_ack')
     const events: InvocationEventEnvelope[] = []
     const lease = rendererLease()
     const driver = createMuseServeDriver({ rendererStartAckTimeoutMs: 1000 })
@@ -477,7 +484,7 @@ describe('muse-serve driver', () => {
     })
     await broker.start({ spec })
     await broker.input({
-      invocationId: 'inv_muse_allow',
+      invocationId: invocationIdFrom('inv_muse_allow'),
       input: userInput('input_a', 'list files'),
     })
     await waitFor(() =>
@@ -494,7 +501,7 @@ describe('muse-serve driver', () => {
           event.payload.permissionRequestId.startsWith('perm_inv_muse_allow')
       )
     ).toBe(true)
-    await broker.stop({ invocationId: 'inv_muse_allow' })
+    await broker.stop({ invocationId: invocationIdFrom('inv_muse_allow') })
   })
 
   test('decides approval by policy deny with the denied choice', async () => {
@@ -506,7 +513,10 @@ describe('muse-serve driver', () => {
     })
     const spec = scenarioSpec('approve', 'inv_muse_deny')
     await broker.start({ spec })
-    await broker.input({ invocationId: 'inv_muse_deny', input: userInput('input_d', 'list files') })
+    await broker.input({
+      invocationId: invocationIdFrom('inv_muse_deny'),
+      input: userInput('input_d', 'list files'),
+    })
     await waitFor(() =>
       events.some(
         (event) =>
@@ -514,7 +524,7 @@ describe('muse-serve driver', () => {
           JSON.stringify(event.payload).includes('decided:deny-once')
       )
     )
-    await broker.stop({ invocationId: 'inv_muse_deny' })
+    await broker.stop({ invocationId: invocationIdFrom('inv_muse_deny') })
   })
 
   test('resumes a known session id', async () => {
@@ -537,7 +547,7 @@ describe('muse-serve driver', () => {
           event.payload.provider === 'muse'
       )
     ).toBe(true)
-    await broker.stop({ invocationId: 'inv_muse_resume' })
+    await broker.stop({ invocationId: invocationIdFrom('inv_muse_resume') })
   })
 
   test('applySteerNow before start throws not_written', async () => {

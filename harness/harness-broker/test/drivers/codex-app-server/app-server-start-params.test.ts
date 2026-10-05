@@ -5,6 +5,7 @@ import {
   validateInitializeHandshake,
 } from '../../../src/drivers/codex-app-server/driver'
 import { buildTurnStartParams } from '../../../src/drivers/codex-app-server/input'
+import { inputIdFrom } from '../../ids'
 import { scenarioSpec, userInput } from './fake-codex-scenario'
 
 describe('fallback provider transcript root', () => {
@@ -55,32 +56,32 @@ describe('buildTurnStartParams outputSchema', () => {
         ...base,
         input: {
           ...userInput,
-          inputId: 'input_schema_1',
+          inputId: inputIdFrom('input_schema_1'),
           responseFormat: { kind: 'json_schema', schema: firstSchema },
-        } as typeof userInput,
-      }).outputSchema
+        },
+      })['outputSchema']
     ).toEqual(firstSchema)
     expect(
       buildTurnStartParams({
         ...base,
         input: {
           ...userInput,
-          inputId: 'input_schema_2',
+          inputId: inputIdFrom('input_schema_2'),
           responseFormat: { kind: 'json_schema', schema: secondSchema },
-        } as typeof userInput,
-      }).outputSchema
+        },
+      })['outputSchema']
     ).toEqual(secondSchema)
     expect(
       buildTurnStartParams({
         ...base,
         input: {
           ...userInput,
-          inputId: 'input_text_response',
+          inputId: inputIdFrom('input_text_response'),
           responseFormat: { kind: 'text' },
-        } as typeof userInput,
-      }).outputSchema
+        },
+      })['outputSchema']
     ).toBeNull()
-    expect(buildTurnStartParams({ ...base, input: userInput }).outputSchema).toBeNull()
+    expect(buildTurnStartParams({ ...base, input: userInput })['outputSchema']).toBeNull()
   })
 })
 

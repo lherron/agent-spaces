@@ -15,6 +15,7 @@ import {
   createEnsureReceiptStore,
 } from '../src/ensure-receipt-store'
 import { createTestDriver } from '../src/testing/test-driver'
+import { invocationIdFrom } from './ids'
 
 /**
  * T-08346 — the ONE window the acceptance suite cannot reach from outside.
@@ -49,7 +50,7 @@ const IDENTITY = {
   hostSessionId: 'host_session_t08346_fault',
   generation: 3,
   attachEpoch: 1,
-  invocationId: 'inv_t08346_fault',
+  invocationId: invocationIdFrom('inv_t08346_fault'),
   startRequestHash: 'start_hash_t08346_fault',
   selectedProfileHash: 'profile_hash_t08346_fault',
   attachToken: 'attach_token_t08346_fault',

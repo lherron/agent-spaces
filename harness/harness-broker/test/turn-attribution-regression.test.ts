@@ -7,11 +7,13 @@ import type {
   InputId,
   InvocationEventEnvelope,
   InvocationEventType,
+  InvocationId,
   TurnId,
 } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../src/broker'
 import type { TestDriverController } from '../src/testing/test-driver'
 import { createTestDriver } from '../src/testing/test-driver'
+import { invocationIdFrom } from './ids'
 
 interface RecordedEvent {
   seq: number
@@ -26,7 +28,7 @@ interface RecordedEvent {
 interface PrimingMisattributionFixture {
   source: {
     runtimeId: string
-    invocationId: string
+    invocationId: InvocationId
     submissionId: string
     envelopeId: string
     recordedAt: string
@@ -64,7 +66,7 @@ const origin = {
 
 const spec = (invocationId: string): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId,
+  invocationId: invocationIdFrom(invocationId),
   harness: { frontend: 'test', provider: 'test', driver: 'test-driver' },
   process: {
     command: 'test-driver',
@@ -279,7 +281,7 @@ describe('pending submission attribution across foreign turns (T-07915)', () => 
     const deliveryGate = new Promise<void>((resolve) => {
       releaseDelivery = resolve
     })
-    const invocationId = 'inv_delivery_acknowledged_stamp'
+    const invocationId = invocationIdFrom('inv_delivery_acknowledged_stamp')
     const { broker, controller, events } = await setup(invocationId, {
       bracketMintingMode: 'delivery-acknowledged',
       suppressTurnStarted: true,
@@ -297,7 +299,7 @@ describe('pending submission attribution across foreign turns (T-07915)', () => 
       { turnId: 'turn_delivery_acknowledged' as TurnId }
     )
 
-    expect(
+    expect<string | undefined>(
       events.find(
         (event) => event.type === 'turn.started' && event.turnId === 'turn_delivery_acknowledged'
       )?.inputId

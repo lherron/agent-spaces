@@ -8,13 +8,15 @@ import type {
   InvocationInspectionSummary,
   InvocationSnapshot,
   InvocationStatusResponse,
+  TurnId,
 } from 'spaces-harness-broker-protocol'
 import { conservativeDefaultLifecyclePolicyOverlay } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../src/broker'
 import type { Driver, DriverContext } from '../src/drivers/driver'
 import { createNoopDriver } from '../src/drivers/noop-driver'
 import { createEventLedger } from '../src/event-ledger'
-import { noopCapabilities, noopSpec } from './helpers'
+import { noopCapabilities, noopSpec, stubDriverDeclarations } from './helpers'
+import { inputIdFrom, invocationIdFrom, turnIdFrom } from './ids'
 
 type InspectionBroker = ReturnType<typeof createBroker> & {
   listInvocations(req: BrokerListInvocationsRequest): Promise<BrokerListInvocationsResponse>
@@ -46,7 +48,7 @@ const inspectionFields = (
 }
 
 const userInput = (inputId: string): InvocationInput => ({
-  inputId,
+  inputId: inputIdFrom(inputId),
   kind: 'user',
   content: [{ type: 'text', text: 'go' }],
 })
@@ -74,11 +76,12 @@ const tickingClock = (start = Date.parse('2026-06-03T20:00:00.000Z')) => {
 const createInspectionDriver = (): Driver => {
   let ctx: DriverContext | undefined
   let activeInput: InvocationInput | undefined
-  let activeTurnId: string | undefined
+  let activeTurnId: TurnId | undefined
 
   return {
     kind: 'inspection-driver',
     version: 'test',
+    ...stubDriverDeclarations,
     capabilities: () => ({
       ...noopCapabilities,
       input: { ...noopCapabilities.input, queue: true },
@@ -96,7 +99,7 @@ const createInspectionDriver = (): Driver => {
     applyInputNow: async (input) => {
       if (ctx === undefined) throw new Error('driver not started')
       activeInput = input
-      activeTurnId = 'turn_inspect_1'
+      activeTurnId = turnIdFrom('turn_inspect_1')
       ctx.emit(
         'turn.started',
         { turnId: activeTurnId, inputId: input.inputId, turnAttempt: 3 },
@@ -154,8 +157,8 @@ describe('broker inspection read model (T-01851 red)', () => {
       ],
     })
 
-    await broker.stop({ invocationId: 'inv_list' })
-    await broker.dispose({ invocationId: 'inv_list' })
+    await broker.stop({ invocationId: invocationIdFrom('inv_list') })
+    await broker.dispose({ invocationId: invocationIdFrom('inv_list') })
 
     await expect(broker.listInvocations({})).resolves.toEqual({ invocations: [] })
     await expect(broker.listInvocations({ includeDisposed: true })).resolves.toMatchObject({
@@ -179,16 +182,29 @@ describe('broker inspection read model (T-01851 red)', () => {
       undefined,
       conservativeDefaultLifecyclePolicyOverlay('policy_inspection_drift')
     )
-    await broker.input({ invocationId: 'inv_drift', input: userInput('input_drift') })
+    await broker.input({
+      invocationId: invocationIdFrom('inv_drift'),
+      input: userInput('input_drift'),
+    })
 
-    const status = await broker.status({ invocationId: 'inv_drift', probeLiveness: true })
-    const snapshot = await broker.snapshot({ invocationId: 'inv_drift', probeLiveness: true })
+    const status = await broker.status({
+      invocationId: invocationIdFrom('inv_drift'),
+      probeLiveness: true,
+    })
+    const snapshot = await broker.snapshot({
+      invocationId: invocationIdFrom('inv_drift'),
+      probeLiveness: true,
+    })
     const listed = await broker.listInvocations({ probeLiveness: true })
     const [summary] = listed.invocations
 
     expect(summary).toBeDefined()
-    expect(inspectionFields(status)).toEqual(summary)
-    expect(inspectionFields(snapshot)).toEqual(summary)
+    expect<Partial<InvocationInspectionSummary> | undefined>(inspectionFields(status)).toEqual(
+      summary
+    )
+    expect<Partial<InvocationInspectionSummary> | undefined>(inspectionFields(snapshot)).toEqual(
+      summary
+    )
   })
 
   test('applyEventState projects timestamps, lifecycle, current turn, generation, attempt, and terminal facts', async () => {
@@ -204,9 +220,14 @@ describe('broker inspection read model (T-01851 red)', () => {
     }) as InspectionBroker
 
     await broker.start({ spec: testSpec('inv_projection') }, undefined, undefined, policy)
-    await broker.input({ invocationId: 'inv_projection', input: userInput('input_projection') })
+    await broker.input({
+      invocationId: invocationIdFrom('inv_projection'),
+      input: userInput('input_projection'),
+    })
 
-    await expect(broker.status({ invocationId: 'inv_projection' })).resolves.toMatchObject({
+    await expect(
+      broker.status({ invocationId: invocationIdFrom('inv_projection') })
+    ).resolves.toMatchObject({
       invocationId: 'inv_projection',
       state: 'turn_active',
       driver: 'inspection-driver',
@@ -229,9 +250,11 @@ describe('broker inspection read model (T-01851 red)', () => {
       process: { pid: 4321 },
     })
 
-    await broker.stop({ invocationId: 'inv_projection' })
+    await broker.stop({ invocationId: invocationIdFrom('inv_projection') })
 
-    await expect(broker.status({ invocationId: 'inv_projection' })).resolves.toMatchObject({
+    await expect(
+      broker.status({ invocationId: invocationIdFrom('inv_projection') })
+    ).resolves.toMatchObject({
       state: 'exited',
       lastActivityAt: '2026-06-03T20:00:09.000Z',
       currentSeq: 10,
@@ -253,16 +276,19 @@ describe('broker inspection read model (T-01851 red)', () => {
     })
 
     await broker.start({ spec: testSpec('inv_events_filter') })
-    await broker.input({ invocationId: 'inv_events_filter', input: userInput('input_filter') })
+    await broker.input({
+      invocationId: invocationIdFrom('inv_events_filter'),
+      input: userInput('input_filter'),
+    })
     await broker.ackEvents({
-      invocationId: 'inv_events_filter',
+      invocationId: invocationIdFrom('inv_events_filter'),
       throughSeq: 3,
       controllerInstanceId: 'controller_filter',
     })
     await eventLedger.prune({ activeInvocationIds: [] })
 
     const filtered = await broker.eventsSince({
-      invocationId: 'inv_events_filter',
+      invocationId: invocationIdFrom('inv_events_filter'),
       afterSeq: 3,
       types: ['turn.started'],
     })
@@ -298,7 +324,7 @@ describe('broker inspection read model (T-01851 red)', () => {
     })
 
     await expect(
-      broker.status({ invocationId: 'inv_liveness', probeLiveness: true })
+      broker.status({ invocationId: invocationIdFrom('inv_liveness'), probeLiveness: true })
     ).resolves.toMatchObject({
       liveness: { mode: 'cached' },
     })

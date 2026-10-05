@@ -18,10 +18,16 @@
 import { describe, expect, test } from 'bun:test'
 import { join } from 'node:path'
 
-import type { HarnessInvocationSpec, InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
+import type {
+  HarnessInvocationSpec,
+  InvocationEventEnvelope,
+  InvocationId,
+  InvocationInput,
+} from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../../../src/broker'
 import { createCodexAppServerDriver } from '../../../src/drivers/codex-app-server/driver'
+import { inputIdFrom, invocationIdFrom } from '../../ids'
 
 const root = new URL('../../..', import.meta.url).pathname
 const fixtureDir = join(root, 'test/fixtures/fake-codex')
@@ -31,10 +37,9 @@ const now = () => new Date('2026-06-15T12:00:00.000Z')
 function scenarioSpec(
   scenario: string,
   overrides: Partial<HarnessInvocationSpec> = {}
-): HarnessInvocationSpec {
+): HarnessInvocationSpec & { invocationId: InvocationId } {
   return {
     specVersion: 'harness-broker.invocation/v1',
-    invocationId: `inv_${scenario.replaceAll('-', '_')}`,
     harness: {
       frontend: 'codex',
       provider: 'openai',
@@ -63,6 +68,8 @@ function scenarioSpec(
       permissionPolicy: { mode: 'deny' },
     },
     ...overrides,
+    invocationId:
+      overrides.invocationId ?? invocationIdFrom(`inv_${scenario.replaceAll('-', '_')}`),
   }
 }
 
@@ -187,10 +194,10 @@ describe('Contrast — resumeFallback:start-fresh emits resume_fallback_start_fr
       now,
     })
 
-    const userInput = {
-      inputId: 'input_contrast',
-      kind: 'user' as const,
-      content: [{ type: 'text' as const, text: 'contrast turn' }],
+    const userInput: InvocationInput = {
+      inputId: inputIdFrom('input_contrast'),
+      kind: 'user',
+      content: [{ type: 'text', text: 'contrast turn' }],
     }
 
     const spec = scenarioSpec('resume-missing-start-fresh', {
@@ -205,7 +212,7 @@ describe('Contrast — resumeFallback:start-fresh emits resume_fallback_start_fr
     await broker.start({ spec })
     await broker
       .input({
-        invocationId: spec.invocationId ?? '',
+        invocationId: spec.invocationId,
         input: userInput,
         policy: { whenBusy: 'reject' },
       })

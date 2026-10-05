@@ -1,31 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import type { InvocationEventEnvelope, InvocationEventType } from 'spaces-harness-broker-protocol'
+import type { ClaudeCodeHookEventNormalizer } from '../../../src/drivers/claude-code-tmux/hook-events'
 
 const invocationId = 'inv_cc_1'
 const turnId = 'turn_cc_1'
 
-type ClaudeCodeHookEventNormalizer = {
-  normalizeHook: (hook: Record<string, unknown>) => InvocationEventEnvelope[]
-}
-
-type NormalizeHookEnvelope = (
-  envelope: {
-    invocationId: string
-    generation: number
-    callbackSocket: string
-    turnId?: string | undefined
-    hookData: unknown
-  },
-  options: { normalizer: ClaudeCodeHookEventNormalizer }
-) => InvocationEventEnvelope[]
-
 const createNormalizer = async (): Promise<ClaudeCodeHookEventNormalizer> => {
-  const target = (await import('../../../src/drivers/claude-code-tmux/hook-events')) as {
-    createClaudeCodeHookEventNormalizer: (options: {
-      invocationId: string
-      now: () => Date
-    }) => ClaudeCodeHookEventNormalizer
-  }
+  const target = await import('../../../src/drivers/claude-code-tmux/hook-events')
 
   return target.createClaudeCodeHookEventNormalizer({
     invocationId,
@@ -33,10 +14,8 @@ const createNormalizer = async (): Promise<ClaudeCodeHookEventNormalizer> => {
   })
 }
 
-const loadNormalizeHookEnvelope = async (): Promise<NormalizeHookEnvelope> => {
-  const target = (await import('../../../src/drivers/claude-code-tmux/hook-events')) as {
-    normalizeHookEnvelope: NormalizeHookEnvelope
-  }
+const loadNormalizeHookEnvelope = async () => {
+  const target = await import('../../../src/drivers/claude-code-tmux/hook-events')
   return target.normalizeHookEnvelope
 }
 
@@ -44,7 +23,7 @@ const single = async (hook: Record<string, unknown>) => {
   const events = (await createNormalizer()).normalizeHook(hook)
   expect(events).toHaveLength(1)
   const event = events[0]
-  expect(event?.driver).toEqual({
+  expect<{ kind: string; rawType?: unknown } | undefined>(event?.driver).toEqual({
     kind: 'claude-code-tmux',
     rawType: hook['hook_event_name'],
   })

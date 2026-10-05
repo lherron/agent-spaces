@@ -16,7 +16,7 @@ function normalizeEvent(event: InvocationEventEnvelope): InvocationEventEnvelope
       sourceKind: 'provider-jsonrpc',
       normalizer: { name: 'codex-app-server', version: '0.1.0' },
     }
-    stableEvent.payload = { turnId: stableEvent.turnId }
+    stableEvent.payload = { turnId: stableEvent.turnId ?? stableEvent.payload.turnId }
   }
   return JSON.parse(
     JSON.stringify(stableEvent, (key, value) => {
@@ -56,7 +56,9 @@ export async function expectGolden(
 ): Promise<void> {
   const normalized = events.map(normalizeEvent)
   const executed = normalized.filter((event) => event.type === 'submission.executed')
-  const canonicalOrder = normalized.filter((event) => event.type !== 'submission.executed')
+  const canonicalOrder: InvocationEventEnvelope[] = normalized.filter(
+    (event) => event.type !== 'submission.executed'
+  )
   for (const disposition of executed) {
     const bracketIndex = canonicalOrder.findIndex(
       (event) => event.type === 'turn.started' && event.turnId === disposition.turnId

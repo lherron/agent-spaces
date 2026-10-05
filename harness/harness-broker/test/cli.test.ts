@@ -21,6 +21,7 @@ import {
   parseFrames,
   request,
 } from './helpers'
+import { inputIdFrom, invocationIdFrom } from './ids'
 
 const repoRoot = new URL('../../..', import.meta.url).pathname
 const fixtureDir = new URL('./fixtures/fake-codex', import.meta.url).pathname
@@ -61,7 +62,7 @@ const runBrokerUnix = (args: string[]) =>
 
 const waitForSocket = async (
   socketPath: string,
-  proc: ReturnType<typeof Bun.spawn>,
+  proc: Pick<ReturnType<typeof runBrokerUnix>, 'exitCode' | 'stderr'>,
   timeoutMs = 1500
 ): Promise<void> => {
   const deadline = Date.now() + timeoutMs
@@ -379,7 +380,7 @@ describe('harness-broker CLI', () => {
         controller,
         'unix-observer-start'
       )
-      expect(start.result.invocationId).toBe(startRequest.spec.invocationId)
+      expect<string | undefined>(start.result.invocationId).toBe(startRequest.spec.invocationId)
 
       observerSocket.write(
         request('unix-observer-bootstrap', 'invocation.eventsSince', {
@@ -580,7 +581,7 @@ describe('harness-broker unix transport red tests for T-01792', () => {
 const codexStartRequest = (scenario: string): InvocationStartRequest => {
   const spec: HarnessInvocationSpec = {
     specVersion: 'harness-broker.invocation/v1',
-    invocationId: `inv_cli_start_request_${scenario.replaceAll('-', '_')}`,
+    invocationId: invocationIdFrom(`inv_cli_start_request_${scenario.replaceAll('-', '_')}`),
     harness: {
       frontend: 'codex',
       provider: 'openai',
@@ -611,7 +612,7 @@ const codexStartRequest = (scenario: string): InvocationStartRequest => {
   return {
     spec,
     initialInput: {
-      inputId: 'input_cli_start_request_1',
+      inputId: inputIdFrom('input_cli_start_request_1'),
       kind: 'user',
       content: [{ type: 'text', text: 'Please complete the lifecycle.' }],
     },

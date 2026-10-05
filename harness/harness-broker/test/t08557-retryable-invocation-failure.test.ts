@@ -6,12 +6,13 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../src/broker'
 import { createTestDriver } from '../src/testing/test-driver'
+import { inputIdFrom, invocationIdFrom } from './ids'
 
 const now = () => new Date('2026-09-16T23:49:00.000Z')
 
 const spec = (invocationId: string): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId,
+  invocationId: invocationIdFrom(invocationId),
   harness: { frontend: 'test', provider: 'test', driver: 'test-driver' },
   process: {
     command: 'test-driver',
@@ -24,7 +25,7 @@ const spec = (invocationId: string): HarnessInvocationSpec => ({
 })
 
 const input: InvocationInput = {
-  inputId: 'input_reconnect',
+  inputId: inputIdFrom('input_reconnect'),
   kind: 'user',
   content: [{ type: 'text', text: 'continue after reconnect' }],
 }
@@ -34,7 +35,7 @@ describe('T-08557 retryable invocation failures', () => {
     const events: InvocationEventEnvelope[] = []
     const { driver, controller } = createTestDriver()
     const broker = createBroker({ drivers: [driver], onEvent: (event) => events.push(event), now })
-    const invocationId = 'inv_t08557_retryable_failure'
+    const invocationId = invocationIdFrom('inv_t08557_retryable_failure')
     await broker.start({ spec: spec(invocationId) })
 
     controller.emitRaw('invocation.failed', {

@@ -194,7 +194,7 @@ describe('codex-desktop rollout recovery and epochs', () => {
 
     const assistant = events.find((event) => event.type === 'assistant.message.completed')
     expect(assistant?.payload).toMatchObject({ final: true })
-    expect(assistant?.provenance.sourceCursor).toMatchObject({ byteOffset: boundaryOffset })
+    expect(assistant?.provenance?.sourceCursor).toMatchObject({ byteOffset: boundaryOffset })
     expect(countOf(events, 'usage.updated')).toBe(1)
     expect(countOf(events, 'turn.completed')).toBe(1)
     expect(noticeData(events, 'CODEX_DESKTOP_RECOVERY_BOUNDARY_APPLIED')).toMatchObject({

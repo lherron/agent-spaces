@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import type { DriverContext } from '../../../src/drivers/driver'
+import { parseDispatchEnv } from '../../../src/runtime/env'
+import { inputIdFrom } from '../../ids'
 import type { HookEnvelope, HookListenerMeta, TmuxExecCall } from './driver-red.helpers'
 import {
   DEFAULT_LEASE_PANE,
@@ -332,13 +334,13 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     // ASP_PROJECT, …). Like codex-cli-tmux, the claude driver must merge both
     // spec.process.lockedEnv and ctx.dispatchEnv into the launched pane env —
     // otherwise the in-pane agent loses "me"/project resolution.
-    const ctx = {
+    const ctx: DriverContext = {
       ...createCtx([], { terminalSurface: defaultLease() }),
-      dispatchEnv: {
+      dispatchEnv: parseDispatchEnv({
         HRC_SESSION_REF: 'agent:clod:project:agent-spaces:task:primary/lane:main',
         ASP_PROJECT: 'agent-spaces',
-      },
-    } as DriverContext
+      }),
+    }
     await driver.start(claudeTmuxSpec(), ctx)
 
     const artifact = launchArtifact(tmuxCalls)
@@ -454,7 +456,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     await driver.start(claudeTmuxSpec(), createCtx(events, { terminalSurface: defaultLease() }))
 
     const applied = await driver.applyInputNow({
-      inputId: 'input_active_turn_1',
+      inputId: inputIdFrom('input_active_turn_1'),
       kind: 'user',
       content: [{ type: 'text', text: 'drive a real hooked turn' }],
     })

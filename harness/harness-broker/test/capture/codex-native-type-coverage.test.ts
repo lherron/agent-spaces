@@ -57,6 +57,13 @@ interface Replay {
   loadBearing: string[]
 }
 
+/** The native type of a `blocked_unknown` warning whose family is load-bearing. */
+function loadBearingNativeType(raw: unknown): string | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  if (!('loadBearing' in raw) || raw.loadBearing !== true) return undefined
+  return 'nativeType' in raw && typeof raw.nativeType === 'string' ? raw.nativeType : undefined
+}
+
 /** Feed rollout lines through the real reader + a real capture gate. */
 function replay(lines: string[]): Replay {
   const dir = mkdtempSync(join(tmpdir(), 'codex-native-'))
@@ -75,7 +82,8 @@ function replay(lines: string[]): Replay {
     now: () => new Date('2026-09-02T12:00:00.000Z'),
     emitWarning: (payload) => {
       warnings.push(payload.message)
-      if (payload.raw?.loadBearing === true) loadBearing.push(payload.raw.nativeType)
+      const nativeType = loadBearingNativeType(payload.raw)
+      if (nativeType !== undefined) loadBearing.push(nativeType)
       return warnings.length
     },
     warn: () => {},
@@ -125,7 +133,8 @@ function replayInOneRead(lines: string[]): Replay {
     now: () => new Date('2026-09-02T12:00:00.000Z'),
     emitWarning: (payload) => {
       warnings.push(payload.message)
-      if (payload.raw?.loadBearing === true) loadBearing.push(payload.raw.nativeType)
+      const nativeType = loadBearingNativeType(payload.raw)
+      if (nativeType !== undefined) loadBearing.push(nativeType)
       return warnings.length
     },
     warn: () => {},

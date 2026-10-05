@@ -2,8 +2,14 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { InvocationEventEnvelope, InvocationEventType } from 'spaces-harness-broker-protocol'
-import type { NormalizeOutcome } from '../../../src/capture/capture-gate'
+import type {
+  InvocationEvent,
+  InvocationEventEnvelope,
+  InvocationEventFor,
+  InvocationEventType,
+} from 'spaces-harness-broker-protocol'
+import type { ClaudeHookTranscriptReaderOptions } from '../../../src/drivers/claude-code-tmux/hook-transcript'
+import { invocationIdFrom } from '../../ids'
 
 const invocationId = 'inv_claude_hooktx_1'
 
@@ -20,22 +26,9 @@ type ClaudeHookTranscriptReader = {
   reset: () => void
 }
 
-type ClaudeHookTranscriptReaderFactory = (options: {
-  now: () => Date
-  invocationId: string
-  getCurrentTurnId: () => string | undefined
-  onAssistantMessageStarted?:
-    | ((messageId: string, entry: Record<string, unknown>) => void)
-    | undefined
-  onTranscriptEntry?:
-    | ((
-        entry: Record<string, unknown>,
-        context: { precededByStopHookCancelled: boolean }
-      ) => boolean | NormalizeOutcome | undefined)
-    | undefined
-  resumeFromTranscriptEnd?: boolean | undefined
-  onTranscriptPath?: ((path: string) => void) | undefined
-}) => ClaudeHookTranscriptReader
+type ClaudeHookTranscriptReaderFactory = (
+  options: Omit<ClaudeHookTranscriptReaderOptions, 'emit'>
+) => ClaudeHookTranscriptReader
 
 const tempRoots: string[] = []
 
@@ -44,20 +37,26 @@ afterEach(() => {
 })
 
 const loadFactory = async (): Promise<ClaudeHookTranscriptReaderFactory> => {
-  const target = (await import('../../../src/drivers/claude-code-tmux/hook-transcript')) as {
-    createClaudeHookTranscriptReader: (options: Record<string, unknown>) => {
-      handleHook: (hook: Record<string, unknown>, turnId?: string) => void
-      drain: () => void
-      reset: () => void
-    }
-  }
+  const target = await import('../../../src/drivers/claude-code-tmux/hook-transcript')
   return (options) => {
     const emitted: InvocationEventEnvelope[] = []
+    type EmitExtra = Parameters<ClaudeHookTranscriptReaderOptions['emit']>[2]
+    function collect<K extends InvocationEventType>(
+      event: InvocationEventFor<K>,
+      extra: EmitExtra
+    ): void
+    function collect(event: InvocationEvent, extra: EmitExtra): void {
+      emitted.push({
+        invocationId: invocationIdFrom(options.invocationId),
+        seq: emitted.length + 1,
+        time: new Date(0).toISOString(),
+        ...event,
+        ...extra,
+      })
+    }
     const reader = target.createClaudeHookTranscriptReader({
       ...options,
-      emit: (type: string, payload: unknown, extra?: Record<string, unknown>) => {
-        emitted.push({ type, payload, ...extra } as unknown as InvocationEventEnvelope)
-      },
+      emit: (type, payload, extra) => collect({ type, payload }, extra),
     })
     const take = (): InvocationEventEnvelope[] => emitted.splice(0)
     return {
@@ -267,7 +266,10 @@ describe('createClaudeHookTranscriptReader', () => {
       now: () => new Date('2026-06-07T22:33:04.000Z'),
       invocationId,
       getCurrentTurnId: () => 'turn_active_1',
-      onTranscriptEntry: (entry) => observed.push(entry),
+      onTranscriptEntry: (entry) => {
+        observed.push(entry)
+        return false
+      },
     })
 
     // SessionStart records the transcript path, emits nothing.
@@ -343,7 +345,10 @@ describe('createClaudeHookTranscriptReader', () => {
       now: () => new Date('2026-06-07T22:33:04.000Z'),
       invocationId,
       getCurrentTurnId: () => undefined,
-      onTranscriptEntry: (entry) => observed.push(entry),
+      onTranscriptEntry: (entry) => {
+        observed.push(entry)
+        return false
+      },
     })
 
     reader.handleHook(sessionStart(path))
@@ -364,7 +369,10 @@ describe('createClaudeHookTranscriptReader', () => {
       now: () => new Date('2026-06-07T22:33:04.000Z'),
       invocationId,
       getCurrentTurnId: () => 'turn_active_1',
-      onTranscriptEntry: (entry) => observed.push(entry),
+      onTranscriptEntry: (entry) => {
+        observed.push(entry)
+        return false
+      },
     })
 
     reader.handleHook(sessionStart(path))
@@ -390,7 +398,10 @@ describe('createClaudeHookTranscriptReader', () => {
       now: () => new Date('2026-06-07T22:33:04.000Z'),
       invocationId,
       getCurrentTurnId: () => 'turn_active_1',
-      onTranscriptEntry: (entry) => observed.push(entry),
+      onTranscriptEntry: (entry) => {
+        observed.push(entry)
+        return false
+      },
     })
 
     reader.handleHook(sessionStart(path))
@@ -458,7 +469,7 @@ describe('createClaudeHookTranscriptReader', () => {
     expect((event.payload as { code?: unknown }).code).toBeUndefined()
     // driver provenance + active turn id.
     expect(event.driver).toEqual({ kind: 'claude-code-tmux', rawType: 'assistant' })
-    expect(event.turnId).toBe('turn_active_1')
+    expect<string | undefined>(event.turnId).toBe('turn_active_1')
     expect((event.payload as { turnId?: string }).turnId ?? 'turn_active_1').toBe('turn_active_1')
   })
 

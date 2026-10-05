@@ -2,7 +2,10 @@ import { describe, expect, test } from 'bun:test'
 import type {
   ClientCapabilities,
   CodexAppServerDriverSpec,
+  InvocationEvent,
   InvocationEventEnvelope,
+  InvocationEventFor,
+  InvocationEventType,
   PermissionDecision,
   PermissionPolicy,
   PermissionRequestParams,
@@ -17,10 +20,11 @@ import {
 } from '../../../src/drivers/codex-app-server/permissions'
 import type { JsonRpcRequest } from '../../../src/drivers/codex-app-server/rpc-client'
 import type { DriverContext } from '../../../src/drivers/driver'
+import { inputIdFrom, invocationIdFrom, turnIdFrom } from '../../ids'
 
-const invocationId = 'inv_permission_contract'
-const turnId = 'turn_permission_contract'
-const inputId = 'input_permission_contract'
+const invocationId = invocationIdFrom('inv_permission_contract')
+const turnId = turnIdFrom('turn_permission_contract')
+const inputId = inputIdFrom('input_permission_contract')
 // Lives only in the request's `env` block — must NEVER appear in the bounded
 // display subject, because `env` is not a projected field.
 const rawSecret = 'sk-live-final-contract-secret'
@@ -40,6 +44,8 @@ const codexPermissionRequest: JsonRpcRequest = {
     },
   },
 }
+
+type EmitExtra = Parameters<DriverContext['emitEvent']>[1]
 
 type RequestPermissionHandler = (params: PermissionRequestParams) => Promise<PermissionDecision>
 
@@ -66,21 +72,27 @@ async function runPermissionScenario(options: {
   const events: InvocationEventEnvelope[] = []
   const permissionRequests: PermissionRequestParams[] = []
 
+  function emitEvent<K extends InvocationEventType>(
+    event: InvocationEventFor<K>,
+    extra?: EmitExtra
+  ): InvocationEventEnvelope<K>
+  function emitEvent(event: InvocationEvent, extra?: EmitExtra): InvocationEventEnvelope {
+    const envelope = {
+      invocationId,
+      seq: events.length + 1,
+      time: '2026-05-20T19:30:00.000Z',
+      ...event,
+      ...extra,
+    } as InvocationEventEnvelope
+    events.push(envelope)
+    return envelope
+  }
+
   const ctx = {
     invocationId,
     clientCapabilities: options.clientCapabilities ?? {},
-    emit(type, payload, extra) {
-      const event = {
-        invocationId,
-        seq: events.length + 1,
-        time: '2026-05-20T19:30:00.000Z',
-        type,
-        payload,
-        ...extra,
-      } as InvocationEventEnvelope
-      events.push(event)
-      return event
-    },
+    emit: (type, payload, extra) => emitEvent({ type, payload }, extra),
+    emitEvent,
     async requestPermission(params: PermissionRequestParams): Promise<PermissionDecision> {
       permissionRequests.push(params)
       if (!options.requestPermission) {

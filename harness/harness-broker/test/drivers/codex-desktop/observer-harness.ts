@@ -119,6 +119,8 @@ export function queueHarness() {
 }
 
 export function noticeData(events: InvocationEventEnvelope[], code: string): unknown {
-  return events.find((event) => event.type === 'driver.notice' && event.payload.code === code)
-    ?.payload.data
+  const notice = events.find(
+    (event) => event.type === 'driver.notice' && event.payload.code === code
+  )
+  return notice?.type === 'driver.notice' ? notice.payload.data : undefined
 }

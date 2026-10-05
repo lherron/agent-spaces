@@ -6,13 +6,14 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../src/broker'
 import { createTestDriver } from '../src/testing/test-driver'
+import { invocationIdFrom, turnIdFrom } from './ids'
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 const origin: SubmissionOrigin = { principalRef: 'agent:test', scopeRef: 'test@mobile' }
 
 const spec = (invocationId: string): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId,
+  invocationId: invocationIdFrom(invocationId),
   harness: { frontend: 'test', provider: 'test', driver: 'test-driver' },
   process: {
     command: 'test-driver',
@@ -39,7 +40,7 @@ describe('T-07962 recorded Codex tmux wedge shape', () => {
         observed.prompt !== undefined && observed.prompt === text(pending.content),
     })
     const broker = createBroker({ drivers: [driver], onEvent: (event) => events.push(event) })
-    const invocationId = 'inv_t07962_codex_wedge'
+    const invocationId = invocationIdFrom('inv_t07962_codex_wedge')
     await broker.start({ spec: spec(invocationId) })
 
     const submissions = []
@@ -57,7 +58,7 @@ describe('T-07962 recorded Codex tmux wedge shape', () => {
     const prompts = ['Does lab1 have cuda drivers included in template?', 'follow-up', 'third']
     for (let index = 0; index < prompts.length; index += 1) {
       expect(controller.inputs).toHaveLength(index + 1)
-      const turnId = `01a06912-6ad3-75b0-abee-76cb297cde${index}` as const
+      const turnId = turnIdFrom(`01a06912-6ad3-75b0-abee-76cb297cde${index}`)
       controller.emitRaw(
         'turn.started',
         { turnId, sessionId: '01a067a6', prompt: prompts[index] },
@@ -71,7 +72,7 @@ describe('T-07962 recorded Codex tmux wedge shape', () => {
       await flush()
     }
 
-    expect(
+    expect<(string | undefined)[]>(
       events.filter((event) => event.type === 'input.accepted').map((event) => event.inputId)
     ).toEqual(submissions.map((submission) => submission.submissionId))
     expect(

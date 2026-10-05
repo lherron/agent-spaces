@@ -2,10 +2,12 @@ import { describe, expect, test } from 'bun:test'
 import type {
   HarnessInvocationSpec,
   InvocationEventEnvelope,
+  InvocationId,
   InvocationInput,
 } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../src/broker'
 import { createTestDriver } from '../src/testing/test-driver'
+import { inputIdFrom, invocationIdFrom } from './ids'
 
 // T-04846: the broker MUST guarantee exactly one `turn.started` for every
 // DELIVERED input (input.accepted / disposition:'started'), synthesized from
@@ -20,7 +22,7 @@ const now = () => new Date('2026-06-16T19:30:00.000Z')
 const flushMicrotasks = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 const testSpec = (
-  invocationId: string,
+  invocationId: InvocationId,
   interaction: HarnessInvocationSpec['interaction'] = {
     mode: 'headless',
     turnConcurrency: 'single',
@@ -28,7 +30,7 @@ const testSpec = (
   }
 ): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId,
+  invocationId: invocationIdFrom(invocationId),
   harness: { frontend: 'test', provider: 'test', driver: 'test-driver' },
   process: {
     command: 'test-driver',
@@ -41,13 +43,13 @@ const testSpec = (
 })
 
 const userInput = (inputId: string, text: string): InvocationInput => ({
-  inputId,
+  inputId: inputIdFrom(inputId),
   kind: 'user',
   content: [{ type: 'text', text }],
 })
 
 const setup = async (
-  invocationId: string,
+  rawInvocationId: string,
   options: {
     suppressTurnStarted?: boolean
     interactionMode?: 'headless' | 'interactive'
@@ -55,6 +57,7 @@ const setup = async (
     bracketMintingMode?: 'delivery-acknowledged' | 'harness-evidence' | 'delivery-asserted'
   } = {}
 ) => {
+  const invocationId = invocationIdFrom(rawInvocationId)
   const events: InvocationEventEnvelope[] = []
   const { driver, controller } = createTestDriver({
     suppressTurnStarted: options.suppressTurnStarted,
@@ -80,7 +83,7 @@ const ofType = (events: InvocationEventEnvelope[], type: InvocationEventEnvelope
 
 const BODY_OR_TERMINAL = new Set<InvocationEventEnvelope['type']>([
   'user.message',
-  'assistant.message',
+  'assistant.message.completed',
   'tool.call.started',
   'tool.call.completed',
   'turn.completed',
@@ -119,7 +122,9 @@ describe('broker-guaranteed turn.started bracket (T-04846)', () => {
     // Synthesized from the delivered input's turnId, provenance-visible.
     expect(starts[0]?.payload).toMatchObject({ source: 'broker-delivery' })
     expect(starts[0]?.turnId).toBeDefined()
-    expect((starts[0]?.payload as { turnId?: string }).turnId).toBe(starts[0]?.turnId)
+    expect<string | undefined>((starts[0]?.payload as { turnId?: string }).turnId).toBe(
+      starts[0]?.turnId
+    )
 
     // Ordering: the (single) turn.started strictly precedes the first body or
     // terminal event in the projected stream.
@@ -174,7 +179,9 @@ describe('broker-guaranteed turn.started bracket (T-04846)', () => {
     })
 
     expect(response).toMatchObject({ disposition: 'attempted_steer' })
-    expect(controller.steeredInputs.map((i) => i.inputId)).toEqual(['input_steer'])
+    expect<(string | undefined)[]>(controller.steeredInputs.map((i) => i.inputId)).toEqual([
+      'input_steer',
+    ])
     // Exactly one start total — the steer added none.
     expect(ofType(events, 'turn.started')).toHaveLength(1)
     expect(

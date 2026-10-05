@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
+import { inputIdFrom } from '../../ids'
 import type { HookEnvelope, TmuxExecCall } from './driver-red.helpers'
 import {
   DEFAULT_LEASE_PANE,
@@ -143,7 +144,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
 
     const prompt = `T05577_BEGIN\n${'x'.repeat(100 * 1024)}\nT05577_END`
     await driver.applyInputNow({
-      inputId: 'input_apply_1',
+      inputId: inputIdFrom('input_apply_1'),
       kind: 'user',
       content: [{ type: 'text', text: prompt }],
     })

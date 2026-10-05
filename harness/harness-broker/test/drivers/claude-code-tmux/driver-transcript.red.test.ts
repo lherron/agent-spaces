@@ -6,6 +6,7 @@ import type { InvocationEventEnvelope, InvocationId } from 'spaces-harness-broke
 import { createCaptureGate } from '../../../src/capture/capture-gate'
 import { openCaptureIndex } from '../../../src/capture/capture-index'
 import { createRawJournal } from '../../../src/capture/raw-journal'
+import { inputIdFrom } from '../../ids'
 import type { HookEnvelope, TmuxExecCall } from './driver-red.helpers'
 import {
   claudeTmuxSpec,
@@ -114,7 +115,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       })
 
       const applied = await driver.applyInputNow({
-        inputId: 'input_absorbed',
+        inputId: inputIdFrom('input_absorbed'),
         kind: 'user',
         content: [{ type: 'text', text: 'broker steer' }],
       })
@@ -145,7 +146,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       })
 
       await driver.applyInputNow({
-        inputId: 'input_removed',
+        inputId: inputIdFrom('input_removed'),
         kind: 'user',
         content: [{ type: 'text', text: 'removed without attachment' }],
       })
@@ -178,7 +179,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
         },
       })
       const idle = await driver.applyInputNow({
-        inputId: 'input_executed',
+        inputId: inputIdFrom('input_executed'),
         kind: 'user',
         content: [{ type: 'text', text: 'idle own turn' }],
       })
@@ -574,7 +575,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
         'API Error: Internal server error'
       )
       // Drained before reset/turn-id loss → it still carries the active turn id.
-      expect(diag.turnId).toBe('turn_drain_1')
+      expect<string | undefined>(diag.turnId).toBe('turn_drain_1')
       expect(diag.driver).toEqual({ kind: 'claude-code-tmux', rawType: 'assistant' })
     } finally {
       await driver.dispose()

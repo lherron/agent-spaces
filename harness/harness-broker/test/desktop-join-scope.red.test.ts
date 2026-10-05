@@ -60,7 +60,7 @@ describe('desktop-join admission', () => {
       nativeAttemptStorePath: join(home.dir, 'attempts.db'),
     })
     expect(outcome.admitted).toBe(false)
-    expect(outcome.reason).toMatch(/codex_desktop_/)
+    expect(outcome.admitted ? undefined : outcome.reason).toMatch(/codex_desktop_/)
   })
 
   test('user thread admits with preparation for the join', async () => {

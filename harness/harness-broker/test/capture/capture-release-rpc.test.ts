@@ -7,6 +7,7 @@ import { CAPTURE_RELEASE_NOT_BLOCKED, validateCommand } from 'spaces-harness-bro
 import { createBroker } from '../../src/broker'
 import { createEventLedger } from '../../src/event-ledger'
 import { createTestDriver } from '../../src/testing/test-driver'
+import { invocationIdFrom } from '../ids'
 
 const roots: string[] = []
 process.on('exit', () => {
@@ -15,7 +16,7 @@ process.on('exit', () => {
 
 const spec = (invocationId: string): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId,
+  invocationId: invocationIdFrom(invocationId),
   harness: { frontend: 'test', provider: 'test', driver: 'test-driver' },
   process: {
     command: 'test-driver',
@@ -40,7 +41,7 @@ function durableBroker(invocationId: string) {
     onEvent: (event) => events.push(event),
     logWarn: (line) => void logged.push(line),
   })
-  return { broker, controller, events, logged, dir, invocationId }
+  return { broker, controller, events, logged, dir, invocationId: invocationIdFrom(invocationId) }
 }
 
 describe('capture through the real broker: a blocked-unknown never stops the stream', () => {

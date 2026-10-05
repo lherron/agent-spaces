@@ -5,13 +5,14 @@ import { createBroker } from '../src/broker'
 import type { Driver } from '../src/drivers/driver'
 import { createInvocationEventSequencer } from '../src/events'
 import { createTestDriver } from '../src/testing/test-driver'
-import { noopCapabilities } from './helpers'
+import { noopCapabilities, stubDriverDeclarations } from './helpers'
+import { inputIdFrom, invocationIdFrom, messageIdFrom, toolCallIdFrom } from './ids'
 
 const now = () => new Date('2026-05-20T18:00:00.000Z')
 
 const testDriverSpec = (invocationId: string): HarnessInvocationSpec => ({
   specVersion: 'harness-broker.invocation/v1',
-  invocationId,
+  invocationId: invocationIdFrom(invocationId),
   harness: { frontend: 'test', provider: 'test', driver: 'test-driver' },
   process: {
     command: 'test-driver',
@@ -24,7 +25,7 @@ const testDriverSpec = (invocationId: string): HarnessInvocationSpec => ({
 })
 
 const userInput = (inputId: string) => ({
-  inputId,
+  inputId: inputIdFrom(inputId),
   kind: 'user' as const,
   content: [{ type: 'text' as const, text: 'go' }],
 })
@@ -36,13 +37,13 @@ describe('invocation event sequencing', () => {
     })
 
     expect([
-      sequencer.next('inv_a', 'invocation.started', {
+      sequencer.next(invocationIdFrom('inv_a'), 'invocation.started', {
         command: 'test-driver',
         args: [],
         cwd: process.cwd(),
       }),
-      sequencer.next('inv_a', 'invocation.ready', { state: 'ready' }),
-      sequencer.next('inv_b', 'invocation.started', {
+      sequencer.next(invocationIdFrom('inv_a'), 'invocation.ready', { state: 'ready' }),
+      sequencer.next(invocationIdFrom('inv_b'), 'invocation.started', {
         command: 'test-driver',
         args: [],
         cwd: process.cwd(),
@@ -55,7 +56,9 @@ describe('invocation event sequencing', () => {
       now: () => new Date('2026-05-20T18:00:00.000Z'),
     })
 
-    expect(sequencer.next('inv_with_id', 'invocation.ready', { state: 'ready' })).toMatchObject({
+    expect(
+      sequencer.next(invocationIdFrom('inv_with_id'), 'invocation.ready', { state: 'ready' })
+    ).toMatchObject({
       invocationId: 'inv_with_id',
       seq: 1,
       time: '2026-05-20T18:00:00.000Z',
@@ -67,9 +70,9 @@ describe('invocation event sequencing', () => {
   test('a native source time overrides observation time without changing broker sequencing', () => {
     const sequencer = createInvocationEventSequencer({ now })
     const event = sequencer.next(
-      'inv_native_time',
+      invocationIdFrom('inv_native_time'),
       'tool.call.started',
-      { toolCallId: 'call_1', name: 'command' },
+      { toolCallId: toolCallIdFrom('call_1'), name: 'command' },
       { sourceTime: '2026-05-20T17:59:59.125Z' }
     )
 
@@ -91,7 +94,9 @@ describe('invocation event sequencing', () => {
       correlation,
     })
 
-    const event = sequencer.next('inv_corr', 'driver.notice', { message: 'notice' })
+    const event = sequencer.next(invocationIdFrom('inv_corr'), 'driver.notice', {
+      message: 'notice',
+    })
 
     expect(event.correlation).toEqual(correlation)
     expect(event.seq).toBe(1)
@@ -122,12 +127,12 @@ describe('invocation event sequencing', () => {
       ],
     ] as const) {
       expect(reject).toThrow()
-      expect(sequencer.next(invocationId, 'driver.notice', { message: 'recovered' })).toMatchObject(
-        {
-          seq: 1,
-          type: 'driver.notice',
-        }
-      )
+      expect(
+        sequencer.next(invocationIdFrom(invocationId), 'driver.notice', { message: 'recovered' })
+      ).toMatchObject({
+        seq: 1,
+        type: 'driver.notice',
+      })
     }
   })
 })
@@ -167,10 +172,13 @@ describe('final-contract event payloads', () => {
     const broker = createBroker({ drivers: [driver], onEvent: (event) => events.push(event), now })
 
     await broker.start({ spec: testDriverSpec('inv_validate_stream') })
-    await broker.input({ invocationId: 'inv_validate_stream', input: userInput('in_1') })
+    await broker.input({
+      invocationId: invocationIdFrom('inv_validate_stream'),
+      input: userInput('in_1'),
+    })
     controller.completeActiveTurn()
-    await broker.stop({ invocationId: 'inv_validate_stream' })
-    await broker.dispose({ invocationId: 'inv_validate_stream' })
+    await broker.stop({ invocationId: invocationIdFrom('inv_validate_stream') })
+    await broker.dispose({ invocationId: invocationIdFrom('inv_validate_stream') })
 
     expect(events.length).toBeGreaterThan(0)
     for (const event of events) {
@@ -189,7 +197,10 @@ describe('final-contract event payloads', () => {
     const broker = createBroker({ drivers: [driver], onEvent: (event) => events.push(event), now })
 
     await broker.start({ spec: testDriverSpec('inv_turn_failed') })
-    await broker.input({ invocationId: 'inv_turn_failed', input: userInput('in_1') })
+    await broker.input({
+      invocationId: invocationIdFrom('inv_turn_failed'),
+      input: userInput('in_1'),
+    })
     controller.failActiveTurn('boom')
 
     const failed = events.filter((event) => event.type === 'turn.failed')
@@ -198,7 +209,7 @@ describe('final-contract event payloads', () => {
     expect((failed[0]?.payload as { turnId?: string }).turnId).toBeDefined()
     expect(events.some((event) => event.type === 'turn.completed')).toBe(false)
 
-    const status = await broker.status({ invocationId: 'inv_turn_failed' })
+    const status = await broker.status({ invocationId: invocationIdFrom('inv_turn_failed') })
     expect(status.currentTurnId).toBeUndefined()
     expect(status.state).toBe('ready')
   })
@@ -209,6 +220,7 @@ describe('final-contract event payloads', () => {
     const driver: Driver = {
       kind: 'big-event-driver',
       version: 'test',
+      ...stubDriverDeclarations,
       capabilities: () => noopCapabilities,
       start: async (_spec, ctx) => {
         ctx.emit('invocation.started', { command: 'big', args: [], cwd: '/work' })
@@ -216,7 +228,7 @@ describe('final-contract event payloads', () => {
         // Oversized event — far beyond the configured maxEventBytes budget.
         ctx.emit(
           'assistant.message.delta',
-          { messageId: 'm1', text: big },
+          { messageId: messageIdFrom('m1'), text: big },
           { turnId: 'turn_big' as never }
         )
         return { ok: true }

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { readFile, rm } from 'node:fs/promises'
+import { inputIdFrom, invocationIdFrom, turnIdFrom } from '../../ids'
 import {
   FakeCodexRpc,
   emitTurn,
@@ -76,7 +77,7 @@ describe('codex-tui queue attribution', () => {
         {
           spec: run.invocationSpec,
           initialInput: {
-            inputId: 'input_launch',
+            inputId: inputIdFrom('input_launch'),
             kind: 'user',
             content: [{ type: 'text', text: 'launch' }],
           },
@@ -93,7 +94,7 @@ describe('codex-tui queue attribution', () => {
         'launch queue input should complete'
       )
       const second = await run.broker.enqueue({
-        invocationId: 'inv_codex_tui_two_queue',
+        invocationId: invocationIdFrom('inv_codex_tui_two_queue'),
         origin,
         body: 'second',
       })
@@ -129,7 +130,7 @@ describe('codex-tui queue attribution', () => {
       expect(run.events.filter((event) => event.type === 'submission.executed')).toHaveLength(2)
       expect(run.events.filter((event) => event.type === 'submission.lost')).toHaveLength(0)
       const exclusive = await run.broker.invoke({
-        invocationId: 'inv_codex_tui_two_queue',
+        invocationId: invocationIdFrom('inv_codex_tui_two_queue'),
         origin,
         body: 'must refuse',
       })
@@ -142,10 +143,10 @@ describe('codex-tui queue attribution', () => {
       )
     } finally {
       await run.broker.stop({
-        invocationId: 'inv_codex_tui_two_queue',
+        invocationId: invocationIdFrom('inv_codex_tui_two_queue'),
         reason: 'test cleanup',
       })
-      await run.broker.dispose({ invocationId: 'inv_codex_tui_two_queue' })
+      await run.broker.dispose({ invocationId: invocationIdFrom('inv_codex_tui_two_queue') })
       await rm(run.socketDir, { recursive: true, force: true })
     }
   })
@@ -210,10 +211,10 @@ describe('codex-tui queue attribution', () => {
       }
     } finally {
       await run.broker.stop({
-        invocationId: 'inv_codex_tui_resume',
+        invocationId: invocationIdFrom('inv_codex_tui_resume'),
         reason: 'test cleanup',
       })
-      await run.broker.dispose({ invocationId: 'inv_codex_tui_resume' })
+      await run.broker.dispose({ invocationId: invocationIdFrom('inv_codex_tui_resume') })
       await rm(run.socketDir, { recursive: true, force: true })
     }
   })
@@ -263,7 +264,7 @@ describe('codex-tui queue attribution', () => {
     try {
       await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
       const queued = await run.broker.enqueue({
-        invocationId: 'inv_codex_tui_interrupt_race',
+        invocationId: invocationIdFrom('inv_codex_tui_interrupt_race'),
         origin,
         body: 'queued broker input',
       })
@@ -279,7 +280,7 @@ describe('codex-tui queue attribution', () => {
       ).toMatchObject({ ownership: 'foreign', origin: 'human' })
       expect(run.events.find((event) => event.type === 'submission.executed')?.payload).toEqual({
         submissionId: queued.submissionId,
-        turnId: 'turn_broker',
+        turnId: turnIdFrom('turn_broker'),
       })
       expect(
         run.events.find((event) => event.type === 'user.message' && event.turnId === 'turn_human')
@@ -288,11 +289,11 @@ describe('codex-tui queue attribution', () => {
       expect(run.events.filter((event) => event.type === 'submission.lost')).toHaveLength(0)
     } finally {
       await run.broker.stop({
-        invocationId: 'inv_codex_tui_interrupt_race',
+        invocationId: invocationIdFrom('inv_codex_tui_interrupt_race'),
         reason: 'test cleanup',
       })
       await run.broker.dispose({
-        invocationId: 'inv_codex_tui_interrupt_race',
+        invocationId: invocationIdFrom('inv_codex_tui_interrupt_race'),
       })
       await rm(run.socketDir, { recursive: true, force: true })
     }
@@ -339,7 +340,7 @@ describe('codex-tui queue attribution', () => {
     try {
       await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
       const first = await run.broker.enqueue({
-        invocationId: 'inv_codex_tui_owned_interrupt_then_queue',
+        invocationId: invocationIdFrom('inv_codex_tui_owned_interrupt_then_queue'),
         origin,
         body: 'first',
       })
@@ -351,7 +352,7 @@ describe('codex-tui queue attribution', () => {
         'first owned turn should interrupt'
       )
       const second = await run.broker.enqueue({
-        invocationId: 'inv_codex_tui_owned_interrupt_then_queue',
+        invocationId: invocationIdFrom('inv_codex_tui_owned_interrupt_then_queue'),
         origin,
         body: 'second',
       })
@@ -368,11 +369,11 @@ describe('codex-tui queue attribution', () => {
       expect(run.events.filter((event) => event.type === 'submission.lost')).toHaveLength(0)
     } finally {
       await run.broker.stop({
-        invocationId: 'inv_codex_tui_owned_interrupt_then_queue',
+        invocationId: invocationIdFrom('inv_codex_tui_owned_interrupt_then_queue'),
         reason: 'test cleanup',
       })
       await run.broker.dispose({
-        invocationId: 'inv_codex_tui_owned_interrupt_then_queue',
+        invocationId: invocationIdFrom('inv_codex_tui_owned_interrupt_then_queue'),
       })
       await rm(run.socketDir, { recursive: true, force: true })
     }
@@ -420,7 +421,7 @@ describe('codex-tui queue attribution', () => {
         {
           spec: run.invocationSpec,
           initialInput: {
-            inputId: 'input_launch_after_goal',
+            inputId: inputIdFrom('input_launch_after_goal'),
             kind: 'user',
             content: [{ type: 'text', text: 'launch after goal' }],
           },
@@ -431,10 +432,10 @@ describe('codex-tui queue attribution', () => {
       expect(
         (
           await run.broker.seatProbe({
-            invocationId: 'inv_codex_tui_resume_goal',
+            invocationId: invocationIdFrom('inv_codex_tui_resume_goal'),
           })
         ).seat
-      ).toEqual({ state: 'turn-observed', turnId: 'turn_goal_startup' })
+      ).toEqual({ state: 'turn-observed', turnId: turnIdFrom('turn_goal_startup') })
       expect(rpc.requests.some((request) => request.method === 'thread/queue/add')).toBe(false)
       await waitFor(
         () =>
@@ -467,10 +468,10 @@ describe('codex-tui queue attribution', () => {
       ).toMatchObject({ turnId: 'turn_launch_after_goal' })
     } finally {
       await run.broker.stop({
-        invocationId: 'inv_codex_tui_resume_goal',
+        invocationId: invocationIdFrom('inv_codex_tui_resume_goal'),
         reason: 'test cleanup',
       })
-      await run.broker.dispose({ invocationId: 'inv_codex_tui_resume_goal' })
+      await run.broker.dispose({ invocationId: invocationIdFrom('inv_codex_tui_resume_goal') })
       await rm(run.socketDir, { recursive: true, force: true })
     }
   })
@@ -496,7 +497,7 @@ describe('codex-tui queue attribution', () => {
     try {
       await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
       const queued = await run.broker.enqueue({
-        invocationId: 'inv_codex_tui_completed_race',
+        invocationId: invocationIdFrom('inv_codex_tui_completed_race'),
         origin,
         body: 'queued behind human',
       })
@@ -527,11 +528,11 @@ describe('codex-tui queue attribution', () => {
       expect(run.events.filter((event) => event.type === 'submission.lost')).toHaveLength(0)
     } finally {
       await run.broker.stop({
-        invocationId: 'inv_codex_tui_completed_race',
+        invocationId: invocationIdFrom('inv_codex_tui_completed_race'),
         reason: 'test cleanup',
       })
       await run.broker.dispose({
-        invocationId: 'inv_codex_tui_completed_race',
+        invocationId: invocationIdFrom('inv_codex_tui_completed_race'),
       })
       await rm(run.socketDir, { recursive: true, force: true })
     }
@@ -570,7 +571,7 @@ describe('codex-tui queue attribution', () => {
     try {
       await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
       const queued = await run.broker.enqueue({
-        invocationId: 'inv_codex_tui_guarded_own',
+        invocationId: invocationIdFrom('inv_codex_tui_guarded_own'),
         origin,
         body: 'guarded broker input',
         turnPolicy: 'guarded',
@@ -581,7 +582,7 @@ describe('codex-tui queue attribution', () => {
       )
       expect(
         await run.broker.steer({
-          invocationId: 'inv_codex_tui_guarded_own',
+          invocationId: invocationIdFrom('inv_codex_tui_guarded_own'),
           origin,
           body: 'broker steer must be refused',
         })
@@ -618,10 +619,10 @@ describe('codex-tui queue attribution', () => {
       expect(run.events.filter((event) => event.type === 'submission.lost')).toHaveLength(0)
     } finally {
       await run.broker.stop({
-        invocationId: 'inv_codex_tui_guarded_own',
+        invocationId: invocationIdFrom('inv_codex_tui_guarded_own'),
         reason: 'test cleanup',
       })
-      await run.broker.dispose({ invocationId: 'inv_codex_tui_guarded_own' })
+      await run.broker.dispose({ invocationId: invocationIdFrom('inv_codex_tui_guarded_own') })
       await rm(run.socketDir, { recursive: true, force: true })
     }
   })

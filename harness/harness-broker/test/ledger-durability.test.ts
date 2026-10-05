@@ -3,6 +3,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
+  DiagnosticPayload,
   HarnessInvocationSpec,
   InvocationEventEnvelope,
   InvocationId,
@@ -14,7 +15,8 @@ import type { EventLedger } from '../src/event-ledger'
 import { createEventLedger } from '../src/event-ledger'
 import type { LedgerStorageFailure } from '../src/ledger-commit'
 import { createCommittedEventPublisher } from '../src/ledger-commit'
-import { noopCapabilities, noopSpec } from './helpers'
+import { noopCapabilities, noopSpec, stubDriverDeclarations } from './helpers'
+import { inputIdFrom, turnIdFrom } from './ids'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -81,7 +83,7 @@ const testSpec = (invocationId: string): HarnessInvocationSpec =>
 
 interface DurabilityDriver extends Driver {
   /** Emit an extra event from the driver seam, as a live harness would. */
-  emitFromDriver(type: 'diagnostic', payload: Record<string, unknown>): void
+  emitFromDriver(type: 'diagnostic', payload: DiagnosticPayload): void
   readonly stopped: () => boolean
   readonly disposed: () => boolean
 }
@@ -93,14 +95,15 @@ const createDurabilityDriver = (): DurabilityDriver => {
   return {
     kind: 'durability-driver',
     version: 'test',
+    ...stubDriverDeclarations,
     capabilities: () => noopCapabilities,
     start: async (_spec, driverCtx) => {
       ctx = driverCtx
       return { ok: true }
     },
     applyInputNow: async (input) => {
-      ctx?.emit('turn.started', { turnId: 'turn_durability_1', inputId: input.inputId })
-      return { turnId: 'turn_durability_1' }
+      ctx?.emit('turn.started', { turnId: turnIdFrom('turn_durability_1'), inputId: input.inputId })
+      return { turnId: turnIdFrom('turn_durability_1') }
     },
     interrupt: async () => ({ accepted: false, effect: 'unsupported' }),
     stop: async () => {
@@ -219,7 +222,7 @@ describe('T-07861 commit-before-publish, fail closed', () => {
       broker.input({
         invocationId: 'inv_fail_closed' as InvocationId,
         input: {
-          inputId: 'in_after_failure',
+          inputId: inputIdFrom('in_after_failure'),
           kind: 'user',
           content: [{ type: 'text', text: 'hi' }],
         },
@@ -260,7 +263,11 @@ describe('T-07861 commit-before-publish, fail closed', () => {
     await expect(
       broker.input({
         invocationId: 'inv_disk_full' as InvocationId,
-        input: { inputId: 'in_disk_full', kind: 'user', content: [{ type: 'text', text: 'hi' }] },
+        input: {
+          inputId: inputIdFrom('in_disk_full'),
+          kind: 'user',
+          content: [{ type: 'text', text: 'hi' }],
+        },
       })
     ).rejects.toMatchObject({
       code: BrokerErrorCode.ResourceError,

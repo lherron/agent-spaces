@@ -6,6 +6,7 @@ import {
   type ClaudeAttributionAction,
   createClaudeTurnAttribution,
 } from '../../../src/drivers/claude-code-tmux/turn-attribution'
+import { inputIdFrom, turnIdFrom } from '../../ids'
 
 const createTracker = (invocationId = 'inv_attr') => {
   let turn = 0
@@ -176,7 +177,7 @@ describe('claude-code-tmux disposition mirror', () => {
     tracker.observeQueueOperation(queueOp('enqueue', 'two'))
 
     expect(tracker.observeQueueOperation(queueOp('dequeue'))).toEqual([])
-    expect(tracker.activeTurnId).toBe('turn_original')
+    expect<string | undefined>(tracker.activeTurnId).toBe('turn_original')
     tracker.observeTurnTerminal('turn_original' as TurnId)
     const first = tracker.observePlainUser('one', { type: 'user' })
     expect(first).toEqual([
@@ -222,7 +223,7 @@ describe('claude-code-tmux disposition mirror', () => {
       }),
     ])
     expect(tracker.observePlainUser('typed prompt', { type: 'user' })).toEqual([
-      { kind: 'prompt-echo', content: 'typed prompt', turnId: 'turn_inv_attr_1' },
+      { kind: 'prompt-echo', content: 'typed prompt', turnId: turnIdFrom('turn_inv_attr_1') },
     ])
   })
 
@@ -248,7 +249,7 @@ describe('claude-code-tmux disposition mirror', () => {
 
     expect(tracker.observeQueueOperation(queueOp('dequeue'))).toEqual([])
     const interrupted = tracker.observeInterrupt({ message: '[Request interrupted by user]' })
-    expect(interrupted).toEqual([{ kind: 'interrupted', turnId: 'turn_round_b' }])
+    expect(interrupted).toEqual([{ kind: 'interrupted', turnId: turnIdFrom('turn_round_b') }])
     const promoted = tracker.observePlainUser('CHARLIE', { type: 'user' })
     expect(promoted).toEqual([
       expect.objectContaining({ kind: 'executed', content: 'CHARLIE', turnId: 'turn_inv_attr_1' }),
@@ -262,9 +263,9 @@ describe('claude-code-tmux disposition mirror', () => {
     tracker.observeTurnStarted('turn_successor' as TurnId)
 
     expect(tracker.observeInterrupt({ message: '[Request interrupted by user]' })).toEqual([
-      { kind: 'interrupted', turnId: 'turn_original' },
+      { kind: 'interrupted', turnId: turnIdFrom('turn_original') },
     ])
-    expect(tracker.activeTurnId).toBe('turn_successor')
+    expect<string | undefined>(tracker.activeTurnId).toBe('turn_successor')
   })
 
   test('a requested interrupt marker after bounded completion is a silent duplicate', () => {
@@ -311,7 +312,7 @@ describe('claude-code-tmux disposition mirror', () => {
     absorbed.observeTurnStarted('turn_live' as TurnId)
     absorbed.trackBrokerSubmission({
       submissionId: 'input_absorb',
-      inputId: 'input_absorb',
+      inputId: inputIdFrom('input_absorb'),
       allocatedTurnId: 'turn_allocated' as TurnId,
       content: 'broker steer',
     })
@@ -333,7 +334,7 @@ describe('claude-code-tmux disposition mirror', () => {
     const executed = createTracker('inv_broker_execute')
     executed.trackBrokerSubmission({
       submissionId: 'input_execute',
-      inputId: 'input_execute',
+      inputId: inputIdFrom('input_execute'),
       allocatedTurnId: 'turn_allocated' as TurnId,
       content: 'idle input',
     })
@@ -350,7 +351,7 @@ describe('claude-code-tmux disposition mirror', () => {
     const tracker = createTracker('inv_merged_prompt')
     tracker.trackBrokerSubmission({
       submissionId: 'input_merged',
-      inputId: 'input_merged',
+      inputId: inputIdFrom('input_merged'),
       allocatedTurnId: 'turn_merged' as TurnId,
       content: 'BROKER DELIVERY',
     })
@@ -368,7 +369,7 @@ describe('claude-code-tmux disposition mirror', () => {
       }),
     ])
     expect(tracker.observePlainUser(mergedPrompt, { type: 'user' })).toEqual([
-      { kind: 'prompt-echo', content: mergedPrompt, turnId: 'turn_merged' },
+      { kind: 'prompt-echo', content: mergedPrompt, turnId: turnIdFrom('turn_merged') },
     ])
     expect(tracker.pendingCount).toBe(0)
   })
@@ -377,12 +378,12 @@ describe('claude-code-tmux disposition mirror', () => {
     const tracker = createTracker('inv_merged_longest')
     tracker.trackBrokerSubmission({
       submissionId: 'input_short',
-      inputId: 'input_short',
+      inputId: inputIdFrom('input_short'),
       content: 'DELIVERY',
     })
     tracker.trackBrokerSubmission({
       submissionId: 'input_long',
-      inputId: 'input_long',
+      inputId: inputIdFrom('input_long'),
       allocatedTurnId: 'turn_long' as TurnId,
       content: 'BROKER DELIVERY',
     })
@@ -409,7 +410,7 @@ describe('claude-code-tmux disposition mirror', () => {
     for (const suffix of ['5', '12']) {
       tracker.trackBrokerSubmission({
         submissionId: `submission_${suffix}`,
-        inputId: `submission_${suffix}`,
+        inputId: inputIdFrom(`submission_${suffix}`),
         allocatedTurnId: `turn_${suffix}` as TurnId,
         content: repeatedEnvelope,
       })
@@ -427,7 +428,7 @@ describe('claude-code-tmux disposition mirror', () => {
     ])
     expect(actions.find((action) => action.kind === 'executed')).not.toHaveProperty('inputId')
     // Nothing was lost, and neither identity was consumed by a guess.
-    expect(actions.some((action) => action.kind === 'lost')).toBe(false)
+    expect(actions.map((action): string => action.kind)).not.toContain('lost')
     expect(tracker.pendingCount).toBe(2)
   })
 
@@ -437,14 +438,14 @@ describe('claude-code-tmux disposition mirror', () => {
     for (const suffix of ['5', '12']) {
       tracker.trackBrokerSubmission({
         submissionId: `submission_${suffix}`,
-        inputId: `submission_${suffix}`,
+        inputId: inputIdFrom(`submission_${suffix}`),
         allocatedTurnId: `turn_${suffix}` as TurnId,
         content: body,
       })
     }
 
     // Native evidence names _12 explicitly: identity beats age and order.
-    tracker.observeTurnStarted('turn_named' as TurnId, 'submission_12')
+    tracker.observeTurnStarted(turnIdFrom('turn_named'), inputIdFrom('submission_12'))
     tracker.observeTurnTerminal('turn_named' as TurnId)
 
     // The remaining body is now unambiguous and settles as itself.
@@ -458,7 +459,7 @@ describe('claude-code-tmux disposition mirror', () => {
     for (const suffix of ['a', 'b']) {
       tracker.trackBrokerSubmission({
         submissionId: `submission_${suffix}`,
-        inputId: `submission_${suffix}`,
+        inputId: inputIdFrom(`submission_${suffix}`),
         content: 'shared body',
       })
     }
@@ -480,7 +481,7 @@ describe('claude-code-tmux disposition mirror', () => {
     for (const suffix of ['old', 'new']) {
       tracker.trackBrokerSubmission({
         submissionId: `submission_${suffix}`,
-        inputId: `submission_${suffix}`,
+        inputId: inputIdFrom(`submission_${suffix}`),
         content: 'same queued body',
       })
       tracker.observeQueueOperation(queueOp('enqueue', 'same queued body'))
@@ -498,12 +499,12 @@ describe('claude-code-tmux disposition mirror', () => {
     for (const suffix of ['old', 'new']) {
       tracker.trackBrokerSubmission({
         submissionId: `submission_${suffix}`,
-        inputId: `submission_${suffix}`,
+        inputId: inputIdFrom(`submission_${suffix}`),
         content: 'duplicate',
       })
     }
 
-    tracker.observeTurnStarted('turn_named' as TurnId, 'submission_old')
+    tracker.observeTurnStarted(turnIdFrom('turn_named'), inputIdFrom('submission_old'))
 
     expect(tracker.pendingCount).toBe(1)
     tracker.observeTurnTerminal('turn_named' as TurnId)
@@ -657,7 +658,7 @@ describe('T-07849 archived transcript replays', () => {
       for (const [index, content] of prompts.entries()) {
         tracker.trackBrokerSubmission({
           submissionId: `input_pin3_${index + 1}`,
-          inputId: `input_pin3_${index + 1}`,
+          inputId: inputIdFrom(`input_pin3_${index + 1}`),
           allocatedTurnId: `turn_allocated_${index + 1}` as TurnId,
           content,
         })
@@ -673,10 +674,10 @@ describe('T-07849 archived transcript replays', () => {
           ...('turnId' in action ? { turnId: action.turnId } : {}),
         }))
       ).toEqual([
-        { kind: 'prompt-echo', turnId: 'turn_pin3_broker' },
-        { kind: 'absorbed', submissionId: 'input_pin3_1', turnId: 'turn_pin3_broker' },
-        { kind: 'absorbed', submissionId: 'input_pin3_2', turnId: 'turn_pin3_broker' },
-        { kind: 'absorbed', submissionId: 'input_pin3_3', turnId: 'turn_pin3_broker' },
+        { kind: 'prompt-echo', turnId: turnIdFrom('turn_pin3_broker') },
+        { kind: 'absorbed', submissionId: 'input_pin3_1', turnId: turnIdFrom('turn_pin3_broker') },
+        { kind: 'absorbed', submissionId: 'input_pin3_2', turnId: turnIdFrom('turn_pin3_broker') },
+        { kind: 'absorbed', submissionId: 'input_pin3_3', turnId: turnIdFrom('turn_pin3_broker') },
       ])
       expect(tracker.pendingCount).toBe(0)
     }
@@ -689,7 +690,7 @@ describe('T-07849 archived transcript replays', () => {
     const actions: ClaudeAttributionAction[] = []
     replayRows(tracker, rows.slice(218, 240), actions)
     expect(actions.filter((action) => action.kind === 'absorbed')).toHaveLength(3)
-    expect(
+    expect<Array<string | undefined>>(
       actions
         .filter((action) => action.kind === 'absorbed')
         .map((action) => ('turnId' in action ? action.turnId : undefined))
@@ -795,7 +796,7 @@ describe('T-07859 archived preempt drain-boundary failure', () => {
 
     replayRows(tracker, rows.slice(0, 5), actions)
     expect(tracker.harnessLocalQueueDepth).toBe(1)
-    expect(tracker.activeTurnId).toBe('turn_archive_mtja36gg_1')
+    expect<string | undefined>(tracker.activeTurnId).toBe('turn_archive_mtja36gg_1')
 
     tracker.observeQueueOperation(rows[7] as Parameters<typeof tracker.observeQueueOperation>[0])
     expect(tracker.harnessLocalQueueDepth).toBe(0)
@@ -804,7 +805,7 @@ describe('T-07859 archived preempt drain-boundary failure', () => {
 
     tracker.trackBrokerSubmission({
       submissionId: 'submission_preempt',
-      inputId: 'submission_preempt',
+      inputId: inputIdFrom('submission_preempt'),
       allocatedTurnId: 'turn_preempt' as TurnId,
       content: 'PREEMPT',
     })
@@ -857,7 +858,7 @@ describe('T-07859 archived preempt drain-boundary failure', () => {
     active.observeTurnStarted('turn_active' as TurnId)
     const activeActions: ClaudeAttributionAction[] = []
     replayRows(active, signature, activeActions)
-    expect(activeActions).toEqual([{ kind: 'interrupted', turnId: 'turn_active' }])
+    expect(activeActions).toEqual([{ kind: 'interrupted', turnId: turnIdFrom('turn_active') }])
 
     const unrelated = createTracker('archive_a3da8a7e_unrelated')
     expect(unrelated.observeInterrupt(signature[1])).toEqual([

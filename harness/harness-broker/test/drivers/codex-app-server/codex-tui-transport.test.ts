@@ -4,13 +4,14 @@ import { chmod, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
+import { BrokerErrorCode, type InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import {
   type AttachAttemptResult,
   resolveCodexTuiWrapperEntryPath,
   runCodexTuiAttachRetry,
 } from '../../../src/drivers/codex-app-server/codex-tui-wrapper'
 import { CodexUnixWebSocketRpcClient } from '../../../src/drivers/codex-app-server/rpc-client'
+import { inputIdFrom, invocationIdFrom } from '../../ids'
 import {
   FakeCodexRpc,
   lease,
@@ -54,7 +55,7 @@ describe('codex-tui transport', () => {
           {
             spec: run.invocationSpec,
             initialInput: {
-              inputId: 'input_codex_tui_cold_schema',
+              inputId: inputIdFrom('input_codex_tui_cold_schema'),
               kind: 'user',
               content: [{ type: 'text', text: 'return json' }],
               responseFormat: {
@@ -75,7 +76,9 @@ describe('codex-tui transport', () => {
       expect(run.tmux.launched).toHaveLength(0)
       expect(run.events).toHaveLength(0)
     } finally {
-      await run.broker.stop({ invocationId: 'inv_codex_tui_cold_schema' }).catch(() => undefined)
+      await run.broker
+        .stop({ invocationId: invocationIdFrom('inv_codex_tui_cold_schema') })
+        .catch(() => undefined)
       await rm(run.socketDir, { recursive: true, force: true })
     }
   })
@@ -266,7 +269,7 @@ describe('codex-tui transport', () => {
 
   test('captures hook envelopes as raw provenance without minting events', async () => {
     const rpc = new FakeCodexRpc()
-    const invocationId = 'inv_codex_tui_raw_hook'
+    const invocationId = invocationIdFrom('inv_codex_tui_raw_hook')
     const run = await setupDriver(rpc, invocationId, {}, true)
     try {
       await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
@@ -319,7 +322,7 @@ describe('codex-tui transport', () => {
 
   test('forwards app-server stderr lines from the wrapper as info diagnostics (T-08232)', async () => {
     const rpc = new FakeCodexRpc()
-    const invocationId = 'inv_codex_tui_stderr_relay'
+    const invocationId = invocationIdFrom('inv_codex_tui_stderr_relay')
     const run = await setupDriver(rpc, invocationId)
     try {
       await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
