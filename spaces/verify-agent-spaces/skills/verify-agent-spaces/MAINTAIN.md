@@ -21,11 +21,12 @@ checkout's source, so a pass drives HEAD (plus anything other seats left unsaved
 
 ## 1. Index hygiene
 
-`features/README.md` against `features/*.md`: every file is linked, every link resolves, and each row's summary
-still names what the file covers. Every `asp` verb (`asp --help`), every `harness-broker` verb (`harness-broker`
-bare), every ASPC method (`ASPC_METHODS` in `contracts/aspc-protocol/src/types.ts`) and every `aspd-*`,
-`*-asp-release`, `publish-*` and `overlay-codex` recipe must be named in a feature file. Where one is unmapped, map
-it in step 6. Write the comparison to `index/`.
+`features/README.md` against `features/*.md`: every file is linked, every link resolves, and each row's summary still
+names what the file covers. Every `asp` verb (`asp --help`), every operator-facing `harness-broker` verb (the `command
+===` branches in `harness/harness-broker/src/cli.ts`; bare `harness-broker` prints only `run`, `capture` and
+`submission` until T-10365 lands), every ASPC method (`ASPC_METHODS` in `contracts/aspc-protocol/src/types.ts`) and
+every `aspd-*`, `*-asp-release`, `publish-*` and `overlay-codex` recipe must be named in a feature file. Where one is
+unmapped, map it in step 6. Write the comparison to `index/`.
 
 ## 2. Source reads, one per feature
 

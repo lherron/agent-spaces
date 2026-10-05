@@ -30,6 +30,8 @@ for h in claude codex muse; do asp run local-only --harness $h --dry-run; done
 asp run local-only --dry-run                       # agent-harness refuses a profileless target, exit 1
 cd ~/praesidium/agent-spaces
 asp run larry --dry-run                            # system prompt block, then the codex argv
+asp run larry --harness agent-harness --dry-run    # Dry run - direct agent-harness launch: agent-harness tui …
+asp run larry --harness agent-harness --yolo --dry-run   # refuses compiler-only option --yolo, exit 1
 asp agent larry@agent-spaces:avs-probe query 'hello' --print-command --project-root ~/praesidium/agent-spaces
 asp agent larry@agent-spaces:avs-probe query 'hello' --harness claude --print-command …   # refuses: model gpt-5.6-terra
 asp agent smokey@agent-spaces:avs-probe query 'hello' --harness claude --model sonnet --print-command …
@@ -46,6 +48,12 @@ asp gui larry --print-command
   pass `--model` too.
 - The claude argv carries the priming prompt twice (`ASP_PRIMING_PROMPT` and the trailing positional) and the full
   system prompt inline: a profiled `--print-command` is tens of KB. Grep the drive, don't print it.
+- agent-harness direct execution refuses compiler-only options (`--yolo`, `--permission-mode`, `--inherit-*`,
+  `--no-refresh`, `--settings`, `--extra-args`, `--debug`, `--remote-control`, `--name-prefix`): `agent-harness
+  direct execution does not support compiler-only option: --yolo`, exit 1 (`run.ts:268-288`). They work with
+  `--harness claude|codex|muse` (2026-10-05, `T-10364/03-run-launch/drive.txt`).
+- An agent-harness dry-run prints `Dry run - direct agent-harness launch:` and an `agent-harness tui …` line, not
+  `── command ──`; grep for the right marker per harness.
 - `asp run` has no `--prompt` flag (the prompt is positional); `asp agent` has both.
 - Set `ASP_HOME` to a writable scratch, or temp-dir creation fails with EPERM (`AGENTS.md`).
 
@@ -55,6 +63,6 @@ Each harness's dry-run prints `── command ──` with the bundle path under
 agent-harness refusal and the model refusal print their reasons with exit 1; `asp agent … --print-command` puts
 the prompt after the profile priming; `asp gui --print-command` names the scratch `CODEX_HOME`.
 
-Driven 2026-10-05 on scratch `t-10300` against checkout dc5e8bf (T-10300):
-`var/wrkq-artifacts/T-10300/03-run-launch/drive.txt`. Not driven: a real (non-dry-run) launch, which needs a model
+Driven 2026-10-05 on scratch `t-10364` against checkout 062f293b (T-10364):
+`var/wrkq-artifacts/T-10364/03-run-launch/drive.txt`. Not driven: a real (non-dry-run) launch, which needs a model
 login and belongs to HRC's own verification.

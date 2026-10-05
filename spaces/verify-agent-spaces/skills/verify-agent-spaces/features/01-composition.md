@@ -34,7 +34,7 @@ agent overlays; its lock is `asp-lock.json`).
 cd $AVS_PROJECT
 asp lint                         # before install: [W101] lock not found, exit 0
 asp install                      # feature 2
-asp explain demo                 # load order avs-demo@project then defaults@dev, composed skills/hooks
+asp explain demo                 # load order avs-demo@project then defaults@dev; Skills: avs-probe (from avs-demo), frontend-design
 asp explain demo --json          # keys registryUrl, lockVersion, generatedAt, targets
 asp describe local-only --harness claude   # skills: avs-probe
 asp list                         # demo/local-only locked, env hashes, agent roots
@@ -54,15 +54,18 @@ cd ~/praesidium/agent-spaces && asp lint --json
 - `asp path` resolves only shared spaces; a project space refuses `Space "<id>" not found`.
 - `asp spaces list` and `asp repo status` refuse with "Registry not initialized" / "No registry found … Run asp
   repo init". The registry is retired; don't init one to make them pass.
+- `explain` (and `explain --json` `registryUrl`) still prints `Registry: git@github.com:lherron/spaces-repo.git`, the
+  retired registry's URL, on a scratch with no registry. Informational only (2026-10-05,
+  `T-10364/01-composition/drive.txt`).
 - `asp explain clod` from `~/praesidium/foundry` printed `No lock file found` with exit 0 inside a pipe; read
   exit codes from a bare command.
 
 ## Proven when
 
 On a fresh scratch: `lint` reports W101 before install and nothing after; `explain demo` shows both spaces in load
-order with the defaults hooks; `describe local-only --harness claude` names `avs-probe`; `list` shows both targets
-locked; `diff --json` is empty; the registry verbs refuse; `asp lint --json` on the canonical project prints its
-warnings array.
+order with the defaults hooks and lists `avs-probe (from avs-demo)` under composed skills; `describe local-only
+--harness claude` names `avs-probe`; `list` shows both targets locked; `diff --json` is empty; the registry verbs
+refuse; `asp lint --json` on the canonical project prints its warnings array.
 
-Driven 2026-10-05 on scratch `t-10300` against checkout dc5e8bf (T-10300):
-`var/wrkq-artifacts/T-10300/01-composition/drive.txt`.
+Driven 2026-10-05 on scratch `t-10364` against checkout 062f293b (T-10364):
+`var/wrkq-artifacts/T-10364/01-composition/drive.txt`.

@@ -1,8 +1,8 @@
 # 7. Releases and publish
 
-Two delivery paths leave this repo. An **ASP release** is an immutable, bun-compiled directory (`aspd`,
-`aspc-facade`, `harness-broker`, `agent-harness`, `libexec/`, `assets/`, `release.json`) that aspd serves. The
-**published package set** is one timestamped version of every ASP package pushed to the loopback Verdaccio, which
+Two delivery paths leave this repo. An **ASP release** is an immutable, bun-compiled directory (`aspd`, `aspc-facade`,
+`harness-broker`, `agent-harness`, `libexec/`, `assets/`, `release.json`) that aspd serves. The **published package
+set** is one timestamped version of every ASP package pushed to the Verdaccio at `http://mini:4873/`, which
 hrc-runtime follows. `just install` on the canonical checkout does both and activates the system aspd. Code:
 `scripts/asp-release.ts` (build, install, inspect), `scripts/publish-local-verdaccio.ts`,
 `scripts/lib/asp-publish/pack.ts`, the `install` recipe in `justfile`. Docs: `docs/standalone-asp-releases.md`,
@@ -17,8 +17,11 @@ hrc-runtime follows. `just install` on the canonical checkout does both and acti
 - `just install-asp-release <artifact> [release_root]`: copy into a release root; never selects (feature 6
   activates).
 - `just publish-dev-dry-run` (`publish-local-verdaccio.ts --dry-run`): `DRY_RUN <pkg>@<version> --tag latest`
-  for each package (22 on 2026-10-05); `publish-canonical-dry-run`, `publish-worktree-dry-run`, `publish-semver-dry-run`
-  likewise.
+  for each package (22 on 2026-10-05, after a `PUBLISHING full ASP wave: …` line; when the active `latest` set
+  already matches it prints `SKIPPED N ASP package(s)` instead, per source, not yet driven);
+  `publish-canonical-dry-run` (also 22), `publish-worktree-dry-run`, `publish-semver-dry-run` likewise. A dry run
+  needs Verdaccio reachable (`npm ping`). The real publishes (`publish-dev`, `publish-canonical`,
+  `publish-worktree`, `publish-semver`) are operator-only, never part of a drive.
 - `just install [no-sync=1] [force-sync=1] [force-link=1]`: clean, build, link `asp` and `harness-broker`,
   publish, sync hrc-runtime (commits its `bun.lock`), build and activate a system aspd release, verify its source
   commit. Operator-scale; not part of a verification drive unless the task says so.
@@ -39,6 +42,7 @@ just install-asp-release ~/praesidium/var/aspd/releases/<releaseId> <scratch>/as
 cd <scratch>/clone && git status --porcelain --untracked-files=all | wc -l      # 0
 just build-asp-release <scratch>/release-build                                # ok, ~5 s
 just publish-dev-dry-run; git status --porcelain | wc -l                      # 22 DRY_RUN lines; 0
+just publish-canonical-dry-run | grep -c '^DRY_RUN'                            # 22
 ```
 
 ## Gotchas
@@ -60,6 +64,6 @@ The dirty-tree refusal exits 1 with its message; inspect and install print `ok: 
 and `sourceCommit` and every executable resolved inside the release; the clone build prints a release whose
 `sourceCommit` is the clone's HEAD; the publish dry-run lists every package and leaves the clone clean.
 
-Driven 2026-10-05 against checkout dc5e8bf, scratch clone of dc5e8bf, system release asp-a17d0215a29b (T-10300):
-`var/wrkq-artifacts/T-10300/07-releases/drive.txt`. Not driven: `just install` (operator-scale; publishes,
+Driven 2026-10-05 against checkout 062f293b, scratch clone of 062f293b, system release asp-e5e729af45d4 (T-10364):
+`var/wrkq-artifacts/T-10364/07-releases/drive.txt`. Not driven: `just install` (operator-scale; publishes,
 syncs hrc-runtime and activates the system aspd) and any non-dry-run publish.
