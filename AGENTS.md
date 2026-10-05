@@ -152,9 +152,9 @@ enforced by `bun run check:boundaries`:
   binding registry and local placement ledger remain authority. ASP must not
   infer node identity from a host or mutate established placement.
 - Cross-repo publishable boundary packages (10 of them — agent-scope, cli-kit,
-  spaces-{config,runtime,execution,harness-*}, agent-spaces) MUST have a
-  `prepack` step that strips `exports.*.bun` from the published manifest so
-  Bun consumers in the HRC/ACP repos resolve `dist/*.js`, not unshipped `src/`.
+  spaces-{config,runtime,execution,harness-*}, agent-spaces) MUST publish without
+  `exports.*.bun` (the publisher strips it in its staged copy, scripts/lib/asp-publish/
+  pack.ts; no per-package prepack/postpack) so Bun consumers resolve `dist/*.js`.
 
 ## Smoke Testing the CLI
 

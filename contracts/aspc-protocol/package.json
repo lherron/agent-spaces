@@ -38,9 +38,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
-    "test": "bun test",
-    "prepack": "bun ../../scripts/strip-bun-exports.ts",
-    "postpack": "git checkout HEAD -- package.json"
+    "test": "bun test"
   },
   "dependencies": {
     "spaces-harness-broker-client": "workspace:*",

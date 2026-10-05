@@ -459,7 +459,7 @@ No adapter may silently return zero frames for an unsupported semantic step. Tar
 The implementation needs the normal publishable-package plumbing:
 
 - `harness/harness-scenarios/package.json`, `tsconfig.json`, source, and tests;
-- `prepack` stripping of `exports.*.bun`;
+- `exports.*.bun` stripped by the publisher's staged pack (no per-package `prepack`);
 - root build, test, and typecheck ordering;
 - boundary/import-graph registration;
 - local Verdaccio publication and cross-repo pack smoke registration;

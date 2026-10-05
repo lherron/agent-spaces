@@ -22,9 +22,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
-    "test": "cd ../.. && bun test harness/aspc/test",
-    "prepack": "bun ../../scripts/strip-bun-exports.ts",
-    "postpack": "git checkout HEAD -- package.json"
+    "test": "cd ../.. && bun test harness/aspc/test"
   },
   "dependencies": {
     "agent-spaces": "workspace:*",

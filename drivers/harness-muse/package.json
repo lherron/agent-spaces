@@ -17,8 +17,6 @@
   ],
   "scripts": {
     "build": "tsc",
-    "postpack": "git checkout HEAD -- package.json",
-    "prepack": "bun ../../scripts/strip-bun-exports.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json"
   },
