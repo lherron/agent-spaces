@@ -1,0 +1,235 @@
+#!/usr/bin/env bash
+# avs — the verify-agent-spaces drive helper (spaces/verify-agent-spaces/skills/verify-agent-spaces/avs).
+#
+# Every verb but `rec` prints one JSON object. A refusal prints {error, message, next} and exits 1.
+#
+#   avs doctor                       read-only rows: asp, its source, checkout, harnesses, system aspd, broker
+#   avs scratch up [--name N]      scratch project + ASP_HOME under $AVS_ROOT/N (default name "avs")
+#   avs scratch down N [--dry-run]   remove that scratch (never the evidence)
+#   avs scratch list                 what scratches exist
+#   avs env N                        shell exports for N (eval "$(avs env N --sh)")
+#   avs rec FILE -- CMD...           run CMD under bash, append "## <UTC>", "$ CMD", output, "[exit N]" to FILE
+#   avs aspc SOCKET METHOD ['<json>'] one NDJSON JSON-RPC call to an aspd socket (hello params filled in)
+#   avs broker-hello                 spawn `harness-broker run --transport stdio`, send broker.hello, print reply
+set -euo pipefail
+
+AVS_ROOT="${AVS_ROOT:-$HOME/praesidium/var/state/avs}"
+REPO="${AVS_REPO:-$HOME/praesidium/agent-spaces}"
+
+refuse() { # error message next
+  python3 -c 'import json,sys;print(json.dumps({"error":sys.argv[1],"message":sys.argv[2],"next":sys.argv[3]}))' "$1" "$2" "$3"
+  exit 1
+}
+
+name_ok() { [[ "$1" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || refuse invalid_name "scratch name must match ^[a-z0-9][a-z0-9._-]*$: $1" "avs scratch up --name t-10300"; }
+
+scratch_json() { # name
+  local d="$AVS_ROOT/$1"
+  python3 -c 'import json,sys,os
+d=sys.argv[1]
+print(json.dumps({"name":sys.argv[2],"root":d,"project":d+"/project","asp_home":d+"/asp-home",
+ "target":"demo","space":"space:project:avs-demo","exists":os.path.isdir(d)}))' "$d" "$1"
+}
+
+scratch_up() {
+  local name=avs
+  while [[ $# -gt 0 ]]; do case "$1" in --name) name="$(tr 'A-Z' 'a-z' <<<"$2")"; shift 2;; *) refuse unknown_flag "$1" "avs scratch up [--name N]";; esac; done
+  name_ok "$name"
+  local d="$AVS_ROOT/$name"
+  mkdir -p "$d/asp-home" "$d/project/spaces/avs-demo/skills/avs-probe"
+  cat >"$d/project/asp-targets.toml" <<'EOF'
+schema = 2
+
+# avs scratch project: one project-local space, plus the shared defaults space.
+[targets.demo]
+description = "avs scratch target"
+compose = ["space:project:avs-demo", "space:defaults@dev"]
+
+[targets.local-only]
+description = "avs scratch target, project space only"
+compose = ["space:project:avs-demo"]
+EOF
+  cat >"$d/project/spaces/avs-demo/space.toml" <<'EOF'
+schema = 1
+id = "avs-demo"
+version = "0.1.0"
+description = "avs scratch space"
+
+[plugin]
+name = "avs-demo"
+EOF
+  cat >"$d/project/spaces/avs-demo/skills/avs-probe/SKILL.md" <<'EOF'
+---
+name: avs-probe
+description: A probe skill the avs scratch composes, so a drive can find it in the materialized bundle.
+---
+
+# avs-probe
+
+AVS-PROBE-MARKER
+EOF
+  scratch_json "$name"
+}
+
+scratch_down() {
+  local name="${1:-}"; [[ -n "$name" ]] || refuse missing_name "scratch down needs a name" "avs scratch list"
+  name_ok "$name"; local d="$AVS_ROOT/$name" dry="${2:-}"
+  [[ -d "$d" ]] || refuse not_found "no scratch $name under $AVS_ROOT" "avs scratch list"
+  if [[ "$dry" == "--dry-run" ]]; then
+    python3 -c 'import json,sys;print(json.dumps({"dry_run":True,"would_remove":sys.argv[1]}))' "$d"; return
+  fi
+  rm -rf "$d"
+  python3 -c 'import json,sys;print(json.dumps({"removed":sys.argv[1]}))' "$d"
+}
+
+scratch_list() {
+  python3 - "$AVS_ROOT" <<'EOF'
+import json, os, sys
+root = sys.argv[1]
+names = sorted(os.listdir(root)) if os.path.isdir(root) else []
+print(json.dumps({"root": root, "scratches": [{"name": n, "root": os.path.join(root, n)} for n in names]}))
+EOF
+}
+
+env_for() {
+  local name="${1:-}"; [[ -n "$name" ]] || refuse missing_name "env needs a name" "avs scratch list"
+  name_ok "$name"; local d="$AVS_ROOT/$name"
+  [[ -d "$d" ]] || refuse not_found "no scratch $name" "avs scratch up --name $name"
+  if [[ "${2:-}" == "--sh" ]]; then
+    printf 'export ASP_HOME=%q\nexport AVS_PROJECT=%q\n' "$d/asp-home" "$d/project"
+  else
+    scratch_json "$name"
+  fi
+}
+
+rec() {
+  local file="${1:-}"; shift || true
+  [[ -n "$file" && "${1:-}" == "--" ]] || refuse usage "avs rec FILE -- CMD..." "avs rec drive.txt -- asp --version"
+  shift
+  mkdir -p "$(dirname "$file")"
+  local cmd="$*" rc=0 out
+  out="$(bash -c "$cmd" 2>&1)" || rc=$?
+  {
+    printf '## %s\n$ %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$cmd"
+    [[ -n "$out" ]] && printf '%s\n' "$out"
+    printf '[exit %d]\n\n' "$rc"
+  } >>"$file"
+  printf '%s\n[exit %d]\n' "$out" "$rc"
+  return 0
+}
+
+aspc_call() {
+  local sock="${1:-}" method="${2:-}" params="${3:-}"
+  [[ -n "$sock" && -n "$method" ]] || refuse usage "avs aspc SOCKET METHOD ['<json>']" "avs aspc ~/praesidium/var/aspd/run/aspd.sock aspc.hello"
+  [[ -S "$sock" ]] || refuse socket_missing "no unix socket at $sock" "just aspd-status <namespace>"
+  python3 - "$sock" "$method" "$params" <<'EOF'
+import json, socket, sys
+sock, method, params = sys.argv[1], sys.argv[2], sys.argv[3]
+if params:
+    p = json.loads(params)
+elif method == "aspc.hello":
+    p = {"clientInfo": {"name": "avs", "version": "1"}, "protocolVersions": ["aspc/0.1"]}
+else:
+    p = {}
+s = socket.socket(socket.AF_UNIX)
+s.settimeout(30)
+s.connect(sock)
+s.sendall((json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": p}) + "\n").encode())
+buf = b""
+while b"\n" not in buf:
+    chunk = s.recv(1 << 20)
+    if not chunk:
+        break
+    buf += chunk
+print(buf.decode().strip())
+EOF
+}
+
+broker_hello() {
+  python3 - <<'EOF'
+import json, subprocess
+p = subprocess.Popen(["harness-broker", "run", "--transport", "stdio"], stdin=subprocess.PIPE,
+                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+req = {"jsonrpc": "2.0", "id": 1, "method": "broker.hello",
+       "params": {"clientInfo": {"name": "avs", "version": "1"}, "protocolVersions": ["harness-broker/0.3", "harness-broker/0.2"]}}
+p.stdin.write(json.dumps(req) + "\n"); p.stdin.flush()
+line = p.stdout.readline()
+p.stdin.close()
+try:
+    p.wait(timeout=10)
+except subprocess.TimeoutExpired:
+    p.kill()
+print(line.strip() or json.dumps({"error": "no_reply", "message": p.stderr.read()[-2000:], "next": "harness-broker --help"}))
+EOF
+}
+
+doctor() { # read-only: installed surfaces, the system aspd, a stdio broker
+  local ns="${AVS_ASPD_NS:-$HOME/praesidium/var/aspd}"
+  python3 - "$REPO" "$ns" "$0" <<'EOF'
+import json, os, subprocess, sys
+repo, ns, avs = sys.argv[1], sys.argv[2], sys.argv[3]
+rows = []
+def row(name, ok, detail, nxt=None):
+    rows.append({"row": name, "status": "ok" if ok else "warn", "detail": detail, **({"next": nxt} if nxt and not ok else {})})
+def sh(args, cwd=None, timeout=60):
+    try:
+        p = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        return p.returncode, p.stdout, p.stderr
+    except Exception as e:  # noqa: BLE001 - a doctor row reports, never raises
+        return 1, "", str(e)
+rc, out, err = sh(["asp", "--version"])
+row("asp", rc == 0, out.strip() or err.strip()[-200:], "which asp")
+try:
+    wrapper = open(os.path.expanduser("~/.local/bin/asp")).read()
+    row("asp-source", repo in wrapper, "asp runs " + ("the canonical checkout's source" if repo in wrapper else "something else: " + wrapper.strip()[-160:]))
+except OSError as e:
+    row("asp-source", False, str(e), "ls -l ~/.local/bin/asp")
+rc, out, err = sh(["git", "-C", repo, "rev-parse", "HEAD"])
+head = out.strip()
+rc, out, err = sh(["git", "-C", repo, "status", "--porcelain"])
+row("checkout", rc == 0, f"HEAD {head[:12]}, {len(out.splitlines())} dirty path(s)")
+rc, out, err = sh(["asp", "harnesses", "--json"])
+try:
+    hs = json.loads(out)
+    hs = hs.get("harnesses", hs) if isinstance(hs, dict) else hs
+    avail = [h.get("id") for h in hs if (h.get("detection") or {}).get("available")]
+    row("harnesses", len(avail) == len(hs), f"{len(avail)}/{len(hs)} available: {', '.join(map(str, avail))}", "asp harnesses")
+except Exception:
+    row("harnesses", False, (err or out).strip()[-200:], "asp harnesses")
+rc, out, err = sh(["bun", "scripts/aspd-service.ts", "status", ns], cwd=repo)
+try:
+    st = json.loads(out)
+    srv = st.get("serving") or {}
+    rel = (srv.get("release") or {})
+    ok = bool(st.get("runningEqualsSelected")) and "unavailable" not in srv
+    row("aspd", ok, f"{ns}: release {rel.get('releaseId')} source {str(rel.get('sourceCommit'))[:12]}, runningEqualsSelected={st.get('runningEqualsSelected')}"
+        + ("" if rel.get("sourceCommit", "") == head else f" (checkout HEAD {head[:12]})"), f"just aspd-status {ns}")
+except Exception:
+    row("aspd", False, (err or out).strip()[-200:], f"just aspd-status {ns}")
+rc, out, err = sh([avs, "broker-hello"])
+try:
+    res = json.loads(out)["result"]
+    drv = [d["kind"] for d in res["drivers"] if d.get("available")]
+    row("harness-broker", True, f"{res['protocolVersion']}, drivers: {', '.join(drv)}")
+except Exception:
+    row("harness-broker", False, (out or err).strip()[-200:], "harness-broker run --transport stdio")
+verdict = "ok" if all(r["status"] == "ok" for r in rows) else "degraded"
+print(json.dumps({"verdict": verdict, "rows": rows}, indent=1))
+EOF
+}
+
+case "${1:-}" in
+  doctor) doctor;;
+  scratch)
+    case "${2:-}" in
+      up) shift 2; scratch_up "$@";;
+      down) shift 2; scratch_down "$@";;
+      list) scratch_list;;
+      *) refuse usage "avs scratch up|down|list" "avs scratch list";;
+    esac;;
+  env) shift; env_for "$@";;
+  rec) shift; rec "$@";;
+  aspc) shift; aspc_call "$@";;
+  broker-hello) broker_hello;;
+  *) refuse usage "avs doctor|scratch|env|rec|aspc|broker-hello" "sed -n 2,16p $0";;
+esac

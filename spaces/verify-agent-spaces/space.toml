@@ -1,0 +1,9 @@
+schema = 1
+id = "verify-agent-spaces"
+version = "0.1.0"
+description = "Launch, check, drive and prove any agent-spaces feature, with evidence that survives"
+
+[plugin]
+name = "verify-agent-spaces"
+description = "agent-spaces verification: avs doctor, avs scratch, the feature map, proof standards"
+keywords = ["agent-spaces", "asp", "aspd", "harness-broker", "verification", "avs"]

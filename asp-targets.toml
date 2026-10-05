@@ -73,3 +73,21 @@ compose = [ "space:defaults@dev" ]
   harness = "codex"
   reasoning_effort = "high"
   yolo = true
+
+# Every agent that changes or operates agent-spaces in this project gets the
+# verify-agent-spaces skill (spaces/verify-agent-spaces), as the foundry repo
+# composes verify-foundry. compose_mode "merge" appends it to the agent's own
+# base spaces; without it a target's compose replaces them. The resident
+# (foundry@agent-spaces) gets it through its target here.
+
+[targets.clod]
+compose_mode = "merge"
+compose = ["space:project:verify-agent-spaces"]
+
+[targets.cody]
+compose_mode = "merge"
+compose = ["space:project:verify-agent-spaces"]
+
+[targets.foundry]
+compose_mode = "merge"
+compose = ["space:project:verify-agent-spaces"]
