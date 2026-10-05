@@ -91,7 +91,8 @@ scratch clone, which is not a registered root.
   - `NN-<feature>/drive.txt` per feature, written by `avs rec`: each command after a `## <UTC time>` line and
     `$ <command>`, then its output and `[exit N]`, so the file reruns as written. Put pipes inside the recorded
     command only when the last stage keeps the exit code you are proving; otherwise record the bare command;
-  - inputs a drive needs (`context.json`, `request.json`) next to the drive.txt that uses them;
+  - input files a drive writes for itself (an evaluation-context JSON and a request JSON for feature 4; you pick
+    the filenames, written here as `$CTX` and `$REQ`) next to the drive.txt that uses them;
   - `live/` for read-only reads of the system aspd and other shared state (`live/doctor.txt`).
 
   Never put evidence inside the scratch root, which `avs scratch down` removes.
@@ -107,7 +108,8 @@ scratch clone, which is not a registered root.
 ## Cleanup
 
 `avs scratch down <name>` removes `~/praesidium/var/state/avs/<name>` (project, ASP_HOME, aspd namespace, clone,
-Codex home). Stop a scratch aspd first (`just aspd-stop <root>/aspd-ns`), or its process outlives the directory.
+Codex home). Built and installed releases are read-only, so `down` makes the tree writable before it removes
+it; a bare `rm -rf` of a scratch with a release in it fails `Permission denied`. Stop a scratch aspd first (`just aspd-stop <root>/aspd-ns`), or its process outlives the directory.
 `avs scratch down <name> --dry-run` shows the path first; `avs scratch list` shows what exists. The evidence under
 `artifact_dir` stays. Kill any ghostmux surface you opened (`ghostmux kill-surface -t <id>`).
 

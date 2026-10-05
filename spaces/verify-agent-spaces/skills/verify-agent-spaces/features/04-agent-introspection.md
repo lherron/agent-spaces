@@ -22,9 +22,10 @@ resources (`asp resources plan`). Code: `apps/cli/src/commands/self/`, `apps/cli
 ## How to get to it
 
 `asp self` needs a live seat (it reads `AGENT_LAUNCH_FILE` and the HRC env); run it from inside one. The catalog
-and inspect inputs are files: copy `context.json` and `request.json` from the last drive's
-`04-agent-introspection/` directory, or build them from `integration-tests/tests/agent-inspection-dry-run-parity
-.red.test.ts`. The same catalog over aspd is feature 6.
+and inspect inputs are files you write: `$CTX` (an `agent-inspection-evaluation-context/v2` JSON) and `$REQ` (an
+`agent-inspection-request/v2` JSON), both under `<artifact_dir>/04-agent-introspection/` with names you choose.
+Copy them from the last drive's `04-agent-introspection/` directory, or build them from
+`integration-tests/tests/agent-inspection-dry-run-parity.red.test.ts`. The same catalog over aspd is feature 6.
 
 ## Driving it
 
@@ -35,8 +36,8 @@ asp self prompt reminder
 asp self explain prompt
 cd ~/praesidium/agent-spaces && asp resolve-reminder clod
 asp resources plan clod --project agent-spaces          # 0 resources for clod
-asp agents catalog --context context.json --json        # 48 agents, 0 errors on 2026-10-05
-asp agents inspect --request request.json --context context.json --json
+asp agents catalog --context $CTX --json        # 48 agents, 0 errors on 2026-10-05
+asp agents inspect --request $REQ --context $CTX --json
 ```
 
 ## Gotchas
@@ -58,4 +59,4 @@ prints the wrkq and wrkc guides; `agents catalog` returns every agent root with 
 returns `ok: true` with parts and dispositions; `resources plan` prints a v1 plan.
 
 Driven 2026-10-05 from seat `clod@agent-spaces:T-10300` against checkout dc5e8bf (T-10300):
-`var/wrkq-artifacts/T-10300/04-agent-introspection/` (`drive.txt`, `context.json`, `request.json`).
+`var/wrkq-artifacts/T-10300/04-agent-introspection/` (`drive.txt` and the two input files it used).

@@ -78,7 +78,9 @@ scratch_down() {
   if [[ "$dry" == "--dry-run" ]]; then
     python3 -c 'import json,sys;print(json.dumps({"dry_run":True,"would_remove":sys.argv[1]}))' "$d"; return
   fi
-  rm -rf "$d"
+  # Built and installed ASP releases are immutable (read-only dirs); make them removable first.
+  chmod -R u+w "$d"
+  rm -rf "$d" || refuse remove_failed "could not remove $d" "ls -la $d"
   python3 -c 'import json,sys;print(json.dumps({"removed":sys.argv[1]}))' "$d"
 }
 

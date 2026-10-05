@@ -33,7 +33,7 @@ which posts no wrkp fact) and `avs aspc ~/praesidium/var/aspd/run/aspd.sock <met
 ```bash
 just aspd-status ~/praesidium/var/aspd                     # runningEqualsSelected true, serving.release.sourceCommit
 avs aspc ~/praesidium/var/aspd/run/aspd.sock aspc.hello
-avs aspc ~/praesidium/var/aspd/run/aspd.sock aspc.catalogAgents "{\"evaluationContext\": $(cat context.json)}"
+avs aspc ~/praesidium/var/aspd/run/aspd.sock aspc.catalogAgents "{\"evaluationContext\": $(cat $CTX)}"
 avs aspc ~/praesidium/var/aspd/run/aspd.sock aspc.noSuchMethod          # -32601
 avs aspc ~/praesidium/var/aspd/run/aspd.sock aspc.catalogAgents '{}'    # -32602, issues[]
 grep catalogAgents ~/praesidium/var/aspd/logs/aspd.log | tail -2
@@ -41,14 +41,14 @@ NS=<scratch>/aspd-ns
 just install-asp-release ~/praesidium/var/aspd/releases/<releaseId> $NS/releases
 just aspd-init $NS; just aspd-status $NS                  # serving unavailable, selectedRelease null
 just aspd-activate $NS <releaseId>                         # started pid, serving hello, readyAt
-avs aspc $NS/run/aspd.sock aspc.catalogAgents "{\"evaluationContext\": $(cat context.json)}"
+avs aspc $NS/run/aspd.sock aspc.catalogAgents "{\"evaluationContext\": $(cat $CTX)}"
 just aspd-stop $NS; just aspd-status $NS                   # runningProcess null, unavailable
 just aspd-status ~/praesidium/var/aspd                     # same pid as before: untouched
 ```
 
 ## Gotchas
 
-- The `context.json` for the catalog is feature 4's; over the socket the same 48 agents came back as from `asp agents
+- `$CTX` for the catalog is feature 4's evaluation-context file; over the socket the same 48 agents came back as from `asp agents
   catalog`, from both the system and the scratch daemon (2026-10-05, `T-10300/06-aspd/drive.txt`).
 - An unsupervised namespace logs to `logs/aspd-<releaseId>-<startedAt>.log`, not `logs/aspd.log`; the system
   namespace's `aspd.log` is its launchd request log (`runningProcess.requestLogPath`) and rotates to `.1`–`.3`.
