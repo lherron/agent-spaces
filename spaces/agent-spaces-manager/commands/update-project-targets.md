@@ -16,50 +16,51 @@ The `asp-targets.toml` file in a project root defines run targets - named compos
 project-root/
 ├── asp-targets.toml    # Defines targets
 ├── asp-lock.json       # Generated lock file (don't edit manually)
+├── spaces/             # Optional project-local spaces (space:project:<id>)
+│   └── my-tools/
+│       └── space.toml
 └── ...
 ```
 
 ## File Format
 
 ```toml
-schema = 1
+schema = 2
 
-# Global Claude options (optional)
-[claude]
-model = "claude-sonnet-4-5"
-permission_mode = "acceptEdits"
-
-# Define targets
 [targets.dev]
 description = "Development environment with all tools"
 compose = [
-  "space:frontend-tools@stable",
-  "space:backend-tools@stable",
-  "space:testing-utils@^1.0.0"
+  "space:defaults@dev",
+  "space:praesidium-defaults",
+  "space:project:my-tools"
 ]
 
 [targets.review]
 description = "Code review focused environment"
-compose = [
-  "space:code-review@stable"
-]
+compose = ["space:defaults@dev"]
 
-# Override Claude options per target (optional)
+# Per-target birth defaults (optional)
+[targets.review.provisioning]
+harness = "claude"
+
+# Claude options for this target (optional)
 [targets.review.provisioning.claude]
-model = "claude-sonnet-4-5"
+model = "sonnet"
+permission_mode = "plan"
 ```
+
+`schema = 2` is the only accepted schema. Use model aliases (`opus`, `sonnet`, `haiku`) rather than pinned model versions.
 
 ## Space Reference Formats
 
-Spaces are referenced using the `space:<id>@<selector>` format:
-
 | Format | Example | Description |
 |--------|---------|-------------|
-| Dist-tag | `space:my-space@stable` | Uses the version tagged as "stable" |
-| Semver exact | `space:my-space@1.2.3` | Exact version |
-| Semver range | `space:my-space@^1.0.0` | Compatible versions (1.x.x) |
-| Semver range | `space:my-space@~1.2.0` | Patch versions (1.2.x) |
-| Git pin | `space:my-space@git:abc123` | Exact commit SHA |
+| Dev | `space:defaults@dev` | The space's current files on disk |
+| Bare | `space:defaults` | Same as `@dev` |
+| Project-local | `space:project:my-tools` | `<projectRoot>/spaces/my-tools/` |
+| Agent-local | `space:agent:muse-meta` | `<agentRoot>/spaces/muse-meta/`; valid in an agent's `agent-profile.toml` `[spaces]` lists, not in `asp-targets.toml` |
+
+Shared spaces resolve from the spaces directory on disk. There is no registry to publish to: `@stable`, dist-tags, semver ranges and `git:` pins were retired; they no longer resolve and `asp install` fails on them.
 
 ## Execution Steps
 
@@ -67,17 +68,17 @@ When you run this command, I will:
 
 1. **Locate or create asp-targets.toml**:
    - Check if file exists in project root
-   - Create with basic structure if missing
+   - Create with `schema = 2` and a `[targets.<name>]` table if missing
 
 2. **Understand your needs**:
    - Which target to modify (or create new)
    - Which spaces to add/remove
-   - Any Claude options to configure
+   - Any provisioning or Claude options to configure
 
 3. **Update the file**:
-   - Add/remove space references
-   - Configure Claude options if needed
-   - Validate the format
+   - Add/remove space references with `asp add` / `asp remove`
+   - Edit `[targets.<name>.provisioning.claude]` for Claude options
+   - Validate with `asp lint`
 
 4. **Regenerate lock file**:
    ```bash
@@ -89,17 +90,17 @@ When you run this command, I will:
 ## Example Workflows
 
 ### Adding a space to a target
+```bash
+asp add space:praesidium-defaults --target dev
+```
 ```toml
 # Before
 [targets.dev]
-compose = ["space:frontend-tools@stable"]
+compose = ["space:defaults@dev"]
 
 # After
 [targets.dev]
-compose = [
-  "space:frontend-tools@stable",
-  "space:new-space@stable"
-]
+compose = ["space:defaults@dev", "space:praesidium-defaults"]
 ```
 
 ### Creating a new target
@@ -107,35 +108,36 @@ compose = [
 [targets.new-target]
 description = "Description of this target"
 compose = [
-  "space:space-a@stable",
-  "space:space-b@^1.0.0"
+  "space:defaults@dev",
+  "space:project:my-tools"
 ]
 ```
 
 ### Removing a space
+```bash
+asp remove praesidium-defaults --target dev
+```
 ```toml
 # Before
 [targets.dev]
-compose = [
-  "space:keep-this@stable",
-  "space:remove-this@stable"
-]
+compose = ["space:defaults@dev", "space:praesidium-defaults"]
 
 # After
 [targets.dev]
-compose = ["space:keep-this@stable"]
+compose = ["space:defaults@dev"]
 ```
 
 ## CLI Shortcuts
 
-You can also use CLI commands:
+`--target` is required for `asp add` and `asp remove`. Both run `asp install` afterwards unless you pass `--no-install`.
 
 ```bash
 # Add a space to a target
-asp add space:my-space@stable --target dev
+asp add space:my-space --target dev
 
-# Remove a space from a target
+# Remove a space from a target (bare id or the full ref as written)
 asp remove my-space --target dev
+asp remove space:project:my-tools --target dev
 
 # See what would change
 asp diff --target dev
@@ -145,7 +147,8 @@ asp diff --target dev
 
 1. **Install to update lock file**:
    ```bash
-   asp install
+   asp install                 # all targets
+   asp install --targets dev   # specific targets
    ```
 
 2. **Verify the resolution**:
@@ -160,8 +163,8 @@ asp diff --target dev
 
 ## Best Practices
 
-1. **Use dist-tags for stability**: `@stable` is safer than `@latest`
-2. **Pin critical spaces**: Use exact versions for production
+1. **Compose live spaces**: write `space:<id>@dev` or bare `space:<id>`
+2. **Keep project-specific spaces local**: put them under `spaces/` and reference them as `space:project:<id>`
 3. **Group related spaces**: Create focused targets (dev, review, deploy)
 4. **Document targets**: Use the `description` field
 5. **Commit asp-targets.toml**: This is your source of truth
@@ -169,6 +172,7 @@ asp diff --target dev
 
 ## Troubleshooting
 
-- **Space not found**: Ensure the space is published in your registry
-- **Version not found**: Check `asp repo tags <space-id>`
+- **Space manifest not found**: Check that `spaces/<id>/space.toml` exists in the shared spaces directory (or in the project's `spaces/` for `space:project:<id>`)
+- **Not a valid space reference**: Use one of the formats above; `space:agent:<id>` belongs in `agent-profile.toml`
+- **Install fails on `@stable`, a semver range or `git:<sha>`**: Those selectors are retired; replace them with `@dev` or drop the selector
 - **Lint warnings**: Run `asp lint` to see composition issues
