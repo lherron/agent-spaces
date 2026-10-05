@@ -104,6 +104,27 @@ export const CLAUDE_IGNORED_ATTACHMENT_TYPES: ReadonlySet<string> = new Set([
   'auto_mode_exit',
   'total_tokens_reminder',
   'remote_session_change',
+  // Session/context metadata found on every turn of live sessions (T-10297
+  // evidence, R-00320) and confirmed by a survey of 60 local transcripts on
+  // 2026-10-05. Each carries model/prompt/environment context, file context,
+  // or TUI reminders — none is a broker-vocabulary fact.
+  'model',
+  'instructions',
+  'environment',
+  'session_context',
+  'prompt_snapshot',
+  'date',
+  'credential_org',
+  'deferred_tools_record',
+  'silent_turn_reminder',
+  'edited_text_file',
+  'file',
+  'compact_file_reference',
+  'thinking_drop',
+  'invoked_skills',
+  'inlined_image_paths',
+  // `command_permissions` (an allowedTools snapshot) stays OUT: the authority
+  // matrix keeps anything permission-named loud until it is reviewed there.
 ])
 
 /** Queue operations the disposition mirror knows how to classify (T-07849). */

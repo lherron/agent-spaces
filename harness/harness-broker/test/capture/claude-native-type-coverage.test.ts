@@ -137,6 +137,58 @@ describe('claude native-type disposition coverage (archived T-07849 vocabulary)'
     expect(warnings).toEqual([])
   })
 
+  test('per-turn session-metadata attachments are ignored-known, not warned (R-00320)', () => {
+    // Every live Claude turn wrote these; T-10297's evidence showed one warning
+    // per type per turn, burying real capture warnings. Shapes are the key sets
+    // observed in 60 local transcripts on 2026-10-05, with placeholder values.
+    const metadata: Record<string, Record<string, unknown>> = {
+      model: { identity: 'x', text: 'x' },
+      instructions: { files: [] },
+      environment: { snapshot: {} },
+      session_context: { context: 'x' },
+      prompt_snapshot: { systemPrompt: 'x', contextRendering: 'x' },
+      date: { date: '2026-10-05' },
+      credential_org: { organizationUuid: '00000000-0000-0000-0000-000000000000' },
+      deferred_tools_record: { entries: [], toolInputCopies: [] },
+      silent_turn_reminder: { text: 'x' },
+      edited_text_file: { filename: '/tmp/x', snippet: 'x' },
+      file: { filename: '/tmp/x', content: {}, displayPath: 'x' },
+      compact_file_reference: { filename: '/tmp/x', displayPath: 'x' },
+      thinking_drop: { requestId: 'req_x', model: 'x' },
+      invoked_skills: { skills: [] },
+      inlined_image_paths: { paths: [] },
+    }
+    const { dispositions, warnings } = replay(
+      Object.entries(metadata).map(([type, fields]) =>
+        JSON.stringify({ type: 'attachment', attachment: { type, ...fields } })
+      )
+    )
+    expect(dispositions).toEqual(
+      Object.keys(metadata).map((type) => ({
+        nativeType: `attachment:${type}`,
+        disposition: 'ignored-known',
+      }))
+    )
+    expect(warnings).toEqual([])
+  })
+
+  test('permission-named and unseen attachment subtypes still warn', () => {
+    // `command_permissions` is deliberately left loud until the authority
+    // matrix reviews it; an invented subtype proves the rule can still fail.
+    const { dispositions, warnings } = replay([
+      JSON.stringify({
+        type: 'attachment',
+        attachment: { type: 'command_permissions', allowedTools: [] },
+      }),
+      JSON.stringify({ type: 'attachment', attachment: { type: 'never_seen_subtype' } }),
+    ])
+    expect(dispositions.map((d) => d.disposition)).toEqual(['blocked-unknown', 'blocked-unknown'])
+    expect(warnings).toEqual([
+      'Unknown Claude attachment type: command_permissions',
+      'Unknown Claude attachment type: never_seen_subtype',
+    ])
+  })
+
   test('real Claude 2.1.259 mail-hint attachments are non-load-bearing and warning-free', () => {
     const lines = readFileSync(
       join(import.meta.dir, '../fixtures/claude-transcript/mail-hint-attachments-2.1.259.jsonl'),
