@@ -32,6 +32,7 @@ const BUNDLED_DIRS = [
   'spaces-harness-broker-protocol',
   'spaces-harness-claude',
   'spaces-harness-codex',
+  'spaces-harness-muse',
   'spaces-harness-pi',
   'spaces-harness-pi-sdk',
   'agent-spaces',

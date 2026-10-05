@@ -1,18 +1,23 @@
-// WHY: Verify that prepack + postpack on the ASP cross-repo boundary packages
-// actually produce tarballs with no `bun` export condition. `bun pm pack` does
-// not auto-invoke prepack/postpack lifecycle hooks for private workspace
-// packages, so this script explicitly runs `bun run prepack` (strips bun keys),
-// then `bun pm pack --ignore-scripts` (no double-execution), untars the
-// resulting tarball, asserts no `bun` condition remains under any exports
-// entry, then runs `bun run postpack` (git-restores the committed manifest).
-// Cleans up tarball + extraction dir each pass. Exit 0 = all pass.
+// WHY: Verify that the ASP cross-repo boundary packages pack into tarballs with
+// no `bun` export condition (which would resolve cross-repo consumers to the
+// unshipped ./src/*.ts). Each package goes through the publisher's own pack
+// path (packForPublish: staged copy, publish manifest, `bun pm pack`, tarball
+// validation), so this smoke checks what actually ships and only ever reads
+// the checkout: other seats share it, and a killed run must leave no tracked
+// file rewritten. The untarred manifest is then checked independently of the
+// publisher's own assertion. Exit 0 = all pass.
 
-import { spawnSync } from 'node:child_process'
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { readFile, rm } from 'node:fs/promises'
+import { join } from 'node:path'
 
-const ROOT = resolve(import.meta.dir, '..')
+import { type PublicationContext, packForPublish } from './lib/asp-publish/pack'
+import {
+  type PackageManifest,
+  RELEASE_PUBLISH_PACKAGES,
+  REPO_ROOT,
+} from './lib/asp-publish/package-set'
+import { extractTarball } from './lib/asp-publish/tarball'
 
 const PACKAGES = [
   'contracts/agent-scope',
@@ -52,51 +57,42 @@ function findBunCondition(exportsField: unknown): string[] {
   return offenders
 }
 
-function run(cmd: string, args: string[], cwd: string): { status: number; out: string } {
-  const r = spawnSync(cmd, args, { cwd, encoding: 'utf8' })
-  return { status: r.status ?? -1, out: `${r.stdout || ''}${r.stderr || ''}` }
+/** A smoke publication: source manifest versions, never sent to a registry. */
+async function smokeContext(): Promise<PublicationContext> {
+  const versionsByName = new Map<string, string>()
+  for (const rel of RELEASE_PUBLISH_PACKAGES) {
+    const manifest = JSON.parse(
+      await readFile(join(REPO_ROOT, rel, 'package.json'), 'utf8')
+    ) as PackageManifest
+    if (manifest.name && manifest.version) versionsByName.set(manifest.name, manifest.version)
+  }
+  const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  }).trim()
+  return {
+    versionsByName,
+    builtAt: new Date().toISOString(),
+    source: {
+      repository: 'agent-spaces',
+      canonicalRemote: 'smoke-pack-cross-repo',
+      sourceCommit,
+      canonicalRef: 'origin/main',
+      canonical: false,
+    },
+  }
 }
 
-async function checkPackage(rel: string): Promise<CheckOutcome> {
-  const pkgDir = join(ROOT, rel)
-  const tmp = await mkdtemp(join(tmpdir(), 'asp-pack-'))
-  const packageJsonPath = join(pkgDir, 'package.json')
-  const originalPackageJson = await readFile(packageJsonPath, 'utf8')
-  // Track whether we mutated package.json so finally can always restore.
-  let prepackRan = false
+async function checkPackage(rel: string, context: PublicationContext): Promise<CheckOutcome> {
+  let packed: Awaited<ReturnType<typeof packForPublish>>
   try {
-    const prepack = run('bun', ['run', 'prepack'], pkgDir)
-    if (prepack.status !== 0) {
-      return {
-        pkg: rel,
-        status: 'fail',
-        reason: `prepack exited ${prepack.status}: ${prepack.out}`,
-      }
-    }
-    prepackRan = true
-    const pack = run('bun', ['pm', 'pack', '--destination', tmp, '--ignore-scripts'], pkgDir)
-    if (pack.status !== 0) {
-      return { pkg: rel, status: 'fail', reason: `bun pm pack exited ${pack.status}: ${pack.out}` }
-    }
-    const entries = await readdir(tmp)
-    const tarball = entries.find((e) => e.endsWith('.tgz'))
-    if (!tarball) {
-      return {
-        pkg: rel,
-        status: 'fail',
-        reason: `no tarball produced in ${tmp} (entries: ${entries.join(',')})`,
-      }
-    }
-    const tarballPath = join(tmp, tarball)
-    const extractDir = join(tmp, 'extract')
-    const mk = run('mkdir', ['-p', extractDir], ROOT)
-    if (mk.status !== 0) return { pkg: rel, status: 'fail', reason: 'mkdir extract failed' }
-    const tar = run('tar', ['-xzf', tarballPath, '-C', extractDir], ROOT)
-    if (tar.status !== 0) return { pkg: rel, status: 'fail', reason: `tar -xzf failed: ${tar.out}` }
-    // npm tarballs unpack into a top-level `package/` directory.
-    const stagedPkg = JSON.parse(
-      await readFile(join(extractDir, 'package', 'package.json'), 'utf8')
-    )
+    packed = await packForPublish(rel, context)
+  } catch (error) {
+    return { pkg: rel, status: 'fail', reason: (error as Error).message }
+  }
+  try {
+    const extracted = extractTarball(packed.tarballPath, join(packed.tmp, 'smoke'), packed.name)
+    const stagedPkg = JSON.parse(await readFile(join(extracted, 'package.json'), 'utf8'))
     const offenders = findBunCondition(stagedPkg.exports)
     if (offenders.length > 0) {
       return {
@@ -106,20 +102,18 @@ async function checkPackage(rel: string): Promise<CheckOutcome> {
       }
     }
     return { pkg: rel, status: 'pass' }
+  } catch (error) {
+    return { pkg: rel, status: 'fail', reason: (error as Error).message }
   } finally {
-    if (prepackRan) {
-      // Always restore the manifest, including newly-added packages that are not
-      // yet known to git and cannot be restored by their postpack script.
-      await writeFile(packageJsonPath, originalPackageJson)
-    }
-    await rm(tmp, { recursive: true, force: true })
+    await rm(packed.tmp, { recursive: true, force: true })
   }
 }
 
 async function main() {
+  const context = await smokeContext()
   let failed = false
   for (const rel of PACKAGES) {
-    const outcome = await checkPackage(rel)
+    const outcome = await checkPackage(rel, context)
     if (outcome.status === 'pass') {
       console.log(`PASS  ${rel}`)
     } else {
