@@ -32,27 +32,17 @@ grep -rl AVS-PROBE-MARKER $ASP_HOME           # pi/skills/avs-probe/SKILL.md per
 asp install --harness claude                  # demo: 2 plugins; local-only: 1 plugin
 asp build local-only --harness claude --output <root>/build-out
 asp gc --dry-run
-asp add space:project:avs-extra --target local-only        # space missing: install fails, exit 1
-mkdir -p spaces/avs-extra && printf '…space.toml…'          # create it, add again: "already in target"
-asp remove avs-extra --target local-only                    # "not found in target", exit 0
-asp remove space:project:avs-extra --target local-only      # removes, reinstalls
-python3 -c "import json;print(sorted(json.load(open('asp-lock.json'))['targets']))"   # only ['local-only']
-asp install                                                 # back to ['demo', 'local-only']
+asp add space:project:avs-extra --target local-only        # space missing: exit 1, asp-targets.toml unchanged
+mkdir -p spaces/avs-extra && printf '…space.toml…'          # create it, add again: added, reinstalls
+asp remove nope --target local-only                         # "not found in target", exit 1
+asp remove avs-extra --target local-only                    # bare id matches space:project:avs-extra; reinstalls
+python3 -c "import json;print(sorted(json.load(open('asp-lock.json'))['targets']))"   # still ['demo', 'local-only']
 asp upgrade                                                 # Targets updated: demo, local-only
 mkdir <root>/init-probe && cd <root>/init-probe && asp init && cat asp-targets.toml
 ```
 
 ## Gotchas
 
-- **`asp add`/`asp remove --target X` rewrite the lock with only target X.** After either, `asp-lock.json`
-  holds `['local-only']`, `asp list` shows `demo (unlocked)` and `asp explain demo` exits 1 until a full `asp
-  install` (2026-10-05, `T-10300/02-install-build/drive.txt`). Product gap.
-- **`asp add` writes the ref before it validates it.** Adding a project space that doesn't exist exits 1 (`Space
-  manifest not found`) but leaves the ref in `asp-targets.toml`. Product gap.
-- **`asp remove` matches only `space:<id>@<selector>` by bare id.** For `space:project:<id>` it prints `not found
-  in target` and exits 0; pass the full ref (`remove.ts` `extractSpaceId`). The help says "Space ID (e.g.
-  my-space)". Product gap.
-- `asp add`/`remove` re-serialize `asp-targets.toml` and drop its comments.
 - The install summary for agent-harness says `0 plugins` and prints flags without values (`--extension`,
   `--skill`, `--session-id`); the bundle still holds the skills and `asp run --dry-run` prints the full argv.
 - The project id in bundle paths and `ASP_PROJECT` is the project directory's basename (`project` on a scratch).
@@ -61,8 +51,8 @@ mkdir <root>/init-probe && cd <root>/init-probe && asp init && cat asp-targets.t
 ## Proven when
 
 `asp install` writes a lock naming both targets and the probe skill appears in each harness layout; `build --output`
-writes `settings.json`; `gc --dry-run` deletes nothing; `upgrade` updates both targets; the add/remove legs show
-the lock and file effects above.
+writes `settings.json`; `gc --dry-run` deletes nothing; `upgrade` updates both targets; the add/remove legs keep
+the other target locked, leave the file unchanged on failure and keep its comments.
 
 Driven 2026-10-05 on scratch `t-10300` against checkout dc5e8bf (T-10300):
 `var/wrkq-artifacts/T-10300/02-install-build/drive.txt`.

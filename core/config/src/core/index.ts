@@ -60,8 +60,9 @@ export {
   serializeTargetsToml,
   TARGETS_FILENAME,
   validateTarget,
+  updateTargetComposeToml,
 } from './config/index.js'
-export type { ValidateTargetResult } from './config/index.js'
+export type { ComposeEditResult, ValidateTargetResult } from './config/index.js'
 
 // Errors
 export {

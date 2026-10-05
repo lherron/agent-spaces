@@ -5,6 +5,7 @@
  * editing TOML files. Automatically runs install after.
  */
 
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import chalk from 'chalk'
 import { CliUsageError } from 'cli-kit'
@@ -14,8 +15,10 @@ import {
   type SpaceRefString,
   TARGETS_FILENAME,
   atomicWrite,
+  isSpaceRefString,
   readTargetsToml,
-  serializeTargetsToml,
+  resolveComposeRefs,
+  updateTargetComposeToml,
 } from 'spaces-config'
 import { install } from 'spaces-execution'
 
@@ -49,6 +52,7 @@ export function registerAddCommand(program: Command): void {
       try {
         // Load current manifest
         const manifest = await readTargetsToml(targetsPath)
+        const original = await readFile(targetsPath, 'utf8')
 
         // Check if target exists
         if (!manifest.targets[targetName]) {
@@ -56,22 +60,33 @@ export function registerAddCommand(program: Command): void {
             `Target "${targetName}" not found\nAvailable targets: ${Object.keys(manifest.targets).join(', ')}`
           )
         }
+        if (!isSpaceRefString(spaceRef)) {
+          throw new CliUsageError(`Invalid space reference: "${spaceRef}"`)
+        }
 
         // Check if space already in compose
-        const target = manifest.targets[targetName]
-        const compose = target.compose ?? []
-        if (compose.includes(spaceRef as SpaceRefString)) {
+        const compose = manifest.targets[targetName].compose ?? []
+        if (compose.includes(spaceRef)) {
           console.log(chalk.yellow(`Space "${spaceRef}" already in target "${targetName}"`))
           process.exit(0)
         }
+        const nextCompose = [...compose, spaceRef as SpaceRefString]
 
-        // Add space to compose
-        if (!target.compose) target.compose = []
-        target.compose.push(spaceRef as SpaceRefString)
+        // Resolve before writing so a bad ref never lands in the file
+        await resolveComposeRefs(nextCompose, {
+          projectPath,
+          aspHome: options.aspHome,
+          registryPath: options.registry,
+        })
 
-        // Write updated manifest
-        const toml = serializeTargetsToml(manifest)
-        await atomicWrite(targetsPath, toml)
+        // Write updated manifest, editing only the compose list
+        const edit = updateTargetComposeToml(original, targetName, nextCompose)
+        await atomicWrite(targetsPath, edit.toml)
+        if (!edit.preserved) {
+          console.log(
+            chalk.yellow(`Rewrote ${TARGETS_FILENAME} in full; its comments were not preserved`)
+          )
+        }
 
         console.log(chalk.green(`Added "${spaceRef}" to target "${targetName}"`))
 

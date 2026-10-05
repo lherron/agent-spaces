@@ -8,6 +8,7 @@
 export {
   resolveTarget,
   resolveTargets,
+  resolveComposeRefs,
   loadProjectManifest,
   loadLockFileIfExists,
   getRegistryPath,

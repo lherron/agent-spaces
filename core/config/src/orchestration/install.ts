@@ -222,6 +222,38 @@ export async function writeLockFile(lock: LockFile, projectPath: string): Promis
 }
 
 /**
+ * Combine a partial resolution with the existing lock.
+ *
+ * Targets in `resolvedTargets` take their entries from `resolved`; every other
+ * manifest target keeps its existing lock entry unchanged. Space entries are
+ * the ones some kept target references, preferring the freshly resolved entry
+ * when a key is shared. Targets no longer in the manifest are dropped, as a
+ * full install would drop them.
+ */
+function keepUnresolvedTargets(
+  existing: LockFile | null,
+  resolved: LockFile,
+  manifestTargets: string[],
+  resolvedTargets: string[]
+): LockFile {
+  if (!existing) return resolved
+  const resolvedSet = new Set(resolvedTargets)
+  const targets: LockFile['targets'] = {}
+  for (const name of manifestTargets) {
+    const entry = resolvedSet.has(name) ? resolved.targets[name] : existing.targets[name]
+    if (entry) targets[name] = entry
+  }
+  const spaces: LockFile['spaces'] = {}
+  for (const entry of Object.values(targets)) {
+    for (const key of [...entry.roots, ...entry.loadOrder]) {
+      const space = resolved.spaces[key] ?? existing.spaces[key]
+      if (space && !spaces[key]) spaces[key] = space
+    }
+  }
+  return { ...resolved, spaces, targets }
+}
+
+/**
  * Install targets from project manifest.
  *
  * This:
@@ -314,8 +346,18 @@ export async function install(options: InstallOptions): Promise<InstallResult> {
     throw new Error(`Skill lint errors found:\n${formatted}`)
   }
 
-  // Write lock file with project lock
+  // Write lock file with project lock. A partial install (explicit targets)
+  // replaces only those targets' entries; every other target keeps its lock.
   const lockPath = await withProjectLock(options.projectPath, async () => {
+    if (options.targets) {
+      const existingLock = await loadLockFileIfExists(options.projectPath)
+      mergedLock = keepUnresolvedTargets(
+        existingLock,
+        mergedLock,
+        Object.keys(manifest.targets),
+        targetNames
+      )
+    }
     return writeLockFile(mergedLock, options.projectPath)
   })
 

@@ -23,6 +23,7 @@ export {
   validateTarget,
   type ValidateTargetResult,
 } from './targets-toml.js'
+export { updateTargetComposeToml, type ComposeEditResult } from './targets-toml-edit.js'
 
 // Agent runtime profile parser
 export { parseAgentProfile } from './agent-profile-toml.js'

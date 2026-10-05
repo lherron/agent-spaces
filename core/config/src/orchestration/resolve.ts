@@ -317,6 +317,25 @@ export async function resolveTarget(
 }
 
 /**
+ * Resolve space refs and their dependency closure without touching the
+ * manifest or the lock. Throws when a ref is malformed, a space is missing or
+ * its dependencies do not resolve. `asp add` uses it to validate a compose
+ * list before writing it.
+ */
+export async function resolveComposeRefs(
+  refs: SpaceRefString[],
+  options: ResolveOptions
+): Promise<ClosureResult> {
+  return computeClosure(refs, {
+    cwd: getRegistryPath(options),
+    immutableCwd: deferImmutableRegistry(options, { fetch: false }),
+    pinnedSpaces: options.pinnedSpaces,
+    projectRoot: options.projectPath,
+    agentRoot: options.agentPath,
+  })
+}
+
+/**
  * Resolve multiple targets.
  */
 export async function resolveTargets(
