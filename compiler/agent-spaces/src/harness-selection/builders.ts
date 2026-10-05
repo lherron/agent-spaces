@@ -1,10 +1,8 @@
-import {
-  type ResolvedRecipeBuilder,
-  compileBrokerPlan,
-  compileClaudeTmuxPlan,
-  compileMuseTmuxPlan,
-  compileNativeAgentHarnessPlan,
-} from '../compile-runtime-plan.js'
+import { compileBrokerPlan } from '../compile-broker-plan.js'
+import { compileNativeAgentHarnessPlan } from '../compile-native-agent-harness-plan.js'
+import type { ResolvedRecipeBuilder } from '../compile-plan-types.js'
+import { compileClaudeTmuxPlan, compileMuseTmuxPlan } from '../compile-tmux-broker-plan.js'
+import { catalogRecipes } from './catalog-projections.js'
 import type { BuilderId, ExecutionRecipe } from './types.js'
 
 /**
@@ -36,3 +34,8 @@ export function assertCatalogBuilderCoherence(recipes: readonly ExecutionRecipe[
     }
   }
 }
+
+// Load-time guard: every catalog recipe must name a registered builder. It lives
+// here, not in catalog-projections, so the catalog never imports the registry
+// (the builders import prepare-cli-runtime, which reads the catalog).
+assertCatalogBuilderCoherence(catalogRecipes())

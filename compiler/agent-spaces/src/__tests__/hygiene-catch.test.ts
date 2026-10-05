@@ -9,7 +9,7 @@
 import { describe, expect, test } from 'bun:test'
 import { MaterializationHygieneError } from 'spaces-config'
 
-import { hygieneBlockResponse } from '../compile-runtime-plan.js'
+import { hygieneBlockResponse } from '../compile-diagnostics.js'
 
 describe('hygieneBlockResponse', () => {
   test('converts a MaterializationHygieneError to ok:false hygiene diagnostics', () => {

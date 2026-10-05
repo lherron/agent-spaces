@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { brokerResumeFallback } from '../compile-runtime-plan'
+import { brokerResumeFallback } from '../broker-request-projection'
 
 describe('brokerResumeFallback', () => {
   test('muse-serve births start fresh on a stale continuation', () => {

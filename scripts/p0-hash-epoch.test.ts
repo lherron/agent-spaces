@@ -53,16 +53,8 @@ const CANONICAL_JSON_CENSUS_EXCLUSIONS = new Map([
     'Object.keys(...).sort() compares two record key NAME LISTS; it serializes no values',
   ],
   [
-    'compiler/agent-spaces/src/compile-runtime-plan.ts#compileBrokerPlan',
-    'Object.keys(lockedEnv).sort() emits a sorted key NAME LIST field; it serializes no values',
-  ],
-  [
-    'compiler/agent-spaces/src/compile-runtime-plan.ts#compileNativeAgentHarnessPlan',
-    'Object.keys(lockedEnv).sort() emits a sorted key NAME LIST field; it serializes no values',
-  ],
-  [
-    'compiler/agent-spaces/src/compile-runtime-plan.ts#compileTmuxBrokerPlan',
-    'Object.keys(lockedEnv).sort() emits a sorted key NAME LIST field; it serializes no values',
+    'compiler/agent-spaces/src/compile-plan-finalize.ts#finalizePlan',
+    'Object.keys(input.lockedEnv).sort() emits a sorted key NAME LIST field; it serializes no values',
   ],
   [
     'drivers/harness-codex/src/adapters/codex-adapter.ts#CodexAdapter',
@@ -124,7 +116,7 @@ const DISPLAY_ONLY_LOCALE_COMPARE_SITES = new Map([
     'agent-id listing order in inspection output; not hashed',
   ],
   [
-    'compiler/agent-spaces/src/compile-runtime-plan.ts#sortHygieneFindings',
+    'compiler/agent-spaces/src/compile-diagnostics.ts#sortHygieneFindings',
     'diagnostic finding order only',
   ],
   ['apps/cli/src/agent-roots.ts#buildAgentRootReport', 'CLI agent-root report ordering'],

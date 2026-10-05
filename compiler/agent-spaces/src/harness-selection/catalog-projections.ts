@@ -1,5 +1,4 @@
 import type { HarnessId } from 'spaces-runtime-contracts'
-import { assertCatalogBuilderCoherence } from './builders.js'
 import { HARNESS_CATALOG, HARNESS_IDS } from './catalog.js'
 import type { ProcessImplementation } from './types.js'
 
@@ -95,5 +94,3 @@ export function catalogRecipes() {
     )
   })
 }
-
-assertCatalogBuilderCoherence(catalogRecipes())
