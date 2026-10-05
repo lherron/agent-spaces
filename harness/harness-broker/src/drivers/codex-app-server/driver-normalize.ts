@@ -17,13 +17,8 @@ import {
   turnCompletedNotificationId,
   turnStartedNotificationId,
 } from './driver-support'
-import {
-  CODEX_DRIVER_KIND,
-  classifyCodexNotificationMethod,
-  codexUnknownMethodFamily,
-  type createCodexNotificationMapper,
-  parseCodexError,
-} from './event-map'
+import { CODEX_DRIVER_KIND, type createCodexNotificationMapper, parseCodexError } from './event-map'
+import { classifyCodexNotificationMethod, codexUnknownMethodFamily } from './notification-methods'
 import {
   type OpenedPermissionRequest,
   type PermissionHandlerContext,

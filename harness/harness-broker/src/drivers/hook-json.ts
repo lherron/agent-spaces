@@ -4,7 +4,7 @@
  * bodies across both drivers' `hook-events.ts`, `hook-transcript.ts`, and
  * `driver.ts` modules; lifted here to a single internal module to prevent drift.
  *
- * NOTE: `codex-app-server/event-map.ts` keeps its own `asRecord` because that
+ * NOTE: `codex-app-server/native-params.ts` keeps its own `asRecord` because that
  * variant intentionally treats arrays as records (no `Array.isArray` guard) and
  * is therefore NOT equivalent to the one exported here.
  */
