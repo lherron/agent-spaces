@@ -46,7 +46,6 @@ mkdir <root>/init-probe && cd <root>/init-probe && asp init && cat asp-targets.t
 - The install summary for agent-harness says `0 plugins` and prints flags without values (`--extension`,
   `--skill`, `--session-id`); the bundle still holds the skills and `asp run --dry-run` prints the full argv.
 - The project id in bundle paths and `ASP_PROJECT` is the project directory's basename (`project` on a scratch).
-- `asp init`'s "Next steps" says `asp run --target dev`; `asp run` takes the target positionally.
 
 ## Proven when
 

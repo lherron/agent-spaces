@@ -23,6 +23,7 @@ import {
 
 import { type LintContext, type LintWarning, type SpaceLintData, lint } from '../../lint/index.js'
 
+import { classifySpaceEntry, resolveSpaceContentDir } from '../../resolver/index.js'
 import { PathResolver, getAspHome, snapshotExists } from '../../store/index.js'
 import { getRegistryPath } from '../resolve.js'
 
@@ -42,22 +43,43 @@ import type {
   TargetExplanation,
 } from './types.js'
 
+/** True for spaces whose content is read from source rather than a store snapshot. */
+function isSourceRead(entry: LockSpaceEntry): boolean {
+  const kind = classifySpaceEntry(entry)
+  return kind === 'dev' || kind === 'project'
+}
+
+/**
+ * Directory holding a space's content: the registry for @dev spaces, the
+ * project's spaces/ for project spaces, otherwise the store snapshot.
+ */
+function spaceContentDir(
+  entry: LockSpaceEntry,
+  roots: { projectPath: string; registryPath: string; paths: PathResolver }
+): string {
+  const kind = classifySpaceEntry(entry)
+  if (kind === 'dev') return join(roots.registryPath, entry.path)
+  if (kind === 'project') return resolveSpaceContentDir(kind, entry, roots)
+  return roots.paths.snapshot(asSha256Integrity(entry.integrity))
+}
+
 /**
  * Build space info from lock entry.
  */
 async function buildSpaceInfo(
   key: SpaceKey,
   entry: LockSpaceEntry,
+  contentDir: string,
   options: { paths: PathResolver; cwd: string; registryPath: string },
   checkStore: boolean
 ): Promise<SpaceInfo> {
-  const isDev = entry.commit === 'dev'
-  const inStore = isDev ? false : checkStore ? await snapshotExists(entry.integrity, options) : true
-
-  // For @dev refs, read from registry; otherwise read from store snapshot
-  const contentDir = isDev
-    ? join(options.registryPath, entry.path)
-    : options.paths.snapshot(asSha256Integrity(entry.integrity))
+  // @dev and project spaces are read from source and never snapshotted
+  const readsSource = isSourceRead(entry)
+  const inStore = readsSource
+    ? false
+    : checkStore
+      ? await snapshotExists(entry.integrity, options)
+      : true
 
   const info: SpaceInfo = {
     key,
@@ -76,8 +98,8 @@ async function buildSpaceInfo(
     info.resolvedFrom = entry.resolvedFrom
   }
 
-  // Read content from directory (store snapshot or registry for @dev)
-  const canReadContent = isDev || inStore
+  // Read content from source (registry for @dev, project for project spaces) or store snapshot
+  const canReadContent = readsSource || inStore
   if (canReadContent) {
     const hooks = await readHooksFromDir(contentDir)
     if (hooks?.length) {
@@ -206,14 +228,19 @@ async function explainTarget(
   const checkStore = options.checkStore !== false
   const buildOpts = { paths, cwd: registryPath, registryPath }
 
+  const contentRoots = { projectPath: options.projectPath, registryPath, paths }
+
   // Build space info for each space in load order
   const spaces: SpaceInfo[] = []
+  const contentDirs = new Map<string, string>()
   for (const key of target.loadOrder) {
     const entry = lock.spaces[key]
     if (!entry) {
       throw new Error(`Space not found in lock: ${key}`)
     }
-    const info = await buildSpaceInfo(key, entry, buildOpts, checkStore)
+    const contentDir = spaceContentDir(entry, contentRoots)
+    contentDirs.set(key, contentDir)
+    const info = await buildSpaceInfo(key, entry, contentDir, buildOpts, checkStore)
     spaces.push(info)
   }
 
@@ -221,7 +248,6 @@ async function explainTarget(
   let warnings: LintWarning[] = []
   if (options.runLint !== false) {
     const lintData: SpaceLintData[] = spaces.map((space) => {
-      const isDev = space.commit === 'dev'
       return {
         key: space.key,
         manifest: {
@@ -232,9 +258,7 @@ async function explainTarget(
             version: space.pluginVersion,
           },
         },
-        pluginPath: isDev
-          ? join(registryPath, space.path)
-          : paths.snapshot(asSha256Integrity(space.integrity)),
+        pluginPath: contentDirs.get(space.key) as string,
       }
     })
 

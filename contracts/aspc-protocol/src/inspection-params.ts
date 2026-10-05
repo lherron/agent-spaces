@@ -163,10 +163,14 @@ function appendInspectionIssues(
   } catch (error) {
     if (!(error instanceof AgentInspectionValidationError)) throw error
     issues.push(
-      ...error.issues.map((item) => ({
-        ...item,
-        path: item.path.length === 0 ? basePath : `${basePath}.${item.path}`,
-      }))
+      ...error.issues.map((item) => {
+        const rooted = item.path.length === 0 ? basePath : `${basePath}.${item.path}`
+        // Messages lead with the issue's own relative path (empty at the root); re-root it too.
+        const message = item.message.startsWith(item.path)
+          ? `${rooted}${item.message.slice(item.path.length)}`
+          : item.message
+        return { ...item, path: rooted, message }
+      })
     )
   }
 }

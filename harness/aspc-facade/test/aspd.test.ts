@@ -432,6 +432,37 @@ describe('unix server and retirement', () => {
     }
   })
 
+  test('invalid-params messages name the params path at the root and nested', async () => {
+    const socketPath = join(tempBase(), 's.sock')
+    const server = await startAspdServer({ socketPath, service: fakeService(), log: () => {} })
+    const transport = await UnixSocketTransport.connect({ socketPath })
+    const issuesFor = async (params: unknown) => {
+      const error = await transport.request('aspc.catalogAgents', params).then(
+        () => undefined,
+        (caught: unknown) => caught as { code: number; data: { issues: unknown[] } }
+      )
+      expect(error?.code).toBe(-32602)
+      return error?.data.issues as Array<{ path: string; message: string }>
+    }
+    try {
+      expect(await issuesFor({})).toContainEqual(
+        expect.objectContaining({
+          path: 'params.evaluationContext',
+          message: 'params.evaluationContext must be an object',
+        })
+      )
+      const nested = await issuesFor({ evaluationContext: { schemaVersion: 7 } })
+      expect(nested.length).toBeGreaterThan(0)
+      for (const item of nested) {
+        expect(item.path.startsWith('params.evaluationContext.')).toBe(true)
+        expect(item.message.startsWith(`${item.path} `)).toBe(true)
+      }
+    } finally {
+      await transport.close()
+      await server.retire()
+    }
+  })
+
   test('serves only the compile plane; compileAndStart is not a route', async () => {
     const socketPath = join(tempBase(), 's.sock')
     const server = await startAspdServer({

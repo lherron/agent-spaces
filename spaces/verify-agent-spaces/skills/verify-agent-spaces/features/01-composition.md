@@ -49,9 +49,6 @@ cd ~/praesidium/agent-spaces && asp lint --json
 
 - `explain` marks project (`@project`) and `@dev` spaces `[NOT IN STORE]`: they are read from source, never
   snapshotted. Not an error (2026-10-05, `T-10300/01-composition/drive.txt`).
-- `explain demo` listed the composed content of `defaults` but no skills for `avs-demo`, while `describe
-  local-only` lists `avs-probe` and the bundle holds it. Read `describe` or the bundle for project-space content
-  (2026-10-05, same drive).
 - `explain` exits 1 `Target not found in lock` when the target is in `asp-targets.toml` but not the lock (a
   hand-edited targets file); rerun `asp install`.
 - `asp path` resolves only shared spaces; a project space refuses `Space "<id>" not found`.

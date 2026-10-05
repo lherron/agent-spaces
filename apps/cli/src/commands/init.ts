@@ -62,7 +62,7 @@ export function registerInitCommand(program: Command): void {
           `  1. Add spaces: ${chalk.cyan(`asp add space:my-space@dev --target ${targetName}`)}`
         )
         console.log(`  2. Install:    ${chalk.cyan('asp install')}`)
-        console.log(`  3. Run:        ${chalk.cyan(`asp run --target ${targetName}`)}`)
+        console.log(`  3. Run:        ${chalk.cyan(`asp run ${targetName}`)}`)
       } catch (error) {
         exitWithAspError(error)
       }

@@ -54,8 +54,6 @@ just aspd-status ~/praesidium/var/aspd                     # same pid as before:
   namespace's `aspd.log` is its launchd request log (`runningProcess.requestLogPath`) and rotates to `.1`–`.3`.
 - An unknown method is answered `-32601` and not written to the request log; a params refusal is, as
   `error:INVALID_ASPC_COMMAND`.
-- The invalid-params `message` for a missing `evaluationContext` reads `" must be an object"` (empty path prefix);
-  the `path` field carries the name.
 - `aspc --help` is "Unknown command"; run `aspc` bare for usage.
 - Never activate, restart, stop or `supervise` the system namespace. `just install` in the canonical checkout
   activates it (any seat may run that); standalone activation is Mable primary's.
