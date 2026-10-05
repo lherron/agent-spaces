@@ -62,6 +62,18 @@ permission_mode = "plan"
 
 Shared spaces resolve from the spaces directory on disk. There is no registry to publish to: `@stable`, dist-tags, semver ranges and `git:` pins were retired; they no longer resolve and `asp install` fails on them.
 
+## Harness Notes (Multi-Harness)
+
+- Targets are **harness-agnostic**. You select the harness at runtime:
+  - `asp run dev --harness claude`
+  - `asp run dev --harness codex`
+  - The default `agent-harness` runs only agent targets with a validated agent profile; run dev targets, space refs and space paths with `--harness claude` or `--harness codex`.
+- You can also materialize per harness:
+  - `asp install --harness claude`
+  - `asp build dev --output ./out --harness agent-harness`
+- A target can set its birth default with `[targets.<name>.provisioning] harness = "<id>"`.
+- Use `asp harnesses` to list available harnesses on your system.
+
 ## Execution Steps
 
 When you run this command, I will:
@@ -158,7 +170,7 @@ asp diff --target dev
 
 3. **Run the target**:
    ```bash
-   asp run dev
+   asp run dev --harness claude
    ```
 
 ## Best Practices

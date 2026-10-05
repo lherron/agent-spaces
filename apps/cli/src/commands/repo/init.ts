@@ -6,7 +6,7 @@
  * The root is a plain directory: no git init, tags or dist-tags (T-04144).
  */
 
-import { mkdir } from 'node:fs/promises'
+import { chmod, mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import chalk from 'chalk'
 import type { Command } from 'commander'
@@ -28,6 +28,7 @@ async function installManagerSpace(spaceDir: string): Promise<void> {
     const fullPath = `${spaceDir}/${file.path}`
     await mkdir(dirname(fullPath), { recursive: true })
     await Bun.write(fullPath, file.content)
+    if (file.executable) await chmod(fullPath, 0o755)
   }
 }
 

@@ -169,6 +169,11 @@ check-harness-selection-matrix:
 overlay-codex *args:
     bun scripts/sync-agent-to-codex-default.ts --install-hooks --apply {{args}}
 
+# Regenerate spaces/agent-spaces-manager and the embedded `asp repo init` copy
+# from the canonical <agents-root>/spaces/agent-spaces-manager (T-10369).
+sync-manager-space *args:
+    bun scripts/sync-manager-space.ts {{args}}
+
 # Validate durable architecture records and generated projections
 architecture-records *args:
     bun scripts/check-architecture-records.ts {{args}}

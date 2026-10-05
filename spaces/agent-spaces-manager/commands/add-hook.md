@@ -4,7 +4,7 @@ Add a new hook to an existing space with proper configuration.
 
 ## Usage
 
-Run this command to add a hook to a space. Hooks allow Claude to execute scripts at specific points during the conversation lifecycle.
+Run this command to add a hook to a space. Hooks allow the harness to execute scripts at specific points during the session lifecycle.
 
 ## Required Information
 
@@ -13,128 +13,270 @@ Run this command to add a hook to a space. Hooks allow Claude to execute scripts
 3. **Script Name**: Name of the script file
 4. **Script Content**: What the script should do
 
-## Hook Events
+## Hook Formats (Multi-Harness)
 
-Available hook events:
+You can define hooks in two formats:
 
-| Event | Description |
-|-------|-------------|
-| `on_session_start` | Runs when a Claude session begins |
-| `on_session_end` | Runs when a Claude session ends |
-| `on_command_start` | Runs before a command executes |
-| `on_command_end` | Runs after a command completes |
-| `on_tool_start` | Runs before a tool is invoked |
-| `on_tool_end` | Runs after a tool completes |
+### 1) `hooks/hooks.toml` (Preferred for multi-harness)
+
+Canonical, harness-agnostic format. ASP translates this to harness-specific formats.
+
+**Supported events (canonical):**
+- `pre_tool_use` - Before a tool executes
+- `post_tool_use` - After a tool executes successfully
+- `post_tool_use_failure` - After a tool fails
+- `session_start` - When a session begins
+- `session_end` - When a session ends
+- `stop` - When the agent stops
+- `notification` - On notifications
+- `user_prompt_submit` - When user submits a prompt
+- `permission_request` - On permission requests
+- `subagent_start` - When a subagent starts
+- `subagent_stop` - When a subagent stops
+- `pre_compact` - Before context compaction
+
+**Hook fields:**
+- `event` (required) - The event name
+- `script` (required) - Path to script relative to space root
+- `tools` (optional) - Filter to specific tools, e.g., `["Bash", "Write"]`
+- `blocking` (optional) - Whether hook blocks execution
+- `harness` (optional) - Only run on specific harness, e.g., `"claude"`
+
+Example:
+```toml
+[[hook]]
+event = "pre_tool_use"
+script = "hooks/scripts/validate-tool.sh"
+tools = ["Bash"]
+blocking = true
+
+[[hook]]
+event = "session_start"
+script = "hooks/scripts/setup.sh"
+
+[[hook]]
+event = "session_end"
+script = "hooks/scripts/cleanup.sh"
+harness = "claude"  # Only runs on Claude
+```
+
+### 2) `hooks/hooks.json` (Claude-only)
+
+Claude's native hook format. Use this when you only target Claude.
+
+**Claude events:**
+- `PreToolUse` - Before a tool executes
+- `PostToolUse` - After a tool executes successfully
+- `PostToolUseFailure` - After a tool fails
+- `SessionStart` - When a session begins
+- `SessionEnd` - When a session ends
+- `Stop` - When the agent stops
+- `Notification` - For notifications
+- `UserPromptSubmit` - When user submits a prompt
+- `PermissionRequest` - On permission requests
+- `SubagentStart` - When a subagent starts
+- `SubagentStop` - When a subagent stops
+- `PreCompact` - Before context compaction
+
+**Structure:** The `hooks` field must be an **object/record** (not an array) with event names as keys:
+
+```json
+{
+  "hooks": {
+    "EventName": [
+      {
+        "matcher": "ToolPattern",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "path/to/script"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Key points:**
+- `matcher` specifies which tools to match (e.g., `"Bash"`, `"Write|Edit"`, `"*"` for all)
+- `matcher` is optional for events like `Stop` and `UserPromptSubmit` that don't use tool matching
+- Each hook needs `type: "command"` and a `command` path
+
+Example:
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/validate-bash.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/cleanup.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**IMPORTANT**: Always use `${CLAUDE_PLUGIN_ROOT}` for Claude hook paths.
+
+## Event Mapping (hooks.toml → Claude)
+
+| Canonical | Claude Event |
+|-----------|--------------|
+| `pre_tool_use` | `PreToolUse` |
+| `post_tool_use` | `PostToolUse` |
+| `post_tool_use_failure` | `PostToolUseFailure` |
+| `session_start` | `SessionStart` |
+| `session_end` | `SessionEnd` |
+| `stop` | `Stop` |
+| `notification` | `Notification` |
+| `user_prompt_submit` | `UserPromptSubmit` |
+| `permission_request` | `PermissionRequest` |
+| `subagent_start` | `SubagentStart` |
+| `subagent_stop` | `SubagentStop` |
+| `pre_compact` | `PreCompact` |
 
 ## Hook Structure
-
-Hooks require both a configuration file and script files:
 
 ```
 spaces/<space-id>/
 └── hooks/
-    ├── hooks.json      # Hook configuration (required)
-    └── scripts/        # Script files
+    ├── hooks.toml      # Multi-harness hook configuration (preferred)
+    ├── hooks.json      # Claude hook configuration (optional)
+    └── scripts/
         └── <script>.sh
 ```
-
-## hooks.json Format
-
-```json
-{
-  "hooks": [
-    {
-      "event": "<event-type>",
-      "command": "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/<script>.sh",
-      "timeout_ms": 5000
-    }
-  ]
-}
-```
-
-**IMPORTANT**: Always use `${CLAUDE_PLUGIN_ROOT}` for script paths. This ensures paths resolve correctly regardless of where the plugin is materialized.
 
 ## Execution Steps
 
 When you run this command, I will:
 
-1. **Identify the target space**:
-   - Ask which space to modify
-   - Verify the space exists
-
-2. **Get hook details**:
-   - Hook event type
-   - Script name
-   - Script functionality
-
-3. **Create the hooks structure** (if needed):
-   ```bash
-   mkdir -p <agents-root>/spaces/<space-id>/hooks/scripts
-   ```
-
-4. **Create or update hooks.json**:
-   - Add the new hook entry
-   - Preserve existing hooks
-
-5. **Create the script file**:
-   - Generate script with shebang
-   - Make it executable (`chmod +x`)
-
+1. **Identify the target space**
+2. **Confirm harness target** (Claude-only or multi-harness)
+3. **Create the hooks structure** (if needed)
+4. **Create or update hooks.toml or hooks.json**
+5. **Create the script file** (with shebang and +x)
 6. **Verify** the hook configuration is valid
 
-## Example
+## Example (Multi-Harness)
 
-Adding a session-start hook to log environment info:
+### hooks/hooks.toml
+```toml
+[[hook]]
+event = "pre_tool_use"
+script = "hooks/scripts/log-tool.sh"
+blocking = false
+```
 
-### hooks.json
+### hooks/scripts/log-tool.sh
+```bash
+#!/bin/bash
+# Log tool use
+# Always exits 0 - hooks should never fail
+
+main() {
+    echo "Tool: $ASP_TOOL_NAME"
+    echo "Args: $ASP_TOOL_ARGS"
+}
+
+if ! main "$@"; then
+    HOOK_LOG=~/praesidium/var/log/hooks-log.log
+    mkdir -p "$(dirname "$HOOK_LOG")"
+    echo "$(date -Iseconds) [FAIL] log-tool.sh: main returned non-zero" >> "$HOOK_LOG"
+fi
+exit 0
+```
+
+## Example (Claude-only)
+
+### hooks/hooks.json
 ```json
 {
-  "hooks": [
-    {
-      "event": "on_session_start",
-      "command": "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/log-session-start.sh",
-      "timeout_ms": 3000
-    }
-  ]
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/log-tool.sh"
+          }
+        ]
+      }
+    ]
+  }
 }
 ```
 
-### scripts/log-session-start.sh
+### hooks/scripts/log-tool.sh
 ```bash
 #!/bin/bash
-# Log session start for debugging
+# Log tool use
+# Always exits 0 - hooks should never fail
 
-echo "Session started at $(date)"
-echo "Working directory: $(pwd)"
-echo "Node version: $(node --version 2>/dev/null || echo 'not installed')"
+main() {
+    echo "Tool: $CLAUDE_TOOL_USE_NAME"
+    echo "Input: $CLAUDE_TOOL_USE_INPUT"
+}
+
+if ! main "$@"; then
+    HOOK_LOG=~/praesidium/var/log/hooks-log.log
+    mkdir -p "$(dirname "$HOOK_LOG")"
+    echo "$(date -Iseconds) [FAIL] log-tool.sh: main returned non-zero" >> "$HOOK_LOG"
+fi
+exit 0
 ```
+
+## Documentation Reference
+
+For the latest Claude hooks documentation, see:
+https://docs.anthropic.com/en/docs/claude-code/hooks
 
 ## Best Practices
 
-1. **Use `${CLAUDE_PLUGIN_ROOT}`**: Always use this variable for paths in hooks.json
-2. **Set Reasonable Timeouts**: Default to 5000ms, adjust based on script complexity
-3. **Make Scripts Executable**: Scripts must have execute permission
-4. **Handle Errors Gracefully**: Scripts should exit 0 even if they fail (to not block Claude)
-5. **Keep Scripts Fast**: Hooks should complete quickly to not slow down Claude
-6. **Log for Debugging**: Include logging to help troubleshoot issues
+1. **Prefer hooks.toml** for multi-harness spaces
+2. **Use `${CLAUDE_PLUGIN_ROOT}`** in Claude hooks.json paths
+3. **Make Scripts Executable** (`chmod +x`)
+4. **Keep Hooks Fast** (<5 seconds)
+5. **Log for Debugging** (write to a log file, not stdout)
+6. **Always Exit 0** - Hook scripts must never fail the agent. Use this pattern:
+
+```bash
+#!/bin/bash
+# Description of what this hook does
+# Always exits 0 - hooks should never fail
+
+main() {
+    # Your hook logic here
+    do_something || true
+}
+
+if ! main "$@"; then
+    HOOK_LOG=~/praesidium/var/log/hooks-log.log
+    mkdir -p "$(dirname "$HOOK_LOG")"
+    echo "$(date -Iseconds) [FAIL] myscript.sh: main returned non-zero" >> "$HOOK_LOG"
+fi
+exit 0
+```
 
 ## Warnings
 
 The lint system will emit warnings for:
-- **W203**: Hook path missing `${CLAUDE_PLUGIN_ROOT}`
-- **W204**: hooks/ exists but hooks.json missing or invalid
+- **W203**: Hook path missing `${CLAUDE_PLUGIN_ROOT}` (Claude)
+- **W204**: hooks/ exists but hooks.json missing or invalid (Claude)
 - **W206**: Hook script not executable
-
-## Script Template
-
-```bash
-#!/bin/bash
-# <Description of what this hook does>
-# Event: <event-type>
-
-set -e  # Exit on error (optional, remove if you want to continue on failure)
-
-# Your hook logic here
-
-exit 0
-```

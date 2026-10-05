@@ -4,7 +4,7 @@ Add a new skill to an existing space with best-practice template.
 
 ## Usage
 
-Run this command to add a skill to a space. A skill provides specialized knowledge or capabilities that Claude can use during conversations.
+Run this command to add a skill to a space. Skills are **shared across harnesses** (agent-harness, Claude and Codex), and follow the Agent Skills standard.
 
 ## Required Information
 
@@ -26,16 +26,21 @@ spaces/<space-id>/
 
 ## Template
 
-The created SKILL.md will follow this structure:
+The created SKILL.md will follow this structure. The `name`/`description` frontmatter is required (lint E208):
 
 ```markdown
+---
+name: <skill-name>
+description: <What this skill does and when to use it>
+---
+
 # <Skill Title>
 
 <Description of what this skill does>
 
 ## When to Use
 
-<Describe when Claude should activate this skill>
+<Describe when the agent should activate this skill>
 
 ## Context
 
@@ -77,6 +82,11 @@ When you run this command, I will:
 Adding a TypeScript skill to a development space:
 
 ```markdown
+---
+name: typescript-expert
+description: Expert guidance for TypeScript development.
+---
+
 # TypeScript Expert
 
 Expert guidance for TypeScript development.

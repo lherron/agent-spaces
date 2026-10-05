@@ -137,7 +137,7 @@ asp agent alice@demo:T-1 task --prompt "triage the failing build"
 - [docs/env-contract.md](./docs/env-contract.md) — Environment variable contract
 - [docs/hook-timings.md](./docs/hook-timings.md) — Local pre-commit/pre-push timing telemetry and reporting
 - [docs/proposals/](./docs/proposals/) — Design proposals (agent roots, agent-authored runtime resources, reproducible compiler)
-- [spaces/agent-spaces-manager/skills/space-authoring/SKILL.md](./spaces/agent-spaces-manager/skills/space-authoring/SKILL.md) — Space authoring guide
+- [spaces/agent-spaces-manager/commands/space-authoring.md](./spaces/agent-spaces-manager/commands/space-authoring.md) — Space authoring guide (generated from `<agents-root>/spaces/agent-spaces-manager` by `just sync-manager-space`)
 
 ## Package Layout
 

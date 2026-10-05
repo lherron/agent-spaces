@@ -11,3 +11,4 @@ name = "agent-spaces-manager"
 description = "Tools and guidance for authoring and managing Agent Spaces"
 license = "MIT"
 keywords = ["management", "authoring", "scaffolding"]
+

@@ -6,6 +6,8 @@ Add a new command to an existing space with best-practice template.
 
 Run this command to add a command to a space. Commands are invokable actions that Claude can execute when the user requests them.
 
+> Note: Commands are **Claude-only** (Codex maps them to prompts). For the agent-harness, use `extensions/` and register tools in TypeScript.
+
 ## Required Information
 
 1. **Space ID or Path**: Which space to add the command to
