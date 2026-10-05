@@ -24,7 +24,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 
 import type { AgentLocalComponents } from '../core/types/agent-local.js'
 import { PathResolver } from '../store/index.js'
-import { materializeAgentLocalComponents } from './install.js'
+import { materializeAgentLocalComponents } from './plugin-artifacts.js'
 
 const tempDirs: string[] = []
 

@@ -27,12 +27,11 @@ export {
   ensureRegistry,
   populateStore,
   writeLockFile,
-  materializeTarget,
-  materializeAgentLocalComponents,
   type InstallOptions,
   type InstallResult,
-  type TargetMaterializationResult,
 } from './install.js'
+export { materializeTarget, type TargetMaterializationResult } from './materialize-target.js'
+export { materializeAgentLocalComponents } from './plugin-artifacts.js'
 
 // Low-level materialization from refs
 export {

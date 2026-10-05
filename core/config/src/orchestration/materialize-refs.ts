@@ -42,12 +42,8 @@ import {
 import { ensureAspHome, getAspHome } from '../store/index.js'
 
 import { fetch as gitFetch } from '../git/index.js'
-import {
-  type InstallOptions,
-  type TargetMaterializationResult,
-  materializeTarget,
-  populateSnapshotsFromLock,
-} from './install.js'
+import { type InstallOptions, populateSnapshotsFromLock } from './install.js'
+import { type TargetMaterializationResult, materializeTarget } from './materialize-target.js'
 
 /**
  * Skill metadata discovered from materialized plugins.

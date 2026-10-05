@@ -7,7 +7,7 @@ import type { AgentLocalComponents } from '../core/types/agent-local.js'
 import type { RuntimePlacement } from '../core/types/placement.js'
 import { git, resolveAgentResourceSources } from '../index.js'
 import * as materializer from '../materializer/materialize.js'
-import * as install from '../orchestration/install.js'
+import * as targetMaterialization from '../orchestration/materialize-target.js'
 import * as runtimeMaterialization from './materialize-agent-runtime.js'
 
 const roots: string[] = []
@@ -155,7 +155,7 @@ describe('resolveAgentResourceSources', () => {
   test('returns ordered attributed mutable, immutable, and agent-local roots without materializing', async () => {
     const fixture = await createFixture()
     const materializeSpace = spyOn(materializer, 'materializeSpace')
-    const materializeTarget = spyOn(install, 'materializeTarget')
+    const materializeTarget = spyOn(targetMaterialization, 'materializeTarget')
     const materializeAgentRuntimeResources = spyOn(
       runtimeMaterialization,
       'materializeAgentRuntimeResources'

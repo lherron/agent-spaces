@@ -7,13 +7,14 @@ import type { LockFile } from '../core/types/lock.js'
 import { PORTABLE_SPACES_REGISTRY } from '../core/types/lock.js'
 import type { ResolvedPlacementSpec } from '../core/types/placement.js'
 import type { SpaceRefString } from '../core/types/refs.js'
-import { type InstallOptions, materializeTarget } from '../orchestration/install.js'
+import type { InstallOptions } from '../orchestration/install.js'
 import {
   type MaterializeFromRefsOptions,
   type SkillMetadata,
   discoverSkills,
   materializeFromRefs,
 } from '../orchestration/materialize-refs.js'
+import { materializeTarget } from '../orchestration/materialize-target.js'
 import { deferImmutableRegistry, getRegistryPath, resolveTarget } from '../orchestration/resolve.js'
 import { computeClosure } from '../resolver/closure.js'
 import type { ImmutableSourceRoot } from '../resolver/immutable-root.js'

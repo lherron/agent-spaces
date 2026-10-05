@@ -33,7 +33,7 @@ const MIGRATING_CANONICAL_JSON_SITES = new Map([
     'sortKeys backs the local canonicalJson used for manifest hashes',
   ],
   [
-    'core/config/src/orchestration/install.ts#stableJson',
+    'core/config/src/orchestration/materialize-target.ts#stableJson',
     'local stableJson serializer on the install hash path',
   ],
   [
@@ -88,7 +88,7 @@ const HASH_MATERIAL_LOCALE_COMPARE_SITES = new Map([
     'key order feeds stableHash (sha256) for the inspection seed and contextHash',
   ],
   [
-    'core/config/src/orchestration/install.ts#hashDirectory',
+    'core/config/src/orchestration/materialize-target.ts#hashDirectory',
     'entry order feeds the sha256 directory hash',
   ],
   [
@@ -147,6 +147,8 @@ const AMBIENT_CLOCK_FILES = [
   'core/config/src/core/types/lock.ts',
   'core/config/src/materializer/materialize.ts',
   'core/config/src/orchestration/install.ts',
+  'core/config/src/orchestration/materialize-target.ts',
+  'core/config/src/orchestration/plugin-artifacts.ts',
   'core/config/src/resolver/lock-generator.ts',
   'core/config/src/store/temp-lifecycle.ts',
 ] as const

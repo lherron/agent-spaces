@@ -44,7 +44,7 @@ import {
 } from '../core/index.js'
 import { cacheExists, computeHarnessPluginCacheKey } from '../store/cache.js'
 import { PathResolver } from '../store/paths.js'
-import { materializeTarget } from './install.js'
+import { materializeTarget } from './materialize-target.js'
 
 const BROKEN_SKILL = `---
 name: probe-skill

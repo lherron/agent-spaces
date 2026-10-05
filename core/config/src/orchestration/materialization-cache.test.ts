@@ -28,7 +28,7 @@ import type {
 import { cacheExists, computeHarnessPluginCacheKey, getCacheMetadata } from '../store/cache.js'
 import { PathResolver } from '../store/paths.js'
 
-import { materializeTarget } from './install.js'
+import { materializeTarget } from './materialize-target.js'
 
 class DirectoryArtifactAdapter implements HarnessAdapter {
   readonly id = 'codex' as HarnessId
