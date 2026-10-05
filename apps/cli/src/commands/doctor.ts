@@ -1,5 +1,5 @@
 /**
- * Doctor command - Check Claude, registry, cache permissions.
+ * Doctor command - Check Claude, shared spaces root, cache permissions.
  *
  * WHY: Diagnoses common setup issues before users try to run,
  * providing clear guidance on what needs to be fixed.
@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import type { Command } from 'commander'
 
 import { HARNESS_CATALOG, resolveHarnessExecution } from 'agent-spaces'
-import { ensureAspHome, gitExec, listRemotes, toSelectionLayers } from 'spaces-config'
+import { ensureAspHome, toSelectionLayers } from 'spaces-config'
 import {
   type ModelAuditRow,
   auditProjectModels,
@@ -22,9 +22,6 @@ import {
 import { SHARED_AGENT_ROOT_FILES, buildAgentRootReport } from '../agent-roots.js'
 import { errorMessage, formatCheckResults, outputDoctorSummary, resolvePaths } from '../helpers.js'
 import { findProjectRoot } from '../lib.js'
-
-/** Timeout for the registry-remote `git ls-remote` reachability probe. */
-const REGISTRY_REMOTE_TIMEOUT_MS = 10_000
 
 interface CheckResult {
   name: string
@@ -114,76 +111,22 @@ async function checkDirectoryAccess(name: string, dirPath: string): Promise<Chec
 }
 
 /**
- * Check if registry exists.
+ * Check that the shared spaces root (a plain directory, not a git registry) exists.
  */
-async function checkRegistry(repoPath: string): Promise<{ result: CheckResult; exists: boolean }> {
+async function checkRegistry(repoPath: string): Promise<CheckResult> {
   try {
     await access(repoPath, constants.R_OK)
     return {
-      result: {
-        name: 'registry',
-        status: 'ok',
-        message: `Registry found: ${repoPath}`,
-      },
-      exists: true,
+      name: 'registry',
+      status: 'ok',
+      message: `Shared spaces root found: ${repoPath}`,
     }
   } catch {
     return {
-      result: {
-        name: 'registry',
-        status: 'warning',
-        message: 'No local registry found',
-        detail: `Expected at: ${repoPath}. Run 'asp repo init' to create its spaces/ dir.`,
-      },
-      exists: false,
-    }
-  }
-}
-
-/**
- * Check registry remote reachability.
- */
-async function checkRegistryRemote(repoPath: string): Promise<CheckResult> {
-  try {
-    const remotes = await listRemotes({ cwd: repoPath })
-    const origin = remotes.find((r) => r.name === 'origin')
-
-    if (!origin?.fetchUrl) {
-      return {
-        name: 'registry_remote',
-        status: 'warning',
-        message: 'No remote configured for registry',
-        detail: 'The registry is local-only. Add a remote with git remote add origin <url>.',
-      }
-    }
-
-    // Try to connect to remote using ls-remote (with timeout)
-    const result = await gitExec(['ls-remote', '--heads', origin.fetchUrl], {
-      cwd: repoPath,
-      timeout: REGISTRY_REMOTE_TIMEOUT_MS,
-      ignoreExitCode: true,
-    })
-
-    if (result.exitCode === 0) {
-      return {
-        name: 'registry_remote',
-        status: 'ok',
-        message: `Registry remote reachable: ${origin.fetchUrl}`,
-      }
-    }
-
-    return {
-      name: 'registry_remote',
+      name: 'registry',
       status: 'warning',
-      message: `Registry remote unreachable: ${origin.fetchUrl}`,
-      detail: 'Check your network connection or remote URL configuration.',
-    }
-  } catch (error) {
-    return {
-      name: 'registry_remote',
-      status: 'warning',
-      message: 'Could not check registry remote',
-      detail: errorMessage(error),
+      message: 'No shared spaces root found',
+      detail: `Expected at: ${repoPath}. Run 'asp repo init' to create its spaces/ dir.`,
     }
   }
 }
@@ -383,7 +326,7 @@ function escapeRegExp(value: string): string {
 export function registerDoctorCommand(program: Command): void {
   program
     .command('doctor')
-    .description('Check Claude binary, registry reachability, and cache permissions')
+    .description('Check Claude binary, shared spaces root, and cache permissions')
     .option('--json', 'Output as JSON')
     .option('--project <path>', 'Project directory (default: auto-detect)')
     .option('--asp-home <path>', 'ASP_HOME override')
@@ -403,15 +346,9 @@ export function registerDoctorCommand(program: Command): void {
       // Check snapshots directory
       checks.push(await checkDirectoryAccess('snapshots', paths.snapshots))
 
-      // Check shared spaces root. The compatibility name is still "registry",
-      // but the default path is now the configured agents root.
-      const { result: registryResult, exists: registryExists } = await checkRegistry(registryPath)
-      checks.push(registryResult)
-
-      // Check registry remote reachability (if registry exists)
-      if (registryExists) {
-        checks.push(await checkRegistryRemote(registryPath))
-      }
+      // Check shared spaces root. The JSON check name stays "registry" for
+      // compatibility; the path is the configured agents root.
+      checks.push(await checkRegistry(registryPath))
 
       // Check project
       const projectPath = options.project ?? (await findProjectRoot())

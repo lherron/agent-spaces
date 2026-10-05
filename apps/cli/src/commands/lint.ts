@@ -106,10 +106,12 @@ function outputWarningsText(warnings: LintRow[]): void {
     return
   }
 
+  const errorCount = warnings.filter((w) => w.severity === 'error').length
   const warningCount = warnings.filter((w) => w.severity === 'warning').length
   const infoCount = warnings.filter((w) => w.severity === 'info').length
 
   const parts: string[] = []
+  if (errorCount > 0) parts.push(`${errorCount} error(s)`)
   if (warningCount > 0) parts.push(`${warningCount} warning(s)`)
   if (infoCount > 0) parts.push(`${infoCount} info`)
 

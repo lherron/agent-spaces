@@ -90,13 +90,15 @@ export async function checkHooksConfig(context: LintContext): Promise<LintWarnin
     const result = await validateHooksConfig(space.pluginPath)
     if (!result.valid) {
       const configFile =
-        result.source === 'toml' ? 'hooks.toml' : result.source === 'json' ? 'hooks.json' : 'hooks'
+        result.source === 'toml' ? 'hooks.toml' : result.source === 'json' ? 'hooks.json' : ''
       warnings.push({
         code: WARNING_CODES.INVALID_HOOKS_CONFIG,
         message: `hooks/ directory exists but hooks configuration is invalid: ${result.error}`,
         severity: 'error',
         spaceKey: space.key,
-        path: join(space.pluginPath, 'hooks', configFile),
+        path: configFile
+          ? join(space.pluginPath, 'hooks', configFile)
+          : join(space.pluginPath, 'hooks'),
         details: {
           error: result.error,
           source: result.source,

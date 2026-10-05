@@ -326,7 +326,11 @@ export async function explain(options: ExplainOptions): Promise<ExplainResult> {
   }
 
   return {
-    registryUrl: lock.registry.url ?? lock.registry.canonicalRemote,
+    spacesRoot: getRegistryPath({
+      projectPath: options.projectPath,
+      aspHome: options.aspHome ?? getAspHome(),
+      ...(options.registryPath ? { registryPath: options.registryPath } : {}),
+    }),
     lockVersion: lock.lockfileVersion,
     generatedAt: lock.generatedAt,
     targets,

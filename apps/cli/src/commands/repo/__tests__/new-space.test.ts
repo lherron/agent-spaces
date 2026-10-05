@@ -10,7 +10,7 @@
  * - Requires the shared spaces root's spaces/ dir (asp repo init creates it);
  *   T-10367 retargeted this from the retired $ASP_HOME/repo git registry
  * - Rejects existing spaces/<spaceId>/space.toml
- * - Writes spaces/<spaceId>/space.toml + dirs: commands/ skills/ agents/ hooks/scripts/ mcp/
+ * - Writes spaces/<spaceId>/space.toml + dirs: commands/ skills/ agents/ mcp/ (no hooks/: it needs a hooks config)
  * - NO commands/example.md (new-space only; example stays behind spaces-init compat option)
  * - After write: calls readSpaceManifestFromFilesystem + validateSpaceManifest;
  *   parse/validate failure => hard nonzero exit
@@ -119,7 +119,8 @@ describe('asp repo new-space creates blessed file/dir shape (T-04410 #1)', () =>
         expect(await exists(join(spaceDir, 'commands'))).toBe(true)
         expect(await exists(join(spaceDir, 'skills'))).toBe(true)
         expect(await exists(join(spaceDir, 'agents'))).toBe(true)
-        expect(await exists(join(spaceDir, 'hooks', 'scripts'))).toBe(true)
+        // No hooks/ without a hooks config: an empty hooks/ trips W204 on first lint
+        expect(await exists(join(spaceDir, 'hooks'))).toBe(false)
         expect(await exists(join(spaceDir, 'mcp'))).toBe(true)
 
         // NO example.md — new-space does not emit it

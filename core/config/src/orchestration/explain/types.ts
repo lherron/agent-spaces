@@ -136,8 +136,8 @@ export interface TargetExplanation {
  * Full explanation output.
  */
 export interface ExplainResult {
-  /** Registry URL */
-  registryUrl: string
+  /** Shared spaces root that dev spaces resolve from (node-local path) */
+  spacesRoot: string
   /** Lock file version */
   lockVersion: number
   /** When lock was generated */

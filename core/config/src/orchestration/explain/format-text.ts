@@ -179,7 +179,7 @@ function formatTargetText(name: string, target: TargetExplanation, lines: string
 export function formatExplainText(result: ExplainResult): string {
   const lines: string[] = []
 
-  lines.push(`Registry: ${result.registryUrl}`)
+  lines.push(`Spaces root: ${result.spacesRoot}`)
   lines.push(`Lock version: ${result.lockVersion}`)
   lines.push(`Generated: ${result.generatedAt}`)
   lines.push('')

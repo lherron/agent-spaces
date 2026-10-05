@@ -108,7 +108,6 @@ export async function writeSpaceScaffold(
   await mkdir(`${spaceDir}/commands`, { recursive: true })
   await mkdir(`${spaceDir}/skills`, { recursive: true })
   await mkdir(`${spaceDir}/agents`, { recursive: true })
-  await mkdir(`${spaceDir}/hooks/scripts`, { recursive: true })
   await mkdir(`${spaceDir}/mcp`, { recursive: true })
 
   await Bun.write(`${spaceDir}/space.toml`, generateSpaceToml(spaceId, options))

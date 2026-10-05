@@ -414,6 +414,8 @@ describe('W204: checkHooksConfig', () => {
     const warnings = await checkHooksConfig(context)
     expect(warnings).toHaveLength(1)
     expect(warnings[0]?.code).toBe(WARNING_CODES.INVALID_HOOKS_CONFIG)
+    // With no config file the path names the hooks dir, not a phantom hooks/hooks
+    expect(warnings[0]?.path).toBe(join(plugin, 'hooks'))
   })
 
   it('should warn when hooks.json is invalid', async () => {

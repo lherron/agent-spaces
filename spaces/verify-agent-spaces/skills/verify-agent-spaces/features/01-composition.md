@@ -9,9 +9,10 @@ list,path,diff}.ts`, `apps/cli/src/commands/{repo,spaces}/`, resolution in `core
 
 ## Sub-features
 
-- `asp lint [target] [--json]`: target and conflict warnings (`W101` lock missing, collisions). Exit 0 with
+- `asp lint [target] [--json]`: target and conflict warnings (`W101` lock missing, collisions, `W204` a `hooks/`
+  dir with no hooks config). The header counts errors, warnings and info (`Found 1 error(s):`). Exit 0 with
   warnings; `--json` gives `{warnings: [...]}`.
-- `asp explain [target] [--json]`: registry, lock version, per-target compose, env hash, load order (key,
+- `asp explain [target] [--json]`: `Spaces root:` (the resolved shared root, not the lock's registry remote), lock version, per-target compose, env hash, load order (key,
   commit, selector, components, hooks) and the composed commands, skills and hooks. Needs a lock with that target.
 - `asp describe [target] --harness <h>`: hooks, skills, tools and lint warnings as the harness would materialize
   them.
@@ -20,7 +21,8 @@ list,path,diff}.ts`, `apps/cli/src/commands/{repo,spaces}/`, resolution in `core
 - `asp path <spaceId>`: the filesystem path of a shared space.
 - `asp diff [--json]`: pending lock changes without writing.
 - `asp repo init|new-space|status` and `asp spaces init|list`: the shared spaces root (`<agentsRoot>/spaces/`,
-  `--registry <path>` overrides). The git registry verbs `asp repo publish|tags|gc` were removed (T-10367) and exit
+  `--registry <path>` overrides). `new-space` writes `space.toml` plus `commands/ skills/ agents/ mcp/`, no
+  `hooks/` (an empty one trips W204). The git registry verbs `asp repo publish|tags|gc` were removed (T-10367) and exit
   1 `unknown command`.
 
 ## How to get to it
@@ -36,7 +38,7 @@ cd $AVS_PROJECT
 asp lint                         # before install: [W101] lock not found, exit 0
 asp install                      # feature 2
 asp explain demo                 # load order avs-demo@project then defaults@dev; Skills: avs-probe (from avs-demo), frontend-design
-asp explain demo --json          # keys registryUrl, lockVersion, generatedAt, targets
+asp explain demo --json          # keys spacesRoot, lockVersion, generatedAt, targets
 asp describe local-only --harness claude   # skills: avs-probe
 asp list                         # demo/local-only locked, env hashes, agent roots
 asp path defaults                # ~/praesidium/var/agents/spaces/defaults

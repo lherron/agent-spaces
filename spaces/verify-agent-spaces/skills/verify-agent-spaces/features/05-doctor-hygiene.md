@@ -7,8 +7,8 @@ the agent-hygiene lint over skills and agent roots (`asp lint --hygiene`), and t
 
 ## Sub-features
 
-- `asp doctor [--json]`: claude binary and version, ASP_HOME, cache and snapshot writability, the agents registry
-  and its remote, the project, agent roots, the profile-model audit.
+- `asp doctor [--json]`: claude binary and version, ASP_HOME, cache and snapshot writability, the shared spaces
+  root (a plain directory; no git-remote probe since T-10370), the project, agent roots, the profile-model audit.
 - `asp harnesses [--json]`: each harness (`agent-harness` default, `claude`, `codex` experimental, `muse`) with
   path, version, capabilities and models per provider. JSON shape `{harnesses: [{id, name, detection: {available,
   version, path, capabilities}, …}]}`.
@@ -49,8 +49,8 @@ sqlite3 -readonly ~/praesidium/var/state/hrc/state.sqlite \
   an agent root or `var/agents`, never at a space root.
 - A seat's own newest invocation is the one priced, so `token-rent --agent <you>` shows this seat's task context
   (`Task ID: T-…`) as a layer.
-- `asp doctor`'s `Registry found` row is the agents root (`~/praesidium/var/agents`, remote `lherron/agents.git`), a
-  compatibility name, not the retired spaces registry.
+- `asp doctor`'s `Shared spaces root found` row is the agents root (`~/praesidium/var/agents`); its `--json` check
+  name stays `registry` for compatibility. It is not the retired spaces registry.
 - `asp doctor` checks the claude binary only; codex, muse and pi detection is `asp harnesses`.
 
 ## Proven when
