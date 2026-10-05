@@ -149,6 +149,90 @@ const KNOWN_IGNORED_EVENTS = new Set([
   'attached_request_normalized',
   'attached_turn_admitted',
   'attached_request_refused',
+  // Arris 6e43a1fd renamed the pass-through admission diagnostic; same
+  // rationale as the attached_request_* kinds above.
+  'attached_request_allowed',
+  // Attached-proxy traffic: an answer from a client that does not own the
+  // request, and a forwarded unsubscribe. No turn, delivery or lifecycle fact.
+  'attached_answer_ignored',
+  'attached_thread_unsubscribe_forwarded',
+  // Duplicates a fact already surfaced: the host also writes helper_observed
+  // (an ARRIS_HELPER_OBSERVED notice) for every attached client it sees.
+  'attached_client_observed',
+  // Precedes dynamic_tool_call_answered, which carries the tool call itself.
+  'dynamic_tool_call_admitted',
+  // A late notification for a turn the host already correlated; the turn's
+  // own turn_started/turn_completed already carried the bracket.
+  'turn_started_already_bound',
+  'turn_completed_already_bound',
+  // Event-drain and responder-delay instrumentation for Arris routing
+  // experiments; neither changes a turn or the host's lifecycle.
+  'event_drain_resumed',
+  'resident_responder_delay_started',
+])
+
+/**
+ * Journal kinds surfaced verbatim as `driver.notice{code: ARRIS_<KIND>}` with
+ * the record's detail as `data`. Each is a host lifecycle, approval, mail or
+ * failure fact an operator reading the invocation needs, but none maps to a
+ * turn, message or tool event.
+ */
+const ARRIS_NOTICE_EVENTS = new Set([
+  'native_approval_offered',
+  'helper_observed',
+  'resident_rebound',
+  'control_submission_fenced',
+  'uncertain_bound_to_turn',
+  'uncertain_resolved',
+  // Codex app-server child lifecycle (T-09954 supervisor): pid and
+  // incarnation_seq on start, exit status and whether it was planned on exit,
+  // the restart's reconciliation, re-injected settled effects, the resume.
+  'codex_child_started',
+  'codex_child_exited',
+  'child_exit_reconciled',
+  'settled_effect_surfaced',
+  'codex_child_resumed',
+  // Why the host stopped serving: product_owner, sigint, deadline, control_stop.
+  'shutdown_signal',
+  // The host's own stop decision for a managed-stop request, or its refusal.
+  'control_stop_decided',
+  'control_stop_refused',
+  // Who must answer a native approval, and that it was answered or released.
+  'approval_ownership_held',
+  'approval_ownership_transferred',
+  'native_approval_answered',
+  'native_approval_deferral_resolved',
+  // The resident answered, or refused to answer, an addressed mail.
+  'mail_reply_sent',
+  'mail_reply_refused',
+  // The resident thread's context was compacted under the host.
+  'resident_compacted',
+  // Turns that ran without broker-visible correlation, and a dynamic tool
+  // call the host refused because no admitted turn owned it.
+  'turn_started_without_admission',
+  'turn_completed_without_active_turn',
+  'dynamic_tool_call_unattributed',
+  'attached_turn_admission_failed_open',
+  // Host faults: a durable write that did not land, a descriptor the host
+  // could not republish, a rebind or resumability check that failed, an
+  // unparseable child frame, a server request nobody answers, a fence probe
+  // that learned nothing, and a turn that never settled.
+  'control_presentation_not_recorded',
+  'control_completion_not_recorded',
+  'control_resolution_failed',
+  'control_resolution_unmatched',
+  'host_descriptor_publication_failed',
+  'resident_rebind_failed',
+  'resumable_check_failed',
+  'child_frame_untyped',
+  'server_request_unhandled',
+  'uncertain_probe_failed',
+  'uncertain_unresolved',
+  'turn_settle_deadline',
+  // A deliberately injected turn-start fault is armed or applied; an operator
+  // must be able to tell an injected loss from a real one.
+  'turn_start_fault_armed',
+  'turn_start_fault_applied',
 ])
 
 export function createArrisResidentDriver(options: ArrisResidentDriverOptions = {}): Driver {
@@ -463,13 +547,15 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
       )
       return { disposition: 'normalized', detail: record.kind }
     }
-    if (record.kind === 'turn_completed') {
+    // turn_ended_by_child_exit is the host closing its active turn as
+    // interrupted because the Codex child died; no turn_completed follows it.
+    if (record.kind === 'turn_completed' || record.kind === 'turn_ended_by_child_exit') {
       const neutral = stringValue(detail['neutral_turn_id']) ?? currentNeutralTurnId
       if (neutral === undefined)
         return {
           disposition: 'blocked-unknown',
           family: 'turn-bracket',
-          message: 'Arris turn_completed lacks neutral turn correlation',
+          message: `Arris ${record.kind} lacks neutral turn correlation`,
         }
       const text = assistantText.get(neutral) ?? ''
       if (assistantStarted.has(neutral)) {
@@ -484,7 +570,10 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
           { ...extra, turnId: neutral as TurnId, itemId: messageId }
         )
       }
-      const status = stringValue(detail['status'])?.toLowerCase()
+      const status =
+        record.kind === 'turn_ended_by_child_exit'
+          ? 'interrupted'
+          : stringValue(detail['status'])?.toLowerCase()
       requireCtx().emit(
         'turn.completed',
         {
@@ -551,14 +640,7 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
       )
       return { disposition: 'normalized', detail: record.kind }
     }
-    if (
-      record.kind === 'native_approval_offered' ||
-      record.kind === 'helper_observed' ||
-      record.kind === 'resident_rebound' ||
-      record.kind === 'control_submission_fenced' ||
-      record.kind === 'uncertain_bound_to_turn' ||
-      record.kind === 'uncertain_resolved'
-    ) {
+    if (ARRIS_NOTICE_EVENTS.has(record.kind)) {
       requireCtx().emit(
         'driver.notice',
         {
