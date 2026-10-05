@@ -2,7 +2,8 @@ import { dirname, extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import { shellQuote } from '../tmux-shared'
-import { type CodexTranscriptWidth, createCodexTranscriptModel } from './transcript'
+import type { CodexTranscriptWidth } from './pane-style'
+import { createCodexTranscriptModel } from './transcript'
 
 /**
  * T-04906 / T-04909 Phase B — the Codex app-server operator renderer.

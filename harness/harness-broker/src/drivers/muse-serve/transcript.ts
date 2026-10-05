@@ -18,12 +18,12 @@
  * the pane should not print the same prose twice.
  */
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
-import type { RendererTranscriptModel } from '../codex-app-server/renderer'
 import {
   type CodexSeg,
   type CodexTranscriptWidth,
   createCodexStyler,
-} from '../codex-app-server/transcript'
+} from '../codex-app-server/pane-style'
+import type { RendererTranscriptModel } from '../codex-app-server/renderer'
 
 export interface MuseTranscriptModelOptions {
   emit: (line: string) => void

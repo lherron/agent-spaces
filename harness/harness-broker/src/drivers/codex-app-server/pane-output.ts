@@ -1,11 +1,8 @@
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
+import { createCodexQueueDrawerRow, createCodexStatusRow } from './pane-footer-rows'
+import type { CodexTranscriptWidth } from './pane-style'
 import { createQueueDrawer } from './queue-drawer'
 import { type StatusLine, createStatusLine } from './status-line'
-import {
-  type CodexTranscriptWidth,
-  createCodexQueueDrawerRow,
-  createCodexStatusRow,
-} from './transcript'
 
 /**
  * T-07906 — the pane's EPHEMERAL surface, assembled once.

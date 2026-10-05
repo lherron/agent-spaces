@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  CODEX_STATUS_FRAME_COUNT,
+  createCodexStatusRow,
+} from '../../../src/drivers/codex-app-server/pane-footer-rows'
+import {
   type StatusLine,
   createStatusLine,
   statusLineStateForEventType,
 } from '../../../src/drivers/codex-app-server/status-line'
-import {
-  CODEX_STATUS_FRAME_COUNT,
-  createCodexStatusRow,
-} from '../../../src/drivers/codex-app-server/transcript'
 
 const ERASE_ROW = '\r\x1b[K'
 const HIDE_CURSOR = '\x1b[?25l'
