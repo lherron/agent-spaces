@@ -104,6 +104,21 @@ export const noopSpec = (
   ...overrides,
 })
 
+/** An interactive invocation of the in-process test driver (src/testing/test-driver). */
+export const testDriverSpec = (invocationId: string): HarnessInvocationSpec => ({
+  specVersion: 'harness-broker.invocation/v1',
+  invocationId,
+  harness: { frontend: 'test', provider: 'test', driver: 'test-driver' },
+  process: {
+    command: 'test-driver',
+    args: [],
+    cwd: process.cwd(),
+    harnessTransport: { kind: 'pipes' },
+  },
+  interaction: { mode: 'interactive', turnConcurrency: 'single', inputQueue: 'fifo' },
+  driver: { kind: 'test-driver' },
+})
+
 export const request = (id: string | number, method: string, params: unknown = {}) =>
   `${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`
 
