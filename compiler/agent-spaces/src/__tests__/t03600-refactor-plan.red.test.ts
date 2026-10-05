@@ -19,7 +19,11 @@ const sourceInspectionFiles = [
   'compiler/agent-spaces/src/__tests__/phase4-harness-adapter-integration.test.ts',
   'integration-tests/tests/m5-public-api-cutover.test.ts',
   'compiler/agent-spaces/src/__tests__/headless-empty-response.test.ts',
-  'apps/cli/src/__tests__/m6-agent-cli.test.ts',
+  'apps/cli/src/__tests__/asp-cli.ts',
+  'apps/cli/src/__tests__/agent-command.test.ts',
+  'apps/cli/src/__tests__/agent-correlation.test.ts',
+  'apps/cli/src/__tests__/agent-invocation-spec.test.ts',
+  'apps/cli/src/__tests__/cli-compatibility.test.ts',
 ]
 
 const broadSourceInspectionPatterns = [
