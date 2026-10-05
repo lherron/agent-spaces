@@ -40,6 +40,13 @@ async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<voi
   throw new Error('timed out waiting for facade traffic')
 }
 
+function turnCompleted(events: JsonRpcNotification[], inputId: string | undefined): boolean {
+  return events.some((event) => {
+    const params = event.params as { type?: string; inputId?: string } | undefined
+    return params?.type === 'turn.completed' && params.inputId === inputId
+  })
+}
+
 describe('cohosted facade full plane', () => {
   test('AC-7: serves compile + start + broker + invocation routes, emits events and permission requests', async () => {
     const events: JsonRpcNotification[] = []
@@ -98,6 +105,17 @@ describe('cohosted facade full plane', () => {
       expect(status.invocationId).toBe(invocationId)
       expect(await probeServed(client, 'invocation.start', {})).toBe(true)
 
+      // invocation.start returns once the compiled initial input is admitted, not
+      // when its turn ends; that turn still owes a client permission round-trip.
+      // An input with no busy policy is rejected while a turn is active, so wait
+      // for the initial turn's terminal before starting the second turn. The
+      // broker delivers turn.completed and releases the turn in the same tick,
+      // so observing it is the real readiness signal.
+      const initialInputId =
+        startedCompile.plan.execution.dispatchRequest.startRequest.initialInput?.inputId
+      expect(initialInputId).toBeDefined()
+      await waitFor(() => turnCompleted(events, initialInputId))
+
       const secondInputId = `${invocationId}_input_2`
       const input = await client.request<{ accepted: boolean }>('invocation.input', {
         invocationId,
@@ -113,16 +131,7 @@ describe('cohosted facade full plane', () => {
       // and terminal notifications. Let that turn finish before probing the
       // interrupt route so the fake provider is not asked to multiplex a
       // second request while it is awaiting its permission response.
-      await waitFor(
-        () =>
-          permissionRequests.length > 0 &&
-          events.some(
-            (event) =>
-              (event.params as { type?: string; inputId?: string } | undefined)?.type ===
-                'turn.completed' &&
-              (event.params as { inputId?: string } | undefined)?.inputId === secondInputId
-          )
-      )
+      await waitFor(() => permissionRequests.length > 0 && turnCompleted(events, secondInputId))
 
       const interrupt = await client.request<{ accepted: boolean }>('invocation.interrupt', {
         invocationId,
