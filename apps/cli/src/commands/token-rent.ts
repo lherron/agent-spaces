@@ -3,8 +3,11 @@ import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs'
 import { basename, join, relative } from 'node:path'
 import { promisify } from 'node:util'
 
+import { parseScopeRef } from 'agent-scope'
 import chalk from 'chalk'
 import type { Command } from 'commander'
+import type { HarnessInvocationSpec } from 'spaces-harness-broker-protocol'
+import { readPraesidiumContextBlock } from 'spaces-harness-codex'
 
 import { exitWithAspError } from '../helpers.js'
 
@@ -38,10 +41,12 @@ interface PlanArtifact {
   agent: string
   scopeRef: string
   createdAt: string
+  /** File the resident prompt was read from (system-prompt.md, or a codex home's AGENTS.md). */
   systemPromptFile: string
-  agentRoot?: string | undefined
+  /** The resident prompt itself; for codex, only the praesidium-context block. */
+  prompt: string
   harness?: string | undefined
-  planHash: string
+  invocationId: string
 }
 
 export interface PromptSectionRent {
@@ -64,11 +69,14 @@ interface AgentRentReport {
   scopeRef?: string | undefined
   systemPromptFile?: string | undefined
   planCreatedAt?: string | undefined
+  invocationId?: string | undefined
   harness?: string | undefined
   residentTokens: number
   residentTokensPerDay: number
   sections: PromptSectionRent[]
   missingPromptArtifact?: string | undefined
+  /** Resident prompt text; internal to report building, never serialized. */
+  prompt?: string | undefined
 }
 
 interface FleetRollupRow {
@@ -123,15 +131,15 @@ interface RunsRow {
   last_run_at?: string | null | undefined
 }
 
-interface PlanRow {
-  agent_id?: string | undefined
-  plan_hash?: string | undefined
+interface InvocationRow {
+  invocation_id?: string | undefined
   created_at?: string | undefined
-  scope_ref?: string | undefined
-  system_prompt_file?: string | undefined
-  agent_root?: string | undefined
-  harness?: string | undefined
+  spec_projection_json?: string | null | undefined
 }
+
+type InvocationPromptSpec = Partial<
+  Pick<HarnessInvocationSpec, 'harness' | 'process' | 'launch' | 'correlation'>
+>
 
 function estimateTokens(text: string): number {
   if (text.length === 0) return 0
@@ -284,41 +292,83 @@ function maxIso(left: string | null, right: string | null): string | null {
   return left > right ? left : right
 }
 
-async function loadLatestPlans(
+async function hasTable(dbPath: string, table: string): Promise<boolean> {
+  const rows = await sqliteJson<{ name?: string }>(
+    dbPath,
+    `select name from sqlite_master where type = 'table' and name = ${sqlString(table)}`
+  )
+  return rows.length > 0
+}
+
+/**
+ * Resident prompt of one v2 broker invocation. Claude-style drivers carry it as
+ * launch.systemPromptFile; codex carries it in the praesidium-context block of
+ * the codex home's AGENTS.md (CODEX_HOME in the spec's locked env).
+ */
+function invocationPrompt(
+  spec: InvocationPromptSpec
+): { systemPromptFile: string; prompt: string } | undefined {
+  const systemPromptFile = spec.launch?.systemPromptFile
+  if (systemPromptFile && existsSync(systemPromptFile)) {
+    return { systemPromptFile, prompt: readFileSync(systemPromptFile, 'utf8') }
+  }
+  const codexHome = spec.process?.lockedEnv?.['CODEX_HOME']
+  if (spec.harness?.frontend === 'codex' && codexHome) {
+    const agentsFile = join(codexHome, 'AGENTS.md')
+    if (!existsSync(agentsFile)) return undefined
+    const prompt = readPraesidiumContextBlock(readFileSync(agentsFile, 'utf8'))
+    return prompt ? { systemPromptFile: agentsFile, prompt } : undefined
+  }
+  return undefined
+}
+
+function agentIdOf(scopeRef: string): string | undefined {
+  try {
+    return parseScopeRef(scopeRef).agentId
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Since the v2 plan cutover (2026-09-21) compiled_runtime_plans carries only the
+ * selection; the resident prompt rides on each broker invocation spec. Take the
+ * newest invocation per agent whose prompt is still on disk. Pre-v2 plan rows
+ * are not read: none carries an agent id, and their prompts predate the cutover.
+ */
+async function loadLatestInvocationPrompts(
   dbPath: string,
   agentFilter: string | undefined
 ): Promise<Map<string, PlanArtifact>> {
-  const sql = [
-    'select',
-    'plan_hash,',
-    'created_at,',
-    "json_extract(plan_projection_json, '$.agent.id') as agent_id,",
-    "json_extract(plan_projection_json, '$.placement.correlation.sessionRef.scopeRef') as scope_ref,",
-    "json_extract(plan_projection_json, '$.artifacts.systemPromptFile') as system_prompt_file,",
-    "json_extract(plan_projection_json, '$.placement.agentRoot') as agent_root,",
-    "json_extract(plan_projection_json, '$.selection.harness') as harness",
-    'from compiled_runtime_plans',
-    "where json_extract(plan_projection_json, '$.artifacts.systemPromptFile') is not null",
-    'order by created_at desc',
-  ].join(' ')
-  const rows = await sqliteJson<PlanRow>(dbPath, sql)
   const plans = new Map<string, PlanArtifact>()
+  if (!(await hasTable(dbPath, 'broker_invocations'))) return plans
+  // Newest invocation per scope keeps the row set small; agents fold below.
+  const sql = [
+    'select invocation_id, created_at, spec_projection_json from (',
+    'select invocation_id, created_at, spec_projection_json,',
+    "row_number() over (partition by json_extract(spec_projection_json, '$.correlation.scopeRef') order by created_at desc) as rn",
+    'from broker_invocations where spec_projection_json is not null',
+    ') where rn = 1 order by created_at desc',
+  ].join(' ')
+  const rows = await sqliteJson<InvocationRow>(dbPath, sql)
 
   for (const row of rows) {
-    if (!row.plan_hash || !row.created_at) continue
-    const scopeRef = row.scope_ref
-    const systemPromptFile = row.system_prompt_file
-    if (!scopeRef || !systemPromptFile || !existsSync(systemPromptFile)) continue
-    const agent = row.agent_id
-    if (!agent || plans.has(agent) || (agentFilter && agent !== agentFilter)) continue
+    if (!row.spec_projection_json || !row.created_at || !row.invocation_id) continue
+    const spec = JSON.parse(row.spec_projection_json) as InvocationPromptSpec
+    const scopeRef = spec.correlation?.['scopeRef']
+    if (typeof scopeRef !== 'string') continue
+    const agent = agentIdOf(scopeRef)
+    if (!agent) continue
+    if (plans.has(agent) || (agentFilter && agent !== agentFilter)) continue
+    const resident = invocationPrompt(spec)
+    if (!resident) continue
     plans.set(agent, {
       agent,
       scopeRef,
       createdAt: row.created_at,
-      systemPromptFile,
-      agentRoot: row.agent_root,
-      harness: row.harness,
-      planHash: row.plan_hash,
+      ...resident,
+      harness: spec.harness?.frontend,
+      invocationId: row.invocation_id,
     })
   }
   return plans
@@ -348,12 +398,11 @@ function buildAgentReports(
         residentTokens: 0,
         residentTokensPerDay: 0,
         sections: [],
-        missingPromptArtifact: 'no compiled_runtime_plans artifact with artifacts.systemPromptFile',
+        missingPromptArtifact: 'no broker invocation whose resident prompt is still on disk',
       }
     }
 
-    const prompt = readFileSync(plan.systemPromptFile, 'utf8')
-    const sections = analyzeSystemPromptArtifact(prompt, use.sessionsPerDay, agent).sort(
+    const sections = analyzeSystemPromptArtifact(plan.prompt, use.sessionsPerDay, agent).sort(
       (left, right) => right.tokensPerDay - left.tokensPerDay
     )
     const residentTokens = sections.reduce((sum, section) => sum + section.tokens, 0)
@@ -366,10 +415,12 @@ function buildAgentReports(
       scopeRef: plan.scopeRef,
       systemPromptFile: plan.systemPromptFile,
       planCreatedAt: plan.createdAt,
+      invocationId: plan.invocationId,
       harness: plan.harness,
       residentTokens,
       residentTokensPerDay,
       sections,
+      prompt: plan.prompt,
     }
   })
 }
@@ -406,7 +457,7 @@ function buildTopLines(agents: AgentRentReport[]): TopLineRow[] {
   >()
   for (const agent of agents) {
     for (const section of agent.sections) {
-      const sectionPrompt = readSectionContent(agent.systemPromptFile, section.index)
+      const sectionPrompt = agent.prompt?.split(SECTION_SEPARATOR)[section.index - 1] ?? ''
       for (const line of sectionPrompt.split(/\r?\n/)) {
         const trimmed = line.trim()
         if (trimmed.length === 0) continue
@@ -441,16 +492,8 @@ function buildTopLines(agents: AgentRentReport[]): TopLineRow[] {
     .slice(0, 10)
 }
 
-function readSectionContent(systemPromptFile: string | undefined, index: number): string {
-  if (!systemPromptFile) return ''
-  const content = readFileSync(systemPromptFile, 'utf8')
-  return content.split(SECTION_SEPARATOR)[index - 1] ?? ''
-}
-
 function buildResidentCorpus(agents: AgentRentReport[]): string {
-  return agents
-    .map((agent) => (agent.systemPromptFile ? readFileSync(agent.systemPromptFile, 'utf8') : ''))
-    .join('\n')
+  return agents.map((agent) => agent.prompt ?? '').join('\n')
 }
 
 function buildDeadLayerCandidates(
@@ -631,7 +674,7 @@ async function buildTokenRentReport(options: TokenRentOptions): Promise<TokenRen
   }
 
   const usage = await loadUsage(hrcDb, usageSince, usageNow, options.agent)
-  const plans = await loadLatestPlans(hrcDb, options.agent)
+  const plans = await loadLatestInvocationPrompts(hrcDb, options.agent)
   const agents = buildAgentReports(usage, plans, usageWindowDays).sort(
     (left, right) => right.residentTokensPerDay - left.residentTokensPerDay
   )
@@ -763,7 +806,9 @@ export function registerTokenRentCommand(program: Command): void {
       try {
         const report = await buildTokenRentReport(options)
         if (options.json) {
-          console.log(JSON.stringify(report, null, 2))
+          console.log(
+            JSON.stringify(report, (key, value) => (key === 'prompt' ? undefined : value), 2)
+          )
           return
         }
         console.log(

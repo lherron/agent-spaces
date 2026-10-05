@@ -76,6 +76,7 @@ export {
 } from './codex-hooks.js'
 export {
   applyPraesidiumContextToCodexHome,
+  readPraesidiumContextBlock,
   renderPraesidiumContextBlock,
   type PraesidiumContext,
 } from './codex-agents.js'

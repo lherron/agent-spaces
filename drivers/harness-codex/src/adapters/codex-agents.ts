@@ -95,6 +95,20 @@ export async function applyPraesidiumContextToCodexHome(
   return true
 }
 
+/**
+ * Read back the system prompt + reminder content that
+ * `applyPraesidiumContextToCodexHome` wrote into an AGENTS.md, without the
+ * markers. Returns `undefined` when the file has no complete block.
+ */
+export function readPraesidiumContextBlock(agentsMarkdown: string): string | undefined {
+  const beginIdx = agentsMarkdown.indexOf(PRAESIDIUM_BEGIN_MARKER)
+  if (beginIdx === -1) return undefined
+  const contentStart = beginIdx + PRAESIDIUM_BEGIN_MARKER.length
+  const endIdx = agentsMarkdown.indexOf(PRAESIDIUM_END_MARKER, contentStart)
+  if (endIdx === -1) return undefined
+  return agentsMarkdown.slice(contentStart, endIdx).trim()
+}
+
 function stripPraesidiumBlock(content: string): string {
   let remaining = content
   while (true) {

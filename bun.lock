@@ -40,6 +40,7 @@
         "spaces-execution": "*",
         "spaces-harness-broker-client": "*",
         "spaces-harness-broker-protocol": "*",
+        "spaces-harness-codex": "*",
         "spaces-runtime": "*",
         "spaces-runtime-contracts": "*",
       },

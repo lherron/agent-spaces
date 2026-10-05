@@ -7,6 +7,7 @@ export {
   buildCodexHookTrustState,
   codexAdapter,
   applyPraesidiumContextToCodexHome,
+  readPraesidiumContextBlock,
   renderPraesidiumContextBlock,
   buildCodexAppServerLaunchDescriptor,
   trustCodexHooksInConfigToml,
