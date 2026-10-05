@@ -9,6 +9,7 @@
  */
 
 import TOML from '@iarna/toml'
+import { createCanonicalHasher } from 'spaces-runtime-contracts'
 
 interface Span {
   start: number
@@ -110,13 +111,15 @@ export function editTargetCompose(
   return text
 }
 
-/** JSON with object keys sorted, so key order does not affect equality. */
+const canonicalHasher = createCanonicalHasher()
+
+/**
+ * Key-order-independent JSON through the one shared canonicalizer. The JSON
+ * round-trip first turns TOML dates into their ISO strings, which the shared
+ * serializer would otherwise render as empty objects.
+ */
 function canonicalJson(value: unknown): string {
-  return JSON.stringify(value, (_key, inner) =>
-    inner && typeof inner === 'object' && !Array.isArray(inner)
-      ? Object.fromEntries(Object.entries(inner).sort(([a], [b]) => a.localeCompare(b)))
-      : inner
-  )
+  return canonicalHasher.canonicalize(JSON.parse(JSON.stringify(value)))
 }
 
 function readCompose(parsed: Record<string, unknown>, targetName: string): string[] | null {
