@@ -2,6 +2,7 @@ import { readdir } from 'node:fs/promises'
 import { availableParallelism } from 'node:os'
 import { join } from 'node:path'
 
+import { runBoundedStep, stepTimeoutMs } from './lib/bounded-step.ts'
 import {
   FAST_WORKSPACE_SUITE_NAMES,
   HOOK_CHANGED_PATHS_ENV,
@@ -34,6 +35,7 @@ interface FastSuite {
 interface SuiteResult {
   id: string
   exitCode: number
+  timedOut: boolean
   durationMs: number
   output: string
 }
@@ -121,33 +123,27 @@ async function makeSuites(): Promise<{ suites: FastSuite[]; mode: 'affected' | '
   return { suites, mode: selection.full ? 'full' : 'affected' }
 }
 
-const activeChildren = new Set<ReturnType<typeof Bun.spawn>>()
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(signal, () => {
-    for (const child of activeChildren) child.kill(signal)
-  })
-}
+// Per-test timeouts cannot stop a suite that spins outside a test's control
+// (T-10366), so each suite also runs under a supervisor wall-clock bound.
+const suiteTimeoutMs = stepTimeoutMs()
 
 async function runSuite(suite: FastSuite, env: NodeJS.ProcessEnv): Promise<SuiteResult> {
   const started = performance.now()
-  const child = Bun.spawn(['bun', 'test', `--timeout=${FAST_TEST_TIMEOUT_MS}`, ...suite.paths], {
+  const { exitCode, timedOut, output } = await runBoundedStep({
+    label: suite.id,
+    command: ['bun', 'test', `--timeout=${FAST_TEST_TIMEOUT_MS}`, ...suite.paths],
     cwd: root,
     env,
-    stdout: 'pipe',
-    stderr: 'pipe',
+    timeoutMs: suiteTimeoutMs,
+    logPrefix: '[test:fast]',
+    capture: true,
   })
-  activeChildren.add(child)
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ])
-  activeChildren.delete(child)
   return {
     id: suite.id,
     exitCode,
+    timedOut,
     durationMs: performance.now() - started,
-    output: `${stdout}${stderr}`,
+    output,
   }
 }
 
@@ -172,7 +168,7 @@ await Promise.all(
 for (const result of results.sort((left, right) => left.id.localeCompare(right.id))) {
   process.stdout.write(result.output)
   console.log(
-    `[test:fast] ${result.id} ${result.exitCode === 0 ? 'passed' : 'failed'} ${(result.durationMs / 1000).toFixed(2)}s`
+    `[test:fast] ${result.id} ${result.timedOut ? 'timed out' : result.exitCode === 0 ? 'passed' : 'failed'} ${(result.durationMs / 1000).toFixed(2)}s`
   )
 }
 const failures = results.filter((result) => result.exitCode !== 0)
