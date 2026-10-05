@@ -1,28 +1,17 @@
-import { chmod, mkdir, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { chmod, mkdir, stat, symlink, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 
-import { afterEach, describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 import {
   type AgentLocalComponents,
   getProjectStorageId,
   sanitizeProjectAgentScopeSegment,
 } from 'spaces-config'
 
+import { useTempDirs } from '../../test/temp-dirs.js'
 import { prepareAgentToolRuntime, validateAgentTools } from './agent-tools.js'
 
-let tempDirs: string[] = []
-
-afterEach(async () => {
-  await Promise.all(tempDirs.map((path) => rm(path, { recursive: true, force: true })))
-  tempDirs = []
-})
-
-async function createTempDir(prefix: string): Promise<string> {
-  const path = await mkdtemp(join(tmpdir(), prefix))
-  tempDirs.push(path)
-  return path
-}
+const createTempDir = useTempDirs()
 
 function components(agentRoot: string, hasTools = true): AgentLocalComponents {
   return {
