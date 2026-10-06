@@ -80,7 +80,7 @@ Read `~/praesidium/build_deploy_guide.md` before building, installing, or promot
 Use the [documentation index](docs/README.md) for references and runbooks; run these after implementing:
 
 - Only run tests (`bun run test`) **after modifying workspace package files AND after manually testing if possible**.
-- Tests: `bun run test`
+- Tests: `bun run test`; full gate `just verify` (takes the shared verify lock itself; stop one with `just verify-cancel`, never pkill)
 - Typecheck: `bun run typecheck` (run `bun run build` first if workspace typings are missing)
 - Lint: `bun run lint` (fix with `bun run lint:fix`)
 - Boundary checks: `bun run check:boundaries`, `bun run check:manifests`

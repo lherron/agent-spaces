@@ -10,7 +10,10 @@ predicate: >
   self-hosted runner (`.github/workflows/post-push-verify.yml`), not in a git
   hook; pre-push only hands the refs to the best-effort `git.push` producer.
   `bun x lefthook install` supplies the executable post-commit entrypoint for
-  the best-effort `git.commit` producer.
+  the best-effort `git.commit` producer. The verify recipe runs its steps as
+  `_verify-steps` under `scripts/verify-run.ts`, which holds the shared verify
+  lock, writes the holder pidfile and runs the steps in their own process
+  group; `just verify-cancel` stops a run by pid and group (T-10388).
 authority:
   repo: agent-spaces
   surface: justfile verify recipe
@@ -19,6 +22,7 @@ source:
   - lefthook.yml
   - .github/workflows/post-push-verify.yml
   - scripts/check-architecture-records.ts
+  - scripts/verify-run.ts
   - scripts/lefthook-boundaries.test.ts
 required_tests:
   - just verify exits 0

@@ -214,8 +214,22 @@ smoke-live:
     (cd harness/harness-broker && bun test test/capture/claude-native-type-coverage.test.ts test/capture/codex-native-type-coverage.test.ts test/drivers/claude-code-tmux/turn-attribution.test.ts)
     (cd contracts/spaces-runtime-contracts && bun test test/runtime-status-vocabulary.red.test.ts)
 
+# `verify` takes the shared verify lock itself (~/praesidium/var/run/
+# agent-spaces-verify.lock, which the legacy `lockf -k <lock> just verify`
+# wrapper also holds; under it, verify runs inside the outer lock), records
+# the holder in agent-spaces-verify.pid beside it, and runs the steps in their
+# own process group. `verify-cancel` stops that run by pid and process group;
+# never pkill a verify (foundry R-00309, T-10388).
+
 # Run build, architecture, checks, lint, typecheck, and tests.
-verify: build architecture-records check lint typecheck test
+verify:
+    bun scripts/verify-run.ts run -- {{just_executable()}} --justfile {{justfile()}} _verify-steps
+
+_verify-steps: build architecture-records check lint typecheck test
+
+# Cancel the running `just verify` (another scope's run needs --force).
+verify-cancel *args:
+    bun scripts/verify-run.ts cancel {{args}}
 
 # Bump the pinned pi agent SDK (@earendil-works/pi-coding-agent, plus the companion
 # packages pinned to its version) across every manifest that declares it, then install,

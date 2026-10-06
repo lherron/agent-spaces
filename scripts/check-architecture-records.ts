@@ -167,7 +167,15 @@ async function validate(records: ArchitectureRecord[]): Promise<string[]> {
   const justfile = await readFile(join(root, 'justfile'), 'utf8')
   if (!/^architecture-records(?:\s|\*|:)/m.test(justfile))
     findings.push('justfile: missing architecture-records recipe')
-  const verify = /^verify:\s*(.*)$/m.exec(justfile)?.[1]?.split(/\s+/) ?? []
+  const deps = (recipe: string) =>
+    new RegExp(`^${recipe}:\\s*(.*)$`, 'm').exec(justfile)?.[1]?.split(/\s+/) ?? []
+  // `verify` runs its steps as `_verify-steps` under the verify-run
+  // supervisor, which holds the verify lock (T-10388).
+  const verifyBody = /^verify:.*\n((?:[ \t]+.*\n)*)/m.exec(justfile)?.[1] ?? ''
+  const verify = [
+    ...deps('verify'),
+    ...(/\b_verify-steps\b/.test(verifyBody) ? deps('_verify-steps') : []),
+  ]
   if (!verify.includes('architecture-records'))
     findings.push('justfile: verify must depend on architecture-records')
   return findings
