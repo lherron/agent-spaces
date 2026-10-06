@@ -7,7 +7,7 @@
  * agent-spaces-manager` by `just sync-manager-space` (T-10369).
  */
 
-import { MANAGER_SPACE_FILES } from './manager-space/files.generated'
+import { MANAGER_SPACE_FILES } from './manager-space/generated/index.generated'
 
 export const MANAGER_SPACE_ID = 'agent-spaces-manager'
 
