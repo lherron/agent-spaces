@@ -9,7 +9,7 @@ priming_append = """
 - Uses Bun workspace, TypeScript. Run `just verify` before accepting changes.
 - This project uses red/green TDD.
 """
-compose = [ "space:smokey@dev", "space:defaults@dev" ]
+compose = [ "space:smokey@dev", "space:defaults@dev", "space:praesidium-defaults@dev" ]
 
   [targets.smokey.provisioning]
   harness = "codex"
@@ -59,7 +59,7 @@ priming_append = """
 - Uses Bun workspace, TypeScript.
 - Work with Curly as co-implementer, Smokey for test validation.
 """
-compose = [ "space:defaults@dev" ]
+compose = [ "space:defaults@dev", "space:praesidium-defaults@dev" ]
 
   [targets.larry.provisioning]
   reasoning_effort = "high"
