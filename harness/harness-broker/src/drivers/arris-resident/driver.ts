@@ -1,91 +1,41 @@
 import { readFile } from 'node:fs/promises'
-import { isAbsolute } from 'node:path'
 import type {
-  ArrisControlReceipt,
   ArrisHostDescriptor,
-  ArrisInputIdentity,
-  ArrisJournalRecord,
   HarnessInvocationSpec,
-  InputId,
   InvocationCapabilities,
   InvocationInput,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
   InvocationStopRequest,
   InvocationStopResponse,
-  MessageId,
-  ToolCallId,
-  TurnId,
 } from 'spaces-harness-broker-protocol'
 import {
   BrokerErrorCode,
   CONSERVATIVE_LIFECYCLE_CAPABILITIES,
   validateArrisHostDescriptor,
 } from 'spaces-harness-broker-protocol'
-import type { CapturedRecord, NormalizeOutcome } from '../../capture/capture-gate'
 import { BrokerError } from '../../errors'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
 import { withDeliveryEvidence } from '../driver'
 import { ARRIS_RESIDENT_AUTHORITY } from '../evidence-authority'
-import { createJsonlByteOffsetTailer } from '../jsonl-byte-tailer'
 import { type ArrisControlClient, createArrisControlClient } from './control-client'
+import {
+  ARRIS_RESIDENT_DRIVER_KIND,
+  type ArrisResidentDriverSpec,
+  assertDescriptorMatchesSpec,
+  parseSpec,
+} from './driver-spec'
+import { createHostStateAnnouncer } from './host-state-notices'
+import { createInputReceiptLedger } from './input-receipts'
+import { createArrisJournal } from './journal'
+import { createResidentState } from './resident-state'
 
-export const ARRIS_RESIDENT_DRIVER_KIND = 'arris-resident'
 const ARRIS_RESIDENT_DRIVER_VERSION = '0.1.0'
-
-export interface ArrisResidentDriverSpec {
-  kind: typeof ARRIS_RESIDENT_DRIVER_KIND
-  descriptorPath: string
-  hostIncarnationId: string
-  hostLifecycleOwner?: 'external' | 'hrc-managed' | undefined
-  launchId?: string | null | undefined
-}
 
 export interface ArrisResidentDriverOptions {
   pollIntervalMs?: number | undefined
   readDescriptor?: ((path: string) => Promise<unknown>) | undefined
   createControlClient?: ((socketPath: string) => ArrisControlClient) | undefined
-}
-
-export class ArrisNotWrittenError extends BrokerError {
-  readonly receipt: ArrisControlReceipt
-
-  constructor(receipt: ArrisControlReceipt) {
-    const outcome = receipt.outcome
-    super(
-      BrokerErrorCode.HarnessError,
-      outcome.outcome === 'not_written' ? outcome.message : 'Arris input was not written',
-      { receipt }
-    )
-    this.name = 'ArrisNotWrittenError'
-    this.receipt = receipt
-    withDeliveryEvidence(this, 'not_written')
-  }
-}
-
-export class ArrisRetryableNotWrittenError extends ArrisNotWrittenError {
-  readonly retryableNotWritten = true
-
-  constructor(receipt: ArrisControlReceipt) {
-    super(receipt)
-    this.name = 'ArrisRetryableNotWrittenError'
-  }
-}
-
-export class ArrisIndeterminateDeliveryError extends BrokerError {
-  readonly receipt: ArrisControlReceipt
-
-  constructor(receipt: ArrisControlReceipt) {
-    const outcome = receipt.outcome
-    super(
-      BrokerErrorCode.HarnessError,
-      outcome.outcome === 'indeterminate' ? outcome.message : 'Arris delivery is indeterminate',
-      { receipt }
-    )
-    this.name = 'ArrisIndeterminateDeliveryError'
-    this.receipt = receipt
-    withDeliveryEvidence(this, 'possibly_written')
-  }
 }
 
 const ARRIS_CAPABILITIES: InvocationCapabilities = {
@@ -127,114 +77,11 @@ const ARRIS_CAPABILITIES: InvocationCapabilities = {
   lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 }
 
-const KNOWN_IGNORED_EVENTS = new Set([
-  'event_journal_opened',
-  'control_ledger_opened',
-  'control_channel_bound',
-  'priming_turn_seeded',
-  'host_turn_admitted',
-  'resumable_confirmed',
-  'control_request',
-  'control_input_admitted',
-  'control_input_reopened',
-  'control_input_converged',
-  'control_outcome',
-  'control_input_turn_completed',
-  'child_turn_completed_ignored',
-  // App-server admission diagnostics explain attached TUI traffic but carry
-  // no broker turn, delivery, or lifecycle fact. They are deliberately
-  // state-only so a real resident's ordinary attach path does not accumulate
-  // blocked-unknown capture records.
-  'attached_request_passed_through',
-  'attached_request_normalized',
-  'attached_turn_admitted',
-  'attached_request_refused',
-  // Arris 6e43a1fd renamed the pass-through admission diagnostic; same
-  // rationale as the attached_request_* kinds above.
-  'attached_request_allowed',
-  // Attached-proxy traffic: an answer from a client that does not own the
-  // request, and a forwarded unsubscribe. No turn, delivery or lifecycle fact.
-  'attached_answer_ignored',
-  'attached_thread_unsubscribe_forwarded',
-  // Duplicates a fact already surfaced: the host also writes helper_observed
-  // (an ARRIS_HELPER_OBSERVED notice) for every attached client it sees.
-  'attached_client_observed',
-  // Precedes dynamic_tool_call_answered, which carries the tool call itself.
-  'dynamic_tool_call_admitted',
-  // A late notification for a turn the host already correlated; the turn's
-  // own turn_started/turn_completed already carried the bracket.
-  'turn_started_already_bound',
-  'turn_completed_already_bound',
-  // Event-drain and responder-delay instrumentation for Arris routing
-  // experiments; neither changes a turn or the host's lifecycle.
-  'event_drain_resumed',
-  'resident_responder_delay_started',
-])
-
 /**
- * Journal kinds surfaced verbatim as `driver.notice{code: ARRIS_<KIND>}` with
- * the record's detail as `data`. Each is a host lifecycle, approval, mail or
- * failure fact an operator reading the invocation needs, but none maps to a
- * turn, message or tool event.
+ * Drives a resident Arris host the broker did not launch: binds to the host's
+ * published descriptor, writes inputs through its control socket, and reads
+ * turns back from its event journal, polling the descriptor for rebinds.
  */
-const ARRIS_NOTICE_EVENTS = new Set([
-  'native_approval_offered',
-  'helper_observed',
-  'resident_rebound',
-  'control_submission_fenced',
-  'uncertain_bound_to_turn',
-  'uncertain_resolved',
-  // Codex app-server child lifecycle (T-09954 supervisor): pid and
-  // incarnation_seq on start, exit status and whether it was planned on exit,
-  // the restart's reconciliation, re-injected settled effects, the resume.
-  'codex_child_started',
-  'codex_child_exited',
-  'child_exit_reconciled',
-  'settled_effect_surfaced',
-  'codex_child_resumed',
-  // Why the host stopped serving: product_owner, sigint, deadline, control_stop.
-  'shutdown_signal',
-  // The host's own stop decision for a managed-stop request, or its refusal.
-  'control_stop_decided',
-  'control_stop_refused',
-  // Who must answer a native approval, and that it was answered or released.
-  'approval_ownership_held',
-  'approval_ownership_transferred',
-  'native_approval_answered',
-  'native_approval_deferral_resolved',
-  // The resident answered, or refused to answer, an addressed mail.
-  'mail_reply_sent',
-  'mail_reply_refused',
-  // The resident thread's context was compacted under the host.
-  'resident_compacted',
-  // Turns that ran without broker-visible correlation, and a dynamic tool
-  // call the host refused because no admitted turn owned it.
-  'turn_started_without_admission',
-  'turn_completed_without_active_turn',
-  'dynamic_tool_call_unattributed',
-  'attached_turn_admission_failed_open',
-  // Host faults: a durable write that did not land, a descriptor the host
-  // could not republish, a rebind or resumability check that failed, an
-  // unparseable child frame, a server request nobody answers, a fence probe
-  // that learned nothing, and a turn that never settled.
-  'control_presentation_not_recorded',
-  'control_completion_not_recorded',
-  'control_resolution_failed',
-  'control_resolution_unmatched',
-  'host_descriptor_publication_failed',
-  'resident_rebind_failed',
-  'resumable_check_failed',
-  'child_frame_untyped',
-  'server_request_unhandled',
-  'uncertain_probe_failed',
-  'uncertain_unresolved',
-  'turn_settle_deadline',
-  // A deliberately injected turn-start fault is armed or applied; an operator
-  // must be able to tell an injected loss from a real one.
-  'turn_start_fault_armed',
-  'turn_start_fault_applied',
-])
-
 export function createArrisResidentDriver(options: ArrisResidentDriverOptions = {}): Driver {
   const pollIntervalMs = options.pollIntervalMs ?? 100
   const readDescriptor = options.readDescriptor ?? readJsonFile
@@ -246,34 +93,8 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
   let controlSocketPath: string | undefined
   let poller: ReturnType<typeof setInterval> | undefined
   let stopped = true
-  let healthReason: string | undefined
-  let currentNeutralTurnId: string | undefined
-  let retryHold = false
-  /**
-   * Last readiness state and mail-reply declaration this driver has ANNOUNCED,
-   * so the descriptor poll emits a notice on a transition rather than once per
-   * poll interval. `undefined` means nothing has been announced yet -- which is
-   * also what a pre-T-08521 host leaves `mail_reply` as, so such a host stays
-   * silent on the subject instead of being described as unable to answer mail.
-   */
-  let announcedReadinessState: string | undefined
-  let announcedMailReply: boolean | undefined
-  /**
-   * Held false until `invocation.started` has been emitted. `start` refreshes
-   * the descriptor before it announces the invocation, and a `driver.notice`
-   * about a host not yet declared started is a notice about nothing. The first
-   * announcement is made explicitly, right after that event.
-   */
-  let announcingHostState = false
-  const nextAttempts = new Map<string, number>()
-  const receiptByInput = new Map<string, ArrisControlReceipt>()
-  const brokerInputByHostInput = new Map<string, InputId>()
-  const inputByNeutralTurn = new Map<string, InputId>()
-  const neutralByCodexTurn = new Map<string, string>()
-  const assistantText = new Map<string, string>()
-  const assistantStarted = new Set<string>()
-  const seenSequences = new Set<number>()
-  const tailer = createJsonlByteOffsetTailer()
+  const state = createResidentState()
+  const hostState = createHostStateAnnouncer()
 
   function requireCtx(): DriverContext {
     if (ctx === undefined)
@@ -303,472 +124,16 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
     return control
   }
 
-  function identityFor(input: InvocationInput): ArrisInputIdentity {
-    if (input.inputId === undefined) {
-      throw withDeliveryEvidence(
-        new BrokerError(
-          BrokerErrorCode.DispatchValidationFailed,
-          'Arris input requires a broker input id'
-        ),
-        'not_written'
-      )
-    }
-    const brokerInputId = input.inputId
-    const inputId = input.metadata?.['envelopeId'] ?? brokerInputId
-    brokerInputByHostInput.set(inputId, brokerInputId)
-    return {
-      platform: 'hrc',
-      input_id: inputId,
-      envelope_id: input.metadata?.['envelopeId'] ?? inputId,
-      attempt: nextAttempts.get(inputId) ?? 1,
-    }
-  }
-
-  function rememberReceipt(receipt: ArrisControlReceipt): void {
-    assertReceiptTarget(receipt)
-    receiptByInput.set(receipt.identity.input_id, receipt)
-    const maximumAttempt = receipt.attempts_seen.reduce(
-      (maximum, value) => Math.max(maximum, value),
-      0
-    )
-    nextAttempts.set(receipt.identity.input_id, maximumAttempt + 1)
-    if (receipt.outcome.outcome === 'written') {
-      currentNeutralTurnId = receipt.outcome.neutral_turn_id
-      const brokerInputId = brokerInputByHostInput.get(receipt.identity.input_id)
-      if (brokerInputId !== undefined) {
-        inputByNeutralTurn.set(receipt.outcome.neutral_turn_id, brokerInputId)
-      }
-      if (receipt.outcome.codex_turn_id !== null) {
-        neutralByCodexTurn.set(receipt.outcome.codex_turn_id, receipt.outcome.neutral_turn_id)
-      }
-    }
-    const brokerInputId = brokerInputByHostInput.get(receipt.identity.input_id)
-    requireCtx().emit(
-      'driver.notice',
-      {
-        code: 'ARRIS_CONTROL_RECEIPT',
-        message: `Arris ${receipt.kind} receipt ${receipt.outcome.outcome}`,
-        data: receipt,
-      },
-      {
-        ...(brokerInputId !== undefined ? { inputId: brokerInputId } : {}),
-        driver: { kind: ARRIS_RESIDENT_DRIVER_KIND, rawType: 'control.receipt' },
-      }
-    )
-  }
-
-  function assertReceiptTarget(receipt: ArrisControlReceipt): void {
-    const expected = activeDescriptor().host_incarnation.host_incarnation_id
-    if (receipt.host_incarnation_id !== expected) {
-      throw new BrokerError(
-        BrokerErrorCode.IdentityInstallConflict,
-        `Arris receipt belongs to foreign host ${receipt.host_incarnation_id}`,
-        { expectedHostIncarnationId: expected, receipt }
-      )
-    }
-  }
-
-  function receiptResult(receipt: ArrisControlReceipt): ApplyInputResult {
-    rememberReceipt(receipt)
-    if (receipt.outcome.outcome === 'not_written') {
-      if (receipt.outcome.eligible_for_retry) {
-        retryHold = true
-        throw new ArrisRetryableNotWrittenError(receipt)
-      }
-      throw new ArrisNotWrittenError(receipt)
-    }
-    if (receipt.outcome.outcome === 'written' && receipt.presentation !== null) {
-      return { turnId: receipt.outcome.neutral_turn_id as TurnId }
-    }
-    // in_flight, indeterminate and written-before-presentation all keep the
-    // broker's pending-own-turn fence. Journal evidence settles the attempt.
-    return {}
-  }
-
-  async function reconcileBeforeWrite(
-    identity: ArrisInputIdentity
-  ): Promise<ApplyInputResult | undefined> {
-    const prior = receiptByInput.get(identity.input_id)
-    if (
-      prior === undefined ||
-      (prior.outcome.outcome === 'not_written' && prior.outcome.eligible_for_retry)
-    ) {
-      return undefined
-    }
-    const reconciled = await activeControl().lookup(prior.identity)
-    if (reconciled === null) {
-      if (prior.outcome.outcome === 'indeterminate' || prior.outcome.outcome === 'in_flight') {
-        rememberReceipt(prior)
-        return {}
-      }
-      throw new BrokerError(
-        BrokerErrorCode.HarnessError,
-        `Arris lost the durable receipt for ${identity.input_id}`,
-        { receipt: prior }
-      )
-    }
-    if (reconciled.outcome.outcome === 'not_written' && reconciled.outcome.eligible_for_retry) {
-      rememberReceipt(reconciled)
-      return undefined
-    }
-    return receiptResult(reconciled)
-  }
-
-  async function reconcileUnresolved(): Promise<void> {
-    if (control === undefined) return
-    for (const receipt of await control.unresolved()) rememberReceipt(receipt)
-  }
-
-  // EXCEPTION(T-08503): one auditable switch keeps the closed Arris journal vocabulary and its stateful correlations together.
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: event vocabulary mapper
-  function normalizeRecord(captured: CapturedRecord): NormalizeOutcome {
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(Buffer.from(captured.record.rawBytes).toString('utf8'))
-    } catch {
-      return {
-        disposition: 'blocked-unknown',
-        family: 'diagnostic',
-        message: 'Invalid Arris journal JSON',
-      }
-    }
-    if (!isJournalRecord(parsed)) {
-      return {
-        disposition: 'blocked-unknown',
-        family: 'diagnostic',
-        message: 'Invalid Arris journal record',
-      }
-    }
-    const record = parsed
-    const expected = activeDescriptor().host_incarnation.host_incarnation_id
-    if (record.host_incarnation_id !== expected) {
-      healthReason = `foreign Arris journal incarnation ${record.host_incarnation_id}`
-      return { disposition: 'blocked-unknown', family: 'diagnostic', message: healthReason }
-    }
-    if (seenSequences.has(record.sequence)) return { disposition: 'duplicate', detail: record.kind }
-    seenSequences.add(record.sequence)
-    const extra = {
-      driver: { kind: ARRIS_RESIDENT_DRIVER_KIND, rawType: record.kind },
-      sourceTime: new Date(record.at_ms).toISOString(),
-      provenance: captured.provenance(),
-    }
-    const detail = record.detail
-    if (record.kind === 'host_readiness_changed') {
-      const to = asRecord(detail['to'])
-      if (to?.['accepts_input'] === true) {
-        retryHold = false
-        requireCtx().admissionStateChanged?.()
-      }
-      return { disposition: 'state-only', detail: record.kind }
-    }
-    if (record.kind === 'turn_started') {
-      const neutral = stringValue(detail['neutral_turn_id'])
-      const codex = stringValue(detail['codex_turn_id'])
-      if (neutral === undefined)
-        return {
-          disposition: 'blocked-unknown',
-          family: 'turn-bracket',
-          message: 'Arris turn_started lacks neutral_turn_id',
-        }
-      currentNeutralTurnId = neutral
-      if (codex !== undefined) neutralByCodexTurn.set(codex, neutral)
-      const inputId = inputByNeutralTurn.get(neutral)
-      requireCtx().emit(
-        'turn.started',
-        {
-          turnId: neutral as TurnId,
-          source: 'observed',
-          sessionId: activeDescriptor().resident_binding.thread_id,
-          ...(inputId !== undefined ? { inputId } : {}),
-        },
-        { ...extra, turnId: neutral as TurnId, ...(inputId !== undefined ? { inputId } : {}) }
-      )
-      const origin = stringValue(detail['origin'])
-      // A historical control turn can be replayed before this broker has seen
-      // the matching control_input_presented record. Do not claim broker/own
-      // attribution without its input id; the later presentation record
-      // upgrades attribution once the durable identity is available.
-      const owned = inputId !== undefined
-      requireCtx().emit(
-        'turn.attributed',
-        {
-          turnId: neutral as TurnId,
-          ownership: owned ? 'own' : 'foreign',
-          origin: owned ? 'broker' : origin === 'attached_client' ? 'human' : 'autonomous',
-          ...(inputId !== undefined ? { inputId } : {}),
-        },
-        { ...extra, turnId: neutral as TurnId, ...(inputId !== undefined ? { inputId } : {}) }
-      )
-      return { disposition: 'normalized', detail: record.kind }
-    }
-    if (record.kind === 'control_input_presented') {
-      const hostInputId = stringValue(detail['input_id'])
-      const inputId =
-        hostInputId === undefined ? undefined : brokerInputByHostInput.get(hostInputId)
-      const codex = stringValue(detail['codex_turn_id'])
-      const neutral =
-        (codex === undefined ? undefined : neutralByCodexTurn.get(codex)) ?? currentNeutralTurnId
-      if (inputId === undefined || neutral === undefined)
-        return { disposition: 'state-only', detail: 'presentation-awaiting-turn-correlation' }
-      inputByNeutralTurn.set(neutral, inputId)
-      requireCtx().emit(
-        'turn.attributed',
-        {
-          turnId: neutral as TurnId,
-          ownership: 'own',
-          origin: 'broker',
-          inputId,
-        },
-        { ...extra, turnId: neutral as TurnId, inputId }
-      )
-      return { disposition: 'normalized', detail: record.kind }
-    }
-    if (record.kind === 'assistant_text_delta') {
-      const codex = stringValue(detail['codex_turn_id'])
-      const neutral =
-        (codex === undefined ? undefined : neutralByCodexTurn.get(codex)) ?? currentNeutralTurnId
-      const delta = stringValue(detail['delta'])
-      if (neutral === undefined || delta === undefined)
-        return { disposition: 'state-only', detail: record.kind }
-      const messageId = `arris-assistant:${neutral}` as MessageId
-      if (!assistantStarted.has(neutral)) {
-        assistantStarted.add(neutral)
-        requireCtx().emit(
-          'assistant.message.started',
-          { messageId },
-          { ...extra, turnId: neutral as TurnId, itemId: messageId }
-        )
-      }
-      assistantText.set(neutral, `${assistantText.get(neutral) ?? ''}${delta}`)
-      requireCtx().emit(
-        'assistant.message.delta',
-        { messageId, text: delta },
-        { ...extra, turnId: neutral as TurnId, itemId: messageId }
-      )
-      return { disposition: 'normalized', detail: record.kind }
-    }
-    // turn_ended_by_child_exit is the host closing its active turn as
-    // interrupted because the Codex child died; no turn_completed follows it.
-    if (record.kind === 'turn_completed' || record.kind === 'turn_ended_by_child_exit') {
-      const neutral = stringValue(detail['neutral_turn_id']) ?? currentNeutralTurnId
-      if (neutral === undefined)
-        return {
-          disposition: 'blocked-unknown',
-          family: 'turn-bracket',
-          message: `Arris ${record.kind} lacks neutral turn correlation`,
-        }
-      const text = assistantText.get(neutral) ?? ''
-      if (assistantStarted.has(neutral)) {
-        const messageId = `arris-assistant:${neutral}` as MessageId
-        requireCtx().emit(
-          'assistant.message.completed',
-          {
-            messageId,
-            content: [{ type: 'text', text }],
-            final: true,
-          },
-          { ...extra, turnId: neutral as TurnId, itemId: messageId }
-        )
-      }
-      const status =
-        record.kind === 'turn_ended_by_child_exit'
-          ? 'interrupted'
-          : stringValue(detail['status'])?.toLowerCase()
-      requireCtx().emit(
-        'turn.completed',
-        {
-          turnId: neutral as TurnId,
-          status:
-            status === 'failed' ? 'failed' : status === 'interrupted' ? 'interrupted' : 'completed',
-          ...(text.length > 0 ? { finalOutput: text } : {}),
-          producedContent: text.length > 0,
-        },
-        { ...extra, turnId: neutral as TurnId }
-      )
-      if (currentNeutralTurnId === neutral) currentNeutralTurnId = undefined
-      retryHold = false
-      requireCtx().admissionStateChanged?.()
-      return { disposition: 'normalized', detail: record.kind }
-    }
-    if (record.kind === 'event_gap') {
-      healthReason = 'Arris runtime event stream reported a gap'
-      requireCtx().emit(
-        'capture.warning',
-        {
-          message: healthReason,
-          kind: 'arris_event_gap',
-          raw: detail,
-        },
-        extra
-      )
-      return { disposition: 'normalized', detail: record.kind }
-    }
-    if (record.kind === 'item_observed') {
-      requireCtx().emit(
-        'driver.notice',
-        {
-          code: 'ARRIS_ITEM_OBSERVED',
-          message: `Arris observed ${stringValue(detail['item_type']) ?? 'native item'}`,
-          data: detail,
-        },
-        {
-          ...extra,
-          ...(currentNeutralTurnId !== undefined ? { turnId: currentNeutralTurnId as TurnId } : {}),
-        }
-      )
-      return { disposition: 'normalized', detail: record.kind }
-    }
-    if (record.kind === 'dynamic_tool_call_answered') {
-      const toolCallId = (stringValue(detail['action_id']) ??
-        `arris-action:${record.sequence}`) as ToolCallId
-      const name = stringValue(detail['tool']) ?? 'dynamic_tool'
-      const turnExtra = {
-        ...extra,
-        ...(currentNeutralTurnId !== undefined ? { turnId: currentNeutralTurnId as TurnId } : {}),
-        itemId: toolCallId,
-      }
-      requireCtx().emit('tool.call.started', { toolCallId, name, input: detail }, turnExtra)
-      requireCtx().emit(
-        'tool.call.completed',
-        {
-          toolCallId,
-          name,
-          result: detail,
-          isError: detail['success'] !== true,
-        },
-        turnExtra
-      )
-      return { disposition: 'normalized', detail: record.kind }
-    }
-    if (ARRIS_NOTICE_EVENTS.has(record.kind)) {
-      requireCtx().emit(
-        'driver.notice',
-        {
-          code: `ARRIS_${record.kind.toUpperCase()}`,
-          message: `Arris ${record.kind.replaceAll('_', ' ')}`,
-          data: detail,
-        },
-        extra
-      )
-      return { disposition: 'normalized', detail: record.kind }
-    }
-    if (KNOWN_IGNORED_EVENTS.has(record.kind))
-      return { disposition: 'ignored-known', detail: record.kind }
-    return {
-      disposition: 'blocked-unknown',
-      family: 'diagnostic',
-      message: `Unknown Arris journal kind ${record.kind}`,
-    }
-  }
+  const receipts = createInputReceiptLedger(state, {
+    ctx: requireCtx,
+    descriptor: activeDescriptor,
+    control: activeControl,
+  })
+  const journal = createArrisJournal(state, { ctx: requireCtx, descriptor: activeDescriptor })
 
   function readJournal(): void {
     if (stopped || descriptor === undefined) return
-    const active = descriptor
-    tailer.readNewLines((line) => {
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(line)
-      } catch {
-        parsed = undefined
-      }
-      const sequence = isJournalRecord(parsed) ? parsed.sequence : -1
-      if (sequence >= 0 && seenSequences.has(sequence)) return
-      requireCtx().capture?.ingest(
-        {
-          provider: 'openai',
-          driverKind: ARRIS_RESIDENT_DRIVER_KIND,
-          sourceKind: 'provider-jsonl',
-          sourceKey: `arris:${active.host_incarnation.host_incarnation_id}`,
-          sourceCursor: sequence >= 0 ? { nativeSequence: String(sequence) } : {},
-          nativeType: isJournalRecord(parsed) ? parsed.kind : 'unparseable',
-          rawBytes: Buffer.from(line, 'utf8'),
-          correlationHints: { hostIncarnationId: active.host_incarnation.host_incarnation_id },
-        },
-        normalizeRecord
-      )
-    })
-  }
-
-  /**
-   * Surfaces the two host-state facts a driver consumer cannot otherwise see:
-   * that the host is blocked on a human, and whether it can answer mail at all.
-   *
-   * `awaiting_approval` is a real state, not a flavour of `ready` (arris
-   * T-08520). A native Codex approval was offered to an attached client and is
-   * unanswered; the turn that raised it cannot end, so anything queued behind it
-   * waits on a turn that will never finish. The host publishes
-   * `accepts_input: false` with it, so this driver already withholds
-   * `invocation.ready` -- what was missing is anyone SAYING so. A consumer
-   * watching a silent, not-ready invocation cannot tell "waiting on a person"
-   * from "wedged".
-   *
-   * `control.mail_reply` (arris T-08521) says whether the host publishes
-   * `arris.mail.reply` to its resident. False means no participant identity was
-   * configured and the capability is absent, not merely refusing -- so a
-   * resident asked to answer mail has no route and will say so. That is a
-   * deployment fact worth one notice, not a capability this driver negotiates.
-   */
-  function announceHostState(next: ArrisHostDescriptor): void {
-    const emit = ctx?.emit
-    if (emit === undefined || !announcingHostState) return
-    const extra = { driver: { kind: ARRIS_RESIDENT_DRIVER_KIND, rawType: 'host-descriptor' } }
-
-    const state = next.readiness.state
-    if (state !== announcedReadinessState) {
-      const previous = announcedReadinessState
-      announcedReadinessState = state
-      if (state === 'awaiting_approval') {
-        const pending = next.control.pending_approvals ?? []
-        emit(
-          'driver.notice',
-          {
-            code: 'ARRIS_AWAITING_APPROVAL',
-            message: [
-              'Arris host is awaiting a native approval and is not ready',
-              pending.length > 0 ? ` (${pending.map((entry) => entry.class).join(', ')})` : '',
-              `; the responder is ${next.control.approval_responder ?? 'unknown'}`,
-            ].join(''),
-            data: {
-              readiness: next.readiness,
-              pending_approvals: pending,
-              approval_responder: next.control.approval_responder ?? null,
-              accepts_input: next.readiness.accepts_input,
-            },
-          },
-          extra
-        )
-      } else if (previous === 'awaiting_approval') {
-        emit(
-          'driver.notice',
-          {
-            code: 'ARRIS_APPROVAL_CLEARED',
-            message: `Arris host left awaiting_approval for ${state}`,
-            data: {
-              readiness: next.readiness,
-              pending_approvals: next.control.pending_approvals ?? [],
-            },
-          },
-          extra
-        )
-      }
-    }
-
-    const mailReply = next.control.mail_reply
-    if (mailReply !== undefined && mailReply !== announcedMailReply) {
-      announcedMailReply = mailReply
-      const participant = next.identity?.participant ?? null
-      emit(
-        'driver.notice',
-        {
-          code: 'ARRIS_MAIL_REPLY',
-          message: mailReply
-            ? `Arris host publishes arris.mail.reply as ${participant?.principal_ref ?? 'an unnamed participant'}`
-            : 'Arris host has no participant identity; arris.mail.reply is not published to the resident',
-          data: { mail_reply: mailReply, participant },
-        },
-        extra
-      )
-    }
+    journal.readNew(descriptor)
   }
 
   async function refreshDescriptor(): Promise<void> {
@@ -783,9 +148,9 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
       )
     assertDescriptorMatchesSpec(activeSpec, parsed.value)
     descriptor = parsed.value
-    announceHostState(parsed.value)
+    hostState.announce(ctx?.emit, parsed.value)
     if (parsed.value.events.dropped_records > 0)
-      healthReason = `Arris host dropped ${parsed.value.events.dropped_records} event record(s)`
+      state.healthReason = `Arris host dropped ${parsed.value.events.dropped_records} event record(s)`
     const socketPath = parsed.value.control.socket_path
     if (socketPath === null) {
       control = undefined
@@ -793,14 +158,14 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
     } else if (socketPath !== controlSocketPath) {
       control = openControl(socketPath)
       controlSocketPath = socketPath
-      await reconcileUnresolved()
+      await receipts.reconcileUnresolved(control)
     }
-    tailer.retarget(parsed.value.events.path)
+    journal.retarget(parsed.value.events.path)
   }
 
   function cleanup(): void {
     stopped = true
-    announcingHostState = false
+    hostState.silence()
     if (poller !== undefined) clearInterval(poller)
     poller = undefined
   }
@@ -818,12 +183,12 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
     blocksAdmissionWhileHarnessLocalQueued: true,
     confirmsSubmissionExecutionOnOwnAttribution: true,
     capabilities: () => ARRIS_CAPABILITIES,
-    captureNormalizer: () => normalizeRecord,
+    captureNormalizer: () => journal.normalize,
     runtimeHealth: () =>
-      healthReason === undefined
+      state.healthReason === undefined
         ? { state: 'healthy' }
-        : { state: 'degraded', reason: healthReason },
-    probeAdmissionState: () => ({ harnessLocalQueueDepth: retryHold ? 1 : 0 }),
+        : { state: 'degraded', reason: state.healthReason },
+    probeAdmissionState: () => ({ harnessLocalQueueDepth: state.retryHold ? 1 : 0 }),
 
     async start(
       startSpec: HarnessInvocationSpec,
@@ -834,24 +199,14 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
       ctx = driverCtx
       spec = parsedSpec
       stopped = false
-      healthReason = undefined
-      currentNeutralTurnId = undefined
-      retryHold = false
-      announcedReadinessState = undefined
-      announcedMailReply = undefined
-      announcingHostState = false
+      state.healthReason = undefined
+      state.currentNeutralTurnId = undefined
+      state.retryHold = false
+      hostState.reset()
       controlSocketPath = undefined
-      receiptByInput.clear()
-      brokerInputByHostInput.clear()
-      nextAttempts.clear()
-      seenSequences.clear()
-      for (const record of driverCtx.capture?.records() ?? []) {
-        if (record.driverKind !== ARRIS_RESIDENT_DRIVER_KIND) continue
-        const sequence = record.sourceCursor.nativeSequence
-        if (typeof sequence === 'string' && /^\d+$/.test(sequence)) {
-          seenSequences.add(Number(sequence))
-        }
-      }
+      receipts.reset()
+      state.brokerInputByHostInput.clear()
+      journal.resetSeen(driverCtx.capture?.records() ?? [])
       await refreshDescriptor()
       const active = activeDescriptor()
       if (active.events.dropped_records > 0) {
@@ -871,15 +226,15 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
         },
         { driver: { kind: ARRIS_RESIDENT_DRIVER_KIND, rawType: 'host-descriptor' } }
       )
-      announcingHostState = true
-      announceHostState(active)
+      hostState.begin()
+      hostState.announce(driverCtx.emit, active)
       readJournal()
-      driverCtx.capture?.replayPending(normalizeRecord)
+      driverCtx.capture?.replayPending(journal.normalize)
       poller = setInterval(() => {
         void refreshDescriptor()
           .then(readJournal)
           .catch((error) => {
-            healthReason = error instanceof Error ? error.message : String(error)
+            state.healthReason = error instanceof Error ? error.message : String(error)
           })
       }, pollIntervalMs)
       poller.unref?.()
@@ -891,31 +246,18 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
 
     async applyInputNow(input: InvocationInput): Promise<ApplyInputResult> {
       await refreshDescriptor()
-      const identity = identityFor(input)
-      const reconciled = await reconcileBeforeWrite(identity)
+      const identity = receipts.identityFor(input)
+      const reconciled = await receipts.reconcileBeforeWrite(identity)
       if (reconciled !== undefined) return reconciled
-      return receiptResult(await activeControl().queue(identity, inputText(input)))
+      return receipts.queueResult(await activeControl().queue(identity, inputText(input)))
     },
 
     async applySteerNow(input: InvocationInput): Promise<void> {
       await refreshDescriptor()
-      const identity = identityFor(input)
-      const receipt = await activeControl().steer(
-        identity,
-        currentNeutralTurnId ?? null,
-        inputText(input)
+      const identity = receipts.identityFor(input)
+      receipts.settleSteer(
+        await activeControl().steer(identity, state.currentNeutralTurnId ?? null, inputText(input))
       )
-      rememberReceipt(receipt)
-      if (receipt.outcome.outcome === 'not_written') {
-        if (receipt.outcome.eligible_for_retry) {
-          retryHold = true
-          throw new ArrisRetryableNotWrittenError(receipt)
-        }
-        throw new ArrisNotWrittenError(receipt)
-      }
-      if (receipt.outcome.outcome === 'indeterminate' || receipt.outcome.outcome === 'in_flight') {
-        throw new ArrisIndeterminateDeliveryError(receipt)
-      }
     },
 
     async interrupt(_req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
@@ -931,87 +273,13 @@ export function createArrisResidentDriver(options: ArrisResidentDriverOptions = 
     },
     async dispose(): Promise<void> {
       cleanup()
-      tailer.clear()
+      journal.clear()
       control = undefined
       controlSocketPath = undefined
       descriptor = undefined
       ctx = undefined
       spec = undefined
     },
-  }
-}
-
-function parseSpec(startSpec: HarnessInvocationSpec): ArrisResidentDriverSpec {
-  if (startSpec.driver.kind !== ARRIS_RESIDENT_DRIVER_KIND)
-    throw new BrokerError(BrokerErrorCode.DriverUnavailable, 'Invalid Arris resident driver spec')
-  if (startSpec.continuation !== undefined) {
-    throw new BrokerError(
-      BrokerErrorCode.DispatchValidationFailed,
-      'arris-resident cannot resume a previous host incarnation'
-    )
-  }
-  const value = startSpec.driver as Record<string, unknown>
-  if (typeof value['descriptorPath'] !== 'string' || !isAbsolute(value['descriptorPath'])) {
-    throw new BrokerError(
-      BrokerErrorCode.DispatchValidationFailed,
-      'arris-resident descriptorPath must be absolute'
-    )
-  }
-  if (typeof value['hostIncarnationId'] !== 'string' || value['hostIncarnationId'].length === 0) {
-    throw new BrokerError(
-      BrokerErrorCode.DispatchValidationFailed,
-      'arris-resident hostIncarnationId is required'
-    )
-  }
-  if (
-    value['hostLifecycleOwner'] !== undefined &&
-    value['hostLifecycleOwner'] !== 'external' &&
-    value['hostLifecycleOwner'] !== 'hrc-managed'
-  ) {
-    throw new BrokerError(
-      BrokerErrorCode.DispatchValidationFailed,
-      'arris-resident hostLifecycleOwner is invalid'
-    )
-  }
-  if (
-    value['launchId'] !== undefined &&
-    value['launchId'] !== null &&
-    typeof value['launchId'] !== 'string'
-  ) {
-    throw new BrokerError(
-      BrokerErrorCode.DispatchValidationFailed,
-      'arris-resident launchId must be a string or null'
-    )
-  }
-  return value as unknown as ArrisResidentDriverSpec
-}
-
-function assertDescriptorMatchesSpec(
-  spec: ArrisResidentDriverSpec,
-  descriptor: ArrisHostDescriptor
-): void {
-  const actual = descriptor.host_incarnation.host_incarnation_id
-  if (actual !== spec.hostIncarnationId) {
-    throw new BrokerError(
-      BrokerErrorCode.IdentityInstallConflict,
-      `Arris descriptor belongs to foreign host ${actual}`,
-      { expectedHostIncarnationId: spec.hostIncarnationId }
-    )
-  }
-  if (
-    spec.hostLifecycleOwner !== undefined &&
-    descriptor.lifecycle.host_lifecycle_owner !== spec.hostLifecycleOwner
-  ) {
-    throw new BrokerError(
-      BrokerErrorCode.IdentityInstallConflict,
-      'Arris host lifecycle owner does not match prepared binding'
-    )
-  }
-  if (spec.launchId !== undefined && descriptor.lifecycle.launch_id !== spec.launchId) {
-    throw new BrokerError(
-      BrokerErrorCode.IdentityInstallConflict,
-      'Arris host launch id does not match prepared binding'
-    )
   }
 }
 
@@ -1024,26 +292,4 @@ function inputText(input: InvocationInput): string {
     .filter((part) => part.type === 'text')
     .map((part) => part.text)
     .join('\n')
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined
-}
-
-function isJournalRecord(value: unknown): value is ArrisJournalRecord {
-  const row = asRecord(value)
-  return (
-    row !== undefined &&
-    typeof row['host_incarnation_id'] === 'string' &&
-    Number.isInteger(row['sequence']) &&
-    typeof row['at_ms'] === 'number' &&
-    typeof row['kind'] === 'string' &&
-    asRecord(row['detail']) !== undefined
-  )
 }

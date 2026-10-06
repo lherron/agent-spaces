@@ -87,16 +87,14 @@ export type { DriverRegistry } from './drivers/registry'
 
 export { createNoopDriver } from './drivers/noop-driver'
 export {
-  ARRIS_RESIDENT_DRIVER_KIND,
   ArrisIndeterminateDeliveryError,
   ArrisNotWrittenError,
   ArrisRetryableNotWrittenError,
-  createArrisResidentDriver,
-} from './drivers/arris-resident/driver'
-export type {
-  ArrisResidentDriverOptions,
-  ArrisResidentDriverSpec,
-} from './drivers/arris-resident/driver'
+} from './drivers/arris-resident/delivery-errors'
+export { createArrisResidentDriver } from './drivers/arris-resident/driver'
+export type { ArrisResidentDriverOptions } from './drivers/arris-resident/driver'
+export { ARRIS_RESIDENT_DRIVER_KIND } from './drivers/arris-resident/driver-spec'
+export type { ArrisResidentDriverSpec } from './drivers/arris-resident/driver-spec'
 export {
   ArrisControlError,
   createArrisControlClient,
