@@ -5,7 +5,7 @@
  * intentionally avoid private compiler internals so the implementer can change
  * the mechanics while preserving the externally observable contract.
  */
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
@@ -66,6 +66,13 @@ afterEach(() => {
   restoreEnv('ASP_CODEX_SKIP_COMMON_PATHS', originalSkipCommon)
   rmSync(fixture.base, { recursive: true, force: true })
 })
+
+// Every test here spawns real aspc compiles and verifier runs over fresh ASP homes.
+// Locally the whole file runs in ~20s, but CI under load measured single tests at
+// 9-18s (post-push-verify 37390418614), past bun's 5s default. The bound is a
+// realistic ceiling for that work, not a retry; the per-package wall-clock bound in
+// scripts/lib/bounded-step.ts still caps any genuine hang.
+setDefaultTimeout(60_000)
 
 describe('T-04133 red: reproducible ASPC compiler surfaces', () => {
   test('stdio compileHarnessInvocation accepts fixed compile context and derives omitted initial input ids deterministically', async () => {
