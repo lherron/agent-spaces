@@ -7,6 +7,40 @@
 - **Tracking:** T-07542
 - **Architecture authority:** `agent-spaces.agent-harness-runtime-boundary`
 
+## Implementation scope (reviewed 2026-10-06)
+
+This page preserves the accepted August design and its original migration and
+acceptance baseline. The direct ASP source resolver, custom Pi resource loader,
+replacement-session factory, and separate foreground TUI/print paths are
+implemented. Use the [active runtime-boundary invariant](../../architecture/records/invariants/agent-spaces.agent-harness-runtime-boundary.yaml)
+and [harness architecture](../harness-architecture.md) for current contracts,
+and the [native release-worker amendment](agent-harness-native-release-worker.md)
+for the HRC worker topology. This proposal remains in its design home because
+the active invariant cites it as architectural rationale; it is not a smoke log
+or a claim that every original acceptance criterion still describes the code.
+
+The following details supersede the corresponding original clauses below:
+
+- All five listed Earendil consumer manifests now pin Pi `1.0.0`; `0.84.3` was
+  the original upgrade baseline, not the current required version.
+- [`theme.ts`](../../harness/agent-harness-runtime/src/theme.ts) retains the
+  `praesidium-loader` name but uses Pi dark colors with purple/cyan editor
+  borders, purple submitted-message background, white message text, and lavender
+  footer/status text. The full POC palettes below are historical. The foreground
+  TUI installs a scope-status extension rather than the proposed startup
+  agent/session diagnostic; see [`tui.ts`](../../harness/agent-harness/src/foreground/tui.ts).
+- [`session-manager.ts`](../../harness/agent-harness-runtime/src/session-manager.ts)
+  supports bare resume and explicit session file paths constrained by realpath
+  to the agent's history directory. It does not resolve a bare Pi session ID.
+- Foreground OAuth uses `HARNESS_PI_AUTH_STORE`, then
+  `PI_CODING_AGENT_DIR/auth.json`, then `~/.pi/agent/auth.json`, as implemented in
+  [`auth-store.ts`](../../harness/agent-harness/src/foreground/auth-store.ts).
+  This credential lookup does not enable ambient resource discovery. Broker
+  auth remains caller-supplied to the shared runtime factory.
+- [`AgentSpacesResourceLoader`](../../harness/agent-harness-runtime/src/agent-resource-loader.ts)
+  rejects every `extendResources()` call; resource changes must enter through
+  ASP source resolution and reload, rather than adding roots through that API.
+
 ## Decision
 
 Praesidium will own a first-party Pi runtime whose resources are supplied by a
