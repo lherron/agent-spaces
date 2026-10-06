@@ -59,7 +59,7 @@ import {
 } from './plugin-artifacts.js'
 import { getRegistryPath, loadProjectManifest } from './resolve.js'
 
-const TARGET_MATERIALIZER_VERSION = 'target-materializer-v3-ask-user-question-timeout'
+const TARGET_MATERIALIZER_VERSION = 'target-materializer-v4-codex-space-hooks'
 const TARGET_MANIFEST_FILENAME = '.asp-materialized.json'
 
 /**

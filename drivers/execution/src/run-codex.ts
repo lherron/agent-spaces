@@ -25,8 +25,10 @@ import {
 } from 'spaces-config'
 import {
   CODEX_INTERACTIVE_HOOK_EVENTS,
+  CODEX_SPACE_HOOKS_FILE,
   applyPraesidiumContextToCodexHome,
   buildHrcCodexHooksConfig,
+  mergeCodexHooksConfigs,
   renderPraesidiumContextBlock,
   trustCodexHooksInConfigToml,
 } from 'spaces-harness-codex'
@@ -231,10 +233,11 @@ const MANAGED_FILES = [
   'mcp.json',
   'manifest.json',
   'auth.json',
+  CODEX_SPACE_HOOKS_FILE,
 ] as const
 
 /** Managed directory entries synced from the codex.home template into the runtime home. */
-const MANAGED_DIRS = ['skills', 'prompts'] as const
+const MANAGED_DIRS = ['skills', 'prompts', 'space-hooks'] as const
 
 /**
  * Managed directory contents are staged here, outside of the path Codex
@@ -398,10 +401,16 @@ export async function prepareCodexRuntimeHome(
       const configPath = join(runtimeHome, 'config.toml')
       const hooksPath = join(runtimeHome, 'hooks.json')
       if (runOptions.interactive === true) {
-        await writeFile(
-          hooksPath,
-          `${JSON.stringify(buildHrcCodexHooksConfig(runOptions.codexHookEvents ?? CODEX_INTERACTIVE_HOOK_EVENTS), null, 2)}\n`
+        // Space hooks (T-10389) ride beside the interactive HRC capture set.
+        const spaceHooksPath = join(runtimeHome, CODEX_SPACE_HOOKS_FILE)
+        const spaceHooks = (await pathExists(spaceHooksPath))
+          ? (JSON.parse(await readFile(spaceHooksPath, 'utf-8')) as Record<string, unknown>)
+          : { hooks: {} }
+        const hooksConfig = mergeCodexHooksConfigs(
+          buildHrcCodexHooksConfig(runOptions.codexHookEvents ?? CODEX_INTERACTIVE_HOOK_EVENTS),
+          spaceHooks
         )
+        await writeFile(hooksPath, `${JSON.stringify(hooksConfig, null, 2)}\n`)
       }
       if (await pathExists(configPath)) {
         let configToml = await readFile(configPath, 'utf-8')

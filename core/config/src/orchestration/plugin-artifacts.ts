@@ -47,7 +47,7 @@ import { materializationLockPath, uniqueStagingDir } from './materialization-sta
 
 /** Default plugin version used when a space declares none. */
 const DEFAULT_PLUGIN_VERSION = '0.0.0'
-const PLUGIN_MATERIALIZER_VERSION = 'plugin-materializer-v3-complete'
+const PLUGIN_MATERIALIZER_VERSION = 'plugin-materializer-v4-codex-space-hooks'
 
 /**
  * Per-target context shared by the space-materialization helpers.

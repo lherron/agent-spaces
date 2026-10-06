@@ -47,6 +47,7 @@ import {
   copyDir,
   getEffectiveCodexOptions,
   linkOrCopy,
+  readHooksToml,
 } from 'spaces-config'
 export {
   DEFAULT_CODEX_ENABLED_FEATURES,
@@ -64,14 +65,25 @@ import {
   isVersionAtLeast,
   runCommand,
 } from './codex-discovery.js'
-import { addCodexHookTrustState, buildHrcCodexHooksConfig } from './codex-hooks.js'
+import {
+  CODEX_SPACE_HOOKS_DIR,
+  CODEX_SPACE_HOOKS_FILE,
+  type CodexSpaceHook,
+  addCodexHookTrustState,
+  buildCodexSpaceHooksConfig,
+  buildHrcCodexHooksConfig,
+  mergeCodexHooksConfigs,
+  selectCodexSpaceHooks,
+} from './codex-hooks.js'
 
 export { DEFAULT_CODEX_CLI_MODEL } from './codex-config.js'
 export {
   CODEX_INTERACTIVE_HOOK_EVENTS,
+  CODEX_SPACE_HOOKS_FILE,
   addCodexHookTrustState,
   buildCodexHookTrustState,
   buildHrcCodexHooksConfig,
+  mergeCodexHooksConfigs,
   trustCodexHooksInConfigToml,
 } from './codex-hooks.js'
 export {
@@ -91,6 +103,7 @@ const CODEX_SKILLS_DIR = 'skills'
 
 const SPACE_INSTRUCTIONS_FILE = 'instructions.md'
 const SPACE_CODEX_CONFIG_FILE = 'codex.config.json'
+const SPACE_HOOKS_DIR = 'hooks'
 /** A populated mcp.json serializes to more than `{}` (2 bytes). */
 const MIN_MCP_CONFIG_BYTES = 2
 type CodexOptionsWithStatusLine = ComposeTargetInput['codexOptions'] & {
@@ -527,6 +540,16 @@ export class CodexAdapter implements HarnessAdapter {
         files.push(SPACE_CODEX_CONFIG_FILE)
       }
 
+      const hooksToml = await readHooksToml(join(input.snapshotPath, SPACE_HOOKS_DIR))
+      const spaceHooks = selectCodexSpaceHooks(hooksToml?.hook ?? [])
+      if (spaceHooks.length > 0) {
+        await copyDir(join(input.snapshotPath, SPACE_HOOKS_DIR), join(cacheDir, SPACE_HOOKS_DIR), {
+          useHardlinks,
+        })
+        await writeJson(join(cacheDir, CODEX_SPACE_HOOKS_FILE), spaceHooks)
+        files.push(SPACE_HOOKS_DIR, CODEX_SPACE_HOOKS_FILE)
+      }
+
       return {
         artifactPath: cacheDir,
         files,
@@ -563,6 +586,7 @@ export class CodexAdapter implements HarnessAdapter {
     const codexOverrides: Array<Record<string, unknown>> = []
     const mergedSkills = new Set<string>()
     const mergedPrompts = new Set<string>()
+    const spaceHookSets: Array<{ spaceId: string; hooks: CodexSpaceHook[] }> = []
 
     for (const artifact of input.artifacts) {
       const srcSkillsDir = join(artifact.artifactPath, CODEX_SKILLS_DIR)
@@ -608,6 +632,15 @@ export class CodexAdapter implements HarnessAdapter {
       if (overrides) {
         codexOverrides.push(overrides)
       }
+
+      const spaceHooksPath = join(artifact.artifactPath, CODEX_SPACE_HOOKS_FILE)
+      if (await fileExists(spaceHooksPath)) {
+        const hooks = JSON.parse(await readFile(spaceHooksPath, 'utf-8')) as CodexSpaceHook[]
+        const destDir = join(codexHome, CODEX_SPACE_HOOKS_DIR, artifact.spaceId, SPACE_HOOKS_DIR)
+        await rm(destDir, { recursive: true, force: true })
+        await copyDir(join(artifact.artifactPath, SPACE_HOOKS_DIR), destDir, { useHardlinks: true })
+        spaceHookSets.push({ spaceId: artifact.spaceId, hooks })
+      }
     }
 
     if (input.codexOptions) {
@@ -650,8 +683,14 @@ export class CodexAdapter implements HarnessAdapter {
       warnings.push({ code: 'W_MCP', message: warning })
     }
 
+    // Space hooks ride beside HRC's capture hooks. The fragment is kept so the
+    // runtime home can re-merge it over its own HRC event set (run-codex).
+    const spaceHooksConfig = buildCodexSpaceHooksConfig(spaceHookSets)
+    const spaceHooksFragmentPath = join(codexHome, CODEX_SPACE_HOOKS_FILE)
+    await rm(spaceHooksFragmentPath, { force: true })
+    if (spaceHookSets.length > 0) await writeJson(spaceHooksFragmentPath, spaceHooksConfig)
     const hooksPath = join(codexHome, CODEX_HOOKS_FILE)
-    const hooksConfig = buildHrcCodexHooksConfig()
+    const hooksConfig = mergeCodexHooksConfigs(buildHrcCodexHooksConfig(), spaceHooksConfig)
     const config = addCodexHookTrustState(
       buildCodexConfig(mcpConfig, codexOverrides),
       hooksPath,

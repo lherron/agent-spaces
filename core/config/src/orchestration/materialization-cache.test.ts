@@ -165,7 +165,7 @@ async function createTargetFixture(): Promise<{
 
   const cacheKey = computeHarnessPluginCacheKey(
     'codex',
-    'plugin-materializer-v3-complete',
+    'plugin-materializer-v4-codex-space-hooks',
     integrity,
     'probe',
     '1.0.0'

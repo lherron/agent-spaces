@@ -183,6 +183,43 @@ describe('prepareCodexRuntimeHome', () => {
     expect(metadata.projectPath).toBe(projectPath)
   })
 
+  test('interactive runtime home keeps space hooks beside the HRC capture set (T-10389)', async () => {
+    const root = await createTempDir('run-runtime-space-hooks-')
+    const aspHome = join(root, 'asp-home')
+    const projectPath = join(root, 'agent-spaces')
+    const bundle = codexBundle(
+      getProjectHarnessOutputPath(projectPath, 'cody', 'codex', aspHome),
+      'cody'
+    )
+    const templateHome = bundle.codex.homeTemplatePath
+    const runtimeHome = getProjectCodexRuntimeHomePath(aspHome, projectPath, 'cody')
+    await writeCodexTemplate(templateHome, { agents: 'agents\n', config: 'model = "gpt-5.5"\n' })
+    const guardGroup = {
+      matcher: 'Bash',
+      hooks: [{ type: 'command', command: 'p="${CODEX_HOME:-}/space-hooks/s/g.sh"; exec "$p"' }],
+    }
+    await writeFile(
+      join(templateHome, 'space-hooks.json'),
+      JSON.stringify({ hooks: { PreToolUse: [guardGroup] } })
+    )
+    await mkdir(join(templateHome, 'space-hooks', 's'), { recursive: true })
+    await writeFile(join(templateHome, 'space-hooks', 's', 'g.sh'), '#!/bin/sh\n', { mode: 0o755 })
+
+    await prepareCodexRuntimeHome(bundle, { aspHome, projectPath, interactive: true })
+
+    const hooks = JSON.parse(await readFile(join(runtimeHome, 'hooks.json'), 'utf-8')) as {
+      hooks: Record<string, unknown[]>
+    }
+    // HRC capture first (group 0), then the space guard (group 1).
+    expect(hooks.hooks['PreToolUse']).toHaveLength(2)
+    expect(hooks.hooks['PreToolUse']?.[1]).toEqual(guardGroup)
+    expect(hooks.hooks['Stop']).toHaveLength(1)
+    expect((await stat(join(runtimeHome, 'space-hooks', 's', 'g.sh'))).mode & 0o111).not.toBe(0)
+    const config = await readFile(join(runtimeHome, 'config.toml'), 'utf-8')
+    const guardKey = `${await realpath(join(runtimeHome, 'hooks.json'))}:pre_tool_use:1:0`
+    expect(config).toContain(`[hooks.state.${JSON.stringify(guardKey)}]`)
+  })
+
   test('publishes concurrent symlinked managed skills as complete versions', async () => {
     const root = await createTempDir('run-runtime-concurrent-managed-dir-')
     const aspHome = join(root, 'asp-home')

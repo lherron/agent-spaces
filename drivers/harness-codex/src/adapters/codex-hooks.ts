@@ -5,6 +5,7 @@
 import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
 import TOML from '@iarna/toml'
+import type { CanonicalHookDefinition } from 'spaces-config'
 import { createCanonicalHasher } from 'spaces-runtime-contracts'
 
 /** Codex defaults the hook execution timeout to 600 seconds. */
@@ -71,6 +72,78 @@ export function buildHrcCodexHooksConfig(
     hooks[eventName] = [buildCodexHookGroup(eventName)]
   }
   return { hooks }
+}
+
+/**
+ * Space hooks (hooks.toml entries with `harness = "codex"`). A space artifact
+ * carries its `hooks/` tree plus this fragment; the composed codex home copies
+ * each tree to `space-hooks/<spaceId>/` and merges the fragment into hooks.json.
+ * Only explicitly codex-targeted entries are wired: harness-neutral entries were
+ * written against Claude's payloads and stay Claude/Pi-only.
+ */
+export const CODEX_SPACE_HOOKS_FILE = 'space-hooks.json'
+export const CODEX_SPACE_HOOKS_DIR = 'space-hooks'
+
+/** hooks.toml events a codex space hook may declare, mapped to codex event names. */
+const CODEX_SPACE_HOOK_EVENTS: Record<string, string> = {
+  pre_tool_use: 'PreToolUse',
+}
+
+export interface CodexSpaceHook {
+  event: string
+  script: string
+  tools?: string[] | undefined
+}
+
+const SAFE_HOOK_PATH = /^(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._/-]+$/
+
+/** Pick the hooks.toml entries that codex honours. */
+export function selectCodexSpaceHooks(hooks: CanonicalHookDefinition[]): CodexSpaceHook[] {
+  return hooks
+    .filter((h) => h.harness === 'codex' && h.event in CODEX_SPACE_HOOK_EVENTS)
+    .map((h) => ({ event: h.event, script: h.script, ...(h.tools ? { tools: h.tools } : {}) }))
+}
+
+/**
+ * Build hooks.json groups for space hooks. The command resolves the script
+ * under $CODEX_HOME so no staging or bundle path is baked in, and exits 0 when
+ * the script is absent: a missing hook must never wedge a seat.
+ */
+export function buildCodexSpaceHooksConfig(
+  spaces: ReadonlyArray<{ spaceId: string; hooks: readonly CodexSpaceHook[] }>
+): Record<string, unknown> {
+  const hooks: Record<string, unknown[]> = {}
+  for (const { spaceId, hooks: spaceHooks } of spaces) {
+    for (const hook of spaceHooks) {
+      const eventName = CODEX_SPACE_HOOK_EVENTS[hook.event]
+      if (!eventName) continue
+      if (!SAFE_HOOK_PATH.test(spaceId) || !SAFE_HOOK_PATH.test(hook.script)) {
+        throw new Error(`unsafe codex space hook path: ${spaceId}/${hook.script}`)
+      }
+      const scriptPath = `\${CODEX_HOME:-}/${CODEX_SPACE_HOOKS_DIR}/${spaceId}/${hook.script}`
+      const command = `p="${scriptPath}"; [ -x "$p" ] || exit 0; exec "$p"`
+      const matcher = !hook.tools || hook.tools.includes('*') ? '' : hook.tools.join('|')
+      const groups = hooks[eventName] ?? []
+      groups.push({ matcher, hooks: [{ type: 'command', command }] })
+      hooks[eventName] = groups
+    }
+  }
+  return { hooks }
+}
+
+/** Concatenate hooks.json configs event by event, preserving order. */
+export function mergeCodexHooksConfigs(
+  ...configs: ReadonlyArray<Record<string, unknown>>
+): Record<string, unknown> {
+  const merged: Record<string, unknown[]> = {}
+  for (const config of configs) {
+    const root = isRecord(config['hooks']) ? config['hooks'] : {}
+    for (const [eventName, groups] of Object.entries(root)) {
+      if (!Array.isArray(groups)) continue
+      merged[eventName] = [...(merged[eventName] ?? []), ...groups]
+    }
+  }
+  return { hooks: merged }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
