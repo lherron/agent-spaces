@@ -27,11 +27,15 @@ function loadFcntl(platform: NodeJS.Platform): Fcntl | undefined {
   const { dlopen, FFIType } = require('bun:ffi') as typeof import('bun:ffi')
   const { symbols } = dlopen(lib, {
     fcntl: {
-      args: [FFIType.i32, FFIType.i32, ...Array(FCNTL_SLOTS).fill(FFIType.i64)],
+      args: [
+        FFIType.i32,
+        FFIType.i32,
+        ...Array<typeof FFIType.i64>(FCNTL_SLOTS).fill(FFIType.i64),
+      ] as const,
       returns: FFIType.i32,
     },
   })
-  return symbols.fcntl as unknown as Fcntl
+  return symbols.fcntl
 }
 
 function fcntlCall(fcntl: Fcntl, fd: number, cmd: number, value: number): number {

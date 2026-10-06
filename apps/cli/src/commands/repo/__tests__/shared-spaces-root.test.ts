@@ -29,11 +29,15 @@ function runAsp(args: string[]): RunResult {
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     return { stdout, stderr: '', exitCode: 0 }
-  } catch (err: any) {
+  } catch (err: unknown) {
+    if (!(err instanceof Error)) throw err
+    const stdout = 'stdout' in err ? err.stdout : undefined
+    const stderr = 'stderr' in err ? err.stderr : undefined
+    const status = 'status' in err ? err.status : undefined
     return {
-      stdout: err.stdout?.toString() ?? '',
-      stderr: err.stderr?.toString() ?? '',
-      exitCode: err.status ?? 1,
+      stdout: typeof stdout === 'string' || Buffer.isBuffer(stdout) ? stdout.toString() : '',
+      stderr: typeof stderr === 'string' || Buffer.isBuffer(stderr) ? stderr.toString() : '',
+      exitCode: typeof status === 'number' ? status : 1,
     }
   }
 }
