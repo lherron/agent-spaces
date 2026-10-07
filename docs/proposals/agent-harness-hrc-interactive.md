@@ -1,7 +1,7 @@
 # HRC-operated agent-harness interactive TUI
 
 - **Status:** **superseded** by the corrected owner-approved native
-  release-worker design in `docs/proposals/agent-harness-native-release-worker.md`;
+  [release-worker design](agent-harness-native-release-worker.md);
   retained as historical rationale. Its child/socket topology is restored, but
   its private `agent-harness-control/v1` wire contract remains retired and must
   not be implemented.
@@ -12,7 +12,26 @@
 - **Architecture authority:** `agent-spaces.agent-harness-runtime-boundary` (amended by this ruling: two → three outer surfaces)
 - **Supersedes scope in:** `docs/proposals/agent-harness.md` (two-outer-surface clause)
 
-## Decision
+## Historical scope
+
+The body below is the August 2026 proposal and rejection history, not current
+implementation guidance. Its old HRC paths, line numbers, admission failure,
+private control frames, in-process/PTY profiles, routing branches, and flag
+are historical. Retained review rationale explains why turn identity and
+broker-authoritative auth/permission values must cross the process boundary.
+
+The accepted replacement implements those handoffs with standard broker
+methods and the full invocation spec. Current code is
+`harness/agent-harness/src/broker/interactive-driver.ts` and
+`harness/agent-harness/src/broker/resident-leaf-driver.ts`: the outer native
+worker consumes a pane lease, starts the same release executable as a child,
+checks `broker.hello` identity/inventory, and forwards standard invocation
+methods and events. ASP's compiler catalog selects the recipe; HRC does not
+construct a direct agent-harness plan. Both outer profiles use native-worker
+execution/transport, without serialized child argv. The active authority is
+[the runtime-boundary record](../../architecture/records/invariants/agent-spaces.agent-harness-runtime-boundary.yaml).
+
+## Historical decision
 
 Add a third outer surface to the direct `agent-harness` runtime: an interactive
 Pi TUI launched and owned by HRC inside a broker-leased tmux pane, exposed as

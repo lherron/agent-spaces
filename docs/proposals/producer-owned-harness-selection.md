@@ -1,10 +1,33 @@
 # Producer-owned harness selection
 
-- **Status:** approved architecture; implementation pending
+- **Status:** approved architecture; ASP v2 cutover landed (P-00540)
 - **Tracking:** T-08699 and campaign P-00540
 - **Architecture authority:** `agent-spaces.producer-owned-harness-selection`
 - **Approval:** Daedalus EN-15959, with Lance's binding four-harness,
   agent-harness-default, fail-closed-version, and clean-cutover rulings
+
+## Implementation and historical scope
+
+The compiler catalog/resolver, v2-only wire contract, version-4 agent profiles,
+schema-2 project targets, and singular execution output are implemented.
+P-00540 records the completed ASP cutover; T-08705 records its installed
+acceptance. That recorded acceptance is historical evidence, not a fresh
+installed-surface validation by this documentation review.
+
+The sections below preserve the approved design, including its pre-cutover
+problem statement and affected-surface inventory. For executable types and
+selection defaults, consult `contracts/spaces-runtime-contracts/src/harness-selection.ts`
+and `compiler/agent-spaces/src/harness-selection/{catalog,resolve}.ts`.
+The current hosting field is `executionTransport`, not the design sketch's
+`harnessTransport`; the current plan carries `ResolvedExecutionProfile` and
+has no `agentPolicy` member.
+
+One default differs from this approval: the current catalog sets
+`presentationDefault: true` for all four harnesses, while section 6 and the
+active architecture record specify false. Explicit false still selects the
+without-presentation recipe. This page records that discrepancy without
+amending the approved default or claiming it has been resolved. HRC migration
+was outside the ASP campaign; this page does not establish its current status.
 
 ## 1. Decision
 
@@ -34,9 +57,10 @@ This is an ASP-only clean cutover. HRC migration is not part of P-00540. ASP
 publishes the breaking contract; an HRC version that still sends v1 or imports
 old selectors is expected to fail until separately migrated.
 
-## 2. Why the selection authority must move
+## 2. Why the selection authority moved
 
-Current production code has overlapping and divergent authorities:
+At approval on 2026-09-21, production code had overlapping and divergent
+authorities:
 
 1. `core/config/src/core/types/harness.ts` accepts seven IDs plus aliases and
    maps them to provider, transport, and frontend.
@@ -56,7 +80,7 @@ interactive Codex as `codex-cli-tmux`, while the compiler selects
 `codex-app-server` with the Codex TUI presentation. A descriptive catalog
 outside the compiler therefore cannot remain a selection authority.
 
-Every ordinary production compiler branch currently emits one execution
+At that baseline, every ordinary production compiler branch emitted one execution
 profile. The plural `executionProfiles` collection and ASPC profile selector
 select among choices the producer never actually returns. V2 makes that fact
 explicit.
