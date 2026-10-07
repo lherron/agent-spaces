@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { appendFile, mkdir, readFile } from 'node:fs/promises'
-import { hostname } from 'node:os'
+import { cpus, hostname, loadavg } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 import type { ChangeClassification, ClassifiedChangeScope, HookName } from './hook-change-scope.ts'
@@ -43,6 +43,8 @@ export interface HookTimingRecord extends BaseTimingRecord {
   arch: string
   bunVersion: string
   lefthookVersion?: string | undefined
+  load1?: string | undefined
+  ncpu?: string | undefined
 }
 
 export interface HookStepTimingRecord extends BaseTimingRecord {
@@ -78,6 +80,8 @@ export function hookSettledPostArgs(record: HookTimingRecord): string[] {
     ['branch', record.branch],
     ['run_id', record.runId],
     ['started_at', record.startedAt],
+    ['load1', record.load1],
+    ['ncpu', record.ncpu],
   ]
   for (const [key, value] of attributes) {
     if (value !== undefined) args.push('--attr', `${key}=${value}`)
@@ -95,6 +99,22 @@ function postHookSettled(record: HookTimingRecord): void {
     child.unref()
   } catch {
     // The JSONL history can be replayed when wrkp is available.
+  }
+}
+
+/**
+ * Machine load sampled once before the hook body starts (never at the end), so
+ * a duration can be read against contention. Attribute names are shared with
+ * run.settled (T-10466); both are omitted when the load cannot be read.
+ */
+export function sampleLoad(): { load1?: string; ncpu?: string } {
+  try {
+    const load1 = loadavg()[0]
+    const ncpu = cpus().length
+    if (load1 === undefined || !Number.isFinite(load1) || load1 < 0 || ncpu < 1) return {}
+    return { load1: load1.toFixed(2), ncpu: String(ncpu) }
+  } catch {
+    return {}
   }
 }
 

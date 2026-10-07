@@ -19,6 +19,7 @@ import {
   gitIdentity,
   resolveHookTimingsPath,
   roundDurationMs,
+  sampleLoad,
 } from './lib/hook-timing.ts'
 
 const repoRoot = resolve(import.meta.dir, '..')
@@ -86,6 +87,7 @@ async function main(): Promise<number> {
   if (hook !== 'pre-commit' && hook !== 'pre-push') return spawnLefthook(args)
 
   const typedHook = hook as HookName
+  const load = sampleLoad()
   const startedAt = new Date().toISOString()
   const start = performance.now()
   const runId = crypto.randomUUID()
@@ -149,6 +151,7 @@ async function main(): Promise<number> {
       arch: process.arch,
       bunVersion: Bun.version,
       lefthookVersion: await lefthookVersion(),
+      ...load,
     },
     { path: timingPath }
   )

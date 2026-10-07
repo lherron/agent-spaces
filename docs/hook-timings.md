@@ -8,7 +8,7 @@ Records are append-only JSONL under the Git common directory:
 $(git rev-parse --git-common-dir)/praesidium/hook-timings.jsonl
 ```
 
-Using the common directory keeps one history across linked worktrees without dirtying any checkout. Hook records contain total duration, result, change classification, Git identity, platform, and tool versions. Step records contain each Lefthook command's duration and pass, failure, or skip result. Records do not contain changed filenames, command output, or secrets.
+Using the common directory keeps one history across linked worktrees without dirtying any checkout. Hook records contain total duration, result, change classification, Git identity, platform, tool versions, and the machine load sampled once before the hook body starts (`load1`, the 1-minute load average to 2 dp, and `ncpu`; both omitted when unreadable). Step records contain each Lefthook command's duration and pass, failure, or skip result. Records do not contain changed filenames, command output, or secrets.
 
 Report the last 30 days:
 
@@ -33,7 +33,7 @@ Replay all local hook records, including any missed live posts:
 bun run hook:backfill
 ```
 
-The command reports created, existing, and failed counts. Repeating it reports the same facts as existing. Historical records do not store the node name, so replay attributes them to the host running the command.
+The command reports created, existing, and failed counts. Repeating it reports the same facts as existing. Historical records do not store the node name, so replay attributes them to the host running the command; records written before load sampling replay without `load1`/`ncpu`.
 
 ## Optimized execution policy
 
