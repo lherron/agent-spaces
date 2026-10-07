@@ -25,7 +25,8 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import TOML from '@iarna/toml'
-import type { ComposedTargetBundle, SpaceKey } from 'spaces-config'
+import type { ComposedTargetBundle } from 'spaces-config'
+import { codexArtifact, composeTargetInput } from '../test-support/codex-adapter-inputs.js'
 import { CodexAdapter, buildCodexAppServerLaunchDescriptor } from './codex-adapter.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -150,25 +151,13 @@ describe('CodexAdapter.composeTarget: model_reasoning_effort in config.toml', ()
   })
 
   test('writes model_reasoning_effort to config.toml when provided via codexOptions', async () => {
-    const input = {
-      targetName: 'test-target',
-      compose: [],
-      roots: [],
-      loadOrder: [],
-      artifacts: [
-        {
-          spaceKey: 'space1@abc' as SpaceKey,
-          spaceId: 'space1',
-          artifactPath: artifact1Dir,
-          pluginName: 'space1',
-          pluginVersion: '1.0.0',
-        },
-      ],
-      settingsInputs: [],
-      codexOptions: {
+    const input = composeTargetInput(
+      'test-target',
+      [codexArtifact('space1@abc', artifact1Dir, '1.0.0')],
+      {
         model_reasoning_effort: 'high',
-      },
-    }
+      }
+    )
 
     await adapter.composeTarget(input, outputDir, { clean: true })
 
@@ -178,25 +167,13 @@ describe('CodexAdapter.composeTarget: model_reasoning_effort in config.toml', ()
   })
 
   test('defaults model_reasoning_effort to high when not set in codexOptions', async () => {
-    const input = {
-      targetName: 'test-target',
-      compose: [],
-      roots: [],
-      loadOrder: [],
-      artifacts: [
-        {
-          spaceKey: 'space1@abc' as SpaceKey,
-          spaceId: 'space1',
-          artifactPath: artifact1Dir,
-          pluginName: 'space1',
-          pluginVersion: '1.0.0',
-        },
-      ],
-      settingsInputs: [],
-      codexOptions: {
+    const input = composeTargetInput(
+      'test-target',
+      [codexArtifact('space1@abc', artifact1Dir, '1.0.0')],
+      {
         model: 'gpt-5.5',
-      },
-    }
+      }
+    )
 
     await adapter.composeTarget(input, outputDir, { clean: true })
 
@@ -206,27 +183,15 @@ describe('CodexAdapter.composeTarget: model_reasoning_effort in config.toml', ()
   })
 
   test('preserves other codexOptions fields alongside model_reasoning_effort', async () => {
-    const input = {
-      targetName: 'test-target',
-      compose: [],
-      roots: [],
-      loadOrder: [],
-      artifacts: [
-        {
-          spaceKey: 'space1@abc' as SpaceKey,
-          spaceId: 'space1',
-          artifactPath: artifact1Dir,
-          pluginName: 'space1',
-          pluginVersion: '1.0.0',
-        },
-      ],
-      settingsInputs: [],
-      codexOptions: {
+    const input = composeTargetInput(
+      'test-target',
+      [codexArtifact('space1@abc', artifact1Dir, '1.0.0')],
+      {
         model: 'gpt-5.3-codex',
         approval_policy: 'on-request' as const,
         model_reasoning_effort: 'medium',
-      },
-    }
+      }
+    )
 
     await adapter.composeTarget(input, outputDir, { clean: true })
 
