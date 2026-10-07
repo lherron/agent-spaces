@@ -42,7 +42,17 @@ async function snapshotTracked(): Promise<Record<string, string>> {
     .split('\0')
     .filter(Boolean)) {
     const path = join(REPO_ROOT, rel)
-    const info = await stat(path)
+    // A sibling seat's unstaged deletion leaves the path in the shared index but
+    // not on disk. Record it as absent: a run that deletes a file still changes
+    // the snapshot, and one that leaves the deletion alone still compares equal.
+    const info = await stat(path).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return null
+      throw error
+    })
+    if (!info) {
+      out[rel] = 'absent'
+      continue
+    }
     const hash = createHash('sha256')
       .update(await readFile(path))
       .digest('hex')
