@@ -17,7 +17,7 @@ predicate: >
   returns its singular result without a profile or driver selector. Resolution
   precedence is catalog defaults, agent profile, project target, per-summon
   directives, then explicit compile request. The default harness is
-  agent-harness and default presentation is false. Omitted provider and model
+  agent-harness and default presentation is true. Omitted provider and model
   use the selected harness and provider defaults respectively; provider never
   infers harness, model never infers provider, and changing harness preserves
   explicit provider/model values so incompatibility is refused. Explicit false
@@ -42,11 +42,12 @@ predicate: >
   producers for v2. A v2 release must positively bind every driver its catalog
   can select, including Codex, before activation. ASP never silently
   reinterprets incompatible prepared or live state.
-authority: Daedalus APPROVE EN-15959 with Lance's binding clean-cutover, four-harness, agent-harness-default, fail-closed-version, and approval-scope rulings on 2026-09-21
+authority: Daedalus APPROVE EN-15959 with Lance's binding clean-cutover, four-harness, agent-harness-default, fail-closed-version, and approval-scope rulings on 2026-09-21; presentation default amended to true by Lance's 2026-09-22 ruling (wrkq:T-08714), amendment APPROVE by Daedalus under EN-25138 on 2026-10-07
 source:
   - wrkq:T-08690 revision 3
   - wrkq:T-08699
   - wrkq:EN-15959
+  - wrkq:T-08714
   - docs/proposals/producer-owned-harness-selection.md
   - contracts/spaces-runtime-contracts/src/harness-selection.ts
   - core/config/src/core/types/agent-profile.ts
@@ -59,7 +60,7 @@ source:
 required_tests:
   - the public harness keys are exactly agent-harness claude codex and muse and every harness/presentation cell resolves or returns a typed refusal
   - precedence and provenance cover catalog profile project directive and explicit request layers while explicit presentation false survives every boundary
-  - omitted harness resolves to agent-harness and omitted presentation resolves to false at the catalog-default layer
+  - omitted harness resolves to agent-harness and omitted presentation resolves to true at the catalog-default layer
   - agent-profile accepts only version 4 and asp-targets accepts only schema 2 while all predecessor versions viewer aliases and other removed fields fail without translation
   - provider cannot select harness model cannot select provider and a harness-only override preserves explicit provider/model before compatibility validation
   - v1 aliases viewer frontend family runtime interaction controller profile and driver selectors are rejected without translation fallback or deprecation

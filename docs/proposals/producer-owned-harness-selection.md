@@ -22,11 +22,10 @@ The current hosting field is `executionTransport`, not the design sketch's
 `harnessTransport`; the current plan carries `ResolvedExecutionProfile` and
 has no `agentPolicy` member.
 
-One default differs from this approval: the current catalog sets
-`presentationDefault: true` for all four harnesses, while section 6 and the
-active architecture record specify false. Explicit false still selects the
-without-presentation recipe. This page records that discrepancy without
-amending the approved default or claiming it has been resolved. HRC migration
+Amendment T-08714 (Lance, 2026-09-22): the default presentation is `true`
+for all four harnesses, as `presentationDefault: true` in the catalog
+(85fbb196). Explicit false still selects the without-presentation recipe and
+survives every precedence layer. HRC migration
 was outside the ASP campaign; this page does not establish its current status.
 
 ## 1. Decision
@@ -260,7 +259,7 @@ Resolution order is deterministic:
 Rules:
 
 - default harness is `agent-harness`;
-- default presentation is `false`;
+- default presentation is `true` (amendment T-08714); explicit `false` opts out;
 - TOML uses `model_provider`; the wire uses `modelProvider`;
 - TOML and directives use boolean `presentation`; `viewer` is removed and
   rejected;
