@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
@@ -77,16 +77,20 @@ interface Run {
 /** Run one fake-codex scenario against a broker with a DURABLE capture journal. */
 async function runScenario(
   scenario: string,
-  options: { dir?: string; invocationId?: string } = {}
+  options: { dir?: string; invocationId?: string; artifactDir?: string; turns?: number } = {}
 ): Promise<Run> {
   const dir = options.dir ?? scratchDir()
   const invocationId = (options.invocationId ??
     `inv_${scenario.replaceAll('-', '_')}`) as InvocationId
   const events: InvocationEventEnvelope[] = []
   let resolveTerminal!: () => void
-  const terminal = new Promise<void>((resolve) => {
-    resolveTerminal = resolve
-  })
+  let terminal!: Promise<void>
+  const armTerminal = () => {
+    terminal = new Promise<void>((resolve) => {
+      resolveTerminal = resolve
+    })
+  }
+  armTerminal()
   const broker = createBroker({
     drivers: [createCodexAppServerDriver()],
     eventLedger: createEventLedger({ path: join(dir, 'events.ndjson') }),
@@ -98,7 +102,7 @@ async function runScenario(
         event.type === 'turn.failed' ||
         event.type === 'invocation.failed' ||
         event.type === 'invocation.exited' ||
-        event.type === 'capture.warning'
+        (event.type === 'capture.warning' && options.artifactDir === undefined)
       ) {
         resolveTerminal()
       }
@@ -109,11 +113,15 @@ async function runScenario(
   await broker.start(
     { spec: spec(scenario, invocationId) },
     {
-      HARNESS_BROKER_ARTIFACT_DIR: dir,
+      HARNESS_BROKER_ARTIFACT_DIR: options.artifactDir ?? dir,
     }
   )
-  await broker.input({ invocationId, input: userInput, policy: { whenBusy: 'reject' } })
-  await terminal
+  for (let turn = 1; turn <= (options.turns ?? 1); turn += 1) {
+    if (turn > 1) armTerminal()
+    const input = turn === 1 ? userInput : { ...userInput, inputId: inputIdFrom(`input_${turn}`) }
+    await broker.input({ invocationId, input, policy: { whenBusy: 'reject' } })
+    await terminal
+  }
   return {
     events,
     broker,
@@ -233,6 +241,39 @@ describe('codex-app-server committed-row normalization', () => {
       expect(row.jsonrpc).toBe('2.0')
       expect(typeof row.method).toBe('string')
     }
+  })
+
+  test('a multi-turn export appends each committed row exactly once (T-10581)', async () => {
+    const run = await runScenario('three-turns', { turns: 3 })
+    expect(run.events.filter((event) => event.type === 'turn.completed')).toHaveLength(3)
+    const exported = readFileSync(
+      join(run.dir, `${run.invocationId}.provider-transcript.jsonl`),
+      'utf8'
+    )
+      .split('\n')
+      .filter((line) => line.trim().length > 0)
+    expect(exported).toEqual(run.journalRows().map(frameOf))
+    expect(
+      run.events.filter((event) => (event.type as string) === 'provider.transcript.reported')
+    ).toHaveLength(1)
+  })
+
+  test('a failed transcript export warns and never blocks the turn terminal (T-10581)', async () => {
+    const dir = scratchDir()
+    const blocker = join(dir, 'not-a-directory')
+    writeFileSync(blocker, '')
+    const run = await runScenario('tool-calls', { dir, artifactDir: join(blocker, 'artifacts') })
+
+    expect(run.events.some((event) => event.type === 'turn.completed')).toBe(true)
+    const warning = run.events.find(
+      (event) =>
+        event.type === 'capture.warning' &&
+        (event.payload as { kind?: string }).kind === 'provider_transcript_export_failed'
+    )
+    expect(warning).toBeDefined()
+    expect(
+      run.events.some((event) => (event.type as string) === 'provider.transcript.reported')
+    ).toBe(false)
   })
 
   test('an unknown load-bearing method warns loudly and the rows behind it still normalize', async () => {

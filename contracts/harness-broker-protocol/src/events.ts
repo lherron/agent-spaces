@@ -414,6 +414,10 @@ export interface CaptureWarningPayload {
    *   logs the warning on its own stderr, and later records normalize as usual.
    *   `cursorHalted` is retained on the payload and is always `false`;
    *   `loadBearing` says whether the family is one a consumer acts on.
+   * - `provider_transcript_export_failed` — a driver could not bring its
+   *   provider-transcript export up to date at a turn terminal. The turn still
+   *   completes; the next terminal rebuilds the export whole. `raw` carries
+   *   `{ artifactPath?, error }` (T-10581).
    */
   kind?: string | undefined
 }

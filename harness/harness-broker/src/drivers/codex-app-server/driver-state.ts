@@ -6,6 +6,7 @@ import type {
   TurnId,
   UsageModelIdentity,
 } from 'spaces-harness-broker-protocol'
+import type { RawJournalCursor } from '../../capture/raw-journal'
 import type { spawnHarnessProcess } from '../../runtime/process-runner'
 import type { TmuxExec, TmuxPaneController } from '../../runtime/tmux'
 import type { DriverContext } from '../driver'
@@ -166,6 +167,14 @@ export interface CodexDriverState {
    */
   readonly reportedTranscriptPaths: Set<string>
   /**
+   * How far the export at `path` has been written (T-10581). The first export
+   * in a process rewrites the file; each later turn terminal appends only the
+   * journal rows past `cursor`, so per-turn cost tracks the new evidence
+   * rather than everything the invocation ever committed. Cleared on a failed
+   * export so the next terminal rebuilds it whole.
+   */
+  transcriptExport: { path: string; cursor: RawJournalCursor; rows: number } | undefined
+  /**
    * Verbatim frames observed while NO capture gate is wired — the isolated
    * driver unit harness. That mode has no journal at all, so this is the only
    * copy of the evidence rather than a second one; a gated invocation never
@@ -230,6 +239,7 @@ export function createCodexDriverState(): CodexDriverState {
     rendererControlListener: undefined,
     rendererQuitAccepted: false,
     reportedTranscriptPaths: new Set(),
+    transcriptExport: undefined,
     ungatedFrames: [],
     threadModel: undefined,
     activeProvenance: undefined,

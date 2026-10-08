@@ -292,24 +292,41 @@ export function providerTranscriptPath(ctx: DriverContext): string {
 }
 
 /**
- * Materialize the verifier-compatible JSONL export from committed rows.
+ * Write verifier-compatible JSONL rows to the export at `path`, one row at a
+ * time, and return how many were written. `truncate` starts the file over;
+ * otherwise rows are appended after what an earlier call wrote. Rows stream
+ * straight to the file: an invocation's evidence can run to gigabytes, more
+ * than fits in one string (T-10581).
  *
- * Opened `'w'` and written whole: the export is DERIVED, so rewriting it from
- * the journal is what keeps the §7.1 invariant true by construction — it can
- * never hold a row the journal does not. Durability of the evidence itself is
- * the journal's job (it fsyncs every record before the normalizer sees it);
- * this fsync only makes the export readable to whoever follows the
- * `provider.transcript.reported` pointer.
+ * The export is DERIVED from the journal, which is what keeps the §7.1
+ * invariant true by construction — it can never hold a row the journal does
+ * not. Durability of the evidence itself is the journal's job (it fsyncs every
+ * record before the normalizer sees it); this fsync only makes the export
+ * readable to whoever follows the `provider.transcript.reported` pointer.
  */
-export function writeProviderTranscriptExport(path: string, rows: string[]): void {
-  const fd = openSync(path, 'w', 0o600)
+export function writeProviderTranscriptRows(
+  path: string,
+  truncate: boolean,
+  produce: (write: (row: Uint8Array | string) => void) => void
+): number {
+  const fd = openSync(path, truncate ? 'w' : 'a', 0o600)
+  let rows = 0
   try {
-    writeSync(fd, rows.map((row) => `${row}\n`).join(''))
+    produce((row) => {
+      writeSync(
+        fd,
+        typeof row === 'string' ? Buffer.from(`${row}\n`) : Buffer.concat([row, NEWLINE])
+      )
+      rows += 1
+    })
     fsyncSync(fd)
   } finally {
     closeSync(fd)
   }
+  return rows
 }
+
+const NEWLINE = Buffer.from('\n')
 
 /**
  * Re-encoded frame for a notification that arrived without its verbatim line

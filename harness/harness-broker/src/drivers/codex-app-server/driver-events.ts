@@ -24,7 +24,7 @@ import {
   asFrameRecord,
   frameString,
   providerTranscriptPath,
-  writeProviderTranscriptExport,
+  writeProviderTranscriptRows,
 } from './driver-support'
 import { CODEX_DRIVER_KIND } from './event-map'
 import type { JsonRpcNotification } from './rpc-client'
@@ -98,39 +98,70 @@ export function createCodexDriverEvents(s: CodexDriverState) {
   }
 
   /**
-   * The rows the exported provider transcript is projected from. With a capture
-   * gate that is the COMMITTED journal — the single source §7.1 makes
-   * authoritative. Without one there is no journal, so the ungated frames are.
+   * Bring the export at `path` up to date and return its total row count. With
+   * a capture gate the rows are the COMMITTED journal — the single source §7.1
+   * makes authoritative — streamed past the cursor the last export reached.
+   * Without one there is no journal, so the (small, test-only) ungated frames
+   * are rewritten whole.
    */
-  function transcriptRows(): string[] {
+  function exportProviderTranscript(path: string): number {
     const capture = s.ctx?.capture
-    if (capture === undefined) return s.ungatedFrames
-    return capture
-      .records()
-      .filter(
-        (record) =>
-          record.driverKind === CODEX_DRIVER_KIND && record.sourceKind === 'provider-jsonrpc'
-      )
-      .map((record) => Buffer.from(record.rawBytes).toString('utf8'))
+    if (capture === undefined) {
+      if (s.ungatedFrames.length === 0) return 0
+      return writeProviderTranscriptRows(path, true, (write) => {
+        for (const frame of s.ungatedFrames) write(frame)
+      })
+    }
+    const prior = s.transcriptExport?.path === path ? s.transcriptExport : undefined
+    let cursor = prior?.cursor
+    const written = writeProviderTranscriptRows(path, prior === undefined, (write) => {
+      cursor = capture.scanRecords((record) => {
+        if (record.driverKind === CODEX_DRIVER_KIND && record.sourceKind === 'provider-jsonrpc') {
+          write(record.rawBytes)
+        }
+      }, cursor)
+    })
+    const rows = (prior?.rows ?? 0) + written
+    s.transcriptExport = { path, cursor: cursor ?? 0, rows }
+    return rows
   }
 
   /**
    * Emit `provider.transcript.reported` once the turn terminal has flushed,
-   * after materializing the verifier-compatible JSONL export from the committed
-   * rows. The file is rewritten in full on every turn terminal (it is derived,
-   * not accumulated) while the EVENT stays fenced to one per concrete absolute
-   * path, so a multi-turn invocation keeps a current file and re-reports
-   * nothing.
+   * after bringing the verifier-compatible JSONL export up to date from the
+   * committed rows. The EVENT stays fenced to one per concrete absolute path,
+   * so a multi-turn invocation keeps a current file and re-reports nothing.
+   *
+   * This runs inside turn-terminal handling, so it must never throw there: an
+   * export failure becomes a `capture.warning` and the next terminal rebuilds
+   * the file whole (T-10581).
    */
   function reportProviderTranscript(): void {
-    const rows = transcriptRows()
-    if (rows.length === 0) return
-    const path = providerTranscriptPath(requireCtx())
-    writeProviderTranscriptExport(path, rows)
+    const ctx = requireCtx()
+    let path: string | undefined
+    let rows: number
+    try {
+      path = providerTranscriptPath(ctx)
+      rows = exportProviderTranscript(path)
+    } catch (error) {
+      s.transcriptExport = undefined
+      const detail = error instanceof Error ? error.message : String(error)
+      ctx.emit(
+        'capture.warning',
+        {
+          kind: 'provider_transcript_export_failed',
+          message: `Codex provider transcript export failed: ${detail}`,
+          raw: { ...(path !== undefined ? { artifactPath: path } : {}), error: detail },
+        },
+        { driver: { kind: 'codex-app-server', rawType: 'provider-transcript.sidecar' } }
+      )
+      return
+    }
+    if (rows === 0) return
     if (s.reportedTranscriptPaths.has(path)) return
     s.reportedTranscriptPaths.add(path)
     emitProviderTranscriptReported(
-      requireCtx(),
+      ctx,
       {
         kind: PROVIDER_TRANSCRIPT_ARTIFACT_KIND,
         artifactPath: path,
@@ -377,7 +408,6 @@ export function createCodexDriverEvents(s: CodexDriverState) {
     selfMintedProvenance,
     emitCaptured,
     emitEventCaptured,
-    transcriptRows,
     reportProviderTranscript,
     captureSourceKey,
     rotateCaptureEpoch,

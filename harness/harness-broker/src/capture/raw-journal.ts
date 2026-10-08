@@ -1,5 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  fstatSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  writeFileSync,
+  writeSync,
+} from 'node:fs'
 import { join } from 'node:path'
 import type {
   EventSourceKind,
@@ -47,7 +56,14 @@ export interface RawJournal {
   rotateEpoch(sourceKey: string): string
   /** The current epoch for a source, minting one on first use. */
   epochFor(sourceKey: string): string
-  /** Every committed record, in commit order. Used by replay and the parity report. */
+  /**
+   * Visit every committed record after `fromCursor` (from the start when
+   * absent), in commit order, and return the cursor just past the last one.
+   * Streams from disk in bounded chunks: a journal can hold gigabytes of
+   * evidence, and nothing may hold it all in memory at once (T-10581).
+   */
+  scan(visit: (record: RawProviderRecord) => void, fromCursor?: RawJournalCursor): RawJournalCursor
+  /** Every committed record, in commit order. Materializes them all; prefer `scan`. */
   read(): RawProviderRecord[]
   /** Absolute path of this invocation's journal file; absent when in-memory. */
   readonly path: string | undefined
@@ -66,7 +82,17 @@ export interface RawJournalOptions {
   now?: (() => Date) | undefined
   /** Epoch id minting, injectable so tests get deterministic ids. */
   newEpochId?: (() => string) | undefined
+  /** Bytes per disk read while scanning; injectable so tests cross chunk edges. */
+  readChunkBytes?: number | undefined
 }
+
+/**
+ * Opaque resume point for `scan`: a byte offset just past a newline-terminated
+ * row for a file-backed journal, a row count for an in-memory one.
+ */
+export type RawJournalCursor = number
+
+const DEFAULT_READ_CHUNK_BYTES = 1024 * 1024
 
 interface StoredRow {
   rawRecordId: string
@@ -94,14 +120,32 @@ export function createRawJournal(options: RawJournalOptions): RawJournal {
     path = join(dir, `${options.invocationId}.ndjson`)
   }
 
-  const existing = path !== undefined ? loadExisting(path) : []
-  const memory: StoredRow[] = [...existing]
-  let ordinal = existing.length
+  const readChunkBytes = options.readChunkBytes ?? DEFAULT_READ_CHUNK_BYTES
+  // Only a pathless journal keeps rows in memory: it has nowhere else to keep
+  // them. A file-backed journal is read back from disk on demand, so its
+  // resident size does not grow with the evidence it holds (T-10581).
+  const memory: StoredRow[] = []
+  let ordinal = 0
   const epochs = new Map<string, string>()
-  // A restart inherits the epoch of every source it had already seen, so a
-  // resumed tail keeps comparing cursors inside the epoch it recorded them in.
-  for (const row of existing) {
-    epochs.set(sourceKeyOf(row), row.sourceEpoch)
+  if (path !== undefined) {
+    terminateTornTail(path)
+    // A restart inherits the epoch of every source it had already seen, so a
+    // resumed tail keeps comparing cursors inside the epoch it recorded them in.
+    scanFile(path, 0, readChunkBytes, (row) => {
+      ordinal += 1
+      epochs.set(sourceKeyOf(row), row.sourceEpoch)
+    })
+  }
+
+  function scan(
+    visit: (record: RawProviderRecord) => void,
+    fromCursor: RawJournalCursor = 0
+  ): RawJournalCursor {
+    if (path !== undefined) {
+      return scanFile(path, fromCursor, readChunkBytes, (row) => visit(toRecord(row)))
+    }
+    for (const row of memory.slice(fromCursor)) visit(toRecord(row))
+    return Math.max(fromCursor, memory.length)
   }
 
   function nextRawRecordId(): string {
@@ -164,8 +208,9 @@ export function createRawJournal(options: RawJournalOptions): RawJournal {
       // throws — that is the whole point of committing first.
       if (path !== undefined) {
         appendLine(path, `${JSON.stringify(row)}\n`)
+      } else {
+        memory.push(row)
       }
-      memory.push(row)
       return record
     },
 
@@ -177,8 +222,12 @@ export function createRawJournal(options: RawJournalOptions): RawJournal {
 
     epochFor,
 
+    scan,
+
     read(): RawProviderRecord[] {
-      return (path !== undefined ? loadExisting(path) : memory).map(toRecord)
+      const records: RawProviderRecord[] = []
+      scan((record) => void records.push(record))
+      return records
     },
   }
 }
@@ -207,33 +256,97 @@ function toRecord(row: StoredRow): RawProviderRecord {
 }
 
 /**
- * Read every intact record. A torn FINAL line is the signature of a crash
- * mid-append and is skipped (the next append overwrites nothing — it appends
- * after it, and the torn line stays as forensic residue rather than being
- * silently rewritten). Unreadable interior lines are skipped rather than
+ * Stream every intact row from `fromOffset`, returning the offset just past the
+ * last newline-terminated line. Unreadable lines are skipped rather than
  * throwing: unlike the normalized ledger, the raw journal is evidence, and a
- * single damaged evidence row must not make the rest unreadable.
+ * single damaged evidence row must not make the rest unreadable. An
+ * unterminated final line is never visited and never consumed, so a resumed
+ * scan re-reads it once it is complete.
+ *
+ * A missing file reads as empty. Any OTHER read failure throws: treating an
+ * unreadable journal as empty would restart the ordinal at zero and mint
+ * duplicate raw record ids over the evidence already on disk.
  */
-function loadExisting(path: string): StoredRow[] {
-  let text: string
+function scanFile(
+  path: string,
+  fromOffset: number,
+  chunkBytes: number,
+  visit: (row: StoredRow) => void
+): number {
+  let fd: number
   try {
-    text = readFileSync(path, 'utf8')
-  } catch {
-    return []
+    fd = openSync(path, 'r')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return fromOffset
+    throw error
   }
-  const rows: StoredRow[] = []
-  for (const line of text.split('\n')) {
-    if (line.trim().length === 0) continue
-    try {
-      const parsed = JSON.parse(line) as StoredRow
-      if (typeof parsed?.rawRecordId === 'string' && typeof parsed?.rawBase64 === 'string') {
-        rows.push(parsed)
+  try {
+    const chunk = Buffer.allocUnsafe(chunkBytes)
+    let position = fromOffset
+    let consumed = fromOffset
+    let pending: Buffer[] = []
+    for (;;) {
+      const read = readSync(fd, chunk, 0, chunkBytes, position)
+      if (read === 0) break
+      position += read
+      const view = chunk.subarray(0, read)
+      let start = 0
+      for (;;) {
+        const newline = view.indexOf(0x0a, start)
+        if (newline === -1) break
+        const piece = view.subarray(start, newline)
+        const line = pending.length === 0 ? piece : Buffer.concat([...pending, piece])
+        pending = []
+        consumed += line.length + 1
+        start = newline + 1
+        const row = parseRow(line)
+        if (row !== undefined) visit(row)
       }
-    } catch {
-      // Torn or damaged row: skip it, keep the rest.
+      if (start < read) pending.push(Buffer.from(view.subarray(start)))
     }
+    return consumed
+  } finally {
+    closeSync(fd)
   }
-  return rows
+}
+
+function parseRow(line: Buffer): StoredRow | undefined {
+  if (line.length === 0) return undefined
+  try {
+    const parsed = JSON.parse(line.toString('utf8')) as StoredRow
+    if (typeof parsed?.rawRecordId === 'string' && typeof parsed?.rawBase64 === 'string') {
+      return parsed
+    }
+  } catch {
+    // Torn or damaged row: skip it, keep the rest.
+  }
+  return undefined
+}
+
+/**
+ * A crash mid-append leaves a final line with no newline. Terminate it so the
+ * next append starts a fresh line instead of fusing onto the torn one and
+ * becoming unreadable with it; the torn bytes themselves stay as residue.
+ */
+function terminateTornTail(path: string): void {
+  let fd: number
+  try {
+    fd = openSync(path, 'r+')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+    throw error
+  }
+  try {
+    const size = fstatSync(fd).size
+    if (size === 0) return
+    const last = Buffer.alloc(1)
+    readSync(fd, last, 0, 1, size - 1)
+    if (last[0] === 0x0a) return
+    writeSync(fd, '\n', size)
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
 }
 
 function appendLine(path: string, line: string): void {

@@ -10,7 +10,7 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { isLoadBearingEventFamily } from 'spaces-harness-broker-protocol'
 import type { CaptureIndex } from './capture-index'
-import type { RawJournal, RawJournalAppendInput } from './raw-journal'
+import type { RawJournal, RawJournalAppendInput, RawJournalCursor } from './raw-journal'
 
 /**
  * The normalization cursor for one invocation (T-07853 §6.1, §7; law
@@ -69,6 +69,16 @@ export interface CaptureGate {
    * export built from anything else could carry a row the journal does not.
    */
   records(): RawProviderRecord[]
+  /**
+   * Stream the same records without materializing them, resuming after
+   * `fromCursor`; returns the cursor past the last record visited. Anything
+   * that runs per turn MUST use this rather than `records()`: a long turn can
+   * commit gigabytes of evidence (T-10581).
+   */
+  scanRecords(
+    visit: (record: RawProviderRecord) => void,
+    fromCursor?: RawJournalCursor
+  ): RawJournalCursor
   /** Durable disposition for restart reconstruction; absent means no index row. */
   disposition(rawRecordId: string): RawRecordDisposition | undefined
   state(): CaptureStateView
@@ -257,6 +267,10 @@ export function createCaptureGate(options: CaptureGateOptions): CaptureGate {
       return journal.read()
     },
 
+    scanRecords(visit, fromCursor): RawJournalCursor {
+      return journal.scan(visit, fromCursor)
+    },
+
     disposition(rawRecordId): RawRecordDisposition | undefined {
       return index.get(invocationId, rawRecordId)?.disposition
     },
@@ -290,11 +304,11 @@ export function createCaptureGate(options: CaptureGateOptions): CaptureGate {
       )
       if (pendingIds.size === 0) return 0
       let replayed = 0
-      for (const record of journal.read()) {
-        if (!pendingIds.has(record.rawRecordId)) continue
+      journal.scan((record) => {
+        if (!pendingIds.has(record.rawRecordId)) return
         replayed += 1
         normalizeNow(record, normalize)
-      }
+      })
       return replayed
     },
 
