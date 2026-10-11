@@ -252,6 +252,24 @@ export function createClaudeTurnAttribution(options: {
   }
 
   /**
+   * Resolve the pending submission a Claude queue row (enqueue, remove,
+   * queued_command) refers to. An exact body keeps its FIFO-first identity;
+   * otherwise a broker body embedded in the row matches through
+   * {@link promptCandidate}. Claude wraps a multi-line paste in
+   * `<pasted_content id="N">` on every native surface, so the queue rows of a
+   * pasted broker steer never equal the tracked body; an exact-only lookup
+   * minted a phantom human submission that later out-ranked the steer.
+   */
+  const queueRowCandidate = (
+    content: string,
+    eligible: (item: PendingSubmission) => boolean,
+    actions: ClaudeAttributionAction[],
+    raw: unknown
+  ): PendingSubmission | undefined =>
+    pending.find((item) => eligible(item) && item.content === content) ??
+    takeCandidate(promptCandidate(content, eligible), actions, raw)?.item
+
+  /**
    * Consume a candidate, turning unresolved ambiguity into a diagnostic.
    * Every candidate stays pending so a later named start, queue operation,
    * recall or teardown can still settle it truthfully.
@@ -322,28 +340,32 @@ export function createClaudeTurnAttribution(options: {
         if (content === undefined || content.length === 0) {
           return [warning('Unclassifiable Claude queue enqueue', operation)]
         }
-        const candidate = pending.find((item) => item.content === content && !item.sawEnqueue)
+        const actions: ClaudeAttributionAction[] = []
+        const candidate = queueRowCandidate(content, (item) => !item.sawEnqueue, actions, operation)
         if (candidate !== undefined) {
           candidate.sawEnqueue = true
-        } else {
+        } else if (actions.length === 0) {
           createPending(content, { sawEnqueue: true })
         }
-        return []
+        return actions
       }
 
       if (op === 'remove') {
         const content = typeof operation.content === 'string' ? operation.content : undefined
+        const actions: ClaudeAttributionAction[] = []
         const item =
           content === undefined
             ? undefined
-            : pending.find(
-                (candidate) =>
-                  candidate.content === content &&
-                  !candidate.drainPending &&
-                  !candidate.removePending
+            : queueRowCandidate(
+                content,
+                (candidate) => !candidate.drainPending && !candidate.removePending,
+                actions,
+                operation
               )
         if (item === undefined) {
-          return [warning('Unmatched Claude queue remove', operation)]
+          return actions.length > 0
+            ? actions
+            : [warning('Unmatched Claude queue remove', operation)]
         }
         item.removePending = true
         item.removeWarned = false
@@ -395,17 +417,18 @@ export function createClaudeTurnAttribution(options: {
       if (prompt === undefined || prompt.length === 0) {
         return [warning('Claude queued_command attachment has no prompt', raw)]
       }
-      const item = pending.find(
-        (candidate) => candidate.removePending && candidate.content === prompt
-      )
+      const actions: ClaudeAttributionAction[] = []
+      const item = queueRowCandidate(prompt, (candidate) => candidate.removePending, actions, raw)
       if (item === undefined) {
-        return [warning('Unmatched Claude queued_command attachment', raw)]
+        return actions.length > 0
+          ? actions
+          : [warning('Unmatched Claude queued_command attachment', raw)]
       }
       if (activeTurnId === undefined) {
         return [warning('Claude queued_command attachment has no active turn', raw)]
       }
       drop(item)
-      recentDisposedPrompt = item.content
+      recentDisposedPrompt = prompt
       return [{ kind: 'absorbed', ...base(item), turnId: activeTurnId }]
     },
 
