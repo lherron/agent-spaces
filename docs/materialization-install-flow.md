@@ -15,7 +15,7 @@ This is the path from a project's declared composition
 against. The deterministic part of this pipeline is owned by
 `spaces-config`; launching and session lifecycle are owned by
 `spaces-execution` and the harness packages — see
-[harness architecture](harness-architecture.md).
+[harness architecture](/docs/agent-spaces/harness-architecture).
 
 ## Pipeline
 
@@ -23,14 +23,14 @@ This adapter-backed pipeline applies to external-harness homes and project
 bundles. The first-party `agent-harness` runtime instead loads ordered ASP
 resources directly through `AgentSpacesResourceLoader`; it does not consume
 a compiler-built merged Pi bundle or generated external-harness home. See the
-[native release-worker design](proposals/agent-harness-native-release-worker.md).
+native release-worker design (`docs/proposals/agent-harness-native-release-worker.md`).
 
 1. **Parse manifests** — `asp-targets.toml` (or an agent's
    `agent-profile.toml` / a bare space ref / a filesystem path) and every
    `space.toml` in the composition.
 2. **Resolve selectors** — `space:<id>@<selector>` refs resolve to exact
    commits/content against the applicable locality (registry, dev, project,
-   agent) per the [composition model](spaces-composition-model.md).
+   agent) per the [composition model](/docs/agent-spaces/spaces-composition-model).
 3. **Compute dependency closure and load order** — walks `deps.spaces`,
    enforcing the locality dependency-edge rules; later `compose` entries win
    collisions.
