@@ -211,8 +211,12 @@ function compileSchedule(
 ): ResourceProjection {
   const source = file.parsed
   if (source['timezone'] !== undefined) {
-    throw resourceError('UNSUPPORTED_TIMEZONE', `${file.relPath}: timezone is unsupported in v1`)
+    throw resourceError(
+      'UNSUPPORTED_TIMEZONE',
+      `${file.relPath}: top-level timezone is unsupported; set [trigger].timezone instead`
+    )
   }
+  const timezone = readScheduleTimezone(source, file.relPath)
   const freshSessionFlow = readFreshSessionFlow(source, file.relPath)
 
   const target = readTarget(source)
@@ -241,6 +245,7 @@ function compileSchedule(
       windowStart: optionalNestedString(source, 'trigger', 'windowStart'),
       windowEnd: optionalNestedString(source, 'trigger', 'windowEnd'),
       windowMinutes: optionalNestedNumber(source, 'trigger', 'windowMinutes'),
+      ...(timezone !== undefined ? { timezone } : {}),
     },
     ...(executionNodes !== undefined ? { execution: { nodes: executionNodes } } : {}),
     input: cloneRecord(source['input']),
@@ -253,6 +258,29 @@ function compileSchedule(
   }
 
   return resourceProjection(file, owner, name, 'scheduled-job', 'jobs', desiredJson)
+}
+
+function readScheduleTimezone(source: ParsedToml, relPath: string): string | undefined {
+  const trigger = source['trigger']
+  if (!isRecord(trigger) || trigger['timezone'] === undefined) return undefined
+  const timezone = trigger['timezone']
+  if (typeof timezone !== 'string' || !isIanaTimeZone(timezone)) {
+    throw resourceError(
+      'INVALID_TIMEZONE',
+      `${relPath}: [trigger].timezone must be an IANA time zone, got ${JSON.stringify(timezone)}`
+    )
+  }
+  return timezone
+}
+
+function isIanaTimeZone(value: string): boolean {
+  if (value.trim().length === 0) return false
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value })
+    return true
+  } catch {
+    return false
+  }
 }
 
 function readFreshSessionFlow(

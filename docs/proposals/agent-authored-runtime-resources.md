@@ -252,7 +252,7 @@ Compilation result:
 - `projectId`, `agentId`, `scopeRef`, `laneRef`: from `[target]`
 - `trigger`: schedule trigger
 - `schedule`: current ACP schedule fields only: `cron`, `windowStart`,
-  `windowEnd`, `windowMinutes`
+  `windowEnd`, `windowMinutes`, `timezone`
 - `input`: job input template
 - `disabled`: inverse of `enabled`
 - provenance: source path, source hash, desired projection hash, desired JSON
@@ -262,10 +262,11 @@ The job store still derives `schedule_cron`, `schedule_json`, and
 existing job update behavior. Job run history remains attached to the same job
 when the source file changes.
 
-V1 must not publish `timezone` semantics. ACP cron evaluation is currently
-UTC-only and current trigger validation does not provide timezone behavior.
-Either implement timezone support in ACP first or reject `timezone` as an
-unsupported v1 field.
+`[trigger].timezone` (optional IANA zone, e.g. `"America/Chicago"`) projects
+to `schedule.timezone`; ACP evaluates the cron against wall-clock time in that
+zone with cronie DST rules (T-10806). Absent means UTC. The compiler rejects a
+zone `Intl.DateTimeFormat` does not accept (`INVALID_TIMEZONE`) and still
+rejects a top-level `timezone` (`UNSUPPORTED_TIMEZONE`).
 
 Deletion policy:
 

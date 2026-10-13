@@ -515,12 +515,47 @@ freshSession = false`
     }
   })
 
-  test('rejects unsupported timezone fields in v1 schedules', async () => {
+  test('rejects a top-level timezone and points at [trigger].timezone', async () => {
     const result = await compileFixture('../../invalid', ['schedule-timezone.toml'])
     expect(result).toEqual({
       ok: false,
       code: 'UNSUPPORTED_TIMEZONE',
-      message: expect.stringContaining('timezone'),
+      message: expect.stringContaining('[trigger].timezone'),
+    })
+  })
+
+  test('passes [trigger].timezone through to the schedule', async () => {
+    const plan = planOf(
+      await compileInlineResource({
+        schedule: inlineSchedule.replace(
+          'cron = "0 * * * *"',
+          'cron = "0 2 * * *"\ntimezone = "America/Chicago"'
+        ),
+      })
+    )
+    expect(plan.resources[0]?.desiredJson['schedule']).toEqual({
+      cron: '0 2 * * *',
+      timezone: 'America/Chicago',
+    })
+  })
+
+  test('omits schedule.timezone when [trigger].timezone is absent', async () => {
+    const plan = planOf(await compileInlineResource({ schedule: inlineSchedule }))
+    const schedule = plan.resources[0]?.desiredJson['schedule']
+    expect(isRecord(schedule) && 'timezone' in schedule).toBe(false)
+  })
+
+  test('rejects a [trigger].timezone that is not an IANA zone', async () => {
+    const result = await compileInlineResource({
+      schedule: inlineSchedule.replace(
+        'cron = "0 * * * *"',
+        'cron = "0 2 * * *"\ntimezone = "America/Nowhere"'
+      ),
+    })
+    expect(result).toEqual({
+      ok: false,
+      code: 'INVALID_TIMEZONE',
+      message: expect.stringContaining('America/Nowhere'),
     })
   })
 
