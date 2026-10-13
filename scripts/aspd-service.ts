@@ -351,8 +351,44 @@ export function renderLaunchdPlist(input: {
 }
 
 function launchctl(args: string[]): { status: number; output: string } {
-  const result = spawnSync('launchctl', args, { encoding: 'utf8' })
+  const result = spawnSync('launchctl', args, { encoding: 'utf8', env: process.env })
   return { status: result.status ?? 1, output: `${result.stdout}${result.stderr}` }
+}
+
+const BOOTSTRAP_ATTEMPTS = 4
+const BOOTSTRAP_RETRY_MS = 2_000
+
+/**
+ * launchd-jobs standard: adopt the written plist with the host-local adopter
+ * when one is installed (no adopter on mini). An adopter failure fails the
+ * operation; ProgramArguments[0] becomes the praesidium-launch shim.
+ */
+export function adoptLaunchdPlist(plistPath: string): void {
+  const adopt = spawnSync(
+    '/bin/sh',
+    ['-c', 'if command -v praesidium-adopt >/dev/null; then praesidium-adopt "$dst"; fi'],
+    { encoding: 'utf8', env: { ...process.env, dst: plistPath } }
+  )
+  if (adopt.status !== 0) {
+    fail(`praesidium-adopt failed for ${plistPath}: ${`${adopt.stdout}${adopt.stderr}`.trim()}`)
+  }
+}
+
+/** Bootstrap, retrying launchd's transient error 5 that can follow a bootout. */
+export async function bootstrapLaunchd(
+  domain: string,
+  plistPath: string,
+  retryMs = BOOTSTRAP_RETRY_MS
+): Promise<{ attempts: number }> {
+  for (let attempt = 1; ; attempt++) {
+    const booted = launchctl(['bootstrap', domain, plistPath])
+    if (booted.status === 0) return { attempts: attempt }
+    const transient = booted.status === 5 || /\b5: Input\/output error/.test(booted.output)
+    if (!transient || attempt >= BOOTSTRAP_ATTEMPTS) {
+      fail(`launchctl bootstrap failed after ${attempt} attempt(s): ${booted.output.trim()}`)
+    }
+    await Bun.sleep(retryMs)
+  }
 }
 
 function launchdTarget(label: string): string {
@@ -410,12 +446,12 @@ async function startSupervised(
   const supervisor = config.supervisor as LaunchdSupervisor
   writeLaunchScript(p, config, active)
   if (!launchdLoaded(supervisor.label)) {
-    const booted = launchctl([
-      'bootstrap',
+    // Every load re-adopts: activation reloads a plist written before adoption existed.
+    adoptLaunchdPlist(supervisor.plistPath)
+    await bootstrapLaunchd(
       launchdTarget(supervisor.label).replace(/\/[^/]+$/, ''),
-      supervisor.plistPath,
-    ])
-    if (booted.status !== 0) fail(`launchctl bootstrap failed: ${booted.output.trim()}`)
+      supervisor.plistPath
+    )
   } else if (launchdPid(supervisor.label) === undefined) {
     const kicked = launchctl(['kickstart', launchdTarget(supervisor.label)])
     if (kicked.status !== 0) fail(`launchctl kickstart failed: ${kicked.output.trim()}`)
@@ -512,6 +548,7 @@ async function supervise(nsInput: string, label: string): Promise<Record<string,
   const plistTmp = `${plistPath}.tmp-${process.pid}`
   writeFileSync(plistTmp, renderLaunchdPlist({ label, launchScript: p.launchScript, logPath }))
   renameSync(plistTmp, plistPath)
+  adoptLaunchdPlist(plistPath)
   writeJsonAtomic(p.config, supervised)
   const started = await startSupervised(p, supervised, active)
   return { supervised: supervisor, retired, started }
