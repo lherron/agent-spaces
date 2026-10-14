@@ -13,6 +13,7 @@ export type HookEnvelope = {
   runtimeId?: string | undefined
   turnId?: string | undefined
   hookData: unknown
+  hookEventName?: string | undefined
 }
 
 function buildHookEnvelope(hookData: unknown, env: HookEnvelopeEnv): HookEnvelope {

@@ -25,6 +25,11 @@ export interface HookBridgeOptions {
   stdin?: NodeJS.ReadableStream | undefined
   env?: Record<string, string | undefined> | undefined
   stdout?: Pick<NodeJS.WriteStream, 'write'> | undefined
+  /**
+   * Record type for a payload that names none itself (T-10929: `StatusLine`
+   * from the materialized statusline.sh). The payload is still posted verbatim.
+   */
+  hookEventName?: string | undefined
 }
 
 export async function runClaudeHookBridge(options: HookBridgeOptions): Promise<void> {
@@ -33,7 +38,12 @@ export async function runClaudeHookBridge(options: HookBridgeOptions): Promise<v
   const raw = await readAll(stdin)
   const hookData = parseHookJson(raw)
   const envelope = buildHookEnvelopeFromEnv(hookData, env)
-  await postEnvelope(options.socketPath, envelope)
+  await postEnvelope(
+    options.socketPath,
+    options.hookEventName !== undefined
+      ? { ...envelope, hookEventName: options.hookEventName }
+      : envelope
+  )
 }
 
 export async function runClaudeHookDecisionBridge(options: HookBridgeOptions): Promise<void> {
@@ -110,12 +120,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** CLI entrypoint: `harness-broker claude-hook --socket <path>`. */
+/** CLI entrypoint: `harness-broker claude-hook --socket <path> [--event <name>]`. */
 export async function runClaudeHookBridgeCli(args: string[]): Promise<void> {
+  const eventIdx = args.indexOf('--event')
+  const hookEventName = eventIdx !== -1 ? args[eventIdx + 1] : undefined
   await runHookBridgeCli({
     commandName: 'claude-hook',
     args,
-    run: ({ socketPath }) => runClaudeHookBridge({ socketPath }),
+    run: ({ socketPath }) =>
+      runClaudeHookBridge({
+        socketPath,
+        ...(hookEventName !== undefined && hookEventName.length > 0 ? { hookEventName } : {}),
+      }),
   })
 }
 

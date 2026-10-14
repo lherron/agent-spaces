@@ -25,6 +25,14 @@ TEAL=$'\033[38;5;73m'        # brackets
 # Read JSON input from stdin
 input=$(cat)
 
+# Inside a harness-broker launched Claude, also post the raw input through the
+# broker's hook bridge as a StatusLine record: Claude Code's own context reading
+# (T-10929). Backgrounded with every stream detached, so it never delays or
+# alters the render, and a failed post is silent.
+if [ -n "${HARNESS_BROKER_STATUSLINE_BRIDGE:-}" ]; then
+  (printf '%s' "$input" | eval "$HARNESS_BROKER_STATUSLINE_BRIDGE") </dev/null >/dev/null 2>&1 &
+fi
+
 # Extract values from JSON
 model=$(echo "$input" | jq -r '.model.display_name')
 context_size=$(echo "$input" | jq -r '.context_window.context_window_size')

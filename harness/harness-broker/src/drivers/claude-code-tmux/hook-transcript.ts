@@ -11,7 +11,6 @@ import type { NormalizeOutcome } from '../../capture/capture-gate'
 import type { CaptureGate } from '../../capture/capture-gate'
 import { getString, unwrapHookPayload } from '../hook-json'
 import { createJsonlByteOffsetTailer } from '../jsonl-byte-tailer'
-import { claudeAssistantUsageContext } from '../usage-context'
 import { CLAUDE_CODE_TMUX_DRIVER_KIND, formatToolOutput } from './hook-events'
 import {
   CLAUDE_IGNORED_ATTACHMENT_TYPES,
@@ -344,9 +343,9 @@ export function createClaudeHookTranscriptReader(
       // Claude Code resolves the model inside the CLI, so this row is the ONLY
       // truthful source and there is no harness-config fallback to fall back to.
       const model = message !== undefined ? getString(message, 'model') : undefined
-      // T-10927: the row's input + cache reads + cache writes + output is the
-      // context fill; Claude reports no window, so none is claimed.
-      const context = claudeAssistantUsageContext(usage)
+      // T-10929: the row no longer carries `context`. Claude Code's own
+      // statusline input is the ONE source of the context reading (fill AND
+      // window); see status-line.ts. The row keeps its raw usage and model.
       options.emit(
         'usage.updated',
         {
@@ -354,7 +353,6 @@ export function createClaudeHookTranscriptReader(
           ...(model !== undefined && model.length > 0
             ? { model: { id: model, source: 'provider-response' as const } }
             : {}),
-          ...(context !== undefined ? { context } : {}),
         },
         {
           ...(turnId !== undefined ? { turnId } : {}),

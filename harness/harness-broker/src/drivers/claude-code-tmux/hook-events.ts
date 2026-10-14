@@ -57,6 +57,11 @@ export type ClaudeCodeHookEnvelope = {
   runtimeId?: string | undefined
   turnId?: string | undefined
   hookData: unknown
+  /**
+   * Record type named by the bridge when `hookData` carries no
+   * `hook_event_name` of its own: today only `StatusLine` (T-10929).
+   */
+  hookEventName?: string | undefined
   mailStopDecision?: MailStopDecision | undefined
   mailHint?: MailHintDecision | undefined
 }

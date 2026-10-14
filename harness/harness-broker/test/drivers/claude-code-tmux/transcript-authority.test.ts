@@ -138,13 +138,15 @@ describe('claude-code-tmux transcript authority: usage', () => {
     })
   })
 
-  test('T-10927: an assistant row carries its context fill and claims no window', () => {
+  test('T-10929: an assistant row keeps raw usage and model but carries no context', () => {
     const h = harness()
     h.write(assistantRow({ type: 'text', text: 'done' }))
 
     const usage = h.emitted.filter((event) => event.type === 'usage.updated')
-    // input + cache reads + cache writes + output of the row.
-    expect(usage[0]?.payload['context']).toEqual({ usedTokens: 2 + 26_349 + 28_820 + 25 })
+    // The context reading comes from Claude Code's statusline input only.
+    expect(usage).toHaveLength(1)
+    expect(usage[0]?.payload['usage']).toBeDefined()
+    expect(usage[0]?.payload['context']).toBeUndefined()
   })
 
   test('T-10927: an uncomputable assistant row and a cost-state roll-up carry no context', () => {

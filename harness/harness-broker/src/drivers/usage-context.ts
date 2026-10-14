@@ -19,11 +19,17 @@ export function usageContext(
 }
 
 /**
- * Claude assistant-row context fill: everything the request put in the window
- * (fresh input, cache reads, cache writes) plus the reply it added. Any missing
- * or malformed component leaves the sum uncomputable.
+ * Claude context fill: everything the request put in the window (fresh input,
+ * cache reads, cache writes) plus the reply it added. Any missing or malformed
+ * component leaves the sum uncomputable. Since T-10929 the input is the
+ * statusline's `context_window.current_usage`, which carries the same four
+ * counts as the transcript assistant row's `message.usage`, and `windowTokens`
+ * is the statusline's `context_window_size`.
  */
-export function claudeAssistantUsageContext(usage: unknown): UsageContext | undefined {
+export function claudeUsageContext(
+  usage: unknown,
+  windowTokens?: unknown
+): UsageContext | undefined {
   if (typeof usage !== 'object' || usage === null) return undefined
   const row = usage as Record<string, unknown>
   const parts = [
@@ -33,5 +39,8 @@ export function claudeAssistantUsageContext(usage: unknown): UsageContext | unde
     row['output_tokens'],
   ]
   if (!parts.every((part) => isCount(part, 0))) return undefined
-  return usageContext((parts as number[]).reduce((sum, part) => sum + part, 0))
+  return usageContext(
+    (parts as number[]).reduce((sum, part) => sum + part, 0),
+    windowTokens
+  )
 }

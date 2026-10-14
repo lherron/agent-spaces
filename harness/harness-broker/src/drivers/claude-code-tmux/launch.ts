@@ -6,6 +6,7 @@ import {
 } from '../../runtime/tmux-launch-exec'
 import type { ChildProcessInvocationSpec, DriverContext } from '../driver'
 import { shellQuote } from '../tmux-shared'
+import { CLAUDE_STATUS_LINE_BRIDGE_ENV, CLAUDE_STATUS_LINE_RECORD } from './status-line'
 
 /**
  * Live hook generation stamped into the launch env (HARNESS_BROKER_HOOK_GENERATION)
@@ -66,6 +67,19 @@ export function buildClaudeHookSettingsOverlay(options: {
   return { hooks }
 }
 
+/**
+ * The command line the materialized statusline.sh pipes Claude Code's
+ * statusLine input through (T-10929): the same hook bridge, naming the record
+ * `StatusLine` because the payload carries no `hook_event_name` of its own.
+ */
+export function buildClaudeStatusLineBridgeCommand(options: {
+  callbackSocket: string
+  bridgeCommand?: string | undefined
+}): string {
+  const bridge = options.bridgeCommand ?? DEFAULT_HOOK_BRIDGE_COMMAND
+  return `${bridge} --socket ${shellQuote(options.callbackSocket)} --event ${CLAUDE_STATUS_LINE_RECORD}`
+}
+
 function toDecisionBridgeCommand(bridgeCommand: string): string {
   return bridgeCommand.replace(/\bclaude-hook\b/, 'claude-hook-decision')
 }
@@ -88,6 +102,7 @@ export async function buildClaudeLaunchCommandLine(
     HARNESS_BROKER_CALLBACK_SOCKET: hookEnv.callbackSocket,
     HARNESS_BROKER_HOOK_EVENTS: HOOK_EVENT_NAMES.join(','),
     HARNESS_BROKER_HOOK_GENERATION: String(CLAUDE_HOOK_GENERATION),
+    [CLAUDE_STATUS_LINE_BRIDGE_ENV]: buildClaudeStatusLineBridgeCommand(hookEnv),
     ...(hookEnv.runtimeId !== undefined ? { HARNESS_BROKER_RUNTIME_ID: hookEnv.runtimeId } : {}),
   }
   const launchArgs = await buildArgsWithMergedSettings(spec.process.args, hookEnv)

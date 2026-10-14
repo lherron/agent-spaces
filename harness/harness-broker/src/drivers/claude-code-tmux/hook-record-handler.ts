@@ -18,6 +18,7 @@ import type { ClaudeHookTranscriptReader } from './hook-transcript'
 import { CLAUDE_HOOK_GENERATION } from './launch'
 import { CLAUDE_KNOWN_HOOK_NAMES } from './native-types'
 import type { ClaudeRecordProvenance } from './record-provenance'
+import { CLAUDE_STATUS_LINE_RECORD, createClaudeStatusLineReader } from './status-line'
 import type { ClaudeStructuredOutputGate } from './structured-output'
 import type { ClaudeTurnAttribution } from './turn-attribution'
 
@@ -54,6 +55,8 @@ export function createClaudeHookRecordHandler(
     attributionEvents,
     structuredOutput,
   } = options
+  /** The Claude context reading, minted from StatusLine records only (T-10929). */
+  const statusLine = createClaudeStatusLineReader()
 
   /**
    * The raw op behind the most recent blocked-unknown outcome, so the
@@ -69,9 +72,9 @@ export function createClaudeHookRecordHandler(
    */
   const normalizeHookRecord = (
     envelope: ClaudeCodeHookEnvelope,
-    rawHook: Record<string, unknown>
+    rawHook: Record<string, unknown>,
+    rawType: string | undefined
   ): { outcome: NormalizeOutcome; decision: HookEnvelopeResult } => {
-    const rawType = getString(rawHook, 'hook_event_name')
     // Transcript rows are their OWN raw records: this read commits and
     // normalizes each appended line before the hook's own normalization
     // continues, which is the true arrival order.
@@ -106,7 +109,10 @@ export function createClaudeHookRecordHandler(
           decision,
         }
       }
-      if (rawType === undefined || !CLAUDE_KNOWN_HOOK_NAMES.has(rawType)) {
+      if (
+        rawType === undefined ||
+        (rawType !== CLAUDE_STATUS_LINE_RECORD && !CLAUDE_KNOWN_HOOK_NAMES.has(rawType))
+      ) {
         // Reported, never dropped, in the quieter class. A hook name the
         // normalizer does not handle mints nothing, so it cannot be shown
         // to be load-bearing, and the first live pi session proved the
@@ -124,6 +130,20 @@ export function createClaudeHookRecordHandler(
       return { outcome: provenance.mintOutcome(rawType), decision }
     }
 
+    if (rawType === CLAUDE_STATUS_LINE_RECORD) {
+      // T-10929: Claude Code's statusline input, posted by the materialized
+      // statusline.sh, is the one source of the context reading. It mints
+      // `usage.updated` only when the reading changed; otherwise state-only.
+      const reading = statusLine.observe(rawHook)
+      if (reading !== undefined) {
+        const turnId = attribution.activeTurnId
+        emit('usage.updated', reading, {
+          ...(turnId !== undefined ? { turnId: turnId as TurnId } : {}),
+          driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType: CLAUDE_STATUS_LINE_RECORD },
+        })
+      }
+      return finish()
+    }
     if (rawType === 'UserPromptSubmit') {
       attributionEvents.emitActions(
         attribution.observePromptHook(
@@ -200,10 +220,13 @@ export function createClaudeHookRecordHandler(
   return async (envelope) => {
     if (!isForThisInvocation(envelope)) return
     const rawHook = asHookRecord(envelope.hookData)
+    // A StatusLine record names its type on the envelope: the statusline JSON
+    // it carries verbatim has no `hook_event_name` of its own.
+    const rawType = envelope.hookEventName ?? getString(rawHook, 'hook_event_name')
     const capture = driverCtx.capture
     if (capture === undefined) {
-      const result = normalizeHookRecord(envelope, rawHook)
-      warnWithoutCapture(result.outcome, getString(rawHook, 'hook_event_name') ?? '(none)')
+      const result = normalizeHookRecord(envelope, rawHook, rawType)
+      warnWithoutCapture(result.outcome, rawType ?? '(none)')
       return result.decision
     }
 
@@ -219,13 +242,13 @@ export function createClaudeHookRecordHandler(
         driverKind: CLAUDE_CODE_TMUX_DRIVER_KIND,
         sourceKind: 'hook',
         sourceKey: `hook:${driverCtx.invocationId}`,
-        nativeType: getString(rawHook, 'hook_event_name') ?? '(none)',
+        nativeType: rawType ?? '(none)',
         rawBytes: Buffer.from(JSON.stringify(envelope.hookData ?? null), 'utf8'),
         ...(envelope.turnId !== undefined ? { correlationHints: { turnId: envelope.turnId } } : {}),
       },
       (captured) =>
         provenance.withProvenance(captured.provenance(), () => {
-          const result = normalizeHookRecord(envelope, rawHook)
+          const result = normalizeHookRecord(envelope, rawHook, rawType)
           decision = result.decision
           return result.outcome
         })
