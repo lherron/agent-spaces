@@ -16,7 +16,8 @@ import {
 } from '../codex-rollout/native'
 import { codexNativeToolIdentity } from '../codex-tool-identity'
 import type { DriverContext } from '../driver'
-import { getString } from '../hook-json'
+import { asRecord, getString } from '../hook-json'
+import { usageContext } from '../usage-context'
 import { CODEX_DESKTOP_DRIVER_KIND } from './spec'
 
 type HeldAssistant = {
@@ -412,11 +413,19 @@ export function createRolloutNormalizer(deps: RolloutNormalizerDeps): RolloutNor
       const usage = payload['info']
       if (usage !== undefined && publish) {
         const model = (turnId !== undefined ? turnModels.get(turnId) : undefined) ?? lastTurnModel
+        // T-10927: last_token_usage.total_tokens is the context fill; the
+        // window is the rollout's model_context_window, never guessed.
+        const info = asRecord(usage)
+        const context = usageContext(
+          asRecord(info['last_token_usage'])['total_tokens'],
+          info['model_context_window']
+        )
         emit(
           'usage.updated',
           {
             usage,
             ...(model !== undefined ? { model: { id: model, source: 'provider-response' } } : {}),
+            ...(context !== undefined ? { context } : {}),
           },
           stampExtra(captured, turnId)
         )

@@ -457,6 +457,42 @@ describe('codex-desktop rollout normalization', () => {
     })
   })
 
+  test('T-10927: token_count carries context from last_token_usage and the rollout window', async () => {
+    const events = await observe(
+      'usage-context',
+      [
+        row({ type: 'task_started', turn_id: 'turn-ctx' }, 1),
+        row(
+          {
+            type: 'token_count',
+            turn_id: 'turn-ctx',
+            info: {
+              total_token_usage: { total_tokens: 766_919 },
+              last_token_usage: { total_tokens: 89_011 },
+              model_context_window: 475_000,
+            },
+          },
+          2
+        ),
+        row(
+          {
+            type: 'token_count',
+            turn_id: 'turn-ctx',
+            info: { total_token_usage: { total_tokens: 9 } },
+          },
+          3
+        ),
+        row({ type: 'task_complete', turn_id: 'turn-ctx' }, 4),
+      ].join('')
+    )
+
+    const usage = events.filter((event) => event.type === 'usage.updated')
+    expect(usage).toHaveLength(2)
+    expect(usage[0]?.payload['context']).toEqual({ usedTokens: 89_011, windowTokens: 475_000 })
+    // No last_token_usage: context is omitted, not guessed from the session total.
+    expect(usage[1]?.payload['context']).toBeUndefined()
+  })
+
   test('T-08430: usage carries no model when the rollout never named one', async () => {
     const events = await observe(
       'usage-no-model',

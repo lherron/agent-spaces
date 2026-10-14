@@ -4,11 +4,13 @@ import type {
   BrokerListInvocationsRequest,
   BrokerListInvocationsResponse,
   HarnessInvocationSpec,
+  InvocationContextUsage,
   InvocationInput,
   InvocationInspectionSummary,
   InvocationSnapshot,
   InvocationStatusResponse,
   TurnId,
+  UsageUpdatedPayload,
 } from 'spaces-harness-broker-protocol'
 import { conservativeDefaultLifecyclePolicyOverlay } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../src/broker'
@@ -33,6 +35,7 @@ const summaryKeys = [
   'lifecycle',
   'liveness',
   'terminalSurface',
+  'context',
 ] as const satisfies readonly (keyof InvocationInspectionSummary)[]
 
 const inspectionFields = (
@@ -73,7 +76,12 @@ const tickingClock = (start = Date.parse('2026-06-03T20:00:00.000Z')) => {
   return () => new Date(start + ticks++ * 1000)
 }
 
-const createInspectionDriver = (): Driver => {
+interface UsageSample {
+  payload: UsageUpdatedPayload
+  turned: boolean
+}
+
+const createInspectionDriver = (usageSamples: UsageSample[] = []): Driver => {
   let ctx: DriverContext | undefined
   let activeInput: InvocationInput | undefined
   let activeTurnId: TurnId | undefined
@@ -110,6 +118,9 @@ const createInspectionDriver = (): Driver => {
           turnAttempt: 3,
         }
       )
+      for (const sample of usageSamples) {
+        ctx.emit('usage.updated', sample.payload, sample.turned ? { turnId: activeTurnId } : {})
+      }
       return { turnId: activeTurnId }
     },
     interrupt: async () => ({ accepted: false, effect: 'unsupported' }),
@@ -262,6 +273,60 @@ describe('broker inspection read model (T-01851 red)', () => {
       lifecycle: { terminalReason: 'exited' },
       process: { pid: 4321, exitCode: 17, signal: null },
     })
+  })
+
+  test('T-10927: the latest context-bearing usage.updated projects into every inspection surface', async () => {
+    // Three samples: a full one, a context-less one (must not clear or replace
+    // the projection), and a later one with no window, no model and no turnId
+    // (metadata is NOT borrowed from the earlier sample).
+    const broker = createBroker({
+      drivers: [
+        createInspectionDriver([
+          {
+            payload: {
+              usage: { raw: 1 },
+              model: { id: 'gpt-x', source: 'provider-response' },
+              context: { usedTokens: 1000, windowTokens: 258400 },
+            },
+            turned: true,
+          },
+          { payload: { usage: { raw: 2 } }, turned: true },
+          { payload: { usage: { raw: 3 }, context: { usedTokens: 2500 } }, turned: false },
+        ]),
+      ],
+      eventLedger: createEventLedger(),
+      now: tickingClock(),
+    }) as InspectionBroker
+    const invocationId = invocationIdFrom('inv_context')
+    await broker.start(
+      { spec: testSpec('inv_context') },
+      undefined,
+      undefined,
+      conservativeDefaultLifecyclePolicyOverlay('policy_inspection_context')
+    )
+    await broker.input({ invocationId, input: userInput('input_context') })
+
+    const status = await broker.status({ invocationId })
+    expect<InvocationContextUsage | undefined>(status.context).toEqual({
+      usedTokens: 2500,
+      observedAt: expect.any(String),
+      seq: expect.any(Number),
+    })
+    const lastUsage = (await broker.eventsSince({ invocationId, afterSeq: 0 })).events.filter(
+      (event) => event.type === 'usage.updated'
+    )
+    expect(lastUsage).toHaveLength(3)
+    expect(status.context?.seq).toBe(lastUsage[2]?.seq)
+    expect(status.context?.observedAt).toBe(lastUsage[2]?.time)
+
+    const snapshot = await broker.snapshot({ invocationId })
+    const listed = await broker.listInvocations({})
+    expect(snapshot.context).toEqual(status.context)
+    expect(listed.invocations[0]?.context).toEqual(status.context)
+
+    // The sample persists past the turn: stop does not clear it.
+    await broker.stop({ invocationId })
+    expect((await broker.status({ invocationId })).context).toEqual(status.context)
   })
 
   test('eventsSince type filter preserves full-ledger currentSeq and retentionFloorSeq', async () => {

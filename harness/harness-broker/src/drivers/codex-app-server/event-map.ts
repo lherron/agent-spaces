@@ -5,6 +5,7 @@ import type {
   TurnId,
   UsageModelIdentity,
 } from 'spaces-harness-broker-protocol'
+import { usageContext } from '../usage-context'
 import { asMessageId, asRecord, asToolCallId, asTurnId, stringValue } from './native-params'
 import { mapCodexNotice } from './notices'
 import { SUPPRESSED_METHODS } from './notification-methods'
@@ -156,8 +157,22 @@ function mapCodexNotificationInner(
     case 'thread/tokenUsage/updated': {
       const usage = params['usage'] ?? params['tokenUsage'] ?? params['token_usage']
       const model = modelIdentity?.()
+      // T-10927: codex's `last.totalTokens` is its tokens_in_context_window();
+      // the window is the provider-reported modelContextWindow, never guessed.
+      const record = asRecord(usage)
+      const context = usageContext(
+        asRecord(record['last'])['totalTokens'],
+        record['modelContextWindow']
+      )
       return [
-        { type: 'usage.updated', payload: { usage, ...(model !== undefined ? { model } : {}) } },
+        {
+          type: 'usage.updated',
+          payload: {
+            usage,
+            ...(model !== undefined ? { model } : {}),
+            ...(context !== undefined ? { context } : {}),
+          },
+        },
       ]
     }
 

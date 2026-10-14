@@ -138,6 +138,34 @@ describe('claude-code-tmux transcript authority: usage', () => {
     })
   })
 
+  test('T-10927: an assistant row carries its context fill and claims no window', () => {
+    const h = harness()
+    h.write(assistantRow({ type: 'text', text: 'done' }))
+
+    const usage = h.emitted.filter((event) => event.type === 'usage.updated')
+    // input + cache reads + cache writes + output of the row.
+    expect(usage[0]?.payload['context']).toEqual({ usedTokens: 2 + 26_349 + 28_820 + 25 })
+  })
+
+  test('T-10927: an uncomputable assistant row and a cost-state roll-up carry no context', () => {
+    const h = harness()
+    h.write(
+      assistantRow(
+        { type: 'text', text: 'partial' },
+        { message: { usage: { input_tokens: 2, output_tokens: 25 } } }
+      ),
+      {
+        type: 'cost-state',
+        sessionId: 'sess_1',
+        modelUsage: { 'claude-opus-5': { inputTokens: 4562, outputTokens: 7459 } },
+      }
+    )
+
+    const usage = h.emitted.filter((event) => event.type === 'usage.updated')
+    expect(usage).toHaveLength(2)
+    expect(usage.every((event) => event.payload['context'] === undefined)).toBe(true)
+  })
+
   test('T-08430: an assistant row with no model carries none', () => {
     const h = harness()
     h.write(assistantRow({ type: 'text', text: 'done' }, { message: { model: undefined } }))

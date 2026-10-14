@@ -4,6 +4,7 @@ import type {
   InputId,
   InvocationEventEnvelope,
   TurnId,
+  UsageUpdatedPayload,
 } from 'spaces-harness-broker-protocol'
 import type { InvocationAdmission } from './invocation-admission'
 import { REASON_INVOCATION_STOPPING, REASON_INVOCATION_TERMINATED } from './invocation-constants'
@@ -13,6 +14,25 @@ export interface InvocationStateProjectionDeps {
   emit: EmitFn
   observePendingOwnTurnStart(inv: Invocation, turnId: TurnId, inputId?: InputId): void
   admission: InvocationAdmission
+}
+
+/**
+ * T-10927: keep the latest context-bearing usage.updated sample. Metadata the
+ * sample omits is NOT borrowed from an earlier one; the last write by seq wins.
+ */
+function projectContextUsage(inv: Invocation, event: InvocationEventEnvelope): void {
+  const payload = event.payload as UsageUpdatedPayload | undefined
+  const context = payload?.context
+  if (context === undefined) return
+  if (inv.context !== undefined && inv.context.seq > event.seq) return
+  inv.context = {
+    usedTokens: context.usedTokens,
+    ...(context.windowTokens !== undefined ? { windowTokens: context.windowTokens } : {}),
+    ...(payload?.model !== undefined ? { model: payload.model } : {}),
+    ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
+    observedAt: event.time,
+    seq: event.seq,
+  }
 }
 
 /** Project each sequenced event onto the manager-owned invocation record. */
@@ -247,6 +267,9 @@ export function createStateProjection(deps: InvocationStateProjectionDeps) {
         inv.currentInputId = undefined
         inv.unattributedTurnId = undefined
         inv.currentTurnStartedAt = undefined
+        return
+      case 'usage.updated':
+        projectContextUsage(inv, event)
         return
       case 'continuation.updated':
         inv.continuation = event.payload as ContinuationUpdate

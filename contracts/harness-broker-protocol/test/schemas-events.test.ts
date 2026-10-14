@@ -15,6 +15,7 @@ import type {
   ToolCallId,
   TurnAttributedPayload,
   TurnId,
+  UsageContext,
   UsageModelIdentity,
   UsageModelSource,
   UsageUpdatedPayload,
@@ -285,6 +286,39 @@ describe('validateEventEnvelope', () => {
       path: 'payload.model',
       code: 'invalid_type',
     })
+  })
+
+  test('T-10927: usage.updated accepts a normalized context, with or without a window', () => {
+    const context: UsageContext = { usedTokens: 44094, windowTokens: 258400 }
+    const withWindow: UsageUpdatedPayload = { usage: {}, context }
+    expectValidatesTo(envelope('usage.updated', withWindow), envelope('usage.updated', withWindow))
+    const noWindow: UsageUpdatedPayload = { usage: {}, context: { usedTokens: 0 } }
+    expectValidatesTo(envelope('usage.updated', noWindow), envelope('usage.updated', noWindow))
+  })
+
+  test('T-10927: usage.updated rejects a malformed context', () => {
+    const cases: Array<[unknown, string, string]> = [
+      ['full', 'payload.context', 'invalid_type'],
+      [{}, 'payload.context.usedTokens', 'required'],
+      [{ usedTokens: -1 }, 'payload.context.usedTokens', 'out_of_range'],
+      [{ usedTokens: 1.5 }, 'payload.context.usedTokens', 'out_of_range'],
+      [{ usedTokens: '10' }, 'payload.context.usedTokens', 'invalid_type'],
+      [{ usedTokens: 10, windowTokens: 0 }, 'payload.context.windowTokens', 'out_of_range'],
+      [{ usedTokens: 10, windowTokens: 2.5 }, 'payload.context.windowTokens', 'out_of_range'],
+      [{ usedTokens: 10, windowTokens: null }, 'payload.context.windowTokens', 'invalid_type'],
+    ]
+    for (const [context, path, code] of cases) {
+      expectInvalidEventEnvelope(envelope('usage.updated', { usage: {}, context }), { path, code })
+    }
+    // A malformed context is rejected even when the model is valid.
+    expectInvalidEventEnvelope(
+      envelope('usage.updated', {
+        usage: {},
+        model: { id: 'gpt-5', source: 'provider-response' },
+        context: { usedTokens: -5 },
+      }),
+      { path: 'payload.context.usedTokens', code: 'out_of_range' }
+    )
   })
 
   test('rejects unsupported event types', () => {

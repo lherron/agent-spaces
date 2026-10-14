@@ -11,6 +11,7 @@ import type {
   InvocationCapabilities,
   InvocationCaptureReleaseRequest,
   InvocationCaptureReleaseResponse,
+  InvocationContextUsage,
   InvocationDisposeRequest,
   InvocationDisposeResponse,
   InvocationEventEnvelope,
@@ -183,6 +184,11 @@ export interface Invocation {
   terminalReason?: string | undefined
   /** Terminal surface facts, projected from terminal.surface.reported. */
   terminalSurface?: BrokerTerminalSurfaceReport | undefined
+  /**
+   * Latest context-bearing usage.updated sample (T-10927). Last write wins by
+   * seq; never cleared at turn end and never a retention blocker.
+   */
+  context?: InvocationContextUsage | undefined
   /** True once a driver-owned harness.started has been observed. */
   harnessStartedSeen?: boolean | undefined
   /** Per-invocation FIFO queue of pending inputs. */

@@ -516,21 +516,8 @@ const EVENT_PAYLOAD_VALIDATORS = {
     if (!Object.hasOwn(payload, 'usage')) {
       issues.push(makeIssue('payload.usage', 'required', 'usage is required'))
     }
-    const model = payload['model']
-    if (model === undefined) return
-    const record = asRecord(model)
-    if (record === undefined) {
-      issues.push(makeIssue('payload.model', 'invalid_type', 'payload.model must be an object'))
-      return
-    }
-    requireNonEmptyString(record['id'], 'payload.model.id', issues)
-    optionalEnum(
-      record['source'],
-      ['provider-response', 'harness-config'],
-      'payload.model.source',
-      issues,
-      true
-    )
+    validateUsageModel(payload['model'], issues)
+    validateUsageContext(payload['context'], issues)
   },
   diagnostic: (payload, issues) => {
     optionalEnum(
@@ -706,4 +693,57 @@ export function validateEventPayload(
   const payload = requirePayloadRecord(value, issues)
   if (!payload) return
   validator(payload, issues, context)
+}
+
+function validateUsageModel(model: unknown, issues: ValidationIssue[]): void {
+  if (model === undefined) return
+  const record = asRecord(model)
+  if (record === undefined) {
+    issues.push(makeIssue('payload.model', 'invalid_type', 'payload.model must be an object'))
+    return
+  }
+  requireNonEmptyString(record['id'], 'payload.model.id', issues)
+  optionalEnum(
+    record['source'],
+    ['provider-response', 'harness-config'],
+    'payload.model.source',
+    issues,
+    true
+  )
+}
+
+/**
+ * T-10927 — `context` is optional, but when carried `usedTokens` is a required
+ * non-negative integer and `windowTokens`, if given, a positive integer. A
+ * malformed context would read as a measurement it is not.
+ */
+function validateUsageContext(context: unknown, issues: ValidationIssue[]): void {
+  if (context === undefined) return
+  const record = asRecord(context)
+  if (record === undefined) {
+    issues.push(makeIssue('payload.context', 'invalid_type', 'payload.context must be an object'))
+    return
+  }
+  const used = record['usedTokens']
+  if (used === undefined) {
+    issues.push(makeIssue('payload.context.usedTokens', 'required', 'usedTokens is required'))
+  } else {
+    integerAtLeast(used, 0, 'payload.context.usedTokens', issues)
+  }
+  if (record['windowTokens'] !== undefined) {
+    integerAtLeast(record['windowTokens'], 1, 'payload.context.windowTokens', issues)
+  }
+}
+
+function integerAtLeast(
+  value: unknown,
+  min: number,
+  path: string,
+  issues: ValidationIssue[]
+): void {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    issues.push(makeIssue(path, 'invalid_type', `${path} must be a finite number`))
+  } else if (!Number.isInteger(value) || value < min) {
+    issues.push(makeIssue(path, 'out_of_range', `${path} must be an integer >= ${min}`))
+  }
 }

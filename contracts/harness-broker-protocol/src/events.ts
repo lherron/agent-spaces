@@ -644,6 +644,20 @@ export interface UsageUpdatedPayload {
    * about which model ran.
    */
   model?: UsageModelIdentity | undefined
+  /**
+   * Normalized context-window fill (T-10927), computed by the driver from its
+   * raw `usage`. Omitted when the driver cannot compute `usedTokens`; the
+   * window is omitted — never guessed — when the provider does not report it.
+   */
+  context?: UsageContext | undefined
+}
+
+/** Normalized context-window fill carried on `usage.updated` (T-10927). */
+export interface UsageContext {
+  /** Tokens currently occupying the model's context window (non-negative integer). */
+  usedTokens: number
+  /** Provider-reported context window size (positive integer), when known. */
+  windowTokens?: number | undefined
 }
 
 export interface DriverNoticePayload {

@@ -148,6 +148,7 @@ export function buildInspectionSummary(
   const lifecycle = buildLifecycleView(inv)
   if (lifecycle !== undefined) summary.lifecycle = lifecycle
   if (inv.terminalSurface !== undefined) summary.terminalSurface = inv.terminalSurface
+  if (inv.context !== undefined) summary.context = inv.context
   if (opts?.probeLiveness === true || inv.driver.runtimeHealth?.().state === 'degraded') {
     summary.liveness = buildLivenessView(inv)
   }

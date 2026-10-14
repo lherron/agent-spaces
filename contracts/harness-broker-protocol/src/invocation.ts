@@ -1,7 +1,12 @@
 import type { ClientCapabilities, InvocationCapabilities } from './capabilities'
 import type { CaptureStateView } from './capture'
 import type { InvocationInputResponse, InvocationState, PermissionRequestParams } from './commands'
-import type { ContinuationUpdate, InvocationEventEnvelope, InvocationEventType } from './events'
+import type {
+  ContinuationUpdate,
+  InvocationEventEnvelope,
+  InvocationEventType,
+  UsageModelIdentity,
+} from './events'
 import type { InputId, InvocationId, PermissionRequestId, TurnId } from './ids'
 import type { IsoTimestamp } from './primitives'
 import type { BrokerQueueEntry, SeatState, TurnManifestResponse } from './submission'
@@ -110,6 +115,23 @@ export interface InvocationLivenessView {
     | undefined
 }
 
+/**
+ * The latest context-bearing `usage.updated` sample of an invocation (T-10927).
+ * Last write wins by seq; it persists for the invocation's life and is not
+ * cleared at turn end. Metadata a sample omits is not borrowed from an earlier
+ * one. A sample without `turnId` makes no claim about which turn it belongs to.
+ */
+export interface InvocationContextUsage {
+  usedTokens: number
+  windowTokens?: number | undefined
+  model?: UsageModelIdentity | undefined
+  turnId?: TurnId | undefined
+  /** Envelope time of the sample. */
+  observedAt: IsoTimestamp
+  /** Envelope seq of the sample. */
+  seq: number
+}
+
 export interface InvocationInspectionSummary {
   invocationId: InvocationId
   state: InvocationState
@@ -123,6 +145,8 @@ export interface InvocationInspectionSummary {
   lifecycle?: InvocationLifecycleView | undefined
   liveness?: InvocationLivenessView | undefined
   terminalSurface?: BrokerTerminalSurfaceReport | undefined
+  /** Latest normalized context usage sample (T-10927). */
+  context?: InvocationContextUsage | undefined
 }
 
 /**
