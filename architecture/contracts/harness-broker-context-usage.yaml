@@ -11,9 +11,26 @@ predicate: >
   omit context when usedTokens cannot be computed and never guess a window.
   codex-app-server derives usedTokens from usage.last.totalTokens and the window
   from usage.modelContextWindow. codex-desktop derives them from
-  info.last_token_usage.total_tokens and info.model_context_window. Claude
-  assistant-row context is input_tokens plus cache_read_input_tokens plus
-  cache_creation_input_tokens plus output_tokens, with no inferred window.
+  info.last_token_usage.total_tokens and info.model_context_window.
+  For claude-code-tmux, Claude Code's statusline is the sole source of both
+  normalized context counts. ASP's statusline command sends its stdin JSON
+  verbatim through the existing invocation-fenced Claude hook bridge as a
+  StatusLine record when the bridge launch environment is present. The broker
+  commits that record before normalization. A non-null current_usage supplies
+  usedTokens as input_tokens plus cache_creation_input_tokens plus
+  cache_read_input_tokens plus output_tokens, and context_window_size supplies
+  windowTokens. The StatusLine-minted usage.updated preserves the record's raw
+  context_window object as usage and carries its model.id as the model with
+  source provider-response. A null current_usage or an unchanged tuple of
+  usedTokens, windowTokens, and model.id has a state-only disposition; committed
+  replay reproduces the same events. Claude transcript assistant rows retain
+  raw usage and model but carry no context; cost-state roll-ups remain unchanged.
+  There is no transcript/statusline join, per-model window cache, base-model
+  variant matching, or new windowSource field. The statusline post is
+  backgrounded and does not delay or alter rendering; a failed post is silent,
+  and an absent bridge environment leaves rendering unchanged. The withdrawn
+  rev 3 join and its F2 variant-switch risk establish no exception to this
+  statusline-only context authority.
   The broker projects the latest context-bearing committed usage.updated by
   invocation sequence into InvocationInspectionSummary.context. That sample
   contains usedTokens, optional windowTokens, the sample's optional model and
@@ -26,12 +43,24 @@ predicate: >
   that it belongs to a later completed turn. HRC continues to own its canonical
   event projection under its existing committed-observation contract; this ASP
   contract establishes neither a new HRC event name nor a retention consumer.
-authority: Daedalus approval of wrkq:T-10927 specification etag 4 (EN-29754), with HRC reading semantics and validation scope amended by etag 5 (EN-29757) on Lance's direction and persisted-reading acceptance added by etag 6 (EN-29763), 2026-10-14
+authority: >
+  Daedalus approval of wrkq:T-10927 specification etag 4 (EN-29754), with HRC
+  reading semantics and validation scope amended by etag 5 (EN-29757) on Lance's
+  direction and persisted-reading acceptance added by etag 6 (EN-29763),
+  2026-10-14. Claude context authority superseded by Lance's statusline-only
+  direction relayed by mable in EN-29863, specified by wrkq:T-10929 rev 4
+  specification etag 12; record reconciliation requested in EN-29872. No new
+  Daedalus design-review round was requested or performed.
 source:
   - wrkq:T-10927
   - wrkq:EN-29754
   - wrkq:EN-29757
   - wrkq:EN-29763
+  - wrkq:T-10929
+  - wrkq:EN-29861
+  - wrkq:EN-29863
+  - wrkq:EN-29872
+  - wrkq:T-10934
   - architecture/records/invariants/agent-spaces.harness-broker-local-commit-observation.yaml
   - architecture/contracts/harness-broker-evidence-authority.md
   - contracts/harness-broker-protocol/src/events.ts
@@ -39,11 +68,22 @@ source:
   - contracts/harness-broker-protocol/src/schema-event-payload.ts
   - harness/harness-broker/src/invocation-state.ts
   - harness/harness-broker/src/invocation-inspection.ts
+  - drivers/harness-claude/assets/statusline.sh
+  - harness/harness-broker/src/drivers/claude-code-tmux/hook-record-handler.ts
+  - harness/harness-broker/src/drivers/claude-code-tmux/hook-transcript.ts
 validation_scope: >
   Requester acceptance uses real-wire-shaped fixtures, live codex-app-server
   and claude-code-tmux inspection across turns, the provider-reported Codex
   window, and Codex resume replay restoring context after broker restart without
-  a new turn. HRC follow-on acceptance covers a live context reading at completed
+  a new turn. Claude acceptance under T-10929 rev 4 covers a fresh Opus 5.5 seat
+  whose inspection reading carries windowTokens 1000000 and usedTokens equal
+  to the final statusline render, with the same final model call's transcript
+  sum used only as comparison evidence. Requester tests cover committed
+  StatusLine journal replay, null current_usage, unchanged reading suppression,
+  transcript rows carrying no context, and unchanged script output with the
+  bridge environment unset or a failed post. Requester evidence measures the
+  StatusLine usage.updated sequence relative to turn.completed. HRC follow-on
+  acceptance retains a live context reading at completed
   turns from the invocation's latest context-bearing sample below the terminal
   sequence, irrespective of the sample's turn identity. The completed turnId
   identifies the reading boundary, not the sample's originating model call;
@@ -53,8 +93,16 @@ validation_scope: >
   reading unchanged. HRC's persisted reading appears in its existing
   status/session listing for an idle runtime after HRC restart; its producer
   contract is hrc-runtime's architecture/contracts/runtime-context-reading.yaml.
+  T-10934 adds acceptance for a context-bearing usage.updated arriving with no
+  active turn, so HRC's latest event and persisted reading match Claude's final
+  statusline render even when it follows turn.completed; requester tests cover
+  one emission on post-turn projection, no duplicate on replay, and no
+  mid-turn emission. HRC owns that projection amendment.
   A live mid-turn HRC restart
   is outside this validation scope. Builds, gates, and live acceptance remain
   the requester's work.
-last_verified: 2026-10-14 source-grounded design approval only; implementation and live acceptance pending
+last_verified: >
+  2026-10-14 record re-read against Lance's direction in EN-29863, T-10929 rev 4
+  etag 12, and T-10934 etag 3; no new design ruling, implementation gate result,
+  install result, or live acceptance is established by this reconciliation.
 reopen_when: Normalized token meaning, window authority, sample metadata, omission semantics, inspection retention, or producer/consumer authority changes.
