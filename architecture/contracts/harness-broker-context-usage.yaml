@@ -1,0 +1,49 @@
+id: agent-spaces.harness-broker-context-usage
+kind: contract
+status: active
+owner_project: agent-spaces
+scope: normalized context usage and invocation inspection in the harness-broker protocol
+predicate: >
+  usage.updated preserves its driver-specific raw usage and may additionally
+  carry context with usedTokens and optional windowTokens. A present usedTokens
+  is a non-negative integer; a present windowTokens is a positive integer.
+  Malformed context is rejected by the producer-owned event validator. Drivers
+  omit context when usedTokens cannot be computed and never guess a window.
+  codex-app-server derives usedTokens from usage.last.totalTokens and the window
+  from usage.modelContextWindow. codex-desktop derives them from
+  info.last_token_usage.total_tokens and info.model_context_window. Claude
+  assistant-row context is input_tokens plus cache_read_input_tokens plus
+  cache_creation_input_tokens plus output_tokens, with no inferred window.
+  The broker projects the latest context-bearing committed usage.updated by
+  invocation sequence into InvocationInspectionSummary.context. That sample
+  contains usedTokens, optional windowTokens, the sample's optional model and
+  turnId, observedAt from its envelope time, and seq from its envelope sequence.
+  Omitted metadata is not borrowed from a previous sample. The sample persists
+  for the invocation's life, is not cleared at turn end, and introduces no
+  retention claim. Status, snapshot, and listInvocations expose the same sample
+  through the existing inspection summary without a new RPC. A sample without
+  a turn identity remains useful inspection evidence and establishes no claim
+  that it belongs to a later completed turn. HRC continues to own its canonical
+  event projection under its existing committed-observation contract; this ASP
+  contract establishes neither a new HRC event name nor a retention consumer.
+authority: Daedalus approval of wrkq:T-10927 specification etag 4, resubmitted in EN-29754, 2026-10-14
+source:
+  - wrkq:T-10927
+  - wrkq:EN-29754
+  - architecture/records/invariants/agent-spaces.harness-broker-local-commit-observation.yaml
+  - architecture/contracts/harness-broker-evidence-authority.md
+  - contracts/harness-broker-protocol/src/events.ts
+  - contracts/harness-broker-protocol/src/invocation.ts
+  - contracts/harness-broker-protocol/src/schema-event-payload.ts
+  - harness/harness-broker/src/invocation-state.ts
+  - harness/harness-broker/src/invocation-inspection.ts
+validation_scope: >
+  Requester acceptance uses real-wire-shaped fixtures, live codex-app-server
+  and claude-code-tmux inspection across turns, the provider-reported Codex
+  window, and Codex resume replay restoring context after broker restart without
+  a new turn. HRC follow-on acceptance covers matching-turn sample attribution,
+  restart between usage and completion, and no duplicate derived event when
+  the completed envelope is replayed. Builds, gates, and live acceptance remain
+  the requester's work.
+last_verified: 2026-10-14 source-grounded design approval only; implementation and live acceptance pending
+reopen_when: Normalized token meaning, window authority, sample metadata, omission semantics, inspection retention, or producer/consumer authority changes.
