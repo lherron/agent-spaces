@@ -26,11 +26,12 @@ predicate: >
   that it belongs to a later completed turn. HRC continues to own its canonical
   event projection under its existing committed-observation contract; this ASP
   contract establishes neither a new HRC event name nor a retention consumer.
-authority: Daedalus approval of wrkq:T-10927 specification etag 4 (EN-29754), with HRC reading semantics and validation scope amended by etag 5 (EN-29757) on Lance's direction, 2026-10-14
+authority: Daedalus approval of wrkq:T-10927 specification etag 4 (EN-29754), with HRC reading semantics and validation scope amended by etag 5 (EN-29757) on Lance's direction and persisted-reading acceptance added by etag 6 (EN-29763), 2026-10-14
 source:
   - wrkq:T-10927
   - wrkq:EN-29754
   - wrkq:EN-29757
+  - wrkq:EN-29763
   - architecture/records/invariants/agent-spaces.harness-broker-local-commit-observation.yaml
   - architecture/contracts/harness-broker-evidence-authority.md
   - contracts/harness-broker-protocol/src/events.ts
@@ -48,7 +49,11 @@ validation_scope: >
   identifies the reading boundary, not the sample's originating model call;
   absence of any context-bearing sample produces no event. A projection unit
   test covers a previously stored sample with no prior in-memory state and
-  repeated terminal projection producing one event. A live mid-turn HRC restart
+  repeated terminal projection producing one event with the persisted runtime
+  reading unchanged. HRC's persisted reading appears in its existing
+  status/session listing for an idle runtime after HRC restart; its producer
+  contract is hrc-runtime's architecture/contracts/runtime-context-reading.yaml.
+  A live mid-turn HRC restart
   is outside this validation scope. Builds, gates, and live acceptance remain
   the requester's work.
 last_verified: 2026-10-14 source-grounded design approval only; implementation and live acceptance pending
