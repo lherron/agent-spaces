@@ -26,10 +26,11 @@ predicate: >
   that it belongs to a later completed turn. HRC continues to own its canonical
   event projection under its existing committed-observation contract; this ASP
   contract establishes neither a new HRC event name nor a retention consumer.
-authority: Daedalus approval of wrkq:T-10927 specification etag 4, resubmitted in EN-29754, 2026-10-14
+authority: Daedalus approval of wrkq:T-10927 specification etag 4 (EN-29754), with HRC reading semantics and validation scope amended by etag 5 (EN-29757) on Lance's direction, 2026-10-14
 source:
   - wrkq:T-10927
   - wrkq:EN-29754
+  - wrkq:EN-29757
   - architecture/records/invariants/agent-spaces.harness-broker-local-commit-observation.yaml
   - architecture/contracts/harness-broker-evidence-authority.md
   - contracts/harness-broker-protocol/src/events.ts
@@ -41,9 +42,14 @@ validation_scope: >
   Requester acceptance uses real-wire-shaped fixtures, live codex-app-server
   and claude-code-tmux inspection across turns, the provider-reported Codex
   window, and Codex resume replay restoring context after broker restart without
-  a new turn. HRC follow-on acceptance covers matching-turn sample attribution,
-  restart between usage and completion, and no duplicate derived event when
-  the completed envelope is replayed. Builds, gates, and live acceptance remain
+  a new turn. HRC follow-on acceptance covers a live context reading at completed
+  turns from the invocation's latest context-bearing sample below the terminal
+  sequence, irrespective of the sample's turn identity. The completed turnId
+  identifies the reading boundary, not the sample's originating model call;
+  absence of any context-bearing sample produces no event. A projection unit
+  test covers a previously stored sample with no prior in-memory state and
+  repeated terminal projection producing one event. A live mid-turn HRC restart
+  is outside this validation scope. Builds, gates, and live acceptance remain
   the requester's work.
 last_verified: 2026-10-14 source-grounded design approval only; implementation and live acceptance pending
 reopen_when: Normalized token meaning, window authority, sample metadata, omission semantics, inspection retention, or producer/consumer authority changes.
