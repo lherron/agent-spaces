@@ -59,7 +59,14 @@ import {
 } from './plugin-artifacts.js'
 import { getRegistryPath, loadProjectManifest } from './resolve.js'
 
-const TARGET_MATERIALIZER_VERSION = 'target-materializer-v4-codex-space-hooks'
+/**
+ * Part of every target fingerprint. The fingerprint hashes space artifacts and
+ * settings but NOT the harness adapter's own bundled assets (e.g. the Claude
+ * statusline.sh), so a change to such an asset must bump this or existing
+ * bundles are reused with the old copy (T-10929: the StatusLine bridge never
+ * reached a fresh seat until this moved).
+ */
+const TARGET_MATERIALIZER_VERSION = 'target-materializer-v5-claude-statusline-bridge'
 const TARGET_MANIFEST_FILENAME = '.asp-materialized.json'
 
 /**
