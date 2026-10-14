@@ -60,6 +60,11 @@ export function createClaudeAttributionEventSink(options: {
 }): ClaudeAttributionEventSink {
   const { emit, normalizer, attribution } = options
   let unclassified: Array<{ message: string; raw: unknown }> = []
+  // Claude writes a `<local-command-caveat>` row right before the
+  // `<command-name>` record of a command it ran locally (/model, /effort,
+  // /login, ...). That record's `parentUuid` names the caveat; a skill or
+  // prompt command (/loop) has no caveat and DOES run a model turn (T-10851).
+  let lastLocalCommandCaveatUuid: string | undefined
 
   function emitActions(actions: ClaudeAttributionAction[], rawType: string): boolean {
     const driver = { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType }
@@ -165,6 +170,14 @@ export function createClaudeAttributionEventSink(options: {
         'queued_command'
       )
     }
+    if (entryType === 'user' && isLocalCommandRecord(entry, lastLocalCommandCaveatUuid)) {
+      return { disposition: 'ignored-known', detail: 'local command record' }
+    }
+    if (entryType === 'user') {
+      lastLocalCommandCaveatUuid = isLocalCommandCaveat(entry)
+        ? getString(entry, 'uuid')
+        : undefined
+    }
     const userObservation = classifyTranscriptUserEntry(entry)
     if (userObservation?.kind === 'hook-feedback') {
       return { disposition: 'ignored-known', detail: 'stop hook feedback' }
@@ -245,6 +258,27 @@ function classifyTranscriptUserEntry(
     text === '[Request interrupted by user for tool use]'
     ? { kind: 'interrupted' }
     : undefined
+}
+
+function userRowText(entry: Record<string, unknown>): string | undefined {
+  const content = asHookRecord(entry['message'])['content']
+  return typeof content === 'string' ? content : undefined
+}
+
+function isLocalCommandCaveat(entry: Record<string, unknown>): boolean {
+  return userRowText(entry)?.startsWith('<local-command-caveat>') === true
+}
+
+/** A `<command-name>` record whose parent row is the local-command caveat. */
+function isLocalCommandRecord(
+  entry: Record<string, unknown>,
+  caveatUuid: string | undefined
+): boolean {
+  return (
+    caveatUuid !== undefined &&
+    getString(entry, 'parentUuid') === caveatUuid &&
+    userRowText(entry)?.startsWith('<command-name>') === true
+  )
 }
 
 /**
