@@ -487,6 +487,7 @@ const EVENT_PAYLOAD_VALIDATORS = {
   'tool.call.started': (payload, issues) => {
     requireString(payload['toolCallId'], 'payload.toolCallId', issues)
     requireString(payload['name'], 'payload.name', issues)
+    optionalString(payload['summary'], 'payload.summary', issues)
   },
   'tool.call.delta': (payload, issues) => {
     requireString(payload['toolCallId'], 'payload.toolCallId', issues)

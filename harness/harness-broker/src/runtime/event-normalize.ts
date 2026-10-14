@@ -9,6 +9,7 @@
  *   (b) Well-known payload normalization — constrain `invocation.started` to
  *       its canonical safe shape and normalize the terminal `invocation.ready`
  *       / `invocation.disposed` payloads regardless of what the emitter passed.
+ *       Exec-shaped `tool.call.started` payloads gain a `summary` line.
  *   (c) Deterministic size bounding — truncate oversized payloads against
  *       `maxEventBytes`, emitting a broker diagnostic describing what was cut.
  *
@@ -22,6 +23,7 @@ import type {
   InvocationEventPayloadMap,
   InvocationEventType,
 } from 'spaces-harness-broker-protocol'
+import { toolCallSummary } from './tool-call-summary'
 
 const TRUNCATED = '[TRUNCATED]'
 
@@ -80,6 +82,7 @@ export interface NormalizeEventPayloadResult<K extends InvocationEventType> {
  * 1. Constrain `invocation.started` to {pid, command, args, cwd}.
  * 2. Normalize final-contract terminal payloads (`invocation.ready`,
  *    `invocation.disposed`) to their canonical shape regardless of emitter.
+ *    Add `summary` to exec-shaped `tool.call.started` payloads.
  * 3. Truncate oversized payloads deterministically against `maxEventBytes`,
  *    emitting a broker diagnostic describing what was truncated.
  *
@@ -99,6 +102,8 @@ export function normalizeEventPayload<K extends InvocationEventType>(
     safe = { state: 'ready' }
   } else if (type === 'invocation.disposed') {
     safe = { disposed: true }
+  } else if (type === 'tool.call.started') {
+    safe = withToolCallSummary(payload)
   }
 
   // 3. Deterministic size enforcement.
@@ -123,6 +128,14 @@ export function normalizeEventPayload<K extends InvocationEventType>(
   }
 
   return { payload: safe as InvocationEventPayloadMap[K] }
+}
+
+function withToolCallSummary(payload: unknown): unknown {
+  if (payload === null || typeof payload !== 'object') return payload
+  const p = payload as Record<string, unknown>
+  if (typeof p['name'] !== 'string') return payload
+  const summary = toolCallSummary(p['name'], p['input'], p['summary'])
+  return summary === undefined ? payload : { ...p, summary }
 }
 
 interface TruncateResult {

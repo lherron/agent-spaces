@@ -352,6 +352,7 @@ describe('codex-desktop rollout normalization', () => {
     )
     expect(childCompletions.map((event) => event.payload.result)).toEqual(
       [1, 2, 3].map((n) => ({
+        command: ['/bin/zsh', '-lc', specimens[n - 1]?.input],
         status: 'completed',
         stdout: `result ${n}\n`,
         stderr: '',
@@ -399,6 +400,17 @@ describe('codex-desktop rollout normalization', () => {
     })
 
     const emitted = events.find((event) => event.type === 'tool.call.completed')
+    // T-10932: the parsed command record rides through on the result.
+    const nativeItem = (
+      JSON.parse(exactFrozenRecord) as { payload: { item: Record<string, unknown> } }
+    ).payload.item
+    expect(emitted?.payload).toMatchObject({
+      result: {
+        command: nativeItem['command'],
+        cwd: 'file:///Users/lherron/praesidium/clients/hrc-ios',
+        parsedCmd: nativeItem['parsed_cmd'],
+      },
+    })
     expect(emitted).toMatchObject({
       type: 'tool.call.completed',
       turnId: '01a086af-db07-7e72-94c1-a0ce9557496f',

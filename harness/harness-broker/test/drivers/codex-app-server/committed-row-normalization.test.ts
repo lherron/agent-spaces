@@ -13,6 +13,7 @@ import { openCaptureIndex } from '../../../src/capture/capture-index'
 import { createCodexAppServerDriver } from '../../../src/drivers/codex-app-server/driver'
 import { createCodexNotificationMapper } from '../../../src/drivers/codex-app-server/event-map'
 import { createEventLedger } from '../../../src/event-ledger'
+import { normalizeEventPayload } from '../../../src/runtime/event-normalize'
 import { inputIdFrom } from '../../ids'
 
 /**
@@ -216,9 +217,13 @@ describe('codex-app-server committed-row normalization', () => {
       const comparable = emitted.some((event) => event.type === 'turn.started')
         ? fromCommittedBytes
         : fromCommittedBytes.filter((event) => event.type !== 'turn.started')
-      expect(comparable.map((event) => ({ type: event.type, payload: event.payload }))).toEqual(
-        emitted
-      )
+      // Both copies pass the broker's central payload normalization on emit.
+      expect(
+        comparable.map((event) => ({
+          type: event.type,
+          payload: normalizeEventPayload({ type: event.type, payload: event.payload }).payload,
+        }))
+      ).toEqual(emitted)
     }
   })
 

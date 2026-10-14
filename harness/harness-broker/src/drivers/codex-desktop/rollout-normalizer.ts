@@ -509,6 +509,9 @@ function recordedToolResult(itemType: string | undefined, item: Record<string, u
       output: item['aggregated_output'],
       exitCode: item['exit_code'],
       duration: item['duration'],
+      command: item['command'],
+      cwd: item['cwd'],
+      parsedCmd: item['parsed_cmd'],
     }
   }
   return item

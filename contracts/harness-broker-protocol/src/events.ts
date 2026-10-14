@@ -455,6 +455,13 @@ export interface ToolCallStartedPayload {
   toolCallId: ToolCallId
   name: string
   input?: unknown
+  /**
+   * One-line human summary of an exec call (T-10932): the model's own
+   * description when the harness has one, else `Running <prog>...`. Set by
+   * the broker's central normalization for exec-shaped calls only; absent on
+   * other tools and on events recorded before it existed.
+   */
+  summary?: string | undefined
 }
 
 export interface ToolCallDeltaPayload {
