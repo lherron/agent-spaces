@@ -11,6 +11,7 @@ import type {
 import { type CaptureGate, createCaptureGate } from '../../../src/capture/capture-gate'
 import { openCaptureIndex } from '../../../src/capture/capture-index'
 import { createRawJournal } from '../../../src/capture/raw-journal'
+import { createClaudeCodeTmuxDriver } from '../../../src/drivers/claude-code-tmux/driver'
 import { createClaudeStatusLineReader } from '../../../src/drivers/claude-code-tmux/status-line'
 import { listenForHookEnvelopes } from '../../../src/drivers/tmux-shared'
 import type { HookEnvelope, TmuxExecCall } from './driver-red.helpers'
@@ -61,7 +62,10 @@ function withUsage(
       ...(patch.window !== undefined ? { context_window_size: patch.window } : {}),
       current_usage:
         patch.used !== undefined
-          ? { ...usage, cache_read_input_tokens: usage['cache_read_input_tokens'] + patch.used }
+          ? {
+              ...usage,
+              cache_read_input_tokens: (usage['cache_read_input_tokens'] ?? 0) + patch.used,
+            }
           : usage,
     },
   }
@@ -329,10 +333,9 @@ describe('statusline.sh (T-10929)', () => {
 
   test('end to end: real statusline.sh → real bridge CLI → broker socket → usage.updated', async () => {
     const root = mkdtempSync(join(tmpdir(), 'claude-statusline-e2e-'))
-    const createDriver = await loadFactory()
     const tmuxCalls: TmuxExecCall[] = []
     const events: InvocationEventEnvelope[] = []
-    const driver = createDriver({
+    const driver = createClaudeCodeTmuxDriver({
       tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
       hooks: {
         listen: (handler) => listenForHookEnvelopes(join(root, 'claude-hooks.sock'), handler),
