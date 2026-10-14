@@ -29,6 +29,17 @@ export const CLAUDE_STATUS_LINE_BRIDGE_ENV = 'HARNESS_BROKER_STATUSLINE_BRIDGE'
  * State depends only on earlier StatusLine records, so replaying the committed
  * records in commit order mints the same readings.
  */
+/**
+ * The statusline names the LAUNCHED variant (`claude-opus-5-5[1m]`); transcript
+ * rows name the base model (`claude-opus-5-5`). The minted `model.id` drops a
+ * trailing bracketed variant so both sources report one identity and
+ * hrc.reportedModel does not alternate within a turn. The variant survives in
+ * the committed raw record.
+ */
+export function claudeBaseModelId(modelId: string): string {
+  return modelId.replace(/\[[^\]]*\]$/, '')
+}
+
 export interface ClaudeStatusLineReader {
   /** The payload to mint for one StatusLine record, or undefined (state-only). */
   observe(raw: unknown): UsageUpdatedPayload | undefined
@@ -46,7 +57,8 @@ export function createClaudeStatusLineReader(): ClaudeStatusLineReader {
       )
       if (context === undefined) return undefined
       const modelId = getString(asRecord(record['model']), 'id')
-      const model = modelId !== undefined && modelId.length > 0 ? modelId : undefined
+      const model =
+        modelId !== undefined && modelId.length > 0 ? claudeBaseModelId(modelId) : undefined
       const key = JSON.stringify([context.usedTokens, context.windowTokens ?? null, model ?? null])
       if (key === lastMintedKey) return undefined
       lastMintedKey = key

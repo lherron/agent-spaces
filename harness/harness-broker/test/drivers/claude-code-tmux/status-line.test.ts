@@ -99,6 +99,23 @@ describe('Claude statusline reading (T-10929)', () => {
     ).toEqual({ id: 'claude-x', source: 'provider-response' })
   })
 
+  test('a [1m] record mints the base model id and leaves the raw usage verbatim', () => {
+    const variant: Record<string, unknown> = {
+      ...AFTER_TURN,
+      model: { id: 'claude-opus-5-5[1m]', display_name: 'Opus 5.5' },
+    }
+    const before = JSON.stringify(variant)
+    const reading = createClaudeStatusLineReader().observe(variant)
+    expect(reading?.model).toEqual({ id: 'claude-opus-5-5', source: 'provider-response' })
+    expect(reading?.usage).toBe(variant['context_window'])
+    expect(JSON.stringify(variant)).toBe(before)
+    // Only a TRAILING bracketed variant is dropped.
+    expect(
+      createClaudeStatusLineReader().observe({ ...AFTER_TURN, model: { id: 'claude-x[a]-1' } })
+        ?.model?.id
+    ).toBe('claude-x[a]-1')
+  })
+
   test('the statusline fill equals the transcript sum for the same model call', () => {
     const reading = createClaudeStatusLineReader().observe(AFTER_TURN)
     const cw = AFTER_TURN['context_window'] as { current_usage: Record<string, number> }
