@@ -468,6 +468,7 @@ export class ClaudeAdapter implements HarnessAdapter {
       '--chrome',
       ...(options.yolo ? ['--dangerously-skip-permissions'] : []),
       ...(options.remoteControl ? buildRemoteControlArgs(bundle, options) : []),
+      ...(options.modelReasoningEffort ? ['--effort', options.modelReasoningEffort] : []),
       ...(options.extraArgs ?? []),
       ...sessionArgs,
       ...(needsSeparator ? ['--'] : []),
