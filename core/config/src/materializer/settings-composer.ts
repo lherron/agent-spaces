@@ -48,6 +48,11 @@ export interface ComposedSettings {
    * renderer. Corresponds to Claude Code's /tui command.
    */
   tui?: 'fullscreen' | 'default' | undefined
+  /**
+   * Whether Claude Code may compact a long conversation while the session is
+   * idle. Only `false` has an effect; `true` does not turn idle compaction on.
+   */
+  idleCompaction?: false | undefined
 }
 
 /**

@@ -408,6 +408,10 @@ export class ClaudeAdapter implements HarnessAdapter {
     // — headless, hrc run, and broker-tmux (whose overlay preserves this key) —
     // share one renderer.
     composedSettings.tui = 'fullscreen'
+    // Never compact an agent session while it sits idle. Claude Code otherwise
+    // summarizes a long conversation before the prompt cache expires, which
+    // silently drops context a seat waiting on mail or a dispatch still needs.
+    composedSettings.idleCompaction = false
     await writeFile(settingsOutputPath, JSON.stringify(composedSettings, null, 2))
 
     // Install statusline script and add to settings (best-effort)

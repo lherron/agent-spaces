@@ -151,6 +151,8 @@ describe('ClaudeAdapter.composeTarget', () => {
     expect(settings.askUserQuestionTimeout).toBe('60s')
     // Every agent run renders in the fullscreen (alt-screen) TUI
     expect(settings.tui).toBe('fullscreen')
+    // Agent sessions never compact themselves while idle
+    expect(settings.idleCompaction).toBe(false)
   })
 
   test('writes statusline script to staging but points settings at published output', async () => {
