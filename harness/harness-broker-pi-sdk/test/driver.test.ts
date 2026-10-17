@@ -131,6 +131,12 @@ describe('pi SDK driver structured output', () => {
         listener?.(piEvent({ type: 'agent_settled' }))
       },
       async steer() {},
+      getSteeringMessages() {
+        return []
+      },
+      clearQueue() {
+        return { steering: [], followUp: [] }
+      },
       async abort() {},
       async waitForIdle() {},
       getActiveToolNames() {
@@ -587,6 +593,12 @@ function idleSession(): PiSdkSession {
     },
     async prompt() {},
     async steer() {},
+    getSteeringMessages() {
+      return []
+    },
+    clearQueue() {
+      return { steering: [], followUp: [] }
+    },
     async abort() {},
     async waitForIdle() {},
     getActiveToolNames() {

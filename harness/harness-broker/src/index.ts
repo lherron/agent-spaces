@@ -120,3 +120,4 @@ export type { MuseCliTmuxDriverOptions } from './drivers/muse-cli-tmux/driver'
 export type { NoopDriverOptions } from './drivers/noop-driver'
 
 export type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from './drivers/driver'
+export { withDeliveryEvidence, withSteerRequiresOwnTurn } from './drivers/driver'

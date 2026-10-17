@@ -32,6 +32,12 @@ export interface PiSdkTurnEventMapperOptions {
    * extension calling `abort()`) settles the turn as interrupted (T-08823).
    */
   abortSignal?: (() => AbortSignal | undefined) | undefined
+  /**
+   * Runs once per turn, before its terminal is emitted, while the turn id is
+   * still the active one. The driver settles steers the turn never consumed
+   * here, so each one's fate precedes the terminal that ends it (T-11306).
+   */
+  beforeTerminal?: ((turnId: TurnId) => void) | undefined
 }
 
 /**
@@ -64,6 +70,7 @@ export class PiSdkTurnEventMapper {
   readonly #driverKind: string
   readonly #configuredModelId: string | undefined
   readonly #abortSignal: () => AbortSignal | undefined
+  readonly #beforeTerminal: (turnId: TurnId) => void
 
   #turnId: TurnId | undefined
   #inputId: InputId | undefined
@@ -94,6 +101,7 @@ export class PiSdkTurnEventMapper {
     this.#driverKind = options.driverKind ?? 'pi-sdk'
     this.#configuredModelId = options.configuredModelId
     this.#abortSignal = options.abortSignal ?? (() => undefined)
+    this.#beforeTerminal = options.beforeTerminal ?? (() => undefined)
   }
 
   /**
@@ -397,6 +405,7 @@ export class PiSdkTurnEventMapper {
 
   #emitInterrupted(reason: string): void {
     const turnId = this.#requireTurnId()
+    this.#beforeTerminal(turnId)
     this.#failOpenTools('tool_interrupted', reason)
     this.#ctx.emit(
       'turn.interrupted',
@@ -415,6 +424,7 @@ export class PiSdkTurnEventMapper {
 
   #emitCompleted(finalOutput: string | undefined): void {
     const turnId = this.#requireTurnId()
+    this.#beforeTerminal(turnId)
     this.#ctx.emit(
       'turn.completed',
       {
@@ -442,6 +452,7 @@ export class PiSdkTurnEventMapper {
 
   #emitFailed(code: string, message: string): void {
     const turnId = this.#requireTurnId()
+    this.#beforeTerminal(turnId)
     this.#ctx.emit(
       'turn.failed',
       {

@@ -17,6 +17,8 @@ import {
   piSdkAgentDir,
   resolvePiSdkAuth as resolveBrokerPiSdkAuth,
   validateJsonSchemaValue,
+  withDeliveryEvidence,
+  withSteerRequiresOwnTurn,
 } from 'spaces-harness-broker'
 import {
   CONSERVATIVE_LIFECYCLE_CAPABILITIES,
@@ -86,6 +88,11 @@ const PI_SDK_CAPABILITIES: InvocationCapabilities = {
   lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 }
 
+interface PendingSteer {
+  inputId: InputId
+  text: string
+}
+
 interface MutableTool {
   name: string
   parameters: unknown
@@ -102,6 +109,11 @@ export interface PiSdkSession {
   subscribe(listener: (event: AgentSessionEvent) => void): () => void
   prompt(text: string, options?: { expandPromptTemplates?: boolean | undefined }): Promise<void>
   steer(text: string): Promise<unknown>
+  /** Texts pi still holds in its steering queue, in delivery order. */
+  getSteeringMessages(): readonly string[]
+  /** Empty both pi queues, returning what they held. */
+  clearQueue(): { steering: string[]; followUp: string[] }
+  followUp?(text: string): Promise<unknown>
   abort(): Promise<void>
   waitForIdle(): Promise<void>
   getActiveToolNames(): string[]
@@ -162,6 +174,11 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
   let exited = false
   let operatorTurnCounter = 0
   let operatorTurnId: TurnId | undefined
+  // Steers handed to pi whose landing has not been observed yet. pi delivers a
+  // queued steer as a user message between model rounds of the run it was
+  // queued into; whatever the run never drained is settled at the turn's
+  // terminal (settleUnconsumedSteers).
+  let pendingSteers: PendingSteer[] = []
 
   const requireCtx = (): DriverContext => {
     if (ctx === undefined) throw new Error('pi-sdk driver has not started')
@@ -178,6 +195,51 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
   const requireMapper = (): PiSdkTurnEventMapper => {
     if (mapper === undefined) throw new Error('pi-sdk event mapper is unavailable')
     return mapper
+  }
+
+  /** Claim the pending steer pi just delivered under this text, if any. */
+  const takePendingSteer = (text: string): PendingSteer | undefined => {
+    const index = pendingSteers.findIndex((steer) => steer.text === text)
+    if (index < 0) return undefined
+    const [steer] = pendingSteers.splice(index, 1)
+    return steer
+  }
+
+  /**
+   * A steer pi never drained into this turn is still in its queue, and pi would
+   * deliver it with whatever prompt comes next, possibly never. Withdraw it so
+   * it cannot ride an unrelated turn: it left the harness-local queue without
+   * entering model context, which is `cancelled{removed}`. A steer that left the
+   * queue without a matching user message (an input handler rewrote or handled
+   * it) was consumed by this turn.
+   */
+  const settleUnconsumedSteers = (turnId: TurnId): void => {
+    if (pendingSteers.length === 0) return
+    const steers = pendingSteers
+    pendingSteers = []
+    const currentCtx = requireCtx()
+    const currentSession = requireSession()
+    const queued = [...currentSession.getSteeringMessages()]
+    const unconsumed = new Set<PendingSteer>()
+    for (const steer of steers) {
+      const index = queued.indexOf(steer.text)
+      if (index < 0) continue
+      queued.splice(index, 1)
+      unconsumed.add(steer)
+    }
+    if (unconsumed.size > 0) withdrawSteers(currentSession, [...unconsumed])
+    for (const steer of steers) {
+      const extra = { turnId, inputId: steer.inputId, driver: { kind: driverKind } }
+      if (unconsumed.has(steer)) {
+        currentCtx.emit(
+          'submission.cancelled',
+          { submissionId: steer.inputId, reason: 'removed' },
+          extra
+        )
+      } else {
+        currentCtx.emit('submission.absorbed', { submissionId: steer.inputId, turnId }, extra)
+      }
+    }
   }
 
   const allocateTurnId = (): TurnId => {
@@ -330,6 +392,7 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
         abortSignal: () => session?.agent.signal,
         driverKind,
         ...(nextSpec.sdk?.modelId !== undefined ? { configuredModelId: nextSpec.sdk.modelId } : {}),
+        beforeTerminal: settleUnconsumedSteers,
       })
       const permissionPolicy = readPermissionPolicy(nextSpec)
       const permissionBridge = createPiSdkPermissionBridge({
@@ -361,6 +424,30 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
       unsubscribe = session.subscribe((event) => {
         const currentMapper = mapper
         if (currentMapper === undefined) return
+        const landedSteer =
+          event.type === 'message_start' &&
+          event.message.role === 'user' &&
+          currentMapper.activeTurnId !== undefined
+            ? takePendingSteer(userMessageText(event.message.content))
+            : undefined
+        if (landedSteer !== undefined) {
+          const turnId = currentMapper.activeTurnId as TurnId
+          const extra = {
+            turnId,
+            inputId: landedSteer.inputId,
+            driver: { kind: driverKind, rawType: 'message_start' },
+          }
+          driverCtx.emit(
+            'user.message',
+            { content: landedSteer.text, inputId: landedSteer.inputId, role: 'user' },
+            extra
+          )
+          driverCtx.emit(
+            'submission.absorbed',
+            { submissionId: landedSteer.inputId, turnId },
+            extra
+          )
+        }
         if (options.observeOperatorTurns === true) {
           const ensureOperatorTurn = (): void => {
             if (currentMapper.activeTurnId !== undefined) return
@@ -380,7 +467,7 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
           if (event.type === 'message_start' && event.message.role === 'user') {
             ensureOperatorTurn()
             const content = userMessageText(event.message.content)
-            if (content.length > 0 && operatorTurnId !== undefined) {
+            if (content.length > 0 && operatorTurnId !== undefined && landedSteer === undefined) {
               driverCtx.emit(
                 'user.message',
                 { content, turnId: operatorTurnId, role: 'user' },
@@ -435,7 +522,26 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
     },
 
     async applySteerNow(input: InvocationInput): Promise<void> {
-      await requireSession().steer(extractText(input))
+      const currentSession = requireSession()
+      if (requireMapper().activeTurnId === undefined) {
+        // pi would hold this text until some later prompt; let the broker open
+        // a turn for it instead, so it executes now and as itself.
+        throw withSteerRequiresOwnTurn(
+          withDeliveryEvidence(new Error('pi SDK has no open turn to steer'), 'not_written')
+        )
+      }
+      const text = extractText(input)
+      const pending =
+        input.inputId !== undefined ? { inputId: input.inputId as InputId, text } : undefined
+      // Registered before steer(): pi may drain the queue before it resolves.
+      if (pending !== undefined) pendingSteers.push(pending)
+      try {
+        await currentSession.steer(text)
+      } catch (error) {
+        if (pending !== undefined)
+          pendingSteers = pendingSteers.filter((steer) => steer !== pending)
+        throw error
+      }
     },
 
     async interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
@@ -479,6 +585,7 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
       spec = undefined
       mapper = undefined
       activeSchema = undefined
+      pendingSteers = []
     },
   }
 
@@ -491,6 +598,22 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
     await session?.dispose()
     session = undefined
   }
+}
+
+/**
+ * Take `steers` out of pi's queues. pi offers no single-entry removal, so the
+ * queues are emptied and everything else (an operator's typed steer or
+ * follow-up) is handed back in order.
+ */
+function withdrawSteers(session: PiSdkSession, steers: readonly PendingSteer[]): void {
+  const { steering, followUp } = session.clearQueue()
+  const remaining = [...steering]
+  for (const steer of steers) {
+    const index = remaining.indexOf(steer.text)
+    if (index >= 0) remaining.splice(index, 1)
+  }
+  for (const text of remaining) void session.steer(text).catch(() => undefined)
+  for (const text of followUp) void session.followUp?.(text).catch(() => undefined)
 }
 
 function userMessageText(content: string | ReadonlyArray<{ type: string; text?: string }>): string {
