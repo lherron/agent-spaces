@@ -240,6 +240,8 @@ function sessionStub(): PiSdkSession {
     subscribe: () => () => undefined,
     async prompt() {},
     async steer() {},
+    getSteeringMessages: () => [],
+    clearQueue: () => ({ steering: [], followUp: [] }),
     async abort() {},
     async waitForIdle() {},
     getActiveToolNames: () => [],
