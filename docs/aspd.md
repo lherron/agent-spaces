@@ -26,8 +26,8 @@ terminal requirement, and hosting requirement. A provider or model never
 chooses a harness. A true presentation request resolves to a fulfilling recipe
 or a typed refusal; it is never silently downgraded.
 
-Every successful ordinary response contains one `execution` and one canonical
-start request at `execution.dispatchRequest.startRequest`. The selected v2
+Every successful ordinary response contains one `plan.execution` and one
+canonical start request at `plan.execution.dispatchRequest.startRequest`. The selected v2
 release must positively bind that compiler-selected driver before a successful
 response can expose `executionRelease`; the broker executes the frozen driver
 named by that canonical request. V1 requests, plans, and profiles; profile TOML
@@ -44,6 +44,44 @@ The governing active records are
 `agent-spaces.producer-owned-harness-selection` and
 `agent-spaces.aspd-release-worker-hosting`; the approved design is
 `docs/proposals/producer-owned-harness-selection.md`.
+
+## Current service operations
+
+The namespace layout, log format and lifecycle recipes below remain implemented
+by `scripts/aspd-service.ts` and `harness/aspc-facade/src/aspd.ts`; the pilot
+protocol and acceptance sections describe historical evidence. Current read and
+preparation methods are registered in `harness/aspc/src/registration.ts`.
+
+HRC's `packages/hrc-server/src/agent-spaces-adapter/aspd-preparation-client.ts`
+uses `HRC_ASPD_SOCKET`: each preparation connects, negotiates `aspc.hello`,
+compiles once, and closes. Requests after hello have a 120-second deadline.
+It does not retry a compile or fall back to a bundled compiler. The launchd
+bootstrap retries below concern service loading, not RPC or invocation replay.
+
+A namespace starts unsupervised. To hand a selected namespace to a per-user
+launchd job, the service script exposes
+`bun scripts/aspd-service.ts supervise <absolute-ns> <label>` (there is no
+`just aspd-supervise` recipe). This retires an unsupervised daemon before loading
+the job, writes `~/Library/LaunchAgents/<label>.plist` and
+`<ns>/service/launchd-run.sh`, and persists `config.supervisor`. Shared service
+mutation remains Mable primary's responsibility.
+
+When available on PATH, `praesidium-adopt` adopts the plist; adoption failure
+aborts the operation. Every unloaded-job start re-adopts before bootstrap.
+Bootstrap retries only exit status 5 or output matching `5: Input/output error`,
+with at most four attempts separated by two seconds. Other failures stop
+immediately. The same start/stop/restart/activate verbs then use launchd:
+activation bootouts and waits for the old process before selecting and
+bootstrapping the new release; restart uses `kickstart -k` and verifies a new
+PID and serving identity. A stopped job stays unloaded until started again.
+
+`just aspd-status <absolute-ns>` is read-only. Check `runningProcess`,
+`serving.release` and `runningEqualsSelected`; installed releases and a selected
+release alone do not establish that a daemon is serving. With supervision,
+status also reports `supervisor` and `launchdPid`. The running record names
+`logPath` (supervisor output) and `requestLogPath` (request log). An unsupervised
+start instead captures stderr in
+`<ns>/logs/aspd-<releaseId>-<timestamp>.log`.
 
 ## Historical pre-v2 pilot record
 
@@ -229,21 +267,29 @@ All state lives under one explicit namespace root:
 
 #### Logs
 
-Every aspd line is `<iso> [aspd] <LEVEL> <event> <json fields>`. Under launchd,
+The current aspd formatter emits `<iso> [aspd] <LEVEL> <event> <json fields>`;
+these are prefixed text lines, not whole-line JSON. Under launchd,
 `aspd serve --socket <p> --log <ns>/logs/aspd.log` writes its own log: lines are
 buffered and appended asynchronously (250 ms), rotated to `aspd.log.1..3` at
 32 MB (≤128 MB total), and flushed on retire/exit. `aspd-launchd.log` (the
 supervisor's stdout/stderr) keeps only `serving`/`exit`/`fatal` lines and
 uncaught stderr, and the launch script copy-truncates it to `.1` above 16 MB at
-start. Without `--log` (spawn-mode `start`), everything goes to stderr.
+start. Without `--log` (spawn-mode `start`), everything goes to stderr, captured
+in the timestamped namespace log described above. These namespace-local logs
+and rotation rules are what the current implementation uses; do not substitute
+the platform-wide JSON-lines logging convention when parsing them.
 
 | Event | When | Fields |
 | --- | --- | --- |
-| `request.answered` | every request, after its reply is written | `conn`, `id`, `method`, `startedAt`, `durationMs`, `outcome` (`ok` \| `rejected:<code>` \| `error:<code>`), `replyBytes`, correlation, `phases` (compile only) |
+| `request.answered` | every registered method request, after its reply is written | `conn`, `id`, `method`, `startedAt`, `durationMs`, `outcome` (`ok` \| `rejected:<code>` \| `error:<code>`), `replyBytes` (when available), `error` (when available), correlation, `phases` (compile only) |
 | `request.admitted` | compile and prepare only | `conn`, `id`, `method`, `startedAt`, correlation |
 | `request.slow` (WARN) | still in flight after 2 s | `elapsedMs`, `slowRequestMs`, correlation; the answered line is also WARN |
 | `request.refused-retiring` (WARN) | a frame dispatched after retirement began | `conn`, `id`, `method` |
 | `retire.begin` / `retire.drained` / `serving` / `exit` | lifecycle | |
+
+Unknown methods are refused by the protocol server before the registered
+handler, so they do not produce `request.answered` lines. Parameter validation
+failures for registered methods do.
 
 Correlation is read from request params, never required: `runtimeId`,
 `traceId`, `invocationId` and `scopeRef` from `compileRequest.identity` on
@@ -255,7 +301,7 @@ Compile `phases` (ms) are `resolve`, `build`, and inside build
 agent-harness plans). Example:
 
 ```bash
-grep '"runtimeId":"rt-…"' ~/praesidium/var/aspd/logs/aspd.log ~/praesidium/var/logs/hrc-server.err.log
+rg '"runtimeId":"rt-…"' ~/praesidium/var/aspd/logs/aspd.log ~/praesidium/var/logs/hrc-runtime/hrc-server.log
 ```
 
 `just aspd-status <ns>` reports three separate facts: installed releases,
