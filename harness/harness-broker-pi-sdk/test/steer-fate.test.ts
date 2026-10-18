@@ -3,24 +3,29 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  Type,
   createModels,
   fauxAssistantMessage,
   fauxProvider,
   fauxToolCall,
 } from '@earendil-works/pi-ai'
 import {
+  type AgentSession,
   SessionManager,
-  type ToolDefinition,
   createAgentSession,
   defineTool,
 } from '@earendil-works/pi-coding-agent'
 import type { DriverContext } from 'spaces-harness-broker'
 import type {
   HarnessInvocationSpec,
+  InvocationEvent,
   InvocationEventEnvelope,
+  InvocationEventFor,
+  InvocationEventPayloadMap,
+  InvocationEventType,
   InvocationInput,
 } from 'spaces-harness-broker-protocol'
-import { type PiSdkSession, createPiSdkDriver } from '../src/driver'
+import { createPiSdkDriver } from '../src/driver'
 import { inputIdFrom, invocationIdFrom } from './ids'
 
 // These run the driver over a REAL pi AgentSession (scripted by pi-ai's faux
@@ -129,7 +134,7 @@ async function harness() {
     name: 'slow',
     label: 'slow',
     description: 'Blocks until the test releases it.',
-    parameters: { type: 'object', properties: {} },
+    parameters: Type.Object({}),
     async execute() {
       toolStarted = true
       await new Promise<void>((resolve) => {
@@ -137,9 +142,9 @@ async function harness() {
       })
       return { content: [{ type: 'text' as const, text: 'ok' }], details: {} }
     },
-  }) as unknown as ToolDefinition
+  })
 
-  let session: PiSdkSession | undefined
+  let session: AgentSession | undefined
   const driver = createPiSdkDriver({
     async createSession(factoryInput) {
       const created = await createAgentSession({
@@ -151,7 +156,7 @@ async function harness() {
         noTools: 'builtin',
         customTools: [factoryInput.structuredTool, slow],
       })
-      session = created.session as unknown as PiSdkSession
+      session = created.session
       return session
     },
   })
@@ -168,24 +173,26 @@ async function harness() {
       await Bun.sleep(1)
     }
   }
+  const requireSession = (): AgentSession => {
+    if (session === undefined) throw new Error('session not created')
+    return session
+  }
   return {
     driver,
     faux,
     events,
-    get session(): PiSdkSession {
-      if (session === undefined) throw new Error('session not created')
-      return session
+    get session(): AgentSession {
+      return requireSession()
     },
     waitFor,
     seq: (type: string) => events.find((event) => event.type === type)?.seq ?? -1,
     userTexts: () =>
-      (session as unknown as { messages: Array<{ role: string; content: unknown }> }).messages
-        .filter((message) => message.role === 'user')
-        .flatMap((message) =>
-          Array.isArray(message.content)
-            ? message.content.map((part: { text?: string }) => part.text ?? '')
-            : [String(message.content)]
-        ),
+      requireSession().messages.flatMap((message) => {
+        if (message.role !== 'user') return []
+        return typeof message.content === 'string'
+          ? [message.content]
+          : message.content.map((part) => (part.type === 'text' ? part.text : ''))
+      }),
     async toolStarted() {
       const deadline = Date.now() + 5_000
       while (!toolStarted) {
@@ -214,22 +221,39 @@ function spec(cwd: string): HarnessInvocationSpec {
   }
 }
 
+type EmitExtra = Parameters<DriverContext['emit']>[2]
+
 function context(events: CapturedEvent[]): DriverContext {
-  let seq = 0
+  const invocationId = invocationIdFrom('invocation-steer-fate')
+  // Same shape as the broker's own emit: a generic signature over a correlated
+  // event-name/payload implementation.
+  function record<K extends InvocationEventType>(
+    event: InvocationEventFor<K>,
+    extra?: EmitExtra
+  ): InvocationEventEnvelope<K>
+  function record(event: InvocationEvent, extra?: EmitExtra): InvocationEventEnvelope {
+    const envelope: InvocationEventEnvelope = {
+      invocationId,
+      seq: events.length + 1,
+      time: new Date().toISOString(),
+      ...event,
+      ...(extra?.turnId !== undefined ? { turnId: extra.turnId } : {}),
+    }
+    events.push(envelope)
+    return envelope
+  }
   return {
-    invocationId: invocationIdFrom('invocation-steer-fate'),
+    invocationId,
     clientCapabilities: {},
-    emit(type: string, payload: unknown, extra?: { turnId?: string }) {
-      seq += 1
-      events.push({
-        seq,
-        type: type as CapturedEvent['type'],
-        payload: payload as CapturedEvent['payload'],
-        ...(extra?.turnId !== undefined ? { turnId: extra.turnId } : {}),
-      })
+    emit<K extends InvocationEventType>(
+      type: K,
+      payload: InvocationEventPayloadMap[K],
+      extra?: EmitExtra
+    ) {
+      return record({ type, payload }, extra)
     },
-    emitEvent: (() => {
+    emitEvent() {
       throw new Error('unused')
-    }) as DriverContext['emitEvent'],
-  } as unknown as DriverContext
+    },
+  }
 }
