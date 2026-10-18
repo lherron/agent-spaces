@@ -3,17 +3,17 @@
 End-to-end verification for the first-party `agent-harness` and
 `agent-harness-tmux` drivers after T-08680. This runbook tests the architecture,
 not only model output: aspd must select one immutable release executable, that
-worker must speak the standard broker protocol directly. When Earendil supplies
-an embedded lifecycle, interactive mode must not use a private relay or launch
-a TUI child.
+worker must speak the standard broker protocol directly. The interactive
+driver consumes a tmux pane lease and launches a child of the same release
+executable with `--agent-harness-role tui-child`. Parent and child communicate
+over the standard broker protocol, not a private relay.
 
-**Validation status:** partial. The release compiler now relocates Photon to a
-digested sibling asset, and a direct compiled-worker probe contains no absolute
-agent-spaces, HRC, or esbuild path. Earendil 0.86.1 still has no non-exiting
-embedded `InteractiveMode` lifecycle, so `agent-harness-tmux` is registered as
-unavailable. Release inspection accepts that explicit binding because the
-driver is present in the worker inventory; invocation start remains the
-fail-closed availability gate.
+**Review status (2026-10-18):** source and the installed release driver inventory
+report `agent-harness` and `agent-harness-tmux` available. Interactive execution
+uses the child topology described above; the earlier unavailable-driver
+baseline is obsolete. This documentation review did not run model turns or
+exercise tmux lifecycle. The steps below define the evidence needed for a new
+full e2e claim. Photon remains a digested sibling release asset.
 
 ## Safety and prerequisites
 
@@ -65,19 +65,23 @@ jq '[.[].kind] | sort' "$AH_E2E_ROOT/worker-drivers.json"
 
 Stop here if the inspector finds an absolute Photon/esbuild path, the
 agent-spaces checkout, another build-host path, or either bound driver is
-absent. Under Earendil 0.86.1, `agent-harness` must report available and
-`agent-harness-tmux` must report unavailable with the embedded-lifecycle
-reason. That is a shippable inventory: binding proves ownership and broker
-start proves availability.
+absent. Both `agent-harness` and `agent-harness-tmux` must report available.
+Inventory and binding checks prove registration and ownership; they do not
+replace the invocation and lifecycle checks below.
 
 ## 2. Install and start an isolated aspd namespace
 
 ```sh
 just aspd-init "$AH_E2E_NS"
 just install-asp-release "$RELEASE" "$AH_E2E_NS/releases"
-just aspd-start "$AH_E2E_NS"
+just aspd-activate "$AH_E2E_NS" "$(basename "$RELEASE")"
 just aspd-status "$AH_E2E_NS" | tee "$AH_E2E_ROOT/aspd-status.json"
 ```
+
+Standalone activation is performed by Mable primary or Lance under the service
+ownership rule. Installation only stages bytes; `aspd-start` cannot select the
+first release in a fresh namespace. Run later worker commands from the installed
+copy by setting `RELEASE="$AH_E2E_NS/releases/$(basename "$RELEASE")"`.
 
 Require `runningProcess`, RPC `serving`, and `runningEqualsSelected: true`.
 Installed or selected state without those three observations is not a live
@@ -148,21 +152,25 @@ Save the NDJSON stream. Pass only if:
 - interrupt remains ack-backed; and
 - the worker process tree contains no agent-harness child.
 
-## 5. Interactive unavailability proof
+## 5. Interactive lifecycle proof
 
-Earendil 0.86.1 cannot host its interactive presentation without exiting the
-worker process. The released `agent-harness-tmux` registration is therefore
-intentionally unavailable. A broker start must fail with `DriverUnavailable`
-and the reason that Earendil lacks a non-exiting embedded lifecycle. It must
-not create a pane, worker child, or invocation event stream.
+Use a real terminal through ghostmux and a valid isolated tmux pane lease.
+Start the returned interactive spec through its selected release worker. The
+outer driver launches the same executable in that pane as a `tui-child` broker;
+the child owns Pi and `InteractiveMode`.
 
-When the upstream lifecycle exists, replace this refusal proof with a real tmux
-exercise of one worker process, one invocation identity, and one gap-free event
-sequence across broker and operator input.
+Capture the parent/child process tree, standard broker handshake, pane output,
+and outer invocation events. Require one outer invocation identity and a
+gap-free outer event sequence across broker and operator input. Broker-delivered
+turn brackets must not be duplicated by child forwarding. Exercise interrupt
+and `/quit`: a clean child exit clears continuation with `prompt_input_exit`
+and exits the outer invocation without reporting an unexpected disconnect.
+Confirm no child, pane lease, or socket remains after cleanup. A single-process
+assertion applies only to the headless route.
 
 ## 6. Regression gates
 
-After the release proof, headless real turn, and interactive proof:
+After the release proof, headless real turn, and interactive lifecycle proof:
 
 ```sh
 bun run build
@@ -174,8 +182,8 @@ just architecture-records
 bun run test
 ```
 
-Do not add an interactive matrix row until the embedded lifecycle is available.
-Run the published CLI pack smoke. Existing Codex, Claude, generic Pi, Muse,
+Run the applicable interactive matrix coverage from the broker guidance and
+the published CLI pack smoke. Existing Codex, Claude, generic Pi, Muse,
 Arris, Desktop, and direct foreground `asp run` rows must remain green.
 
 ## 7. Cleanup

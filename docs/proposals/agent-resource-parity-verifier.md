@@ -129,7 +129,8 @@ execution is a diagnostic convenience, not a weaker pass condition.
 
 ## Fleet inventory contract
 
-Resolve `~/agents` to its real path, list its direct children in Unicode
+Resolve `ASP_AGENTS_ROOT` (default `~/praesidium/var/agents`) to its real path,
+list its direct child directories in Unicode
 code-point order, and consider every child containing `agent-profile.toml` a
 candidate.
 

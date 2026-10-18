@@ -10,7 +10,15 @@ asp token-rent --agent clod --json
 asp token-rent --since HEAD~1
 ```
 
-The report reads live HRC data from `~/praesidium/var/state/hrc/state.sqlite` and uses `compiled_runtime_plans.plan_projection_json -> artifacts.systemPromptFile` as the source of truth for resident bytes. Sections are split with the same composed prompt join marker: blank line, `---`, blank line.
+The report reads live HRC data from `~/praesidium/var/state/hrc/state.sqlite`.
+Resident bytes come from `broker_invocations.spec_projection_json`: the newest
+invocation per scope is considered, then the newest usable prompt per agent is
+priced. It reads `launch.systemPromptFile` when present, or, for Codex, only the
+trimmed `praesidium-context` block in `$CODEX_HOME/AGENTS.md` using the spec's
+locked environment. It does not read pre-v2 compiled-plan prompt artifacts.
+Agents without a usable on-disk prompt report zero and `missingPromptArtifact`;
+zero alone does not prove a layer is unused. Sections split on the composed
+prompt join marker: blank line, `---`, blank line.
 
 Regime split:
 

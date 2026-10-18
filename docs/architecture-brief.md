@@ -108,9 +108,12 @@ git-pinned lock entries.
   selected harness is agent-harness, most of the install path is skipped.
 - *Managed*: HRC decides placement and allocates runtime and invocation ids. It then calls
   ASPC (`aspc.compileHarnessInvocation`) over the aspd socket. The compiler resolves selection,
-  materializes under the global lock, prepares the system prompt and any harness-specific home,
-  and returns a plan. HRC then asks the harness-broker to `invocation.start` with that plan.
-  The broker builds the child's environment as the disjoint union of ambient env, credentials,
+  materializes under the global lock for external harnesses, prepares the system prompt and
+  any harness-specific home, and returns a plan. The native agent-harness route instead
+  resolves semantic agent inputs without materializing a compatibility bundle; its selected
+  release worker loads the sources directly. HRC then asks the selected worker to
+  `invocation.start` with that plan.
+  For a child-process recipe, the broker builds the child's environment as the disjoint union of ambient env, credentials,
   the plan's locked env and HRC's dispatch env. A key that appears in two channels fails
   dispatch validation rather than silently winning. The broker then spawns the harness
   process.

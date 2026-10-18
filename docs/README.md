@@ -24,8 +24,7 @@ own the normative contracts.
 - [Agent hygiene](agent-hygiene/README.md) — Price resident prompt context with token-rent before remediation.
 - [Agent-hygiene lint rules](agent-hygiene/lint-rules.md) — Advisory W4xx rules, severities, and cache-admission scope.
 - [Dead-code analysis runbook](deadcode-analysis-runbook.md) — Coordinate package-complete read-only analysis and follow-on fixes.
-- [Native agent-harness release worker e2e](runbooks/e2e-harness-agent-harness.md) — Verify release-worker identity and lifecycle, with the stated interactive availability limitation.
-- [Real Codex app-server e2e](runbooks/e2e-harness-codex-app-server.md) — Exercise broker turns and tools against Codex; records its May 2026 validation baseline.
+- [Native agent-harness release worker e2e](runbooks/e2e-harness-agent-harness.md) — Verify release-worker identity and headless/interactive lifecycle through the standard broker protocol.
 - [Closeout evidence](closeout-evidence.md) — Choose evidence appropriate to the changed or claimed surface.
 - [Agent enablement changelog](agent-enablement-changelog.md) — Record control-loop changes and follow the retro cadence.
 - [Hook timings](hook-timings.md) — Measure and interpret repository hook latency.
@@ -53,5 +52,6 @@ command or lifecycle as available. Current harness behavior is described in the
 - [Codex smoke runbook](codex-smoke-test-runbook.md) — Historical pre-v2 integration evidence, superseded by current selection and acceptance contracts.
 - [Pi SDK smoke runbook](pi-sdk-smoke-test-runbook.md) — Historical pre-v2 integration evidence for the retired Pi SDK selection path.
 - [P0 hash epoch](p0-hash-epoch.md) — August 2026 migration baseline for compiler byte-compatibility comparisons.
+- Real Codex app-server May 2026 smoke — preserved byte-for-byte as attachment `ATT-00336` on completed task T-01554 (tool-call payload projection). Retrieve with `wrkq attach get ATT-00336`; use the [broker matrix guidance](../harness/harness-broker/AGENTS.md) for current acceptance.
 - [HTML proposal assets](html/assets/README.md) — Reusable styling and contract-viewer assets for standalone proposal pages.
 - [Architecture overview](ARCHITECTURE.md) — Earlier package overview with current ownership and path notes.
