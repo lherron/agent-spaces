@@ -5,14 +5,14 @@ Proven when. The last line of each file names the drive that last proved it and 
 
 | # | Feature | File | Drive on |
 | --- | --- | --- | --- |
-| 1 | Target composition and inspection (`asp-targets.toml`, `lint`, `explain`, `describe`, `list`, `path`, `diff`, the retired `repo`/`spaces` registry verbs) | [01-composition.md](01-composition.md) | scratch project; read-only on the canonical project |
+| 1 | Target composition and inspection (`asp-targets.toml`, `lint`, `explain`, `describe`, `list`, `path`, `diff`, the `repo`/`spaces` shared-root verbs and the retired registry verbs) | [01-composition.md](01-composition.md) | scratch project; read-only on the canonical project |
 | 2 | Install and materialization (`install`, `build`, `gc`, `init`, `add`, `remove`, `upgrade`, the lock and the bundle under ASP_HOME) | [02-install-build.md](02-install-build.md) | scratch project |
 | 3 | Run and launch (`asp run` per harness, `asp agent`, `asp gui`, `--dry-run`/`--print-command`) | [03-run-launch.md](03-run-launch.md) | scratch ASP_HOME; dry-run only |
 | 4 | Agent introspection (`asp self`, `resolve-reminder`, `agents catalog`/`inspect`, `resources plan`) | [04-agent-introspection.md](04-agent-introspection.md) | live seat, read-only |
 | 5 | Doctor and hygiene (`asp doctor`, `harnesses`, `lint --hygiene`, `token-rent`) | [05-doctor-hygiene.md](05-doctor-hygiene.md) | scratch; read-only HRC DB |
 | 6 | The aspd compile service (system namespace status and RPC, an isolated namespace's init/activate/stop, the request log) | [06-aspd.md](06-aspd.md) | scratch namespace; read-only on the system namespace |
 | 7 | Releases and publish (`build-asp-release`, `inspect-asp-release`, `install-asp-release`, `publish-*-dry-run`, `just install`) | [07-releases.md](07-releases.md) | scratch clone and scratch release root |
-| 8 | The harness broker (`harness-broker run` over stdio, `broker.hello`, `capture`, the pre-HRC matrix) | [08-harness-broker.md](08-harness-broker.md) | stdio broker; shim rows of the matrix |
+| 8 | The harness broker (`harness-broker run` over stdio, `broker.hello`, `drivers`, `capture`, `submission`, the plumbing verbs, the pre-HRC matrix) | [08-harness-broker.md](08-harness-broker.md) | stdio broker; shim rows of the matrix |
 | 9 | The Codex overlay (`sync-agent-to-codex-default`, `just overlay-codex`) | [09-codex-overlay.md](09-codex-overlay.md) | scratch Codex home |
 
 ## Keeping the map honest

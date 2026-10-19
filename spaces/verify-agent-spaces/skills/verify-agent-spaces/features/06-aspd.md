@@ -8,13 +8,24 @@ validators in `contracts/aspc-protocol/src/{types,schemas,inspection-params}.ts`
 
 ## Sub-features
 
-- Namespace layout: `config.json`, `releases/<releaseId>`, `run/aspd.sock`, `state/`, `logs/`. `aspd-init` writes
-  the config (socket path, `ASP_HOME=<ns>/state/asp-home`, inherited env).
+- Namespace layout: `releases/<releaseId>`, `service/config.json` (plus `active.json`, `activations.ndjson`, and
+  `launchd-run.sh` once supervised), `run/aspd.sock`, `run/aspd.json` (the running record), `state/asp-home`,
+  `logs/`. `aspd-init` writes the config (socket path, `ASP_HOME=<ns>/state/asp-home`, `inheritEnv` HOME PATH USER
+  LOGNAME SHELL TMPDIR LANG) and no `supervisor`. The system namespace's config sets `ASP_HOME` to
+  `var/spaces-repo` by hand, not the init default.
 - `aspd-activate <ns> <releaseId>`: retire the running daemon, record the selection, start the release, and finish
-  only when `aspc.hello` answers with that release's identity. `aspd-start`, `aspd-stop`, `aspd-restart`; `supervise`
-  hands the namespace to launchd (the system namespace is `com.praesidium.aspd`).
-- `aspd-status <ns>`: installed releases, `selectedRelease`, `runningProcess`, `serving` (the live `aspc.hello`
-  reply, or `{unavailable}`), `runningEqualsSelected`.
+  only when `aspc.hello` answers with that release's identity; it returns `{activation, beganAt, retired, started,
+  completedAt}`. `aspd-start` (a second start returns `alreadyRunning`; a running release other than the selection
+  refuses `activate instead`), `aspd-stop` (`{stopped: false, reason: "not running"}` when stopped), `aspd-restart`.
+- `supervise <ns> <label>` (script only, no recipe) hands the namespace to launchd (the system namespace is
+  `com.praesidium.aspd`): it writes `~/Library/LaunchAgents/<label>.plist` and `service/launchd-run.sh`, adopts the
+  plist with `praesidium-adopt` (ProgramArguments start with `~/.local/bin/praesidium-launch`;
+  `AssociatedBundleIdentifiers` `com.praesidium.AgentHost`), re-adopts before every bootstrap, and retries a
+  bootstrap error 5 up to 4 times (T-10818). Then stop is `bootout`, restart `kickstart -k`.
+- `aspd-status <ns>`: `namespace`, `socketPath`, `supervisor` and `launchdPid` (both null when unsupervised),
+  installed releases, `selectedRelease`, `runningProcess`, `serving` (the live `aspc.hello` reply, or
+  `{unavailable}`), `runningEqualsSelected`. A relative namespace refuses `namespace must be absolute`; an
+  uninitialized one `namespace not initialized: <ns>/service/config.json`, exit 1.
 - Methods: `aspc.hello`, `catalogAgents`, `inspectAgent`, `catalogAgentInspection`, `inspectAgentSelection`,
   `compileHarnessInvocation` (v2 requests only), `resolveRuntimeDeclaration`, `inspectRuntimePlacement`,
   `observeRuntimeCapability`, `observeContinuationArtifact`, `prepareProcessInvocation`. Refusals: `-32601 Method
@@ -23,6 +34,9 @@ validators in `contracts/aspc-protocol/src/{types,schemas,inspection-params}.ts`
 - Request log: one `request.answered` line per call (method, startedAt, durationMs, outcome, replyBytes; `error` on a
   refusal, `phases` for `compileHarnessInvocation`).
 - `aspc manifest|verify-release` (the compiler CLI) produces and checks the frozen release manifest.
+- `just build-aspd-pilot-client <abs root>` builds the T-08539 aspd pilot client (the historical HRC stand-in for
+  `scripts/aspd-pilot/scenario.ts --client`) after a source-closure gate; it refuses a dirty checkout (source,
+  `scripts/aspd-pilot/build-client.ts`; not driven).
 
 ## How to get to it
 
@@ -46,19 +60,29 @@ just aspd-activate $NS <releaseId>                         # started pid, servin
 avs aspc $NS/run/aspd.sock aspc.catalogAgents "{\"evaluationContext\": $(cat $CTX)}"
 just aspd-stop $NS; just aspd-status $NS                   # runningProcess null, unavailable
 just aspd-status ~/praesidium/var/aspd                     # same pid as before: untouched
+bun test scripts/aspd-service.test.ts                      # supervise, adoption, error-5 retry against a fake launchctl
 ```
+
+Run the scratch verbs as `bun scripts/aspd-service.ts <verb> $NS` (the `just` recipes post a `run.settled` fact) with
+a stripped environment (`env -i HOME=… PATH=… USER=… LOGNAME=… SHELL=… TMPDIR=… LANG=…`) so the daemon inherits no
+seat variables.
 
 ## Gotchas
 
-- `$CTX` for the catalog is feature 4's evaluation-context file; over the socket the same 48 agents came back as from `asp agents
-  catalog`, from both the system and the scratch daemon (2026-10-05, `T-10300/06-aspd/drive.txt`).
+- `$CTX` for the catalog is feature 4's evaluation-context file; over the socket the same 50 agents came back as from
+  `asp agents catalog`, from both the system and the scratch daemon (2026-10-19, `T-11375/06-aspd/drive.txt`).
+- **Never `supervise` a scratch namespace.** Nothing checks whether a label is in use: with `com.praesidium.aspd` it
+  would overwrite the system plist with the scratch launch script, and the next system activation or a scratch
+  `stop` (a `bootout` of that label) would hit the system daemon. A unique label still registers a real RunAtLoad +
+  KeepAlive job, and `stop` leaves its plist behind. Prove supervision with the unit test only (source,
+  `scripts/aspd-service.ts:441-555`; not driven, by design).
 - An unsupervised namespace logs to `logs/aspd-<releaseId>-<startedAt>.log`, not `logs/aspd.log`; the system
   namespace's `aspd.log` is its launchd request log (`runningProcess.requestLogPath`) and rotates to `.1`–`.3`.
 - An unknown method is answered `-32601` and not written to the request log; a params refusal is, as
   `error:INVALID_ASPC_COMMAND`.
-- Grep the request log a moment after the call: in a drive that greps in the same second, the refusal's
-  `error:INVALID_ASPC_COMMAND` line was not yet in the file and showed up on a reread (2026-10-05,
-  `T-10364/06-aspd/drive.txt`).
+- Grep the request log a moment after the call: the `--log` sink buffers 250 ms (`docs/aspd.md`), so a grep in
+  the same second can miss the refusal's `error:INVALID_ASPC_COMMAND` line (2026-10-05, `T-10364/06-aspd/drive.txt`).
+  Lines are `<iso> [aspd] <LEVEL> <event> <json>`, prefixed text: cut the JSON tail before `jq`.
 - `aspc --help` is "Unknown command"; run `aspc` bare for usage.
 - Never activate, restart, stop or `supervise` the system namespace. `just install` in the canonical checkout
   activates it (any seat may run that); standalone activation is Mable primary's.
@@ -68,10 +92,12 @@ just aspd-status ~/praesidium/var/aspd                     # same pid as before:
 The system status shows `runningEqualsSelected: true` and a `serving.release.sourceCommit` that `git log` resolves;
 hello and catalog answer over the socket, the two refusals carry their codes, and the request log shows the
 catalog call. The scratch namespace goes unavailable → activated (hello with the installed release) → serving the
-catalog → stopped, and the system daemon's pid is unchanged across all of it.
+catalog → `alreadyRunning` → stopped → `not running`, and the system daemon's pid is unchanged across all of it; the
+system plist's ProgramArguments start with `praesidium-launch`; the aspd-service unit test passes.
 
-Driven 2026-10-05 against system release asp-e5e729af45d4 (source e5e729a) and a scratch namespace on the same
-release, through `bun scripts/aspd-service.ts` (T-10364): `var/wrkq-artifacts/T-10364/06-aspd/drive.txt`. Not driven:
+Driven 2026-10-19 against system release asp-25445c159b76-20261017T140543Z-7cb338 (source 25445c15) and a scratch
+namespace on the same release, through `bun scripts/aspd-service.ts` (T-11375): `var/wrkq-artifacts/T-11375/06-aspd/
+drive.txt`. Not driven: a live `supervise` (see Gotchas), `build-aspd-pilot-client`,
 `compileHarnessInvocation` against aspd (it needs a full v2 compile request; feature 8's `--compile-transport
 aspc-rpc` row compiles through a checkout aspc-facade over stdio, not through aspd) and `aspc manifest|verify-release`
 (they need a request file and a corpus).

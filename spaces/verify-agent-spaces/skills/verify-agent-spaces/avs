@@ -161,7 +161,7 @@ try:
     p.wait(timeout=10)
 except subprocess.TimeoutExpired:
     p.kill()
-print(line.strip() or json.dumps({"error": "no_reply", "message": p.stderr.read()[-2000:], "next": "harness-broker --help"}))
+print(line.strip() or json.dumps({"error": "no_reply", "message": p.stderr.read()[-2000:], "next": "harness-broker drivers --json"}))
 EOF
 }
 

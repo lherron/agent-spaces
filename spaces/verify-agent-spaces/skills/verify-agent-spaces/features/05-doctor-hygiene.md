@@ -10,17 +10,20 @@ the agent-hygiene lint over skills and agent roots (`asp lint --hygiene`), and t
 - `asp doctor [--json]`: claude binary and version, ASP_HOME, cache and snapshot writability, the shared spaces
   root (a plain directory; no git-remote probe since T-10370), the project, agent roots, the profile-model audit.
 - `asp harnesses [--json]`: each harness (`agent-harness` default, `claude`, `codex` experimental, `muse`) with
-  path, version, capabilities and models per provider. JSON shape `{harnesses: [{id, name, detection: {available,
-  version, path, capabilities}, …}]}`.
+  path, version, capabilities and models per provider. JSON shape `{defaultHarness, harnesses: [{id, name,
+  detection: {available, version, path, capabilities}, modelProviders[], experimental}]}` (`codex` alone is
+  `experimental: true`).
 - `asp lint --hygiene [path] [--strict] [--baseline f] [--update-baseline] [--judge f]`: advisory `W4xx` findings
   with file:line; `--strict` exits nonzero on error severity.
 - `asp token-rent [--agent a] [--json] [--now iso] [--usage-since iso] [--since ref]`: resident system-prompt tokens
   per agent priced against HRC run frequency from `var/state/hrc/state.sqlite`. The prompt comes from the agent's
-  newest `broker_invocations` spec: `launch.systemPromptFile` when the spec has one (claude, muse), else for codex
+  newest usable `broker_invocations` spec (the newest per scope, then the first, newest-first, whose prompt is still
+  on disk): `launch.systemPromptFile` when the spec has one (claude, muse), else for codex
   only the praesidium-context block of `$CODEX_HOME/AGENTS.md` (between the `BEGIN`/`END praesidium-context`
   markers, trimmed), never the whole file. Sections split on `\n\n---\n\n`. Agents with no usable invocation report 0
   with `missingPromptArtifact: no broker invocation whose resident prompt is still on disk`. `--json` rows carry
-  `invocationId`, `harness` and `systemPromptFile`.
+  `invocationId`, `harness` and `systemPromptFile`; `harness` is the spec's frontend (`claude-code`, `codex`,
+  `muse-cli`, or null when unpriced), not the `broker_driver` the HRC DB groups by.
 
 ## How to get to it
 
@@ -35,8 +38,8 @@ asp harnesses                                                    # 4/4 available
 asp lint --hygiene ~/praesidium/var/agents/clod | tail           # W415/W422 info findings
 asp lint --hygiene $AVS_PROJECT/spaces/avs-demo/skills/avs-probe # Scanned 1 unit, no findings
 asp lint --hygiene $AVS_PROJECT/spaces/avs-demo --strict; echo $? # Scanned 0 units, exit 0
-asp token-rent --agent clod --now 2026-10-05T21:00:00Z
-asp token-rent --json --now 2026-10-05T21:00:00Z > $OUT          # 32 agents, 19 priced on 2026-10-05
+asp token-rent --agent clod --now 2026-10-19T09:30:00Z
+asp token-rent --json --now 2026-10-19T09:30:00Z > $OUT          # 36 agents, 24 priced on 2026-10-19
 python3 ~/praesidium/var/wrkq-artifacts/T-10364/05-doctor-hygiene/rent-check.py $OUT <agent>   # reported == computed
 sqlite3 -readonly ~/praesidium/var/state/hrc/state.sqlite \
   "select broker_driver, count(*), sum(json_extract(spec_projection_json, '$.launch.systemPromptFile') is not null)
@@ -47,11 +50,18 @@ sqlite3 -readonly ~/praesidium/var/state/hrc/state.sqlite \
 
 - `asp lint --hygiene <space dir>` scans 0 units and passes, even with `--strict`. Point it at a skill directory,
   an agent root or `var/agents`, never at a space root.
-- A seat's own newest invocation is the one priced, so `token-rent --agent <you>` shows this seat's task context
-  (`Task ID: T-…`) as a layer.
+- A seat's own newest invocation is the one priced while its prompt file exists, so `token-rent --agent <you>`
+  shows this seat's task context (`Task ID: T-…`) as a layer.
 - `asp doctor`'s `Shared spaces root found` row is the agents root (`~/praesidium/var/agents`); its `--json` check
   name stays `registry` for compatibility. It is not the retired spaces registry.
 - `asp doctor` checks the claude binary only; codex, muse and pi detection is `asp harnesses`.
+- `asp doctor` writes: its asp_home row creates `cache/ projects/ repo/ snapshots/ sources/ tmp/` under env
+  `ASP_HOME` (or `~/.asp`), ignoring `--asp-home`, while the row prints the `--asp-home` path (product gap T-11378).
+  Export `ASP_HOME=<scratch asp-home>`; never rely on the flag alone (2026-10-19, throwaway-HOME probe in
+  `T-11375/05-doctor-hygiene/drive.txt`).
+- `asp lint --hygiene --update-baseline` writes `.hygiene-baseline.json` into the target and `--judge` launches a
+  model run; neither belongs in a drive except on a scratch copy (source, `lint-hygiene.ts:71-79,118-171`; not
+  driven).
 
 ## Proven when
 
@@ -61,6 +71,6 @@ newest invocation carries a prompt (claude, muse, codex drivers in the count abo
 sum of `ceil(section chars / 4)` over the priced text for a claude, a muse and a codex agent (the codex one over its
 context block only).
 
-Driven 2026-10-05 on scratch `t-10364` against checkout 062f293b (T-10364):
-`var/wrkq-artifacts/T-10364/05-doctor-hygiene/drive.txt` (with `rent-check.py`; clod, mable, muse, larry and stella
+Driven 2026-10-19 on scratch `t-11375` against checkout f8c96a5e (T-11375):
+`var/wrkq-artifacts/T-11375/05-doctor-hygiene/drive.txt` (with `rent-check.py`; clod, mable, muse, larry and stella
 matched exactly).

@@ -10,8 +10,8 @@ list,path,diff}.ts`, `apps/cli/src/commands/{repo,spaces}/`, resolution in `core
 ## Sub-features
 
 - `asp lint [target] [--json]`: target and conflict warnings (`W101` lock missing, collisions, `W204` a `hooks/`
-  dir with no hooks config). The header counts errors, warnings and info (`Found 1 error(s):`). Exit 0 with
-  warnings; `--json` gives `{warnings: [...]}`.
+  dir with no hooks config, severity error). The header counts errors, warnings and info (`Found 2 error(s):`;
+  W101 counts as info, `Found 1 info:`). Exit 0 always, even with error rows; `--json` gives `{warnings: [...]}`.
 - `asp explain [target] [--json]`: `Spaces root:` (the resolved shared root, not the lock's registry remote), lock version, per-target compose, env hash, load order (key,
   commit, selector, components, hooks) and the composed commands, skills and hooks. Needs a lock with that target.
 - `asp describe [target] --harness <h>`: hooks, skills, tools and lint warnings as the harness would materialize
@@ -19,11 +19,15 @@ list,path,diff}.ts`, `apps/cli/src/commands/{repo,spaces}/`, resolution in `core
 - `asp list`: targets (locked or unlocked, env hash), paths (project, ASP_HOME, store, cache) and every agent root
   found (`canonical` for `~/praesidium/var/agents/<id>`).
 - `asp path <spaceId>`: the filesystem path of a shared space.
-- `asp diff [--json]`: pending lock changes without writing.
+- `asp diff [--json]`: pending lock changes without writing. It compares each space's locked `commit` only, and
+  `@dev` and project spaces always lock as `dev`/`project`, so it sees compose-list changes (`added`/`removed`) but
+  never an edit inside such a space. Exit 0 either way.
 - `asp repo init|new-space|status` and `asp spaces init|list`: the shared spaces root (`<agentsRoot>/spaces/`,
-  `--registry <path>` overrides). `new-space` writes `space.toml` plus `commands/ skills/ agents/ mcp/`, no
-  `hooks/` (an empty one trips W204). The git registry verbs `asp repo publish|tags|gc` were removed (T-10367) and exit
-  1 `unknown command`.
+  `--registry <path>` or `ASP_AGENTS_ROOT` overrides). `repo init` installs the generated `agent-spaces-manager`
+  space (hook script 0755) or prints `Manager space already present`. `new-space` writes `space.toml` plus
+  `commands/ skills/ agents/ mcp/`, no `hooks/` (an empty one trips W204). `repo status` lists every directory under
+  `spaces/`; `spaces list` only those whose `space.toml` parses (14 vs 13 on 2026-10-19: `archived-unused`). The git
+  registry verbs `asp repo publish|tags|gc` were removed (T-10367) and exit 2 `unknown command '<verb>'`.
 
 ## How to get to it
 
@@ -58,9 +62,10 @@ cd ~/praesidium/agent-spaces && asp lint --json
 - `asp repo init`, `asp repo new-space` and `asp spaces init` WRITE into the resolved shared root, which is the
   live `~/praesidium/var/agents` even on a scratch ASP_HOME. Drive them only with `--registry <tmpdir>`.
 - `asp repo status` lists `git.changes` for `spaces/` only; other dirt in the agents repo is not shown.
-- `explain` (and `explain --json` `registryUrl`) still prints `Registry: git@github.com:lherron/spaces-repo.git`, the
-  retired registry's URL, on a scratch with no registry. Informational only (2026-10-05,
-  `T-10364/01-composition/drive.txt`).
+- `asp diff --json` stays `{"diffs": []}` after editing a project space's files; it is not a no-change proof for
+  `@dev` or project spaces (2026-10-19, `T-11375/01-composition/drive.txt`).
+- The canonical project's targets larry, smokey, curly and animan compose `praesidium-defaults@dev` after
+  `defaults@dev` (9f1eb3d9); `asp explain larry --no-lint | grep Key:` shows both.
 - `asp explain clod` from `~/praesidium/foundry` printed `No lock file found` with exit 0 inside a pipe; read
   exit codes from a bare command.
 
@@ -69,7 +74,8 @@ cd ~/praesidium/agent-spaces && asp lint --json
 On a fresh scratch: `lint` reports W101 before install and nothing after; `explain demo` shows both spaces in load
 order with the defaults hooks and lists `avs-probe (from avs-demo)` under composed skills; `describe local-only
 --harness claude` names `avs-probe`; `list` shows both targets locked; `diff --json` is empty; the registry verbs
-refuse; `asp lint --json` on the canonical project prints its warnings array.
+refuse with exit 2; `asp lint --json` on the canonical project prints its warnings array (empty, `[]`, on
+2026-10-19).
 
-Driven 2026-10-05 on scratch `t-10364` against checkout 062f293b (T-10364):
-`var/wrkq-artifacts/T-10364/01-composition/drive.txt`.
+Driven 2026-10-19 on scratch `t-11375` against checkout f8c96a5e (T-11375):
+`var/wrkq-artifacts/T-11375/01-composition/drive.txt`.
