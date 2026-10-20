@@ -19,6 +19,8 @@ export type JoinRegisterRequest = {
   workspaceCwd?: string | undefined
   socketPath?: string | undefined
   expectedPredecessor?: ExpectedPredecessor | undefined
+  /** R6.6 amendment: the successor's declared continuity; omitted means `continue`. */
+  continuation?: 'continue' | 'fresh' | undefined
 }
 
 export type RegisteredIdentity = {
