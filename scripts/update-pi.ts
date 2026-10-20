@@ -27,15 +27,15 @@ const packageName = '@earendil-works/pi-coding-agent'
 /**
  * Companion packages that are pinned to the SAME version as the SDK itself.
  *
- * `@earendil-works/pi-server` is not something this workspace imports. Upstream
- * 0.85.0 ships `dist/experimental/server.js` — reachable from the package root via
- * `index.js -> main.js` — importing `@earendil-works/pi-server` without declaring it,
- * so `import '@earendil-works/pi-coding-agent'` throws MODULE_NOT_FOUND on an
- * otherwise clean install. Declaring the missing package ourselves repairs the
- * resolution, and it lives here rather than in a hand-edited manifest because a
- * repair pinned outside this script is a pin that drifts on the next bump.
+ * `pi-tui` and `pi-ai` are imported directly here, and since 1.3.0 the SDK depends
+ * on each at its own exact version. A companion pin left one release behind would
+ * resolve a second, nested copy whose types no longer match the SDK's.
+ *
+ * `pi-server` was a companion from 0.85.0 (the SDK imported it without declaring
+ * it) until 1.3.0 stopped importing it. It is not released in lockstep, so it is
+ * no longer declared at all.
  */
-const companionPackages = ['@earendil-works/pi-server']
+const companionPackages = ['@earendil-works/pi-tui', '@earendil-works/pi-ai']
 const governedPackages = [packageName, ...companionPackages]
 const repoRoot = resolve(import.meta.dir, '..')
 const surfaceDirs = [

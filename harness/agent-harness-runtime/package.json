@@ -19,8 +19,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "1.0.0",
-    "@earendil-works/pi-server": "1.0.0",
+    "@earendil-works/pi-coding-agent": "1.3.0",
     "agent-scope": "workspace:*",
     "spaces-config": "workspace:*",
     "spaces-runtime": "workspace:*",
