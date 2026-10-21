@@ -7,7 +7,7 @@
 - **Tracking:** T-07542
 - **Architecture authority:** `agent-spaces.agent-harness-runtime-boundary`
 
-## Implementation scope (reviewed 2026-10-06)
+## Implementation scope
 
 This page preserves the accepted August design and its original migration and
 acceptance baseline. The direct ASP source resolver, custom Pi resource loader,
@@ -21,7 +21,7 @@ or a claim that every original acceptance criterion still describes the code.
 
 The following details supersede the corresponding original clauses below:
 
-- All five listed Earendil consumer manifests now pin Pi `1.0.0`; `0.84.3` was
+- All five listed Earendil consumer manifests now pin Pi `1.3.0`; `0.84.3` was
   the original upgrade baseline, not the current required version.
 - [`theme.ts`](../../harness/agent-harness-runtime/src/theme.ts) retains the
   `praesidium-loader` name but uses Pi dark colors with purple/cyan editor
