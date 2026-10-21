@@ -10,9 +10,9 @@ provenance: authored
 
 # asp CLI Surface
 
-The `asp` binary (`packages/cli`, `bin: asp`) is the top-level entry point
+The `asp` binary (`apps/cli`, `bin: asp`) is the top-level entry point
 for Agent Spaces. Command registration order (and therefore `asp --help`
-order) is defined in `packages/cli/src/command-registry.ts`. This page is a
+order) is defined in `apps/cli/src/command-registry.ts`. This page is a
 navigational summary; the authoritative option-by-option reference lives in
 this repo's own `docs/cli-reference.md`.
 
@@ -74,13 +74,16 @@ Common path options accepted by most project-facing commands: `--project <path>`
    `muse`),
    `--lane-ref`, `--host-session-id`, `--run-id`, `--compose <ref>`
    (repeatable; `agent-project` is implicit from the scope-ref agentId),
-   `--continue-provider`/`--continue-key`, `--interaction`
-   (`interactive`/`headless`), `--io` (`pty`/`pipes`/`inherit`), `--env KEY=VALUE` (repeatable), `--yolo`, `--dry-run`, `--print-command`,
+   `--continue-provider`/`--continue-key`, `--model-provider`,
+   `--presentation <true|false>`, `--io` (`pty`/`pipes`/`inherit`), `--env KEY=VALUE` (repeatable), `--yolo`, `--dry-run`, `--print-command`,
    `--json`.
 
-Both models resolve, lock, and materialize spaces the same way; they differ
-in whether the composition is named ahead of time in `asp-targets.toml` or
-derived on the fly from a scope address.
+External harness routes resolve, lock, and materialize composed spaces. The
+foreground `agent-harness` route requires an agent profile and loads sources
+directly. For arbitrary project targets, space refs, and local space directories,
+select `--harness claude`, `codex`, or `muse` explicitly. Direct `agent-harness`
+execution rejects compiler-only switches such as `--yolo`, `--settings`, and
+`--inherit-*`.
 
 ## `asp run` highlights
 
@@ -126,7 +129,7 @@ as correct; it prints the generated harness invocation without launching.
   agent-hygiene linter (W4xx findings) and the tier-2 rubric judge.
 - `asp list [--json]` — targets, resolved spaces, cached environments.
 - `asp path <spaceId>` — filesystem path to a space by ID.
-- `asp doctor [--json]` — Claude binary, registry reachability, cache
+- `asp doctor [--json]` — Claude binary, shared spaces root, cache
   permissions.
 - `asp gc [--dry-run]` — garbage-collect unreferenced store/cache entries.
 - `asp harnesses [--json]` — list the four catalog-derived public harnesses,
@@ -153,7 +156,9 @@ The git registry and its `asp repo publish/tags/gc` verbs were retired
 - `asp resources plan <agent>` — compile an agent-authored runtime
   resources plan (schedules/channels/event-hooks declared under the agent
   home).
-- `asp agents` — read-only agent catalog and inspection.
+- `asp agents catalog --context <file> [--json]` / `asp agents inspect --request <file> --context <file> [--json]`
+  — read-only agent catalog and inspection with explicit v2 evaluation context
+  and inspection request files; no scaffolding commands are implemented.
 - `asp token-rent [--agent <name>|--fleet] [--json] [--hrc-db <path>] [--agents-root <path>] [--usage-since <iso>] [--since <git-ref>] [--now <iso>]` — price agents' resident system-prompt sections against real HRC
   run frequency.
 - `asp gui <agentId|scope-handle> [options]` — launch Codex.app for an ASP
@@ -164,11 +169,11 @@ The git registry and its `asp repo publish/tags/gc` verbs were retired
 ## Testing the CLI locally (no build step needed)
 
 ```bash
-bun packages/cli/bin/asp.js <command>
+bun apps/cli/bin/asp.js <command>
 
 # Set ASP_HOME to a writable scratch path to avoid EPERM creating temp dirs
-ASP_HOME=/tmp/asp-test bun packages/cli/bin/asp.js run \
-  integration-tests/fixtures/sample-registry/spaces/base --dry-run
+ASP_HOME=/tmp/asp-test bun apps/cli/bin/asp.js run \
+  integration-tests/fixtures/sample-registry/spaces/base --harness claude --dry-run
 ```
 
 Fixtures for local testing live in `integration-tests/fixtures/`:

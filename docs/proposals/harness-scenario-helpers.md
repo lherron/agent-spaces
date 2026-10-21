@@ -1,18 +1,22 @@
 # Deterministic Harness Scenario Helpers
 
-- **Status**: proposal; rollout tracked; no implementation
+- **Status**: retained proposal; optional package rollout archived; standalone protocol prerequisite shipped
 - **Date**: 2026-07-15
 - **Scope**: `agent-spaces` first, with an intentional consumption seam for `hrc-runtime`
 - **Proposed package**: `harness/harness-scenarios` published as `spaces-harness-scenarios`
 - **Architecture review**: Daedalus approved with the conditions incorporated below (hrcchat message 14755)
 - **Rollout container**: `agent-spaces/harness-scenario-helpers` (`T-06393` through `T-06397`)
 
-## Implementation scope at review (2026-10-03)
+## Implementation scope
 
 No `spaces-harness-scenarios` workspace package is present. The proposed API
-and rollout below remain design intent. Protocol hardening prerequisites may
-land independently (for example T-06393); completion of a prerequisite does
-not mean the helper package or its consumers shipped.
+and rollout below remain historical design intent. T-06394 through T-06397
+were archived as optional campaign work. T-06393 completed independently:
+`contracts/harness-broker-protocol/src/events.ts` now defines
+`InvocationEventPayloadMap`, and the protocol's validator registry is exhaustive.
+That protocol hardening does not mean the helper package or its consumers shipped.
+The rollout and prerequisite descriptions below preserve the proposal-time
+baseline, rather than an active schedule or a claim about today's type safety.
 
 ## Decision
 
@@ -342,9 +346,9 @@ These are controls on delivery, not new semantic scenario steps.
 
 ## Protocol hardening prerequisite
 
-The new helper must not institutionalize the current type hole in `spaces-harness-broker-protocol`.
+The proposed helper required closing the then-existing type hole in `spaces-harness-broker-protocol`.
 
-Today `InvocationEventEnvelope<TPayload>` carries an independent `type` and `payload`, and `validateEventEnvelope` uses a partial event-validator registry. That permits a fixture such as `type: 'assistant.message.completed'` with a non-matching payload to compile or pass validation.
+At proposal time, `InvocationEventEnvelope<TPayload>` carried an independent `type` and `payload`, and `validateEventEnvelope` used a partial event-validator registry. That permitted a fixture such as `type: 'assistant.message.completed'` with a non-matching payload to compile or pass validation. T-06393 subsequently closed this gap; the design below records the required coupling.
 
 Before the direct broker adapter is called “validated,” add a protocol-owned payload map:
 

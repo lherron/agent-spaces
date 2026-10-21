@@ -4,20 +4,29 @@
 **Date:** 2026-07-08
 **Author:** mable@agent-spaces
 
-## Implementation scope at review (2026-10-03)
+## Implementation scope
 
 This scaffolding design remains unimplemented. The installed `asp agents --help`
 and `apps/cli/src/commands/agents.ts` expose read-only `catalog` and `inspect`;
 they do not expose the `init`, `list`, `validate`, or `where` commands proposed
 below. Those commands and their acceptance criteria remain design intent.
 
+The July proposal below records the original v2-era template shape, not a
+valid template for today's parser. `validateAgentRoot` still requires `SOUL.md`
+and accepts optional `HEARTBEAT.md`; when `agent-profile.toml` exists,
+`parseAgentProfile` now requires `version = 4` and rejects versions 1–3.
+Current profiles use `priming` and `[provisioning]`, rather than the proposed
+`schemaVersion`, `priming_prompt`, and `harnessDefaults`. Any future implementation
+must use the current parser and fixture, including the catalog's four public
+harness identities and default `agent-harness`, before claiming a conforming root.
+
 ## Problem
 
 The toolkit can scaffold a *space* (`asp repo new-space`, `asp spaces init`, both
 writing to the shared spaces root) but not an *agent*. Creating a new agent home today means
 hand-copying an existing one under `~/praesidium/var/agents/<id>/` and editing it until it
-works. The v2 agent-root contract is shipped and enforced (`validateAgentRoot` requires
-`SOUL.md`, parses `agent-profile.toml` schemaVersion 1/2, allows optional `HEARTBEAT.md`),
+works. At proposal time the v2 agent-root contract was shipped and enforced (`validateAgentRoot` required
+`SOUL.md`, parsed the then-current profile format, allowed optional `HEARTBEAT.md`),
 but nothing user-facing *emits* a conforming root. Onboarding knowledge lives outside the
 repo (`var/agents/AGENT_ONBOARDING.md`), and the only executable example is a test fixture
 (`core/config/src/__fixtures__/v2/agent-root/`).

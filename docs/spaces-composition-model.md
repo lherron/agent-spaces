@@ -15,13 +15,14 @@ components — commands, skills, agents, hooks, and MCP server configs —
 described by a `space.toml` manifest. A **Run Target** is a named
 composition profile in a project's `asp-targets.toml` that lists which
 spaces to compose, plus harness selection and priming-prompt overrides.
-`asp run`/`asp install`/`asp build` resolve the composition deterministically
-and materialize it into a harness-specific plugin bundle.
+External-harness `asp run`/`asp install`/`asp build` resolve the composition
+deterministically and materialize a harness-specific bundle. Foreground
+`agent-harness` runs require an agent profile and load space sources directly.
 
 ## Anatomy of a space
 
 A space is a directory containing a `space.toml` manifest (schema in
-`packages/config/src/core/schemas/space.schema.json`) plus any of:
+`core/config/src/core/schemas/space.schema.json`) plus any of:
 
 - `commands/` — slash-command markdown files
 - `skills/` — skill directories (`SKILL.md` + supporting files)
@@ -63,7 +64,7 @@ a public harness ID, provider route, or execution-recipe selector.
 ## Space refs and locality
 
 A space ref carries both an identity and a source locality
-(`packages/config/src/resolver/space-classification.ts`):
+(`core/config/src/resolver/space-classification.ts`):
 
 | Kind | Ref form | Source | Lock commit marker |
 | --- | --- | --- | --- |
@@ -89,7 +90,7 @@ directory content; the lock entry records the marker commit plus a relative
 ### Dependency edge rules
 
 Locality constrains which spaces may depend on which, enforced at closure
-time (`packages/config/src/resolver/closure.ts`). Disallowed edges:
+time (`core/config/src/resolver/closure.ts`). Disallowed edges:
 
 - registry → agent
 - registry → project
@@ -104,7 +105,7 @@ spaces may depend on registry spaces and on same-locality local spaces
 ## Run targets: `asp-targets.toml`
 
 A project declares its composition profiles in `asp-targets.toml`
-(schema in `packages/config/src/core/schemas/targets.schema.json`):
+(schema in `core/config/src/core/schemas/targets.schema.json`):
 
 ```toml
 schema = 2
@@ -115,14 +116,14 @@ compose = [
   "space:defaults@dev",          # shared space from the agents root
   "space:project:my-helpers",    # project-local space in ./spaces/my-helpers/
 ]
-priming_prompt_append = """
+priming_append = """
 
 ## Project notes for the agent
 """
 ```
 
-Per-target fields include `description`, `priming_prompt` /
-`priming_prompt_append`, `compose` (ordered space-ref list — later entries
+Per-target fields include `description`, `priming` /
+`priming_append`, `compose` (ordered space-ref list — later entries
 are higher precedence for collision warnings and load order), and
 `compose_mode` (`replace` or `merge`). Selection scalars live only in
 `[targets.<name>.provisioning]`: `harness`, `model_provider`, `model`,
@@ -140,14 +141,14 @@ the independent `space.toml` content-manifest schema above remains `schema = 1`.
 `agents-root` at the top level declares a project-local agents root layered over
 the canonical one (see `agent-spaces/materialization-install-flow`).
 
-Real per-agent target examples exist in this repo's own
-`asp-targets.toml`, e.g.:
+Per-agent targets exist in this repo's own `asp-targets.toml`. This standalone
+example adds explicit provider/model and presentation settings:
 
 ```toml
 [targets.smokey]
 description = "Smokey for agent-spaces"
 compose = ["space:smokey@dev", "space:defaults@dev"]
-priming_prompt_append = """
+priming_append = """
 
 ## Project: agent-spaces
 - Uses Bun workspace, TypeScript. Run `just verify` before accepting changes.

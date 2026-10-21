@@ -1,8 +1,8 @@
 # CLI Reference
 
-This document describes the current `asp` CLI shipped from `packages/cli`. Command
+This document describes the current `asp` CLI shipped from `apps/cli`. Command
 registration order (and therefore `asp --help` order) is defined in
-`packages/cli/src/command-registry.ts`.
+`apps/cli/src/command-registry.ts`.
 
 Public harness selection is the v2 producer contract: the only selectable
 identities are `agent-harness`, `claude`, `codex`, and `muse`. The default is
@@ -38,6 +38,7 @@ asp repo <subcommand>
 asp spaces <subcommand>
 asp resources <subcommand>
 asp agent [options] <scope> <mode> [prompt]
+asp agents <subcommand>
 asp token-rent [options]
 ```
 
@@ -59,6 +60,13 @@ Common path options accepted by most project-facing commands:
 ## `asp run`
 
 Run a coding agent with a target, space reference, or filesystem path.
+
+The default `agent-harness` foreground route requires an agent profile. For
+an arbitrary project target, direct space ref, or local space directory, select
+`--harness claude`, `codex`, or `muse` explicitly. The direct `agent-harness`
+route rejects compiler-only switches such as `--yolo`, `--settings`, and
+`--inherit-*`; the options below apply to external harnesses unless supported
+by that route.
 
 Accepts a target name from `asp-targets.toml`, a direct space ref such as
 `space:my-space@dev`, or a filesystem path to a local space.
@@ -153,7 +161,7 @@ Print the filesystem path to a space by ID.
 
 ## `asp doctor`
 
-Check Claude binary, registry reachability, and cache permissions. `--json` for JSON output.
+Check Claude binary, shared spaces root, and cache permissions. `--json` for JSON output.
 
 ## `asp gc`
 
@@ -252,6 +260,18 @@ maxAttempts = 6                  # integer 1..1000
 maxAgeSeconds = 3600             # integer 60..604800
 ```
 
+## `asp agents`
+
+Read-only catalog and contextual inspection:
+
+- `asp agents catalog --context <file> [--json]`: catalog with an explicit
+  `agent-inspection-evaluation-context/v2` file.
+- `asp agents inspect --request <file> --context <file> [--json]`: inspect an
+  `agent-inspection-request/v2` against that evaluation context.
+
+The scaffolding proposal's `init`, `list`, `validate`, and `where` commands
+are not implemented.
+
 ## `asp agent`
 
 Placement-driven agent execution — the scope/session entry point:
@@ -274,12 +294,12 @@ Key options:
 - `--host-session-id <id>` / `--run-id <id>`: host correlation
 - `--scaffold-file <path>`: JSON file with scaffold packets
 - `--model <model>`: model override; the v2 wire carries its provider separately
-  as `modelProvider`
+  as `modelProvider`, supplied here with `--model-provider <id>`
 - `--prompt <text>` / `--prompt-file <path>` / `--attachment <path>` (repeatable): prompt input
 - `--continue-provider <provider>` / `--continue-key <key>`: explicit continuation input
-- `--interaction <mode>` / `--io <mode>`: foreground process controls. They do
-  not widen ordinary v2 harness selection; that request accepts only the
-  boolean `presentation`, then the compiler derives terminal and transport.
+- `--presentation <true|false>`: request the selected harness operator UI
+  (omission defaults through the catalog); the compiler derives terminal and transport.
+- `--io <mode>`: process I/O (`pty`, `pipes`, or `inherit`)
 - `--env <KEY=VALUE>` (repeatable): environment variables
 - `--compose <ref>` (repeatable): explicit bundle selection; `agent-project` is implicit from the scope-ref agentId
 - `--yolo`: skip permission prompts
@@ -299,8 +319,8 @@ Price agents' resident system-prompt sections against real HRC run frequency.
 
 - Validate `asp run` changes with `--dry-run` before treating them as correct.
 - The public host-facing continuation term is `continuationKey`, not `resume`.
-- `hostSessionId` is the canonical correlation field. `cpSessionId` remains deprecated
-  compatibility input only.
+- `hostSessionId` is the canonical correlation field. The exported host-correlation
+  and `BaseEvent` contracts do not include `cpSessionId`.
 - The sole public ordinary compile RPC is `aspc.compileHarnessInvocation` with
   `schemaVersion: "agent-runtime-compile-request/v2"`. Its successful plan has
   one `execution` and one canonical

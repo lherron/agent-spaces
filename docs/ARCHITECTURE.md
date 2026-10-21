@@ -1,8 +1,10 @@
 # Architecture
 
-Agent Spaces is currently split into a deterministic config/materialization layer, a harness-agnostic runtime layer, a run-time execution layer, harness-specific adapters, and a public host-facing API. This document describes the current post-cleanup, pre-HRC architecture only.
-
-HRC is not documented here as implemented behavior.
+Agent Spaces separates deterministic config/materialization, compiler selection,
+runtime helpers, execution drivers, and process hosts. This overview describes
+the ASP side of the current boundary; [the architecture brief](architecture-brief.md)
+covers the end-to-end flow and [architecture records](../architecture/README.md)
+own the normative contracts. HRC is a neighboring runtime consumer.
 
 ## System Overview
 
@@ -17,78 +19,55 @@ asp-targets.toml / agent-profile.toml / local spaces
   - materialize per-space artifacts / target bundles
         |
         v
-  spaces-runtime
-  - harness registry contracts
-  - UnifiedSession / UnifiedSessionEvent
+  agent-spaces compiler
+  - harness catalog and selection
+  - compileRuntimePlan / frozen dispatch request
         |
         v
-  spaces-execution
-  - run-time orchestration
-  - harness adapter dispatch
-  - run/build/install wrappers
+  injected runtime / harness hosts
+  - driver preparation and materialization
+  - aspd compile RPC / harness-broker dispatch
         |
         v
-  spaces-harness-*
-  - Claude / Codex / Pi / Pi SDK specifics
-        |
-        v
-  agent-spaces + asp CLI
-  - host-facing request/response API
-  - placement-driven execution
-  - AgentEvent translation
+  HRC (managed) or asp CLI (foreground)
+  - lifecycle and dispatch / foreground launch
 ```
 
 ## Package Boundaries
 
 ```text
-packages/
-├── agent-scope/      # Canonical semantic addressing: scope/session refs and handles
-├── config/           # spaces-config
-├── runtime/          # spaces-runtime
-├── execution/        # spaces-execution
-├── harness-claude/   # Claude CLI + Agent SDK harness
-├── harness-codex/    # Codex CLI/app-server harness
-├── harness-pi/       # Pi CLI harness
-├── harness-pi-sdk/   # Pi SDK harness
-├── agent-spaces/     # Public host-facing API + event translation
-└── cli/              # asp command line interface
+contracts/agent-scope/       # Canonical scope/session refs and handles
+contracts/aspc-protocol/     # Public compile RPC contract
+contracts/harness-broker-*/  # Broker protocol and client
+contracts/spaces-runtime-contracts/ # Runtime plan and selection contracts
+core/config/                # spaces-config: parse, resolve, materialize
+core/runtime/               # spaces-runtime: prompts and session helpers
+drivers/execution/          # spaces-execution: foreground execution/preparation
+drivers/harness-*/          # Claude, Codex, Muse, retained Pi implementations
+compiler/agent-spaces/      # agent-spaces: catalog and compiler client
+harness/aspc*/              # Compile service and facade
+harness/harness-broker/     # Process host and event capture
+harness/agent-harness*/     # Native agent-harness and runtime
+apps/cli/                   # @lherron/agent-spaces: asp CLI
 ```
 
 Important correction: `git`, `resolver`, `store`, `materializer`, `lint`, and `core` are not standalone workspace packages anymore. They are sub-exports inside `spaces-config`.
 
 ### Dependency Shape
 
-```text
-agent-scope
-    |
-    v
-spaces-config
-    |
-    v
-spaces-runtime
-    |
-    v
-spaces-execution
-    |
-    +--> spaces-harness-claude
-    +--> spaces-harness-codex
-    +--> spaces-harness-pi
-    +--> spaces-harness-pi-sdk
-    |
-    v
-agent-spaces
-    |
-    v
-cli
-```
+Imports point inward through `apps → harness → compiler → drivers → core → contracts`,
+with a stricter compiler rule: `compiler/` cannot import `drivers/`.
+The CLI and ASPC inject the implementation runtime through
+`AgentSpacesClientOptions.runtime`; the compiler does not select an adapter by
+importing its implementation. `scripts/lib/import-graph.ts` enforces these layers.
 
 More precisely:
 
 - `spaces-config` owns config-time determinism: parsing, schemas, refs, closure resolution, locks, store paths, and artifact materialization.
-- `spaces-runtime` owns harness-agnostic runtime primitives: harness registration plus the `UnifiedSession` / `UnifiedSessionEvent` contract.
+- `spaces-runtime` owns runtime helpers, prompt construction, and retained `UnifiedSession` / `UnifiedSessionEvent` contracts.
 - `spaces-execution` owns volatile run-time orchestration: install/build/run wrappers, harness lookup, and session launch plumbing.
 - `spaces-harness-*` packages own provider/frontend-specific behavior.
-- `agent-spaces` owns the public host-facing API, placement entrypoints, and the translation from runtime session events to stable host events.
+- `agent-spaces` owns the harness catalog, runtime-plan compiler, inspection, and process/broker invocation preparation. Its client prepares execution rather than running managed turns.
 - `agent-scope` is intentionally standalone because scope/session identity is used as a semantic seam, not just as a CLI convenience.
 
 ## Identity Seams
@@ -164,7 +143,7 @@ Representative sub-exports:
 
 ## Space Sources and Locality
 
-A space ref carries both an identity and a source locality. Four kinds exist (`packages/config/src/resolver/space-classification.ts`):
+A space ref carries both an identity and a source locality. Four lock-entry kinds exist (`core/config/src/resolver/space-classification.ts`):
 
 | Kind | Ref form | Source | Lock commit marker |
 | --- | --- | --- | --- |
@@ -174,6 +153,11 @@ A space ref carries both an identity and a source locality. Four kinds exist (`p
 | agent | `space:agent:<id>[@dev]` | `<agentRoot>/spaces/<id>/` | `agent` |
 
 Project- and agent-local spaces use the same `space.toml` schema and directory layout as registry spaces. They are read directly from the filesystem (no git resolution); only `@dev` is meaningful as a selector. Integrity is computed from directory content, and the lock entry records the marker commit plus a relative `path` (`spaces/<id>`) — see `closure.ts` and `integrity.ts`.
+
+`space:path:<path>@dev` also supports explicit local directories. Shared `@dev`
+spaces now default to `<agentsRoot>/spaces/<id>/`. Git-backed publication and
+dist-tag commands are retired; registry entries describe retained pinned locks,
+not the recommended authoring workflow.
 
 ### Dependency Edge Rules
 
@@ -206,11 +190,13 @@ Registry spaces must stay standalone (no dependency on local spaces). Local spac
 - `tool_execution_end`
 - `sdk_session_id`
 
-This is the canonical run-time event model.
+This remains the retained adapter session model. Managed execution uses the
+broker protocol's invocation event envelopes, not a stream from the compiler client.
 
 ### `AgentEvent`
 
-`agent-spaces` exposes `AgentEvent` as the public host-facing event API. It is intentionally coarser than `UnifiedSessionEvent`.
+`agent-spaces` still exports the coarser `AgentEvent` type in
+`compiler/agent-spaces/src/types.ts`.
 
 Examples:
 
@@ -222,7 +208,10 @@ Examples:
 - `log`
 - `complete`
 
-`packages/agent-spaces/src/session-events.ts` translates the granular runtime stream into this public contract. `AgentEvent` is not a competing replay model and should not be described as one.
+The old `session-events.ts` translator and in-process turn-running client methods
+are gone. Exporting the retained type does not provide a compiler event stream.
+Current managed reads use `spaces-harness-broker-protocol` and its durable
+event sequence; `AgentEvent` is not a competing replay model.
 
 ### JSONL Artifacts Are Telemetry
 
@@ -249,10 +238,9 @@ Important distinctions:
 
 ## Correlation and Compatibility Surfaces
 
-The canonical host correlation field is `hostSessionId`.
-
-- `cpSessionId` remains deprecated compatibility input only.
-- New public docs should not present `cpSessionId` as the primary field.
+The canonical host correlation field is `hostSessionId`. The exported
+`BaseEvent` and current host-correlation types use it; `cpSessionId` is not a
+field on those contracts.
 
 Cleanup already reflected in the current public seam:
 
@@ -270,19 +258,29 @@ High-level flow:
 4. Generate/update `asp-lock.json`.
 5. Snapshot resolved space content into the content-addressed store.
 6. Materialize harness-specific space artifacts.
-7. Compose target bundles under `asp_modules/`.
-8. Hand the bundle to the selected execution/harness layer.
+7. Compose external-harness bundles under the content-addressed `ASP_HOME` layout.
+8. Return a frozen dispatch plan for managed execution, or launch through the
+   foreground CLI. The native agent-harness route loads sources directly rather
+   than materializing a compatibility bundle.
 
-The deterministic parts of steps 1-7 live in `spaces-config`. Step 8 and session lifecycle handling live in `spaces-execution` and the harness packages.
+The resolution/materialization machinery lives in `spaces-config`; the compiler
+selects the recipe and uses the injected runtime to prepare its artifacts. The
+foreground `spaces-execution` path launches locally; managed lifecycle belongs to HRC.
 
 ## HRC boundary
 
-HRC is a neighboring consumer, not an implementation surface in this document.
+HRC is a neighboring consumer, not an ASP implementation layer.
 For ordinary v2 compilation, Agent Spaces selects the harness recipe and emits
 one frozen execution plus its one canonical dispatch start request. HRC retains
 placement, authorization, resource allocation, terminal leases, lifecycle,
 messaging, continuation, credentials, and reattachment. Migrating HRC callers,
 prepared state, or live state to v2 is outside this ASP-only cutover.
+
+The ordinary public RPC is `aspc.compileHarnessInvocation`, with
+`agent-runtime-compile-request/v2` input and one
+`execution.dispatchRequest.startRequest` on success. See
+[harness architecture](harness-architecture.md) for current selection and
+[aspd](aspd.md) for namespaced service operation.
 
 ## Retained implementation packages
 
@@ -293,14 +291,17 @@ which retained implementation a resolved recipe uses.
 
 - `spaces-harness-claude`
 - `spaces-harness-codex`
+- `spaces-harness-muse`
 - `spaces-harness-pi`
 - `spaces-harness-pi-sdk`
 
-These packages translate the shared runtime/execution contracts into provider-specific invocation and session behavior. They are intentionally downstream of `spaces-runtime` and `spaces-execution`, not peers of `spaces-config`.
+These implementations materialize provider-specific artifacts and prepare
+invocations through the driver plane. They do not expand the public harness
+selection vocabulary.
 
 ## CLI Surface
 
-`packages/cli` is the top-level distribution package and exposes:
+`apps/cli` is the top-level distribution package and exposes:
 
 - classic target-oriented commands such as `run`, `install`, `build`, `describe`, `explain`, `lint`, `list`, and `doctor`
 - shared spaces root commands under `asp repo`
