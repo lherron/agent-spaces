@@ -207,6 +207,31 @@ describe('claude-code-tmux disposition mirror', () => {
     ])
   })
 
+  test('T-11508: queue rows read after the hook executed their prompt open no second turn', () => {
+    // inv-747fbbd6 seqs 1122-1131: the steer landed as turn _31 ended, so Claude
+    // queued it. The UserPromptSubmit hook executed it before the broker read the
+    // enqueue/dequeue/user rows, which arrive with the NEXT hook.
+    const tracker = createTracker()
+    tracker.trackBrokerSubmission({ submissionId: 'submission_steer', content: 'late steer' })
+    tracker.observeTurnStarted('turn_previous' as TurnId)
+    tracker.observeTurnTerminal('turn_previous' as TurnId)
+
+    expect(tracker.observePromptHook('late steer')).toEqual([
+      expect.objectContaining({
+        kind: 'executed',
+        submissionId: 'submission_steer',
+        turnId: 'turn_inv_attr_1',
+      }),
+    ])
+    expect(tracker.observeQueueOperation(queueOp('enqueue', 'late steer'))).toEqual([])
+    expect(tracker.observeQueueOperation(queueOp('dequeue'))).toEqual([])
+    expect(tracker.observePlainUser('late steer', { type: 'user' })).toEqual([
+      { kind: 'prompt-echo', content: 'late steer', turnId: turnIdFrom('turn_inv_attr_1') },
+    ])
+    expect(tracker.activeTurnId).toBe(turnIdFrom('turn_inv_attr_1'))
+    expect(tracker.pendingCount).toBe(0)
+  })
+
   test('plain user transcript row dedupes the turn but claims the conversation fact', () => {
     // T-07873: the hook-decided execute does NOT mint `user.message` (it sets
     // `mintsConversation:false` and arms the echo); the prompt's own transcript

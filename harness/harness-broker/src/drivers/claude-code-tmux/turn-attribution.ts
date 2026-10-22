@@ -107,6 +107,8 @@ export function createClaudeTurnAttribution(options: {
   let recentDisposedPrompt: string | undefined
   /** Whether {@link recentDisposedPrompt} was disposed on a HOOK record. */
   let recentDisposedPromptFromHook = false
+  /** A late enqueue of the hook-executed prompt was seen; its dequeue is owed. */
+  let lateQueueRecordPending = false
 
   const nextHumanSubmissionId = (): string => {
     submissionCounter += 1
@@ -333,8 +335,23 @@ export function createClaudeTurnAttribution(options: {
     },
 
     observeQueueOperation(operation): ClaudeAttributionAction[] {
-      recentDisposedPrompt = undefined
       const op = operation.operation
+      // T-11508: transcript rows are read only when the next hook arrives, so the
+      // prompt hook can execute a queued prompt before the broker reads that
+      // prompt's own enqueue/dequeue rows. Those rows are a late record of the
+      // active turn's prompt, not a new queued input; the user row stays its echo.
+      if (recentDisposedPromptFromHook && activeTurnId !== undefined) {
+        if (op === 'enqueue' && operation.content === recentDisposedPrompt) {
+          lateQueueRecordPending = true
+          return []
+        }
+        if (op === 'dequeue' && lateQueueRecordPending) {
+          lateQueueRecordPending = false
+          return []
+        }
+      }
+      lateQueueRecordPending = false
+      recentDisposedPrompt = undefined
       if (op === 'enqueue') {
         const content = typeof operation.content === 'string' ? operation.content : undefined
         if (content === undefined || content.length === 0) {
