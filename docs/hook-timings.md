@@ -41,11 +41,18 @@ Pre-commit checks run concurrently. Workspace builds use package-manifest depend
 independent packages in bounded topological layers; set `ASP_BUILD_CONCURRENCY` to override the
 default concurrency.
 
-Pre-push receives the exact pushed change set from the timing/scope wrapper. The fast test runner
-always executes the small contract suite, adds the changed workspace and its downstream consumers,
-and fails safe to the full allowlist for ambiguous or repository-wide changes. Independent suites
-run with bounded concurrency; set `ASP_TEST_CONCURRENCY` to override the default. Direct
-`bun run test:fast` calls have no pushed change set and therefore run the full allowlist.
+Pre-push preserves Git's stdin through the timing/scope wrapper. Its configured Lefthook
+command posts a best-effort push fact through `wrkp git push`, without running workspace
+tests or validation. The
+[`post-push-verify` workflow](../.github/workflows/post-push-verify.yml) runs `just verify`
+after pushes to `main` on the self-hosted runner; see [`lefthook.yml`](../lefthook.yml)
+for the current hook commands.
+
+The separately invoked fast test runner always executes the small contract suite, adds the
+changed workspace and its downstream consumers when supplied a change set, and fails safe to
+the full allowlist for ambiguous or repository-wide changes. Independent suites run with bounded
+concurrency; set `ASP_TEST_CONCURRENCY` to override the default. Direct `bun run test:fast`
+calls have no pushed change set and therefore run the full allowlist.
 
 Public-surface validation runs only when a workspace package manifest, package source, baseline, or
 the checker itself changes. Documentation-only and unrelated tooling changes are recorded as
