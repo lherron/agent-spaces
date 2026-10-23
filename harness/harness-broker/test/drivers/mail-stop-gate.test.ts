@@ -10,6 +10,7 @@ import { runCodexHookBridge } from '../../src/drivers/codex-cli-tmux/hook-bridge
 import type { CodexCliTmuxHookEnvelope } from '../../src/drivers/codex-cli-tmux/hook-events'
 import { HRC_MAIL_STOP_SOCKET_ENV, queryMailStopDecision } from '../../src/drivers/mail-stop-gate'
 import { listenForHookEnvelopes } from '../../src/drivers/tmux-shared'
+import { HARNESS_BROKER_VERSION } from '../../src/version'
 
 const tempRoots: string[] = []
 
@@ -35,7 +36,7 @@ async function startMailDecisionServer(response: Record<string, unknown>): Promi
     request.on('end', () => {
       requests.push({
         url: request.url,
-        client: request.headers['x-hrc-client'] as string | undefined,
+        client: request.headers['user-agent'],
         body: Buffer.concat(chunks).toString('utf8'),
       })
       reply.writeHead(200, { 'content-type': 'application/json' })
@@ -70,7 +71,7 @@ describe('mail Stop gate', () => {
       expect(hrc.requests).toEqual([
         {
           url: '/v1/internal/mail/stop-decision',
-          client: 'harness-broker/hook-bridge',
+          client: `harness-broker/${HARNESS_BROKER_VERSION}`,
           body: '{"runtimeId":"runtime-mail-stop"}',
         },
       ])

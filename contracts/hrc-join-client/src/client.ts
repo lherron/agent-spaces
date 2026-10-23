@@ -16,6 +16,10 @@ import type {
  * otherwise holds the caller forever (T-09977). The timeout rejects like any
  * other transport failure, so callers keep a single transport-error path.
  */
+/** Keep equal to this package's `version` in package.json. */
+export const HRC_JOIN_CLIENT_VERSION = '0.1.1'
+const HRC_JOIN_CLIENT_USER_AGENT = `hrc-join-client/${HRC_JOIN_CLIENT_VERSION}`
+
 export type JoinRequestOptions = { timeoutMs?: number | undefined }
 
 async function postJoin(
@@ -27,8 +31,8 @@ async function postJoin(
   const response = await fetch(`http://localhost${path}`, {
     method: 'POST',
     unix: hrcSocketPath,
-    // `x-hrc-client`: observational caller label for HRC request metrics (hrc-runtime T-11541).
-    headers: { 'content-type': 'application/json', 'x-hrc-client': 'hrc-join-client' },
+    // The L3 client name HRC logs and meters this request under (hrc-runtime T-11541).
+    headers: { 'content-type': 'application/json', 'user-agent': HRC_JOIN_CLIENT_USER_AGENT },
     body: JSON.stringify(body),
     ...(options.timeoutMs === undefined ? {} : { signal: AbortSignal.timeout(options.timeoutMs) }),
   } as never)

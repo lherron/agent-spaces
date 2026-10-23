@@ -3,6 +3,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  HRC_JOIN_CLIENT_VERSION,
   attachParticipant,
   isAttachConflict,
   isAttachEpochStale,
@@ -18,7 +19,7 @@ function socketPath(): string {
   return join(mkdtempSync(join(tmpdir(), 'hrc-join-')), 'hrc.sock')
 }
 
-/** `x-hrc-client` of every request a stub received (T-11541 caller attribution). */
+/** `User-Agent` of every request a stub received (L3 client name, hrc-runtime T-11541). */
 const receivedClients: (string | null)[] = []
 
 function stubHrc(handler: (path: string, body: unknown) => { status: number; body: unknown }) {
@@ -26,7 +27,7 @@ function stubHrc(handler: (path: string, body: unknown) => { status: number; bod
   const server = Bun.serve({
     unix: sock,
     async fetch(request) {
-      receivedClients.push(request.headers.get('x-hrc-client'))
+      receivedClients.push(request.headers.get('user-agent'))
       const url = new URL(request.url)
       const body = await request.json().catch(() => undefined)
       const { status, body: response } = handler(url.pathname, body)
@@ -318,6 +319,6 @@ describe('caller attribution (T-11541)', () => {
     } finally {
       hrc.stop()
     }
-    expect(receivedClients).toEqual(['hrc-join-client'])
+    expect(receivedClients).toEqual([`hrc-join-client/${HRC_JOIN_CLIENT_VERSION}`])
   })
 })

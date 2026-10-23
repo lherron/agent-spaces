@@ -1,5 +1,7 @@
 import { connect } from 'node:net'
 
+import { HARNESS_BROKER_VERSION } from '../version'
+
 export const HRC_MAIL_STOP_SOCKET_ENV = 'HRC_MAIL_STOP_SOCKET'
 
 const MAIL_STOP_DECISION_PATH = '/v1/internal/mail/stop-decision'
@@ -130,8 +132,8 @@ async function postUnixHttpJson(
     `POST ${path} HTTP/1.1`,
     'Host: localhost',
     'Content-Type: application/json',
-    // Observational caller label for HRC request metrics (hrc-runtime T-11541).
-    'x-hrc-client: harness-broker/hook-bridge',
+    // The L3 client name HRC logs and meters this request under (hrc-runtime T-11541).
+    `User-Agent: harness-broker/${HARNESS_BROKER_VERSION}`,
     `Content-Length: ${Buffer.byteLength(payload)}`,
     'Connection: close',
     '',

@@ -14,6 +14,7 @@ export type {
   RegisteredIdentity,
 } from './types'
 export type { JoinRequestOptions } from './client'
+export { HRC_JOIN_CLIENT_VERSION } from './client'
 export {
   attachParticipant,
   isAttachConflict,

@@ -8,6 +8,7 @@ import { runClaudeHookDecisionBridge } from '../../src/drivers/claude-code-tmux/
 import type { ClaudeCodeHookEnvelope } from '../../src/drivers/claude-code-tmux/hook-events'
 import { HRC_MAIL_STOP_SOCKET_ENV, queryMailHintDecision } from '../../src/drivers/mail-stop-gate'
 import { listenForHookEnvelopes } from '../../src/drivers/tmux-shared'
+import { HARNESS_BROKER_VERSION } from '../../src/version'
 
 const tempRoots: string[] = []
 
@@ -37,7 +38,7 @@ async function startHintDecisionServer(options: {
     request.on('end', () => {
       requests.push({
         url: request.url,
-        client: request.headers['x-hrc-client'] as string | undefined,
+        client: request.headers['user-agent'],
         body: Buffer.concat(chunks).toString('utf8'),
       })
       const respond = () => {
@@ -119,7 +120,7 @@ describe('Claude PostToolUse mail hint bridge', () => {
       expect(hrc.requests).toEqual([
         {
           url: '/v1/internal/mail/hint-decision',
-          client: 'harness-broker/hook-bridge',
+          client: `harness-broker/${HARNESS_BROKER_VERSION}`,
           body: '{"runtimeId":"runtime-mail-hint"}',
         },
       ])
