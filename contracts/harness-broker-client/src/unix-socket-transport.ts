@@ -14,6 +14,8 @@ export interface UnixSocketTransportConnectOptions {
   timeoutMs?: number | undefined
   /** Optional diagnostics hooks for the underlying JSON-RPC channel. */
   debug?: JsonRpcChannelDebugOptions | undefined
+  /** Attribution for service RPC requests; omitted for private broker channels. */
+  client?: string | undefined
 }
 
 /** JSON-RPC error code for a superseded ("fenced") controller connection. */
@@ -31,10 +33,12 @@ export class UnixSocketTransport extends JsonRpcFramedChannel {
 
   #closePromise: Promise<void>
   #resolveClose!: () => void
+  #client: string | undefined
 
-  private constructor(socket: Socket, debug?: JsonRpcChannelDebugOptions) {
+  private constructor(socket: Socket, debug?: JsonRpcChannelDebugOptions, client?: string) {
     super(debug)
     this.socket = socket
+    this.#client = client
     this.#closePromise = new Promise<void>((resolve) => {
       this.#resolveClose = resolve
     })
@@ -66,7 +70,7 @@ export class UnixSocketTransport extends JsonRpcFramedChannel {
     socket.connect({ path: options.socketPath })
     await connected
 
-    return new UnixSocketTransport(socket, options.debug)
+    return new UnixSocketTransport(socket, options.debug, options.client)
   }
 
   /**
@@ -155,7 +159,11 @@ export class UnixSocketTransport extends JsonRpcFramedChannel {
     if (this.socket.destroyed) {
       throw new BrokerTransportError('Broker socket is closed')
     }
-    this.socket.write(encodeNdjsonFrame(message))
+    const attributed =
+      this.#client !== undefined && 'id' in message && 'method' in message
+        ? { ...message, client: this.#client }
+        : message
+    this.socket.write(encodeNdjsonFrame(attributed))
   }
 
   /** Latch the close cause and resolve the close promise so {@link close} can settle. */

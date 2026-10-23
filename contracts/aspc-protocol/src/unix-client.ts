@@ -11,6 +11,7 @@
  */
 import { BrokerTransportError, UnixSocketTransport } from 'spaces-harness-broker-client'
 import type { CloseHandler } from 'spaces-harness-broker-client'
+import packageManifest from '../package.json'
 import type {
   AspcAgentInspectionCatalogResponse,
   AspcCatalogAgentInspectionRequest,
@@ -138,7 +139,15 @@ export class AspcUnixClient {
     const deadline = performance.now() + timeoutMs
     let transport: UnixSocketTransport
     try {
-      transport = await UnixSocketTransport.connect({ socketPath: options.socketPath, timeoutMs })
+      transport = await UnixSocketTransport.connect({
+        socketPath: options.socketPath,
+        timeoutMs,
+        // When the host supplies no version, identify this versioned library
+        // rather than mislabel its package version as the host's build.
+        client: options.clientInfo.version
+          ? `${options.clientInfo.name}/${options.clientInfo.version}`
+          : `${packageManifest.name}/${packageManifest.version}`,
+      })
     } catch (error) {
       if (error instanceof BrokerTransportError) {
         throw new AspcServiceUnavailableError(options.socketPath, error.causeError ?? error)

@@ -2,10 +2,9 @@
  * `aspd`: the ASPC compile plane served from one immutable ASP release on a
  * stable Unix socket (T-08539, docs/aspd.md).
  *
- * Preparation only. It registers the existing seven `aspc.*` methods through
- * `registerAspcCompileMethods` and nothing else: no `aspc.compileAndStart`, no
- * broker, no invocation routes. Workers are hosted by the client from the
- * release this daemon reports.
+ * Preparation only. Compile methods come from `registerAspcCompileMethods`;
+ * health, version and surface describe this process. There is no broker or
+ * invocation start route. Clients host workers from the release reported here.
  *
  * Activation retires a daemon with SIGTERM: admission stops on the listener AND
  * on every existing connection before in-flight requests drain, so a connection
@@ -25,10 +24,12 @@ import { basename, dirname, join, resolve, sep } from 'node:path'
 import { recordCompilePhases } from 'agent-spaces'
 import type { AspcMethodServer, AspcService } from 'spaces-aspc'
 import {
+  ASPC_COMPILE_METHODS,
   AspcInspectionAuthorityError,
   createAspcService,
   registerAspcCompileMethods,
 } from 'spaces-aspc'
+import { ASPC_PROTOCOL_VERSION } from 'spaces-aspc-protocol'
 import type {
   AspcCompileHarnessInvocationRequest,
   AspcCompileHarnessInvocationResponse,
@@ -40,6 +41,7 @@ import { BrokerError } from 'spaces-harness-broker'
 import type { AspReleaseIdentity } from 'spaces-harness-broker-protocol'
 import type { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { type ProtocolServer, createProtocolServer } from 'spaces-harness-broker/protocol-server'
+import packageManifest from '../package.json'
 import { createRuntimeCompiler, runtimeDependencies } from './runtime-compiler.js'
 
 export const ASPD_WORKER_ARGV_PREFIX = ['run', '--transport', 'unix'] as const
@@ -212,6 +214,38 @@ export interface AspdServerOptions {
   log?: ((line: string) => void) | undefined
   /** In-flight requests older than this log `request.slow` (default 2000ms). */
   slowRequestMs?: number | undefined
+  releaseIdentity?: AspReleaseIdentity | undefined
+}
+
+const ASPD_OP_SUMMARIES: Record<
+  (typeof ASPC_COMPILE_METHODS)[keyof typeof ASPC_COMPILE_METHODS],
+  string
+> = {
+  'aspc.hello': 'Negotiate the compile interface and report the serving release.',
+  'aspc.catalogAgents': 'List agents visible in an evaluation context.',
+  'aspc.inspectAgent': 'Inspect an agent with an explicit evaluation context.',
+  'aspc.catalogAgentInspection': 'List agent inspection selections.',
+  'aspc.inspectAgentSelection': 'Inspect a selected agent declaration.',
+  'aspc.compileHarnessInvocation':
+    'Compile and materialize a harness invocation without starting it.',
+  'aspc.resolveRuntimeDeclaration': 'Resolve a runtime declaration from its context.',
+  'aspc.inspectRuntimePlacement': 'Inspect declared runtime placement intent.',
+  'aspc.observeRuntimeCapability': 'Observe a runtime harness capability.',
+  'aspc.observeContinuationArtifact': 'Inspect a continuation artifact.',
+  'aspc.prepareProcessInvocation': 'Prepare process launch inputs without starting a process.',
+}
+
+/** Discovery has no params. Existing compile params retain their wire contract. */
+function requireEmptyDiscoveryParams(params: unknown): void {
+  const record = asRecord(params)
+  if (params === undefined || (record !== undefined && Object.keys(record).length === 0)) return
+  const keys = record === undefined ? [] : Object.keys(record)
+  throw new BrokerError(
+    -32602 as BrokerErrorCode,
+    keys.length > 0
+      ? `Unknown params: ${keys.join(', ')}. Call with params: {}.`
+      : 'Params must be an empty object. Call with params: {}.'
+  )
 }
 
 export const ASPD_SLOW_REQUEST_MS = 2_000
@@ -339,6 +373,7 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
   let drained: (() => void) | undefined
   const connections = new Map<Socket, ProtocolServer>()
   let nextConnection = 1
+  const surface = new Map<string, { op: string; summary: string; stream: boolean }>()
 
   await reclaimStaleSocket(socketPath)
 
@@ -348,9 +383,42 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
       socket.destroy()
       return
     }
-    const server = createProtocolServer({ stdin: socket, stdout: socket, stderr: process.stderr })
+    const server = createProtocolServer({
+      stdin: socket,
+      stdout: socket,
+      stderr: process.stderr,
+      onRequestComplete(completion) {
+        const resultStatus = resultOutcome(completion.result)
+        const outcome =
+          completion.error !== undefined
+            ? String(completion.error.code)
+            : resultStatus.startsWith('rejected:')
+              ? resultStatus.slice('rejected:'.length)
+              : 'ok'
+        const message = completion.error?.message ?? resultError(completion.result)
+        log(
+          JSON.stringify({
+            ts: new Date().toISOString(),
+            level: outcome === 'ok' ? 'info' : completion.error?.code === -32603 ? 'error' : 'warn',
+            component: 'rpc',
+            event: 'rpc.request',
+            data: {
+              listener: 'aspd',
+              op: completion.method,
+              client: completion.client,
+              durationMs: round1(completion.durationMs),
+              outcome,
+              ...(message === undefined ? {} : { code: outcome, message: clipError(message) }),
+            },
+          })
+        )
+      },
+    })
     const gated: AspcMethodServer = {
       register(method, handler) {
+        const summary = ASPD_OP_SUMMARIES[method as keyof typeof ASPD_OP_SUMMARIES]
+        if (summary === undefined) throw new Error(`Missing aspd surface summary for ${method}`)
+        surface.set(method, { op: method, summary, stream: false })
         server.register(method, async (request) => {
           // Checked at dispatch, not at read: a frame already buffered when
           // retirement began is never admitted into this release.
@@ -449,6 +517,37 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
       },
     }
     registerAspcCompileMethods(gated, { service: options.service })
+    const discovery = {
+      health: {
+        summary: 'Report process health without checking dependencies.',
+        handle: () => ({ ok: true, degraded: [] }),
+      },
+      version: {
+        summary: 'Report the build, interface version and capabilities.',
+        handle: () => ({
+          buildVersion: options.releaseIdentity?.releaseId ?? packageManifest.version,
+          interfaceVersion: ASPC_PROTOCOL_VERSION,
+          capabilities: {
+            health: true,
+            version: true,
+            surface: true,
+            ...Object.fromEntries(Object.values(ASPC_COMPILE_METHODS).map((op) => [op, true])),
+          },
+          ...(options.releaseIdentity === undefined ? {} : { release: options.releaseIdentity }),
+        }),
+      },
+      surface: {
+        summary: 'List the registered operations and their summaries.',
+        handle: () => ({ schemaVersion: 'aspd-surface/v1', ops: [...surface.values()] }),
+      },
+    }
+    for (const [op, entry] of Object.entries(discovery)) {
+      surface.set(op, { op, summary: entry.summary, stream: false })
+      server.register(op, async ({ params }) => {
+        requireEmptyDiscoveryParams(params)
+        return entry.handle()
+      })
+    }
     connections.set(socket, server)
     void server.start()
     const cleanup = (): void => {
@@ -467,6 +566,15 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
     })
   })
   const boundInode = statSync(socketPath).ino
+  log(
+    JSON.stringify({
+      ts: new Date().toISOString(),
+      level: 'info',
+      component: 'rpc',
+      event: 'rpc.listen',
+      data: { listener: 'aspd', address: socketPath },
+    })
+  )
 
   return {
     inFlight: () => inFlight,
@@ -700,7 +808,12 @@ export async function runAspdCli(args: string[], options: RunAspdCliOptions): Pr
   }
   const binding = resolveAspdReleaseBinding(options.releaseIdentity, process.execPath)
   const service = createAspdService(binding)
-  const server = await startAspdServer({ socketPath, service, log })
+  const server = await startAspdServer({
+    socketPath,
+    service,
+    log,
+    releaseIdentity: binding.identity,
+  })
   lifecycle('INFO', 'serving', {
     release: binding.identity.releaseId,
     sourceCommit: binding.identity.sourceCommit,

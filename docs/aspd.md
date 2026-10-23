@@ -292,11 +292,29 @@ convention when parsing them.
 
 | Event | When | Fields |
 | --- | --- | --- |
-| `request.answered` | every registered method request, after its reply is written | `conn`, `id`, `method`, `startedAt`, `durationMs`, `outcome` (`ok` \| `rejected:<code>` \| `error:<code>`), `replyBytes` (when available), `error` (when available), correlation, `phases` (compile only) |
+| `request.answered` | every registered `aspc.*` method request, after its reply is written | `conn`, `id`, `method`, `startedAt`, `durationMs`, `outcome` (`ok` \| `rejected:<code>` \| `error:<code>`), `replyBytes` (when available), `error` (when available), correlation, `phases` (compile only) |
 | `request.admitted` | compile and prepare only | `conn`, `id`, `method`, `startedAt`, correlation |
 | `request.slow` (WARN) | still in flight after 2 s | `elapsedMs`, `slowRequestMs`, correlation; the answered line is also WARN |
 | `request.refused-retiring` (WARN) | a frame dispatched after retirement began | `conn`, `id`, `method` |
 | `retire.begin` / `retire.drained` / `serving` / `exit` | lifecycle | |
+
+The same log also carries canonical whole-line JSON transport events:
+`rpc.listen` announces `listener: "aspd"` and its socket address; one
+`rpc.request` at completion carries `listener`, `op`, `client`, `outcome` and
+`durationMs`, including unknown operations and malformed complete frames.
+These use `{ts, level, component: "rpc", event, data}`. Existing compiler and
+lifecycle events retain the prefixed format above. Parse each format separately.
+No request or response bodies are included in the canonical request line.
+
+For discovery, call `avs aspc <socket> surface`: it returns
+`schemaVersion: "aspd-surface/v1"` and the actually registered operations with
+summaries and stream declarations. `health` reports process health without
+checking dependencies. `version` reports the serving build, interface version
+and capabilities. All three accept no params or an empty object and reject
+unknown keys. Existing compile operations retain their JSON-RPC numeric error
+codes and result shapes. `AspcUnixClient` sets envelope attribution once for
+every request: explicit host name/version, or its own library name/version when
+the host supplies no version. The `avs aspc` sender identifies itself as `avs/1`.
 
 Unknown methods are refused by the protocol server before the registered
 handler, so they do not produce `request.answered` lines. Parameter validation

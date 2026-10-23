@@ -19,6 +19,16 @@ export interface ProtocolServerOptions {
   stdin: Readable
   stdout: Writable
   stderr: Writable
+  /** Optional observation only; response framing and dispatch remain unchanged. */
+  onRequestComplete?: ((completion: ProtocolRequestCompletion) => void) | undefined
+}
+
+export interface ProtocolRequestCompletion {
+  method: string
+  client: string
+  durationMs: number
+  result?: unknown
+  error?: { code: number; message: string } | undefined
 }
 
 export interface ProtocolServerRequestOptions {
@@ -60,6 +70,14 @@ export function createProtocolServer(options: ProtocolServerOptions): ProtocolSe
     stdout.write(encodeNdjsonFrame(message))
   }
 
+  function complete(completion: ProtocolRequestCompletion): void {
+    try {
+      options.onRequestComplete?.(completion)
+    } catch (error) {
+      options.stderr.write(`RPC request observation failed: ${String(error)}\n`)
+    }
+  }
+
   function settlePending(id: JsonRpcId, settle: (pending: PendingRequest) => void): void {
     const pending = pendingRequests.get(id)
     if (!pending) return
@@ -94,9 +112,21 @@ export function createProtocolServer(options: ProtocolServerOptions): ProtocolSe
       return
     }
 
+    const started = performance.now()
+    const rawClient = (frame as unknown as Record<string, unknown>)['client']
+    const client = typeof rawClient === 'string' && rawClient.length > 0 ? rawClient : 'unknown'
+    const answered = (fields: Pick<ProtocolRequestCompletion, 'result' | 'error'>): void =>
+      complete({ method: frame.method, client, durationMs: performance.now() - started, ...fields })
+
     const handler = handlers.get(frame.method)
     if (!handler) {
-      writeFrame(createJsonRpcErrorResponse(frame.id, -32601, `Method not found: ${frame.method}`))
+      const response = createJsonRpcErrorResponse(
+        frame.id,
+        -32601,
+        `Method not found: ${frame.method}`
+      )
+      writeFrame(response)
+      answered({ error: response.error })
       return
     }
 
@@ -108,6 +138,7 @@ export function createProtocolServer(options: ProtocolServerOptions): ProtocolSe
           id: frame.id,
           result,
         })
+        answered({ result })
       },
       (err: unknown) => {
         const rpcError = toJsonRpcError(err)
@@ -116,6 +147,7 @@ export function createProtocolServer(options: ProtocolServerOptions): ProtocolSe
           id: frame.id,
           error: rpcError,
         })
+        answered({ error: rpcError })
       }
     )
   }
@@ -136,6 +168,12 @@ export function createProtocolServer(options: ProtocolServerOptions): ProtocolSe
         if (consecutiveParseErrors <= MAX_CONSECUTIVE_PARSE_ERRORS) {
           writeFrame(createJsonRpcErrorResponse(null, -32700, 'Parse error'))
         }
+        complete({
+          method: 'unmatched',
+          client: 'unknown',
+          durationMs: 0,
+          error: { code: -32700, message: 'Parse error' },
+        })
       }
     }
   }

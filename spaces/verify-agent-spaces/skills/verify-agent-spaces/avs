@@ -136,7 +136,7 @@ else:
 s = socket.socket(socket.AF_UNIX)
 s.settimeout(30)
 s.connect(sock)
-s.sendall((json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": p}) + "\n").encode())
+s.sendall((json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": p, "client": "avs/1"}) + "\n").encode())
 buf = b""
 while b"\n" not in buf:
     chunk = s.recv(1 << 20)
