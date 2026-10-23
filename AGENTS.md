@@ -24,13 +24,13 @@ activate the system aspd. Any seat may run this install from the main checkout,
 including its aspd activation (Lance ruling 2026-10-01). Standalone
 `aspd-activate` or `aspd-restart` stays with Mable primary.
 
-That sync runs `just pull-deps` and `bun run build` in hrc-runtime, so expect it
-to advance and **commit `bun.lock` in that repo** — an install here leaves a
-commit to push there. It does not select or publish an HRC release: the HRC
-owner runs `just install`, then the canonical publisher runs `just publish`.
-It fails loudly if that lock is already dirty. Do not weaken it back to a bare
+That sync runs `just pull-deps`, delivers its generated `bun.lock` commit to
+HRC's `origin/main`, notifies `mable@hrc-runtime:primary`, then builds HRC.
+It refuses dirty locks, unpublished consumer history and incomplete commits.
+It does not select or publish an HRC release: the HRC owner runs `just install`,
+then the canonical publisher runs `just publish`. Do not weaken it to bare
 `bun run sync:asp`: without `--pull` that only reports staleness and exits 0,
-which silently built hrc-runtime against a stale ASP lock (T-07727).
+silently building against a stale ASP lock (T-07727; delivery: T-11729).
 
 **ACP is not a sync target.** agent-control-plane pins ASP and HRC as
 operator-managed *producer tuples* and advances them only through its own
