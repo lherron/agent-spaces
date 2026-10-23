@@ -38,7 +38,7 @@ import type {
   AspcHelloResponse,
 } from 'spaces-aspc-protocol'
 import { BrokerError } from 'spaces-harness-broker'
-import type { AspReleaseIdentity } from 'spaces-harness-broker-protocol'
+import type { AspReleaseIdentity, JsonRpcError } from 'spaces-harness-broker-protocol'
 import type { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { type ProtocolServer, createProtocolServer } from 'spaces-harness-broker/protocol-server'
 import packageManifest from '../package.json'
@@ -248,6 +248,35 @@ function requireEmptyDiscoveryParams(params: unknown): void {
   )
 }
 
+/** 16 MiB excludes the LF delimiter; checked before buffering or parsing. */
+export const ASPD_MAX_FRAME_BYTES = 16 * 1024 * 1024
+
+/** Numeric JSON-RPC codes, messages and existing structured data remain intact. */
+function adviseAspdError(error: JsonRpcError, method: string): JsonRpcError {
+  const data = asRecord(error.data) ?? {}
+  const reason =
+    typeof data['reason'] === 'string'
+      ? data['reason']
+      : error.code === -32601
+        ? 'op_unknown'
+        : error.code === -32602
+          ? 'invalid_params'
+          : error.code === -32700
+            ? 'parse_error'
+            : 'internal_error'
+  const advice =
+    reason === 'op_unknown'
+      ? 'Call surface with params: {} to list valid operations.'
+      : reason === 'frame_too_large'
+        ? `Send one JSON-RPC request of at most ${ASPD_MAX_FRAME_BYTES} UTF-8 bytes followed by LF; call health with params: {} to check recovery.`
+        : reason === 'empty_frame' || reason === 'parse_error'
+          ? 'Send a JSON-RPC object followed by LF, for example {"jsonrpc":"2.0","id":1,"method":"health","params":{}}.'
+          : reason === 'invalid_params'
+            ? `Correct the named params issues and call ${method} again; call surface with params: {} to list operations.`
+            : `Retry ${method} with the same params (compile service calls are idempotent); call health with params: {} if the failure persists.`
+  return { ...error, data: { ...data, reason, advice } }
+}
+
 export const ASPD_SLOW_REQUEST_MS = 2_000
 
 /**
@@ -387,6 +416,9 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
       stdin: socket,
       stdout: socket,
       stderr: process.stderr,
+      maxFrameBytes: ASPD_MAX_FRAME_BYTES,
+      rejectEmptyFrames: true,
+      decorateError: adviseAspdError,
       onRequestComplete(completion) {
         const resultStatus = resultOutcome(completion.result)
         const outcome =

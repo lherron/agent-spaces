@@ -6,7 +6,12 @@ import {
   isJsonRpcRequest,
   isJsonRpcResponse,
 } from 'spaces-harness-broker-protocol'
-import type { JsonRpcId, JsonRpcMessage, JsonRpcNotification } from 'spaces-harness-broker-protocol'
+import type {
+  JsonRpcError,
+  JsonRpcId,
+  JsonRpcMessage,
+  JsonRpcNotification,
+} from 'spaces-harness-broker-protocol'
 import { fromJsonRpcError, shutdownError, timeoutError, toJsonRpcError } from './errors'
 
 export type RequestHandler = (request: {
@@ -19,6 +24,11 @@ export interface ProtocolServerOptions {
   stdin: Readable
   stdout: Writable
   stderr: Writable
+  /** Opt-in framing policy for public services; private broker defaults stay unchanged. */
+  maxFrameBytes?: number | undefined
+  rejectEmptyFrames?: boolean | undefined
+  /** Add service-specific guidance once, for every transport error. */
+  decorateError?: ((error: JsonRpcError, method: string) => JsonRpcError) | undefined
   /** Optional observation only; response framing and dispatch remain unchanged. */
   onRequestComplete?: ((completion: ProtocolRequestCompletion) => void) | undefined
 }
@@ -54,6 +64,9 @@ export function createProtocolServer(options: ProtocolServerOptions): ProtocolSe
   const handlers = new Map<string, RequestHandler>()
   const pendingRequests = new Map<JsonRpcId, PendingRequest>()
   const decoder = new NdjsonDecoder()
+  const frameParts: Buffer[] = []
+  let frameBytes = 0
+  let discardingFrame = false
   let closed = false
   let nextRequestId = 1
   // Robustness bound (refactor A9): a peer streaming non-NDJSON bytes would
@@ -125,6 +138,7 @@ export function createProtocolServer(options: ProtocolServerOptions): ProtocolSe
         -32601,
         `Method not found: ${frame.method}`
       )
+      response.error = options.decorateError?.(response.error, frame.method) ?? response.error
       writeFrame(response)
       answered({ error: response.error })
       return
@@ -141,7 +155,8 @@ export function createProtocolServer(options: ProtocolServerOptions): ProtocolSe
         answered({ result })
       },
       (err: unknown) => {
-        const rpcError = toJsonRpcError(err)
+        const original = toJsonRpcError(err)
+        const rpcError = options.decorateError?.(original, frame.method) ?? original
         writeFrame({
           jsonrpc: '2.0',
           id: frame.id,
@@ -152,29 +167,80 @@ export function createProtocolServer(options: ProtocolServerOptions): ProtocolSe
     )
   }
 
-  function onData(chunk: Buffer | string): void {
-    const results = decoder.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8'))
-    for (const result of results) {
+  function refuseFrame(reason: 'parse_error' | 'empty_frame' | 'frame_too_large'): void {
+    consecutiveParseErrors += 1
+    const message =
+      reason === 'empty_frame'
+        ? 'Empty NDJSON frame'
+        : reason === 'frame_too_large'
+          ? `NDJSON frame exceeds ${options.maxFrameBytes} bytes`
+          : 'Parse error'
+    const response = createJsonRpcErrorResponse(null, -32700, message)
+    // Only opted-in public services receive the additive reason/guidance.
+    if (options.decorateError) {
+      response.error = options.decorateError({ ...response.error, data: { reason } }, 'unmatched')
+    }
+    if (
+      options.maxFrameBytes !== undefined ||
+      consecutiveParseErrors <= MAX_CONSECUTIVE_PARSE_ERRORS
+    ) {
+      writeFrame(response)
+    }
+    complete({ method: 'unmatched', client: 'unknown', durationMs: 0, error: response.error })
+  }
+
+  function decode(chunk: Buffer | string): void {
+    for (const result of decoder.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8'))) {
       if (result.ok) {
-        // A well-formed frame ends any run of parse errors.
         consecutiveParseErrors = 0
         handleLine(result.value)
       } else {
-        // Malformed frame: respond with parse error (id = null per JSON-RPC),
-        // but cap the reply rate so a stream of garbage can't amplify into
-        // unbounded writes (refactor A9). Once the cap is reached we silently
-        // drop further parse-error frames until a valid frame resets the run.
-        consecutiveParseErrors += 1
-        if (consecutiveParseErrors <= MAX_CONSECUTIVE_PARSE_ERRORS) {
-          writeFrame(createJsonRpcErrorResponse(null, -32700, 'Parse error'))
-        }
-        complete({
-          method: 'unmatched',
-          client: 'unknown',
-          durationMs: 0,
-          error: { code: -32700, message: 'Parse error' },
-        })
+        refuseFrame('parse_error')
       }
+    }
+  }
+
+  function onData(chunk: Buffer | string): void {
+    if (options.maxFrameBytes === undefined) {
+      decode(chunk)
+      return
+    }
+    // Scan bytes before concatenation/JSON parsing. Refuse once at the bound,
+    // discard until the delimiter, then resume on this same connection. Retained
+    // memory never grows with an unterminated oversized request.
+    const bytes = typeof chunk === 'string' ? Buffer.from(chunk) : chunk
+    let offset = 0
+    while (offset < bytes.length) {
+      const newline = bytes.indexOf(10, offset)
+      const end = newline === -1 ? bytes.length : newline
+      const part = bytes.subarray(offset, end)
+      if (!discardingFrame) {
+        frameBytes += part.length
+        if (frameBytes > options.maxFrameBytes) {
+          frameParts.length = 0
+          discardingFrame = true
+          refuseFrame('frame_too_large')
+        } else if (part.length > 0) {
+          frameParts.push(part)
+        }
+      }
+      if (newline !== -1) {
+        if (!discardingFrame) {
+          const frame = Buffer.concat(frameParts, frameBytes)
+          if (
+            options.rejectEmptyFrames &&
+            (frame.length === 0 || (frame.length === 1 && frame[0] === 13))
+          ) {
+            refuseFrame('empty_frame')
+          } else {
+            decode(Buffer.concat([frame, Buffer.from('\n')]))
+          }
+        }
+        frameParts.length = 0
+        frameBytes = 0
+        discardingFrame = false
+      }
+      offset = newline === -1 ? bytes.length : newline + 1
     }
   }
 
@@ -186,6 +252,10 @@ export function createProtocolServer(options: ProtocolServerOptions): ProtocolSe
     async start(): Promise<void> {
       stdin.on('data', onData)
       stdin.on('end', () => {
+        // Keep the existing EOF semantics for a bounded trailing partial frame.
+        if (!discardingFrame && frameBytes > 0) decode(Buffer.concat(frameParts, frameBytes))
+        frameParts.length = 0
+        frameBytes = 0
         // Flush remaining buffer
         const remaining = decoder.flush()
         for (const result of remaining) {

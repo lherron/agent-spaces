@@ -316,6 +316,26 @@ codes and result shapes. `AspcUnixClient` sets envelope attribution once for
 every request: explicit host name/version, or its own library name/version when
 the host supplies no version. The `avs aspc` sender identifies itself as `avs/1`.
 
+Transport errors retain their JSON-RPC numeric `code`, `message` and structured
+issues, with additive `error.data.reason` and `error.data.advice`. Unknown-op
+advice points at `surface`. Domain `ok: false` diagnostic results stay unchanged.
+
+aspd accepts at most **16 MiB (16,777,216 UTF-8 bytes)** per frame, excluding LF
+(including CR for CRLF). It refuses an oversized frame immediately with `-32700`,
+`reason: "frame_too_large"`, discards through its LF, then accepts the next frame
+on the same connection. Empty LF or CRLF frames immediately return `-32700`,
+`reason: "empty_frame"`. Each refusal has one canonical request line; undecodable
+frames use `op: "unmatched"`, `client: "unknown"`. A 2 MiB hello remains accepted.
+There is no server-side handler deadline or cancellation; clients bound calls.
+
+The limit was selected from retained real compile requests (15 samples, largest
+compact JSON-RPC envelope 2,723 bytes) and an actual v2 compile made with the
+running HRC release's pinned client (977 bytes, compile successful). This leaves
+substantial headroom; these are observed samples, not a bound on arbitrary future
+prompts or attachments. Callers must keep each frame within the documented limit.
+Reproducible measurements and caller compatibility evidence live under
+`var/wrkq-artifacts/T-11728/{real-request-sizes,pinned-client-smoke}.json`.
+
 Unknown methods are refused by the protocol server before the registered
 handler, so they do not produce `request.answered` lines. Parameter validation
 failures for registered methods do.

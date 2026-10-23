@@ -13,7 +13,11 @@ interface RpcReply {
     schemaVersion?: string
     ops?: Array<{ op: string; summary: string }>
   }
-  error?: { code: number; message: string }
+  error?: {
+    code: number
+    message: string
+    data?: { reason: string; advice: string; issues?: unknown[] }
+  }
 }
 
 // Failure modes: malformed/unknown requests bypass method wrappers, client
@@ -62,10 +66,20 @@ test('aspd discovery and L3 request lines cross the real socket boundary', async
       [...Object.values(ASPC_COMPILE_METHODS), 'health', 'version', 'surface'].sort()
     )
     expect(surface.ops!.every((item: { summary: string }) => item.summary.length > 0)).toBe(true)
-    expect((await rpc('aspc.unknown', {}, 'api-test/1')).error!.code).toBe(-32601)
-    expect((await call('{bad-json}\n')).error!.code).toBe(-32700)
+    expect((await rpc('aspc.unknown', {}, 'api-test/1')).error).toMatchObject({
+      code: -32601,
+      data: {
+        reason: 'op_unknown',
+        advice: 'Call surface with params: {} to list valid operations.',
+      },
+    })
+    expect((await call('{bad-json}\n')).error).toMatchObject({
+      code: -32700,
+      data: { reason: 'parse_error' },
+    })
     expect((await rpc('aspc.catalogAgentInspection', { typo: true })).error).toMatchObject({
       code: -32602,
+      data: { reason: 'invalid_params', issues: expect.any(Array) },
     })
     expect((await rpc('health', { typo: true })).error!.message).toContain('typo')
     const client = await AspcUnixClient.connect({
@@ -105,3 +119,92 @@ test('aspd discovery and L3 request lines cross the real socket boundary', async
     rmSync(root, { recursive: true, force: true })
   }
 }, 20_000)
+
+// Failure modes: unbounded partial frames, early refusal followed by a second
+// parse error for its tail, bytes counted as characters, empty frames ignored,
+// or a refused frame poisoning the next request on the same connection.
+test('aspd bounds frames, refuses empty frames, and recovers on the same socket', async () => {
+  const root = mkdtempSync('/tmp/asp-bound-')
+  const lines: string[] = []
+  const socketPath = `${root}/s.sock`
+  const server = await startAspdServer({
+    socketPath,
+    service: createAspcService(),
+    log: (line) => lines.push(line),
+  })
+  const socket = connect(socketPath)
+  const replies: RpcReply[] = []
+  let buffer = ''
+  socket.on('data', (chunk) => {
+    buffer += chunk.toString()
+    while (buffer.includes('\n')) {
+      const end = buffer.indexOf('\n')
+      replies.push(JSON.parse(buffer.slice(0, end)))
+      buffer = buffer.slice(end + 1)
+    }
+  })
+  const next = async (): Promise<RpcReply> => {
+    const until = Date.now() + 10_000
+    while (replies.length === 0 && Date.now() < until) await Bun.sleep(5)
+    expect(replies.length).toBeGreaterThan(0)
+    return replies.shift()!
+  }
+  const frame = (padding = '') =>
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: 'hello',
+      method: 'aspc.hello',
+      client: 'frame-test/1',
+      params: {
+        clientInfo: { name: 'frame-test', version: '1' },
+        protocolVersions: ['aspc/0.1'],
+        padding,
+      },
+    })
+  try {
+    await new Promise<void>((resolve, reject) => {
+      socket.once('connect', resolve)
+      socket.once('error', reject)
+    })
+    socket.write(`${frame('x'.repeat(2 * 1024 * 1024))}\n`)
+    expect((await next()).result).toBeDefined()
+    // Exactly the byte limit is accepted, including multibyte text.
+    const limit = 16 * 1024 * 1024
+    const remainingBytes = limit - Buffer.byteLength(frame())
+    const boundary = frame(
+      'é'.repeat(Math.floor(remainingBytes / 2)) + 'x'.repeat(remainingBytes % 2)
+    )
+    expect(Buffer.byteLength(boundary)).toBe(limit)
+    socket.write(`${boundary}\n`)
+    expect((await next()).result).toBeDefined()
+    // Cross the bound before the delimiter: refuse now, retain no oversized tail.
+    socket.write(frame('x'.repeat(limit)))
+    expect((await next()).error).toMatchObject({
+      code: -32700,
+      data: { reason: 'frame_too_large' },
+    })
+    socket.write(`discarded tail\n${frame()}\n`)
+    expect((await next()).result).toBeDefined()
+    const started = performance.now()
+    socket.write('\n\r\n')
+    for (let i = 0; i < 2; i++)
+      expect((await next()).error).toMatchObject({ code: -32700, data: { reason: 'empty_frame' } })
+    expect(performance.now() - started).toBeLessThan(1000)
+    socket.write(`${frame()}\n`)
+    expect((await next()).result).toBeDefined()
+    await Bun.sleep(30)
+    expect(replies).toHaveLength(0)
+    const requests = lines
+      .filter((line) => line.startsWith('{'))
+      .map((line) => JSON.parse(line))
+      .filter((line) => line.event === 'rpc.request')
+    expect(requests).toHaveLength(7)
+    expect(requests.filter((line) => line.data.outcome === '-32700')).toHaveLength(3)
+    expect(requests.filter((line) => line.data.client === 'frame-test/1')).toHaveLength(4)
+    expect(requests.filter((line) => line.data.client === 'unknown')).toHaveLength(3)
+  } finally {
+    socket.destroy()
+    await server.retire()
+    rmSync(root, { recursive: true, force: true })
+  }
+}, 30_000)
