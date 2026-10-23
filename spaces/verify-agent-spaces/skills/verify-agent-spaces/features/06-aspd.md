@@ -52,7 +52,7 @@ avs aspc ~/praesidium/var/aspd/run/aspd.sock aspc.hello
 avs aspc ~/praesidium/var/aspd/run/aspd.sock aspc.catalogAgents "{\"evaluationContext\": $(cat $CTX)}"
 avs aspc ~/praesidium/var/aspd/run/aspd.sock aspc.noSuchMethod          # -32601
 avs aspc ~/praesidium/var/aspd/run/aspd.sock aspc.catalogAgents '{}'    # -32602, issues[0].message params.evaluationContext must be an object
-grep catalogAgents ~/praesidium/var/aspd/logs/aspd.log | tail -2
+grep catalogAgents ~/praesidium/var/logs/agent-spaces/aspd.log | tail -2
 NS=<scratch>/aspd-ns
 just install-asp-release ~/praesidium/var/aspd/releases/<releaseId> $NS/releases
 just aspd-init $NS; just aspd-status $NS                  # serving unavailable, selectedRelease null
@@ -74,10 +74,15 @@ seat variables.
 - **Never `supervise` a scratch namespace.** Nothing checks whether a label is in use: with `com.praesidium.aspd` it
   would overwrite the system plist with the scratch launch script, and the next system activation or a scratch
   `stop` (a `bootout` of that label) would hit the system daemon. A unique label still registers a real RunAtLoad +
-  KeepAlive job, and `stop` leaves its plist behind. Prove supervision with the unit test only (source,
-  `scripts/aspd-service.ts:441-555`; not driven, by design).
-- An unsupervised namespace logs to `logs/aspd-<releaseId>-<startedAt>.log`, not `logs/aspd.log`; the system
-  namespace's `aspd.log` is its launchd request log (`runningProcess.requestLogPath`) and rotates to `.1`–`.3`.
+  KeepAlive job, and `stop` leaves its plist behind. Prove supervision with the unit test, or drive it with a
+  scratch `HOME` (the plist lands in `$HOME/Library/LaunchAgents`), `PRAESIDIUM_LAUNCH_SHIM` set to the real shim, and
+  a stub `launchctl` first on PATH that runs the plist's ProgramArguments into its StandardOutPath; keep the scratch
+  socket path under 104 bytes (`T-11719` artifacts).
+- An unsupervised namespace logs to `<logDir>/aspd-<releaseId>-<startedAt>.log`, not `aspd.log`; `logDir` is
+  `config.logDir` (`aspd-service.ts log-dir`), default `<ns>/logs`. The system namespace's is `~/praesidium/var/logs/agent-spaces`: `aspd.log`
+  is its launchd request log (`runningProcess.requestLogPath`, rotates to `.1`–`.3`) and `aspd.err.log` the
+  supervisor output (`runningProcess.logPath`). Until the T-11719 activation lands, the live daemon may still write
+  `~/praesidium/var/aspd/logs/`; trust `runningProcess`, not this note.
 - An unknown method is answered `-32601` and not written to the request log; a params refusal is, as
   `error:INVALID_ASPC_COMMAND`.
 - Grep the request log a moment after the call: the `--log` sink buffers 250 ms (`docs/aspd.md`), so a grep in

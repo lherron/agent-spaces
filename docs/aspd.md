@@ -66,6 +66,15 @@ the job, writes `~/Library/LaunchAgents/<label>.plist` and
 `<ns>/service/launchd-run.sh`, and persists `config.supervisor`. Shared service
 mutation remains Mable primary's responsibility.
 
+Logs go to `config.logDir`, default `<ns>/logs`.
+`bun scripts/aspd-service.ts log-dir <absolute-ns> <absolute-dir>` records it and
+changes nothing else: the running daemon keeps its open files. The next
+activation applies it, because every load of a supervised job regenerates and
+re-adopts the plist and launch script from the config. `just install` on main
+records `~/praesidium/var/logs/agent-spaces` (logging.md L1) for the system
+namespace before it activates. A `restart` alone re-execs the launch script onto
+the new paths but leaves launchd's `StandardOutPath` on the loaded plist.
+
 When available on PATH, `praesidium-adopt` adopts the plist; adoption failure
 aborts the operation. Every unloaded-job start re-adopts before bootstrap.
 Bootstrap retries only exit status 5 or output matching `5: Input/output error`,
@@ -81,7 +90,7 @@ release alone do not establish that a daemon is serving. With supervision,
 status also reports `supervisor` and `launchdPid`. The running record names
 `logPath` (supervisor output) and `requestLogPath` (request log). An unsupervised
 start instead captures stderr in
-`<ns>/logs/aspd-<releaseId>-<timestamp>.log`.
+`<logDir>/aspd-<releaseId>-<timestamp>.log`.
 
 ## Historical pre-v2 pilot record
 
@@ -262,22 +271,24 @@ All state lives under one explicit namespace root:
 <ns>/service/activations.ndjson activation history with serving readback
 <ns>/run/aspd.sock              stable endpoint
 <ns>/run/aspd.json              running pid + release
-<ns>/logs/                      aspd.log (rotated request log) + aspd-launchd.log (supervisor)
+<logDir>/                       aspd.log (rotated request log) + aspd.err.log (supervisor)
+                                (logDir: config.logDir, default <ns>/logs)
 ```
 
 #### Logs
 
 The current aspd formatter emits `<iso> [aspd] <LEVEL> <event> <json fields>`;
 these are prefixed text lines, not whole-line JSON. Under launchd,
-`aspd serve --socket <p> --log <ns>/logs/aspd.log` writes its own log: lines are
+`aspd serve --socket <p> --log <logDir>/aspd.log` writes its own log: lines are
 buffered and appended asynchronously (250 ms), rotated to `aspd.log.1..3` at
-32 MB (≤128 MB total), and flushed on retire/exit. `aspd-launchd.log` (the
+32 MB (≤128 MB total), and flushed on retire/exit. `aspd.err.log` (the
 supervisor's stdout/stderr) keeps only `serving`/`exit`/`fatal` lines and
 uncaught stderr, and the launch script copy-truncates it to `.1` above 16 MB at
 start. Without `--log` (spawn-mode `start`), everything goes to stderr, captured
-in the timestamped namespace log described above. These namespace-local logs
-and rotation rules are what the current implementation uses; do not substitute
-the platform-wide JSON-lines logging convention when parsing them.
+in the timestamped log described above. The files sit at the logging.md L1
+location, but their format and rotation are still aspd's own, not L2 JSON lines
+or the collective L4 rotation; do not substitute the platform-wide JSON-lines
+convention when parsing them.
 
 | Event | When | Fields |
 | --- | --- | --- |
@@ -301,7 +312,7 @@ Compile `phases` (ms) are `resolve`, `build`, and inside build
 agent-harness plans). Example:
 
 ```bash
-rg '"runtimeId":"rt-…"' ~/praesidium/var/aspd/logs/aspd.log ~/praesidium/var/logs/hrc-runtime/hrc-server.log
+rg '"runtimeId":"rt-…"' ~/praesidium/var/logs/agent-spaces/aspd.log ~/praesidium/var/logs/hrc-runtime/hrc-server.log
 ```
 
 `just aspd-status <ns>` reports three separate facts: installed releases,

@@ -56,6 +56,11 @@ type ServiceConfig = {
   /** Explicit external inputs for preparation (ASP_HOME, ASP_CODEX_PATH, …). */
   env: Record<string, string>
   inheritEnv: string[]
+  /**
+   * Absolute directory for the daemon's logs (logging.md L1). Absent means
+   * `<ns>/logs`; the system namespace records `~/praesidium/var/logs/agent-spaces`.
+   */
+  logDir?: string
   /** Present once `supervise` has handed the service lifetime to launchd. */
   supervisor?: LaunchdSupervisor | undefined
 }
@@ -93,6 +98,18 @@ function paths(nsInput: string) {
     logs: join(ns, 'logs'),
     launchScript: join(ns, 'service', 'launchd-run.sh'),
   }
+}
+
+/**
+ * Log files for a namespace: aspd's own rotated request log (`--log`) and the
+ * supervisor's stdout/stderr, which carries lifecycle, fatal and stderr lines.
+ */
+export function serviceLogPaths(
+  ns: string,
+  config: Pick<ServiceConfig, 'logDir'>
+): { dir: string; request: string; supervisor: string } {
+  const dir = config.logDir ?? join(ns, 'logs')
+  return { dir, request: join(dir, 'aspd.log'), supervisor: join(dir, 'aspd.err.log') }
 }
 
 function readJson<T>(path: string): T | undefined {
@@ -201,7 +218,9 @@ async function start(nsInput: string): Promise<Record<string, unknown>> {
   if (config.supervisor !== undefined) return startSupervised(p, config, active)
   const env = serviceEnv(config)
   const startedAt = new Date().toISOString()
-  const logPath = join(p.logs, `aspd-${active.releaseId}-${startedAt.replace(/[:.]/g, '')}.log`)
+  const logDir = serviceLogPaths(p.ns, config).dir
+  mkdirSync(logDir, { recursive: true, mode: 0o700 })
+  const logPath = join(logDir, `aspd-${active.releaseId}-${startedAt.replace(/[:.]/g, '')}.log`)
   const logFd = openSync(logPath, 'a')
   const child = spawn(aspd.launcher, ['serve', '--socket', config.socketPath], {
     cwd: p.ns,
@@ -411,21 +430,43 @@ function writeLaunchScript(
   p: ReturnType<typeof paths>,
   config: ServiceConfig,
   active: ActiveSelection
-): string {
-  const logPath = join(p.logs, 'aspd-launchd.log')
+): void {
+  const logs = serviceLogPaths(p.ns, config)
+  mkdirSync(logs.dir, { recursive: true, mode: 0o700 })
   const script = renderLaunchdScript({
     ns: p.ns,
     socketPath: config.socketPath,
     releaseId: active.releaseId,
     releasePath: active.releasePath,
     env: serviceEnv(config),
-    logPath,
-    requestLogPath: join(p.logs, 'aspd.log'),
+    logPath: logs.supervisor,
+    requestLogPath: logs.request,
   })
   const tmp = `${p.launchScript}.tmp-${process.pid}`
   writeFileSync(tmp, script, { mode: 0o700 })
   renameSync(tmp, p.launchScript)
-  return logPath
+}
+
+/**
+ * Regenerate and adopt the plist from the config. launchd reads it only on
+ * bootstrap, so callers write it while the job is unloaded or accept that it
+ * takes effect at the next load.
+ */
+function writeLaunchdPlist(p: ReturnType<typeof paths>, config: ServiceConfig): void {
+  const supervisor = config.supervisor as LaunchdSupervisor
+  const plistPath = supervisor.plistPath
+  mkdirSync(dirname(plistPath), { recursive: true })
+  const plistTmp = `${plistPath}.tmp-${process.pid}`
+  writeFileSync(
+    plistTmp,
+    renderLaunchdPlist({
+      label: supervisor.label,
+      launchScript: p.launchScript,
+      logPath: serviceLogPaths(p.ns, config).supervisor,
+    })
+  )
+  renameSync(plistTmp, plistPath)
+  adoptLaunchdPlist(plistPath)
 }
 
 async function awaitPidExit(pid: number | undefined): Promise<void> {
@@ -446,8 +487,9 @@ async function startSupervised(
   const supervisor = config.supervisor as LaunchdSupervisor
   writeLaunchScript(p, config, active)
   if (!launchdLoaded(supervisor.label)) {
-    // Every load re-adopts: activation reloads a plist written before adoption existed.
-    adoptLaunchdPlist(supervisor.plistPath)
+    // Every load rewrites and re-adopts the plist, so a load always carries the
+    // configured log paths and adoption, even for a plist written before either.
+    writeLaunchdPlist(p, config)
     await bootstrapLaunchd(
       launchdTarget(supervisor.label).replace(/\/[^/]+$/, ''),
       supervisor.plistPath
@@ -543,15 +585,26 @@ async function supervise(nsInput: string, label: string): Promise<Record<string,
     launchScript: p.launchScript,
   }
   const supervised: ServiceConfig = { ...config, supervisor }
-  const logPath = writeLaunchScript(p, supervised, active)
-  mkdirSync(dirname(plistPath), { recursive: true })
-  const plistTmp = `${plistPath}.tmp-${process.pid}`
-  writeFileSync(plistTmp, renderLaunchdPlist({ label, launchScript: p.launchScript, logPath }))
-  renameSync(plistTmp, plistPath)
-  adoptLaunchdPlist(plistPath)
+  writeLaunchScript(p, supervised, active)
+  writeLaunchdPlist(p, supervised)
   writeJsonAtomic(p.config, supervised)
   const started = await startSupervised(p, supervised, active)
   return { supervised: supervisor, retired, started }
+}
+
+/**
+ * Record where the daemon logs. Only the config changes: the running daemon
+ * keeps its open files, and the next activation (which reloads a supervised
+ * job's plist and script) or unsupervised start writes to the new directory.
+ */
+function setLogDir(nsInput: string, logDir: string): Record<string, unknown> {
+  const p = paths(nsInput)
+  const config = requireConfig(p)
+  if (!isAbsolute(logDir)) fail(`log dir must be absolute: ${logDir}`)
+  const previous = serviceLogPaths(p.ns, config).dir
+  const next: ServiceConfig = { ...config, logDir: resolve(logDir) }
+  if (previous !== next.logDir) writeJsonAtomic(p.config, next)
+  return { namespace: p.ns, previous, logDir: next.logDir, changed: previous !== next.logDir }
 }
 
 async function stop(nsInput: string): Promise<Record<string, unknown>> {
@@ -671,7 +724,7 @@ async function status(nsInput: string): Promise<Record<string, unknown>> {
 export async function main(args: string[]): Promise<void> {
   const [command, ns, arg] = args
   if (ns === undefined) {
-    fail('usage: <init|start|stop|restart|activate|supervise|status> <namespace> [arg]')
+    fail('usage: <init|start|stop|restart|activate|supervise|log-dir|status> <namespace> [arg]')
   }
   let result: unknown
   switch (command) {
@@ -696,6 +749,10 @@ export async function main(args: string[]): Promise<void> {
     case 'supervise':
       if (arg === undefined) fail('supervise requires a launchd label')
       result = await supervise(ns, arg)
+      break
+    case 'log-dir':
+      if (arg === undefined) fail('log-dir requires an absolute directory')
+      result = setLogDir(ns, arg)
       break
     case 'activate':
       if (arg === undefined) fail('activate requires a release id')

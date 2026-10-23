@@ -15,6 +15,7 @@ import {
   bootstrapLaunchd,
   renderLaunchdPlist,
   renderLaunchdScript,
+  serviceLogPaths,
 } from './aspd-service.ts'
 
 const dirs: string[] = []
@@ -129,6 +130,24 @@ describe('aspd launchd supervision rendering', () => {
       ExitTimeOut: 180,
       StandardOutPath: '/ns/logs/a&b.log',
       StandardErrorPath: '/ns/logs/a&b.log',
+    })
+  })
+})
+
+describe('aspd log location', () => {
+  test('a configured log dir holds the L1 request and supervisor logs', () => {
+    expect(serviceLogPaths('/ns', { logDir: '/var/logs/agent-spaces' })).toEqual({
+      dir: '/var/logs/agent-spaces',
+      request: '/var/logs/agent-spaces/aspd.log',
+      supervisor: '/var/logs/agent-spaces/aspd.err.log',
+    })
+  })
+
+  test('an isolated namespace without a log dir keeps its logs inside the namespace', () => {
+    expect(serviceLogPaths('/ns', {})).toEqual({
+      dir: '/ns/logs',
+      request: '/ns/logs/aspd.log',
+      supervisor: '/ns/logs/aspd.err.log',
     })
   })
 })

@@ -440,6 +440,9 @@ install no-sync="" force-sync="" force-link="": check-manager-space
       aspd_artifact="$(bun -e 'console.log(JSON.parse(await Bun.stdin.text()).releasePath)' <<< "$aspd_build_report")"
       aspd_release_id="$(bun -e 'console.log(JSON.parse(await Bun.stdin.text()).releaseId)' <<< "$aspd_build_report")"
       just install-asp-release "$aspd_artifact" "$aspd_namespace/releases"
+      # logging.md L1: the system daemon logs under var/logs/agent-spaces; the
+      # activation below reloads the job onto the recorded directory.
+      bun scripts/aspd-service.ts log-dir "$aspd_namespace" "$repo_root/../var/logs/agent-spaces"
       just aspd-activate "$aspd_namespace" "$aspd_release_id"
       aspd_status="$(bun scripts/aspd-service.ts status "$aspd_namespace")"
       bun -e 'const s = JSON.parse(await Bun.stdin.text()); if (!s.runningEqualsSelected || s.serving?.release?.sourceCommit !== process.argv[1]) throw new Error("system aspd did not activate the installed source commit"); console.log("[install] system aspd serving " + s.serving.release.sourceCommit)' "$(git rev-parse HEAD)" <<< "$aspd_status"
