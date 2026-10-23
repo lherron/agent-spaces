@@ -18,11 +18,15 @@ function socketPath(): string {
   return join(mkdtempSync(join(tmpdir(), 'hrc-join-')), 'hrc.sock')
 }
 
+/** `x-hrc-client` of every request a stub received (T-11541 caller attribution). */
+const receivedClients: (string | null)[] = []
+
 function stubHrc(handler: (path: string, body: unknown) => { status: number; body: unknown }) {
   const sock = socketPath()
   const server = Bun.serve({
     unix: sock,
     async fetch(request) {
+      receivedClients.push(request.headers.get('x-hrc-client'))
       const url = new URL(request.url)
       const body = await request.json().catch(() => undefined)
       const { status, body: response } = handler(url.pathname, body)
@@ -296,5 +300,24 @@ describe('hrc join client', () => {
     } finally {
       stop()
     }
+  })
+})
+
+describe('caller attribution (T-11541)', () => {
+  test('every join request names itself to HRC request metrics', async () => {
+    receivedClients.length = 0
+    const hrc = stubHrc(() => ({ status: 200, body: REGISTERED }))
+    try {
+      const result = await registerParticipant(hrc.sock, {
+        registrationMode: 'direct',
+        requestedSessionRef: 'agent:stella:project:demo:task:primary-nova',
+        hostIncarnationId: 'host-incarnation:abc',
+        socketPath: '/tmp/broker.sock',
+      })
+      expect(result.outcome).toBe('registered')
+    } finally {
+      hrc.stop()
+    }
+    expect(receivedClients).toEqual(['hrc-join-client'])
   })
 })

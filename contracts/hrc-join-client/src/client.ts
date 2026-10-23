@@ -27,7 +27,8 @@ async function postJoin(
   const response = await fetch(`http://localhost${path}`, {
     method: 'POST',
     unix: hrcSocketPath,
-    headers: { 'content-type': 'application/json' },
+    // `x-hrc-client`: observational caller label for HRC request metrics (hrc-runtime T-11541).
+    headers: { 'content-type': 'application/json', 'x-hrc-client': 'hrc-join-client' },
     body: JSON.stringify(body),
     ...(options.timeoutMs === undefined ? {} : { signal: AbortSignal.timeout(options.timeoutMs) }),
   } as never)

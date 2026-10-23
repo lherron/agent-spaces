@@ -130,6 +130,8 @@ async function postUnixHttpJson(
     `POST ${path} HTTP/1.1`,
     'Host: localhost',
     'Content-Type: application/json',
+    // Observational caller label for HRC request metrics (hrc-runtime T-11541).
+    'x-hrc-client: harness-broker/hook-bridge',
     `Content-Length: ${Buffer.byteLength(payload)}`,
     'Connection: close',
     '',

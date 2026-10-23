@@ -23,18 +23,23 @@ async function startHintDecisionServer(options: {
   status?: number | undefined
 }): Promise<{
   socketPath: string
-  requests: Array<{ url?: string | undefined; body: string }>
+  requests: Array<{ url?: string | undefined; client?: string | undefined; body: string }>
   close: () => Promise<void>
 }> {
   const root = await mkdtemp(join(tmpdir(), 'mail-hint-decision-'))
   tempRoots.push(root)
   const socketPath = join(root, 'hrc.sock')
-  const requests: Array<{ url?: string | undefined; body: string }> = []
+  const requests: Array<{ url?: string | undefined; client?: string | undefined; body: string }> =
+    []
   const server = createHttpServer((request, reply) => {
     const chunks: Buffer[] = []
     request.on('data', (chunk: Buffer) => chunks.push(chunk))
     request.on('end', () => {
-      requests.push({ url: request.url, body: Buffer.concat(chunks).toString('utf8') })
+      requests.push({
+        url: request.url,
+        client: request.headers['x-hrc-client'] as string | undefined,
+        body: Buffer.concat(chunks).toString('utf8'),
+      })
       const respond = () => {
         reply.writeHead(options.status ?? 200, { 'content-type': 'application/json' })
         reply.end(JSON.stringify(options.response))
@@ -114,6 +119,7 @@ describe('Claude PostToolUse mail hint bridge', () => {
       expect(hrc.requests).toEqual([
         {
           url: '/v1/internal/mail/hint-decision',
+          client: 'harness-broker/hook-bridge',
           body: '{"runtimeId":"runtime-mail-hint"}',
         },
       ])
