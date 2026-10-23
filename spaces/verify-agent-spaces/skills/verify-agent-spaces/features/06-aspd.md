@@ -31,8 +31,11 @@ validators in `contracts/aspc-protocol/src/{types,schemas,inspection-params}.ts`
   `observeRuntimeCapability`, `observeContinuationArtifact`, `prepareProcessInvocation`. Refusals: `-32601 Method
   not found`, `-32602 Invalid params` with `data.issues[]`, each `{path, code, message}` rooted at `params.` with the
   message leading with that path (`params.evaluationContext must be an object`).
-- Request log: one `request.answered` line per call (method, startedAt, durationMs, outcome, replyBytes; `error` on a
-  refusal, `phases` for `compileHarnessInvocation`).
+- Discovery: `health`, `version`, `surface` accept absent or empty params. Health is process-only; version reports
+  the serving build/interface/capabilities; surface projects registered ops with summaries and stream declarations.
+- Request log: one canonical JSON `rpc.request` per complete request (listener, op, client, outcome, durationMs),
+  including malformed frames and unknown ops. Registered compile calls additionally retain operational
+  `request.answered` (method, startedAt, durationMs, outcome, replyBytes; error on refusal, phases on compilation).
 - `aspc manifest|verify-release` (the compiler CLI) produces and checks the frozen release manifest.
 - `just build-aspd-pilot-client <abs root>` builds the T-08539 aspd pilot client (the historical HRC stand-in for
   `scripts/aspd-pilot/scenario.ts --client`) after a source-closure gate; it refuses a dirty checkout (source,
@@ -83,11 +86,12 @@ seat variables.
   is its launchd request log (`runningProcess.requestLogPath`, rotates to `.1`–`.3`) and `aspd.err.log` the
   supervisor output (`runningProcess.logPath`). Until the T-11719 activation lands, the live daemon may still write
   `~/praesidium/var/aspd/logs/`; trust `runningProcess`, not this note.
-- An unknown method is answered `-32601` and not written to the request log; a params refusal is, as
-  `error:INVALID_ASPC_COMMAND`.
+- An unknown method is answered `-32601` and has a canonical `rpc.request` line, but no legacy `request.answered`.
+  Params refusals have both; legacy outcome remains `error:INVALID_ASPC_COMMAND`.
 - Grep the request log a moment after the call: the `--log` sink buffers 250 ms (`docs/aspd.md`), so a grep in
   the same second can miss the refusal's `error:INVALID_ASPC_COMMAND` line (2026-10-05, `T-10364/06-aspd/drive.txt`).
-  Lines are `<iso> [aspd] <LEVEL> <event> <json>`, prefixed text: cut the JSON tail before `jq`.
+  Compiler/lifecycle lines are `<iso> [aspd] <LEVEL> <event> <json>`; cut their JSON tail before `jq`. Canonical
+  `rpc.request` / `rpc.listen` lines are already whole-line JSON; parse those directly (T-11721 installed proof).
 - `aspc --help` is "Unknown command"; run `aspc` bare for usage.
 - Never activate, restart, stop or `supervise` the system namespace. `just install` in the canonical checkout
   activates it (any seat may run that); standalone activation is Mable primary's.
