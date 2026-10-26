@@ -28,6 +28,7 @@
     "agent-spaces": "workspace:*",
     "spaces-aspc": "workspace:*",
     "spaces-aspc-protocol": "workspace:*",
+    "spaces-config": "workspace:*",
     "spaces-harness-broker": "workspace:*",
     "spaces-harness-broker-protocol": "workspace:*",
     "spaces-execution": "workspace:*"

@@ -37,6 +37,12 @@ import type {
   AspcHelloRequest,
   AspcHelloResponse,
 } from 'spaces-aspc-protocol'
+import {
+  type UsageMetrics,
+  configureUsageMetricsHost,
+  usageMetrics,
+  usageMetricsLabel,
+} from 'spaces-config/usage-metrics'
 import { BrokerError } from 'spaces-harness-broker'
 import type { AspReleaseIdentity, JsonRpcError } from 'spaces-harness-broker-protocol'
 import type { BrokerErrorCode } from 'spaces-harness-broker-protocol'
@@ -215,6 +221,12 @@ export interface AspdServerOptions {
   /** In-flight requests older than this log `request.slow` (default 2000ms). */
   slowRequestMs?: number | undefined
   releaseIdentity?: AspReleaseIdentity | undefined
+  /**
+   * Usage metrics (`aspd-<day>.ndjson`): one `request` row per minute per
+   * (op, client, outcome) and one `connection` row per minute per client.
+   * Additive to the L3 `rpc.request` line, which stays unchanged.
+   */
+  metrics?: UsageMetrics | undefined
 }
 
 const ASPD_OP_SUMMARIES: Record<
@@ -370,6 +382,9 @@ function errorOutcome(error: unknown): string {
   return `error:${typeof code === 'string' || typeof code === 'number' ? String(code) : 'exception'}`
 }
 
+/** Reply sizes already measured by the gated handler, so metrics never re-serialize a compile result. */
+const measuredReplyBytes = new WeakMap<object, number>()
+
 function replyBytes(result: unknown): number | undefined {
   try {
     const json = JSON.stringify(result)
@@ -395,6 +410,7 @@ const NEVER_ADMITTED = new Promise<never>(() => {})
 
 export async function startAspdServer(options: AspdServerOptions): Promise<AspdServer> {
   const log = options.log ?? ((line: string) => process.stderr.write(`${line}\n`))
+  const { metrics } = options
   const slowRequestMs = options.slowRequestMs ?? ASPD_SLOW_REQUEST_MS
   const { socketPath } = options
   let admitting = true
@@ -412,6 +428,9 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
       socket.destroy()
       return
     }
+    // One connection row per close: how many requests each connection carried
+    // (the hello-per-call pattern), keyed by the first client name it sent.
+    const usage = { requests: 0, client: 'unknown' }
     const server = createProtocolServer({
       stdin: socket,
       stdout: socket,
@@ -444,6 +463,25 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
             },
           })
         )
+        if (metrics !== undefined) {
+          const client = usageMetricsLabel(completion.client)
+          usage.requests += 1
+          if (usage.client === 'unknown') usage.client = client
+          const bytes =
+            completion.error !== undefined
+              ? replyBytes(completion.error)
+              : ((typeof completion.result === 'object' && completion.result !== null
+                  ? measuredReplyBytes.get(completion.result)
+                  : undefined) ?? replyBytes(completion.result))
+          metrics.count(
+            'request',
+            { op: completion.method, client, outcome },
+            {
+              ms: completion.durationMs,
+              ...(bytes === undefined ? {} : { replyBytes: bytes }),
+            }
+          )
+        }
       },
     })
     const gated: AspcMethodServer = {
@@ -508,6 +546,9 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
             outcome = resultOutcome(result)
             errorText = resultError(result)
             bytes = replyBytes(result)
+            if (bytes !== undefined && typeof result === 'object' && result !== null) {
+              measuredReplyBytes.set(result, bytes)
+            }
             return result
           } catch (error) {
             outcome = errorOutcome(error)
@@ -582,9 +623,13 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
     }
     connections.set(socket, server)
     void server.start()
+    let closed = false
     const cleanup = (): void => {
       connections.delete(socket)
       void server.close()
+      if (closed) return
+      closed = true
+      metrics?.count('connection', { client: usage.client }, { requests: usage.requests })
     }
     socket.once('close', cleanup)
     socket.once('error', cleanup)
@@ -790,6 +835,17 @@ export function createAspdFileLog(options: AspdFileLogOptions): AspdFileLog {
   }
 }
 
+/**
+ * The Praesidium var root of a namespaced release (`<var>/aspd/releases/<id>`):
+ * the namespace's parent, as `just install` lays it out (repo/../var/aspd).
+ * Undefined for a release outside a namespace; the writer then falls back to
+ * its default.
+ */
+export function aspdVarRoot(releaseRoot: string): string | undefined {
+  const releases = dirname(releaseRoot)
+  return basename(releases) === 'releases' ? dirname(dirname(releases)) : undefined
+}
+
 export interface RunAspdCliOptions {
   releaseIdentity?: AspReleaseIdentity | undefined
 }
@@ -839,12 +895,28 @@ export async function runAspdCli(args: string[], options: RunAspdCliOptions): Pr
     })
   }
   const binding = resolveAspdReleaseBinding(options.releaseIdentity, process.execPath)
+  // Metrics warnings are L2 lines in aspd's own log, never raw stderr text.
+  configureUsageMetricsHost({
+    product: `aspd/${binding.identity.releaseId}`,
+    varRoot: aspdVarRoot(binding.releaseRoot),
+    warn: (event, data) =>
+      log(
+        JSON.stringify({
+          ts: new Date().toISOString(),
+          level: 'warn',
+          component: 'metrics',
+          event,
+          data,
+        })
+      ),
+  })
   const service = createAspdService(binding)
   const server = await startAspdServer({
     socketPath,
     service,
     log,
     releaseIdentity: binding.identity,
+    metrics: usageMetrics('aspd'),
   })
   lifecycle('INFO', 'serving', {
     release: binding.identity.releaseId,
