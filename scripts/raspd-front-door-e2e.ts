@@ -8,7 +8,7 @@
  *
  *  1. Unchanged clients work through raspd: the TS `AspcUnixClient` (HRC's),
  *     rusthrc's `AspSession` (hrc-runtime's own preparation E2E with
- *     HRC_ASPD_SOCKET on raspd) and `avs aspc`. The four native methods are
+ *     HRC_ASPD_SOCKET on raspd) and `avs aspc`. The native methods are
  *     served natively, everything else by Bun (raspd.log `servedBy`).
  *  2. Reconciliation per op over a closed, drained window: relayed <= Bun total
  *     <= relayed + upstream_failed. Once with no upstream failures (equality),
@@ -299,7 +299,7 @@ for (const [method, params] of [
 }
 record('client-avs.json', avsRuns)
 check(
-  'avs aspc: hello, health, surface, version and a forwarded resolve all answer through raspd',
+  'avs aspc: hello, health, surface, version and a resolve all answer through raspd',
   Object.values(avsRuns).every((r) => (r as { status: number }).status === 0) &&
     String((avsRuns['version'] as { stdout: string }).stdout).includes('"frontDoor"'),
   Object.fromEntries(Object.entries(avsRuns).map(([k, v]) => [k, (v as { status: number }).status]))
@@ -630,17 +630,21 @@ function reconcile(name: string, root: string, expectFailures: boolean) {
   )
 }
 
+// R2 (T-11838): the two reads are native too, unless raspd relayed one with a fallback reason.
+const NATIVE_READS = new Set(['aspc.resolveRuntimeDeclaration', 'aspc.observeContinuationArtifact'])
 const window1Log = raspdRequests()
 const misrouted = window1Log.filter((l) => {
   const data = l['data'] as Record<string, unknown>
-  return NATIVE.has(data['op'] as string) !== (data['servedBy'] === 'native')
+  const op = data['op'] as string
+  const native = NATIVE.has(op) || (NATIVE_READS.has(op) && data['fallback'] === undefined)
+  return native !== (data['servedBy'] === 'native')
 })
 record(
   'served-by.json',
   window1Log.map((l) => l['data'])
 )
 check(
-  'raspd.log: hello/health/version/surface native, every other op served by Bun',
+  'raspd.log: hello/health/version/surface and the R2 reads native, every other op served by Bun',
   misrouted.length === 0 && window1Log.length > 0,
   { lines: window1Log.length, misrouted: misrouted.slice(0, 5) }
 )
