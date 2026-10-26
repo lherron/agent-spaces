@@ -137,7 +137,14 @@ struct Entry {
     id: Option<J>,
     started: Instant,
     /// Why a native read was relayed instead.
-    fallback: Option<&'static str>,
+    fallback: Option<Fallback>,
+}
+
+/// Why a native read or compile was relayed to Bun: the reason (a metrics
+/// label) and, when the reason has one, the key or value that decided it.
+struct Fallback {
+    reason: &'static str,
+    detail: Option<String>,
 }
 
 #[derive(Default)]
@@ -404,6 +411,7 @@ impl Connection {
             None,
             None,
             bytes,
+            None,
         );
     }
 
@@ -448,6 +456,7 @@ impl Connection {
                     None,
                     None,
                     bytes,
+                    None,
                 );
             }
             Frame::Request(request)
@@ -483,12 +492,20 @@ impl Connection {
             if method == crate::compile::METHOD {
                 crate::compile::handle(params.as_ref(), &release)
             } else {
-                reads::handle(&method, params.as_ref())
+                crate::compile::Compiled {
+                    answer: reads::handle(&method, params.as_ref()),
+                    fallback_detail: None,
+                    phases: None,
+                }
             }
         })
         .await;
         let fallback = match answer {
-            Ok(Answer::Result(result)) => {
+            Ok(crate::compile::Compiled {
+                answer: Answer::Result(result),
+                phases,
+                ..
+            }) => {
                 let reply = protocol::result_line(&request.id, &result);
                 let completion = protocol::completion(
                     &serde_json::from_str(&reply).unwrap_or(serde_json::Value::Null),
@@ -505,23 +522,35 @@ impl Connection {
                     None,
                     None,
                     bytes,
+                    phases,
                 );
                 return;
             }
-            Ok(Answer::Forward(reason)) => reason,
+            Ok(crate::compile::Compiled {
+                answer: Answer::Forward(reason),
+                fallback_detail,
+                ..
+            }) => Fallback {
+                reason,
+                detail: fallback_detail,
+            },
             // A panic is a raspd defect; Bun still answers.
-            Err(_) => "native_panic",
+            Err(_) => Fallback {
+                reason: "native_panic",
+                detail: None,
+            },
         };
-        self.shared.log.event(
-            "info",
-            "rpc",
-            "native.fallback",
-            vec![
-                ("conn".into(), J::Num(self.id as f64)),
-                ("op".into(), J::str(&request.method)),
-                ("reason".into(), J::str(fallback)),
-            ],
-        );
+        let mut data = vec![
+            ("conn".into(), J::Num(self.id as f64)),
+            ("op".into(), J::str(&request.method)),
+            ("reason".into(), J::str(fallback.reason)),
+        ];
+        if let Some(detail) = &fallback.detail {
+            data.push(("fallbackDetail".into(), J::str(detail)));
+        }
+        self.shared
+            .log
+            .event("info", "rpc", "native.fallback", data);
         self.forward(Some(request), line, Some(fallback)).await;
     }
 
@@ -529,7 +558,7 @@ impl Connection {
         self: &Arc<Self>,
         request: Option<protocol::Request>,
         mut frame: Vec<u8>,
-        fallback: Option<&'static str>,
+        fallback: Option<Fallback>,
     ) {
         let (method, client, id) = match &request {
             Some(r) => (r.method.clone(), r.client.clone(), Some(r.id.clone())),
@@ -718,8 +747,9 @@ impl Connection {
                 &completion,
                 "bun",
                 Some("relayed"),
-                entry.fallback,
+                entry.fallback.as_ref(),
                 bytes,
+                None,
             );
             self.settled.notify_waiters();
         }
@@ -760,7 +790,7 @@ impl Connection {
         id: Option<J>,
         started: Instant,
         detail: &str,
-        fallback: Option<&'static str>,
+        fallback: Option<Fallback>,
     ) {
         let id = id.unwrap_or(J::Null);
         let reply = protocol::upstream_refusal(&id, &method, detail);
@@ -792,8 +822,9 @@ impl Connection {
             &completion,
             "bun",
             Some("upstream_failed"),
-            fallback,
+            fallback.as_ref(),
             bytes,
+            None,
         );
     }
 
@@ -809,8 +840,9 @@ impl Connection {
         c: &Completion,
         served_by: &str,
         relay: Option<&str>,
-        fallback: Option<&str>,
+        fallback: Option<&Fallback>,
         reply_bytes: Option<usize>,
+        phases: Option<J>,
     ) {
         let ms = elapsed.as_secs_f64() * 1000.0;
         let level = if c.outcome == "ok" {
@@ -832,11 +864,17 @@ impl Connection {
             data.push(("relay".into(), J::str(relay)));
         }
         if let Some(fallback) = fallback {
-            data.push(("fallback".into(), J::str(fallback)));
+            data.push(("fallback".into(), J::str(fallback.reason)));
+            if let Some(detail) = &fallback.detail {
+                data.push(("fallbackDetail".into(), J::str(detail)));
+            }
         }
         if let Some(message) = &c.message {
             data.push(("code".into(), J::str(&c.outcome)));
             data.push(("message".into(), J::str(protocol::clip(message))));
+        }
+        if let Some(phases) = phases {
+            data.push(("phases".into(), phases));
         }
         self.shared.log.event(level, "rpc", "rpc.request", data);
         if let Some(metrics) = &self.shared.metrics {
@@ -858,7 +896,7 @@ impl Connection {
                 key.push(("relay", relay));
             }
             if let Some(fallback) = fallback {
-                key.push(("fallback", fallback));
+                key.push(("fallback", fallback.reason));
             }
             match reply_bytes {
                 Some(bytes) => {

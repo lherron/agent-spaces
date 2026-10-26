@@ -432,6 +432,53 @@ describe('unix server and retirement', () => {
     }
   })
 
+  test('request.answered reads failure.code when no diagnostic or resolution names one', async () => {
+    const socketPath = join(tempBase(), 's.sock')
+    const lines: string[] = []
+    const server = await startAspdServer({
+      socketPath,
+      service: fakeService({
+        resolveRuntimeDeclaration: async () =>
+          ({
+            schemaVersion: 'aspc-resolve-runtime-declaration-response/v1',
+            ok: false,
+            failure: {
+              kind: 'unavailable',
+              code: 'configured_source_unavailable',
+              message: 'agentsRoot is not a directory',
+            },
+          }) as never,
+      }),
+      log: (line) => lines.push(line),
+    })
+    const transport = await UnixSocketTransport.connect({ socketPath })
+    try {
+      await transport.request('aspc.resolveRuntimeDeclaration', {
+        schemaVersion: 'aspc-resolve-runtime-declaration-request/v1',
+        context: {
+          agentId: 'smokey',
+          agentRoot: '/agents/smokey',
+          project: { mode: 'none' },
+          cwd: '/projects/agent-spaces',
+          runMode: 'task',
+        },
+      })
+      let line = lines.find((l) => l.includes('request.answered'))
+      while (line === undefined) {
+        await Bun.sleep(5)
+        line = lines.find((l) => l.includes('request.answered'))
+      }
+      expect(JSON.parse(line).data).toMatchObject({
+        method: 'aspc.resolveRuntimeDeclaration',
+        outcome: 'rejected:configured_source_unavailable',
+        error: 'agentsRoot is not a directory',
+      })
+    } finally {
+      await transport.close()
+      await server.retire()
+    }
+  })
+
   test('invalid-params messages name the params path at the root and nested', async () => {
     const socketPath = join(tempBase(), 's.sock')
     const server = await startAspdServer({ socketPath, service: fakeService(), log: () => {} })

@@ -364,14 +364,19 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
-/** ok | rejected:<first diagnostic code> for an ok:false result body. */
+/**
+ * ok | rejected:<code> for an ok:false result body: diagnostics[0], then
+ * resolution, then failure, then the body itself (raspd's `completion` reads
+ * the same chain, so labels match across daemons).
+ */
 function resultOutcome(result: unknown): string {
   const record = asRecord(result)
   if (record?.['ok'] !== false) return 'ok'
   const diagnostics = record['diagnostics']
   const first = Array.isArray(diagnostics) ? asRecord(diagnostics[0]) : undefined
   const resolution = asRecord(record['resolution'])
-  const code = first?.['code'] ?? resolution?.['code'] ?? record['code']
+  const failure = asRecord(record['failure'])
+  const code = first?.['code'] ?? resolution?.['code'] ?? failure?.['code'] ?? record['code']
   return `rejected:${typeof code === 'string' ? code : 'unknown'}`
 }
 
@@ -390,7 +395,9 @@ function resultError(result: unknown): string | undefined {
   const diagnostics = record['diagnostics']
   const first = Array.isArray(diagnostics) ? asRecord(diagnostics[0]) : undefined
   const resolution = asRecord(record['resolution'])
-  const message = first?.['message'] ?? resolution?.['message'] ?? record['message']
+  const failure = asRecord(record['failure'])
+  const message =
+    first?.['message'] ?? resolution?.['message'] ?? failure?.['message'] ?? record['message']
   return typeof message === 'string' ? clipError(message) : undefined
 }
 

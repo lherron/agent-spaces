@@ -4,7 +4,7 @@
 //! (harness-selection/resolve.ts + catalog.ts), and the agent-profile and
 //! project-target reads the compile makes (agent-project-merge.ts,
 //! placement-resolver.ts).
-use super::{Fwd, fwd};
+use super::{Fwd, fwd, fwd_at};
 use crate::json::J;
 use crate::reads::jspath::{basename, join, read_text};
 use crate::reads::patterns::validate_token;
@@ -129,34 +129,136 @@ pub fn params_valid(params: Option<&J>) -> bool {
 
 const RUN_MODES: [&str; 4] = ["query", "heartbeat", "task", "maintenance"];
 
-/// The request shapes raspd compiles natively (what Bun and Rust HRC send
-/// for a birth). Anything else is relayed to Bun.
-pub fn shape_supported(p: &J) -> Result<(), Fwd> {
-    // `clientAspHome ? … : …` drops an empty aspHome in one place and keeps
-    // it in another; raspd does not judge that request.
-    if p.get("aspHome") == Some(&J::str("")) {
-        return Err(fwd("empty_asp_home"));
+/// What the gate found wrong with one value, as `<path>:<problem>` (the
+/// relay's `fallbackDetail`); `None` when it is acceptable.
+type Problem = Option<String>;
+
+/// `<path>.<key>:unexpected_key` for the first key outside `keys`.
+fn unexpected_key(v: &J, keys: &[&str], path: &str) -> Problem {
+    v.js_entries()
+        .into_iter()
+        .find(|(k, _)| !keys.contains(k))
+        .map(|(k, _)| format!("{path}.{k}:unexpected_key"))
+}
+
+/// A value's JS kind problem, for the messages below.
+fn kind(v: Option<&J>, path: &str, ok: fn(&J) -> bool, want: &str) -> Problem {
+    match v {
+        None => Some(format!("{path}:missing")),
+        Some(v) if ok(v) => None,
+        Some(_) => Some(format!("{path}:not_{want}")),
     }
-    if p.get("compileContext").is_some() {
-        return Err(fwd("compile_context"));
+}
+
+fn want_str(v: Option<&J>, path: &str) -> Problem {
+    kind(v, path, |v| matches!(v, J::Str(_)), "string")
+}
+
+fn opt(v: Option<&J>, check: impl FnOnce(Option<&J>) -> Problem) -> Problem {
+    v.and_then(|_| check(v))
+}
+
+fn opt_str_at(v: Option<&J>, path: &str) -> Problem {
+    opt(v, |v| want_str(v, path))
+}
+
+fn opt_rec_at(v: Option<&J>, path: &str) -> Problem {
+    opt(v, |v| kind(v, path, J::is_record, "record"))
+}
+
+fn opt_bool_at(v: Option<&J>, path: &str) -> Problem {
+    opt(v, |v| kind(v, path, |v| matches!(v, J::Bool(_)), "boolean"))
+}
+
+fn str_map_at(v: Option<&J>, path: &str) -> Problem {
+    match v {
+        None => None,
+        Some(J::Obj(f)) => f
+            .iter()
+            .find(|(_, x)| !matches!(x, J::Str(_)))
+            .map(|(k, _)| format!("{path}.{k}:not_string")),
+        Some(_) => Some(format!("{path}:not_record")),
     }
-    let req = p.get("compileRequest").expect("validated");
-    let placement = req.get("placement").expect("validated");
-    let abs = |v: Option<&J>| matches!(v, Some(J::Str(s)) if s.starts_with('/'));
-    let bundle_ok = placement.get("bundle").is_some_and(|b| {
-        b.get("kind") == Some(&J::str("agent-project"))
-            && matches!(b.get("agentName"), Some(J::Str(s)) if !s.is_empty())
-            && (b.get("projectRoot").is_none() || abs(b.get("projectRoot")))
-            && only(b, &["kind", "agentName", "projectRoot"])
-    });
-    let correlation_ok = placement.get("correlation").is_none_or(|c| {
-        c.is_record()
-            && c.get("sessionRef").is_none_or(|s| {
-                is_str(s.get("scopeRef"))
-                    && is_str(s.get("laneRef"))
-                    && only(s, &["scopeRef", "laneRef"])
+}
+
+fn absolute(v: Option<&J>, path: &str) -> Problem {
+    want_str(v, path).or_else(|| {
+        matches!(v, Some(J::Str(s)) if !s.starts_with('/')).then(|| format!("{path}:not_absolute"))
+    })
+}
+
+fn opt_absolute(v: Option<&J>, path: &str) -> Problem {
+    opt(v, |v| absolute(v, path))
+}
+
+/// A value outside an allowed set is named by the value itself.
+fn one_of(v: Option<&J>, allowed: &[&str], path: &str) -> Problem {
+    want_str(v, path).or_else(|| match v {
+        Some(J::Str(s)) if !allowed.contains(&s.as_str()) => Some(format!("{path}:{s}")),
+        _ => None,
+    })
+}
+
+fn placement_problem(placement: &J) -> Problem {
+    let p = |k: &str| placement.get(k);
+    absolute(p("agentRoot"), "placement.agentRoot")
+        .or_else(|| opt_absolute(p("projectRoot"), "placement.projectRoot"))
+        .or_else(|| opt_absolute(p("cwd"), "placement.cwd"))
+        .or_else(|| one_of(p("runMode"), &RUN_MODES, "placement.runMode"))
+        .or_else(|| bundle_problem(p("bundle")))
+        .or_else(|| opt(p("correlation"), placement_correlation_problem))
+        .or_else(|| opt_bool_at(p("dryRun"), "placement.dryRun"))
+        .or_else(|| str_map_at(p("dispatchEnv"), "placement.dispatchEnv"))
+        .or_else(|| {
+            unexpected_key(
+                placement,
+                &[
+                    "agentRoot",
+                    "projectRoot",
+                    "cwd",
+                    "runMode",
+                    "bundle",
+                    "correlation",
+                    "dryRun",
+                    "dispatchEnv",
+                ],
+                "placement",
+            )
+        })
+}
+
+fn bundle_problem(bundle: Option<&J>) -> Problem {
+    let path = "placement.bundle";
+    let Some(b) = bundle else {
+        return Some(format!("{path}:missing"));
+    };
+    kind(Some(b), path, J::is_record, "record")
+        .or_else(|| one_of(b.get("kind"), &["agent-project"], "placement.bundle.kind"))
+        .or_else(|| {
+            want_str(b.get("agentName"), "placement.bundle.agentName").or_else(|| {
+                (b.get("agentName") == Some(&J::str("")))
+                    .then(|| "placement.bundle.agentName:empty".to_owned())
             })
-            && [
+        })
+        .or_else(|| opt_absolute(b.get("projectRoot"), "placement.bundle.projectRoot"))
+        .or_else(|| unexpected_key(b, &["kind", "agentName", "projectRoot"], path))
+}
+
+fn placement_correlation_problem(correlation: Option<&J>) -> Problem {
+    let path = "placement.correlation";
+    let c = correlation.expect("present");
+    kind(Some(c), path, J::is_record, "record")
+        .or_else(|| {
+            opt(c.get("sessionRef"), |s| {
+                let s = s.expect("present");
+                let path = "placement.correlation.sessionRef";
+                want_str(s.get("scopeRef"), &format!("{path}.scopeRef"))
+                    .or_else(|| want_str(s.get("laneRef"), &format!("{path}.laneRef")))
+                    .or_else(|| unexpected_key(s, &["scopeRef", "laneRef"], path))
+            })
+        })
+        .or_else(|| {
+            [
                 "hostSessionId",
                 "runId",
                 "runtimeId",
@@ -164,10 +266,16 @@ pub fn shape_supported(p: &J) -> Result<(), Fwd> {
                 "initialInputId",
             ]
             .iter()
-            .all(|k| opt_str(c.get(k)))
-            && c.get("generation")
-                .is_none_or(|g| matches!(g, J::Num(n) if n.fract() == 0.0 && n.abs() < 1e15))
-            && only(
+            .find_map(|k| opt_str_at(c.get(k), &format!("{path}.{k}")))
+        })
+        .or_else(|| {
+            opt(c.get("generation"), |g| {
+                (!matches!(g, Some(J::Num(n)) if n.fract() == 0.0 && n.abs() < 1e15))
+                    .then(|| format!("{path}.generation:not_integer"))
+            })
+        })
+        .or_else(|| {
+            unexpected_key(
                 c,
                 &[
                     "hostSessionId",
@@ -178,78 +286,92 @@ pub fn shape_supported(p: &J) -> Result<(), Fwd> {
                     "invocationId",
                     "initialInputId",
                 ],
+                path,
             )
-    });
-    let placement_ok = abs(placement.get("agentRoot"))
-        && (placement.get("projectRoot").is_none() || abs(placement.get("projectRoot")))
-        && (placement.get("cwd").is_none() || abs(placement.get("cwd")))
-        && matches!(placement.get("runMode"), Some(J::Str(m)) if RUN_MODES.contains(&m.as_str()))
-        && bundle_ok
-        && correlation_ok
-        && placement
-            .get("dryRun")
-            .is_none_or(|d| matches!(d, J::Bool(_)))
-        && str_map(placement.get("dispatchEnv"))
-        && only(
-            placement,
-            &[
-                "agentRoot",
-                "projectRoot",
-                "cwd",
-                "runMode",
-                "bundle",
-                "correlation",
-                "dryRun",
-                "dispatchEnv",
-            ],
-        );
-    if !placement_ok {
-        return Err(fwd("placement_shape"));
-    }
-    let material = req.get("materialization").expect("validated");
-    let task_ok = material.get("taskContext").is_none_or(|t| {
-        is_str(t.get("taskId"))
-            && matches!(t.get("requiredEvidenceKinds"), Some(J::Arr(k)) if k.iter().all(|x| matches!(x, J::Str(_))))
-            && ["phase", "role", "hintsText"].iter().all(|k| t.get(k).is_none_or(|v| matches!(v, J::Str(_) | J::Null)))
-            && only(t, &["taskId", "phase", "role", "requiredEvidenceKinds", "hintsText"])
-    });
-    let attachments_ok = material
-        .get("attachments")
-        .is_none_or(|a| matches!(a, J::Arr(x) if x.is_empty()));
-    if !(opt_str(material.get("initialPrompt"))
-        && material
-            .get("omitPriming")
-            .is_none_or(|o| matches!(o, J::Bool(_)))
-        && attachments_ok
-        && task_ok
-        && only(
-            material,
-            &["initialPrompt", "omitPriming", "attachments", "taskContext"],
-        ))
-    {
-        return Err(fwd("materialization_shape"));
-    }
-    let policy = req.get("hrcPolicy").expect("validated");
-    let limits_ok = policy.get("resourceLimits").is_none_or(|l| {
-        l.is_record()
-            && [
+        })
+}
+
+fn materialization_problem(material: &J) -> Problem {
+    let path = "materialization";
+    opt_str_at(material.get("initialPrompt"), "materialization.initialPrompt")
+        .or_else(|| opt_bool_at(material.get("omitPriming"), "materialization.omitPriming"))
+        .or_else(|| match material.get("attachments") {
+            None => None,
+            Some(J::Arr(x)) if x.is_empty() => None,
+            Some(J::Arr(_)) => Some("materialization.attachments:not_empty".to_owned()),
+            Some(_) => Some("materialization.attachments:not_array".to_owned()),
+        })
+        .or_else(|| {
+            opt(material.get("taskContext"), |t| {
+                let t = t.expect("present");
+                let path = "materialization.taskContext";
+                want_str(t.get("taskId"), &format!("{path}.taskId"))
+                    .or_else(|| {
+                        let kinds = t.get("requiredEvidenceKinds");
+                        let ok = matches!(kinds, Some(J::Arr(k)) if k.iter().all(|x| matches!(x, J::Str(_))));
+                        (!ok).then(|| format!("{path}.requiredEvidenceKinds:invalid"))
+                    })
+                    .or_else(|| {
+                        ["phase", "role", "hintsText"].iter().find_map(|k| {
+                            t.get(k)
+                                .filter(|v| !matches!(v, J::Str(_) | J::Null))
+                                .map(|_| format!("{path}.{k}:not_string"))
+                        })
+                    })
+                    .or_else(|| {
+                        unexpected_key(
+                            t,
+                            &["taskId", "phase", "role", "requiredEvidenceKinds", "hintsText"],
+                            path,
+                        )
+                    })
+            })
+        })
+        .or_else(|| {
+            unexpected_key(
+                material,
+                &["initialPrompt", "omitPriming", "attachments", "taskContext"],
+                path,
+            )
+        })
+}
+
+fn hrc_policy_problem(policy: &J) -> Problem {
+    let path = "hrcPolicy";
+    opt(policy.get("resourceLimits"), |l| {
+        let l = l.expect("present");
+        let path = "hrcPolicy.resourceLimits";
+        kind(Some(l), path, J::is_record, "record").or_else(|| {
+            [
                 "startupTimeoutMs",
                 "turnTimeoutMs",
                 "stopGraceMs",
                 "maxEventBytes",
             ]
             .iter()
-            .all(|k| l.get(k).is_none_or(|v| matches!(v, J::Num(_))))
-    });
-    let tools_ok = policy
-        .get("disallowedTools")
-        .is_none_or(|t| matches!(t, J::Arr(x) if x.iter().all(|i| matches!(i, J::Str(_)))));
-    if !(limits_ok
-        && tools_ok
-        && opt_rec(policy.get("permissionPolicy"))
-        && opt_rec(policy.get("inputPolicy"))
-        && opt_rec(policy.get("exposurePolicy"))
-        && only(
+            .find_map(|k| {
+                opt(l.get(k), |v| {
+                    kind(
+                        v,
+                        &format!("{path}.{k}"),
+                        |v| matches!(v, J::Num(_)),
+                        "number",
+                    )
+                })
+            })
+        })
+    })
+    .or_else(|| {
+        let ok = policy
+            .get("disallowedTools")
+            .is_none_or(|t| matches!(t, J::Arr(x) if x.iter().all(|i| matches!(i, J::Str(_)))));
+        (!ok).then(|| "hrcPolicy.disallowedTools:invalid".to_owned())
+    })
+    .or_else(|| opt_rec_at(policy.get("permissionPolicy"), "hrcPolicy.permissionPolicy"))
+    .or_else(|| opt_rec_at(policy.get("inputPolicy"), "hrcPolicy.inputPolicy"))
+    .or_else(|| opt_rec_at(policy.get("exposurePolicy"), "hrcPolicy.exposurePolicy"))
+    .or_else(|| {
+        unexpected_key(
             policy,
             &[
                 "permissionPolicy",
@@ -260,20 +382,26 @@ pub fn shape_supported(p: &J) -> Result<(), Fwd> {
                 "capabilityPolicy",
                 "disallowedTools",
             ],
-        ))
-    {
-        return Err(fwd("hrc_policy_shape"));
-    }
-    if let Some(c) = req.get("continuation") {
-        let hrc_ok = c.get("hrc").is_some_and(|h| {
-            is_str(h.get("provider")) && opt_str(h.get("key")) && opt_str(h.get("continuationId"))
-        });
-        if !(c.is_record() && hrc_ok && opt_rec(c.get("broker")) && is_str(c.get("source"))) {
-            return Err(fwd("continuation_shape"));
-        }
-    }
-    let correlation = req.get("correlation").expect("validated");
-    if !([
+            path,
+        )
+    })
+}
+
+fn continuation_problem(c: &J) -> Problem {
+    let path = "continuation";
+    kind(Some(c), path, J::is_record, "record")
+        .or_else(|| match c.get("hrc") {
+            None => Some("continuation.hrc:missing".to_owned()),
+            Some(h) => want_str(h.get("provider"), "continuation.hrc.provider")
+                .or_else(|| opt_str_at(h.get("key"), "continuation.hrc.key"))
+                .or_else(|| opt_str_at(h.get("continuationId"), "continuation.hrc.continuationId")),
+        })
+        .or_else(|| opt_rec_at(c.get("broker"), "continuation.broker"))
+        .or_else(|| want_str(c.get("source"), "continuation.source"))
+}
+
+fn correlation_problem(correlation: &J) -> Problem {
+    [
         "requestId",
         "hostSessionId",
         "operationId",
@@ -286,11 +414,48 @@ pub fn shape_supported(p: &J) -> Result<(), Fwd> {
         "laneRef",
     ]
     .iter()
-    .all(|k| opt_str(correlation.get(k))))
-    {
-        return Err(fwd("correlation_shape"));
+    .find_map(|k| opt_str_at(correlation.get(k), &format!("correlation.{k}")))
+}
+
+/// The request shapes raspd compiles natively (what Bun and Rust HRC send
+/// for a birth). Anything else is relayed to Bun, with the first key or value
+/// that decided it as the forward's detail.
+pub fn shape_supported(p: &J) -> Result<(), Fwd> {
+    // `clientAspHome ? … : …` drops an empty aspHome in one place and keeps
+    // it in another; raspd does not judge that request.
+    if p.get("aspHome") == Some(&J::str("")) {
+        return Err(fwd("empty_asp_home"));
     }
-    Ok(())
+    if p.get("compileContext").is_some() {
+        return Err(fwd("compile_context"));
+    }
+    let req = p.get("compileRequest").expect("validated");
+    let gates: [(&'static str, Problem); 5] = [
+        (
+            "placement_shape",
+            placement_problem(req.get("placement").expect("validated")),
+        ),
+        (
+            "materialization_shape",
+            materialization_problem(req.get("materialization").expect("validated")),
+        ),
+        (
+            "hrc_policy_shape",
+            hrc_policy_problem(req.get("hrcPolicy").expect("validated")),
+        ),
+        (
+            "continuation_shape",
+            req.get("continuation").and_then(continuation_problem),
+        ),
+        (
+            "correlation_shape",
+            correlation_problem(req.get("correlation").expect("validated")),
+        ),
+    ];
+    match gates.into_iter().find_map(|(r, p)| p.map(|d| (r, d))) {
+        Some((reason, detail)) => Err(fwd_at(reason, detail)),
+        None => Ok(()),
+    }
 }
 
 // -- the agent profile and project target ------------------------------------
@@ -449,6 +614,12 @@ fn wire_layer(source: Option<&J>, snake: bool) -> Vec<(String, J)> {
     out
 }
 
+/// `selection.<key>:<value>@<layer that set it>`, a selection forward's detail.
+fn picked(key: &str, value: &str, from: &Option<(J, &str)>) -> String {
+    let source = from.as_ref().map_or("catalog-default", |(_, s)| *s);
+    format!("selection.{key}:{value}@{source}")
+}
+
 /// `resolveHarnessExecution` for the claude-code recipe; any other recipe or
 /// any refusal is relayed to Bun.
 pub fn resolve_selection(req: &J, profile: &Profile, target: Option<&J>) -> Result<Selection, Fwd> {
@@ -503,7 +674,10 @@ pub fn resolve_selection(req: &J, profile: &Profile, target: Option<&J>) -> Resu
         .and_then(|(v, _)| v.as_str())
         .unwrap_or("agent-harness");
     if harness_id != "claude" {
-        return Err(fwd("recipe_not_native"));
+        return Err(fwd_at(
+            "recipe_not_native",
+            picked("harness", harness_id, &harness),
+        ));
     }
     let provider = scalar("modelProvider");
     let provider_id = provider
@@ -511,7 +685,10 @@ pub fn resolve_selection(req: &J, profile: &Profile, target: Option<&J>) -> Resu
         .and_then(|(v, _)| v.as_str())
         .unwrap_or("anthropic");
     if provider_id != "anthropic" {
-        return Err(fwd("unsupported_model_provider"));
+        return Err(fwd_at(
+            "unsupported_model_provider",
+            picked("modelProvider", provider_id, &provider),
+        ));
     }
     let model = scalar("model");
     let model_id = match &model {
@@ -520,7 +697,10 @@ pub fn resolve_selection(req: &J, profile: &Profile, target: Option<&J>) -> Resu
         None => "opus[1m]".into(),
     };
     if !CLAUDE_MODELS.contains(&model_id.as_str()) {
-        return Err(fwd("unsupported_model"));
+        return Err(fwd_at(
+            "unsupported_model",
+            picked("model", &model_id, &model),
+        ));
     }
     let presentation = layers.iter().find_map(|(source, layer)| {
         layer
@@ -570,4 +750,218 @@ pub fn resolve_selection(req: &J, profile: &Profile, target: Option<&J>) -> Resu
 /// `validateToken` on a scope segment: `None` when valid.
 pub fn token_error(value: &str, label: &str) -> Option<String> {
     validate_token(value, label)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(s: &str) -> J {
+        crate::json::parse(s.as_bytes()).expect("json")
+    }
+
+    /// A birth request raspd compiles natively.
+    fn params() -> J {
+        parse(
+            r#"{"compileRequest":{"schemaVersion":"agent-runtime-compile-request/v2",
+            "agent":{"id":"clod"},"identity":{},
+            "placement":{"agentRoot":"/a/clod","projectRoot":"/p","cwd":"/p","runMode":"task",
+              "bundle":{"kind":"agent-project","agentName":"clod","projectRoot":"/p"},
+              "correlation":{"sessionRef":{"scopeRef":"agent:clod","laneRef":"main"},"generation":1}},
+            "requested":{},"materialization":{"initialPrompt":"hi"},
+            "hrcPolicy":{"resourceLimits":{"startupTimeoutMs":1}},
+            "correlation":{"runtimeId":"rt-1"}},
+            "aspHome":"/h"}"#,
+        )
+    }
+
+    fn edit(path: &[&str], value: Option<J>) -> J {
+        fn walk(v: &mut J, path: &[&str], value: Option<J>) {
+            if path.len() == 1 {
+                match value {
+                    Some(x) => v.set(path[0], x),
+                    None => {
+                        v.remove(path[0]);
+                    }
+                }
+                return;
+            }
+            let J::Obj(fields) = v else {
+                panic!("not a record")
+            };
+            let (_, child) = fields.iter_mut().find(|(k, _)| k == path[0]).expect("path");
+            walk(child, &path[1..], value);
+        }
+        let mut p = params();
+        walk(&mut p, path, value);
+        p
+    }
+
+    fn verdict(p: &J) -> Result<(), (&'static str, Option<String>)> {
+        assert!(
+            params_valid(Some(p)),
+            "fixture must pass aspc params validation"
+        );
+        shape_supported(p).map_err(|f| (f.reason, f.detail))
+    }
+
+    fn detail(reason: &'static str, d: &str) -> Result<(), (&'static str, Option<String>)> {
+        Err((reason, Some(d.to_owned())))
+    }
+
+    #[test]
+    fn the_baseline_is_native() {
+        assert_eq!(verdict(&params()), Ok(()));
+    }
+
+    #[test]
+    fn placement_details_name_the_key_or_value() {
+        let cr = "compileRequest";
+        let pl = "placement";
+        assert_eq!(
+            verdict(&edit(&[cr, pl, "image"], Some(J::str("x")))),
+            detail("placement_shape", "placement.image:unexpected_key")
+        );
+        assert_eq!(
+            verdict(&edit(&[cr, pl, "cwd"], Some(J::str("rel/dir")))),
+            detail("placement_shape", "placement.cwd:not_absolute")
+        );
+        assert_eq!(
+            verdict(&edit(&[cr, pl, "runMode"], Some(J::str("bogus")))),
+            detail("placement_shape", "placement.runMode:bogus")
+        );
+        assert_eq!(
+            verdict(&edit(&[cr, pl, "runMode"], None)),
+            detail("placement_shape", "placement.runMode:missing")
+        );
+        assert_eq!(
+            verdict(&edit(&[cr, pl, "agentRoot"], Some(J::Num(1.0)))),
+            detail("placement_shape", "placement.agentRoot:not_string")
+        );
+        assert_eq!(
+            verdict(&edit(
+                &[cr, pl, "bundle", "kind"],
+                Some(J::str("agent-only"))
+            )),
+            detail("placement_shape", "placement.bundle.kind:agent-only")
+        );
+        assert_eq!(
+            verdict(&edit(&[cr, pl, "bundle", "extra"], Some(J::Bool(true)))),
+            detail("placement_shape", "placement.bundle.extra:unexpected_key")
+        );
+        assert_eq!(
+            verdict(&edit(
+                &[cr, pl, "correlation", "sessionRef", "laneRef"],
+                None
+            )),
+            detail(
+                "placement_shape",
+                "placement.correlation.sessionRef.laneRef:missing"
+            )
+        );
+        assert_eq!(
+            verdict(&edit(
+                &[cr, pl, "correlation", "generation"],
+                Some(J::Num(1.5))
+            )),
+            detail(
+                "placement_shape",
+                "placement.correlation.generation:not_integer"
+            )
+        );
+        assert_eq!(
+            verdict(&edit(&[cr, pl, "dryRun"], Some(J::str("yes")))),
+            detail("placement_shape", "placement.dryRun:not_boolean")
+        );
+        assert_eq!(
+            verdict(&edit(&[cr, pl, "dispatchEnv"], Some(parse(r#"{"A":1}"#)))),
+            detail("placement_shape", "placement.dispatchEnv.A:not_string")
+        );
+    }
+
+    #[test]
+    fn the_other_gate_reasons_name_their_key() {
+        let cr = "compileRequest";
+        assert_eq!(
+            verdict(&edit(
+                &[cr, "materialization", "attachments"],
+                Some(parse("[1]"))
+            )),
+            detail(
+                "materialization_shape",
+                "materialization.attachments:not_empty"
+            )
+        );
+        assert_eq!(
+            verdict(&edit(&[cr, "materialization", "x"], Some(J::Null))),
+            detail("materialization_shape", "materialization.x:unexpected_key")
+        );
+        assert_eq!(
+            verdict(&edit(
+                &[cr, "hrcPolicy", "resourceLimits", "turnTimeoutMs"],
+                Some(J::str("9"))
+            )),
+            detail(
+                "hrc_policy_shape",
+                "hrcPolicy.resourceLimits.turnTimeoutMs:not_number"
+            )
+        );
+        assert_eq!(
+            verdict(&edit(&[cr, "hrcPolicy", "y"], Some(J::Null))),
+            detail("hrc_policy_shape", "hrcPolicy.y:unexpected_key")
+        );
+        assert_eq!(
+            verdict(&edit(
+                &[cr, "continuation"],
+                Some(parse(r#"{"source":"hrc"}"#))
+            )),
+            detail("continuation_shape", "continuation.hrc:missing")
+        );
+        assert_eq!(
+            verdict(&edit(&[cr, "correlation", "traceId"], Some(J::Num(3.0)))),
+            detail("correlation_shape", "correlation.traceId:not_string")
+        );
+        assert_eq!(
+            verdict(&edit(&["aspHome"], Some(J::str("")))),
+            Err(("empty_asp_home", None))
+        );
+    }
+
+    #[test]
+    fn selection_forwards_name_the_value_and_its_layer() {
+        let req = edit(
+            &["compileRequest", "requested", "harness"],
+            Some(J::str("codex")),
+        );
+        let profile = Profile {
+            raw: parse("{}"),
+            typed: profile::parse("version = 4\n").ok().expect("profile"),
+        };
+        let target = parse(r#"{"provisioning":{"model":"gpt-9"}}"#);
+        let fail = |req: &J, target: Option<&J>| {
+            resolve_selection(req.get("compileRequest").unwrap(), &profile, target)
+                .err()
+                .map(|f| (f.reason, f.detail.unwrap_or_default()))
+        };
+        assert_eq!(
+            fail(&req, None),
+            Some((
+                "recipe_not_native",
+                "selection.harness:codex@compile-request".to_owned()
+            ))
+        );
+        assert_eq!(
+            fail(
+                &edit(
+                    &["compileRequest", "requested", "harness"],
+                    Some(J::str("claude"))
+                ),
+                Some(&target)
+            ),
+            Some((
+                "unsupported_model",
+                "selection.model:gpt-9@project-target".to_owned()
+            ))
+        );
+    }
 }

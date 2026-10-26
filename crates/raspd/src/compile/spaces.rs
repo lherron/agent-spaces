@@ -8,7 +8,7 @@
 //! `space:agent:` and `space:project:`. A registry ref that needs a git
 //! resolution, a path ref, or any input raspd will not judge is a `Forward`.
 use super::util::{now_iso, sha1_hex, sha256_hex};
-use super::{Fwd, fwd};
+use super::{Fwd, fwd, fwd_at};
 use crate::json::J;
 use crate::reads::jspath::{join, read_text};
 use crate::reads::toml::{self, TomlError};
@@ -97,7 +97,7 @@ pub fn parse_space_ref(raw: &str) -> Result<SpaceRef, Fwd> {
             kind: Kind::Dev,
         }),
         // HEAD, dist-tags, semver and git pins resolve through the registry.
-        Some(_) => Err(fwd("registry_space")),
+        Some(_) => Err(fwd_at("registry_space", format!("compose:{raw}"))),
     }
 }
 

@@ -25,11 +25,26 @@ use prompt::{Ctx, EnvMap};
 use std::sync::atomic::{AtomicBool, Ordering};
 use util::{hash, now_iso, sanitize_segment, sha256_hex};
 
-/// Why a compile is relayed to Bun.
-pub type Fwd = &'static str;
+/// Why a compile is relayed to Bun, and, when one decides it, the key or
+/// value that did (logged as `fallbackDetail`, never sent to Bun).
+#[derive(Debug)]
+pub struct Fwd {
+    pub reason: &'static str,
+    pub detail: Option<String>,
+}
 
 pub fn fwd(reason: &'static str) -> Fwd {
-    reason
+    Fwd {
+        reason,
+        detail: None,
+    }
+}
+
+pub fn fwd_at(reason: &'static str, detail: String) -> Fwd {
+    Fwd {
+        reason,
+        detail: Some(detail),
+    }
 }
 
 pub const METHOD: &str = "aspc.compileHarnessInvocation";
@@ -42,14 +57,82 @@ pub fn truthy(v: &J) -> bool {
 /// Set once the first compile wrote under ASP_HOME, for logging only.
 static WROTE: AtomicBool = AtomicBool::new(false);
 
-pub fn handle(params: Option<&J>, release: &Release) -> Answer {
+/// A compile's answer, with what its `rpc.request` line logs beside it.
+pub struct Compiled {
+    pub answer: Answer,
+    /// The forward's `fallbackDetail`, when its reason has one.
+    pub fallback_detail: Option<String>,
+    /// Per-stage timings of a native answer (`phases`).
+    pub phases: Option<J>,
+}
+
+pub fn handle(params: Option<&J>, release: &Release) -> Compiled {
+    let mut phases = Phases::start();
     if !request::params_valid(params) {
-        return Answer::Forward("invalid_params");
+        return Compiled {
+            answer: Answer::Forward("invalid_params"),
+            fallback_detail: None,
+            phases: None,
+        };
     }
     let params = params.expect("validated");
-    match compile(params, release) {
-        Ok(result) => Answer::Result(result),
-        Err(reason) => Answer::Forward(reason),
+    match compile(params, release, &mut phases) {
+        Ok(result) => Compiled {
+            answer: Answer::Result(result),
+            fallback_detail: None,
+            phases: Some(phases.finish()),
+        },
+        Err(f) => Compiled {
+            answer: Answer::Forward(f.reason),
+            fallback_detail: f.detail,
+            phases: None,
+        },
+    }
+}
+
+/// Wall time per compile stage, in ms to one decimal like Bun's
+/// `timeCompilePhase`. Stages run in sequence, so each `lap` closes the one
+/// that began at the previous lap. Names are Bun's where the stage does the
+/// same work (resolve, placement-context, harness-detect, agent-local,
+/// plan-runtime, system-prompt, temp-sweep, materialize); raspd-only stages
+/// keep their own (gate, environment, spaces-plan, statusline, emit). `build`
+/// is the whole native compile, gate included.
+struct Phases {
+    started: std::time::Instant,
+    last: std::time::Instant,
+    laps: Vec<(&'static str, f64)>,
+}
+
+impl Phases {
+    fn start() -> Self {
+        let now = std::time::Instant::now();
+        Phases {
+            started: now,
+            last: now,
+            laps: vec![],
+        }
+    }
+
+    fn lap(&mut self, name: &'static str) {
+        let now = std::time::Instant::now();
+        let ms = (now - self.last).as_secs_f64() * 1000.0;
+        self.last = now;
+        match self.laps.iter_mut().find(|(n, _)| *n == name) {
+            Some(lap) => lap.1 += ms,
+            None => self.laps.push((name, ms)),
+        }
+    }
+
+    fn finish(self) -> J {
+        let round = |ms: f64| J::Num((ms * 10.0).round() / 10.0);
+        let build = self.started.elapsed().as_secs_f64() * 1000.0;
+        J::Obj(
+            self.laps
+                .into_iter()
+                .map(|(n, ms)| (n.to_owned(), round(ms)))
+                .chain([("build".to_owned(), round(build))])
+                .collect(),
+        )
     }
 }
 
@@ -109,11 +192,12 @@ fn s(v: Option<&J>) -> Option<&str> {
     v.and_then(J::as_str)
 }
 
-fn compile(params: &J, release: &Release) -> Result<J, Fwd> {
+fn compile(params: &J, release: &Release, phases: &mut Phases) -> Result<J, Fwd> {
     request::shape_supported(params)?;
-    let plan = classify(params, release)?;
+    phases.lap("gate");
+    let plan = classify(params, release, phases)?;
     WROTE.store(true, Ordering::Relaxed);
-    materialize_and_emit(plan, release)
+    materialize_and_emit(plan, release, phases)
 }
 
 // -- scope refs (contracts/agent-scope) ---------------------------------------
@@ -493,7 +577,7 @@ fn project_manifest(project_manifest: J, asp_home: &str) -> Result<J, Fwd> {
     Ok(merged)
 }
 
-fn classify(params: &J, release: &Release) -> Result<Plan, Fwd> {
+fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, Fwd> {
     let req = params.get("compileRequest").expect("validated").clone();
     let placement = req.get("placement").expect("validated").clone();
     let agent_root = s(placement.get("agentRoot")).unwrap_or_default().to_owned();
@@ -543,6 +627,7 @@ fn classify(params: &J, release: &Release) -> Result<Plan, Fwd> {
         request::session_metadata(&profile.raw, targets_for_sources.target.as_ref());
     let selection =
         request::resolve_selection(&req, &profile, targets_for_sources.target.as_ref())?;
+    phases.lap("resolve");
 
     // resolvePlacementContext({ ...placement, dryRun: true }).
     let project_target = targets_for_sources.target.clone();
@@ -756,14 +841,17 @@ fn classify(params: &J, release: &Release) -> Result<Plan, Fwd> {
     // prompt sources; absent, the daemon's own (promptSourcesForCompile).
     let explicit_asp_home = s(params.get("aspHome")).map(str::to_owned);
     let asp_home = explicit_asp_home.clone().unwrap_or_else(asp_home);
+    phases.lap("placement-context");
 
     let claude_path = find_claude()?;
+    phases.lap("harness-detect");
     let agent_local = stage::AgentLocal::detect(&agent_root);
     // validateAgentTools throws in Bun after writes; judged here, before any.
     let tool_warnings = match &agent_local {
         Some(l) if l.has_tools => validate_agent_tools(&agent_root)?,
         _ => vec![],
     };
+    phases.lap("agent-local");
 
     // Identity: scope-ref facts (the only live branch).
     let handle = handle_parts(&placement, true)?;
@@ -816,6 +904,8 @@ fn classify(params: &J, release: &Release) -> Result<Plan, Fwd> {
             false,
         ),
     };
+
+    phases.lap("environment");
 
     // Spaces: closure over filesystem-backed refs, lock, snapshot presence.
     let env = Env::process();
@@ -910,6 +1000,8 @@ fn classify(params: &J, release: &Release) -> Result<Plan, Fwd> {
         _ => None,
     };
 
+    phases.lap("spaces-plan");
+
     // The launch prompt: priming (fresh only) plus the caller prompt, expanded.
     let caller_prompt = s(material.get("initialPrompt")).map(str::to_owned);
     let omit_priming = matches!(material.get("omitPriming"), Some(J::Bool(true)));
@@ -959,6 +1051,8 @@ fn classify(params: &J, release: &Release) -> Result<Plan, Fwd> {
         None => None,
     };
 
+    phases.lap("plan-runtime");
+
     // The system prompt, resolved now (exec sections and probes run here).
     let discovered = prompt::discover(
         &agent_root,
@@ -1004,7 +1098,10 @@ fn classify(params: &J, release: &Release) -> Result<Plan, Fwd> {
         Some(prompt::resolve_template(&template, &ctx)?)
     };
 
+    phases.lap("system-prompt");
+
     let statusline = release_statusline(release)?;
+    phases.lap("statusline");
     Ok(Plan {
         params: params.clone(),
         req,
@@ -1181,7 +1278,7 @@ fn execution_release(release: &Release, protocol: &str) -> Result<J, Fwd> {
 
 // -- writes and emission ---------------------------------------------------------
 
-fn materialize_and_emit(plan: Plan, release: &Release) -> Result<J, Fwd> {
+fn materialize_and_emit(plan: Plan, release: &Release, phases: &mut Phases) -> Result<J, Fwd> {
     let asp_home = &plan.asp_home;
     let target_name = plan.agent_name.clone();
     stage::sweep_temp(asp_home);
@@ -1190,6 +1287,7 @@ fn materialize_and_emit(plan: Plan, release: &Release) -> Result<J, Fwd> {
     for d in ["repo", "sources", "snapshots", "cache", "projects", "tmp"] {
         let _ = std::fs::create_dir_all(join(&[&process_home, d]));
     }
+    phases.lap("temp-sweep");
 
     // Lock file: generate, then merge-write under the lock file's lock.
     let new_lock = spaces::generate_lock(
@@ -1320,6 +1418,7 @@ fn materialize_and_emit(plan: Plan, release: &Release) -> Result<J, Fwd> {
         None => None,
     };
     let bundle = stage::load_bundle(&bundle.root_dir)?;
+    phases.lap("materialize");
 
     // Workspace trust for the launch cwd (warnings, never failures).
     let mut warnings = workspace_trust(&plan.cwd);
@@ -1328,7 +1427,7 @@ fn materialize_and_emit(plan: Plan, release: &Release) -> Result<J, Fwd> {
     let (tool_env, path_prepend) = agent_tool_env(&plan)?;
     warnings.extend(plan.tool_warnings.iter().cloned());
 
-    emit(
+    let emitted = emit(
         &plan,
         release,
         &bundle,
@@ -1336,7 +1435,9 @@ fn materialize_and_emit(plan: Plan, release: &Release) -> Result<J, Fwd> {
         &mut warnings,
         tool_env,
         path_prepend,
-    )
+    );
+    phases.lap("emit");
+    emitted
 }
 
 /// `atomicWriteJson`: temp file, fsync, rename.

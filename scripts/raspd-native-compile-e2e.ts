@@ -19,7 +19,8 @@
  *     Bun stopped, a codex compile and a registry-space compile through
  *     raspd fail upstream and leave the stage byte-for-byte unchanged, while
  *     a native compile in the same state still writes (the control).
- *  5. Latency, native vs Bun direct, p50/p99 (recorded, not gated).
+ *  5. Latency, native vs Bun direct, p50/p99 (recorded, not gated), and the
+ *     per-stage `phases` every native compile logs (T-11921).
  *
  * Usage: bun scripts/raspd-native-compile-e2e.ts [--out <dir>] [--commit <sha>]
  *          [--release-artifact <built release dir>] [--raspd-binary <path>]
@@ -393,13 +394,14 @@ record('race.json', {
   const pair = await startPair('fwd-pair', env)
   // Bun stopped: anything raspd relays fails upstream, so any write is raspd's.
   await stopChild(pair.children[1] as ChildProcess)
+  // Each forward names the value that decided it (T-11921 fallbackDetail).
   const forwarded = [
-    ['compile:codex-app-server', 'recipe_not_native'],
-    ['compile:claude-code', 'registry_space'],
-    ['compile:muse-serve', 'recipe_not_native'],
+    ['compile:codex-app-server', 'recipe_not_native', /^selection\.harness:codex@/],
+    ['compile:claude-code', 'registry_space', /^compose:space:.+@/],
+    ['compile:muse-serve', 'recipe_not_native', /^selection\.harness:muse@/],
   ] as const
   const results: unknown[] = []
-  for (const [id, reason] of forwarded) {
+  for (const [id, reason, detail] of forwarded) {
     const before = tree(stage.base)
     const from = readLog(pair.raspdLog).length
     const replies = await call(
@@ -416,12 +418,21 @@ record('race.json', {
     }
     const changed = treeDiff(before, tree(stage.base))
     results.push({ id, reply: replies[1], changed, row })
+    const fallbackEvent = readLog(pair.raspdLog)
+      .slice(from)
+      .split('\n')
+      .filter((l) => l.includes('"native.fallback"'))
+      .map((l) => (JSON.parse(l) as { data: Record<string, unknown> }).data)[0]
+    results.push({ id, fallbackEvent })
     check(
-      `forward-before-write: ${id} with Bun stopped is relayed (${reason}), fails upstream, and raspd wrote nothing`,
+      `forward-before-write: ${id} with Bun stopped is relayed (${reason}, fallbackDetail on both lines), fails upstream, and raspd wrote nothing`,
       changed.length === 0 &&
         replies[1]?.['error'] !== undefined &&
         row?.['servedBy'] === 'bun' &&
         row?.['fallback'] === reason &&
+        detail.test(String(row?.['fallbackDetail'])) &&
+        fallbackEvent?.['reason'] === reason &&
+        fallbackEvent?.['fallbackDetail'] === row?.['fallbackDetail'] &&
         row?.['relay'] === 'upstream_failed',
       { changed, row, error: replies[1]?.['error'] }
     )
@@ -468,13 +479,58 @@ record('race.json', {
     return times
   }
   await time(pair.front) // warm: the first compile composes the bundle
+  const from = readLog(pair.raspdLog).length
   const nativeTimes = await time(pair.front)
   const bunTimes = await time(pair.bun)
+  // Every native compile line carries Bun-named phases plus raspd's own, and
+  // `build` covers them (T-11921).
+  const nativeRows = raspdRows(pair.raspdLog, from).filter(
+    (r) => r['op'] === 'aspc.compileHarnessInvocation' && r['servedBy'] === 'native'
+  )
+  const PHASES = [
+    'gate',
+    'resolve',
+    'placement-context',
+    'harness-detect',
+    'agent-local',
+    'environment',
+    'spaces-plan',
+    'plan-runtime',
+    'system-prompt',
+    'statusline',
+    'temp-sweep',
+    'materialize',
+    'emit',
+    'build',
+  ]
+  const phaseRows = nativeRows.map((r) => (r['phases'] ?? {}) as Record<string, number>)
+  const meanPhases = Object.fromEntries(
+    PHASES.map((name) => [
+      name,
+      Math.round((phaseRows.reduce((sum, p) => sum + (p[name] ?? 0), 0) / phaseRows.length) * 10) /
+        10,
+    ])
+  )
+  check(
+    `latency: all ${iterations} native compile lines carry phases ${PHASES.join(', ')}; build covers the stages and fits durationMs`,
+    nativeRows.length === iterations &&
+      nativeRows.every((r) => {
+        const p = (r['phases'] ?? {}) as Record<string, number>
+        const stages = PHASES.slice(0, -1).reduce((sum, n) => sum + (p[n] ?? Number.NaN), 0)
+        return (
+          JSON.stringify(Object.keys(p)) === JSON.stringify(PHASES) &&
+          (p['build'] as number) + 0.1 * PHASES.length >= stages &&
+          (p['build'] as number) <= (r['durationMs'] as number) + 0.1
+        )
+      }),
+    { rows: nativeRows.length, sample: nativeRows[0] }
+  )
   const summary = {
     case: 'compile:claude-code:dev (bundle hit, hello + compile on a fresh connection)',
     iterations,
     native: { p50: percentile(nativeTimes, 50), p99: percentile(nativeTimes, 99) },
     bunDirect: { p50: percentile(bunTimes, 50), p99: percentile(bunTimes, 99) },
+    nativeMeanPhases: meanPhases,
   }
   record('latency.json', summary)
   console.log(`latency ${JSON.stringify(summary)}`)

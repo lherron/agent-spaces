@@ -206,13 +206,16 @@ pub fn completion(reply: &serde_json::Value) -> Completion {
         .and_then(|d| d.first())
         .filter(|d| d.is_object());
     let resolution = record.get("resolution").filter(|r| r.is_object());
-    // `a ?? b ?? c`: null and absent both fall through.
+    let failure = record.get("failure").filter(|f| f.is_object());
+    // `a ?? b ?? c ?? d`, as Bun's `resultOutcome`: null and absent both fall
+    // through.
     fn present(v: Option<&serde_json::Value>) -> Option<&serde_json::Value> {
         v.filter(|v| !v.is_null())
     }
     let pick = |field: &str| {
         present(first.and_then(|f| f.get(field)))
             .or_else(|| present(resolution.and_then(|r| r.get(field))))
+            .or_else(|| present(failure.and_then(|f| f.get(field))))
             .or_else(|| present(record.get(field)))
     };
     let code = pick("code")
@@ -231,5 +234,48 @@ pub fn unmatched_completion(reason_message: &str) -> Completion {
         outcome: "-32700".into(),
         error_code: Some(-32700),
         message: Some(reason_message.into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn reply(result: serde_json::Value) -> Completion {
+        completion(&json!({ "jsonrpc": "2.0", "id": 1, "result": result }))
+    }
+
+    #[test]
+    fn failure_code_labels_a_failure_result() {
+        let c = reply(json!({
+            "ok": false,
+            "failure": { "kind": "unavailable", "code": "configured_source_unavailable", "message": "no root" }
+        }));
+        assert_eq!(c.outcome, "configured_source_unavailable");
+        assert_eq!(c.message.as_deref(), Some("no root"));
+    }
+
+    #[test]
+    fn diagnostics_then_resolution_then_failure_then_body() {
+        let all = json!({
+            "ok": false,
+            "diagnostics": [{ "code": "d", "message": "dm" }],
+            "resolution": { "code": "r", "message": "rm" },
+            "failure": { "code": "f", "message": "fm" },
+            "code": "b",
+            "message": "bm"
+        });
+        let mut v = all.clone();
+        assert_eq!(reply(v.clone()).outcome, "d");
+        v.as_object_mut().unwrap().remove("diagnostics");
+        assert_eq!(reply(v.clone()).outcome, "r");
+        v.as_object_mut().unwrap().remove("resolution");
+        assert_eq!(reply(v.clone()).outcome, "f");
+        assert_eq!(reply(v.clone()).message.as_deref(), Some("fm"));
+        v.as_object_mut().unwrap().remove("failure");
+        assert_eq!(reply(v).outcome, "b");
+        let none = json!({ "ok": false });
+        assert_eq!(reply(none).outcome, "unknown");
     }
 }
