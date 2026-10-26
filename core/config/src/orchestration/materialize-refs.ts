@@ -39,11 +39,12 @@ import {
   mergeLockFiles,
 } from '../resolver/index.js'
 
-import { ensureAspHome, getAspHome } from '../store/index.js'
+import { PathResolver, ensureAspHome, getAspHome } from '../store/index.js'
 
 import { fetch as gitFetch } from '../git/index.js'
 import { pathMarker, pathMarkerTimer } from '../path-markers/index.js'
 import { type InstallOptions, populateSnapshotsFromLock } from './install.js'
+import { withLockFileMerge } from './materialization-staging.js'
 import { type TargetMaterializationResult, materializeTarget } from './materialize-target.js'
 
 /**
@@ -201,25 +202,26 @@ export async function materializeFromRefs(
   }
   const newLock = await generateLockFileForTarget(targetName, refs, closure, lockOptions)
 
-  // Merge with existing lock if present (preserves other targets)
-  let mergedLock: LockFile
-  if (existingLock) {
-    mergedLock = mergeLockFiles(existingLock, newLock, options.compileContext)
-  } else {
-    mergedLock = newLock
-  }
-  pathMarker('materialize.lock-write', existingLock ? 'merged' : 'fresh')
-
   // Populate store with snapshots
   const snapshotsCreated = await populateSnapshotsFromLock(
-    mergedLock,
+    existingLock ? mergeLockFiles(existingLock, newLock, options.compileContext) : newLock,
     immutableRegistryPath,
     aspHome
   )
 
-  // Write lock file
-  await ensureLockDir(lockPath)
-  await atomicWriteJson(lockPath, mergedLock)
+  // Merge with the lock as it is now (preserves other targets, including ones
+  // concurrent compiles wrote since the read above) and write it, under the
+  // lock file's cross-process lock.
+  const mergedLock = await withLockFileMerge(new PathResolver({ aspHome }), lockPath, async () => {
+    const currentLock = await loadLockIfExists(lockPath)
+    const merged = currentLock
+      ? mergeLockFiles(currentLock, newLock, options.compileContext)
+      : newLock
+    pathMarker('materialize.lock-write', currentLock ? 'merged' : 'fresh')
+    await ensureLockDir(lockPath)
+    await atomicWriteJson(lockPath, merged)
+    return merged
+  })
 
   // Materialize target using harness adapter
   const matOptions = {

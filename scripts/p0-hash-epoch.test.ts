@@ -449,7 +449,7 @@ function parseOutputExclusions(sourceFile: ts.SourceFile): OutputExclusion[] {
 function nonLockOutputExclusions(sourceFile: ts.SourceFile): OutputExclusion[] {
   return parseOutputExclusions(sourceFile).filter((entry) => {
     if (entry.reason !== 'ephemeral-lock') return true
-    if (entry.kind === 'bundle-scope-lock') return false
+    if (entry.kind === 'bundle-scope-lock' || entry.kind === 'lock-file-merge-lock') return false
     return entry.value?.endsWith('.lock') !== true
   })
 }

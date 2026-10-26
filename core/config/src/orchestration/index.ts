@@ -33,6 +33,7 @@ export {
 } from './install.js'
 export { materializeTarget, type TargetMaterializationResult } from './materialize-target.js'
 export { materializeAgentLocalComponents } from './plugin-artifacts.js'
+export { withLockFileMerge } from './materialization-staging.js'
 
 // Low-level materialization from refs
 export {

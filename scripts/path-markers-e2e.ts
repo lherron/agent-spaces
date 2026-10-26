@@ -40,7 +40,7 @@ import type { RuntimeCompileRequest } from 'spaces-runtime-contracts'
 
 // ASP modules load lazily (see loadAsp) so `tree` can pin node:crypto and the
 // clock before any of them binds randomUUID.
-async function loadAsp() {
+export async function loadAsp() {
   const [config, execution, contracts, compiler] = await Promise.all([
     import('spaces-config'),
     import('spaces-execution'),
@@ -49,7 +49,7 @@ async function loadAsp() {
   ])
   return { config, execution, contracts, compiler }
 }
-type Asp = Awaited<ReturnType<typeof loadAsp>>
+export type Asp = Awaited<ReturnType<typeof loadAsp>>
 
 const NOW_ISO = '2026-10-26T00:00:00.000Z'
 const AGENT = 'pathmark'
@@ -61,7 +61,7 @@ const AGENT = 'pathmark'
  */
 const DEV_AGENT = 'pathmark-dev'
 
-type Row = {
+export type Row = {
   id: string
   requested: RuntimeCompileRequest['requested']
   resume?: boolean
@@ -90,7 +90,7 @@ export type Fixture = {
   aspHome: string
 }
 
-function writeSpace(root: string, id: string, supports?: string[]): void {
+export function writeSpace(root: string, id: string, supports?: string[]): void {
   const dir = join(root, 'spaces', id)
   mkdirSync(join(dir, 'skills', `${id}-skill`), { recursive: true })
   writeFileSync(
@@ -134,7 +134,7 @@ function seedImmutableMirror(asp: Asp, aspHome: string): string {
   return git('rev-parse', 'HEAD')
 }
 
-function writeAgent(agentsRoot: string, agent: string, spaces: string[]): void {
+export function writeAgent(agentsRoot: string, agent: string, spaces: string[]): void {
   const agentRoot = join(agentsRoot, agent)
   mkdirSync(join(agentRoot, 'skills', 'pathmark-skill'), { recursive: true })
   writeFileSync(
@@ -256,7 +256,7 @@ export function compileRequest(asp: Asp, fixture: Fixture, row: Row): RuntimeCom
   } as unknown as RuntimeCompileRequest
 }
 
-function compilerRuntime(asp: Asp) {
+export function compilerRuntime(asp: Asp) {
   const { harnessRegistry } = asp.execution
   return {
     getHarnessAdapter: (harnessId: string) =>

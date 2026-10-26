@@ -101,6 +101,7 @@ interface DeclaredOutputExclusion {
     | { kind: 'exact-path'; path: string }
     | { kind: 'exact-filename'; filename: string }
     | { kind: 'bundle-scope-lock' }
+    | { kind: 'lock-file-merge-lock' }
   reason: OutputManifestExclusionReason
 }
 
@@ -121,6 +122,10 @@ const DECLARED_OUTPUT_EXCLUSIONS: readonly DeclaredOutputExclusion[] = [
     matcher: { kind: 'bundle-scope-lock' },
     reason: 'ephemeral-lock',
   },
+  {
+    matcher: { kind: 'lock-file-merge-lock' },
+    reason: 'ephemeral-lock',
+  },
 ]
 
 function declaredExclusion(relPath: string): DeclaredOutputExclusion | undefined {
@@ -132,9 +137,11 @@ function declaredExclusion(relPath: string): DeclaredOutputExclusion | undefined
     if (declaration.matcher.kind === 'exact-filename') {
       return declaration.matcher.filename === filename
     }
-    return (
-      relPath.startsWith('tmp/locks/') && /^bundle-scope-[0-9a-f]{32}\.lock$/.test(filename ?? '')
-    )
+    const pattern =
+      declaration.matcher.kind === 'bundle-scope-lock'
+        ? /^bundle-scope-[0-9a-f]{32}\.lock$/
+        : /^lock-file-[0-9a-f]{32}\.lock$/
+    return relPath.startsWith('tmp/locks/') && pattern.test(filename ?? '')
   })
 }
 

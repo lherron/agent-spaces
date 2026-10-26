@@ -1,4 +1,3 @@
-import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import {
@@ -14,6 +13,7 @@ import {
   type SpaceKey,
   type SpaceRefString,
   type SpaceSettings,
+  atomicWrite,
   computeClosure,
   createSnapshot,
   ensureDir,
@@ -27,6 +27,7 @@ import {
   readSpaceToml,
   resolveSpaceManifest,
   serializeLockJson,
+  withLockFileMerge,
 } from 'spaces-config'
 import type { HarnessId } from 'spaces-runtime-contracts'
 
@@ -50,29 +51,32 @@ function assertResolvedAdapter(execution: ResolvedHarnessAdapter): void {
   }
 }
 
-async function persistGlobalLock(newLock: LockFile, globalLockPath: string): Promise<void> {
-  let existingLock: LockFile | undefined
+async function persistGlobalLock(newLock: LockFile, paths: PathResolver): Promise<void> {
+  const globalLockPath = paths.globalLock
+  await withLockFileMerge(paths, globalLockPath, async () => {
+    let existingLock: LockFile | undefined
 
-  if (await lockFileExists(globalLockPath)) {
-    try {
-      existingLock = await readLockJson(globalLockPath)
-    } catch {
-      // If corrupt, we'll overwrite with new lock
-    }
-  }
-
-  const mergedLock: LockFile = existingLock
-    ? {
-        lockfileVersion: newLock.lockfileVersion,
-        resolverVersion: newLock.resolverVersion,
-        generatedAt: newLock.generatedAt,
-        registry: newLock.registry,
-        spaces: { ...existingLock.spaces, ...newLock.spaces },
-        targets: { ...existingLock.targets, ...newLock.targets },
+    if (await lockFileExists(globalLockPath)) {
+      try {
+        existingLock = await readLockJson(globalLockPath)
+      } catch {
+        // If corrupt, we'll overwrite with new lock
       }
-    : newLock
+    }
 
-  await writeFile(globalLockPath, serializeLockJson(mergedLock), 'utf-8')
+    const mergedLock: LockFile = existingLock
+      ? {
+          lockfileVersion: newLock.lockfileVersion,
+          resolverVersion: newLock.resolverVersion,
+          generatedAt: newLock.generatedAt,
+          registry: newLock.registry,
+          spaces: { ...existingLock.spaces, ...newLock.spaces },
+          targets: { ...existingLock.targets, ...newLock.targets },
+        }
+      : newLock
+
+    await atomicWrite(globalLockPath, serializeLockJson(mergedLock))
+  })
 }
 
 interface ExecuteSpaceRunArgs {
@@ -276,7 +280,7 @@ export async function runGlobalSpace(
     registry: PORTABLE_SPACES_REGISTRY,
   })
 
-  await persistGlobalLock(lock, paths.globalLock)
+  await persistGlobalLock(lock, paths)
 
   const tempDir = await createTempDir(aspHome)
   const outputDir = join(tempDir, harnessId)

@@ -5,7 +5,7 @@
  * They enable reproducible builds and efficient caching.
  */
 
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { CommitSha, Sha256Integrity, SpaceId } from '../core/index.js'
@@ -97,8 +97,12 @@ export async function createSnapshot(
   await ensureDir(options.paths.snapshots)
   await ensureDir(options.paths.temp)
 
-  // Extract to temp directory first
-  const tempDir = join(options.paths.temp, `snapshot-${Date.now()}`)
+  // Extract to a per-process temp directory first: concurrent writers (asp CLI,
+  // ACP, aspd) may stage the same snapshot at the same moment.
+  const tempDir = join(
+    options.paths.temp,
+    `snapshot-${process.pid}-${randomBytes(8).toString('hex')}`
+  )
   const sourcePath = `spaces/${spaceId}`
 
   try {
@@ -115,9 +119,19 @@ export async function createSnapshot(
     }
     await writeFile(join(tempDir, '.asp-snapshot.json'), JSON.stringify(metadata, null, 2))
 
-    // Atomically move to final location
+    // Atomically move to final location. Losing the rename to a concurrent
+    // writer that published the same content-addressed snapshot is success.
     const finalPath = options.paths.snapshot(integrity)
-    await rename(tempDir, finalPath)
+    try {
+      await rename(tempDir, finalPath)
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      const published =
+        (code === 'ENOTEMPTY' || code === 'EEXIST') &&
+        (await getSnapshotMetadata(integrity, options))?.integrity === integrity
+      if (!published) throw err
+      await rm(tempDir, { recursive: true, force: true })
+    }
 
     return integrity
   } catch (err) {
