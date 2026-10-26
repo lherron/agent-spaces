@@ -1062,10 +1062,36 @@ fn truncate(content: &str, max: Option<usize>) -> Result<String, Fwd> {
 pub struct Resolved {
     pub prompt: Option<String>,
     pub append: bool,
+    /// The reminder zone's content (`inspected.reminder.content`).
+    pub reminder: Option<String>,
+    /// The task-invariant vs task-scoped split, when a section gated by
+    /// `when.taskField` rendered (T-09860).
+    pub task_scoped: Option<TaskScoped>,
 }
 
-fn resolve_zone(sections: &[Section], ctx: &Ctx) -> Result<(Option<String>, usize), Fwd> {
+/// `ResolvedTaskScopedSplit`: each zone joined without its task-scoped
+/// sections, and the task-scoped sections joined.
+pub struct TaskScoped {
+    pub content: String,
+    pub prompt: Option<String>,
+    pub reminder: Option<String>,
+}
+
+const SECTION_SEPARATOR: &str = "\n\n---\n\n";
+
+/// One resolved zone: its content and size, the content without task-scoped
+/// sections, and the task-scoped sections.
+struct Zone {
+    content: Option<String>,
+    chars: usize,
+    invariant: Option<String>,
+    task_scoped: Vec<String>,
+}
+
+fn resolve_zone(sections: &[Section], ctx: &Ctx) -> Result<Zone, Fwd> {
     let mut included = vec![];
+    let mut invariant = vec![];
+    let mut task_scoped = vec![];
     for section in sections {
         if !matches(section.when.as_ref(), ctx) {
             continue;
@@ -1089,29 +1115,57 @@ fn resolve_zone(sections: &[Section], ctx: &Ctx) -> Result<(Option<String>, usiz
         if truncated.is_empty() {
             continue;
         }
+        if section.when.as_ref().is_some_and(|w| w.task_field.is_some()) {
+            task_scoped.push(truncated.clone());
+        } else {
+            invariant.push(truncated.clone());
+        }
         included.push(truncated);
     }
+    let invariant = (!invariant.is_empty()).then(|| invariant.join(SECTION_SEPARATOR));
     if included.is_empty() {
-        return Ok((None, 0));
+        return Ok(Zone {
+            content: None,
+            chars: 0,
+            invariant,
+            task_scoped,
+        });
     }
-    let content = included.join("\n\n---\n\n");
+    let content = included.join(SECTION_SEPARATOR);
     let chars = utf16_len(&content);
-    Ok((Some(content), chars))
+    Ok(Zone {
+        content: Some(content),
+        chars,
+        invariant,
+        task_scoped,
+    })
 }
 
 /// `resolveContextTemplateDetailed(template, context)`, the parts a compile uses.
 pub fn resolve_template(template: &Template, ctx: &Ctx) -> Result<Resolved, Fwd> {
-    let (prompt, prompt_chars) = resolve_zone(&template.prompt, ctx)?;
-    // The reminder zone resolves too (its exec sections run, its size counts).
-    let (_, reminder_chars) = resolve_zone(&template.reminder, ctx)?;
+    let prompt = resolve_zone(&template.prompt, ctx)?;
+    let reminder = resolve_zone(&template.reminder, ctx)?;
     if let Some(max) = template.max_chars
-        && prompt_chars + reminder_chars > max
+        && prompt.chars + reminder.chars > max
     {
         return Err(fwd("context_template_max_chars"));
     }
+    let scoped: Vec<String> = prompt
+        .task_scoped
+        .iter()
+        .chain(&reminder.task_scoped)
+        .cloned()
+        .collect();
+    let task_scoped = (!scoped.is_empty()).then(|| TaskScoped {
+        content: scoped.join(SECTION_SEPARATOR),
+        prompt: prompt.invariant,
+        reminder: reminder.invariant,
+    });
     Ok(Resolved {
-        prompt,
+        prompt: prompt.content,
         append: template.append,
+        reminder: reminder.content,
+        task_scoped,
     })
 }
 

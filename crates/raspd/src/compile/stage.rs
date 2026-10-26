@@ -24,7 +24,7 @@ pub const TARGET_MATERIALIZER_VERSION: &str = "target-materializer-v6-claude-idl
 const PLUGIN_COMPONENT_DIRS: [&str; 6] =
     ["commands", "skills", "agents", "hooks", "scripts", "mcp"];
 
-fn io_fwd(_: io::Error) -> Fwd {
+pub(super) fn io_fwd(_: io::Error) -> Fwd {
     fwd("materialize_io")
 }
 
@@ -50,12 +50,12 @@ pub fn materialization_lock_path(asp_home: &str, key: &str) -> String {
 
 // -- copying (core/atomic.ts, materializer/link-components.ts) ---------------
 
-fn mkdirp(path: &str) -> Result<(), Fwd> {
+pub(super) fn mkdirp(path: &str) -> Result<(), Fwd> {
     fs::create_dir_all(path).map_err(io_fwd)
 }
 
 /// `fs.promises.copyFile` (contents and mode).
-fn copy_file(src: &str, dest: &str) -> Result<(), Fwd> {
+pub(super) fn copy_file(src: &str, dest: &str) -> Result<(), Fwd> {
     fs::copy(src, dest).map(|_| ()).map_err(io_fwd)
 }
 
@@ -109,6 +109,22 @@ fn link_directory(
 /// `copyDir(src, dest, { useHardlinks: true })`: hardlink files (copy on
 /// EXDEV/EPERM/ENOTSUP), recreate symlinks.
 fn copy_dir_hardlinked(src: &str, dest: &str) -> Result<(), Fwd> {
+    copy_dir(src, dest, true)
+}
+
+/// `rm(path, { recursive: true, force: true })`: a missing path is fine.
+pub(super) fn rm_rf(path: &str) -> Result<(), Fwd> {
+    match fs::symlink_metadata(path) {
+        Ok(m) if m.is_dir() => fs::remove_dir_all(path).map_err(io_fwd),
+        Ok(_) => fs::remove_file(path).map_err(io_fwd),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(io_fwd(e)),
+    }
+}
+
+/// `copyDir(src, dest, { useHardlinks })`: files hardlinked (copy on
+/// EXDEV/EPERM/ENOTSUP) or copied, symlinks recreated.
+pub(super) fn copy_dir(src: &str, dest: &str, hardlinks: bool) -> Result<(), Fwd> {
     mkdirp(dest)?;
     for entry in fs::read_dir(src).map_err(io_fwd)? {
         let entry = entry.map_err(io_fwd)?;
@@ -116,7 +132,9 @@ fn copy_dir_hardlinked(src: &str, dest: &str) -> Result<(), Fwd> {
         let (s, d) = (join(&[src, &name]), join(&[dest, &name]));
         let ft = entry.file_type().map_err(io_fwd)?;
         if ft.is_dir() {
-            copy_dir_hardlinked(&s, &d)?;
+            copy_dir(&s, &d, hardlinks)?;
+        } else if ft.is_file() && !hardlinks {
+            copy_file(&s, &d)?;
         } else if ft.is_file() {
             match fs::hard_link(&s, &d) {
                 Ok(()) => {}
@@ -138,7 +156,7 @@ fn copy_dir_hardlinked(src: &str, dest: &str) -> Result<(), Fwd> {
     Ok(())
 }
 
-fn is_dir_follow(path: &str) -> bool {
+pub(super) fn is_dir_follow(path: &str) -> bool {
     fs::metadata(path).is_ok_and(|m| m.is_dir())
 }
 
@@ -146,7 +164,7 @@ fn is_file_follow(path: &str) -> bool {
     fs::metadata(path).is_ok_and(|m| m.is_file())
 }
 
-fn write(path: &str, content: &str) -> Result<(), Fwd> {
+pub(super) fn write(path: &str, content: &str) -> Result<(), Fwd> {
     fs::write(path, content).map_err(io_fwd)
 }
 
@@ -626,12 +644,16 @@ fn ensure_hooks_executable(dir: &str) {
 }
 
 /// `materializeSpaceEntry` for a mutable space: stage it under tmp/.staging.
-pub fn stage_space(plan: &SpacePlan, asp_home: &str) -> Result<Artifact, Fwd> {
+pub fn stage_space(plan: &SpacePlan, asp_home: &str, codex: bool) -> Result<Artifact, Fwd> {
     let dir = unique_staging_dir(
         asp_home,
         &format!("space-{}", sanitize_segment(&plan.input.key)),
     );
-    materialize_space(plan, &dir)?;
+    if codex {
+        super::codex::materialize_space(plan, &dir)?;
+    } else {
+        materialize_space(plan, &dir)?;
+    }
     Ok(Artifact {
         space_key: plan.input.key.clone(),
         space_id: plan.input.id.clone(),
@@ -765,8 +787,9 @@ pub struct TargetInput<'a> {
     pub lock_target: &'a J,
     pub codex_options: Option<&'a J>,
     pub public_scope_root: String,
-    /// The release's Claude statusline asset (`claude-statusline`).
-    pub statusline: &'a Statusline,
+    /// The release's Claude statusline asset (`claude-statusline`); a claude
+    /// bundle only.
+    pub statusline: Option<&'a Statusline>,
 }
 
 pub struct Statusline {
@@ -1014,17 +1037,46 @@ pub fn load_bundle(output: &str) -> Result<Bundle, Fwd> {
     })
 }
 
-/// Publish the target bundle (`materializeTarget` from the fingerprint on).
-pub fn publish_target(
+/// Publish a claude target bundle.
+pub fn publish_claude_target(
     input: &TargetInput,
     artifacts: &[Artifact],
     permissions: &[Option<J>],
     fingerprint: &str,
     asp_home: &str,
 ) -> Result<Bundle, Fwd> {
+    let statusline = input.statusline.ok_or_else(|| fwd("release_statusline_missing"))?;
+    let output = publish_target(
+        input,
+        artifacts,
+        fingerprint,
+        asp_home,
+        "claude",
+        |staging_output, output| {
+            let bundle = compose_target(artifacts, permissions, staging_output, output, statusline)?;
+            let mut required = vec![bundle.settings_path.clone()];
+            required.extend(bundle.mcp_config_path.clone());
+            required.extend(bundle.plugin_dirs.iter().cloned());
+            Ok(required)
+        },
+    )?;
+    load_bundle(&output)
+}
+
+/// Publish the target bundle (`materializeTarget` from the fingerprint on):
+/// `compose(stagingOutput, publishedOutput)` composes the adapter's bundle
+/// and returns the paths its manifest requires. Returns the published output.
+pub fn publish_target(
+    input: &TargetInput,
+    artifacts: &[Artifact],
+    fingerprint: &str,
+    asp_home: &str,
+    harness_dir: &str,
+    compose: impl Fn(&str, &str) -> Result<Vec<String>, Fwd>,
+) -> Result<String, Fwd> {
     let versions = join(&[&input.public_scope_root, "bundles", ".versions"]);
     let version_root = join(&[&versions, fingerprint]);
-    let output = join(&[&version_root, input.target_name, "claude"]);
+    let output = join(&[&version_root, input.target_name, harness_dir]);
     let scope_key = format!(
         "bundle-scope-{}",
         &sha256_hex(join(&[&input.public_scope_root, "bundles"]).as_bytes())[..32]
@@ -1040,24 +1092,13 @@ pub fn publish_target(
                     &fingerprint[..16]
                 ),
             );
-            let staging_output = join(&[&staging_root, input.target_name, "claude"]);
+            let staging_output = join(&[&staging_root, input.target_name, harness_dir]);
             let _ = fs::remove_dir_all(&staging_root);
             let result = (|| {
-                let bundle = compose_target(
-                    artifacts,
-                    permissions,
-                    &staging_output,
-                    &output,
-                    input.statusline,
-                )?;
-                let mut required: Vec<String> =
-                    vec![relative(&bundle.root_dir, &bundle.settings_path)];
-                if let Some(m) = &bundle.mcp_config_path {
-                    required.push(relative(&bundle.root_dir, m));
-                }
-                for d in &bundle.plugin_dirs {
-                    required.push(relative(&bundle.root_dir, d));
-                }
+                let mut required: Vec<String> = compose(&staging_output, &output)?
+                    .iter()
+                    .map(|p| relative(&staging_output, p))
+                    .collect();
                 required.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
                 required.dedup();
                 let mut manifest = J::obj([
@@ -1110,12 +1151,11 @@ pub fn publish_target(
     if !validate_target(&output, fingerprint) {
         return Err(fwd("bundle_invalid_after_publish"));
     }
-    let bundle = load_bundle(&output)?;
     let staging = join(&[asp_home, "tmp", ".staging"]);
     for a in artifacts.iter().filter(|a| a.path.starts_with(&staging)) {
         let _ = fs::remove_dir_all(&a.path);
     }
-    Ok(bundle)
+    Ok(output)
 }
 
 fn is_fingerprint(name: &str) -> bool {

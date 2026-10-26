@@ -27,6 +27,9 @@
  * Comparison, per case:
  *  1. Each compile reply's derived hashes are recomputed from that subject's
  *     plan as reported (derivePlanHashes) and must equal what it reported.
+ *     A codex-app-server compile's runtime home fingerprint is recomputed
+ *     from the reply's inputs and the home it wrote (run-codex.ts
+ *     deriveCodexRuntimeFingerprint) and must equal its `.asp-runtime.json`.
  *  2. Then the measured volatile inputs (volatile-mask.ts) are tokenized in
  *     both bodies, the verified hash values are excluded, declared extras are
  *     reported apart, and A is diffed against B: replies and stage trees.
@@ -74,7 +77,9 @@ import {
 import { connect } from 'node:net'
 import { join, relative, resolve } from 'node:path'
 
+import { CODEX_TUI_HOOK_EVENTS } from '../../compiler/agent-spaces/src/compile-broker-plan.ts'
 import { derivePlanHashes } from '../../compiler/agent-spaces/src/compile-plan-finalize.ts'
+import { deriveCodexRuntimeFingerprint } from '../../drivers/execution/src/run-codex.ts'
 import { inspectRelease } from '../asp-release.ts'
 import { buildScratchRelease, installReleaseArtifact, must, repo } from '../lib/scratch-release.ts'
 import {
@@ -125,16 +130,69 @@ const INHERITED_ENV = ['HOME', 'PATH', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LA
 /**
  * A subject's derived fingerprints, in first-seen order. Their inputs include
  * the measured bundle staging dir, so the values move between runs of one
- * build; each is checked for consistency on its own side, then tokenized as
- * `«derived:<kind>#<n>»` (approved 2026-10-26; full recipe re-derivation is an
- * R3 close condition).
+ * build; each is verified on its own side, then tokenized as
+ * `«derived:<kind>#<n>»`. A codex runtime home's fingerprint is re-derived
+ * from the compile that wrote it (T-11932, plan close condition 5); the muse
+ * serve fingerprint is still checked for shape only (muse stays Bun's).
  */
 type Fingerprints = Map<string, string>
 
 const MANAGED_KINDS = ['prompts', 'skills'] as const
 
-/** Register this capture's fingerprints; return consistency violations. */
-function verifyFingerprints(root: string, registry: Fingerprints): string[] {
+type CodexPlan = {
+  execution?: {
+    recipeId?: string
+    dispatchRequest?: {
+      startRequest?: {
+        spec?: { process?: { lockedEnv?: Record<string, string> }; interaction?: { mode?: string } }
+      }
+    }
+  }
+  artifacts?: { materializedBundleRoot?: string }
+  placement?: { bundle?: { agentName?: string } }
+  resolvedBundle?: { cwd?: string }
+}
+
+/**
+ * Re-derive the runtime home fingerprint a codex-app-server compile reply
+ * implies, with Bun's recipe; record it as derived or report the mismatch.
+ */
+async function deriveCodexHome(replies: Reply[], derived: Set<string>): Promise<string[]> {
+  const plan = (replies[1] as { result?: { plan?: CodexPlan } } | undefined)?.result?.plan
+  if (plan?.execution?.recipeId !== 'codex-app-server') return []
+  const spec = plan.execution.dispatchRequest?.startRequest?.spec
+  const runtimeHome = spec?.process?.lockedEnv?.['CODEX_HOME']
+  const bundleRoot = plan.artifacts?.materializedBundleRoot
+  const targetName = plan.placement?.bundle?.agentName
+  const cwd = plan.resolvedBundle?.cwd
+  if ([runtimeHome, bundleRoot, targetName, cwd].some((value) => value === undefined)) {
+    return ['codex compile reply lacks CODEX_HOME, bundle root, target or cwd']
+  }
+  const metadata = join(runtimeHome as string, '.asp-runtime.json')
+  if (!existsSync(metadata)) return [`${runtimeHome}: no .asp-runtime.json`]
+  const recorded = (JSON.parse(readFileSync(metadata, 'utf8')) as { fingerprint: string })
+    .fingerprint
+  const interactive = spec?.interaction?.mode === 'interactive'
+  const fingerprint = await deriveCodexRuntimeFingerprint({
+    runtimeHome: runtimeHome as string,
+    bundleRoot: bundleRoot as string,
+    targetName: targetName as string,
+    cwd: cwd as string,
+    interactive,
+    codexHookEvents: interactive ? CODEX_TUI_HOOK_EVENTS : undefined,
+  })
+  if (fingerprint !== recorded) {
+    return [`${runtimeHome}: .asp-runtime.json fingerprint ${recorded}, derived ${fingerprint}`]
+  }
+  derived.add(fingerprint)
+  return []
+}
+
+/**
+ * Register this capture's fingerprints; return violations: a codex home whose
+ * fingerprint no compile re-derived, or whose managed links disagree with it.
+ */
+function verifyFingerprints(root: string, registry: Fingerprints, derived: Set<string>): string[] {
   const violations: string[] = []
   const register = (value: string, kind: string) => {
     if (!registry.has(value)) registry.set(value, `derived:${kind}#${registry.size + 1}`)
@@ -145,6 +203,8 @@ function verifyFingerprints(root: string, registry: Fingerprints): string[] {
     if (!existsSync(metadata)) continue
     const fingerprint = (JSON.parse(readFileSync(metadata, 'utf8')) as { fingerprint: string })
       .fingerprint
+    if (!derived.has(fingerprint))
+      violations.push(`${home}: fingerprint not re-derived by a compile`)
     register(fingerprint, 'codex-runtime-fingerprint')
     for (const kind of MANAGED_KINDS) {
       const expected = `.asp-managed-directory-versions/${kind}/${fingerprint}`
@@ -372,6 +432,7 @@ async function runSubject(
   const log = join(paths.out, `${subject.name}-aspd.log`)
   const child = startSubject(subject, paths.ns, paths.socket, log, env)
   const fingerprints: Fingerprints = new Map()
+  const derived = new Set<string>()
   const capture: Capture = {
     replies: {},
     served: {},
@@ -402,7 +463,10 @@ async function runSubject(
         // A relayed request's upstream line can land after the reply; wait for it.
         upstream: await servedSlice(upstreamLog, relayed ? method : undefined),
       }
-      capture.fingerprintViolations[entry.id] = verifyFingerprints(paths.stage, fingerprints)
+      capture.fingerprintViolations[entry.id] = [
+        ...(await deriveCodexHome(capture.replies[entry.id] ?? [], derived)),
+        ...verifyFingerprints(paths.stage, fingerprints, derived),
+      ]
       capture.trees[entry.id] = treeManifest(paths.stage, fingerprints)
       process.stdout.write(`${subject.name} ${entry.id}\n`)
     }

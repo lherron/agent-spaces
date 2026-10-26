@@ -588,7 +588,28 @@ pub struct Selection {
     pub selection: J,
     pub model: String,
     pub reasoning_effort: Option<String>,
+    pub harness: Harness,
+    pub presentation: bool,
 }
+
+/// The two harnesses raspd compiles natively.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Harness {
+    /// claude-code (claude-code-tmux).
+    Claude,
+    /// codex-app-server, presented (codex-tui) or headless.
+    Codex,
+}
+
+const CODEX_MODELS: [&str; 7] = [
+    "gpt-5.6-terra",
+    "gpt-6.1-sol",
+    "gpt-6-astra",
+    "gpt-6-luna",
+    "gpt-5.6-sol",
+    "gpt-5.6-luna",
+    "gpt-5.5",
+];
 
 const CLAUDE_MODELS: [&str; 6] = [
     "opus[1m]",
@@ -620,8 +641,8 @@ fn picked(key: &str, value: &str, from: &Option<(J, &str)>) -> String {
     format!("selection.{key}:{value}@{source}")
 }
 
-/// `resolveHarnessExecution` for the claude-code recipe; any other recipe or
-/// any refusal is relayed to Bun.
+/// `resolveHarnessExecution` for the claude-code and codex-app-server
+/// recipes; any other recipe or any refusal is relayed to Bun.
 pub fn resolve_selection(req: &J, profile: &Profile, target: Option<&J>) -> Result<Selection, Fwd> {
     let agent_id = req
         .get("agent")
@@ -673,18 +694,23 @@ pub fn resolve_selection(req: &J, profile: &Profile, target: Option<&J>) -> Resu
         .as_ref()
         .and_then(|(v, _)| v.as_str())
         .unwrap_or("agent-harness");
-    if harness_id != "claude" {
-        return Err(fwd_at(
-            "recipe_not_native",
-            picked("harness", harness_id, &harness),
-        ));
-    }
+    let (kind, default_provider, default_model, models): (Harness, &str, &str, &[&str]) =
+        match harness_id {
+            "claude" => (Harness::Claude, "anthropic", "opus[1m]", &CLAUDE_MODELS),
+            "codex" => (Harness::Codex, "openai-codex", "gpt-5.6-terra", &CODEX_MODELS),
+            _ => {
+                return Err(fwd_at(
+                    "recipe_not_native",
+                    picked("harness", harness_id, &harness),
+                ));
+            }
+        };
     let provider = scalar("modelProvider");
     let provider_id = provider
         .as_ref()
         .and_then(|(v, _)| v.as_str())
-        .unwrap_or("anthropic");
-    if provider_id != "anthropic" {
+        .unwrap_or(default_provider);
+    if provider_id != default_provider {
         return Err(fwd_at(
             "unsupported_model_provider",
             picked("modelProvider", provider_id, &provider),
@@ -694,9 +720,9 @@ pub fn resolve_selection(req: &J, profile: &Profile, target: Option<&J>) -> Resu
     let model_id = match &model {
         Some((J::Str(m), _)) => m.clone(),
         Some(_) => return Err(fwd("model_shape")),
-        None => "opus[1m]".into(),
+        None => default_model.into(),
     };
-    if !CLAUDE_MODELS.contains(&model_id.as_str()) {
+    if !models.contains(&model_id.as_str()) {
         return Err(fwd_at(
             "unsupported_model",
             picked("model", &model_id, &model),
@@ -717,7 +743,7 @@ pub fn resolve_selection(req: &J, profile: &Profile, target: Option<&J>) -> Resu
     let source =
         |s: &Option<(J, &str)>| J::str(s.as_ref().map_or("catalog-default", |(_, src)| *src));
     let mut selection = J::obj([
-        ("harness", J::str("claude")),
+        ("harness", J::str(harness_id)),
         ("modelProvider", J::str(provider_id)),
         ("model", J::str(&model_id)),
     ]);
@@ -744,6 +770,8 @@ pub fn resolve_selection(req: &J, profile: &Profile, target: Option<&J>) -> Resu
         selection,
         model: model_id,
         reasoning_effort: effort_id,
+        harness: kind,
+        presentation: presentation.is_none_or(|(v, _)| v == J::Bool(true)),
     })
 }
 
@@ -931,7 +959,7 @@ mod tests {
     fn selection_forwards_name_the_value_and_its_layer() {
         let req = edit(
             &["compileRequest", "requested", "harness"],
-            Some(J::str("codex")),
+            Some(J::str("muse")),
         );
         let profile = Profile {
             raw: parse("{}"),
@@ -947,7 +975,7 @@ mod tests {
             fail(&req, None),
             Some((
                 "recipe_not_native",
-                "selection.harness:codex@compile-request".to_owned()
+                "selection.harness:muse@compile-request".to_owned()
             ))
         );
         assert_eq!(

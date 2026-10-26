@@ -30,6 +30,7 @@ import {
   applyPraesidiumContextToCodexHome,
   buildHrcCodexHooksConfig,
   mergeCodexHooksConfigs,
+  readPraesidiumContextBlock,
   renderPraesidiumContextBlock,
   trustCodexHooksInConfigToml,
 } from 'spaces-harness-codex'
@@ -88,7 +89,7 @@ function stableJson(value: unknown): string {
   return canonicalHasher.canonicalize(value)
 }
 
-function computeCodexRuntimeFingerprint(input: {
+export function computeCodexRuntimeFingerprint(input: {
   templateHome: string
   bundleRoot: string
   targetName: string
@@ -121,6 +122,42 @@ function computeCodexRuntimeFingerprint(input: {
       })
     )
     .digest('hex')
+}
+
+/**
+ * Recompute a stable runtime home's fingerprint from the inputs a compile
+ * reported (bundle root, target, cwd, presentation and hook events) and the
+ * files it materialized: the template config.toml it hashes and the
+ * praesidium-context block in the home's AGENTS.md. The aspd compare runner
+ * (T-11932) checks every subject's `.asp-runtime.json` fingerprint against
+ * this, the way derivePlanHashes re-derives plan hashes.
+ */
+export async function deriveCodexRuntimeFingerprint(input: {
+  runtimeHome: string
+  bundleRoot: string
+  targetName: string
+  cwd: string
+  interactive: boolean
+  codexHookEvents?: readonly string[] | undefined
+}): Promise<string> {
+  const templateHome = join(input.bundleRoot, 'codex.home')
+  const configHash = await readFile(join(templateHome, 'config.toml'))
+    .then((content) => createHash('sha256').update(content).digest('hex'))
+    .catch(() => undefined)
+  const agents = await readFile(join(input.runtimeHome, 'AGENTS.md'), 'utf-8').catch(() => '')
+  const block = readPraesidiumContextBlock(agents)
+  return computeCodexRuntimeFingerprint({
+    templateHome,
+    bundleRoot: input.bundleRoot,
+    targetName: input.targetName,
+    projectPath: input.cwd,
+    cwd: input.cwd,
+    interactive: input.interactive,
+    codexHookEvents: input.codexHookEvents,
+    praesidiumBlock:
+      block === undefined ? undefined : renderPraesidiumContextBlock({ systemPrompt: block }),
+    configHash,
+  })
 }
 
 async function codexRuntimeHomeMatches(runtimeHome: string, fingerprint: string): Promise<boolean> {

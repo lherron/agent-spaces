@@ -21,6 +21,9 @@ import type { ResolvedHarnessExecution } from './harness-selection/types.js'
 import { preparePlacementCliRuntime } from './prepare-cli-runtime.js'
 import type { BuildHarnessBrokerInvocationRequest } from './types.js'
 
+/** The codex hook events a presented (codex-tui) birth captures. */
+export const CODEX_TUI_HOOK_EVENTS = ['Stop', 'PostToolUse'] as const
+
 /**
  * Compile the headless (or codex-tui presented) broker route: codex-app-server
  * and muse-serve. Both prepare through the same CLI runtime path and differ only
@@ -54,7 +57,7 @@ export async function compileBrokerPlan(
       ? {
           presentation: 'codex-tui' as const,
           transport: 'websocket-unix' as const,
-          codexHookEvents: ['Stop', 'PostToolUse'] as const,
+          codexHookEvents: CODEX_TUI_HOOK_EVENTS,
         }
       : {}),
     model: resolved.selection.model,

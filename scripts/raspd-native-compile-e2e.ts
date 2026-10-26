@@ -22,9 +22,16 @@
  *  5. Latency, native vs Bun direct, p50/p99 (recorded, not gated), and the
  *     per-stage `phases` every native compile logs (T-11921).
  *
+ * `--harness codex` runs the same conditions for R3b's codex-app-server
+ * (T-11932): racing writers are raspd native, Bun aspd and Bun asp CLI codex
+ * compiles (bundle compose and the runtime home rewrite under
+ * `.asp-runtime.lock`); the forwarded requests are muse and a registry-space
+ * codex compile; births are a cold cody seat and its resume.
+ *
  * Usage: bun scripts/raspd-native-compile-e2e.ts [--out <dir>] [--commit <sha>]
  *          [--release-artifact <built release dir>] [--raspd-binary <path>]
  *          [--rusthrc <path>] [--rounds <n>] [--iterations <n>] [--no-births]
+ *          [--harness claude|codex]
  */
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
 import {
@@ -59,8 +66,10 @@ const stamp = new Date()
   .toISOString()
   .replace(/[-:]/g, '')
   .replace(/\.\d+Z$/, 'Z')
+const codex = arg('--harness') === 'codex'
 const out = resolve(
-  arg('--out') ?? join(repo, '..', 'var', 'wrkq-artifacts', 'T-11841', 'e2e', stamp)
+  arg('--out') ??
+    join(repo, '..', 'var', 'wrkq-artifacts', codex ? 'T-11932' : 'T-11841', 'e2e', stamp)
 )
 mkdirSync(out, { recursive: true })
 const rounds = Number(arg('--rounds') ?? '3')
@@ -236,7 +245,7 @@ const caseParams = (stage: ReturnType<typeof seedStage>, id: string) => {
 
 const ASP_CLI = Bun.which('asp')
 const raceRounds: unknown[] = []
-for (let round = 1; round <= rounds; round++) {
+for (let round = 1; round <= rounds && !codex; round++) {
   const stage = seedStage(asp, join(scratch, `race${round}`))
   const claudeConfig = join(stage.base, 'claude-config')
   mkdirSync(claudeConfig, { recursive: true })
@@ -374,6 +383,177 @@ for (let round = 1; round <= rounds; round++) {
     roundResult.servedBy
   )
 }
+/** A codex runtime home's store state: complete, links agree, nothing half-written. */
+function codexHomeState(home: string) {
+  const metadataPath = join(home, '.asp-runtime.json')
+  const metadata = existsSync(metadataPath)
+    ? (JSON.parse(readFileSync(metadataPath, 'utf8')) as {
+        complete?: boolean
+        fingerprint?: string
+      })
+    : undefined
+  const fingerprint = metadata?.fingerprint ?? ''
+  const links = ['skills', 'prompts'].map((kind) => {
+    const link = join(home, kind)
+    const target = existsSync(link) && lstatSync(link).isSymbolicLink() ? readlinkSync(link) : null
+    return {
+      kind,
+      target,
+      ok:
+        target === `.asp-managed-directory-versions/${kind}/${fingerprint}` &&
+        existsSync(join(home, target)),
+    }
+  })
+  const leftovers = existsSync(home)
+    ? // `.asp-runtime.lock` itself always exists; the held lock is its `.lock` dir.
+      readdirSync(home).filter((n) => n.endsWith('.pending') || n.endsWith('.lock.lock'))
+    : []
+  return {
+    complete: metadata?.complete === true,
+    fingerprint,
+    links,
+    required: ['AGENTS.md', 'config.toml'].every((r) => existsSync(join(home, r))),
+    leftovers,
+    ok:
+      metadata?.complete === true &&
+      links.every((l) => l.ok) &&
+      leftovers.length === 0 &&
+      ['AGENTS.md', 'config.toml'].every((r) => existsSync(join(home, r))),
+  }
+}
+
+// R3b: raspd native, Bun aspd and Bun asp CLI codex compiles racing on one cold ASP_HOME.
+for (let round = 1; round <= rounds && codex; round++) {
+  const stage = seedStage(asp, join(scratch, `race${round}`))
+  const env = literalEnv({ ASP_HOME: stage.aspHome, ASP_AGENTS_ROOT: stage.agentsRoot })
+  const pair = await startPair(`race${round}-pair`, env)
+  const native = caseParams(stage, 'compile:codex-tui:full')
+  const cli = (agent: string) =>
+    new Promise<{ status: number | null; home?: string; stderr: string }>((done) => {
+      const child = spawn(
+        ASP_CLI as string,
+        [
+          'agent',
+          `agent:${agent}:project:project`,
+          'task',
+          'race prompt',
+          '--harness',
+          'codex',
+          '--agent-root',
+          join(stage.agentsRoot, agent),
+          '--project-root',
+          stage.projectRoot,
+          '--dry-run',
+          '--json',
+        ],
+        { cwd: stage.projectRoot, env, stdio: ['ignore', 'pipe', 'pipe'] }
+      )
+      let stdout = ''
+      let stderr = ''
+      child.stdout?.on('data', (c) => {
+        stdout += c.toString()
+      })
+      child.stderr?.on('data', (c) => {
+        stderr += c.toString()
+      })
+      child.once('exit', (status) => {
+        let home: string | undefined
+        try {
+          home = (JSON.parse(stdout) as { spec: { env: Record<string, string> } }).spec.env[
+            'CODEX_HOME'
+          ]
+        } catch {}
+        done({ status, ...(home !== undefined ? { home } : {}), stderr: stderr.slice(-800) })
+      })
+    })
+  const started = performance.now()
+  const outcomes = await Promise.all([
+    ...[1, 2, 3].map(() =>
+      call(pair.front, 'r3e2e/race-native', 'aspc.compileHarnessInvocation', native)
+    ),
+    ...[1, 2].map(() => call(pair.bun, 'r3e2e/race-bun', 'aspc.compileHarnessInvocation', native)),
+    ...[1, 2, 3].map(() => cli('pathmark-codex')),
+    ...[1, 2].map(() => cli('pathmark-dev')),
+  ])
+  const elapsedMs = performance.now() - started
+  await stopPair(pair)
+  const replies = outcomes.slice(0, 5) as Array<Array<Record<string, unknown>>>
+  const clis = outcomes.slice(5) as Array<{ status: number | null; home?: string; stderr: string }>
+  type CodexReply = {
+    artifacts?: { materializedBundleRoot?: string }
+    execution?: {
+      dispatchRequest?: {
+        startRequest?: { spec?: { process?: { lockedEnv?: Record<string, string> } } }
+      }
+    }
+  }
+  const plans = replies.map((r) => result(r)?.['plan'] as CodexReply | undefined)
+  const roots = new Set(plans.map((p) => p?.artifacts?.materializedBundleRoot))
+  const homes = new Set(
+    plans.map(
+      (p) => p?.execution?.dispatchRequest?.startRequest?.spec?.process?.lockedEnv?.['CODEX_HOME']
+    )
+  )
+  for (const c of clis.slice(0, 3)) homes.add(c.home)
+  const home = [...homes][0] as string
+  const lock = JSON.parse(readFileSync(join(stage.aspHome, 'global-lock.json'), 'utf8')) as {
+    targets: Record<string, unknown>
+  }
+  const bundleRoot = [...roots][0] as string
+  const manifest = existsSync(join(bundleRoot, '.asp-materialized.json'))
+    ? (JSON.parse(readFileSync(join(bundleRoot, '.asp-materialized.json'), 'utf8')) as {
+        complete: boolean
+        requiredPaths: string[]
+      })
+    : undefined
+  const staging = join(stage.aspHome, 'tmp', '.staging')
+  const leftovers = existsSync(staging) ? readdirSync(staging) : []
+  const heldLocks = readdirSync(join(stage.aspHome, 'tmp', 'locks')).filter((n) =>
+    n.endsWith('.lock.lock')
+  )
+  const homeState = codexHomeState(home)
+  const served = raspdRows(pair.raspdLog).filter((r) => r['op'] === 'aspc.compileHarnessInvocation')
+  const roundResult = {
+    round,
+    elapsedMs: Math.round(elapsedMs),
+    raspd: replies.map((r) => ({ ok: result(r)?.['ok'], error: r[1]?.['error'] })),
+    cli: clis.map((c) => ({ status: c.status, home: c.home, stderr: c.stderr })),
+    bundleRoots: [...roots],
+    codexHomes: [...homes],
+    homeState,
+    lockTargets: Object.keys(lock.targets),
+    stagingLeftovers: leftovers,
+    heldLocks,
+    servedBy: served.map(
+      (r) => `${r['client']}:${r['servedBy']}${r['fallback'] ? `:${r['fallback']}` : ''}`
+    ),
+  }
+  raceRounds.push(roundResult)
+  check(
+    `codex race round ${round}: 3 raspd native, 2 Bun aspd and 5 Bun asp CLI codex compiles all succeed`,
+    replies.every((r) => result(r)?.['ok'] === true) && clis.every((c) => c.status === 0),
+    roundResult
+  )
+  check(
+    `codex race round ${round}: one bundle, complete with every required path; one runtime home, complete with its managed links; lock holds both targets; no staging, pending or held locks left`,
+    roots.size === 1 &&
+      manifest?.complete === true &&
+      manifest.requiredPaths.every((p) => existsSync(join(bundleRoot, p))) &&
+      homes.size === 1 &&
+      homeState.ok &&
+      'pathmark-codex' in lock.targets &&
+      'pathmark-dev' in lock.targets &&
+      leftovers.length === 0 &&
+      heldLocks.length === 0,
+    roundResult
+  )
+  check(
+    `codex race round ${round}: raspd served its three codex compiles natively`,
+    served.filter((r) => r['client'] === 'r3e2e/race-native' && r['servedBy'] === 'native')
+      .length === 3,
+    roundResult.servedBy
+  )
+}
 record('race.json', {
   aspCli: ASP_CLI,
   aspCliVersion: must([ASP_CLI as string, '--version']).trim(),
@@ -395,11 +575,15 @@ record('race.json', {
   // Bun stopped: anything raspd relays fails upstream, so any write is raspd's.
   await stopChild(pair.children[1] as ChildProcess)
   // Each forward names the value that decided it (T-11921 fallbackDetail).
-  const forwarded = [
-    ['compile:codex-app-server', 'recipe_not_native', /^selection\.harness:codex@/],
-    ['compile:claude-code', 'registry_space', /^compose:space:.+@/],
-    ['compile:muse-serve', 'recipe_not_native', /^selection\.harness:muse@/],
-  ] as const
+  const forwarded = codex
+    ? ([
+        ['compile:muse-serve', 'recipe_not_native', /^selection\.harness:muse@/],
+        ['compile:codex-tui:pinned', 'registry_space', /^compose:space:.+@/],
+      ] as const)
+    : ([
+        ['compile:claude-code', 'registry_space', /^compose:space:.+@/],
+        ['compile:muse-serve', 'recipe_not_native', /^selection\.harness:muse@/],
+      ] as const)
   const results: unknown[] = []
   for (const [id, reason, detail] of forwarded) {
     const before = tree(stage.base)
@@ -442,7 +626,7 @@ record('race.json', {
     pair.front,
     'r3e2e/forward',
     'aspc.compileHarnessInvocation',
-    caseParams(stage, 'compile:claude-code:dev')
+    caseParams(stage, codex ? 'compile:codex-tui:full' : 'compile:claude-code:dev')
   )
   const changed = treeDiff(before, tree(stage.base))
   check(
@@ -467,7 +651,8 @@ record('race.json', {
     CLAUDE_CONFIG_DIR: claudeConfig,
   })
   const pair = await startPair('lat-pair', env)
-  const params = caseParams(stage, 'compile:claude-code:dev')
+  const latencyCase = codex ? 'compile:codex-tui:full' : 'compile:claude-code:dev'
+  const params = caseParams(stage, latencyCase)
   const time = async (socket: string, client = 'r3e2e/latency') => {
     const times: number[] = []
     for (let i = 0; i < iterations; i++) {
@@ -507,6 +692,7 @@ record('race.json', {
     'statusline',
     'temp-sweep',
     'materialize',
+    ...(codex ? ['codex-home'] : []),
     'emit',
     'build',
   ]
@@ -533,7 +719,7 @@ record('race.json', {
     { rows: nativeRows.length, sample: nativeRows[0] }
   )
   const summary = {
-    case: 'compile:claude-code:dev (bundle hit, hello + compile on a fresh connection)',
+    case: `${latencyCase} (bundle hit${codex ? ', runtime home reused' : ''}, hello + compile on a fresh connection)`,
     iterations,
     native: { p50: percentile(nativeTimes, 50), p99: percentile(nativeTimes, 99) },
     bunDirect: { p50: percentile(bunTimes, 50), p99: percentile(bunTimes, 99) },
@@ -640,49 +826,65 @@ if (!process.argv.includes('--no-births')) {
       ready = (await status()) === 200
       if (!ready) await Bun.sleep(100)
     }
-    const scope = `agent:tabularasa:project:project:task:T-11841-${kind}`
-    const start = ready
-      ? spawnSync(
-          hrcCli[0],
-          [
-            ...hrcCli.slice(1),
-            'start',
-            scope,
-            '--no-viewer',
-            '-p',
-            'Reply with exactly the word PONG and nothing else.',
-            '--wait',
-            'completed',
-            '--json',
-          ],
-          { cwd: projectRoot, env, encoding: 'utf8', timeout: 300_000 }
-        )
-      : undefined
-    const list = ready
-      ? spawnSync(hrcCli[0], [...hrcCli.slice(1), 'runtime', 'list', '--json'], {
-          cwd: projectRoot,
-          env,
-          encoding: 'utf8',
-          timeout: 60_000,
-        })
-      : undefined
-    let runtimes: Array<Record<string, unknown>> = []
-    try {
-      const parsed = JSON.parse(list?.stdout ?? '[]') as unknown
-      runtimes = (
-        Array.isArray(parsed) ? parsed : ((parsed as { runtimes?: unknown[] }).runtimes ?? [])
-      ) as Array<Record<string, unknown>>
-    } catch {}
-    for (const runtime of runtimes) {
-      const id = runtime['runtimeId']
-      if (typeof id === 'string')
-        spawnSync(hrcCli[0], [...hrcCli.slice(1), 'runtime', 'terminate', id], {
-          cwd: projectRoot,
-          env,
-          encoding: 'utf8',
-          timeout: 60_000,
-        })
+    const scope = codex
+      ? `agent:cody:project:project:task:T-11932-${kind}`
+      : `agent:tabularasa:project:project:task:T-11841-${kind}`
+    const turn = (word: string) =>
+      ready
+        ? spawnSync(
+            hrcCli[0],
+            [
+              ...hrcCli.slice(1),
+              'start',
+              scope,
+              '--no-viewer',
+              '-p',
+              `Reply with exactly the word ${word} and nothing else.`,
+              '--wait',
+              'completed',
+              '--json',
+            ],
+            { cwd: projectRoot, env, encoding: 'utf8', timeout: 300_000 }
+          )
+        : undefined
+    const listRuntimes = (): Array<Record<string, unknown>> => {
+      if (!ready) return []
+      const list = spawnSync(hrcCli[0], [...hrcCli.slice(1), 'runtime', 'list', '--json'], {
+        cwd: projectRoot,
+        env,
+        encoding: 'utf8',
+        timeout: 60_000,
+      })
+      try {
+        const parsed = JSON.parse(list.stdout ?? '[]') as unknown
+        return (
+          Array.isArray(parsed) ? parsed : ((parsed as { runtimes?: unknown[] }).runtimes ?? [])
+        ) as Array<Record<string, unknown>>
+      } catch {
+        return []
+      }
     }
+    const terminateAll = (runtimes: Array<Record<string, unknown>>) => {
+      for (const runtime of runtimes) {
+        const id = runtime['runtimeId']
+        if (typeof id === 'string')
+          spawnSync(hrcCli[0], [...hrcCli.slice(1), 'runtime', 'terminate', id], {
+            cwd: projectRoot,
+            env,
+            encoding: 'utf8',
+            timeout: 60_000,
+          })
+      }
+    }
+    const start = turn('PONG')
+    const runtimes = listRuntimes()
+    terminateAll(runtimes)
+    // R3b: a codex seat's resume. The session recorded the first runtime's
+    // thread, so the next start compiles with that continuation.
+    const fromResume = readLog(pair.raspdLog).length
+    const resume = codex ? turn('PING') : undefined
+    const resumedRuntimes = codex ? listRuntimes() : []
+    terminateAll(resumedRuntimes)
     await stopChild(server)
     // Broker tmux servers are per runtime; a terminate the server did not
     // carry out must not leave a seat running after the test.
@@ -695,28 +897,41 @@ if (!process.argv.includes('--no-births')) {
     const compiles = raspdRows(pair.raspdLog, from).filter(
       (r) => r['op'] === 'aspc.compileHarnessInvocation'
     )
+    const resumeCompiles = raspdRows(pair.raspdLog, fromResume).filter(
+      (r) => r['op'] === 'aspc.compileHarnessInvocation'
+    )
+    const summary = (r: Record<string, unknown>) => ({
+      client: r['client'],
+      servedBy: r['servedBy'],
+      outcome: r['outcome'],
+      fallback: r['fallback'],
+      durationMs: r['durationMs'],
+    })
     births[kind] = {
       ready,
+      scope,
       start: start && {
         status: start.status,
         stdout: start.stdout.slice(-3000),
         stderr: start.stderr.slice(-3000),
       },
-      runtimes: runtimes.map((r) => ({
-        runtimeId: r['runtimeId'],
-        scopeRef: r['scopeRef'],
-        status: r['status'],
-      })),
-      compiles: compiles.map((r) => ({
-        client: r['client'],
-        servedBy: r['servedBy'],
-        outcome: r['outcome'],
-        fallback: r['fallback'],
-      })),
+      runtimes,
+      ...(resume !== undefined
+        ? {
+            resume: {
+              status: resume.status,
+              stdout: resume.stdout.slice(-3000),
+              stderr: resume.stderr.slice(-3000),
+            },
+            resumedRuntimes,
+            resumeCompiles: resumeCompiles.map(summary),
+          }
+        : {}),
+      compiles: compiles.map(summary),
       serverStderrTail: serverErr.slice(-2000),
     }
     check(
-      `${kind} hrc: cold start of a claude seat births from a raspd-native compile and completes its turn`,
+      `${kind} hrc: cold start of a ${codex ? 'codex (cody)' : 'claude'} seat births from a raspd-native compile and completes its turn`,
       ready &&
         start?.status === 0 &&
         /PONG/.test(start.stdout) &&
@@ -724,6 +939,16 @@ if (!process.argv.includes('--no-births')) {
         compiles.every((r) => r['servedBy'] === 'native'),
       births[kind]
     )
+    if (codex) {
+      check(
+        `${kind} hrc: the codex seat's resume births from a raspd-native compile and completes its turn`,
+        resume?.status === 0 &&
+          /PING/.test(resume.stdout) &&
+          resumeCompiles.length >= 1 &&
+          resumeCompiles.every((r) => r['servedBy'] === 'native'),
+        births[kind]
+      )
+    }
   }
   record('births.json', {
     rusthrc: RUSTHRC,

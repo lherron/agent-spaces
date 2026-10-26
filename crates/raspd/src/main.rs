@@ -8,6 +8,11 @@
 //!
 //!     raspd serve --socket <abs> [--upstream <abs>] [--log <abs>]
 //!                 [--kernel-socket <abs>] [--release-root <dir>]
+//!                 [--metrics-dir <abs>]
+//!
+//! `--metrics-dir` puts the usage rows somewhere other than the release's
+//! var root without touching the environment, which compiles hash (a raspd
+//! compared against a node's own Bun aspd, T-11932).
 mod compile;
 mod json;
 mod kernel;
@@ -27,7 +32,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Notify;
 
-const USAGE: &str = "raspd serve --socket <absolute-path> [--upstream <absolute-path>] [--log <absolute-path>] [--kernel-socket <absolute-path>] [--release-root <dir>]";
+const USAGE: &str = "raspd serve --socket <absolute-path> [--upstream <absolute-path>] [--log <absolute-path>] [--kernel-socket <absolute-path>] [--release-root <dir>] [--metrics-dir <absolute-path>]";
 /// Bun's own retire bound (launchd ExitTimeOut is 180 s).
 const RETIRE_LIMIT: Duration = Duration::from_secs(175);
 
@@ -37,6 +42,7 @@ struct Options {
     log: Option<PathBuf>,
     kernel_socket: PathBuf,
     release_root: Option<PathBuf>,
+    metrics_dir: Option<PathBuf>,
 }
 
 /// A supervised daemon: even a refused invocation is an L2 line on stderr.
@@ -68,6 +74,7 @@ fn parse(args: &[String]) -> Options {
     let mut log = None;
     let mut kernel_socket = None;
     let mut release_root = None;
+    let mut metrics_dir = None;
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
         let value = it.next().map(PathBuf::from);
@@ -77,6 +84,7 @@ fn parse(args: &[String]) -> Options {
             "--log" => &mut log,
             "--kernel-socket" => &mut kernel_socket,
             "--release-root" => &mut release_root,
+            "--metrics-dir" => &mut metrics_dir,
             _ => refuse_usage(args),
         };
         match value {
@@ -92,6 +100,7 @@ fn parse(args: &[String]) -> Options {
         socket,
         log,
         release_root,
+        metrics_dir,
     }
 }
 
@@ -143,7 +152,10 @@ async fn serve(options: Options, log: Log) -> Result<(), String> {
     let metrics = metrics::Metrics::new(
         "raspd",
         &format!("raspd/{}", release.release_id),
-        metrics::resolve_dir(release::var_root(&release.root).as_deref()),
+        options
+            .metrics_dir
+            .clone()
+            .unwrap_or_else(|| metrics::resolve_dir(release::var_root(&release.root).as_deref())),
         Arc::new(move |event: &str, data| warn_log.event("warn", "metrics", event, data)),
     );
     let observations = Arc::new(Observations::new(ServiceInfo {

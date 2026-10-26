@@ -1,15 +1,18 @@
-//! Native `aspc.compileHarnessInvocation` for the claude-code recipe over
-//! mutable spaces (R3a, docs/proposals/aspd-rust-front-door.md).
+//! Native `aspc.compileHarnessInvocation` for the claude-code (R3a) and
+//! codex-app-server (R3b) recipes over mutable spaces
+//! (docs/proposals/aspd-rust-front-door.md).
 //!
 //! Bun owns the semantics; this is compiler/agent-spaces/src
 //! (compile-runtime-plan.ts, compile-tmux-broker-plan.ts,
-//! prepare-cli-runtime.ts, compile-plan-finalize.ts) and what they call,
-//! reproduced byte for byte. The request is classified before anything is
+//! compile-broker-plan.ts, broker-invocation.ts, prepare-cli-runtime.ts,
+//! compile-plan-finalize.ts) and what they call, reproduced byte for byte. The request is classified before anything is
 //! written: every read, every validation and the whole system prompt resolve
 //! first, and anything raspd does not implement (another recipe, a registry
 //! space, a missing snapshot, an input it will not judge) is a `Forward`
 //! relayed to Bun unchanged. Writes then follow Bun's rules under ASP_HOME's
 //! shared lock protocol. raspd never fetches the registry.
+mod codex;
+mod iarna;
 mod lockfile;
 mod prompt;
 mod request;
@@ -159,15 +162,35 @@ struct Plan {
     agent_local: Option<stage::AgentLocal>,
     identity: J,
     codex_options: Option<J>,
-    claude: ClaudeDefaults,
-    claude_path: String,
+    launch: Launch,
     system_prompt: Option<prompt::Resolved>,
     expanded_prompt: Option<String>,
     handle: Handle,
     effective_environment_hash: String,
     correlation_env: Vec<(String, String)>,
-    statusline: stage::Statusline,
     tool_warnings: Vec<String>,
+}
+
+/// The harness-specific half of a plan.
+enum Launch {
+    Claude {
+        defaults: ClaudeDefaults,
+        path: String,
+        statusline: stage::Statusline,
+    },
+    Codex {
+        defaults: CodexDefaults,
+        path: String,
+    },
+}
+
+/// The Codex adapter's `getDefaultRunOptions` on the synthetic agent-project
+/// manifest, with the run plan's `yolo`.
+struct CodexDefaults {
+    reasoning_effort: Option<String>,
+    approval_policy: Option<String>,
+    sandbox_mode: Option<String>,
+    yolo: bool,
 }
 
 #[derive(Default, Clone)]
@@ -723,6 +746,47 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
         yolo: matches!(scalar("yolo"), Some(J::Bool(true))),
         remote: matches!(scalar("remote"), Some(J::Bool(true))),
     };
+    // mergeAgentWithProjectTarget's codex options through the synthetic
+    // manifest's getEffectiveCodexOptions, then getDefaultRunOptions' yolo.
+    let codex_defaults = {
+        let mut target = J::Obj(vec![]);
+        if let Some(c) = target_prov.and_then(|p| p.get("codex")) {
+            target.set("codex", c.clone());
+        }
+        for k in ["model", "reasoning_effort", "approval", "sandbox"] {
+            if let Some(v) = scalar(k) {
+                target.set(k, v);
+            }
+        }
+        let mut manifest = J::obj([(
+            "targets",
+            J::obj([("_", J::obj([("provisioning", target)]))]),
+        )]);
+        if let Some(c) = raw.get("provisioning").and_then(|p| p.get("codex")) {
+            manifest.set("codex", c.clone());
+        }
+        let options = effective_codex_options(&manifest, "_");
+        let text = |k: &str| match options.get(k) {
+            None | Some(J::Null) => Ok(None),
+            Some(J::Str(v)) => Ok(Some(v.clone())),
+            Some(_) => Err(fwd_at("codex_option_shape", k.to_owned())),
+        };
+        let yolo = claude.yolo;
+        CodexDefaults {
+            reasoning_effort: text("model_reasoning_effort")?,
+            approval_policy: if yolo {
+                Some("never".into())
+            } else {
+                text("approval_policy")?
+            },
+            sandbox_mode: if yolo {
+                Some("danger-full-access".into())
+            } else {
+                text("sandbox_mode")?
+            },
+            yolo,
+        }
+    };
 
     // Instructions (audit only): SOUL, instructions.base, HEARTBEAT, modes.
     let resolved_bundle = {
@@ -843,7 +907,17 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
     let asp_home = explicit_asp_home.clone().unwrap_or_else(asp_home);
     phases.lap("placement-context");
 
-    let claude_path = find_claude()?;
+    let harness = selection.harness;
+    let launch_path = match harness {
+        request::Harness::Claude => find_claude()?,
+        request::Harness::Codex => {
+            // planPlacementRuntime throws for a model outside the adapter's list.
+            if !codex::ADAPTER_MODELS.contains(&selection.model.as_str()) {
+                return Err(fwd_at("codex_model_unsupported", selection.model.clone()));
+            }
+            codex::detect()?
+        }
+    };
     phases.lap("harness-detect");
     let agent_local = stage::AgentLocal::detect(&agent_root);
     // validateAgentTools throws in Bun after writes; judged here, before any.
@@ -862,7 +936,13 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
     let identity = J::obj([
         ("agentId", J::str(&agent_id)),
         ("projectId", J::str(&project_id)),
-        ("frontend", J::str("claude-code")),
+        (
+            "frontend",
+            J::str(match harness {
+                request::Harness::Claude => "claude-code",
+                request::Harness::Codex => "codex-cli",
+            }),
+        ),
     ]);
 
     // The preparation execution context (preparation-execution-context.ts).
@@ -1100,7 +1180,17 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
 
     phases.lap("system-prompt");
 
-    let statusline = release_statusline(release)?;
+    let launch = match harness {
+        request::Harness::Claude => Launch::Claude {
+            defaults: claude,
+            path: launch_path,
+            statusline: release_statusline(release)?,
+        },
+        request::Harness::Codex => Launch::Codex {
+            defaults: codex_defaults,
+            path: launch_path,
+        },
+    };
     phases.lap("statusline");
     Ok(Plan {
         params: params.clone(),
@@ -1124,14 +1214,12 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
         agent_local,
         identity,
         codex_options,
-        claude,
-        claude_path,
+        launch,
         system_prompt,
         expanded_prompt,
         handle,
         effective_environment_hash,
         correlation_env,
-        statusline,
         tool_warnings,
     })
 }
@@ -1221,9 +1309,9 @@ fn release_manifest(release: &Release) -> Result<J, Fwd> {
     crate::json::parse(&bytes).ok_or_else(|| fwd("release_manifest"))
 }
 
-/// `executionRelease` for the claude-code-tmux worker, from release.json's
+/// `executionRelease` for the selected driver's worker, from release.json's
 /// worker bindings (aspd.ts `resolveAspdReleaseBinding`).
-fn execution_release(release: &Release, protocol: &str) -> Result<J, Fwd> {
+fn execution_release(release: &Release, protocol: &str, driver: &str) -> Result<J, Fwd> {
     let manifest = release_manifest(release)?;
     let root = release.root.to_string_lossy().into_owned();
     let bindings = manifest
@@ -1244,7 +1332,7 @@ fn execution_release(release: &Release, protocol: &str) -> Result<J, Fwd> {
             .into_owned();
         workers.push((driver.to_owned(), real));
     }
-    let Some((_, executable)) = workers.iter().find(|(d, _)| d == "claude-code-tmux") else {
+    let Some((_, executable)) = workers.iter().find(|(d, _)| d == driver) else {
         return Err(fwd("release_worker_driver_unavailable"));
     };
     let mut hosted: Vec<String> = workers
@@ -1324,6 +1412,7 @@ fn materialize_and_emit(plan: Plan, release: &Release, phases: &mut Phases) -> R
     let _ = &plan.existing_lock;
 
     // Plugin artifacts, the agent-local plugin, then the bundle.
+    let codex = matches!(plan.launch, Launch::Codex { .. });
     let mut artifacts = vec![];
     let mut permissions = vec![];
     let cleanup = |artifacts: &Vec<stage::Artifact>| {
@@ -1332,7 +1421,7 @@ fn materialize_and_emit(plan: Plan, release: &Release, phases: &mut Phases) -> R
         }
     };
     for sp in &plan.space_plans {
-        match stage::stage_space(sp, asp_home) {
+        match stage::stage_space(sp, asp_home, codex) {
             Ok(a) => {
                 artifacts.push(a);
                 permissions.push(sp.permissions.clone());
@@ -1396,48 +1485,120 @@ fn materialize_and_emit(plan: Plan, release: &Release, phases: &mut Phases) -> R
                 sanitize_segment(agent_id)
             ),
         ]),
-        statusline: &plan.statusline,
+        statusline: match &plan.launch {
+            Launch::Claude { statusline, .. } => Some(statusline),
+            Launch::Codex { .. } => None,
+        },
     };
     let fingerprint = stage::fingerprint(&input, &artifacts, &hashes);
-    let bundle =
-        match stage::publish_target(&input, &artifacts, &permissions, &fingerprint, asp_home) {
-            Ok(b) => b,
-            Err(e) => {
-                cleanup(&artifacts);
-                return Err(e);
-            }
-        };
-    stage::check_skill_and_command_conflicts(&bundle.plugin_dirs)?;
+    let published = if codex {
+        stage::publish_target(
+            &input,
+            &artifacts,
+            &fingerprint,
+            asp_home,
+            "codex",
+            |staging_output, _| {
+                codex::compose_target(
+                    &artifacts,
+                    staging_output,
+                    &target_name,
+                    plan.codex_options.as_ref(),
+                )
+                .map(|(_, required)| required)
+            },
+        )
+        .and_then(|output| codex::load_bundle(&output))
+        .map(|b| (b.root_dir, vec![b.home]))
+    } else {
+        stage::publish_claude_target(&input, &artifacts, &permissions, &fingerprint, asp_home)
+            .map(|b| (b.root_dir, b.plugin_dirs))
+    };
+    let (bundle_root, plugin_dirs) = match published {
+        Ok(p) => p,
+        Err(e) => {
+            cleanup(&artifacts);
+            return Err(e);
+        }
+    };
+    stage::check_skill_and_command_conflicts(&plugin_dirs)?;
 
     // The system prompt artifact, inside the versioned bundle.
     let system_prompt_path = match &plan.system_prompt {
         Some(sp) => Some(stage::write_prompt_artifact(
-            &join(&[&bundle.root_dir, ".asp-runtime-artifacts"]),
+            &join(&[&bundle_root, ".asp-runtime-artifacts"]),
             sp.prompt.as_deref().unwrap_or(""),
         )?),
         None => None,
     };
-    let bundle = stage::load_bundle(&bundle.root_dir)?;
     phases.lap("materialize");
 
-    // Workspace trust for the launch cwd (warnings, never failures).
-    let mut warnings = workspace_trust(&plan.cwd);
-
-    // Agent tool runtime env (mkdirs under the agent's var/) and its warnings.
-    let (tool_env, path_prepend) = agent_tool_env(&plan)?;
-    warnings.extend(plan.tool_warnings.iter().cloned());
-
-    let emitted = emit(
-        &plan,
-        release,
-        &bundle,
-        system_prompt_path,
-        &mut warnings,
-        tool_env,
-        path_prepend,
-    );
-    phases.lap("emit");
-    emitted
+    match &plan.launch {
+        Launch::Claude { .. } => {
+            let bundle = stage::load_bundle(&bundle_root)?;
+            // Workspace trust for the launch cwd (warnings, never failures).
+            let mut warnings = workspace_trust(&plan.cwd);
+            // Agent tool runtime env (mkdirs under the agent's var/) and its warnings.
+            let (tool_env, path_prepend) = agent_tool_env(&plan)?;
+            warnings.extend(plan.tool_warnings.iter().cloned());
+            let emitted = emit(
+                &plan,
+                release,
+                &bundle,
+                system_prompt_path,
+                &mut warnings,
+                tool_env,
+                path_prepend,
+            );
+            phases.lap("emit");
+            emitted
+        }
+        Launch::Codex { .. } => {
+            codex::load_bundle(&bundle_root)?;
+            // The shared home takes the task-invariant prompt; task-scoped
+            // sections travel per invocation as developerInstructions.
+            let (home_prompt, home_reminder) = match &plan.system_prompt {
+                None => (None, None),
+                Some(sp) => match &sp.task_scoped {
+                    Some(t) => (t.prompt.clone(), t.reminder.clone()),
+                    None => (
+                        Some(sp.prompt.clone().unwrap_or_default()),
+                        sp.reminder.clone(),
+                    ),
+                },
+            };
+            let project_id = plan.handle.project_id.clone().unwrap_or_default();
+            let codex_home = codex::prepare_runtime_home(&codex::Home {
+                asp_home,
+                project_id: &project_id,
+                target_name: &target_name,
+                bundle_root: &bundle_root,
+                cwd: &plan.cwd,
+                interactive: plan.selection.presentation,
+                hook_events: plan
+                    .selection
+                    .presentation
+                    .then_some(&codex::TUI_HOOK_EVENTS[..]),
+                system_prompt: home_prompt.as_deref(),
+                reminder: home_reminder.as_deref(),
+            })?;
+            phases.lap("codex-home");
+            let (tool_env, path_prepend) = agent_tool_env(&plan)?;
+            let mut warnings = plan.tool_warnings.clone();
+            let emitted = emit_codex(
+                &plan,
+                release,
+                &bundle_root,
+                &codex_home,
+                system_prompt_path,
+                &mut warnings,
+                tool_env,
+                path_prepend,
+            );
+            phases.lap("emit");
+            emitted
+        }
+    }
 }
 
 /// `atomicWriteJson`: temp file, fsync, rename.
@@ -1779,11 +1940,18 @@ fn emit(
         .and_then(|h| h.get("key")));
     let prompt = plan.expanded_prompt.clone();
     let task_id = s(material.get("taskContext").and_then(|t| t.get("taskId")));
+    let Launch::Claude {
+        defaults: claude,
+        path: claude_path,
+        ..
+    } = &plan.launch
+    else {
+        return Err(fwd("launch_mismatch"));
+    };
 
     // ClaudeAdapter.buildRunArgs(bundle, runOptions).
-    let yolo = plan.claude.yolo;
-    let permission_mode = plan
-        .claude
+    let yolo = claude.yolo;
+    let permission_mode = claude
         .permission_mode
         .clone()
         .or_else(|| yolo.then(|| "bypassPermissions".into()));
@@ -1799,7 +1967,7 @@ fn emit(
     if yolo {
         extra.push("--dangerously-skip-permissions".into());
     }
-    if plan.claude.remote {
+    if claude.remote {
         let project_segment = plan
             .handle
             .project_id
@@ -1828,7 +1996,7 @@ fn emit(
     {
         extra.extend(["--effort".into(), e.clone()]);
     }
-    extra.extend(plan.claude.extra_args.iter().cloned());
+    extra.extend(claude.extra_args.iter().cloned());
     extra.extend(session_args);
     if prompt_args.len() == 1 {
         extra.push("--".into());
@@ -1851,7 +2019,7 @@ fn emit(
         args.extend(["--permission-mode".into(), mode]);
     }
     let mut disallowed = disallowed_request.clone();
-    if plan.claude.ask_user_question != Some(true) {
+    if claude.ask_user_question != Some(true) {
         disallowed.push("AskUserQuestion".into());
     }
     if !disallowed.is_empty() {
@@ -1875,30 +2043,11 @@ fn emit(
     }
     args.extend(extra);
 
-    // Env: adapter env, agentchat env, ASP_HOME, then the tool runtime env.
-    let mut locked: Vec<(String, String)> =
-        vec![("ASP_PLUGIN_ROOT".into(), bundle.root_dir.clone())];
+    let mut adapter_env: EnvPairs = vec![("ASP_PLUGIN_ROOT".into(), bundle.root_dir.clone())];
     if let Some(p) = prompt.as_deref().filter(|p| !p.is_empty()) {
-        locked.push(("ASP_PRIMING_PROMPT".into(), p.to_owned()));
+        adapter_env.push(("ASP_PRIMING_PROMPT".into(), p.to_owned()));
     }
-    locked.push(("AGENTCHAT_ID".into(), basename(&plan.agent_root)));
-    if let Some(root) = &plan.project_root {
-        locked.push((
-            "ASP_PROJECT".into(),
-            plan.handle
-                .project_id
-                .clone()
-                .unwrap_or_else(|| basename(&resolve(&[root]))),
-        ));
-    }
-    let mut set = |k: String, v: String| match locked.iter_mut().find(|(e, _)| *e == k) {
-        Some(slot) => slot.1 = v,
-        None => locked.push((k, v)),
-    };
-    set("ASP_HOME".into(), plan.asp_home.clone());
-    for (k, v) in tool_env {
-        set(k, v);
-    }
+    let locked = locked_env(plan, adapter_env, tool_env);
     let locked_env = J::Obj(locked.iter().map(|(k, v)| (k.clone(), J::str(v))).collect());
 
     // The start request (compileTmuxBrokerPlan).
@@ -1916,7 +2065,7 @@ fn emit(
         launch.set("initialPrompt", J::str(p));
     }
     let mut process = J::obj([
-        ("command", J::str(&plan.claude_path)),
+        ("command", J::str(claude_path)),
         ("args", J::Arr(args.iter().map(J::str).collect())),
         ("cwd", J::str(&plan.cwd)),
         ("lockedEnv", locked_env.clone()),
@@ -1986,8 +2135,24 @@ fn emit(
     if matches!(&launch, J::Obj(f) if !f.is_empty()) {
         spec.set("launch", launch);
     }
+    spec.set("correlation", broker_correlation(req));
+    let start_request = J::obj([("spec", spec)]);
+
+    finalize(
+        plan,
+        release,
+        start_request,
+        locked,
+        warnings,
+        system_prompt_path,
+        &bundle.root_dir,
+    )
+}
+
+/// `brokerCorrelation(req)`.
+fn broker_correlation(req: &J) -> J {
     let correlation = req.get("correlation").expect("validated");
-    let mut broker_correlation = J::Obj(vec![]);
+    let mut out = J::Obj(vec![]);
     for k in [
         "requestId",
         "hostSessionId",
@@ -2001,11 +2166,287 @@ fn emit(
         "laneRef",
     ] {
         if let Some(v) = correlation.get(k) {
-            broker_correlation.set(k, v.clone());
+            out.set(k, v.clone());
         }
     }
-    spec.set("correlation", broker_correlation);
-    let start_request = J::obj([("spec", spec)]);
+    out
+}
+
+/// `composeAgentLocalEnv`'s lockedEnv: the adapter env, the agentchat env,
+/// ASP_HOME, then the tool runtime env.
+fn locked_env(plan: &Plan, adapter_env: EnvPairs, tool_env: EnvPairs) -> EnvPairs {
+    let mut locked = adapter_env;
+    locked.push(("AGENTCHAT_ID".into(), basename(&plan.agent_root)));
+    if let Some(root) = &plan.project_root {
+        locked.push((
+            "ASP_PROJECT".into(),
+            plan.handle
+                .project_id
+                .clone()
+                .unwrap_or_else(|| basename(&resolve(&[root]))),
+        ));
+    }
+    let mut set = |k: String, v: String| match locked.iter_mut().find(|(e, _)| *e == k) {
+        Some(slot) => slot.1 = v,
+        None => locked.push((k, v)),
+    };
+    set("ASP_HOME".into(), plan.asp_home.clone());
+    for (k, v) in tool_env {
+        set(k, v);
+    }
+    locked
+}
+
+/// The broker's default process limits (broker-invocation.ts).
+fn default_limits() -> J {
+    J::obj([
+        ("startupTimeoutMs", J::Num(20_000.0)),
+        ("turnTimeoutMs", J::Num(900_000.0)),
+        ("stopGraceMs", J::Num(5_000.0)),
+    ])
+}
+
+/// `toProcessLimits(resourceLimits)`, or `undefined` without them.
+fn process_limits(policy: &J) -> Option<J> {
+    let limits = policy.get("resourceLimits")?;
+    let mut l = J::Obj(vec![]);
+    for k in [
+        "startupTimeoutMs",
+        "turnTimeoutMs",
+        "stopGraceMs",
+        "maxEventBytes",
+    ] {
+        if let Some(v) = limits.get(k) {
+            l.set(k, v.clone());
+        }
+    }
+    Some(l)
+}
+
+/// `toBrokerPermissionPolicy(hrcPolicy.permissionPolicy ?? { mode: 'deny', audit: true })`.
+fn broker_permission_policy(policy: &J) -> Result<J, Fwd> {
+    let Some(p) = policy.get("permissionPolicy") else {
+        return Ok(J::obj([("mode", J::str("deny"))]));
+    };
+    match p.get("mode").and_then(J::as_str) {
+        Some("ask-client") => {
+            let mut out = J::obj([("mode", J::str("ask-client"))]);
+            for k in ["timeoutMs", "defaultDecision"] {
+                if let Some(v) = p.get(k) {
+                    out.set(k, v.clone());
+                }
+            }
+            Ok(out)
+        }
+        Some(mode) => Ok(J::obj([("mode", J::str(mode))])),
+        None => Err(fwd("permission_policy_shape")),
+    }
+}
+
+/// `compileBrokerPlan` for codex-app-server: the Codex adapter's argv and
+/// env, the broker start request (`toHarnessBrokerStartRequest`) and its
+/// initial input, then the shared plan tail.
+#[allow(clippy::too_many_arguments)]
+fn emit_codex(
+    plan: &Plan,
+    release: &Release,
+    bundle_root: &str,
+    codex_home: &str,
+    system_prompt_path: Option<String>,
+    warnings: &mut [String],
+    tool_env: EnvPairs,
+    path_prepend: Vec<String>,
+) -> Result<J, Fwd> {
+    let req = &plan.req;
+    let material = req.get("materialization").expect("validated");
+    let policy = req.get("hrcPolicy").expect("validated");
+    let Launch::Codex {
+        defaults,
+        path: command,
+    } = &plan.launch
+    else {
+        return Err(fwd("launch_mismatch"));
+    };
+    let continuation_key = s(req
+        .get("continuation")
+        .and_then(|c| c.get("hrc"))
+        .and_then(|h| h.get("key")));
+    let interactive = plan.selection.presentation;
+    let prompt = plan.expanded_prompt.clone();
+    let model = plan.selection.model.clone();
+    let effort = plan
+        .selection
+        .reasoning_effort
+        .clone()
+        .or_else(|| defaults.reasoning_effort.clone());
+    let approval = if defaults.yolo {
+        Some("never".to_owned())
+    } else {
+        defaults.approval_policy.clone()
+    };
+    let sandbox = if defaults.yolo {
+        Some("danger-full-access".to_owned())
+    } else {
+        defaults.sandbox_mode.clone()
+    };
+
+    // CodexAdapter.buildRunArgs(bundle, runOptions).
+    let mut args: Vec<String> = vec![];
+    let features = |args: &mut Vec<String>| {
+        for f in codex::DEFAULT_FEATURES {
+            args.extend(["--enable".to_owned(), f.to_owned()]);
+        }
+    };
+    let launch_prompt = prompt.as_deref().filter(|p| !p.is_empty());
+    let resume_key = continuation_key.filter(|k| !k.is_empty());
+    if !interactive {
+        features(&mut args);
+        args.push("app-server".into());
+    } else {
+        if let Some(key) = resume_key {
+            args.push("resume".into());
+            features(&mut args);
+            args.push(key.to_owned());
+        } else {
+            features(&mut args);
+        }
+        if let Some(p) = launch_prompt {
+            args.push(p.to_owned());
+        }
+        args.extend(["--no-alt-screen".to_owned(), "--model".into(), model.clone()]);
+        if let Some(e) = effort.as_deref().filter(|e| !e.is_empty()) {
+            args.extend(["-c".to_owned(), format!("model_reasoning_effort=\"{e}\"")]);
+        }
+        if let Some(a) = approval.as_deref().filter(|a| !a.is_empty()) {
+            args.extend(["--ask-for-approval".to_owned(), a.to_owned()]);
+        }
+        if let Some(m) = sandbox.as_deref().filter(|m| !m.is_empty()) {
+            args.extend(["--sandbox".to_owned(), m.to_owned()]);
+        }
+        args.push("--dangerously-bypass-hook-trust".into());
+    }
+
+    let locked = locked_env(
+        plan,
+        vec![("CODEX_HOME".into(), codex_home.to_owned())],
+        tool_env,
+    );
+    let locked_json = J::Obj(locked.iter().map(|(k, v)| (k.clone(), J::str(v))).collect());
+
+    let mut driver = J::obj([("kind", J::str("codex-app-server"))]);
+    if interactive {
+        driver.set("presentation", J::str("codex-tui"));
+        driver.set("transport", J::str("websocket-unix"));
+    }
+    if let Some(k) = continuation_key {
+        driver.set("resumeThreadId", J::str(k));
+    }
+    driver.set("model", J::str(&model));
+    if let Some(e) = &effort {
+        driver.set("modelReasoningEffort", J::str(e));
+    }
+    driver.set("approvalPolicy", J::str("never"));
+    if let Some(m) = &sandbox {
+        driver.set("sandboxMode", J::str(m));
+    }
+    driver.set("permissionPolicy", broker_permission_policy(policy)?);
+    driver.set("resumeFallback", J::str("fail"));
+    if let Some(t) = plan.system_prompt.as_ref().and_then(|sp| sp.task_scoped.as_ref()) {
+        driver.set("developerInstructions", J::str(&t.content));
+    }
+
+    let mut spec = J::obj([("specVersion", J::str("harness-broker.invocation/v1"))]);
+    if let Some(inv) = req.get("identity").and_then(|i| i.get("invocationId")) {
+        spec.set("invocationId", inv.clone());
+    }
+    if let Some(t) = s(material.get("taskContext").and_then(|t| t.get("taskId"))) {
+        spec.set("labels", J::obj([("task", J::str(t))]));
+    }
+    spec.set(
+        "harness",
+        J::obj([
+            ("frontend", J::str("codex")),
+            ("provider", J::str("openai")),
+            ("driver", J::str("codex-app-server")),
+        ]),
+    );
+    let mut process = J::obj([
+        ("command", J::str(command)),
+        ("args", J::Arr(args.iter().map(J::str).collect())),
+        ("cwd", J::str(&plan.cwd)),
+        ("lockedEnv", locked_json),
+    ]);
+    if !path_prepend.is_empty() {
+        process.set(
+            "pathPrepend",
+            J::Arr(path_prepend.iter().map(J::str).collect()),
+        );
+    }
+    process.set("harnessTransport", J::obj([("kind", J::str("jsonrpc-stdio"))]));
+    process.set(
+        "limits",
+        process_limits(policy).unwrap_or_else(default_limits),
+    );
+    spec.set("process", process);
+    spec.set(
+        "interaction",
+        J::obj([
+            (
+                "mode",
+                J::str(if interactive { "interactive" } else { "headless" }),
+            ),
+            ("turnConcurrency", J::str("single")),
+            ("inputQueue", J::str("fifo")),
+        ]),
+    );
+    if let Some(k) = continuation_key {
+        spec.set(
+            "continuation",
+            J::obj([
+                ("provider", J::str("codex")),
+                ("kind", J::str("thread")),
+                ("key", J::str(k)),
+            ]),
+        );
+    }
+    spec.set("driver", driver);
+    spec.set("correlation", broker_correlation(req));
+    let mut start_request = J::obj([("spec", spec)]);
+
+    // buildInitialInput: the priming/caller prompt only, never the system prompt.
+    let caller = s(material.get("initialPrompt"));
+    let omit_priming = matches!(material.get("omitPriming"), Some(J::Bool(true)));
+    let text = if caller == Some("") || (omit_priming && caller.is_none()) {
+        None
+    } else {
+        prompt.filter(|p| !p.is_empty())
+    };
+    if let Some(text) = text {
+        let content = J::Arr(vec![J::obj([
+            ("type", J::str("text")),
+            ("text", J::str(text)),
+        ])]);
+        let identity = req.get("identity").expect("validated");
+        let input_id = match identity.get("initialInputId") {
+            Some(id) => id.clone(),
+            None => {
+                let mut material = J::Obj(vec![]);
+                if let Some(g) = identity.get("generation") {
+                    material.set("generation", g.clone());
+                }
+                material.set("content", content.clone());
+                J::str(format!("input_{}", &hash(&material, true)[..32]))
+            }
+        };
+        start_request.set(
+            "initialInput",
+            J::obj([
+                ("inputId", input_id),
+                ("kind", J::str("user")),
+                ("content", content),
+            ]),
+        );
+    }
 
     finalize(
         plan,
@@ -2014,11 +2455,39 @@ fn emit(
         locked,
         warnings,
         system_prompt_path,
-        bundle,
+        bundle_root,
     )
 }
 
-fn recipe_dto() -> J {
+/// `toRecipeDto(recipe)` for the selected harness and presentation.
+fn recipe_dto(harness: request::Harness, presentation: bool) -> J {
+    if harness == request::Harness::Codex {
+        let mut hosting = J::obj([
+            ("executionTransport", J::str("jsonrpc-stdio")),
+            ("terminalRequired", J::Bool(presentation)),
+        ]);
+        if presentation {
+            hosting.set("terminalHost", J::str("tmux"));
+        }
+        hosting.set("processExecution", J::str("broker-process"));
+        let mut dto = J::obj([
+            ("recipeId", J::str("codex-app-server")),
+            ("driver", J::str("codex-app-server")),
+            ("protocol", J::str("harness-broker/0.2")),
+            ("hosting", hosting),
+        ]);
+        if presentation {
+            dto.set(
+                "presentationSurface",
+                J::obj([
+                    ("transport", J::str("websocket-unix")),
+                    ("terminalHost", J::str("tmux")),
+                ]),
+            );
+        }
+        dto.set("presentationFulfillment", J::str("attachable"));
+        return dto;
+    }
     J::obj([
         ("recipeId", J::str("claude-code")),
         ("driver", J::str("claude-code-tmux")),
@@ -2036,12 +2505,21 @@ fn recipe_dto() -> J {
     ])
 }
 
-/// `hashNeutralStartRequest`: the spec without invocationId and correlation.
+/// `hashNeutralStartRequest`: the spec without invocationId and correlation,
+/// and the initial input's identity only.
 fn neutral_start_request(start: &J) -> J {
     let mut spec = start.get("spec").cloned().unwrap_or(J::Null);
     spec.remove("invocationId");
     spec.remove("correlation");
-    J::obj([("spec", spec)])
+    let mut out = J::obj([("spec", spec)]);
+    if let Some(input) = start.get("initialInput") {
+        let mut identity = J::Obj(vec![]);
+        if let Some(id) = input.get("inputId") {
+            identity.set("inputId", id.clone());
+        }
+        out.set("initialInput", identity);
+    }
+    out
 }
 
 fn finalize(
@@ -2051,10 +2529,13 @@ fn finalize(
     locked: Vec<(String, String)>,
     warnings: &mut [String],
     system_prompt_path: Option<String>,
-    bundle: &stage::Bundle,
+    bundle_root: &str,
 ) -> Result<J, Fwd> {
     let req = &plan.req;
     let policy = req.get("hrcPolicy").expect("validated");
+    let codex = plan.selection.harness == request::Harness::Codex;
+    let recipe = recipe_dto(plan.selection.harness, plan.selection.presentation);
+    let recipe_id = s(recipe.get("recipeId")).unwrap_or_default().to_owned();
     let neutral = neutral_start_request(&start_request);
     let spec = neutral.get("spec").cloned().unwrap_or(J::Null);
     let process = spec.get("process").cloned().unwrap_or(J::Null);
@@ -2087,6 +2568,30 @@ fn finalize(
     if let Some(e) = selection.get("reasoningEffort") {
         model.set("reasoningEffort", e.clone());
     }
+    let driver = spec.get("driver").cloned().unwrap_or(J::Null);
+    // buildCompatibilityMaterial narrows a codex-app-server driver.
+    let driver_material = if codex {
+        if let Some(m) = driver.get("model") {
+            model.set("driverModel", m.clone());
+        }
+        let mut d = J::Obj(vec![]);
+        for k in [
+            "kind",
+            "model",
+            "modelReasoningEffort",
+            "approvalPolicy",
+            "sandboxMode",
+            "permissionPolicy",
+            "resumeFallback",
+        ] {
+            if let Some(v) = driver.get(k) {
+                d.set(k, v.clone());
+            }
+        }
+        d
+    } else {
+        driver
+    };
     let mut compat = J::obj([
         (
             "bundle",
@@ -2094,7 +2599,7 @@ fn finalize(
         ),
         ("model", model),
         ("process", process_material),
-        ("driver", spec.get("driver").cloned().unwrap_or(J::Null)),
+        ("driver", driver_material),
     ]);
     if let Some(c) = req.get("continuation") {
         let hrc = c.get("hrc").cloned().unwrap_or(J::Null);
@@ -2154,7 +2659,7 @@ fn finalize(
         "profile_{}",
         &hash(
             &J::obj([
-                ("recipeId", J::str("claude-code")),
+                ("recipeId", J::str(&recipe_id)),
                 ("startRequest", neutral.clone())
             ]),
             true
@@ -2163,13 +2668,13 @@ fn finalize(
     let profile_hash = hash(
         &J::obj([
             ("profileId", J::str(&profile_id)),
-            ("recipe", recipe_dto()),
+            ("recipe", recipe.clone()),
             ("compatibilityHash", J::str(&compatibility_hash)),
             ("startRequestHash", J::str(&start_request_hash)),
         ]),
         true,
     );
-    let diagnostics: Vec<J> = warnings
+    let mut diagnostics: Vec<J> = warnings
         .iter()
         .map(|w| {
             J::obj([
@@ -2181,6 +2686,32 @@ fn finalize(
             ])
         })
         .collect();
+    // disallowedToolsUnsupportedDiagnostic: the broker route cannot deny tools.
+    if codex
+        && let Some(J::Arr(tools)) = policy.get("disallowedTools")
+        && !tools.is_empty()
+    {
+        diagnostics.push(J::obj([
+            ("level", J::str("warning")),
+            ("code", J::str("disallowed_tools_unsupported_driver")),
+            (
+                "message",
+                J::str(
+                    "hrcPolicy.disallowedTools was not applied for codex-app-server; only claude-code-tmux currently supports compiler-enforced tool denial.",
+                ),
+            ),
+            ("plane", J::str("asp-compiler")),
+            ("profileId", J::str(&profile_id)),
+            (
+                "details",
+                J::obj([
+                    ("selectedDriver", J::str("codex-app-server")),
+                    ("disallowedTools", J::Arr(tools.clone())),
+                    ("applied", J::Bool(false)),
+                ]),
+            ),
+        ]));
+    }
     let identity = req.get("identity").cloned().unwrap_or(J::Null);
     let generation = identity.get("generation").cloned();
     let mut compile_material = J::Obj(vec![]);
@@ -2205,7 +2736,7 @@ fn finalize(
             dispatch_request.set(k, v.clone());
         }
     }
-    let mut execution = recipe_dto();
+    let mut execution = recipe;
     execution.set(
         "profile",
         J::obj([
@@ -2216,7 +2747,7 @@ fn finalize(
         ]),
     );
     execution.set("dispatchRequest", dispatch_request);
-    let mut artifacts = J::obj([("materializedBundleRoot", J::str(&bundle.root_dir))]);
+    let mut artifacts = J::obj([("materializedBundleRoot", J::str(bundle_root))]);
     if let Some(p) = &system_prompt_path {
         artifacts.set("systemPromptFile", J::str(p));
     }
@@ -2273,7 +2804,12 @@ fn finalize(
     let mut response_diagnostics = diagnostics;
     response_diagnostics.extend(plan.metadata_diagnostics.iter().cloned());
     let protocol = "harness-broker/0.2";
-    let execution_release = execution_release(release, protocol)?;
+    let worker = if codex {
+        "codex-app-server"
+    } else {
+        "claude-code-tmux"
+    };
+    let execution_release = execution_release(release, protocol, worker)?;
     Ok(J::obj([
         (
             "schemaVersion",

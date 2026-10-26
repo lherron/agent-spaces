@@ -9,7 +9,7 @@
  * historicalExecution.recordedPlacement, and `{ compileRequest }` compiles with
  * `hrcPolicy: {}`, a dispatchEnv and optional selectionContext.summonDirectives.
  */
-import { mkdirSync, utimesSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import {
@@ -51,6 +51,74 @@ export type Stage = Fixture & {
 const CODEX_FOUND = 'cmp-codex-thread-present'
 const PRUNE_AGENT = 'pathmark-prune'
 const CLAUDE_FOUND = 'cmp-claude-session-present'
+/** The codex agent whose space and template exercise every codex compose branch (T-11932). */
+const CODEX_AGENT = 'pathmark-codex'
+
+/**
+ * A mutable space with everything the Codex adapter materializes: skills,
+ * commands (prompts), MCP, AGENTS.md instructions, `[codex.config]` overrides
+ * and a codex-targeted pre_tool_use hook; and an agent composing it whose
+ * context template has a reminder and a task-scoped section.
+ */
+function seedCodexAgent(agentsRoot: string): void {
+  const space = join(agentsRoot, 'spaces', 'pm-codex')
+  mkdirSync(join(space, 'skills', 'pm-codex-skill'), { recursive: true })
+  mkdirSync(join(space, 'commands'), { recursive: true })
+  mkdirSync(join(space, 'mcp'), { recursive: true })
+  mkdirSync(join(space, 'hooks'), { recursive: true })
+  writeFileSync(
+    join(space, 'space.toml'),
+    'schema = 1\nid = "pm-codex"\nversion = "1.2.0"\n\n[plugin]\nname = "pm-codex"\n\n[codex.config]\nmodel_verbosity = "low"\nproject_doc_max_bytes = 65536\n'
+  )
+  writeFileSync(
+    join(space, 'skills', 'pm-codex-skill', 'SKILL.md'),
+    '---\nname: pm-codex-skill\ndescription: codex fixture skill.\n---\n\nLoaded.\n'
+  )
+  writeFileSync(join(space, 'commands', 'pm-hello.md'), 'Say hello.\n')
+  writeFileSync(join(space, 'commands', 'notes.txt'), 'not a prompt\n')
+  writeFileSync(
+    join(space, 'mcp', 'mcp.json'),
+    `${JSON.stringify({ mcpServers: { 'pm-echo': { type: 'stdio', command: 'echo', args: ['pm'], env: { PM: '1' } } } }, null, 2)}\n`
+  )
+  writeFileSync(join(space, 'AGENTS.md'), '# pm-codex\n\nCodex fixture instructions.\n\n')
+  writeFileSync(
+    join(space, 'hooks', 'hooks.toml'),
+    '[[hook]]\nevent = "pre_tool_use"\nscript = "guard.sh"\nharness = "codex"\ntools = ["Bash", "Edit"]\n\n[[hook]]\nevent = "pre_tool_use"\nscript = "claude-guard.sh"\nharness = "claude"\n'
+  )
+  writeFileSync(join(space, 'hooks', 'guard.sh'), '#!/bin/sh\nexit 0\n')
+  chmodSync(join(space, 'hooks', 'guard.sh'), 0o755)
+  writeAgent(agentsRoot, CODEX_AGENT, ['space:pm-dev@dev', 'space:pm-codex@dev'])
+  const agentRoot = join(agentsRoot, CODEX_AGENT)
+  writeFileSync(
+    join(agentRoot, 'agent-profile.toml'),
+    `version = 4\npriming = "pathmark priming for {{agentId}}"\n\n[provisioning]\nreasoning_effort = "medium"\nsandbox = "workspace-write"\n\n[spaces]\nbase = ${JSON.stringify(['space:pm-dev@dev', 'space:pm-codex@dev'])}\n\n[instructions]\ntemplate = "context-template.toml"\n`
+  )
+  writeFileSync(
+    join(agentRoot, 'context-template.toml'),
+    [
+      'schema_version = 2',
+      'mode = "append"',
+      '',
+      '[[prompt]]',
+      'name = "soul"',
+      'type = "file"',
+      'path = "agent-root:///SOUL.md"',
+      'required = true',
+      '',
+      '[[prompt]]',
+      'name = "task"',
+      'type = "inline"',
+      'when = { taskField = "id" }',
+      'content = "Task {{task.id}}"',
+      '',
+      '[[reminder]]',
+      'name = "scope"',
+      'type = "inline"',
+      'content = "Reminder for {{agentId}}"',
+      '',
+    ].join('\n')
+  )
+}
 
 /** Seed the stage at its fixed absolute path (the runner snapshots it as the seed). */
 export function seedStage(asp: Asp, base: string): Stage {
@@ -62,6 +130,7 @@ export function seedStage(asp: Asp, base: string): Stage {
   const brokenProjectRoot = join(base, 'project-broken')
   mkdirSync(brokenProjectRoot, { recursive: true })
   writeFileSync(join(brokenProjectRoot, 'asp-targets.toml'), 'schema = [\n')
+  seedCodexAgent(fixture.agentsRoot)
   // A codex rollout under the recorded-placement codex home of pathmark-dev.
   const codexHomeDev = join(fixture.aspHome, 'codex-homes', 'project_pathmark-dev')
   const sessions = join(codexHomeDev, 'sessions', '2026', '10', '26')
@@ -347,6 +416,51 @@ function compileCases(asp: Asp, stage: Stage): CallCase[] {
   // compiles natively. `pathmark` composes a git-pinned space, so its claude
   // rows above stay Bun's (forwarded before any write).
   const dev = (row: Row): Row => ({ ...row, id: `${row.id}-dev`, agent: 'pathmark-dev' })
+  // R3b (T-11932): codex-app-server, headless and presented, fresh and resume
+  // (Bun HRC's openai continuation), rusthrc and birth shapes, home rewrite
+  // and reuse, on pathmark-dev and on the full-branch codex agent.
+  const codexResume = (entry: CallCase): CallCase => {
+    const request = entry.compileRequest as Record<string, unknown>
+    const continuation = {
+      hrc: { provider: 'openai', key: 'pathmark-thread', continuationId: 'cont_pathmark' },
+      source: 'hrc',
+    }
+    request['continuation'] = continuation
+    return entry
+  }
+  const codexRow = (id: string, presentation: boolean, agent: string): Row => ({
+    id,
+    requested: { harness: 'codex', presentation },
+    agent,
+  })
+  const codexCases = [
+    compile('compile:codex-tui:reuse', byId('codex-tui')),
+    codexResume(
+      compile('compile:codex-tui-resume', codexRow('codex-tui-resume', true, 'pathmark-dev'))
+    ),
+    codexResume(
+      compile(
+        'compile:codex-app-server-resume',
+        codexRow('codex-app-server-resume', false, 'pathmark-dev')
+      )
+    ),
+    birth('compile:codex-tui:birth', byId('codex-tui')),
+    birth('compile:codex-app-server:birth', byId('codex-app-server')),
+    compile('compile:codex-tui:full', codexRow('codex-tui-full', true, CODEX_AGENT)),
+    compile('compile:codex-app-server:full', codexRow('codex-app-server-full', false, CODEX_AGENT)),
+    birth('compile:codex-tui:full:birth', codexRow('codex-tui-full', true, CODEX_AGENT)),
+    codexResume(
+      birth(
+        'compile:codex-tui-resume:full:birth',
+        codexRow('codex-tui-resume-full', true, CODEX_AGENT)
+      )
+    ),
+    compile('compile:codex-tui:full:summon-model', codexRow('codex-tui-full', true, CODEX_AGENT), {
+      model: 'gpt-6.1-sol',
+    }),
+    // A git-pinned space: forwarded before any write; Bun throws on it (T-11825).
+    compile('compile:codex-tui:pinned', codexRow('codex-tui-pinned', true, 'pathmark')),
+  ]
   return [
     ...ROWS.map((row) => compile(`compile:${row.id}`, row)),
     compile('compile:claude-code:summon-model', byId('claude-code'), { model: 'sonnet' }),
@@ -356,6 +470,7 @@ function compileCases(asp: Asp, stage: Stage): CallCase[] {
     compile('compile:claude-code:dev:summon-model', dev(byId('claude-code')), { model: 'sonnet' }),
     birth('compile:claude-code:dev:birth', dev(byId('claude-code'))),
     birth('compile:claude-code-resume:dev:birth', dev(byId('claude-code-resume'))),
+    ...codexCases,
     compile('compile:claude-code:prune', {
       ...byId('claude-code'),
       id: 'claude-code-prune',
