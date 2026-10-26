@@ -166,6 +166,10 @@ fn acquire(path: &str, options: &LockOptions) -> Result<Held, LockError> {
             let (lock, cvar) = &*done;
             let mut finished = lock.lock().unwrap_or_else(|e| e.into_inner());
             loop {
+                // Release may have notified before this thread first waited.
+                if *finished {
+                    return;
+                }
                 let (guard, timeout) = cvar
                     .wait_timeout(finished, update)
                     .unwrap_or_else(|e| e.into_inner());
@@ -219,6 +223,29 @@ mod tests {
             .set_times(std::fs::FileTimes::new().set_modified(old))
             .unwrap();
         assert!(with_lock(&path_s, &quick, || ()).is_ok());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// A release that lands before the refresher's first wait must not leave
+    /// the lock held for a whole refresh interval (T-11882: 30 s stalls).
+    #[test]
+    fn release_is_prompt_when_it_beats_the_refresher() {
+        let base = std::env::temp_dir().join(format!("raspd-lock-prompt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let path_s = base.join("locks/y.lock").to_string_lossy().into_owned();
+        let options = LockOptions {
+            stale_ms: 60_000,
+            retries: 0,
+        };
+        for _ in 0..200 {
+            let began = std::time::Instant::now();
+            with_lock(&path_s, &options, || ()).unwrap();
+            assert!(
+                began.elapsed() < Duration::from_secs(1),
+                "release took {:?}",
+                began.elapsed()
+            );
+        }
         let _ = std::fs::remove_dir_all(&base);
     }
 }
