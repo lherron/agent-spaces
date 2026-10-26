@@ -1,0 +1,63 @@
+id: agent-spaces.aspd-rust-front-door
+kind: invariant
+status: active
+owner_project: agent-spaces
+scope: Rust aspd front door, shared materialization, parity, and observation boundary
+predicate: >
+  raspd and Bun aspd ship in one immutable ASP release. raspd serves the public
+  aspc socket and routes each frame either to a native handler or verbatim to
+  that release's Bun upstream on a connection tied to the client connection.
+  The public protocol, refusal envelopes, capabilities including forwarded
+  methods, and release-bound worker selection retain their existing contracts.
+  ASP materialization has no HRC execution-owner flip: native Rust and Bun
+  writers share ASP_HOME only under the same lock and publication protocols.
+  The global lock merge is locked, snapshot stages have collision-free names,
+  and a losing snapshot publisher verifies the winning integrity directory and
+  removes its own stage before reusing the winner. Unsupported compile branches
+  cause whole-request forwarding before any write. Bun remains the semantic
+  reference, including known defects until a coordinated fix. Compile parity
+  holds absolute paths and the release directory equal across restored seeds;
+  volatile inputs are enumerated from measured Bun differences. Each subject's
+  reported derived hashes are checked against its actual reported body before
+  measured volatile inputs are tokenized and verified derived-hash fields are
+  omitted for body comparison. The embedded cardo kernel observes service
+  events beside the aspc path and never mediates requests through its owner
+  thread. Front-door and upstream logs remain separate. Over a closed drained
+  and flushed window, per-op counts satisfy relayed <= Bun total <= relayed +
+  upstream_failed; minute buckets carry no equality guarantee. HRC retains
+  placement, worker hosting, lifecycle, and routing authority under the existing
+  records. Per-node rollout and rollback are coordinated with the HRC owner.
+authority: Lance's 2026-10-26 scoped directive and Daedalus approval of r3 at 4cdcd566 in T-11832
+source:
+  - wrkq:T-11832
+  - commit:4cdcd566
+  - docs/proposals/aspd-rust-front-door.md
+  - architecture/records/invariants/agent-spaces.runtime-declaration-authority.yaml
+  - architecture/records/invariants/agent-spaces.aspd-release-worker-hosting.yaml
+  - core/config/src/store/snapshot.ts
+  - compiler/agent-spaces/src/compile-plan-finalize.ts
+  - contracts/spaces-runtime-contracts/src/hash.ts
+  - harness/aspc-facade/src/aspd.ts
+  - harness/harness-broker/src/protocol-server.ts
+required_tests:
+  - Bun versus Bun at identical restored paths passes the measured parity comparison and a deliberately altered subject fails
+  - concurrent Bun global-lock merges retain every entry and two cold snapshot publishers both succeed with red-before and green-after evidence
+  - unchanged Bun HRC Rust HRC and avs clients exercise native and forwarded operations through the scratch front door and rollback restores Bun service
+  - concurrent slow forwarded work does not stall native hello or health and cardo wire conformance passes against the installed kernel socket
+  - drained per-op accounting obeys the stated bounds including a Bun-stopped-mid-run case and neither process shares a log file
+  - native reads match Bun refusals and continuation observations while native live-recipe compiles pass hash self-consistency and normalized body and tree parity
+  - real Bun and Rust HRC births use Rust compilation and racing Bun CLI and Rust compiles including a cold shared snapshot both succeed with consistent stores
+  - an unsupported compile branch is forwarded before any write and coordinated per-node rollout preserves the HRC birth second-turn status and runtime-list smoke
+last_verified:
+  date: null
+  evidence: Implementation gates pending; r3 design reviewed from source on 2026-10-26 with no runtime gate claimed
+reopen_when:
+  - Rust and Bun no longer share one release or a worker is inferred outside the immutable binding table
+  - shared writers diverge on locks publication or snapshot integrity verification
+  - unsupported compile work writes before whole-request forwarding
+  - parity masks unmeasured differences or verifies a reported hash against tokenized rather than actual material
+  - cardo mediates the aspc request path or acquires execution authority
+  - logs share a file or relay failure accounting assumes every failed upstream request is absent from Bun
+  - ASP gains HRC placement hosting lifecycle or routing authority
+supersedes: []
+superseded_by: null
