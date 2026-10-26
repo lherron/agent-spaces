@@ -8,6 +8,7 @@
 //!
 //!     raspd serve --socket <abs> [--upstream <abs>] [--log <abs>]
 //!                 [--kernel-socket <abs>] [--release-root <dir>]
+mod compile;
 mod json;
 mod kernel;
 mod logs;

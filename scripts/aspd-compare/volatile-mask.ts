@@ -48,12 +48,36 @@ function sessionIds(value: unknown, out: string[]): string[] {
   return out
 }
 
+/** The values after `--remote-control-session-name-prefix` and `--name` in launch args. */
+function remoteControlNames(value: unknown, out: string[]): string[] {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      if (
+        (item === '--remote-control-session-name-prefix' || item === '--name') &&
+        typeof value[index + 1] === 'string'
+      ) {
+        out.push(value[index + 1] as string)
+      }
+      remoteControlNames(item, out)
+    })
+  } else if (value !== null && typeof value === 'object') {
+    for (const item of Object.values(value)) remoteControlNames(item, out)
+  }
+  return out
+}
+
 export const TOKENS: Token[] = [
   {
     token: 'claude-session-id',
     measured:
       'compile:claude-code and compile:claude-code:summon-model: a fresh `--session-id <randomUUID()>` in the launch args (claude-adapter.ts); claude-code-resume has none and is stable',
     find: (replies) => sessionIds(replies, []),
+  },
+  {
+    token: 'claude-remote-control-name',
+    measured:
+      'live corpus (run.ts --cases live --raw, Bun vs Bun, T-11841; evidence var/wrkq-artifacts/T-11841/live-measure-raw): every `remote = true` claude agent names its remote-control session `<agent>-<project>[-<task>]-<4 base36 chars from randomBytes>` (claude-adapter.ts buildRemoteControlArgs), passed as --remote-control-session-name-prefix and --name',
+    find: (replies) => remoteControlNames(replies, []),
   },
 ]
 

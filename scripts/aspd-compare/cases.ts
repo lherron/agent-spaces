@@ -9,7 +9,7 @@
  * historicalExecution.recordedPlacement, and `{ compileRequest }` compiles with
  * `hrcPolicy: {}`, a dispatchEnv and optional selectionContext.summonDirectives.
  */
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import {
@@ -49,6 +49,7 @@ export type Stage = Fixture & {
 }
 
 const CODEX_FOUND = 'cmp-codex-thread-present'
+const PRUNE_AGENT = 'pathmark-prune'
 const CLAUDE_FOUND = 'cmp-claude-session-present'
 
 /** Seed the stage at its fixed absolute path (the runner snapshots it as the seed). */
@@ -71,6 +72,29 @@ export function seedStage(asp: Asp, base: string): Stage {
   const encodedCwd = fixture.projectRoot.replace(/[^a-zA-Z0-9]/g, '-')
   mkdirSync(join(claudeHome, 'projects', encodedCwd), { recursive: true })
   writeFileSync(join(claudeHome, 'projects', encodedCwd, `${CLAUDE_FOUND}.jsonl`), '{}\n')
+  // Bundle-version pruning (T-11841): an agent only compile:claude-code:prune
+  // compiles, whose bundle scope holds five day-old versions; the last one is
+  // referenced from ASP_HOME/tmp, so it survives past the three kept recent.
+  writeAgent(fixture.agentsRoot, PRUNE_AGENT, ['space:pm-dev@dev'])
+  const versions = join(
+    fixture.aspHome,
+    'codex-homes',
+    `project_${PRUNE_AGENT}`,
+    'bundles',
+    '.versions'
+  )
+  const dayOld = new Date('2026-10-25T00:00:00.000Z')
+  for (const digit of ['1', '2', '3', '4', '5']) {
+    const version = join(versions, digit.repeat(64))
+    mkdirSync(version, { recursive: true })
+    writeFileSync(join(version, 'marker'), digit)
+    utimesSync(version, dayOld, dayOld)
+  }
+  mkdirSync(join(fixture.aspHome, 'tmp'), { recursive: true })
+  writeFileSync(
+    join(fixture.aspHome, 'tmp', 'prune-reference.txt'),
+    `${join(versions, '1'.repeat(64))}/x\n`
+  )
   return { ...fixture, brokenProjectRoot, claudeHome, codexHomeDev }
 }
 
@@ -304,11 +328,39 @@ function compileCases(asp: Asp, stage: Stage): CallCase[] {
       compileRequest: request,
     }
   }
+  // The params a birth sends: compile.rs `Compiled::prepare` (and Bun HRC's
+  // aspd-headless-start) add the placement's dispatchEnv and HRC's ASP_HOME.
+  const birth = (id: string, row: Row): CallCase => {
+    const request = rusthrcCompileRequest(asp, stage, row)
+    const placement = request['placement'] as Record<string, unknown>
+    return {
+      ...call(id, 'aspc.compileHarnessInvocation', {
+        compileRequest: request,
+        dispatchEnv: placement['dispatchEnv'],
+        aspHome: stage.aspHome,
+      }),
+      compileRequest: request,
+    }
+  }
   const byId = (id: string) => ROWS.find((row) => row.id === id) as Row
+  // R3a (T-11841): claude-code over mutable spaces only, the live shape raspd
+  // compiles natively. `pathmark` composes a git-pinned space, so its claude
+  // rows above stay Bun's (forwarded before any write).
+  const dev = (row: Row): Row => ({ ...row, id: `${row.id}-dev`, agent: 'pathmark-dev' })
   return [
     ...ROWS.map((row) => compile(`compile:${row.id}`, row)),
     compile('compile:claude-code:summon-model', byId('claude-code'), { model: 'sonnet' }),
     compile('compile:codex-tui:summon-effort', byId('codex-tui'), { reasoning_effort: 'high' }),
+    compile('compile:claude-code:dev', dev(byId('claude-code'))),
+    compile('compile:claude-code-resume:dev', dev(byId('claude-code-resume'))),
+    compile('compile:claude-code:dev:summon-model', dev(byId('claude-code')), { model: 'sonnet' }),
+    birth('compile:claude-code:dev:birth', dev(byId('claude-code'))),
+    birth('compile:claude-code-resume:dev:birth', dev(byId('claude-code-resume'))),
+    compile('compile:claude-code:prune', {
+      ...byId('claude-code'),
+      id: 'claude-code-prune',
+      agent: PRUNE_AGENT,
+    }),
   ]
 }
 

@@ -114,7 +114,7 @@ fn expand_home_path(value: &str, env: &Env) -> String {
 }
 
 /// `getAspHome()`: the process's ASP_HOME, else `~/.asp`.
-fn process_asp_home() -> String {
+pub(crate) fn process_asp_home() -> String {
     match Env::process().get("ASP_HOME") {
         Some(home) => home.to_owned(),
         None => join(&[&homedir(), ".asp"]),
@@ -144,7 +144,7 @@ fn config_agents_root(asp_home: Option<&str>) -> Step<Option<String>> {
 }
 
 /// `getAgentsRoot({ aspHome?, env })`.
-fn agents_root(asp_home: Option<&str>, env: &Env) -> Step<Option<String>> {
+pub(crate) fn agents_root(asp_home: Option<&str>, env: &Env) -> Step<Option<String>> {
     // getConfiguredRoot: the env value when set, else the config file's.
     let explicit = match env.get("ASP_AGENTS_ROOT").filter(|v| !v.is_empty()) {
         Some(from_env) => Some(expand_home_path(from_env, env)),

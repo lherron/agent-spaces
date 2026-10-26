@@ -17,9 +17,13 @@ pub fn is_native(method: &str) -> bool {
     NATIVE_METHODS.contains(&method)
 }
 
-/// Every method raspd serves natively, the R2 reads included (`version`).
+/// Every method raspd serves natively, the R2 reads and the R3a compile
+/// included (`version`).
 fn served_natively() -> impl Iterator<Item = &'static str> {
-    NATIVE_METHODS.into_iter().chain(crate::reads::METHODS)
+    NATIVE_METHODS
+        .into_iter()
+        .chain(crate::reads::METHODS)
+        .chain([crate::compile::METHOD])
 }
 
 pub const ASPC_PROTOCOL_VERSION: &str = "aspc/0.1";

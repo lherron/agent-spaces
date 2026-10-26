@@ -630,8 +630,13 @@ function reconcile(name: string, root: string, expectFailures: boolean) {
   )
 }
 
-// R2 (T-11838): the two reads are native too, unless raspd relayed one with a fallback reason.
-const NATIVE_READS = new Set(['aspc.resolveRuntimeDeclaration', 'aspc.observeContinuationArtifact'])
+// R2 (T-11838): the two reads are native too, unless raspd relayed one with a
+// fallback reason; R3a (T-11841): so is compileHarnessInvocation.
+const NATIVE_READS = new Set([
+  'aspc.resolveRuntimeDeclaration',
+  'aspc.observeContinuationArtifact',
+  'aspc.compileHarnessInvocation',
+])
 const window1Log = raspdRequests()
 const misrouted = window1Log.filter((l) => {
   const data = l['data'] as Record<string, unknown>

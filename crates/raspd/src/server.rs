@@ -450,7 +450,9 @@ impl Connection {
                     bytes,
                 );
             }
-            Frame::Request(request) if reads::is_read(&request.method) => {
+            Frame::Request(request)
+                if reads::is_read(&request.method) || request.method == crate::compile::METHOD =>
+            {
                 self.reading.fetch_add(1, Ordering::AcqRel);
                 self.shared.acquire();
                 let conn = self.clone();
@@ -476,8 +478,15 @@ impl Connection {
     async fn read_natively(self: &Arc<Self>, request: protocol::Request, line: Vec<u8>) {
         let started = Instant::now();
         let (method, params) = (request.method.clone(), request.params.clone());
-        let answer =
-            tokio::task::spawn_blocking(move || reads::handle(&method, params.as_ref())).await;
+        let release = self.shared.release.clone();
+        let answer = tokio::task::spawn_blocking(move || {
+            if method == crate::compile::METHOD {
+                crate::compile::handle(params.as_ref(), &release)
+            } else {
+                reads::handle(&method, params.as_ref())
+            }
+        })
+        .await;
         let fallback = match answer {
             Ok(Answer::Result(result)) => {
                 let reply = protocol::result_line(&request.id, &result);

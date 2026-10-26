@@ -58,6 +58,78 @@ impl J {
             .chain(named)
             .collect()
     }
+    /// Set `key` the way JS assignment does: an existing key keeps its
+    /// position, a new one is appended.
+    pub fn set(&mut self, key: &str, value: J) {
+        if let J::Obj(fields) = self {
+            match fields.iter_mut().find(|(k, _)| k == key) {
+                Some(slot) => slot.1 = value,
+                None => fields.push((key.to_owned(), value)),
+            }
+        }
+    }
+    pub fn remove(&mut self, key: &str) -> Option<J> {
+        if let J::Obj(fields) = self {
+            let at = fields.iter().position(|(k, _)| k == key)?;
+            return Some(fields.remove(at).1);
+        }
+        None
+    }
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            J::Str(s) => Some(s),
+            _ => None,
+        }
+    }
+    pub fn as_arr(&self) -> Option<&Vec<J>> {
+        match self {
+            J::Arr(items) => Some(items),
+            _ => None,
+        }
+    }
+    /// `JSON.stringify(value, null, 2)`.
+    pub fn to_json_pretty(&self) -> String {
+        let mut out = String::new();
+        self.write_pretty(&mut out, 0);
+        out
+    }
+    fn write_pretty(&self, out: &mut String, depth: usize) {
+        let pad = |out: &mut String, d: usize| {
+            out.push('\n');
+            for _ in 0..d {
+                out.push_str("  ");
+            }
+        };
+        match self {
+            J::Arr(items) if !items.is_empty() => {
+                out.push('[');
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    pad(out, depth + 1);
+                    item.write_pretty(out, depth + 1);
+                }
+                pad(out, depth);
+                out.push(']');
+            }
+            J::Obj(fields) if !fields.is_empty() => {
+                out.push('{');
+                for (i, (k, v)) in self.js_entries().into_iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    pad(out, depth + 1);
+                    write_str(out, k);
+                    out.push_str(": ");
+                    v.write_pretty(out, depth + 1);
+                }
+                pad(out, depth);
+                out.push('}');
+            }
+            other => other.write(out),
+        }
+    }
     pub fn to_json(&self) -> String {
         let mut out = String::new();
         self.write(&mut out);

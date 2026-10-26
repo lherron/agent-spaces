@@ -5,7 +5,7 @@
  *   bun scripts/aspd-compare/run.ts --out <dir> [--commit <sha>]
  *     [--a-cmd '<json argv>'] [--b-cmd '<json argv>']
  *     [--a-declared-extra <case>:<path>]... [--b-declared-extra <case>:<path>]...
- *     [--raw] [--keep-scratch]
+ *     [--release-artifact <built release dir>] [--cases live] [--raw] [--keep-scratch]
  *
  * Builds one real release from a clean clone of <commit> (default HEAD) into a
  * scratch namespace; both subjects are served from that one release directory.
@@ -49,6 +49,7 @@ import {
   readdirSync,
   readlinkSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs'
 import { connect } from 'node:net'
@@ -56,14 +57,15 @@ import { join, relative, resolve } from 'node:path'
 
 import { derivePlanHashes } from '../../compiler/agent-spaces/src/compile-plan-finalize.ts'
 import { inspectRelease } from '../asp-release.ts'
-import { buildScratchRelease, must, repo } from '../lib/scratch-release.ts'
+import { buildScratchRelease, installReleaseArtifact, must, repo } from '../lib/scratch-release.ts'
 import {
   appendedUsageMetricsRows,
   isolateUsageMetrics,
   snapshotUsageMetrics,
 } from '../lib/usage-metrics-isolation.ts'
-import { loadAsp } from '../path-markers-e2e.ts'
+import { type Asp, loadAsp } from '../path-markers-e2e.ts'
 import { type CompareCase, HELLO_PARAMS, buildCases, seedStage } from './cases.ts'
+import { type LiveStage, buildLiveCases, seedLiveStage } from './live-cases.ts'
 import { RESPONSE_MASK, TOKENS, TREE_MASK } from './volatile-mask.ts'
 
 // Usage metrics from this script and its children stay out of the real day files (T-11824);
@@ -182,7 +184,19 @@ function treeManifest(root: string, fingerprints: Fingerprints): Record<string, 
 
 function restoreStage(seed: string, stage: string): void {
   rmSync(stage, { recursive: true, force: true })
-  cpSync(seed, stage, { recursive: true, verbatimSymlinks: true })
+  // Timestamps are seed state too (bundle-version pruning reads mtimes).
+  cpSync(seed, stage, { recursive: true, verbatimSymlinks: true, preserveTimestamps: true })
+  copyDirectoryTimes(seed, stage)
+}
+
+/** cpSync preserves file times only; give each directory its source's times, children first. */
+function copyDirectoryTimes(from: string, to: string): void {
+  for (const name of readdirSync(from)) {
+    const source = join(from, name)
+    if (lstatSync(source).isDirectory()) copyDirectoryTimes(source, join(to, name))
+  }
+  const { atime, mtime } = lstatSync(from)
+  utimesSync(to, atime, mtime)
 }
 
 // -- subjects -------------------------------------------------------------------
@@ -521,17 +535,28 @@ async function main(): Promise<number> {
   const ns = join(scratch, 'var', 'aspd')
   const socketDir = join(ns, 'run')
   mkdirSync(socketDir, { recursive: true })
-  const release = buildScratchRelease(commit, scratch, join(ns, 'releases'))
+  // --release-artifact reuses a release built earlier (asp-release.ts build
+  // output) instead of building <commit> from a clean clone.
+  const artifact = arg('--release-artifact')
+  const release =
+    artifact === undefined
+      ? buildScratchRelease(commit, scratch, join(ns, 'releases'))
+      : installReleaseArtifact(resolve(artifact), join(ns, 'releases'))
   const releaseDir = join(ns, 'releases', release.releaseId)
   const aspd = inspectRelease(releaseDir).executableResolution.aspd?.launcher
   if (aspd === undefined) throw new Error(`release ${release.releaseId} has no aspd`)
 
   const stage = join(scratch, 'stage')
   const seed = join(scratch, 'seed')
-  const asp = await loadAsp()
-  const seeded = seedStage(asp, stage)
-  const cases = buildCases(asp, seeded)
-  cpSync(stage, seed, { recursive: true, verbatimSymlinks: true })
+  // --cases live: the node's real agents and projects (live-cases.ts).
+  const live = arg('--cases') === 'live'
+  const asp = live ? undefined : await loadAsp()
+  const seeded = live ? seedLiveStage(stage) : seedStage(asp as Asp, stage)
+  const cases = live
+    ? buildLiveCases(seeded as LiveStage)
+    : buildCases(asp as Asp, seeded as ReturnType<typeof seedStage>)
+  cpSync(stage, seed, { recursive: true, verbatimSymlinks: true, preserveTimestamps: true })
+  copyDirectoryTimes(stage, seed)
   const env: Record<string, string> = {}
   for (const key of INHERITED_ENV)
     if (process.env[key] !== undefined) env[key] = process.env[key] as string
@@ -542,6 +567,8 @@ async function main(): Promise<number> {
     // Subjects' metrics (Bun aspd, raspd, anything they start) go to the run's
     // scratch var root, never the node's: the override wins over the release root.
     ASP_USAGE_METRICS_VAR_ROOT: join(scratch, 'var'),
+    // Workspace trust goes to the stage, never the operator's ~/.claude.json.
+    ...(live ? { CLAUDE_CONFIG_DIR: (seeded as LiveStage).claudeConfigDir } : {}),
   })
 
   const subjects: [Subject, Subject] = [parseSubject('a', aspd), parseSubject('b', aspd)]

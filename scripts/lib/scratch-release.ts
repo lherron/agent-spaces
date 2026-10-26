@@ -31,6 +31,26 @@ export function must(
   return result.stdout
 }
 
+/** Install an already-built release artifact into `releaseRoot`. */
+export function installReleaseArtifact(
+  artifact: string,
+  releaseRoot: string
+): { releaseId: string; releasePath: string } {
+  const manifest = JSON.parse(must(['cat', join(artifact, 'release.json')])) as {
+    releaseId: string
+  }
+  must([
+    'bun',
+    'scripts/asp-release.ts',
+    'install',
+    '--artifact',
+    artifact,
+    '--release-root',
+    releaseRoot,
+  ])
+  return { releaseId: manifest.releaseId, releasePath: artifact }
+}
+
 /**
  * Clone `sha` into `<scratch>/src-<sha8>`, build its release under
  * `<scratch>/builds` and install it into `releaseRoot` (`<ns>/releases`).

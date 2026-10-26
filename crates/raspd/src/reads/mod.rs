@@ -13,13 +13,13 @@
 //! fallback, which answers `unsupported_schema`); any other invalid params are
 //! Bun's JSON-RPC validation error, which raspd forwards.
 mod continuation;
-mod declaration;
+pub(crate) mod declaration;
 mod hash;
-mod jspath;
-mod patterns;
-mod profile;
-mod targets;
-mod toml;
+pub(crate) mod jspath;
+pub(crate) mod patterns;
+pub(crate) mod profile;
+pub(crate) mod targets;
+pub(crate) mod toml;
 
 use crate::json::J;
 use std::collections::BTreeMap;
