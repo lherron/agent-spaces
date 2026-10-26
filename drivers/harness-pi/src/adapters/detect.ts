@@ -5,6 +5,7 @@
 
 import { constants, access } from 'node:fs/promises'
 import { join } from 'node:path'
+import { pathMarker } from 'spaces-config/path-markers'
 import { COMMON_PI_PATHS } from './constants.js'
 import { PiNotFoundError } from './errors.js'
 
@@ -184,9 +185,11 @@ async function supportsPiFlag(piPath: string, flag: string): Promise<boolean> {
  */
 export async function detectPi(forceRefresh = false): Promise<PiInfo> {
   if (cachedPiInfo && !forceRefresh) {
+    pathMarker('harness.detect', 'pi:cached')
     return cachedPiInfo
   }
 
+  pathMarker('harness.detect', 'pi:probed')
   const path = await findPiBinary()
   const version = await queryPiVersion(path)
 

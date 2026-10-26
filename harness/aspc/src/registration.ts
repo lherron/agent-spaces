@@ -22,6 +22,7 @@ import {
   validateAspcPrepareProcessInvocationRequest,
   validateAspcResolveRuntimeDeclarationRequest,
 } from 'spaces-aspc-protocol'
+import { pathMarker, withPathMarkerCaller } from 'spaces-config/path-markers'
 import type { AspcService } from './service.js'
 import { createAspcService } from './service.js'
 
@@ -46,6 +47,8 @@ export type AspcMethodRequest = {
   id: string | number | null
   method: string
   params: unknown
+  /** The caller's `<name>/<version>` from the request envelope, when the transport has one. */
+  client?: string | undefined
 }
 
 export type AspcMethodHandler = (request: AspcMethodRequest) => Promise<unknown>
@@ -72,10 +75,12 @@ export function registerAspcMethod<Params, Result>(
   validateRequest: (params: unknown) => Params,
   handle: (req: Params) => Promise<Result>
 ): void {
-  server.register(method, async ({ id, params }) => {
-    validateAspcCommand({ jsonrpc: JSONRPC_VERSION, id, method, params })
-    return handle(validateRequest(params))
-  })
+  server.register(method, async ({ id, params, client }) =>
+    withPathMarkerCaller(client, async () => {
+      validateAspcCommand({ jsonrpc: JSONRPC_VERSION, id, method, params })
+      return handle(validateRequest(params))
+    })
+  )
 }
 
 /**
@@ -160,21 +165,24 @@ function registerAspcObservationMethod<Params, Result>(
   validateRequest: (params: unknown) => Params,
   handle: (req: Params) => Promise<Result>
 ): void {
-  server.register(method, async ({ id, params }) => {
-    try {
-      validateAspcCommand({ jsonrpc: JSONRPC_VERSION, id, method, params })
-      return handle(validateRequest(params))
-    } catch (error) {
-      const schema =
-        typeof params === 'object' && params !== null
-          ? (params as Record<string, unknown>)['schemaVersion']
-          : undefined
-      if (typeof schema === 'string' && schema !== expectedObservationSchema(method)) {
-        return handle(params as Params)
+  server.register(method, async ({ id, params, client }) =>
+    withPathMarkerCaller(client, async () => {
+      try {
+        validateAspcCommand({ jsonrpc: JSONRPC_VERSION, id, method, params })
+        return handle(validateRequest(params))
+      } catch (error) {
+        const schema =
+          typeof params === 'object' && params !== null
+            ? (params as Record<string, unknown>)['schemaVersion']
+            : undefined
+        if (typeof schema === 'string' && schema !== expectedObservationSchema(method)) {
+          pathMarker('aspc.observation-schema-fallback', method)
+          return handle(params as Params)
+        }
+        throw error
       }
-      throw error
-    }
-  })
+    })
+  )
 }
 
 function expectedObservationSchema(method: string): string {

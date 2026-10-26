@@ -42,6 +42,7 @@ import {
 import { ensureAspHome, getAspHome } from '../store/index.js'
 
 import { fetch as gitFetch } from '../git/index.js'
+import { pathMarker, pathMarkerTimer } from '../path-markers/index.js'
 import { type InstallOptions, populateSnapshotsFromLock } from './install.js'
 import { type TargetMaterializationResult, materializeTarget } from './materialize-target.js'
 
@@ -163,11 +164,16 @@ export async function materializeFromRefs(
 
   // Optionally fetch registry updates
   if (fetchRegistry) {
+    const fetched = pathMarkerTimer('materialize.registry-fetch')
     try {
       await gitFetch('origin', { cwd: registryPath, all: true })
+      fetched('ok')
     } catch {
       // Repository may not exist yet, that's ok
+      fetched('failed')
     }
+  } else {
+    pathMarker('materialize.registry-fetch', 'skipped')
   }
 
   // Load existing lock if available (for pinning)
@@ -202,6 +208,7 @@ export async function materializeFromRefs(
   } else {
     mergedLock = newLock
   }
+  pathMarker('materialize.lock-write', existingLock ? 'merged' : 'fresh')
 
   // Populate store with snapshots
   const snapshotsCreated = await populateSnapshotsFromLock(

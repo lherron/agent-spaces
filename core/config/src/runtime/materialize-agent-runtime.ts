@@ -16,6 +16,7 @@ import {
 } from '../orchestration/materialize-refs.js'
 import { materializeTarget } from '../orchestration/materialize-target.js'
 import { deferImmutableRegistry, getRegistryPath, resolveTarget } from '../orchestration/resolve.js'
+import { pathMarker } from '../path-markers/index.js'
 import { computeClosure } from '../resolver/closure.js'
 import type { ImmutableSourceRoot } from '../resolver/immutable-root.js'
 import { generateLockFileForTarget } from '../resolver/lock-generator.js'
@@ -121,6 +122,7 @@ export async function materializeAgentRuntimeResources(
   if (adapter === undefined) {
     throw new Error('materializeAgentRuntimeResources requires a harness adapter')
   }
+  pathMarker('prepare.spec-kind', spec.kind)
   if (spec.kind === 'target') {
     const { targetName, lock, registryPath } = await resolveAgentRuntimeSpecToLock(spec, options)
     const materializationOptions: InstallOptions = {

@@ -39,6 +39,7 @@ import type {
   ProjectManifest,
 } from 'spaces-config'
 import { copyDir } from 'spaces-config'
+import { pathMarker } from 'spaces-config/path-markers'
 import { composeMuseWorkspace, loadMuseWorkspaceBundle } from '../composer.js'
 import { detectMuse } from '../detect.js'
 import { prepareMuseHome } from '../prepare-home.js'
@@ -100,7 +101,9 @@ export class MuseAdapter implements HarnessAdapter {
   ]
 
   async detect(): Promise<HarnessDetection> {
+    // detectMuse keeps no cache: every call probes the binary.
     const detection = await detectMuse()
+    pathMarker('harness.detect', detection.available ? 'muse:probed' : 'muse:unavailable')
     if (!detection.available) {
       return { available: false, error: detection.error }
     }

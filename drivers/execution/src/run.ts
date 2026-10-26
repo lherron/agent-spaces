@@ -31,6 +31,7 @@ import {
   readLockJson,
   sweepAspTempArtifacts,
 } from 'spaces-config'
+import { pathMarker } from 'spaces-config/path-markers'
 import type { HarnessId } from 'spaces-runtime-contracts'
 
 import { migrateLegacyProjectCodexRuntimeHome } from './run-codex.js'
@@ -117,17 +118,17 @@ export async function migrateLegacyProjectHarnessOutput(
     harnessId,
     aspHome
   )
-  if (outputPath === legacyOutputPath) {
-    return
-  }
-  if (await pathExists(outputPath)) {
-    return
-  }
-  if (!(await pathExists(legacyOutputPath))) {
+  if (
+    outputPath === legacyOutputPath ||
+    (await pathExists(outputPath)) ||
+    !(await pathExists(legacyOutputPath))
+  ) {
+    pathMarker('run.legacy-migrate', 'harness-output:noop')
     return
   }
 
   await moveDirWithCopyFallback(legacyOutputPath, outputPath)
+  pathMarker('run.legacy-migrate', 'harness-output:moved')
 }
 
 async function installRunTarget(args: RunInstallArgs): Promise<string> {
@@ -313,6 +314,10 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
         }
       : undefined
   let materializedHarnessOutputPath = harnessOutputPath
+  pathMarker(
+    'run.entry',
+    `${adapter.id}:${needsInstall ? (effectiveCompose !== undefined ? 'compose' : 'install') : 'reuse'}`
+  )
   if (needsInstall) {
     debugLog('install', options.refresh ? '(refresh)' : '(missing output)')
     materializedHarnessOutputPath = await installRunTarget({

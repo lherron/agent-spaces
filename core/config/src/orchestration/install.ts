@@ -55,6 +55,7 @@ import {
   lint as lintSpaces,
 } from '../lint/index.js'
 
+import { pathMarker } from '../path-markers/index.js'
 import { noteUsageCompile } from '../usage-metrics/index.js'
 import { type TargetMaterializationResult, materializeTarget } from './materialize-target.js'
 import {
@@ -181,12 +182,14 @@ export async function populateSnapshotsFromLock(
   let snapshotOptions: SnapshotOptions | undefined
 
   let created = 0
+  let registryEntries = 0
 
   for (const entry of Object.values(lock.spaces)) {
     // Skip filesystem-backed entries (@dev / project / agent) — no snapshot needed
     if (classifySpaceEntry(entry) !== 'registry') {
       continue
     }
+    registryEntries++
 
     // Check if snapshot already exists
     if (await snapshotExists(entry.integrity, { paths })) {
@@ -201,6 +204,10 @@ export async function populateSnapshotsFromLock(
     created++
   }
 
+  pathMarker(
+    'materialize.snapshot',
+    created > 0 ? 'created' : registryEntries > 0 ? 'reused' : 'no-registry-spaces'
+  )
   return created
 }
 

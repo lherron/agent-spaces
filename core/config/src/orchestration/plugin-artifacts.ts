@@ -31,6 +31,7 @@ import {
 
 import { evaluateHygieneGate, forceComposeEnabled } from '../materializer/hygiene-gate.js'
 import { linkDirectory } from '../materializer/link-components.js'
+import { pathMarker } from '../path-markers/index.js'
 import { classifySpaceEntry, resolveSpaceContentDir, spaceKeyForEntry } from '../resolver/index.js'
 
 import {
@@ -149,6 +150,7 @@ export async function materializeSpaceEntry(
   if (supports !== undefined && !(supports as readonly string[]).includes(harnessId)) {
     // Skip spaces that do not declare the selected canonical harness id.
     // Removed ids and aliases never translate (T-08701).
+    pathMarker('materialize.space', 'harness-skip')
     return null
   }
 
@@ -185,9 +187,11 @@ export async function materializeSpaceEntry(
       `space-${sanitizeProjectAgentScopeSegment(String(spaceKey))}`
     )
     await adapter.materializeSpace(input, artifactPath, { force: false, useHardlinks: false })
+    pathMarker('materialize.space', `mutable-staged:${kind}`)
   } else {
     const ensurePublishedCache = async (): Promise<void> => {
       if (await cacheExists(cacheKey, { paths })) {
+        pathMarker('materialize.space', 'cache-hit')
         return
       }
 
@@ -240,7 +244,13 @@ export async function materializeSpaceEntry(
           if (!(await cacheExists(cacheKey, { paths }))) {
             throw error
           }
+          pathMarker('materialize.space', 'cache-collision-reused')
+          return
         }
+        pathMarker(
+          'materialize.space',
+          hygieneWarnings === undefined ? 'cache-built' : 'cache-built:hygiene-forced'
+        )
       } catch (error) {
         await rm(stagingDir, { recursive: true, force: true }).catch(() => {})
         throw error

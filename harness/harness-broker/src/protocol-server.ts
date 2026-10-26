@@ -18,6 +18,8 @@ export type RequestHandler = (request: {
   id: JsonRpcId
   method: string
   params: unknown
+  /** The request envelope's `client` (`<name>/<version>`), or `unknown`. */
+  client?: string | undefined
 }) => Promise<unknown>
 
 export interface ProtocolServerOptions {
@@ -145,7 +147,7 @@ export function createProtocolServer(options: ProtocolServerOptions): ProtocolSe
     }
 
     // Fire-and-forget (async handler)
-    void handler({ id: frame.id, method: frame.method, params: frame.params }).then(
+    void handler({ id: frame.id, method: frame.method, params: frame.params, client }).then(
       (result) => {
         writeFrame({
           jsonrpc: '2.0',

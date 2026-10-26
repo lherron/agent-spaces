@@ -11,6 +11,7 @@ import {
   parseTargetsToml,
   resolveAgentPrimingPrompt,
 } from 'spaces-config'
+import { pathMarker } from 'spaces-config/path-markers'
 import { createCanonicalHasher } from 'spaces-runtime-contracts'
 import { HARNESS_CATALOG } from './harness-selection/catalog.js'
 
@@ -71,6 +72,27 @@ export async function resolveRuntimeDeclaration(
   request: Request,
   options: RuntimeDeclarationOptions = {}
 ): Promise<Record<string, unknown>> {
+  try {
+    const response = await resolveObservedRuntimeDeclaration(request, options)
+    pathMarker('declaration.resolve', declarationOutcome(response))
+    return response
+  } catch (error) {
+    pathMarker('declaration.resolve', 'threw')
+    throw error
+  }
+}
+
+function declarationOutcome(response: Record<string, unknown>): string {
+  if (response['ok'] === true) return 'ok'
+  const failure = response['failure'] as { code?: unknown } | undefined
+  const resolution = response['resolution'] as { code?: unknown } | undefined
+  return String(failure?.code ?? resolution?.code ?? 'unknown')
+}
+
+async function resolveObservedRuntimeDeclaration(
+  request: Request,
+  options: RuntimeDeclarationOptions
+): Promise<Record<string, unknown>> {
   if (request.schemaVersion !== RESOLVE_RUNTIME_DECLARATION_REQUEST_VERSION || !request.context) {
     return failure('incompatible', 'unsupported_schema', 'Unsupported runtime declaration schema')
   }
@@ -105,6 +127,12 @@ export async function resolveRuntimeDeclaration(
   } catch (error) {
     return failure('incompatible', 'configured_context_mismatch', formatError(error))
   }
+  pathMarker(
+    'declaration.project-mode',
+    context.project.mode === 'infer-from-cwd'
+      ? `infer-from-cwd:${projectRoot === undefined ? 'none' : 'found'}`
+      : context.project.mode
+  )
 
   let searchRoots: string[] = []
   if (!suppliedAgentRoot && configuredAgentsRoot) searchRoots.push(configuredAgentsRoot)
@@ -141,6 +169,14 @@ export async function resolveRuntimeDeclaration(
     return failure('incompatible', 'configured_context_mismatch', formatError(error))
   }
 
+  pathMarker(
+    'declaration.agent-root',
+    suppliedAgentRoot
+      ? 'supplied'
+      : agentRoot === undefined
+        ? 'not-found'
+        : `searched:${agentRootKind(agentRoot, configuredAgentsRoot, projectRoot)}`
+  )
   const agentSources = resolvedSources(aspHome, configuredAgentsRoot, context)
   if (!agentRoot) {
     return {
@@ -162,7 +198,9 @@ export async function resolveRuntimeDeclaration(
   const profilePath = join(agentRoot, 'agent-profile.toml')
   let profileContent: string | undefined
   let profile: ReturnType<typeof parseAgentProfile>
-  if (existsSync(profilePath)) {
+  const profileExists = existsSync(profilePath)
+  pathMarker('declaration.profile-absent', profileExists ? 'present' : 'synthesized')
+  if (profileExists) {
     try {
       profileContent = readFileSync(profilePath, 'utf8')
     } catch (error) {
@@ -591,4 +629,25 @@ function isSourceReadError(error: unknown): boolean {
     'code' in error &&
     ['ENOENT', 'EACCES', 'EPERM', 'EIO'].includes(String(error.code))
   )
+}
+
+/** Which search root supplied the agent: configured agents root, the project, or another root. */
+function agentRootKind(
+  agentRoot: string,
+  configuredAgentsRoot: string | undefined,
+  projectRoot: string | undefined
+): string {
+  const inside = (root: string | undefined) => {
+    if (root === undefined) return false
+    let canonical = root
+    try {
+      canonical = realpathSync(root)
+    } catch {
+      // Compare as given.
+    }
+    return agentRoot === canonical || agentRoot.startsWith(`${canonical}/`)
+  }
+  if (inside(configuredAgentsRoot)) return 'agents-root'
+  if (inside(projectRoot)) return 'project'
+  return 'other'
 }

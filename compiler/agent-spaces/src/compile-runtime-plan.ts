@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 
 import { parseAgentProfile } from 'spaces-config'
+import { pathMarker, pathMarkerTimer } from 'spaces-config/path-markers'
 import type { RuntimeCompileRequest, RuntimeCompileResponse } from 'spaces-runtime-contracts'
 
 import { compileError, hygieneBlockResponse } from './compile-diagnostics.js'
@@ -68,6 +69,21 @@ export async function compileRuntimePlan(
   req: RuntimeCompileRequest,
   options?: CompileRuntimePlanOptions
 ): Promise<RuntimeCompileResponse> {
+  const marked = pathMarkerTimer('compile.entry')
+  try {
+    const response = await compileResolvedRuntimePlan(req, options)
+    marked(response.ok ? 'ok' : `refused:${response.diagnostics[0]?.code ?? 'unknown'}`)
+    return response
+  } catch (error) {
+    marked('threw')
+    throw error
+  }
+}
+
+async function compileResolvedRuntimePlan(
+  req: RuntimeCompileRequest,
+  options?: CompileRuntimePlanOptions
+): Promise<RuntimeCompileResponse> {
   const startedAtMs = performance.now()
   try {
     const placement = req.placement as CompilePlacement
@@ -96,6 +112,12 @@ export async function compileRuntimePlan(
         diagnostics: [compileError(resolved.code, resolved.message, resolved.details)],
       }
     }
+    pathMarker('compile.recipe', resolved.recipe.recipeId)
+    pathMarker('compile.harness-source', resolved.selection.provenance.harness)
+    pathMarker(
+      'compile.continuation',
+      req.continuation === undefined ? 'fresh' : `resume:${req.continuation.hrc.provider}`
+    )
     const response = await timeCompilePhase('build', () =>
       BUILDER_REGISTRY[resolved.recipe.builder](req, placement, resolved, options)
     )

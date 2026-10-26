@@ -2,6 +2,7 @@ import { isAbsolute } from 'node:path'
 
 import { buildCodexAppServerLaunchDescriptor, isHarnessId } from 'spaces-config'
 import type { RuntimePlacement } from 'spaces-config'
+import { pathMarker } from 'spaces-config/path-markers'
 import type { HrcTaskContext } from 'spaces-runtime-contracts'
 import {
   toHarnessBrokerStartRequest,
@@ -289,6 +290,7 @@ export function createAgentSpacesClient(
     },
 
     async resolve(req: ResolveRequest): Promise<ResolveResponse> {
+      pathMarker('client.legacy-entry', 'resolve')
       return withAspHome(req.aspHome, async () => {
         try {
           const spec = validateSpec(req.spec)
@@ -310,6 +312,7 @@ export function createAgentSpacesClient(
     },
 
     async describe(req: DescribeRequest): Promise<DescribeResponse> {
+      pathMarker('client.legacy-entry', 'describe')
       return withAspHome(req.aspHome, async () => {
         if ('frontend' in (req as unknown as Record<string, unknown>)) {
           throw new CodedError(
@@ -382,6 +385,7 @@ export function createAgentSpacesClient(
     async buildProcessInvocationSpec(
       req: BuildProcessInvocationSpecRequest
     ): Promise<BuildProcessInvocationSpecResponse> {
+      pathMarker('client.process-spec', req.placement ? 'placement' : 'spec')
       if (req.placement) {
         const prepared = await preparePlacementCliRuntime(
           req,
@@ -501,6 +505,7 @@ export function createAgentSpacesClient(
     async buildHarnessBrokerInvocation(
       req: BuildHarnessBrokerInvocationRequest
     ): Promise<BuildHarnessBrokerInvocationResponse> {
+      pathMarker('client.legacy-entry', 'buildHarnessBrokerInvocation')
       validateBrokerInvocationRequest(req)
       const prepared = await preparePlacementCliRuntime(
         req,
@@ -511,5 +516,27 @@ export function createAgentSpacesClient(
       return toHarnessBrokerStartRequest(prepared, req)
     },
   }
+  const prepareProcessInvocation = client.prepareProcessInvocation
+  client.prepareProcessInvocation = async (req) => {
+    try {
+      const response = await prepareProcessInvocation(req)
+      pathMarker('client.prepare-process', prepareProcessOutcome(response))
+      return response
+    } catch (error) {
+      pathMarker('client.prepare-process', 'threw')
+      throw error
+    }
+  }
+
   return client as unknown as CompilerAgentSpacesClient
+}
+
+function prepareProcessOutcome(response: unknown): string {
+  const record = response as Record<string, unknown>
+  if (record['ok'] === true) {
+    return `ok:${String((record['declaration'] as { frontend?: unknown } | undefined)?.frontend)}`
+  }
+  const failure = record['failure'] as { code?: unknown } | undefined
+  const resolution = record['resolution'] as { code?: unknown } | undefined
+  return String(failure?.code ?? resolution?.code ?? 'unknown')
 }

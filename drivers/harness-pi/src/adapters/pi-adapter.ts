@@ -50,6 +50,7 @@ import {
   readPermissionsToml,
   toPiPermissions,
 } from 'spaces-config'
+import { pathMarker } from 'spaces-config/path-markers'
 
 import { type ExtensionBuildOptions, bundleExtension, discoverExtensions } from './bundle.js'
 import {
@@ -188,6 +189,7 @@ export class PiAdapter implements HarnessAdapter {
         ],
       }
     } catch (error) {
+      pathMarker('harness.detect', 'pi:unavailable')
       return {
         available: false,
         error: error instanceof Error ? error.message : String(error),

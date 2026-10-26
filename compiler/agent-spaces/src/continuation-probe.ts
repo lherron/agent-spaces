@@ -3,6 +3,8 @@ import { readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 
+import { pathMarker } from 'spaces-config/path-markers'
+
 export const OBSERVE_CONTINUATION_ARTIFACT_REQUEST_VERSION =
   'aspc-observe-continuation-artifact-request/v1'
 export const OBSERVE_CONTINUATION_ARTIFACT_RESPONSE_VERSION =
@@ -50,6 +52,31 @@ export async function checkContinuationArtifact(
 export async function observeContinuationArtifact(
   request: UnknownRecord,
   options: { aspHome?: string | undefined } = {}
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await observeRequestedContinuation(request, options)
+    pathMarker('continuation.observe', continuationOutcome(response))
+    return response
+  } catch (error) {
+    pathMarker('continuation.observe', 'threw')
+    throw error
+  }
+}
+
+/** `<format>:<basis>:<state>:<code>` on success, the failure code otherwise. */
+function continuationOutcome(response: Record<string, unknown>): string {
+  if (response['ok'] !== true) {
+    return String((response['failure'] as { code?: unknown } | undefined)?.code ?? 'unknown')
+  }
+  const artifact = response['artifact'] as { state?: unknown; code?: unknown } | undefined
+  return [response['artifactFormat'], response['basis'], artifact?.state, artifact?.code]
+    .map(String)
+    .join(':')
+}
+
+async function observeRequestedContinuation(
+  request: UnknownRecord,
+  options: { aspHome?: string | undefined }
 ): Promise<Record<string, unknown>> {
   if (request['schemaVersion'] !== OBSERVE_CONTINUATION_ARTIFACT_REQUEST_VERSION) {
     return observationFailure(

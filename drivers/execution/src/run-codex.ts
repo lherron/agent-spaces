@@ -23,6 +23,7 @@ import {
   sanitizeProjectAgentScopeSegment,
   withLock,
 } from 'spaces-config'
+import { pathMarker } from 'spaces-config/path-markers'
 import {
   CODEX_INTERACTIVE_HOOK_EVENTS,
   CODEX_SPACE_HOOKS_FILE,
@@ -217,10 +218,12 @@ export async function migrateLegacyProjectCodexRuntimeHome(
   const runtimeExists = await pathExists(runtimeHome)
   const legacyExists = await pathExists(legacyRuntimeHome)
   if (runtimeExists || !legacyExists) {
+    pathMarker('run.legacy-migrate', 'codex-home:noop')
     return runtimeHome
   }
 
   await moveDirWithCopyFallback(legacyRuntimeHome, runtimeHome, { clearDestFirst: true })
+  pathMarker('run.legacy-migrate', 'codex-home:moved')
 
   return runtimeHome
 }
@@ -388,6 +391,7 @@ export async function prepareCodexRuntimeHome(
     join(runtimeHome, '.asp-runtime.lock'),
     async () => {
       if (await codexRuntimeHomeMatches(runtimeHome, fingerprint)) {
+        pathMarker('materialize.codex-home', 'reused')
         return
       }
 
@@ -456,6 +460,7 @@ export async function prepareCodexRuntimeHome(
             cwd: resolve(runOptions.cwd ?? process.cwd()),
           }
       await writeCodexRuntimeMetadata(runtimeHome, metadata)
+      pathMarker('materialize.codex-home', `rewritten:${metadata.mode}`)
     },
     { stale: 60_000, retries: 600 }
   )

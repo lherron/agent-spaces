@@ -11,6 +11,7 @@ import {
   sweepAspTempArtifacts,
   writeRuntimeSystemPromptArtifact,
 } from 'spaces-config'
+import { pathMarker } from 'spaces-config/path-markers'
 import type { AttachmentRef, ContextResolverContext } from 'spaces-runtime'
 import type { MaterializeResult } from 'spaces-runtime'
 import { expandTemplate, materializeSystemPrompt } from 'spaces-runtime'
@@ -193,6 +194,10 @@ export async function preparePlacementCliRuntime(
       'unsupported_frontend'
     )
   }
+  pathMarker(
+    'prepare.frontend',
+    `${implementation.harness}:${implementation.frontend}:${req.interactionMode}`
+  )
 
   // The physical process identity is a catalog projection, not a route fallback.
   if (req.provider !== implementation.provider) {
@@ -298,6 +303,7 @@ export async function preparePlacementCliRuntime(
               placement.projectRoot ??
               placement.cwd ??
               (placement.bundle.kind === 'agent-project' ? placement.bundle.projectRoot : undefined)
+            pathMarker('prepare.identity', 'placement-fallback')
             console.warn(
               `[asp-diag] agent-project materialization missing semantic scopeRef identity; falling back to placement fields agentId=${JSON.stringify(
                 placement.bundle.agentName
@@ -311,6 +317,7 @@ export async function preparePlacementCliRuntime(
               frontend: req.frontend,
             }
           }
+          pathMarker('prepare.identity', 'scope-ref')
           return {
             agentId: handleParts.agentId,
             projectId: handleParts.projectId,
@@ -318,6 +325,7 @@ export async function preparePlacementCliRuntime(
           }
         })()
       : undefined
+  if (materializationIdentity === undefined) pathMarker('prepare.identity', 'none')
 
   // Context-template exec sections run while the launch is compiled, before
   // the final adapter environment is composed. The one preparation execution
@@ -366,6 +374,14 @@ export async function preparePlacementCliRuntime(
   } finally {
     await rm(launchOverlayDir, { recursive: true, force: true }).catch(() => {})
   }
+  pathMarker(
+    'prepare.system-prompt',
+    systemPrompt === undefined
+      ? 'absent'
+      : systemPrompt.taskScoped === undefined
+        ? 'materialized'
+        : 'materialized:task-scoped'
+  )
 
   // Bundle label = the LOGICAL target name (legacy `asp run` labels the bundle
   // with the agent/target name). Agent-project placements materialize under the
@@ -460,6 +476,10 @@ export async function preparePlacementCliRuntime(
       interactive: req.interactionMode === 'interactive',
       ...(req.codexHookEvents !== undefined ? { codexHookEvents: req.codexHookEvents } : {}),
     }
+    pathMarker(
+      'prepare.codex-home',
+      req.materializeCodexRuntimeHome === false ? 'read-only' : 'materialize'
+    )
     const codexHomeDir =
       req.materializeCodexRuntimeHome === false
         ? resolveReadOnlyCodexRuntimeHome(runtime, bundle, codexRunOptions)

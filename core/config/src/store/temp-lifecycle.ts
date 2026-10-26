@@ -7,6 +7,7 @@ import type { CompileContext } from 'spaces-runtime-contracts'
 
 import { resolveNowDate, resolveNowMs } from '../core/compile-clock.js'
 
+import { pathMarker } from '../path-markers/index.js'
 import { getAspHome } from './paths.js'
 
 export const DEFAULT_LAUNCH_OVERLAY_MAX_AGE_MS = 15 * 60 * 1000
@@ -163,5 +164,6 @@ export async function writeRuntimeSystemPromptArtifact(
   await writeFile(systemPromptPath, input.content, 'utf8')
   const now = resolveNowDate(input.compileContext)
   await utimes(systemPromptPath, now, now).catch(() => {})
+  pathMarker('materialize.prompt-artifact', 'written')
   return { systemPromptPath, contentHash }
 }

@@ -51,6 +51,11 @@
       "types": "./dist/usage-metrics/index.d.ts",
       "import": "./dist/usage-metrics/index.js"
     },
+    "./path-markers": {
+      "bun": "./src/path-markers/index.ts",
+      "types": "./dist/path-markers/index.d.ts",
+      "import": "./dist/path-markers/index.js"
+    },
     "./schemas/*": {
       "types": "./src/core/schemas/*",
       "import": "./src/core/schemas/*"

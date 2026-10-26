@@ -8,6 +8,7 @@ import type {
   HarnessDetection,
   HarnessRunOptions,
 } from 'spaces-config'
+import { pathMarker } from 'spaces-config/path-markers'
 
 import { displayPrompts, formatDisplayCommand } from '../prompt-display.js'
 import { prepareRunOptions } from '../run-codex.js'
@@ -223,6 +224,10 @@ export async function executeHarnessRun(
     env: harnessEnv,
   }
 
+  pathMarker(
+    'run.surface',
+    `${compiled ? 'compiled' : preparedRunOptions.launchSurface === 'codex-app' ? 'codex-app' : 'cli'}:${options.dryRun ? 'dry-run' : 'exec'}`
+  )
   if (options.dryRun) {
     return {
       exitCode: 0,

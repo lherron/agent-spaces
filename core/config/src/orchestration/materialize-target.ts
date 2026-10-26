@@ -50,6 +50,7 @@ import {
   sweepAspTempArtifacts,
 } from '../store/index.js'
 
+import { pathMarker } from '../path-markers/index.js'
 import type { InstallOptions } from './install.js'
 import { materializationLockPath, uniqueStagingDir } from './materialization-staging.js'
 import {
@@ -330,6 +331,9 @@ export async function materializeTarget(
       artifacts.push(agentArtifact)
       settingsInputs.push({}) // no settings from agent components
     }
+    pathMarker('materialize.agent-local', agentArtifact ? 'present' : 'empty')
+  } else {
+    pathMarker('materialize.agent-local', 'absent')
   }
   const artifactFingerprints = []
   for (const artifact of artifacts) {
@@ -376,6 +380,7 @@ export async function materializeTarget(
 
   const publishTarget = async (): Promise<void> => {
     if (await validateMaterializedTarget(outputPath, fingerprint)) {
+      pathMarker('materialize.bundle', `${adapter.id}:hit`)
       return
     }
 
@@ -425,7 +430,10 @@ export async function materializeTarget(
         if (!(await validateMaterializedTarget(outputPath, fingerprint))) {
           throw error
         }
+        pathMarker('materialize.bundle', `${adapter.id}:publish-collision-reused`)
+        return
       }
+      pathMarker('materialize.bundle', `${adapter.id}:composed`)
     } catch (error) {
       await rm(stagingRoot, { recursive: true, force: true }).catch(() => {})
       throw error

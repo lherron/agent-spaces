@@ -49,6 +49,7 @@ import {
   linkOrCopy,
   readHooksToml,
 } from 'spaces-config'
+import { pathMarker } from 'spaces-config/path-markers'
 export {
   DEFAULT_CODEX_ENABLED_FEATURES,
   buildCodexAppServerLaunchDescriptor,
@@ -382,6 +383,7 @@ export class CodexAdapter implements HarnessAdapter {
       const fingerprint = binaryFingerprint(candidate)
       const cached = fingerprint ? detectionCache.get(candidate) : undefined
       if (cached && cached.fingerprint === fingerprint) {
+        pathMarker('harness.detect', 'codex:cached')
         return cached.detection
       }
 
@@ -390,6 +392,7 @@ export class CodexAdapter implements HarnessAdapter {
         if (fingerprint) {
           detectionCache.set(candidate, { fingerprint, detection: probe.detection })
         }
+        pathMarker('harness.detect', 'codex:probed')
         return probe.detection
       }
       // Surface the real reason this otherwise-present binary failed instead of
@@ -398,6 +401,7 @@ export class CodexAdapter implements HarnessAdapter {
       errors.push(`${candidate}: ${probe.error}`)
     }
 
+    pathMarker('harness.detect', 'codex:unavailable')
     return {
       available: false,
       error:

@@ -2,6 +2,7 @@ import type { Dirent, Stats } from 'node:fs'
 import { lstat, readFile, readdir, rm } from 'node:fs/promises'
 import { basename, dirname, join, relative, sep } from 'node:path'
 import type { LockFile, Sha256Integrity } from '../core/index.js'
+import { pathMarker } from '../path-markers/index.js'
 import {
   type CacheOptions,
   computePluginCacheKey,
@@ -291,6 +292,7 @@ export async function pruneBundleVersions(
   const versions = await listBundleVersionEntries(options.versionsRoot)
   result.scanned = versions.length
   if (versions.length === 0) {
+    pathMarker('materialize.bundle-prune', 'none')
     return result
   }
 
@@ -357,6 +359,7 @@ export async function pruneBundleVersions(
       result.errors += 1
     }
   }
+  pathMarker('materialize.bundle-prune', result.versionsDeleted > 0 ? 'pruned' : 'none')
 
   return result
 }

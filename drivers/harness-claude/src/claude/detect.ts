@@ -12,6 +12,7 @@
 import { constants, access, realpath, stat } from 'node:fs/promises'
 import { delimiter, join } from 'node:path'
 import { ClaudeNotFoundError } from 'spaces-config'
+import { pathMarker } from 'spaces-config/path-markers'
 
 export const CLAUDE_PATH_ENV = 'ASP_CLAUDE_PATH'
 export const CLAUDE_SKIP_COMMON_PATHS_ENV = 'ASP_CLAUDE_SKIP_COMMON_PATHS'
@@ -260,9 +261,11 @@ export class ClaudeDetector {
       fingerprint !== undefined &&
       this.cachedFingerprint === fingerprint
     ) {
+      pathMarker('harness.detect', 'claude:cached')
       return this.cachedInfo
     }
 
+    pathMarker('harness.detect', 'claude:probed')
     const version = await queryVersion(path)
     const info: ClaudeInfo = {
       path,

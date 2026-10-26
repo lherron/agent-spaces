@@ -2,6 +2,7 @@ import { constants, access } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { isHarnessId } from 'spaces-config'
+import { pathMarker } from 'spaces-config/path-markers'
 import { HARNESS_CATALOG } from './harness-selection/catalog.js'
 
 export const OBSERVE_RUNTIME_CAPABILITY_REQUEST_VERSION =
@@ -21,6 +22,28 @@ type ProbeResult =
   | { ok: false; code: string; message: string }
 
 export async function observeRuntimeCapability(
+  request: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await observeHarnessCapability(request)
+    pathMarker('capability.observe', capabilityOutcome(response))
+    return response
+  } catch (error) {
+    pathMarker('capability.observe', 'threw')
+    throw error
+  }
+}
+
+function capabilityOutcome(response: Record<string, unknown>): string {
+  if (response['ok'] !== true) {
+    return String((response['failure'] as { code?: unknown } | undefined)?.code ?? 'unknown')
+  }
+  const harness = (response['harness'] as { requested?: unknown } | undefined)?.requested
+  const preparation = (response['preparation'] as { code?: unknown } | undefined)?.code
+  return `${String(harness)}:${String(preparation)}`
+}
+
+async function observeHarnessCapability(
   request: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
   if (request['schemaVersion'] !== OBSERVE_RUNTIME_CAPABILITY_REQUEST_VERSION) {

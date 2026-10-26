@@ -24,6 +24,7 @@ import {
   materializeTarget as configMaterializeTarget,
 } from 'spaces-config'
 import { DEFAULT_HARNESS } from 'spaces-config'
+import { pathMarker } from 'spaces-config/path-markers'
 import { noteUsageCompile } from 'spaces-config/usage-metrics'
 
 import { harnessRegistry } from './harness/index.js'
@@ -121,6 +122,7 @@ export type InstallOptions = Omit<ConfigInstallOptions, 'adapter'> & {
  */
 export async function install(options: InstallOptions): Promise<InstallResult> {
   const harnessId = options.harness ?? DEFAULT_HARNESS
+  pathMarker('install.entry', `install:${harnessId}`)
   const adapter = harnessRegistry.getOrThrow(harnessId)
   return configInstall({ ...options, adapter })
 }
@@ -138,6 +140,7 @@ export async function materializeTarget(
 ): Promise<TargetMaterializationResult> {
   noteUsageCompile('in-process')
   const harnessId = options.harness ?? DEFAULT_HARNESS
+  pathMarker('install.entry', `materializeTarget:${harnessId}`)
   const adapter = harnessRegistry.getOrThrow(harnessId)
   return configMaterializeTarget(targetName, lock, { ...options, adapter })
 }
@@ -168,6 +171,7 @@ export async function materializeFromRefs(
 ): Promise<MaterializeFromRefsResult> {
   noteUsageCompile('in-process')
   const harnessId = options.harness ?? DEFAULT_HARNESS
+  pathMarker('install.entry', `materializeFromRefs:${harnessId}`)
   const adapter = harnessRegistry.getOrThrow(harnessId)
   return configMaterializeFromRefs({ ...options, adapter })
 }
@@ -185,6 +189,7 @@ export type BuildOptions = Omit<ConfigBuildOptions, 'adapter'>
  */
 export async function build(targetName: string, options: BuildOptions): Promise<BuildResult> {
   const harnessId = options.harness ?? DEFAULT_HARNESS
+  pathMarker('install.entry', `build:${harnessId}`)
   const adapter = harnessRegistry.getOrThrow(harnessId)
   return configBuild(targetName, { ...options, adapter })
 }
@@ -197,6 +202,7 @@ export async function build(targetName: string, options: BuildOptions): Promise<
  */
 export async function buildAll(options: BuildOptions): Promise<Map<string, BuildResult>> {
   const harnessId = options.harness ?? DEFAULT_HARNESS
+  pathMarker('install.entry', `buildAll:${harnessId}`)
   const adapter = harnessRegistry.getOrThrow(harnessId)
   return configBuildAll({ ...options, adapter })
 }

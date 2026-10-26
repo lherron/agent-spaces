@@ -60,6 +60,7 @@ import {
   writeClaudeHooksJson,
   writePluginJson,
 } from 'spaces-config'
+import { pathMarker } from 'spaces-config/path-markers'
 import { buildClaudeArgs, detectClaude } from '../claude/index.js'
 import { ensureClaudeWorkspaceTrust } from '../claude/workspace-trust.js'
 
@@ -159,6 +160,7 @@ export class ClaudeAdapter implements HarnessAdapter {
         ],
       }
     } catch (error) {
+      pathMarker('harness.detect', 'claude:unavailable')
       return {
         available: false,
         error: error instanceof Error ? error.message : String(error),

@@ -3,6 +3,7 @@ import { basename, dirname, join } from 'node:path'
 
 import { type RuntimePlacement, buildRuntimeBundleRef, parseAgentProfile } from 'spaces-config'
 import { isHarnessId } from 'spaces-config'
+import { pathMarker } from 'spaces-config/path-markers'
 import {
   type InspectAgentSystemPromptInput,
   type ResolvedContextSection,
@@ -106,6 +107,31 @@ export async function inspectRuntimePlacement(
   request: Record<string, unknown>,
   options: InspectRuntimePlacementOptions = {}
 ): Promise<Record<string, unknown>> {
+  try {
+    const response = await inspectResolvedRuntimePlacement(request, options)
+    pathMarker('placement.inspect', placementInspectOutcome(response))
+    return response
+  } catch (error) {
+    pathMarker('placement.inspect', 'threw')
+    throw error
+  }
+}
+
+function placementInspectOutcome(response: Record<string, unknown>): string {
+  const declaration = response['declaration'] as Record<string, unknown> | undefined
+  if (response['ok'] === true) {
+    const provisioning = declaration?.['provisioning'] as { effectiveHarness?: unknown } | undefined
+    return provisioning?.effectiveHarness === undefined ? 'ok:defaulted' : 'ok:declared'
+  }
+  const failure = declaration?.['failure'] as { code?: unknown } | undefined
+  const resolution = declaration?.['resolution'] as { code?: unknown } | undefined
+  return String(failure?.code ?? resolution?.code ?? 'unknown')
+}
+
+async function inspectResolvedRuntimePlacement(
+  request: Record<string, unknown>,
+  options: InspectRuntimePlacementOptions
+): Promise<Record<string, unknown>> {
   if (request['schemaVersion'] !== 'aspc-inspect-runtime-placement-request/v1') {
     return {
       schemaVersion: 'aspc-inspect-runtime-placement-response/v1',
@@ -147,6 +173,14 @@ export async function inspectRuntimePlacement(
     throw new Error(`Unsupported inspection harness ${declaredHarness}`)
   }
   const effectiveHarness: HarnessId = declaredHarness ?? 'agent-harness'
+  pathMarker(
+    'placement.scaffold-fallback',
+    resolvedPlacement.scaffoldPackets !== undefined
+      ? 'declared'
+      : options.scaffoldPackets
+        ? 'service-options'
+        : 'none'
+  )
   const placement = placementFromDeclaration(
     {
       ...resolvedPlacement,
@@ -410,6 +444,10 @@ export async function inspectAgentForContext(
   }
 
   const compiler = options.compileRuntimePlan ?? compileRuntimePlan
+  pathMarker(
+    'compile.inspection',
+    options.compileRuntimePlan === undefined ? 'inspection:direct' : 'inspection:service'
+  )
   let response: RuntimeCompileResponse
   try {
     response = await compiler(
