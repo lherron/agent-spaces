@@ -8,7 +8,7 @@
 
 import { existsSync } from 'node:fs'
 import { mkdir, readdir } from 'node:fs/promises'
-import { basename, dirname, join, relative, sep } from 'node:path'
+import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 
 import type { CompileContext } from 'spaces-runtime-contracts'
 
@@ -37,6 +37,7 @@ import {
   computeClosure,
   generateLockFileForTarget,
   mergeLockFiles,
+  resolveImmutableSourceRoot,
 } from '../resolver/index.js'
 
 import { PathResolver, ensureAspHome, getAspHome } from '../store/index.js'
@@ -81,7 +82,10 @@ export interface MaterializeFromRefsOptions {
   harness?: HarnessId
   /** Harness adapter to use for materialization */
   adapter?: HarnessAdapter | undefined
-  /** Whether to fetch registry updates (default: true) */
+  /**
+   * Whether to fetch registry updates (default: true). The fetch runs only when
+   * a registry space first reads `registryPath` itself.
+   */
   fetchRegistry?: boolean
   /** Force refresh from source (default: false) */
   refresh?: boolean
@@ -125,11 +129,48 @@ export interface MaterializeFromRefsResult {
 }
 
 /**
+ * Defer the registry `git fetch` until a registry space first reads the
+ * repository it updates (T-11840). @dev, project and agent spaces never read
+ * git, and fetching the shared root never updates a separate immutable root,
+ * so compiles that only read either skip the network round trip entirely.
+ */
+function deferRegistryFetch(registryPath: string): {
+  readonly ran: boolean
+  before(root: ImmutableSourceRoot): ImmutableSourceRoot
+} {
+  let pending: Promise<void> | undefined
+  return {
+    get ran() {
+      return pending !== undefined
+    },
+    before(root) {
+      return async () => {
+        const resolved = await resolveImmutableSourceRoot(root, registryPath)
+        if (resolve(resolved) === resolve(registryPath)) {
+          pending ??= (async () => {
+            const fetched = pathMarkerTimer('materialize.registry-fetch')
+            try {
+              await gitFetch('origin', { cwd: registryPath, all: true })
+              fetched('ok')
+            } catch {
+              // Repository may not exist yet, that's ok
+              fetched('failed')
+            }
+          })()
+          await pending
+        }
+        return resolved
+      }
+    },
+  }
+}
+
+/**
  * Materialize spaces from explicit refs without reading asp-targets.toml.
  *
  * This is the low-level helper that both install() and control-plane use.
  * It handles:
- * 1. Registry fetch (optional)
+ * 1. Registry fetch (optional, deferred to the first registry read)
  * 2. Closure computation from refs
  * 3. Lock file generation
  * 4. Snapshot population
@@ -158,24 +199,13 @@ export async function materializeFromRefs(
 
   const aspHome = options.aspHome ?? getAspHome()
   const projectPath = options.projectPath ?? dirname(lockPath)
-  const immutableRegistryPath = options.immutableRegistryPath ?? registryPath
+  const registryFetch = fetchRegistry ? deferRegistryFetch(registryPath) : undefined
+  const immutableRegistryPath = registryFetch
+    ? registryFetch.before(options.immutableRegistryPath ?? registryPath)
+    : (options.immutableRegistryPath ?? registryPath)
 
   // Ensure ASP_HOME directories exist
   await ensureAspHome()
-
-  // Optionally fetch registry updates
-  if (fetchRegistry) {
-    const fetched = pathMarkerTimer('materialize.registry-fetch')
-    try {
-      await gitFetch('origin', { cwd: registryPath, all: true })
-      fetched('ok')
-    } catch {
-      // Repository may not exist yet, that's ok
-      fetched('failed')
-    }
-  } else {
-    pathMarker('materialize.registry-fetch', 'skipped')
-  }
 
   // Load existing lock if available (for pinning)
   const existingLock = await loadLockIfExists(lockPath)
@@ -208,6 +238,8 @@ export async function materializeFromRefs(
     immutableRegistryPath,
     aspHome
   )
+  // Snapshot population is the last registry read: no fetch by now means none was needed.
+  if (!registryFetch?.ran) pathMarker('materialize.registry-fetch', 'skipped')
 
   // Merge with the lock as it is now (preserves other targets, including ones
   // concurrent compiles wrote since the read above) and write it, under the
