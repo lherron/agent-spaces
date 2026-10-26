@@ -20,6 +20,7 @@ const packageJson = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'
 
 import { registerAllCommands } from './command-registry.js'
 import { exitWithAspError, formatAspErrorCause } from './helpers.js'
+import { installInvocationRecorder } from './invocation-metrics.js'
 
 export { findProjectRoot } from './lib.js'
 
@@ -52,7 +53,9 @@ function createProgram(): Command {
 export async function main(): Promise<void> {
   // Large output (e.g. `token-rent --json`) must survive a slow pipe reader.
   ensureBlockingStdio()
+  const recorder = installInvocationRecorder({ version: packageJson.version })
   const program = createProgram()
+  recorder.setProgram(program)
 
   try {
     await program.parseAsync(process.argv)
@@ -63,6 +66,7 @@ export async function main(): Promise<void> {
         error.code === 'commander.help' ||
         error.code === 'commander.version'
       ) {
+        if (error.code !== 'commander.version') recorder.markHelp()
         process.exit(0)
       }
       exitWithError(new CliUsageError(error.message), { json: false, binName: 'asp' })
