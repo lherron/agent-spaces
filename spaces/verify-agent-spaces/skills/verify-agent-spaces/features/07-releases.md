@@ -1,7 +1,8 @@
 # 7. Releases and publish
 
-Two delivery paths leave this repo. An **ASP release** is an immutable, bun-compiled directory (`aspd`, `aspc-facade`,
-`harness-broker`, `agent-harness`, `libexec/`, `assets/`, `release.json`) that aspd serves. The **published package
+Two delivery paths leave this repo. An **ASP release** is an immutable directory (bun-compiled `aspd`, `aspc-facade`,
+`harness-broker`, `agent-harness`; cargo-built `raspd`, the Rust front door; `libexec/`, `assets/`, `release.json`)
+that aspd serves. The **published package
 set** is one timestamped version of every ASP package pushed to the Verdaccio at `http://mini:4873/`, which
 hrc-runtime follows. `just install` on the canonical checkout does both and activates the system aspd. Code:
 `scripts/asp-release.ts` (build, install, inspect), `scripts/publish-local-verdaccio.ts`,
@@ -12,7 +13,10 @@ hrc-runtime follows. `just install` on the canonical checkout does both and acti
 
 - `just build-asp-release [output_root]`: refuses a dirty checkout; prints the release's inspection
   (`releaseId` `asp-<sha12>-<UTC stamp>-<rand>`, `sourceCommit`, `executableResolution`, `workerBindings`,
-  `assetResolution`, `runtimeClosure: bun-compiled`, `mutableCheckoutReferences: false`). The root defaults to
+  `assetResolution`, `runtimeClosure: bun-compiled`, `mutableCheckoutReferences: false`). After the four Bun
+  compiles it always builds `raspd` with `cargo build --release --locked` (`scripts/asp-release.ts:277-324`), recorded
+  in `release.json` as `runtimeClosure: cargo-native`; the top-level `runtimeClosure` still reads `bun-compiled`.
+  Without cargo it refuses `cargo is not on PATH; building raspd needs it…`, exit 1, after the Bun compiles. The root defaults to
   `$ASP_RELEASE_BUILD_ROOT` or `~/.local/state/praesidium/asp-release-builds`; a relative root refuses `output root
   must be absolute`, exit 1, before the clean check.
 - `just inspect-asp-release <release>`: identity, immutability, digests and in-artifact executable resolution.
@@ -20,7 +24,7 @@ hrc-runtime follows. `just install` on the canonical checkout does both and acti
   activates). Installing the same release again is a no-op that returns the existing inspection.
 - `just publish-dev-dry-run` (`publish-local-verdaccio.ts --dry-run`): a `NON_CANONICAL publication channel=dev …`
   line, then either `SKIPPED 22 ASP package(s): active tag latest already contains a coherent unchanged ASP
-  publish set` with no `DRY_RUN` lines (2026-10-19) or `PUBLISHING full ASP wave: …` and one `DRY_RUN
+  publish set` with no `DRY_RUN` lines (2026-10-19, 2026-10-26) or `PUBLISHING full ASP wave: …` and one `DRY_RUN
   <pkg>@<version> --tag latest` per package (22 on 2026-10-05). `publish-canonical-dry-run` prints 22 `DRY_RUN`
   lines and no wave, SKIPPED or NON_CANONICAL line; it runs `git fetch --prune origin` first and refuses a dirty
   tree (`Canonical publication requires a clean source tree`) or a HEAD not on `origin/main`.
@@ -33,13 +37,17 @@ hrc-runtime follows. `just install` on the canonical checkout does both and acti
 - `just install [no-sync=1] [force-sync=1] [force-link=1]`: depends on `check-manager-space`, then clean, `bun
   install`, `workspace-doctor`, build, `bun link` of six packages (apps/cli, harness-broker, harness-broker-pi-sdk,
   agent-harness, aspc, aspc-facade), `publish-canonical` (`publish-worktree` in a linked worktree), hrc-runtime
-  `pull-deps` and build, then build, install and `aspd-activate` a system aspd release and verify its source
-  commit. Operator-scale; not part of a verification drive unless the task says so.
+  `pull-deps` and build through `scripts/sync-hrc-downstream.sh` (fast-forwards a clean HRC checkout, accepts only a
+  lock-only `chore: sync bun.lock (` commit, **pushes it to HRC `origin/main`** and notifies `mable@hrc-runtime:primary`
+  via `wrkc`), then build, install, `aspd-service.ts log-dir` (`var/logs/agent-spaces`) and `aspd-activate` a system
+  aspd release (which needs cargo) and verify its source commit. Operator-scale; not part of a verification drive unless the task says so.
 
 ## How to get to it
 
 Release builds run in a scratch clone: `git clone ~/praesidium/agent-spaces <scratch>/clone && cd
-<scratch>/clone && bun install && bun run build` (about 50 s). Publish dry-runs pack each package from a staged copy
+<scratch>/clone && bun install --frozen-lockfile && bun run build` (26 s on 2026-10-26); the release build then needs
+`cargo` on PATH and the private `cardo` git dependency, which `~/.cargo/git` already caches on max3 (a node without
+it fetches over ssh from GitHub). The clone's release build took 30 s on 2026-10-26. Publish dry-runs pack each package from a staged copy
 under `$TMPDIR` and leave the worktree clean; run them in the clone too, since the canonical dry-run fetches into
 `.git` (in a clone, `origin` is the local checkout). Inspect and install use an existing release, e.g. the system
 one under `~/praesidium/var/aspd/releases/`, into a scratch release root.
@@ -72,8 +80,8 @@ bun run check:packs | grep -c '^PASS'                                          #
   release id's UTC stamp.
 - In the scratch clone `just` prints `wrkp just: … is not a registered project root; skipping`: no fact is posted
   there.
-- `inspect-asp-release` reports `aspc-facade` with `embeddedIdentity: false`; the other three executables carry an
-  embedded identity.
+- `inspect-asp-release` reports `aspc-facade` and `raspd` with `embeddedIdentity: false`; `aspd`, `harness-broker`
+  and `agent-harness` carry an embedded identity (2026-10-26, `T-11875/07-releases/drive.txt`).
 
 ## Proven when
 
@@ -83,7 +91,8 @@ no-op; the clone build prints a release whose `sourceCommit` is the clone's HEAD
 every package, the canonical one lists 22 and refuses a dirty tree, semver lists 23, `check:packs` passes 15, and
 the clone stays clean.
 
-Driven 2026-10-19 against checkout f8c96a5e, scratch clone of f8c96a5e, system release
-asp-25445c159b76-20261017T140543Z-7cb338 (T-11375): `var/wrkq-artifacts/T-11375/07-releases/drive.txt`. Not driven:
+Driven 2026-10-26 against checkout b32c6e05, scratch clone of 7d96d3f1 (release asp-7d96d3f100ad-20261026T094402Z-553d59
+with raspd), system release asp-a34f6e14bf5a-20261026T083841Z-6c5d79 (T-11875):
+`var/wrkq-artifacts/T-11875/07-releases/drive.txt`. Not driven:
 `just install` (operator-scale; publishes, syncs hrc-runtime and activates the system aspd),
 `publish-worktree-dry-run`, the canonical refusal of a HEAD not on `origin/main`, and any non-dry-run publish.

@@ -38,9 +38,9 @@ asp harnesses                                                    # 4/4 available
 asp lint --hygiene ~/praesidium/var/agents/clod | tail           # W415/W422 info findings
 asp lint --hygiene $AVS_PROJECT/spaces/avs-demo/skills/avs-probe # Scanned 1 unit, no findings
 asp lint --hygiene $AVS_PROJECT/spaces/avs-demo --strict; echo $? # Scanned 0 units, exit 0
-asp token-rent --agent clod --now 2026-10-19T09:30:00Z
-asp token-rent --json --now 2026-10-19T09:30:00Z > $OUT          # 36 agents, 24 priced on 2026-10-19
-python3 ~/praesidium/var/wrkq-artifacts/T-10364/05-doctor-hygiene/rent-check.py $OUT <agent>   # reported == computed
+asp token-rent --agent clod --now 2026-10-26T09:30:00Z
+asp token-rent --json --now 2026-10-26T09:30:00Z > $OUT          # 36 agents, 26 priced on 2026-10-26
+python3 ~/praesidium/var/wrkq-artifacts/T-11875/05-doctor-hygiene/rent-check.py $OUT <agent>   # reported == computed
 sqlite3 -readonly ~/praesidium/var/state/hrc/state.sqlite \
   "select broker_driver, count(*), sum(json_extract(spec_projection_json, '$.launch.systemPromptFile') is not null)
      from broker_invocations group by 1;"
@@ -71,6 +71,6 @@ newest invocation carries a prompt (claude, muse, codex drivers in the count abo
 sum of `ceil(section chars / 4)` over the priced text for a claude, a muse and a codex agent (the codex one over its
 context block only).
 
-Driven 2026-10-19 on scratch `t-11375` against checkout f8c96a5e (T-11375):
-`var/wrkq-artifacts/T-11375/05-doctor-hygiene/drive.txt` (with `rent-check.py`; clod, mable, muse, larry and stella
+Driven 2026-10-26 on scratch `t-11875` against checkout b32c6e05 (T-11875):
+`var/wrkq-artifacts/T-11875/05-doctor-hygiene/drive.txt` (with `rent-check.py`; clod, mable, muse, larry and stella
 matched exactly).

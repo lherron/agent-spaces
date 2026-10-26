@@ -57,7 +57,9 @@ harness-broker bogus-verb                                   # usage, exit 1
   check `real-claude-tmux-midturn`, which is not a matrix row: `--config real-claude-tmux-midturn` throws `--config
   must name one of: …`, exit 1 (2026-10-19, `T-11375/08-harness-broker/drive.txt`).
 - The matrix does not use `~/.bun/bin/harness-broker`; it spawns `harness/harness-broker/bin/harness-broker.js`
-  next to the script, so a run from a scratch clone tests that clone (source, `pre-hrc-broker-matrix-e2e.ts:648-652`).
+  next to the script, so a run from a scratch clone tests that clone (source, `pre-hrc-broker-matrix-e2e.ts:656-660`).
+  Its hello offers only `harness-broker/0.2` (`:664`), so the shim rows prove 0.2 negotiation; `broker-hello` offers
+  0.3 and 0.2 and gets 0.3 (2026-10-26, `T-11875/08-harness-broker/drive.txt`).
 - `smoke:matrix --json` stdout starts with a `<row>: OK` status line before the JSON report; parse from the first
   `{`. Its `eventTypes` is the sorted set of types seen, not arrival order (2026-10-05,
   `T-10364/08-harness-broker/drive.txt`, `matrix-summary.py` there).
@@ -76,6 +78,6 @@ events, 1 terminal turn, `continuationObserved: true`, no failures, and the 17-t
 completed}`, `user.message`; no `usage.updated`, since the fixture reports no tokens); the operator verb refusals
 exit 1.
 
-Driven 2026-10-19 against checkout f8c96a5e (T-11375): `var/wrkq-artifacts/T-11375/08-harness-broker/drive.txt`
+Driven 2026-10-26 against checkout b32c6e05 (T-11875): `var/wrkq-artifacts/T-11875/08-harness-broker/drive.txt`
 (row JSON beside it).
 Not driven: the five real-harness matrix rows (they need model logins and, for tmux rows, a ghostmux surface).

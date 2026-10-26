@@ -2,7 +2,7 @@
 
 `aspd` serves the ASPC compile and inspection plane (`aspc/0.1`, NDJSON JSON-RPC over a Unix socket) from one
 immutable release in an explicit namespace. HRC compiles every launch through it. Code: `scripts/aspd-service.ts`
-(the verbs: init, start, stop, restart, supervise, activate, status, front-door-*; Bun aspd, raspd, launchd
+(the verbs: init, start, stop, restart, supervise, activate, log-dir, status, front-door-*; Bun aspd, raspd, launchd
 jobs and namespace records under `scripts/aspd-service/`), `harness/aspc-facade/src/aspd.ts`, methods and
 validators in `contracts/aspc-protocol/src/{types,schemas,inspection-params}.ts`, the client
 `spaces-aspc-protocol/unix-client`. Doc: `docs/aspd.md`.
@@ -22,16 +22,27 @@ validators in `contracts/aspc-protocol/src/{types,schemas,inspection-params}.ts`
   `com.praesidium.aspd`): it writes `~/Library/LaunchAgents/<label>.plist` and `service/launchd-run.sh`, adopts the
   plist with `praesidium-adopt` (ProgramArguments start with `~/.local/bin/praesidium-launch`;
   `AssociatedBundleIdentifiers` `com.praesidium.AgentHost`), re-adopts before every bootstrap, and retries a
-  bootstrap error 5 up to 4 times (T-10818). Then stop is `bootout`, restart `kickstart -k`.
+  bootstrap error 5 for up to 4 attempts in all, 2 s apart (`BOOTSTRAP_ATTEMPTS`, `aspd-service/launchd.ts:15-16`;
+  T-10818). Then stop is `bootout`, restart `kickstart -k`.
 - `aspd-status <ns>`: `namespace`, `socketPath`, `supervisor` and `launchdPid` (both null when unsupervised),
   installed releases, `selectedRelease`, `runningProcess`, `serving` (the live `aspc.hello` reply, or
-  `{unavailable}`), `runningEqualsSelected`. A relative namespace refuses `namespace must be absolute`; an
+  `{unavailable}`), `runningEqualsSelected`, `frontDoor` (`{mode: "direct", bunSocket, publicFrontDoor: null}`
+  unfronted). It sends `aspc.hello` and `version`, so it adds `rpc.request` lines and usage rows on that daemon. A relative namespace refuses `namespace must be absolute`; an
   uninitialized one `namespace not initialized: <ns>/service/config.json`, exit 1.
+- Front door (raspd, P-00890): `just aspd-front-door-enable <ns> [label]` / `aspd-front-door-disable <ns>` /
+  `aspd-front-door-status <ns>` (`aspd-service.ts front-door-*`). Enable needs a selected release containing `raspd`,
+  moves Bun to `run/aspd-bun.sock`, starts raspd on `run/aspd.sock` (plus `run/raspd.json`, `run/raspd-kernel.sock`,
+  `<logDir>/raspd{,.err}.log`) and records `frontDoor {bunSocketPath, label}` in the config; the label is used only
+  when supervised. Status then reads `mode: "fronted"`, `bunAnswering`, `publicFrontDoor.native` (the ops raspd
+  answers itself) and both releases; `raspd.log` lines carry `servedBy: native|bun`. Disable stops raspd and puts
+  Bun back on the public socket (`mode: "direct"`).
 - Methods: `aspc.hello`, `catalogAgents`, `inspectAgent`, `catalogAgentInspection`, `inspectAgentSelection`,
   `compileHarnessInvocation` (v2 requests only), `resolveRuntimeDeclaration`, `inspectRuntimePlacement`,
   `observeRuntimeCapability`, `observeContinuationArtifact`, `prepareProcessInvocation`. Refusals: `-32601 Method
   not found`, `-32602 Invalid params` with `data.issues[]`, each `{path, code, message}` rooted at `params.` with the
-  message leading with that path (`params.evaluationContext must be an object`).
+  message leading with that path (`params.evaluationContext must be an object`). Every refusal also carries
+  `data.reason` and `data.advice` (`op_unknown`, `invalid_params`); a bad frame is `-32700` with `empty_frame` or
+  `frame_too_large` (over 16777216 bytes) (f6acf0ee).
 - Discovery: `health`, `version`, `surface` accept absent or empty params. Health is process-only; version reports
   the serving build/interface/capabilities; surface projects registered ops with summaries and stream declarations.
 - Request log: one canonical JSON `rpc.request` per complete request (listener, op, client, outcome, durationMs),
@@ -75,7 +86,14 @@ seat variables.
 ## Gotchas
 
 - `$CTX` for the catalog is feature 4's evaluation-context file; over the socket the same 50 agents came back as from
-  `asp agents catalog`, from both the system and the scratch daemon (2026-10-19, `T-11375/06-aspd/drive.txt`).
+  `asp agents catalog`, from both the system and the scratch daemon (2026-10-26, `T-11875/06-aspd/drive.txt`).
+- **Installed is not source for the front door.** On 2026-10-26 the system namespace ran Bun aspd directly
+  (`service/launchd-run.sh` execs `<release>/aspd serve`; no `frontDoor` in its config; no raspd plist) on release
+  `asp-a34f6e14bf5a-…`, which ships `raspd` (`cargo-native`) unused. A scratch namespace fronted on that release
+  answered `aspc.hello`, `health`, `version`, `surface`, `resolveRuntimeDeclaration` and
+  `observeContinuationArtifact` natively and relayed `catalogAgents` to Bun; native `compileHarnessInvocation`
+  (b32c6e05) is checkout-only until a release past it is activated. Check `git merge-base --is-ancestor <commit>
+  <serving sourceCommit>` before crediting a raspd change to the system daemon (`T-11875/06-aspd/drive.txt`).
 - **Never `supervise` a scratch namespace.** Nothing checks whether a label is in use: with `com.praesidium.aspd` it
   would overwrite the system plist with the scratch launch script, and the next system activation or a scratch
   `stop` (a `bootout` of that label) would hit the system daemon. A unique label still registers a real RunAtLoad +
@@ -87,14 +105,15 @@ seat variables.
   `config.logDir` (`aspd-service.ts log-dir`), default `<ns>/logs`. The system namespace's is `~/praesidium/var/logs/agent-spaces`: `aspd.log`
   is its launchd request log (`runningProcess.requestLogPath`; the collective L4 job rotates it, aspd does not;
   `.1`–`.3` are pre-T-11829 leftovers) and `aspd.err.log` the
-  supervisor output (`runningProcess.logPath`). Until the T-11719 activation lands, the live daemon may still write
-  `~/praesidium/var/aspd/logs/`; trust `runningProcess`, not this note.
+  supervisor output (`runningProcess.logPath`); `~/praesidium/var/aspd/logs/` holds only stale files from before
+  T-11719. A fronted namespace adds `raspd.log` and `raspd.err.log` in the same `logDir`.
 - An unknown method is answered `-32601` and has a canonical `rpc.request` line, but no legacy `request.answered`.
   Params refusals have both; legacy outcome remains `error:INVALID_ASPC_COMMAND`.
 - Grep the request log a moment after the call: the `--log` sink buffers 250 ms (`docs/aspd.md`), so a grep in
   the same second can miss the refusal's `error:INVALID_ASPC_COMMAND` line (2026-10-05, `T-10364/06-aspd/drive.txt`).
-  Compiler/lifecycle lines are `<iso> [aspd] <LEVEL> <event> <json>`; cut their JSON tail before `jq`. Canonical
-  `rpc.request` / `rpc.listen` lines are already whole-line JSON; parse those directly (T-11721 installed proof).
+  The system `aspd.log` still holds prefixed `<iso> [aspd] <LEVEL> …` lines from before the T-11829 release (the
+  last at 2026-10-26T06:05:41Z); everything after is whole-line L2 JSON, as are all scratch logs (0 non-JSON lines,
+  2026-10-26). Filter with `grep '^{'` before `jq` when reading old history.
 - `aspc --help` is "Unknown command"; run `aspc` bare for usage.
 - Never activate, restart, stop or `supervise` the system namespace. `just install` in the canonical checkout
   activates it (any seat may run that); standalone activation is Mable primary's.
@@ -104,12 +123,15 @@ seat variables.
 The system status shows `runningEqualsSelected: true` and a `serving.release.sourceCommit` that `git log` resolves;
 hello and catalog answer over the socket, the two refusals carry their codes, and the request log shows the
 catalog call. The scratch namespace goes unavailable → activated (hello with the installed release) → serving the
-catalog → `alreadyRunning` → stopped → `not running`, and the system daemon's pid is unchanged across all of it; the
+catalog → `alreadyRunning` → fronted (status `mode: "fronted"`, `bunAnswering: true`, the release's native op list,
+catalog relayed `servedBy: bun`) → direct again → stopped → `not running`, and the system daemon's pid is unchanged
+across all of it; the system namespace's `front-door-status` reads `direct`; the
 system plist's ProgramArguments start with `praesidium-launch`; the aspd-service unit test passes.
 
-Driven 2026-10-19 against system release asp-25445c159b76-20261017T140543Z-7cb338 (source 25445c15) and a scratch
-namespace on the same release, through `bun scripts/aspd-service.ts` (T-11375): `var/wrkq-artifacts/T-11375/06-aspd/
-drive.txt`. Not driven: a live `supervise` (see Gotchas), `build-aspd-pilot-client`,
+Driven 2026-10-26 against system release asp-a34f6e14bf5a-20261026T083841Z-6c5d79 (source a34f6e14, direct mode)
+and a scratch namespace on the same release, fronted and unfronted, through `bun scripts/aspd-service.ts`
+(T-11875): `var/wrkq-artifacts/T-11875/06-aspd/drive.txt`. Not driven: a live `supervise` (see Gotchas), a
+supervised front door (raspd launchd job), `log-dir`, `build-aspd-pilot-client`,
 `compileHarnessInvocation` against aspd (it needs a full v2 compile request; feature 8's `--compile-transport
 aspc-rpc` row compiles through a checkout aspc-facade over stdio, not through aspd) and `aspc manifest|verify-release`
 (they need a request file and a corpus).

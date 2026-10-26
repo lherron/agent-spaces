@@ -7,7 +7,7 @@
 #   avs scratch up [--name N]      scratch project + ASP_HOME under $AVS_ROOT/N (default name "avs")
 #   avs scratch down N [--dry-run]   remove that scratch (never the evidence)
 #   avs scratch list                 what scratches exist
-#   avs env N                        shell exports for N (eval "$(avs env N --sh)")
+#   avs env N                        shell exports for N (eval "$(avs env N --sh)"), incl. a scratch usage-metrics root
 #   avs rec FILE -- CMD...           run CMD under bash, append "## <UTC>", "$ CMD", output, "[exit N]" to FILE
 #   avs aspc SOCKET METHOD ['<json>'] one NDJSON JSON-RPC call to an aspd socket (hello params filled in)
 #   avs broker-hello                 spawn `harness-broker run --transport stdio`, send broker.hello, print reply
@@ -28,7 +28,7 @@ scratch_json() { # name
   python3 -c 'import json,sys,os
 d=sys.argv[1]
 print(json.dumps({"name":sys.argv[2],"root":d,"project":d+"/project","asp_home":d+"/asp-home",
- "target":"demo","space":"space:project:avs-demo","exists":os.path.isdir(d)}))' "$d" "$1"
+ "metrics_var_root":d+"/metrics-var","target":"demo","space":"space:project:avs-demo","exists":os.path.isdir(d)}))' "$d" "$1"
 }
 
 scratch_up() {
@@ -36,7 +36,9 @@ scratch_up() {
   while [[ $# -gt 0 ]]; do case "$1" in --name) name="$(tr 'A-Z' 'a-z' <<<"$2")"; shift 2;; *) refuse unknown_flag "$1" "avs scratch up [--name N]";; esac; done
   name_ok "$name"
   local d="$AVS_ROOT/$name"
-  mkdir -p "$d/asp-home" "$d/project/spaces/avs-demo/skills/avs-probe"
+  # metrics-var: every asp process appends usage rows under <var root>/state/agent-spaces/metrics (T-11824);
+  # without ASP_USAGE_METRICS_VAR_ROOT a scratch drive writes the node's production day files.
+  mkdir -p "$d/asp-home" "$d/metrics-var" "$d/project/spaces/avs-demo/skills/avs-probe"
   cat >"$d/project/asp-targets.toml" <<'EOF'
 schema = 2
 
@@ -98,7 +100,8 @@ env_for() {
   name_ok "$name"; local d="$AVS_ROOT/$name"
   [[ -d "$d" ]] || refuse not_found "no scratch $name" "avs scratch up --name $name"
   if [[ "${2:-}" == "--sh" ]]; then
-    printf 'export ASP_HOME=%q\nexport AVS_PROJECT=%q\n' "$d/asp-home" "$d/project"
+    mkdir -p "$d/metrics-var"
+    printf 'export ASP_HOME=%q\nexport AVS_PROJECT=%q\nexport ASP_USAGE_METRICS_VAR_ROOT=%q\n' "$d/asp-home" "$d/project" "$d/metrics-var"
   else
     scratch_json "$name"
   fi
@@ -166,8 +169,12 @@ EOF
 }
 
 doctor() { # read-only: installed surfaces, the system aspd, a stdio broker
-  local ns="${AVS_ASPD_NS:-$HOME/praesidium/var/aspd}"
-  python3 - "$REPO" "$ns" "$0" <<'EOF'
+  local ns="${AVS_ASPD_NS:-$HOME/praesidium/var/aspd}" mtmp="" rc=0
+  # Its asp children would append usage rows to the production day files; give them a throwaway root.
+  if [[ -z "${ASP_USAGE_METRICS_VAR_ROOT:-}" ]]; then
+    mtmp="$(mktemp -d "${TMPDIR:-/tmp}/avs-doctor-metrics.XXXXXX")"; export ASP_USAGE_METRICS_VAR_ROOT="$mtmp"
+  fi
+  python3 - "$REPO" "$ns" "$0" <<'EOF' || rc=$?
 import json, os, subprocess, sys
 repo, ns, avs = sys.argv[1], sys.argv[2], sys.argv[3]
 rows = []
@@ -218,6 +225,8 @@ except Exception:
 verdict = "ok" if all(r["status"] == "ok" for r in rows) else "degraded"
 print(json.dumps({"verdict": verdict, "rows": rows}, indent=1))
 EOF
+  [[ -z "$mtmp" ]] || rm -rf "$mtmp"
+  return $rc
 }
 
 case "${1:-}" in

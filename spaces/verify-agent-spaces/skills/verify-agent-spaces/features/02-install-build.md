@@ -33,8 +33,13 @@ plugin-artifacts,build}.ts` and `core/config/src/materializer/`, harness layouts
 
 ## How to get to it
 
-`avs scratch up --name <task>`, then from `<project>` with `ASP_HOME=<asp_home>`. Nothing here touches the
-canonical project or the shared ASP_HOME (`~/praesidium/var/spaces-repo`) as long as `ASP_HOME` is set.
+`avs scratch up --name <task>`, then from `<project>` with `ASP_HOME=<asp_home>` (and the scratch
+`ASP_USAGE_METRICS_VAR_ROOT` that `avs env` exports). Nothing here touches the canonical project or the shared
+ASP_HOME (`~/praesidium/var/spaces-repo`) as long as `ASP_HOME` is set, with one exception: `install` (without
+`--no-fetch`) and `upgrade` run `git fetch origin --all` in the shared spaces root `~/praesidium/var/agents`
+(`install.ts:147-166,278`); its `.git/FETCH_HEAD` moved under `asp upgrade` and plain `asp install`, not under
+`asp install --no-fetch` (2026-10-26, `T-11875/02-install-build/drive.txt`). Use `--no-fetch` when the drive
+doesn't need fresh remote refs.
 
 ## Driving it
 
@@ -79,5 +84,5 @@ mkdir <root>/init-probe && cd <root>/init-probe && asp init && cat asp-targets.t
 project-space plugins); `gc --dry-run` deletes nothing; `upgrade` updates both targets; the add/remove legs keep
 the other target locked, leave the file unchanged on failure and keep its comments.
 
-Driven 2026-10-19 on scratch `t-11375` against checkout f8c96a5e (T-11375):
-`var/wrkq-artifacts/T-11375/02-install-build/drive.txt`.
+Driven 2026-10-26 on scratch `t-11875` against checkout b32c6e05 (T-11875):
+`var/wrkq-artifacts/T-11875/02-install-build/drive.txt`.

@@ -28,6 +28,8 @@ list,path,diff}.ts`, `apps/cli/src/commands/{repo,spaces}/`, resolution in `core
   `commands/ skills/ agents/ mcp/`, no `hooks/` (an empty one trips W204). `repo status` lists every directory under
   `spaces/`; `spaces list` only those whose `space.toml` parses (14 vs 13 on 2026-10-19: `archived-unused`). The git
   registry verbs `asp repo publish|tags|gc` were removed (T-10367) and exit 2 `unknown command '<verb>'`.
+- `describe` on a target of only `@dev` and project spaces skips the shared root's registry fetch since 15dbde97
+  (`~/praesidium/var/agents/.git/FETCH_HEAD` mtime unchanged; a `materialize.registry-fetch` `skipped` path row).
 
 ## How to get to it
 
@@ -75,7 +77,7 @@ On a fresh scratch: `lint` reports W101 before install and nothing after; `expla
 order with the defaults hooks and lists `avs-probe (from avs-demo)` under composed skills; `describe local-only
 --harness claude` names `avs-probe`; `list` shows both targets locked; `diff --json` is empty; the registry verbs
 refuse with exit 2; `asp lint --json` on the canonical project prints its warnings array (empty, `[]`, on
-2026-10-19).
+2026-10-26).
 
-Driven 2026-10-19 on scratch `t-11375` against checkout f8c96a5e (T-11375):
-`var/wrkq-artifacts/T-11375/01-composition/drive.txt`.
+Driven 2026-10-26 on scratch `t-11875` against checkout b32c6e05 (T-11875):
+`var/wrkq-artifacts/T-11875/01-composition/drive.txt`.

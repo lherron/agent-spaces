@@ -48,7 +48,10 @@ Drive every feature (nine today) on every pass, even when no agent-spaces commit
 also comes from what agent-spaces runs on (the harness binaries, HRC's state DB, `var/agents`), which the source
 reads in step 2 don't see.
 
-Run `avs doctor` first, and again after any surprise. Drive each feature's "Driving it" with `avs rec`, **and every
+Run `avs doctor` first, and again after any surprise. Before the first `asp` call, `eval "$(avs env <task> --sh)"`
+so `ASP_USAGE_METRICS_VAR_ROOT` points at the scratch, and prove it with one probe: a row with a unique
+`ASP_PROJECT` lands in `<root>/metrics-var/state/agent-spaces/metrics/asp-cli-<day>.ndjson` and not in
+`~/praesidium/var/state/agent-spaces/metrics/` (`live/metrics-isolation.txt`). Drive each feature's "Driving it" with `avs rec`, **and every
 drift or new behavior step 2 flagged**. Features marked read-only get only reads. Check each result against "Proven
 when". Count the features you drove to their Proven when (`driven`), and name any you couldn't drive with the
 prerequisite that stopped you. Stop any scratch aspd (`just aspd-stop <root>/aspd-ns`), then `avs scratch down

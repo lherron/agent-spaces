@@ -38,7 +38,10 @@ Scratch or live:
   `~/praesidium/var/state/avs/<name>/` with a `project/` (an `asp-targets.toml` with targets `demo` and
   `local-only`, and a project space `avs-demo` holding the `avs-probe` skill) and an empty `asp-home/`. Point
   every `asp` call at it with `cd <project>` and `ASP_HOME=<asp_home>` (`eval "$(avs env <name> --sh)"` exports
-  `ASP_HOME` and `AVS_PROJECT`). Isolated aspd namespaces, scratch Codex homes, release builds and a scratch clone
+  `ASP_HOME`, `AVS_PROJECT` and `ASP_USAGE_METRICS_VAR_ROOT=<root>/metrics-var`). That last one matters: every
+  `asp` process appends usage rows to `<var root>/state/agent-spaces/metrics/{asp-cli,paths}-<day>.ndjson`, and
+  `ASP_HOME` does not move them, so without it a scratch drive writes the node's production day files (T-11824;
+  `T-11875/live/metrics-isolation.txt`). Export it in any shell that runs `asp` for a drive, live reads included. Isolated aspd namespaces, scratch Codex homes, release builds and a scratch clone
   all live under the same root, so `avs scratch down` removes them together.
 - **Scratch clone.** Anything that needs a clean tree (`just build-asp-release`) runs in
   `git clone ~/praesidium/agent-spaces <root>/clone`, then `bun install` and `bun run build` there (about 20 s). Never in the shared checkout.
@@ -125,11 +128,11 @@ prints `{error, message, next}` and exits 1.
 
 | Verb | Invocation | Does |
 | --- | --- | --- |
-| `doctor` | `avs doctor` | Read-only rows: asp, asp-source, checkout, harnesses, system aspd (`AVS_ASPD_NS` overrides), harness-broker |
+| `doctor` | `avs doctor` | Read-only rows: asp, asp-source, checkout, harnesses, system aspd (`AVS_ASPD_NS` overrides), harness-broker; its `asp` children get a throwaway metrics root unless one is exported |
 | `scratch up` | `avs scratch up [--name N]` | Writes the scratch project (targets `demo`, `local-only`; space `avs-demo` with skill `avs-probe`) and an empty ASP_HOME under `$AVS_ROOT/N` (default `~/praesidium/var/state/avs`), prints root, project, asp_home |
 | `scratch down` | `avs scratch down N [--dry-run]` | Removes that scratch root |
 | `scratch list` | `avs scratch list` | The scratch roots that exist |
-| `env` | `avs env N [--sh]` | The scratch's paths as JSON, or `export ASP_HOME=… AVS_PROJECT=…` lines |
+| `env` | `avs env N [--sh]` | The scratch's paths as JSON, or `export ASP_HOME=… AVS_PROJECT=… ASP_USAGE_METRICS_VAR_ROOT=…` lines |
 | `rec` | `avs rec FILE -- 'CMD'` | Runs CMD under bash, appends `## <UTC>`, `$ CMD`, output and `[exit N]` to FILE, and echoes them |
 | `aspc` | `avs aspc SOCKET METHOD ['<json>']` | One NDJSON JSON-RPC call to an aspd socket; `aspc.hello` params are filled in |
 | `broker-hello` | `avs broker-hello` | Spawns `harness-broker run --transport stdio`, sends `broker.hello`, prints the reply |

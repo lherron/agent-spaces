@@ -30,7 +30,7 @@ X=<scratch>/codex-home; H=<scratch>/asp-home; mkdir -p $X
 bun scripts/sync-agent-to-codex-default.ts --to $X --asp-home $H --json            # plan; applied false
 find $X                                                                              # still empty
 bun scripts/sync-agent-to-codex-default.ts --to $X --asp-home $H --install-hooks --apply --json
-ls -A $X; ls $X/skills | wc -l; grep -c trusted_hash $X/config.toml               # .asp-agent-sync, AGENTS.md, config.toml, hooks.json, skills; = planned skills (25); 3
+ls -A $X; ls $X/skills | wc -l; grep -c trusted_hash $X/config.toml               # .asp-agent-sync, AGENTS.md, config.toml, hooks.json, skills; = planned skills (26); 3
 ls $X/.asp-agent-sync                     # desktop-registration-discovery.mjs, pre-tool-use-praesidium-env.mjs, stella.json
 bun scripts/sync-agent-to-codex-default.ts --to $X --asp-home $H --install-hooks --json   # agents unchanged; plan.hooks *Action all unchanged
 M=<plan.materializedHome>; grep -c pkill-guard $M/hooks.json $X/hooks.json        # 1 and 0: T-11380
@@ -48,11 +48,12 @@ bun scripts/sync-agent-to-codex-default.ts --to $X --bogus                      
   its `hooks.json`), but the overlay writes `hooks.json` from its own two scripts only: 0 entries, no `space-hooks/`
   (2026-10-19, `T-11375/09-codex-overlay/drive.txt`).
 - `--asp-home` and `--agents-root` default to env `ASP_HOME`/`ASP_AGENTS_ROOT`, which a seat exports: drop
-  `--asp-home` and the plan materializes into the seat's real ASP_HOME (source, `sync-agent-to-codex-default.ts:116-117`;
-  both variables are set in a clod seat).
+  `--asp-home` and the plan materializes into the seat's real ASP_HOME (source, `sync-agent-to-codex-default.ts:118-119`;
+  both variables are set in a clod seat). The script writes usage `paths` rows like `asp` does; export the
+  scratch `ASP_USAGE_METRICS_VAR_ROOT` (`avs env`) first.
 - The plan materializes the agent under `--asp-home` even without `--apply` (`codex-homes/praesidium_codex-default-
   <agent>/…`); a dry run is not write-free for ASP_HOME, only for the Codex home.
-- The skill count (26 for stella on 2026-10-05, 25 on 2026-10-19) follows stella's content in `var/agents`, not
+- The skill count (26 for stella on 2026-10-05, 25 on 2026-10-19, 26 on 2026-10-26) follows stella's content in `var/agents`, not
   the code; check "one directory per planned skill", not the number.
 - The two hook scripts and the agent's manifest live in `$X/.asp-agent-sync/`. The discovery hook reads
   `~/praesidium/var/aspd/service/active.json` when it runs and spawns that release's `harness-broker`, so an aspd
@@ -66,5 +67,5 @@ The plan run leaves the Codex home empty; the apply run creates `AGENTS.md`, `co
 three `hooks.state` entries, `hooks.json`, and one directory per planned skill; the replan reports `agents:
 unchanged` and every hooks action `unchanged`; `plan.priming.text` names stella.
 
-Driven 2026-10-19 on scratch `t-11375` against checkout f8c96a5e (T-11375):
-`var/wrkq-artifacts/T-11375/09-codex-overlay/drive.txt`.
+Driven 2026-10-26 on scratch `t-11875` against checkout b32c6e05 (T-11875):
+`var/wrkq-artifacts/T-11875/09-codex-overlay/drive.txt`.

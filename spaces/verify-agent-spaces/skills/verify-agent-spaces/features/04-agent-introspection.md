@@ -45,11 +45,11 @@ asp self paths                       # SOUL, profile, context-template EDIT; bun
 asp self prompt reminder
 asp self explain prompt
 cd ~/praesidium/agent-spaces && asp resolve-reminder clod
-asp resources plan clod --project infra                 # 1 resource (disk-sample schedule) on 2026-10-19
+asp resources plan clod --project infra                 # 1 resource (disk-sample schedule) on 2026-10-26
 asp resources plan clod --project agent-spaces          # refuses: that schedule targets infra, exit 1
 asp resources plan clod                                 # required option '--project <project>', exit 2
 asp resources plan foundry --project foundry --include schedules/foundry-daily-report.toml   # timezone America/Chicago
-asp agents catalog --context $CTX --json        # 50 agents, 0 errors on 2026-10-19
+asp agents catalog --context $CTX --json        # 50 agents, 0 errors on 2026-10-26
 asp agents inspect --request $REQ --context $CTX --json
 ```
 
@@ -79,6 +79,6 @@ prints the wrkq and wrkc guides; `agents catalog` returns every agent root with 
 returns `ok: true` with parts and dispositions; `resources plan` prints a v1 plan for the project its resources
 target, projects `[trigger].timezone`, and refuses a mismatched project, a bad zone and a top-level `timezone`.
 
-Driven 2026-10-19 from seat `clod@agent-spaces:T-11375` against checkout f8c96a5e (T-11375):
-`var/wrkq-artifacts/T-11375/04-agent-introspection/` (`drive.txt`, the two input files, and the `tz-*.toml` probe
+Driven 2026-10-26 from seat `clod@agent-spaces:T-11875` against checkout b32c6e05 (T-11875):
+`var/wrkq-artifacts/T-11875/04-agent-introspection/` (`drive.txt`, the two input files, and the `tz-*.toml` probe
 schedules, run from a scratch agent root under the scratch).

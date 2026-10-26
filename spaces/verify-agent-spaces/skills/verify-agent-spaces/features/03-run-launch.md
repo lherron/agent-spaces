@@ -29,7 +29,11 @@ muse,pi}`. Repo notes: `AGENTS.md` "Smoke Testing the CLI".
 ## How to get to it
 
 A scratch (`avs scratch up`, `asp install`) for plain targets; the canonical project (`cd ~/praesidium/agent-spaces`)
-with a scratch `ASP_HOME` for agent targets, so bundles land in the scratch. Never run without `--dry-run` or
+with a scratch `ASP_HOME` for agent targets, so bundles land in the scratch. A dry-run there still rewrites the
+canonical `~/praesidium/agent-spaces/asp-lock.json` (gitignored) whenever the scratch bundle is missing
+(`run.ts:284,293-298`): on 2026-10-26 every `asp run larry --dry-run` into a fresh scratch ASP_HOME rewrote it with
+only `generatedAt` changed (`T-11875/03-run-launch/drive.txt`). Harmless for content, but it is a write outside the
+scratch; say so in the evidence. Never run without `--dry-run` or
 `--print-command` in a drive: that launches a real harness.
 
 ## Driving it
@@ -78,6 +82,6 @@ Each harness's dry-run prints `── command ──` with the bundle path under
 argv; the agent-harness refusal and the model refusal print their reasons with exit 1; `asp agent … --print-command`
 puts the prompt after the profile priming; `asp gui --print-command` names the scratch `CODEX_HOME`.
 
-Driven 2026-10-19 on scratch `t-11375` against checkout f8c96a5e (T-11375):
-`var/wrkq-artifacts/T-11375/03-run-launch/drive.txt`. Not driven: a real (non-dry-run) launch, which needs a model
+Driven 2026-10-26 on scratch `t-11875` against checkout b32c6e05 (T-11875):
+`var/wrkq-artifacts/T-11875/03-run-launch/drive.txt`. Not driven: a real (non-dry-run) launch, which needs a model
 login and belongs to HRC's own verification.
