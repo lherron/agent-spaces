@@ -6,6 +6,7 @@
  *     [--a-cmd '<json argv>'] [--b-cmd '<json argv>']
  *     [--a-declared-extra <case>:<path>]... [--b-declared-extra <case>:<path>]...
  *     [--release-artifact <built release dir>] [--cases live] [--raw] [--keep-scratch]
+ *     [--live-agents a,b,..] [--live-projects p,q,..] [--live-task <id>] [--live-resume]
  *
  * Builds one real release from a clean clone of <commit> (default HEAD) into a
  * scratch namespace; both subjects are served from that one release directory.
@@ -29,10 +30,16 @@
  *     reported apart, and A is diffed against B: replies and stage trees.
  * `--raw` skips step 2's mask and tokens, which is how the mask is measured.
  *
+ * The --live-* flags narrow the live corpus (live-cases.ts LiveSelection).
+ * Each case also records the `rpc.request` lines its subject logged while
+ * serving it (raspd's carry servedBy, relay and fallback) and, for the
+ * front-door subject, the requests its Bun upstream logged.
+ *
  * Writes <out>/report.json (every case, every difference) and per-subject
  * replies, trees and final stages, then removes the scratch root (unless
  * --keep-scratch); exits 0 only when every case matches and no row in the
- * node's production metrics day files is owned by the run (pid or release).
+ * node's production metrics day files is owned by the run (its pid, or its
+ * release from a process that started during the run).
  */
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -72,6 +79,14 @@ import { RESPONSE_MASK, TOKENS, TREE_MASK } from './volatile-mask.ts'
 // the run audits the production files for its own rows at the end.
 const childPids = isolateUsageMetrics()
 const productionBefore = snapshotUsageMetrics()
+// Processes alive before the run cannot be its subjects. When the release under
+// test is the node's active one, production aspd's rows name it too (T-11882).
+const preexistingPids = new Set(
+  spawnSync('ps', ['-axo', 'pid='], { encoding: 'utf8' })
+    .stdout.split('\n')
+    .map((line) => Number(line.trim()))
+    .filter((pid) => pid > 0 && pid !== process.pid)
+)
 
 function args(name: string): string[] {
   return process.argv.flatMap((value, index) => (process.argv[index - 1] === name ? [value] : []))
@@ -80,8 +95,11 @@ const arg = (name: string) => args(name)[0]
 
 type Reply = Record<string, unknown> | { unparsed: string }
 type TreeEntry = string
+/** One `rpc.request` log line's data: op, outcome, servedBy, relay, fallback, durationMs. */
+type Served = Record<string, unknown>
 type Capture = {
   replies: Record<string, Reply[]>
+  served: Record<string, { subject: Served[]; upstream: Served[] }>
   trees: Record<string, Record<string, TreeEntry>>
   fingerprintViolations: Record<string, string[]>
   fingerprints: Fingerprints
@@ -240,6 +258,37 @@ async function stopSubject(child: ChildProcess): Promise<void> {
   await Promise.race([exited, Bun.sleep(180_000)])
 }
 
+/** A log file read from a byte offset on, for per-case slices. */
+function logCursor(path: string) {
+  let offset = 0
+  const read = (): string => {
+    if (!existsSync(path)) return ''
+    const text = readFileSync(path).subarray(offset)
+    const end = text.lastIndexOf(10) + 1
+    offset += end
+    return text.subarray(0, end).toString('utf8')
+  }
+  return { skip: () => void read(), read }
+}
+
+const rpcRequests = (text: string): Served[] =>
+  text
+    .split('\n')
+    .filter((line) => line.includes('"event":"rpc.request"'))
+    .map((line) => (JSON.parse(line) as { data: Served }).data)
+
+/** The case's rpc.request lines; waits briefly for its own method's line to be flushed. */
+async function servedSlice(cursor: ReturnType<typeof logCursor>, method: string | undefined) {
+  const lines: Served[] = []
+  const deadline = Date.now() + 2_000
+  for (;;) {
+    lines.push(...rpcRequests(cursor.read()))
+    if (method === undefined || lines.some((line) => line['op'] === method)) return lines
+    if (Date.now() > deadline) return lines
+    await Bun.sleep(20)
+  }
+}
+
 // -- driving --------------------------------------------------------------------
 
 const frameFor = (id: number, method: string, params: unknown) =>
@@ -311,15 +360,36 @@ async function runSubject(
   const log = join(paths.out, `${subject.name}-aspd.log`)
   const child = startSubject(subject, paths.ns, paths.socket, log, env)
   const fingerprints: Fingerprints = new Map()
-  const capture: Capture = { replies: {}, trees: {}, fingerprintViolations: {}, fingerprints }
+  const capture: Capture = {
+    replies: {},
+    served: {},
+    trees: {},
+    fingerprintViolations: {},
+    fingerprints,
+  }
+  const subjectLog = logCursor(log)
+  // front-door-subject.sh logs its Bun upstream beside raspd's log.
+  const upstreamLog = logCursor(`${log}.bun`)
   try {
     await awaitReady(paths.socket, child)
     for (const entry of cases) {
+      subjectLog.skip()
+      upstreamLog.skip()
       capture.replies[entry.id] = await drive(
         paths.socket,
         caseFrames(entry),
         entry.kind === 'raw' ? 5_000 : 180_000
       )
+      const method = entry.kind === 'call' ? entry.method : undefined
+      const subjectLines = await servedSlice(subjectLog, method)
+      const relayed = subjectLines.some(
+        (line) => line['op'] === method && line['relay'] === 'relayed'
+      )
+      capture.served[entry.id] = {
+        subject: subjectLines,
+        // A relayed request's upstream line can land after the reply; wait for it.
+        upstream: await servedSlice(upstreamLog, relayed ? method : undefined),
+      }
       capture.fingerprintViolations[entry.id] = verifyFingerprints(paths.stage, fingerprints)
       capture.trees[entry.id] = treeManifest(paths.stage, fingerprints)
       process.stdout.write(`${subject.name} ${entry.id}\n`)
@@ -335,6 +405,10 @@ async function runSubject(
   writeFileSync(
     join(paths.out, `${subject.name}-replies.json`),
     `${JSON.stringify(capture.replies, null, 2)}\n`
+  )
+  writeFileSync(
+    join(paths.out, `${subject.name}-served.json`),
+    `${JSON.stringify(capture.served, null, 2)}\n`
   )
   writeFileSync(
     join(paths.out, `${subject.name}-trees.json`),
@@ -497,9 +571,23 @@ function compare(cases: CompareCase[], a: Capture, b: Capture, subjects: [Subjec
       violations.length === 0 &&
       replyDiffs.length === 0 &&
       treeDiffs.length === 0
+    const method = entry.kind === 'call' ? entry.method : undefined
+    const servedB = b.served[entry.id]
+    const own = servedB?.subject.find((line) => line['op'] === method)
     return {
       case: entry.id,
       ok,
+      // B's own log line for the case's method, and what its upstream (if any) saw.
+      servedBy: {
+        b: own?.['servedBy'] ?? null,
+        ...(own?.['relay'] !== undefined ? { relay: own['relay'] } : {}),
+        ...(own?.['fallback'] !== undefined ? { fallback: own['fallback'] } : {}),
+        bUpstreamOps: (servedB?.upstream ?? []).map((line) => line['op']),
+        durationMs: {
+          a: a.served[entry.id]?.subject.find((line) => line['op'] === method)?.['durationMs'],
+          b: own?.['durationMs'],
+        },
+      },
       ...(selfChecks.a.length + selfChecks.b.length > 0 ? { selfChecks } : {}),
       ...(Object.keys(extraA.declared).length + Object.keys(extraB.declared).length > 0
         ? { declaredExtras: { a: extraA.declared, b: extraB.declared } }
@@ -553,10 +641,17 @@ async function main(): Promise<number> {
   const seed = join(scratch, 'seed')
   // --cases live: the node's real agents and projects (live-cases.ts).
   const live = arg('--cases') === 'live'
+  const list = (name: string) => arg(name)?.split(',').filter(Boolean)
+  const selection = {
+    agents: list('--live-agents'),
+    projects: list('--live-projects'),
+    task: arg('--live-task'),
+    resume: process.argv.includes('--live-resume'),
+  }
   const asp = live ? undefined : await loadAsp()
   const seeded = live ? seedLiveStage(stage) : seedStage(asp as Asp, stage)
   const cases = live
-    ? buildLiveCases(seeded as LiveStage)
+    ? buildLiveCases(seeded as LiveStage, selection)
     : buildCases(asp as Asp, seeded as ReturnType<typeof seedStage>)
   cpSync(stage, seed, { recursive: true, verbatimSymlinks: true, preserveTimestamps: true })
   copyDirectoryTimes(stage, seed)
@@ -595,12 +690,27 @@ async function main(): Promise<number> {
       if (pid !== undefined) runPids.add(Number(pid))
     }
   }
-  const leaked = appendedUsageMetricsRows(productionBefore).filter(
-    (row) =>
-      (typeof row['pid'] === 'number' && runPids.has(row['pid'])) ||
-      String(row['product'] ?? '').includes(release.releaseId)
+  const appended = appendedUsageMetricsRows(productionBefore)
+  const byRunPid = (row: Record<string, unknown>) =>
+    typeof row['pid'] === 'number' && runPids.has(row['pid'])
+  const namesRelease = (row: Record<string, unknown>) =>
+    String(row['product'] ?? '').includes(release.releaseId)
+  const preexisting = (row: Record<string, unknown>) =>
+    typeof row['pid'] === 'number' && preexistingPids.has(row['pid'])
+  const leaked = appended.filter((row) => byRunPid(row) || (namesRelease(row) && !preexisting(row)))
+  const preexistingReleaseRows = appended.filter(
+    (row) => !byRunPid(row) && namesRelease(row) && preexisting(row)
   )
-  const productionAudit = { runPids: runPids.size, leakedRows: leaked.length, leaked }
+  const productionAudit = {
+    runPids: runPids.size,
+    leakedRows: leaked.length,
+    leaked,
+    // Rows naming the release from processes that predate the run (the node's own aspd).
+    preexistingReleaseRows: {
+      count: preexistingReleaseRows.length,
+      pids: [...new Set(preexistingReleaseRows.map((row) => row['pid']))],
+    },
+  }
   const failed = results.filter((result) => !result.ok)
   const report = {
     commit,
@@ -608,6 +718,7 @@ async function main(): Promise<number> {
     scratch,
     stage,
     masking,
+    ...(live ? { liveSelection: selection } : {}),
     subjects: subjects.map(({ name, argv, declaredExtras }) => ({
       name,
       argv,

@@ -14,6 +14,12 @@
  * the stage, so live edits by other seats cannot land between the passes. Params are a birth's `{ compileRequest, dispatchEnv, aspHome }`
  * (hrc-runtime crates/hrc-native/src/server/compile.rs), with and without a
  * task scope.
+ *
+ * By default the corpus is every claude agent x every snapshotted project.
+ * `LiveSelection` narrows it to named agents (any harness, so codex agents
+ * too: T-11882), named projects and a task id, and can add a resume row per
+ * cell carrying Bun HRC's `continuation` (the fixture's claude-code-resume
+ * shape, with the agent's harness provider).
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -65,25 +71,53 @@ export function seedLiveStage(base: string): LiveStage {
   return { base, agentsRoot, aspHome, claudeConfigDir, projectsRoot }
 }
 
+export type LiveSelection = {
+  /** Agents to compile, any harness; default every claude agent. */
+  agents?: string[] | undefined
+  /** Projects to compile in; default every snapshotted project. */
+  projects?: string[] | undefined
+  /** The task seat's task id; default T-11841. */
+  task?: string | undefined
+  /** Add a continuation-carrying resume row per cell. */
+  resume?: boolean | undefined
+}
+
+/** The harness an agent's profile provisions, if it names one. */
+function profileHarness(agentsRoot: string, agent: string): string | undefined {
+  const profile = join(agentsRoot, agent, 'agent-profile.toml')
+  if (!existsSync(profile)) return undefined
+  return readFileSync(profile, 'utf8').match(/^harness\s*=\s*"([^"]+)"/m)?.[1]
+}
+
 /** Agents whose profile provisions the claude harness. */
 function claudeAgents(agentsRoot: string): string[] {
   return readdirSync(agentsRoot)
-    .filter((name) => existsSync(join(agentsRoot, name, 'agent-profile.toml')))
-    .filter((name) =>
-      /^harness\s*=\s*"claude"/m.test(
-        readFileSync(join(agentsRoot, name, 'agent-profile.toml'), 'utf8')
-      )
-    )
+    .filter((name) => profileHarness(agentsRoot, name) === 'claude')
     .sort()
 }
 
-function request(stage: LiveStage, agent: string, project: string, task: string | undefined) {
+/** Bun HRC's continuation for a resume; the provider follows the harness (compile-broker-plan.ts). */
+function continuation(harness: string | undefined, key: string) {
+  const provider = harness === 'codex' ? 'openai' : 'anthropic'
+  return { hrc: { provider, key, continuationId: `cont_${key}` }, source: 'hrc' }
+}
+
+function request(
+  stage: LiveStage,
+  agent: string,
+  project: string,
+  task: string | undefined,
+  resume: boolean
+) {
   const projectRoot = join(stage.projectsRoot, project)
   const scopeRef =
     task === undefined
       ? `agent:${agent}:project:${project}`
       : `agent:${agent}:project:${project}:task:${task}`
-  const suffix = `${agent}_${project}_${task ?? 'primary'}`.replaceAll('-', '_')
+  const suffix = `${agent}_${project}_${task ?? 'primary'}${resume ? '_resume' : ''}`.replaceAll(
+    '-',
+    '_'
+  )
   const identity = {
     hostSessionId: `host_${suffix}`,
     generation: 1,
@@ -132,6 +166,9 @@ function request(stage: LiveStage, agent: string, project: string, task: string 
       initialPrompt: 'live corpus prompt',
       ...(task !== undefined ? { taskContext: { taskId: task, requiredEvidenceKinds: [] } } : {}),
     },
+    ...(resume
+      ? { continuation: continuation(profileHarness(stage.agentsRoot, agent), `live-${suffix}`) }
+      : {}),
     hrcPolicy: {},
     correlation: {
       scopeRef,
@@ -148,28 +185,39 @@ function request(stage: LiveStage, agent: string, project: string, task: string 
   }
 }
 
-export function buildLiveCases(stage: LiveStage): CompareCase[] {
+export function buildLiveCases(stage: LiveStage, selection: LiveSelection = {}): CompareCase[] {
+  const agents = selection.agents ?? claudeAgents(stage.agentsRoot)
+  for (const agent of agents) {
+    if (profileHarness(stage.agentsRoot, agent) === undefined)
+      throw new Error(`live agent ${agent} has no agent-profile.toml harness under the stage`)
+  }
+  const projects = selection.projects ?? PROJECTS
+  for (const project of projects) {
+    if (!PROJECTS.includes(project)) throw new Error(`live project ${project} is not snapshotted`)
+  }
   const cases: CompareCase[] = [
     { kind: 'call', id: 'meta:hello', method: 'aspc.hello', params: HELLO_PARAMS },
   ]
-  for (const agent of claudeAgents(stage.agentsRoot)) {
-    for (const project of PROJECTS) {
-      for (const task of ['T-11841', undefined]) {
-        const compileRequest = request(stage, agent, project, task)
-        const entry: CallCase = {
-          kind: 'call',
-          id: `live:${agent}@${project}:${task ?? 'primary'}`,
-          method: 'aspc.compileHarnessInvocation',
-          // A birth's params (rusthrc compile.rs `Compiled::prepare`).
-          params: {
+  const shapes = selection.resume === true ? [false, true] : [false]
+  for (const agent of agents) {
+    for (const project of projects) {
+      for (const task of [selection.task ?? 'T-11841', undefined])
+        for (const resume of shapes) {
+          const compileRequest = request(stage, agent, project, task, resume)
+          const entry: CallCase = {
+            kind: 'call',
+            id: `live:${agent}@${project}:${task ?? 'primary'}${resume ? ':resume' : ''}`,
+            method: 'aspc.compileHarnessInvocation',
+            // A birth's params (rusthrc compile.rs `Compiled::prepare`).
+            params: {
+              compileRequest,
+              dispatchEnv: compileRequest.placement.dispatchEnv,
+              aspHome: stage.aspHome,
+            },
             compileRequest,
-            dispatchEnv: compileRequest.placement.dispatchEnv,
-            aspHome: stage.aspHome,
-          },
-          compileRequest,
+          }
+          cases.push(entry)
         }
-        cases.push(entry)
-      }
     }
   }
   return cases
