@@ -16,7 +16,6 @@
  *
  * Usage: bun scripts/usage-metrics-e2e.ts --out <dir> [--commit <sha>] [--baseline <sha>]
  */
-import { spawnSync } from 'node:child_process'
 import {
   chmodSync,
   copyFileSync,
@@ -29,36 +28,15 @@ import {
 } from 'node:fs'
 import { connect } from 'node:net'
 import { join, resolve } from 'node:path'
+import { buildScratchRelease, must, repo, run } from './lib/scratch-release.ts'
 import { isolateUsageMetrics } from './lib/usage-metrics-isolation.ts'
 
 // Usage metrics from this script and its children stay out of the real day files (T-11824).
 isolateUsageMetrics()
 
-const repo = resolve(import.meta.dir, '..')
-
 function arg(name: string): string | undefined {
   const index = process.argv.indexOf(name)
   return index === -1 ? undefined : process.argv[index + 1]
-}
-
-function run(command: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}) {
-  const result = spawnSync(command[0] as string, command.slice(1), {
-    cwd: options.cwd ?? repo,
-    env: options.env ?? process.env,
-    encoding: 'utf8',
-    timeout: 300_000,
-  })
-  return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' }
-}
-
-function must(command: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): string {
-  const result = run(command, options)
-  if (result.status !== 0) {
-    throw new Error(
-      `${command.join(' ')} exited ${result.status}\n${result.stderr}${result.stdout}`
-    )
-  }
-  return result.stdout
 }
 
 const out = resolve(arg('--out') ?? join(repo, '..', 'var', 'wrkq-artifacts', 'T-11824', 'e2e'))
@@ -72,32 +50,7 @@ const metricsDir = join(varRoot, 'state', 'agent-spaces', 'metrics')
 const logDir = join(varRoot, 'logs', 'agent-spaces')
 mkdirSync(out, { recursive: true })
 
-function buildRelease(sha: string): { releaseId: string; releasePath: string; src: string } {
-  const src = join(scratch, `src-${sha.slice(0, 8)}`)
-  must(['git', 'clone', '-q', repo, src])
-  must(['git', 'checkout', '-q', sha], { cwd: src })
-  must(['bun', 'install', '--frozen-lockfile'], { cwd: src })
-  const report = JSON.parse(
-    must(['bun', 'scripts/asp-release.ts', 'build', '--output-root', join(scratch, 'builds')], {
-      cwd: src,
-    })
-  ) as { releaseId: string; releasePath: string }
-  must(
-    [
-      'bun',
-      'scripts/asp-release.ts',
-      'install',
-      '--artifact',
-      report.releasePath,
-      '--release-root',
-      join(ns, 'releases'),
-    ],
-    {
-      cwd: src,
-    }
-  )
-  return { ...report, src }
-}
+const buildRelease = (sha: string) => buildScratchRelease(sha, scratch, join(ns, 'releases'))
 
 // -- RPC script -----------------------------------------------------------------
 

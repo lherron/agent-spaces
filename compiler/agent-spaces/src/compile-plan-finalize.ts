@@ -351,3 +351,52 @@ export function finalizePlan(input: FinalizePlanInput): RuntimeCompileResponse {
     effectiveEnvironmentHash: input.effectiveEnvironmentHash,
   }
 }
+
+export type DerivedPlanHashes = {
+  compatibilityHash: string
+  startRequestHash: string
+  profileId: string
+  profileHash: string
+  compileId: string
+  planHash: string
+}
+
+/**
+ * Recompute every hash {@link finalizePlan} derives, from a reported plan and
+ * the request that compiled it, with the same helpers. The aspd compare runner
+ * (T-11833) checks each subject's reported hashes against these before it
+ * diffs plans across subjects.
+ */
+export function derivePlanHashes(
+  req: RuntimeCompileRequest,
+  plan: CompiledRuntimePlan
+): DerivedPlanHashes {
+  const { profile: _profile, dispatchRequest, ...recipe } = plan.execution
+  const startRequest = dispatchRequest.startRequest
+  const neutralStartRequest = hashNeutralStartRequest(startRequest)
+  const compatibilityHash = hashValue(
+    buildCompatibilityMaterial(
+      req,
+      plan.selection,
+      neutralStartRequest,
+      plan.artifacts.bundleIdentity,
+      plan.artifacts.lockHash,
+      startRequest.spec.process.lockedEnv ?? {}
+    )
+  )
+  const startRequestHash = neutralStartRequestHash(startRequest)
+  const profileId = stableId('profile', {
+    recipeId: recipe.recipeId,
+    startRequest: neutralStartRequest,
+  })
+  const profileHash = hashValue({ profileId, recipe, compatibilityHash, startRequestHash })
+  const compileId = stableId('compile', { generation: plan.identity.generation, profileHash })
+  const { planHash: _planHash, ...planMaterial } = plan
+  const planHash = hashValue({
+    ...planMaterial,
+    createdAt: undefined,
+    identity: hashNeutralCompileIdentity(plan.identity),
+    placement: hashNeutralPlacement(plan.placement),
+  })
+  return { compatibilityHash, startRequestHash, profileId, profileHash, compileId, planHash }
+}
