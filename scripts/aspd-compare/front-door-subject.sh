@@ -21,7 +21,10 @@ done
 release="${ASPD_COMPARE_RELEASE:?ASPD_COMPARE_RELEASE is required}"
 bun_socket="$(dirname "$socket")/aspd-bun.sock"
 
-"$release/aspd" serve --socket "$bun_socket" --log "$log.bun" &
+# Bash adds PWD, SHLVL and _ to what it exports; the effective-environment hash
+# covers the environment, so both children get exactly the runner's.
+clean_env=(env -u PWD -u OLDPWD -u SHLVL -u _)
+"${clean_env[@]}" "$release/aspd" serve --socket "$bun_socket" --log "$log.bun" &
 bun_pid=$!
 for _ in $(seq 1 300); do
   [[ -S "$bun_socket" ]] && break
@@ -29,7 +32,7 @@ for _ in $(seq 1 300); do
   sleep 0.1
 done
 [[ -S "$bun_socket" ]] || { echo "Bun aspd never listened on $bun_socket" >&2; kill "$bun_pid"; exit 1; }
-"$release/raspd" serve --socket "$socket" --upstream "$bun_socket" --log "$log" &
+"${clean_env[@]}" "$release/raspd" serve --socket "$socket" --upstream "$bun_socket" --log "$log" &
 raspd_pid=$!
 stop() { kill -TERM "$raspd_pid" "$bun_pid" 2>/dev/null; wait; }
 trap 'stop; exit 0' TERM INT
