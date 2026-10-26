@@ -44,7 +44,10 @@ import {
   type ClaudeCodeHookEnvelope,
   createClaudeCodeHookEventNormalizer,
 } from './hook-events'
-import { createClaudeHookRecordHandler } from './hook-record-handler'
+import {
+  CLAUDE_STOP_TRANSCRIPT_WAIT_MS,
+  createClaudeHookRecordHandler,
+} from './hook-record-handler'
 import {
   type ClaudeHookTranscriptReader,
   createClaudeHookTranscriptReader,
@@ -173,6 +176,12 @@ export interface ClaudeCodeTmuxDriverOptions {
   now?: (() => Date) | undefined
   /** Test seam for watcher error/re-arm lifecycle; production uses node:fs. */
   watchTranscript?: TranscriptWatch | undefined
+  /**
+   * How long a `Stop` carrying `last_assistant_message` waits for Claude's
+   * timer-flushed transcript to show the turn's prose before taking the
+   * fallback. Defaults to {@link CLAUDE_STOP_TRANSCRIPT_WAIT_MS}.
+   */
+  stopTranscriptWaitMs?: number | undefined
 }
 
 interface SurfaceState {
@@ -351,6 +360,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         allocateTurnId,
         hasApiErrorForTurn: (turnId) => apiErrorTurns.has(turnId),
         clearApiErrorForTurn: (turnId) => apiErrorTurns.delete(turnId),
+        onFallbackTerminalMessage: (text) => transcriptReader?.coverTerminalMessage(text),
       })
       const turnAttribution = createClaudeTurnAttribution({
         invocationId: driverCtx.invocationId,
@@ -416,6 +426,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         attribution: turnAttribution,
         attributionEvents,
         structuredOutput,
+        stopTranscriptWaitMs: options.stopTranscriptWaitMs ?? CLAUDE_STOP_TRANSCRIPT_WAIT_MS,
       })
 
       hookListener = await options.hooks.listen(

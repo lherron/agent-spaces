@@ -308,8 +308,11 @@ describe('claude-code-tmux transcript authority: conversation', () => {
         },
       },
     ])
-    // Nothing held: a second flush must not mint a second final.
-    expect(h.reader.flushTerminalAssistantMessage()).toBe(false)
+    // Nothing held: a second flush must not mint a second final. It still
+    // reports the turn's terminal as transcript-owned, which is what keeps the
+    // `last_assistant_message` fallback dormant (T-11837).
+    expect(h.reader.flushTerminalAssistantMessage()).toBe(true)
+    expect(h.emitted.filter((e) => e.type === 'assistant.message.completed')).toHaveLength(1)
   })
 
   test('an aborted message is flushed as NON-final, and the abort names its record', () => {

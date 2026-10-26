@@ -50,7 +50,7 @@ export const SPARKY_CODEX_MATRIX_ROWS = [
   'codex-tui',
 ] as const
 
-type CompileTransport = 'sdk' | 'aspc-rpc'
+export type CompileTransport = 'sdk' | 'aspc-rpc'
 type RowResult = {
   name: RowName
   status: 'OK' | 'FAIL'
@@ -156,7 +156,7 @@ function writeExecutable(path: string, contents: string): void {
   chmodSync(path, 0o755)
 }
 
-function createFixture(row: RowName): {
+export function createFixture(row: RowName): {
   root: string
   agentRoot: string
   projectRoot: string
@@ -201,7 +201,7 @@ function createFixture(row: RowName): {
   }
 }
 
-function realExecutable(name: 'codex' | 'claude' | 'muse'): string | undefined {
+export function realExecutable(name: 'codex' | 'claude' | 'muse'): string | undefined {
   const explicit = process.env[`ASP_${name.toUpperCase()}_PATH`]
   if (explicit !== undefined && explicit.length > 0) return explicit
   const found = Bun.which(name)
@@ -284,7 +284,7 @@ export function buildMatrixDispatchOptions(
   }
 }
 
-function runTmux(
+export function runTmux(
   tmuxBin: string,
   argv: string[],
   env: Record<string, string | undefined>
@@ -330,7 +330,7 @@ function identity(row: RowName, marker: string): RuntimeCompileRequest['identity
   } as RuntimeCompileRequest['identity']
 }
 
-function createRequest(
+export function createRequest(
   row: RowName,
   fixture: ReturnType<typeof createFixture>,
   marker: string
@@ -387,13 +387,14 @@ function createRequest(
   }
 }
 
-async function compileForMatrix(
+export async function compileForMatrix(
   transport: CompileTransport,
   fixture: ReturnType<typeof createFixture>,
   request: RuntimeCompileRequest,
-  marker: string
+  marker: string,
+  extraDispatchEnv: Record<string, string> = {}
 ): Promise<RuntimeCompileResponse> {
-  const dispatchEnv = { ASP_MATRIX_FAKE_MARKER: marker }
+  const dispatchEnv = { ASP_MATRIX_FAKE_MARKER: marker, ...extraDispatchEnv }
   if (transport === 'sdk') {
     const { createAgentSpacesClient } = await import('../compiler/agent-spaces/src/index.js')
     return createAgentSpacesClient({

@@ -41,6 +41,12 @@ export type ClaudeCodeHookEventNormalizerOptions = {
    * one-shot `normalizeHookEnvelope` path, which always supplies a turn id).
    */
   allocateTurnId?: (() => string) | undefined
+  /**
+   * Told the prose the `last_assistant_message` fallback just minted. The
+   * driver hands it to the transcript reader so the `assistant` row that lands
+   * after the fallback is not a second terminal message (T-11837).
+   */
+  onFallbackTerminalMessage?: ((text: string) => void) | undefined
 }
 
 /**
@@ -325,6 +331,9 @@ export function createClaudeCodeHookEventNormalizer(
         // Stop. That happens when the transcript reader has no prose for the
         // turn at all, and HRC's `final_message_count` gate would otherwise
         // redden a turn that really did answer. It is recorded in harness-broker-evidence-authority.md.
+        // Claude flushes its transcript on a timer, so the record handler first
+        // waits (bounded) for the row; a row that still lands after the
+        // fallback is dropped by the reader (T-11837).
         const transcriptOwnsTerminalMessage = transcriptTerminalMessagePending
         transcriptTerminalMessagePending = false
         const lastAssistantMessage = getString(unwrapped, 'last_assistant_message')?.trim()
@@ -338,6 +347,7 @@ export function createClaudeCodeHookEventNormalizer(
           !turnAlreadyDone
         ) {
           const messageId = `${turnIdText}_final`
+          options.onFallbackTerminalMessage?.(lastAssistantMessage)
           events = [
             emit('MessageDisplay', {
               type: 'assistant.message.completed',

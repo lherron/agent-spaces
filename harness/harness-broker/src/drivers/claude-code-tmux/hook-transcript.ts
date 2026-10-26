@@ -75,9 +75,25 @@ export type ClaudeHookTranscriptReader = {
    * the turn's closing `system` rows only AFTER the Stop hooks return, so
    * without this seam a transcript-primary `conversation` would have no
    * successor row to flush against at the moment HRC needs the final message.
-   * Returns TRUE when a terminal message was emitted.
+   * Returns TRUE when the turn's terminal message is on the ledger from the
+   * transcript: flushed now, or already flushed as `end_turn` prose by a row
+   * Claude wrote before this `Stop` was read (T-11837).
    */
   flushTerminalAssistantMessage: () => boolean
+  /**
+   * TRUE when {@link flushTerminalAssistantMessage} would return TRUE. The
+   * record handler waits on this before a `Stop` may take the
+   * `last_assistant_message` fallback (T-11837).
+   */
+  hasTerminalProse: () => boolean
+  /** TRUE once SessionStart named a transcript file that exists on disk. */
+  hasTranscript: () => boolean
+  /**
+   * The `Stop` fallback minted `text` because the turn's `assistant` row was
+   * not on disk yet. If that row lands before the next `user` row, it is the
+   * same fact and is not emitted again (T-11837).
+   */
+  coverTerminalMessage: (text: string) => void
   reset: () => void
 }
 
@@ -155,6 +171,10 @@ export function createClaudeHookTranscriptReader(
     onEpochChange: () => options.capture?.rotateEpoch(sourceKey),
   })
   let previousWasStopHookCancelled = false
+  /** Prose the `Stop` fallback already minted; see `coverTerminalMessage`. */
+  let coveredTerminalText: string | undefined
+  /** An `end_turn` message was emitted since the last `user` row. */
+  let finalMessageEmitted = false
   let transcriptPath: string | undefined
   /**
    * Provenance of the row currently being normalized. Held separately from
@@ -294,13 +314,18 @@ export function createClaudeHookTranscriptReader(
     const message = heldAssistantMessage
     heldAssistantMessage = undefined
     if (message === undefined || message.text.length === 0) return false
+    const covered = coveredTerminalText
+    coveredTerminalText = undefined
+    if (covered !== undefined && message.text.trim() === covered) return false
+    const isFinal = final ?? message.stopReason === 'end_turn'
+    if (isFinal) finalMessageEmitted = true
     emitWithProvenance(message.provenance, () => {
       options.emit(
         'assistant.message.completed',
         {
           messageId: message.messageId as MessageId,
           content: [{ type: 'text', text: message.text }],
-          final: final ?? message.stopReason === 'end_turn',
+          final: isFinal,
         },
         {
           ...(message.turnId !== undefined ? { turnId: message.turnId as TurnId } : {}),
@@ -633,6 +658,12 @@ export function createClaudeHookTranscriptReader(
     if (entryType === 'user' || entryType === 'system') {
       flushHeldAssistantMessage()
     }
+    // Every turn's prompt row precedes its reply, so a covered row that has not
+    // arrived by the next `user` row never will.
+    if (entryType === 'user') {
+      coveredTerminalText = undefined
+      finalMessageEmitted = false
+    }
 
     if (entryType === 'assistant') {
       // Assistant rows are the PRIMARY evidence for `conversation`, `tool`
@@ -777,13 +808,30 @@ export function createClaudeHookTranscriptReader(
     },
 
     flushTerminalAssistantMessage(): boolean {
-      return flushHeldAssistantMessage(true)
+      return flushHeldAssistantMessage(true) || finalMessageEmitted
+    },
+
+    hasTerminalProse(): boolean {
+      return (
+        finalMessageEmitted ||
+        (heldAssistantMessage !== undefined && heldAssistantMessage.text.length > 0)
+      )
+    },
+
+    hasTranscript(): boolean {
+      return transcriptPath !== undefined && existsSync(transcriptPath)
+    },
+
+    coverTerminalMessage(text: string): void {
+      coveredTerminalText = text
     },
 
     reset(): void {
       tailer.clear()
       transcriptPath = undefined
       previousWasStopHookCancelled = false
+      coveredTerminalText = undefined
+      finalMessageEmitted = false
       currentRowProvenance = undefined
       heldAssistantMessage = undefined
       usageReportedMessageIds.clear()

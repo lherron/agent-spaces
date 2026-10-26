@@ -1,8 +1,8 @@
 import type { TurnId } from 'spaces-harness-broker-protocol'
 import type { NormalizeOutcome } from '../../capture/capture-gate'
 import type { DriverContext } from '../driver'
-import { asRecord as asHookRecord, getString } from '../hook-json'
-import type { HookEnvelopeResult } from '../tmux-shared'
+import { asRecord as asHookRecord, getString, unwrapHookPayload } from '../hook-json'
+import { type HookEnvelopeResult, sleep } from '../tmux-shared'
 import {
   type CapturedEmit,
   type ClaudeAttributionEventSink,
@@ -22,6 +22,17 @@ import { CLAUDE_STATUS_LINE_RECORD, createClaudeStatusLineReader } from './statu
 import type { ClaudeStructuredOutputGate } from './structured-output'
 import type { ClaudeTurnAttribution } from './turn-attribution'
 
+/**
+ * Claude Code appends transcript rows behind a 100 ms flush timer
+ * (`FLUSH_INTERVAL_MS=100`, claude 2.1.310), so a `Stop` hook path faster than
+ * that reaches the broker before the turn's closing `assistant` row is on disk.
+ * The `Stop` waits up to this long for the row before taking the
+ * `last_assistant_message` fallback (T-11837). Claude is blocked on the hook
+ * meanwhile, but its write timer still fires.
+ */
+export const CLAUDE_STOP_TRANSCRIPT_WAIT_MS = 500
+const STOP_TRANSCRIPT_POLL_MS = 10
+
 export interface ClaudeHookRecordHandlerOptions {
   driverCtx: DriverContext
   expectedRuntimeId: string | undefined
@@ -34,6 +45,7 @@ export interface ClaudeHookRecordHandlerOptions {
   attribution: ClaudeTurnAttribution
   attributionEvents: ClaudeAttributionEventSink
   structuredOutput: ClaudeStructuredOutputGate
+  stopTranscriptWaitMs: number
 }
 
 /**
@@ -54,6 +66,7 @@ export function createClaudeHookRecordHandler(
     attribution,
     attributionEvents,
     structuredOutput,
+    stopTranscriptWaitMs,
   } = options
   /** The Claude context reading, minted from StatusLine records only (T-10929). */
   const statusLine = createClaudeStatusLineReader()
@@ -217,12 +230,37 @@ export function createClaudeHookRecordHandler(
     return listenerSocketPath === undefined || envelope.callbackSocket === listenerSocketPath
   }
 
+  /**
+   * Before a `Stop` that carries `last_assistant_message` is committed, give
+   * the transcript the chance a slow hook would have had: read until the reader
+   * holds the turn's prose (or has already emitted it, when Claude wrote the
+   * closing rows first) or the bound runs out. Rows read here are committed
+   * ahead of the `Stop` record, exactly as a native file notification would.
+   */
+  const awaitStopTranscript = async (
+    envelope: ClaudeCodeHookEnvelope,
+    rawHook: Record<string, unknown>
+  ): Promise<void> => {
+    const lastAssistantMessage = getString(unwrapHookPayload(rawHook), 'last_assistant_message')
+    if (lastAssistantMessage === undefined || lastAssistantMessage.trim().length === 0) return
+    // No transcript file (a Claude that does not persist one): nothing to wait for.
+    if (!reader.hasTranscript()) return
+    const turnId = envelope.turnId ?? attribution.activeTurnId
+    const deadline = performance.now() + stopTranscriptWaitMs
+    for (;;) {
+      reader.handleHook(rawHook, turnId)
+      if (reader.hasTerminalProse() || performance.now() >= deadline) return
+      await sleep(STOP_TRANSCRIPT_POLL_MS)
+    }
+  }
+
   return async (envelope) => {
     if (!isForThisInvocation(envelope)) return
     const rawHook = asHookRecord(envelope.hookData)
     // A StatusLine record names its type on the envelope: the statusline JSON
     // it carries verbatim has no `hook_event_name` of its own.
     const rawType = envelope.hookEventName ?? getString(rawHook, 'hook_event_name')
+    if (rawType === 'Stop') await awaitStopTranscript(envelope, rawHook)
     const capture = driverCtx.capture
     if (capture === undefined) {
       const result = normalizeHookRecord(envelope, rawHook, rawType)
