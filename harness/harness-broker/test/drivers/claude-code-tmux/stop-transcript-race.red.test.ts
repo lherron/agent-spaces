@@ -3,7 +3,6 @@ import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
-import type { ClaudeCodeTmuxDriverOptions } from '../../../src/drivers/claude-code-tmux/driver'
 import type { HookEnvelope, TmuxExecCall } from './driver-red.helpers'
 import {
   claudeTmuxSpec,
@@ -27,9 +26,11 @@ const assistantRow = (id: string, text: string): string =>
     type: 'assistant',
     message: { id, role: 'assistant', content: [{ type: 'text', text }], stop_reason: 'end_turn' },
   })}\n`
+/** Branded ids compare as their wire strings. */
+const plain = (value: unknown): unknown => JSON.parse(JSON.stringify(value))
 const stopSummaryRow = `${JSON.stringify({ type: 'system', subtype: 'stop_hook_summary' })}\n`
 
-async function startDriver(extra: Partial<ClaudeCodeTmuxDriverOptions> = {}) {
+async function startDriver(extra: { stopTranscriptWaitMs?: number } = {}) {
   const createDriver = await loadFactory()
   const tmuxCalls: TmuxExecCall[] = []
   let handler: ((envelope: HookEnvelope) => Promise<unknown>) | undefined
@@ -83,7 +84,7 @@ describe('claude-code-tmux Stop vs transcript flush (T-11837)', () => {
       appendFileSync(run.transcriptPath, stopSummaryRow)
       await run.hook({ hook_event_name: 'UserPromptSubmit', prompt: 'next' }, 'turn_next')
 
-      expect(run.messages().map((event) => event.payload)).toEqual([
+      expect(plain(run.messages().map((event) => event.payload))).toEqual([
         {
           messageId: 'msg_fast',
           content: [{ type: 'text', text: 'DONE' }],
@@ -91,7 +92,7 @@ describe('claude-code-tmux Stop vs transcript flush (T-11837)', () => {
         },
       ])
       const message = run.messages()[0]
-      expect(message?.turnId).toBe('turn_fast')
+      expect(message?.turnId as string | undefined).toBe('turn_fast')
       expect(message?.driver?.rawType).toBe('transcript.assistant')
       const terminalSeq = run.events.find((event) => event.type === 'turn.completed')?.seq ?? 0
       expect(message?.seq ?? Number.POSITIVE_INFINITY).toBeLessThan(terminalSeq)
@@ -106,7 +107,7 @@ describe('claude-code-tmux Stop vs transcript flush (T-11837)', () => {
       await run.hook({ hook_event_name: 'UserPromptSubmit', prompt: 'go' }, 'turn_slow')
       await run.hook({ hook_event_name: 'Stop', last_assistant_message: 'DONE' }, 'turn_slow')
       // The named exception fired: the turn really answered.
-      expect(run.messages().map((event) => event.payload)).toEqual([
+      expect(plain(run.messages().map((event) => event.payload))).toEqual([
         {
           messageId: 'turn_slow_final',
           content: [{ type: 'text', text: 'DONE' }],
@@ -121,7 +122,7 @@ describe('claude-code-tmux Stop vs transcript flush (T-11837)', () => {
       // Coverage is per turn: the next turn answering the same words still counts.
       appendFileSync(run.transcriptPath, assistantRow('msg_next', 'DONE'))
       await run.hook({ hook_event_name: 'Stop', last_assistant_message: 'DONE' }, 'turn_next')
-      expect(run.messages().map((event) => [event.turnId, event.payload])).toEqual([
+      expect(plain(run.messages().map((event) => [event.turnId, event.payload]))).toEqual([
         ['turn_slow', expect.objectContaining({ messageId: 'turn_slow_final' })],
         ['turn_next', expect.objectContaining({ messageId: 'msg_next' })],
       ])
@@ -141,7 +142,7 @@ describe('claude-code-tmux Stop vs transcript flush (T-11837)', () => {
       const started = performance.now()
       await run.hook({ hook_event_name: 'Stop', last_assistant_message: 'DONE' }, 'turn_detached')
       expect(performance.now() - started).toBeLessThan(1_000)
-      expect(run.messages().map((event) => [event.turnId, event.payload])).toEqual([
+      expect(plain(run.messages().map((event) => [event.turnId, event.payload]))).toEqual([
         [
           'turn_detached',
           { messageId: 'msg_detached', content: [{ type: 'text', text: 'DONE' }], final: true },
