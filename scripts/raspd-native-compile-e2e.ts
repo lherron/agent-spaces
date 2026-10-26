@@ -175,8 +175,10 @@ async function call(socket: string, client: string, method: string, params: unkn
       done(lines.map((l) => JSON.parse(l) as Record<string, unknown>))
     }
     s.on('close', finish)
+    // A multibyte character split across reads must not decode as U+FFFD.
+    const decoder = new TextDecoder()
     s.on('data', (chunk) => {
-      buffer += chunk.toString()
+      buffer += decoder.decode(chunk, { stream: true })
       let index = buffer.indexOf('\n')
       while (index !== -1) {
         lines.push(buffer.slice(0, index))

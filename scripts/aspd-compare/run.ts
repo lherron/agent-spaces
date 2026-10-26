@@ -282,8 +282,11 @@ function drive(socket: string, frames: string[], idleMs = 180_000): Promise<Repl
       for (const frame of frames) connection.write(`${frame}\n`)
       arm()
     })
+    // One decoder for the stream: a multibyte character split across reads
+    // must not decode as replacement characters.
+    const decoder = new TextDecoder()
     connection.on('data', (chunk) => {
-      buffer += chunk.toString()
+      buffer += decoder.decode(chunk, { stream: true })
       const parts = buffer.split('\n')
       buffer = parts.pop() ?? ''
       lines.push(...parts)
