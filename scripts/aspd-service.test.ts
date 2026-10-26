@@ -15,8 +15,8 @@ import {
   bootstrapLaunchd,
   renderLaunchdPlist,
   renderLaunchdScript,
-  serviceLogPaths,
-} from './aspd-service.ts'
+} from './aspd-service/launchd.ts'
+import { serviceLogPaths } from './aspd-service/namespace.ts'
 
 const dirs: string[] = []
 const savedPath = process.env.PATH

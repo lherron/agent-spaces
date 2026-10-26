@@ -2,7 +2,8 @@
 
 `aspd` serves the ASPC compile and inspection plane (`aspc/0.1`, NDJSON JSON-RPC over a Unix socket) from one
 immutable release in an explicit namespace. HRC compiles every launch through it. Code: `scripts/aspd-service.ts`
-(init, start, stop, restart, supervise, activate, status), `harness/aspc-facade/src/aspd.ts`, methods and
+(the verbs: init, start, stop, restart, supervise, activate, status, front-door-*; Bun aspd, raspd, launchd
+jobs and namespace records under `scripts/aspd-service/`), `harness/aspc-facade/src/aspd.ts`, methods and
 validators in `contracts/aspc-protocol/src/{types,schemas,inspection-params}.ts`, the client
 `spaces-aspc-protocol/unix-client`. Doc: `docs/aspd.md`.
 

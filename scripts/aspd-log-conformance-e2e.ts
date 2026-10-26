@@ -37,7 +37,7 @@ import {
 import { connect } from 'node:net'
 import { join, resolve } from 'node:path'
 import { gunzipSync } from 'node:zlib'
-import { renderLaunchdScript } from './aspd-service.ts'
+import { renderLaunchdScript } from './aspd-service/launchd.ts'
 import { isolateUsageMetrics } from './lib/usage-metrics-isolation.ts'
 import { ROWS, compileRequest, createFixture } from './path-markers-e2e.ts'
 
