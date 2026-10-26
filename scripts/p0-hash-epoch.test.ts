@@ -76,6 +76,10 @@ const CANONICAL_JSON_CENSUS_EXCLUSIONS = new Map([
     'event-ledger row canonicalization for runtime telemetry; not compiled artifact bytes',
   ],
   [
+    'core/config/src/usage-metrics/index.ts#UsageMetricsWriter',
+    'usage-metrics bucket identity: key entries sorted only to build an in-memory Map key; nothing is hashed or persisted from it',
+  ],
+  [
     'harness/harness-broker/src/offline-provider-comparison.ts#canonicalize',
     'offline runtime evidence comparison hashing; not compiled artifact bytes, and already codepoint-ordered',
   ],
