@@ -208,8 +208,11 @@ async function send(
         )
       )
     })
+    // One decoder per stream: a multibyte character split across reads
+    // must not decode as U+FFFD (e14d0fb9).
+    const decoder = new TextDecoder()
     socket.on('data', (chunk) => {
-      buffer += chunk.toString()
+      buffer += decoder.decode(chunk, { stream: true })
       const lines = buffer.split('\n')
       buffer = lines.pop() ?? ''
       got.push(...lines.map((line) => JSON.parse(line) as Reply))
@@ -372,8 +375,11 @@ const sameConnection = (async () => {
         )
       }
     })
+    // One decoder per stream: a multibyte character split across reads
+    // must not decode as U+FFFD (e14d0fb9).
+    const decoder = new TextDecoder()
     socket.on('data', (chunk) => {
-      buffer += chunk.toString()
+      buffer += decoder.decode(chunk, { stream: true })
       const lines = buffer.split('\n')
       buffer = lines.pop() ?? ''
       for (const line of lines) {
@@ -459,8 +465,11 @@ const stalled = await new Promise<{ id: unknown; at: number }[]>((done, reject) 
       `${JSON.stringify({ jsonrpc: '2.0', id: 'health', method: 'health', params: {} })}\n`
     )
   })
+  // One decoder per stream: a multibyte character split across reads
+  // must not decode as U+FFFD (e14d0fb9).
+  const decoder = new TextDecoder()
   socket.on('data', (chunk) => {
-    buffer += chunk.toString()
+    buffer += decoder.decode(chunk, { stream: true })
     const lines = buffer.split('\n')
     buffer = lines.pop() ?? ''
     for (const line of lines)
@@ -522,8 +531,11 @@ const kernel = async (op: string, args: Record<string, unknown>) =>
     let buffer = ''
     socket.on('error', reject)
     socket.on('connect', () => socket.write(`${JSON.stringify({ id: 'k', op, args })}\n`))
+    // One decoder per stream: a multibyte character split across reads
+    // must not decode as U+FFFD (e14d0fb9).
+    const decoder = new TextDecoder()
     socket.on('data', (chunk) => {
-      buffer += chunk.toString()
+      buffer += decoder.decode(chunk, { stream: true })
       const newline = buffer.indexOf('\n')
       if (newline !== -1) {
         socket.end()

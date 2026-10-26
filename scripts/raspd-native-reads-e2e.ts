@@ -169,8 +169,11 @@ async function call(socket: string, client: string, method: string, params: unkn
       )
       s.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, client, method, params })}\n`)
     })
+    // One decoder per stream: a multibyte character split across reads
+    // must not decode as U+FFFD (e14d0fb9).
+    const decoder = new TextDecoder()
     s.on('data', (chunk) => {
-      buffer += chunk.toString()
+      buffer += decoder.decode(chunk, { stream: true })
       let index = buffer.indexOf('\n')
       while (index !== -1) {
         lines.push(buffer.slice(0, index))
@@ -203,8 +206,11 @@ async function timeCalls(socket: string, method: string, params: unknown, n: num
     }
     s.on('error', reject)
     s.on('connect', next)
+    // One decoder per stream: a multibyte character split across reads
+    // must not decode as U+FFFD (e14d0fb9).
+    const decoder = new TextDecoder()
     s.on('data', (chunk) => {
-      buffer += chunk.toString()
+      buffer += decoder.decode(chunk, { stream: true })
       let index = buffer.indexOf('\n')
       while (index !== -1) {
         buffer = buffer.slice(index + 1)

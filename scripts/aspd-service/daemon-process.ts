@@ -88,8 +88,11 @@ export async function versionOf(socketPath: string): Promise<Record<string, unkn
     }
     socket.setTimeout(2_000, () => done(undefined))
     socket.once('error', () => done(undefined))
+    // One decoder per stream: a multibyte character split across reads
+    // must not decode as U+FFFD (e14d0fb9).
+    const decoder = new TextDecoder()
     socket.on('data', (chunk) => {
-      buffer += chunk.toString('utf8')
+      buffer += decoder.decode(chunk, { stream: true })
       const newline = buffer.indexOf('\n')
       if (newline === -1) return
       try {

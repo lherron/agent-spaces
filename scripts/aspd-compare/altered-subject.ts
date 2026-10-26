@@ -77,8 +77,11 @@ function relay(client: Socket): void {
   const methods = new Map<unknown, string>()
   let fromClient = ''
   let fromUpstream = ''
+  // One decoder per stream: a multibyte character split across reads
+  // must not decode as U+FFFD (e14d0fb9).
+  const fromClientDecoder = new TextDecoder()
   client.on('data', (chunk) => {
-    fromClient += chunk.toString()
+    fromClient += fromClientDecoder.decode(chunk, { stream: true })
     const lines = fromClient.split('\n')
     fromClient = lines.pop() ?? ''
     for (const line of lines) {
@@ -91,8 +94,11 @@ function relay(client: Socket): void {
       upstream.write(`${line}\n`)
     }
   })
+  // One decoder per stream: a multibyte character split across reads
+  // must not decode as U+FFFD (e14d0fb9).
+  const fromUpstreamDecoder = new TextDecoder()
   upstream.on('data', (chunk) => {
-    fromUpstream += chunk.toString()
+    fromUpstream += fromUpstreamDecoder.decode(chunk, { stream: true })
     const lines = fromUpstream.split('\n')
     fromUpstream = lines.pop() ?? ''
     for (const line of lines) client.write(`${alter(line, methods)}\n`)
