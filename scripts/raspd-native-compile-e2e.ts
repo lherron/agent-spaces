@@ -468,25 +468,32 @@ record('race.json', {
   })
   const pair = await startPair('lat-pair', env)
   const params = caseParams(stage, 'compile:claude-code:dev')
-  const time = async (socket: string) => {
+  const time = async (socket: string, client = 'r3e2e/latency') => {
     const times: number[] = []
     for (let i = 0; i < iterations; i++) {
       const t = performance.now()
-      const replies = await call(socket, 'r3e2e/latency', 'aspc.compileHarnessInvocation', params)
+      const replies = await call(socket, client, 'aspc.compileHarnessInvocation', params)
       if (result(replies)?.['ok'] !== true) throw new Error('latency compile failed')
       times.push(performance.now() - t)
     }
     return times
   }
   await time(pair.front) // warm: the first compile composes the bundle
-  const from = readLog(pair.raspdLog).length
-  const nativeTimes = await time(pair.front)
+  // Its own client name: the warm pass's access lines may land after it ends.
+  const nativeTimes = await time(pair.front, 'r3e2e/latency-native')
   const bunTimes = await time(pair.bun)
   // Every native compile line carries Bun-named phases plus raspd's own, and
   // `build` covers them (T-11921).
-  const nativeRows = raspdRows(pair.raspdLog, from).filter(
-    (r) => r['op'] === 'aspc.compileHarnessInvocation' && r['servedBy'] === 'native'
-  )
+  let nativeRows: Array<Record<string, unknown>> = []
+  for (let i = 0; i < 50 && nativeRows.length < iterations; i++) {
+    nativeRows = raspdRows(pair.raspdLog).filter(
+      (r) =>
+        r['client'] === 'r3e2e/latency-native' &&
+        r['op'] === 'aspc.compileHarnessInvocation' &&
+        r['servedBy'] === 'native'
+    )
+    if (nativeRows.length < iterations) await Bun.sleep(100)
+  }
   const PHASES = [
     'gate',
     'resolve',
