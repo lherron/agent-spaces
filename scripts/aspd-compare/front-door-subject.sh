@@ -7,8 +7,18 @@
 # on the public socket in front of it: the production front-door shape. Both
 # share this process group, so the runner's group SIGTERM stops both; if either
 # exits, the other is stopped and this exits non-zero.
+#
+# `--raspd <binary>` before `serve` fronts with that raspd (a dev build)
+# instead of the release's own: it replaces libexec/raspd in the runner's
+# scratch install of the release, so it runs through the release's launcher
+# and sees exactly the environment the release gives its payloads.
 set -euo pipefail
-[[ "${1-}" == serve ]] || { echo "usage: front-door-subject.sh serve --socket <s> --log <l>" >&2; exit 2; }
+raspd=""
+if [[ "${1-}" == --raspd ]]; then
+  raspd="$2"
+  shift 2
+fi
+[[ "${1-}" == serve ]] || { echo "usage: front-door-subject.sh [--raspd <binary>] serve --socket <s> --log <l>" >&2; exit 2; }
 shift
 socket="" log=""
 while [[ $# -gt 0 ]]; do
@@ -19,6 +29,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 release="${ASPD_COMPARE_RELEASE:?ASPD_COMPARE_RELEASE is required}"
+if [[ -n "$raspd" ]]; then
+  chmod u+w "$release/libexec" "$release/libexec/raspd"
+  cp "$raspd" "$release/libexec/raspd"
+fi
 bun_socket="$(dirname "$socket")/aspd-bun.sock"
 
 # Bash adds PWD, SHLVL and _ to what it exports; the effective-environment hash

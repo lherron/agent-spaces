@@ -1,6 +1,6 @@
-//! The two native read ops (R2): `aspc.resolveRuntimeDeclaration` and
-//! `aspc.observeContinuationArtifact`, ported from Bun with Bun's semantics,
-//! read-only.
+//! The native read ops: `aspc.resolveRuntimeDeclaration` and
+//! `aspc.observeContinuationArtifact` (R2), and `aspc.observeRuntimeCapability`
+//! (R2b), ported from Bun with Bun's semantics, read-only.
 //!
 //! Each answer is either the result Bun would return, byte for byte, or a
 //! `Forward` naming why raspd will not judge this input; the request is then
@@ -12,6 +12,7 @@
 //! `schemaVersion` is a string other than the method's are handled raw (Bun's
 //! fallback, which answers `unsupported_schema`); any other invalid params are
 //! Bun's JSON-RPC validation error, which raspd forwards.
+pub(crate) mod capability;
 mod continuation;
 pub(crate) mod declaration;
 mod hash;
@@ -25,10 +26,14 @@ use crate::json::J;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
-pub const METHODS: [&str; 2] = [
+pub const METHODS: [&str; 3] = [
     "aspc.resolveRuntimeDeclaration",
+    "aspc.observeRuntimeCapability",
     "aspc.observeContinuationArtifact",
 ];
+
+/// `ASPC_INSPECT_RUNTIME_PLACEMENT_REQUEST_VERSION`.
+pub const INSPECT_REQUEST_VERSION: &str = "aspc-inspect-runtime-placement-request/v1";
 
 pub fn is_read(method: &str) -> bool {
     METHODS.contains(&method)
@@ -112,22 +117,29 @@ pub fn js_truthy(v: &J) -> bool {
 pub fn handle(method: &str, params: Option<&J>) -> Answer {
     let (valid, expected) = match method {
         "aspc.resolveRuntimeDeclaration" => (valid_resolve(params), declaration::REQUEST_VERSION),
+        "aspc.observeRuntimeCapability" => (valid_capability(params), capability::REQUEST_VERSION),
         _ => (valid_observe(params), continuation::REQUEST_VERSION),
     };
-    if !valid {
-        let fallback = matches!(
-            params.and_then(|p| p.get("schemaVersion")),
-            Some(J::Str(s)) if s != expected
-        ) && params.is_some_and(J::is_record);
-        if !fallback {
-            return Answer::Forward("invalid_params");
-        }
+    if !handled(valid, params, expected) {
+        return Answer::Forward("invalid_params");
     }
     let params = params.expect("validated or fallback params are a record");
     match method {
         "aspc.resolveRuntimeDeclaration" => declaration::answer(params, Env::process()),
+        "aspc.observeRuntimeCapability" => capability::observe(params),
         _ => continuation::observe(params, Env::process()),
     }
+}
+
+/// `registerAspcObservationMethod`: valid params are handled, and so are
+/// record params whose `schemaVersion` is another string (Bun's fallback,
+/// answered `unsupported_schema`); anything else is Bun's validation error.
+pub(crate) fn handled(valid: bool, params: Option<&J>, expected: &str) -> bool {
+    valid
+        || (matches!(
+            params.and_then(|p| p.get("schemaVersion")),
+            Some(J::Str(s)) if s != expected
+        ) && params.is_some_and(J::is_record))
 }
 
 // -- params validators (runtime-observation-params.ts), as verdicts ----------------
@@ -156,13 +168,22 @@ fn is_enum(v: Option<&J>, allowed: &[&str]) -> bool {
 }
 
 fn valid_resolve(params: Option<&J>) -> bool {
-    let Some(request) = rec(params) else {
-        return false;
-    };
-    if request.get("schemaVersion") != Some(&J::str(declaration::REQUEST_VERSION)) {
-        return false;
+    valid_observation(params, declaration::REQUEST_VERSION)
+        .is_some_and(|request| only(request, &["schemaVersion", "context"]))
+}
+
+/// `validateRuntimeObservation(value, base, issues, version)`: the request
+/// when its schemaVersion and `context` are valid.
+fn valid_observation<'a>(params: Option<&'a J>, version: &str) -> Option<&'a J> {
+    let request = rec(params)?;
+    if request.get("schemaVersion") != Some(&J::str(version)) {
+        return None;
     }
-    let Some(context) = rec(request.get("context")) else {
+    valid_context(request.get("context")).then_some(request)
+}
+
+fn valid_context(context: Option<&J>) -> bool {
+    let Some(context) = rec(context) else {
         return false;
     };
     let project_ok = rec(context.get("project")).is_some_and(|project| {
@@ -216,7 +237,97 @@ fn valid_resolve(params: Option<&J>) -> bool {
                 "provisionDirectives",
             ],
         )
-        && only(request, &["schemaVersion", "context"])
+}
+
+/// `validateInspectRuntimePlacementParams`, as a verdict.
+pub(crate) fn valid_inspect(params: Option<&J>) -> bool {
+    let Some(request) = valid_observation(params, INSPECT_REQUEST_VERSION) else {
+        return false;
+    };
+    let correlation_ok = match request.get("preparationCorrelation") {
+        None => true,
+        Some(c) => {
+            c.is_record()
+                && [
+                    "hostSessionId",
+                    "runId",
+                    "runtimeId",
+                    "invocationId",
+                    "initialInputId",
+                ]
+                .iter()
+                .all(|k| opt_str(c.get(k)))
+                && c.get("generation")
+                    .is_none_or(|g| matches!(g, J::Num(n) if n.is_finite()))
+                && match opt_rec(c.get("sessionRef")) {
+                    Err(()) => false,
+                    Ok(None) => true,
+                    Ok(Some(s)) => {
+                        is_str(s.get("scopeRef"))
+                            && is_str(s.get("laneRef"))
+                            && only(s, &["scopeRef", "laneRef"])
+                    }
+                }
+                && only(
+                    c,
+                    &[
+                        "hostSessionId",
+                        "runId",
+                        "runtimeId",
+                        "invocationId",
+                        "initialInputId",
+                        "generation",
+                        "sessionRef",
+                    ],
+                )
+        }
+    };
+    let task_ok = match opt_rec(request.get("preparationTaskContext")) {
+        Err(()) => false,
+        Ok(None) => true,
+        Ok(Some(t)) => {
+            is_str(t.get("taskId"))
+                && matches!(t.get("phase"), Some(J::Null | J::Str(_)))
+                && is_str(t.get("role"))
+                && matches!(t.get("requiredEvidenceKinds"), Some(J::Arr(k)) if k.iter().all(|x| matches!(x, J::Str(_))))
+                && is_str(t.get("hintsText"))
+                && only(
+                    t,
+                    &[
+                        "taskId",
+                        "phase",
+                        "role",
+                        "requiredEvidenceKinds",
+                        "hintsText",
+                    ],
+                )
+        }
+    };
+    let dispatch_ok = match opt_rec(request.get("dispatchEnv")) {
+        Err(()) => false,
+        Ok(None) => true,
+        Ok(Some(d)) => d.js_entries().iter().all(|(_, v)| matches!(v, J::Str(_))),
+    };
+    dispatch_ok
+        && correlation_ok
+        && task_ok
+        && only(
+            request,
+            &[
+                "schemaVersion",
+                "context",
+                "dispatchEnv",
+                "preparationCorrelation",
+                "preparationTaskContext",
+            ],
+        )
+}
+
+/// `validateObserveRuntimeCapabilityParams`, as a verdict.
+fn valid_capability(params: Option<&J>) -> bool {
+    valid_observation(params, capability::REQUEST_VERSION).is_some_and(|request| {
+        is_str(request.get("harness")) && only(request, &["schemaVersion", "context", "harness"])
+    })
 }
 
 const BROKER_DRIVERS: [&str; 7] = [

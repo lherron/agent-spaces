@@ -13,12 +13,13 @@
 //! shared lock protocol. raspd never fetches the registry.
 mod codex;
 mod iarna;
+mod inspect;
 mod lockfile;
 mod prompt;
 mod request;
 mod spaces;
 mod stage;
-mod util;
+pub(crate) mod util;
 
 use crate::json::J;
 use crate::reads::jspath::{basename, dirname, join, resolve};
@@ -51,6 +52,22 @@ pub fn fwd_at(reason: &'static str, detail: String) -> Fwd {
 }
 
 pub const METHOD: &str = "aspc.compileHarnessInvocation";
+/// The ops answered through the native compile: the compile itself, and
+/// runtime placement inspection, which compiles (and materializes) too.
+pub const METHODS: [&str; 2] = [METHOD, inspect::METHOD];
+
+pub fn is_compile(method: &str) -> bool {
+    METHODS.contains(&method)
+}
+
+/// Answer one of `METHODS`.
+pub fn handle_method(method: &str, params: Option<&J>, release: &Release) -> Compiled {
+    if method == inspect::METHOD {
+        inspect::handle(params, release)
+    } else {
+        handle(params, release)
+    }
+}
 
 /// JS truthiness of a JSON value.
 pub fn truthy(v: &J) -> bool {
@@ -169,6 +186,9 @@ struct Plan {
     effective_environment_hash: String,
     correlation_env: Vec<(String, String)>,
     tool_warnings: Vec<String>,
+    /// `materializeCodexRuntimeHome: false` (an inspection compile): the
+    /// codex runtime home's path, never its write.
+    codex_home_read_only: bool,
 }
 
 /// The harness-specific half of a plan.
@@ -458,8 +478,9 @@ fn find_claude() -> Result<String, Fwd> {
     Err(fwd("claude_not_found"))
 }
 
-fn by_mode(v: Option<&J>, mode: &str) -> Vec<String> {
-    let entry = v.and_then(|m| m.get(mode));
+fn by_mode(v: Option<&J>, mode: Option<&str>) -> Vec<String> {
+    // `modes[undefined]` reads the key "undefined", which no valid mode is.
+    let entry = mode.and_then(|mode| v.and_then(|m| m.get(mode)));
     let list = match entry {
         Some(J::Arr(items)) => Some(items),
         Some(o @ J::Obj(_)) => o.get("base").and_then(J::as_arr),
@@ -610,7 +631,9 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
         .to_owned();
     let bundle_project_root =
         s(placement.get("bundle").and_then(|b| b.get("projectRoot"))).map(str::to_owned);
-    let run_mode = s(placement.get("runMode")).unwrap_or("task").to_owned();
+    // Absent only on an inspection compile (agent-inspection.ts), which Bun
+    // resolves with `runMode: undefined`: no mode spaces or instructions.
+    let run_mode = s(placement.get("runMode")).map(str::to_owned);
     let material = req.get("materialization").expect("validated");
     let task_context = material.get("taskContext").cloned();
 
@@ -691,7 +714,7 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
             .map(str::to_owned)
             .chain(by_mode(
                 raw.get("spaces").and_then(|sp| sp.get("modes")),
-                &run_mode,
+                run_mode.as_deref(),
             ))
             .collect(),
     );
@@ -823,7 +846,7 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
                     slots.push(("additional-base", c, r.to_owned()));
                 }
             }
-            if run_mode == "heartbeat" {
+            if run_mode.as_deref() == Some("heartbeat") {
                 let hb = join(&[&agent_root, "HEARTBEAT.md"]);
                 if let Some(c) = std::path::Path::new(&hb)
                     .exists()
@@ -835,7 +858,7 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
             }
             for r in by_mode(
                 raw.get("instructions").and_then(|i| i.get("modes")),
-                &run_mode,
+                run_mode.as_deref(),
             ) {
                 if let Some(c) = instruction_ref(&r) {
                     slots.push(("by-mode", c, r));
@@ -882,20 +905,21 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
                 .clone()
                 .unwrap_or_else(|| agent_root.clone()),
         };
-        J::obj([
-            (
-                "bundleIdentity",
-                J::str(bundle_identity(
-                    &agent_root,
-                    &agent_name,
-                    bundle_project_root.as_deref(),
-                )),
-            ),
-            ("runMode", J::str(&run_mode)),
-            ("cwd", J::str(cwd)),
-            ("instructions", J::Arr(instructions)),
-            ("spaces", J::Arr(resolved_spaces)),
-        ])
+        let mut bundle = J::obj([(
+            "bundleIdentity",
+            J::str(bundle_identity(
+                &agent_root,
+                &agent_name,
+                bundle_project_root.as_deref(),
+            )),
+        )]);
+        if let Some(mode) = &run_mode {
+            bundle.set("runMode", J::str(mode));
+        }
+        bundle.set("cwd", J::str(cwd));
+        bundle.set("instructions", J::Arr(instructions));
+        bundle.set("spaces", J::Arr(resolved_spaces));
+        bundle
     };
     let bundle_identity = s(resolved_bundle.get("bundleIdentity"))
         .unwrap_or_default()
@@ -1138,7 +1162,7 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
         &agent_root,
         project_root.as_deref(),
         &asp_home,
-        explicit_asp_home.is_some(),
+        explicit_asp_home.is_some().then_some(None),
     )?;
     let system_prompt = if discovered.template.is_none()
         && !std::path::Path::new(&join(&[&agent_root, "SOUL.md"])).exists()
@@ -1221,6 +1245,7 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
         effective_environment_hash,
         correlation_env,
         tool_warnings,
+        codex_home_read_only: false,
     })
 }
 
@@ -1236,7 +1261,7 @@ fn expansion_ctx_stub(agent_root: &str, project_root: Option<&str>) -> Ctx {
         task_id: None,
         task_context: None,
         lane: None,
-        run_mode: "task".into(),
+        run_mode: Some("task".into()),
         agent_profile: None,
         env: None,
         exec_env: None,
@@ -1370,11 +1395,7 @@ fn materialize_and_emit(plan: Plan, release: &Release, phases: &mut Phases) -> R
     let asp_home = &plan.asp_home;
     let target_name = plan.agent_name.clone();
     stage::sweep_temp(asp_home);
-    // ensureAspHome() creates the process ASP_HOME's directories.
-    let process_home = crate::reads::declaration::process_asp_home();
-    for d in ["repo", "sources", "snapshots", "cache", "projects", "tmp"] {
-        let _ = std::fs::create_dir_all(join(&[&process_home, d]));
-    }
+    ensure_asp_home();
     phases.lap("temp-sweep");
 
     // Lock file: generate, then merge-write under the lock file's lock.
@@ -1568,20 +1589,24 @@ fn materialize_and_emit(plan: Plan, release: &Release, phases: &mut Phases) -> R
                 },
             };
             let project_id = plan.handle.project_id.clone().unwrap_or_default();
-            let codex_home = codex::prepare_runtime_home(&codex::Home {
-                asp_home,
-                project_id: &project_id,
-                target_name: &target_name,
-                bundle_root: &bundle_root,
-                cwd: &plan.cwd,
-                interactive: plan.selection.presentation,
-                hook_events: plan
-                    .selection
-                    .presentation
-                    .then_some(&codex::TUI_HOOK_EVENTS[..]),
-                system_prompt: home_prompt.as_deref(),
-                reminder: home_reminder.as_deref(),
-            })?;
+            let codex_home = if plan.codex_home_read_only {
+                codex::home_path(asp_home, &project_id, &target_name)
+            } else {
+                codex::prepare_runtime_home(&codex::Home {
+                    asp_home,
+                    project_id: &project_id,
+                    target_name: &target_name,
+                    bundle_root: &bundle_root,
+                    cwd: &plan.cwd,
+                    interactive: plan.selection.presentation,
+                    hook_events: plan
+                        .selection
+                        .presentation
+                        .then_some(&codex::TUI_HOOK_EVENTS[..]),
+                    system_prompt: home_prompt.as_deref(),
+                    reminder: home_reminder.as_deref(),
+                })?
+            };
             phases.lap("codex-home");
             let (tool_env, path_prepend) = agent_tool_env(&plan)?;
             let mut warnings = plan.tool_warnings.clone();
@@ -1598,6 +1623,14 @@ fn materialize_and_emit(plan: Plan, release: &Release, phases: &mut Phases) -> R
             phases.lap("emit");
             emitted
         }
+    }
+}
+
+/// `ensureAspHome()`: the process ASP_HOME's directories.
+fn ensure_asp_home() {
+    let process_home = crate::reads::declaration::process_asp_home();
+    for d in ["repo", "sources", "snapshots", "cache", "projects", "tmp"] {
+        let _ = std::fs::create_dir_all(join(&[&process_home, d]));
     }
 }
 
@@ -2313,7 +2346,11 @@ fn emit_codex(
         if let Some(p) = launch_prompt {
             args.push(p.to_owned());
         }
-        args.extend(["--no-alt-screen".to_owned(), "--model".into(), model.clone()]);
+        args.extend([
+            "--no-alt-screen".to_owned(),
+            "--model".into(),
+            model.clone(),
+        ]);
         if let Some(e) = effort.as_deref().filter(|e| !e.is_empty()) {
             args.extend(["-c".to_owned(), format!("model_reasoning_effort=\"{e}\"")]);
         }
@@ -2351,7 +2388,11 @@ fn emit_codex(
     }
     driver.set("permissionPolicy", broker_permission_policy(policy)?);
     driver.set("resumeFallback", J::str("fail"));
-    if let Some(t) = plan.system_prompt.as_ref().and_then(|sp| sp.task_scoped.as_ref()) {
+    if let Some(t) = plan
+        .system_prompt
+        .as_ref()
+        .and_then(|sp| sp.task_scoped.as_ref())
+    {
         driver.set("developerInstructions", J::str(&t.content));
     }
 
@@ -2382,7 +2423,10 @@ fn emit_codex(
             J::Arr(path_prepend.iter().map(J::str).collect()),
         );
     }
-    process.set("harnessTransport", J::obj([("kind", J::str("jsonrpc-stdio"))]));
+    process.set(
+        "harnessTransport",
+        J::obj([("kind", J::str("jsonrpc-stdio"))]),
+    );
     process.set(
         "limits",
         process_limits(policy).unwrap_or_else(default_limits),
@@ -2393,7 +2437,11 @@ fn emit_codex(
         J::obj([
             (
                 "mode",
-                J::str(if interactive { "interactive" } else { "headless" }),
+                J::str(if interactive {
+                    "interactive"
+                } else {
+                    "headless"
+                }),
             ),
             ("turnConcurrency", J::str("single")),
             ("inputQueue", J::str("fifo")),

@@ -182,7 +182,7 @@ fn visit(
             "{}/spaces/{}",
             roots
                 .project_root
-                .ok_or_else(|| fwd("project_root_required"))?,
+                .ok_or_else(|| fwd_at("project_root_required", format!("space:project:{}", r.id)))?,
             r.id
         ),
         Kind::Dev => join(&[roots.registry, "spaces", &r.id]),

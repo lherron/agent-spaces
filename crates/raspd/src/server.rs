@@ -460,7 +460,8 @@ impl Connection {
                 );
             }
             Frame::Request(request)
-                if reads::is_read(&request.method) || request.method == crate::compile::METHOD =>
+                if reads::is_read(&request.method)
+                    || crate::compile::is_compile(&request.method) =>
             {
                 self.reading.fetch_add(1, Ordering::AcqRel);
                 self.shared.acquire();
@@ -489,8 +490,8 @@ impl Connection {
         let (method, params) = (request.method.clone(), request.params.clone());
         let release = self.shared.release.clone();
         let answer = tokio::task::spawn_blocking(move || {
-            if method == crate::compile::METHOD {
-                crate::compile::handle(params.as_ref(), &release)
+            if crate::compile::is_compile(&method) {
+                crate::compile::handle_method(&method, params.as_ref(), &release)
             } else {
                 crate::compile::Compiled {
                     answer: reads::handle(&method, params.as_ref()),

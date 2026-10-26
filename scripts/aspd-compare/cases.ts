@@ -6,7 +6,9 @@
  * crates/hrc-native/src/server/{aspc,compile,runtime_views,broker}.rs): hello
  * before every call, both resolveRuntimeDeclaration context shapes,
  * observeContinuationArtifact with and without
- * historicalExecution.recordedPlacement, and `{ compileRequest }` compiles with
+ * historicalExecution.recordedPlacement, observeRuntimeCapability and
+ * inspectRuntimePlacement as the summon gate and turn preview send them, and
+ * `{ compileRequest }` compiles with
  * `hrcPolicy: {}`, a dispatchEnv and optional selectionContext.summonDirectives.
  */
 import { chmodSync, mkdirSync, utimesSync, writeFileSync } from 'node:fs'
@@ -51,6 +53,8 @@ export type Stage = Fixture & {
 const CODEX_FOUND = 'cmp-codex-thread-present'
 const PRUNE_AGENT = 'pathmark-prune'
 const CLAUDE_FOUND = 'cmp-claude-session-present'
+const PROJECT_SPACE_AGENT = 'pathmark-project-space'
+const PARTICIPANT_AGENT = 'pathmark-participant'
 /** The codex agent whose space and template exercise every codex compose branch (T-11932). */
 const CODEX_AGENT = 'pathmark-codex'
 
@@ -131,6 +135,18 @@ export function seedStage(asp: Asp, base: string): Stage {
   mkdirSync(brokenProjectRoot, { recursive: true })
   writeFileSync(join(brokenProjectRoot, 'asp-targets.toml'), 'schema = [\n')
   seedCodexAgent(fixture.agentsRoot)
+  // T-11951: an agent composing a project space, which an inspection compile
+  // (no projectRoot) cannot resolve, and a participant-only agent.
+  writeAgent(fixture.agentsRoot, PROJECT_SPACE_AGENT, [])
+  writeFileSync(
+    join(fixture.agentsRoot, PROJECT_SPACE_AGENT, 'agent-profile.toml'),
+    'version = 4\n\n[spaces]\nbase = ["space:project:pm-project"]\n'
+  )
+  writeAgent(fixture.agentsRoot, PARTICIPANT_AGENT, ['space:pm-dev@dev'])
+  writeFileSync(
+    join(fixture.agentsRoot, PARTICIPANT_AGENT, 'agent-profile.toml'),
+    'version = 4\n\n[placement]\nlaunch = "participant-only"\n\n[spaces]\nbase = ["space:pm-dev@dev"]\n'
+  )
   // A codex rollout under the recorded-placement codex home of pathmark-dev.
   const codexHomeDev = join(fixture.aspHome, 'codex-homes', 'project_pathmark-dev')
   const sessions = join(codexHomeDev, 'sessions', '2026', '10', '26')
@@ -211,6 +227,8 @@ function rawCases(): RawCase[] {
 
 const RESOLVE = 'aspc-resolve-runtime-declaration-request/v1'
 const OBSERVE = 'aspc-observe-continuation-artifact-request/v1'
+const INSPECT = 'aspc-inspect-runtime-placement-request/v1'
+const CAPABILITY = 'aspc-observe-runtime-capability-request/v1'
 
 function resolveCases(stage: Stage): CallCase[] {
   const agentRoot = join(stage.agentsRoot, 'pathmark')
@@ -323,6 +341,151 @@ function observeCases(stage: Stage): CallCase[] {
     observe('observe:claude:present:no-recorded', claude(CLAUDE_FOUND)),
     observe('observe:claude:present:frozen-home', frozenClaude(CLAUDE_FOUND)),
     observe('observe:claude:missing:frozen-home', frozenClaude('cmp-claude-absent')),
+  ]
+}
+
+/**
+ * aspc.inspectRuntimePlacement (T-11951) in the shape both HRCs' turn preview
+ * sends (declaration-handlers.ts previewInspectionContext, preview.rs
+ * inspection_context): agentRoot, a root project with the scope's projectId,
+ * the scope's taskId, provision directives, and the preview compile's
+ * placement correlation and dispatchEnv. They run on a cold ASP_HOME, ahead
+ * of the compiles: an inspection whose effective harness is claude or codex
+ * materializes the bundle (agent-inspection.ts compiles), agent-harness
+ * writes nothing; the stage tree after each case shows which.
+ */
+function inspectCases(stage: Stage): CallCase[] {
+  const inspect = (id: string, params: Record<string, unknown>) =>
+    call(id, 'aspc.inspectRuntimePlacement', { schemaVersion: INSPECT, ...params })
+  const context = (agent: string, overrides: Record<string, unknown> = {}) => ({
+    agentId: agent,
+    agentRoot: join(stage.agentsRoot, agent),
+    project: { mode: 'root', projectRoot: stage.projectRoot, projectId: 'project' },
+    cwd: stage.projectRoot,
+    runMode: 'task',
+    taskId: 'T-11951',
+    ...overrides,
+  })
+  const preview = (agent: string, harness?: string, overrides: Record<string, unknown> = {}) => {
+    const scopeRef = `agent:${agent}:project:project:task:T-11951`
+    return {
+      context: context(agent, harness === undefined ? {} : { provisionDirectives: { harness } }),
+      preparationCorrelation: {
+        sessionRef: { scopeRef, laneRef: 'main' },
+        hostSessionId: 'hsid-inspect',
+        generation: 1,
+        runtimeId: 'rt-inspect',
+        invocationId: 'inv-inspect',
+        initialInputId: 'input-inspect',
+        runId: 'run-inspect',
+      },
+      dispatchEnv: { AGENT_SCOPE_REF: scopeRef, AGENT_LANE_REF: 'main', AGENT_TASK: 'T-11951' },
+      ...overrides,
+    }
+  }
+  const claude = { provisionDirectives: { harness: 'claude' } }
+  return [
+    // First, on the cold store: Bun sweeps temp and runs ensureAspHome, then
+    // the closure throws (inspection_failed).
+    inspect('inspect:claude:project-space', preview(PROJECT_SPACE_AGENT, 'claude')),
+    inspect('inspect:claude:participant-only', preview(PARTICIPANT_AGENT, 'claude')),
+    inspect('inspect:agent-harness:preview', preview('pathmark-dev')),
+    inspect('inspect:claude:preview', preview('pathmark-dev', 'claude')),
+    inspect('inspect:claude:preview:warm', preview('pathmark-dev', 'claude')),
+    inspect('inspect:codex:preview', preview('pathmark-dev', 'codex')),
+    inspect('inspect:codex:full', preview(CODEX_AGENT, 'codex')),
+    inspect(
+      'inspect:claude:task-context',
+      preview('pathmark-dev', 'claude', {
+        preparationTaskContext: {
+          taskId: 'T-11951',
+          phase: null,
+          role: 'implementer',
+          requiredEvidenceKinds: ['test'],
+          hintsText: 'Read the spec first.',
+        },
+      })
+    ),
+    inspect('inspect:claude:project-none', {
+      context: context('pathmark-dev', { ...claude, project: { mode: 'none' } }),
+    }),
+    inspect('inspect:claude:infer-from-cwd', {
+      context: {
+        agentId: 'pathmark-dev',
+        project: { mode: 'infer-from-cwd' },
+        cwd: stage.projectRoot,
+        runMode: 'task',
+        ...claude,
+      },
+    }),
+    inspect('inspect:codex:full:primary', {
+      ...preview(CODEX_AGENT, 'codex'),
+      context: context(CODEX_AGENT, {
+        provisionDirectives: { harness: 'codex' },
+        taskId: undefined,
+      }),
+      preparationCorrelation: {
+        sessionRef: { scopeRef: `agent:${CODEX_AGENT}:project:project`, laneRef: 'main' },
+        hostSessionId: 'hsid-inspect-primary',
+      },
+    }),
+    inspect(
+      'inspect:configured_context_mismatch',
+      preview('pathmark-dev', 'claude', {
+        preparationCorrelation: {
+          sessionRef: { scopeRef: 'agent:someone-else:project:project', laneRef: 'main' },
+        },
+      })
+    ),
+    // A git-pinned space: forwarded before any write (T-11825).
+    inspect('inspect:claude:pinned', preview('pathmark', 'claude')),
+    inspect('inspect:muse', preview('pathmark-dev', 'muse')),
+    inspect('inspect:agent_not_found', preview('pm-nobody', 'claude')),
+    inspect('inspect:agent_profile_invalid', preview('pm-broken', 'claude')),
+    inspect('inspect:unsupported_schema', {
+      ...preview('pathmark-dev', 'claude'),
+      schemaVersion: 'aspc-inspect-runtime-placement-request/v0',
+    }),
+    inspect('inspect:invalid-params', { ...preview('pathmark-dev', 'claude'), stray: true }),
+  ]
+}
+
+/**
+ * aspc.observeRuntimeCapability (T-11951) as both HRCs' federation summon gate
+ * sends it (summon-capability.ts, gate.rs): the harness and a task context,
+ * with a root project or infer-from-cwd.
+ */
+function capabilityCases(stage: Stage): CallCase[] {
+  const observe = (id: string, harness: unknown, overrides: Record<string, unknown> = {}) =>
+    call(id, 'aspc.observeRuntimeCapability', {
+      schemaVersion: CAPABILITY,
+      harness,
+      context: {
+        agentId: 'pathmark-dev',
+        project: { mode: 'root', projectRoot: stage.projectRoot, projectId: 'project' },
+        cwd: stage.projectRoot,
+        runMode: 'task',
+      },
+      ...overrides,
+    })
+  return [
+    observe('capability:claude', 'claude'),
+    observe('capability:codex', 'codex'),
+    observe('capability:agent-harness', 'agent-harness'),
+    observe('capability:muse', 'muse'),
+    observe('capability:codex:infer-from-cwd', 'codex', {
+      context: {
+        agentId: 'pathmark-dev',
+        project: { mode: 'infer-from-cwd' },
+        cwd: stage.projectRoot,
+        runMode: 'task',
+      },
+    }),
+    observe('capability:unsupported_harness', 'pi'),
+    observe('capability:unsupported_schema', 'claude', {
+      schemaVersion: 'aspc-observe-runtime-capability-request/v0',
+    }),
+    observe('capability:invalid-params', 42),
   ]
 }
 
@@ -488,6 +651,8 @@ export function buildCases(asp: Asp, stage: Stage): CompareCase[] {
     ...rawCases(),
     ...resolveCases(stage),
     ...observeCases(stage),
+    ...capabilityCases(stage),
+    ...inspectCases(stage),
     ...compileCases(asp, stage),
   ]
 }

@@ -20,6 +20,13 @@
  * too: T-11882), named projects and a task id, and can add a resume row per
  * cell carrying Bun HRC's `continuation` (the fixture's claude-code-resume
  * shape, with the agent's harness provider).
+ *
+ * Each cell (agent x project x task scope) also carries the two R2b reads
+ * (T-11951), ahead of its compiles: aspc.inspectRuntimePlacement in the turn
+ * preview's shape (the cell's correlation and dispatchEnv) and
+ * aspc.observeRuntimeCapability for the agent's harness in the summon gate's
+ * shape. An inspection of a claude or codex agent materializes its bundle, so
+ * the first cell of each agent writes cold.
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -185,6 +192,40 @@ function request(
   }
 }
 
+/** The turn preview's inspectRuntimePlacement params for one cell (declaration-handlers.ts, preview.rs). */
+function inspectParams(stage: LiveStage, agent: string, project: string, task: string | undefined) {
+  const compile = request(stage, agent, project, task, false)
+  const projectRoot = compile.placement.projectRoot
+  return {
+    schemaVersion: 'aspc-inspect-runtime-placement-request/v1',
+    context: {
+      agentId: agent,
+      agentRoot: compile.placement.agentRoot,
+      project: { mode: 'root', projectRoot, projectId: project },
+      cwd: projectRoot,
+      runMode: 'task',
+      ...(task !== undefined ? { taskId: task } : {}),
+    },
+    preparationCorrelation: compile.placement.correlation,
+    dispatchEnv: compile.placement.dispatchEnv,
+  }
+}
+
+/** The summon gate's observeRuntimeCapability params (summon-capability.ts, gate.rs). */
+function capabilityParams(stage: LiveStage, agent: string, project: string) {
+  const projectRoot = join(stage.projectsRoot, project)
+  return {
+    schemaVersion: 'aspc-observe-runtime-capability-request/v1',
+    harness: profileHarness(stage.agentsRoot, agent),
+    context: {
+      agentId: agent,
+      project: { mode: 'root', projectRoot, projectId: project },
+      cwd: projectRoot,
+      runMode: 'task',
+    },
+  }
+}
+
 export function buildLiveCases(stage: LiveStage, selection: LiveSelection = {}): CompareCase[] {
   const agents = selection.agents ?? claudeAgents(stage.agentsRoot)
   for (const agent of agents) {
@@ -201,7 +242,22 @@ export function buildLiveCases(stage: LiveStage, selection: LiveSelection = {}):
   const shapes = selection.resume === true ? [false, true] : [false]
   for (const agent of agents) {
     for (const project of projects) {
-      for (const task of [selection.task ?? 'T-11841', undefined])
+      for (const task of [selection.task ?? 'T-11841', undefined]) {
+        const cell = `${agent}@${project}:${task ?? 'primary'}`
+        cases.push(
+          {
+            kind: 'call',
+            id: `live-inspect:${cell}`,
+            method: 'aspc.inspectRuntimePlacement',
+            params: inspectParams(stage, agent, project, task),
+          },
+          {
+            kind: 'call',
+            id: `live-capability:${cell}`,
+            method: 'aspc.observeRuntimeCapability',
+            params: capabilityParams(stage, agent, project),
+          }
+        )
         for (const resume of shapes) {
           const compileRequest = request(stage, agent, project, task, resume)
           const entry: CallCase = {
@@ -218,6 +274,7 @@ export function buildLiveCases(stage: LiveStage, selection: LiveSelection = {}):
           }
           cases.push(entry)
         }
+      }
     }
   }
   return cases

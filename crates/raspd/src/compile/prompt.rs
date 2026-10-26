@@ -33,7 +33,8 @@ pub struct Ctx {
     pub task_id: Option<String>,
     pub task_context: Option<J>,
     pub lane: Option<String>,
-    pub run_mode: String,
+    /// `undefined` renders as `''` and fails every `when.runMode`.
+    pub run_mode: Option<String>,
     pub agent_profile: Option<J>,
     /// `context.env` (`undefined` reads `process.env`).
     pub env: Option<EnvMap>,
@@ -152,7 +153,7 @@ fn variables(ctx: &Ctx) -> Vec<(String, String)> {
         ("scopeRef", base),
         ("handle", handle),
         ("lane", lane),
-        ("runMode", ctx.run_mode.clone()),
+        ("runMode", ctx.run_mode.clone().unwrap_or_default()),
         ("date", now.format("%Y-%m-%d").to_string()),
         ("dateUtc", now.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
         ("agentRoot", ctx.agent_root.clone()),
@@ -400,6 +401,7 @@ pub enum Body {
 
 #[derive(Clone)]
 pub struct Section {
+    name: String,
     when: Option<When>,
     max_chars: Option<usize>,
     wrap: Option<(Option<String>, Option<String>)>,
@@ -504,7 +506,7 @@ fn parse_section(v: &J) -> Result<Section, Fwd> {
     if !v.is_record() {
         return bad();
     }
-    req_str(v.get("name"))?;
+    let name = req_str(v.get("name"))?;
     let kind = match v.get("type") {
         Some(J::Str(s))
             if ["file", "inline", "exec", "slot", "service-probe"].contains(&s.as_str()) =>
@@ -583,6 +585,7 @@ fn parse_section(v: &J) -> Result<Section, Fwd> {
         }
     };
     Ok(Section {
+        name,
         when,
         max_chars,
         wrap,
@@ -627,7 +630,8 @@ pub fn parse_template(content: &str) -> Result<Template, Fwd> {
 
 /// `buildDefaultTemplate(base, scaffoldPackets)` (no scaffold packets).
 pub fn default_template(base: &[String]) -> Template {
-    let file = |_name: String, path: &str, when: Option<When>| Section {
+    let file = |name: String, path: &str, when: Option<When>| Section {
+        name,
         when,
         max_chars: None,
         wrap: None,
@@ -672,7 +676,10 @@ fn env_lookup(ctx: &Ctx, key: &str) -> Option<String> {
 /// `matchesWhenPredicate`.
 fn matches(when: Option<&When>, ctx: &Ctx) -> bool {
     let Some(w) = when else { return true };
-    if w.run_mode.as_ref().is_some_and(|m| *m != ctx.run_mode) {
+    if w.run_mode
+        .as_ref()
+        .is_some_and(|m| Some(m) != ctx.run_mode.as_ref())
+    {
         return false;
     }
     if let Some(e) = &w.exists {
@@ -1080,24 +1087,114 @@ pub struct TaskScoped {
 const SECTION_SEPARATOR: &str = "\n\n---\n\n";
 
 /// One resolved zone: its content and size, the content without task-scoped
-/// sections, and the task-scoped sections.
+/// sections, the task-scoped sections, and (when inspecting) each section's
+/// report and size label.
 struct Zone {
     content: Option<String>,
     chars: usize,
     invariant: Option<String>,
     task_scoped: Vec<String>,
+    reports: Vec<SectionReport>,
+    sizes: Vec<String>,
 }
 
-fn resolve_zone(sections: &[Section], ctx: &Ctx) -> Result<Zone, Fwd> {
+/// `ResolvedContextSection`, the fields an inspection projects.
+pub struct SectionReport {
+    pub zone: &'static str,
+    pub name: String,
+    pub kind: &'static str,
+    /// `describeSectionSource`.
+    pub source: String,
+    pub order: usize,
+    /// `effective`, or `skipped` with `predicate` or `empty`. A failed
+    /// section is a `Forward` (raspd does not reproduce failure reasons).
+    pub skipped: Option<&'static str>,
+    pub content: Option<String>,
+}
+
+impl Section {
+    fn kind(&self) -> &'static str {
+        match &self.body {
+            Body::File { .. } => "file",
+            Body::Inline(_) | Body::Parts(_) => "inline",
+            Body::Exec { .. } => "exec",
+            Body::Slot(_) => "slot",
+            Body::Probe { .. } => "service-probe",
+        }
+    }
+
+    /// `describeSectionSource(section, context)`.
+    fn source(&self, ctx: &Ctx) -> Result<String, Fwd> {
+        Ok(match &self.body {
+            Body::Inline(_) | Body::Parts(_) => "inline content".into(),
+            Body::Exec { command, .. } => format!("exec: {command}"),
+            Body::Slot(source) => format!("slot: {source}"),
+            Body::Probe { services, .. } => format!(
+                "service-probe: {}",
+                services
+                    .iter()
+                    .map(|(n, _)| n.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Body::File { path, .. } => match template_ref(path, ctx) {
+                Ok(file) => format!("{path} -> {file}"),
+                Err(Some(f)) => return Err(f),
+                Err(None) => format!("file: {path}"),
+            },
+        })
+    }
+}
+
+fn resolve_zone(
+    sections: &[Section],
+    ctx: &Ctx,
+    zone: &'static str,
+    inspect: bool,
+) -> Result<Zone, Fwd> {
     let mut included = vec![];
     let mut invariant = vec![];
     let mut task_scoped = vec![];
-    for section in sections {
-        if !matches(section.when.as_ref(), ctx) {
-            continue;
-        }
-        let Res::Content(content) = resolve_section(section, ctx)? else {
-            continue;
+    let mut reports = vec![];
+    let mut sizes = vec![];
+    for (order, section) in sections.iter().enumerate() {
+        let mut report = if inspect {
+            Some(SectionReport {
+                zone,
+                name: section.name.clone(),
+                kind: section.kind(),
+                source: section.source(ctx)?,
+                order,
+                skipped: Some("empty"),
+                content: None,
+            })
+        } else {
+            None
+        };
+        let outcome = if !matches(section.when.as_ref(), ctx) {
+            Err("predicate")
+        } else {
+            match resolve_section(section, ctx)? {
+                Res::Content(content) => Ok(content),
+                Res::Empty => Err("empty"),
+                Res::Failed if inspect => {
+                    return Err(super::fwd_at(
+                        "prompt_section_failed",
+                        format!("{zone}.{}", section.name),
+                    ));
+                }
+                Res::Failed => Err("failed"),
+            }
+        };
+        let content = match outcome {
+            Ok(content) => content,
+            Err(reason) => {
+                if let Some(mut r) = report.take() {
+                    r.skipped = Some(reason);
+                    reports.push(r);
+                }
+                continue;
+            }
         };
         let wrapped = match &section.wrap {
             Some((prefix, suffix)) => {
@@ -1113,40 +1210,71 @@ fn resolve_zone(sections: &[Section], ctx: &Ctx) -> Result<Zone, Fwd> {
         };
         let truncated = truncate(&wrapped, section.max_chars)?;
         if truncated.is_empty() {
+            reports.extend(report);
             continue;
         }
-        if section.when.as_ref().is_some_and(|w| w.task_field.is_some()) {
+        if section
+            .when
+            .as_ref()
+            .is_some_and(|w| w.task_field.is_some())
+        {
             task_scoped.push(truncated.clone());
         } else {
             invariant.push(truncated.clone());
         }
+        if let Some(mut r) = report {
+            sizes.push(format!("{zone}.{}={}", section.name, utf16_len(&truncated)));
+            r.skipped = None;
+            r.content = Some(truncated.clone());
+            reports.push(r);
+        }
         included.push(truncated);
     }
     let invariant = (!invariant.is_empty()).then(|| invariant.join(SECTION_SEPARATOR));
-    if included.is_empty() {
-        return Ok(Zone {
-            content: None,
-            chars: 0,
-            invariant,
-            task_scoped,
-        });
-    }
-    let content = included.join(SECTION_SEPARATOR);
-    let chars = utf16_len(&content);
+    let content = (!included.is_empty()).then(|| included.join(SECTION_SEPARATOR));
+    let chars = content.as_deref().map_or(0, utf16_len);
     Ok(Zone {
-        content: Some(content),
+        content,
         chars,
         invariant,
         task_scoped,
+        reports,
+        sizes,
     })
 }
 
 /// `resolveContextTemplateDetailed(template, context)`, the parts a compile uses.
 pub fn resolve_template(template: &Template, ctx: &Ctx) -> Result<Resolved, Fwd> {
-    let prompt = resolve_zone(&template.prompt, ctx)?;
-    let reminder = resolve_zone(&template.reminder, ctx)?;
+    resolve_detailed(template, ctx, false).map(|(resolved, _)| resolved)
+}
+
+/// What an inspection reads beside the resolved content
+/// (`inspectAgentSystemPrompt`'s sections and diagnostics).
+pub struct Inspected {
+    pub reports: Vec<SectionReport>,
+    pub prompt_sizes: Vec<String>,
+    pub reminder_sizes: Vec<String>,
+    pub prompt_chars: usize,
+    pub reminder_chars: usize,
+    pub max_chars: Option<usize>,
+    pub near_max_chars: bool,
+}
+
+/// `resolveContextTemplateDetailed` with its section reports.
+pub fn resolve_inspected(template: &Template, ctx: &Ctx) -> Result<(Resolved, Inspected), Fwd> {
+    resolve_detailed(template, ctx, true)
+}
+
+fn resolve_detailed(
+    template: &Template,
+    ctx: &Ctx,
+    inspect: bool,
+) -> Result<(Resolved, Inspected), Fwd> {
+    let prompt = resolve_zone(&template.prompt, ctx, "prompt", inspect)?;
+    let reminder = resolve_zone(&template.reminder, ctx, "reminder", inspect)?;
+    let total = prompt.chars + reminder.chars;
     if let Some(max) = template.max_chars
-        && prompt.chars + reminder.chars > max
+        && total > max
     {
         return Err(fwd("context_template_max_chars"));
     }
@@ -1161,12 +1289,27 @@ pub fn resolve_template(template: &Template, ctx: &Ctx) -> Result<Resolved, Fwd>
         prompt: prompt.invariant,
         reminder: reminder.invariant,
     });
-    Ok(Resolved {
-        prompt: prompt.content,
-        append: template.append,
-        reminder: reminder.content,
-        task_scoped,
-    })
+    let inspected = Inspected {
+        reports: prompt.reports.into_iter().chain(reminder.reports).collect(),
+        prompt_sizes: prompt.sizes,
+        reminder_sizes: reminder.sizes,
+        prompt_chars: prompt.chars,
+        reminder_chars: reminder.chars,
+        max_chars: template.max_chars,
+        // MAX_CHARS_WARNING_RATIO
+        near_max_chars: template
+            .max_chars
+            .is_some_and(|max| max > 0 && total as f64 / max as f64 >= 0.9),
+    };
+    Ok((
+        Resolved {
+            prompt: prompt.content,
+            append: template.append,
+            reminder: reminder.content,
+            task_scoped,
+        },
+        inspected,
+    ))
 }
 
 // -- discovery -----------------------------------------------------------------
@@ -1176,8 +1319,9 @@ pub enum Roots<'a> {
     /// No opts: the daemon's environment and ASP_HOME.
     Ambient,
     /// `sharedRootOptions` for an explicit aspHome: that home's config, the
-    /// daemon's environment without ASP_AGENTS_ROOT.
-    Shared(&'a str),
+    /// daemon's environment without ASP_AGENTS_ROOT, or with the declaration's
+    /// echoed agents root as ASP_AGENTS_ROOT (`promptSourcesForDeclaration`).
+    Shared(&'a str, Option<&'a str>),
     /// `{ env: { ASP_AGENTS_ROOT: root } }`.
     Agents(&'a str),
 }
@@ -1190,10 +1334,10 @@ pub fn agent_root_search_path(
     let process = crate::reads::Env::process();
     let shared_env;
     let env = match opts {
-        Roots::Shared(_) => {
+        Roots::Shared(_, agents_root) => {
             shared_env = process
-                .with("ASP_AGENTS_ROOT", None)
-                .with("ASP_PROJECT_ROOT_OVERRIDE", None);
+                .with("ASP_PROJECT_ROOT_OVERRIDE", None)
+                .with("ASP_AGENTS_ROOT", agents_root);
             &shared_env
         }
         _ => process,
@@ -1239,7 +1383,7 @@ pub fn agent_root_search_path(
     }
     let canonical = match opts {
         Roots::Agents(r) => Some(r.to_owned()),
-        Roots::Shared(home) => crate::reads::declaration::agents_root(Some(home), env)
+        Roots::Shared(home, _) => crate::reads::declaration::agents_root(Some(home), env)
             .map_err(|_| fwd("agents_root_config"))?,
         Roots::Ambient => crate::reads::declaration::agents_root(None, env)
             .map_err(|_| fwd("agents_root_config"))?,
@@ -1271,20 +1415,21 @@ pub struct Discovered {
     pub template: Option<Template>,
 }
 
-/// `discoverContextTemplate` for a compile (no explicit agents root or search path).
+/// `discoverContextTemplate` with no explicit agents root or search path.
+/// `shared` is the `sharedRootOptions` arm: `None` is ambient, `Some(root)`
+/// sets ASP_AGENTS_ROOT to that root (`None` inside clears it).
 pub fn discover(
     agent_root: &str,
     project_root: Option<&str>,
     asp_home: &str,
-    shared: bool,
+    shared: Option<Option<&str>>,
 ) -> Result<Discovered, Fwd> {
     let agents_root = dirname(&resolve(&[agent_root]));
     let initial = match project_root {
         Some(p) => {
-            let opts = if shared {
-                Roots::Shared(asp_home)
-            } else {
-                Roots::Ambient
+            let opts = match shared {
+                Some(agents_root) => Roots::Shared(asp_home, agents_root),
+                None => Roots::Ambient,
             };
             let (roots, has_project) = agent_root_search_path(Some(p), opts)?;
             if has_project {
@@ -1382,7 +1527,7 @@ mod tests {
             task_id: Some("T-1".into()),
             task_context: None,
             lane: Some("main".into()),
-            run_mode: "task".into(),
+            run_mode: Some("task".into()),
             agent_profile: None,
             env: Some(EnvMap::from([("X".to_owned(), "1".to_owned())])),
             exec_env: None,

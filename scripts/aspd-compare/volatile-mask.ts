@@ -32,7 +32,29 @@ export const RESPONSE_MASK: ResponseMask[] = [
     token: 'wall-clock',
     measured: 'every ok resolveRuntimeDeclaration case: evaluation time',
   },
+  {
+    path: 'reply.result.declaration.evaluatedAt',
+    token: 'wall-clock',
+    measured:
+      'every ok inspectRuntimePlacement case: its declaration evaluation time (T-11951; evidence var/wrkq-artifacts/T-11951/measure-raw)',
+  },
 ]
+
+/** Every `execution-profile` part's profileId in an inspectRuntimePlacement reply. */
+function inspectionProfileIds(replies: unknown[]): string[] {
+  const out: string[] = []
+  for (const reply of replies) {
+    const parts = (reply as { result?: { inspection?: { parts?: unknown } } } | null)?.result
+      ?.inspection?.parts
+    if (!Array.isArray(parts)) continue
+    for (const part of parts as Array<{ kind?: unknown; value?: { profileId?: unknown } }>) {
+      if (part.kind === 'execution-profile' && typeof part.value?.profileId === 'string') {
+        out.push(part.value.profileId)
+      }
+    }
+  }
+  return out
+}
 
 function sessionIds(value: unknown, out: string[]): string[] {
   if (Array.isArray(value)) {
@@ -78,6 +100,12 @@ export const TOKENS: Token[] = [
     measured:
       'live corpus (run.ts --cases live --raw, Bun vs Bun, T-11841; evidence var/wrkq-artifacts/T-11841/live-measure-raw): every `remote = true` claude agent names its remote-control session `<agent>-<project>[-<task>]-<4 base36 chars from randomBytes>` (claude-adapter.ts buildRemoteControlArgs), passed as --remote-control-session-name-prefix and --name',
     find: (replies) => remoteControlNames(replies, []),
+  },
+  {
+    token: 'inspection-profile-id',
+    measured:
+      'every inspectRuntimePlacement case that compiles (claude, codex, agent-harness, muse; T-11951, evidence var/wrkq-artifacts/T-11951/measure-raw): the execution profile hashes the start request, whose initial input id derives from a seed over the evaluation context, which carries the wall clock (agent-inspection.ts nowIso); claude adds its fresh --session-id',
+    find: inspectionProfileIds,
   },
 ]
 
