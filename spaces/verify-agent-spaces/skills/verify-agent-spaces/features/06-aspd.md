@@ -36,6 +36,7 @@ validators in `contracts/aspc-protocol/src/{types,schemas,inspection-params}.ts`
 - Request log: one canonical JSON `rpc.request` per complete request (listener, op, client, outcome, durationMs),
   including malformed frames and unknown ops. Registered compile calls additionally retain operational
   `request.answered` (method, startedAt, durationMs, outcome, replyBytes; error on refusal, phases on compilation).
+  Every line in `aspd.log` and `aspd.err.log` is L2 JSON (`{ts, level, component, event, data}`); read `data.*`.
 - `aspc manifest|verify-release` (the compiler CLI) produces and checks the frozen release manifest.
 - `just build-aspd-pilot-client <abs root>` builds the T-08539 aspd pilot client (the historical HRC stand-in for
   `scripts/aspd-pilot/scenario.ts --client`) after a source-closure gate; it refuses a dirty checkout (source,
@@ -83,7 +84,8 @@ seat variables.
   socket path under 104 bytes (`T-11719` artifacts).
 - An unsupervised namespace logs to `<logDir>/aspd-<releaseId>-<startedAt>.log`, not `aspd.log`; `logDir` is
   `config.logDir` (`aspd-service.ts log-dir`), default `<ns>/logs`. The system namespace's is `~/praesidium/var/logs/agent-spaces`: `aspd.log`
-  is its launchd request log (`runningProcess.requestLogPath`, rotates to `.1`–`.3`) and `aspd.err.log` the
+  is its launchd request log (`runningProcess.requestLogPath`; the collective L4 job rotates it, aspd does not;
+  `.1`–`.3` are pre-T-11829 leftovers) and `aspd.err.log` the
   supervisor output (`runningProcess.logPath`). Until the T-11719 activation lands, the live daemon may still write
   `~/praesidium/var/aspd/logs/`; trust `runningProcess`, not this note.
 - An unknown method is answered `-32601` and has a canonical `rpc.request` line, but no legacy `request.answered`.

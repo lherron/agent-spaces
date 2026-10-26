@@ -20,7 +20,7 @@ resources (`asp resources plan`). Code: `apps/cli/src/commands/self/`, `apps/cli
 - `asp agents inspect --request <req.json> --context <ctx.json> [--json]`: one agent's parts (prompt, capability)
   each with a disposition (`effective`, `failed` with a reason) and provenance. JSON is `{ok, inspection: {parts,
   diagnostics, …}}`; it exits 1 when not ok. Request schema
-  `agent-inspection-request/v2`. It compiles the runtime plan (`[asp-timing] compileRuntimePlan …`).
+  `agent-inspection-request/v2`. It compiles the runtime plan (silently: the compiler writes nothing to stderr).
 - `asp resources plan <agent> --project p [--agent-root d] [--include path…]`:
   `agent-authored-runtime-resources.plan/v1` JSON on stdout, the `Compiled resources plan for a@p: N resources
   (scheduled-job=…)` summary on stderr. `--project` is required (exit 2 without it). Every resource must target

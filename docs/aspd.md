@@ -271,39 +271,46 @@ All state lives under one explicit namespace root:
 <ns>/service/activations.ndjson activation history with serving readback
 <ns>/run/aspd.sock              stable endpoint
 <ns>/run/aspd.json              running pid + release
-<logDir>/                       aspd.log (rotated request log) + aspd.err.log (supervisor)
+<logDir>/                       aspd.log (request log) + aspd.err.log (supervisor)
                                 (logDir: config.logDir, default <ns>/logs)
 ```
 
 #### Logs
 
-The current aspd formatter emits `<iso> [aspd] <LEVEL> <event> <json fields>`;
-these are prefixed text lines, not whole-line JSON. Under launchd,
+Every line aspd writes, to either file, is one L2 JSON object
+(`references/logging.md`): `{ts, level, component, event, data}`, `level` one of
+`debug|info|warn|error`, `data` omitted when empty. Under launchd,
 `aspd serve --socket <p> --log <logDir>/aspd.log` writes its own log: lines are
-buffered and appended asynchronously (250 ms), rotated to `aspd.log.1..3` at
-32 MB (≤128 MB total), and flushed on retire/exit. `aspd.err.log` (the
-supervisor's stdout/stderr) keeps only `serving`/`exit`/`fatal` lines and
-uncaught stderr, and the launch script copy-truncates it to `.1` above 16 MB at
-start. Without `--log` (spawn-mode `start`), everything goes to stderr, captured
-in the timestamped log described above. The files sit at the logging.md L1
-location, but their format and rotation are still aspd's own, not L2 JSON lines
-or the collective L4 rotation; do not substitute the platform-wide JSON-lines
-convention when parsing them.
+buffered and appended asynchronously (250 ms) and flushed on retire/exit.
+`aspd.err.log` (the supervisor's stdout/stderr) carries only the
+`aspd.serving`/`aspd.exit`/`aspd.fatal` lifecycle lines (also written to
+`aspd.log`; `aspd.fatal` covers startup failures and uncaught errors) and an
+`aspd.usage` refusal. aspd does not rotate either file: every write opens or holds it
+with `O_APPEND` (the request log appends per flush; the launch script reopens
+stdout/stderr with `>>`), so the collective copytruncate job (L4,
+`com.praesidium.log-rotation`) rotates both without leaving an offset gap.
+Without `--log` (spawn-mode `start`), everything goes to stderr, captured in the
+timestamped log described above.
 
-| Event | When | Fields |
-| --- | --- | --- |
-| `request.answered` | every registered `aspc.*` method request, after its reply is written | `conn`, `id`, `method`, `startedAt`, `durationMs`, `outcome` (`ok` \| `rejected:<code>` \| `error:<code>`), `replyBytes` (when available), `error` (when available), correlation, `phases` (compile only) |
-| `request.admitted` | compile and prepare only | `conn`, `id`, `method`, `startedAt`, correlation |
-| `request.slow` (WARN) | still in flight after 2 s | `elapsedMs`, `slowRequestMs`, correlation; the answered line is also WARN |
-| `request.refused-retiring` (WARN) | a frame dispatched after retirement began | `conn`, `id`, `method` |
-| `retire.begin` / `retire.drained` / `serving` / `exit` | lifecycle | |
+| Event | Component | When | `data` |
+| --- | --- | --- | --- |
+| `request.answered` | `rpc` | every registered `aspc.*` method request, after its reply is written | `conn`, `id`, `method`, `startedAt`, `durationMs`, `outcome` (`ok` \| `rejected:<code>` \| `error:<code>`), `replyBytes` (when available), `error` (when available), correlation, `phases` (compile only) |
+| `request.admitted` | `rpc` | compile and prepare only | `conn`, `id`, `method`, `startedAt`, correlation |
+| `request.slow` (`warn`) | `rpc` | still in flight after 2 s | `elapsedMs`, `slowRequestMs`, correlation; the answered line is also `warn` |
+| `request.refused-retiring` (`warn`) | `rpc` | a frame dispatched after retirement began | `conn`, `id`, `method` |
+| `rpc.observe-failed` (`error`) | `rpc` | the request-line observer threw | `message` |
+| `retire.begin` / `retire.drained` | `aspd` | retirement | `inFlight`, `connections` |
+| `aspd.serving` / `aspd.exit` / `aspd.fatal` | `aspd` | lifecycle (also on stderr) | `release`, `sourceCommit`, `socket`, `pid`, `log` / `release` / `error` |
+| `aspd.usage` (`error`) | `aspd` | refused invocation, stderr only | `usage`, `args` |
+| `log.dropped` / `log.write_failed` | `log` | buffer overflow / append failure | `lines` / `path`, `error` |
 
-The same log also carries canonical whole-line JSON transport events:
-`rpc.listen` announces `listener: "aspd"` and its socket address; one
-`rpc.request` at completion carries `listener`, `op`, `client`, `outcome` and
-`durationMs`, including unknown operations and malformed complete frames.
-These use `{ts, level, component: "rpc", event, data}`. Existing compiler and
-lifecycle events retain the prefixed format above. Parse each format separately.
+The same log carries the L3 transport events: `rpc.listen` announces
+`listener: "aspd"` and its socket address; one `rpc.request` at completion
+carries `listener`, `op`, `client`, `outcome` and `durationMs`, including
+unknown operations and malformed complete frames. Usage-metrics warnings are
+`component: "metrics"` lines. The compiler writes nothing to stderr: compile
+cost is `request.answered`'s `durationMs` and `phases` plus the `compile.entry`
+path marker (T-11829 retired the always-on `[asp-timing]` stderr line).
 No request or response bodies are included in the canonical request line.
 
 For discovery, call `avs aspc <socket> surface`: it returns

@@ -18,9 +18,10 @@ import {
   realpathSync,
   statSync,
 } from 'node:fs'
-import { appendFile, rename, stat, unlink } from 'node:fs/promises'
+import { appendFile, unlink } from 'node:fs/promises'
 import { type Server, type Socket, connect, createServer } from 'node:net'
 import { basename, dirname, join, resolve, sep } from 'node:path'
+import { Writable } from 'node:stream'
 import { recordCompilePhases } from 'agent-spaces'
 import type { AspcMethodServer, AspcService } from 'spaces-aspc'
 import {
@@ -304,15 +305,36 @@ const ADMISSION_LOGGED_METHODS = new Set([
 /** Methods whose answered line carries compiler phase timings. */
 const PHASED_METHODS = new Set(['aspc.compileHarnessInvocation'])
 
-type AspdLogLevel = 'INFO' | 'WARN' | 'ERROR'
+type AspdLogLevel = 'debug' | 'info' | 'warn' | 'error'
 
-/** One aspd log line, HRC-style: `<iso> [aspd] <LEVEL> <event> <json fields>`. */
+/**
+ * One aspd log line in the collective's L2 shape (references/logging.md):
+ * `{ts, level, component, event, data}`, `data` omitted when empty.
+ */
 export function formatAspdLogLine(
   level: AspdLogLevel,
+  component: string,
   event: string,
-  fields: Record<string, unknown> = {}
+  data: Record<string, unknown> = {}
 ): string {
-  return `${new Date().toISOString()} [aspd] ${level} ${event} ${JSON.stringify(fields)}`
+  return JSON.stringify({
+    ts: new Date().toISOString(),
+    level,
+    component,
+    event,
+    ...(Object.keys(data).length > 0 ? { data } : {}),
+  })
+}
+
+/** A Writable that turns raw text written to it into L2 lines on `log`. */
+function l2Stream(log: (line: string) => void, event: string): Writable {
+  return new Writable({
+    write(chunk, _encoding, callback) {
+      const text = String(chunk).trimEnd()
+      if (text !== '') log(formatAspdLogLine('error', 'rpc', event, { message: text }))
+      callback()
+    },
+  })
 }
 
 /**
@@ -434,7 +456,8 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
     const server = createProtocolServer({
       stdin: socket,
       stdout: socket,
-      stderr: process.stderr,
+      // The protocol server's own diagnostics become L2 lines, never raw text.
+      stderr: l2Stream(log, 'rpc.observe-failed'),
       maxFrameBytes: ASPD_MAX_FRAME_BYTES,
       rejectEmptyFrames: true,
       decorateError: adviseAspdError,
@@ -494,7 +517,7 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
           // retirement began is never admitted into this release.
           if (!admitting) {
             log(
-              formatAspdLogLine('WARN', 'request.refused-retiring', {
+              formatAspdLogLine('warn', 'rpc', 'request.refused-retiring', {
                 conn: connectionId,
                 id: String(request.id),
                 method: request.method,
@@ -513,7 +536,7 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
           }
           if (ADMISSION_LOGGED_METHODS.has(method)) {
             log(
-              formatAspdLogLine('INFO', 'request.admitted', {
+              formatAspdLogLine('info', 'rpc', 'request.admitted', {
                 ...base,
                 startedAt: startedAt.toISOString(),
               })
@@ -521,7 +544,7 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
           }
           const slowTimer = setTimeout(() => {
             log(
-              formatAspdLogLine('WARN', 'request.slow', {
+              formatAspdLogLine('warn', 'rpc', 'request.slow', {
                 ...base,
                 startedAt: startedAt.toISOString(),
                 elapsedMs: round1(performance.now() - startedMs),
@@ -570,7 +593,8 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
               inFlight -= 1
               log(
                 formatAspdLogLine(
-                  durationMs >= slowRequestMs ? 'WARN' : 'INFO',
+                  durationMs >= slowRequestMs ? 'warn' : 'info',
+                  'rpc',
                   'request.answered',
                   {
                     ...base,
@@ -643,22 +667,19 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
     })
   })
   const boundInode = statSync(socketPath).ino
-  log(
-    JSON.stringify({
-      ts: new Date().toISOString(),
-      level: 'info',
-      component: 'rpc',
-      event: 'rpc.listen',
-      data: { listener: 'aspd', address: socketPath },
-    })
-  )
+  log(formatAspdLogLine('info', 'rpc', 'rpc.listen', { listener: 'aspd', address: socketPath }))
 
   return {
     inFlight: () => inFlight,
     async retire(): Promise<void> {
       if (!admitting) return
       admitting = false
-      log(formatAspdLogLine('INFO', 'retire.begin', { inFlight, connections: connections.size }))
+      log(
+        formatAspdLogLine('info', 'aspd', 'retire.begin', {
+          inFlight,
+          connections: connections.size,
+        })
+      )
       netServer.close()
       try {
         if (statSync(socketPath).ino === boundInode) await unlink(socketPath)
@@ -692,7 +713,7 @@ export async function startAspdServer(options: AspdServerOptions): Promise<AspdS
             })
         )
       )
-      log(formatAspdLogLine('INFO', 'retire.drained'))
+      log(formatAspdLogLine('info', 'aspd', 'retire.drained'))
     },
   }
 }
@@ -716,10 +737,12 @@ async function reclaimStaleSocket(socketPath: string): Promise<void> {
 }
 
 /**
- * aspd's own bounded log (T-08787). Lines are buffered and appended
- * asynchronously on a short interval so the request path never blocks on disk;
- * rotation (rename to .1..N) happens at flush time. `flushSync` covers process
- * exit so a clean shutdown or crash loses nothing that was buffered.
+ * aspd's own log (T-08787). Lines are buffered and appended asynchronously on
+ * a short interval so the request path never blocks on disk. Every flush opens
+ * the file for append (O_APPEND), so the collective's copytruncate rotation
+ * (logging standard L4) leaves no offset gap: the next write lands at the new
+ * end. aspd does not rotate its own log. `flushSync` covers process exit so a
+ * clean shutdown or crash loses nothing that was buffered.
  */
 export interface AspdFileLog {
   write(line: string): void
@@ -730,34 +753,21 @@ export interface AspdFileLog {
 
 export interface AspdFileLogOptions {
   path: string
-  maxBytes?: number | undefined
-  keep?: number | undefined
   flushIntervalMs?: number | undefined
   maxBufferedBytes?: number | undefined
 }
 
-export const ASPD_LOG_MAX_BYTES = 32 * 1024 * 1024
-export const ASPD_LOG_KEEP = 3
-
 export function createAspdFileLog(options: AspdFileLogOptions): AspdFileLog {
   const { path } = options
-  const maxBytes = options.maxBytes ?? ASPD_LOG_MAX_BYTES
-  const keep = options.keep ?? ASPD_LOG_KEEP
   const maxBufferedBytes = options.maxBufferedBytes ?? 8 * 1024 * 1024
   let pending: string[] = []
   let pendingBytes = 0
   let dropped = 0
-  let size = 0
-  try {
-    size = statSync(path).size
-  } catch {
-    size = 0
-  }
   let flushing: Promise<void> | undefined
 
   const take = (): string | undefined => {
     if (dropped > 0) {
-      pending.push(formatAspdLogLine('WARN', 'log.dropped', { lines: dropped }))
+      pending.push(formatAspdLogLine('warn', 'log', 'log.dropped', { lines: dropped }))
       dropped = 0
     }
     if (pending.length === 0) return undefined
@@ -767,29 +777,15 @@ export function createAspdFileLog(options: AspdFileLogOptions): AspdFileLog {
     return chunk
   }
 
-  const rotate = async (): Promise<void> => {
-    for (let n = keep - 1; n >= 1; n--) {
-      await rename(`${path}.${n}`, `${path}.${n + 1}`).catch(() => {})
-    }
-    await rename(path, `${path}.1`).catch(() => {})
-    size = 0
-  }
-
   const flushOnce = async (): Promise<void> => {
     const chunk = take()
     if (chunk === undefined) return
     try {
-      if (size >= maxBytes) await rotate()
       await appendFile(path, chunk)
-      size += Buffer.byteLength(chunk)
     } catch (error) {
       process.stderr.write(
-        `${formatAspdLogLine('ERROR', 'log.write_failed', { path, error: String(error) })}\n`
+        `${formatAspdLogLine('error', 'log', 'log.write_failed', { path, error: String(error) })}\n`
       )
-      // Re-sync the size from disk (a rotation may have half-completed).
-      size = await stat(path)
-        .then((st) => st.size)
-        .catch(() => 0)
     }
   }
 
@@ -823,7 +819,6 @@ export function createAspdFileLog(options: AspdFileLogOptions): AspdFileLog {
       if (chunk === undefined) return
       try {
         appendFileSync(path, chunk)
-        size += Buffer.byteLength(chunk)
       } catch {
         process.stderr.write(chunk)
       }
@@ -850,7 +845,7 @@ export interface RunAspdCliOptions {
   releaseIdentity?: AspReleaseIdentity | undefined
 }
 
-const ASPD_USAGE = 'Usage: aspd serve --socket <absolute-path> [--log <absolute-path>]\n'
+const ASPD_USAGE = 'aspd serve --socket <absolute-path> [--log <absolute-path>]'
 
 function flagValue(args: string[], flag: string): string | undefined {
   const index = args.indexOf(flag)
@@ -859,11 +854,16 @@ function flagValue(args: string[], flag: string): string | undefined {
 
 /** `aspd serve --socket <path> [--log <path>]`: the release entrypoint's command surface. */
 export async function runAspdCli(args: string[], options: RunAspdCliOptions): Promise<void> {
-  const [command, ...rest] = args
-  if (command !== 'serve') {
-    process.stderr.write(ASPD_USAGE)
+  // aspd is a supervised daemon: even a refused invocation is an L2 line on
+  // stderr (the supervisor's file), never raw text.
+  const refuseUsage = (): never => {
+    process.stderr.write(
+      `${formatAspdLogLine('error', 'aspd', 'aspd.usage', { usage: ASPD_USAGE, args })}\n`
+    )
     process.exit(1)
   }
+  const [command, ...rest] = args
+  if (command !== 'serve') refuseUsage()
   const socketPath = flagValue(rest, '--socket')
   const logPath = flagValue(rest, '--log')
   if (
@@ -871,8 +871,7 @@ export async function runAspdCli(args: string[], options: RunAspdCliOptions): Pr
     !socketPath.startsWith('/') ||
     (rest.includes('--log') && (logPath === undefined || !logPath.startsWith('/')))
   ) {
-    process.stderr.write(ASPD_USAGE)
-    process.exit(1)
+    refuseUsage()
   }
   const fileLog = logPath === undefined ? undefined : createAspdFileLog({ path: logPath })
   const log = fileLog
@@ -881,34 +880,41 @@ export async function runAspdCli(args: string[], options: RunAspdCliOptions): Pr
   // Lifecycle lines also go synchronously to stderr (the supervisor's file),
   // so starts, exits and fatal errors stay visible there.
   const lifecycle = (level: AspdLogLevel, event: string, fields: Record<string, unknown>) => {
-    const line = formatAspdLogLine(level, event, fields)
+    const line = formatAspdLogLine(level, 'aspd', event, fields)
     process.stderr.write(`${line}\n`)
     fileLog?.write(line)
   }
-  if (fileLog) {
-    process.on('exit', () => fileLog.flushSync())
-    process.on('uncaughtException', (error) => {
-      lifecycle('ERROR', 'fatal', {
-        error: error instanceof Error ? (error.stack ?? error.message) : String(error),
-      })
-      process.exit(1)
+  if (fileLog) process.on('exit', () => fileLog.flushSync())
+  const fatal = (error: unknown): never => {
+    lifecycle('error', 'aspd.fatal', {
+      error: error instanceof Error ? (error.stack ?? error.message) : String(error),
     })
+    process.exit(1)
   }
+  process.on('uncaughtException', fatal)
+  process.on('unhandledRejection', fatal)
+  try {
+    await serve(socketPath as string, logPath, options, log, lifecycle, fileLog)
+  } catch (error) {
+    // A startup failure (release binding, socket already served) is fatal too.
+    fatal(error)
+  }
+}
+
+async function serve(
+  socketPath: string,
+  logPath: string | undefined,
+  options: RunAspdCliOptions,
+  log: (line: string) => void,
+  lifecycle: (level: AspdLogLevel, event: string, fields: Record<string, unknown>) => void,
+  fileLog: AspdFileLog | undefined
+): Promise<void> {
   const binding = resolveAspdReleaseBinding(options.releaseIdentity, process.execPath)
   // Metrics warnings are L2 lines in aspd's own log, never raw stderr text.
   configureUsageMetricsHost({
     product: `aspd/${binding.identity.releaseId}`,
     varRoot: aspdVarRoot(binding.releaseRoot),
-    warn: (event, data) =>
-      log(
-        JSON.stringify({
-          ts: new Date().toISOString(),
-          level: 'warn',
-          component: 'metrics',
-          event,
-          data,
-        })
-      ),
+    warn: (event, data) => log(formatAspdLogLine('warn', 'metrics', event, data)),
   })
   const service = createAspdService(binding)
   const server = await startAspdServer({
@@ -918,7 +924,7 @@ export async function runAspdCli(args: string[], options: RunAspdCliOptions): Pr
     releaseIdentity: binding.identity,
     metrics: usageMetrics('aspd'),
   })
-  lifecycle('INFO', 'serving', {
+  lifecycle('info', 'aspd.serving', {
     release: binding.identity.releaseId,
     sourceCommit: binding.identity.sourceCommit,
     socket: socketPath,
@@ -930,7 +936,7 @@ export async function runAspdCli(args: string[], options: RunAspdCliOptions): Pr
     if (retiring) return
     retiring = true
     void server.retire().then(async () => {
-      lifecycle('INFO', 'exit', { release: binding.identity.releaseId })
+      lifecycle('info', 'aspd.exit', { release: binding.identity.releaseId })
       await fileLog?.close()
       process.exit(0)
     })

@@ -19,19 +19,6 @@ import {
   assertPreparationTaskContext,
 } from './preparation-execution-context.js'
 
-// Launch-timing instrumentation (diagnostic). The compiler has no logger of its
-// own and runs in-process: client-side for `hrc run --dry-run` previews (lands on
-// CLI stderr) and server-side inside hrc-server for real runs (lands in
-// hrc-server.err.log). A single line per compile is emitted to stderr so the
-// compile cost is observable on both paths. Always-on: this is the launch path,
-// not a per-token hot loop.
-function emitAspCompileTiming(req: RuntimeCompileRequest, startedAtMs: number): void {
-  const durMs = (performance.now() - startedAtMs).toFixed(1)
-  process.stderr.write(
-    `[asp-timing] compileRuntimePlan dur=${durMs}ms harness=${req.requested.harness ?? '(default)'} presentation=${String(req.requested.presentation ?? false)}\n`
-  )
-}
-
 /**
  * Backstop for `[placement] launch = "participant-only"` (T-09061): such an
  * agent's seat is hosted outside HRC and joins as a direct participant, so no
@@ -84,7 +71,6 @@ async function compileResolvedRuntimePlan(
   req: RuntimeCompileRequest,
   options?: CompileRuntimePlanOptions
 ): Promise<RuntimeCompileResponse> {
-  const startedAtMs = performance.now()
   try {
     const placement = req.placement as CompilePlacement
     const refusal = participantOnlyRefusal(placement.agentRoot)
@@ -152,7 +138,5 @@ async function compileResolvedRuntimePlan(
       return blocked
     }
     throw error
-  } finally {
-    emitAspCompileTiming(req, startedAtMs)
   }
 }

@@ -411,7 +411,7 @@ describe('unix server and retirement', () => {
         line = find()
       }
       lines.splice(lines.indexOf(line), 1)
-      return JSON.parse(line.slice(line.indexOf('{')))
+      return JSON.parse(line).data
     }
     try {
       await client.compileHarnessInvocation(compileRequest())
@@ -566,7 +566,7 @@ describe('unix server and retirement', () => {
     const answered = await inflight
     expect(answered.diagnostics).toHaveLength(4000)
     expect(await child.exited).toBe(0)
-    expect(stderr.join('')).toContain('retire.begin {"inFlight":1')
+    expect(stderr.join('')).toContain('"event":"retire.begin","data":{"inFlight":1')
     await conn.close()
   })
 
