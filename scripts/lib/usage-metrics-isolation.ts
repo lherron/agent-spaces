@@ -91,13 +91,12 @@ export function snapshotUsageMetrics(dir = PRODUCTION_USAGE_METRICS_DIR): Metric
   return snapshot
 }
 
-/** Rows appended since `snapshot` whose pid is one of `pids`. */
-export function ownedUsageMetricsRows(
+/** Every row appended since `snapshot`, tagged with its file. */
+export function appendedUsageMetricsRows(
   snapshot: MetricsSnapshot,
-  pids: ReadonlySet<number>,
   dir = PRODUCTION_USAGE_METRICS_DIR
 ): Record<string, unknown>[] {
-  const owned: Record<string, unknown>[] = []
+  const appended: Record<string, unknown>[] = []
   for (const [name, after] of snapshotUsageMetrics(dir)) {
     const before = snapshot.get(name)
     const offset = before && before.ino === after.ino && before.size <= after.size ? before.size : 0
@@ -111,15 +110,24 @@ export function ownedUsageMetricsRows(
     }
     for (const line of buffer.toString('utf8').split('\n')) {
       try {
-        const row = JSON.parse(line) as Record<string, unknown>
-        if (typeof row['pid'] === 'number' && pids.has(row['pid']))
-          owned.push({ file: name, ...row })
+        appended.push({ file: name, ...(JSON.parse(line) as Record<string, unknown>) })
       } catch {
         // A foreign append can straddle either observation.
       }
     }
   }
-  return owned
+  return appended
+}
+
+/** Rows appended since `snapshot` whose pid is one of `pids`. */
+export function ownedUsageMetricsRows(
+  snapshot: MetricsSnapshot,
+  pids: ReadonlySet<number>,
+  dir = PRODUCTION_USAGE_METRICS_DIR
+): Record<string, unknown>[] {
+  return appendedUsageMetricsRows(snapshot, dir).filter(
+    (row) => typeof row['pid'] === 'number' && pids.has(row['pid'])
+  )
 }
 
 /** Record this process's pids under the run's scratch root, for a run-level audit. */

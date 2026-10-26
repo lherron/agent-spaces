@@ -31,7 +31,8 @@
  *
  * Writes <out>/report.json (every case, every difference) and per-subject
  * replies, trees and final stages, then removes the scratch root (unless
- * --keep-scratch); exits 0 only when every case matches.
+ * --keep-scratch); exits 0 only when every case matches and no row in the
+ * node's production metrics day files is owned by the run (pid or release).
  */
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -56,13 +57,19 @@ import { join, relative, resolve } from 'node:path'
 import { derivePlanHashes } from '../../compiler/agent-spaces/src/compile-plan-finalize.ts'
 import { inspectRelease } from '../asp-release.ts'
 import { buildScratchRelease, must, repo } from '../lib/scratch-release.ts'
-import { isolateUsageMetrics } from '../lib/usage-metrics-isolation.ts'
+import {
+  appendedUsageMetricsRows,
+  isolateUsageMetrics,
+  snapshotUsageMetrics,
+} from '../lib/usage-metrics-isolation.ts'
 import { loadAsp } from '../path-markers-e2e.ts'
 import { type CompareCase, HELLO_PARAMS, buildCases, seedStage } from './cases.ts'
 import { RESPONSE_MASK, TOKENS, TREE_MASK } from './volatile-mask.ts'
 
-// Usage metrics from this script and its children stay out of the real day files (T-11824).
-isolateUsageMetrics()
+// Usage metrics from this script and its children stay out of the real day files (T-11824);
+// the run audits the production files for its own rows at the end.
+const childPids = isolateUsageMetrics()
+const productionBefore = snapshotUsageMetrics()
 
 function args(name: string): string[] {
   return process.argv.flatMap((value, index) => (process.argv[index - 1] === name ? [value] : []))
@@ -532,6 +539,9 @@ async function main(): Promise<number> {
     ASP_HOME: seeded.aspHome,
     ASP_AGENTS_ROOT: seeded.agentsRoot,
     ASPD_COMPARE_RELEASE: releaseDir,
+    // Subjects' metrics (Bun aspd, raspd, anything they start) go to the run's
+    // scratch var root, never the node's: the override wins over the release root.
+    ASP_USAGE_METRICS_VAR_ROOT: join(scratch, 'var'),
   })
 
   const subjects: [Subject, Subject] = [parseSubject('a', aspd), parseSubject('b', aspd)]
@@ -545,6 +555,22 @@ async function main(): Promise<number> {
     for (const name of readdirSync(metricsDir))
       copyFileSync(join(metricsDir, name), join(out, 'metrics', name))
   }
+  // Production rows owned by this run: by pid (this process, its children, any
+  // process that wrote to the scratch day files) or by a product naming the
+  // run's release (Bun aspd and raspd subjects and whatever they start).
+  const runPids = new Set([process.pid, ...childPids])
+  for (const name of existsSync(metricsDir) ? readdirSync(metricsDir) : []) {
+    for (const line of readFileSync(join(metricsDir, name), 'utf8').split('\n')) {
+      const pid = line.match(/"pid":(\d+)/)?.[1]
+      if (pid !== undefined) runPids.add(Number(pid))
+    }
+  }
+  const leaked = appendedUsageMetricsRows(productionBefore).filter(
+    (row) =>
+      (typeof row['pid'] === 'number' && runPids.has(row['pid'])) ||
+      String(row['product'] ?? '').includes(release.releaseId)
+  )
+  const productionAudit = { runPids: runPids.size, leakedRows: leaked.length, leaked }
   const failed = results.filter((result) => !result.ok)
   const report = {
     commit,
@@ -562,6 +588,7 @@ async function main(): Promise<number> {
       a: Object.fromEntries(captureA.fingerprints),
       b: Object.fromEntries(captureB.fingerprints),
     },
+    productionAudit,
     summary: {
       cases: results.length,
       ok: results.length - failed.length,
@@ -580,7 +607,10 @@ async function main(): Promise<number> {
     spawnSync('chmod', ['-R', 'u+w', scratch])
     rmSync(scratch, { recursive: true, force: true })
   }
-  return failed.length === 0 ? 0 : 1
+  process.stdout.write(
+    `production metrics: ${leaked.length} rows owned by this run (${runPids.size} pids audited)\n`
+  )
+  return failed.length === 0 && leaked.length === 0 ? 0 : 1
 }
 
 if (import.meta.main) process.exit(await main())
