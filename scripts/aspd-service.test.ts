@@ -135,11 +135,13 @@ describe('aspd launchd supervision rendering', () => {
 })
 
 describe('aspd log location', () => {
-  test('a configured log dir holds the L1 request and supervisor logs', () => {
+  test('a configured log dir holds the L1 request and supervisor logs, raspd beside aspd', () => {
     expect(serviceLogPaths('/ns', { logDir: '/var/logs/agent-spaces' })).toEqual({
       dir: '/var/logs/agent-spaces',
       request: '/var/logs/agent-spaces/aspd.log',
       supervisor: '/var/logs/agent-spaces/aspd.err.log',
+      raspdRequest: '/var/logs/agent-spaces/raspd.log',
+      raspdSupervisor: '/var/logs/agent-spaces/raspd.err.log',
     })
   })
 
@@ -148,6 +150,8 @@ describe('aspd log location', () => {
       dir: '/ns/logs',
       request: '/ns/logs/aspd.log',
       supervisor: '/ns/logs/aspd.err.log',
+      raspdRequest: '/ns/logs/raspd.log',
+      raspdSupervisor: '/ns/logs/raspd.err.log',
     })
   })
 })

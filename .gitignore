@@ -69,3 +69,6 @@ coverage/
 .wrkq/*.db
 .wrkq/*.db-shm
 .wrkq/*.db-wal
+
+# Rust build output (crates/ workspace: raspd, aspd-domain)
+crates/target/

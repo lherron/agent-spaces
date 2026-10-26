@@ -45,7 +45,26 @@ const EXECUTABLES = {
   'agent-harness': 'scripts/asp-release/entries/agent-harness.ts',
 } as const
 
-type ExecutableName = keyof typeof EXECUTABLES
+/**
+ * Native executables built with cargo from `crates/` (T-11835). raspd, aspd's
+ * Rust front door, ships in the same release as the Bun aspd it fronts.
+ */
+const NATIVE_EXECUTABLES = {
+  raspd: { manifest: 'crates/Cargo.toml', package: 'raspd' },
+} as const
+
+type BunExecutableName = keyof typeof EXECUTABLES
+type NativeExecutableName = keyof typeof NATIVE_EXECUTABLES
+type ExecutableName = BunExecutableName | NativeExecutableName
+type RuntimeClosure = 'bun-compiled' | 'cargo-native'
+
+function runtimeClosureOf(name: ExecutableName): RuntimeClosure {
+  return name in NATIVE_EXECUTABLES ? 'cargo-native' : 'bun-compiled'
+}
+
+function isExecutableName(name: string): name is ExecutableName {
+  return name in EXECUTABLES || name in NATIVE_EXECUTABLES
+}
 
 /** Executables every retained release has carried since T-08535. `aspd` joined in T-08539. */
 const REQUIRED_EXECUTABLES: readonly ExecutableName[] = ['aspc-facade', 'harness-broker']
@@ -84,7 +103,7 @@ type ReleaseExecutable = {
   launcherSha256: string
   payload: string
   payloadSha256: string
-  runtimeClosure: 'bun-compiled'
+  runtimeClosure: RuntimeClosure
   /** The payload was compiled with its release identity (T-08539). */
   embeddedIdentity?: true | undefined
 }
@@ -249,6 +268,40 @@ export async function compileReleaseExecutable(
   photonPlugin?.assertTransformed()
 }
 
+/**
+ * Build one cargo executable from the release's source commit, as hrc-runtime
+ * builds its kernel: `cargo build --release --locked` on this node, with a
+ * dedicated target dir (cargo reuses it across releases). Source paths are
+ * remapped so the payload names no mutable checkout.
+ */
+export function buildNativeExecutable(
+  name: NativeExecutableName,
+  payload: string,
+  sourceCommit: string
+): void {
+  const { manifest, package: crate } = NATIVE_EXECUTABLES[name]
+  const targetDir = join(REPO_ROOT, 'crates', 'target', 'asp-release')
+  const result = Bun.spawnSync({
+    cmd: ['cargo', 'build', '--release', '--locked', '--manifest-path', manifest, '-p', crate],
+    cwd: REPO_ROOT,
+    env: {
+      ...process.env,
+      CARGO_TARGET_DIR: targetDir,
+      // The cardo dependency is a private GitHub repo: fetch with the git CLI,
+      // as hrc-runtime's node deploys do.
+      CARGO_NET_GIT_FETCH_WITH_CLI: 'true',
+      RASPD_SOURCE_COMMIT: sourceCommit,
+      RUSTFLAGS: `--remap-path-prefix=${REPO_ROOT}=agent-spaces`,
+    },
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  if (result.exitCode !== 0) {
+    fail(`failed to build ${name} with cargo: ${result.stderr.toString().trim().slice(-4000)}`)
+  }
+  copyFileSync(join(targetDir, 'release', crate), payload, constants.COPYFILE_EXCL)
+}
+
 function assertAbsolute(path: string, label: string): string {
   if (!isAbsolute(path)) fail(`${label} must be absolute: ${path}`)
   return resolve(path)
@@ -285,7 +338,7 @@ function launcherScript(
     sourceCommit,
     builtAt,
     executable: name,
-    runtimeClosure: 'bun-compiled',
+    runtimeClosure: runtimeClosureOf(name),
   })
   return `#!/bin/sh
 set -eu
@@ -517,14 +570,16 @@ export function inspectRelease(inputPath: string): ReleaseInspection {
   visit(releasePath)
 
   for (const name of Object.keys(manifest.executables)) {
-    if (!(name in EXECUTABLES)) fail(`unknown release executable: ${name}`)
+    if (!isExecutableName(name)) fail(`unknown release executable: ${name}`)
   }
   for (const name of REQUIRED_EXECUTABLES) {
     if (manifest.executables[name] === undefined) fail(`missing required executable: ${name}`)
   }
   for (const name of Object.keys(manifest.executables) as ExecutableName[]) {
     const executable = manifest.executables[name]
-    if (executable?.runtimeClosure !== 'bun-compiled') fail(`invalid runtime closure for ${name}`)
+    if (executable?.runtimeClosure !== runtimeClosureOf(name)) {
+      fail(`invalid runtime closure for ${name}`)
+    }
     const launcher = resolve(releasePath, executable.launcher)
     const payload = resolve(releasePath, executable.payload)
     assertWithin(releasePath, launcher)
@@ -571,7 +626,7 @@ export function inspectRelease(inputPath: string): ReleaseInspection {
       identity['releaseId'] !== manifest.releaseId ||
       identity['sourceCommit'] !== manifest.sourceCommit ||
       identity['executable'] !== name ||
-      identity['runtimeClosure'] !== 'bun-compiled'
+      identity['runtimeClosure'] !== executable.runtimeClosure
     ) {
       fail(`${name} release identity does not match the manifest`)
     }
@@ -650,7 +705,7 @@ async function buildRelease(outputRootInput: string): Promise<ReleaseInspection>
     }
 
     const executables = {} as AspReleaseManifest['executables']
-    for (const name of Object.keys(EXECUTABLES) as ExecutableName[]) {
+    for (const name of Object.keys(EXECUTABLES) as BunExecutableName[]) {
       const payload = join(staging, 'libexec', name)
       const entry = join(REPO_ROOT, EXECUTABLES[name])
       const embeddedIdentity = JSON.stringify({ releaseId: id, sourceCommit, builtAt })
@@ -665,6 +720,21 @@ async function buildRelease(outputRootInput: string): Promise<ReleaseInspection>
         payloadSha256: sha256(payload),
         runtimeClosure: 'bun-compiled',
         ...(IDENTITY_BOUND_EXECUTABLES.has(name) ? { embeddedIdentity: true as const } : {}),
+      }
+    }
+
+    for (const name of Object.keys(NATIVE_EXECUTABLES) as NativeExecutableName[]) {
+      const payload = join(staging, 'libexec', name)
+      buildNativeExecutable(name, payload, sourceCommit)
+      chmodSync(payload, 0o755)
+      const launcher = join(staging, name)
+      writeFileSync(launcher, launcherScript(name, id, sourceCommit, builtAt), { mode: 0o755 })
+      executables[name] = {
+        launcher: name,
+        launcherSha256: sha256(launcher),
+        payload: `libexec/${name}`,
+        payloadSha256: sha256(payload),
+        runtimeClosure: 'cargo-native',
       }
     }
 

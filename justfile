@@ -225,7 +225,7 @@ smoke-live:
 verify:
     bun scripts/verify-run.ts run -- {{just_executable()}} --justfile {{justfile()}} _verify-steps
 
-_verify-steps: build architecture-records check lint typecheck test
+_verify-steps: build architecture-records check lint typecheck test cargo-check
 
 # Cancel the running `just verify` (another scope's run needs --force).
 verify-cancel *args:
@@ -319,6 +319,32 @@ aspd-restart ns:
 # Installed releases, selected release, and the running service identity read back over RPC.
 aspd-status ns:
     bun scripts/aspd-service.ts status "{{ ns }}"
+
+# T-11835 front door, mirroring hrc-runtime's front-door-enable/disable/status.
+# A fronted namespace runs raspd (Rust, from the selected release) on the public
+# <ns>/run/aspd.sock and Bun aspd on <ns>/run/aspd-bun.sock, with one ASP_HOME.
+# The role lives in <ns>/service/config.json; every aspd-* verb then acts on
+# both. Clients are unchanged: HRC_ASPD_SOCKET still names aspd.sock, and HRC
+# reconnects per call, so no HRC restart. Under launchd supervision raspd is its
+# own job (default label com.praesidium.raspd). Go-live on a real node is
+# coordinated (plan R4); these recipes take an explicit namespace.
+
+# Put an aspd namespace behind the raspd front door.
+aspd-front-door-enable ns label="":
+    bun scripts/aspd-service.ts front-door-enable "{{ ns }}" {{ if label == "" { "" } else { quote(label) } }}
+
+# Take an aspd namespace out of front-door mode (rollback): Bun back on aspd.sock.
+aspd-front-door-disable ns:
+    bun scripts/aspd-service.ts front-door-disable "{{ ns }}"
+
+# Show whether an aspd namespace is fronted and what each socket answers.
+aspd-front-door-status ns:
+    bun scripts/aspd-service.ts front-door-status "{{ ns }}"
+
+# Check and test the Rust workspace (crates/: raspd, aspd-domain).
+cargo-check:
+    CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --locked --manifest-path crates/Cargo.toml
+    CARGO_NET_GIT_FETCH_WITH_CLI=true cargo test --locked --manifest-path crates/Cargo.toml
 
 # Build the standalone aspd pilot client (the HRC stand-in) and verify its
 # bundled closure is contracts/framing/transport only.

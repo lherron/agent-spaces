@@ -92,6 +92,52 @@ status also reports `supervisor` and `launchdPid`. The running record names
 start instead captures stderr in
 `<logDir>/aspd-<releaseId>-<timestamp>.log`.
 
+## Front door: raspd (T-11835)
+
+`raspd` (`crates/raspd`, plan `docs/proposals/aspd-rust-front-door.md`) is
+aspd's Rust front door. Each release carries it beside the Bun binaries
+(`<release>/raspd`, payload `libexec/raspd`, `runtimeClosure: "cargo-native"`).
+`scripts/asp-release.ts` builds it with `cargo build --release --locked` on the
+building node, so a node that builds releases needs cargo, as for hrc-runtime.
+
+A fronted namespace runs raspd on the public `<ns>/run/aspd.sock` and Bun aspd on
+`<ns>/run/aspd-bun.sock`, with one ASP_HOME. raspd answers `aspc.hello`,
+`health`, `version` and `surface` itself, byte for byte as Bun would from the
+same release. The exceptions: `version` adds `frontDoor`
+(`{name: "raspd", sourceCommit, role, native, upstream, upstreamState}`), and
+`health` lists `upstream_unavailable` in `degraded` after a failed relay.
+Every other frame goes to Bun verbatim on an upstream connection tied to the
+client connection. raspd also enforces Bun's frame rules itself: 16 MiB,
+empty-frame refusal, and parse-error envelopes. When Bun can't be reached, or
+closes before replying, a forwarded request gets JSON-RPC `-32603` with
+`data.reason: "upstream_unavailable"`.
+
+raspd writes only its own files. `rpc.request` goes to `<logDir>/raspd.log`
+(`listener: "raspd"`, plus `servedBy: native|bun` and, for Bun,
+`relay: relayed|upstream_failed`), with the supervisor's stderr in
+`raspd.err.log`. Metrics go to `<var>/state/agent-spaces/metrics/raspd-<day>.ndjson`,
+in the T-11824 row format with the same two keys added. Over a drained window,
+per op, `relayed <= Bun's count <= relayed + upstream_failed`. Its cardo
+kernel serves the observation document `aspd` on `<ns>/run/raspd-kernel.sock`:
+service and release, Bun upstream health, per-op native, relayed and
+upstream_failed counts, and the recent compiles. That kernel is never on the
+request path.
+
+The role lives in `config.frontDoor`, and the lifecycle verbs act on both
+processes:
+
+```bash
+just aspd-front-door-enable  <absolute-ns> [label]   # Bun -> aspd-bun.sock, raspd -> aspd.sock
+just aspd-front-door-status  <absolute-ns>
+just aspd-front-door-disable <absolute-ns>           # rollback: raspd stops, Bun takes aspd.sock back
+```
+
+Under launchd supervision, raspd is its own job (default label
+`com.praesidium.raspd`, script `<ns>/service/raspd-launchd-run.sh`). Clients are
+unchanged, and no HRC restart is needed. Go-live on a real node is plan R4. The
+scratch proof is `bun scripts/raspd-front-door-e2e.ts`, with artifacts under
+`var/wrkq-artifacts/T-11835/e2e/`.
+
 ## Historical pre-v2 pilot record
 
 The rest of this page retains the T-08539/T-08561 pilot evidence and operation

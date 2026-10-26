@@ -1,0 +1,236 @@
+//! Order-preserving JSON for the replies raspd writes itself.
+//!
+//! Bun writes replies with `JSON.stringify`, so key order is insertion order
+//! and numbers print the JavaScript way. raspd's native replies must match
+//! byte for byte (the compare runner diffs them), so they are built and written
+//! here rather than through `serde_json::Value`, whose maps sort their keys.
+use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
+use std::fmt::{self, Write as _};
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum J {
+    Null,
+    Bool(bool),
+    Num(f64),
+    Str(String),
+    Arr(Vec<J>),
+    /// Insertion order, as `JSON.parse` builds it: a repeated key keeps its
+    /// first position and takes the last value.
+    Obj(Vec<(String, J)>),
+}
+
+impl J {
+    pub fn str(s: impl Into<String>) -> J {
+        J::Str(s.into())
+    }
+    pub fn obj<const N: usize>(fields: [(&str, J); N]) -> J {
+        J::Obj(fields.into_iter().map(|(k, v)| (k.to_owned(), v)).collect())
+    }
+    pub fn get(&self, key: &str) -> Option<&J> {
+        match self {
+            J::Obj(fields) => fields.iter().find(|(k, _)| k == key).map(|(_, v)| v),
+            _ => None,
+        }
+    }
+    pub fn has(&self, key: &str) -> bool {
+        self.get(key).is_some()
+    }
+    pub fn is_record(&self) -> bool {
+        matches!(self, J::Obj(_))
+    }
+    /// `Object.keys` order: array-index keys ascending, then insertion order.
+    pub fn js_entries(&self) -> Vec<(&str, &J)> {
+        let J::Obj(fields) = self else {
+            return vec![];
+        };
+        let mut indexed: Vec<(u32, &str, &J)> = vec![];
+        let mut named = vec![];
+        for (k, v) in fields {
+            match array_index(k) {
+                Some(n) => indexed.push((n, k, v)),
+                None => named.push((k.as_str(), v)),
+            }
+        }
+        indexed.sort_by_key(|(n, _, _)| *n);
+        indexed
+            .into_iter()
+            .map(|(_, k, v)| (k, v))
+            .chain(named)
+            .collect()
+    }
+    pub fn to_json(&self) -> String {
+        let mut out = String::new();
+        self.write(&mut out);
+        out
+    }
+    fn write(&self, out: &mut String) {
+        match self {
+            J::Null => out.push_str("null"),
+            J::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+            J::Num(n) => out.push_str(&js_number(*n)),
+            J::Str(s) => write_str(out, s),
+            J::Arr(items) => {
+                out.push('[');
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    item.write(out);
+                }
+                out.push(']');
+            }
+            J::Obj(fields) => {
+                out.push('{');
+                for (i, (k, v)) in self.js_entries().into_iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    write_str(out, k);
+                    out.push(':');
+                    v.write(out);
+                }
+                let _ = fields;
+                out.push('}');
+            }
+        }
+    }
+}
+
+/// A canonical array index (`0`..`4294967294`), which JS objects order first.
+fn array_index(key: &str) -> Option<u32> {
+    if key.is_empty() || key.len() > 10 || (key.len() > 1 && key.starts_with('0')) {
+        return None;
+    }
+    if !key.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    key.parse::<u64>()
+        .ok()
+        .filter(|n| *n < 4_294_967_295)
+        .map(|n| n as u32)
+}
+
+/// `JSON.stringify` of a finite number.
+pub fn js_number(n: f64) -> String {
+    if !n.is_finite() {
+        return "null".into();
+    }
+    if n == 0.0 {
+        return "0".into();
+    }
+    if n.fract() == 0.0 && n.abs() < 1e21 {
+        return format!("{n:.0}");
+    }
+    let abs = n.abs();
+    if (1e-6..1e21).contains(&abs) {
+        return format!("{n}");
+    }
+    // Exponent form, as JS writes it: 1e+21, 1.5e-7.
+    let s = format!("{n:e}");
+    match s.split_once('e') {
+        Some((mantissa, exp)) if !exp.starts_with('-') => format!("{mantissa}e+{exp}"),
+        _ => s,
+    }
+}
+
+/// `JSON.stringify` of a string: the two-character escapes, `\u00xx` (lower
+/// case) for the other control characters, everything else literal.
+pub fn write_str(out: &mut String, s: &str) {
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\u{8}' => out.push_str("\\b"),
+            '\u{c}' => out.push_str("\\f"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+}
+
+pub fn quoted(s: &str) -> String {
+    let mut out = String::new();
+    write_str(&mut out, s);
+    out
+}
+
+impl<'de> Deserialize<'de> for J {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<J, D::Error> {
+        deserializer.deserialize_any(JVisitor)
+    }
+}
+
+struct JVisitor;
+
+impl<'de> Visitor<'de> for JVisitor {
+    type Value = J;
+    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("JSON")
+    }
+    fn visit_unit<E: de::Error>(self) -> Result<J, E> {
+        Ok(J::Null)
+    }
+    fn visit_bool<E: de::Error>(self, v: bool) -> Result<J, E> {
+        Ok(J::Bool(v))
+    }
+    fn visit_i64<E: de::Error>(self, v: i64) -> Result<J, E> {
+        Ok(J::Num(v as f64))
+    }
+    fn visit_u64<E: de::Error>(self, v: u64) -> Result<J, E> {
+        Ok(J::Num(v as f64))
+    }
+    fn visit_f64<E: de::Error>(self, v: f64) -> Result<J, E> {
+        Ok(J::Num(v))
+    }
+    fn visit_str<E: de::Error>(self, v: &str) -> Result<J, E> {
+        Ok(J::Str(v.to_owned()))
+    }
+    fn visit_string<E: de::Error>(self, v: String) -> Result<J, E> {
+        Ok(J::Str(v))
+    }
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<J, A::Error> {
+        let mut items = vec![];
+        while let Some(item) = seq.next_element()? {
+            items.push(item);
+        }
+        Ok(J::Arr(items))
+    }
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<J, A::Error> {
+        let mut fields: Vec<(String, J)> = vec![];
+        while let Some((k, v)) = map.next_entry::<String, J>()? {
+            match fields.iter_mut().find(|(existing, _)| *existing == k) {
+                Some(slot) => slot.1 = v,
+                None => fields.push((k, v)),
+            }
+        }
+        Ok(J::Obj(fields))
+    }
+}
+
+/// Parse one frame. `None` where serde_json and `JSON.parse` may disagree
+/// (invalid UTF-8, lone surrogate escapes, numbers out of f64 range, deep
+/// nesting): raspd forwards such a frame to Bun rather than judge it.
+pub fn parse(bytes: &[u8]) -> Option<J> {
+    serde_json::from_slice(bytes).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn writes_like_json_stringify() {
+        let v = parse(br#"{"b":1,"2":true,"a":[1.5,-0,1e21,"x\u0001\n"],"1":null,"b":2}"#).unwrap();
+        assert_eq!(
+            v.to_json(),
+            r#"{"1":null,"2":true,"b":2,"a":[1.5,0,1e+21,"x\u0001\n"]}"#
+        );
+    }
+}

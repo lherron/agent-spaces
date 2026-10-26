@@ -1,0 +1,17 @@
+[package]
+name = "raspd"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "aspd's Rust front door: native hello/health/version/surface, Bun behind"
+
+[dependencies]
+aspd-domain = { path = "../aspd-domain" }
+cardo-core.workspace = true
+cardo-runtime.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+crossbeam-channel.workspace = true
+chrono.workspace = true
+tokio.workspace = true
+libc.workspace = true

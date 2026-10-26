@@ -17,6 +17,13 @@
  * supervisor). The job runs a generated launch script that `exec`s the selected
  * release with a literal environment, so the job pid IS the daemon and
  * launchd's SIGTERM is the existing graceful retire.
+ *
+ * Front door (T-11835, docs/proposals/aspd-rust-front-door.md): a fronted
+ * namespace runs raspd from the selected release on the public socket and Bun
+ * aspd on `<run>/aspd-bun.sock`. The role is recorded in the service config,
+ * so Bun's listen socket follows it; every verb (start, stop, restart,
+ * activate, status) acts on both processes. `front-door-enable` and
+ * `front-door-disable` switch the role; rollback is the disable.
  */
 import { spawn, spawnSync } from 'node:child_process'
 import {
@@ -32,6 +39,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
+import { createConnection } from 'node:net'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import type { AspcHelloResponse } from 'spaces-aspc-protocol'
 import { AspcServiceUnavailableError, AspcUnixClient } from 'spaces-aspc-protocol/unix-client'
@@ -42,6 +50,8 @@ const ACTIVE_SCHEMA = 'aspd-service-activation/v1'
 const DEFAULT_INHERITED_ENV = ['HOME', 'PATH', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG']
 const RETIRE_TIMEOUT_MS = 180_000
 const READY_TIMEOUT_MS = 30_000
+const RASPD_DEFAULT_LABEL = 'com.praesidium.raspd'
+const BUN_FRONTED_SOCKET = 'aspd-bun.sock'
 
 type LaunchdSupervisor = {
   kind: 'launchd'
@@ -63,6 +73,22 @@ type ServiceConfig = {
   logDir?: string
   /** Present once `supervise` has handed the service lifetime to launchd. */
   supervisor?: LaunchdSupervisor | undefined
+  /**
+   * Present while the namespace is fronted: raspd serves `socketPath` and Bun
+   * listens on `bunSocketPath`. Under launchd supervision raspd is its own job.
+   */
+  frontDoor?: FrontDoor | undefined
+}
+
+type FrontDoor = {
+  bunSocketPath: string
+  /** raspd's launchd label when the namespace is supervised. */
+  label: string
+}
+
+/** Where Bun aspd listens: the public socket, or the private one when fronted. */
+function bunSocketPath(config: ServiceConfig): string {
+  return config.frontDoor?.bunSocketPath ?? config.socketPath
 }
 
 type ActiveSelection = {
@@ -95,8 +121,10 @@ function paths(nsInput: string) {
     active: join(ns, 'service', 'active.json'),
     activations: join(ns, 'service', 'activations.ndjson'),
     running: join(ns, 'run', 'aspd.json'),
+    raspdRunning: join(ns, 'run', 'raspd.json'),
     logs: join(ns, 'logs'),
     launchScript: join(ns, 'service', 'launchd-run.sh'),
+    raspdLaunchScript: join(ns, 'service', 'raspd-launchd-run.sh'),
   }
 }
 
@@ -107,9 +135,21 @@ function paths(nsInput: string) {
 export function serviceLogPaths(
   ns: string,
   config: Pick<ServiceConfig, 'logDir'>
-): { dir: string; request: string; supervisor: string } {
+): {
+  dir: string
+  request: string
+  supervisor: string
+  raspdRequest: string
+  raspdSupervisor: string
+} {
   const dir = config.logDir ?? join(ns, 'logs')
-  return { dir, request: join(dir, 'aspd.log'), supervisor: join(dir, 'aspd.err.log') }
+  return {
+    dir,
+    request: join(dir, 'aspd.log'),
+    supervisor: join(dir, 'aspd.err.log'),
+    raspdRequest: join(dir, 'raspd.log'),
+    raspdSupervisor: join(dir, 'raspd.err.log'),
+  }
 }
 
 function readJson<T>(path: string): T | undefined {
@@ -196,7 +236,16 @@ function selectedRelease(p: ReturnType<typeof paths>): ActiveSelection {
   return active
 }
 
+/** Start Bun aspd and, when fronted, raspd in front of it. */
 async function start(nsInput: string): Promise<Record<string, unknown>> {
+  const bun = await startBun(nsInput)
+  const p = paths(nsInput)
+  const config = requireConfig(p)
+  if (config.frontDoor === undefined) return bun
+  return { bun, raspd: await startRaspd(p, config, selectedRelease(p)) }
+}
+
+async function startBun(nsInput: string): Promise<Record<string, unknown>> {
   const p = paths(nsInput)
   const config = requireConfig(p)
   const active = selectedRelease(p)
@@ -207,7 +256,7 @@ async function start(nsInput: string): Promise<Record<string, unknown>> {
         `running ${existing.releaseId} differs from selected ${active.releaseId}; activate instead`
       )
     }
-    return { alreadyRunning: existing, serving: await readback(config.socketPath) }
+    return { alreadyRunning: existing, serving: await readback(bunSocketPath(config)) }
   }
   const inspection = inspectRelease(active.releasePath)
   const aspd = inspection.executableResolution.aspd
@@ -222,7 +271,7 @@ async function start(nsInput: string): Promise<Record<string, unknown>> {
   mkdirSync(logDir, { recursive: true, mode: 0o700 })
   const logPath = join(logDir, `aspd-${active.releaseId}-${startedAt.replace(/[:.]/g, '')}.log`)
   const logFd = openSync(logPath, 'a')
-  const child = spawn(aspd.launcher, ['serve', '--socket', config.socketPath], {
+  const child = spawn(aspd.launcher, ['serve', '--socket', bunSocketPath(config)], {
     cwd: p.ns,
     env,
     detached: true,
@@ -240,7 +289,7 @@ async function start(nsInput: string): Promise<Record<string, unknown>> {
   }
   writeJsonAtomic(p.running, record)
 
-  const serving = await awaitServing(config.socketPath, active.releaseId, () => {
+  const serving = await awaitServing(bunSocketPath(config), active.releaseId, () => {
     if (!pidAlive(child.pid as number)) fail(`aspd did not become ready; see ${logPath}`)
   })
   return { started: record, serving, readyAt: new Date().toISOString() }
@@ -299,7 +348,13 @@ export function renderLaunchdScript(input: {
   logPath: string
   /** aspd's own request log (`aspd serve --log`). */
   requestLogPath: string
+  /** The release executable to run; `raspd` for the front door (default `aspd`). */
+  program?: 'aspd' | 'raspd' | undefined
+  /** Arguments after `--socket <path>`, before `--log` (raspd's `--upstream`). */
+  extraArgs?: string[] | undefined
 }): string {
+  const program = input.program ?? 'aspd'
+  const record = join(input.ns, 'run', `${program}.json`)
   // printf fills the pid and start time; every literal sits inside one quoted format.
   const format = `${JSON.stringify({
     pid: 0,
@@ -326,9 +381,9 @@ export function renderLaunchdScript(input: {
     // leaves an offset gap. aspd does not rotate either of its logs.
     `exec >>${shellQuote(input.logPath)} 2>&1`,
     'started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)',
-    `printf ${shellQuote(format)} "$$" "$started_at" >${shellQuote(join(input.ns, 'run', 'aspd.json.tmp'))}`,
-    `mv ${shellQuote(join(input.ns, 'run', 'aspd.json.tmp'))} ${shellQuote(join(input.ns, 'run', 'aspd.json'))}`,
-    `exec /usr/bin/env -i ${env} ${shellQuote(join(input.releasePath, 'aspd'))} serve --socket ${shellQuote(input.socketPath)} --log ${shellQuote(input.requestLogPath)}`,
+    `printf ${shellQuote(format)} "$$" "$started_at" >${shellQuote(`${record}.tmp`)}`,
+    `mv ${shellQuote(`${record}.tmp`)} ${shellQuote(record)}`,
+    `exec /usr/bin/env -i ${env} ${shellQuote(join(input.releasePath, program))} serve --socket ${shellQuote(input.socketPath)}${(input.extraArgs ?? []).map((arg) => ` ${shellQuote(arg)}`).join('')} --log ${shellQuote(input.requestLogPath)}`,
     '',
   ].join('\n')
 }
@@ -430,7 +485,7 @@ function writeLaunchScript(
   mkdirSync(logs.dir, { recursive: true, mode: 0o700 })
   const script = renderLaunchdScript({
     ns: p.ns,
-    socketPath: config.socketPath,
+    socketPath: bunSocketPath(config),
     releaseId: active.releaseId,
     releasePath: active.releasePath,
     env: serviceEnv(config),
@@ -493,7 +548,7 @@ async function startSupervised(
     const kicked = launchctl(['kickstart', launchdTarget(supervisor.label)])
     if (kicked.status !== 0) fail(`launchctl kickstart failed: ${kicked.output.trim()}`)
   }
-  const serving = await awaitServing(config.socketPath, active.releaseId)
+  const serving = await awaitServing(bunSocketPath(config), active.releaseId)
   return {
     supervisor,
     launchdPid: launchdPid(supervisor.label) ?? null,
@@ -518,7 +573,7 @@ async function restartSupervised(
   if (kicked.status !== 0) fail(`launchctl kickstart -k failed: ${kicked.output.trim()}`)
   await awaitPidExit(previousPid)
   const retiredAt = new Date().toISOString()
-  const serving = await awaitServing(config.socketPath, active.releaseId)
+  const serving = await awaitServing(bunSocketPath(config), active.releaseId)
   const pid = launchdPid(supervisor.label)
   if (pid === undefined || pid === previousPid) fail('launchd did not start a new aspd process')
   return {
@@ -552,7 +607,7 @@ async function stopSupervised(
     pid: pid ?? null,
     signalledAt,
     exitedAt: new Date().toISOString(),
-    socketAfterStop: await readback(config.socketPath),
+    socketAfterStop: await readback(bunSocketPath(config)),
   }
 }
 
@@ -602,7 +657,16 @@ function setLogDir(nsInput: string, logDir: string): Record<string, unknown> {
   return { namespace: p.ns, previous, logDir: next.logDir, changed: previous !== next.logDir }
 }
 
+/** Stop raspd (when fronted) and then Bun aspd. */
 async function stop(nsInput: string): Promise<Record<string, unknown>> {
+  const p = paths(nsInput)
+  const config = requireConfig(p)
+  if (config.frontDoor === undefined) return stopBun(nsInput)
+  const raspd = await stopRaspd(p, config)
+  return { raspd, bun: await stopBun(nsInput) }
+}
+
+async function stopBun(nsInput: string): Promise<Record<string, unknown>> {
   const p = paths(nsInput)
   const config = requireConfig(p)
   if (config.supervisor !== undefined) return stopSupervised(p, config)
@@ -630,7 +694,7 @@ async function stop(nsInput: string): Promise<Record<string, unknown>> {
     signalledAt,
     exitedAt: new Date().toISOString(),
     forced,
-    socketAfterStop: await readback(config.socketPath),
+    socketAfterStop: await readback(bunSocketPath(config)),
   }
 }
 
@@ -642,9 +706,22 @@ async function activate(nsInput: string, releaseId: string): Promise<Record<stri
   if (inspection.executableResolution.aspd?.embeddedIdentity !== true) {
     fail(`release ${releaseId} does not contain an identity-bound aspd`)
   }
+  if (
+    requireConfig(p).frontDoor !== undefined &&
+    inspection.executableResolution.raspd === undefined
+  ) {
+    fail(`namespace is fronted and release ${releaseId} does not contain raspd`)
+  }
   const previous = readJson<ActiveSelection>(p.active)
   const beganAt = new Date().toISOString()
   const config = requireConfig(p)
+  // A fronted namespace retires raspd first and starts it last, on the newly
+  // selected release, so it never fronts a Bun from another release.
+  const raspdRetired = config.frontDoor !== undefined ? await stopRaspd(p, config) : undefined
+  const raspdOf = async (selection: ActiveSelection) =>
+    config.frontDoor !== undefined
+      ? { raspdRetired, raspdStarted: await startRaspd(p, config, selection) }
+      : {}
   if (config.supervisor !== undefined) {
     // Same order as the unsupervised path: retire, select, start. `bootout`
     // unloads the job, so KeepAlive cannot respawn anything while the selection
@@ -664,12 +741,13 @@ async function activate(nsInput: string, releaseId: string): Promise<Record<stri
       beganAt,
       retired,
       started,
+      ...(await raspdOf(selection)),
       completedAt: new Date().toISOString(),
     }
     appendFileSync(p.activations, `${JSON.stringify(result)}\n`)
     return result
   }
-  const retired = await stop(nsInput)
+  const retired = await stopBun(nsInput)
   const selection: ActiveSelection = {
     schemaVersion: ACTIVE_SCHEMA,
     releaseId,
@@ -678,12 +756,13 @@ async function activate(nsInput: string, releaseId: string): Promise<Record<stri
     previousReleaseId: previous?.releaseId ?? null,
   }
   writeJsonAtomic(p.active, selection)
-  const started = await start(nsInput)
+  const started = await startBun(nsInput)
   const result = {
     activation: selection,
     beganAt,
     retired,
     started,
+    ...(await raspdOf(selection)),
     completedAt: new Date().toISOString(),
   }
   appendFileSync(p.activations, `${JSON.stringify(result)}\n`)
@@ -705,6 +784,7 @@ async function status(nsInput: string): Promise<Record<string, unknown>> {
   return {
     namespace: p.ns,
     socketPath: config.socketPath,
+    frontDoor: await frontDoorStatus(p, config),
     supervisor: config.supervisor ?? null,
     launchdPid:
       config.supervisor !== undefined ? (launchdPid(config.supervisor.label) ?? null) : null,
@@ -716,10 +796,271 @@ async function status(nsInput: string): Promise<Record<string, unknown>> {
   }
 }
 
+// -- front door (T-11835) ------------------------------------------------------
+
+/** One version call on `socketPath`; undefined when nothing answers. */
+async function versionOf(socketPath: string): Promise<Record<string, unknown> | undefined> {
+  return new Promise((resolveVersion) => {
+    const socket = createConnection({ path: socketPath })
+    let buffer = ''
+    const done = (value: Record<string, unknown> | undefined) => {
+      socket.destroy()
+      resolveVersion(value)
+    }
+    socket.setTimeout(2_000, () => done(undefined))
+    socket.once('error', () => done(undefined))
+    socket.on('data', (chunk) => {
+      buffer += chunk.toString('utf8')
+      const newline = buffer.indexOf('\n')
+      if (newline === -1) return
+      try {
+        const reply = JSON.parse(buffer.slice(0, newline)) as { result?: Record<string, unknown> }
+        done(reply.result)
+      } catch {
+        done(undefined)
+      }
+    })
+    socket.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'version', params: {} })}\n`)
+  })
+}
+
+/** The raspd process recorded for this namespace, if it is still raspd from that release. */
+function runningRaspd(p: ReturnType<typeof paths>): RunningRecord | undefined {
+  const record = readJson<RunningRecord>(p.raspdRunning)
+  if (record === undefined || !pidAlive(record.pid)) return undefined
+  const command = spawnSync('ps', ['-o', 'command=', '-p', String(record.pid)], {
+    encoding: 'utf8',
+  }).stdout
+  return command.includes(join(record.releasePath, 'libexec', 'raspd')) ||
+    command.includes(join(record.releasePath, 'raspd'))
+    ? record
+    : undefined
+}
+
+/** Wait until the public socket answers as raspd fronting `releaseId`. */
+async function awaitFrontDoor(
+  socketPath: string,
+  releaseId: string,
+  check: () => void = () => undefined
+): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + READY_TIMEOUT_MS
+  for (;;) {
+    const version = await versionOf(socketPath)
+    const front = version?.['frontDoor'] as { name?: unknown } | undefined
+    const release = version?.['release'] as { releaseId?: unknown } | undefined
+    if (front?.name === 'raspd') {
+      if (release?.releaseId !== releaseId) {
+        fail(`raspd answered as ${String(release?.releaseId)}, expected ${releaseId}`)
+      }
+      return version as Record<string, unknown>
+    }
+    check()
+    if (Date.now() > deadline)
+      fail(`raspd did not answer on ${socketPath} within ${READY_TIMEOUT_MS}ms`)
+    await Bun.sleep(100)
+  }
+}
+
+function raspdLaunchd(p: ReturnType<typeof paths>, config: ServiceConfig): LaunchdSupervisor {
+  const label = (config.frontDoor as FrontDoor).label
+  const home = process.env.HOME ?? fail('HOME is required to place the launchd plist')
+  return {
+    kind: 'launchd',
+    label,
+    plistPath: join(home, 'Library', 'LaunchAgents', `${label}.plist`),
+    launchScript: p.raspdLaunchScript,
+  }
+}
+
+/** Start raspd from `active` on the public socket, in front of Bun's socket. */
+async function startRaspd(
+  p: ReturnType<typeof paths>,
+  config: ServiceConfig,
+  active: ActiveSelection
+): Promise<Record<string, unknown>> {
+  const front = config.frontDoor as FrontDoor
+  const existing = runningRaspd(p)
+  if (existing !== undefined && existing.releaseId === active.releaseId) {
+    return { alreadyRunning: existing, serving: await versionOf(config.socketPath) }
+  }
+  if (existing !== undefined) await stopRaspd(p, config)
+  const raspd = inspectRelease(active.releasePath).executableResolution.raspd
+  if (raspd === undefined) fail(`release ${active.releaseId} does not contain raspd`)
+  const logs = serviceLogPaths(p.ns, config)
+  mkdirSync(logs.dir, { recursive: true, mode: 0o700 })
+  const args = ['--upstream', front.bunSocketPath]
+
+  if (config.supervisor !== undefined) {
+    const supervisor = raspdLaunchd(p, config)
+    const script = renderLaunchdScript({
+      ns: p.ns,
+      socketPath: config.socketPath,
+      releaseId: active.releaseId,
+      releasePath: active.releasePath,
+      env: serviceEnv(config),
+      logPath: logs.raspdSupervisor,
+      requestLogPath: logs.raspdRequest,
+      program: 'raspd',
+      extraArgs: args,
+    })
+    const tmp = `${supervisor.launchScript}.tmp-${process.pid}`
+    writeFileSync(tmp, script, { mode: 0o700 })
+    renameSync(tmp, supervisor.launchScript)
+    if (launchdLoaded(supervisor.label)) {
+      const booted = launchctl(['bootout', launchdTarget(supervisor.label)])
+      if (booted.status !== 0) fail(`launchctl bootout failed: ${booted.output.trim()}`)
+    }
+    mkdirSync(dirname(supervisor.plistPath), { recursive: true })
+    const plistTmp = `${supervisor.plistPath}.tmp-${process.pid}`
+    writeFileSync(
+      plistTmp,
+      renderLaunchdPlist({
+        label: supervisor.label,
+        launchScript: supervisor.launchScript,
+        logPath: logs.raspdSupervisor,
+      })
+    )
+    renameSync(plistTmp, supervisor.plistPath)
+    adoptLaunchdPlist(supervisor.plistPath)
+    await bootstrapLaunchd(
+      launchdTarget(supervisor.label).replace(/\/[^/]+$/, ''),
+      supervisor.plistPath
+    )
+    const serving = await awaitFrontDoor(config.socketPath, active.releaseId)
+    return { supervisor, launchdPid: launchdPid(supervisor.label) ?? null, serving }
+  }
+
+  const startedAt = new Date().toISOString()
+  const logFd = openSync(logs.raspdSupervisor, 'a')
+  const child = spawn(
+    raspd.launcher,
+    ['serve', '--socket', config.socketPath, ...args, '--log', logs.raspdRequest],
+    { cwd: p.ns, env: serviceEnv(config), detached: true, stdio: ['ignore', logFd, logFd] }
+  )
+  closeSync(logFd)
+  if (child.pid === undefined) fail('failed to spawn raspd')
+  child.unref()
+  const record: RunningRecord = {
+    pid: child.pid,
+    releaseId: active.releaseId,
+    releasePath: active.releasePath,
+    startedAt,
+    logPath: logs.raspdSupervisor,
+  }
+  writeJsonAtomic(p.raspdRunning, record)
+  const serving = await awaitFrontDoor(config.socketPath, active.releaseId, () => {
+    if (!pidAlive(child.pid as number))
+      fail(`raspd did not become ready; see ${logs.raspdSupervisor}`)
+  })
+  return { started: record, serving, readyAt: new Date().toISOString() }
+}
+
+/** Retire raspd (SIGTERM drains it) and wait for it to exit. */
+async function stopRaspd(
+  p: ReturnType<typeof paths>,
+  config: ServiceConfig
+): Promise<Record<string, unknown>> {
+  const signalledAt = new Date().toISOString()
+  if (config.supervisor !== undefined && config.frontDoor !== undefined) {
+    const supervisor = raspdLaunchd(p, config)
+    const pid = launchdPid(supervisor.label)
+    if (launchdLoaded(supervisor.label)) {
+      const booted = launchctl(['bootout', launchdTarget(supervisor.label)])
+      if (booted.status !== 0) fail(`launchctl bootout failed: ${booted.output.trim()}`)
+    }
+    await awaitPidExit(pid)
+    rmSync(p.raspdRunning, { force: true })
+    return { stopped: pid !== undefined, supervisor, pid: pid ?? null, signalledAt }
+  }
+  const record = runningRaspd(p)
+  if (record === undefined) {
+    rmSync(p.raspdRunning, { force: true })
+    return { stopped: false, reason: 'not running' }
+  }
+  process.kill(record.pid, 'SIGTERM')
+  await awaitPidExit(record.pid)
+  rmSync(p.raspdRunning, { force: true })
+  return { stopped: true, pid: record.pid, signalledAt, exitedAt: new Date().toISOString() }
+}
+
+async function frontDoorStatus(
+  p: ReturnType<typeof paths>,
+  config: ServiceConfig
+): Promise<Record<string, unknown>> {
+  const publicVersion = await versionOf(config.socketPath)
+  const front = publicVersion?.['frontDoor'] ?? null
+  if (config.frontDoor === undefined) {
+    return { mode: 'direct', bunSocket: config.socketPath, publicFrontDoor: front }
+  }
+  const bunVersion = await versionOf(config.frontDoor.bunSocketPath)
+  return {
+    mode: 'fronted',
+    publicSocket: config.socketPath,
+    bunSocket: config.frontDoor.bunSocketPath,
+    raspd: runningRaspd(p) ?? null,
+    raspdLaunchdPid:
+      config.supervisor !== undefined ? (launchdPid(config.frontDoor.label) ?? null) : null,
+    publicFrontDoor: front,
+    publicRelease: publicVersion?.['release'] ?? null,
+    bunAnswering: bunVersion !== undefined,
+    bunRelease: bunVersion?.['release'] ?? null,
+  }
+}
+
+/**
+ * Put the namespace behind raspd: Bun moves to `<run>/aspd-bun.sock`, raspd
+ * from the selected release takes the public socket. Requires a selected
+ * release that contains raspd.
+ */
+async function frontDoorEnable(
+  nsInput: string,
+  labelInput: string | undefined
+): Promise<Record<string, unknown>> {
+  const p = paths(nsInput)
+  const config = requireConfig(p)
+  if (config.frontDoor !== undefined) fail('namespace is already fronted; see front-door-status')
+  const active = selectedRelease(p)
+  if (inspectRelease(active.releasePath).executableResolution.raspd === undefined) {
+    fail(`selected release ${active.releaseId} does not contain raspd; install one that does`)
+  }
+  const label = labelInput ?? RASPD_DEFAULT_LABEL
+  if (!/^[A-Za-z0-9.-]+$/.test(label)) fail(`invalid launchd label: ${label}`)
+  const beganAt = new Date().toISOString()
+  const retired = await stopBun(nsInput)
+  const fronted: ServiceConfig = {
+    ...config,
+    frontDoor: { bunSocketPath: join(dirname(config.socketPath), BUN_FRONTED_SOCKET), label },
+  }
+  writeJsonAtomic(p.config, fronted)
+  const started = await start(nsInput)
+  return { mode: 'fronted', beganAt, retired, started, status: await frontDoorStatus(p, fronted) }
+}
+
+/** Take the namespace out of front-door mode: raspd stops, Bun takes the public socket back. */
+async function frontDoorDisable(nsInput: string): Promise<Record<string, unknown>> {
+  const p = paths(nsInput)
+  const config = requireConfig(p)
+  if (config.frontDoor === undefined) fail('namespace is not fronted')
+  const beganAt = new Date().toISOString()
+  const raspd = await stopRaspd(p, config)
+  if (config.supervisor !== undefined) {
+    rmSync(raspdLaunchd(p, config).plistPath, { force: true })
+  }
+  const bun = await stopBun(nsInput)
+  const { frontDoor: _removed, ...direct } = config
+  writeJsonAtomic(p.config, direct)
+  const started = await startBun(nsInput)
+  const status = await frontDoorStatus(p, direct)
+  if (status['publicFrontDoor'] !== null) fail('the public socket still answers as raspd')
+  return { mode: 'direct', beganAt, retired: { raspd, bun }, started, status }
+}
+
 export async function main(args: string[]): Promise<void> {
   const [command, ns, arg] = args
   if (ns === undefined) {
-    fail('usage: <init|start|stop|restart|activate|supervise|log-dir|status> <namespace> [arg]')
+    fail(
+      'usage: <init|start|stop|restart|activate|supervise|log-dir|status|front-door-enable|front-door-disable|front-door-status> <namespace> [arg]'
+    )
   }
   let result: unknown
   switch (command) {
@@ -736,9 +1077,11 @@ export async function main(args: string[]): Promise<void> {
       const p = paths(ns)
       const config = requireConfig(p)
       result =
-        config.supervisor !== undefined
-          ? await restartSupervised(p, config, selectedRelease(p))
-          : { stop: await stop(ns), start: await start(ns) }
+        config.frontDoor !== undefined
+          ? { stop: await stop(ns), start: await start(ns) }
+          : config.supervisor !== undefined
+            ? await restartSupervised(p, config, selectedRelease(p))
+            : { stop: await stop(ns), start: await start(ns) }
       break
     }
     case 'supervise':
@@ -756,6 +1099,17 @@ export async function main(args: string[]): Promise<void> {
     case 'status':
       result = await status(ns)
       break
+    case 'front-door-enable':
+      result = await frontDoorEnable(ns, arg)
+      break
+    case 'front-door-disable':
+      result = await frontDoorDisable(ns)
+      break
+    case 'front-door-status': {
+      const p = paths(ns)
+      result = await frontDoorStatus(p, requireConfig(p))
+      break
+    }
     default:
       fail(`unknown command: ${command}`)
   }
