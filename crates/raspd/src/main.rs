@@ -14,6 +14,7 @@ mod logs;
 mod metrics;
 mod native;
 mod protocol;
+mod reads;
 mod release;
 mod server;
 

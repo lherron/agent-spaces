@@ -17,6 +17,11 @@ pub fn is_native(method: &str) -> bool {
     NATIVE_METHODS.contains(&method)
 }
 
+/// Every method raspd serves natively, the R2 reads included (`version`).
+fn served_natively() -> impl Iterator<Item = &'static str> {
+    NATIVE_METHODS.into_iter().chain(crate::reads::METHODS)
+}
+
 pub const ASPC_PROTOCOL_VERSION: &str = "aspc/0.1";
 /// `harness/aspc/package.json` version, compiled in from the same tree.
 pub const ASPC_FACADE_VERSION: &str = env!("RASPD_ASPC_FACADE_VERSION");
@@ -215,10 +220,7 @@ fn version(door: &FrontDoor) -> J {
                 ("name", J::str("raspd")),
                 ("sourceCommit", J::str(RASPD_SOURCE_COMMIT)),
                 ("role", J::str("front")),
-                (
-                    "native",
-                    J::Arr(NATIVE_METHODS.iter().map(|m| J::str(*m)).collect()),
-                ),
+                ("native", J::Arr(served_natively().map(J::str).collect())),
                 ("upstream", J::str(door.upstream_socket)),
                 ("upstreamState", J::str(door.upstream_state)),
             ]),

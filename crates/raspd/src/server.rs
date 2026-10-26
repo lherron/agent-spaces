@@ -1,13 +1,16 @@
 //! The aspc listener. Each client connection is framed with Bun's rules; each
-//! frame is routed on its own: the four native methods are answered here,
+//! frame is routed on its own: the four native methods are answered here, the
+//! two native reads (R2) on a blocking thread beside the read loop, and
 //! everything else is relayed verbatim to Bun over an upstream connection tied
 //! to this client connection (order of requests and their ids preserved,
-//! replies unmodified).
+//! replies unmodified). A read raspd will not judge is relayed the same way,
+//! with its fallback reason logged and counted.
 use crate::json::{J, js_number, quoted};
 use crate::logs::{Log, now_iso};
 use crate::metrics::{Metrics, client_label};
 use crate::native::{self, FrontDoor};
 use crate::protocol::{self, Completion, Frame, MAX_FRAME_BYTES};
+use crate::reads::{self, Answer};
 use crate::release::Release;
 use aspd_domain::{CompileRecord, Observations};
 use std::collections::{HashMap, VecDeque};
@@ -133,6 +136,8 @@ struct Entry {
     client: String,
     id: Option<J>,
     started: Instant,
+    /// Why a native read was relayed instead.
+    fallback: Option<&'static str>,
 }
 
 #[derive(Default)]
@@ -207,6 +212,8 @@ struct Connection {
     upstream: tokio::sync::Mutex<Option<Upstream>>,
     generations: AtomicU64,
     usage: Mutex<(u64, String)>,
+    /// Native reads still running.
+    reading: AtomicUsize,
 }
 
 fn id_key_json(id: &J) -> String {
@@ -284,16 +291,18 @@ impl Connection {
             upstream: tokio::sync::Mutex::new(None),
             generations: AtomicU64::new(0),
             usage: Mutex::new((0, "unknown".into())),
+            reading: AtomicUsize::new(0),
         });
         conn.read_loop(&mut reader).await;
         // EOF: answer what is in flight, then close.
         loop {
             let notified = conn.settled.notified();
-            if conn
-                .pending
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .is_empty()
+            if conn.reading.load(Ordering::Acquire) == 0
+                && conn
+                    .pending
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .is_empty()
             {
                 break;
             }
@@ -393,6 +402,7 @@ impl Connection {
             &protocol::unmatched_completion(&message),
             "native",
             None,
+            None,
             bytes,
         );
     }
@@ -436,21 +446,82 @@ impl Connection {
                     &completion,
                     "native",
                     None,
+                    None,
                     bytes,
                 );
             }
+            Frame::Request(request) if reads::is_read(&request.method) => {
+                self.reading.fetch_add(1, Ordering::AcqRel);
+                self.shared.acquire();
+                let conn = self.clone();
+                tokio::spawn(async move {
+                    conn.read_natively(request, line).await;
+                    conn.reading.fetch_sub(1, Ordering::AcqRel);
+                    conn.shared.release_one();
+                    conn.settled.notify_waiters();
+                });
+            }
             Frame::Request(request) => {
-                self.forward(Some(request), line).await;
+                self.forward(Some(request), line, None).await;
             }
             Frame::Silent => {}
             Frame::Malformed if at_eof => {}
             Frame::Malformed => self.refuse_frame("parse_error"),
             Frame::Unjudged if at_eof => {}
-            Frame::Unjudged => self.forward(None, line).await,
+            Frame::Unjudged => self.forward(None, line, None).await,
         }
     }
 
-    async fn forward(self: &Arc<Self>, request: Option<protocol::Request>, mut frame: Vec<u8>) {
+    /// Answer a native read, or relay it when raspd will not judge the input.
+    async fn read_natively(self: &Arc<Self>, request: protocol::Request, line: Vec<u8>) {
+        let started = Instant::now();
+        let (method, params) = (request.method.clone(), request.params.clone());
+        let answer =
+            tokio::task::spawn_blocking(move || reads::handle(&method, params.as_ref())).await;
+        let fallback = match answer {
+            Ok(Answer::Result(result)) => {
+                let reply = protocol::result_line(&request.id, &result);
+                let completion = protocol::completion(
+                    &serde_json::from_str(&reply).unwrap_or(serde_json::Value::Null),
+                );
+                let bytes = reply_body_bytes(reply.as_bytes());
+                self.shared.observations.native(&request.method);
+                self.send(reply.into_bytes());
+                self.complete(
+                    &request.method,
+                    &request.client,
+                    started.elapsed(),
+                    &completion,
+                    "native",
+                    None,
+                    None,
+                    bytes,
+                );
+                return;
+            }
+            Ok(Answer::Forward(reason)) => reason,
+            // A panic is a raspd defect; Bun still answers.
+            Err(_) => "native_panic",
+        };
+        self.shared.log.event(
+            "info",
+            "rpc",
+            "native.fallback",
+            vec![
+                ("conn".into(), J::Num(self.id as f64)),
+                ("op".into(), J::str(&request.method)),
+                ("reason".into(), J::str(fallback)),
+            ],
+        );
+        self.forward(Some(request), line, Some(fallback)).await;
+    }
+
+    async fn forward(
+        self: &Arc<Self>,
+        request: Option<protocol::Request>,
+        mut frame: Vec<u8>,
+        fallback: Option<&'static str>,
+    ) {
         let (method, client, id) = match &request {
             Some(r) => (r.method.clone(), r.client.clone(), Some(r.id.clone())),
             None => ("unparsed".to_owned(), "unknown".to_owned(), None),
@@ -459,7 +530,7 @@ impl Connection {
         let upstream = match self.upstream().await {
             Ok(u) => u,
             Err(error) => {
-                self.upstream_failed(method, client, id, started, &error);
+                self.upstream_failed(method, client, id, started, &error, fallback);
                 return;
             }
         };
@@ -473,6 +544,7 @@ impl Connection {
                 client: client.clone(),
                 id: id.clone(),
                 started,
+                fallback,
             };
             match &id {
                 Some(id) => pending
@@ -503,6 +575,7 @@ impl Connection {
                     entry.id,
                     entry.started,
                     "upstream connection closed",
+                    entry.fallback,
                 );
                 self.settled.notify_waiters();
             }
@@ -574,6 +647,7 @@ impl Connection {
                         entry.id,
                         entry.started,
                         reason,
+                        entry.fallback,
                     );
                 }
             }
@@ -635,6 +709,7 @@ impl Connection {
                 &completion,
                 "bun",
                 Some("relayed"),
+                entry.fallback,
                 bytes,
             );
             self.settled.notify_waiters();
@@ -676,6 +751,7 @@ impl Connection {
         id: Option<J>,
         started: Instant,
         detail: &str,
+        fallback: Option<&'static str>,
     ) {
         let id = id.unwrap_or(J::Null);
         let reply = protocol::upstream_refusal(&id, &method, detail);
@@ -707,12 +783,14 @@ impl Connection {
             &completion,
             "bun",
             Some("upstream_failed"),
+            fallback,
             bytes,
         );
     }
 
     /// The L3 `rpc.request` line and the metrics row, as Bun's
-    /// `onRequestComplete` writes them, plus `servedBy` (and `relay` for Bun).
+    /// `onRequestComplete` writes them, plus `servedBy` (and `relay` for Bun,
+    /// and `fallback` for a native read relayed instead).
     #[allow(clippy::too_many_arguments)]
     fn complete(
         &self,
@@ -722,6 +800,7 @@ impl Connection {
         c: &Completion,
         served_by: &str,
         relay: Option<&str>,
+        fallback: Option<&str>,
         reply_bytes: Option<usize>,
     ) {
         let ms = elapsed.as_secs_f64() * 1000.0;
@@ -742,6 +821,9 @@ impl Connection {
         ];
         if let Some(relay) = relay {
             data.push(("relay".into(), J::str(relay)));
+        }
+        if let Some(fallback) = fallback {
+            data.push(("fallback".into(), J::str(fallback)));
         }
         if let Some(message) = &c.message {
             data.push(("code".into(), J::str(&c.outcome)));
@@ -765,6 +847,9 @@ impl Connection {
             ];
             if let Some(relay) = relay {
                 key.push(("relay", relay));
+            }
+            if let Some(fallback) = fallback {
+                key.push(("fallback", fallback));
             }
             match reply_bytes {
                 Some(bytes) => {

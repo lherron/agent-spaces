@@ -110,7 +110,8 @@ fn array_index(key: &str) -> Option<u32> {
         .map(|n| n as u32)
 }
 
-/// `JSON.stringify` of a finite number.
+/// `JSON.stringify` of a number: ECMAScript `Number::toString`, from the
+/// shortest round-trip digits (which Rust's `{:e}` also produces).
 pub fn js_number(n: f64) -> String {
     if !n.is_finite() {
         return "null".into();
@@ -118,19 +119,37 @@ pub fn js_number(n: f64) -> String {
     if n == 0.0 {
         return "0".into();
     }
-    if n.fract() == 0.0 && n.abs() < 1e21 {
-        return format!("{n:.0}");
-    }
-    let abs = n.abs();
-    if (1e-6..1e21).contains(&abs) {
-        return format!("{n}");
-    }
-    // Exponent form, as JS writes it: 1e+21, 1.5e-7.
-    let s = format!("{n:e}");
-    match s.split_once('e') {
-        Some((mantissa, exp)) if !exp.starts_with('-') => format!("{mantissa}e+{exp}"),
-        _ => s,
-    }
+    let sign = if n < 0.0 { "-" } else { "" };
+    let sci = format!("{:e}", n.abs());
+    let (mantissa, exp) = sci.split_once('e').unwrap_or((&sci, "0"));
+    let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
+    let k = digits.len() as i64;
+    // The decimal point sits after `point` digits: value = 0.digits × 10^point.
+    let point = exp.parse::<i64>().unwrap_or(0) + 1;
+    let body = if k <= point && point <= 21 {
+        format!("{digits}{}", "0".repeat((point - k) as usize))
+    } else if 0 < point && point <= 21 {
+        format!(
+            "{}.{}",
+            &digits[..point as usize],
+            &digits[point as usize..]
+        )
+    } else if -6 < point && point <= 0 {
+        format!("0.{}{digits}", "0".repeat((-point) as usize))
+    } else {
+        let e = point - 1;
+        let e = if e < 0 {
+            format!("-{}", -e)
+        } else {
+            format!("+{e}")
+        };
+        if k == 1 {
+            format!("{digits}e{e}")
+        } else {
+            format!("{}.{}e{e}", &digits[..1], &digits[1..])
+        }
+    };
+    format!("{sign}{body}")
 }
 
 /// `JSON.stringify` of a string: the two-character escapes, `\u00xx` (lower
@@ -232,5 +251,23 @@ mod tests {
             v.to_json(),
             r#"{"1":null,"2":true,"b":2,"a":[1.5,0,1e+21,"x\u0001\n"]}"#
         );
+    }
+
+    #[test]
+    fn numbers_print_like_javascript() {
+        for (n, js) in [
+            (1.0, "1"),
+            (-12.5, "-12.5"),
+            (0.1, "0.1"),
+            (1e21, "1e+21"),
+            (1.5e-7, "1.5e-7"),
+            (0.000001, "0.000001"),
+            (123456789012345680000.0, "123456789012345680000"),
+            (9007199254740993.0, "9007199254740992"),
+            (2.5e-300, "2.5e-300"),
+            (1.7976931348623157e308, "1.7976931348623157e+308"),
+        ] {
+            assert_eq!(js_number(n), js, "{n}");
+        }
     }
 }
