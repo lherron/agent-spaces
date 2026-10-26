@@ -46,6 +46,11 @@
       "types": "./dist/lint/index.d.ts",
       "import": "./dist/lint/index.js"
     },
+    "./usage-metrics": {
+      "bun": "./src/usage-metrics/index.ts",
+      "types": "./dist/usage-metrics/index.d.ts",
+      "import": "./dist/usage-metrics/index.js"
+    },
     "./schemas/*": {
       "types": "./src/core/schemas/*",
       "import": "./src/core/schemas/*"

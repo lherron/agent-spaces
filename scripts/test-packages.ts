@@ -11,7 +11,7 @@
 import { join } from 'node:path'
 
 import { runBoundedStep, stepTimeoutMs } from './lib/bounded-step.ts'
-import { testGitGuardEnvironment } from './lib/test-git-guard.ts'
+import { testGitGuardEnvironment, withScratchUsageMetrics } from './lib/test-git-guard.ts'
 
 const packages = process.argv.slice(2)
 if (packages.length === 0) {
@@ -24,7 +24,7 @@ const steps = [
   { label: 'scripts', command: ['bun', 'test', 'scripts/'] },
 ]
 const timeoutMs = stepTimeoutMs()
-const env = testGitGuardEnvironment()
+const env = withScratchUsageMetrics(testGitGuardEnvironment())
 const root = join(import.meta.dir, '..')
 
 for (const step of steps) {

@@ -1,4 +1,4 @@
-import { testGitGuardEnvironment } from './lib/test-git-guard.ts'
+import { testGitGuardEnvironment, withScratchUsageMetrics } from './lib/test-git-guard.ts'
 
 const argv = process.argv.slice(2)
 const separator = argv.indexOf('--')
@@ -11,7 +11,7 @@ if (command.length === 0) {
 
 const child = Bun.spawn(command, {
   cwd: process.cwd(),
-  env: testGitGuardEnvironment(),
+  env: withScratchUsageMetrics(testGitGuardEnvironment()),
   stdin: 'inherit',
   stdout: 'inherit',
   stderr: 'inherit',
