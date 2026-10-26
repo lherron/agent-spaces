@@ -18,6 +18,10 @@ import {
   REPO_ROOT,
 } from './lib/asp-publish/package-set'
 import { extractTarball } from './lib/asp-publish/tarball'
+import { isolateUsageMetrics } from './lib/usage-metrics-isolation.ts'
+
+// Usage metrics from this script and its children stay out of the real day files (T-11824).
+isolateUsageMetrics()
 
 const PACKAGES = [
   'contracts/agent-scope',

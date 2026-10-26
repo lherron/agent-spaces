@@ -1,0 +1,3 @@
+[test]
+# Shared usage-metrics isolation preload (T-11824); see scripts/test-preload.ts.
+preload = ["../scripts/test-preload.ts"]

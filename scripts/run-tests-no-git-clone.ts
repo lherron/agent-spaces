@@ -1,4 +1,5 @@
-import { testGitGuardEnvironment, withScratchUsageMetrics } from './lib/test-git-guard.ts'
+import { testGitGuardEnvironment } from './lib/test-git-guard.ts'
+import { withScratchUsageMetrics } from './lib/usage-metrics-isolation.ts'
 
 const argv = process.argv.slice(2)
 const separator = argv.indexOf('--')

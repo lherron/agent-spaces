@@ -29,6 +29,10 @@ import {
 } from 'node:fs'
 import { connect } from 'node:net'
 import { join, resolve } from 'node:path'
+import { isolateUsageMetrics } from './lib/usage-metrics-isolation.ts'
+
+// Usage metrics from this script and its children stay out of the real day files (T-11824).
+isolateUsageMetrics()
 
 const repo = resolve(import.meta.dir, '..')
 

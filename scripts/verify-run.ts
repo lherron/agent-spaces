@@ -36,6 +36,7 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname } from 'node:path'
+import { withScratchUsageMetrics } from './lib/usage-metrics-isolation.ts'
 
 const DEFAULT_LOCK = `${homedir()}/praesidium/var/run/agent-spaces-verify.lock`
 const DEFAULT_GRACE_MS = 10_000
@@ -222,7 +223,11 @@ async function run(command: string[]): Promise<number> {
   }
   const lockFd = await acquireLock()
   const ownGroup = Number(ps('pgid', process.pid))
-  const child: ChildProcess = spawn(file, args, { stdio: 'inherit', detached: true })
+  // Every verify step writes usage metrics to one scratch root, never the node's
+  // real day files (T-11824).
+  const env = withScratchUsageMetrics(process.env)
+  console.error(`${LOG} usage metrics root: ${env['ASP_USAGE_METRICS_VAR_ROOT']}`)
+  const child: ChildProcess = spawn(file, args, { stdio: 'inherit', detached: true, env })
   if (child.pid === undefined) {
     console.error(`${LOG} failed to start ${file}`)
     return 1

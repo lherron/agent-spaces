@@ -26,6 +26,10 @@ import type {
 
 import { allocatePreHrcTmuxPane } from '../compiler/agent-spaces/src/testing/pre-hrc-tmux-allocator.js'
 import { AspcClient } from '../harness/aspc/src/client.js'
+import { isolateUsageMetrics } from './lib/usage-metrics-isolation.ts'
+
+// Usage metrics from this script and its children stay out of the real day files (T-11824).
+isolateUsageMetrics()
 
 export const MATRIX_ROW_NAMES = [
   'fake-codex',

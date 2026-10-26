@@ -1,0 +1,3 @@
+[test]
+# Usage-metrics isolation + production-write guard for every bun test (T-11824).
+preload = ["./scripts/test-preload.ts"]

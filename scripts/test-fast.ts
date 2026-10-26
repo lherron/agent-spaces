@@ -12,6 +12,7 @@ import {
   selectAffectedPackageNames,
 } from './lib/hook-optimization.ts'
 import { testGitGuardEnvironment } from './lib/test-git-guard.ts'
+import { withScratchUsageMetrics } from './lib/usage-metrics-isolation.ts'
 import { discoverWorkspacePackages } from './lib/workspace-graph.ts'
 
 const FAST_TEST_TIMEOUT_MS = 60_000
@@ -148,7 +149,7 @@ async function runSuite(suite: FastSuite, env: NodeJS.ProcessEnv): Promise<Suite
 }
 
 const { suites, mode } = await makeSuites()
-const env = testGitGuardEnvironment(cleanFastTestEnvironment(process.env))
+const env = withScratchUsageMetrics(testGitGuardEnvironment(cleanFastTestEnvironment(process.env)))
 const results: SuiteResult[] = []
 let nextIndex = 0
 const started = performance.now()

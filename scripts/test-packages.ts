@@ -11,7 +11,8 @@
 import { join } from 'node:path'
 
 import { runBoundedStep, stepTimeoutMs } from './lib/bounded-step.ts'
-import { testGitGuardEnvironment, withScratchUsageMetrics } from './lib/test-git-guard.ts'
+import { testGitGuardEnvironment } from './lib/test-git-guard.ts'
+import { withScratchUsageMetrics } from './lib/usage-metrics-isolation.ts'
 
 const packages = process.argv.slice(2)
 if (packages.length === 0) {
