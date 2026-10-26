@@ -43,6 +43,7 @@ command or lifecycle as available. Current harness behavior is described in the
 - [Agent-authored runtime resources](proposals/agent-authored-runtime-resources.md) — Desired-state resource plans; distinguishes ASP compilation from ACP lifecycle intent.
 - [Agent scaffolding](proposals/agent-scaffolding.md) — Approved, unimplemented agent-creation command design.
 - [Harness scenario helpers](proposals/harness-scenario-helpers.md) — Approved, unimplemented deterministic scenario package design.
+- [aspd Rust front door](proposals/aspd-rust-front-door.md) — Draft plan for the aspd Rust front door, campaign P-00890, for Daedalus review.
 
 ## Historical and supporting material
 
