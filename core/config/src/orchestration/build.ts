@@ -43,6 +43,7 @@ import {
   lint,
 } from '../lint/index.js'
 
+import { noteUsageCompile } from '../usage-metrics/index.js'
 import { install } from './install.js'
 import { type ResolveOptions, getRegistryPath } from './resolve.js'
 
@@ -91,6 +92,7 @@ export interface BuildResult {
  * 5. Runs lint checks
  */
 export async function build(targetName: string, options: BuildOptions): Promise<BuildResult> {
+  noteUsageCompile('in-process')
   const aspHome = options.aspHome ?? getAspHome()
   const paths = new PathResolver({ aspHome })
 
@@ -231,6 +233,7 @@ export async function build(targetName: string, options: BuildOptions): Promise<
  * Build all targets in a project.
  */
 export async function buildAll(options: BuildOptions): Promise<Map<string, BuildResult>> {
+  noteUsageCompile('in-process')
   const lockPath = join(options.projectPath, LOCK_FILENAME)
   const lock = await readLockJson(lockPath)
   const results = new Map<string, BuildResult>()

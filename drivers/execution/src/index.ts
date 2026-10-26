@@ -24,6 +24,7 @@ import {
   materializeTarget as configMaterializeTarget,
 } from 'spaces-config'
 import { DEFAULT_HARNESS } from 'spaces-config'
+import { noteUsageCompile } from 'spaces-config/usage-metrics'
 
 import { harnessRegistry } from './harness/index.js'
 
@@ -135,6 +136,7 @@ export async function materializeTarget(
   lock: LockFile,
   options: InstallOptions
 ): Promise<TargetMaterializationResult> {
+  noteUsageCompile('in-process')
   const harnessId = options.harness ?? DEFAULT_HARNESS
   const adapter = harnessRegistry.getOrThrow(harnessId)
   return configMaterializeTarget(targetName, lock, { ...options, adapter })
@@ -164,6 +166,7 @@ export type MaterializeFromRefsOptions = Omit<ConfigMaterializeFromRefsOptions, 
 export async function materializeFromRefs(
   options: MaterializeFromRefsOptions
 ): Promise<MaterializeFromRefsResult> {
+  noteUsageCompile('in-process')
   const harnessId = options.harness ?? DEFAULT_HARNESS
   const adapter = harnessRegistry.getOrThrow(harnessId)
   return configMaterializeFromRefs({ ...options, adapter })

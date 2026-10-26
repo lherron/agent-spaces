@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { noteUsageCompile } from 'spaces-config/usage-metrics'
 
 /**
  * Per-request compile phase timings (T-08787). A host such as aspd opens a
@@ -24,6 +25,8 @@ export async function timeCompilePhase<T>(
   name: string,
   operation: () => Promise<T> | T
 ): Promise<T> {
+  // A compile phase in this process is an in-process compile (usage metrics).
+  noteUsageCompile('in-process')
   const phases = phaseStore.getStore()
   if (phases === undefined) return await operation()
   const startedAt = performance.now()
@@ -36,6 +39,7 @@ export async function timeCompilePhase<T>(
 
 /** Synchronous variant for phases with no await inside. */
 export function timeCompilePhaseSync<T>(name: string, operation: () => T): T {
+  noteUsageCompile('in-process')
   const phases = phaseStore.getStore()
   if (phases === undefined) return operation()
   const startedAt = performance.now()

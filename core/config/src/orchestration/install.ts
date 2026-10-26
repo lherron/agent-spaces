@@ -55,6 +55,7 @@ import {
   lint as lintSpaces,
 } from '../lint/index.js'
 
+import { noteUsageCompile } from '../usage-metrics/index.js'
 import { type TargetMaterializationResult, materializeTarget } from './materialize-target.js'
 import {
   type ResolveOptions,
@@ -265,6 +266,7 @@ function keepUnresolvedTargets(
  * 6. Materializes composed bundles under ASP_HOME
  */
 export async function install(options: InstallOptions): Promise<InstallResult> {
+  noteUsageCompile('in-process')
   // Ensure registry is available
   const registryPath = await ensureRegistry(options)
 
