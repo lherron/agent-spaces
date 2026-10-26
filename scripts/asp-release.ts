@@ -280,16 +280,20 @@ export function buildNativeExecutable(
   sourceCommit: string
 ): void {
   const { manifest, package: crate } = NATIVE_EXECUTABLES[name]
+  const cargo = Bun.which('cargo')
+  if (cargo === null) {
+    fail(
+      `cargo is not on PATH; building ${name} needs it. Put rustup's ~/.cargo/bin, or Homebrew's keg-only /opt/homebrew/opt/rustup/bin, on PATH`
+    )
+  }
   const targetDir = join(REPO_ROOT, 'crates', 'target', 'asp-release')
   const result = Bun.spawnSync({
-    cmd: ['cargo', 'build', '--release', '--locked', '--manifest-path', manifest, '-p', crate],
+    cmd: [cargo, 'build', '--release', '--locked', '--manifest-path', manifest, '-p', crate],
     cwd: REPO_ROOT,
     env: {
       ...process.env,
+      ...privateGitFetchEnv(process.env),
       CARGO_TARGET_DIR: targetDir,
-      // The cardo dependency is a private GitHub repo: fetch with the git CLI,
-      // as hrc-runtime's node deploys do.
-      CARGO_NET_GIT_FETCH_WITH_CLI: 'true',
       RASPD_SOURCE_COMMIT: sourceCommit,
       RUSTFLAGS: `--remap-path-prefix=${REPO_ROOT}=agent-spaces`,
     },
@@ -300,6 +304,23 @@ export function buildNativeExecutable(
     fail(`failed to build ${name} with cargo: ${result.stderr.toString().trim().slice(-4000)}`)
   }
   copyFileSync(join(targetDir, 'release', crate), payload, constants.COPYFILE_EXCL)
+}
+
+/**
+ * cardo is a private GitHub repo pinned by https URL. Fetch it with the git
+ * CLI over ssh, as hrc-runtime's node deploys do (its `_deploy-node`): cargo's
+ * built-in git can't authenticate on every node, and https has no credentials
+ * there. The rewrite is appended to any GIT_CONFIG_* entries already set.
+ */
+export function privateGitFetchEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+  const count = Number.parseInt(env['GIT_CONFIG_COUNT'] ?? '0', 10)
+  const index = Number.isInteger(count) && count > 0 ? count : 0
+  return {
+    CARGO_NET_GIT_FETCH_WITH_CLI: 'true',
+    GIT_CONFIG_COUNT: String(index + 1),
+    [`GIT_CONFIG_KEY_${index}`]: 'url.git@github.com:lherron/.insteadOf',
+    [`GIT_CONFIG_VALUE_${index}`]: 'https://github.com/lherron/',
+  }
 }
 
 function assertAbsolute(path: string, label: string): string {

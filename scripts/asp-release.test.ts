@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, test } from 'bun:test'
 
-import { type AspReleaseManifest, inspectRelease } from './asp-release.js'
+import { type AspReleaseManifest, inspectRelease, privateGitFetchEnv } from './asp-release.js'
 
 const roots: string[] = []
 
@@ -305,5 +305,30 @@ describe('standalone ASP release inspection', () => {
     writeFileSync(join(release, 'assets', 'claude', 'statusline.sh'), 'drift\n')
     chmodSync(join(release, 'assets', 'claude', 'statusline.sh'), 0o555)
     expect(() => inspectRelease(release)).toThrow('claude-statusline asset digest mismatch')
+  })
+})
+
+describe('native executable builds fetch private cardo over ssh', () => {
+  test('the insteadOf rewrite is the only git config when none is set', () => {
+    expect(privateGitFetchEnv({})).toEqual({
+      CARGO_NET_GIT_FETCH_WITH_CLI: 'true',
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'url.git@github.com:lherron/.insteadOf',
+      GIT_CONFIG_VALUE_0: 'https://github.com/lherron/',
+    })
+  })
+
+  test('it is appended after git config entries the caller already set', () => {
+    expect(
+      privateGitFetchEnv({
+        GIT_CONFIG_COUNT: '2',
+        GIT_CONFIG_KEY_0: 'a.b',
+        GIT_CONFIG_VALUE_0: 'x',
+      })
+    ).toMatchObject({
+      GIT_CONFIG_COUNT: '3',
+      GIT_CONFIG_KEY_2: 'url.git@github.com:lherron/.insteadOf',
+      GIT_CONFIG_VALUE_2: 'https://github.com/lherron/',
+    })
   })
 })
