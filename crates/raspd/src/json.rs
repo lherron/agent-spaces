@@ -295,10 +295,15 @@ impl<'de> Visitor<'de> for JVisitor {
     }
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<J, A::Error> {
         let mut fields: Vec<(String, J)> = vec![];
+        // Key → position, so a repeated key is found without rescanning.
+        let mut index: std::collections::HashMap<String, usize> = Default::default();
         while let Some((k, v)) = map.next_entry::<String, J>()? {
-            match fields.iter_mut().find(|(existing, _)| *existing == k) {
-                Some(slot) => slot.1 = v,
-                None => fields.push((k, v)),
+            match index.get(&k) {
+                Some(&at) => fields[at].1 = v,
+                None => {
+                    index.insert(k.clone(), fields.len());
+                    fields.push((k, v));
+                }
             }
         }
         Ok(J::Obj(fields))
@@ -315,6 +320,39 @@ pub fn parse(bytes: &[u8]) -> Option<J> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `JSON.parse`: a repeated key keeps its first position and takes the
+    /// last value.
+    #[test]
+    fn duplicate_keys_keep_first_position_last_value() {
+        let v = parse(br#"{"a":1,"b":2,"a":3}"#).unwrap();
+        assert_eq!(v.to_json(), r#"{"a":3,"b":2}"#);
+    }
+
+    /// A wide object (ASP_HOME's ~/.claude.json `projects`) parses in linear
+    /// time: the duplicate-key check must not rescan every earlier key.
+    #[test]
+    fn wide_object_parses_in_linear_time() {
+        let mut src = String::from("{");
+        for i in 0..50_000 {
+            if i > 0 {
+                src.push(',');
+            }
+            src.push_str(&format!(r#""/p/{i}":{{"t":true}}"#));
+        }
+        src.push('}');
+        let began = std::time::Instant::now();
+        let v = parse(src.as_bytes()).unwrap();
+        assert!(
+            began.elapsed() < std::time::Duration::from_secs(1),
+            "parse took {:?}",
+            began.elapsed()
+        );
+        assert_eq!(
+            v.get("/p/49999").and_then(|e| e.get("t")),
+            Some(&J::Bool(true))
+        );
+    }
 
     #[test]
     fn writes_like_json_stringify() {
