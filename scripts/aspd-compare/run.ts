@@ -7,6 +7,8 @@
  *     [--a-declared-extra <case>:<path>]... [--b-declared-extra <case>:<path>]...
  *     [--release-artifact <built release dir>] [--cases live] [--raw] [--keep-scratch]
  *     [--live-agents a,b,..] [--live-projects p,q,..] [--live-task <id>] [--live-resume]
+ *   bun scripts/aspd-compare/run.ts --out <dir> --external-a <socket> --external-b <socket>
+ *     [--external-asp-home <dir>] [--external-a-log <log>] [--external-b-log <log>] [--live-* ...]
  *
  * Builds one real release from a clean clone of <commit> (default HEAD) into a
  * scratch namespace; both subjects are served from that one release directory.
@@ -34,6 +36,16 @@
  * Each case also records the `rpc.request` lines its subject logged while
  * serving it (raspd's carry servedBy, relay and fallback) and, for the
  * front-door subject, the requests its Bun upstream logged.
+ *
+ * --external-a/-b compare two already-running daemons (the production A/B,
+ * T-11882 Phase B): no release, no stage, no tree manifests. The live cases
+ * are built against the real agents root and project checkouts with the
+ * daemons' ASP_HOME, and each case is sent serially A, A, B: A vs A is the
+ * volatility measurement (raw differences recorded; the masked pair must
+ * match), A vs B is the comparison. Requests are timestamped, B's rpc.request
+ * line is matched by op and time window, and each case's runtimeId is counted
+ * in A's log (`request.admitted`): 2 when B served it natively, 3 when B
+ * relayed it to A.
  *
  * Writes <out>/report.json (every case, every difference) and per-subject
  * replies, trees and final stages, then removes the scratch root (unless
@@ -754,4 +766,186 @@ async function main(): Promise<number> {
   return failed.length === 0 && leaked.length === 0 ? 0 : 1
 }
 
-if (import.meta.main) process.exit(await main())
+// -- external subjects (production A/B) ---------------------------------------
+
+type Sent = { sentAt: string; answeredAt: string; ms: number; replies: Reply[] }
+
+async function send(socket: string, entry: CompareCase): Promise<Sent> {
+  const start = Date.now()
+  const replies = await drive(socket, caseFrames(entry))
+  const end = Date.now()
+  return {
+    sentAt: new Date(start).toISOString(),
+    answeredAt: new Date(end).toISOString(),
+    ms: end - start,
+    replies,
+  }
+}
+
+const logLines = (path: string): Record<string, unknown>[] =>
+  existsSync(path)
+    ? readFileSync(path, 'utf8')
+        .split('\n')
+        .filter((line) => line.startsWith('{'))
+        .flatMap((line) => {
+          try {
+            return [JSON.parse(line) as Record<string, unknown>]
+          } catch {
+            return []
+          }
+        })
+    : []
+
+async function mainExternal(): Promise<number> {
+  const out = resolve(arg('--out') ?? 'aspd-compare-external')
+  rmSync(out, { recursive: true, force: true })
+  mkdirSync(out, { recursive: true })
+  const sockets = {
+    a: resolve(arg('--external-a') as string),
+    b: resolve(arg('--external-b') as string),
+  }
+  const logsDir = join(repo, '..', 'var', 'logs', 'agent-spaces')
+  const logs = {
+    a: resolve(arg('--external-a-log') ?? join(logsDir, 'aspd.log')),
+    b: resolve(arg('--external-b-log') ?? join(logsDir, 'raspd.log')),
+  }
+  const praesidium = resolve(repo, '..')
+  const stage: LiveStage = {
+    base: praesidium,
+    agentsRoot: join(praesidium, 'var', 'agents'),
+    aspHome: resolve(arg('--external-asp-home') ?? join(praesidium, 'var', 'spaces-repo')),
+    claudeConfigDir: '',
+    projectsRoot: praesidium,
+  }
+  const list = (name: string) => arg(name)?.split(',').filter(Boolean)
+  const selection = {
+    agents: list('--live-agents'),
+    projects: list('--live-projects'),
+    task: arg('--live-task'),
+    resume: process.argv.includes('--live-resume'),
+  }
+  const cases = buildLiveCases(stage, selection)
+  const sends: Record<string, { a1: Sent; a2: Sent; b: Sent }> = {}
+  for (const entry of cases) {
+    const a1 = await send(sockets.a, entry)
+    const a2 = await send(sockets.a, entry)
+    const b = await send(sockets.b, entry)
+    sends[entry.id] = { a1, a2, b }
+    process.stdout.write(
+      `${b.answeredAt} ${entry.id} a1 ${a1.sentAt} ${a1.ms}ms a2 ${a2.sentAt} ${a2.ms}ms b ${b.sentAt} ${b.ms}ms\n`
+    )
+  }
+  writeFileSync(join(out, 'sends.json'), `${JSON.stringify(sends, null, 2)}\n`)
+  // Let both daemons flush their request lines.
+  await Bun.sleep(1_000)
+  const aLog = logLines(logs.a)
+  const bLog = logLines(logs.b)
+  const data = (line: Record<string, unknown>) => (line['data'] ?? {}) as Record<string, unknown>
+  const pairResult = (
+    entry: CompareCase,
+    left: Reply[],
+    right: Reply[]
+  ): { selfChecks: string[]; raw: Difference[]; masked: Difference[] } => {
+    const checkL = selfCheck(entry, left)
+    const checkR = selfCheck(entry, right)
+    const flat = (replies: Reply[], verified: Map<string, string>, mask: boolean) => {
+      masking = mask
+      return normalize(entry, replies, verified)
+    }
+    const raw = diffMaps(flat(left, new Map(), false), flat(right, new Map(), false))
+    const masked = diffMaps(flat(left, checkL.verified, true), flat(right, checkR.verified, true))
+    return { selfChecks: [...checkL.mismatches, ...checkR.mismatches], raw, masked }
+  }
+  const results = cases.map((entry) => {
+    const sent = sends[entry.id] as { a1: Sent; a2: Sent; b: Sent }
+    const volatility = pairResult(entry, sent.a1.replies, sent.a2.replies)
+    const ab = pairResult(entry, sent.a1.replies, sent.b.replies)
+    const method = entry.kind === 'call' ? entry.method : undefined
+    const runtimeId =
+      entry.kind === 'call'
+        ? (entry.compileRequest as { identity?: { runtimeId?: string } } | undefined)?.identity
+            ?.runtimeId
+        : undefined
+    // B's own line: an rpc.request for the op, logged within its request
+    // window; when other clients' requests overlap (births on a live node),
+    // the one whose durationMs fits this round trip.
+    const windowEnd = new Date(Date.parse(sent.b.answeredAt) + 250).toISOString()
+    const inWindow = bLog.filter(
+      (line) =>
+        line['event'] === 'rpc.request' &&
+        data(line)['op'] === method &&
+        String(line['ts']) >= sent.b.sentAt &&
+        String(line['ts']) <= windowEnd
+    )
+    const fits = (line: Record<string, unknown>) =>
+      Math.abs(Number(data(line)['durationMs']) - sent.b.ms) <= 25
+    const bLines = inWindow.length > 1 ? inWindow.filter(fits) : inWindow
+    const admitted =
+      runtimeId === undefined
+        ? undefined
+        : aLog.filter(
+            (line) =>
+              line['event'] === 'request.admitted' &&
+              data(line)['runtimeId'] === runtimeId &&
+              String(line['ts']) >= sent.a1.sentAt &&
+              String(line['ts']) <= windowEnd
+          ).length
+    const own = bLines.length === 1 ? data(bLines[0] as Record<string, unknown>) : undefined
+    const ok =
+      volatility.selfChecks.length === 0 &&
+      ab.selfChecks.length === 0 &&
+      volatility.masked.length === 0 &&
+      ab.masked.length === 0
+    return {
+      case: entry.id,
+      ok,
+      sentAt: { a1: sent.a1.sentAt, a2: sent.a2.sentAt, b: sent.b.sentAt },
+      roundTripMs: { a1: sent.a1.ms, a2: sent.a2.ms, b: sent.b.ms },
+      servedBy: {
+        b: own?.['servedBy'] ?? (bLines.length > 1 ? 'ambiguous' : null),
+        ...(own?.['relay'] !== undefined ? { relay: own['relay'] } : {}),
+        ...(own?.['fallback'] !== undefined ? { fallback: own['fallback'] } : {}),
+        outcome: own?.['outcome'] ?? null,
+        durationMs: own?.['durationMs'] ?? null,
+        bLinesInWindow: inWindow.length,
+        bLinesMatched: bLines.length,
+        // 2 = only the two A sends reached A; 3 = B relayed this case to A.
+        aAdmissionsForRuntimeId: admitted,
+      },
+      ...(volatility.selfChecks.length + ab.selfChecks.length > 0
+        ? { selfChecks: { volatility: volatility.selfChecks, ab: ab.selfChecks } }
+        : {}),
+      volatility: { rawPaths: volatility.raw.map((d) => d.path), maskedDiffs: volatility.masked },
+      ab: { rawPaths: ab.raw.map((d) => d.path), maskedDiffs: ab.masked },
+    }
+  })
+  const failed = results.filter((result) => !result.ok)
+  const measured = [...new Set(results.flatMap((result) => result.volatility.rawPaths))].sort()
+  const report = {
+    mode: 'external',
+    sockets,
+    logs,
+    aspHome: stage.aspHome,
+    liveSelection: selection,
+    // Every reply path that differed between A's two answers to one request.
+    measuredVolatilePaths: measured,
+    summary: {
+      cases: results.length,
+      ok: results.length - failed.length,
+      failed: failed.map((result) => result.case),
+    },
+    results,
+  }
+  writeFileSync(join(out, 'report.json'), `${JSON.stringify(report, null, 2)}\n`)
+  for (const result of results)
+    process.stdout.write(
+      `${result.ok ? 'PASS' : 'FAIL'} ${result.case} servedBy=${String(result.servedBy.b)}${result.servedBy.fallback !== undefined ? ` fallback=${String(result.servedBy.fallback)}` : ''}\n`
+    )
+  process.stdout.write(
+    `${results.length - failed.length}/${results.length} cases match; report ${join(out, 'report.json')}\n`
+  )
+  return failed.length === 0 ? 0 : 1
+}
+
+if (import.meta.main)
+  process.exit(await (arg('--external-a') !== undefined ? mainExternal() : main()))
