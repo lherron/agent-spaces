@@ -583,9 +583,9 @@ fn compile_refused(f: Fwd, agent_root: &str) -> Result<J, Fwd> {
         ("agent_participant_only", _) => format!(
             "Agent at {agent_root} is participant-only ([placement] launch = \"participant-only\"): its seat joins HRC as a direct participant and is never launched"
         ),
-        // closure.ts throws after the temp sweep and ensureAspHome: the
-        // inspection compile carries no projectRoot, so a project space
-        // cannot resolve.
+        // closure.ts throws after the temp sweep and ensureAspHome: an
+        // inspection whose project root is empty carries no projectRoot, so
+        // a project space cannot resolve.
         ("project_root_required", Some(space)) => {
             super::stage::sweep_temp(&declaration::process_asp_home());
             ensure_asp_home();
@@ -660,30 +660,33 @@ fn inspection_compile_request(
     if !project_root.is_empty() {
         bundle.set("projectRoot", J::str(project_root));
     }
+    let mut placement = vec![
+        ("kind".to_owned(), J::str("agent-inspection")),
+        ("root".to_owned(), J::str(project_root)),
+        ("targetDir".to_owned(), J::str(cwd)),
+        ("agentRoot".to_owned(), J::str(agent_root)),
+    ];
+    // T-11951: the compile resolves project spaces, targets and the prompt's
+    // search path from placement.projectRoot (absent when empty, as the bundle).
+    if !project_root.is_empty() {
+        placement.push(("projectRoot".to_owned(), J::str(project_root)));
+    }
+    placement.push(("bundle".to_owned(), bundle));
+    placement.push((
+        "correlation".to_owned(),
+        J::obj([
+            (
+                "sessionRef",
+                J::obj([("scopeRef", J::str(scope)), ("laneRef", J::str(lane))]),
+            ),
+            ("hostSessionId", get("hostSessionId")),
+        ]),
+    ));
     J::obj([
         ("schemaVersion", J::str("agent-runtime-compile-request/v2")),
         ("agent", J::obj([("id", J::str(agent_id))])),
         ("identity", identity.clone()),
-        (
-            "placement",
-            J::obj([
-                ("kind", J::str("agent-inspection")),
-                ("root", J::str(project_root)),
-                ("targetDir", J::str(cwd)),
-                ("agentRoot", J::str(agent_root)),
-                ("bundle", bundle),
-                (
-                    "correlation",
-                    J::obj([
-                        (
-                            "sessionRef",
-                            J::obj([("scopeRef", J::str(scope)), ("laneRef", J::str(lane))]),
-                        ),
-                        ("hostSessionId", get("hostSessionId")),
-                    ]),
-                ),
-            ]),
-        ),
+        ("placement", J::Obj(placement)),
         (
             "requested",
             J::obj([

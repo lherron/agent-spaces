@@ -22,6 +22,7 @@ import {
   compileRequest,
   createFixture,
   writeAgent,
+  writeSpace,
 } from '../path-markers-e2e.ts'
 
 export const HELLO_PARAMS = {
@@ -135,8 +136,10 @@ export function seedStage(asp: Asp, base: string): Stage {
   mkdirSync(brokenProjectRoot, { recursive: true })
   writeFileSync(join(brokenProjectRoot, 'asp-targets.toml'), 'schema = [\n')
   seedCodexAgent(fixture.agentsRoot)
-  // T-11951: an agent composing a project space, which an inspection compile
-  // (no projectRoot) cannot resolve, and a participant-only agent.
+  // T-11951: an agent composing a project space, which the inspection
+  // compile resolves from its placement.projectRoot (it carried none before
+  // the fix), the project space itself, and a participant-only agent.
+  writeSpace(fixture.projectRoot, 'pm-project')
   writeAgent(fixture.agentsRoot, PROJECT_SPACE_AGENT, [])
   writeFileSync(
     join(fixture.agentsRoot, PROJECT_SPACE_AGENT, 'agent-profile.toml'),
@@ -385,8 +388,8 @@ function inspectCases(stage: Stage): CallCase[] {
   }
   const claude = { provisionDirectives: { harness: 'claude' } }
   return [
-    // First, on the cold store: Bun sweeps temp and runs ensureAspHome, then
-    // the closure throws (inspection_failed).
+    // First, on the cold store: the project space materializes with the
+    // bundle (inspection_failed before the T-11951 fix: no projectRoot).
     inspect('inspect:claude:project-space', preview(PROJECT_SPACE_AGENT, 'claude')),
     inspect('inspect:claude:participant-only', preview(PARTICIPANT_AGENT, 'claude')),
     inspect('inspect:agent-harness:preview', preview('pathmark-dev')),

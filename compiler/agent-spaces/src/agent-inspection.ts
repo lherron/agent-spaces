@@ -634,6 +634,10 @@ function buildInspectionCompileRequest(
       root: context.paths.projectRoot,
       targetDir: context.paths.cwd,
       agentRoot: context.paths.agentRoot,
+      // The compile resolves project spaces, project targets and the prompt's
+      // agent-root search path from placement.projectRoot; without it an agent
+      // whose target composes a project space failed inspection (T-11951).
+      ...(context.paths.projectRoot ? { projectRoot: context.paths.projectRoot } : {}),
       bundle: buildRuntimeBundleRef({
         agentName: request.identifiers.agentId,
         agentRoot: context.paths.agentRoot,
