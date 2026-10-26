@@ -125,6 +125,76 @@ function exercise(f: ReturnType<typeof fixture>, args = ['bash', helper, f.work]
     appendFileSync(process.env['ASP_DOWNSTREAM_EVIDENCE'], `${JSON.stringify(evidence)}\n`)
   return evidence
 }
+// Advance origin through another checkout, as HRC worktree landings do.
+function advanceOrigin(f: ReturnType<typeof fixture>) {
+  const other = join(f.root, 'landing')
+  mkdirSync(other)
+  git(other, 'init', '-b', 'main')
+  git(other, 'remote', 'add', 'origin', f.remote)
+  git(other, 'fetch', 'origin', 'main')
+  git(other, 'merge', '--ff-only', 'origin/main')
+  git(other, 'config', 'user.name', 'Landing fixture')
+  git(other, 'config', 'user.email', 'fixture@example.invalid')
+  writeFileSync(join(other, 'landed.txt'), 'landed\n')
+  git(other, 'add', 'landed.txt')
+  git(other, 'commit', '-m', 'landed HRC work')
+  git(other, 'push', 'origin', 'main')
+  return git(other, 'rev-parse', 'HEAD')
+}
+for (const mode of ['advance', 'noop'])
+  test(`fast-forwards clean behind checkout before ${mode} pull`, () => {
+    const f = fixture(mode)
+    const landed = advanceOrigin(f)
+    const result = exercise(f)
+    expect(result.exit).toBe(0)
+    expect(result.remote).toBe(result.head)
+    expect(git(f.work, 'show', 'HEAD:landed.txt')).toBe('landed')
+    if (mode === 'advance') {
+      expect(git(f.work, 'rev-parse', 'HEAD^')).toBe(landed)
+      expect(result.events).toContain('notify')
+    } else {
+      expect(result.head).toBe(landed)
+      expect(result.events).toBe('pull\nbuild\n')
+    }
+  })
+for (const dirty of ['tracked', 'staged', 'untracked', 'diverged'])
+  test(`refuses ${dirty} behind checkout before fast-forward or pull`, () => {
+    const f = fixture()
+    const landed = advanceOrigin(f)
+    if (dirty === 'diverged') git(f.work, 'commit', '--allow-empty', '-m', 'local work')
+    else {
+      const path = dirty === 'untracked' ? 'owner.txt' : 'bun.lock'
+      writeFileSync(join(f.work, path), 'owner work\n')
+      if (dirty === 'staged') git(f.work, 'add', path)
+    }
+    const before = git(f.work, 'rev-parse', 'HEAD')
+    const status = git(f.work, 'status', '--porcelain')
+    const result = exercise(f)
+    expect(result.exit).not.toBe(0)
+    expect(result.head).toBe(before)
+    expect(result.remote).toBe(landed)
+    expect(git(f.work, 'status', '--porcelain')).toBe(status)
+    expect(result.events).toBe('')
+  })
+test('failed whole-checkout inspection refuses before fast-forward', () => {
+  const f = fixture()
+  const landed = advanceOrigin(f)
+  const realGit = Bun.which('git')
+  if (!realGit) throw new Error('git is required')
+  const wrapper = join(f.bin, 'git')
+  writeFileSync(
+    wrapper,
+    '#!/bin/bash\nif [[ "$1" == status ]]; then exit 13; fi\nexec "$SYNC_REAL_GIT" "$@"\n'
+  )
+  chmodSync(wrapper, 0o755)
+  Object.assign(f.env, { SYNC_REAL_GIT: realGit })
+  const result = exercise(f)
+  expect(result.exit).not.toBe(0)
+  expect(result.head).toBe(f.initial)
+  expect(result.remote).toBe(landed)
+  expect(result.events).toBe('')
+  expect(result.err).toContain('cannot inspect consumer checkout')
+})
 test('pushes generated lock commit to a real bare origin and notifies HRC before build', () => {
   const f = fixture()
   const result = exercise(f)
@@ -226,6 +296,7 @@ test('build failure does not conceal delivery or run HRC activation', () => {
 })
 test('installed just sync-downstream recipe delivers a scratch consumer', () => {
   const f = fixture()
+  const landed = advanceOrigin(f)
   const producer = join(f.root, 'producer')
   mkdirSync(join(producer, 'scripts'), { recursive: true })
   copyFileSync(join(repo, 'justfile'), join(producer, 'justfile'))
@@ -239,6 +310,7 @@ test('installed just sync-downstream recipe delivers a scratch consumer', () => 
   expect(result.exit).toBe(0)
   expect(result.remote).toBe(result.head)
   expect(result.events).toContain('notify')
+  expect(git(f.work, 'rev-parse', 'HEAD^')).toBe(landed)
 })
 
 test('a failed post-pull lock inspection cannot look like a clean unchanged pull', () => {

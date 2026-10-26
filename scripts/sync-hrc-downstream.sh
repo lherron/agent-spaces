@@ -9,8 +9,16 @@ command -v wrkc >/dev/null || fail 'wrkc is required to notify mable@hrc-runtime
 cd "$1"
 [[ "$(git branch --show-current)" == main ]] || fail 'consumer must be on main; ask the HRC owner to reconcile its checkout.'
 git fetch origin main
+fetched="$(git rev-parse refs/remotes/origin/main)"
+if [[ "$(git rev-parse HEAD)" != "$fetched" ]]; then
+  git merge-base --is-ancestor HEAD "$fetched" || fail 'consumer has local commits or diverges from origin/main; deliver or reconcile existing work with the HRC owner first.'
+  tree_status="$(git status --porcelain --untracked-files=all)" || fail 'cannot inspect consumer checkout before fast-forward.'
+  [[ -z "$tree_status" ]] || fail 'consumer checkout must be entirely clean before fast-forward; preserve the HRC owner’s edits.'
+  git merge --ff-only "$fetched" || fail 'consumer fast-forward failed; ask the HRC owner to reconcile its checkout.'
+  [[ "$(git rev-parse HEAD)" == "$fetched" ]] || fail 'consumer HEAD changed during fast-forward; ask the HRC owner to reconcile it.'
+  printf 'hrc-sync: fast-forwarded clean consumer to %s.\n' "$fetched"
+fi
 before="$(git rev-parse HEAD)"
-[[ "$before" == "$(git rev-parse refs/remotes/origin/main)" ]] || fail 'consumer HEAD differs from origin/main; deliver or reconcile existing work with the HRC owner first.'
 git ls-files --error-unmatch bun.lock >/dev/null || fail 'consumer has no tracked bun.lock.'
 lock_status="$(git status --porcelain -- bun.lock)" || fail 'cannot inspect bun.lock before pulling.'
 [[ -z "$lock_status" ]] || fail 'bun.lock must be clean before pulling; preserve the owner’s lock edits.'
