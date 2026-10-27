@@ -5,6 +5,8 @@
 **Implemented by:** wrkq `T-07863` (observability Phase 0)
 **Amended by:** wrkq `T-07883` — Lance operator ruling 2026-09-02: an
 unclassified type warns loudly and the cursor advances; nothing halts.
+**Amended by:** wrkq `T-11969` — Daedalus design approval 2026-10-26:
+bounded Claude `idle_prompt` API-error terminal authority (implementation pending).
 
 > Authority is declared per **event family**, never once per provider.
 
@@ -169,6 +171,7 @@ should show as `both`.
 | `conversation` (native) | `assistant.message.completed` from `Stop.last_assistant_message` when the transcript held NOTHING at `Stop` | a turn that answered but whose prose the reader never saw would otherwise redden on HRC's `final_message_count`. Fires only when the transcript is empty for the turn — never as a second opinion. Claude appends transcript rows behind a 100 ms flush timer, so a fast Stop hook can arrive before the reply row is on disk: the `Stop` first waits (bounded, 500 ms) until the reader holds the prose or has already emitted the turn's `end_turn` message, and a reply row that still lands after the fallback, before the next `user` row, is not emitted again. One terminal message per turn however fast the hook returns (T-11837) |
 | `tool` (native) | `tool.call.delta` | the `Notification` hook. The session JSONL has no in-progress tool vocabulary at all |
 | `turn-bracket` (hook) | `turn.started` for a drained submission; `turn.interrupted` from the `[Request interrupted by user]` row | session JSONL (T-07849 rev 10 items 3 and 5) |
+| `turn-bracket` (hook) | `turn.failed` with `code: provider_api_error` from `Notification(notification_type: idle_prompt)` for the active, uncompleted turn whose latest assistant/tool evidence is an API-error row | the committed `idle_prompt` hook supplies terminal authority; the same turn's transcript API-error row supplies failure classification. A later assistant, tool-use, or tool-result row clears this eligibility. The error diagnostic alone remains non-terminal (DM #9988). Completion deduplicates a later `Stop`; existing `Stop` API-error semantics remain unchanged (T-11969) |
 | `diagnostic` (hook) | the API-failure `diagnostic` | session JSONL `assistant` row with `isApiErrorMessage:true` — it never arrives via a hook (T-05092) |
 | `submission-disposition` (native) | `submission.executed` for an IDLE-path prompt | the `UserPromptSubmit` hook — an idle prompt skips the composer queue entirely, so no queue-operation evidence exists for it (T-07849 item 7). Note the SPLIT after Phase 4: the disposition stays on the hook record, but the prompt's `user.message` is minted from the echoing `user` row, so `conversation` has no hook exception |
 
