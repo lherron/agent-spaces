@@ -213,13 +213,15 @@ describe('claude native-type disposition coverage (archived T-07849 vocabulary)'
     expect(warnings).toEqual([])
   })
 
-  test('Claude 2.1.311 request-side rows are ignored-known, not warned (T-11969)', () => {
+  test('Claude 2.1.311 request and tool-list rows are ignored-known, not warned (T-11969)', () => {
     // Claude 2.1.311 records each outgoing API request: its shape, its message
     // blobs, and its params. They are inputs, not results. Usage, the serving
     // model and the provider `requestId` stay on the `assistant` row, which
-    // points back here only through `requestRef`. Redacted from a real seat.
+    // points back here only through `requestRef`. `tools-used` is a running
+    // list of tool names that repeats the `tool_use` blocks. Redacted from real
+    // seats.
     const rows = readFileSync(
-      join(import.meta.dir, '../fixtures/claude-transcript/api-request-rows-2.1.311.jsonl'),
+      join(import.meta.dir, '../fixtures/claude-transcript/rows-2.1.311.jsonl'),
       'utf8'
     )
       .trimEnd()
@@ -232,6 +234,7 @@ describe('claude native-type disposition coverage (archived T-07849 vocabulary)'
       { nativeType: 'api-request-shape', disposition: 'ignored-known' },
       { nativeType: 'api-request-blob', disposition: 'ignored-known' },
       { nativeType: 'api-request', disposition: 'ignored-known' },
+      { nativeType: 'tools-used', disposition: 'ignored-known' },
       { nativeType: 'cost-state', disposition: 'normalized' },
     ])
     expect(warnings).toEqual([])

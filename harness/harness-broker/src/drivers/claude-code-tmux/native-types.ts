@@ -48,6 +48,9 @@ export const CLAUDE_IGNORED_ROW_TYPES: ReadonlySet<string> = new Set([
   'api-request-shape',
   'api-request-blob',
   'api-request',
+  // Running list of the tool names the session has used (2.1.311). The calls
+  // themselves are minted from the `tool_use` / `tool_result` blocks.
+  'tools-used',
 ])
 
 /**
