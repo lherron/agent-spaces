@@ -41,6 +41,13 @@ export const CLAUDE_IGNORED_ROW_TYPES: ReadonlySet<string> = new Set([
   // be titled. Exactly the gap "make one real call before trusting a fixture"
   // is about.
   'ai-title',
+  // Claude 2.1.311 records each outgoing API request: its shape, its message
+  // blobs, and its params. They are inputs, not results. Usage, the serving
+  // model and the provider `requestId` stay on the `assistant` row, which links
+  // back to this record only through `requestRef` (T-11969 follow-up).
+  'api-request-shape',
+  'api-request-blob',
+  'api-request',
 ])
 
 /**

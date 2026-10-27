@@ -213,6 +213,30 @@ describe('claude native-type disposition coverage (archived T-07849 vocabulary)'
     expect(warnings).toEqual([])
   })
 
+  test('Claude 2.1.311 request-side rows are ignored-known, not warned (T-11969)', () => {
+    // Claude 2.1.311 records each outgoing API request: its shape, its message
+    // blobs, and its params. They are inputs, not results. Usage, the serving
+    // model and the provider `requestId` stay on the `assistant` row, which
+    // points back here only through `requestRef`. Redacted from a real seat.
+    const rows = readFileSync(
+      join(import.meta.dir, '../fixtures/claude-transcript/api-request-rows-2.1.311.jsonl'),
+      'utf8'
+    )
+      .trimEnd()
+      .split('\n')
+    const { dispositions, warnings } = replay([
+      ...rows,
+      JSON.stringify({ type: 'cost-state', totalCostUSD: 1.25, modelUsage: {} }),
+    ])
+    expect<unknown>(dispositions).toEqual([
+      { nativeType: 'api-request-shape', disposition: 'ignored-known' },
+      { nativeType: 'api-request-blob', disposition: 'ignored-known' },
+      { nativeType: 'api-request', disposition: 'ignored-known' },
+      { nativeType: 'cost-state', disposition: 'normalized' },
+    ])
+    expect(warnings).toEqual([])
+  })
+
   test('Stop hook cancellation is ignored-known with its four diagnostic fields', () => {
     const { dispositions, details, warnings } = replay([
       JSON.stringify({
