@@ -13,12 +13,10 @@ import { join } from 'node:path'
 
 import {
   type AgentLocalComponents,
-  type CommitSha,
   type HarnessAdapter,
   LOCK_FILENAME,
   type LockFile,
   PORTABLE_SPACES_REGISTRY,
-  type SpaceId,
   type SpaceKey,
   atomicWriteJson,
   createEmptyLockFile,
@@ -287,27 +285,44 @@ export async function install(options: InstallOptions): Promise<InstallResult> {
     throw new Error('No targets found in project manifest')
   }
 
-  // Build pinnedSpaces map for selective upgrades
-  // When upgradeSpaceIds is specified, we only re-resolve those spaces
-  // and keep all others at their currently locked versions
-  let pinnedSpaces: Map<SpaceId, CommitSha> | undefined
-  if (options.update && options.upgradeSpaceIds && options.upgradeSpaceIds.length > 0) {
-    const existingLock = await loadLockFileIfExists(options.projectPath)
-    if (existingLock) {
-      pinnedSpaces = new Map()
-      const upgradeSet = new Set(options.upgradeSpaceIds)
-
-      // For each space in the lock that is NOT being upgraded, pin it
-      for (const [_key, entry] of Object.entries(existingLock.spaces)) {
-        if (!upgradeSet.has(entry.id)) {
-          pinnedSpaces.set(entry.id as SpaceId, entry.commit as CommitSha)
-        }
+  const existingLock = await loadLockFileIfExists(options.projectPath)
+  const selective =
+    options.update && options.upgradeSpaceIds?.length ? new Set(options.upgradeSpaceIds) : null
+  const reuseLock =
+    options.useLock === false || (options.update && !selective) ? null : existingLock
+  const validationLock = reuseLock ?? (options.targets ? existingLock : null)
+  if (validationLock) {
+    for (const [name, target] of Object.entries(validationLock.targets)) {
+      if (!reuseLock && (targetNames.includes(name) || !manifest.targets[name])) continue
+      if (target.compose.length !== target.roots.length) {
+        throw new Error(`Inconsistent lock roots for target ${name}; run a full update`)
+      }
+      const visiting = new Set<string>()
+      const visited = new Set<string>()
+      const order: string[] = []
+      const visit = (key: SpaceKey): void => {
+        if (visiting.has(key))
+          throw new Error(`Inconsistent lock cycle at ${key} in target ${name}; run a full update`)
+        if (visited.has(key)) return
+        const entry = validationLock.spaces[key]
+        if (!entry)
+          throw new Error(`Inconsistent lock: missing ${key} in target ${name}; run a full update`)
+        visiting.add(key)
+        for (const dep of entry.deps.spaces) visit(dep)
+        visiting.delete(key)
+        visited.add(key)
+        order.push(key)
+      }
+      for (const key of target.roots) visit(key)
+      if (JSON.stringify(order) !== JSON.stringify(target.loadOrder)) {
+        throw new Error(`Inconsistent lock load order for target ${name}; run a full update`)
       }
     }
   }
-
-  // Build resolve options with pinnedSpaces
-  const resolveOptions = { ...options, pinnedSpaces }
+  const resolveOptions = {
+    ...options,
+    lockReuse: { lock: reuseLock, selected: selective, canonical: new Map(), reused: 0 },
+  }
 
   // Resolve all targets
   const results: ResolveResult[] = []
@@ -320,6 +335,28 @@ export async function install(options: InstallOptions): Promise<InstallResult> {
   let mergedLock = createEmptyLockFile(PORTABLE_SPACES_REGISTRY, options.compileContext)
   for (const result of results) {
     mergedLock = mergeLockFiles(mergedLock, result.lock, options.compileContext)
+  }
+
+  // A partial install cannot change a node still referenced by a preserved target.
+  if (options.targets && existingLock) {
+    for (const [name, target] of Object.entries(existingLock.targets)) {
+      if (targetNames.includes(name) || !manifest.targets[name]) continue
+      for (const key of target.loadOrder) {
+        const before = existingLock.spaces[key]
+        const after = mergedLock.spaces[key]
+        if (
+          after &&
+          (!before ||
+            before.integrity !== after.integrity ||
+            JSON.stringify(before.plugin) !== JSON.stringify(after.plugin) ||
+            JSON.stringify(before.deps.spaces) !== JSON.stringify(after.deps.spaces))
+        ) {
+          throw new Error(
+            `Partial install changes shared space ${key} used by target ${name}; include all affected targets`
+          )
+        }
+      }
+    }
   }
 
   // Populate store with snapshots

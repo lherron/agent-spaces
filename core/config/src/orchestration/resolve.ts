@@ -34,6 +34,7 @@ import {
   type ClosureResult,
   type ImmutableSourceRoot,
   type LockGeneratorOptions,
+  type LockReuseContext,
   type ResolvedSpace,
   computeClosure,
   generateLockFileForTarget,
@@ -73,6 +74,7 @@ export interface ResolveOptions {
    * keeping others at their locked versions).
    */
   pinnedSpaces?: Map<SpaceId, CommitSha> | undefined
+  lockReuse?: LockReuseContext | undefined
   /**
    * Pinned compile clock. When supplied, every timestamp stamped into resolved
    * output (lock `generatedAt`, cache/target metadata) derives from it instead
@@ -285,15 +287,24 @@ export async function resolveTarget(
   const refs = target.compose as SpaceRefString[]
 
   // Build closure options
+  const lockReuse =
+    options.lockReuse ??
+    (existingLock && !options.pinnedSpaces
+      ? { lock: existingLock, selected: null, canonical: new Map(), reused: 0 }
+      : undefined)
+  const oldTarget = lockReuse?.lock?.targets[targetName]
   const closureOptions: ClosureOptions = {
     cwd: registryPath,
     immutableCwd: immutableRegistryPath,
     pinnedSpaces: options.pinnedSpaces,
+    lockReuse,
+    oldRoots: oldTarget ? { refs: oldTarget.compose, keys: oldTarget.roots } : undefined,
     projectRoot: options.projectPath,
     agentRoot: options.agentPath,
   }
 
   // Compute closure from all refs (including @dev and project spaces)
+  const reusedBefore = lockReuse?.reused ?? 0
   const closure = await computeClosure(refs, closureOptions)
 
   // Generate lock file
@@ -312,7 +323,7 @@ export async function resolveTarget(
     target,
     closure,
     lock,
-    fromLock: existingLock !== null,
+    fromLock: lockReuse ? lockReuse.reused > reusedBefore : false,
   }
 }
 

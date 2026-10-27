@@ -9,6 +9,8 @@
 import { DisallowedDependencyEdgeError } from '../core/errors.js'
 import type {
   CommitSha,
+  LockFile,
+  LockSpaceEntry,
   SpaceId,
   SpaceKey,
   SpaceManifest,
@@ -58,6 +60,7 @@ export interface ResolvedSpace {
   projectSpace?: boolean | undefined
   /** True if this is an agent-local space */
   agentSpace?: boolean | undefined
+  lockedEntry?: LockSpaceEntry | undefined
 }
 
 /**
@@ -78,6 +81,8 @@ export interface ClosureResult {
 export interface ClosureOptions extends SelectorResolveOptions, ManifestReadOptions {
   /** Node-local mirror used only for immutable registry entries. */
   immutableCwd?: ImmutableSourceRoot | undefined
+  lockReuse?: LockReuseContext | undefined
+  oldRoots?: { refs: SpaceRefString[]; keys: SpaceKey[] } | undefined
   /**
    * Pinned spaces to use instead of resolving.
    * Map from SpaceId to CommitSha. When a space is in this map,
@@ -96,6 +101,88 @@ export interface ClosureOptions extends SelectorResolveOptions, ManifestReadOpti
    * Required for resolving agent-local spaces (space:agent:<id>).
    */
   agentRoot?: string | undefined
+}
+
+/** Shared graph state for one install across all targets. */
+export interface LockReuseContext {
+  lock: LockFile | null
+  selected: Set<string> | null
+  canonical: Map<SpaceKey, ResolvedSpace>
+  reused: number
+}
+
+function identity(ref: SpaceRef): string {
+  return JSON.stringify([
+    ref.id,
+    ref.path ?? null,
+    !!ref.agentSpace,
+    !!ref.projectSpace,
+    ref.selector,
+  ])
+}
+
+function findOldKey(ref: SpaceRef, refs: SpaceRefString[], keys: SpaceKey[]): SpaceKey | undefined {
+  if (refs.length !== keys.length)
+    throw new Error('Inconsistent lock: reference and key counts differ; run a full update')
+  const matches = refs.flatMap((old, i) =>
+    identity(parseSpaceRef(old)) === identity(ref) && keys[i] !== undefined ? [keys[i]] : []
+  )
+  if (new Set(matches).size > 1) throw new Error(`Ambiguous lock for ${ref.id}; run a full update`)
+  return matches[0]
+}
+
+function validateOldReference(
+  ref: SpaceRef,
+  oldKey: SpaceKey | undefined,
+  context: LockReuseContext | undefined
+): LockSpaceEntry | undefined {
+  const entry = oldKey && context?.lock?.spaces[oldKey]
+  if (oldKey && !entry) throw new Error(`Inconsistent lock: missing ${oldKey}; run a full update`)
+  if (entry && (entry.id !== ref.id || entry.path !== (ref.path ?? `spaces/${ref.id}`))) {
+    throw new Error(`Inconsistent lock reference ${oldKey}; run a full update`)
+  }
+  if (entry) {
+    const marker = ref.agentSpace
+      ? AGENT_COMMIT_MARKER
+      : ref.projectSpace
+        ? PROJECT_COMMIT_MARKER
+        : ref.selector.kind === 'dev'
+          ? DEV_COMMIT_MARKER
+          : undefined
+    const wrongSource =
+      !!entry.agentSpace !== !!ref.agentSpace || !!entry.projectSpace !== !!ref.projectSpace
+    const wrongCommit = marker ? entry.commit !== marker : !/^[0-9a-f]{7,64}$/.test(entry.commit)
+    const wrongIntegrity = (entry.integrity === 'sha256:dev') !== (marker === DEV_COMMIT_MARKER)
+    if (wrongSource || wrongCommit || wrongIntegrity)
+      throw new Error(`Inconsistent lock source for ${oldKey}; run a full update`)
+  }
+  return entry
+}
+
+function validateCanonicalSource(ref: SpaceRef, node: ResolvedSpace): void {
+  if (
+    node.path !== (ref.path ?? `spaces/${ref.id}`) ||
+    !!node.agentSpace !== !!ref.agentSpace ||
+    !!node.projectSpace !== !!ref.projectSpace
+  ) {
+    throw new Error(`Conflicting sources for ${node.key}; run a full update`)
+  }
+}
+
+function attachCanonical(
+  node: ResolvedSpace,
+  context: LockReuseContext,
+  spaces: Map<SpaceKey, ResolvedSpace>,
+  loadOrder: SpaceKey[]
+): void {
+  if (spaces.has(node.key)) return
+  for (const dep of node.deps) {
+    const child = context.canonical.get(dep)
+    if (!child) throw new Error(`Inconsistent canonical graph: ${dep}`)
+    attachCanonical(child, context, spaces, loadOrder)
+  }
+  spaces.set(node.key, node)
+  loadOrder.push(node.key)
 }
 
 /**
@@ -120,7 +207,8 @@ export async function computeClosure(
 
   async function visit(
     ref: SpaceRef,
-    parentSpaceType?: 'agent' | 'project' | 'registry'
+    parentSpaceType?: 'agent' | 'project' | 'registry',
+    oldKey?: SpaceKey
   ): Promise<SpaceKey> {
     // Handle @dev selector specially - uses filesystem instead of git
     const isDev = ref.selector.kind === 'dev'
@@ -170,6 +258,12 @@ export async function computeClosure(
     }
 
     // Check if this space is pinned (for selective upgrades)
+    const reuse = options.lockReuse
+    const oldEntry = validateOldReference(ref, oldKey, reuse)
+    const reuseEntry =
+      oldEntry && !reuse?.selected?.has(ref.id) && !isDev && !isProjectSpace && !isAgentSpace
+        ? oldEntry
+        : undefined
     const pinnedCommit = options.pinnedSpaces?.get(ref.id)
 
     // Resolve the ref to a commit (or use pinned commit, or use dev/project/agent marker)
@@ -207,6 +301,16 @@ export async function computeClosure(
       }
       // Build key as "id@dev" instead of "id@<commit-prefix>"
       key = asSpaceKey(ref.id, DEV_COMMIT_MARKER)
+    } else if (reuseEntry && pinnedCommit === undefined) {
+      if (reuse) reuse.reused++
+      resolved = {
+        commit: reuseEntry.commit,
+        selector: ref.selector,
+        tag: reuseEntry.resolvedFrom?.tag,
+        semver: reuseEntry.resolvedFrom?.semver,
+      }
+      key = buildSpaceKey(ref.id, resolved.commit)
+      if (key !== oldKey) throw new Error(`Inconsistent lock key ${oldKey}; run a full update`)
     } else if (pinnedCommit !== undefined) {
       // Use the pinned commit with a git-pin selector
       resolved = {
@@ -220,6 +324,16 @@ export async function computeClosure(
         cwd: await resolveImmutableSourceRoot(options.immutableCwd, options.cwd),
       })
       key = buildSpaceKey(ref.id, resolved.commit)
+    }
+
+    const canonical = reuse?.canonical.get(key)
+    if (canonical) {
+      validateCanonicalSource(ref, canonical)
+      if (reuse) {
+        reuse.reused += Number(!!canonical.lockedEntry)
+        attachCanonical(canonical, reuse, spaces, loadOrder)
+      }
+      return key
     }
 
     // Check visit state
@@ -261,6 +375,7 @@ export async function computeClosure(
       // Registry space: read from git
       manifest = await readSpaceManifest(ref.id, resolved.commit, {
         ...options,
+        gitOnly: !!reuse?.lock?.spaces[key],
         cwd: await resolveImmutableSourceRoot(options.immutableCwd, options.cwd),
       })
     }
@@ -268,12 +383,32 @@ export async function computeClosure(
     // Get dependencies
     const depRefs = getSpaceDependencies(manifest)
     const depKeys: SpaceKey[] = []
+    const baseline =
+      !isDev && !isAgentSpace && !isProjectSpace
+        ? (reuse?.lock?.spaces[key] ?? oldEntry)
+        : undefined
+    if (baseline && reuse) reuse.reused++
+    const baselineRefs =
+      baseline && baseline.commit !== resolved.commit
+        ? getSpaceDependencies(
+            await readSpaceManifest(ref.id, baseline.commit, {
+              ...options,
+              gitOnly: true,
+              cwd: await resolveImmutableSourceRoot(options.immutableCwd, options.cwd),
+            })
+          )
+        : depRefs
+    if (baseline && baseline.deps.spaces.length !== baselineRefs.length)
+      throw new Error(`Inconsistent lock dependencies for ${key}; run a full update`)
 
     // Visit dependencies in declared order
     for (const depRefString of depRefs) {
       try {
         const depRef = parseSpaceRef(depRefString)
-        const depKey = await visit(depRef, thisSpaceType)
+        const associated = baseline
+          ? findOldKey(depRef, baselineRefs, baseline.deps.spaces)
+          : undefined
+        const depKey = await visit(depRef, thisSpaceType, associated)
         depKeys.push(depKey)
       } catch (err) {
         if (err instanceof CyclicDependencyError) {
@@ -308,8 +443,10 @@ export async function computeClosure(
       deps: depKeys,
       projectSpace: isProjectSpace || undefined,
       agentSpace: isAgentSpace || undefined,
+      lockedEntry: reuse?.lock?.spaces[key],
     }
 
+    reuse?.canonical.set(key, resolvedSpace)
     spaces.set(key, resolvedSpace)
     loadOrder.push(key)
 
@@ -323,7 +460,10 @@ export async function computeClosure(
   // Process all root refs in declared order
   for (const rootRefString of rootRefs) {
     const rootRef = parseSpaceRef(rootRefString)
-    const rootKey = await visit(rootRef)
+    const oldRoot = options.oldRoots
+      ? findOldKey(rootRef, options.oldRoots.refs, options.oldRoots.keys)
+      : undefined
+    const rootKey = await visit(rootRef, undefined, oldRoot)
     roots.push(rootKey)
   }
 

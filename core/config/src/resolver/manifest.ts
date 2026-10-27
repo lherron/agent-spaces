@@ -21,6 +21,7 @@ import { readRegistryFileFromFilesystemOrNull } from './filesystem-registry.js'
 export interface ManifestReadOptions {
   /** Working directory (registry repo root) */
   cwd: string
+  gitOnly?: boolean | undefined
 }
 
 /** Each schema error prefixed with the field it rejected, e.g. `/harness/supports/1: "pi" is not one of ...`. */
@@ -39,12 +40,15 @@ export async function readSpaceManifest(
 ): Promise<SpaceManifest> {
   const path = `spaces/${spaceId}/space.toml`
 
-  const filesystemContent = await readRegistryFileFromFilesystemOrNull(options.cwd, path)
+  const filesystemContent = options.gitOnly
+    ? null
+    : await readRegistryFileFromFilesystemOrNull(options.cwd, path)
   // showFileOrNull takes (commitish, path, options)
   const resolvedContent =
     filesystemContent ?? (await showFileOrNull(commit, path, { cwd: options.cwd }))
   if (resolvedContent === null) {
-    throw new ConfigParseError(`Space manifest not found at ${commit}:${path}`, path)
+    const recovery = options.gitOnly ? '; pinned object unavailable; run a full update' : ''
+    throw new ConfigParseError(`Space manifest not found at ${commit}:${path}${recovery}`, path)
   }
 
   try {

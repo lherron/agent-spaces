@@ -159,7 +159,11 @@ function buildSpaceEntry(space: ResolvedSpace, integrity: Sha256Integrity): Lock
     deps: {
       spaces: space.deps,
     },
-    resolvedFrom,
+    ...(!space.lockedEntry
+      ? { resolvedFrom }
+      : space.lockedEntry.resolvedFrom
+        ? { resolvedFrom: space.lockedEntry.resolvedFrom }
+        : {}),
   }
 
   // Mark project spaces explicitly

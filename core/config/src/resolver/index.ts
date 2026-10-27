@@ -87,6 +87,7 @@ export {
   type ResolvedSpace,
   type ClosureResult,
   type ClosureOptions,
+  type LockReuseContext,
 } from './closure.js'
 
 // Integrity hashing
