@@ -32,6 +32,11 @@ export type ClaudeCodeHookEventNormalizerOptions = {
   invocationId: string
   now: () => Date
   hasApiErrorForTurn?: ((turnId: string) => boolean) | undefined
+  /**
+   * The turn's latest assistant/tool evidence is still an API-error row. Makes
+   * `Notification(idle_prompt)` terminal for that turn (T-11969).
+   */
+  isApiErrorLatestForTurn?: ((turnId: string) => boolean) | undefined
   clearApiErrorForTurn?: ((turnId: string) => void) | undefined
   /**
    * Shared per-invocation turn-id allocator (cody's blessed scheme, C-02755).
@@ -151,6 +156,23 @@ export function createClaudeCodeHookEventNormalizer(
     })
   }
 
+  const emitApiErrorFailure = (
+    rawType: string,
+    turnId: TurnId,
+    data: Record<string, unknown> = {}
+  ): InvocationEventEnvelope =>
+    emit(rawType, {
+      type: 'turn.failed',
+      payload: {
+        turnId,
+        status: 'failed',
+        message: 'Claude Code provider API error',
+        code: 'provider_api_error',
+        data: { diagnosticCode: 'api_error', ...data },
+      },
+      turnId,
+    })
+
   return {
     activateTurn(turnId: string): void {
       if (!completedTurns.has(turnId)) activeTurnId = turnId
@@ -260,7 +282,7 @@ export function createClaudeCodeHookEventNormalizer(
           ]
         }
 
-        return [
+        const events = [
           emit(rawType, {
             type: 'driver.notice',
             payload: {
@@ -270,6 +292,24 @@ export function createClaudeCodeHookEventNormalizer(
             ...(turnId !== undefined ? { turnId } : {}),
           }),
         ]
+        // After a non-retried API error Claude Code sends no `Stop`; it
+        // returns to the prompt and later reports `idle_prompt`. That hook is
+        // terminal only while the error row is still the active turn's latest
+        // evidence (T-11969; harness-broker-evidence-authority.md).
+        if (
+          getString(unwrapped, 'notification_type') === 'idle_prompt' &&
+          turnIdText !== undefined &&
+          turnId !== undefined &&
+          turnIdText === activeTurnId &&
+          !completedTurns.has(turnIdText) &&
+          options.isApiErrorLatestForTurn?.(turnIdText) === true
+        ) {
+          completedTurns.add(turnIdText)
+          activeTurnId = undefined
+          events.push(emitApiErrorFailure(rawType, turnId, { closedBy: 'idle_prompt' }))
+          options.clearApiErrorForTurn?.(turnIdText)
+        }
+        return events
       }
 
       if (rawType === 'SubagentStop') {
@@ -377,19 +417,7 @@ export function createClaudeCodeHookEventNormalizer(
         const userInitiatedSessionEnd =
           endReason !== undefined && USER_INITIATED_END_REASONS.has(endReason)
         if (hasApiError) {
-          events.push(
-            emit(rawType, {
-              type: 'turn.failed',
-              payload: {
-                turnId,
-                status: 'failed',
-                message: 'Claude Code provider API error',
-                code: 'provider_api_error',
-                data: { diagnosticCode: 'api_error' },
-              },
-              turnId,
-            })
-          )
+          events.push(emitApiErrorFailure(rawType, turnId))
         } else if (rawType === 'SessionEnd' && !userInitiatedSessionEnd) {
           events.push(
             emit(rawType, {

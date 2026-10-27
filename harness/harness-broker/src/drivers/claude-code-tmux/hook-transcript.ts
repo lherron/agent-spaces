@@ -36,10 +36,15 @@ import {
  * Like the steered prompt, this NEVER arrives via a hook, so this transcript
  * reader is its only path to the broker. Each such row emits exactly one
  * non-terminal `diagnostic` (`level:'error'`, `source:'harness'`,
- * `data.code:'api_error'`) — it MUST NOT by itself mint a terminal/lifecycle
- * event (daedalus ruling, DM #9988). Because the byte-offset tailer never
- * re-reads a consumed row, no dedup is needed across hook reads and the stop()
- * drain.
+ * `data.code:'api_error'`) — the diagnostic is never terminal by itself
+ * (daedalus ruling, DM #9988). The reader also tells the driver whether that
+ * error is still the turn's LATEST assistant/tool evidence: a later
+ * `assistant` row (prose or `tool_use`) or `tool_result` block for the same
+ * turn reports {@link ClaudeHookTranscriptReaderOptions.onTurnEvidence}, so a
+ * recovered turn loses its eligibility. Only Claude's own
+ * `Notification(idle_prompt)` hook may then close a turn whose latest evidence
+ * is still the error (T-11969). Because the byte-offset tailer never re-reads a
+ * consumed row, no dedup is needed across hook reads and the stop() drain.
  *
  * This reader mirrors the codex-cli-tmux transcript reader's synchronous
  * byte-offset JSONL tailer, but is far simpler — no held-latest / delta
@@ -114,6 +119,11 @@ export type ClaudeHookTranscriptReaderOptions = {
       | undefined
   ) => void
   onApiError?: ((turnId: string) => void) | undefined
+  /**
+   * A non-error `assistant` row or a `tool_result` block was normalized for
+   * this turn: an earlier API error is no longer its latest evidence.
+   */
+  onTurnEvidence?: ((turnId: string) => void) | undefined
   /**
    * Observes one queue-operation / attachment / user row. Returns TRUE when the
    * row produced a broker fact (an attribution action), FALSE when it only
@@ -671,6 +681,7 @@ export function createClaudeHookTranscriptReader(
       // the prose is held and flushed when the message ends.
       const abortedMidStream = entry['isAbortedMidStream'] === true
       const minted = processAssistantRow(entry, turnIdText)
+      if (turnIdText !== undefined) options.onTurnEvidence?.(turnIdText)
       if (abortedMidStream) {
         // The model was cut off. No `Stop` fires, so the closing `system` rows
         // that would flush this message are never written (0 of 2 interrupted
@@ -696,6 +707,7 @@ export function createClaudeHookTranscriptReader(
       // (T-07873 scope A); the `PostToolUse` hook keeps firing as the
       // synchronous control and its fact is a duplicate.
       const mintedToolResults = entryType === 'user' ? processToolResults(entry, turnIdText) : false
+      if (mintedToolResults && turnIdText !== undefined) options.onTurnEvidence?.(turnIdText)
       const observation = options.onTranscriptEntry?.(entry, {
         precededByStopHookCancelled,
       })

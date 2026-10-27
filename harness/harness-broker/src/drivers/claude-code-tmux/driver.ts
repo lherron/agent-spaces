@@ -221,6 +221,8 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
   let turnCounter = 0
   const provenance = createClaudeRecordProvenance()
   const apiErrorTurns = new Set<string>()
+  /** Turns whose latest assistant/tool evidence is an API-error row (T-11969). */
+  const apiErrorLatestTurns = new Set<string>()
   const startedAssistantMessages = new Set<string>()
   const structuredOutput = createClaudeStructuredOutputGate({
     getContext: () => ctx,
@@ -359,7 +361,14 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         now,
         allocateTurnId,
         hasApiErrorForTurn: (turnId) => apiErrorTurns.has(turnId),
-        clearApiErrorForTurn: (turnId) => apiErrorTurns.delete(turnId),
+        // `apiErrorTurns` is also consulted: a structured-output failure clears
+        // it when it closes the turn itself.
+        isApiErrorLatestForTurn: (turnId) =>
+          apiErrorTurns.has(turnId) && apiErrorLatestTurns.has(turnId),
+        clearApiErrorForTurn: (turnId) => {
+          apiErrorTurns.delete(turnId)
+          apiErrorLatestTurns.delete(turnId)
+        },
         onFallbackTerminalMessage: (text) => transcriptReader?.coverTerminalMessage(text),
       })
       const turnAttribution = createClaudeTurnAttribution({
@@ -393,7 +402,11 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         onTranscriptPath: (selectedPath) => transcriptWakeup.select(selectedPath),
         onTranscriptAvailable: (availablePath) => transcriptWakeup.available(availablePath),
         emit,
-        onApiError: (turnId) => apiErrorTurns.add(turnId),
+        onApiError: (turnId) => {
+          apiErrorTurns.add(turnId)
+          apiErrorLatestTurns.add(turnId)
+        },
+        onTurnEvidence: (turnId) => apiErrorLatestTurns.delete(turnId),
         onAssistantMessageStarted: (messageId) => {
           const turnId = turnAttribution.activeTurnId
           if (turnId === undefined || startedAssistantMessages.has(messageId)) return
@@ -594,6 +607,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       paneController = undefined
       structuredOutput.clear()
       apiErrorTurns.clear()
+      apiErrorLatestTurns.clear()
       startedAssistantMessages.clear()
     },
   }

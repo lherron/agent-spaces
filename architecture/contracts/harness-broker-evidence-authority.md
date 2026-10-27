@@ -6,7 +6,7 @@
 **Amended by:** wrkq `T-07883` — Lance operator ruling 2026-09-02: an
 unclassified type warns loudly and the cursor advances; nothing halts.
 **Amended by:** wrkq `T-11969` — Daedalus design approval 2026-10-26:
-bounded Claude `idle_prompt` API-error terminal authority (implementation pending).
+bounded Claude `idle_prompt` API-error terminal authority (implemented in the claude-code-tmux driver).
 
 > Authority is declared per **event family**, never once per provider.
 
