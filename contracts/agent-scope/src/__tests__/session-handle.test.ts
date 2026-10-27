@@ -80,6 +80,10 @@ describe('parseSessionHandle rejects invalid handles (T-00893)', () => {
       expect(() => parseSessionHandle(c.handle)).toThrow()
     })
   }
+
+  test.each(['alice~', 'alice~bad lane'])('rejects malformed lane in %s', (handle) => {
+    expect(() => parseSessionHandle(handle)).toThrow(/Invalid LaneRef.*laneId/)
+  })
 })
 
 // ===================================================================

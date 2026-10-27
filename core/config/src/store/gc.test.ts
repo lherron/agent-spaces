@@ -11,12 +11,18 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'bun:test'
 import {
+  HARNESS_IDS,
   type LockFile,
   type Sha256Integrity,
   type SpaceKey,
   asCommitSha,
   asSpaceId,
 } from '../core/index.js'
+import {
+  PLUGIN_MATERIALIZER_VERSION,
+  computeHarnessPluginCacheKey,
+  computePluginCacheKey,
+} from './cache.js'
 import { computeReachableCacheKeys, computeReachableIntegrities, runGC } from './gc.js'
 import { PathResolver } from './paths.js'
 
@@ -112,16 +118,44 @@ describe('computeReachableCacheKeys', () => {
     })
 
     const reachable = computeReachableCacheKeys([lock])
-    expect(reachable.size).toBe(2)
+    for (const [integrity, name, version] of [
+      ['sha256:111', 'a', '1.0.0'],
+      ['sha256:222', 'b', '2.0.0'],
+    ] as const) {
+      expect(
+        reachable.has(computePluginCacheKey(integrity as Sha256Integrity, name, version))
+      ).toBe(true)
+      for (const harness of HARNESS_IDS) {
+        expect(
+          reachable.has(
+            computeHarnessPluginCacheKey(
+              harness,
+              PLUGIN_MATERIALIZER_VERSION,
+              integrity as Sha256Integrity,
+              name,
+              version
+            )
+          )
+        ).toBe(true)
+      }
+    }
   })
 
   it('should use 0.0.0 for missing version', () => {
     const lock = createMockLock({
       'space-a@1111111': { integrity: 'sha256:111', pluginName: 'a', version: '' },
     })
-    // This tests that the function handles undefined/empty version
+    // An explicitly empty version remains part of the cache identity.
     const reachable = computeReachableCacheKeys([lock])
-    expect(reachable.size).toBe(1)
+    const integrity = 'sha256:111' as Sha256Integrity
+    expect(reachable.has(computePluginCacheKey(integrity, 'a', ''))).toBe(true)
+    for (const harness of HARNESS_IDS) {
+      expect(
+        reachable.has(
+          computeHarnessPluginCacheKey(harness, PLUGIN_MATERIALIZER_VERSION, integrity, 'a', '')
+        )
+      ).toBe(true)
+    }
   })
 })
 
@@ -241,4 +275,35 @@ describe('runGC target bundle versions (T-04053)', () => {
     ).toBe('current prompt must remain\n')
     expect(result.bytesFreed).toBeGreaterThan(0)
   })
+})
+
+it('GC preserves live harness plugin caches and removes an unreachable cache', async () => {
+  const aspHome = await createTempDir('asp-gc-plugin-cache-')
+  const paths = new PathResolver({ aspHome })
+  await paths.ensureAll()
+  const integrity = 'sha256:111' as Sha256Integrity
+  const lock = createMockLock({
+    'space-a@1111111': { integrity, pluginName: 'a', version: '1.0.0' },
+  })
+  const live = computeHarnessPluginCacheKey(
+    'codex',
+    PLUGIN_MATERIALIZER_VERSION,
+    integrity,
+    'a',
+    '1.0.0'
+  )
+  const stale = computeHarnessPluginCacheKey(
+    'codex',
+    PLUGIN_MATERIALIZER_VERSION,
+    integrity,
+    'old',
+    '1.0.0'
+  )
+  await mkdir(paths.pluginCache(live), { recursive: true })
+  await mkdir(paths.pluginCache(stale), { recursive: true })
+
+  const result = await runGC([lock], { paths, cwd: aspHome })
+  expect(result.cacheEntriesDeleted).toBe(1)
+  expect(await pathExists(paths.pluginCache(live))).toBe(true)
+  expect(await pathExists(paths.pluginCache(stale))).toBe(false)
 })

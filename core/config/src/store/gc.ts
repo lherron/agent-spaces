@@ -1,10 +1,12 @@
 import type { Dirent, Stats } from 'node:fs'
 import { lstat, readFile, readdir, rm } from 'node:fs/promises'
 import { basename, dirname, join, relative, sep } from 'node:path'
-import type { LockFile, Sha256Integrity } from '../core/index.js'
+import { HARNESS_IDS, type LockFile, type Sha256Integrity } from '../core/index.js'
 import { pathMarker } from '../path-markers/index.js'
 import {
   type CacheOptions,
+  PLUGIN_MATERIALIZER_VERSION,
+  computeHarnessPluginCacheKey,
   computePluginCacheKey,
   deleteCache,
   getCacheSize,
@@ -98,19 +100,29 @@ export function computeReachableIntegrities(lockFiles: LockFile[]): Set<Sha256In
 }
 
 /**
- * Compute the set of reachable cache keys from lock files.
+ * Compute the set of reachable cache keys from lock files: the legacy v1 key
+ * and, for every harness, the v2 key the plugin materializer writes
+ * (orchestration/plugin-artifacts.ts), so GC never prunes a live artifact.
  */
 export function computeReachableCacheKeys(lockFiles: LockFile[]): Set<string> {
   const reachable = new Set<string>()
 
   for (const lock of lockFiles) {
     for (const entry of Object.values(lock.spaces)) {
-      const cacheKey = computePluginCacheKey(
-        entry.integrity,
-        entry.plugin.name,
-        entry.plugin.version ?? '0.0.0'
-      )
-      reachable.add(cacheKey)
+      const pluginName = entry.plugin?.name ?? entry.id
+      const pluginVersion = entry.plugin?.version ?? '0.0.0'
+      reachable.add(computePluginCacheKey(entry.integrity, pluginName, pluginVersion))
+      for (const harnessId of HARNESS_IDS) {
+        reachable.add(
+          computeHarnessPluginCacheKey(
+            harnessId,
+            PLUGIN_MATERIALIZER_VERSION,
+            entry.integrity,
+            pluginName,
+            pluginVersion
+          )
+        )
+      }
     }
   }
 

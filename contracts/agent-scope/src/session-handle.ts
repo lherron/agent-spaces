@@ -1,4 +1,4 @@
-import { laneIdFromRef, laneRefFromId } from './lane-ref.js'
+import { laneIdFromRef, laneRefFromId, normalizeLaneRef } from './lane-ref.js'
 import { formatScopeHandle, parseScopeHandle } from './scope-handle.js'
 import { parseScopeRef } from './scope-ref.js'
 import type { SessionRef } from './types.js'
@@ -33,7 +33,7 @@ export function parseSessionHandle(handle: string): SessionRef {
 
   return {
     scopeRef: parsed.scopeRef,
-    laneRef: laneId === undefined ? 'main' : laneRefFromId(laneId),
+    laneRef: laneId === undefined ? 'main' : normalizeLaneRef(laneRefFromId(laneId)),
   }
 }
 

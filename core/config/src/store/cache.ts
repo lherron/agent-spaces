@@ -31,6 +31,13 @@ export function computePluginCacheKey(
 }
 
 /**
+ * Materializer version folded into every harness plugin cache key. Bumping it
+ * invalidates every cached plugin artifact; GC reads it to know which keys a
+ * lock still reaches.
+ */
+export const PLUGIN_MATERIALIZER_VERSION = 'plugin-materializer-v4-codex-space-hooks'
+
+/**
  * Compute a harness-aware plugin cache key (Phase 2).
  *
  * Formula:

@@ -69,6 +69,7 @@ export {
 export {
   computePluginCacheKey,
   computeHarnessPluginCacheKey,
+  PLUGIN_MATERIALIZER_VERSION,
   cacheExists,
   getCacheMetadata,
   writeCacheMetadata,
