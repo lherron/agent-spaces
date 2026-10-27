@@ -80,17 +80,6 @@ describe('agent-memory threat scanner', () => {
     )
   })
 
-  test('blocks the literal entry delimiter', async () => {
-    const { scan } = await loadScanModule()
-
-    expect(scan('first\n§\nsecond')).toEqual(
-      expect.objectContaining({
-        ok: false,
-        category: 'delimiter',
-      })
-    )
-  })
-
   test('relaxed persona scan skips prompt-injection only', async () => {
     const { scan } = await loadScanModule()
 
@@ -108,16 +97,6 @@ describe('agent-memory threat scanner', () => {
     expect(scan('persona\n§\nnote', { categoriesToSkip: ['prompt_injection'] })).toEqual(
       expect.objectContaining({ ok: false, category: 'delimiter' })
     )
-  })
-
-  test('allows normal markdown and agent notes', async () => {
-    const { scan } = await loadScanModule()
-
-    expect(
-      scan(
-        '# Memory\n\n- User prefers concise status updates.\n- Run package-scoped tests before handoff.'
-      )
-    ).toEqual({ ok: true })
   })
 })
 

@@ -84,35 +84,34 @@ describe('canonical ProcessInvocationSpec preparation contract (T-08577)', () =>
     expect(Object.hasOwn(result.spec, 'worker')).toBe(false)
   })
 
-  test('B2: every prepared invocation carries authoritative null prompt keys', () => {
-    const result = toProcessInvocationSpec(prepared({}), request())
-
-    expect(result.spec.prompts).toEqual({
-      system: null,
-      priming: null,
-    })
-  })
-
-  test('B2: system and priming content are both explicit structured launch material', () => {
-    const result = toProcessInvocationSpec(
-      prepared({
+  test.each([
+    [
+      'no prompt material yields authoritative null prompt keys',
+      {},
+      { system: null, priming: null },
+    ],
+    [
+      'system and priming content are both explicit structured launch material',
+      {
         systemPrompt: {
           content: 'SYSTEM-CONTENT-T08577',
           mode: 'append',
           path: '/tmp/t08577-artifacts/system-prompt.md',
         },
         expandedPrompt: 'PRIMING-CONTENT-T08577',
-      }),
-      request()
-    )
-
-    expect(result.spec.prompts).toEqual({
-      system: {
-        content: 'SYSTEM-CONTENT-T08577',
-        mode: 'append',
-        sourcePath: '/tmp/t08577-artifacts/system-prompt.md',
       },
-      priming: { content: 'PRIMING-CONTENT-T08577' },
-    })
+      {
+        system: {
+          content: 'SYSTEM-CONTENT-T08577',
+          mode: 'append',
+          sourcePath: '/tmp/t08577-artifacts/system-prompt.md',
+        },
+        priming: { content: 'PRIMING-CONTENT-T08577' },
+      },
+    ],
+  ] as const)('B2: %s', (_name, material, prompts) => {
+    const result = toProcessInvocationSpec(prepared(material), request())
+
+    expect(result.spec.prompts).toEqual(prompts)
   })
 })

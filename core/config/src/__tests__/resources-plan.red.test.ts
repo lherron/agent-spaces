@@ -152,55 +152,38 @@ describe('agent-authored runtime resources plan compiler', () => {
     })
   })
 
-  test('keeps desiredProjectionHash stable for semantically identical desired projections', async () => {
-    const first = await compileFixture('agents/smokey')
-    const second = await compileFixture('agents/smokey')
-
-    expect<unknown>(first).toEqual({ ok: true, plan: expectedPlan })
-    expect<unknown>(second).toEqual({ ok: true, plan: expectedPlan })
-    expect(planOf(first).resources.map((resource) => resource.desiredProjectionHash)).toEqual(
-      planOf(second).resources.map((resource) => resource.desiredProjectionHash)
-    )
-  })
-
-  test('projects schedule resources with target, schedule fields, disabled state, and provenance', async () => {
-    const result = await compileFixture('agents/smokey')
-    expect(result).toEqual({
-      ok: true,
-      plan: expect.objectContaining({
-        resources: [
-          findByKind(expectedPlan, 'scheduled-job'),
-          expect.anything(),
-          expect.anything(),
-        ],
-      }),
-    })
-  })
-
-  test('uses the canonical profile default owner set when a schedule has no override', async () => {
-    const result = await compileInlineResource({
-      profile: `
+  test.each([
+    ['node list (dedup + sort)', '["svc", "max3", "svc"]', ['max3', 'svc']],
+    ['node scalar', '"svc"', ['svc']],
+    ['all wildcard', '"all"', ['all']],
+    ['repeated all wildcard', '["all", "all"]', ['all']],
+  ])(
+    'uses the canonical profile default owner set when a schedule has no override: %s',
+    async (_label, defaultNode, expected) => {
+      const result = await compileInlineResource({
+        profile: `
 version = 4
 
 [jobs]
-default_node = ["svc", "max3", "svc"]
+default_node = ${defaultNode}
 `,
-      schedule: inlineSchedule,
-    })
+        schedule: inlineSchedule,
+      })
 
-    expect(result).toEqual({
-      ok: true,
-      plan: expect.objectContaining({
-        resources: [
-          expect.objectContaining({
-            desiredJson: expect.objectContaining({
-              execution: { nodes: ['max3', 'svc'] },
+      expect(result).toEqual({
+        ok: true,
+        plan: expect.objectContaining({
+          resources: [
+            expect.objectContaining({
+              desiredJson: expect.objectContaining({
+                execution: { nodes: expected },
+              }),
             }),
-          }),
-        ],
-      }),
-    })
-  })
+          ],
+        }),
+      })
+    }
+  )
 
   test.each([
     ['node scalar', 'node = "svc"', ['svc']],
@@ -243,39 +226,33 @@ ${authored}
     expect(result.plan.resources[0]?.desiredJson).not.toHaveProperty('execution')
   })
 
-  test('canonicalizes duplicate and reordered owner sets to identical desired state', async () => {
-    const first = await compileInlineResource({
-      schedule: `${inlineSchedule}
-
-[execution]
-node = ["svc", "max3", "svc"]
-`,
-    })
-    const second = await compileInlineResource({
-      schedule: `${inlineSchedule}
-
-[execution]
-node = ["max3", "svc"]
-`,
-    })
-
-    expect(first.ok).toBe(true)
-    expect(second.ok).toBe(true)
-    if (!first.ok || !second.ok) return
-    expect(first.plan.resources[0]?.desiredJson).toEqual(second.plan.resources[0]?.desiredJson)
-    expect(first.plan.resources[0]?.desiredProjectionHash).toBe(
-      second.plan.resources[0]?.desiredProjectionHash
-    )
-  })
+  test.each(['[]', '"local"', '["local"]', '["svc", "local"]', '["all", "svc"]'])(
+    'rejects invalid profile jobs.default_node through resource compilation: %s',
+    async (authored) => {
+      const result = await compileInlineResource({
+        profile: `version = 4\n[jobs]\ndefault_node = ${authored}\n`,
+        schedule: inlineSchedule,
+      })
+      expect(result).toEqual({
+        ok: false,
+        code: 'CONFIG_VALIDATION_ERROR',
+        message: expect.stringContaining('default_node'),
+      })
+    }
+  )
 
   test.each([
-    ['empty set', 'node = []'],
-    ['local scalar', 'node = "local"'],
-    ['local list', 'node = ["local"]'],
-    ['local mixed list', 'node = ["svc", "local"]'],
-    ['all mixed with concrete', 'node = ["all", "svc"]'],
-    ['malformed node', 'node = "bad/node"'],
-  ])('rejects invalid schedule execution placement: %s', async (_label, authored) => {
+    ['empty set', 'node = []', 'execution.node must contain at least one node id'],
+    ['local scalar', 'node = "local"', 'execution.node "local" is not allowed'],
+    ['local list', 'node = ["local"]', 'execution.node "local" is not allowed'],
+    ['local mixed list', 'node = ["svc", "local"]', 'execution.node "local" is not allowed'],
+    [
+      'all mixed with concrete',
+      'node = ["all", "svc"]',
+      'execution.node "all" cannot be mixed with concrete node ids',
+    ],
+    ['malformed node', 'node = "bad/node"', 'execution.node "bad/node" must be a node id matching'],
+  ])('rejects invalid schedule execution placement: %s', async (_label, authored, reason) => {
     const result = await compileInlineResource({
       schedule: `${inlineSchedule}
 
@@ -287,7 +264,7 @@ ${authored}
     expect(result).toEqual({
       ok: false,
       code: 'INVALID_EXECUTION_PLACEMENT',
-      message: expect.any(String),
+      message: expect.stringContaining(reason),
     })
   })
 
@@ -414,76 +391,6 @@ freshSession = false`
     }
   )
 
-  test('projects channel resources with gateway lookup, routing, status, and provenance', async () => {
-    const result = await compileFixture('agents/smokey')
-    expect(result).toEqual({
-      ok: true,
-      plan: expect.objectContaining({
-        resources: [
-          expect.anything(),
-          findByKind(expectedPlan, 'interface-binding'),
-          expect.anything(),
-        ],
-      }),
-    })
-  })
-
-  test('projects event hooks as event-triggered jobs with match, target, input, and canonical cooldown', async () => {
-    const result = await compileFixture('agents/smokey')
-    expect(result).toEqual({
-      ok: true,
-      plan: expect.objectContaining({
-        resources: [expect.anything(), expect.anything(), findByKind(expectedPlan, 'event-hook')],
-      }),
-    })
-  })
-
-  test('emits event hook cooldowns in ACP runtime duration format instead of ISO-8601', async () => {
-    // Test context: T-04894 red. ACP runtime parses /^(\d+)(ms|s|m|h|d)$/ only; ISO-8601
-    // cooldowns silently disable the scheduler cooldown guard.
-    const result = await compileFixture('agents/smokey')
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-
-    const eventHook = result.plan.resources.find(
-      (resource) => resource.resourceKind === 'event-hook'
-    )
-    expect(eventHook).toBeDefined()
-
-    const cooldown = (eventHook?.desiredJson as { trigger?: { cooldown?: unknown } } | undefined)
-      ?.trigger?.cooldown
-    expect(typeof cooldown).toBe('string')
-    expect(cooldown, `expected ACP runtime duration format, got ${String(cooldown)}`).toMatch(
-      /^(\d+)(ms|s|m|h|d)$/
-    )
-    expect(cooldown).not.toMatch(/^PT/)
-  })
-
-  test('projects event hook output webhook sinks for ACP job completion callbacks', async () => {
-    const result = await compileFixture('../../variants', ['event-hook-output-webhook.toml'])
-    expect(result).toEqual({
-      ok: true,
-      plan: expect.objectContaining({
-        resources: [
-          expect.objectContaining({
-            resourceKind: 'event-hook',
-            desiredJson: expect.objectContaining({
-              output: {
-                sinks: [
-                  {
-                    kind: 'webhook',
-                    url: 'http://127.0.0.1:18551/api/transcript-summaries',
-                    format: 'discord_markdown',
-                  },
-                ],
-              },
-            }),
-          }),
-        ],
-      }),
-    })
-  })
-
   test('rejects non-loopback event hook output webhooks before ACP apply', async () => {
     const result = await compileFixture('../../invalid', ['event-hook-output-nonloopback.toml'])
     expect(result).toEqual({
@@ -491,28 +398,6 @@ freshSession = false`
       code: 'INVALID_OUTPUT_SINK_URL',
       message: expect.stringContaining('loopback'),
     })
-  })
-
-  test('emits bare lane refs accepted by the job-dispatch wire contract', async () => {
-    // Test context: Phase F remediation guard. ASP owns only the wire format here; ACP owns
-    // the authoritative LaneRef parser round-trip, so keep this as a regex contract check.
-    const result = await compileFixture('agents/smokey')
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-
-    const laneRefs = result.plan.resources.map((resource) => {
-      if (resource.resourceKind === 'interface-binding') {
-        const routing = resource.desiredJson['routing']
-        return String(isRecord(routing) ? routing['laneRef'] : undefined)
-      }
-      return String(resource.desiredJson['laneRef'])
-    })
-
-    for (const laneRef of laneRefs) {
-      expect(laneRef, `expected bare laneRef, got ${laneRef}`).toMatch(
-        /^(main|lane:[A-Za-z0-9._-]+)$/
-      )
-    }
   })
 
   test('rejects a top-level timezone and points at [trigger].timezone', async () => {

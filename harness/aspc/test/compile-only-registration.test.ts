@@ -11,9 +11,12 @@
  * harness/aspc-facade/test/facade.test.ts (AC-8).
  */
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import { ASPC_PROTOCOL_VERSION } from 'spaces-aspc-protocol'
 import type { AspcHelloResponse } from 'spaces-aspc-protocol'
-import { registerAspcCompileMethods } from '../src/index.js'
+import type { RuntimeCompileRequest } from 'spaces-runtime-contracts'
+import { createAspcService, registerAspcCompileMethods } from '../src/index.js'
+import type { AspcCompiler } from '../src/service.js'
 
 type RecordedHandler = (request: {
   id: string | number
@@ -48,6 +51,14 @@ const EXCLUDED_METHODS = [
   'invocation.dispose',
 ]
 
+function packageVersion(): string {
+  const manifest = JSON.parse(
+    readFileSync(new URL('../package.json', import.meta.url), 'utf8')
+  ) as { version?: unknown }
+  if (typeof manifest.version !== 'string') throw new Error('missing package version')
+  return manifest.version
+}
+
 function recordingServer(): {
   register(method: string, handler: RecordedHandler): void
   handlers: Map<string, RecordedHandler>
@@ -76,7 +87,7 @@ describe('compile-only ASPC registration', () => {
     }
   })
 
-  test('AC-4: aspc.hello reports compile-only capabilities honestly', async () => {
+  test('aspc.hello advertises the exact compile-only capability set', async () => {
     const server = recordingServer()
     registerAspcCompileMethods(server)
 
@@ -92,21 +103,74 @@ describe('compile-only ASPC registration', () => {
     })) as AspcHelloResponse
 
     expect(response.protocolVersion).toBe(ASPC_PROTOCOL_VERSION)
-    expect(response.capabilities).not.toHaveProperty('compileAndStart')
-    expect(response.capabilities.cohostedBroker).toBe(false)
-    expect(response.capabilities.transports).toEqual(['stdio-jsonrpc-ndjson'])
+    expect(response.facadeInfo.version).toBe(packageVersion())
     expect(Object.hasOwn(response, 'brokerProtocol')).toBe(false)
+    // Exact equality: no start plane (compileAndStart/compileRuntimePlan), no retired
+    // Desktop bits (resolveDesktopIdentity/admitDesktopRegistration/prepareDesktopObserver),
+    // and every compile/observation/preparation flag (incl. the taskContext/correlation
+    // preparation capabilities) advertised true.
+    expect(response.capabilities).toEqual({
+      catalogAgents: true,
+      inspectAgent: true,
+      catalogAgentInspection: true,
+      inspectAgentSelection: true,
+      compileHarnessInvocation: true,
+      resolveRuntimeDeclaration: true,
+      inspectRuntimePlacement: true,
+      inspectRuntimePlacementPreparationCorrelation: true,
+      inspectRuntimePlacementPreparationTaskContext: true,
+      observeRuntimeCapability: true,
+      observeContinuationArtifact: true,
+      prepareProcessInvocation: true,
+      prepareProcessInvocationTaskContext: true,
+      cohostedBroker: false,
+      transports: ['stdio-jsonrpc-ndjson'],
+    })
+  })
 
-    expect(response.capabilities).not.toHaveProperty('compileRuntimePlan')
-    expect(response.capabilities.catalogAgents).toBe(true)
-    expect(response.capabilities.inspectAgent).toBe(true)
-    expect(response.capabilities.catalogAgentInspection).toBe(true)
-    expect(response.capabilities.inspectAgentSelection).toBe(true)
-    expect(response.capabilities.compileHarnessInvocation).toBe(true)
-    expect(response.capabilities.resolveRuntimeDeclaration).toBe(true)
-    expect(response.capabilities.inspectRuntimePlacement).toBe(true)
-    expect(response.capabilities.observeRuntimeCapability).toBe(true)
-    expect(response.capabilities.observeContinuationArtifact).toBe(true)
-    expect(response.capabilities.prepareProcessInvocation).toBe(true)
+  test('closed summon directives pass the wire validators and reach the compiler with presentation false intact', async () => {
+    const received: RuntimeCompileRequest[] = []
+    const compiler: AspcCompiler = async (request) => {
+      received.push(request)
+      return { schemaVersion: 'agent-runtime-compile-response/v2', ok: false, diagnostics: [] }
+    }
+    const server = recordingServer()
+    registerAspcCompileMethods(server, { service: createAspcService({ compiler }) })
+
+    const summonDirectives = {
+      harness: 'muse',
+      model_provider: 'mistral',
+      model: 'devstral-2',
+      reasoning_effort: 'high',
+      presentation: false,
+    } as const
+    await server.handlers.get('aspc.compileHarnessInvocation')?.({
+      id: 'summon',
+      method: 'aspc.compileHarnessInvocation',
+      params: {
+        compileRequest: {
+          schemaVersion: 'agent-runtime-compile-request/v2',
+          agent: { id: 'cody' },
+          identity: { requestId: 'req_1', operationId: 'op_1' },
+          placement: {
+            agentRoot: '/tmp/agent',
+            projectRoot: '/tmp/project',
+            cwd: '/tmp/project',
+            runMode: 'agent',
+          },
+          requested: { harness: 'codex', presentation: true },
+          materialization: {},
+          hrcPolicy: {},
+          correlation: { requestId: 'req_1', operationId: 'op_1' },
+          selectionContext: { summonDirectives },
+        },
+      },
+    })
+
+    expect(received).toHaveLength(1)
+    expect(received[0]?.selectionContext?.summonDirectives).toEqual(summonDirectives)
+    // The directive's false is its own fact, separate from requested.presentation.
+    expect(received[0]?.selectionContext?.summonDirectives?.presentation).toBe(false)
+    expect(received[0]?.requested.presentation).toBe(true)
   })
 })

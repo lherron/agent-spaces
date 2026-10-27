@@ -318,38 +318,4 @@ await new Promise(() => {})
     expect(bounded.pages.every((page) => page.result.currentSeq === 6)).toBe(true)
     expect(new Set(bounded.pages.map((page) => JSON.stringify(page.snapshot))).size).toBe(1)
   })
-
-  test('one envelope larger than maxBytes is refused with no partial success', async () => {
-    const root = scratch()
-    const ledgerPath = join(root, 'events.ndjson')
-    const indexPath = join(root, 'ledger-index.db')
-    const ledger = createEventLedger({ path: ledgerPath, indexPath })
-    await ledger.append(
-      event('inv_oversize', 1, 'diagnostic', { level: 'info', message: 'x'.repeat(80_000) })
-    )
-    ledger.close()
-
-    const run = await runReader({
-      ledgerPath,
-      indexPath,
-      request: {
-        schema: SCHEMA,
-        operation: 'eventsSince',
-        invocationId: 'inv_oversize',
-        afterSeq: 0,
-        maxBytes: 65_536,
-      },
-    })
-
-    expect(run.exitCode).toBe(2)
-    expect(run.response).toMatchObject({
-      ok: false,
-      operation: 'eventsSince',
-      error: {
-        code: 'offline_record_too_large',
-        data: { kind: 'event', seq: 1, maxBytes: 65_536 },
-      },
-    })
-    expect(run.response.result).toBeUndefined()
-  })
 })

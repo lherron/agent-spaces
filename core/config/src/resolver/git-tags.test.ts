@@ -24,20 +24,22 @@ describe('parseVersionTag', () => {
     expect(result?.version).toBe('1.2.3')
   })
 
-  it('should parse prerelease version', () => {
-    const result = parseVersionTag('space/my-space/v1.0.0-beta.1')
-    expect(result).not.toBeNull()
-    expect(result?.version).toBe('1.0.0-beta.1')
-  })
-
-  it('should return null for invalid format', () => {
-    expect(parseVersionTag('not-a-tag')).toBeNull()
-    expect(parseVersionTag('space/my-space')).toBeNull()
-    expect(parseVersionTag('space/my-space/1.2.3')).toBeNull() // missing v
-  })
-
-  it('should return null for invalid semver', () => {
-    expect(parseVersionTag('space/my-space/vabc')).toBeNull()
-    expect(parseVersionTag('space/my-space/v1.2')).toBeNull()
-  })
+  it.each<[string, { spaceId: string; version: string } | null]>([
+    ['space/my-space/v1.0.0-beta.1', { spaceId: 'my-space', version: '1.0.0-beta.1' }],
+    ['not-a-tag', null],
+    ['space/my-space', null],
+    ['space/my-space/1.2.3', null], // missing v
+    ['space/my-space/vabc', null],
+    ['space/my-space/v1.2', null],
+  ])(
+    'tags that are not space/<id>/v<semver> are ignored by version resolution: %s -> %p',
+    (tag, expected) => {
+      const result = parseVersionTag(tag)
+      if (expected === null) {
+        expect(result).toBeNull()
+      } else {
+        expect(result).toMatchObject(expected)
+      }
+    }
+  )
 })

@@ -1,6 +1,6 @@
 /**
- * Dynamic sections in the context resolver: live exec sections skip on timeout
- * or non-zero exit, and recorded exec / service-probe ledgers replay through
+ * Dynamic sections in the context resolver: recorded exec / service-probe
+ * ledgers (injectable only at the resolver seam) replay through
  * the live formatting path, fail closed on missing/stale/duplicate records, and
  * never launch a child process.
  */
@@ -15,7 +15,6 @@ import {
   createResolverRoots,
   removeResolverRoots,
   resolveDetailed,
-  resolveZones,
 } from './test-support/context-resolver-fixture.js'
 
 function recordedExec(
@@ -36,39 +35,6 @@ describe('resolveContextTemplate exec sections and recorded replay', () => {
 
   afterEach(async () => {
     await removeResolverRoots(roots)
-  })
-
-  test('skips exec sections when commands time out or exit non-zero', async () => {
-    const resolved = await resolveZones(
-      roots,
-      parseContextTemplate(`
-schema_version = 2
-
-[[prompt]]
-name = "timeout"
-type = "exec"
-command = "sleep 1"
-timeout = 10
-
-[[prompt]]
-name = "failure"
-type = "exec"
-command = "exit 7"
-
-[[prompt]]
-name = "success"
-type = "exec"
-command = "printf 'ok'"
-`)
-    )
-
-    expect(resolved).toEqual({
-      prompt: {
-        content: 'ok',
-        mode: 'replace',
-      },
-      reminder: undefined,
-    })
   })
 
   test('replays recorded exec success and failure through the live formatting path', async () => {

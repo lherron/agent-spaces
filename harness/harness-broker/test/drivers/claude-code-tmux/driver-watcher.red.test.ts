@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 import { EventEmitter } from 'node:events'
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -16,8 +16,12 @@ import {
   defaultLease,
   loadFactory,
   now,
+  removeTempHookDirs,
+  tempHookSocketPath,
   waitFor,
 } from './driver-red.helpers'
+
+afterEach(removeTempHookDirs)
 
 describe('claude-code-tmux driver RED lifecycle', () => {
   test('native transcript notifications terminalize the 7ec78cf3 no-successor interrupt and re-arm on retarget', async () => {
@@ -29,7 +33,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     const firstTranscript = join(root, 'first.jsonl')
     const secondTranscript = join(root, 'second.jsonl')
     writeFileSync(secondTranscript, '')
-    const hookSocket = '/tmp/harness-broker/claude-hooks.sock'
+    const hookSocket = tempHookSocketPath()
     const watchers: Array<EventEmitter & { close: () => void }> = []
     const driver = createDriver({
       tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
@@ -235,7 +239,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     const transcriptPath = join(root, 'session.jsonl')
     writeFileSync(transcriptPath, '')
     const watchers: Array<EventEmitter & { close: () => void }> = []
-    const hookSocket = '/tmp/harness-broker/claude-hooks.sock'
+    const hookSocket = tempHookSocketPath()
     const driver = createDriver({
       tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
       hooks: {
@@ -307,7 +311,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     const transcriptPath = join(root, 'session.jsonl')
     writeFileSync(transcriptPath, '')
     const watchers: Array<EventEmitter & { close: () => void }> = []
-    const hookSocket = '/tmp/harness-broker/claude-hooks.sock'
+    const hookSocket = tempHookSocketPath()
     let watchCalls = 0
     const driver = createDriver({
       tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
@@ -365,7 +369,30 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     }
   })
 
-  test('Stop hook_cancelled plus adjacent late marker is ignored-known after completion', async () => {
+  type MarkerCase = {
+    name: string
+    /** completed: the turn got its Stop; active: still running; none: no turn at all. */
+    turn: 'completed' | 'active' | 'none'
+    /** archive rows 3-5 (Stop hook_cancelled + late user marker), or only the marker */
+    rows: 'signature' | 'marker-only'
+  }
+  test.each<MarkerCase>([
+    {
+      name: 'Stop hook_cancelled plus adjacent late marker is ignored-known after completion',
+      turn: 'completed',
+      rows: 'signature',
+    },
+    {
+      name: 'Stop hook_cancelled plus adjacent late marker interrupts a still-active turn',
+      turn: 'active',
+      rows: 'signature',
+    },
+    {
+      name: 'a late interrupt marker with no active turn and no Stop cancellation warns',
+      turn: 'none',
+      rows: 'marker-only',
+    },
+  ])('$name', async ({ turn, rows }) => {
     const createDriver = await loadFactory()
     const tmuxCalls: TmuxExecCall[] = []
     let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
@@ -378,7 +405,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       '../../fixtures/claude-preempt-stop-hook-cancelled-a3da8a7e.rows168-180.jsonl'
     )
     const signature = readFileSync(archivePath, 'utf8').trimEnd().split('\n').slice(3, 5)
-    const hookSocket = '/tmp/harness-broker/claude-hooks.sock'
+    const hookSocket = tempHookSocketPath()
     const index = openCaptureIndex(join(root, 'capture.db'))
     const ctx = createCtx(events, { terminalSurface: defaultLease() })
     const capture = createCaptureGate({
@@ -403,67 +430,71 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       },
       now,
     })
+    const hook = (hookData: Record<string, unknown>, turnId?: string) =>
+      hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        ...(turnId !== undefined ? { turnId } : {}),
+        hookData,
+      })
 
     try {
       await driver.start(claudeTmuxSpec(), ctx)
-      await hookHandler?.({
-        invocationId: 'inv_claude_tmux_1',
-        generation: 1,
-        callbackSocket: hookSocket,
-        hookData: { hook_event_name: 'SessionStart', transcript_path: transcriptPath },
-      })
-      await hookHandler?.({
-        invocationId: 'inv_claude_tmux_1',
-        generation: 1,
-        callbackSocket: hookSocket,
-        turnId: 'turn_completed',
-        hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'completed base turn' },
-      })
-      await hookHandler?.({
-        invocationId: 'inv_claude_tmux_1',
-        generation: 1,
-        callbackSocket: hookSocket,
-        turnId: 'turn_completed',
-        hookData: { hook_event_name: 'Stop' },
-      })
+      await hook({ hook_event_name: 'SessionStart', transcript_path: transcriptPath })
+      if (turn !== 'none') {
+        await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'base turn' }, 'turn_base')
+      }
+      if (turn === 'completed') await hook({ hook_event_name: 'Stop' }, 'turn_base')
 
-      appendFileSync(transcriptPath, `${signature.join('\n')}\n`)
-      await hookHandler?.({
-        invocationId: 'inv_claude_tmux_1',
-        generation: 1,
-        callbackSocket: hookSocket,
-        hookData: { hook_event_name: 'Notification' },
-      })
+      const appended = rows === 'signature' ? signature : signature.slice(1)
+      appendFileSync(transcriptPath, `${appended.join('\n')}\n`)
+      await hook({ hook_event_name: 'Notification' })
 
-      expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(1)
-      expect(events.filter((event) => event.type === 'turn.interrupted')).toHaveLength(0)
-      expect(events.filter((event) => event.type === 'capture.warning')).toHaveLength(0)
-      expect(
-        index
-          .list('inv_claude_tmux_1')
-          .filter((row) => row.sourceKind === 'provider-jsonl')
-          .map((row) => ({
-            nativeType: row.nativeType,
-            disposition: row.disposition,
-            detail: row.detail,
-          }))
-      ).toEqual([
-        {
-          nativeType: 'attachment:hook_cancelled',
-          disposition: 'ignored-known',
-          detail: JSON.stringify({
-            hookName: 'Stop',
-            hookEvent: 'Stop',
-            durationMs: 72,
-            timedOut: false,
-          }),
-        },
-        {
-          nativeType: 'user',
-          disposition: 'ignored-known',
-          detail: 'late interrupt marker; Stop hook cancelled after delivery',
-        },
-      ])
+      const interrupted = events.filter((event) => event.type === 'turn.interrupted')
+      const warnings = events.filter((event) => event.type === 'capture.warning')
+      if (turn === 'completed') {
+        expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(1)
+        expect(interrupted).toHaveLength(0)
+        expect(warnings).toHaveLength(0)
+        expect(
+          index
+            .list('inv_claude_tmux_1')
+            .filter((row) => row.sourceKind === 'provider-jsonl')
+            .map((row) => ({
+              nativeType: row.nativeType,
+              disposition: row.disposition,
+              detail: row.detail,
+            }))
+        ).toEqual([
+          {
+            nativeType: 'attachment:hook_cancelled',
+            disposition: 'ignored-known',
+            detail: JSON.stringify({
+              hookName: 'Stop',
+              hookEvent: 'Stop',
+              durationMs: 72,
+              timedOut: false,
+            }),
+          },
+          {
+            nativeType: 'user',
+            disposition: 'ignored-known',
+            detail: 'late interrupt marker; Stop hook cancelled after delivery',
+          },
+        ])
+      } else if (turn === 'active') {
+        expect(interrupted.map((event) => event.turnId as string | undefined)).toEqual([
+          'turn_base',
+        ])
+        expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(0)
+        expect(warnings).toHaveLength(0)
+      } else {
+        expect(interrupted).toHaveLength(0)
+        expect(warnings.map((event) => event.payload)).toContainEqual(
+          expect.objectContaining({ message: 'Claude interrupt row has no active turn' })
+        )
+      }
     } finally {
       await driver.dispose()
       index.close()

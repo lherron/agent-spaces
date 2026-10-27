@@ -17,7 +17,7 @@ async function compile(options: Parameters<typeof compileV2>[1]) {
 }
 
 describe('v2 agent environment contract', () => {
-  test('keeps declared locks in the canonical start request and summarizes only their keys', async () => {
+  test('declared locked env reaches the start request while the plan summary lists only its keys', async () => {
     const plan = await compile({
       namespace: 'env-locked',
       harness: 'codex',
@@ -72,34 +72,6 @@ describe('v2 agent environment contract', () => {
     )
   })
 
-  test('keeps the declared environment stable when only dispatch values change', async () => {
-    const fixture = createV2CompileFixture()
-    fixtures.push(fixture)
-    const common = {
-      harness: 'codex' as const,
-      modelProvider: 'openai-codex',
-      model: 'gpt-5.6-terra',
-      presentation: false,
-      lockedEnv: { EXTRA_FLAG: '1' },
-    }
-    const first = await compileV2(fixture, {
-      ...common,
-      namespace: 'env-dispatch-a',
-      dispatchEnv: { RUNTIME_INSTANCE: 'a' },
-    })
-    const second = await compileV2(fixture, {
-      ...common,
-      namespace: 'env-dispatch-b',
-      dispatchEnv: { RUNTIME_INSTANCE: 'b' },
-    })
-    expect(first.ok).toBe(true)
-    expect(second.ok).toBe(true)
-    if (!first.ok || !second.ok) return
-    expect(second.plan.execution.dispatchRequest.startRequest.spec.process.lockedEnv).toEqual(
-      first.plan.execution.dispatchRequest.startRequest.spec.process.lockedEnv
-    )
-  })
-
   test('keeps dispatch-only changes out of both compatibility and start-request hashes', async () => {
     const fixture = createV2CompileFixture()
     fixtures.push(fixture)
@@ -129,6 +101,9 @@ describe('v2 agent environment contract', () => {
     )
     expect(second.plan.execution.profile.startRequestHash).toBe(
       first.plan.execution.profile.startRequestHash
+    )
+    expect(second.plan.execution.dispatchRequest.startRequest.spec.process.lockedEnv).toEqual(
+      first.plan.execution.dispatchRequest.startRequest.spec.process.lockedEnv
     )
   })
 

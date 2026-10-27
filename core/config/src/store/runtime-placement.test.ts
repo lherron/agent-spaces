@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { afterEach, describe, expect, test } from 'bun:test'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -17,9 +17,21 @@ function writeAgentProfile(agentsRoot: string, agentId: string): string {
   return agentRoot
 }
 
+const tempDirs: string[] = []
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+})
+
+function makeTempDir(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix))
+  tempDirs.push(dir)
+  return dir
+}
+
 describe('runtime placement helpers', () => {
   test('buildRuntimeBundleRef detects agent-project bundles', () => {
-    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-'))
+    const tmp = makeTempDir('runtime-placement-')
     const agentRoot = join(tmp, 'agents', 'larry')
     mkdirSync(agentRoot, { recursive: true })
     writeFileSync(join(agentRoot, 'agent-profile.toml'), 'version = 3\n')
@@ -44,7 +56,7 @@ describe('runtime placement helpers', () => {
   })
 
   test('buildRuntimeBundleRef throws when agentRoot has no agent-profile.toml', () => {
-    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-noprofile-'))
+    const tmp = makeTempDir('runtime-placement-noprofile-')
     expect(() => buildRuntimeBundleRef({ agentName: 'foo', agentRoot: tmp })).toThrow(
       /agent-profile\.toml not found/
     )
@@ -55,7 +67,7 @@ describe('runtime placement helpers', () => {
   })
 
   test('resolveAgentPlacementPaths finds projectRoot via asp-targets.toml marker walk-up', () => {
-    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-'))
+    const tmp = makeTempDir('runtime-placement-')
     const agentsRoot = join(tmp, 'agents')
     const projectDir = join(tmp, 'projects', 'agent-spaces')
     mkdirSync(projectDir, { recursive: true })
@@ -79,7 +91,7 @@ describe('runtime placement helpers', () => {
   })
 
   test('resolveAgentPlacementPaths honors ASP_PROJECT_ROOT_OVERRIDE', () => {
-    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-override-'))
+    const tmp = makeTempDir('runtime-placement-override-')
     const agentsRoot = join(tmp, 'agents')
     const projectRoot = join(tmp, 'projects', 'raw2draft')
     writeAgentProfile(agentsRoot, 'larry')
@@ -102,7 +114,7 @@ describe('runtime placement helpers', () => {
   })
 
   test('resolveAgentPlacementPaths expands ~ in ASP_PROJECT_ROOT_OVERRIDE', () => {
-    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-home-'))
+    const tmp = makeTempDir('runtime-placement-home-')
     const home = join(tmp, 'home')
     mkdirSync(home, { recursive: true })
 
@@ -124,7 +136,7 @@ describe('runtime placement helpers', () => {
   })
 
   test('resolveAgentPlacementPaths ignores ASP_PROJECT_ROOT_OVERRIDE when projectId is absent', () => {
-    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-noproject-'))
+    const tmp = makeTempDir('runtime-placement-noproject-')
     const agentsRoot = join(tmp, 'agents')
     writeAgentProfile(agentsRoot, 'larry')
 
@@ -143,7 +155,7 @@ describe('runtime placement helpers', () => {
   })
 
   test('resolveAgentPlacementPaths prefers project-local agents-root over canonical root', () => {
-    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-local-'))
+    const tmp = makeTempDir('runtime-placement-local-')
     const canonicalRoot = join(tmp, 'canonical')
     const projectDir = join(tmp, 'project')
     const localRoot = join(projectDir, 'agents')
@@ -167,7 +179,7 @@ describe('runtime placement helpers', () => {
   })
 
   test('resolveAgentPlacementPaths skips a declared-but-missing local root and falls back to canonical', () => {
-    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-missing-local-'))
+    const tmp = makeTempDir('runtime-placement-missing-local-')
     const canonicalRoot = join(tmp, 'canonical')
     const projectDir = join(tmp, 'project')
     mkdirSync(projectDir, { recursive: true })
@@ -190,7 +202,7 @@ describe('runtime placement helpers', () => {
   })
 
   test('resolveAgentPlacementPaths exposes every searched agent root when not found', () => {
-    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-not-found-'))
+    const tmp = makeTempDir('runtime-placement-not-found-')
     const canonicalRoot = join(tmp, 'canonical')
     const projectDir = join(tmp, 'project')
     const localRoot = join(projectDir, 'agents')
@@ -215,7 +227,7 @@ describe('runtime placement helpers', () => {
   test('inferProjectIdFromCwd infers from cwd and ignores ASP_PROJECT', () => {
     // ASP_PROJECT must NOT short-circuit cwd inference: the function name
     // promises cwd inference, and callers compose env precedence explicitly.
-    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-marker-'))
+    const tmp = makeTempDir('runtime-placement-marker-')
     const projectDir = join(tmp, 'agent-spaces')
     mkdirSync(projectDir, { recursive: true })
     writeFileSync(join(projectDir, 'asp-targets.toml'), 'schema = 2\n')
@@ -239,7 +251,7 @@ describe('runtime placement helpers', () => {
   })
 
   test('findProjectMarker walks up and stops at agentsRoot boundary', () => {
-    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-walk-'))
+    const tmp = makeTempDir('runtime-placement-walk-')
     const projectDir = join(tmp, 'project-root')
     const subDir = join(projectDir, 'src', 'nested')
     mkdirSync(subDir, { recursive: true })
@@ -256,7 +268,7 @@ describe('runtime placement helpers', () => {
   })
 
   test('findProjectMarker treats local agent roots as non-crossable but still returns containing project root', () => {
-    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-local-boundary-'))
+    const tmp = makeTempDir('runtime-placement-local-boundary-')
     const projectDir = join(tmp, 'project-root')
     const localAgentsRoot = join(projectDir, 'agents')
     const agentSubdir = join(localAgentsRoot, 'bench', 'skills')
@@ -285,7 +297,7 @@ describe('runtime placement helpers', () => {
     //         src/
     // Walk-up from src should stop at inner (the git root) and NOT return
     // the outer marker. Instead it falls back to inner as implicit project.
-    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-git-'))
+    const tmp = makeTempDir('runtime-placement-git-')
     const outer = join(tmp, 'outer')
     const inner = join(outer, 'inner')
     const src = join(inner, 'src')
@@ -300,7 +312,7 @@ describe('runtime placement helpers', () => {
   })
 
   test('findProjectMarker prefers explicit marker inside git repo over implicit git fallback', () => {
-    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-git2-'))
+    const tmp = makeTempDir('runtime-placement-git2-')
     const repo = join(tmp, 'repo')
     const src = join(repo, 'src')
     mkdirSync(src, { recursive: true })
@@ -314,7 +326,7 @@ describe('runtime placement helpers', () => {
   })
 
   test('findProjectMarker returns undefined outside a git repo when no marker exists', () => {
-    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-none-'))
+    const tmp = makeTempDir('runtime-placement-none-')
     const dir = join(tmp, 'random')
     mkdirSync(dir, { recursive: true })
 

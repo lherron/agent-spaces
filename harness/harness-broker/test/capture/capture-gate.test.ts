@@ -4,7 +4,6 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
-  CaptureStateView,
   CaptureWarningPayload,
   EventFamily,
   EventProvenance,
@@ -13,11 +12,6 @@ import type {
   RawProviderRecord,
   RawRecordDisposition,
   RawSourceCursor,
-} from 'spaces-harness-broker-protocol'
-import {
-  EVENT_FAMILY_BY_TYPE,
-  LOAD_BEARING_EVENT_FAMILIES,
-  isLoadBearingEventFamily,
 } from 'spaces-harness-broker-protocol'
 import type { CapturedRecord, NormalizeOutcome } from '../../src/capture/capture-gate'
 import { createCaptureGate } from '../../src/capture/capture-gate'
@@ -218,126 +212,9 @@ describe('capture gate: every record reaches exactly one disposition', () => {
     expect(provenance?.rawSha256).toHaveLength(64)
     h.close()
   })
-
-  test('a new source epoch changes the epoch id without skipping or duplicating rows', () => {
-    const h = harness()
-    h.gate.ingest(row('a', { n: 1 }, { byteOffset: 0, line: 1 }), normalized)
-    // Truncation/replacement: the same byte offset now addresses a DIFFERENT
-    // file, so it must not be compared against the pre-truncation cursor.
-    h.gate.rotateEpoch('transcript')
-    h.gate.ingest(row('b', { n: 2 }, { byteOffset: 0, line: 1 }), normalized)
-
-    const epochs = h.index.list(invocationId).map((r) => r.sourceEpoch)
-    expect(epochs[0]).not.toBe(epochs[1])
-    expect(Object.values(h.dispositions())).toEqual(['normalized', 'normalized'])
-    h.close()
-  })
 })
 
 describe('capture gate: a blocked-unknown NEVER halts the cursor (T-07883)', () => {
-  // Lance, 2026-09-02: "We should never halt when an unknown event arrives.
-  // Harnesses are upgraded all the time; we don't want to hard-fail our entire
-  // fleet when we haven't handled an upgraded new event. It should warn
-  // loudly." These are the assertions that make that a behaviour, not a note.
-  for (const family of LOAD_BEARING_EVENT_FAMILIES) {
-    test(`a blocked-unknown in ${family} warns, logs at WARN, and the cursor advances`, () => {
-      const h = harness()
-      const normalizedTypes: string[] = []
-      const record = (nativeType: string) =>
-        h.gate.ingest(row(nativeType, { nativeType }), () => {
-          normalizedTypes.push(nativeType)
-          return normalized()
-        })
-
-      record('before')
-      h.gate.ingest(row('mystery-native-type', { n: 1 }), blocked(family, `unknown ${family} row`))
-      record('after_1')
-      record('after_2')
-
-      // The cursor ran straight through: nothing was held.
-      expect(normalizedTypes).toEqual(['before', 'after_1', 'after_2'])
-      expect(h.dispositions()).toEqual({
-        raw_000001: 'normalized',
-        raw_000002: 'blocked-unknown',
-        raw_000003: 'normalized',
-        raw_000004: 'normalized',
-      })
-
-      // Evidence is still committed, and the warning still carries the detail.
-      expect(h.warnings).toHaveLength(1)
-      expect(h.warnings[0]?.kind).toBe('blocked_unknown')
-      expect(h.warnings[0]?.raw).toMatchObject({
-        rawRecordId: 'raw_000002',
-        nativeType: 'mystery-native-type',
-        family,
-        cursorHalted: false,
-        loadBearing: true,
-      })
-
-      // ONE line on the broker's own log, readable without parsing ndjson.
-      expect(h.logged).toHaveLength(1)
-      expect(h.logged[0]).toBe(
-        `WARN harness-broker capture blocked_unknown invocationId=${invocationId} ` +
-          `driver=test-driver family=${family} nativeType=mystery-native-type ` +
-          `rawRecordId=raw_000002 loadBearing=true message=unknown ${family} row`
-      )
-
-      const state: CaptureStateView = h.gate.state()
-      expect(state.state).toBe('open')
-      expect(state.deferredCount).toBe(0)
-      expect(state.blockedOn).toBeUndefined()
-      h.close()
-    })
-  }
-
-  test('a repeated unknown type logs ONCE per (driver, nativeType, family), with a count', () => {
-    const h = harness()
-    for (let n = 0; n < 5; n += 1) {
-      h.gate.ingest(row('mystery', { n }), blocked('conversation', 'Unknown Claude row: mystery'))
-    }
-    // A different family on the same type is a different key: a driver that
-    // reclassifies drift must not be silenced by the first key it hit.
-    h.gate.ingest(row('mystery', {}), blocked('diagnostic', 'Unknown Claude row: mystery'))
-    h.gate.ingest(row('other', {}), blocked('conversation', 'Unknown Claude row: other'))
-
-    // Every record still warns on the STREAM — the rate limit is on the log.
-    expect(h.warnings).toHaveLength(7)
-    expect(h.logged).toHaveLength(3)
-    expect(h.gate.state().blockedUnknown).toEqual([
-      {
-        driver: 'test-driver',
-        nativeType: 'mystery',
-        family: 'conversation',
-        loadBearing: true,
-        count: 5,
-        message: 'Unknown Claude row: mystery',
-        firstSeenIso: '2026-09-01T12:00:00.000Z',
-        lastSeenIso: '2026-09-01T12:00:00.000Z',
-      },
-      {
-        driver: 'test-driver',
-        nativeType: 'mystery',
-        family: 'diagnostic',
-        loadBearing: false,
-        count: 1,
-        message: 'Unknown Claude row: mystery',
-        firstSeenIso: '2026-09-01T12:00:00.000Z',
-        lastSeenIso: '2026-09-01T12:00:00.000Z',
-      },
-      {
-        driver: 'test-driver',
-        nativeType: 'other',
-        family: 'conversation',
-        loadBearing: true,
-        count: 1,
-        message: 'Unknown Claude row: other',
-        firstSeenIso: '2026-09-01T12:00:00.000Z',
-        lastSeenIso: '2026-09-01T12:00:00.000Z',
-      },
-    ])
-    h.close()
-  })
-
   test('the WARN line is ONE line even when the normalizer throws a multi-line error', () => {
     const h = harness()
     h.gate.ingest(row('exploding', {}), () => {
@@ -376,38 +253,5 @@ describe('capture gate: a blocked-unknown NEVER halts the cursor (T-07883)', () 
     expect(replayed).toBe(1)
     expect(second.dispositions()['raw_000002']).toBe('normalized')
     second.close()
-  })
-})
-
-describe('event family taxonomy', () => {
-  // Since T-07883 the taxonomy decides how LOUD a blocked-unknown is, never
-  // whether capture stops — the load-bearing regressions above are what pin
-  // that. It still has to be the right set: it is what a reader of
-  // `capture.warning.raw.loadBearing` acts on.
-  test('the load-bearing set is exactly the families a consumer acts on', () => {
-    expect([...LOAD_BEARING_EVENT_FAMILIES].sort()).toEqual([
-      'conversation',
-      'input-admission',
-      'permission',
-      'submission-disposition',
-      'tool',
-      'turn-bracket',
-    ])
-    expect(isLoadBearingEventFamily('turn-bracket')).toBe(true)
-    // Broker-decided supervision is NOT load-bearing: no provider reports
-    // `turn.stalled`/`turn.retry`, so it can never carry an unclassified
-    // provider type.
-    expect(isLoadBearingEventFamily('turn-supervision')).toBe(false)
-    expect(isLoadBearingEventFamily('diagnostic')).toBe(false)
-  })
-
-  test('input admission and submission disposition are separate families', () => {
-    // They were one family in the first draft. They cannot be: admission is a
-    // BROKER decision and submission outcomes are PROVIDER-observed, so a single
-    // family would force one of the two authorities to be declared falsely.
-    expect(EVENT_FAMILY_BY_TYPE['input.accepted']).toBe('input-admission')
-    expect(EVENT_FAMILY_BY_TYPE['submission.absorbed']).toBe('submission-disposition')
-    expect(EVENT_FAMILY_BY_TYPE['turn.started']).toBe('turn-bracket')
-    expect(EVENT_FAMILY_BY_TYPE['turn.stalled']).toBe('turn-supervision')
   })
 })

@@ -3,7 +3,7 @@ import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent'
 import type { DriverContext } from 'spaces-harness-broker'
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import { PiSdkTurnEventMapper } from '../src/event-mapper'
-import { messageIdFrom, turnIdFrom } from './ids'
+import { turnIdFrom } from './ids'
 
 type CapturedEvent = Pick<InvocationEventEnvelope, 'type' | 'payload' | 'turnId' | 'itemId'>
 
@@ -54,32 +54,6 @@ describe('PiSdkTurnEventMapper', () => {
     expect(events.filter((event) => event.type === 'tool.call.completed')).toHaveLength(1)
     expect(events.filter((event) => event.type === 'tool.call.failed')).toHaveLength(0)
     expect(events.at(-1)?.type).toBe('continuation.updated')
-  })
-
-  test('synthesizes the only final message for valid structured output', () => {
-    const { ctx, events } = createContext()
-    const mapper = new PiSdkTurnEventMapper({
-      ctx,
-      provider: 'anthropic',
-      sessionFile: () => '/tmp/structured.jsonl',
-    })
-    mapper.beginTurn({ turnId: turnIdFrom('turn-structured'), structured: true })
-    emitAssistant(mapper, 'I will call the tool.')
-    mapper.recordStructuredResult('{"answer":42}')
-    mapper.handle(piEvent({ type: 'agent_settled' }))
-
-    const finalMessages = events.filter(
-      (event) =>
-        event.type === 'assistant.message.completed' &&
-        (event.payload as { final?: boolean }).final === true
-    )
-    expect(finalMessages).toHaveLength(1)
-    expect(finalMessages[0]?.payload).toEqual({
-      messageId: messageIdFrom('turn-structured_structured_final'),
-      content: [{ type: 'text', text: '{"answer":42}' }],
-      final: true,
-    })
-    expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(1)
   })
 
   test('retries one structured miss then fails visibly without continuation', () => {
@@ -252,13 +226,27 @@ describe('PiSdkTurnEventMapper', () => {
     ])
     expect(events.at(-2)?.payload).toMatchObject({ reason: 'operator-interrupt' })
   })
-  test('T-08430: usage carries the response model as provider evidence', () => {
+  test.each([
+    {
+      row: 'provider response',
+      configured: 'claude-opus-5',
+      responseModel: 'claude-opus-5-20260501',
+      expected: { id: 'claude-opus-5-20260501', source: 'provider-response' },
+    },
+    {
+      row: 'configured fallback',
+      configured: 'claude-opus-5',
+      responseModel: undefined,
+      expected: { id: 'claude-opus-5', source: 'harness-config' },
+    },
+    { row: 'neither source', configured: undefined, responseModel: undefined, expected: undefined },
+  ])('usage model provenance follows $row', ({ configured, responseModel, expected }) => {
     const { ctx, events } = createContext()
     const mapper = new PiSdkTurnEventMapper({
       ctx,
       provider: 'anthropic',
       sessionFile: () => '/tmp/pi-session.jsonl',
-      configuredModelId: 'claude-opus-5',
+      ...(configured !== undefined ? { configuredModelId: configured } : {}),
     })
     mapper.beginTurn({ turnId: turnIdFrom('turn-1'), structured: false })
     mapper.handle(
@@ -266,48 +254,13 @@ describe('PiSdkTurnEventMapper', () => {
         type: 'message_end',
         message: {
           ...(assistantMessage('done') as Record<string, unknown>),
-          model: 'claude-opus-5',
-          responseModel: 'claude-opus-5-20260501',
+          ...(responseModel !== undefined ? { model: configured, responseModel } : {}),
         },
       })
     )
-
-    const usage = events.find((event) => event.type === 'usage.updated')
-    expect(usage?.payload).toMatchObject({
-      model: { id: 'claude-opus-5-20260501', source: 'provider-response' },
-    })
-  })
-
-  test('T-08430: usage falls back to the configured model, marked as configuration', () => {
-    const { ctx, events } = createContext()
-    const mapper = new PiSdkTurnEventMapper({
-      ctx,
-      provider: 'anthropic',
-      sessionFile: () => '/tmp/pi-session.jsonl',
-      configuredModelId: 'claude-opus-5',
-    })
-    mapper.beginTurn({ turnId: turnIdFrom('turn-1'), structured: false })
-    mapper.handle(piEvent({ type: 'message_end', message: assistantMessage('done') }))
-
-    const usage = events.find((event) => event.type === 'usage.updated')
-    expect(usage?.payload).toMatchObject({
-      model: { id: 'claude-opus-5', source: 'harness-config' },
-    })
-  })
-
-  test('T-08430: no model is invented when neither source names one', () => {
-    const { ctx, events } = createContext()
-    const mapper = new PiSdkTurnEventMapper({
-      ctx,
-      provider: 'anthropic',
-      sessionFile: () => '/tmp/pi-session.jsonl',
-    })
-    mapper.beginTurn({ turnId: turnIdFrom('turn-1'), structured: false })
-    mapper.handle(piEvent({ type: 'message_end', message: assistantMessage('done') }))
-
     const usage = events.find((event) => event.type === 'usage.updated')
     expect(usage).toBeDefined()
-    expect((usage?.payload as Record<string, unknown>)['model']).toBeUndefined()
+    expect((usage?.payload as Record<string, unknown>)['model']).toEqual(expected)
   })
 })
 

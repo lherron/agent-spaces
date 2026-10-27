@@ -1,6 +1,8 @@
 import { expect } from 'bun:test'
 import type { EventEmitter } from 'node:events'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type {
   HarnessInvocationSpec,
   InvocationEvent,
@@ -106,6 +108,25 @@ export type HookListenerMeta = {
 }
 
 export const now = () => new Date('2026-05-26T15:30:00.000Z')
+
+const tempHookDirs: string[] = []
+
+/**
+ * A hook callback socket path inside a fresh mkdtemp dir. The driver writes
+ * `<socket>.claude.launch.json` and `<socket>.settings.json` beside the path a
+ * fake `hooks.listen` returns, so a fixed path would leak them into a shared
+ * directory. A file that uses it removes the dirs with
+ * `afterEach(removeTempHookDirs)` (bun test fires no process exit hook).
+ */
+export function tempHookSocketPath(basename = 'claude-hooks.sock'): string {
+  const dir = mkdtempSync(join(tmpdir(), 'claude-tmux-hooks-'))
+  tempHookDirs.push(dir)
+  return join(dir, basename)
+}
+
+export function removeTempHookDirs(): void {
+  for (const dir of tempHookDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+}
 
 export const DEFAULT_LEASE_SOCKET = '/tmp/preallocated/hrc-owned-tmux.sock'
 export const DEFAULT_LEASE_PANE = '%7'
@@ -342,11 +363,9 @@ export function launchArtifact(calls: TmuxExecCall[]): LaunchArtifact {
 function launchFilePath(calls: TmuxExecCall[]): string {
   // The launch command is delivered via sendPastedLine (load-buffer + paste-buffer),
   // so it lands in the pasted-buffer text, not a send-keys -l literal.
-  const command = pastedTexts(calls).find((text) =>
-    text.includes('/tmp/harness-broker/claude-hooks.sock.claude.launch.json')
-  )
+  const command = pastedTexts(calls).find((text) => text.includes('.claude.launch.json'))
   if (command === undefined) throw new Error('tmux launch artifact command was not sent')
-  const match = command.match(/\/tmp\/harness-broker\/claude-hooks\.sock\.claude\.launch\.json/)
+  const match = command.match(/[^\s'"]+\.claude\.launch\.json/)
   if (!match) throw new Error(`unable to parse launch artifact path from: ${command}`)
   return match[0]
 }
@@ -374,4 +393,88 @@ export function expectNoForbiddenLifecycleVerbs(calls: TmuxExecCall[]): void {
   }
   // tmux -V is a server-version probe. The pane-leased driver must not issue it.
   expect(flat).not.toContain('-V')
+}
+
+export type HookDriverRun = {
+  driver: ReturnType<ClaudeCodeTmuxDriverFactory>
+  events: InvocationEventEnvelope[]
+  tmuxCalls: TmuxExecCall[]
+  socketPath: string
+  transcriptPath: string
+  /** Deliver one hook envelope through the driver's captured `hooks.listen` handler. */
+  hook: (hookData: Record<string, unknown>, turnId?: string) => Promise<unknown>
+  /** Emitted events of one type, in order. */
+  ofType: (type: InvocationEventType) => InvocationEventEnvelope[]
+  messages: () => InvocationEventEnvelope[]
+  cleanup: () => Promise<void>
+}
+
+/**
+ * Start the claude-code-tmux driver on the recording tmux exec with a fake
+ * hook listener, a temp transcript and a temp hook socket. Unless
+ * `sessionStart` is false, a SessionStart hook names the transcript, so rows
+ * appended to `transcriptPath` reach the driver on the next hook.
+ */
+export async function startHookDriver(
+  options: {
+    driverOptions?: Record<string, unknown> | undefined
+    spec?: HarnessInvocationSpec | undefined
+    transcript?: string | undefined
+    sessionStart?: boolean | undefined
+  } = {}
+): Promise<HookDriverRun> {
+  const createDriver = await loadFactory()
+  const tmuxCalls: TmuxExecCall[] = []
+  let handler: ((envelope: HookEnvelope) => Promise<unknown>) | undefined
+  const events: InvocationEventEnvelope[] = []
+  const root = mkdtempSync(join(tmpdir(), 'claude-tmux-driver-'))
+  const transcriptPath = join(root, 'session.jsonl')
+  writeFileSync(transcriptPath, options.transcript ?? '')
+  const socketPath = join(root, 'claude-hooks.sock')
+  const driver = createDriver({
+    tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
+    hooks: {
+      listen: async (listener) => {
+        handler = listener as (envelope: HookEnvelope) => Promise<unknown>
+        return { socketPath, close: async () => undefined }
+      },
+    },
+    now,
+    ...options.driverOptions,
+  })
+  const spec = options.spec ?? claudeTmuxSpec()
+  await driver.start(
+    spec,
+    createCtx(events, { terminalSurface: defaultLease() }, spec.invocationId)
+  )
+  const hook = async (hookData: Record<string, unknown>, turnId?: string) =>
+    handler?.({
+      invocationId:
+        spec.invocationId ??
+        (() => {
+          throw new Error('hook fixture requires an invocation id')
+        })(),
+      generation: 1,
+      callbackSocket: socketPath,
+      ...(turnId !== undefined ? { turnId } : {}),
+      hookData,
+    })
+  if (options.sessionStart !== false) {
+    await hook({ hook_event_name: 'SessionStart', transcript_path: transcriptPath })
+  }
+  const ofType = (type: InvocationEventType) => events.filter((event) => event.type === type)
+  return {
+    driver,
+    events,
+    tmuxCalls,
+    socketPath,
+    transcriptPath,
+    hook,
+    ofType,
+    messages: () => ofType('assistant.message.completed'),
+    cleanup: async () => {
+      await driver.dispose()
+      rmSync(root, { recursive: true, force: true })
+    },
+  }
 }

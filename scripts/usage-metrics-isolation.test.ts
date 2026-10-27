@@ -80,10 +80,18 @@ describe('usage-metrics isolation', () => {
       // Scripts that `cd` to the repo root before `bun test` use the root bunfig.
       if (dir !== root && (script === undefined || /^cd \.\.\/\.\. && /.test(script))) continue
       const bunfig = join(dir, 'bunfig.toml')
-      const preload = existsSync(bunfig)
-        ? /preload\s*=\s*\["([^"]+)"\]/.exec(readFileSync(bunfig, 'utf8'))?.[1]
+      // Parse the TOML so a commented-out or misplaced preload does not count.
+      const declared = existsSync(bunfig)
+        ? (Bun.TOML.parse(readFileSync(bunfig, 'utf8')) as { test?: { preload?: unknown } }).test
+            ?.preload
         : undefined
-      if (preload === undefined || resolve(dirname(bunfig), preload) !== PRELOAD) {
+      const preloads =
+        typeof declared === 'string' ? [declared] : Array.isArray(declared) ? declared : []
+      if (
+        !preloads.some(
+          (entry) => typeof entry === 'string' && resolve(dirname(bunfig), entry) === PRELOAD
+        )
+      ) {
         missing.push(dir.slice(root.length + 1) || '.')
       }
     }

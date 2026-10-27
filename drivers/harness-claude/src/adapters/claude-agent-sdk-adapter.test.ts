@@ -3,7 +3,7 @@
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
-import { chmod, mkdir, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ComposedTargetBundle } from 'spaces-config'
@@ -20,8 +20,7 @@ describe('ClaudeAgentSdkAdapter', () => {
     let originalEnv: string | undefined
 
     beforeAll(async () => {
-      tmpDir = join(tmpdir(), `claude-agent-sdk-detect-${Date.now()}`)
-      await mkdir(tmpDir, { recursive: true })
+      tmpDir = await mkdtemp(join(tmpdir(), 'claude-agent-sdk-detect-'))
       mockClaudePath = join(tmpDir, 'mock-claude')
       originalEnv = process.env['ASP_CLAUDE_PATH']
     })
@@ -58,12 +57,6 @@ exit 0
     })
   })
 
-  test('has correct id and name', () => {
-    const adapter = new ClaudeAgentSdkAdapter()
-    expect(adapter.id).toBe('claude-agent-sdk')
-    expect(adapter.name).toBe('Claude Agent SDK')
-  })
-
   test('is not registered as a selectable harness', () => {
     const harnesses = new HarnessRegistry()
     const sessions = new SessionRegistry()
@@ -75,6 +68,8 @@ exit 0
 
   test('uses harness-specific output path', () => {
     const adapter = new ClaudeAgentSdkAdapter()
+    expect(adapter.id).toBe('claude-agent-sdk')
+    expect(adapter.name).toBe('Claude Agent SDK')
     const path = adapter.getTargetOutputPath('/project/asp_modules', 'my-target')
     expect(path).toBe('/project/asp_modules/my-target/claude-agent-sdk')
   })

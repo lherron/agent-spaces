@@ -1,14 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type {
   CapabilityRequirements,
-  ParticipantAdapter,
-  ParticipantAdapterAdmissionRequest,
-  ParticipantAdapterAdmissionResult,
-  ParticipantAdapterJoin,
   ParticipantAdapterPreparationRequest,
-  ParticipantAdapterPreparationResult,
-  ParticipantAdapterValidationIssue,
-  ParticipantAdapterValidationResult,
   ParticipantBrokerDescriptor,
   PriorRecovery,
   WriterEvidence,
@@ -172,42 +165,6 @@ function descriptor(input: ParticipantAdapterPreparationRequest): ParticipantBro
 }
 
 describe('participant adapter contract', () => {
-  test('names the complete public type surface', () => {
-    const admissionRequest: ParticipantAdapterAdmissionRequest = {
-      classId: 'controlled',
-      join: 'hrc-hosted',
-    }
-    const admissionResult: ParticipantAdapterAdmissionResult = {
-      status: 'pending',
-      reason: 'waiting',
-    }
-    const preparationResult: ParticipantAdapterPreparationResult = {
-      status: 'rejected',
-      reason: 'refused',
-    }
-    const adapter: ParticipantAdapter = {
-      adapterId: 'contract-surface',
-      admit: () => admissionResult,
-      prepare: () => preparationResult,
-    }
-    const issue: ParticipantAdapterValidationIssue = {
-      path: 'status',
-      message: 'example',
-    }
-    const validation: ParticipantAdapterValidationResult<ParticipantAdapterAdmissionResult> = {
-      ok: true,
-      value: admissionResult,
-    }
-    const join: ParticipantAdapterJoin = admissionRequest.join
-
-    expect([adapter.adapterId, issue.path, validation.ok, join]).toEqual([
-      'contract-surface',
-      'status',
-      true,
-      'hrc-hosted',
-    ])
-  })
-
   test('exports the writer evidence surface without requiring it on legacy adapters', () => {
     const subject: WriterSubject = 'bridge'
     const writePath: WriterPathState = 'retired'

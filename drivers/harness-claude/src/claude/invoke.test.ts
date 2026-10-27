@@ -6,7 +6,7 @@
  */
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
-import { chmod, mkdir, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ClaudeInvocationError } from 'spaces-config'
@@ -34,62 +34,13 @@ describe('buildClaudeArgs', () => {
     expect(args).toEqual(['--plugin-dir', '/path/to/plugin1', '--plugin-dir', '/path/to/plugin2'])
   })
 
-  test('adds mcp config', () => {
-    const args = buildClaudeArgs({
-      mcpConfig: '/path/to/mcp.json',
-    })
-    expect(args).toEqual(['--mcp-config', '/path/to/mcp.json'])
-  })
-
-  test('adds model', () => {
-    const args = buildClaudeArgs({
-      model: 'claude-3-opus',
-    })
-    expect(args).toEqual(['--model', 'claude-3-opus'])
-  })
-
-  test('adds permission mode', () => {
-    const args = buildClaudeArgs({
-      permissionMode: 'full',
-    })
-    expect(args).toEqual(['--permission-mode', 'full'])
-  })
-
-  test('adds disallowed tools', () => {
-    const args = buildClaudeArgs({
-      disallowedTools: ['AskUserQuestion', 'WebFetch'],
-    })
-    expect(args).toEqual(['--disallowedTools', 'AskUserQuestion', 'WebFetch'])
-  })
-
-  test('adds pass-through args', () => {
-    const args = buildClaudeArgs({
-      args: ['--print', 'hello'],
-    })
-    expect(args).toEqual(['--print', 'hello'])
-  })
-
-  test('adds system prompt', () => {
-    const args = buildClaudeArgs({
-      systemPrompt: 'You are Alice.',
-    })
-    expect(args).toEqual(['--system-prompt', 'You are Alice.'])
-  })
-
-  test('adds append system prompt with the dedicated Claude flag', () => {
-    // T-01016 red gate: append-mode prompts must not reuse --system-prompt.
-    const args = buildClaudeArgs({
-      appendSystemPrompt: 'Add this after the default prompt.',
-    } as any)
-    expect(args).toEqual(['--append-system-prompt', 'Add this after the default prompt.'])
-  })
-
   test('combines all options in correct order', () => {
     const args = buildClaudeArgs({
       pluginDirs: ['/plugin1', '/plugin2'],
       mcpConfig: '/mcp.json',
       model: 'opus',
       permissionMode: 'full',
+      disallowedTools: ['AskUserQuestion', 'WebFetch'],
       systemPrompt: 'You are Alice.',
       args: ['--print', 'hello'],
     })
@@ -104,6 +55,9 @@ describe('buildClaudeArgs', () => {
       'opus',
       '--permission-mode',
       'full',
+      '--disallowedTools',
+      'AskUserQuestion',
+      'WebFetch',
       '--system-prompt',
       'You are Alice.',
       '--print',
@@ -118,63 +72,43 @@ describe('buildClaudeArgs', () => {
       args: ['--print', 'hello'],
     } as any)
 
-    expect(args).toContain('--append-system-prompt')
+    expect(args).toEqual(['--append-system-prompt', 'append-only prompt', '--print', 'hello'])
     expect(args).not.toContain('--system-prompt')
   })
 })
 
 describe('formatClaudeCommand', () => {
-  test('formats basic command', () => {
-    const command = formatClaudeCommand('/usr/local/bin/claude', {})
-    expect(command).toBe('/usr/local/bin/claude')
-  })
-
-  test('formats command with plugin dirs', () => {
-    const command = formatClaudeCommand('/usr/local/bin/claude', {
-      pluginDirs: ['/path/to/plugin1', '/path/to/plugin2'],
-    })
-    expect(command).toBe(
-      '/usr/local/bin/claude --plugin-dir /path/to/plugin1 --plugin-dir /path/to/plugin2'
-    )
-  })
-
-  test('formats command with all options', () => {
-    const command = formatClaudeCommand('/usr/local/bin/claude', {
-      pluginDirs: ['/plugin1'],
-      mcpConfig: '/mcp.json',
-      model: 'opus',
-      permissionMode: 'full',
-    })
-    expect(command).toBe(
-      '/usr/local/bin/claude --plugin-dir /plugin1 --mcp-config /mcp.json --model opus --permission-mode full'
-    )
-  })
-
-  test('quotes paths with spaces', () => {
-    const command = formatClaudeCommand('/usr/local/bin/claude', {
-      pluginDirs: ['/path with spaces/plugin'],
-    })
-    expect(command).toBe("/usr/local/bin/claude --plugin-dir '/path with spaces/plugin'")
-  })
-
-  test('quotes paths with special characters', () => {
-    const command = formatClaudeCommand('/usr/local/bin/claude', {
-      pluginDirs: ['/path$with/special'],
-    })
-    expect(command).toBe("/usr/local/bin/claude --plugin-dir '/path$with/special'")
-  })
-
-  test('escapes single quotes in paths', () => {
-    const command = formatClaudeCommand('/usr/local/bin/claude', {
-      pluginDirs: ["/path'with/quote"],
-    })
-    // Single quote is escaped by: end quote, escaped quote, new quote
-    expect(command).toBe("/usr/local/bin/claude --plugin-dir '/path'\\''with/quote'")
-  })
-
-  test('quotes claude path with spaces', () => {
-    const command = formatClaudeCommand('/usr/local/bin/claude code', {})
-    expect(command).toBe("'/usr/local/bin/claude code'")
+  const cases: Array<[string, Parameters<typeof formatClaudeCommand>[1], string]> = [
+    ['/usr/local/bin/claude', {}, '/usr/local/bin/claude'],
+    [
+      '/usr/local/bin/claude',
+      { pluginDirs: ['/path/to/plugin1', '/path/to/plugin2'] },
+      '/usr/local/bin/claude --plugin-dir /path/to/plugin1 --plugin-dir /path/to/plugin2',
+    ],
+    [
+      '/usr/local/bin/claude',
+      { pluginDirs: ['/plugin1'], mcpConfig: '/mcp.json', model: 'opus', permissionMode: 'full' },
+      '/usr/local/bin/claude --plugin-dir /plugin1 --mcp-config /mcp.json --model opus --permission-mode full',
+    ],
+    [
+      '/usr/local/bin/claude',
+      { pluginDirs: ['/path with spaces/plugin'] },
+      "/usr/local/bin/claude --plugin-dir '/path with spaces/plugin'",
+    ],
+    [
+      '/usr/local/bin/claude',
+      { pluginDirs: ['/path$with/special'] },
+      "/usr/local/bin/claude --plugin-dir '/path$with/special'",
+    ],
+    [
+      '/usr/local/bin/claude',
+      { pluginDirs: ["/path'with/quote"] },
+      "/usr/local/bin/claude --plugin-dir '/path'\\''with/quote'",
+    ],
+    ['/usr/local/bin/claude code', {}, "'/usr/local/bin/claude code'"],
+  ]
+  test.each(cases)('formats %s and its options as a safe command', (binary, options, expected) => {
+    expect(formatClaudeCommand(binary, options)).toBe(expected)
   })
 })
 
@@ -184,8 +118,7 @@ describe('getClaudeCommand', () => {
   let originalEnv: string | undefined
 
   beforeAll(async () => {
-    tmpDir = join(tmpdir(), `getcommand-test-${Date.now()}`)
-    await mkdir(tmpDir, { recursive: true })
+    tmpDir = await mkdtemp(join(tmpdir(), 'getcommand-test-'))
     mockClaudePath = join(tmpDir, 'mock-claude')
     originalEnv = process.env['ASP_CLAUDE_PATH']
   })
@@ -226,8 +159,7 @@ describe('invokeClaude', () => {
   let originalEnv: string | undefined
 
   beforeAll(async () => {
-    tmpDir = join(tmpdir(), `invoke-test-${Date.now()}`)
-    await mkdir(tmpDir, { recursive: true })
+    tmpDir = await mkdtemp(join(tmpdir(), 'invoke-test-'))
     mockClaudePath = join(tmpDir, 'mock-claude')
 
     // Save original ASP_CLAUDE_PATH
@@ -259,26 +191,13 @@ describe('invokeClaude', () => {
     process.env['ASP_CLAUDE_PATH'] = mockClaudePath
   }
 
-  test('invokes Claude and returns exit code', async () => {
-    await createMockClaude('#!/bin/bash\nexit 0\n')
-
-    const result = await invokeClaude({ captureOutput: true })
-    expect(result.exitCode).toBe(0)
-  })
-
   test('captures stdout', async () => {
-    await createMockClaude('#!/bin/bash\necho "hello from claude"\n')
+    await createMockClaude('#!/bin/bash\necho "hello from claude"\necho "error message" >&2\n')
 
     const result = await invokeClaude({ captureOutput: true })
     expect(result.stdout).toContain('hello from claude')
-  })
-
-  test('captures stderr', async () => {
-    await createMockClaude('#!/bin/bash\necho "error message" >&2\nexit 1\n')
-
-    const result = await invokeClaude({ captureOutput: true })
     expect(result.stderr).toContain('error message')
-    expect(result.exitCode).toBe(1)
+    expect(result.exitCode).toBe(0)
   })
 
   test('passes arguments correctly', async () => {
@@ -345,25 +264,6 @@ describe('invokeClaude', () => {
     // The child was killed before it could exit 0, so the exit code is not 0.
     expect(result.exitCode).not.toBe(0)
   }, 10_000)
-
-  // wrkq T-10129 attachment BUGS.md (ATT-00153) harness-claude A4: the timeout outcome is silent — invokeClaude
-  // gives the caller no signal (no thrown ClaudeInvocationError, no `timedOut`
-  // flag) that the child was killed by the timeout. Skipped until that bug is
-  // fixed; enabling this test would require surfacing the timeout.
-  test.todo('surfaces a timeout to the caller (BUGS harness-claude A4)', async () => {
-    await createMockClaude('#!/bin/bash\nsleep 5\nexit 0\n')
-
-    let timedOut = false
-    try {
-      const result = (await invokeClaude({ captureOutput: true, timeout: 100 })) as {
-        timedOut?: boolean
-      }
-      timedOut = result.timedOut === true
-    } catch (err) {
-      timedOut = err instanceof ClaudeInvocationError
-    }
-    expect(timedOut).toBe(true)
-  })
 })
 
 describe('invokeClaudeOrThrow', () => {
@@ -372,8 +272,7 @@ describe('invokeClaudeOrThrow', () => {
   let originalEnv: string | undefined
 
   beforeAll(async () => {
-    tmpDir = join(tmpdir(), `invoke-throw-test-${Date.now()}`)
-    await mkdir(tmpDir, { recursive: true })
+    tmpDir = await mkdtemp(join(tmpdir(), 'invoke-throw-test-'))
     mockClaudePath = join(tmpDir, 'mock-claude')
     originalEnv = process.env['ASP_CLAUDE_PATH']
   })
@@ -428,8 +327,7 @@ describe('runClaudePrompt', () => {
   let originalEnv: string | undefined
 
   beforeAll(async () => {
-    tmpDir = join(tmpdir(), `prompt-test-${Date.now()}`)
-    await mkdir(tmpDir, { recursive: true })
+    tmpDir = await mkdtemp(join(tmpdir(), 'prompt-test-'))
     mockClaudePath = join(tmpDir, 'mock-claude')
     originalEnv = process.env['ASP_CLAUDE_PATH']
   })
@@ -459,18 +357,10 @@ describe('runClaudePrompt', () => {
 
   test('adds --print flag with prompt', async () => {
     // Echo the arguments to verify --print is added
-    await createMockClaude('#!/bin/bash\necho "$@"\n')
+    await createMockClaude('#!/bin/bash\nprintf "  %s  \\n" "$*"\n')
 
     const result = await runClaudePrompt('hello world')
-    expect(result).toContain('--print')
-    expect(result).toContain('hello world')
-  })
-
-  test('trims output', async () => {
-    await createMockClaude('#!/bin/bash\necho "  response with whitespace  "\n')
-
-    const result = await runClaudePrompt('test')
-    expect(result).toBe('response with whitespace')
+    expect(result).toBe('--print hello world')
   })
 
   test('throws on non-zero exit', async () => {
@@ -491,8 +381,7 @@ describe('spawnClaude', () => {
   let originalEnv: string | undefined
 
   beforeAll(async () => {
-    tmpDir = join(tmpdir(), `spawn-test-${Date.now()}`)
-    await mkdir(tmpDir, { recursive: true })
+    tmpDir = await mkdtemp(join(tmpdir(), 'spawn-test-'))
     mockClaudePath = join(tmpDir, 'mock-claude')
     originalEnv = process.env['ASP_CLAUDE_PATH']
   })

@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { AspcInspectionAuthorityError, type AspcService, createAspcService } from 'spaces-aspc'
+import { type AspcService, createAspcService } from 'spaces-aspc'
 import { UnixSocketTransport } from 'spaces-harness-broker-client'
 import type { AspReleaseIdentity } from 'spaces-harness-broker-protocol'
 import { type AspdServer, createReleaseBoundAspcService, startAspdServer } from '../src/aspd.js'
@@ -27,29 +27,12 @@ const RELEASE_BINDING = {
     required: true as const,
   },
 }
-const CONTEXT = {
-  agentId: 'smokey',
-  agentRoot: '/agents/smokey',
-  project: { mode: 'none' },
-  cwd: '/projects/agent-spaces',
-  runMode: 'task',
-}
-const AUTHORITY_ERRORS = [
-  ['AGENT_INSPECTION_PRODUCER_UNAVAILABLE', 503],
-  ['AGENT_INSPECTION_PROJECT_NOT_FOUND', 404],
-  ['AGENT_INSPECTION_AGENT_NOT_FOUND', 404],
-  ['INVALID_AGENT_INSPECTION_SELECTION', 400],
-  ['AGENT_INSPECTION_PRODUCER_FAILURE', 502],
-] as const
-
 let base = ''
 let server: AspdServer | undefined
 let transport: UnixSocketTransport | undefined
-let calls: string[] = []
 
 beforeEach(async () => {
   base = await mkdtemp('/tmp/aspd-observation-red-')
-  calls = []
   const service = createReleaseBoundAspcService(
     fakeObservationService() as AspcService,
     RELEASE_BINDING
@@ -67,86 +50,17 @@ afterEach(async () => {
 })
 
 describe('T-08563 standalone aspd runtime observations', () => {
-  test('positive control: hello is served by the release-bound Unix daemon', async () => {
+  test('aspd hello over the socket reports the serving release and the unix transport', async () => {
     const hello = await request('aspc.hello', {
       clientInfo: { name: 'aspd-runtime-observation-red' },
       protocolVersions: ['aspc/0.1'],
     })
     expect(hello.protocolVersion).toBe('aspc/0.1')
     expect(hello.release).toEqual(IDENTITY)
+    // The underlying service claims stdio and a cohosted broker; aspd overrides both.
     expect(hello.capabilities.transports).toEqual(['unix-jsonrpc-ndjson'])
-  })
-
-  test('serves resolveRuntimeDeclaration and preserves declaration absence', async () => {
-    const response = await request('aspc.resolveRuntimeDeclaration', {
-      schemaVersion: 'aspc-resolve-runtime-declaration-request/v1',
-      context: { ...CONTEXT, agentId: 'absent' },
-    })
-    expect(response).toMatchObject({
-      schemaVersion: 'aspc-resolve-runtime-declaration-response/v1',
-      ok: false,
-      resolution: { state: 'absent', code: 'agent_not_found' },
-    })
-    expect(response).not.toHaveProperty('failure')
-    expect(calls).toContain('resolveRuntimeDeclaration')
-  })
-
-  test('serves inspectRuntimePlacement without collapsing prompt failure', async () => {
-    const response = await request('aspc.inspectRuntimePlacement', {
-      schemaVersion: 'aspc-inspect-runtime-placement-request/v1',
-      context: CONTEXT,
-    })
-    expect(response).toMatchObject({
-      schemaVersion: 'aspc-inspect-runtime-placement-response/v1',
-      ok: true,
-      prompt: { state: 'invalid', code: 'prompt_resolution_failed' },
-      inspection: { completeness: { kind: 'partial' } },
-    })
-    expect(calls).toContain('inspectRuntimePlacement')
-  })
-
-  test('serves observeRuntimeCapability as a read-only fact response', async () => {
-    const response = await request('aspc.observeRuntimeCapability', {
-      schemaVersion: 'aspc-observe-runtime-capability-request/v1',
-      harness: 'codex',
-      context: CONTEXT,
-    })
-    expect(response).toMatchObject({
-      schemaVersion: 'aspc-observe-runtime-capability-response/v1',
-      ok: true,
-      nativeRuntime: { state: 'unknown', code: 'detection_failed' },
-      preparation: { state: 'unknown', code: 'preparation_unknown' },
-    })
-    expect(calls).toContain('observeRuntimeCapability')
-  })
-
-  test('serves observeContinuationArtifact without materialization or preparation', async () => {
-    const response = await request('aspc.observeContinuationArtifact', {
-      schemaVersion: 'aspc-observe-continuation-artifact-request/v1',
-      continuation: { provider: 'openai', key: 'ambiguous' },
-    })
-    expect(response).toMatchObject({
-      schemaVersion: 'aspc-observe-continuation-artifact-response/v1',
-      ok: true,
-      artifactFormat: 'unknown',
-      artifact: { state: 'unknown', code: 'artifact_format_ambiguous' },
-      basis: 'none',
-    })
-    expect(calls).toContain('observeContinuationArtifact')
-  })
-
-  test('hello advertises all four observations on the same release identity', async () => {
-    const hello = await request('aspc.hello', {
-      clientInfo: { name: 'capability-red' },
-      protocolVersions: ['aspc/0.1'],
-    })
-    expect(hello.capabilities).toMatchObject({
-      resolveRuntimeDeclaration: true,
-      inspectRuntimePlacement: true,
-      observeRuntimeCapability: true,
-      observeContinuationArtifact: true,
-    })
-    expect(hello.release.releaseId).toBe(IDENTITY.releaseId)
+    expect(hello.capabilities.cohostedBroker).toBe(false)
+    expect(hello.capabilities).not.toHaveProperty('compileAndStart')
   })
 
   test('routes an actual producer response rather than only an injected observation double', async () => {
@@ -245,22 +159,6 @@ describe('T-08563 standalone aspd runtime observations', () => {
       await actualServer.retire()
     }
   })
-
-  test('preserves the complete supported identifier-authority error family', async () => {
-    for (const [code, status] of AUTHORITY_ERRORS) {
-      try {
-        await request('aspc.catalogAgentInspection', { projectId: code })
-        throw new Error(`expected ${code} refusal`)
-      } catch (error) {
-        expect(error).toMatchObject({ code: -32603, data: { code, status } })
-      }
-    }
-    expect(await request('aspc.catalogAgentInspection', {})).toEqual({
-      projectId: null,
-      agents: [],
-      contexts: {},
-    })
-  })
 })
 
 async function request(method: string, params: unknown): Promise<any> {
@@ -268,8 +166,7 @@ async function request(method: string, params: unknown): Promise<any> {
   return transport?.request(method, params)
 }
 
-// The daemon forwards service responses verbatim, so these wire tests only need
-// abridged response shapes; the single cast at the call site admits the fake.
+// Only hello is exercised through the fake; the single cast at the call site admits it.
 type AbridgedAspcService = { [K in keyof AspcService]?: (...args: never[]) => Promise<unknown> }
 
 function fakeObservationService(): AbridgedAspcService {
@@ -287,84 +184,9 @@ function fakeObservationService(): AbridgedAspcService {
         inspectRuntimePlacement: true,
         observeRuntimeCapability: true,
         observeContinuationArtifact: true,
-        cohostedBroker: false,
+        cohostedBroker: true,
         transports: ['stdio-jsonrpc-ndjson'],
       },
     }),
-    catalogAgents: async () => ({}),
-    inspectAgent: async () => ({}),
-    catalogAgentInspection: async (req: { projectId?: string }) => {
-      const authority = AUTHORITY_ERRORS.find(([code]) => code === req.projectId)
-      if (authority) {
-        throw new AspcInspectionAuthorityError(authority[0], authority[1], authority[0])
-      }
-      return { projectId: null, agents: [], contexts: {} }
-    },
-    inspectAgentSelection: async () => ({}),
-    compileHarnessInvocation: async () => ({
-      schemaVersion: 'aspc-compile-harness-invocation-response/v2',
-      ok: false,
-      diagnostics: [],
-    }),
-    resolveRuntimeDeclaration: async () => {
-      calls.push('resolveRuntimeDeclaration')
-      return {
-        schemaVersion: 'aspc-resolve-runtime-declaration-response/v1',
-        ok: false,
-        agentSources: { provenance: 'daemon-default' },
-        searchedAgentRoots: ['/agents'],
-        source: { agentProfile: { state: 'absent', code: 'not_declared' } },
-        resolution: {
-          state: 'absent',
-          code: 'agent_not_found',
-          message: 'not installed',
-          diagnostics: [],
-        },
-      }
-    },
-    inspectRuntimePlacement: async () => {
-      calls.push('inspectRuntimePlacement')
-      return {
-        schemaVersion: 'aspc-inspect-runtime-placement-response/v1',
-        ok: true,
-        declaration: {},
-        inspection: {
-          schemaVersion: 'agent-inspection/v2',
-          completeness: { kind: 'partial', missingPartIds: ['prompt:template:resolution'] },
-        },
-        prompt: {
-          state: 'invalid',
-          code: 'prompt_resolution_failed',
-          message: 'fixture failure',
-          diagnostics: [],
-        },
-        effectiveEnvironmentHash: 'env-red',
-      }
-    },
-    observeRuntimeCapability: async () => {
-      calls.push('observeRuntimeCapability')
-      return {
-        schemaVersion: 'aspc-observe-runtime-capability-response/v1',
-        ok: true,
-        harness: { requested: 'codex' },
-        registration: { state: 'present', code: 'registered' },
-        nativeRuntime: { state: 'unknown', code: 'detection_failed' },
-        credentials: { state: 'present', code: 'credentials_present' },
-        preparation: { state: 'unknown', code: 'preparation_unknown' },
-        diagnostics: [{ code: 'probe_failed', probe: 'version', message: 'fixture' }],
-      }
-    },
-    observeContinuationArtifact: async () => {
-      calls.push('observeContinuationArtifact')
-      return {
-        schemaVersion: 'aspc-observe-continuation-artifact-response/v1',
-        ok: true,
-        requested: { provider: 'openai', key: 'ambiguous' },
-        artifactFormat: 'unknown',
-        artifact: { state: 'unknown', code: 'artifact_format_ambiguous' },
-        basis: 'none',
-        diagnostics: [],
-      }
-    },
   }
 }

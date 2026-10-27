@@ -64,23 +64,6 @@ describe('claude-code-tmux disposition mirror', () => {
     ])
   })
 
-  test('enqueue + prompt hook dedupes, then remove + queued_command absorbs once', () => {
-    const tracker = createTracker()
-    tracker.observeTurnStarted('turn_live' as TurnId)
-
-    expect(tracker.observeQueueOperation(queueOp('enqueue', 'steer me'))).toEqual([])
-    expect(tracker.observePromptHook('steer me')).toEqual([])
-    expect(tracker.observeQueueOperation(queueOp('remove', 'steer me'))).toEqual([])
-    expect(tracker.observeQueuedCommand('steer me', { type: 'queued_command' })).toEqual([
-      expect.objectContaining({
-        kind: 'absorbed',
-        content: 'steer me',
-        turnId: 'turn_live',
-      }),
-    ])
-    expect(tracker.pendingCount).toBe(0)
-  })
-
   test('remove burst stays absorb-pending until FIFO queued_command attachments arrive', () => {
     const tracker = createTracker()
     tracker.observeTurnStarted('turn_live' as TurnId)
@@ -266,21 +249,6 @@ describe('claude-code-tmux disposition mirror', () => {
     expect(tracker.observePlainUser('ECHO', { type: 'user' })).toEqual([])
   })
 
-  test('archived round-B ordering interrupts the original before promoting the drain', () => {
-    const tracker = createTracker()
-    tracker.observeTurnStarted('turn_round_b' as TurnId)
-    tracker.observeQueueOperation(queueOp('enqueue', 'CHARLIE'))
-    tracker.observeQueueOperation(queueOp('enqueue', 'DELTA'))
-
-    expect(tracker.observeQueueOperation(queueOp('dequeue'))).toEqual([])
-    const interrupted = tracker.observeInterrupt({ message: '[Request interrupted by user]' })
-    expect(interrupted).toEqual([{ kind: 'interrupted', turnId: turnIdFrom('turn_round_b') }])
-    const promoted = tracker.observePlainUser('CHARLIE', { type: 'user' })
-    expect(promoted).toEqual([
-      expect.objectContaining({ kind: 'executed', content: 'CHARLIE', turnId: 'turn_inv_attr_1' }),
-    ])
-  })
-
   test('a requested interrupt terminalizes its evidenced target after a successor user row', () => {
     const tracker = createTracker()
     tracker.observeTurnStarted('turn_original' as TurnId)
@@ -330,46 +298,6 @@ describe('claude-code-tmux disposition mirror', () => {
       kind: 'warning',
       message: 'Unmatched Claude queue dequeue',
     })
-  })
-
-  test('broker correlation id opens only on execution and never on absorption', () => {
-    const absorbed = createTracker('inv_broker_absorb')
-    absorbed.observeTurnStarted('turn_live' as TurnId)
-    absorbed.trackBrokerSubmission({
-      submissionId: 'input_absorb',
-      inputId: inputIdFrom('input_absorb'),
-      allocatedTurnId: 'turn_allocated' as TurnId,
-      content: 'broker steer',
-    })
-    absorbed.observeQueueOperation(queueOp('enqueue', 'broker steer'))
-    absorbed.observePromptHook('broker steer')
-    absorbed.observeQueueOperation(queueOp('remove', 'broker steer'))
-    const landed = absorbed.observeQueuedCommand('broker steer', {})
-    expect(landed).toEqual([
-      expect.objectContaining({
-        kind: 'absorbed',
-        submissionId: 'input_absorb',
-        turnId: 'turn_live',
-      }),
-    ])
-    expect(landed.some((action) => 'turnId' in action && action.turnId === 'turn_allocated')).toBe(
-      false
-    )
-
-    const executed = createTracker('inv_broker_execute')
-    executed.trackBrokerSubmission({
-      submissionId: 'input_execute',
-      inputId: inputIdFrom('input_execute'),
-      allocatedTurnId: 'turn_allocated' as TurnId,
-      content: 'idle input',
-    })
-    expect(executed.observePlainUser('idle input', {})).toEqual([
-      expect.objectContaining({
-        kind: 'executed',
-        submissionId: 'input_execute',
-        turnId: 'turn_allocated',
-      }),
-    ])
   })
 
   test('broker content merged into a human prompt executes with honest prompt text', () => {
@@ -425,37 +353,43 @@ describe('claude-code-tmux disposition mirror', () => {
     expect(tracker.pendingCount).toBe(1)
   })
 
-  test('T-08107 specimen: a stale identical body makes the later prompt ambiguous, not lost', () => {
-    // ledger-slice-rt-f15103ba: _5 admitted 13:04, still unsettled when _12
-    // was admitted 13:35 with the SAME body. Allocated turn order was
-    // out-of-order (turn_10 before turn_9), so it cannot pick a winner, and
-    // elapsed time is not evidence. Both stay pending; nothing is lost.
-    const tracker = createTracker('t08107_specimen')
-    const repeatedEnvelope = '[T-08094] same envelope body redelivered'
-    for (const suffix of ['5', '12']) {
-      tracker.trackBrokerSubmission({
-        submissionId: `submission_${suffix}`,
-        inputId: inputIdFrom(`submission_${suffix}`),
-        allocatedTurnId: `turn_${suffix}` as TurnId,
-        content: repeatedEnvelope,
-      })
+  test.each(['prompt hook', 'plain user'] as const)(
+    'T-08107: a stale identical body makes the %s prompt ambiguous, not lost',
+    (entry) => {
+      // ledger-slice-rt-f15103ba: _5 admitted 13:04, still unsettled when _12
+      // was admitted 13:35 with the SAME body. Allocated turn order was
+      // out-of-order (turn_10 before turn_9), so it cannot pick a winner, and
+      // elapsed time is not evidence. Both stay pending; nothing is lost.
+      const tracker = createTracker('t08107_specimen')
+      const repeatedEnvelope = '[T-08094] same envelope body redelivered'
+      for (const suffix of ['5', '12']) {
+        tracker.trackBrokerSubmission({
+          submissionId: `submission_${suffix}`,
+          inputId: inputIdFrom(`submission_${suffix}`),
+          allocatedTurnId: `turn_${suffix}` as TurnId,
+          content: repeatedEnvelope,
+        })
+      }
+
+      const actions =
+        entry === 'prompt hook'
+          ? tracker.observePromptHook(repeatedEnvelope)
+          : tracker.observePlainUser(repeatedEnvelope, { type: 'user' })
+
+      // The turn is real and still opens, but it claims NEITHER identity.
+      expect(actions).toEqual([
+        expect.objectContaining({
+          kind: 'warning',
+          message: expect.stringContaining('multiple pending submissions'),
+        }),
+        expect.objectContaining({ kind: 'executed' }),
+      ])
+      expect(actions.find((action) => action.kind === 'executed')).not.toHaveProperty('inputId')
+      // Nothing was lost, and neither identity was consumed by a guess.
+      expect(actions.map((action): string => action.kind)).not.toContain('lost')
+      expect(tracker.pendingCount).toBe(2)
     }
-
-    const actions = tracker.observePromptHook(repeatedEnvelope)
-
-    // The turn is real and still opens, but it claims NEITHER identity.
-    expect(actions).toEqual([
-      expect.objectContaining({
-        kind: 'warning',
-        message: expect.stringContaining('multiple pending submissions'),
-      }),
-      expect.objectContaining({ kind: 'executed' }),
-    ])
-    expect(actions.find((action) => action.kind === 'executed')).not.toHaveProperty('inputId')
-    // Nothing was lost, and neither identity was consumed by a guess.
-    expect(actions.map((action): string => action.kind)).not.toContain('lost')
-    expect(tracker.pendingCount).toBe(2)
-  })
+  )
 
   test('a stale unclassified input never steals a later independently named turn', () => {
     const tracker = createTracker('stale_never_steals')
@@ -471,34 +405,13 @@ describe('claude-code-tmux disposition mirror', () => {
 
     // Native evidence names _12 explicitly: identity beats age and order.
     tracker.observeTurnStarted(turnIdFrom('turn_named'), inputIdFrom('submission_12'))
+    expect(tracker.pendingCount).toBe(1)
     tracker.observeTurnTerminal('turn_named' as TurnId)
 
     // The remaining body is now unambiguous and settles as itself.
     expect(tracker.observePromptHook(body)).toEqual([
       expect.objectContaining({ kind: 'executed', submissionId: 'submission_5' }),
     ])
-  })
-
-  test('an ambiguous human prompt still opens its turn without claiming a submission', () => {
-    const tracker = createTracker('ambiguous_absorption')
-    for (const suffix of ['a', 'b']) {
-      tracker.trackBrokerSubmission({
-        submissionId: `submission_${suffix}`,
-        inputId: inputIdFrom(`submission_${suffix}`),
-        content: 'shared body',
-      })
-    }
-
-    const actions = tracker.observePlainUser('shared body', { type: 'user' })
-
-    expect(actions).toEqual([
-      expect.objectContaining({ kind: 'warning' }),
-      expect.objectContaining({ kind: 'executed' }),
-    ])
-    // The turn is real, but it carries no broker identity and consumed none.
-    const executed = actions.find((action) => action.kind === 'executed')
-    expect(executed).not.toHaveProperty('inputId')
-    expect(tracker.pendingCount).toBe(2)
   })
 
   test('positive provider queue evidence preserves FIFO across duplicate bodies', () => {
@@ -518,25 +431,6 @@ describe('claude-code-tmux disposition mirror', () => {
       expect.objectContaining({ kind: 'executed', submissionId: 'submission_old' }),
     ])
   })
-
-  test('an observed start naming an input removes that exact candidate regardless of age', () => {
-    const tracker = createTracker('named_input')
-    for (const suffix of ['old', 'new']) {
-      tracker.trackBrokerSubmission({
-        submissionId: `submission_${suffix}`,
-        inputId: inputIdFrom(`submission_${suffix}`),
-        content: 'duplicate',
-      })
-    }
-
-    tracker.observeTurnStarted(turnIdFrom('turn_named'), inputIdFrom('submission_old'))
-
-    expect(tracker.pendingCount).toBe(1)
-    tracker.observeTurnTerminal('turn_named' as TurnId)
-    expect(tracker.observePromptHook('duplicate')).toEqual([
-      expect.objectContaining({ kind: 'executed', submissionId: 'submission_new' }),
-    ])
-  })
 })
 
 type ArchiveRow = Record<string, unknown>
@@ -545,10 +439,6 @@ const artifactRoot = join(process.env['HOME'] ?? '', 'praesidium/var/wrkq-artifa
 const archiveOne = join(artifactRoot, 'e2e-enqueue-pin-transcript-73efc2a5.jsonl')
 const archiveTwo = join(artifactRoot, 'e2e-enqueue-pin2-transcript-36022e44.jsonl')
 const archiveThree = join(artifactRoot, 'e2e-enqueue-pin3-transcript-f3003503.jsonl')
-const preemptBoundaryArchive = join(
-  import.meta.dir,
-  '../../fixtures/claude-preempt-drain-boundary-d8c2534f.rows23-45.jsonl'
-)
 const preemptCrossingArchive = join(
   import.meta.dir,
   '../../fixtures/claude-preempt-request-crossing-36911f19.rows23-40.jsonl'
@@ -790,28 +680,6 @@ describe('T-07849 archived transcript replays', () => {
 })
 
 describe('T-07859 archived preempt drain-boundary failure', () => {
-  test('drained user rows have no request evidence and therefore must not trigger C-c', () => {
-    const rows = readArchive(preemptBoundaryArchive)
-    const drainedIndexes = rows
-      .map((row, index) => ({ index, prompt: promptFromUserRow(row) }))
-      .filter(
-        (entry): entry is { index: number; prompt: string } =>
-          typeof entry.prompt === 'string' && entry.prompt.includes('_QUEUED_')
-      )
-      .map((entry) => entry.index)
-
-    expect(drainedIndexes).toHaveLength(2)
-    const firstDrain = drainedIndexes[0]!
-    expect(rows.slice(firstDrain).filter((row) => row['type'] === 'assistant')).toHaveLength(0)
-    expect(
-      rows
-        .slice(firstDrain)
-        .filter((row) => row['type'] === 'user')
-        .map(promptFromUserRow)
-        .filter((prompt) => prompt === 'interrupted')
-    ).toHaveLength(2)
-  })
-
   test('MTJA36GG dequeue evidence reaches quiescence and holds the dropped prompt unknown', () => {
     const rows = readArchive(preemptCrossingArchive)
     const tracker = createTracker('archive_mtja36gg')

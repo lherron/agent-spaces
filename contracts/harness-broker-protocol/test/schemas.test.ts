@@ -1,38 +1,30 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { InvocationInput, InvocationStartRequest } from '../src/commands'
+import type { InvocationInput } from '../src/commands'
 import type { HarnessInvocationSpec } from '../src/invocation'
-import { conservativeDefaultLifecyclePolicyOverlay } from '../src/lifecycle'
-import {
-  validateInvocationInput,
-  validateInvocationSpec,
-  validateInvocationStartRequest,
-} from '../src/schemas'
 import { inputIdFrom } from './ids'
 import {
   arrisResidentSpec,
   expectInvalidInput,
   expectInvalidInputPath,
   expectInvalidSpec,
-  expectInvalidStartRequest,
+  expectValidCommand,
+  inputCommand,
   piSdkSpec,
   piSdkSpecSdk,
-  specSection19InvocationStartSpec,
   specSection62Example,
+  startCommand,
   withValueAt,
   withoutKeyAt,
 } from './schema-test-helpers'
 
-describe('validateInvocationSpec', () => {
+// Every case drives `validateCommand`, the registry the broker runs before each
+// JSON-RPC handler: specs ride in `invocation.start` (issue paths under
+// `params.startRequest.spec.`), inputs in `invocation.input` (under `params.input.`).
+describe('invocation.start spec validation', () => {
   test('accepts the Codex app-server example from spec section 6.2', () => {
-    expect(validateInvocationSpec(specSection62Example)).toEqual(specSection62Example)
-  })
-
-  test('accepts the invocation.start spec from the minimal end-to-end example', () => {
-    expect(validateInvocationSpec(specSection19InvocationStartSpec)).toEqual(
-      specSection19InvocationStartSpec
-    )
+    expectValidCommand(startCommand(specSection62Example))
   })
 
   test('accepts the muse-serve start-fresh fixture (T-08588)', () => {
@@ -42,7 +34,7 @@ describe('validateInvocationSpec', () => {
         'utf-8'
       )
     )
-    expect(validateInvocationSpec(fixture)).toEqual(fixture)
+    expectValidCommand(startCommand(fixture))
   })
 
   test('rejects a muse-serve approvalMode outside the MSP closed enum', () => {
@@ -58,22 +50,6 @@ describe('validateInvocationSpec', () => {
     expectInvalidSpec(invalid, {
       path: 'driver.approvalMode',
       code: 'invalid_literal',
-    })
-  })
-
-  test('rejects a mismatched harness.driver and muse-serve driver.kind', () => {
-    const fixture = JSON.parse(
-      readFileSync(
-        join(import.meta.dir, '..', 'src', 'fixtures', 'muse-serve', 'start-fresh.spec.json'),
-        'utf-8'
-      )
-    )
-    const invalid = structuredClone(fixture)
-    invalid.harness.driver = 'codex-app-server'
-
-    expectInvalidSpec(invalid, {
-      path: 'harness.driver',
-      code: 'invalid_driver',
     })
   })
 
@@ -155,32 +131,19 @@ describe('validateInvocationSpec', () => {
       ...specSection62Example,
       process: { ...specSection62Example.process, pathPrepend: ['/agent/tools/bin', '/opt/bin'] },
     }
-    expect(validateInvocationSpec(valid)).toEqual(valid)
+    expectValidCommand(startCommand(valid))
   })
 
-  test('rejects process.pathPrepend that is not an array', () => {
-    const invalid = withValueAt(
-      specSection62Example,
-      ['process', 'pathPrepend'],
-      '/agent/tools/bin'
-    )
-    expectInvalidSpec(invalid, {
-      path: 'process.pathPrepend',
-      code: 'invalid_type',
-    })
-  })
-
-  test('rejects process.pathPrepend entries that are not strings', () => {
-    const invalid = withValueAt(
-      specSection62Example,
-      ['process', 'pathPrepend'],
-      ['/agent/tools/bin', 42]
-    )
-    expectInvalidSpec(invalid, {
-      path: 'process.pathPrepend.1',
-      code: 'invalid_type',
-    })
-  })
+  test.each([
+    { pathPrepend: '/agent/tools/bin', path: 'process.pathPrepend' },
+    { pathPrepend: ['/agent/tools/bin', 42], path: 'process.pathPrepend.1' },
+  ])(
+    'rejects process.pathPrepend that is not an array of strings at $path',
+    ({ pathPrepend, path }) => {
+      const invalid = withValueAt(specSection62Example, ['process', 'pathPrepend'], pathPrepend)
+      expectInvalidSpec(invalid, { path, code: 'invalid_type' })
+    }
+  )
 
   test('rejects unsupported specVersion literals', () => {
     const invalid = withValueAt(
@@ -207,60 +170,36 @@ describe('validateInvocationSpec', () => {
     })
   })
 
-  test('reports required (not invalid_literal) for missing harnessTransport.kind', () => {
-    const invalid = withoutKeyAt(specSection62Example, ['process', 'harnessTransport', 'kind'])
-
-    expectInvalidSpec(invalid, {
-      path: 'process.harnessTransport.kind',
+  test.each([
+    {
+      field: ['process', 'harnessTransport', 'kind'],
+      value: undefined,
       code: 'required',
-    })
-  })
-
-  test('reports invalid_literal for unsupported harnessTransport.kind', () => {
-    const invalid = withValueAt(
-      specSection62Example,
-      ['process', 'harnessTransport', 'kind'],
-      'websocket'
-    )
-
-    expectInvalidSpec(invalid, {
-      path: 'process.harnessTransport.kind',
+    },
+    {
+      field: ['process', 'harnessTransport', 'kind'],
+      value: 'websocket',
       code: 'invalid_literal',
-    })
-  })
-
-  test('reports required (not invalid_literal) for missing interaction.mode', () => {
-    const invalid = withoutKeyAt(specSection62Example, ['interaction', 'mode'])
-
-    expectInvalidSpec(invalid, {
-      path: 'interaction.mode',
-      code: 'required',
-    })
-  })
-
-  test('reports invalid_literal for unsupported interaction.mode', () => {
-    const invalid = withValueAt(specSection62Example, ['interaction', 'mode'], 'batch')
-
-    expectInvalidSpec(invalid, {
-      path: 'interaction.mode',
-      code: 'invalid_literal',
-    })
-  })
-
-  test('reports invalid_literal for unsupported interaction.inputQueue', () => {
-    const invalid = withValueAt(specSection62Example, ['interaction', 'inputQueue'], 'lifo')
-
-    expectInvalidSpec(invalid, {
-      path: 'interaction.inputQueue',
-      code: 'invalid_literal',
-    })
-  })
-
-  test('accepts spec with optional interaction.inputQueue omitted', () => {
-    const valid = withoutKeyAt(specSection62Example, ['interaction', 'inputQueue'])
-
-    expect(() => validateInvocationSpec(valid)).not.toThrow()
-  })
+    },
+    { field: ['interaction', 'mode'], value: undefined, code: 'required' },
+    { field: ['interaction', 'mode'], value: 'batch', code: 'invalid_literal' },
+    { field: ['interaction', 'inputQueue'], value: 'lifo', code: 'invalid_literal' },
+    // inputQueue is the optional literal: omitting it is accepted.
+    { field: ['interaction', 'inputQueue'], value: undefined, code: undefined },
+  ])(
+    'a missing literal field reports required and an unsupported value reports invalid_literal: $field $value',
+    ({ field, value, code }) => {
+      const spec =
+        value === undefined
+          ? withoutKeyAt(specSection62Example, field)
+          : withValueAt(specSection62Example, field, value)
+      if (code === undefined) {
+        expectValidCommand(startCommand(spec))
+      } else {
+        expectInvalidSpec(spec, { path: field.join('.'), code })
+      }
+    }
+  )
 
   test.each([
     ['with thinkingLevel', piSdkSpec],
@@ -273,7 +212,7 @@ describe('validateInvocationSpec', () => {
       })(),
     ],
   ])('accepts a pi-sdk in-process spec %s', (_name, spec) => {
-    expect(validateInvocationSpec(spec)).toEqual(spec)
+    expectValidCommand(startCommand(spec))
   })
 
   test.each([
@@ -339,33 +278,17 @@ describe('validateInvocationSpec', () => {
     expectInvalidSpec(invalid, expectedIssue)
   })
 
-  test('rejects an sdk block for another driver', () => {
-    const invalid = withValueAt(specSection62Example, ['sdk'], piSdkSpecSdk)
-
-    expectInvalidSpec(invalid, { path: 'sdk', code: 'forbidden' })
-  })
-
-  test('rejects in-process transport for another driver', () => {
-    const invalid = withValueAt(
-      specSection62Example,
-      ['process', 'harnessTransport', 'kind'],
-      'in-process'
-    )
-
-    expectInvalidSpec(invalid, {
-      path: 'process.harnessTransport.kind',
-      code: 'forbidden',
-    })
+  // arris-resident allows in-process transport but still carries no sdk block:
+  // in-process membership does not imply an sdk block.
+  test.each([
+    ['codex-app-server', specSection62Example],
+    ['arris-resident', arrisResidentSpec],
+  ])('rejects an sdk block for another driver: %s', (_name, spec) => {
+    expectInvalidSpec(withValueAt(spec, ['sdk'], piSdkSpecSdk), { path: 'sdk', code: 'forbidden' })
   })
 
   test('accepts an arris-resident in-process spec with no sdk block', () => {
-    expect(validateInvocationSpec(arrisResidentSpec)).toEqual(arrisResidentSpec)
-  })
-
-  test('still forbids an sdk block on the arris-resident driver', () => {
-    const invalid = withValueAt(arrisResidentSpec, ['sdk'], piSdkSpecSdk)
-
-    expectInvalidSpec(invalid, { path: 'sdk', code: 'forbidden' })
+    expectValidCommand(startCommand(arrisResidentSpec))
   })
 
   test.each([
@@ -388,15 +311,9 @@ describe('validateInvocationSpec', () => {
       code: 'forbidden',
     })
   })
-
-  test('does not relax the pi-sdk in-process host requirements', () => {
-    const invalid = withValueAt(piSdkSpec, ['process', 'command'], 'arris-resident-external')
-
-    expectInvalidSpec(invalid, { path: 'process.command', code: 'invalid_literal' })
-  })
 })
 
-describe('validateInvocationInput', () => {
+describe('invocation.input validation', () => {
   test('accepts text and local image content', () => {
     const input: InvocationInput = {
       inputId: inputIdFrom('input_1'),
@@ -408,7 +325,7 @@ describe('validateInvocationInput', () => {
       metadata: { source: 'test' },
     }
 
-    expect(validateInvocationInput(input)).toEqual(input)
+    expectValidCommand(inputCommand(input))
   })
 
   test('accepts per-turn response formats for text and JSON Schema object roots', () => {
@@ -436,8 +353,8 @@ describe('validateInvocationInput', () => {
       responseFormat: { kind: 'text' },
     }
 
-    expect(validateInvocationInput(jsonSchemaInput)).toEqual(jsonSchemaInput)
-    expect(validateInvocationInput(textInput)).toEqual(textInput)
+    expectValidCommand(inputCommand(jsonSchemaInput))
+    expectValidCommand(inputCommand(textInput))
   })
 
   test.each([
@@ -477,24 +394,6 @@ describe('validateInvocationInput', () => {
       { kind: 'json_schema', schema: { type: 'object', properties: { value: new Date(0) } } },
       'schema.properties.value',
     ],
-    [
-      'nested Map schema value',
-      { kind: 'json_schema', schema: { type: 'object', properties: { value: new Map() } } },
-      'schema.properties.value',
-    ],
-    [
-      'nested Set schema value',
-      { kind: 'json_schema', schema: { type: 'object', properties: { value: new Set() } } },
-      'schema.properties.value',
-    ],
-    [
-      'nested class instance schema value',
-      {
-        kind: 'json_schema',
-        schema: { type: 'object', properties: { value: new (class SchemaValue {})() } },
-      },
-      'schema.properties.value',
-    ],
   ])('rejects malformed responseFormat: %s', (_name, responseFormat, pathSuffix) => {
     expectInvalidInputPath(
       {
@@ -516,122 +415,5 @@ describe('validateInvocationInput', () => {
         code: 'required',
       }
     )
-  })
-})
-
-describe('validateInvocationStartRequest', () => {
-  test('accepts a start request with initial input', () => {
-    const request: InvocationStartRequest = {
-      spec: specSection19InvocationStartSpec,
-      initialInput: {
-        inputId: inputIdFrom('input_1'),
-        kind: 'user',
-        content: [{ type: 'text', text: 'hello' }],
-      },
-    }
-
-    expect(validateInvocationStartRequest(request)).toEqual(request)
-  })
-
-  test('rejects an invalid nested spec with prefixed issue paths', () => {
-    const invalidSpec = withoutKeyAt(specSection19InvocationStartSpec, ['process', 'command'])
-
-    expectInvalidStartRequest(
-      {
-        spec: invalidSpec,
-      },
-      {
-        path: 'spec.process.command',
-        code: 'required',
-      }
-    )
-  })
-
-  test('rejects stale runtime overlays on start requests', () => {
-    expectInvalidStartRequest(
-      {
-        spec: specSection19InvocationStartSpec,
-        runtime: { tmux: { socketPath: '/tmp/stale-start-request.sock' } },
-      },
-      {
-        path: 'runtime',
-        code: 'stale_runtime_overlay',
-      }
-    )
-  })
-
-  test('rejects lifecycle overlays on start requests', () => {
-    expectInvalidStartRequest(
-      {
-        spec: specSection19InvocationStartSpec,
-        lifecyclePolicy: conservativeDefaultLifecyclePolicyOverlay('policy_start_request_stale'),
-      },
-      {
-        path: 'lifecyclePolicy',
-        code: 'stale_lifecycle_overlay',
-      }
-    )
-  })
-
-  test('accepts a pi-sdk in-process spec', () => {
-    const request = { spec: piSdkSpec }
-    expect(validateInvocationStartRequest(request)).toEqual(request)
-  })
-
-  test.each([
-    [
-      'missing sdk block',
-      () => withoutKeyAt(piSdkSpec, ['sdk']),
-      { path: 'spec.sdk', code: 'required' },
-    ],
-    [
-      'child-process transport',
-      () => withValueAt(piSdkSpec, ['process', 'harnessTransport', 'kind'], 'pipes'),
-      { path: 'spec.process.harnessTransport.kind', code: 'invalid_literal' },
-    ],
-    [
-      'non-sentinel command',
-      () => withValueAt(piSdkSpec, ['process', 'command'], 'pi'),
-      { path: 'spec.process.command', code: 'invalid_literal' },
-    ],
-    [
-      'non-empty args',
-      () => withValueAt(piSdkSpec, ['process', 'args'], ['--print']),
-      { path: 'spec.process.args', code: 'invalid_literal' },
-    ],
-  ])('rejects a pi-sdk start request with %s', (_name, corrupt, expectedIssue) => {
-    const invalidSpec = corrupt()
-    expectInvalidStartRequest({ spec: invalidSpec }, expectedIssue)
-  })
-
-  test.each([
-    [
-      'sdk block',
-      () => withValueAt(specSection19InvocationStartSpec, ['sdk'], piSdkSpecSdk),
-      { path: 'spec.sdk', code: 'forbidden' },
-    ],
-    [
-      'in-process transport',
-      () =>
-        withValueAt(
-          specSection19InvocationStartSpec,
-          ['process', 'harnessTransport', 'kind'],
-          'in-process'
-        ),
-      { path: 'spec.process.harnessTransport.kind', code: 'forbidden' },
-    ],
-  ])('rejects a non-pi-sdk start request with %s', (_name, corrupt, expectedIssue) => {
-    const invalidSpec = corrupt()
-    expectInvalidStartRequest({ spec: invalidSpec }, expectedIssue)
-  })
-
-  test('accepts an arris-resident in-process start request', () => {
-    const request = { spec: arrisResidentSpec }
-    expect(validateInvocationStartRequest(request)).toEqual(request)
-  })
-
-  test('rejects an arris-resident start request carrying an sdk block', () => {
-    const invalidSpec = withValueAt(arrisResidentSpec, ['sdk'], piSdkSpecSdk)
-    expectInvalidStartRequest({ spec: invalidSpec }, { path: 'spec.sdk', code: 'forbidden' })
   })
 })

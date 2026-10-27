@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { dispatchAgentHarness, isTuiChild, parseForegroundInvocation } from './cli'
+import { dispatchAgentHarness, isTuiChild } from './cli'
 
 function dependencies() {
   const calls: string[] = []
@@ -50,8 +50,10 @@ describe('agent-harness CLI dispatch', () => {
     ])
   })
 
-  test('continues to require --agent-id outside broker TUI mode', () => {
-    expect(() => parseForegroundInvocation([])).toThrow('require --agent-id')
+  test('foreground TUI without an agent id rejects with the required option', async () => {
+    await expect(dispatchAgentHarness(['tui'], dependencies().values)).rejects.toThrow(
+      'require --agent-id'
+    )
   })
 
   test('dispatches print and retains its exit status', async () => {
@@ -79,28 +81,35 @@ describe('agent-harness CLI dispatch', () => {
     ).rejects.toThrow('requires an interactive terminal')
   })
 
-  test('parses correlation and rejects invalid foreground input visibly', () => {
-    expect(parseForegroundInvocation(['--agent-id', 'cody', '--generation', '2'])).toMatchObject({
-      agentId: 'cody',
-      generation: 2,
-    })
-    expect(() => parseForegroundInvocation(['--agent-id', 'cody', '--generation', '-1'])).toThrow(
-      'non-negative integer'
+  test('foreground TUI dispatches the generation and rejects invalid input', async () => {
+    const testDependencies = dependencies()
+    await dispatchAgentHarness(
+      ['tui', '--agent-id', 'cody', '--generation', '2'],
+      testDependencies.values
     )
-    expect(() => parseForegroundInvocation(['--agent-id', 'cody', '--unknown'])).toThrow('Unknown')
+    expect(testDependencies.calls).toEqual(['tui:{"agentId":"cody","generation":2}'])
+    await expect(
+      dispatchAgentHarness(
+        ['tui', '--agent-id', 'cody', '--generation', '-1'],
+        dependencies().values
+      )
+    ).rejects.toThrow('non-negative integer')
+    await expect(
+      dispatchAgentHarness(['tui', '--agent-id', 'cody', '--unknown'], dependencies().values)
+    ).rejects.toThrow('Unknown')
   })
 
-  test('maps bare and explicit resume selectors without changing broker dispatch', () => {
-    expect(parseForegroundInvocation(['--agent-id', 'cody', '--resume'])).toMatchObject({
-      agentId: 'cody',
-      resume: true,
-    })
-    expect(
-      parseForegroundInvocation(['--agent-id', 'cody', '--resume', 'session.jsonl'])
-    ).toMatchObject({
-      agentId: 'cody',
-      resume: 'session.jsonl',
-    })
+  test('foreground TUI dispatches bare and explicit resume selectors', async () => {
+    const testDependencies = dependencies()
+    await dispatchAgentHarness(['tui', '--agent-id', 'cody', '--resume'], testDependencies.values)
+    await dispatchAgentHarness(
+      ['tui', '--agent-id', 'cody', '--resume', 'session.jsonl'],
+      testDependencies.values
+    )
+    expect(testDependencies.calls).toEqual([
+      'tui:{"agentId":"cody","resume":true}',
+      'tui:{"agentId":"cody","resume":"session.jsonl"}',
+    ])
   })
 
   test('selects the worker-local TUI child role without changing the broker wire command', () => {

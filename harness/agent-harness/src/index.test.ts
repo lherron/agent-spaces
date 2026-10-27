@@ -1,10 +1,18 @@
 import { expect, test } from 'bun:test'
+import { createBroker } from 'spaces-harness-broker'
 
 import { createAgentHarnessDriver } from './index'
 
-test('composes the broker with the first-party driver identity', () => {
-  const driver = createAgentHarnessDriver()
-  expect(driver.kind).toBe('agent-harness')
-  expect(driver.capabilities().input.steer).toBe(true)
-  expect(driver.capabilities().turns.interrupt).toBe('protocol')
+test('broker hello advertises the first-party driver and its input capabilities', async () => {
+  const broker = createBroker({ drivers: [createAgentHarnessDriver()] })
+  const hello = await broker.hello({
+    clientInfo: { name: 'agent-harness-identity-test' },
+    protocolVersions: ['harness-broker/0.2'],
+  })
+  expect(hello.drivers).toMatchObject([
+    {
+      kind: 'agent-harness',
+      capabilities: { input: { steer: true }, turns: { interrupt: 'protocol' } },
+    },
+  ])
 })

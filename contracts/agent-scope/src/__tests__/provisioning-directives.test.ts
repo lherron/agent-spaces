@@ -32,11 +32,8 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   DENIED_PROVISION_OVERRIDE_KEYS,
-  PROVISIONING_SCALAR_KEYS,
-  PROVISIONING_SCALAR_KINDS,
   ProvisionDirectiveError,
   type ProvisionVocabulary,
-  type ProvisioningScalars,
   parseScopeHandle,
   resolveQualifiedScopeInput,
 } from '../index.js'
@@ -138,57 +135,12 @@ describe('provisioning directives: grammar', () => {
 })
 
 describe('provisioning directives: sender-side validation', () => {
-  test('public scalar metadata exposes the exact parser extension contract', () => {
-    expect(PROVISIONING_SCALAR_KINDS).toEqual({
-      harness: 'string',
-      model_provider: 'string',
-      model: 'string',
-      reasoning_effort: 'string',
-      presentation: 'boolean',
-      node: 'string',
-      yolo: 'boolean',
-      sandbox: 'string',
-      approval: 'string',
-      remote: 'boolean',
-    })
-    // Object.keys is string[]; compare the typed key list as plain strings.
-    const scalarKeys: readonly string[] = PROVISIONING_SCALAR_KEYS
-    expect(scalarKeys).toEqual(Object.keys(PROVISIONING_SCALAR_KINDS))
-
-    const typedSelection = {
-      harness: 'codex',
-      model_provider: 'openai-codex',
-      model: 'gpt-5.5',
-      reasoning_effort: 'high',
-      presentation: false,
-    } satisfies ProvisioningScalars
-    expect(typedSelection).toEqual({
-      harness: 'codex',
-      model_provider: 'openai-codex',
-      model: 'gpt-5.5',
-      reasoning_effort: 'high',
-      presentation: false,
-    })
-  })
-
   test('deny at sender — yolo/sandbox are DENIED_PROVISION_KEY', () => {
     expect(DENIED_PROVISION_OVERRIDE_KEYS).toEqual(['yolo', 'sandbox'])
 
     for (const directive of ['yolo=true', 'sandbox=danger-full-access']) {
       const err = directiveError(() => resolve(`cody@hrc-runtime:T-1+${directive}`))
       expect(err.code).toBe('DENIED_PROVISION_KEY')
-    }
-  })
-
-  test('removed selection keys fail closed without translation', () => {
-    for (const directive of [
-      'viewer=none', // removed string scalar
-      'viewer=auto',
-      'reasoning=high', // old key: canonical spelling is reasoning_effort
-      'reasoning', // old bare-token namespace is gone
-    ]) {
-      const err = directiveError(() => resolve(`cody@hrc-runtime:T-1+${directive}`))
-      expect(err.code).toBe('UNKNOWN_PROVISION_KEY')
     }
   })
 
@@ -199,6 +151,10 @@ describe('provisioning directives: sender-side validation', () => {
       'claude.permission_mode=bypassPermissions',
       'modelProvider=gpt-5.5', // wire spelling is not valid TOML/directive vocabulary
       'svc', // bare token outside every closed namespace (node= is explicit-only)
+      'viewer=none', // removed selection key: fails closed, no translation
+      'viewer=auto',
+      'reasoning=high', // removed key: not translated to reasoning_effort
+      'reasoning', // removed bare-token namespace
     ]) {
       const err = directiveError(() => resolve(`cody@hrc-runtime:T-1+${directive}`))
       expect(err.code).toBe('UNKNOWN_PROVISION_KEY')

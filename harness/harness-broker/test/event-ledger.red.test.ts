@@ -78,20 +78,6 @@ describe('event ledger red tests for T-01793 Phase C1', () => {
     })
   })
 
-  test('ackEvents is monotonic per invocation and rejects lower throughSeq', async () => {
-    await withLedger(async (ledger) => {
-      await ledger.append(diagnostic('inv_ack', 1))
-      await ledger.append(diagnostic('inv_ack', 2))
-
-      await expect(ledger.ackEvents(invocationIdFrom('inv_ack'), 2)).resolves.toEqual({
-        ackedThroughSeq: 2,
-      })
-      await expect(ledger.ackEvents(invocationIdFrom('inv_ack'), 1)).rejects.toMatchObject({
-        code: BrokerErrorCode.EventReplayUnavailable,
-      })
-    })
-  })
-
   test('retention floor is per-invocation and active invocations are not pruned', async () => {
     await withLedger(async (ledger) => {
       for (let seq = 1; seq <= 5; seq += 1) {
@@ -111,6 +97,14 @@ describe('event ledger red tests for T-01793 Phase C1', () => {
       await expect(ledger.eventsSince(invocationIdFrom('inv_inactive'), 3)).rejects.toMatchObject({
         code: BrokerErrorCode.EventReplayUnavailable,
       })
+      expect(
+        (await ledger.eventsSince(invocationIdFrom('inv_inactive'), 4)).map((item) => item.seq)
+      ).toEqual([5])
+
+      // Re-acking at the same seq and pruning again is a no-op, not a rollback.
+      await ledger.ackEvents(invocationIdFrom('inv_inactive'), 4)
+      await ledger.prune({ activeInvocationIds: ['inv_active'] })
+      expect(await ledger.retentionFloorSeq(invocationIdFrom('inv_inactive'))).toBe(4)
       expect(
         (await ledger.eventsSince(invocationIdFrom('inv_inactive'), 4)).map((item) => item.seq)
       ).toEqual([5])

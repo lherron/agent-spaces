@@ -41,54 +41,24 @@ function diffDevTarget(projectDir: string, aspHome: string) {
 }
 
 describe('existing CLI compatibility (T-00867)', () => {
-  cliTest('asp --help still lists existing commands', () => {
-    const result = runAsp(['--help'])
-    const output = result.stdout + result.stderr
+  cliTest(
+    'asp --help lists the existing commands alongside agent, and install --help works',
+    () => {
+      const result = runAsp(['--help'])
 
-    expect(output).toMatch(/run/)
-    expect(output).toMatch(/install/)
-    expect(output).toMatch(/build/)
-    expect(output).toMatch(/explain/)
-  })
-
-  cliTest('asp run --help still works', () => {
-    const result = runAsp(['run', '--help'])
-
-    expect(result.stdout + result.stderr).toMatch(/run|target|space/i)
-  })
-
-  cliTest('asp install --help still works', () => {
-    const result = runAsp(['install', '--help'])
-
-    expect(result.stdout + result.stderr).toMatch(/install/i)
-  })
-
-  cliTest('asp --help includes new agent subcommand', () => {
-    const result = runAsp(['--help'])
-
-    expect(result.stdout + result.stderr).toMatch(/agent/i)
-  })
-
-  cliTest('asp diff --json reads asp-lock.json instead of the project directory', () =>
-    withTempDirs(['asp-diff-home-'], async (aspHome) => {
-      const result = diffDevTarget(join(SAMPLE_FIXTURES_DIR, 'sample-project'), aspHome)
-
-      expect(result.stdout + result.stderr).not.toContain(
-        "Dist-tag 'stable' not found for space 'frontend'"
-      )
       expect(result.exitCode).toBe(0)
-      expect(result.stderr).not.toContain('EISDIR')
-      expect(JSON.parse(result.stdout)).toMatchObject({
-        diffs: [
-          {
-            target: 'dev',
-            changes: expect.arrayContaining([
-              expect.objectContaining({ spaceId: 'base', type: 'added' }),
-            ]),
-          },
-        ],
-      })
-    })
+      const commandNames = result.stdout
+        .split('\n')
+        .map((line) => /^ {2}([a-z-]+) /.exec(line)?.[1])
+        .filter((name) => name !== undefined)
+      expect(commandNames).toEqual(
+        expect.arrayContaining(['run', 'install', 'build', 'explain', 'agent'])
+      )
+
+      const install = runAsp(['install', '--help'])
+      expect(install.exitCode).toBe(0)
+      expect(install.stdout).toStartWith('Usage: asp install [options]\n')
+    }
   )
 
   cliTest('asp diff --json resolves copied project fixtures from explicit registry', () =>
@@ -105,6 +75,8 @@ describe('existing CLI compatibility (T-00867)', () => {
         "Dist-tag 'stable' not found for space 'frontend'"
       )
       expect(result.exitCode).toBe(0)
+      // diff reads asp-lock.json, never the project directory as a lock file
+      expect(result.stderr).not.toContain('EISDIR')
       expect(JSON.parse(result.stdout)).toMatchObject({
         diffs: [
           {

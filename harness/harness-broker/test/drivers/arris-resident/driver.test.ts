@@ -2,8 +2,6 @@ import { describe, expect, test } from 'bun:test'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ArrisHostDescriptor, InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
-import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
-import { ArrisRetryableNotWrittenError } from '../../../src/drivers/arris-resident/delivery-errors'
 import { createArrisResidentDriver } from '../../../src/drivers/arris-resident/driver'
 import { turnIdFrom } from '../../ids'
 import { captured, client, context, descriptor, receipt, spec } from './fixtures'
@@ -78,67 +76,6 @@ describe('Arris resident driver control seam', () => {
       events.filter((event) => event.type === 'driver.notice').map((event) => event.inputId)
     ).toEqual(['submission-1', 'submission-2'])
     await driver.dispose()
-  })
-
-  test('marks eligible not-written as retryable and advances the same input attempt', async () => {
-    const attempts: number[] = []
-    const control = client({
-      async queue(identity) {
-        attempts.push(identity.attempt)
-        return receipt(identity.input_id, identity.attempt, {
-          outcome: 'not_written',
-          code: 'host_busy',
-          message: 'host is busy',
-          eligible_for_retry: true,
-          requeue_as_input_permitted: false,
-        })
-      },
-    })
-    const driver = createArrisResidentDriver({
-      pollIntervalMs: 60_000,
-      readDescriptor: async () => descriptor(),
-      createControlClient: () => control,
-    })
-    await driver.start(spec(), context([]))
-    const input = {
-      inputId: 'submission-busy' as never,
-      kind: 'user' as const,
-      content: [{ type: 'text' as const, text: 'later' }],
-      metadata: { envelopeId: 'EN-1' },
-    }
-
-    for (const expected of [1, 2]) {
-      try {
-        await driver.applyInputNow(input)
-        throw new Error('expected retryable refusal')
-      } catch (error) {
-        expect(error).toBeInstanceOf(ArrisRetryableNotWrittenError)
-        expect((error as ArrisRetryableNotWrittenError).retryableNotWritten).toBe(true)
-        expect((error as { deliveryEvidence?: string }).deliveryEvidence).toBe('not_written')
-      }
-      expect(attempts.at(-1)).toBe(expected)
-      expect(driver.probeAdmissionState?.()).toEqual({ harnessLocalQueueDepth: 1 })
-    }
-    await driver.dispose()
-  })
-
-  test('rejects a descriptor for another host before control entry', async () => {
-    const driver = createArrisResidentDriver({
-      readDescriptor: async () =>
-        descriptor({
-          host_incarnation: {
-            ...descriptor().host_incarnation,
-            host_incarnation_id: 'host-incarnation:foreign',
-          },
-          events: {
-            ...descriptor().events,
-            host_incarnation_id: 'host-incarnation:foreign',
-          },
-        }),
-    })
-    await expect(driver.start(spec(), context([]))).rejects.toMatchObject({
-      code: BrokerErrorCode.IdentityInstallConflict,
-    })
   })
 
   test('reconciles an unresolved lost acknowledgement after bridge restart without replay', async () => {

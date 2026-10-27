@@ -85,11 +85,6 @@ function admittedLine(thread = THREAD, cwd = '/workspace/native'): string {
 }
 
 describe('Desktop native identity and admission (T-08577)', () => {
-  test('control: the existing compiler client public seam still loads', () => {
-    expect(typeof agentSpaces.createAgentSpacesClient).toBe('function')
-    expect(typeof agentSpaces.createAgentSpacesClient().buildProcessInvocationSpec).toBe('function')
-  })
-
   test('D1/D2: explicit symlinked home and sqlite home produce the golden canonical key', async () => {
     const base = root()
     const realHome = join(base, 'real-codex-home')

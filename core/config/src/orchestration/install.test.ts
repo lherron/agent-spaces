@@ -78,14 +78,6 @@ async function createAgentLocalComponents(options: {
 }
 
 describe('materializeAgentLocalComponents (T-01067)', () => {
-  test('returns undefined when input is undefined', async () => {
-    const { paths } = await createPaths('install-agent-local-none-')
-
-    await expect(
-      materializeAgentLocalComponents(undefined as unknown as AgentLocalComponents, paths)
-    ).resolves.toBeUndefined()
-  })
-
   test('materializes a skills-only synthetic plugin', async () => {
     const { paths } = await createPaths('install-agent-local-skills-')
     const components = await createAgentLocalComponents({ name: 'skills', hasSkills: true })

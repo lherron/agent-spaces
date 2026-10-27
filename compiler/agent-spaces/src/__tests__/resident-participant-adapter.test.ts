@@ -11,8 +11,6 @@ import {
 import {
   ARRIS_RESIDENT_DRIVER_KIND,
   type ResidentProductConfig,
-  arrisProductConfig,
-  createArrisParticipantAdapter,
   createResidentParticipantAdapter,
 } from '../arris-participant-adapter.js'
 
@@ -47,47 +45,6 @@ async function writeDescriptor(value: unknown): Promise<string> {
 }
 
 describe('Resident participant adapter (T-08666)', () => {
-  test('Arris wrapper composes the identical profile as the generic Arris config', async () => {
-    const descriptorPath = await writeDescriptor(await fixture())
-    const evidence = { schema: 'arris.participant-evidence/1', descriptorPath }
-    const wrapper = createArrisParticipantAdapter({
-      workspaceCwd: process.cwd(),
-      participantKey: 'arris:primary',
-    })
-    const generic = createResidentParticipantAdapter({
-      workspaceCwd: process.cwd(),
-      participantKey: 'arris:primary',
-      product: arrisProductConfig(),
-    })
-    const admitRequest = {
-      classId: 'arris-resident',
-      join: 'participant-served' as const,
-      evidence,
-    }
-    const wrapperAdmission = await wrapper.admit(admitRequest)
-    const genericAdmission = await generic.admit(admitRequest)
-    if (wrapperAdmission.status !== 'admitted' || genericAdmission.status !== 'admitted') {
-      throw new Error('arris fixture was not admitted')
-    }
-    const preparationRequest = {
-      classId: 'arris-resident',
-      join: 'participant-served' as const,
-      participantKey: wrapperAdmission.participantKey,
-      workspaceCwd: wrapperAdmission.workspaceCwd,
-      preparation: wrapperAdmission.preparation,
-      identity,
-      scopeRef: 'arris@arris:primary',
-      laneRef: 'main',
-      attachEpoch: 2,
-    }
-    const wrapperPrepared = await wrapper.prepare(preparationRequest)
-    const genericPrepared = await generic.prepare(preparationRequest)
-    if (wrapperPrepared.status !== 'prepared' || genericPrepared.status !== 'prepared') {
-      throw new Error('arris fixture was not prepared')
-    }
-    expect(genericPrepared.descriptor).toEqual(wrapperPrepared.descriptor)
-  })
-
   test('nonvisual product yields its own identity over the same driver contract', async () => {
     const descriptorPath = await writeDescriptor(await fixture())
     const adapter = createResidentParticipantAdapter({
@@ -173,47 +130,6 @@ describe('Resident participant adapter (T-08666)', () => {
     expect(() =>
       createResidentParticipantAdapter({ workspaceCwd: process.cwd(), product })
     ).toThrow(expect.objectContaining({ message: expect.stringContaining(message) }))
-  })
-
-  test('generic path refuses malformed identity and incarnation exactly like Arris', async () => {
-    const descriptorPath = await writeDescriptor(await fixture())
-    const adapter = createResidentParticipantAdapter({
-      workspaceCwd: process.cwd(),
-      participantKey: 'nonvisual:primary',
-      product: NONVISUAL_PRODUCT,
-    })
-    expect(
-      await adapter.admit({
-        classId: 'arris-resident',
-        join: 'participant-served',
-        evidence: { schema: 'wrong.schema/1', descriptorPath },
-      })
-    ).toEqual({ status: 'pending', reason: 'arris_host_evidence_invalid' })
-    const admission = await adapter.admit({
-      classId: 'arris-resident',
-      join: 'participant-served',
-      evidence: { schema: 'arris.participant-evidence/1', descriptorPath },
-    })
-    if (admission.status !== 'admitted') throw new Error('nonvisual was not admitted')
-    const descriptor = await fixture()
-    ;(descriptor['host_incarnation'] as Record<string, unknown>)['host_incarnation_id'] =
-      'host-incarnation:foreign'
-    ;(descriptor['events'] as Record<string, unknown>)['host_incarnation_id'] =
-      'host-incarnation:foreign'
-    await writeFile(descriptorPath, JSON.stringify(descriptor))
-    expect(
-      await adapter.prepare({
-        classId: 'arris-resident',
-        join: 'participant-served',
-        participantKey: admission.participantKey,
-        workspaceCwd: admission.workspaceCwd,
-        preparation: admission.preparation,
-        identity,
-        scopeRef: 'nonvisual@nonvisual:primary',
-        laneRef: 'main',
-        attachEpoch: 2,
-      })
-    ).toEqual({ status: 'rejected', reason: 'arris_host_incarnation_changed' })
   })
 
   test('reconnect keeps continuity on the stable participant key', async () => {

@@ -8,6 +8,13 @@
  * `invocation.event` notifications, and it must issue
  * `invocation.permission.request` requests back to the client (ask-client
  * policy, permission-request fake-codex fixture).
+ *
+ * It also pins the hrc-server consumer contract (T-07314 AC-10):
+ * `hrc-runtime/packages/hrc-server/src/agent-spaces-adapter/aspc-facade-client.ts`
+ * spawns `node_modules/.bin/aspc-facade` and speaks exactly the entries in
+ * HRC_SERVER_CONSUMER_SURFACE, so hrc-server must stay pointed at
+ * `spaces-aspc-facade`, not `spaces-aspc`. That list is copied by hand from the
+ * hrc-runtime source; update it when that client changes.
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { JsonRpcNotification, JsonRpcRequest } from 'spaces-harness-broker-protocol'
@@ -20,6 +27,27 @@ import {
   removeFixture,
   startFacadeClient,
 } from './helpers'
+
+type ConsumerEntry =
+  | { kind: 'request'; method: string }
+  | { kind: 'notification'; method: string }
+  | { kind: 'server-to-client-request'; method: string }
+
+/** Exactly what hrc-server's aspc-facade-client.ts speaks, in source order. */
+const HRC_SERVER_CONSUMER_SURFACE: ConsumerEntry[] = [
+  { kind: 'request', method: 'aspc.hello' },
+  { kind: 'request', method: 'aspc.compileHarnessInvocation' },
+  { kind: 'request', method: 'broker.hello' },
+  { kind: 'request', method: 'broker.health' },
+  { kind: 'request', method: 'invocation.start' },
+  { kind: 'request', method: 'invocation.input' },
+  { kind: 'request', method: 'invocation.interrupt' },
+  { kind: 'request', method: 'invocation.stop' },
+  { kind: 'request', method: 'invocation.status' },
+  { kind: 'request', method: 'invocation.dispose' },
+  { kind: 'notification', method: 'invocation.event' },
+  { kind: 'server-to-client-request', method: 'invocation.permission.request' },
+]
 
 let fixture: Fixture
 
@@ -50,10 +78,12 @@ function turnCompleted(events: JsonRpcNotification[], inputId: string | undefine
 describe('cohosted facade full plane', () => {
   test('AC-7: serves compile + start + broker + invocation routes, emits events and permission requests', async () => {
     const events: JsonRpcNotification[] = []
+    const notifiedMethods = new Set<string>()
     const permissionRequests: JsonRpcRequest[] = []
 
     const client = await startFacadeClient(fixture)
     client.onNotification((notification) => {
+      notifiedMethods.add(notification.method)
       if (notification.method === 'invocation.event') events.push(notification)
     })
     client.onRequest(async (request) => {
@@ -150,6 +180,20 @@ describe('cohosted facade full plane', () => {
       )
       expect(eventTypes.has('turn.started')).toBe(true)
       expect(eventTypes.has('permission.requested')).toBe(true)
+
+      // --- every entry hrc-server speaks is served ---
+      const serverRequested = new Set(permissionRequests.map((request) => request.method))
+      const unserved: string[] = []
+      for (const entry of HRC_SERVER_CONSUMER_SURFACE) {
+        if (entry.kind === 'request') {
+          if (!(await probeServed(client, entry.method, {}))) unserved.push(entry.method)
+        } else if (entry.kind === 'notification') {
+          if (!notifiedMethods.has(entry.method)) unserved.push(entry.method)
+        } else if (!serverRequested.has(entry.method)) {
+          unserved.push(entry.method)
+        }
+      }
+      expect(unserved).toEqual([])
 
       const stop = await client.request<{ accepted: boolean }>('invocation.stop', {
         invocationId,

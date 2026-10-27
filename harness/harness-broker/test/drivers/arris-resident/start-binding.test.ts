@@ -58,13 +58,31 @@ describe('Arris resident start binding', () => {
       code: BrokerErrorCode.IdentityInstallConflict,
       message: 'Arris host launch id does not match prepared binding',
     },
-  ])('$name', async ({ startSpec, code, message }) => {
+    {
+      name: 'a descriptor from another host incarnation is a binding conflict',
+      startSpec: spec(),
+      foreignHost: true,
+      code: BrokerErrorCode.IdentityInstallConflict,
+      message: 'Arris descriptor belongs to foreign host host-incarnation:foreign',
+    },
+  ])('$name', async (row) => {
+    const { startSpec, code, message } = row
     let descriptorReads = 0
     const driver = createArrisResidentDriver({
       pollIntervalMs: 60_000,
       readDescriptor: async () => {
         descriptorReads += 1
-        return descriptor()
+        const current = descriptor()
+        return 'foreignHost' in row && row.foreignHost
+          ? {
+              ...current,
+              host_incarnation: {
+                ...current.host_incarnation,
+                host_incarnation_id: 'host-incarnation:foreign',
+              },
+              events: { ...current.events, host_incarnation_id: 'host-incarnation:foreign' },
+            }
+          : current
       },
     })
     await expect(driver.start(startSpec, context([]))).rejects.toMatchObject({ code, message })

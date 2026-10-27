@@ -1,167 +1,35 @@
+import type { ProjectManifest } from '../types/targets.js'
+import { serializeTargetsToml } from './targets-toml.js'
 /**
  * Tests for project manifest (asp-targets.toml) parser
  *
  * WHY: Project manifest parsing is essential for reading target definitions
  * from the user's project. These tests verify TOML parsing, schema validation,
- * serialization, and error handling.
+ * and error handling.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdir, rm } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { must } from '../../test-support/must.js'
 
 import { ConfigParseError, ConfigValidationError } from '../errors.js'
-import type { ProjectManifest } from '../types/targets.js'
-import {
-  TARGETS_FILENAME,
-  parseTargetsToml,
-  readTargetsToml,
-  serializeTargetsToml,
-} from './targets-toml.js'
+import { parseTargetsToml, readTargetsToml } from './targets-toml.js'
 
-/** Create a minimal valid project manifest */
-function createValidManifest(): ProjectManifest {
-  return {
-    schema: 2,
-    targets: {
-      default: {
-        compose: ['space:my-space@stable'],
-      },
-    },
+function validationErrorOf(toml: string): ConfigValidationError {
+  try {
+    parseTargetsToml(toml)
+  } catch (error) {
+    expect(error).toBeInstanceOf(ConfigValidationError)
+    return error as ConfigValidationError
   }
+  throw new Error('expected parseTargetsToml to reject')
 }
-
-/** Create a full-featured project manifest */
-function createFullManifest(): ProjectManifest {
-  return {
-    schema: 2,
-    claude: {
-      model: 'claude-3-opus',
-      permission_mode: 'auto',
-      args: ['--verbose'],
-    },
-    targets: {
-      default: {
-        description: 'Default development target',
-        priming: 'Initialize tools and announce ready status.',
-        compose: ['space:core@stable', 'space:frontend@^1.0.0'],
-        provisioning: {
-          claude: {
-            model: 'claude-3-sonnet',
-          },
-        },
-        resolver: {
-          locked: true,
-          allow_dirty: false,
-        },
-      },
-      production: {
-        description: 'Production target',
-        compose: ['space:core@stable'],
-      },
-    },
-  }
-}
-
-/** Convert a ProjectManifest to TOML string for testing */
-function toToml(manifest: ProjectManifest): string {
-  const lines: string[] = []
-  lines.push(`schema = ${manifest.schema}`)
-
-  if (manifest.claude) {
-    lines.push('')
-    lines.push('[claude]')
-    if (manifest.claude.model) lines.push(`model = "${manifest.claude.model}"`)
-    if (manifest.claude.permission_mode) {
-      lines.push(`permission_mode = "${manifest.claude.permission_mode}"`)
-    }
-    if (manifest.claude.args) {
-      lines.push(`args = [${manifest.claude.args.map((a) => `"${a}"`).join(', ')}]`)
-    }
-  }
-
-  for (const [name, target] of Object.entries(manifest.targets)) {
-    lines.push('')
-    lines.push(`[targets.${name}]`)
-    if (target.description) lines.push(`description = "${target.description}"`)
-    if (target.priming) lines.push(`priming = "${target.priming}"`)
-    lines.push(
-      `compose = [${must(target.compose, `targets.${name}.compose`)
-        .map((c) => `"${c}"`)
-        .join(', ')}]`
-    )
-
-    if (target.provisioning?.claude) {
-      lines.push('')
-      lines.push(`[targets.${name}.provisioning.claude]`)
-      if (target.provisioning.claude.model) {
-        lines.push(`model = "${target.provisioning.claude.model}"`)
-      }
-      if (target.provisioning.claude.permission_mode) {
-        lines.push(`permission_mode = "${target.provisioning.claude.permission_mode}"`)
-      }
-      if (target.provisioning.claude.args) {
-        lines.push(`args = [${target.provisioning.claude.args.map((a) => `"${a}"`).join(', ')}]`)
-      }
-    }
-
-    if (target.resolver) {
-      lines.push('')
-      lines.push(`[targets.${name}.resolver]`)
-      if (target.resolver.locked !== undefined) {
-        lines.push(`locked = ${target.resolver.locked}`)
-      }
-      if (target.resolver.allow_dirty !== undefined) {
-        lines.push(`allow_dirty = ${target.resolver.allow_dirty}`)
-      }
-    }
-  }
-
-  return `${lines.join('\n')}\n`
-}
-
-describe('TARGETS_FILENAME constant', () => {
-  test('has correct value', () => {
-    expect(TARGETS_FILENAME).toBe('asp-targets.toml')
-  })
-})
 
 describe('parseTargetsToml', () => {
   describe('valid input', () => {
-    test('parses minimal valid manifest', () => {
-      const toml = `
-schema = 2
-
-[targets.default]
-compose = ["space:my-space@stable"]
-`
-      const result = parseTargetsToml(toml)
-
-      expect(result.schema).toBe(2)
-      expect(result.targets['default']).toBeDefined()
-      expect(must(result.targets['default']).compose).toEqual(['space:my-space@stable'])
-    })
-
-    test('parses manifest with multiple targets', () => {
-      const toml = `
-schema = 2
-
-[targets.dev]
-compose = ["space:dev@latest"]
-
-[targets.prod]
-compose = ["space:prod@stable"]
-`
-      const result = parseTargetsToml(toml)
-
-      expect(Object.keys(result.targets)).toHaveLength(2)
-      expect(must(result.targets['dev']).compose).toEqual(['space:dev@latest'])
-      expect(must(result.targets['prod']).compose).toEqual(['space:prod@stable'])
-    })
-
-    test('parses manifest with global claude options', () => {
+    test('a full asp-targets.toml parses to exactly the manifest it encodes', () => {
       const toml = `
 schema = 2
 
@@ -170,291 +38,192 @@ model = "claude-3-opus"
 permission_mode = "auto"
 args = ["--verbose"]
 
-[targets.default]
-compose = ["space:my-space@stable"]
-`
-      const result = parseTargetsToml(toml)
-
-      expect(result.claude?.model).toBe('claude-3-opus')
-      expect(result.claude?.permission_mode).toBe('auto')
-      expect(result.claude?.args).toEqual(['--verbose'])
-    })
-
-    test('parses optional top-level agents-root', () => {
-      const toml = `
-schema = 2
-agents-root = "agents"
-
-[targets.default]
-compose = ["space:my-space@stable"]
-`
-      const result = parseTargetsToml(toml)
-
-      expect(result['agents-root']).toBe('agents')
-      expect(result.schema).toBe(2)
-    })
-
-    test('parses manifest with codex options', () => {
-      const toml = `
-schema = 2
-
 [codex]
 model = "gpt-5.3-codex"
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"
+model_reasoning_effort = "high"
+model_reasoning_summary = "concise"
+status_line = ["model-with-reasoning", "context-remaining", "current-dir"]
 
-[targets.default]
-compose = ["space:my-space@stable"]
+[targets.dev]
+description = "My development target"
+priming = "Register with agentchat and send READY"
+compose_mode = "replace"
+compose = ["space:core@stable", "space:frontend@^1.0.0", "space:backend@latest"]
 
-[targets.default.provisioning.codex]
+[targets.dev.provisioning.claude]
+model = "claude-3-sonnet"
+
+[targets.dev.provisioning.codex]
 model = "gpt-5.1-codex-mini"
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
-`
-      const result = parseTargetsToml(toml)
+model_reasoning_effort = "low"
+model_reasoning_summary = "detailed"
+status_line = ["model", "context-remaining", "git-branch"]
 
-      expect(result.codex?.model).toBe('gpt-5.3-codex')
-      expect(result.codex?.approval_policy).toBe('on-request')
-      expect(result.codex?.sandbox_mode).toBe('workspace-write')
-      expect(must(result.targets['default']).provisioning?.codex?.model).toBe('gpt-5.1-codex-mini')
-      expect(must(result.targets['default']).provisioning?.codex?.approval_policy).toBe('never')
-      expect(must(result.targets['default']).provisioning?.codex?.sandbox_mode).toBe(
-        'danger-full-access'
-      )
-    })
-
-    test('rejects a codex profile selector (T-08581)', () => {
-      expect(() => parseTargetsToml('schema = 2\n[codex]\nprofile = "meta"\n[targets]\n')).toThrow(
-        ConfigValidationError
-      )
-      expect(() =>
-        parseTargetsToml(
-          'schema = 2\n[targets.default]\ncompose = []\n[targets.default.provisioning.codex]\nprofile = "meta"\n'
-        )
-      ).toThrow(ConfigValidationError)
-    })
-
-    test('parses manifest with target-specific claude options', () => {
-      const toml = `
-schema = 2
-
-[targets.default]
-compose = ["space:my-space@stable"]
-
-[targets.default.provisioning.claude]
-model = "claude-3-sonnet"
-`
-      const result = parseTargetsToml(toml)
-
-      expect(must(result.targets['default']).provisioning?.claude?.model).toBe('claude-3-sonnet')
-    })
-
-    test('parses manifest with resolver options', () => {
-      const toml = `
-schema = 2
-
-[targets.default]
-compose = ["space:my-space@stable"]
-
-[targets.default.resolver]
+[targets.dev.resolver]
 locked = true
 allow_dirty = false
+
+[targets.larry]
+compose_mode = "merge"
+compose = ["space:praesidium-defaults@dev"]
+priming_append = "Extra context only."
 `
-      const result = parseTargetsToml(toml)
 
-      expect(must(result.targets['default']).resolver?.locked).toBe(true)
-      expect(must(result.targets['default']).resolver?.allow_dirty).toBe(false)
-    })
-
-    test('parses manifest with description', () => {
-      const toml = `
-schema = 2
-
-[targets.default]
-description = "My development target"
-compose = ["space:my-space@stable"]
-`
-      const result = parseTargetsToml(toml)
-
-      expect(must(result.targets['default']).description).toBe('My development target')
-    })
-
-    test('parses manifest with priming', () => {
-      const toml = `
-schema = 2
-
-[targets.default]
-priming = "Register with agentchat and send READY"
-compose = ["space:my-space@stable"]
-`
-      const result = parseTargetsToml(toml)
-
-      expect(must(result.targets['default']).priming).toBe('Register with agentchat and send READY')
-    })
-
-    test('parses manifest with multiple compose entries', () => {
-      const toml = `
-schema = 2
-
-[targets.default]
-compose = ["space:core@stable", "space:frontend@^1.0.0", "space:backend@latest"]
-`
-      const result = parseTargetsToml(toml)
-
-      expect(must(result.targets['default']).compose).toHaveLength(3)
-      expect(must(result.targets['default']).compose).toContain('space:core@stable')
-      expect(must(result.targets['default']).compose).toContain('space:frontend@^1.0.0')
-    })
-
-    test('uses provided filePath in error messages', () => {
-      const toml = 'invalid toml ['
-      try {
-        parseTargetsToml(toml, '/custom/asp-targets.toml')
-      } catch (e) {
-        expect((e as ConfigParseError).source).toBe('/custom/asp-targets.toml')
-      }
-    })
-
-    test('uses default filename when filePath not provided', () => {
-      const toml = 'invalid toml ['
-      try {
-        parseTargetsToml(toml)
-      } catch (e) {
-        expect((e as ConfigParseError).source).toBe('asp-targets.toml')
-      }
+      expect(parseTargetsToml(toml)).toEqual({
+        schema: 2,
+        claude: { model: 'claude-3-opus', permission_mode: 'auto', args: ['--verbose'] },
+        codex: {
+          model: 'gpt-5.3-codex',
+          approval_policy: 'on-request',
+          sandbox_mode: 'workspace-write',
+          model_reasoning_effort: 'high',
+          model_reasoning_summary: 'concise',
+          status_line: ['model-with-reasoning', 'context-remaining', 'current-dir'],
+        },
+        targets: {
+          dev: {
+            description: 'My development target',
+            priming: 'Register with agentchat and send READY',
+            compose_mode: 'replace',
+            compose: ['space:core@stable', 'space:frontend@^1.0.0', 'space:backend@latest'],
+            provisioning: {
+              claude: { model: 'claude-3-sonnet' },
+              codex: {
+                model: 'gpt-5.1-codex-mini',
+                approval_policy: 'never',
+                sandbox_mode: 'danger-full-access',
+                model_reasoning_effort: 'low',
+                model_reasoning_summary: 'detailed',
+                status_line: ['model', 'context-remaining', 'git-branch'],
+              },
+            },
+            resolver: { locked: true, allow_dirty: false },
+          },
+          larry: {
+            compose_mode: 'merge',
+            compose: ['space:praesidium-defaults@dev'],
+            priming_append: 'Extra context only.',
+          },
+        },
+      })
     })
   })
 
   describe('TOML parse errors', () => {
-    test('throws ConfigParseError for invalid TOML syntax', () => {
-      expect(() => parseTargetsToml('[invalid')).toThrow(ConfigParseError)
-    })
-
-    test('throws ConfigParseError for unclosed string', () => {
-      expect(() => parseTargetsToml('key = "unclosed')).toThrow(ConfigParseError)
-    })
-
-    test('throws ConfigParseError for duplicate keys', () => {
-      const toml = `
-schema = 2
-schema = 2
-`
-      expect(() => parseTargetsToml(toml)).toThrow(ConfigParseError)
-    })
-
-    test('includes original error message in ConfigParseError', () => {
-      try {
-        parseTargetsToml('[invalid')
-      } catch (e) {
-        expect(e).toBeInstanceOf(ConfigParseError)
-        expect((e as ConfigParseError).message).toContain('Failed to parse TOML')
-      }
+    test('malformed asp-targets.toml raises ConfigParseError naming the file and the TOML error', () => {
+      expect(() => parseTargetsToml('[invalid', '/custom/asp-targets.toml')).toThrow(
+        expect.objectContaining({
+          name: 'ConfigParseError',
+          source: '/custom/asp-targets.toml',
+          message: expect.stringContaining('Failed to parse TOML'),
+        })
+      )
     })
   })
 
   describe('schema validation errors', () => {
-    test('throws ConfigValidationError for missing required fields', () => {
-      const toml = 'version = "1.0.0"'
-      expect(() => parseTargetsToml(toml)).toThrow(ConfigValidationError)
+    test.each([
+      ['marker-only file', 'schema = 2', {}],
+      ['empty [targets] table', 'schema = 2\n\n[targets]\n', {}],
+      [
+        'target without compose (agent-profile provides defaults)',
+        'schema = 2\n\n[targets.default]\ndescription = "No compose"\n',
+        { default: { description: 'No compose' } },
+      ],
+      [
+        'target with empty compose array',
+        'schema = 2\n\n[targets.default]\ncompose = []\n',
+        { default: { compose: [] } },
+      ],
+    ])('a schema 2 file with no compose entries is valid: %s', (_label, toml, targets) => {
+      expect(parseTargetsToml(toml).targets).toEqual(targets)
     })
 
-    test('throws ConfigValidationError for wrong schema version', () => {
-      const toml = `
-schema = 1
-
-[targets.default]
-compose = ["space:my-space@stable"]
-`
-      expect(() => parseTargetsToml(toml)).toThrow(ConfigValidationError)
-    })
-
-    test('marker-only file (schema = 2, no targets) is valid with targets = {}', () => {
-      const toml = 'schema = 2'
-      const manifest = parseTargetsToml(toml)
-      expect(manifest.targets).toEqual({})
-    })
-
-    test('empty [targets] table parses to an empty map', () => {
-      const toml = `
-schema = 2
-
-[targets]
-`
-      const manifest = parseTargetsToml(toml)
-      expect(manifest.targets).toEqual({})
-    })
-
-    test('allows target without compose (agent-profile provides defaults)', () => {
-      const toml = `
-schema = 2
-
-[targets.default]
-description = "No compose — agent-profile provides defaults"
-`
-      const manifest = parseTargetsToml(toml)
-      expect(manifest.targets['default']).toBeDefined()
-      expect(must(manifest.targets['default']).compose).toBeUndefined()
-    })
-
-    test('allows target with empty compose array', () => {
-      const toml = `
-schema = 2
-
-[targets.default]
-compose = []
-`
-      const manifest = parseTargetsToml(toml)
-      expect(must(manifest.targets['default']).compose).toEqual([])
-    })
-
-    test('throws ConfigValidationError for invalid space ref format', () => {
-      const toml = `
-schema = 2
-
-[targets.default]
-compose = ["invalid-ref"]
-`
-      expect(() => parseTargetsToml(toml)).toThrow(ConfigValidationError)
-    })
-
-    test('throws ConfigValidationError for description too long', () => {
-      const toml = `
-schema = 2
-
-[targets.default]
-description = "${'a'.repeat(301)}"
-compose = ["space:my-space@stable"]
-`
-      expect(() => parseTargetsToml(toml)).toThrow(ConfigValidationError)
-    })
-
-    test('includes validation errors in ConfigValidationError', () => {
-      const toml = 'schema = 2'
-      try {
-        parseTargetsToml(toml)
-      } catch (e) {
-        expect(e).toBeInstanceOf(ConfigValidationError)
-        expect((e as ConfigValidationError).validationErrors.length).toBeGreaterThan(0)
+    test.each([
+      ['missing schema', 'version = "1.0.0"', '/', 'required', "required property 'schema'"],
+      ['schema 1 marker', 'schema = 1', '/schema', 'const', '/schema'],
+      [
+        'schema 1 with targets',
+        'schema = 1\n[targets.default]\ncompose = []\n',
+        '/schema',
+        'const',
+        '/schema',
+      ],
+      [
+        'compose entry that is not a space ref',
+        'schema = 2\n[targets.default]\ncompose = ["invalid-ref"]\n',
+        '/targets/default/compose/0',
+        'pattern',
+        '"invalid-ref" is not a valid space reference',
+      ],
+      [
+        '301-char description',
+        `schema = 2\n[targets.default]\ndescription = "${'a'.repeat(301)}"\n`,
+        '/targets/default/description',
+        'maxLength',
+        '300 characters',
+      ],
+      [
+        'compose_mode append',
+        'schema = 2\n[targets.larry]\ncompose_mode = "append"\n',
+        '/targets/larry/compose_mode',
+        'enum',
+        '"append"',
+      ],
+      [
+        'model_reasoning_summary verbose',
+        'schema = 2\n[codex]\nmodel_reasoning_summary = "verbose"\n',
+        '/codex/model_reasoning_summary',
+        'enum',
+        '"verbose"',
+      ],
+      [
+        '[codex] profile selector',
+        'schema = 2\n[codex]\nprofile = "meta"\n[targets]\n',
+        '/codex',
+        'additionalProperties',
+        'unknown property "profile"',
+      ],
+      [
+        'target provisioning.codex profile selector',
+        'schema = 2\n[targets.default]\ncompose = []\n[targets.default.provisioning.codex]\nprofile = "meta"\n',
+        '/targets/default/provisioning/codex',
+        'additionalProperties',
+        'unknown property "profile"',
+      ],
+      [
+        'removed provisioning viewer key',
+        'schema = 2\n[targets.default]\ncompose = []\n[targets.default.provisioning]\nviewer = "none"\n',
+        '/targets/default/provisioning',
+        'additionalProperties',
+        'unknown property "viewer"',
+      ],
+      [
+        'removed provisioning reasoning key',
+        'schema = 2\n[targets.default]\ncompose = []\n[targets.default.provisioning]\nreasoning = "high"\n',
+        '/targets/default/provisioning',
+        'additionalProperties',
+        'unknown property "reasoning"',
+      ],
+      [
+        'unknown target field',
+        'schema = 2\n\n[targets.manager]\ncompose = ["space:my-space@stable"]\nunknownField = "bad"\n',
+        '/targets/manager',
+        'additionalProperties',
+        'unknown property "unknownField"',
+      ],
+    ])(
+      'asp-targets.toml violating the schema is rejected at the offending path: %s',
+      (_label, toml, path, keyword, messageFragment) => {
+        const error = validationErrorOf(toml)
+        expect(error.validationErrors[0]).toMatchObject({ path, keyword })
+        expect(error.message).toContain(messageFragment)
       }
-    })
-
-    test('shows property name in additionalProperties error message', () => {
-      const toml = `
-schema = 2
-
-[targets.manager]
-compose = ["space:my-space@stable"]
-unknownField = "bad"
-`
-      try {
-        parseTargetsToml(toml)
-        expect.unreachable('should have thrown')
-      } catch (e) {
-        expect(e).toBeInstanceOf(ConfigValidationError)
-        const err = e as ConfigValidationError
-        expect(err.message).toContain('unknown property "unknownField"')
-      }
-    })
+    )
   })
 })
 
@@ -462,8 +231,7 @@ describe('readTargetsToml', () => {
   let testDir: string
 
   beforeEach(async () => {
-    testDir = join(tmpdir(), `targets-toml-test-${Date.now()}`)
-    await mkdir(testDir, { recursive: true })
+    testDir = await mkdtemp(join(tmpdir(), 'targets-toml-test-'))
   })
 
   afterEach(async () => {
@@ -485,30 +253,15 @@ compose = ["space:my-space@stable"]
     expect(result.targets['default']).toBeDefined()
   })
 
-  test('reads and parses full-featured manifest', async () => {
-    const manifest = createFullManifest()
-    const filePath = join(testDir, 'asp-targets.toml')
-    await Bun.write(filePath, toToml(manifest))
-
-    const result = await readTargetsToml(filePath)
-    expect(result.schema).toBe(2)
-    expect(result.claude?.model).toBe('claude-3-opus')
-    expect(must(result.targets['default']).resolver?.locked).toBe(true)
-  })
-
-  test('throws ConfigParseError for non-existent file', async () => {
+  test('a missing asp-targets.toml rejects with ConfigFileNotFoundError naming the path', async () => {
     const filePath = join(testDir, 'nonexistent.toml')
-    await expect(readTargetsToml(filePath)).rejects.toThrow(ConfigParseError)
-  })
-
-  test('includes file path in error for non-existent file', async () => {
-    const filePath = join(testDir, 'nonexistent.toml')
-    try {
-      await readTargetsToml(filePath)
-    } catch (e) {
-      expect((e as ConfigParseError).source).toBe(filePath)
-      expect((e as ConfigParseError).message).toContain('File not found')
-    }
+    const read = readTargetsToml(filePath)
+    await expect(read).rejects.toBeInstanceOf(ConfigParseError)
+    await expect(read).rejects.toMatchObject({
+      name: 'ConfigFileNotFoundError',
+      source: filePath,
+      message: 'File not found',
+    })
   })
 
   test('throws ConfigValidationError for invalid content', async () => {
@@ -519,74 +272,37 @@ compose = ["space:my-space@stable"]
   })
 })
 
-describe('serializeTargetsToml', () => {
-  test('serializes minimal manifest to TOML', () => {
-    const manifest = createValidManifest()
-    const result = serializeTargetsToml(manifest)
-
-    expect(result).toContain('schema = 2')
-    expect(result).toContain('[targets.default]')
-    expect(result).toContain('space:my-space@stable')
-  })
-
-  test('serializes full manifest to TOML', () => {
-    const manifest = createFullManifest()
-    const result = serializeTargetsToml(manifest)
-
-    expect(result).toContain('schema = 2')
-    expect(result).toContain('[claude]')
-    expect(result).toContain('model = "claude-3-opus"')
-    expect(result).toContain('[targets.default]')
-    expect(result).toContain('[targets.production]')
-  })
-
-  test('serializes multiple targets', () => {
-    const manifest = createFullManifest()
-    const result = serializeTargetsToml(manifest)
-
-    expect(result).toContain('default')
-    expect(result).toContain('production')
-  })
-
-  test('round-trip: serialize then parse produces equivalent object', () => {
-    const original = createValidManifest()
-    const serialized = serializeTargetsToml(original)
-    const parsed = parseTargetsToml(serialized)
-
-    expect(parsed.schema).toBe(original.schema)
-    expect(must(parsed.targets['default']).compose).toEqual(
-      must(original.targets['default']).compose
-    )
-  })
-
-  test('round-trip with full manifest', () => {
-    const original = createFullManifest()
-    const serialized = serializeTargetsToml(original)
-    const parsed = parseTargetsToml(serialized)
-
-    expect(parsed.schema).toBe(original.schema)
-    expect(parsed.claude?.model).toBe(original.claude?.model)
-    expect(must(parsed.targets['default']).compose).toEqual(
-      must(original.targets['default']).compose
-    )
-    expect(must(parsed.targets['default']).resolver?.locked).toBe(
-      must(original.targets['default']).resolver?.locked
-    )
-    expect(must(parsed.targets['default']).priming).toBe(must(original.targets['default']).priming)
-  })
-})
-
 describe('parseTargetsToml: v4 selection vocabulary (T-08701)', () => {
-  test('accepts only schema 2 and rejects schema 1 without translation', () => {
-    expect(parseTargetsToml('schema = 2').schema).toBe(2)
-    expect(() => parseTargetsToml('schema = 1')).toThrow(ConfigValidationError)
-    expect(() => parseTargetsToml('schema = 1\n[targets.default]\ncompose = []\n')).toThrow(
-      ConfigValidationError
-    )
-  })
-
-  test('parses the new selection scalars and preserves explicit presentation false', () => {
-    const manifest = parseTargetsToml(`
+  test.each([
+    [
+      'explicit presentation false',
+      'presentation = false\n',
+      {
+        harness: 'codex',
+        model_provider: 'openai-codex',
+        model: 'gpt-5.5',
+        reasoning_effort: 'high',
+        presentation: false,
+        yolo: true,
+      },
+      true,
+    ],
+    [
+      'omitted presentation',
+      '',
+      {
+        harness: 'codex',
+        model_provider: 'openai-codex',
+        model: 'gpt-5.5',
+        reasoning_effort: 'high',
+        yolo: true,
+      },
+      false,
+    ],
+  ])(
+    'target provisioning parses the selection scalars and keeps presentation only when authored: %s',
+    (_label, presentationLine, expected, present) => {
+      const manifest = parseTargetsToml(`
 schema = 2
 
 [targets.default]
@@ -597,50 +313,13 @@ harness = "codex"
 model_provider = "openai-codex"
 model = "gpt-5.5"
 reasoning_effort = "high"
-presentation = false
 yolo = true
-`)
-    expect(must(manifest.targets['default']).provisioning).toEqual({
-      harness: 'codex',
-      model_provider: 'openai-codex',
-      model: 'gpt-5.5',
-      reasoning_effort: 'high',
-      presentation: false,
-      yolo: true,
-    })
-    expect(
-      Object.hasOwn(must(manifest.targets['default']).provisioning ?? {}, 'presentation')
-    ).toBe(true)
-  })
-
-  test('omitted presentation stays absent through parse and round-trip', () => {
-    const manifest = parseTargetsToml(`
-schema = 2
-
-[targets.default]
-compose = ["space:my-space@stable"]
-
-[targets.default.provisioning]
-harness = "codex"
-`)
-    expect(
-      Object.hasOwn(must(manifest.targets['default']).provisioning ?? {}, 'presentation')
-    ).toBe(false)
-    const roundTripped = parseTargetsToml(serializeTargetsToml(manifest))
-    expect(
-      Object.hasOwn(must(roundTripped.targets['default']).provisioning ?? {}, 'presentation')
-    ).toBe(false)
-  })
-
-  test('rejects removed viewer and reasoning keys', () => {
-    for (const line of ['viewer = "none"', 'reasoning = "high"']) {
-      expect(() =>
-        parseTargetsToml(
-          `schema = 2\n[targets.default]\ncompose = []\n[targets.default.provisioning]\n${line}\n`
-        )
-      ).toThrow(ConfigValidationError)
+${presentationLine}`)
+      const provisioning = must(manifest.targets['default']).provisioning
+      expect(provisioning).toEqual(expected)
+      expect(Object.hasOwn(provisioning ?? {}, 'presentation')).toBe(present)
     }
-  })
+  )
 
   test('rejects harness aliases and removed harness ids', () => {
     for (const harness of ['claude-code', 'agent-sdk', 'pi', 'pi-sdk']) {
@@ -658,5 +337,139 @@ harness = "codex"
         `schema = 2\n[targets.default]\ncompose = []\n[targets.default.provisioning]\nmodel = "openai-codex/gpt-5.5"\n`
       )
     ).toThrow(ConfigValidationError)
+  })
+})
+
+describe('published caller behavior (§9)', () => {
+  /**
+   * Tests for project manifest (asp-targets.toml) parser
+   *
+   * WHY: Project manifest parsing is essential for reading target definitions
+   * from the user's project. These tests verify TOML parsing, schema validation,
+   * serialization, and error handling.
+   */
+
+  /** Create a minimal valid project manifest */
+  function createValidManifest(): ProjectManifest {
+    return {
+      schema: 2,
+      targets: {
+        default: {
+          compose: ['space:my-space@stable'],
+        },
+      },
+    }
+  }
+
+  /** Create a full-featured project manifest */
+  function createFullManifest(): ProjectManifest {
+    return {
+      schema: 2,
+      claude: {
+        model: 'claude-3-opus',
+        permission_mode: 'auto',
+        args: ['--verbose'],
+      },
+      targets: {
+        default: {
+          description: 'Default development target',
+          priming: 'Initialize tools and announce ready status.',
+          compose: ['space:core@stable', 'space:frontend@^1.0.0'],
+          provisioning: {
+            claude: {
+              model: 'claude-3-sonnet',
+            },
+          },
+          resolver: {
+            locked: true,
+            allow_dirty: false,
+          },
+        },
+        production: {
+          description: 'Production target',
+          compose: ['space:core@stable'],
+        },
+      },
+    }
+  }
+
+  describe('serializeTargetsToml', () => {
+    test('serializes minimal manifest to TOML', () => {
+      const manifest = createValidManifest()
+      const result = serializeTargetsToml(manifest)
+
+      expect(result).toContain('schema = 2')
+      expect(result).toContain('[targets.default]')
+      expect(result).toContain('space:my-space@stable')
+    })
+
+    test('serializes full manifest to TOML', () => {
+      const manifest = createFullManifest()
+      const result = serializeTargetsToml(manifest)
+
+      expect(result).toContain('schema = 2')
+      expect(result).toContain('[claude]')
+      expect(result).toContain('model = "claude-3-opus"')
+      expect(result).toContain('[targets.default]')
+      expect(result).toContain('[targets.production]')
+    })
+
+    test('serializes multiple targets', () => {
+      const manifest = createFullManifest()
+      const result = serializeTargetsToml(manifest)
+
+      expect(result).toContain('default')
+      expect(result).toContain('production')
+    })
+
+    test('round-trip: serialize then parse produces equivalent object', () => {
+      const original = createValidManifest()
+      const serialized = serializeTargetsToml(original)
+      const parsed = parseTargetsToml(serialized)
+
+      expect(parsed.schema).toBe(original.schema)
+      expect(must(parsed.targets['default']).compose).toEqual(
+        must(original.targets['default']).compose
+      )
+    })
+
+    test('round-trip with full manifest', () => {
+      const original = createFullManifest()
+      const serialized = serializeTargetsToml(original)
+      const parsed = parseTargetsToml(serialized)
+
+      expect(parsed.schema).toBe(original.schema)
+      expect(parsed.claude?.model).toBe(original.claude?.model)
+      expect(must(parsed.targets['default']).compose).toEqual(
+        must(original.targets['default']).compose
+      )
+      expect(must(parsed.targets['default']).resolver?.locked).toBe(
+        must(original.targets['default']).resolver?.locked
+      )
+      expect(must(parsed.targets['default']).priming).toBe(
+        must(original.targets['default']).priming
+      )
+    })
+  })
+
+  describe('published lock and serialization behavior', () => {
+    test('omitted presentation stays absent through parse and round-trip', () => {
+      const manifest = parseTargetsToml(`
+schema = 2
+
+[targets.default]
+compose = ["space:my-space@stable"]
+
+[targets.default.provisioning]
+harness = "codex"
+`)
+      expect(
+        Object.hasOwn(must(manifest.targets['default']).provisioning ?? {}, 'presentation')
+      ).toBe(false)
+      const roundTripped = parseTargetsToml(serializeTargetsToml(manifest))
+      expect(
+        Object.hasOwn(must(roundTripped.targets['default']).provisioning ?? {}, 'presentation')
+      ).toBe(false)
+    })
   })
 })

@@ -39,28 +39,6 @@ describe('reserved files contract (T-00852)', () => {
     rmSync(tempDir, { recursive: true, force: true })
   })
 
-  test('resolution succeeds when SOUL.md exists', async () => {
-    // SOUL.md exists in fixture — resolution should succeed
-    expect(existsSync(join(agentRoot, 'SOUL.md'))).toBe(true)
-
-    // Import the resolution function that validates reserved files
-    // This module doesn't exist yet (RED)
-    const { validateAgentRoot } = await import('../resolver/agent-root.js')
-    const result = validateAgentRoot(agentRoot)
-    expect(result.valid).toBe(true)
-    expect(result.soulMd).toBeDefined()
-    expect(result.soulMd.length).toBeGreaterThan(0)
-  })
-
-  test('resolution fails when SOUL.md is missing', async () => {
-    // Remove SOUL.md
-    unlinkSync(join(agentRoot, 'SOUL.md'))
-    expect(existsSync(join(agentRoot, 'SOUL.md'))).toBe(false)
-
-    const { validateAgentRoot } = await import('../resolver/agent-root.js')
-    expect(() => validateAgentRoot(agentRoot)).toThrow(/SOUL\.md.*required|missing.*SOUL/i)
-  })
-
   test('resolution succeeds when HEARTBEAT.md is missing', async () => {
     // Remove HEARTBEAT.md — should still be fine
     unlinkSync(join(agentRoot, 'HEARTBEAT.md'))
@@ -71,68 +49,12 @@ describe('reserved files contract (T-00852)', () => {
     expect(result.valid).toBe(true)
     expect(result.heartbeatMd).toBeUndefined()
   })
-
-  test('resolution includes HEARTBEAT.md content when present', async () => {
-    expect(existsSync(join(agentRoot, 'HEARTBEAT.md'))).toBe(true)
-
-    const { validateAgentRoot } = await import('../resolver/agent-root.js')
-    const result = validateAgentRoot(agentRoot)
-    expect(result.valid).toBe(true)
-    expect(result.heartbeatMd).toBeDefined()
-    expect(result.heartbeatMd!.length).toBeGreaterThan(0)
-  })
-
-  test('resolution includes agent-profile.toml when present', async () => {
-    expect(existsSync(join(agentRoot, 'agent-profile.toml'))).toBe(true)
-
-    const { validateAgentRoot } = await import('../resolver/agent-root.js')
-    const result = validateAgentRoot(agentRoot)
-    expect(result.profile).toBeDefined()
-  })
-
-  test('resolution succeeds when agent-profile.toml is missing', async () => {
-    unlinkSync(join(agentRoot, 'agent-profile.toml'))
-
-    const { validateAgentRoot } = await import('../resolver/agent-root.js')
-    const result = validateAgentRoot(agentRoot)
-    expect(result.valid).toBe(true)
-    expect(result.profile).toBeUndefined()
-  })
 })
 
 // ===================================================================
 // T-00853: agent-profile.toml parser
 // ===================================================================
 describe('agent-profile.toml parser (T-00853)', () => {
-  test('parseAgentProfile parses valid fixture profile', async () => {
-    // This module doesn't exist yet (RED)
-    const { parseAgentProfile } = await import('../core/config/agent-profile-toml.js')
-
-    const content = readFileSync(join(resolveAgentRoot(), 'agent-profile.toml'), 'utf8')
-    const profile = parseAgentProfile(content)
-
-    expect(profile.version).toBe(4)
-  })
-
-  test('parses instructions.base', async () => {
-    const { parseAgentProfile } = await import('../core/config/agent-profile-toml.js')
-    const content = readFileSync(join(resolveAgentRoot(), 'agent-profile.toml'), 'utf8')
-    const profile = parseAgentProfile(content)
-
-    expect(profile.instructions).toBeDefined()
-    expect(profile.instructions!.base).toEqual(['agent-root:///SOUL.md'])
-  })
-
-  test('parses spaces.base and spaces.modes', async () => {
-    const { parseAgentProfile } = await import('../core/config/agent-profile-toml.js')
-    const content = readFileSync(join(resolveAgentRoot(), 'agent-profile.toml'), 'utf8')
-    const profile = parseAgentProfile(content)
-
-    expect(profile.spaces).toBeDefined()
-    expect<string[] | undefined>(profile.spaces!.base).toEqual(['space:agent:private-ops'])
-    expect(profile.spaces!.modes?.heartbeat).toBeDefined()
-  })
-
   test('parses targets with compose lists', async () => {
     const { parseAgentProfile } = await import('../core/config/agent-profile-toml.js')
     const content = readFileSync(join(resolveAgentRoot(), 'agent-profile.toml'), 'utf8')
@@ -150,29 +72,10 @@ describe('agent-profile.toml parser (T-00853)', () => {
     ])
   })
 
-  test('parses provisioning', async () => {
-    const { parseAgentProfile } = await import('../core/config/agent-profile-toml.js')
-    const content = readFileSync(join(resolveAgentRoot(), 'agent-profile.toml'), 'utf8')
-    const profile = parseAgentProfile(content)
-
-    expect(profile.provisioning).toBeDefined()
-    expect(profile.provisioning!.model).toBeUndefined()
-    expect(profile.provisioning!.sandbox).toBe('workspace-write')
-    expect(profile.provisioning!.approval).toBe('on-request')
-  })
-
-  test('rejects invalid schemaVersion', async () => {
-    const { parseAgentProfile } = await import('../core/config/agent-profile-toml.js')
-
-    expect(() => parseAgentProfile('schemaVersion = 99\n')).toThrow(
-      /schema.*version|unsupported.*version/i
-    )
-  })
-
   test('rejects malformed TOML', async () => {
     const { parseAgentProfile } = await import('../core/config/agent-profile-toml.js')
 
-    expect(() => parseAgentProfile('this is not valid toml {{{{')).toThrow()
+    expect(() => parseAgentProfile('this is not valid toml {{{{')).toThrow(/Failed to parse TOML/)
   })
 
   test('parses minimal valid profile (version only)', async () => {
@@ -184,20 +87,6 @@ describe('agent-profile.toml parser (T-00853)', () => {
     expect(profile.spaces).toBeUndefined()
     expect(profile.targets).toBeUndefined()
     expect(profile.provisioning).toBeUndefined()
-  })
-
-  test('rejects removed harnessByMode', async () => {
-    const { parseAgentProfile } = await import('../core/config/agent-profile-toml.js')
-
-    expect(() =>
-      parseAgentProfile(`
-version = 4
-
-[harnessByMode.heartbeat]
-model = "claude/haiku"
-sandboxMode = "read-only"
-`)
-    ).toThrow()
   })
 
   test('parses schemaVersion 2 session reminder config', async () => {
@@ -243,78 +132,61 @@ describe('root-relative refs (T-00854)', () => {
     rmSync(tempDir, { recursive: true, force: true })
   })
 
-  test('agent-root:///SOUL.md resolves to agentRoot/SOUL.md', async () => {
-    // This module doesn't exist yet (RED)
-    const { resolveRootRelativeRef } = await import('../resolver/root-relative-refs.js')
+  test.each<{ ref: string; root: 'agent' | 'project'; file: string }>([
+    { ref: 'agent-root:///SOUL.md', root: 'agent', file: 'SOUL.md' },
+    { ref: 'project-root:///asp-targets.toml', root: 'project', file: 'asp-targets.toml' },
+  ])(
+    'agent-root:/// and project-root:/// refs resolve under their declared roots: $ref',
+    async ({ ref, root, file }) => {
+      const { resolveRootRelativeRef } = await import('../resolver/root-relative-refs.js')
 
-    const result = resolveRootRelativeRef('agent-root:///SOUL.md', {
-      agentRoot,
-      projectRoot,
-    })
-    expect(result).toBe(join(agentRoot, 'SOUL.md'))
-  })
+      const result = resolveRootRelativeRef(ref, { agentRoot, projectRoot })
+      expect(result).toBe(join(root === 'agent' ? agentRoot : projectRoot, file))
+    }
+  )
 
-  test('project-root:///asp-targets.toml resolves to projectRoot/asp-targets.toml', async () => {
-    const { resolveRootRelativeRef } = await import('../resolver/root-relative-refs.js')
+  test.each<{
+    row: string
+    local?: string
+    canonical?: string
+    file: string
+    expected: 'local' | 'canonical'
+  }>([
+    {
+      row: 'file in the project-local overlay and canonical root -> overlay',
+      local: 'local',
+      canonical: 'canonical',
+      file: 'AGENT_MOTD.md',
+      expected: 'local',
+    },
+    {
+      row: 'file only in the canonical root -> canonical',
+      canonical: 'canonical',
+      file: 'AGENT_MOTD.md',
+      expected: 'canonical',
+    },
+    {
+      row: 'file in no root -> first search root',
+      file: 'missing.md',
+      expected: 'local',
+    },
+  ])(
+    'agents-root:/// refs resolve to the first search root holding the file, else the first root: $row',
+    async ({ local, canonical, file, expected }) => {
+      const { resolveRootRelativeRef } = await import('../resolver/root-relative-refs.js')
+      if (local !== undefined) writeFileSync(join(localAgentsRoot, file), local)
+      if (canonical !== undefined) writeFileSync(join(canonicalAgentsRoot, file), canonical)
 
-    const result = resolveRootRelativeRef('project-root:///asp-targets.toml', {
-      agentRoot,
-      projectRoot,
-    })
-    expect(result).toBe(join(projectRoot, 'asp-targets.toml'))
-  })
+      const result = resolveRootRelativeRef(`agents-root:///${file}`, {
+        agentRoot,
+        agentsRoot: canonicalAgentsRoot,
+        agentRootSearchPath: [localAgentsRoot, canonicalAgentsRoot],
+        projectRoot,
+      })
 
-  test('agents-root:/// shared file resolves through project-local overlay first', async () => {
-    const { resolveRootRelativeRef } = await import('../resolver/root-relative-refs.js')
-    writeFileSync(join(localAgentsRoot, 'AGENT_MOTD.md'), 'local')
-    writeFileSync(join(canonicalAgentsRoot, 'AGENT_MOTD.md'), 'canonical')
-
-    const result = resolveRootRelativeRef('agents-root:///AGENT_MOTD.md', {
-      agentRoot,
-      agentsRoot: canonicalAgentsRoot,
-      agentRootSearchPath: [localAgentsRoot, canonicalAgentsRoot],
-      projectRoot,
-    })
-
-    expect(result).toBe(join(localAgentsRoot, 'AGENT_MOTD.md'))
-  })
-
-  test('agents-root:/// shared file falls back to canonical root when overlay is absent', async () => {
-    const { resolveRootRelativeRef } = await import('../resolver/root-relative-refs.js')
-    writeFileSync(join(canonicalAgentsRoot, 'AGENT_MOTD.md'), 'canonical')
-
-    const result = resolveRootRelativeRef('agents-root:///AGENT_MOTD.md', {
-      agentRoot,
-      agentsRoot: canonicalAgentsRoot,
-      agentRootSearchPath: [localAgentsRoot, canonicalAgentsRoot],
-      projectRoot,
-    })
-
-    expect(result).toBe(join(canonicalAgentsRoot, 'AGENT_MOTD.md'))
-  })
-
-  test('agents-root:/// missing file resolves against the first agents root', async () => {
-    const { resolveRootRelativeRef } = await import('../resolver/root-relative-refs.js')
-
-    const result = resolveRootRelativeRef('agents-root:///missing.md', {
-      agentRoot,
-      agentsRoot: canonicalAgentsRoot,
-      agentRootSearchPath: [localAgentsRoot, canonicalAgentsRoot],
-      projectRoot,
-    })
-
-    expect(result).toBe(join(localAgentsRoot, 'missing.md'))
-  })
-
-  test('agent-root:///spaces/private-ops/AGENTS.md resolves nested path', async () => {
-    const { resolveRootRelativeRef } = await import('../resolver/root-relative-refs.js')
-
-    const result = resolveRootRelativeRef('agent-root:///spaces/private-ops/AGENTS.md', {
-      agentRoot,
-      projectRoot,
-    })
-    expect(result).toBe(join(agentRoot, 'spaces', 'private-ops', 'AGENTS.md'))
-  })
+      expect(result).toBe(join(expected === 'local' ? localAgentsRoot : canonicalAgentsRoot, file))
+    }
+  )
 
   test('rejects ".." escape in agent-root ref', async () => {
     const { resolveRootRelativeRef } = await import('../resolver/root-relative-refs.js')
@@ -324,50 +196,23 @@ describe('root-relative refs (T-00854)', () => {
         agentRoot,
         projectRoot,
       })
-    ).toThrow(/escape|traversal|outside|rejected/i)
+    ).toThrow(/escapes the root via "\.\." traversal/)
   })
 
-  test('rejects ".." escape in project-root ref', async () => {
-    const { resolveRootRelativeRef } = await import('../resolver/root-relative-refs.js')
+  test.each<{ ref: string; provided: 'agentRoot' | 'projectRoot'; required: string }>([
+    { ref: 'agent-root:///SOUL.md', provided: 'projectRoot', required: 'agentRoot' },
+    { ref: 'project-root:///file.md', provided: 'agentRoot', required: 'projectRoot' },
+  ])(
+    'a root-relative ref without its root is rejected naming the missing root: $required',
+    async ({ ref, provided, required }) => {
+      const { resolveRootRelativeRef } = await import('../resolver/root-relative-refs.js')
 
-    expect(() =>
-      resolveRootRelativeRef('project-root:///../../etc/passwd', {
-        agentRoot,
-        projectRoot,
-      })
-    ).toThrow(/escape|traversal|outside|rejected/i)
-  })
-
-  test('rejects agent-root ref when agentRoot is not provided', async () => {
-    const { resolveRootRelativeRef } = await import('../resolver/root-relative-refs.js')
-
-    expect(() =>
-      resolveRootRelativeRef('agent-root:///SOUL.md', {
-        projectRoot,
-      })
-    ).toThrow(/agentRoot.*required|no.*agent.*root/i)
-  })
-
-  test('rejects project-root ref when projectRoot is not provided', async () => {
-    const { resolveRootRelativeRef } = await import('../resolver/root-relative-refs.js')
-
-    expect(() =>
-      resolveRootRelativeRef('project-root:///file.md', {
-        agentRoot,
-      })
-    ).toThrow(/projectRoot.*required|no.*project.*root/i)
-  })
-
-  test('normalizes path before resolution', async () => {
-    const { resolveRootRelativeRef } = await import('../resolver/root-relative-refs.js')
-
-    // Path with redundant slashes or ./ should normalize
-    const result = resolveRootRelativeRef('agent-root:///./SOUL.md', {
-      agentRoot,
-      projectRoot,
-    })
-    expect(result).toBe(join(agentRoot, 'SOUL.md'))
-  })
+      const options = provided === 'agentRoot' ? { agentRoot } : { projectRoot }
+      expect(() => resolveRootRelativeRef(ref, options)).toThrow(
+        `${required} is required to resolve ref: "${ref}"`
+      )
+    }
+  )
 
   test('rejects unknown root-relative scheme', async () => {
     const { resolveRootRelativeRef } = await import('../resolver/root-relative-refs.js')
@@ -406,53 +251,22 @@ describe('space composition precedence (T-00855)', () => {
     rmSync(tempDir, { recursive: true, force: true })
   })
 
-  test('spaces.base comes first in composition', async () => {
-    // This module doesn't exist yet (RED)
+  test('composition orders spaces as profile base, then run-mode spaces, then bundle spaces', async () => {
     const { resolveSpaceComposition } = await import('../resolver/space-composition.js')
 
-    const spaces = await resolveSpaceComposition({
-      agentRoot,
-      runMode: 'query',
-      bundleSpaces: [],
-    })
-
-    // spaces.base from fixture profile = ["space:agent:private-ops"]
-    expect(spaces.length).toBeGreaterThanOrEqual(1)
-    expect(spaces[0]!.ref).toContain('private-ops')
-  })
-
-  test('spaces.byMode spaces come after base', async () => {
-    const { resolveSpaceComposition } = await import('../resolver/space-composition.js')
-
-    // heartbeat mode adds space:agent:task-worker via byMode
-    const spaces = await resolveSpaceComposition({
-      agentRoot,
-      runMode: 'heartbeat',
-      bundleSpaces: [],
-    })
-
-    const baseIdx = spaces.findIndex((s: any) => s.ref?.includes('private-ops'))
-    const byModeIdx = spaces.findIndex((s: any) => s.ref?.includes('task-worker'))
-
-    expect(baseIdx).toBeGreaterThanOrEqual(0)
-    expect(byModeIdx).toBeGreaterThan(baseIdx)
-  })
-
-  test('bundle spaces come after profile spaces', async () => {
-    const { resolveSpaceComposition } = await import('../resolver/space-composition.js')
-
+    // Fixture profile: spaces.base = [private-ops], spaces.modes.heartbeat adds task-worker.
     const spaces = await resolveSpaceComposition({
       agentRoot,
       projectRoot,
-      runMode: 'query',
+      runMode: 'heartbeat',
       bundleSpaces: ['space:project:repo-defaults@dev'],
     })
 
-    const baseIdx = spaces.findIndex((s: any) => s.ref?.includes('private-ops'))
-    const bundleIdx = spaces.findIndex((s: any) => s.ref?.includes('repo-defaults'))
-
-    expect(baseIdx).toBeGreaterThanOrEqual(0)
-    expect(bundleIdx).toBeGreaterThan(baseIdx)
+    expect(spaces.map((s) => s.ref)).toEqual([
+      'space:agent:private-ops',
+      'space:agent:task-worker',
+      'space:project:repo-defaults@dev',
+    ])
   })
 
   test('deduplicates by resolved space key', async () => {

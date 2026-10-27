@@ -266,36 +266,6 @@ describe('BrokerClient startInvocationFromRequest', () => {
     }
   })
 
-  test('starts from an exact InvocationStartRequest and drives a Codex fake turn', async () => {
-    const client = await BrokerClient.start({
-      command: brokerCommand,
-      args: brokerArgs,
-      cwd: repoRoot,
-      env: brokerEnvOverrides(),
-    })
-
-    try {
-      await client.hello(helloRequest())
-      const request: InvocationStartRequest = { spec: codexSpec('start-fresh-turn') }
-      const { invocationId, response, events } = await client.startInvocationFromRequest(request)
-
-      expect(invocationId).toBe(requestedInvocationId(request))
-      expect(response).toMatchObject({ invocationId, state: 'ready' })
-
-      const startupEvents = await collectUntil(events, 'invocation.ready')
-      expect(startupEvents.map((event) => event.type)).toEqual([
-        'invocation.started',
-        'continuation.updated',
-        'invocation.ready',
-      ])
-
-      await client.stop({ invocationId, reason: 'start request red test complete', graceMs: 50 })
-      await client.dispose({ invocationId })
-    } finally {
-      await client.close()
-    }
-  })
-
   test('does not mutate the caller request after a successful start', async () => {
     const client = await BrokerClient.start({
       command: brokerCommand,

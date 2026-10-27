@@ -2,8 +2,21 @@ import { describe, expect, test } from 'bun:test'
 import { ConfigValidationError } from '../errors.js'
 import { parseAgentProfile } from './agent-profile-toml.js'
 
+function rejectionOf(source: string): Array<{ path: string; keyword: string }> {
+  try {
+    parseAgentProfile(source)
+  } catch (error) {
+    expect(error).toBeInstanceOf(ConfigValidationError)
+    return (error as ConfigValidationError).validationErrors.map(({ path, keyword }) => ({
+      path,
+      keyword,
+    }))
+  }
+  throw new Error('expected parseAgentProfile to reject')
+}
+
 describe('agent-profile federation policy (T-06604)', () => {
-  test('parses placement and claims_task in version 3', () => {
+  test('a v4 profile with claims_task and [placement.pins]/[placement.homes] parses to exactly that placement policy', () => {
     const profile = parseAgentProfile(`
 version = 4
 claims_task = true
@@ -30,38 +43,14 @@ minisvc = "svc_1"
     })
   })
 
-  test('parses placement launch = "participant-only" (T-09061)', () => {
-    const profile = parseAgentProfile(`
-version = 4
-
-[placement]
-launch = "participant-only"
-
-[placement.homes]
-primary = "max3"
-`)
-
-    expect(profile.placement).toEqual({
-      launch: 'participant-only',
-      pins: {},
-      homes: { primary: 'max3' },
-    })
-  })
-
-  test.each(['hrc', 'never', '', 'Participant-Only'])(
-    'rejects placement launch value %j',
-    (value) => {
-      expect(() => parseAgentProfile(`version = 4\n\n[placement]\nlaunch = "${value}"\n`)).toThrow(
-        ConfigValidationError
-      )
+  test.each(['"hrc"', '"never"', '""', '"Participant-Only"', 'true'])(
+    'a [placement] launch other than "participant-only" is rejected at /placement/launch: %s',
+    (rawValue) => {
+      expect(rejectionOf(`version = 4\n\n[placement]\nlaunch = ${rawValue}\n`)).toEqual([
+        { path: '/placement/launch', keyword: 'const' },
+      ])
     }
   )
-
-  test('rejects a non-string placement launch', () => {
-    expect(() => parseAgentProfile('version = 4\n\n[placement]\nlaunch = true\n')).toThrow(
-      ConfigValidationError
-    )
-  })
 
   test('defaults claims_task to false and leaves absent placement undeclared', () => {
     const profile = parseAgentProfile('version = 4\n')
@@ -96,33 +85,42 @@ node = "${nodeId}"
     }
   )
 
-  test.each(['', 'bad/node', 'bad node', '*', 'a'.repeat(65)])(
-    'rejects invalid provisioning.node %j',
-    (nodeId) => {
-      expect(() =>
-        parseAgentProfile(`
+  test.each([
+    ['local', 'const'],
+    ['', 'pattern'],
+    ['bad/node', 'pattern'],
+    ['bad node', 'pattern'],
+    ['*', 'pattern'],
+    ['a'.repeat(65), 'pattern'],
+  ])('rejects invalid provisioning.node %j at /provisioning/node (%s)', (nodeId, keyword) => {
+    expect(
+      rejectionOf(`
 version = 4
 
 [provisioning]
 node = "${nodeId}"
 `)
-      ).toThrow(ConfigValidationError)
-    }
-  )
+    ).toEqual([{ path: '/provisioning/node', keyword }])
+  })
 
-  test.each(['local', '', 'bad/node', 'bad node', '*', 'a'.repeat(65)])(
-    'rejects invalid pin node %j',
-    (nodeId) => {
-      expect(() =>
-        parseAgentProfile(`
+  test.each([
+    ['placement.pins', '"project:task"', 'local', 'const'],
+    ['placement.pins', '"project:task"', '', 'pattern'],
+    ['placement.pins', '"project:task"', 'bad/node', 'pattern'],
+    ['placement.pins', '"project:task"', 'bad node', 'pattern'],
+    ['placement.pins', '"project:task"', '*', 'pattern'],
+    ['placement.pins', '"project:task"', 'a'.repeat(65), 'pattern'],
+    ['placement.homes', 'labprimary', 'local', 'const'],
+  ])('rejects invalid [%s] node value %s = %j', (table, key, nodeId, keyword) => {
+    expect(
+      rejectionOf(`
 version = 4
 
-[placement.pins]
-"project:task" = "${nodeId}"
+[${table}]
+${key} = "${nodeId}"
 `)
-      ).toThrow(ConfigValidationError)
-    }
-  )
+    ).toEqual([{ path: `/${table.replace('.', '/')}/${key.replaceAll('"', '')}`, keyword }])
+  })
 
   test.each([
     'project',
@@ -133,15 +131,16 @@ version = 4
     'project/task:task',
     `${'a'.repeat(65)}:task`,
     `project:${'a'.repeat(65)}`,
-  ])('rejects non-exact project:task pin key %j', (scopeKey) => {
-    expect(() =>
-      parseAgentProfile(`
+    'missing-colon',
+  ])('rejects non-exact project:task pin key %j at its /placement/pins path', (scopeKey) => {
+    expect(
+      rejectionOf(`
 version = 4
 
 [placement.pins]
 "${scopeKey}" = "lab"
 `)
-    ).toThrow(ConfigValidationError)
+    ).toEqual([{ path: `/placement/pins/${scopeKey}`, keyword: 'pattern' }])
   })
 
   test.each(['', 'bad/task', 'bad task', '*', 'a'.repeat(65)])(
@@ -158,20 +157,6 @@ version = 4
     }
   )
 
-  test.each(['local', '', 'bad/node', 'bad node', '*', 'a'.repeat(65)])(
-    'rejects invalid task-default node %j',
-    (nodeId) => {
-      expect(() =>
-        parseAgentProfile(`
-version = 4
-
-[placement.homes]
-labprimary = "${nodeId}"
-`)
-      ).toThrow(ConfigValidationError)
-    }
-  )
-
   test.each(['"yes"', '1', '[]'])('rejects non-boolean claims_task source %s', (rawValue) => {
     expect(() =>
       parseAgentProfile(`
@@ -180,56 +165,4 @@ claims_task = ${rawValue}
 `)
     ).toThrow(ConfigValidationError)
   })
-
-  test('reports the offending placement key path', () => {
-    try {
-      parseAgentProfile(
-        `
-version = 4
-
-[placement.pins]
-"missing-colon" = "lab"
-`,
-        '/tmp/agent-profile.toml'
-      )
-      throw new Error('expected parseAgentProfile to throw')
-    } catch (error) {
-      expect(error).toBeInstanceOf(ConfigValidationError)
-      expect((error as ConfigValidationError).validationErrors).toEqual([
-        expect.objectContaining({ path: '/placement/pins/missing-colon', keyword: 'pattern' }),
-      ])
-    }
-  })
-})
-
-describe('agent-profile job execution ownership (T-06804)', () => {
-  test.each([
-    ['"svc"', ['svc']],
-    ['["svc", "max3", "svc"]', ['max3', 'svc']],
-    ['"all"', ['all']],
-    ['["all", "all"]', ['all']],
-  ])('normalizes jobs.default_node from %s', (authored, expected) => {
-    const profile = parseAgentProfile(`
-version = 4
-
-[jobs]
-default_node = ${authored}
-`)
-
-    expect(profile.jobs).toEqual({ default_node: expected })
-  })
-
-  test.each(['[]', '"local"', '["local"]', '["svc", "local"]', '["all", "svc"]'])(
-    'rejects invalid jobs.default_node %s',
-    (authored) => {
-      expect(() =>
-        parseAgentProfile(`
-version = 4
-
-[jobs]
-default_node = ${authored}
-`)
-      ).toThrow(ConfigValidationError)
-    }
-  )
 })

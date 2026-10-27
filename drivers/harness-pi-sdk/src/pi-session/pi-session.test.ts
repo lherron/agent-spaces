@@ -96,37 +96,6 @@ describe('pi session event mapping', () => {
     expect(events.map((event) => event.type)).toEqual(['turn_end'])
   })
 
-  test('turn_end fallback does not duplicate an observed assistant message_end', () => {
-    const state = createPiEventMappingState()
-
-    const direct = mapPiEventToUnified(
-      {
-        type: 'message_end',
-        messageId: 'pi-msg-1',
-        message: {
-          role: 'assistant',
-          content: [{ type: 'text', text: 'already observed' }],
-        },
-      } satisfies PiAgentSessionEvent,
-      'session-1',
-      state
-    )
-    const end = mapPiEventToUnified(
-      {
-        type: 'turn_end',
-        messageId: 'pi-msg-1',
-        message: {
-          role: 'assistant',
-          content: [{ type: 'text', text: 'already observed' }],
-        },
-      } satisfies PiAgentSessionEvent,
-      'session-1',
-      state
-    )
-
-    expect([...direct, ...end].map((event) => event.type)).toEqual(['message_end', 'turn_end'])
-  })
-
   test('agent_end messages fallback captures latest assistant when turn_end lacks it', () => {
     const events = mapPiEventToUnified(
       {

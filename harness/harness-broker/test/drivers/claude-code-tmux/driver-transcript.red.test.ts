@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,7 +15,11 @@ import {
   defaultLease,
   loadFactory,
   now,
+  removeTempHookDirs,
+  tempHookSocketPath,
 } from './driver-red.helpers'
+
+afterEach(removeTempHookDirs)
 
 describe('claude-code-tmux driver RED lifecycle', () => {
   test('a continuation-backed start excludes historical transcript assistant rows', async () => {
@@ -86,7 +90,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     const root = mkdtempSync(join(tmpdir(), 'claude-disposition-driver-'))
     const transcriptPath = join(root, 'session.jsonl')
     writeFileSync(transcriptPath, '')
-    const hookSocket = '/tmp/harness-broker/claude-hooks.sock'
+    const hookSocket = tempHookSocketPath()
     const driver = createDriver({
       tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
       hooks: {
@@ -240,7 +244,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     const root = mkdtempSync(join(tmpdir(), 'claude-stop-feedback-'))
     const transcriptPath = join(root, 'session.jsonl')
     writeFileSync(transcriptPath, '')
-    const hookSocket = '/tmp/harness-broker/claude-hooks.sock'
+    const hookSocket = tempHookSocketPath()
     const driver = createDriver({
       tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
       hooks: {
@@ -371,7 +375,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       const root = mkdtempSync(join(tmpdir(), 'claude-idle-compact-'))
       const transcriptPath = join(root, 'session.jsonl')
       writeFileSync(transcriptPath, '')
-      const hookSocket = '/tmp/harness-broker/claude-hooks.sock'
+      const hookSocket = tempHookSocketPath()
       const driver = createDriver({
         tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
         hooks: {
@@ -500,7 +504,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     const root = mkdtempSync(join(tmpdir(), 'claude-local-command-'))
     const transcriptPath = join(root, 'session.jsonl')
     writeFileSync(transcriptPath, '')
-    const hookSocket = '/tmp/harness-broker/claude-hooks.sock'
+    const hookSocket = tempHookSocketPath()
     const driver = createDriver({
       tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
       hooks: {
@@ -551,34 +555,36 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     expect(types.filter((type) => type === 'turn.completed')).toHaveLength(1)
   })
 
-  test('a /loop skill command (no caveat) still opens a turn (T-10851)', async () => {
-    // Real /loop shape: `<command-message>` first, parent is the prior assistant
-    // row, then an isMeta expanded-prompt row, then a model turn.
-    const events = await replayTranscriptRows([
-      userRow(
-        '<command-message>loop</command-message>\n<command-name>/loop</command-name>\n<command-args>15m Check the kicker logs</command-args>',
-        {
-          uuid: '6981c40c-1a7f-490d-b1c9-345d6f27a0ff',
-          parentUuid: '6639a33f-9ffa-4705-a01a-a3b133766e18',
-          promptId: '7a62e1a9-497d-4f58-bce9-14da2eddf11e',
-        }
-      ),
-    ])
-    expect(events.map((event) => event.type)).toContain('turn.started')
-  })
-
-  test('a <command-name> row not parented by a caveat still opens a turn (T-10851)', async () => {
-    const events = await replayTranscriptRows([
-      userRow(oldCaveat, { isMeta: true, uuid: 'cav-1', parentUuid: 'a-0' }),
-      userRow('<local-command-stdout>ok</local-command-stdout>', {
-        uuid: 'out-1',
-        parentUuid: 'cav-1',
-      }),
-      userRow('<command-name>/my-skill</command-name>\n<command-args></command-args>', {
-        uuid: 'cmd-2',
-        parentUuid: 'out-1',
-      }),
-    ])
+  test.each([
+    {
+      row: 'without a caveat',
+      rows: [
+        userRow(
+          '<command-message>loop</command-message>\n<command-name>/loop</command-name>\n<command-args>15m Check the kicker logs</command-args>',
+          {
+            uuid: '6981c40c-1a7f-490d-b1c9-345d6f27a0ff',
+            parentUuid: '6639a33f-9ffa-4705-a01a-a3b133766e18',
+            promptId: '7a62e1a9-497d-4f58-bce9-14da2eddf11e',
+          }
+        ),
+      ],
+    },
+    {
+      row: 'not parented by a caveat',
+      rows: [
+        userRow(oldCaveat, { isMeta: true, uuid: 'cav-1', parentUuid: 'a-0' }),
+        userRow('<local-command-stdout>ok</local-command-stdout>', {
+          uuid: 'out-1',
+          parentUuid: 'cav-1',
+        }),
+        userRow('<command-name>/my-skill</command-name>\n<command-args></command-args>', {
+          uuid: 'cmd-2',
+          parentUuid: 'out-1',
+        }),
+      ],
+    },
+  ])('a skill command $row opens a turn (T-10851)', async ({ rows }) => {
+    const events = await replayTranscriptRows([...rows])
     expect(events.map((event) => event.type)).toContain('turn.started')
   })
 
@@ -597,7 +603,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     const root = mkdtempSync(join(tmpdir(), 'claude-plain-user-mid-turn-'))
     const transcriptPath = join(root, 'session.jsonl')
     writeFileSync(transcriptPath, '')
-    const hookSocket = '/tmp/harness-broker/claude-hooks.sock'
+    const hookSocket = tempHookSocketPath()
     const index = openCaptureIndex(join(root, 'capture.db'))
     const ctx = createCtx(events, { terminalSurface: defaultLease() })
     const capture = createCaptureGate({
@@ -706,7 +712,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     const root = mkdtempSync(join(tmpdir(), 'claude-interrupt-driver-'))
     const transcriptPath = join(root, 'session.jsonl')
     writeFileSync(transcriptPath, '')
-    const hookSocket = '/tmp/harness-broker/claude-hooks.sock'
+    const hookSocket = tempHookSocketPath()
     const driver = createDriver({
       tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
       hooks: {
@@ -782,15 +788,13 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     const tmuxCalls: TmuxExecCall[] = []
     let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
     const events: InvocationEventEnvelope[] = []
+    const hookSocket = tempHookSocketPath()
     const driver = createDriver({
       tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
       hooks: {
         listen: async (handler) => {
           hookHandler = handler as (envelope: HookEnvelope) => Promise<void>
-          return {
-            socketPath: '/tmp/harness-broker/claude-hooks.sock',
-            close: async () => undefined,
-          }
+          return { socketPath: hookSocket, close: async () => undefined }
         },
       },
       now,
@@ -808,19 +812,44 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       await hookHandler?.({
         invocationId: 'inv_claude_tmux_1',
         generation: 1,
-        callbackSocket: '/tmp/harness-broker/claude-hooks.sock',
+        callbackSocket: hookSocket,
         hookData: { hook_event_name: 'SessionStart', transcript_path: transcriptPath },
       })
       await hookHandler?.({
         invocationId: 'inv_claude_tmux_1',
         generation: 1,
-        callbackSocket: '/tmp/harness-broker/claude-hooks.sock',
+        callbackSocket: hookSocket,
         turnId: 'turn_drain_1',
         hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'go' },
       })
 
+      // An earlier API error is read by a live hook: it is reported once, then
+      // never re-read by the stop() drain (the reader keeps its byte offset).
+      appendFileSync(
+        transcriptPath,
+        `${JSON.stringify({
+          type: 'assistant',
+          isApiErrorMessage: true,
+          requestId: 'req_live',
+          error: 'unknown',
+          message: { content: [{ type: 'text', text: 'API Error: Overloaded' }] },
+        })}\n`
+      )
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: hookSocket,
+        turnId: 'turn_drain_1',
+        hookData: {
+          hook_event_name: 'PreToolUse',
+          tool_use_id: 'toolu_live',
+          tool_name: 'Read',
+          tool_input: { file_path: 'README.md' },
+        },
+      })
+
       // The API error lands AFTER the last hook — only the stop() drain can surface it.
-      writeFileSync(
+      appendFileSync(
         transcriptPath,
         `${JSON.stringify({
           type: 'assistant',
@@ -836,8 +865,16 @@ describe('claude-code-tmux driver RED lifecycle', () => {
 
       const drained = events.slice(before).filter((event) => event.type === 'diagnostic')
       expect(drained).toHaveLength(1)
+      // Each API-error row is reported exactly once across live reads and the drain.
+      expect(
+        events
+          .filter((event) => event.type === 'diagnostic')
+          .map((event) => (event.payload as { data?: { requestId?: string } }).data?.requestId)
+      ).toEqual(['req_live', 'req_drain'])
       const diag = drained[0]!
       expect(diag.payload).toMatchObject({ level: 'error', source: 'harness' })
+      // The provider code lives under data, not on the diagnostic payload itself.
+      expect((diag.payload as { code?: unknown }).code).toBeUndefined()
       expect((diag.payload as { data?: Record<string, unknown> }).data).toMatchObject({
         code: 'api_error',
         rawType: 'assistant',
@@ -861,15 +898,13 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     const tmuxCalls: TmuxExecCall[] = []
     let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
     const events: InvocationEventEnvelope[] = []
+    const hookSocket = tempHookSocketPath()
     const driver = createDriver({
       tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
       hooks: {
         listen: async (handler) => {
           hookHandler = handler as (envelope: HookEnvelope) => Promise<void>
-          return {
-            socketPath: '/tmp/harness-broker/claude-hooks.sock',
-            close: async () => undefined,
-          }
+          return { socketPath: hookSocket, close: async () => undefined }
         },
       },
       now,
@@ -884,13 +919,13 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       await hookHandler?.({
         invocationId: 'inv_claude_tmux_1',
         generation: 1,
-        callbackSocket: '/tmp/harness-broker/claude-hooks.sock',
+        callbackSocket: hookSocket,
         hookData: { hook_event_name: 'SessionStart', transcript_path: transcriptPath },
       })
       await hookHandler?.({
         invocationId: 'inv_claude_tmux_1',
         generation: 1,
-        callbackSocket: '/tmp/harness-broker/claude-hooks.sock',
+        callbackSocket: hookSocket,
         turnId: 'turn_api_error_1',
         hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'go' },
       })
@@ -909,7 +944,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       await hookHandler?.({
         invocationId: 'inv_claude_tmux_1',
         generation: 1,
-        callbackSocket: '/tmp/harness-broker/claude-hooks.sock',
+        callbackSocket: hookSocket,
         turnId: 'turn_api_error_1',
         hookData: { hook_event_name: 'Stop' },
       })

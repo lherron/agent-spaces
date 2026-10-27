@@ -116,18 +116,16 @@ describe('buildMuseRendererLaunchCommand', () => {
 })
 
 describe('resolveMuseRendererLauncher', () => {
-  test('existing sibling entry keeps bun behavior', () => {
-    expect(
-      resolveMuseRendererLauncher(resolveMuseRendererEntryPath(), '/release/bin')
-    ).toBeUndefined()
-  })
-
-  test('missing sibling entry falls back to the broker binary itself', () => {
+  test('a compiled broker with no sibling renderer entry launches the renderer as its own subcommand', () => {
     expect(
       resolveMuseRendererLauncher(
         '/$bunfs/root/renderer-entry.js',
         '/release/libexec/harness-broker'
       )
     ).toEqual({ command: '/release/libexec/harness-broker', args: ['renderer'] })
+    // An existing sibling renderer-entry keeps the bun launch (no launcher).
+    expect(
+      resolveMuseRendererLauncher(resolveMuseRendererEntryPath(), '/release/bin')
+    ).toBeUndefined()
   })
 })

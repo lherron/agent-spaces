@@ -158,24 +158,6 @@ describe('v2 broker execution projection', () => {
     expect(execution.hosting).toMatchObject({ terminalRequired: true, terminalHost: 'tmux' })
   })
 
-  test('keeps Claude presentation and terminal requirements together', async () => {
-    const execution = await compile({
-      namespace: 'profile-claude',
-      harness: 'claude',
-      modelProvider: 'anthropic',
-      model: 'claude-sonnet-4-5',
-      presentation: true,
-    })
-    expect(execution).toMatchObject({
-      driver: 'claude-code-tmux',
-      protocol: 'harness-broker/0.2',
-      hosting: { executionTransport: 'pty', terminalRequired: true, terminalHost: 'tmux' },
-    })
-    expect(execution.dispatchRequest.startRequest.spec.process.harnessTransport).toEqual({
-      kind: 'pty',
-    })
-  })
-
   test('keeps Muse headless and presentation routes distinct in the execution projection', async () => {
     const headless = await compile({
       namespace: 'profile-muse-headless',
@@ -190,6 +172,45 @@ describe('v2 broker execution projection', () => {
       modelProvider: 'meta',
       model: 'muse-spark-1.3-contributor',
       presentation: true,
+    })
+    const claude = await compile({
+      namespace: 'profile-claude',
+      harness: 'claude',
+      modelProvider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      presentation: true,
+    })
+    expect(claude).toMatchObject({
+      driver: 'claude-code-tmux',
+      protocol: 'harness-broker/0.2',
+      hosting: { executionTransport: 'pty', terminalRequired: true, terminalHost: 'tmux' },
+    })
+    expect(claude.dispatchRequest.startRequest.spec.process.harnessTransport).toEqual({
+      kind: 'pty',
+    })
+    const codex = await compile({
+      namespace: 'profile-codex-headless-hosting',
+      harness: 'codex',
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: false,
+    })
+    expect(codex.hosting).toMatchObject({
+      terminalRequired: false,
+      processExecution: 'broker-process',
+    })
+    expect(codex).not.toHaveProperty('presentationSurface')
+    const agent = await compile({
+      namespace: 'profile-agent-present',
+      harness: 'agent-harness',
+      modelProvider: 'openai-codex',
+      model: 'gpt-5.6-terra',
+      presentation: true,
+    })
+    expect(agent.hosting).toMatchObject({
+      terminalRequired: true,
+      terminalHost: 'tmux',
+      executionTransport: 'native-worker',
     })
     expect(headless.driver).toBe('muse-serve')
     expect(headless.hosting.terminalRequired).toBe(false)
@@ -256,21 +277,6 @@ describe('v2 broker execution projection', () => {
       })
     }
   )
-
-  test('keeps non-presentation Codex outside a terminal-hosted execution surface', async () => {
-    const execution = await compile({
-      namespace: 'profile-codex-headless-hosting',
-      harness: 'codex',
-      modelProvider: 'openai-codex',
-      model: 'gpt-5.6-terra',
-      presentation: false,
-    })
-    expect(execution.hosting).toMatchObject({
-      terminalRequired: false,
-      processExecution: 'broker-process',
-    })
-    expect(execution).not.toHaveProperty('presentationSurface')
-  })
 
   test('keeps Muse terminal hosting as a birth-variant execution recipe instead of dispatch environment', async () => {
     const execution = await compile({

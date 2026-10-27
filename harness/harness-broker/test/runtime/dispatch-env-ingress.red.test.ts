@@ -1,16 +1,9 @@
 /**
- * T-04408 RED — test 2: broker ingress rejects invalid dispatchEnv
+ * T-04408 — broker ingress rejects invalid dispatchEnv.
  *
- * Currently broker.start() validates dispatchEnv via validateInvocationDispatchRequest
- * (protocol schema layer) which converts to BrokerError code -32602 (InvalidParams).
- *
- * After T-04408: parseDispatchEnv gates the broker.start() ingress and throws
- * BrokerError(DispatchValidationFailed = -32010) BEFORE any driver sees the input.
- *
- * RED failure: these tests expect code -32010 (DispatchValidationFailed) but
- * currently get -32602 (InvalidParams from the protocol schema validator).
- *
- * GREEN: clod adds parseDispatchEnv call at broker.start() ingress → code -32010.
+ * parseDispatchEnv gates broker.start() and throws
+ * BrokerError(DispatchValidationFailed = -32010), not InvalidParams (-32602),
+ * BEFORE any driver sees the input.
  */
 import { describe, expect, test } from 'bun:test'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
@@ -32,44 +25,56 @@ const specWithLockedEnv = (): HarnessInvocationSpec => ({
 })
 
 describe('T-04408 red 2 — broker ingress: invalid dispatchEnv rejected before driver', () => {
-  test('ambient key (HOME) → DispatchValidationFailed, not InvalidParams', async () => {
-    // RED: currently resolves to BrokerError(-32602) from toInvalidParamsBrokerError().
-    // GREEN: parseDispatchEnv at broker.start() ingress → BrokerError(-32010).
-    const broker = createBroker({ drivers: [createNoopDriver()] })
-    await expect(broker.start({ spec: noopSpec() }, { HOME: '/home' })).rejects.toMatchObject({
-      code: BrokerErrorCode.DispatchValidationFailed,
-    })
-  })
-
-  test('credential key (OPENAI_API_KEY) → DispatchValidationFailed before driver starts', async () => {
-    // RED: same as above — currently -32602, expected -32010.
-    const broker = createBroker({ drivers: [createNoopDriver()] })
-    await expect(
-      broker.start({ spec: noopSpec() }, { OPENAI_API_KEY: 'sk-test' })
-    ).rejects.toMatchObject({ code: BrokerErrorCode.DispatchValidationFailed })
-  })
-
-  test('dispatchEnv shadows lockedEnv key → DispatchValidationFailed at ingress', async () => {
-    // RED: same as above — currently -32602, expected -32010.
-    const broker = createBroker({ drivers: [createNoopDriver()] })
-    await expect(
-      broker.start({ spec: specWithLockedEnv() }, { CODEX_HOME: '/other' })
-    ).rejects.toMatchObject({ code: BrokerErrorCode.DispatchValidationFailed })
-  })
-
-  test('reserved key (NODE_ENV) → DispatchValidationFailed at ingress', async () => {
-    // RED: same as above — currently -32602, expected -32010.
-    const broker = createBroker({ drivers: [createNoopDriver()] })
-    await expect(broker.start({ spec: noopSpec() }, { NODE_ENV: 'test' })).rejects.toMatchObject({
-      code: BrokerErrorCode.DispatchValidationFailed,
-    })
-  })
-
-  test('non-string value in dispatchEnv → DispatchValidationFailed at ingress', async () => {
-    // RED: same as above — currently -32602, expected -32010.
-    const broker = createBroker({ drivers: [createNoopDriver()] })
-    await expect(
-      broker.start({ spec: noopSpec() }, { MY_VAR: 42 } as unknown as Record<string, string>)
-    ).rejects.toMatchObject({ code: BrokerErrorCode.DispatchValidationFailed })
-  })
+  // Every class shares code -32010 (DispatchValidationFailed), so each row also
+  // asserts the key and the rule it broke: a key rejected for the WRONG reason
+  // must fail here.
+  test.each([
+    { row: 'ambient key', dispatchEnv: { HOME: '/home' }, key: 'HOME', rule: 'ambient env' },
+    {
+      row: 'credential key',
+      dispatchEnv: { OPENAI_API_KEY: 'sk-test' },
+      key: 'OPENAI_API_KEY',
+      rule: 'conflicts with credential env',
+    },
+    {
+      row: 'reserved key',
+      dispatchEnv: { NODE_ENV: 'test' },
+      key: 'NODE_ENV',
+      rule: 'is reserved',
+    },
+    {
+      row: 'malformed key',
+      dispatchEnv: { '9INVALID': 'val' },
+      key: '9INVALID',
+      rule: 'must match',
+    },
+    {
+      row: 'non-string value',
+      dispatchEnv: { MY_VAR: 42 },
+      key: 'MY_VAR',
+      rule: 'value must be a string',
+    },
+    {
+      row: 'lockedEnv-shadowing key',
+      dispatchEnv: { CODEX_HOME: '/other' },
+      key: 'CODEX_HOME',
+      rule: 'must not shadow lockedEnv',
+      locked: true,
+    },
+  ])(
+    'broker.start rejects a $row dispatchEnv with DispatchValidationFailed naming the key and the rule it broke',
+    async ({ dispatchEnv, key, rule, locked }) => {
+      const broker = createBroker({ drivers: [createNoopDriver()] })
+      const spec = locked === true ? specWithLockedEnv() : noopSpec()
+      await expect(
+        broker.start({ spec }, dispatchEnv as unknown as Record<string, string>)
+      ).rejects.toMatchObject({
+        code: BrokerErrorCode.DispatchValidationFailed,
+        data: { key },
+        message: expect.stringContaining(rule),
+      })
+      // Rejected BEFORE any driver saw it: no invocation exists.
+      expect((await broker.listInvocations({})).invocations).toEqual([])
+    }
+  )
 })

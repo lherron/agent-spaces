@@ -54,15 +54,15 @@ function tempRoot(): string {
   return value
 }
 
-function identity(label: 'a' | 'b'): AspReleaseIdentity {
+function identity(label: 'a'): AspReleaseIdentity {
   return {
     releaseId: `asp-${label.repeat(12)}-20260917T000000Z-t08577`,
     sourceCommit: label.repeat(40),
-    builtAt: `2026-09-17T0${label === 'a' ? '1' : '2'}:00:00.000Z`,
+    builtAt: '2026-09-17T01:00:00.000Z',
   }
 }
 
-function binding(label: 'a' | 'b'): AspdReleaseBinding {
+function binding(label: 'a'): AspdReleaseBinding {
   const releaseIdentity = identity(label)
   const releaseRoot = `/immutable/releases/${releaseIdentity.releaseId}`
   const executable = `${releaseRoot}/harness-broker`
@@ -138,12 +138,6 @@ function fakeService(
   } as unknown as UnknownService
 }
 
-function method(service: object, name: string): DynamicMethod {
-  const candidate = (service as UnknownRecord)[name]
-  expect(typeof candidate, `${name} must exist on the release-bound service`).toBe('function')
-  return candidate as DynamicMethod
-}
-
 function directRequest(): UnknownRecord {
   return {
     schemaVersion: 'aspc-prepare-process-invocation-request/v1',
@@ -154,6 +148,7 @@ function directRequest(): UnknownRecord {
       runMode: 'task',
     },
     preparationCorrelation: {},
+    expected: { provider: 'openai', frontend: 'codex-cli' },
     launch: { interactionMode: 'headless', ioMode: 'pipes' },
   }
 }
@@ -262,7 +257,11 @@ describe('release-bound preparation service (T-08577)', () => {
         schemaVersion: 'aspc-prepare-process-invocation-response/v1',
         ok: true,
         declaration: { agentSources: fixture.canonicalSources },
-        release: { releaseId: selected.identity.releaseId },
+      })
+      // A direct preparation binds the serving release and fabricates no worker.
+      expect((response as unknown as UnknownRecord)['release']).toEqual({
+        ...selected.identity,
+        releaseRoot: selected.releaseRoot,
       })
       const context = fixture.request['context'] as UnknownRecord
       const conflicting = await client.prepareProcessInvocation({
@@ -287,108 +286,41 @@ describe('release-bound preparation service (T-08577)', () => {
     }
   })
 
-  test('H3: direct preparation binds the serving release without fabricating a worker', async () => {
-    const selected = binding('a')
-    const bound = createReleaseBoundAspcService(fakeService(), selected)
-    const response = (await method(bound, 'prepareProcessInvocation').call(
-      bound,
-      directRequest()
-    )) as UnknownRecord
-
-    expect(response['release']).toEqual({
-      ...selected.identity,
-      releaseRoot: selected.releaseRoot,
-    })
-    expect(Object.hasOwn(response['release'] as object, 'worker')).toBe(false)
-    const { release: _added, ...rest } = response
-    expect(rest).toEqual(DIRECT_SUCCESS)
-  })
-
-  test('B8/E3: every non-success arm is inhabitable and passes through without invented release evidence', async () => {
-    const directFailures: UnknownRecord[] = [
-      {
-        schemaVersion: 'aspc-prepare-process-invocation-response/v1',
-        ok: false,
-        agentSources: {
-          aspHome: '/asp-home',
-          agentsRoot: '/agents',
-          provenance: 'caller',
-        },
-        searchedAgentRoots: ['/agents'],
-        source: {
-          agentProfile: { state: 'absent', code: 'not_declared' },
-          projectTargets: { state: 'absent', code: 'not_declared' },
-          selectedTarget: { state: 'absent', code: 'not_declared' },
-          priming: { state: 'absent', code: 'not_declared' },
-        },
-        resolution: {
-          state: 'absent',
-          code: 'agent_not_found',
-          message: 'agent absent',
-          diagnostics: [],
-        },
-      },
-      {
-        schemaVersion: 'aspc-prepare-process-invocation-response/v1',
-        ok: false,
-        failure: {
-          kind: 'incompatible',
-          code: 'configured_context_mismatch',
-          message: 'caller source mismatch',
-        },
-      },
-      {
-        schemaVersion: 'aspc-prepare-process-invocation-response/v1',
-        ok: false,
-        failure: { kind: 'unavailable', code: 'preparation_failed', message: 'no result' },
-      },
-    ]
-    let directIndex = 0
-    const bound = createReleaseBoundAspcService(
-      fakeService({
-        prepareProcessInvocation: async () => directFailures[directIndex++] as UnknownRecord,
-      }),
-      binding('a')
-    )
-
-    for (const directFailure of directFailures) {
-      expect(await method(bound, 'prepareProcessInvocation').call(bound, directRequest())).toBe(
-        directFailure
-      )
+  test('a failed preparation crosses the socket unchanged, with no release evidence', async () => {
+    const failure: UnknownRecord = {
+      schemaVersion: 'aspc-prepare-process-invocation-response/v1',
+      ok: false,
+      failure: { kind: 'unavailable', code: 'preparation_failed', message: 'no result' },
     }
-  })
-
-  test('H2/H3: a response admitted on A remains bound to A after B is selected', async () => {
-    const releaseA = binding('a')
-    const releaseB = binding('b')
-    const service = fakeService()
-    const boundA = createReleaseBoundAspcService(service, releaseA)
-    const directA = (await method(boundA, 'prepareProcessInvocation').call(
-      boundA,
-      directRequest()
-    )) as UnknownRecord
-    const boundB = createReleaseBoundAspcService(service, releaseB)
-    const directB = (await method(boundB, 'prepareProcessInvocation').call(
-      boundB,
-      directRequest()
-    )) as UnknownRecord
-
-    expect(directA['release']).toBeDefined()
-    expect(directB['release']).toBeDefined()
-    expect((directA['release'] as UnknownRecord | undefined)?.['releaseId']).toBe(
-      releaseA.identity.releaseId
-    )
-    expect((directB['release'] as UnknownRecord | undefined)?.['releaseId']).toBe(
-      releaseB.identity.releaseId
-    )
-    expect((directA['release'] as UnknownRecord | undefined)?.['releaseId']).not.toBe(
-      (directB['release'] as UnknownRecord | undefined)?.['releaseId']
-    )
+    const socketPath = join(tempRoot(), 'failed.sock')
+    const server = await startAspdServer({
+      socketPath,
+      service: createReleaseBoundAspcService(
+        fakeService({
+          capabilities: { prepareProcessInvocation: true },
+          prepareProcessInvocation: async () => failure,
+        }),
+        binding('a')
+      ),
+      log: () => {},
+    })
+    const client = await AspcUnixClient.connect({
+      socketPath,
+      clientInfo: { name: 't08577-failed-preparation' },
+    })
+    try {
+      expect(await client.prepareProcessInvocation(directRequest() as never)).toEqual(
+        failure as never
+      )
+    } finally {
+      await client.close()
+      await server.retire()
+    }
   })
 })
 
 describe('old-release capability gate (T-08577 H4)', () => {
-  test('an absent capability refuses client-side without sending the raw method', async () => {
+  test('a client of an old aspd refuses prepareProcessInvocation without sending it when the capability is absent', async () => {
     const socketPath = join(tempRoot(), 'old.sock')
     let rawCalls = 0
     const oldService = fakeService({

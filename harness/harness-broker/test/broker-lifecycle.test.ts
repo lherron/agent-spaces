@@ -68,7 +68,7 @@ describe('broker lifecycle', () => {
     })
   })
 
-  test('broker.hello selects highest mutually supported protocol version', async () => {
+  test('broker.hello negotiates 0.2 and refuses a hello offering only 0.1 as invalid params naming the unsupported version', async () => {
     const broker = createTestBroker()
 
     // T-01867/Ph6: harness-broker/0.1 is decommissioned; broker.hello negotiates
@@ -87,7 +87,18 @@ describe('broker lifecycle', () => {
         clientInfo: { name: 'phase-a-v1-rejected' },
         protocolVersions: ['harness-broker/0.1'],
       })
-    ).rejects.toThrow()
+    ).rejects.toMatchObject({
+      code: -32602,
+      data: {
+        issues: [
+          {
+            path: 'params.protocolVersions.0',
+            code: 'unsupported_broker_protocol',
+            message: 'unsupported broker protocol version: harness-broker/0.1',
+          },
+        ],
+      },
+    })
   })
 
   test('broker.health returns status and active invocation count', async () => {
@@ -163,24 +174,6 @@ describe('broker lifecycle', () => {
     expect(startCalls).toBe(0)
   })
 
-  test('invocation.dispose succeeds after terminal state', async () => {
-    const broker = createTestBroker()
-    await broker.start({ spec: noopSpec({ invocationId: 'inv_dispose' }) })
-    await broker.stop({ invocationId: invocationIdFrom('inv_dispose'), reason: 'test complete' })
-
-    await expect(
-      broker.dispose({ invocationId: invocationIdFrom('inv_dispose') })
-    ).resolves.toEqual({
-      disposed: true,
-    })
-    await expect(
-      broker.status({ invocationId: invocationIdFrom('inv_dispose') })
-    ).resolves.toMatchObject({
-      invocationId: 'inv_dispose',
-      state: 'disposed',
-    })
-  })
-
   test('each invocation emits exactly one terminal invocation event', async () => {
     const events: InvocationEventEnvelope[] = []
     const broker = createBroker({
@@ -203,19 +196,6 @@ describe('broker lifecycle', () => {
       invocationId: 'inv_terminal',
       type: 'invocation.failed',
     })
-  })
-
-  test('invocation.ready event payload is { state: "ready" }', async () => {
-    const events: InvocationEventEnvelope[] = []
-    const broker = createBroker({
-      drivers: [createNoopDriver()],
-      onEvent: (event) => events.push(event),
-      now,
-    })
-    await broker.start({ spec: noopSpec({ invocationId: 'inv_ready_payload' }) })
-
-    const ready = events.find((event) => event.type === 'invocation.ready')
-    expect(ready?.payload).toEqual({ state: 'ready' })
   })
 
   test('accepts an explicit conservative lifecycle overlay and reports policy hash separately', async () => {
@@ -263,6 +243,7 @@ describe('broker lifecycle', () => {
 
     expect(response.acceptedLifecyclePolicy).toBeUndefined()
     expect(events.map((event) => event.type)).toEqual(['invocation.started', 'invocation.ready'])
+    expect(events[1]?.payload).toEqual({ state: 'ready' })
   })
 
   test('rejects unsupported lifecycle modes without downgrading', async () => {
@@ -317,6 +298,13 @@ describe('broker lifecycle', () => {
       broker.dispose({ invocationId: invocationIdFrom('inv_disposed_once') })
     ).resolves.toEqual({
       disposed: true,
+    })
+
+    await expect(
+      broker.status({ invocationId: invocationIdFrom('inv_disposed_once') })
+    ).resolves.toMatchObject({
+      invocationId: 'inv_disposed_once',
+      state: 'disposed',
     })
 
     const disposed = events.filter((event) => event.type === 'invocation.disposed')

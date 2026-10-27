@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -32,6 +32,8 @@ async function compileInline(relPath: string, toml: string): Promise<CompileResu
       code: error instanceof Error && 'code' in error ? String(error.code) : 'UNKNOWN',
       message: error instanceof Error ? error.message : String(error),
     }
+  } finally {
+    rmSync(agentRoot, { recursive: true, force: true })
   }
 }
 
@@ -236,6 +238,8 @@ describe('schedule output', () => {
       schedule('project = "agent-spaces"\nagent = "smokey"', `\n${SINK}headers = "x"\n`)
     )
     expect(result).toMatchObject({ ok: false, code: 'INVALID_OUTPUT' })
+    if (result.ok) return
+    expect(result.message).toContain('output.sinks[0].headers')
   })
 
   test('schedules without [output] carry no output key', async () => {

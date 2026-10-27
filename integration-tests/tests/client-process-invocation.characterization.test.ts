@@ -83,7 +83,7 @@ function createPlacement(fixture: { agentRoot: string; projectRoot: string }): R
     correlation: {
       sessionRef: {
         scopeRef: 'agent:cody:project:agent-spaces:task:T-01558',
-        laneRef: 'repair',
+        laneRef: 'lane:deploy',
       },
       hostSessionId: 'host-session-01558',
     },
@@ -136,6 +136,7 @@ describe('buildProcessInvocationSpec characterization', () => {
       } as unknown as BuildProcessInvocationSpecRequest)
 
       expect(response.resolvedBundle?.cwd).toBe(fixture.projectRoot)
+      expect(response.resolvedBundle?.runMode).toBe('task')
       expect(response.spec.provider).toBe('openai')
       expect(response.spec.frontend).toBe('codex-cli')
       expect(response.spec.cwd).toBe(fixture.projectRoot)
@@ -156,13 +157,13 @@ describe('buildProcessInvocationSpec characterization', () => {
       expect(response.spec.env['AGENT_SCOPE_REF']).toBe(
         'agent:cody:project:agent-spaces:task:T-01558'
       )
-      expect(response.spec.env['AGENT_LANE_REF']).toBe('repair')
+      expect(response.spec.env['AGENT_LANE_REF']).toBe('lane:deploy')
       expect(response.spec.env['AGENT_HOST_SESSION_ID']).toBe('host-session-01558')
       expect(response.spec.env['ASP_PROJECT']).toBe('agent-spaces')
       expect(response.spec.env['AGENTCHAT_ID']).toBe('cody')
 
       expect(response.spec.codexAppServer).toEqual({
-        prompt: 'Inspect agent-spaces as cody for T-01558 on repair.',
+        prompt: 'Inspect agent-spaces as cody for T-01558 on deploy.',
         resumeThreadId: 'thread_01558',
         model: 'gpt-5.3-codex',
         modelReasoningEffort: 'medium',

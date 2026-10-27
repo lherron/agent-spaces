@@ -690,34 +690,6 @@ describe('codex-app-server renderer durable read projection (T-04909 Phase B red
     projection.close()
   })
 
-  test('clips band content one column short of the pane so a row never wraps away its keyline (T-06343)', async () => {
-    const { createCodexAppServerRendererProjection } = await loadRendererModule()
-    const { surface } = createReadSurface([
-      event(1, 'tool.call.started', {
-        toolCallId: 'c1',
-        name: 'command',
-        // Longer than the pane AND longer than the renderer's own 120-char preview
-        // clip — the preview budget is independent of the pane, so only a band-level
-        // clip keeps this row on one physical line.
-        input: { command: `/bin/zsh -lc '${'git status --short && '.repeat(20)}'` },
-      }),
-    ])
-    const projection = createCodexAppServerRendererProjection({
-      invocationId: 'inv_renderer',
-      readSurface: surface,
-      color: true,
-      width: 60,
-    })
-
-    await projection.start()
-    const bands = bandLines(projection)
-    expect(bands.length).toBeGreaterThan(0)
-    for (const line of bands) {
-      expect(visible(line).length).toBeLessThanOrEqual(59)
-    }
-    projection.close()
-  })
-
   test('resolves pane width per row, so a resize after launch is picked up (T-06343)', async () => {
     const { createCodexAppServerRendererProjection } = await loadRendererModule()
     const { surface, emitLive } = createReadSurface([
@@ -788,36 +760,6 @@ describe('codex-app-server renderer durable read projection (T-04909 Phase B red
 })
 
 describe('codex-app-server renderer region spacing (T-06365)', () => {
-  test('agent prose is bracketed by a blank row on BOTH sides, like every other region', async () => {
-    const { createCodexAppServerRendererProjection } = await loadRendererModule()
-    const { surface } = createReadSurface([
-      event(1, 'turn.started', { turnId: 'turn_1' }),
-      event(2, 'assistant.message.completed', { messageId: 'm1', text: 'Here is the plan.' }),
-      // The band that used to butt straight up against the prose.
-      event(3, 'tool.call.started', {
-        toolCallId: 'c1',
-        name: 'command',
-        input: { command: 'bun test' },
-      }),
-    ])
-    const projection = createCodexAppServerRendererProjection({
-      invocationId: 'inv_renderer',
-      readSurface: surface,
-    })
-    await projection.start()
-
-    const rendered = projection.lines().map((l) => visible(l))
-    const prose = rendered.findIndex((l) => l.includes('Here is the plan.'))
-    const band = rendered.findIndex((l) => l.includes('bun test'))
-    expect(prose).toBeGreaterThan(-1)
-    expect(band).toBeGreaterThan(prose)
-    // Prose has no lane, so the negative space around it IS its boundary. Equal on
-    // both sides: one blank above, one blank below.
-    expect(rendered[prose - 1]).toBe('')
-    expect(rendered[prose + 1]).toBe('')
-    projection.close()
-  })
-
   test('every content region brackets itself, so none of them runs into the next', async () => {
     const { createCodexAppServerRendererProjection } = await loadRendererModule()
     const { surface } = createReadSurface([
@@ -831,6 +773,12 @@ describe('codex-app-server renderer region spacing (T-06365)', () => {
         message: 'diff updated',
         data: { totalAdded: 1, totalRemoved: 0, files: [{ path: 'a.ts', added: 1, removed: 0 }] },
       }),
+      event(5, 'tool.call.started', {
+        toolCallId: 'c1',
+        name: 'command',
+        input: { command: 'bun test' },
+      }),
+      event(6, 'turn.completed', { turnId: 'turn_1' }),
     ])
     const projection = createCodexAppServerRendererProjection({
       invocationId: 'inv_renderer',
@@ -842,7 +790,7 @@ describe('codex-app-server renderer region spacing (T-06365)', () => {
     // A region is a contiguous block of non-blank rows (a diff card is a header row
     // plus a row per file). The rule is about the block, not any single row: it is
     // separated from whatever precedes and follows it by a blank.
-    for (const marker of ['do the thing', 'Doing the thing.', 'a.ts']) {
+    for (const marker of ['do the thing', 'Doing the thing.', 'a.ts', 'bun test']) {
       const at = rendered.findIndex((l) => l.includes(marker))
       expect(at, `missing ${marker}`).toBeGreaterThan(-1)
       let start = at

@@ -1,9 +1,18 @@
 /**
  * Shared fixture for the context-resolver behavior tests: real temp agent,
  * agents and project roots (cwd moves into the project root so `when.exists`
- * sees a real working directory), plus resolver/template builders.
+ * sees a real working directory), plus resolver/template builders. Roots live
+ * under os.tmpdir(), never inside the checkout.
+ *
+ * `inspectTemplate` / `materializeTemplate` drive the file contract: the
+ * template is written to `<agentsRoot>/context-template.toml` (and an optional
+ * `<agentRoot>/agent-profile.toml`) and resolved through the same
+ * inspectAgentSystemPrompt / materializeSystemPrompt entry points the
+ * compiler uses. The agent directory is named `smokey`, so `{{agent_name}}`
+ * renders as `smokey`.
  */
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   type ContextResolverContext,
@@ -12,6 +21,12 @@ import {
   resolveContextTemplateDetailed,
 } from '../context-resolver.js'
 import type { ContextTemplate } from '../context-template.js'
+import {
+  type AgentSystemPromptInspection,
+  type MaterializeSystemPromptInput,
+  inspectAgentSystemPrompt,
+  materializeSystemPrompt,
+} from '../system-prompt.js'
 
 /** The separator the resolver joins included sections of one zone with. */
 export const SECTION_SEPARATOR = '\n\n---\n\n'
@@ -26,10 +41,10 @@ export interface ResolverRoots {
 
 export async function createResolverRoots(): Promise<ResolverRoots> {
   const originalCwd = process.cwd()
-  const tempRoot = await mkdtemp(join(originalCwd, '.tmp-context-resolver-'))
+  const tempRoot = await mkdtemp(join(tmpdir(), 'context-resolver-'))
   const roots = {
     tempRoot,
-    agentRoot: join(tempRoot, 'agent'),
+    agentRoot: join(tempRoot, 'smokey'),
     agentsRoot: join(tempRoot, 'agents'),
     projectRoot: join(tempRoot, 'project'),
     originalCwd,
@@ -89,4 +104,72 @@ export function templateWith(overrides: Partial<ContextTemplate>): ContextTempla
     reminderSections: [],
     ...overrides,
   } as ContextTemplate
+}
+
+/** Inputs for the template-file helpers. */
+export interface TemplateFileOptions extends Partial<MaterializeSystemPromptInput> {
+  /** Written to `<agentRoot>/agent-profile.toml` when set. */
+  profileToml?: string | undefined
+}
+
+async function writeTemplateFiles(
+  roots: ResolverRoots,
+  templateToml: string,
+  options: TemplateFileOptions
+): Promise<MaterializeSystemPromptInput> {
+  const { profileToml, ...overrides } = options
+  await writeFile(join(roots.agentsRoot, 'context-template.toml'), templateToml)
+  if (profileToml !== undefined) {
+    await writeFile(join(roots.agentRoot, 'agent-profile.toml'), profileToml)
+  }
+  return {
+    agentRoot: roots.agentRoot,
+    agentsRoot: roots.agentsRoot,
+    aspHome: join(roots.tempRoot, 'asp-home'),
+    projectRoot: roots.projectRoot,
+    projectId: 'agent-spaces',
+    runMode: 'task',
+    ...overrides,
+  }
+}
+
+/** Write `templateToml` as the agents-root context template and inspect it. */
+export async function inspectTemplate(
+  roots: ResolverRoots,
+  templateToml: string,
+  options: TemplateFileOptions = {}
+): Promise<AgentSystemPromptInspection> {
+  const inspection = await inspectAgentSystemPrompt(
+    await writeTemplateFiles(roots, templateToml, options)
+  )
+  if (inspection === undefined) {
+    throw new Error('inspectAgentSystemPrompt found no context template')
+  }
+  return inspection
+}
+
+/** The two files materialization writes for a context template. */
+export interface MaterializedFiles {
+  systemPrompt: string
+  sessionReminder: string
+}
+
+/** Write `templateToml` as the agents-root context template and materialize it. */
+export async function materializeTemplate(
+  roots: ResolverRoots,
+  templateToml: string,
+  options: TemplateFileOptions = {}
+): Promise<MaterializedFiles> {
+  const outputRoot = join(roots.tempRoot, 'out')
+  const result = await materializeSystemPrompt(
+    outputRoot,
+    await writeTemplateFiles(roots, templateToml, options)
+  )
+  if (result === undefined) {
+    throw new Error('materializeSystemPrompt found no context template')
+  }
+  return {
+    systemPrompt: await readFile(join(outputRoot, 'system-prompt.md'), 'utf8'),
+    sessionReminder: await readFile(join(outputRoot, 'session-reminder.md'), 'utf8'),
+  }
 }

@@ -9,7 +9,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ensureClaudeWorkspaceTrust, resolveClaudeUserConfigPath } from './workspace-trust.js'
 
@@ -132,11 +132,9 @@ describe('ensureClaudeWorkspaceTrust', () => {
     const config = await readConfig()
     const projects = config['projects'] as Record<string, { hasTrustDialogAccepted: boolean }>
     expect(projects[linkPath]?.hasTrustDialogAccepted).toBe(true)
-    // realpath may canonicalize tmpdir prefixes too; every written key is trusted
-    for (const key of result.updatedKeys) {
-      expect(projects[key]?.hasTrustDialogAccepted).toBe(true)
-    }
-    expect(result.updatedKeys.length).toBeGreaterThanOrEqual(1)
+    const canonicalDir = await realpath(realDir)
+    expect(projects[canonicalDir]?.hasTrustDialogAccepted).toBe(true)
+    expect(result.updatedKeys).toContain(canonicalDir)
   })
 
   it('creates the config file when missing', async () => {
@@ -184,6 +182,6 @@ describe('resolveClaudeUserConfigPath', () => {
   })
 
   it('defaults to the home directory', () => {
-    expect(resolveClaudeUserConfigPath({})).toEndWith('/.claude.json')
+    expect(resolveClaudeUserConfigPath({})).toBe(join(homedir(), '.claude.json'))
   })
 })

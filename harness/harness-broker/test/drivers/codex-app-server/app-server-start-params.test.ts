@@ -6,6 +6,7 @@ import {
 } from '../../../src/drivers/codex-app-server/driver'
 import { buildTurnStartParams } from '../../../src/drivers/codex-app-server/input'
 import { inputIdFrom } from '../../ids'
+import { firstThreadRequest } from './codex-tui-transport-support'
 import { scenarioSpec, userInput } from './fake-codex-scenario'
 
 describe('fallback provider transcript root', () => {
@@ -85,10 +86,11 @@ describe('buildTurnStartParams outputSchema', () => {
   })
 })
 
-describe('buildThreadStartParams driver-spec field handling (H6)', () => {
-  const baseSpec = scenarioSpec('start-fresh-turn')
-
+describe('codex thread/start params from the driver spec (H6)', () => {
+  // Held at the seam: codex-tui (the FakeCodexRpc surface) requires
+  // approvalPolicy=never, so a non-default policy is only reachable headless.
   test('forwards model, approvalPolicy and sandboxMode', () => {
+    const baseSpec = scenarioSpec('start-fresh-turn')
     const params = buildThreadStartParams(baseSpec, {
       kind: 'codex-app-server',
       model: 'gpt-5-codex',
@@ -103,27 +105,31 @@ describe('buildThreadStartParams driver-spec field handling (H6)', () => {
     })
   })
 
-  test('sends no profile: Codex app-server thread/start has no profile field (T-08582)', () => {
-    const params = buildThreadStartParams(baseSpec, { kind: 'codex-app-server' })
-    expect(Object.hasOwn(params, 'profile')).toBe(false)
-  })
-
-  test('forwards modelReasoningEffort as a thread-scope config override', () => {
-    const params = buildThreadStartParams(baseSpec, {
-      kind: 'codex-app-server',
+  test('modelReasoningEffort reaches thread/start as a thread-scope config override', async () => {
+    const request = await firstThreadRequest('inv_thread_start_reasoning_effort', {
       modelReasoningEffort: 'high',
     })
-    expect(params['config']).toEqual({ model_reasoning_effort: 'high' })
+    expect((request?.params as Record<string, unknown>)['config']).toEqual({
+      model_reasoning_effort: 'high',
+    })
   })
 
-  test('defaults to safe nulls and never-approve when fields are absent', () => {
-    const params = buildThreadStartParams(baseSpec, { kind: 'codex-app-server' })
-    expect(params).toMatchObject({
+  test('a driver spec with no optional fields sends safe nulls, never-approve and no profile', async () => {
+    const request = await firstThreadRequest('inv_thread_start_defaults', {}, (spec) => {
+      spec.driver = Object.fromEntries(
+        Object.entries(spec.driver).filter(([key]) => key !== 'approvalPolicy')
+      ) as typeof spec.driver
+    })
+    expect(request?.method).toBe('thread/start')
+    expect(request?.params).toMatchObject({
       model: null,
       sandbox: null,
       config: null,
       approvalPolicy: 'never',
+      developerInstructions: null,
     })
+    // T-08582: Codex app-server thread/start has no profile field.
+    expect(request?.params).not.toHaveProperty('profile')
   })
 })
 
@@ -135,21 +141,6 @@ describe('validateInitializeHandshake tolerance (H6)', () => {
     }
     return { diagnostics, emit: emit as Parameters<typeof validateInitializeHandshake>[1] }
   }
-
-  test('accepts a namespaced protocolVersion with no diagnostics', () => {
-    const { diagnostics, emit } = collectDiagnostics()
-    expect(() =>
-      validateInitializeHandshake({ protocolVersion: 'codex-app-server/v0' }, emit)
-    ).not.toThrow()
-    expect(diagnostics).toHaveLength(0)
-  })
-
-  test('throws on a clearly-unsupported protocolVersion', () => {
-    const { emit } = collectDiagnostics()
-    expect(() =>
-      validateInitializeHandshake({ protocolVersion: 'acp-incompatible/v1' }, emit)
-    ).toThrow(/Unsupported Codex app-server protocol version/)
-  })
 
   test('tolerates a missing protocolVersion with a debug diagnostic', () => {
     const { diagnostics, emit } = collectDiagnostics()

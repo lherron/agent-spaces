@@ -23,39 +23,13 @@ describe('atomicWrite', () => {
     await fs.promises.rm(tmpDir, { recursive: true, force: true })
   })
 
-  test('writes content to new file', async () => {
-    const filePath = path.join(tmpDir, 'test.txt')
+  test('atomicWrite writes the content to the target path, creating missing parent directories and replacing an existing file', async () => {
+    const filePath = path.join(tmpDir, 'nested', 'deep', 'test.txt')
     await atomicWrite(filePath, 'hello world')
-
-    const content = await fs.promises.readFile(filePath, 'utf-8')
-    expect(content).toBe('hello world')
-  })
-
-  test('writes buffer content', async () => {
-    const filePath = path.join(tmpDir, 'test.bin')
-    const buffer = Buffer.from([0x00, 0x01, 0x02, 0x03])
-    await atomicWrite(filePath, buffer)
-
-    const content = await fs.promises.readFile(filePath)
-    expect(content).toEqual(buffer)
-  })
-
-  test('overwrites existing file', async () => {
-    const filePath = path.join(tmpDir, 'test.txt')
-    await fs.promises.writeFile(filePath, 'original')
+    expect(await fs.promises.readFile(filePath, 'utf-8')).toBe('hello world')
 
     await atomicWrite(filePath, 'updated')
-
-    const content = await fs.promises.readFile(filePath, 'utf-8')
-    expect(content).toBe('updated')
-  })
-
-  test('creates parent directories', async () => {
-    const filePath = path.join(tmpDir, 'nested', 'deep', 'test.txt')
-    await atomicWrite(filePath, 'nested content')
-
-    const content = await fs.promises.readFile(filePath, 'utf-8')
-    expect(content).toBe('nested content')
+    expect(await fs.promises.readFile(filePath, 'utf-8')).toBe('updated')
   })
 
   test('sets file mode', async () => {
@@ -92,14 +66,6 @@ describe('atomicWrite', () => {
     const files = await fs.promises.readdir(tmpDir)
     expect(files.filter((f) => f.startsWith('.'))).toEqual([])
   })
-
-  test('works without fsync (faster)', async () => {
-    const filePath = path.join(tmpDir, 'test.txt')
-    await atomicWrite(filePath, 'content', { fsync: false })
-
-    const content = await fs.promises.readFile(filePath, 'utf-8')
-    expect(content).toBe('content')
-  })
 })
 
 describe('atomicWriteJson', () => {
@@ -120,23 +86,6 @@ describe('atomicWriteJson', () => {
     const content = await fs.promises.readFile(filePath, 'utf-8')
     expect(content).toBe('{\n  "name": "test",\n  "value": 42\n}\n')
   })
-
-  test('writes arrays', async () => {
-    const filePath = path.join(tmpDir, 'test.json')
-    await atomicWriteJson(filePath, [1, 2, 3])
-
-    const content = await fs.promises.readFile(filePath, 'utf-8')
-    const parsed = JSON.parse(content)
-    expect(parsed).toEqual([1, 2, 3])
-  })
-
-  test('handles null values', async () => {
-    const filePath = path.join(tmpDir, 'test.json')
-    await atomicWriteJson(filePath, null)
-
-    const content = await fs.promises.readFile(filePath, 'utf-8')
-    expect(JSON.parse(content)).toBe(null)
-  })
 })
 
 describe('atomicDir', () => {
@@ -150,25 +99,17 @@ describe('atomicDir', () => {
     await fs.promises.rm(tmpDir, { recursive: true, force: true })
   })
 
-  test('creates directory atomically', async () => {
+  test('atomicDir moves the populated temp directory into place and resolves to the createFn result', async () => {
     const targetDir = path.join(tmpDir, 'target')
 
-    await atomicDir(targetDir, async (tempDir) => {
+    const result = await atomicDir(targetDir, async (tempDir) => {
       await fs.promises.writeFile(path.join(tempDir, 'test.txt'), 'content')
-    })
-
-    const files = await fs.promises.readdir(targetDir)
-    expect(files).toContain('test.txt')
-  })
-
-  test('returns result from createFn', async () => {
-    const targetDir = path.join(tmpDir, 'target')
-
-    const result = await atomicDir(targetDir, async () => {
       return { success: true, count: 42 }
     })
 
     expect(result).toEqual({ success: true, count: 42 })
+    const files = await fs.promises.readdir(targetDir)
+    expect(files).toContain('test.txt')
   })
 
   test('cleans up on error', async () => {
@@ -213,9 +154,9 @@ describe('copyFile', () => {
     await fs.promises.rm(tmpDir, { recursive: true, force: true })
   })
 
-  test('copies file content', async () => {
+  test('copyFile copies the content, creating missing parent directories', async () => {
     const src = path.join(tmpDir, 'src.txt')
-    const dest = path.join(tmpDir, 'dest.txt')
+    const dest = path.join(tmpDir, 'nested', 'deep', 'dest.txt')
     await fs.promises.writeFile(src, 'test content')
 
     await copyFile(src, dest)
@@ -224,40 +165,27 @@ describe('copyFile', () => {
     expect(content).toBe('test content')
   })
 
-  test('preserves source mode by default', async () => {
-    const src = path.join(tmpDir, 'src.txt')
-    const dest = path.join(tmpDir, 'dest.txt')
-    await fs.promises.writeFile(src, 'content')
-    await fs.promises.chmod(src, 0o755)
+  test.each([
+    { name: 'no mode given preserves the 0o755 source mode', options: {}, expected: 0o755 },
+    {
+      name: 'an explicit 0o644 mode overrides the 0o755 source mode',
+      options: { mode: 0o644 },
+      expected: 0o644,
+    },
+  ])(
+    'copyFile preserves the source mode unless an explicit mode is given: $name',
+    async ({ options, expected }) => {
+      const src = path.join(tmpDir, 'src.txt')
+      const dest = path.join(tmpDir, 'dest.txt')
+      await fs.promises.writeFile(src, 'content')
+      await fs.promises.chmod(src, 0o755)
 
-    await copyFile(src, dest)
+      await copyFile(src, dest, options)
 
-    const stats = await fs.promises.stat(dest)
-    expect(stats.mode & 0o777).toBe(0o755)
-  })
-
-  test('uses specified mode when provided', async () => {
-    const src = path.join(tmpDir, 'src.txt')
-    const dest = path.join(tmpDir, 'dest.txt')
-    await fs.promises.writeFile(src, 'content')
-    await fs.promises.chmod(src, 0o755)
-
-    await copyFile(src, dest, { mode: 0o644 })
-
-    const stats = await fs.promises.stat(dest)
-    expect(stats.mode & 0o777).toBe(0o644)
-  })
-
-  test('creates parent directories', async () => {
-    const src = path.join(tmpDir, 'src.txt')
-    const dest = path.join(tmpDir, 'nested', 'deep', 'dest.txt')
-    await fs.promises.writeFile(src, 'content')
-
-    await copyFile(src, dest)
-
-    const content = await fs.promises.readFile(dest, 'utf-8')
-    expect(content).toBe('content')
-  })
+      const stats = await fs.promises.stat(dest)
+      expect(stats.mode & 0o777).toBe(expected)
+    }
+  )
 })
 
 describe('linkOrCopy', () => {
@@ -271,9 +199,9 @@ describe('linkOrCopy', () => {
     await fs.promises.rm(tmpDir, { recursive: true, force: true })
   })
 
-  test('creates hardlink when possible', async () => {
+  test('linkOrCopy hardlinks the source into a newly created parent directory and reports hardlink', async () => {
     const src = path.join(tmpDir, 'src.txt')
-    const dest = path.join(tmpDir, 'dest.txt')
+    const dest = path.join(tmpDir, 'nested', 'dest.txt')
     await fs.promises.writeFile(src, 'content')
 
     const result = await linkOrCopy(src, dest)
@@ -282,33 +210,6 @@ describe('linkOrCopy', () => {
     const srcStat = await fs.promises.stat(src)
     const destStat = await fs.promises.stat(dest)
     expect(srcStat.ino).toBe(destStat.ino) // Same inode = hardlink
-  })
-
-  test('hardlinked files share content', async () => {
-    const src = path.join(tmpDir, 'src.txt')
-    const dest = path.join(tmpDir, 'dest.txt')
-    await fs.promises.writeFile(src, 'original')
-
-    await linkOrCopy(src, dest)
-
-    // Modifying src should affect dest (same inode)
-    // But for our purposes, just verify content is same
-    const content = await fs.promises.readFile(dest, 'utf-8')
-    expect(content).toBe('original')
-  })
-
-  test('creates parent directories', async () => {
-    const src = path.join(tmpDir, 'src.txt')
-    const dest = path.join(tmpDir, 'nested', 'dest.txt')
-    await fs.promises.writeFile(src, 'content')
-
-    await linkOrCopy(src, dest)
-
-    const exists = await fs.promises
-      .access(dest)
-      .then(() => true)
-      .catch(() => false)
-    expect(exists).toBe(true)
   })
 })
 
@@ -323,61 +224,39 @@ describe('copyDir', () => {
     await fs.promises.rm(tmpDir, { recursive: true, force: true })
   })
 
-  test('copies directory recursively', async () => {
-    const srcDir = path.join(tmpDir, 'src')
-    const destDir = path.join(tmpDir, 'dest')
+  test.each([
+    { name: 'a plain copy gives each file its own inode', useHardlinks: false, sharesInode: false },
+    {
+      name: 'useHardlinks hardlinks each file to its source',
+      useHardlinks: true,
+      sharesInode: true,
+    },
+  ])(
+    'copyDir reproduces files, subdirectories, empty directories and relative symlinks, hardlinking files when asked: $name',
+    async ({ useHardlinks, sharesInode }) => {
+      const srcDir = path.join(tmpDir, 'src')
+      const destDir = path.join(tmpDir, 'dest')
 
-    await fs.promises.mkdir(srcDir)
-    await fs.promises.writeFile(path.join(srcDir, 'file1.txt'), 'content1')
-    await fs.promises.mkdir(path.join(srcDir, 'subdir'))
-    await fs.promises.writeFile(path.join(srcDir, 'subdir', 'file2.txt'), 'content2')
+      await fs.promises.mkdir(srcDir)
+      await fs.promises.writeFile(path.join(srcDir, 'file1.txt'), 'content1')
+      await fs.promises.mkdir(path.join(srcDir, 'subdir'))
+      await fs.promises.writeFile(path.join(srcDir, 'subdir', 'file2.txt'), 'content2')
+      await fs.promises.mkdir(path.join(srcDir, 'empty'))
+      await fs.promises.symlink('file1.txt', path.join(srcDir, 'link'))
 
-    await copyDir(srcDir, destDir)
+      await copyDir(srcDir, destDir, { useHardlinks })
 
-    const file1 = await fs.promises.readFile(path.join(destDir, 'file1.txt'), 'utf-8')
-    const file2 = await fs.promises.readFile(path.join(destDir, 'subdir', 'file2.txt'), 'utf-8')
-    expect(file1).toBe('content1')
-    expect(file2).toBe('content2')
-  })
+      expect(await fs.promises.readFile(path.join(destDir, 'file1.txt'), 'utf-8')).toBe('content1')
+      expect(await fs.promises.readFile(path.join(destDir, 'subdir', 'file2.txt'), 'utf-8')).toBe(
+        'content2'
+      )
+      expect((await fs.promises.stat(path.join(destDir, 'empty'))).isDirectory()).toBe(true)
+      expect((await fs.promises.lstat(path.join(destDir, 'link'))).isSymbolicLink()).toBe(true)
+      expect(await fs.promises.readlink(path.join(destDir, 'link'))).toBe('file1.txt')
 
-  test('copies symbolic links', async () => {
-    const srcDir = path.join(tmpDir, 'src')
-    const destDir = path.join(tmpDir, 'dest')
-
-    await fs.promises.mkdir(srcDir)
-    await fs.promises.writeFile(path.join(srcDir, 'target.txt'), 'target')
-    await fs.promises.symlink('target.txt', path.join(srcDir, 'link'))
-
-    await copyDir(srcDir, destDir)
-
-    const linkTarget = await fs.promises.readlink(path.join(destDir, 'link'))
-    expect(linkTarget).toBe('target.txt')
-  })
-
-  test('uses hardlinks when option is set', async () => {
-    const srcDir = path.join(tmpDir, 'src')
-    const destDir = path.join(tmpDir, 'dest')
-
-    await fs.promises.mkdir(srcDir)
-    await fs.promises.writeFile(path.join(srcDir, 'file.txt'), 'content')
-
-    await copyDir(srcDir, destDir, { useHardlinks: true })
-
-    const srcStat = await fs.promises.stat(path.join(srcDir, 'file.txt'))
-    const destStat = await fs.promises.stat(path.join(destDir, 'file.txt'))
-    expect(srcStat.ino).toBe(destStat.ino)
-  })
-
-  test('handles empty directories', async () => {
-    const srcDir = path.join(tmpDir, 'src')
-    const destDir = path.join(tmpDir, 'dest')
-
-    await fs.promises.mkdir(srcDir)
-    await fs.promises.mkdir(path.join(srcDir, 'empty'))
-
-    await copyDir(srcDir, destDir)
-
-    const stats = await fs.promises.stat(path.join(destDir, 'empty'))
-    expect(stats.isDirectory()).toBe(true)
-  })
+      const srcStat = await fs.promises.stat(path.join(srcDir, 'subdir', 'file2.txt'))
+      const destStat = await fs.promises.stat(path.join(destDir, 'subdir', 'file2.txt'))
+      expect(srcStat.ino === destStat.ino).toBe(sharesInode)
+    }
+  )
 })

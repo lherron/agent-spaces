@@ -157,11 +157,12 @@ for (const mode of ['advance', 'noop'])
       expect(result.events).toBe('pull\nbuild\n')
     }
   })
-for (const dirty of ['tracked', 'staged', 'untracked', 'diverged'])
+for (const dirty of ['tracked', 'staged', 'untracked', 'diverged', 'ahead'])
   test(`refuses ${dirty} behind checkout before fast-forward or pull`, () => {
     const f = fixture()
-    const landed = advanceOrigin(f)
-    if (dirty === 'diverged') git(f.work, 'commit', '--allow-empty', '-m', 'local work')
+    const landed = dirty === 'ahead' ? f.initial : advanceOrigin(f)
+    if (dirty === 'diverged' || dirty === 'ahead')
+      git(f.work, 'commit', '--allow-empty', '-m', 'local work')
     else {
       const path = dirty === 'untracked' ? 'owner.txt' : 'bun.lock'
       writeFileSync(join(f.work, path), 'owner work\n')
@@ -206,13 +207,6 @@ test('pushes generated lock commit to a real bare origin and notifies HRC before
   expect(result.events).toContain('mable@hrc-runtime:primary')
   expect(result.events.indexOf('notify')).toBeLessThan(result.events.indexOf('build'))
 })
-test('clean unchanged pull succeeds without push or notification', () => {
-  const f = fixture('noop')
-  const result = exercise(f)
-  expect(result.exit).toBe(0)
-  expect(result.remote).toBe(f.initial)
-  expect(result.events).toBe('pull\nbuild\n')
-})
 for (const mode of ['dirty', 'staged'])
   test(`refuses a successful pull with uncommitted ${mode} lock`, () => {
     const f = fixture(mode)
@@ -222,14 +216,6 @@ for (const mode of ['dirty', 'staged'])
     expect(result.events).not.toContain('build')
     expect(result.err).toContain('bun.lock')
   })
-test('refuses pre-existing unpublished consumer history without running pull', () => {
-  const f = fixture()
-  git(f.work, 'commit', '--allow-empty', '-m', 'unrelated work')
-  const result = exercise(f)
-  expect(result.exit).not.toBe(0)
-  expect(result.remote).toBe(f.initial)
-  expect(result.events).toBe('')
-})
 test('refuses dirty lock before running pull', () => {
   const f = fixture()
   writeFileSync(join(f.work, 'bun.lock'), 'owner work\n')

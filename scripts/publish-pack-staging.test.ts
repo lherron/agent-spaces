@@ -86,7 +86,21 @@ test('packing reads the package dir and never writes it; the tarball carries the
     'agent-scope': '0.1.1-dev.20990101000000',
     zod: '^3.0.0',
   })
-  expect(shipped.praesidiumBuild).toMatchObject({
+  expect(Object.keys(shipped.praesidiumBuild)).toEqual([
+    'schema',
+    'repository',
+    'canonicalRemote',
+    'sourceCommit',
+    'setName',
+    'setVersion',
+    'builtAt',
+  ])
+  expect(shipped.praesidiumBuild).toEqual({
+    schema: 1,
+    repository: 'agent-spaces',
+    canonicalRemote: 'git@example.invalid:agent-spaces.git',
+    sourceCommit: 'a'.repeat(40),
+    setName: 'asp',
     setVersion: '0.1.0-dev.20990101000000',
     builtAt: '2099-01-01T00:00:00.000Z',
   })

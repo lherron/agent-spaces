@@ -62,16 +62,6 @@ const waitFor = async (predicate: () => boolean, timeoutMs = 3000): Promise<void
 }
 
 describe('T-07155 codex-app-server steer', () => {
-  test('G3: advertises steer support in busyPolicies', async () => {
-    const broker = createBroker({ drivers: [createCodexAppServerDriver()], now })
-    const spec = scenarioSpec('steer-active-turn', 'inv_t07155_codex_caps')
-    const started = await broker.start({ spec })
-    expect(started.capabilities.input.busyPolicies).toContain('steer')
-    // The C-14234 correction: input.steer governs kind:'steer' and stays false.
-    expect(started.capabilities.input.steer).toBe(false)
-    await broker.stop({ invocationId: spec.invocationId! })
-  })
-
   test('G3: steer sends turn/steer with expectedTurnId = the active turn and joins that turn', async () => {
     const events: InvocationEventEnvelope[] = []
     const broker = createBroker({
@@ -81,7 +71,9 @@ describe('T-07155 codex-app-server steer', () => {
     })
     const spec = scenarioSpec('steer-active-turn', 'inv_t07155_codex_steer')
     const invocationId = spec.invocationId!
-    await broker.start({ spec })
+    const started = await broker.start({ spec })
+    expect(started.capabilities.input.busyPolicies).toContain('steer')
+    expect(started.capabilities.input.steer).toBe(false)
 
     await broker.input({ invocationId, input: userInput('input_active', 'do the long thing') })
     await waitFor(() => events.some((event) => event.type === 'turn.started'))

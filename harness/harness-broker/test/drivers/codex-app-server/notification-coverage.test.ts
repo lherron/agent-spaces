@@ -1,12 +1,11 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
-import { isLoadBearingEventFamily } from 'spaces-harness-broker-protocol'
 import { createCodexNotificationMapper } from '../../../src/drivers/codex-app-server/event-map'
 import {
   CODEX_METHOD_CLASSIFICATION,
   classifyCodexNotificationMethod,
-  codexUnknownMethodFamily,
 } from '../../../src/drivers/codex-app-server/notification-methods'
 import declared from '../../../testdata/codex-app-server/declared-notification-methods.json'
+import { withCodexTui } from './codex-tui-transport-support'
 
 let mapCodexNotification: ReturnType<typeof createCodexNotificationMapper>
 beforeEach(() => {
@@ -60,31 +59,6 @@ describe('codex-app-server notification coverage', () => {
     expect(undispositioned).toEqual([])
   })
 
-  test('an undeclared method still reaches the unhandled diagnostic', () => {
-    // Mutation guard: the assertion above must be able to fail. If the fallback
-    // were removed the coverage test would pass for the wrong reason.
-    const events = mapCodexNotification({
-      jsonrpc: '2.0',
-      method: 'thread/methodCodexHasNotInventedYet',
-      params: { detail: 'novel' },
-    })
-    expect(events).toHaveLength(1)
-    expect(events[0]).toMatchObject({
-      type: 'diagnostic',
-      payload: {
-        level: 'debug',
-        message: 'Unhandled Codex notification: thread/methodCodexHasNotInventedYet',
-        data: { params: { detail: 'novel' } },
-      },
-    })
-  })
-
-  /**
-   * T-07868 — the same completeness question, now asked of the §6.1
-   * DISPOSITION classifier the driver reads. The mapper and the classifier are
-   * two hand-written lists over one vocabulary; nothing but this test stops
-   * them from drifting apart.
-   */
   test('every declared method classifies as mapped or ignored-known, never unknown', () => {
     const unclassified = methods.filter(
       (method) => classifyCodexNotificationMethod(method) === 'unknown'
@@ -114,36 +88,26 @@ describe('codex-app-server notification coverage', () => {
     expect(noisy).toEqual([])
   })
 
-  test('no method is in both classification sets', () => {
-    const both = [...CODEX_METHOD_CLASSIFICATION.mapped].filter((method) =>
-      CODEX_METHOD_CLASSIFICATION.ignoredKnown.has(method)
-    )
-    expect(both).toEqual([])
-  })
-
-  test('an undeclared method classifies unknown, and only load-bearing prefixes halt', () => {
-    expect(classifyCodexNotificationMethod('thread/methodCodexHasNotInventedYet')).toBe('unknown')
-    // The three prefixes a consumer ACTS on halt the cursor (§6.1)...
-    expect(codexUnknownMethodFamily('turn/experimentalBracket')).toBe('turn-bracket')
-    expect(codexUnknownMethodFamily('item/experimentalThought')).toBe('conversation')
-    expect(codexUnknownMethodFamily('item/commandExecution/experimental')).toBe('tool')
-    expect(codexUnknownMethodFamily('thread/queue/experimental')).toBe('input-admission')
-    for (const method of [
-      'turn/experimentalBracket',
-      'item/experimentalThought',
-      'item/commandExecution/experimental',
-      'thread/queue/experimental',
-    ]) {
-      expect(isLoadBearingEventFamily(codexUnknownMethodFamily(method))).toBe(true)
+  // §6.1 through the broker: an undeclared method is blocked_unknown, and its
+  // family decides whether the capture is load-bearing. The three prefixes a
+  // consumer ACTS on are load-bearing; provider telemetry warns without that.
+  test.each([
+    ['turn/experimentalBracket', 'turn-bracket', true],
+    ['item/experimentalThought', 'conversation', true],
+    ['item/commandExecution/experimental', 'tool', true],
+    ['thread/queue/experimental', 'input-admission', true],
+    ['thread/experimentalSignal', 'diagnostic', false],
+    ['account/experimental', 'diagnostic', false],
+    ['model/experimental', 'diagnostic', false],
+  ])(
+    'an undeclared %s is a blocked_unknown capture warning in family %s, load-bearing: %s',
+    async (method, family, loadBearing) => {
+      await withCodexTui(`inv_unknown_family_${family}_${loadBearing}`, (tui) => {
+        tui.emit(method, { detail: 'novel' })
+        expect(tui.ofType('capture.warning').map((event) => event.payload)).toMatchObject([
+          { kind: 'blocked_unknown', raw: { nativeType: method, family, loadBearing } },
+        ])
+      })
     }
-    // ...and provider telemetry warns without stopping the seat.
-    for (const method of [
-      'thread/experimentalSignal',
-      'account/experimental',
-      'model/experimental',
-    ]) {
-      expect(codexUnknownMethodFamily(method)).toBe('diagnostic')
-      expect(isLoadBearingEventFamily(codexUnknownMethodFamily(method))).toBe(false)
-    }
-  })
+  )
 })

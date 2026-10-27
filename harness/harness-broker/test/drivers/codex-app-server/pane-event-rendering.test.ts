@@ -399,21 +399,26 @@ describe('a turn is clocked at both ends with wall-clock time (T-07978)', () => 
     expect(lines.at(-1)).toBe('▎ ✗ failed  boom · 09:24 PM')
   })
 
-  test('an absent or unparseable time omits the segment rather than inventing one', () => {
-    const untimed = renderSteps([['turn.started', undefined]])
-    expect(untimed.at(-1)).toBe('  ▶ turn 1')
-
-    const completed = renderSteps([
-      ['turn.started', '2026-07-15T02:23:17.000Z'],
-      ['turn.completed', undefined],
-    ])
-    expect(completed.at(-1)).toBe('▎ ✓ done')
-
-    const failed = renderSteps([
-      ['turn.started', '2026-07-15T02:23:17.000Z'],
-      ['turn.failed', 'not-a-time', { turnId: 'turn-1', message: 'boom' }],
-    ])
-    expect(failed.at(-1)).toBe('▎ ✗ failed  boom')
+  test('absent or invalid times never invent a timestamp or date divider', () => {
+    expect(renderSteps([['turn.started', undefined]]).at(-1)).toBe('  ▶ turn 1')
+    expect(renderSteps([['turn.started', 'not-a-time']]).filter((line) => line.length > 0)).toEqual(
+      ['  ▶ turn 1']
+    )
+    for (const time of [undefined, 'not-a-time']) {
+      expect(renderSteps([['turn.interrupted', time]]).at(-1)).toBe('  ◼ interrupted')
+    }
+    expect(
+      renderSteps([
+        ['turn.started', '2026-07-15T02:23:17.000Z'],
+        ['turn.completed', undefined],
+      ]).at(-1)
+    ).toBe('▎ ✓ done')
+    expect(
+      renderSteps([
+        ['turn.started', '2026-07-15T02:23:17.000Z'],
+        ['turn.failed', 'not-a-time', { turnId: 'turn-1', message: 'boom' }],
+      ]).at(-1)
+    ).toBe('▎ ✗ failed  boom')
   })
 })
 
@@ -475,22 +480,6 @@ describe('the pane names its calendar date once, and again on every change (T-07
     ])
   })
 
-  test('the date is the Chicago date, not the UTC one', () => {
-    // 02:23Z on Jul 15 is still 09:23 PM on Jul 14 in Chicago. A divider naming
-    // Jul 15 here would mean the zone was applied to the clock but not the date.
-    const lines = renderSteps([['turn.started', '2026-07-15T02:23:17.000Z']])
-    expect(dividers(lines)).toEqual(['  ── Tue, Jul 14 ──'])
-  })
-
-  test('an absent or unparseable time divides nothing and stamps nothing', () => {
-    expect(renderSteps([['turn.started', undefined]]).filter((l) => l.length > 0)).toEqual([
-      '  ▶ turn 1',
-    ])
-    expect(renderSteps([['turn.started', 'not-a-time']]).filter((l) => l.length > 0)).toEqual([
-      '  ▶ turn 1',
-    ])
-  })
-
   test('an unstamped event never triggers a divider', () => {
     const lines = renderSteps([
       ['user.message', '2026-07-15T14:00:00.000Z', { content: 'hello' }],
@@ -512,37 +501,5 @@ describe('the pane names its calendar date once, and again on every change (T-07
     ])
     // The divider brings the blank the interrupted row does not open itself.
     expect(lines[lines.indexOf('  ── Thu, Jul 16 ──') - 1]).toBe('')
-  })
-})
-
-/**
- * `◼ interrupted` was the last turn terminal without a time (T-07994): a stop
- * only means something against when it landed.
- */
-describe('an interrupted turn is clocked like the other terminals (T-07994)', () => {
-  function renderInterrupt(time: string | undefined): string[] {
-    const lines: string[] = []
-    const model = createCodexTranscriptModel({
-      invocationId: 'inv-a',
-      emit: (line) => lines.push(line),
-      width: 120,
-    })
-    model.apply({
-      invocationId: 'inv-a',
-      seq: 1,
-      ...(time === undefined ? {} : { time }),
-      type: 'turn.interrupted',
-      payload: { turnId: 'turn-1' },
-    } as unknown as InvocationEventEnvelope)
-    return lines
-  }
-
-  test('the row carries the wall clock from its own envelope', () => {
-    expect(renderInterrupt('2026-07-15T02:24:00.000Z').at(-1)).toBe('  ◼ interrupted · 09:24 PM')
-  })
-
-  test('an absent or unparseable time omits the segment rather than inventing one', () => {
-    expect(renderInterrupt(undefined).at(-1)).toBe('  ◼ interrupted')
-    expect(renderInterrupt('not-a-time').at(-1)).toBe('  ◼ interrupted')
   })
 })

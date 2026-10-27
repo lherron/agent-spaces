@@ -21,60 +21,44 @@ function hasher(): contracts.CanonicalHasher {
 }
 
 describe('canonical JSON hasher', () => {
-  test('hash is stable across object key reordering', () => {
-    const h = hasher()
+  test('reordering object keys leaves the projected plan hash unchanged', () => {
+    const planHash = (source: unknown) => (project(source, 'plan') as { planHash: string }).planHash
 
-    const first = h.hash({ beta: 2, alpha: { zed: true, one: 1 } }, defaultPolicy)
-    const second = h.hash({ alpha: { one: 1, zed: true }, beta: 2 }, defaultPolicy)
-
-    expect(first).toEqual({
-      algorithm: 'sha256-canonical-json/v1',
-      value: second.value,
-    })
-  })
-
-  test('undefined fields are omitted but null is preserved', () => {
-    const h = hasher()
-
-    expect(h.hash({ a: undefined, b: 1 }, defaultPolicy)).toEqual(h.hash({ b: 1 }, defaultPolicy))
-    expect(h.hash({ a: null }, defaultPolicy).value).not.toBe(h.hash({}, defaultPolicy).value)
-  })
-
-  test('non-finite numbers are forbidden', () => {
-    const h = hasher()
-
-    expect(() => h.canonicalize({ value: Number.NaN }, defaultPolicy)).toThrow()
-    expect(() => h.canonicalize({ value: Number.POSITIVE_INFINITY }, defaultPolicy)).toThrow()
-    expect(() => h.canonicalize({ value: Number.NEGATIVE_INFINITY }, defaultPolicy)).toThrow()
-  })
-
-  test('arrays are preserved in order', () => {
-    const h = hasher()
-
-    expect(h.hash(['model', 'driver', 'lockedEnv'], defaultPolicy).value).not.toBe(
-      h.hash(['lockedEnv', 'driver', 'model'], defaultPolicy).value
+    expect(planHash({ beta: 2, alpha: { zed: true, one: 1 } })).toBe(
+      planHash({ alpha: { one: 1, zed: true }, beta: 2 })
     )
   })
 
-  test('omit-ephemeral timestamp mode ignores timestamp fields', () => {
-    const h = hasher()
-    const policy = {
-      ...defaultPolicy,
-      timestampMode: 'omit-ephemeral',
-    } satisfies Partial<HashMaterialPolicy>
+  test('an undefined field drops out of the projected hash while a null field changes it', () => {
+    const planHash = (source: unknown) => (project(source, 'plan') as { planHash: string }).planHash
 
-    const first = {
-      model: 'gpt-5.3-codex',
-      createdAt: '2026-05-24T06:00:00.000Z',
-      nested: { updated_at: '2026-05-24T06:00:01.000Z', value: 1 },
-    }
-    const second = {
-      model: 'gpt-5.3-codex',
-      createdAt: '2026-05-24T07:00:00.000Z',
-      nested: { updated_at: '2026-05-24T07:00:01.000Z', value: 1 },
-    }
+    expect(planHash({ a: undefined, b: 1 })).toBe(planHash({ b: 1 }))
+    expect(planHash({ a: null, b: 1 })).not.toBe(planHash({ b: 1 }))
+  })
 
-    expect(h.hash(first, policy)).toEqual(h.hash(second, policy))
+  test.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    'projecting a non-finite number (%p) is refused',
+    (value) => {
+      expect(() => project({ value }, 'plan')).toThrow(
+        `canonical hash forbids non-finite number: ${String(value)}`
+      )
+    }
+  )
+
+  test('reordering process args changes the neutral spec hash', () => {
+    const withArgs = (args: string[]) =>
+      contracts.neutralSpecHash(
+        brokerSpec({
+          process: {
+            command: 'codex',
+            args,
+            cwd: '/workspace',
+            harnessTransport: { kind: 'jsonrpc-stdio' },
+          },
+        })
+      )
+
+    expect(withArgs(['app-server', '--listen'])).not.toBe(withArgs(['--listen', 'app-server']))
   })
 
   test('omitPaths exclude exact JSON pointer paths only', () => {
@@ -91,19 +75,11 @@ describe('canonical JSON hasher', () => {
     expect(h.hash(base, policy).value).not.toBe(
       h.hash({ ...changed, nested: { ephemeral: 'b', semantic: 'different' } }, policy).value
     )
-  })
-
-  test('omitPaths omitting an object key keeps the canonical string well-formed', () => {
-    const h = hasher()
-    // Object-key omits are dropped cleanly (the value pair disappears), so the
-    // canonical token stays valid JSON. This is the safe, already-exercised path
-    // and a baseline for the array-index gap covered by the .todo cases below.
-    const policy = {
-      ...defaultPolicy,
-      omitPaths: ['/dropped'],
-    } satisfies Partial<HashMaterialPolicy>
-
-    expect(h.canonicalize({ dropped: 'x', kept: 1 }, policy)).toBe('{"kept":1}')
+    // An omitted object key drops its whole pair, so the canonical string stays
+    // well-formed JSON.
+    expect(h.canonicalize({ dropped: 'x', kept: 1 }, { omitPaths: ['/dropped'] })).toBe(
+      '{"kept":1}'
+    )
   })
 
   // wrkq T-10129 attachment BUGS.md (ATT-00153) spaces-runtime-contracts A1: omitting an *array element* via
@@ -142,62 +118,13 @@ describe('canonical JSON hasher', () => {
     expect(() => h.canonicalize(Symbol('x'), defaultPolicy)).toThrow()
   })
 
-  test('lockedEnv keys and values are included in hash material', () => {
-    const h = hasher()
-    const base = {
-      process: {
-        command: 'codex',
-        args: ['app-server'],
-        cwd: '/workspace',
-        lockedEnv: {
-          CODEX_HOME: '/workspace/.codex-home-a',
-        },
-      },
-    }
+  test('changing a lockedEnv value or key changes the neutral spec hash', () => {
+    const withLockedEnv = (lockedEnv: Record<string, string>) =>
+      contracts.neutralSpecHash(brokerSpec({ process: { ...brokerSpec().process, lockedEnv } }))
+    const base = withLockedEnv({ CODEX_HOME: '/workspace/.codex-home-a' })
 
-    expect(
-      h.hash({
-        ...base,
-        process: {
-          ...base.process,
-          lockedEnv: { CODEX_HOME: '/workspace/.codex-home-b' },
-        },
-      }).value
-    ).not.toBe(h.hash(base).value)
-
-    expect(
-      h.hash({
-        ...base,
-        process: {
-          ...base.process,
-          lockedEnv: { OTHER_HOME: '/workspace/.codex-home-a' },
-        },
-      }).value
-    ).not.toBe(h.hash(base).value)
-  })
-
-  test('process.pathPrepend is included in hash material', () => {
-    const h = hasher()
-    const base = {
-      process: {
-        command: 'codex',
-        args: ['app-server'],
-        cwd: '/workspace',
-        lockedEnv: { CODEX_HOME: '/workspace/.codex-home' },
-      },
-    }
-
-    // Adding pathPrepend changes the hash.
-    expect(
-      h.hash({ ...base, process: { ...base.process, pathPrepend: ['/agent/tools/bin'] } }).value
-    ).not.toBe(h.hash(base).value)
-
-    // Reordering pathPrepend entries changes the hash (order is semantic).
-    expect(
-      h.hash({ ...base, process: { ...base.process, pathPrepend: ['/a/bin', '/b/bin'] } }).value
-    ).not.toBe(
-      h.hash({ ...base, process: { ...base.process, pathPrepend: ['/b/bin', '/a/bin'] } }).value
-    )
+    expect(withLockedEnv({ CODEX_HOME: '/workspace/.codex-home-b' })).not.toBe(base)
+    expect(withLockedEnv({ OTHER_HOME: '/workspace/.codex-home-a' })).not.toBe(base)
   })
 
   test('project carries process.pathPrepend into the spec hash', () => {
@@ -244,6 +171,7 @@ describe('canonical projection helper', () => {
         {
           planHash: 'plan_a',
           createdAt: '2026-05-24T06:00:00.000Z',
+          nested: { updated_at: '2026-05-24T06:00:01.000Z', value: 1 },
           process: { lockedEnv: { CODEX_HOME: '/workspace/.codex-home' } },
         },
         'plan'
@@ -252,6 +180,7 @@ describe('canonical projection helper', () => {
       hashProjection: 'runtime-contract-semantic/v2',
       planHash: expect.any(String),
       value: {
+        nested: { value: 1 },
         process: { lockedEnv: { CODEX_HOME: '/workspace/.codex-home' } },
       },
     })
@@ -292,22 +221,25 @@ function brokerStartRequest(
 }
 
 describe('broker start-request neutral hash authority', () => {
-  test('neutral spec material excludes invocationId and correlation', () => {
-    expect(contracts.hashNeutralInvocationSpec(brokerSpec())).toEqual({
-      specVersion: 'harness-broker.invocation/v1',
-      harness: {
-        frontend: 'codex',
-        provider: 'openai',
-        driver: 'codex-app-server',
+  test.each<[string, Partial<HarnessInvocationSpec>]>([
+    ['labels', { labels: { lane: 'b' } }],
+    ['harness', { harness: { frontend: 'codex', provider: 'openai', driver: 'codex-cli' } }],
+    [
+      'process',
+      {
+        process: {
+          command: 'codex-next',
+          args: ['app-server'],
+          cwd: '/workspace',
+          harnessTransport: { kind: 'jsonrpc-stdio' },
+        },
       },
-      process: {
-        command: 'codex',
-        args: ['app-server'],
-        cwd: '/workspace',
-        harnessTransport: { kind: 'jsonrpc-stdio' },
-      },
-      driver: { kind: 'codex-app-server' },
-    })
+    ],
+    ['driver', { driver: { kind: 'muse-serve' } as HarnessInvocationSpec['driver'] }],
+  ])('changing the spec %s changes the neutral spec hash', (_field, change) => {
+    expect(contracts.neutralSpecHash(brokerSpec(change))).not.toBe(
+      contracts.neutralSpecHash(brokerSpec())
+    )
   })
 
   test('invocationId and correlation changes do not change the neutral spec hash', () => {
@@ -322,14 +254,20 @@ describe('broker start-request neutral hash authority', () => {
     expect(second).toBe(first)
   })
 
-  test('neutral start-request material retains only inputId and responseFormat', () => {
-    expect(contracts.hashNeutralStartRequest(brokerStartRequest())).toEqual({
-      spec: contracts.hashNeutralInvocationSpec(brokerSpec()),
-      initialInput: {
-        inputId: inputIdFrom('input_a'),
-        responseFormat: { kind: 'text' },
-      },
-    })
+  test('the neutral start-request hash ignores spec dispatch identity but follows spec semantics', () => {
+    const withSpec = (spec: HarnessInvocationSpec) =>
+      contracts.neutralStartRequestHash({ ...brokerStartRequest(), spec })
+    const base = withSpec(brokerSpec())
+
+    expect(
+      withSpec(
+        brokerSpec({
+          invocationId: invocationIdFrom('invocation_b'),
+          correlation: { requestId: 'request_b' },
+        })
+      )
+    ).toBe(base)
+    expect(withSpec(brokerSpec({ labels: { lane: 'b' } }))).not.toBe(base)
   })
 
   test('inputId and responseFormat each change the neutral start-request hash', () => {

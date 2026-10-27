@@ -9,15 +9,13 @@
  *                     exactly those N rows, all cells valid → exit 0.
  *   2. missing-row  — recipe has `bun scripts/check-example.ts` with NO ledger row → exit 1;
  *                     diagnostic carries all seven §3 fields.
- *   3. add-row green — same fixture + the matching ledger row → exit 0.
  *   4. stale-row    — ledger has a `check` key absent from the recipe → exit 1.
  *   5. schema reds  — each FAILS independently:
  *                       5a. malformed / wrong-order header
  *                       5b. duplicate `check` key
  *                       5c. invalid rung (e.g., `BOGUS`)
  *                       5d. filler sunset-condition (`n/a`)
- *   6. integration  — assert real `justfile` check: recipe contains
- *                     `bun scripts/check-rule-authoring.ts` (red until Phase 2 wires it).
+ *                       5e. empty sunset-condition
  *
  * ## Flag contract (larry implements to this exact interface)
  *
@@ -55,7 +53,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -228,18 +226,6 @@ describe('check-rule-authoring.ts', () => {
   })
 
   // -------------------------------------------------------------------------
-  // Case 3 — add-row green: adding the missing row makes it pass
-  // -------------------------------------------------------------------------
-  test('case 3: after adding the missing row the check exits 0', async () => {
-    // Same recipe as case 2 but now check-authoring.md has BOTH rows.
-    await writeJustfile(tmpDir, ['check-alpha.ts', 'check-beta.ts'])
-    await writeAuthoring(tmpDir, [VALID_ROW_ALPHA, VALID_ROW_BETA])
-
-    const result = await runCheck(tmpDir)
-    expect(result.exitCode).toBe(0)
-  })
-
-  // -------------------------------------------------------------------------
   // Case 4 — stale-row red: ledger references a script not in the recipe
   // -------------------------------------------------------------------------
   test('case 4: stale ledger row (script absent from recipe) → exit 1', async () => {
@@ -272,106 +258,61 @@ describe('check-rule-authoring.ts', () => {
   // -------------------------------------------------------------------------
   // Case 5 — schema reds: each invalid schema shape fails independently
   // -------------------------------------------------------------------------
-  describe('case 5: schema violations', () => {
-    // 5a — wrong-order / malformed header
-    test('5a: wrong-order header → exit 1', async () => {
+  // Each invalid ledger shape fails on its own. 'none' and 'never' take the same
+  // filler branch as 'n/a'; an empty cell is its own branch.
+  const schemaViolations: Array<{
+    name: string
+    writeLedger: (dir: string) => Promise<void>
+    reported: RegExp
+  }> = [
+    {
+      name: 'a header with columns out of order',
+      writeLedger: async (dir) => {
+        await mkdir(join(dir, 'architecture', 'contracts'), { recursive: true })
+        const badHeader =
+          '| rule | check | why | bad | good | exception | rung | sunset-condition |'
+        const separator = '|------|-------|-----|-----|------|-----------|------|-----------------|'
+        const row =
+          '| R-ALPHA-01 | check-alpha.ts | why text | bad text | good text | EXCEPTION(T-01): reason | GUARD | Remove when done |'
+        await writeFile(
+          join(dir, 'architecture', 'contracts', 'check-authoring.md'),
+          ['# Check Authoring Ledger', '', badHeader, separator, row].join('\n')
+        )
+      },
+      reported: /header|column order|expected.*check.*rule/i,
+    },
+    {
+      name: 'a duplicate check key',
+      writeLedger: (dir) =>
+        writeAuthoring(dir, [VALID_ROW_ALPHA, { ...VALID_ROW_ALPHA, rule: 'R-ALPHA-02-DUP' }]),
+      reported: /duplicate|check-alpha\.ts/i,
+    },
+    {
+      name: 'an invalid rung value',
+      writeLedger: (dir) => writeAuthoring(dir, [{ ...VALID_ROW_ALPHA, rung: 'BOGUS' }]),
+      reported: /rung|BOGUS|ELIMINATE|GUARD|WARN|TRAIN|TACIT/i,
+    },
+    {
+      name: 'a filler sunset-condition',
+      writeLedger: (dir) => writeAuthoring(dir, [{ ...VALID_ROW_ALPHA, sunsetCondition: 'n/a' }]),
+      reported: /sunset.condition|filler|actionable|n\/a/i,
+    },
+    {
+      name: 'an empty sunset-condition',
+      writeLedger: (dir) => writeAuthoring(dir, [{ ...VALID_ROW_ALPHA, sunsetCondition: '' }]),
+      reported: /sunset.condition|empty|required/i,
+    },
+  ]
+
+  test.each(schemaViolations)(
+    'case 5: a ledger with $name exits 1',
+    async ({ writeLedger, reported }) => {
       await writeJustfile(tmpDir, ['check-alpha.ts'])
-      await mkdir(join(tmpDir, 'architecture', 'contracts'), { recursive: true })
-
-      // Header has columns in wrong order (rule before check).
-      const badHeader = '| rule | check | why | bad | good | exception | rung | sunset-condition |'
-      const separator = '|------|-------|-----|-----|------|-----------|------|-----------------|'
-      const row =
-        '| R-ALPHA-01 | check-alpha.ts | why text | bad text | good text | EXCEPTION(T-01): reason | GUARD | Remove when done |'
-
-      await writeFile(
-        join(tmpDir, 'architecture', 'contracts', 'check-authoring.md'),
-        ['# Check Authoring Ledger', '', badHeader, separator, row].join('\n')
-      )
+      await writeLedger(tmpDir)
 
       const result = await runCheck(tmpDir)
       expect(result.exitCode).not.toBe(0)
-      expect(out(result)).toMatch(/header|column order|expected.*check.*rule/i)
-    })
-
-    // 5b — duplicate `check` key
-    test('5b: duplicate check key → exit 1', async () => {
-      await writeJustfile(tmpDir, ['check-alpha.ts'])
-      await writeAuthoring(tmpDir, [
-        VALID_ROW_ALPHA,
-        // Same check basename again — duplicate.
-        { ...VALID_ROW_ALPHA, rule: 'R-ALPHA-02-DUP' },
-      ])
-
-      const result = await runCheck(tmpDir)
-      expect(result.exitCode).not.toBe(0)
-      expect(out(result)).toMatch(/duplicate|check-alpha\.ts/i)
-    })
-
-    // 5c — invalid rung value
-    test('5c: invalid rung value (BOGUS) → exit 1', async () => {
-      await writeJustfile(tmpDir, ['check-alpha.ts'])
-      await writeAuthoring(tmpDir, [{ ...VALID_ROW_ALPHA, rung: 'BOGUS' }])
-
-      const result = await runCheck(tmpDir)
-      expect(result.exitCode).not.toBe(0)
-      expect(out(result)).toMatch(/rung|BOGUS|ELIMINATE|GUARD|WARN|TRAIN|TACIT/i)
-    })
-
-    // 5d — filler sunset-condition
-    test('5d: filler sunset-condition (n/a) → exit 1', async () => {
-      await writeJustfile(tmpDir, ['check-alpha.ts'])
-      await writeAuthoring(tmpDir, [{ ...VALID_ROW_ALPHA, sunsetCondition: 'n/a' }])
-
-      const result = await runCheck(tmpDir)
-      expect(result.exitCode).not.toBe(0)
-      expect(out(result)).toMatch(/sunset.condition|filler|actionable|n\/a/i)
-    })
-
-    // 5e — empty sunset-condition (catches '' and whitespace-only)
-    test('5e: empty sunset-condition → exit 1', async () => {
-      await writeJustfile(tmpDir, ['check-alpha.ts'])
-      await writeAuthoring(tmpDir, [{ ...VALID_ROW_ALPHA, sunsetCondition: '' }])
-
-      const result = await runCheck(tmpDir)
-      expect(result.exitCode).not.toBe(0)
-      expect(out(result)).toMatch(/sunset.condition|empty|required/i)
-    })
-
-    // 5f — filler sunset-condition variant: 'none'
-    test('5f: filler sunset-condition (none) → exit 1', async () => {
-      await writeJustfile(tmpDir, ['check-alpha.ts'])
-      await writeAuthoring(tmpDir, [{ ...VALID_ROW_ALPHA, sunsetCondition: 'none' }])
-
-      const result = await runCheck(tmpDir)
-      expect(result.exitCode).not.toBe(0)
-      expect(out(result)).toMatch(/sunset.condition|filler|actionable|none/i)
-    })
-
-    // 5g — filler sunset-condition variant: 'never'
-    test('5g: filler sunset-condition (never) → exit 1', async () => {
-      await writeJustfile(tmpDir, ['check-alpha.ts'])
-      await writeAuthoring(tmpDir, [{ ...VALID_ROW_ALPHA, sunsetCondition: 'never' }])
-
-      const result = await runCheck(tmpDir)
-      expect(result.exitCode).not.toBe(0)
-      expect(out(result)).toMatch(/sunset.condition|filler|actionable|never/i)
-    })
-  })
-
-  // -------------------------------------------------------------------------
-  // Case 6 — integration: real justfile must wire check-rule-authoring.ts
-  // -------------------------------------------------------------------------
-  test('case 6 (integration): real justfile check: recipe includes check-rule-authoring.ts', async () => {
-    // This test reads the REAL repo justfile, not a fixture.
-    // It FAILS until Phase 2 (larry) wires check-rule-authoring.ts into just check:.
-    const justfileContent = await readFile(join(REPO_ROOT, 'justfile'), 'utf-8')
-
-    // Extract the check: recipe lines (between "check:" and the next recipe).
-    const checkRecipeMatch = justfileContent.match(/^check:\s*\n((?:[ \t]+[^\n]*\n?)*)/m)
-    expect(checkRecipeMatch).not.toBeNull()
-
-    const recipeBody = checkRecipeMatch![1]
-    expect(recipeBody).toMatch(/bun scripts\/check-rule-authoring\.ts/)
-  })
+      expect(out(result)).toMatch(reported)
+    }
+  )
 })

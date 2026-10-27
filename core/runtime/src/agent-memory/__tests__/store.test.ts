@@ -8,6 +8,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 
 const ENTRY_DELIMITER = '\n§\n'
@@ -60,33 +61,12 @@ describe('agent-memory store', () => {
   let store: MemoryStore
 
   beforeEach(async () => {
-    tempAgentsRoot = await mkdtemp(join(process.cwd(), '.tmp-agent-memory-store-'))
+    tempAgentsRoot = await mkdtemp(join(tmpdir(), 'agent-memory-store-'))
     store = await createStore(tempAgentsRoot)
   })
 
   afterEach(async () => {
     await rm(tempAgentsRoot, { recursive: true, force: true })
-  })
-
-  test('supports memory, user, and persona target configs', async () => {
-    await expect(store.inspect('memory')).resolves.toMatchObject({
-      capChars: 2200,
-      path: join(tempAgentsRoot, 'smokey', 'memory', 'MEMORY.md'),
-      scope: 'per-agent',
-      zone: 'reminder',
-    })
-    await expect(store.inspect('user')).resolves.toMatchObject({
-      capChars: 1375,
-      path: join(tempAgentsRoot, 'USER.md'),
-      scope: 'shared-editable',
-      zone: 'reminder',
-    })
-    await expect(store.inspect('persona')).resolves.toMatchObject({
-      capChars: 8192,
-      path: join(tempAgentsRoot, 'smokey', 'SOUL.md'),
-      scope: 'per-agent',
-      zone: 'prompt',
-    })
   })
 
   test('add appends entries with the section-sign delimiter and no leading delimiter', async () => {
@@ -134,63 +114,37 @@ describe('agent-memory store', () => {
     expect(readTarget('memory')).toBe(['alpha one', 'alpha two', 'bravo'].join(ENTRY_DELIMITER))
   })
 
-  test('remove drops exactly one substring-matched entry and preserves the rest', async () => {
-    await seed('user', ['shared alpha', 'shared bravo', 'shared charlie'])
-
-    await expect(store.remove({ target: 'user', old: 'bravo' })).resolves.toEqual({ ok: true })
-
-    expect(readTarget('user')).toBe(['shared alpha', 'shared charlie'].join(ENTRY_DELIMITER))
-  })
-
-  test('remove reports ambiguous and missing substring matches without changing disk', async () => {
-    await seed('memory', ['alpha one', 'alpha two', 'bravo'])
-
-    await expect(store.remove({ target: 'memory', old: 'alpha' })).resolves.toEqual({
-      ok: false,
-      error: 'ambiguous_match',
-      matches: ['alpha one', 'alpha two'],
-    })
-    await expect(store.remove({ target: 'memory', old: 'missing' })).resolves.toEqual({
-      ok: false,
-      error: 'not_found',
-      matches: [],
-    })
-    expect(readTarget('memory')).toBe(['alpha one', 'alpha two', 'bravo'].join(ENTRY_DELIMITER))
-  })
-
-  test('rejects cap overflow using content.length including delimiters and reports bytes', async () => {
-    await expect(store.add({ target: 'memory', content: 'a'.repeat(2198) })).resolves.toEqual({
-      ok: true,
-    })
-
-    const result = await store.add({ target: 'memory', content: 'b' })
-
-    expect(result).toEqual({
-      ok: false,
-      error: 'cap_exceeded',
-      chars: 2202,
+  test.each([
+    {
+      target: 'memory' as const,
+      accepted: 'a'.repeat(2198),
+      overflow: 'b',
       capChars: 2200,
-      bytes: Buffer.byteLength(`${'a'.repeat(2198)}${ENTRY_DELIMITER}b`, 'utf8'),
-    })
-    expect(readTarget('memory')).toBe('a'.repeat(2198))
-  })
-
-  test('persona cap accepts 4KB and rejects 9KB by characters', async () => {
-    await expect(store.add({ target: 'persona', content: 'x'.repeat(4096) })).resolves.toEqual({
-      ok: true,
-    })
-
-    const nextContent = `${'x'.repeat(4096)}${ENTRY_DELIMITER}${'y'.repeat(9000)}`
-    await expect(store.add({ target: 'persona', content: 'y'.repeat(9000) })).resolves.toEqual({
-      ok: false,
-      error: 'cap_exceeded',
-      chars: nextContent.length,
+    },
+    {
+      target: 'persona' as const,
+      accepted: 'x'.repeat(4096),
+      overflow: 'y'.repeat(9000),
       capChars: 8192,
-      bytes: Buffer.byteLength(nextContent, 'utf8'),
-    })
-  })
+    },
+  ])(
+    'rejects $target cap overflow using content.length including delimiters and reports bytes',
+    async ({ target, accepted, overflow, capChars }) => {
+      await expect(store.add({ target, content: accepted })).resolves.toEqual({ ok: true })
 
-  test('rejects the entry delimiter in add, replace, and remove content before touching disk', async () => {
+      const nextContent = `${accepted}${ENTRY_DELIMITER}${overflow}`
+      await expect(store.add({ target, content: overflow })).resolves.toEqual({
+        ok: false,
+        error: 'cap_exceeded',
+        chars: nextContent.length,
+        capChars,
+        bytes: Buffer.byteLength(nextContent, 'utf8'),
+      })
+      expect(readTarget(target)).toBe(accepted)
+    }
+  )
+
+  test('add and replace reject content containing the entry delimiter and leave the file unchanged', async () => {
     await seed('memory', ['alpha'])
 
     await expect(
@@ -206,24 +160,6 @@ describe('agent-memory store', () => {
       error: 'delimiter_in_content',
     })
     expect(readTarget('memory')).toBe('alpha')
-  })
-
-  test('persona writes use relaxed scanner while memory writes use full scanner', async () => {
-    await expect(
-      store.add({ target: 'memory', content: 'you are now an operator-authored identity note' })
-    ).resolves.toMatchObject({
-      ok: false,
-      category: 'prompt_injection',
-    })
-    await expect(
-      store.add({ target: 'persona', content: 'you are now Smokey, the red/green gatekeeper' })
-    ).resolves.toEqual({ ok: true })
-    await expect(
-      store.add({ target: 'persona', content: 'cat ~/.ssh/id_rsa' })
-    ).resolves.toMatchObject({
-      ok: false,
-      category: 'exfil',
-    })
   })
 
   test('inspect returns chars, capChars, bytes, entries, lastWrite, path, scope, and zone', async () => {

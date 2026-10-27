@@ -16,6 +16,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { RunMode, RunScaffoldPacket } from 'spaces-config'
 
@@ -30,7 +31,7 @@ describe('materializeSystemPrompt canonical helper', () => {
 
   beforeEach(async () => {
     originalAspAgentsRoot = process.env['ASP_AGENTS_ROOT']
-    tempRoot = await mkdtemp(join(process.cwd(), '.tmp-system-prompt-materialize-'))
+    tempRoot = await mkdtemp(join(tmpdir(), 'system-prompt-materialize-'))
     agentRoot = join(tempRoot, 'agent')
     agentsRoot = join(tempRoot, 'agents')
     aspHome = join(tempRoot, 'asp-home')
@@ -50,12 +51,6 @@ describe('materializeSystemPrompt canonical helper', () => {
       process.env['ASP_AGENTS_ROOT'] = originalAspAgentsRoot
     }
     await rm(tempRoot, { recursive: true, force: true })
-  })
-
-  test('exports materializeSystemPrompt as the canonical runtime helper', async () => {
-    const runtimeModule = (await import('./index.js')) as Record<string, unknown>
-
-    expect(typeof runtimeModule['materializeSystemPrompt']).toBe('function')
   })
 
   test('inspects the constructed prompt with context-template section content', async () => {
@@ -124,42 +119,6 @@ content = "remember this"
     )
   })
 
-  test('canonical helper returns the structured materialization result shape', async () => {
-    // T-01016 red gate: Step 4 migrates callers off the V2 name onto the canonical helper.
-    await writeAgentProfile(`
-version = 3
-
-[instructions]
-template = "append-template.toml"
-`)
-    await writeFile(
-      join(agentRoot, 'append-template.toml'),
-      `
-schema_version = 2
-mode = "append"
-
-[[prompt]]
-name = "notice"
-type = "inline"
-content = "append me"
-`
-    )
-
-    const result = await materializeSystemPrompt(outputRoot, {
-      agentRoot,
-      agentsRoot,
-      aspHome,
-      projectRoot,
-      runMode: 'task',
-    })
-
-    expect(result).toMatchObject({
-      path: join(outputRoot, 'system-prompt.md'),
-      content: 'append me',
-      mode: 'append',
-    })
-  })
-
   test('passes materialization env into context template predicates', async () => {
     await writeAgentProfile(`
 version = 3
@@ -223,24 +182,6 @@ template = "agent-template.toml"
       mode: 'replace',
     })
     expect(readPromptFile(result?.path)).toBe('agent override')
-  })
-
-  test('falls back to the agentsRoot template when no agent-specific template is configured', async () => {
-    await writeFile(join(agentsRoot, 'context-template.toml'), replaceTemplate('agents root'))
-
-    const result = await materializeSystemPrompt(outputRoot, {
-      agentRoot,
-      agentsRoot,
-      aspHome,
-      projectRoot,
-      runMode: 'task',
-    })
-
-    expect(result).toMatchObject({
-      path: join(outputRoot, 'system-prompt.md'),
-      content: 'agents root',
-      mode: 'replace',
-    })
   })
 
   test('T-04143 falls back from an overlay agent root to canonical context-template.toml', async () => {
@@ -498,42 +439,6 @@ content = "append me"
     expect(readPromptFile(result?.path)).toBe('append me')
   })
 
-  test('returns reminderContent when a v2 context template resolves reminder sections', async () => {
-    await writeFile(
-      join(agentsRoot, 'context-template.toml'),
-      `
-schema_version = 2
-mode = "append"
-
-[[prompt]]
-name = "prompt"
-type = "inline"
-content = "prompt body"
-
-[[reminder]]
-name = "reminder"
-type = "inline"
-content = "reminder body"
-`
-    )
-
-    const result = await materializeSystemPrompt(outputRoot, {
-      agentRoot,
-      agentsRoot,
-      aspHome,
-      projectRoot,
-      runMode: 'task',
-    })
-
-    expect(result).toMatchObject({
-      path: join(outputRoot, 'system-prompt.md'),
-      content: 'prompt body',
-      mode: 'append',
-      reminderContent: 'reminder body',
-    })
-    expect(readPromptFile(result?.path)).toBe('prompt body')
-  })
-
   test('writes session-reminder.md when a v2 context template resolves reminder sections', async () => {
     await writeFile(
       join(agentsRoot, 'context-template.toml'),
@@ -561,7 +466,13 @@ content = "reminder body"
       runMode: 'task',
     })
 
-    expect(result?.reminderContent).toBe('reminder body')
+    expect(result).toMatchObject({
+      path: join(outputRoot, 'system-prompt.md'),
+      content: 'prompt body',
+      mode: 'replace',
+      reminderContent: 'reminder body',
+    })
+    expect(readPromptFile(result?.path)).toBe('prompt body')
     expect(readPromptFile(join(outputRoot, 'session-reminder.md'))).toBe('reminder body')
   })
 

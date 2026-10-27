@@ -1,18 +1,19 @@
 /**
  * `when` predicate gating in the context resolver: a section renders only when
  * every declared condition holds against the resolver's cwd and env source.
+ * Templates are real context-template.toml files resolved through
+ * inspectAgentSystemPrompt.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { parseContextTemplate } from './context-template.js'
 import {
   type ResolverRoots,
   SECTION_SEPARATOR,
   createResolverRoots,
+  inspectTemplate,
   removeResolverRoots,
-  resolveZones,
 } from './test-support/context-resolver-fixture.js'
 
 describe('resolveContextTemplate when predicates', () => {
@@ -29,9 +30,9 @@ describe('resolveContextTemplate when predicates', () => {
   test('gates sections on when.exists using the real cwd', async () => {
     await writeFile(join(roots.projectRoot, 'justfile'), 'default:\n\t@echo ok\n')
 
-    const resolved = await resolveZones(
+    const inspection = await inspectTemplate(
       roots,
-      parseContextTemplate(`
+      `
 schema_version = 2
 
 [[reminder]]
@@ -45,12 +46,15 @@ name = "missing-tooling"
 type = "inline"
 content = "Should not render"
 when = { exists = "missing.file" }
-`)
+`
     )
 
-    expect(resolved).toEqual({
-      prompt: undefined,
-      reminder: 'Just is available',
+    expect(inspection.prompt.content).toBe('')
+    expect(inspection.reminder.content).toBe('Just is available')
+    expect(inspection.reminder.sections[1]).toMatchObject({
+      name: 'missing-tooling',
+      included: false,
+      skippedReason: 'when',
     })
   })
 
@@ -98,14 +102,8 @@ when = ${when}
       )
       .join('')
 
-    const resolved = await resolveZones(
-      roots,
-      parseContextTemplate(`schema_version = 2\n${toml}`),
-      {
-        env,
-      }
-    )
+    const inspection = await inspectTemplate(roots, `schema_version = 2\n${toml}`, { env })
 
-    expect(resolved.prompt?.content).toBe(expected)
+    expect(inspection.prompt.content).toBe(expected)
   })
 })

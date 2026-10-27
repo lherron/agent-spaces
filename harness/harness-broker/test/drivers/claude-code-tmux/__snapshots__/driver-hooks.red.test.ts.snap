@@ -1,0 +1,98 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`claude-code-tmux driver RED lifecycle merges broker hooks into the effective pre-separator Claude settings file 1`] = `
+{
+  "MessageDisplay": [
+    {
+      "hooks": [
+        {
+          "command": "harness-broker claude-hook --socket <hook-socket>",
+          "type": "command",
+        },
+      ],
+    },
+  ],
+  "Notification": [
+    {
+      "hooks": [
+        {
+          "command": "harness-broker claude-hook --socket <hook-socket>",
+          "type": "command",
+        },
+      ],
+    },
+  ],
+  "PostToolUse": [
+    {
+      "hooks": [
+        {
+          "command": "harness-broker claude-hook-decision --socket <hook-socket> --legacy-command 'harness-broker claude-hook --socket <hook-socket>'",
+          "type": "command",
+        },
+      ],
+      "matcher": "*",
+    },
+  ],
+  "PreToolUse": [
+    {
+      "hooks": [
+        {
+          "command": "harness-broker claude-hook --socket <hook-socket>",
+          "type": "command",
+        },
+      ],
+      "matcher": "*",
+    },
+  ],
+  "SessionEnd": [
+    {
+      "hooks": [
+        {
+          "command": "harness-broker claude-hook --socket <hook-socket>",
+          "type": "command",
+        },
+      ],
+    },
+  ],
+  "SessionStart": [
+    {
+      "hooks": [
+        {
+          "command": "harness-broker claude-hook --socket <hook-socket>",
+          "type": "command",
+        },
+      ],
+    },
+  ],
+  "Stop": [
+    {
+      "hooks": [
+        {
+          "command": "harness-broker claude-hook-decision --socket <hook-socket> --legacy-command 'harness-broker claude-hook --socket <hook-socket>'",
+          "type": "command",
+        },
+      ],
+    },
+  ],
+  "SubagentStop": [
+    {
+      "hooks": [
+        {
+          "command": "harness-broker claude-hook --socket <hook-socket>",
+          "type": "command",
+        },
+      ],
+    },
+  ],
+  "UserPromptSubmit": [
+    {
+      "hooks": [
+        {
+          "command": "harness-broker claude-hook --socket <hook-socket>",
+          "type": "command",
+        },
+      ],
+    },
+  ],
+}
+`;

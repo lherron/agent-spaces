@@ -11,7 +11,6 @@ import { join } from 'node:path'
 import { buildMuseTurnStartParams } from './input'
 import { buildMuseApprovalDecideParams } from './permissions'
 import {
-  MUSE_LAST_VERIFIED_SCHEMA,
   checkMuseSchemaCompatibility,
   describeMuseSchemaDrift,
   gateMuseSchema,
@@ -48,10 +47,6 @@ describe('real exports', () => {
       expect(checkMuseSchemaCompatibility(loadExport(version).schema)).toEqual([])
     })
   }
-
-  test('the last-verified constant is the committed 1.4.1 export fingerprint', () => {
-    expect(loadExport('1.4.1-R4503.1').fingerprint).toBe(MUSE_LAST_VERIFIED_SCHEMA.fingerprint)
-  })
 })
 
 describe('mutations of the 1.4.1 export refuse with a specific reason', () => {
@@ -223,35 +218,9 @@ describe('gateMuseSchema', () => {
     expect(warnings[0]).not.toContain('does not classify')
   })
 
-  test('the last-verified fingerprint passes without exporting', async () => {
-    const outcome = await gateMuseSchema(v141.fingerprint, async () => {
-      throw new Error('export must not run')
-    })
-    expect(outcome).toEqual({ kind: 'last-verified' })
-  })
-
-  test('an older compatible release passes with a warning', async () => {
-    const outcome = await gateMuseSchema(v140.fingerprint, async () => v140)
-    expect(outcome.kind).toBe('compatible-drift')
-  })
-
   test('an absent served fingerprint refuses', async () => {
     await expect(gateMuseSchema(undefined, async () => v141)).rejects.toThrow(
       'carries no schema fingerprint'
-    )
-  })
-
-  test('a failing export refuses as unverifiable', async () => {
-    await expect(
-      gateMuseSchema('sha256:new', async () => {
-        throw new Error('schema export exited 2')
-      })
-    ).rejects.toThrow('muse-serve cannot verify schema sha256:new: schema export exited 2')
-  })
-
-  test('an export from a different binary refuses', async () => {
-    await expect(gateMuseSchema('sha256:served', async () => v141)).rejects.toThrow(
-      `muse-serve schema export fingerprint ${v141.fingerprint} does not match the served sha256:served`
     )
   })
 

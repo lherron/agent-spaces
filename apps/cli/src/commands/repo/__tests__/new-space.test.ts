@@ -20,14 +20,14 @@
  *   2. Generated space.toml passes readSpaceManifestFromFilesystem + validateSpaceManifest
  *   3. Existing-space rejection (nonzero, no overwrite)
  *   4. Invalid ID rejection before writing (non-kebab / too-long)
- *   5. Validation-gate: malformed space.toml is caught by the same API the command calls
+ *   (5. The command's post-write validation gate is untested: reaching it needs fault injection.)
  *   6. Compatibility: asp spaces init still works alongside new command
  */
 
 import { describe, expect, test } from 'bun:test'
 import { execFileSync } from 'node:child_process'
 import { constants } from 'node:fs'
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -142,7 +142,7 @@ describe('asp repo new-space creates blessed file/dir shape (T-04410 #1)', () =>
   )
 
   test(
-    'default version is 0.1.0 when --version omitted',
+    'new-space without --version/--description writes version 0.1.0 and no description',
     async () => {
       const { root, repoPath } = await setupTempRegistry()
       try {
@@ -154,25 +154,6 @@ describe('asp repo new-space creates blessed file/dir shape (T-04410 #1)', () =>
           'utf-8'
         )
         expect(toml).toContain('version = "0.1.0"')
-      } finally {
-        await rm(root, { recursive: true, force: true })
-      }
-    },
-    CLI_TEST_TIMEOUT_MS
-  )
-
-  test(
-    'description field omitted when --description not supplied',
-    async () => {
-      const { root, repoPath } = await setupTempRegistry()
-      try {
-        const result = runAsp(['repo', 'new-space', 'no-desc-space', '--registry', root])
-        expect(result.exitCode).toBe(0)
-
-        const toml = await readFile(
-          join(repoPath, 'spaces', 'no-desc-space', 'space.toml'),
-          'utf-8'
-        )
         // description must NOT appear when not supplied
         expect(toml).not.toContain('description')
       } finally {
@@ -268,130 +249,33 @@ describe('asp repo new-space rejects existing space (T-04410 #3)', () => {
 // Test 4 — Invalid ID rejection before writing (T-04410 daedalus #4)
 // ============================================================================
 describe('asp repo new-space rejects invalid space IDs before writing (T-04410 #4)', () => {
-  test(
-    'non-kebab-case ID exits nonzero',
-    async () => {
-      const { root, repoPath } = await setupTempRegistry()
-      try {
-        // PascalCase is invalid
-        const result = runAsp(['repo', 'new-space', 'NotKebabCase', '--registry', root])
-        expect(result.exitCode).not.toBe(0)
-
-        const output = result.stdout + result.stderr
-        expect(output).toMatch(/invalid|kebab|id/i)
-
-        // No files must have been written
-        expect(await exists(join(repoPath, 'spaces', 'NotKebabCase'))).toBe(false)
-      } finally {
-        await rm(root, { recursive: true, force: true })
-      }
+  // validateSpaceId has two failure branches: the pattern and the length.
+  const rows: Array<{ id: string; reason: string }> = [
+    {
+      id: 'NotKebabCase',
+      reason:
+        'Space ID must be kebab-case (lowercase letters, numbers, hyphens) and start with a letter',
     },
-    CLI_TEST_TIMEOUT_MS
-  )
+    { id: 'a'.repeat(65), reason: 'Space ID must be 64 characters or less' },
+  ]
 
-  test(
-    'space ID longer than 64 chars exits nonzero',
-    async () => {
-      const { root, repoPath } = await setupTempRegistry()
-      const longId = 'a'.repeat(65)
-      try {
-        const result = runAsp(['repo', 'new-space', longId, '--registry', root])
-        expect(result.exitCode).not.toBe(0)
-
-        const output = result.stdout + result.stderr
-        expect(output).toMatch(/invalid|length|64|id/i)
-
-        // No files must have been written
-        expect(await exists(join(repoPath, 'spaces', longId))).toBe(false)
-      } finally {
-        await rm(root, { recursive: true, force: true })
-      }
-    },
-    CLI_TEST_TIMEOUT_MS
-  )
-
-  test(
-    'ID starting with a digit exits nonzero',
-    async () => {
-      const { root, repoPath } = await setupTempRegistry()
-      try {
-        const result = runAsp(['repo', 'new-space', '1bad-start', '--registry', root])
-        expect(result.exitCode).not.toBe(0)
-
-        // Error must describe the ID constraint (not just "unknown command")
-        // RED: when command absent, output = "unknown command 'new-space'" which won't match
-        const output = result.stdout + result.stderr
-        expect(output).toMatch(/invalid|kebab|letter|id/i)
-
-        expect(await exists(join(repoPath, 'spaces', '1bad-start'))).toBe(false)
-      } finally {
-        await rm(root, { recursive: true, force: true })
-      }
-    },
-    CLI_TEST_TIMEOUT_MS
-  )
-})
-
-// ============================================================================
-// Test 5 — Validation gate: malformed manifest is a hard failure (T-04410 daedalus #5)
-// ============================================================================
-describe('validation gate: malformed space.toml is caught by readSpaceManifestFromFilesystem (T-04410 #5)', () => {
-  test(
-    'generated manifest passes; injected malformed manifest rejected by same validator',
-    async () => {
-      const { root, repoPath } = await setupTempRegistry()
-      try {
-        // RED: command absent → exits 2; GREEN once command exists
-        const result = runAsp(['repo', 'new-space', 'validate-gate-space', '--registry', root])
-        expect(result.exitCode).toBe(0)
-
-        // Verify the generated manifest is valid (warm path — command succeeded)
-        const goodManifest = await resolver.readSpaceManifestFromFilesystem('validate-gate-space', {
-          cwd: repoPath,
-        })
-        const goodResult = resolver.validateSpaceManifest(goodManifest)
-        expect(goodResult.valid).toBe(true)
-
-        // Now overwrite with a MALFORMED space.toml (missing required `id` field)
-        // This simulates what a buggy scaffold writer would produce.
-        // The same API the command calls must reject it.
-        const malformedToml = [
-          'schema = 1',
-          '# id field intentionally omitted — simulates buggy generator output',
-          'version = "0.1.0"',
-          '',
-          '[plugin]',
-          'name = "validate-gate-space"',
-          '',
-        ].join('\n')
-
-        await writeFile(
-          join(repoPath, 'spaces', 'validate-gate-space', 'space.toml'),
-          malformedToml
-        )
-
-        // readSpaceManifestFromFilesystem + validateSpaceManifest must reject this
-        // The command is required (per daedalus ruling C-04456) to call these after writing.
-        // If the generated output were malformed, the command must exit nonzero.
-        let threw = false
+  for (const { id, reason } of rows) {
+    test(
+      `new-space rejects ${id.length > 20 ? `a ${id.length}-char id` : id} with "${reason}" and writes nothing`,
+      async () => {
+        const { root, repoPath } = await setupTempRegistry()
         try {
-          const badManifest = await resolver.readSpaceManifestFromFilesystem(
-            'validate-gate-space',
-            { cwd: repoPath }
-          )
-          const badResult = resolver.validateSpaceManifest(badManifest)
-          // If parse succeeds but validation fails, that also counts
-          if (!badResult.valid) threw = true
-        } catch {
-          threw = true
+          const result = runAsp(['repo', 'new-space', id, '--registry', root])
+          expect(result.exitCode).not.toBe(0)
+          expect(result.stderr).toContain(`Error: ${reason}`)
+          expect(await exists(join(repoPath, 'spaces', id))).toBe(false)
+        } finally {
+          await rm(root, { recursive: true, force: true })
         }
-        expect(threw).toBe(true)
-      } finally {
-        await rm(root, { recursive: true, force: true })
-      }
-    },
-    CLI_TEST_TIMEOUT_MS
-  )
+      },
+      CLI_TEST_TIMEOUT_MS
+    )
+  }
 })
 
 // ============================================================================

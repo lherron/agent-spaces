@@ -42,22 +42,6 @@ describe('buildCorrelationEnvVars', () => {
     expect(env['AGENT_HOST_SESSION_ID']).toBe('hsid-test')
   })
 
-  it('preserves scopeRef and laneRef values exactly', () => {
-    const placement = makePlacement({
-      sessionRef: {
-        scopeRef: 'agent:rex:project:agent-spaces:task:T-01104',
-        laneRef: 'lane:repair',
-      },
-    })
-
-    const env = buildCorrelationEnvVars(placement)
-
-    expect(env['AGENT_SCOPE_REF']).toBe('agent:rex:project:agent-spaces:task:T-01104')
-    expect(env['AGENT_SESSION_REF']).toBe('agent:rex:project:agent-spaces:task:T-01104/lane:repair')
-    expect(env['AGENT_LANE_REF']).toBe('lane:repair')
-    expect(env['AGENT_LANE']).toBe('repair')
-  })
-
   it('keeps scope identity distinct from lane-aware session identity', () => {
     const scopeRef = 'agent:rex:project:agent-spaces:task:T-01104:role:reviewer'
     const placement = makePlacement({
@@ -77,27 +61,19 @@ describe('buildCorrelationEnvVars', () => {
     expect(env['AGENT_LANE']).toBe('repair')
   })
 
-  it('omits all correlation vars when correlation is absent', () => {
-    const placement = makePlacement(undefined)
-
-    const env = buildCorrelationEnvVars(placement)
-
-    expect(env['AGENT_SCOPE_REF']).toBeUndefined()
-    expect(env['AGENT_SESSION_REF']).toBeUndefined()
-    expect(env['AGENT_LANE_REF']).toBeUndefined()
-    expect(env['AGENT_HOST_SESSION_ID']).toBeUndefined()
-  })
-
-  it('omits session vars when sessionRef is absent but hostSessionId is present', () => {
-    const placement = makePlacement({
-      hostSessionId: 'hsid-only',
-    })
-
-    const env = buildCorrelationEnvVars(placement)
+  it.each([
+    ['no correlation emits no correlation vars', undefined, undefined],
+    [
+      'a hostSessionId without a sessionRef emits only the host var',
+      { hostSessionId: 'hsid-only' },
+      'hsid-only',
+    ],
+  ] as const)('%s', (_name, correlation, hostSessionId) => {
+    const env = buildCorrelationEnvVars(makePlacement(correlation))
 
     expect(env['AGENT_SCOPE_REF']).toBeUndefined()
     expect(env['AGENT_SESSION_REF']).toBeUndefined()
     expect(env['AGENT_LANE_REF']).toBeUndefined()
-    expect(env['AGENT_HOST_SESSION_ID']).toBe('hsid-only')
+    expect(env['AGENT_HOST_SESSION_ID']).toBe(hostSessionId)
   })
 })

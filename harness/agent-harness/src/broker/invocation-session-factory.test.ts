@@ -1,8 +1,10 @@
 import { expect, test } from 'bun:test'
 import type { AgentSessionRuntime } from '@earendil-works/pi-coding-agent'
+import { createBroker } from 'spaces-harness-broker'
 import type { PiSdkSession, PiSdkSessionFactoryInput } from 'spaces-harness-broker-pi-sdk'
 import type { InvocationId } from 'spaces-harness-broker-protocol'
 
+import { createAgentHarnessDriver } from '../index'
 import { createResolvedAgentSession, runtimeBackedPiSdkSession } from './invocation-session-factory'
 
 test('forwards all broker-owned inputs into the shared direct runtime without auth fallback', async () => {
@@ -174,9 +176,18 @@ test('refuses unknown contribution keys and structured-tool replacement', async 
 test('requires broker semantic agent inputs', async () => {
   const missing = input()
   missing.spec.agent = undefined
-  await expect(createResolvedAgentSession(missing)).rejects.toThrow(
-    'requires spec.agent semantic inputs'
-  )
+  missing.spec.process = {
+    execution: 'native-worker',
+    cwd: '/repo',
+    harnessTransport: { kind: 'native-worker' },
+  }
+  const broker = createBroker({ drivers: [createAgentHarnessDriver()] })
+  await expect(broker.start({ spec: missing.spec })).rejects.toMatchObject({
+    code: -32602,
+    data: {
+      issues: [expect.objectContaining({ path: 'startRequest.spec.agent', code: 'required' })],
+    },
+  })
 })
 
 function input(): PiSdkSessionFactoryInput {

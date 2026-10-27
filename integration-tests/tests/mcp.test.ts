@@ -77,47 +77,6 @@ describe('MCP config composition', () => {
     await cleanupShimOutput()
   })
 
-  test('asp build generates mcpConfigPath when MCP servers are present', async () => {
-    projectDir = await createTempProject({
-      mcp: {
-        description: 'MCP test target',
-        compose: ['space:mcp-server-a@stable', 'space:mcp-server-b@stable'],
-      },
-    })
-
-    await install({
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-    })
-
-    const result = await build('mcp', {
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-      outputDir,
-    })
-
-    // Should have mcpConfigPath set
-    expect(result.mcpConfigPath).toBeDefined()
-    expect(result.mcpConfigPath).toContain('mcp.json')
-
-    // Verify mcp.json file exists
-    const mcpConfigExists = await fs
-      .access(result.mcpConfigPath!)
-      .then(() => true)
-      .catch(() => false)
-    expect(mcpConfigExists).toBe(true)
-
-    // Verify mcp.json structure
-    const mcpContent = await fs.readFile(result.mcpConfigPath!, 'utf-8')
-    const mcpConfig = JSON.parse(mcpContent)
-
-    expect(mcpConfig.mcpServers).toBeDefined()
-    expect(mcpConfig.mcpServers['server-alpha']).toBeDefined()
-    expect(mcpConfig.mcpServers['server-beta']).toBeDefined()
-  })
-
   test('asp build composes MCP servers from multiple spaces', async () => {
     projectDir = await createTempProject({
       mcp: {
@@ -138,7 +97,8 @@ describe('MCP config composition', () => {
       outputDir,
     })
 
-    expect(result.mcpConfigPath).toBeDefined()
+    expect(result.mcpConfigPath).toEndWith('mcp.json')
+    await fs.access(result.mcpConfigPath!)
 
     const mcpContent = await fs.readFile(result.mcpConfigPath!, 'utf-8')
     const mcpConfig = JSON.parse(mcpContent)
@@ -157,38 +117,6 @@ describe('MCP config composition', () => {
       command: 'node',
       args: ['./server-beta.js'],
     })
-  })
-
-  test('asp build does not generate mcpConfigPath when no MCP servers', async () => {
-    projectDir = await createTempProject({
-      base: {
-        compose: ['space:base@stable'],
-      },
-    })
-
-    await install({
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-    })
-
-    const result = await build('base', {
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-      outputDir,
-    })
-
-    // Should NOT have mcpConfigPath set (base space has no MCP servers)
-    expect(result.mcpConfigPath).toBeUndefined()
-
-    // Verify mcp.json file does not exist
-    const mcpConfigPath = path.join(outputDir, 'mcp.json')
-    const mcpConfigExists = await fs
-      .access(mcpConfigPath)
-      .then(() => true)
-      .catch(() => false)
-    expect(mcpConfigExists).toBe(false)
   })
 
   test('asp run passes --mcp-config to Claude when MCP servers present', async () => {
@@ -267,6 +195,20 @@ describe('MCP config composition', () => {
     // Also verify --mcp-config is NOT in args
     const mcpConfigIndex = shimOutput.args.indexOf('--mcp-config')
     expect(mcpConfigIndex).toBe(-1)
+
+    const built = await build('base', {
+      projectPath: projectDir,
+      registryPath: SAMPLE_REGISTRY_DIR,
+      aspHome,
+      outputDir,
+    })
+    expect(built.mcpConfigPath).toBeUndefined()
+    expect(
+      await fs
+        .access(path.join(outputDir, 'mcp.json'))
+        .then(() => true)
+        .catch(() => false)
+    ).toBe(false)
   })
 
   test('later spaces override earlier MCP server definitions', async () => {

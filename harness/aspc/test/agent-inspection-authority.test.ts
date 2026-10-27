@@ -263,6 +263,16 @@ describe('ASPC identifier-only inspection authority', () => {
   })
 
   test('rejects every client root/context attempt before touching the producer', async () => {
+    const catalog = await serviceWith(
+      compilerReturning(successfulCompileResponse())
+    ).catalogAgentInspection({ projectId: 'agent-spaces' })
+    const option = catalog.contexts['cody']![0]!
+    const validRequest = {
+      schemaVersion: 'agent-inspection-request/v2' as const,
+      identifiers: option.identifiers,
+      declaredOverrides: option.declaredOverrides,
+    }
+
     let resolverCalls = 0
     const service = createAspcService({
       compiler: compilerReturning(successfulCompileResponse()),
@@ -272,23 +282,39 @@ describe('ASPC identifier-only inspection authority', () => {
         return fixture.projectRoot
       },
     })
-    await expect(
-      service.catalogAgentInspection({
-        projectId: 'agent-spaces',
-        projectRoot: '/caller/project',
-        agentsRoot: '/caller/agents',
-      } as never)
-    ).rejects.toThrow()
-    await expect(
-      service.inspectAgentSelection({
-        agentId: 'cody',
-        request: {} as never,
-        evaluationContext: { paths: { projectRoot: '/caller/project' } },
-      } as never)
-    ).rejects.toThrow()
+    expect(
+      await rejectedIssuePaths(
+        service.catalogAgentInspection({
+          projectId: 'agent-spaces',
+          projectRoot: '/caller/project',
+          agentsRoot: '/caller/agents',
+        } as never)
+      )
+    ).toEqual(['params.agentsRoot', 'params.projectRoot'])
+    expect(
+      await rejectedIssuePaths(
+        service.inspectAgentSelection({
+          agentId: 'cody',
+          request: validRequest,
+          evaluationContext: { paths: { projectRoot: '/caller/project' } },
+        } as never)
+      )
+    ).toEqual(['params.evaluationContext'])
     expect(resolverCalls).toBe(0)
   })
 })
+
+async function rejectedIssuePaths(pending: Promise<unknown>): Promise<string[]> {
+  const error = await pending.then(
+    () => {
+      throw new Error('expected the request to be rejected')
+    },
+    (rejection: unknown) => rejection
+  )
+  const issues = (error as { issues?: Array<{ path: string }> }).issues
+  if (!Array.isArray(issues)) throw error
+  return issues.map((issue) => issue.path).sort()
+}
 
 function serviceWith(compiler: AspcCompiler) {
   return createAspcService({

@@ -1,17 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
-import type { HookEnvelope, TmuxExecCall } from './driver-red.helpers'
-import {
-  claudeTmuxSpec,
-  createCtx,
-  createRecordingExec,
-  defaultLease,
-  loadFactory,
-  now,
-} from './driver-red.helpers'
+import { appendFileSync } from 'node:fs'
+import { startHookDriver } from './driver-red.helpers'
 
 /**
  * T-11837. Claude Code batches transcript appends behind a 100 ms flush timer
@@ -19,8 +8,6 @@ import {
  * reaches the broker before the turn's closing `assistant` row is on disk. The
  * turn must still carry exactly ONE terminal assistant message.
  */
-const SOCKET = '/tmp/harness-broker/claude-hooks.sock'
-
 const assistantRow = (id: string, text: string): string =>
   `${JSON.stringify({
     type: 'assistant',
@@ -30,47 +17,8 @@ const assistantRow = (id: string, text: string): string =>
 const plain = (value: unknown): unknown => JSON.parse(JSON.stringify(value))
 const stopSummaryRow = `${JSON.stringify({ type: 'system', subtype: 'stop_hook_summary' })}\n`
 
-async function startDriver(extra: { stopTranscriptWaitMs?: number } = {}) {
-  const createDriver = await loadFactory()
-  const tmuxCalls: TmuxExecCall[] = []
-  let handler: ((envelope: HookEnvelope) => Promise<unknown>) | undefined
-  const events: InvocationEventEnvelope[] = []
-  const root = mkdtempSync(join(tmpdir(), 'claude-stop-race-'))
-  const transcriptPath = join(root, 'session.jsonl')
-  writeFileSync(transcriptPath, '')
-  const driver = createDriver({
-    tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
-    hooks: {
-      listen: async (listener) => {
-        handler = listener as (envelope: HookEnvelope) => Promise<unknown>
-        return { socketPath: SOCKET, close: async () => undefined }
-      },
-    },
-    now,
-    ...extra,
-  })
-  await driver.start(claudeTmuxSpec(), createCtx(events, { terminalSurface: defaultLease() }))
-  const hook = async (hookData: Record<string, unknown>, turnId?: string) =>
-    handler?.({
-      invocationId: 'inv_claude_tmux_1',
-      generation: 1,
-      callbackSocket: SOCKET,
-      ...(turnId !== undefined ? { turnId } : {}),
-      hookData,
-    })
-  await hook({ hook_event_name: 'SessionStart', transcript_path: transcriptPath })
-  const messages = () => events.filter((event) => event.type === 'assistant.message.completed')
-  return {
-    events,
-    transcriptPath,
-    hook,
-    messages,
-    cleanup: async () => {
-      await driver.dispose()
-      rmSync(root, { recursive: true, force: true })
-    },
-  }
-}
+const startDriver = (driverOptions: { stopTranscriptWaitMs?: number } = {}) =>
+  startHookDriver({ driverOptions })
 
 describe('claude-code-tmux Stop vs transcript flush (T-11837)', () => {
   test('a Stop that beats the transcript flush waits for the row and emits ONE transcript message', async () => {
@@ -154,17 +102,23 @@ describe('claude-code-tmux Stop vs transcript flush (T-11837)', () => {
     }
   })
 
-  test('a Stop with no last_assistant_message does not wait', async () => {
-    const run = await startDriver({ stopTranscriptWaitMs: 5_000 })
-    try {
-      await run.hook({ hook_event_name: 'UserPromptSubmit', prompt: 'go' }, 'turn_quiet')
-      const started = performance.now()
-      await run.hook({ hook_event_name: 'Stop' }, 'turn_quiet')
-      expect(performance.now() - started).toBeLessThan(1_000)
-      expect(run.messages()).toHaveLength(0)
-      expect(run.events.some((event) => event.type === 'turn.completed')).toBe(true)
-    } finally {
-      await run.cleanup()
+  test.each([
+    { case: 'missing', hook: { hook_event_name: 'Stop' } },
+    { case: 'non-string', hook: { hook_event_name: 'Stop', last_assistant_message: 42 } },
+  ])(
+    'a Stop with $case last_assistant_message does not wait or emit a message',
+    async ({ hook }) => {
+      const run = await startDriver({ stopTranscriptWaitMs: 5_000 })
+      try {
+        await run.hook({ hook_event_name: 'UserPromptSubmit', prompt: 'go' }, 'turn_quiet')
+        const started = performance.now()
+        await run.hook(hook, 'turn_quiet')
+        expect(performance.now() - started).toBeLessThan(1_000)
+        expect(run.messages()).toHaveLength(0)
+        expect(run.events.some((event) => event.type === 'turn.completed')).toBe(true)
+      } finally {
+        await run.cleanup()
+      }
     }
-  })
+  )
 })

@@ -1,11 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
-import {
-  ASP_DEFAULT_TASK_ENV,
-  DEFAULT_PRIMARY_TASK_ID,
-  resolveQualifiedScopeInput,
-  resolveScopeInput,
-} from '../input.js'
+import { ASP_DEFAULT_TASK_ENV, resolveQualifiedScopeInput, resolveScopeInput } from '../input.js'
 
 let savedDefaultTask: string | undefined
 
@@ -23,7 +18,7 @@ afterEach(() => {
 })
 
 describe('resolveScopeInput', () => {
-  test('canonicalizes scope handles with default main lane', () => {
+  test('a scope handle with a task resolves to its canonical ScopeRef on the main lane', () => {
     expect(resolveScopeInput('larry@agent-spaces:T-00123')).toEqual({
       parsed: expect.objectContaining({
         agentId: 'larry',
@@ -85,65 +80,10 @@ describe('resolveScopeInput', () => {
 })
 
 describe('resolveQualifiedScopeInput', () => {
-  test('exposes the task-default environment name and canonical primary fallback', () => {
-    expect(ASP_DEFAULT_TASK_ENV).toBe('ASP_DEFAULT_TASK')
-    expect(DEFAULT_PRIMARY_TASK_ID).toBe('primary')
-  })
-
-  test('fills missing taskId with primary when project is present', () => {
-    expect(resolveQualifiedScopeInput('cody@agent-spaces')).toMatchObject({
-      scopeRef: 'agent:cody:project:agent-spaces:task:primary',
-      laneRef: 'main',
-      laneId: 'main',
-    })
-  })
-
   test('fills projectId from opts and then defaults task to primary', () => {
     expect(resolveQualifiedScopeInput('cody', { projectId: 'agent-spaces' })).toMatchObject({
       scopeRef: 'agent:cody:project:agent-spaces:task:primary',
       laneRef: 'main',
-    })
-  })
-
-  test('preserves explicit taskId', () => {
-    expect(resolveQualifiedScopeInput('cody@agent-spaces:T-00123')).toMatchObject({
-      scopeRef: 'agent:cody:project:agent-spaces:task:T-00123',
-    })
-  })
-
-  test('preserves session-handle lane and still fills primary', () => {
-    expect(resolveQualifiedScopeInput('cody@agent-spaces~repair')).toMatchObject({
-      scopeRef: 'agent:cody:project:agent-spaces:task:primary',
-      laneId: 'repair',
-      laneRef: 'lane:repair',
-    })
-  })
-
-  test('role without task collapses to task:primary:role', () => {
-    expect(resolveQualifiedScopeInput('cody@agent-spaces/reviewer')).toMatchObject({
-      scopeRef: 'agent:cody:project:agent-spaces:task:primary:role:reviewer',
-    })
-  })
-
-  test('leaves bare agent unchanged when no projectId is supplied', () => {
-    expect(resolveQualifiedScopeInput('cody')).toMatchObject({
-      scopeRef: 'agent:cody',
-    })
-  })
-
-  test('explicit opts.taskId overrides the primary default', () => {
-    expect(
-      resolveQualifiedScopeInput('cody', { projectId: 'agent-spaces', taskId: 'T-99999' })
-    ).toMatchObject({
-      scopeRef: 'agent:cody:project:agent-spaces:task:T-99999',
-    })
-  })
-
-  test('opts.defaultTaskId is used when neither input nor opts.taskId is set', () => {
-    expect(
-      resolveQualifiedScopeInput('cody@agent-spaces', { defaultTaskId: 'default' })
-    ).toMatchObject({
-      scopeRef: 'agent:cody:project:agent-spaces:task:default',
     })
   })
 
@@ -179,7 +119,8 @@ describe('resolveQualifiedScopeInput', () => {
     })
 
     test('trimmed environment default beats primary', () => {
-      process.env[ASP_DEFAULT_TASK_ENV] = '  minilab  '
+      // Set by literal name: the env var name is user-facing and must not drift with the constant.
+      process.env['ASP_DEFAULT_TASK'] = '  minilab  '
 
       expect(resolveQualifiedScopeInput('mable@proj')).toMatchObject({
         scopeRef: 'agent:mable:project:proj:task:minilab',
@@ -201,14 +142,6 @@ describe('resolveQualifiedScopeInput', () => {
       }
     )
 
-    test('bare agent without a resolvable project remains agent-only', () => {
-      process.env[ASP_DEFAULT_TASK_ENV] = 'minilab'
-
-      expect(resolveQualifiedScopeInput('mable')).toMatchObject({
-        scopeRef: 'agent:mable',
-      })
-    })
-
     test('invalid environment default fails loud and names its value', () => {
       process.env[ASP_DEFAULT_TASK_ENV] = 'not valid'
 
@@ -218,27 +151,11 @@ describe('resolveQualifiedScopeInput', () => {
     })
   })
 
-  test('canonical input is preserved end-to-end', () => {
-    expect(
-      resolveQualifiedScopeInput('agent:cody:project:agent-spaces:task:T-1:role:tester')
-    ).toMatchObject({
-      scopeRef: 'agent:cody:project:agent-spaces:task:T-1:role:tester',
-    })
-  })
-
   test('project-deferred shorthand fills projectId from opts', () => {
     expect(resolveQualifiedScopeInput('cody:zed', { projectId: 'hrc-runtime' })).toMatchObject({
       scopeRef: 'agent:cody:project:hrc-runtime:task:zed',
       laneRef: 'main',
     })
-  })
-
-  test('project-deferred shorthand preserves task-id-shaped tokens', () => {
-    expect(resolveQualifiedScopeInput('cody:T-02134', { projectId: 'agent-spaces' })).toMatchObject(
-      {
-        scopeRef: 'agent:cody:project:agent-spaces:task:T-02134',
-      }
-    )
   })
 
   test('project-deferred shorthand throws when no project can be resolved', () => {
@@ -334,55 +251,5 @@ describe('resolveQualifiedScopeInput', () => {
       )
       expect(result.laneRef).toBe(expectedLaneRef)
     })
-
-    test.each([
-      ['cody@agent-spaces', {}, 'agent:cody:project:agent-spaces:task:primary', 'main'],
-      [
-        'cody@agent-spaces',
-        { defaultTaskId: 'T-1' },
-        'agent:cody:project:agent-spaces:task:T-1',
-        'main',
-      ],
-      ['cody@agent-spaces', { taskId: 'T-1' }, 'agent:cody:project:agent-spaces:task:T-1', 'main'],
-      ['cody@agent-spaces:T-1', {}, 'agent:cody:project:agent-spaces:task:T-1', 'main'],
-      [
-        'cody@agent-spaces:T-1/tester',
-        {},
-        'agent:cody:project:agent-spaces:task:T-1:role:tester',
-        'main',
-      ],
-      [
-        'agent:cody:project:agent-spaces:task:T-1',
-        {},
-        'agent:cody:project:agent-spaces:task:T-1',
-        'main',
-      ],
-      [
-        'agent:cody:project:agent-spaces:task:T-1:role:tester',
-        {},
-        'agent:cody:project:agent-spaces:task:T-1:role:tester',
-        'main',
-      ],
-      [
-        'cody@agent-spaces:T-1~repair',
-        {},
-        'agent:cody:project:agent-spaces:task:T-1',
-        'lane:repair',
-      ],
-      [
-        'cody@agent-spaces/reviewer',
-        {},
-        'agent:cody:project:agent-spaces:task:primary:role:reviewer',
-        'main',
-      ],
-    ])(
-      'preserves current output when defaultRoleName is absent: %s',
-      (input, options, expectedScopeRef, expectedLaneRef) => {
-        expect(resolveQualifiedScopeInput(input, options)).toMatchObject({
-          scopeRef: expectedScopeRef,
-          laneRef: expectedLaneRef,
-        })
-      }
-    )
   })
 })

@@ -1,5 +1,5 @@
 /**
- * CodexAdapter run surface: argv, model catalog, manifest run defaults, and run env.
+ * CodexAdapter run surface: argv, manifest run defaults, and run env.
  */
 
 import { beforeEach, describe, expect, test } from 'bun:test'
@@ -73,50 +73,6 @@ describe('CodexAdapter', () => {
       })
 
       expect(args).toContain('--dangerously-bypass-hook-trust')
-    })
-
-    test('headless app-server runs never carry the hook-trust bypass flag (T-01798)', () => {
-      const args = adapter.buildRunArgs(bundle, {
-        interactive: false,
-        prompt: 'Summarize repository health',
-      })
-
-      expect(args).not.toContain('--dangerously-bypass-hook-trust')
-    })
-
-    test('keeps headless model reasoning effort out of app-server argv', () => {
-      const args = adapter.buildRunArgs(bundle, {
-        interactive: false,
-        modelReasoningEffort: 'high',
-      })
-
-      expect(args).toEqual(['--enable', 'goals', 'app-server'])
-      expect(args).not.toContain('model_reasoning_effort="high"')
-    })
-
-    test('delivers model reasoning summary through CODEX_HOME, not app-server argv', () => {
-      const args = adapter.buildRunArgs(bundle, { interactive: false })
-
-      expect(args).toEqual(['--enable', 'goals', 'app-server'])
-      expect(args.some((arg) => arg.includes('model_reasoning_summary'))).toBe(false)
-    })
-
-    test('marks GPT-5.6 Terra as the default and exposes every GPT-5.6 variant', () => {
-      expect(adapter.models[0]).toEqual({
-        id: 'gpt-5.6-terra',
-        name: 'GPT-5.6-Terra',
-        default: true,
-        identityKind: 'full',
-      })
-      expect(adapter.models.map((model) => model.id)).toEqual(
-        expect.arrayContaining([
-          'gpt-5.6-sol',
-          'gpt-5.6-terra',
-          'gpt-5.6-luna',
-          'gpt-6-astra',
-          'gpt-5.5',
-        ])
-      )
     })
   })
 

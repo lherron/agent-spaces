@@ -172,13 +172,20 @@ describe('Arris participant adapter', () => {
     ).toEqual({ status: 'pending', reason: 'arris_host_control_starting' })
   })
 
-  test('rejects a changed host incarnation between admit and prepare', async () => {
+  test('holds wrong-schema evidence pending and rejects a host incarnation changed between admit and prepare', async () => {
     const descriptor = await fixture()
     const descriptorPath = await writeDescriptor(descriptor)
     const adapter = createArrisParticipantAdapter({
       workspaceCwd: process.cwd(),
       participantKey: 'arris:primary',
     })
+    expect(
+      await adapter.admit({
+        classId: 'arris-resident',
+        join: 'participant-served',
+        evidence: { schema: 'wrong.schema/1', descriptorPath },
+      })
+    ).toEqual({ status: 'pending', reason: 'arris_host_evidence_invalid' })
     const admission = await adapter.admit({
       classId: 'arris-resident',
       join: 'participant-served',

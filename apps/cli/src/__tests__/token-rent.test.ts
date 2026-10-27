@@ -4,8 +4,6 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { analyzeSystemPromptArtifact } from '../commands/token-rent.js'
-
 const ASP_CLI = join(import.meta.dirname, '..', '..', 'bin', 'asp.js')
 
 function sqlString(value: string): string {
@@ -22,23 +20,7 @@ function runAsp(args: string[]): string {
 }
 
 describe('token-rent', () => {
-  test('splits resident system prompt artifacts on composed section boundaries', () => {
-    const sections = analyzeSystemPromptArtifact(
-      ['# Praesidium Platform\nshared motd', '# Clod\nsoul', '# Conventions\nrules'].join(
-        '\n\n---\n\n'
-      ),
-      2
-    )
-
-    expect(sections.map((section) => section.source)).toEqual([
-      'AGENT_MOTD.md',
-      'SOUL.md',
-      'conventions.md',
-    ])
-    expect(sections[0]?.tokensPerDay).toBe((sections[0]?.tokens ?? 0) * 2)
-  })
-
-  test('reports live sqlite runs against the latest broker invocation system prompt', async () => {
+  test('reports live sqlite runs against the latest broker invocation system prompt, split into priced sections', async () => {
     const tempDir = await mkdtemp(join(tmpdir(), 'asp-token-rent-'))
     try {
       const db = join(tempDir, 'state.sqlite')
@@ -50,7 +32,8 @@ describe('token-rent', () => {
         promptFile,
         [
           '# Praesidium Platform\nresident platform',
-          '# Alice\nresident soul',
+          // not the agent's name: section 2 is SOUL.md by position
+          '# Clod\nresident soul',
           '# Conventions\nresident rules',
         ].join('\n\n---\n\n')
       )
@@ -62,8 +45,8 @@ describe('token-rent', () => {
           'create table continuities (scope_ref text not null, lane_ref text not null, agent_id text not null, primary key(scope_ref, lane_ref));',
           'create table broker_invocations (invocation_id text primary key, broker_driver text not null, spec_projection_json text, created_at text not null);',
           "insert into continuities values ('agent:historical-label:project:demo:task:one', 'main', 'alice'), ('agent:historical-label:project:demo:task:two', 'main', 'alice');",
-          "insert into runs values ('agent:historical-label:project:demo:task:one', 'main', '2026-06-01T12:00:00.000Z');",
-          "insert into runs values ('agent:historical-label:project:demo:task:two', 'main', '2026-06-02T12:00:00.000Z');",
+          "insert into runs values ('agent:historical-label:project:demo:task:one', 'main', '2026-06-01T06:00:00.000Z');",
+          "insert into runs values ('agent:historical-label:project:demo:task:two', 'main', '2026-06-01T18:00:00.000Z');",
         ].join('\n'),
       ])
       execFileSync('sqlite3', [
@@ -76,7 +59,7 @@ describe('token-rent', () => {
             launch: { systemPromptFile: promptFile, systemPromptMode: 'append' },
             correlation: { scopeRef: 'agent:alice:project:demo:task:two' },
           })
-        )}, '2026-06-02T13:00:00.000Z');`,
+        )}, '2026-06-01T19:00:00.000Z');`,
       ])
 
       const stdout = runAsp([
@@ -91,17 +74,33 @@ describe('token-rent', () => {
         '--usage-since',
         '2026-06-01T00:00:00.000Z',
         '--now',
-        '2026-06-03T00:00:00.000Z',
+        '2026-06-02T00:00:00.000Z',
       ])
       const report = JSON.parse(stdout) as {
-        agents: Array<{ agent: string; runs: number; sessionsPerDay: number; sections: unknown[] }>
+        agents: Array<{
+          agent: string
+          runs: number
+          sessionsPerDay: number
+          sections: Array<{ source: string; tokens: number; tokensPerDay: number }>
+        }>
         deadLayerCandidates: Array<{ path: string; regime: string }>
       }
 
       expect(report.agents[0]?.agent).toBe('alice')
       expect(report.agents[0]?.runs).toBe(2)
-      expect(report.agents[0]?.sessionsPerDay).toBe(1)
-      expect(report.agents[0]?.sections).toHaveLength(3)
+      // two runs in a one-day window
+      expect(report.agents[0]?.sessionsPerDay).toBe(2)
+      const sections = report.agents[0]?.sections ?? []
+      // each `---`-separated section maps to its composing source file
+      expect(sections.map((section) => section.source).sort()).toEqual([
+        'AGENT_MOTD.md',
+        'SOUL.md',
+        'conventions.md',
+      ])
+      for (const section of sections) {
+        expect(section.tokens).toBeGreaterThan(0)
+        expect(section.tokensPerDay).toBe(section.tokens * 2)
+      }
       expect(report.deadLayerCandidates).toContainEqual(
         expect.objectContaining({ path: 'USER.md', regime: 'session-start' })
       )

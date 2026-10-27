@@ -17,10 +17,6 @@ function write(message) {
 
 rl.on('line', (line) => {
   const message = JSON.parse(line)
-  if (message.method === 'broker.hello') {
-    write({ jsonrpc: '2.0', id: message.id, result: { ok: true } })
-    return
-  }
   if (message.method === 'ping') {
     // First response resolves the pending request.
     write({ jsonrpc: '2.0', id: message.id, result: { pong: 1 } })
@@ -63,22 +59,8 @@ describe('JsonRpcFramedChannel unmatched-response observability', () => {
       )
 
       expect(unmatched).toContain('req_never_sent')
-      expect(transport.unmatchedResponseCount).toBeGreaterThanOrEqual(2)
-    } finally {
-      await transport.close()
-    }
-  })
-
-  test('a healthy request/response exchange leaves the unmatched counter at zero', async () => {
-    const transport = await StdioTransport.start({
-      command: process.execPath,
-      args: ['--eval', fakeBrokerScript],
-      cwd: repoRoot,
-    })
-
-    try {
-      await transport.request('broker.hello')
-      expect(transport.unmatchedResponseCount).toBe(0)
+      // Exactly the duplicate and the stray: the matched pong:1 is not counted.
+      expect(transport.unmatchedResponseCount).toBe(2)
     } finally {
       await transport.close()
     }

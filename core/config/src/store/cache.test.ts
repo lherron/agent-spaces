@@ -10,37 +10,16 @@ import type { Sha256Integrity } from '../core/index.js'
 import { computePluginCacheKey } from './cache.js'
 
 describe('computePluginCacheKey', () => {
-  it('should compute consistent hash', () => {
-    const integrity = 'sha256:abc123' as Sha256Integrity
-    const key1 = computePluginCacheKey(integrity, 'my-plugin', '1.0.0')
-    const key2 = computePluginCacheKey(integrity, 'my-plugin', '1.0.0')
-    expect(key1).toBe(key2)
-  })
-
-  it('should produce 64-char hex hash', () => {
-    const integrity = 'sha256:abc123' as Sha256Integrity
-    const key = computePluginCacheKey(integrity, 'my-plugin', '1.0.0')
-    expect(key.length).toBe(64)
-    expect(/^[0-9a-f]+$/.test(key)).toBe(true)
-  })
-
-  it('should differ for different integrities', () => {
-    const key1 = computePluginCacheKey('sha256:aaa' as Sha256Integrity, 'plugin', '1.0.0')
-    const key2 = computePluginCacheKey('sha256:bbb' as Sha256Integrity, 'plugin', '1.0.0')
-    expect(key1).not.toBe(key2)
-  })
-
-  it('should differ for different plugin names', () => {
+  it('the plugin cache key is stable for the same integrity, name and version and changes with each', () => {
     const integrity = 'sha256:abc' as Sha256Integrity
-    const key1 = computePluginCacheKey(integrity, 'plugin-a', '1.0.0')
-    const key2 = computePluginCacheKey(integrity, 'plugin-b', '1.0.0')
-    expect(key1).not.toBe(key2)
-  })
+    const key = computePluginCacheKey(integrity, 'plugin', '1.0.0')
 
-  it('should differ for different versions', () => {
-    const integrity = 'sha256:abc' as Sha256Integrity
-    const key1 = computePluginCacheKey(integrity, 'plugin', '1.0.0')
-    const key2 = computePluginCacheKey(integrity, 'plugin', '1.0.1')
-    expect(key1).not.toBe(key2)
+    expect(computePluginCacheKey(integrity, 'plugin', '1.0.0')).toBe(key)
+    // Row: different integrity.
+    expect(computePluginCacheKey('sha256:bbb' as Sha256Integrity, 'plugin', '1.0.0')).not.toBe(key)
+    // Row: different plugin name.
+    expect(computePluginCacheKey(integrity, 'plugin-b', '1.0.0')).not.toBe(key)
+    // Row: different version.
+    expect(computePluginCacheKey(integrity, 'plugin', '1.0.1')).not.toBe(key)
   })
 })

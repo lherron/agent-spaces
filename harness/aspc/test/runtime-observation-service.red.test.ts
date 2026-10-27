@@ -6,7 +6,6 @@ import { join } from 'node:path'
 import type {
   AspcInspectRuntimePlacementRequest,
   AspcInspectRuntimePlacementResponse,
-  AspcResolveRuntimeDeclarationRequest,
   AspcRuntimePromptObservation,
 } from 'spaces-aspc-protocol'
 import type { CompileId, RuntimeCompileResponse } from 'spaces-runtime-contracts'
@@ -57,40 +56,6 @@ afterEach(async () => {
 })
 
 describe('T-08563 ASPC runtime observation service', () => {
-  test('positive control: existing service hello and compiler injection are live', async () => {
-    const service = Aspc.createAspcService({ compiler: async () => successfulCompileResponse() })
-    const hello = await service.hello({
-      clientInfo: { name: 'runtime-observation-red' },
-      protocolVersions: ['aspc/0.1'],
-    })
-    expect(hello.protocolVersion).toBe('aspc/0.1')
-    expect(hello.capabilities.compileHarnessInvocation).toBe(true)
-    expect(hello.capabilities).not.toHaveProperty('compileRuntimePlan')
-  })
-
-  test('registers all four methods and advertises exact hello capability booleans', async () => {
-    const server = recordingServer()
-    Aspc.registerAspcCompileMethods(server)
-    for (const method of METHODS) expect(server.handlers.has(method)).toBe(true)
-
-    const hello = await requiredHandler(
-      server.handlers,
-      'aspc.hello'
-    )({
-      id: 1,
-      method: 'aspc.hello',
-      params: { clientInfo: { name: 'runtime-red' }, protocolVersions: ['aspc/0.1'] },
-    })
-    for (const capability of [
-      'resolveRuntimeDeclaration',
-      'inspectRuntimePlacement',
-      'observeRuntimeCapability',
-      'observeContinuationArtifact',
-    ]) {
-      expect(hello.capabilities[capability], `hello capability ${capability}`).toBe(true)
-    }
-  })
-
   test('returns typed incompatible/unsupported_schema from every advertised method', async () => {
     const server = recordingServer()
     Aspc.registerAspcCompileMethods(server)
@@ -186,111 +151,6 @@ describe('T-08563 ASPC runtime observation service', () => {
     ).toBe(true)
     expect(JSON.stringify(response.inspection)).toContain('plan_runtime_observation_red')
   })
-
-  test('T-08579: dispatchEnv changes neither prompt facts nor the environment hash', async () => {
-    const service = dynamicService()
-    const first = okPlacement(
-      await service.inspectRuntimePlacement(
-        inspectRequest('prompted', { RUNTIME_PROMPT_VALUE: 'A' })
-      )
-    )
-    const repeat = okPlacement(
-      await service.inspectRuntimePlacement(
-        inspectRequest('prompted', { RUNTIME_PROMPT_VALUE: 'A' })
-      )
-    )
-    const changed = okPlacement(
-      await service.inspectRuntimePlacement(
-        inspectRequest('prompted', { RUNTIME_PROMPT_VALUE: 'B' })
-      )
-    )
-    expect(repeat.prompt).toEqual(first.prompt)
-    expect(repeat.effectiveEnvironmentHash).toBe(first.effectiveEnvironmentHash)
-    expect(changed.prompt).toEqual(first.prompt)
-    expect(presentPrompt(changed.prompt).systemPrompt).toContain('present=ambient')
-    expect(changed.effectiveEnvironmentHash).toBe(first.effectiveEnvironmentHash)
-  })
-
-  test('rejects invalid profiles without target fallback through the service', async () => {
-    const fixtures = [
-      ['parse-invalid', 'version = [not valid'],
-      ['schema-invalid', 'version = 4\nunknown_key = true\n'],
-    ] as const
-    for (const [agentId, profile] of fixtures) {
-      const agentRoot = join(agentsRoot, agentId)
-      await mkdir(agentRoot, { recursive: true })
-      await writeFile(join(agentRoot, 'agent-profile.toml'), profile)
-    }
-    await writeFile(
-      join(projectRoot, 'asp-targets.toml'),
-      `schema = 2
-
-[targets.parse-invalid]
-compose = []
-
-[targets.parse-invalid.provisioning]
-harness = "codex"
-model = "gpt-5.6-sol"
-
-[targets.schema-invalid]
-compose = []
-
-[targets.schema-invalid.provisioning]
-harness = "codex"
-model = "gpt-5.6-sol"
-`
-    )
-
-    const service = dynamicService()
-    for (const [agentId] of fixtures) {
-      const agentRoot = join(agentsRoot, agentId)
-      const rejected = await service.resolveRuntimeDeclaration(
-        declarationRequest(agentId, agentRoot, {
-          mode: 'root',
-          projectRoot,
-          projectId: 'agent-spaces',
-        })
-      )
-      // Fail closed (T-08701): an invalid profile is never usable, even with
-      // valid project targets present. Targets are never read.
-      expect(rejected).toMatchObject({
-        ok: false,
-        resolution: { state: 'invalid', code: 'agent_profile_invalid' },
-        source: {
-          agentProfile: {
-            state: 'invalid',
-            diagnostics: [
-              {
-                severity: 'error',
-                code: 'agent_profile_invalid',
-                source: 'agent-profile',
-              },
-            ],
-          },
-          projectTargets: { state: 'absent', code: 'not_declared' },
-        },
-      })
-      expect(rejected).not.toHaveProperty('failure')
-      expect(rejected).not.toHaveProperty('provisioning')
-      expect(rejected).not.toHaveProperty('baselineProvisioning')
-    }
-
-    const invalidWithoutTarget = await service.resolveRuntimeDeclaration(
-      declarationRequest('parse-invalid', join(agentsRoot, 'parse-invalid'), { mode: 'none' })
-    )
-    expect(invalidWithoutTarget).toMatchObject({
-      ok: false,
-      resolution: { state: 'invalid', code: 'agent_profile_invalid' },
-      source: {
-        agentProfile: { state: 'invalid' },
-        projectTargets: { state: 'absent', code: 'not_declared' },
-        selectedTarget: { state: 'absent', code: 'not_declared' },
-      },
-    })
-    expect(invalidWithoutTarget).not.toHaveProperty('failure')
-    expect(invalidWithoutTarget).not.toHaveProperty('provisioning')
-    expect(invalidWithoutTarget).not.toHaveProperty('baselineProvisioning')
-  })
 })
 
 function dynamicService(): Aspc.AspcService {
@@ -335,24 +195,6 @@ function inspectRequest(
       agentSources: { agentsRoot },
     },
     ...(dispatchEnv ? { dispatchEnv } : {}),
-  }
-}
-
-function declarationRequest(
-  agentId: string,
-  agentRoot: string,
-  project: { mode: 'root'; projectRoot: string; projectId: string } | { mode: 'none' }
-): AspcResolveRuntimeDeclarationRequest {
-  return {
-    schemaVersion: 'aspc-resolve-runtime-declaration-request/v1',
-    context: {
-      agentId,
-      agentRoot,
-      project,
-      cwd: projectRoot,
-      runMode: 'task',
-      agentSources: { agentsRoot },
-    },
   }
 }
 

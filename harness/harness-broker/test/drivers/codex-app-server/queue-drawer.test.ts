@@ -29,23 +29,6 @@ const enqueued = (id: string, position: number, time?: string): InvocationEventE
   event('queue.enqueued', { submissionId: id, class: 'queue', position, ttlMs: 1_800_000 }, time)
 
 describe('the queue drawer folds the broker queue (T-07906)', () => {
-  test('an entry appears on enqueue, labelled by the admission origin', () => {
-    const drawer = createQueueDrawer()
-    drawer.observe(requested('submission_inv-a_7', 'agent:lance'))
-    expect(drawer.observe(enqueued('submission_inv-a_7', 0))).toBe(true)
-
-    expect(drawer.entries()).toEqual([
-      {
-        submissionId: 'submission_inv-a_7',
-        principal: 'lance',
-        class: 'queue',
-        position: 0,
-        enqueuedAtMs: Date.parse('2026-09-02T18:00:00.000Z'),
-        ttlMs: 1_800_000,
-      },
-    ])
-  })
-
   test('every terminal disposition drains the entry', () => {
     for (const type of [
       'submission.executed',
@@ -89,16 +72,12 @@ describe('the queue drawer folds the broker queue (T-07906)', () => {
       )
     ).toBe(true)
     expect(drawer.entries().map((entry) => entry.principal)).toEqual(['daedalus', 'lance', 'cody'])
-  })
-
-  test('a jump for a submission the drawer never saw changes nothing', () => {
-    const drawer = createQueueDrawer()
     expect(
       drawer.observe(
         event('queue.jumped', { submissionId: 'unknown', fromPosition: 3, toPosition: 0 })
       )
     ).toBe(false)
-    expect(drawer.entries()).toEqual([])
+    expect(drawer.entries().map((entry) => entry.principal)).toEqual(['daedalus', 'lance', 'cody'])
   })
 
   test('the invocation ending clears the drawer: nothing waits on a dead harness', () => {

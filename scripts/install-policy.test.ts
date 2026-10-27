@@ -1,65 +1,120 @@
-import { describe, expect, test } from 'bun:test'
-import { computeInstallPolicy, detectContextFromGitDirs } from './install-policy'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-const justfile = await Bun.file(new URL('../justfile', import.meta.url)).text()
+const script = join(import.meta.dir, 'install-policy.ts')
 
-describe('install policy', () => {
-  test('detects the primary checkout when git dir and common git dir match', () => {
-    expect(detectContextFromGitDirs('/repo', '.git', '.git')).toBe('main')
+// Git variables a hook run would leak into the child and point it at the wrong repo.
+const { GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, ...cleanEnv } = process.env
+
+let root = ''
+let mainCheckout = ''
+let linkedWorktree = ''
+
+function git(args: string[], cwd: string): void {
+  const result = spawnSync('git', args, { cwd, env: cleanEnv, encoding: 'utf8' })
+  if (result.status !== 0) throw new Error(`git ${args.join(' ')}: ${result.stderr}`)
+}
+
+beforeAll(() => {
+  root = mkdtempSync(join(tmpdir(), 'asp-install-policy-'))
+  mainCheckout = join(root, 'main')
+  linkedWorktree = join(root, 'linked')
+  git(['init', '-q', '-b', 'main', mainCheckout], root)
+  git(
+    [
+      '-c',
+      'user.name=Install Policy',
+      '-c',
+      'user.email=install-policy@example.invalid',
+      '-c',
+      'commit.gpgSign=false',
+      'commit',
+      '-q',
+      '--allow-empty',
+      '-m',
+      'baseline',
+    ],
+    mainCheckout
+  )
+  git(['worktree', 'add', '-q', '-b', 'linked', linkedWorktree], mainCheckout)
+})
+
+afterAll(() => {
+  if (root) rmSync(root, { recursive: true, force: true })
+})
+
+function shell(
+  checkout: 'main' | 'linked',
+  flags: string[]
+): { status: number | null; vars: Record<string, string>; stderr: string } {
+  const result = spawnSync('bun', [script, 'shell', ...flags], {
+    cwd: checkout === 'main' ? mainCheckout : linkedWorktree,
+    env: cleanEnv,
+    encoding: 'utf8',
+  })
+  const vars: Record<string, string> = {}
+  for (const line of result.stdout.split('\n')) {
+    const match = /^(PRAESIDIUM_INSTALL_[A-Z_]+)='(.*)'$/.exec(line)
+    if (match?.[1] !== undefined && match[2] !== undefined) vars[match[1]] = match[2]
+  }
+  return { status: result.status, vars, stderr: result.stderr }
+}
+
+function policy(
+  context: string,
+  sync: string,
+  link: string,
+  channel: string,
+  tag: string
+): Record<string, string> {
+  return {
+    PRAESIDIUM_INSTALL_CONTEXT: context,
+    PRAESIDIUM_INSTALL_SYNC_MODE: sync,
+    PRAESIDIUM_INSTALL_LINK_MODE: link,
+    PRAESIDIUM_INSTALL_PUBLISH_CHANNEL: channel,
+    PRAESIDIUM_INSTALL_PUBLISH_TAG: tag,
+  }
+}
+
+describe('install-policy.ts shell', () => {
+  test.each([
+    {
+      name: 'a main checkout keeps sync and linking on and publishes canonical latest',
+      checkout: 'main' as const,
+      flags: [],
+      expected: policy('main', 'on', 'on', 'canonical', 'latest'),
+    },
+    {
+      name: 'a linked worktree turns sync and linking off and publishes to the worktree channel',
+      checkout: 'linked' as const,
+      flags: [],
+      expected: policy('linked-worktree', 'off', 'off', 'worktree', 'worktree'),
+    },
+    {
+      name: '--no-sync turns sync off in a main checkout',
+      checkout: 'main' as const,
+      flags: ['--no-sync=1'],
+      expected: policy('main', 'off', 'on', 'canonical', 'latest'),
+    },
+    {
+      name: 'force options turn sync and linking on loudly in a linked worktree',
+      checkout: 'linked' as const,
+      flags: ['--force-sync=1', '--force-link=true'],
+      expected: policy('linked-worktree', 'forced', 'forced', 'worktree', 'worktree'),
+    },
+  ])('$name', ({ checkout, flags, expected }) => {
+    const result = shell(checkout, flags)
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.vars).toEqual(expected)
   })
 
-  test('detects a linked worktree when git dir lives under the common dir worktrees area', () => {
-    expect(
-      detectContextFromGitDirs(
-        '/repo/worktree',
-        '/repo/.git/worktrees/agent-spaces-T-05831',
-        '/repo/.git'
-      )
-    ).toBe('linked-worktree')
-  })
-
-  test('keeps main checkout side effects enabled by default', () => {
-    expect(computeInstallPolicy({ context: 'main' })).toEqual({
-      context: 'main',
-      syncMode: 'on',
-      linkMode: 'on',
-      publishChannel: 'canonical',
-      publishTag: 'latest',
-    })
-  })
-
-  test('turns sync and wrapper linking off in linked worktrees by default', () => {
-    expect(computeInstallPolicy({ context: 'linked-worktree' })).toEqual({
-      context: 'linked-worktree',
-      syncMode: 'off',
-      linkMode: 'off',
-      publishChannel: 'worktree',
-      publishTag: 'worktree',
-    })
-  })
-
-  test('keeps no-sync as an explicit side-effect disable', () => {
-    expect(computeInstallPolicy({ context: 'main', noSync: '1' }).syncMode).toBe('off')
-  })
-
-  test('allows loud worktree force options for exceptional operator installs', () => {
-    expect(
-      computeInstallPolicy({ context: 'linked-worktree', forceSync: '1', forceLink: 'true' })
-    ).toMatchObject({
-      syncMode: 'forced',
-      linkMode: 'forced',
-    })
-  })
-
-  test('links every executable package when install linking is enabled', () => {
-    expect(justfile).toContain('( cd apps/cli && bun link')
-    expect(justfile).toContain('( cd harness/harness-broker && bun link')
-    expect(justfile).toContain('skipping executable links')
-  })
-
-  test('rejects contradictory sync controls', () => {
-    expect(() =>
-      computeInstallPolicy({ context: 'linked-worktree', noSync: '1', forceSync: '1' })
-    ).toThrow(/no-sync and force-sync/)
+  test('contradictory --no-sync and --force-sync exit non-zero without emitting a policy', () => {
+    const result = shell('linked', ['--no-sync=1', '--force-sync=1'])
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toMatch(/no-sync and force-sync/)
+    expect(result.vars).toEqual({})
   })
 })

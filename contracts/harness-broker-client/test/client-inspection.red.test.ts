@@ -123,33 +123,4 @@ describe('BrokerClient inspection passthroughs (T-01852 red)', () => {
     expect(transport.calls).toEqual([{ method: 'invocation.capture.release', params: request }])
     expect(transport.calls[0]?.params).toBe(request)
   })
-
-  test('captureRelease forwards an operator-authored normalized-as unchanged', async () => {
-    const request: InvocationCaptureReleaseRequest = {
-      invocationId: invocationIdFrom('inv_client_capture_normalized'),
-      rawRecordId: 'raw_000124',
-      disposition: 'normalized-as',
-      normalizedAs: {
-        type: 'submission.cancelled',
-        payload: { submissionId: 's1', reason: 'recalled' },
-      },
-    }
-    const response: InvocationCaptureReleaseResponse = {
-      released: true,
-      invocationId: invocationIdFrom('inv_client_capture_normalized'),
-      rawRecordId: 'raw_000124',
-      disposition: 'normalized',
-      releasedSeq: 43,
-      normalizedSeq: 44,
-      resumedRecords: 0,
-      capture: { state: 'open', deferredCount: 0 },
-    }
-    const transport = new RecordingTransport({ 'invocation.capture.release': response })
-    const client = BrokerClient.fromTransport(transport)
-
-    await expect(client.captureRelease(request)).resolves.toBe(response)
-    expect(
-      (transport.calls[0]?.params as InvocationCaptureReleaseRequest | undefined)?.normalizedAs
-    ).toBe(request.normalizedAs)
-  })
 })

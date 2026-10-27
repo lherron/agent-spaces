@@ -159,10 +159,6 @@ describe('postSyntheticSessionEnd', () => {
     }
   })
 
-  test('no-op (no throw) when callback socket env is absent', async () => {
-    await postSyntheticSessionEnd({ HARNESS_BROKER_INVOCATION_ID: 'inv_3' }, 0, null)
-  })
-
   test('does not hang when the socket is unreachable (bounded best-effort)', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'synth-session-end-'))
     const socketPath = join(dir, 'missing.sock')

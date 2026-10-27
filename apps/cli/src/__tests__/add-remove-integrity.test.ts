@@ -63,6 +63,14 @@ afterEach(async () => {
 })
 
 describe('asp add / asp remove integrity', () => {
+  cliTest('add --no-install updates the target without changing the existing lock', async () => {
+    const before = await readLock()
+    const result = asp('add', 'space:project:gamma', '--target', 'demo', '--no-install')
+    expect(result.exitCode).toBe(0)
+    expect(await readTargets()).toContain('space:project:gamma')
+    expect(await readLock()).toEqual(before)
+  })
+
   cliTest('add and remove on one target keep the other target locked', async () => {
     const otherBefore = JSON.stringify((await readLock()).targets['other'])
 

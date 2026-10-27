@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
+import { afterAll, describe, expect, test } from 'bun:test'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import type {
   HarnessInvocationSpec,
   InvocationEvent,
@@ -10,6 +10,9 @@ import type {
 import type { DriverContext } from '../../../src/drivers/driver'
 import { parseDispatchEnv } from '../../../src/runtime/env'
 import { invocationIdFrom } from '../../ids'
+
+const socketRoot = mkdtempSync('/tmp/pi-driver-')
+afterAll(() => rmSync(socketRoot, { recursive: true, force: true }))
 
 type TmuxExecCall = {
   argv: string[]
@@ -45,7 +48,7 @@ const piTmuxSpec = (): HarnessInvocationSpec => ({
 const paneLease = () => ({
   kind: 'tmux-pane' as const,
   ownership: 'hrc' as const,
-  socketPath: '/tmp/harness-broker/pi-tmux.sock',
+  socketPath: `${socketRoot}/pi-tmux.sock`,
   sessionId: '$9',
   windowId: '@4',
   paneId: '%42',
@@ -142,7 +145,7 @@ describe('pi-tui-tmux driver', () => {
       hooks: {
         listen: async (handler) => {
           hookHandler = handler as (envelope: unknown) => Promise<void>
-          return { socketPath: '/tmp/harness-broker/pi-hooks.sock', close: async () => {} }
+          return { socketPath: `${socketRoot}/pi-hooks.sock`, close: async () => {} }
         },
         bridgeCommand: 'bun harness/harness-broker/bin/harness-broker.js pi-hook',
       },
@@ -153,7 +156,7 @@ describe('pi-tui-tmux driver', () => {
     await hookHandler?.({
       invocationId,
       generation: 1,
-      callbackSocket: '/tmp/harness-broker/pi-hooks.sock',
+      callbackSocket: `${socketRoot}/pi-hooks.sock`,
       runtimeId: 'runtime-pi-driver',
       hookData: { eventName: 'session_start', payload: { sessionId: 'pi-session-from-hook' } },
     })
@@ -163,7 +166,7 @@ describe('pi-tui-tmux driver', () => {
       driver: { kind: 'pi-tui-tmux', rawType: 'tmux.surface' },
       payload: {
         kind: 'tmux-pane',
-        socketPath: '/tmp/harness-broker/pi-tmux.sock',
+        socketPath: `${socketRoot}/pi-tmux.sock`,
         sessionId: '$9',
         windowId: '@4',
         paneId: '%42',
@@ -184,9 +187,9 @@ describe('pi-tui-tmux driver', () => {
     expect(artifact.env).toMatchObject({
       PI_CODING_AGENT_DIR: '/tmp/pi-bundle',
       ASP_PROJECT: 'agent-spaces',
-      HRC_LAUNCH_HOOK_CLI: '/tmp/harness-broker/pi-hooks.sock.pi-hook.ts',
+      HRC_LAUNCH_HOOK_CLI: `${socketRoot}/pi-hooks.sock.pi-hook.ts`,
       HARNESS_BROKER_INVOCATION_ID: invocationId,
-      HARNESS_BROKER_CALLBACK_SOCKET: '/tmp/harness-broker/pi-hooks.sock',
+      HARNESS_BROKER_CALLBACK_SOCKET: `${socketRoot}/pi-hooks.sock`,
       HARNESS_BROKER_RUNTIME_ID: 'runtime-pi-driver',
     })
   })

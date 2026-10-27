@@ -1,175 +1,59 @@
+import { asSpaceId } from '../types/refs.js'
+import type { SpaceManifest } from '../types/space.js'
+import { serializeSpaceToml } from './space-toml.js'
 /**
  * Tests for space manifest (space.toml) parser
  *
  * WHY: Space manifest parsing is essential for reading space definitions
  * from the registry. These tests verify TOML parsing, schema validation,
- * serialization, and error handling.
+ * and error handling.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdir, rm } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { ConfigParseError, ConfigValidationError } from '../errors.js'
-import { asSpaceId } from '../types/refs.js'
-import type { SpaceManifest } from '../types/space.js'
-import { parseSpaceToml, readSpaceToml, serializeSpaceToml } from './space-toml.js'
+import { parseSpaceToml, readSpaceToml } from './space-toml.js'
 
-/** Create a minimal valid space manifest */
-function createValidManifest(): SpaceManifest {
-  return {
-    schema: 1,
-    id: asSpaceId('my-space'),
+function firstValidationIssue(toml: string) {
+  try {
+    parseSpaceToml(toml)
+  } catch (error) {
+    expect(error).toBeInstanceOf(ConfigValidationError)
+    return (error as ConfigValidationError).validationErrors[0]
   }
-}
-
-/** Create a full-featured space manifest */
-function createFullManifest(): SpaceManifest {
-  return {
-    schema: 1,
-    id: asSpaceId('my-space'),
-    version: '1.0.0',
-    description: 'A test space',
-    plugin: {
-      name: 'my-plugin',
-      version: '1.0.0',
-      description: 'A test plugin',
-      author: {
-        name: 'Test Author',
-        email: 'test@example.com',
-        url: 'https://example.com',
-      },
-      homepage: 'https://example.com/my-plugin',
-      repository: 'https://github.com/example/my-plugin',
-      license: 'MIT',
-      keywords: ['test', 'example'],
-    },
-    deps: {
-      spaces: ['space:other-space@stable'],
-    },
-  }
-}
-
-/** Convert a SpaceManifest to TOML string for testing */
-function toToml(manifest: SpaceManifest): string {
-  const lines: string[] = []
-  lines.push(`schema = ${manifest.schema}`)
-  lines.push(`id = "${manifest.id}"`)
-
-  if (manifest.version) {
-    lines.push(`version = "${manifest.version}"`)
-  }
-  if (manifest.description) {
-    lines.push(`description = "${manifest.description}"`)
-  }
-
-  if (manifest.plugin) {
-    lines.push('')
-    lines.push('[plugin]')
-    if (manifest.plugin.name) lines.push(`name = "${manifest.plugin.name}"`)
-    if (manifest.plugin.version) lines.push(`version = "${manifest.plugin.version}"`)
-    if (manifest.plugin.description) lines.push(`description = "${manifest.plugin.description}"`)
-    if (manifest.plugin.homepage) lines.push(`homepage = "${manifest.plugin.homepage}"`)
-    if (manifest.plugin.repository) lines.push(`repository = "${manifest.plugin.repository}"`)
-    if (manifest.plugin.license) lines.push(`license = "${manifest.plugin.license}"`)
-    if (manifest.plugin.keywords) {
-      lines.push(`keywords = [${manifest.plugin.keywords.map((k) => `"${k}"`).join(', ')}]`)
-    }
-    if (manifest.plugin.author) {
-      lines.push('')
-      lines.push('[plugin.author]')
-      if (manifest.plugin.author.name) lines.push(`name = "${manifest.plugin.author.name}"`)
-      if (manifest.plugin.author.email) lines.push(`email = "${manifest.plugin.author.email}"`)
-      if (manifest.plugin.author.url) lines.push(`url = "${manifest.plugin.author.url}"`)
-    }
-  }
-
-  if (manifest.deps?.spaces && manifest.deps.spaces.length > 0) {
-    lines.push('')
-    lines.push('[deps]')
-    lines.push(`spaces = [${manifest.deps.spaces.map((s) => `"${s}"`).join(', ')}]`)
-  }
-
-  return `${lines.join('\n')}\n`
+  throw new Error('expected parseSpaceToml to reject')
 }
 
 describe('parseSpaceToml', () => {
-  describe('valid input', () => {
-    test('parses minimal valid manifest', () => {
-      const toml = 'schema = 1\nid = "my-space"\n'
-      const result = parseSpaceToml(toml)
-
-      expect(result.schema).toBe(1)
-      expect<string>(result.id).toBe('my-space')
-    })
-
-    test('parses manifest with version and description', () => {
-      const toml = `
+  test('a full space.toml (kebab-case id with digits) parses to exactly the manifest it encodes', () => {
+    const toml = `
 schema = 1
-id = "my-space"
+id = "my-space-123"
 version = "1.0.0"
 description = "A test space"
-`
-      const result = parseSpaceToml(toml)
 
-      expect(result.version).toBe('1.0.0')
-      expect(result.description).toBe('A test space')
-    })
+[plugin]
+name = "my-plugin"
+version = "1.0.0"
+description = "A test plugin"
+homepage = "https://example.com/my-plugin"
+repository = "https://github.com/example/my-plugin"
+license = "MIT"
+keywords = ["test", "example"]
 
-    test('parses manifest with plugin config', () => {
-      const manifest = createFullManifest()
-      const toml = toToml(manifest)
-      const result = parseSpaceToml(toml)
-
-      expect(result.plugin?.name).toBe('my-plugin')
-      expect(result.plugin?.version).toBe('1.0.0')
-      expect(result.plugin?.license).toBe('MIT')
-      expect(result.plugin?.keywords).toEqual(['test', 'example'])
-    })
-
-    test('parses manifest with author info', () => {
-      const manifest = createFullManifest()
-      const toml = toToml(manifest)
-      const result = parseSpaceToml(toml)
-
-      expect(result.plugin?.author?.name).toBe('Test Author')
-      expect(result.plugin?.author?.email).toBe('test@example.com')
-      expect(result.plugin?.author?.url).toBe('https://example.com')
-    })
-
-    test('parses manifest with dependencies', () => {
-      const toml = `
-schema = 1
-id = "my-space"
+[plugin.author]
+name = "Test Author"
+email = "test@example.com"
+url = "https://example.com"
 
 [deps]
 spaces = ["space:dep-a@stable", "space:dep-b@^1.0.0"]
-`
-      const result = parseSpaceToml(toml)
-
-      expect(result.deps?.spaces).toHaveLength(2)
-      expect(result.deps?.spaces).toContain('space:dep-a@stable')
-      expect(result.deps?.spaces).toContain('space:dep-b@^1.0.0')
-    })
-
-    test('parses cleanupPeriodDays from Claude settings', () => {
-      const toml = `
-schema = 1
-id = "my-space"
 
 [settings]
 cleanupPeriodDays = 36500
-`
-      const result = parseSpaceToml(toml)
-
-      expect(result.settings?.cleanupPeriodDays).toBe(36500)
-    })
-
-    test('parses manifest with codex config', () => {
-      const toml = `
-schema = 1
-id = "my-space"
 
 [harness]
 supports = ["codex"]
@@ -186,154 +70,96 @@ enabled = true
 [codex.config]
 "features.web_search_request" = false
 `
-      const result = parseSpaceToml(toml)
 
-      expect(result.harness?.supports).toEqual(['codex'])
-      expect(result.codex?.model).toBe('gpt-5.3-codex')
-      expect(result.codex?.prompts?.enabled).toBe(false)
-      expect(result.codex?.skills?.enabled).toBe(true)
-      expect(result.codex?.config?.['features.web_search_request']).toBe(false)
-    })
-
-    test('parses kebab-case id', () => {
-      const toml = 'schema = 1\nid = "my-awesome-space"\n'
-      const result = parseSpaceToml(toml)
-
-      expect<string>(result.id).toBe('my-awesome-space')
-    })
-
-    test('parses id with numbers', () => {
-      const toml = 'schema = 1\nid = "space123"\n'
-      const result = parseSpaceToml(toml)
-
-      expect<string>(result.id).toBe('space123')
-    })
-
-    test('uses provided filePath in error messages', () => {
-      const toml = 'invalid toml ['
-      try {
-        parseSpaceToml(toml, '/custom/space.toml')
-      } catch (e) {
-        expect((e as ConfigParseError).source).toBe('/custom/space.toml')
-      }
-    })
-
-    test('uses default filename when filePath not provided', () => {
-      const toml = 'invalid toml ['
-      try {
-        parseSpaceToml(toml)
-      } catch (e) {
-        expect((e as ConfigParseError).source).toBe('space.toml')
-      }
-    })
+    expect(parseSpaceToml(toml)).toEqual({
+      schema: 1,
+      id: 'my-space-123',
+      version: '1.0.0',
+      description: 'A test space',
+      plugin: {
+        name: 'my-plugin',
+        version: '1.0.0',
+        description: 'A test plugin',
+        homepage: 'https://example.com/my-plugin',
+        repository: 'https://github.com/example/my-plugin',
+        license: 'MIT',
+        keywords: ['test', 'example'],
+        author: { name: 'Test Author', email: 'test@example.com', url: 'https://example.com' },
+      },
+      deps: { spaces: ['space:dep-a@stable', 'space:dep-b@^1.0.0'] },
+      settings: { cleanupPeriodDays: 36500 },
+      harness: { supports: ['codex'] },
+      codex: {
+        model: 'gpt-5.3-codex',
+        prompts: { enabled: false },
+        skills: { enabled: true },
+        config: { 'features.web_search_request': false },
+      },
+    } as never)
   })
 
-  describe('TOML parse errors', () => {
-    test('throws ConfigParseError for invalid TOML syntax', () => {
-      expect(() => parseSpaceToml('[invalid')).toThrow(ConfigParseError)
-    })
-
-    test('throws ConfigParseError for unclosed string', () => {
-      expect(() => parseSpaceToml('id = "unclosed')).toThrow(ConfigParseError)
-    })
-
-    test('throws ConfigParseError for invalid table', () => {
-      expect(() => parseSpaceToml('[not.valid.]')).toThrow(ConfigParseError)
-    })
-
-    test('includes original error message in ConfigParseError', () => {
-      try {
-        parseSpaceToml('[invalid')
-      } catch (e) {
-        expect(e).toBeInstanceOf(ConfigParseError)
-        expect((e as ConfigParseError).message).toContain('Failed to parse TOML')
-      }
-    })
+  test('malformed space.toml raises ConfigParseError naming the file and the TOML error', () => {
+    expect(() => parseSpaceToml('[invalid', '/custom/space.toml')).toThrow(
+      expect.objectContaining({
+        name: 'ConfigParseError',
+        source: '/custom/space.toml',
+        message: expect.stringContaining('Failed to parse TOML'),
+      })
+    )
   })
 
-  describe('schema validation errors', () => {
-    test('throws ConfigValidationError for missing required fields', () => {
-      const toml = 'version = "1.0.0"'
-      expect(() => parseSpaceToml(toml)).toThrow(ConfigValidationError)
-    })
-
-    test('throws ConfigValidationError for wrong schema version', () => {
-      const toml = 'schema = 2\nid = "my-space"\n'
-      expect(() => parseSpaceToml(toml)).toThrow(ConfigValidationError)
-    })
-
-    test('throws ConfigValidationError for invalid id format (uppercase)', () => {
-      const toml = 'schema = 1\nid = "MySpace"\n'
-      expect(() => parseSpaceToml(toml)).toThrow(ConfigValidationError)
-    })
-
-    test('throws ConfigValidationError for invalid id format (special chars)', () => {
-      const toml = 'schema = 1\nid = "my_space"\n'
-      expect(() => parseSpaceToml(toml)).toThrow(ConfigValidationError)
-    })
-
-    test('throws ConfigValidationError for id too long', () => {
-      const toml = `schema = 1\nid = "${'a'.repeat(65)}"\n`
-      expect(() => parseSpaceToml(toml)).toThrow(ConfigValidationError)
-    })
-
-    test('throws ConfigValidationError for invalid version format', () => {
-      const toml = 'schema = 1\nid = "my-space"\nversion = "not-semver"\n'
-      expect(() => parseSpaceToml(toml)).toThrow(ConfigValidationError)
-    })
-
-    test('throws ConfigValidationError for invalid plugin name format', () => {
-      const toml = `
-schema = 1
-id = "my-space"
-
-[plugin]
-name = "Invalid_Name"
-`
-      expect(() => parseSpaceToml(toml)).toThrow(ConfigValidationError)
-    })
-
-    test('throws ConfigValidationError for description too long', () => {
-      const toml = `schema = 1\nid = "my-space"\ndescription = "${'a'.repeat(501)}"\n`
-      expect(() => parseSpaceToml(toml)).toThrow(ConfigValidationError)
-    })
-
-    test('throws ConfigValidationError for invalid space ref format', () => {
-      const toml = `
-schema = 1
-id = "my-space"
-
-[deps]
-spaces = ["invalid-ref"]
-`
-      expect(() => parseSpaceToml(toml)).toThrow(ConfigValidationError)
-    })
-
-    test('rejects retired harness ids in support declarations', () => {
-      for (const harness of ['agent-sdk', 'claude-agent-sdk', 'pi', 'pi-sdk']) {
-        const toml = `schema = 1\nid = "my-space"\n[harness]\nsupports = ["${harness}"]\n`
-        expect(() => parseSpaceToml(toml)).toThrow(ConfigValidationError)
-      }
-    })
-
-    test('includes validation errors in ConfigValidationError', () => {
-      const toml = 'schema = 2\nid = "Invalid"\n'
-      try {
-        parseSpaceToml(toml)
-      } catch (e) {
-        expect(e).toBeInstanceOf(ConfigValidationError)
-        expect((e as ConfigValidationError).validationErrors.length).toBeGreaterThan(0)
-      }
-    })
-  })
+  test.each([
+    ['missing schema and id', 'version = "1.0.0"\n', '/', 'required'],
+    ['schema 2', 'schema = 2\nid = "my-space"\n', '/schema', 'const'],
+    ['uppercase id', 'schema = 1\nid = "MySpace"\n', '/id', 'pattern'],
+    ['underscore id', 'schema = 1\nid = "my_space"\n', '/id', 'pattern'],
+    ['65-char id', `schema = 1\nid = "${'a'.repeat(65)}"\n`, '/id', 'maxLength'],
+    [
+      'non-semver version',
+      'schema = 1\nid = "my-space"\nversion = "not-semver"\n',
+      '/version',
+      'pattern',
+    ],
+    [
+      'plugin name with underscore',
+      'schema = 1\nid = "my-space"\n[plugin]\nname = "Invalid_Name"\n',
+      '/plugin/name',
+      'pattern',
+    ],
+    [
+      '501-char description',
+      `schema = 1\nid = "my-space"\ndescription = "${'a'.repeat(501)}"\n`,
+      '/description',
+      'maxLength',
+    ],
+    [
+      'dep that is not a space ref',
+      'schema = 1\nid = "my-space"\n[deps]\nspaces = ["invalid-ref"]\n',
+      '/deps/spaces/0',
+      'pattern',
+    ],
+    ...['agent-sdk', 'claude-agent-sdk', 'pi', 'pi-sdk'].map(
+      (harness) =>
+        [
+          `retired harness ${harness}`,
+          `schema = 1\nid = "my-space"\n[harness]\nsupports = ["${harness}"]\n`,
+          '/harness/supports/0',
+          'enum',
+        ] as const
+    ),
+  ])(
+    'space.toml violating the manifest schema is rejected at the offending path: %s',
+    (_label, toml, path, keyword) => {
+      expect(firstValidationIssue(toml)).toMatchObject({ path, keyword })
+    }
+  )
 })
 
 describe('readSpaceToml', () => {
   let testDir: string
 
   beforeEach(async () => {
-    testDir = join(tmpdir(), `space-toml-test-${Date.now()}`)
-    await mkdir(testDir, { recursive: true })
+    testDir = await mkdtemp(join(tmpdir(), 'space-toml-test-'))
   })
 
   afterEach(async () => {
@@ -349,30 +175,15 @@ describe('readSpaceToml', () => {
     expect<string>(result.id).toBe('my-space')
   })
 
-  test('reads and parses full-featured space.toml', async () => {
-    const manifest = createFullManifest()
-    const filePath = join(testDir, 'space.toml')
-    await Bun.write(filePath, toToml(manifest))
-
-    const result = await readSpaceToml(filePath)
-    expect<string>(result.id).toBe('my-space')
-    expect(result.version).toBe('1.0.0')
-    expect(result.plugin?.name).toBe('my-plugin')
-  })
-
-  test('throws ConfigParseError for non-existent file', async () => {
+  test('a missing space.toml rejects with ConfigFileNotFoundError naming the path', async () => {
     const filePath = join(testDir, 'nonexistent.toml')
-    await expect(readSpaceToml(filePath)).rejects.toThrow(ConfigParseError)
-  })
-
-  test('includes file path in error for non-existent file', async () => {
-    const filePath = join(testDir, 'nonexistent.toml')
-    try {
-      await readSpaceToml(filePath)
-    } catch (e) {
-      expect((e as ConfigParseError).source).toBe(filePath)
-      expect((e as ConfigParseError).message).toContain('File not found')
-    }
+    const read = readSpaceToml(filePath)
+    await expect(read).rejects.toBeInstanceOf(ConfigParseError)
+    await expect(read).rejects.toMatchObject({
+      name: 'ConfigFileNotFoundError',
+      source: filePath,
+      message: 'File not found',
+    })
   })
 
   test('throws ConfigValidationError for invalid content', async () => {
@@ -383,59 +194,104 @@ describe('readSpaceToml', () => {
   })
 })
 
-describe('serializeSpaceToml', () => {
-  test('serializes minimal manifest to TOML', () => {
-    const manifest = createValidManifest()
-    const result = serializeSpaceToml(manifest)
+describe('published caller behavior (§9)', () => {
+  /**
+   * Tests for space manifest (space.toml) parser
+   *
+   * WHY: Space manifest parsing is essential for reading space definitions
+   * from the registry. These tests verify TOML parsing, schema validation,
+   * serialization, and error handling.
+   */
 
-    expect(result).toContain('schema = 1')
-    expect(result).toContain('id = "my-space"')
-  })
-
-  test('serializes full manifest to TOML', () => {
-    const manifest = createFullManifest()
-    const result = serializeSpaceToml(manifest)
-
-    expect(result).toContain('schema = 1')
-    expect(result).toContain('id = "my-space"')
-    expect(result).toContain('version = "1.0.0"')
-    expect(result).toContain('[plugin]')
-    expect(result).toContain('name = "my-plugin"')
-  })
-
-  test('serializes dependencies correctly', () => {
-    const manifest: SpaceManifest = {
+  /** Create a minimal valid space manifest */
+  function createValidManifest(): SpaceManifest {
+    return {
       schema: 1,
       id: asSpaceId('my-space'),
+    }
+  }
+
+  /** Create a full-featured space manifest */
+  function createFullManifest(): SpaceManifest {
+    return {
+      schema: 1,
+      id: asSpaceId('my-space'),
+      version: '1.0.0',
+      description: 'A test space',
+      plugin: {
+        name: 'my-plugin',
+        version: '1.0.0',
+        description: 'A test plugin',
+        author: {
+          name: 'Test Author',
+          email: 'test@example.com',
+          url: 'https://example.com',
+        },
+        homepage: 'https://example.com/my-plugin',
+        repository: 'https://github.com/example/my-plugin',
+        license: 'MIT',
+        keywords: ['test', 'example'],
+      },
       deps: {
-        spaces: ['space:dep-a@stable', 'space:dep-b@latest'],
+        spaces: ['space:other-space@stable'],
       },
     }
-    const result = serializeSpaceToml(manifest)
+  }
 
-    expect(result).toContain('[deps]')
-    expect(result).toContain('space:dep-a@stable')
-    expect(result).toContain('space:dep-b@latest')
-  })
+  describe('serializeSpaceToml', () => {
+    test('serializes minimal manifest to TOML', () => {
+      const manifest = createValidManifest()
+      const result = serializeSpaceToml(manifest)
 
-  test('round-trip: serialize then parse produces equivalent object', () => {
-    const original = createValidManifest()
-    const serialized = serializeSpaceToml(original)
-    const parsed = parseSpaceToml(serialized)
+      expect(result).toContain('schema = 1')
+      expect(result).toContain('id = "my-space"')
+    })
 
-    expect(parsed.schema).toBe(original.schema)
-    expect(parsed.id).toBe(original.id)
-  })
+    test('serializes full manifest to TOML', () => {
+      const manifest = createFullManifest()
+      const result = serializeSpaceToml(manifest)
 
-  test('round-trip with full manifest', () => {
-    const original = createFullManifest()
-    const serialized = serializeSpaceToml(original)
-    const parsed = parseSpaceToml(serialized)
+      expect(result).toContain('schema = 1')
+      expect(result).toContain('id = "my-space"')
+      expect(result).toContain('version = "1.0.0"')
+      expect(result).toContain('[plugin]')
+      expect(result).toContain('name = "my-plugin"')
+    })
 
-    expect(parsed.schema).toBe(original.schema)
-    expect(parsed.id).toBe(original.id)
-    expect(parsed.version).toBe(original.version)
-    expect(parsed.plugin?.name).toBe(original.plugin?.name)
-    expect(parsed.deps?.spaces).toEqual(original.deps?.spaces)
+    test('serializes dependencies correctly', () => {
+      const manifest: SpaceManifest = {
+        schema: 1,
+        id: asSpaceId('my-space'),
+        deps: {
+          spaces: ['space:dep-a@stable', 'space:dep-b@latest'],
+        },
+      }
+      const result = serializeSpaceToml(manifest)
+
+      expect(result).toContain('[deps]')
+      expect(result).toContain('space:dep-a@stable')
+      expect(result).toContain('space:dep-b@latest')
+    })
+
+    test('round-trip: serialize then parse produces equivalent object', () => {
+      const original = createValidManifest()
+      const serialized = serializeSpaceToml(original)
+      const parsed = parseSpaceToml(serialized)
+
+      expect(parsed.schema).toBe(original.schema)
+      expect(parsed.id).toBe(original.id)
+    })
+
+    test('round-trip with full manifest', () => {
+      const original = createFullManifest()
+      const serialized = serializeSpaceToml(original)
+      const parsed = parseSpaceToml(serialized)
+
+      expect(parsed.schema).toBe(original.schema)
+      expect(parsed.id).toBe(original.id)
+      expect(parsed.version).toBe(original.version)
+      expect(parsed.plugin?.name).toBe(original.plugin?.name)
+      expect(parsed.deps?.spaces).toEqual(original.deps?.spaces)
+    })
   })
 })

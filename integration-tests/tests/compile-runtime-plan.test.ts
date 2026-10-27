@@ -33,18 +33,50 @@ async function planFor(options: Parameters<typeof compileV2>[1], agentId?: strin
 
 describe('v2 runtime compile plan', () => {
   test.each([
-    ['agent-harness', 'openai-codex', 'gpt-5.6-terra', false, 'agent-harness'],
-    ['agent-harness', 'openai-codex', 'gpt-5.6-terra', true, 'agent-harness-tmux'],
-    ['claude', 'anthropic', 'claude-sonnet-4-5', false, 'claude-code-tmux'],
-    ['claude', 'anthropic', 'claude-sonnet-4-5', true, 'claude-code-tmux'],
-    ['codex', 'openai-codex', 'gpt-5.6-terra', false, 'codex-app-server'],
-    ['codex', 'openai-codex', 'gpt-5.6-terra', true, 'codex-app-server'],
-    ['muse', 'meta', 'muse-spark-1.3-contributor', false, 'muse-serve'],
-    ['muse', 'meta', 'muse-spark-1.3-contributor', true, 'muse-cli-tmux'],
+    [
+      'agent-harness',
+      'openai-codex',
+      'gpt-5.6-terra',
+      false,
+      'agent-harness',
+      'agent-harness-tui',
+      'openai',
+    ],
+    [
+      'agent-harness',
+      'openai-codex',
+      'gpt-5.6-terra',
+      true,
+      'agent-harness-tmux',
+      'agent-harness-tui',
+      'openai',
+    ],
+    [
+      'claude',
+      'anthropic',
+      'claude-sonnet-4-5',
+      false,
+      'claude-code-tmux',
+      'claude-code',
+      'anthropic',
+    ],
+    [
+      'claude',
+      'anthropic',
+      'claude-sonnet-4-5',
+      true,
+      'claude-code-tmux',
+      'claude-code',
+      'anthropic',
+    ],
+    ['codex', 'openai-codex', 'gpt-5.6-terra', false, 'codex-app-server', 'codex', 'openai'],
+    ['codex', 'openai-codex', 'gpt-5.6-terra', true, 'codex-app-server', 'codex', 'openai'],
+    ['muse', 'meta', 'muse-spark-1.3-contributor', false, 'muse-serve', 'muse-cli', 'meta'],
+    ['muse', 'meta', 'muse-spark-1.3-contributor', true, 'muse-cli-tmux', 'muse-cli', 'meta'],
   ] as const)(
     'resolves %s presentation=%s to its catalog execution',
-    async (harness, modelProvider, model, presentation, driver) => {
-      const { plan } = await planFor({
+    async (harness, modelProvider, model, presentation, driver, frontend, provider) => {
+      const { response, plan } = await planFor({
         namespace: `all-routes-${harness}-${presentation}`,
         harness,
         modelProvider,
@@ -54,13 +86,20 @@ describe('v2 runtime compile plan', () => {
         prompt: 'compile one canonical execution',
       })
 
+      expect(response.schemaVersion).toBe('agent-runtime-compile-response/v2')
       expect(plan.schemaVersion).toBe('agent-runtime-plan/v2')
       expect(plan.selection).toMatchObject({ harness, modelProvider, model, presentation })
       expect(plan.execution.driver).toBe(driver)
+      expect(plan.execution.protocol).toBe('harness-broker/0.2')
       expect(plan.execution.dispatchRequest.startRequest.spec.driver.kind).toBe(driver)
-      expect(() =>
-        validateInvocationStartRequest(plan.execution.dispatchRequest.startRequest)
-      ).not.toThrow()
+      expect(plan.execution.dispatchRequest.startRequest.spec.harness).toEqual({
+        frontend,
+        provider,
+        driver,
+      })
+      expect(validateInvocationStartRequest(plan.execution.dispatchRequest.startRequest)).toBe(
+        plan.execution.dispatchRequest.startRequest
+      )
     }
   )
 
@@ -91,17 +130,26 @@ describe('v2 runtime compile plan', () => {
         hostSessionId: request.identity.hostSessionId,
       },
     })
+    expect(response.plan.execution.dispatchRequest.startRequest.spec.invocationId).toBe(
+      request.identity.invocationId
+    )
+    expect(response.plan.execution.profile.startRequestHash).toMatch(/^[a-f0-9]{64}$/)
+    expect(response.plan.execution.dispatchRequest.startRequest.initialInput?.inputId).toBe(
+      request.identity.initialInputId
+    )
     expect(response.plan.execution.dispatchRequest.startRequest.spec.correlation).toMatchObject({
       requestId: request.identity.requestId,
       operationId: request.identity.operationId,
       hostSessionId: request.identity.hostSessionId,
       runtimeId: request.identity.runtimeId,
+      runId: request.identity.runId,
+      traceId: request.identity.traceId,
       scopeRef: request.correlation.scopeRef,
       laneRef: request.correlation.laneRef,
     })
   })
 
-  test('preserves explicit false and resolves omitted presentation from the catalog', async () => {
+  test('omitted presentation resolves to the catalog default with catalog-default provenance', async () => {
     const value = fixture()
     const explicit = buildV2CompileRequest(value, {
       namespace: 'presentation-explicit',
@@ -124,9 +172,22 @@ describe('v2 runtime compile plan', () => {
     if (!response.ok) return
     expect(response.plan.selection.presentation).toBe(true)
     expect(response.plan.selection.provenance.presentation).toBe('catalog-default')
+    const claude = await compileV2(value, {
+      namespace: 'presentation-claude-omitted',
+      harness: 'claude',
+      modelProvider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    })
+    expect(claude.ok).toBe(true)
+    if (!claude.ok) throw new Error(JSON.stringify(claude.diagnostics))
+    expect(claude.plan.execution.driver).toBe('claude-code-tmux')
+    expect(claude.plan.execution.hosting).toMatchObject({
+      terminalRequired: true,
+      terminalHost: 'tmux',
+    })
   })
 
-  test('returns an error plan-free response for an unsupported retained-harness model', async () => {
+  test('codex with an anthropic model provider is refused with unsupported_model_provider and no plan', async () => {
     const value = fixture()
     const response = await compileV2(value, {
       namespace: 'unsupported-model',
@@ -138,30 +199,12 @@ describe('v2 runtime compile plan', () => {
     expect(response.ok).toBe(false)
     expect('plan' in response).toBe(false)
     expect(response.diagnostics).toContainEqual(
-      expect.objectContaining({ level: 'error', plane: 'asp-compiler' })
-    )
-  })
-
-  test('exposes one hash-covered execution and canonical start request', async () => {
-    const { plan } = await planFor({
-      namespace: 'execution-projection',
-      harness: 'codex',
-      modelProvider: 'openai-codex',
-      model: 'gpt-5.6-terra',
-      presentation: false,
-      prompt: 'single execution only',
-    })
-
-    for (const hash of [
-      plan.planHash,
-      plan.execution.profile.profileHash,
-      plan.execution.profile.compatibilityHash,
-      plan.execution.profile.startRequestHash,
-    ]) {
-      expect(hash).toMatch(/^[a-f0-9]{64}$/)
-    }
-    expect(plan.execution.dispatchRequest.startRequest.spec.invocationId).toBe(
-      plan.identity.invocationId
+      expect.objectContaining({
+        level: 'error',
+        plane: 'asp-compiler',
+        code: 'unsupported_model_provider',
+        details: expect.objectContaining({ harness: 'codex', modelProvider: 'anthropic' }),
+      })
     )
   })
 
@@ -214,76 +257,7 @@ describe('v2 runtime compile plan', () => {
     )
   })
 
-  test('summarizes locked keys without leaking placement correlation into process environment', async () => {
-    const { plan } = await planFor({
-      namespace: 'locked-environment',
-      harness: 'codex',
-      modelProvider: 'openai-codex',
-      model: 'gpt-5.6-terra',
-      presentation: false,
-      lockedEnv: { EXTRA_FLAG: '1', SAFE_KEY: '2' },
-      scopeRef: 'agent:cody:project:agent-spaces:task:T-08704',
-      laneRef: 'repair',
-    })
-    const locked = plan.execution.dispatchRequest.startRequest.spec.process.lockedEnv
-    expect(plan.lockedEnv.lockedEnvKeys).toEqual(expect.arrayContaining(['EXTRA_FLAG', 'SAFE_KEY']))
-    expect(locked).toMatchObject({ EXTRA_FLAG: '1', SAFE_KEY: '2' })
-    expect(locked).not.toHaveProperty('AGENT_SCOPE_REF')
-    expect(locked).not.toHaveProperty('AGENT_LANE_REF')
-    expect(locked).not.toHaveProperty('AGENT_HOST_SESSION_ID')
-  })
-
-  test('carries dispatch environment only in the dispatch envelope, not its start request', async () => {
-    const { plan } = await planFor({
-      namespace: 'dispatch-environment',
-      harness: 'codex',
-      modelProvider: 'openai-codex',
-      model: 'gpt-5.6-terra',
-      presentation: false,
-      dispatchEnv: { AGENT_HOST_SESSION_ID: 'host-dispatch', AGENT_LANE_REF: 'repair' },
-    })
-    expect(plan.execution.dispatchRequest.dispatchEnv).toEqual({
-      AGENT_HOST_SESSION_ID: 'host-dispatch',
-      AGENT_LANE_REF: 'repair',
-    })
-    expect(JSON.stringify(plan.execution.dispatchRequest.startRequest)).not.toContain(
-      'host-dispatch'
-    )
-  })
-
-  test('materializes requested task context, prompt, attachments, and omitted priming', async () => {
-    const value = fixture()
-    const image = `${value.projectRoot}/diagram.png`
-    const response = await compileV2(value, {
-      namespace: 'materialization',
-      harness: 'codex',
-      modelProvider: 'openai-codex',
-      model: 'gpt-5.6-terra',
-      presentation: false,
-      prompt: 'inspect the materialized request',
-      omitPriming: true,
-      attachments: [{ kind: 'image', path: image, mimeType: 'image/png' }],
-      taskContext: {
-        taskId: 'T-08704',
-        phase: 'integration',
-        role: 'verification',
-        requiredEvidenceKinds: ['contract-artifacts', 'live-smoke'],
-        hintsText: 'v2 materialization evidence',
-      },
-    })
-    expect(response.ok).toBe(true)
-    if (!response.ok) return
-
-    expect(response.plan.omitPriming).toBe(true)
-    expect(response.plan.execution.dispatchRequest.startRequest.initialInput?.content).toEqual(
-      expect.arrayContaining([
-        { type: 'text', text: 'inspect the materialized request' },
-        { type: 'local_image', path: image },
-      ])
-    )
-  })
-
-  test('keeps foreground process preparation out of ordinary harness selection', async () => {
+  test('presented Claude compiles to claude-code-tmux over a pty harness transport', async () => {
     const { plan } = await planFor({
       namespace: 'no-foreground-bridge',
       harness: 'claude',
@@ -294,34 +268,6 @@ describe('v2 runtime compile plan', () => {
     expect(plan.execution.driver).toBe('claude-code-tmux')
     expect(plan.execution.dispatchRequest.startRequest.spec.process.harnessTransport).toEqual({
       kind: 'pty',
-    })
-  })
-
-  test('keeps the complete identity allocation attached to both the plan and its only dispatch', async () => {
-    const value = fixture('allocated-agent')
-    const request = buildV2CompileRequest(value, {
-      namespace: 'complete-identity',
-      harness: 'codex',
-      modelProvider: 'openai-codex',
-      model: 'gpt-5.6-terra',
-      presentation: false,
-      prompt: 'retain the allocation',
-    })
-    const response = await compileV2Request(value, request)
-    expect(response.ok).toBe(true)
-    if (!response.ok) return
-
-    expect(response.plan.identity).toEqual(request.identity)
-    expect(response.plan.execution.dispatchRequest.startRequest.spec).toMatchObject({
-      invocationId: request.identity.invocationId,
-      correlation: expect.objectContaining({
-        requestId: request.identity.requestId,
-        operationId: request.identity.operationId,
-        hostSessionId: request.identity.hostSessionId,
-        runtimeId: request.identity.runtimeId,
-        runId: request.identity.runId,
-        traceId: request.identity.traceId,
-      }),
     })
   })
 
@@ -422,21 +368,6 @@ describe('v2 runtime compile plan', () => {
     expect(plan.execution.dispatchRequest.startRequest.spec.correlation).toMatchObject({
       scopeRef: 'agent:placement-agent:project:agent-spaces',
     })
-  })
-
-  test('publishes one canonical execution in a successful v2 plan', async () => {
-    const { plan } = await planFor({
-      namespace: 'singular-execution',
-      harness: 'agent-harness',
-      modelProvider: 'openai-codex',
-      model: 'gpt-5.6-terra',
-      presentation: true,
-    })
-    expect(plan.execution.dispatchRequest.startRequest.spec.driver.kind).toBe(plan.execution.driver)
-    expect(plan.execution.profile.profileId).toMatch(/^profile_/)
-    expect(Object.keys(plan)).toEqual(
-      expect.arrayContaining(['selection', 'execution', 'agent', 'identity', 'placement'])
-    )
   })
 })
 

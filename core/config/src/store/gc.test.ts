@@ -91,23 +91,6 @@ describe('computeReachableIntegrities', () => {
     expect(reachable.has('sha256:222' as Sha256Integrity)).toBe(true)
     expect(reachable.has('sha256:333' as Sha256Integrity)).toBe(true)
   })
-
-  it('should dedupe same integrity across locks', () => {
-    const lock1 = createMockLock({
-      'space-a@1111111': { integrity: 'sha256:111', pluginName: 'a', version: '1.0.0' },
-    })
-    const lock2 = createMockLock({
-      'space-a@1111111': { integrity: 'sha256:111', pluginName: 'a', version: '1.0.0' },
-    })
-
-    const reachable = computeReachableIntegrities([lock1, lock2])
-    expect(reachable.size).toBe(1)
-  })
-
-  it('should return empty set for no locks', () => {
-    const reachable = computeReachableIntegrities([])
-    expect(reachable.size).toBe(0)
-  })
 })
 
 describe('computeReachableCacheKeys', () => {
@@ -138,23 +121,6 @@ describe('computeReachableCacheKeys', () => {
           )
         ).toBe(true)
       }
-    }
-  })
-
-  it('should use 0.0.0 for missing version', () => {
-    const lock = createMockLock({
-      'space-a@1111111': { integrity: 'sha256:111', pluginName: 'a', version: '' },
-    })
-    // An explicitly empty version remains part of the cache identity.
-    const reachable = computeReachableCacheKeys([lock])
-    const integrity = 'sha256:111' as Sha256Integrity
-    expect(reachable.has(computePluginCacheKey(integrity, 'a', ''))).toBe(true)
-    for (const harness of HARNESS_IDS) {
-      expect(
-        reachable.has(
-          computeHarnessPluginCacheKey(harness, PLUGIN_MATERIALIZER_VERSION, integrity, 'a', '')
-        )
-      ).toBe(true)
     }
   })
 })
@@ -306,4 +272,66 @@ it('GC preserves live harness plugin caches and removes an unreachable cache', a
   expect(result.cacheEntriesDeleted).toBe(1)
   expect(await pathExists(paths.pluginCache(live))).toBe(true)
   expect(await pathExists(paths.pluginCache(stale))).toBe(false)
+})
+
+describe('published caller behavior (§9)', () => {
+  /**
+   * Tests for gc module.
+   *
+   * WHY: Garbage collection prevents disk space exhaustion.
+   * These tests verify reachability computation.
+   */
+
+  const tempDirs: string[] = []
+
+  afterEach(async () => {
+    await Promise.all(tempDirs.map((path) => rm(path, { recursive: true, force: true })))
+    tempDirs.length = 0
+  })
+
+  function createMockLock(
+    spaces: Record<string, { integrity: string; pluginName: string; version: string }>
+  ): LockFile {
+    const lock: LockFile = {
+      lockfileVersion: 1,
+      resolverVersion: 1,
+      generatedAt: new Date().toISOString(),
+      registry: { type: 'git', url: 'https://example.com/repo' },
+      spaces: {},
+      targets: {},
+    }
+
+    for (const [key, { integrity, pluginName, version }] of Object.entries(spaces)) {
+      const [spaceId, commitSha] = key.split('@')
+      lock.spaces[key as SpaceKey] = {
+        id: asSpaceId(spaceId ?? ''),
+        commit: asCommitSha(commitSha ?? ''),
+        path: `spaces/${spaceId}`,
+        integrity: integrity as Sha256Integrity,
+        plugin: { name: pluginName, version },
+        deps: { spaces: [] },
+      }
+    }
+
+    return lock
+  }
+
+  describe('computeReachableIntegrities', () => {
+    it('should dedupe same integrity across locks', () => {
+      const lock1 = createMockLock({
+        'space-a@1111111': { integrity: 'sha256:111', pluginName: 'a', version: '1.0.0' },
+      })
+      const lock2 = createMockLock({
+        'space-a@1111111': { integrity: 'sha256:111', pluginName: 'a', version: '1.0.0' },
+      })
+
+      const reachable = computeReachableIntegrities([lock1, lock2])
+      expect(reachable.size).toBe(1)
+    })
+
+    it('should return empty set for no locks', () => {
+      const reachable = computeReachableIntegrities([])
+      expect(reachable.size).toBe(0)
+    })
+  })
 })

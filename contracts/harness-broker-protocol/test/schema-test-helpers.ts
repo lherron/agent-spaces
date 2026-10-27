@@ -1,14 +1,6 @@
 import { expect } from 'bun:test'
 import type { HarnessInvocationSpec, HarnessSdkSpec } from '../src/invocation'
-import {
-  validateCommand,
-  validateEventEnvelope,
-  validateInvocationDispatchRequest,
-  validateInvocationInput,
-  validateInvocationSpec,
-  validateInvocationStartRequest,
-  validatePermissionRequestParams,
-} from '../src/schemas'
+import { validateCommand, validateEventEnvelope } from '../src/schemas'
 
 export const expectInvalidCommand = (
   value: unknown,
@@ -214,61 +206,69 @@ export const arrisResidentSpec: HarnessInvocationSpec = {
   },
 }
 
+/**
+ * Wire commands for the JSON-RPC methods whose params embed a spec, an input or
+ * a dispatch envelope. Tests drive these through `validateCommand`, the
+ * validation registry the broker runs before every JSON-RPC handler, so the
+ * nested validators are exercised the way a caller reaches them.
+ */
+const command = (method: string, params: unknown) => ({ jsonrpc: '2.0', id: 1, method, params })
+
+/** `invocation.start` carrying a bare dispatch envelope (`{ startRequest, ... }`). */
+export const dispatchCommand = (request: unknown) => command('invocation.start', request)
+
+/** `invocation.start` carrying `spec` as its only start-request field. */
+export const startCommand = (spec: unknown) => dispatchCommand({ startRequest: { spec } })
+
+/** `invocation.input` carrying `input` for a fixed invocation. */
+export const inputCommand = (input: unknown) =>
+  command('invocation.input', { invocationId: 'inv_1', input })
+
+/** Assert a command validates and comes back unchanged. */
+export const expectValidCommand = (value: unknown) => {
+  expect<unknown>(validateCommand(value)).toEqual(value)
+}
+
+/** Issue paths are relative to the spec; the command prefixes `params.startRequest.spec.`. */
 export const expectInvalidSpec = (
   value: unknown,
   expectedIssue: { path: string; code: string }
 ) => {
-  expect(() => validateInvocationSpec(value)).toThrow(
-    expect.objectContaining({
-      code: 'INVALID_INVOCATION_SPEC',
-      issues: expect.arrayContaining([expect.objectContaining(expectedIssue)]),
-    })
-  )
+  expectInvalidCommand(startCommand(value), {
+    ...expectedIssue,
+    path: `params.startRequest.spec.${expectedIssue.path}`,
+  })
 }
 
+/** Issue paths are relative to the input; the command prefixes `params.input.`. */
 export const expectInvalidInput = (
   value: unknown,
   expectedIssue: { path: string; code: string }
 ) => {
-  expect(() => validateInvocationInput(value)).toThrow(
-    expect.objectContaining({
-      code: 'INVALID_INVOCATION_INPUT',
-      issues: expect.arrayContaining([expect.objectContaining(expectedIssue)]),
-    })
-  )
+  expectInvalidCommand(inputCommand(value), {
+    ...expectedIssue,
+    path: `params.input.${expectedIssue.path}`,
+  })
 }
 
 export const expectInvalidInputPath = (value: unknown, path: string) => {
-  expect(() => validateInvocationInput(value)).toThrow(
+  expect(() => validateCommand(inputCommand(value))).toThrow(
     expect.objectContaining({
-      code: 'INVALID_INVOCATION_INPUT',
-      issues: expect.arrayContaining([expect.objectContaining({ path })]),
+      code: 'INVALID_COMMAND',
+      issues: expect.arrayContaining([expect.objectContaining({ path: `params.input.${path}` })]),
     })
   )
 }
 
-export const expectInvalidStartRequest = (
-  value: unknown,
-  expectedIssue: { path: string; code: string }
-) => {
-  expect(() => validateInvocationStartRequest(value)).toThrow(
-    expect.objectContaining({
-      code: 'INVALID_INVOCATION_START_REQUEST',
-      issues: expect.arrayContaining([expect.objectContaining(expectedIssue)]),
-    })
-  )
-}
-
+/** Issue paths are relative to the dispatch envelope; the command prefixes `params.`. */
 export const expectInvalidDispatchRequest = (
   value: unknown,
   expectedIssue: { path: string; code: string }
 ) => {
-  expect(() => validateInvocationDispatchRequest(value)).toThrow(
-    expect.objectContaining({
-      code: 'INVALID_INVOCATION_DISPATCH_REQUEST',
-      issues: expect.arrayContaining([expect.objectContaining(expectedIssue)]),
-    })
-  )
+  expectInvalidCommand(dispatchCommand(value), {
+    ...expectedIssue,
+    path: `params.${expectedIssue.path}`,
+  })
 }
 
 export const expectInvalidEventEnvelope = (
@@ -278,18 +278,6 @@ export const expectInvalidEventEnvelope = (
   expect(() => validateEventEnvelope(value)).toThrow(
     expect.objectContaining({
       code: 'INVALID_EVENT_ENVELOPE',
-      issues: expect.arrayContaining([expect.objectContaining(expectedIssue)]),
-    })
-  )
-}
-
-export const expectInvalidPermissionRequestParams = (
-  value: unknown,
-  expectedIssue: { path: string; code: string }
-) => {
-  expect(() => validatePermissionRequestParams(value)).toThrow(
-    expect.objectContaining({
-      code: 'INVALID_PERMISSION_REQUEST_PARAMS',
       issues: expect.arrayContaining([expect.objectContaining(expectedIssue)]),
     })
   )

@@ -6,11 +6,12 @@
  * renders only fields that are really present.
  */
 
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { HrcTaskContext } from 'spaces-runtime-contracts'
-import { resolveContextTemplateDetailed } from './context-resolver.js'
-import { parseContextTemplate } from './context-template.js'
-import { derivePromptTaskFacts } from './task-prompt-facts.js'
+import { inspectAgentSystemPrompt, materializeSystemPrompt } from './system-prompt.js'
 
 const TEMPLATE = `
 schema_version = 2
@@ -42,73 +43,63 @@ const ROLE_CONTEXT: HrcTaskContext = {
   hintsText: 'Keep it small.\nPush when green.',
 }
 
-async function render(input: {
+let tempRoot: string
+let agentRoot: string
+let agentsRoot: string
+let outputRoot: string
+
+beforeEach(async () => {
+  tempRoot = await mkdtemp(join(tmpdir(), 'task-prompt-facts-'))
+  agentsRoot = join(tempRoot, 'agents')
+  agentRoot = join(agentsRoot, 'agent')
+  outputRoot = join(tempRoot, 'out')
+  await mkdir(agentRoot, { recursive: true })
+  await writeFile(join(agentsRoot, 'context-template.toml'), TEMPLATE)
+})
+
+afterEach(async () => {
+  await rm(tempRoot, { recursive: true, force: true })
+})
+
+interface RenderInput {
   taskId?: string | undefined
   taskContext?: HrcTaskContext | undefined
   env?: Record<string, string> | undefined
-}) {
-  const resolved = await resolveContextTemplateDetailed(parseContextTemplate(TEMPLATE), {
-    agentRoot: '/tmp/agent',
-    agentsRoot: '/tmp',
-    runMode: 'task',
+}
+
+function systemPromptInput(input: RenderInput) {
+  return {
+    agentRoot,
+    agentsRoot,
+    runMode: 'task' as const,
     ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
     ...(input.taskContext !== undefined ? { taskContext: input.taskContext } : {}),
     env: input.env ?? {},
-  })
-  const section = resolved.promptSections.find((s) => s.name === 'current-task-context')
-  return { prompt: resolved.prompt?.content ?? '', section }
+  }
 }
 
-describe('derivePromptTaskFacts', () => {
-  test('standing and seat-name scopes have no task facts', () => {
-    for (const taskId of [undefined, 'primary', 'minisvc', 'primary-nova', 'hrcstandup']) {
-      expect(derivePromptTaskFacts({ taskId })).toBeUndefined()
-    }
-  })
+async function render(input: RenderInput) {
+  const inspected = await inspectAgentSystemPrompt(systemPromptInput(input))
+  const section = inspected?.prompt.sections.find((s) => s.name === 'current-task-context')
+  return { prompt: inspected?.prompt.content ?? '', section }
+}
 
-  test('sub-seat scopes never invent a task ID (anchored regex)', () => {
-    for (const taskId of ['T-08566-b7p', 'T-08505-cell1', 't-00001', 'T-', 'XT-00001']) {
-      expect(derivePromptTaskFacts({ taskId })).toBeUndefined()
-    }
-  })
-
-  test('ordinary wrkq task seat yields the task ID only', () => {
-    expect(derivePromptTaskFacts({ taskId: 'T-09860' })).toEqual({ id: 'T-09860' })
-  })
-
-  test('taskContext supplies real fields and omits null, blank, and empty ones', () => {
-    expect(derivePromptTaskFacts({ taskId: 'T-00042', taskContext: ROLE_CONTEXT })).toEqual({
-      id: 'T-00042',
-      phase: 'implement',
-      role: 'implementer',
-      requiredEvidence: ['test-run', 'commit'],
-      hints: 'Keep it small.\nPush when green.',
-    })
-    expect(
-      derivePromptTaskFacts({
-        taskContext: {
-          taskId: 'T-00042',
-          phase: null,
-          role: '  ',
-          requiredEvidenceKinds: [],
-          hintsText: '\n ',
-        },
-      })
-    ).toEqual({ id: 'T-00042' })
-  })
-
-  test('taskContext facts apply to a scope with no task segment', () => {
-    expect(derivePromptTaskFacts({ taskContext: ROLE_CONTEXT })?.id).toBe('T-00042')
-  })
-})
+async function materialize(input: RenderInput) {
+  const result = await materializeSystemPrompt(outputRoot, systemPromptInput(input))
+  const onDisk = result ? await readFile(result.path, 'utf8') : undefined
+  return { result, onDisk }
+}
 
 describe('current-task-context rendering', () => {
-  test('standing seat renders no task section and no stray lines', async () => {
-    const { prompt, section } = await render({ taskId: 'primary' })
-    expect(prompt).toBe('scope primary')
-    expect(section?.included).toBe(false)
-    expect(section?.skippedReason).toBe('when')
-  })
+  test.each([undefined, 'primary', 'minisvc', 'primary-nova', 'hrcstandup'])(
+    'standing seat renders no task section and no stray lines (scope %s)',
+    async (taskId) => {
+      const { prompt, section } = await render({ taskId })
+      expect(prompt).toBe(`scope ${taskId ?? ''}`)
+      expect(section?.included).toBe(false)
+      expect(section?.skippedReason).toBe('when')
+    }
+  )
 
   test('ordinary task seat renders only the Task ID line', async () => {
     const { section } = await render({ taskId: 'T-09860' })
@@ -132,14 +123,26 @@ describe('current-task-context rendering', () => {
     )
   })
 
-  test('absent fields produce no empty lines', async () => {
-    const { section } = await render({
-      taskId: 'T-00042',
+  test.each<{ label: string; taskContext: HrcTaskContext; expected: string }>([
+    {
+      label: 'null and empty',
       taskContext: { ...ROLE_CONTEXT, phase: null, requiredEvidenceKinds: [], hintsText: '' },
-    })
-    expect(section?.content).toBe(
-      '## Current task context\n- Task ID: T-00042\n- Role: implementer'
-    )
+      expected: '## Current task context\n- Task ID: T-00042\n- Role: implementer',
+    },
+    {
+      label: 'whitespace-only',
+      taskContext: {
+        ...ROLE_CONTEXT,
+        phase: null,
+        role: '  ',
+        requiredEvidenceKinds: [],
+        hintsText: '\n ',
+      },
+      expected: '## Current task context\n- Task ID: T-00042',
+    },
+  ])('absent fields produce no empty lines ($label)', async ({ taskContext, expected }) => {
+    const { section } = await render({ taskId: 'T-00042', taskContext })
+    expect(section?.content).toBe(expected)
   })
 
   test('task facts are never read from the environment', async () => {
@@ -162,58 +165,32 @@ describe('current-task-context rendering', () => {
 })
 
 describe('task-scoped split (codex shared-home delivery)', () => {
-  async function detailed(input: { taskId?: string; taskContext?: HrcTaskContext }) {
-    return resolveContextTemplateDetailed(parseContextTemplate(TEMPLATE), {
-      agentRoot: '/tmp/agent',
-      agentsRoot: '/tmp',
-      runMode: 'task',
-      ...input,
-      env: {},
-    })
-  }
-
   test('no task facts: no split, so shared-home harnesses behave exactly as today', async () => {
-    expect((await detailed({ taskId: 'primary' })).taskScoped).toBeUndefined()
+    const { result, onDisk } = await materialize({ taskId: 'primary' })
+    expect(result?.taskScoped).toBeUndefined()
+    expect(onDisk).toBe('scope primary')
   })
 
   test('the invariant prompt is byte-identical to the render without task facts', async () => {
-    const standingSameScope = await detailed({ taskId: 'T-00042-b7p' })
-    const role = await detailed({ taskId: 'T-00042', taskContext: ROLE_CONTEXT })
-    expect(role.taskScoped?.prompt).toBe('scope T-00042')
-    expect(standingSameScope.prompt?.content).toBe('scope T-00042-b7p')
-    expect(role.taskScoped?.content.startsWith('## Current task context\n- Task ID: T-00042')).toBe(
-      true
+    for (const subSeat of [
+      'T-00042-b7p',
+      'T-08566-b7p',
+      'T-08505-cell1',
+      't-00001',
+      'T-',
+      'XT-00001',
+    ]) {
+      const standingSameScope = await materialize({ taskId: subSeat })
+      expect(standingSameScope.result?.taskScoped).toBeUndefined()
+      expect(standingSameScope.onDisk).toBe(`scope ${subSeat}`)
+    }
+    const role = await materialize({ taskId: 'T-00042', taskContext: ROLE_CONTEXT })
+    expect(role.result?.taskScoped?.prompt).toBe('scope T-00042')
+    expect(
+      role.result?.taskScoped?.content.startsWith('## Current task context\n- Task ID: T-00042')
+    ).toBe(true)
+    expect(role.onDisk).toBe(
+      `${role.result?.taskScoped?.prompt}\n\n---\n\n${role.result?.taskScoped?.content}`
     )
-    expect(role.prompt?.content).toBe(
-      `${role.taskScoped?.prompt}\n\n---\n\n${role.taskScoped?.content}`
-    )
-  })
-})
-
-describe('template grammar', () => {
-  test('parts and content are mutually exclusive', () => {
-    expect(() =>
-      parseContextTemplate(`
-schema_version = 2
-[[prompt]]
-name = "x"
-type = "inline"
-content = "a"
-parts = [{ content = "b" }]
-`)
-    ).toThrow(/content.*parts|parts.*content/)
-  })
-
-  test('unknown taskField is rejected', () => {
-    expect(() =>
-      parseContextTemplate(`
-schema_version = 2
-[[prompt]]
-name = "x"
-type = "inline"
-content = "a"
-when = { taskField = "owner" }
-`)
-    ).toThrow(/taskField/)
   })
 })

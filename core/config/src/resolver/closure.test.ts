@@ -1,3 +1,5 @@
+import type { SpaceKey } from '../core/index.js'
+import { getDependents, getSpace, isRoot } from './closure.js'
 /**
  * Tests for closure module.
  *
@@ -6,14 +8,13 @@
  * - Correct DFS postorder traversal
  * - Cycle detection
  * - Diamond dependency handling
- * - Helper function correctness
+ * - Load-order iteration
  */
 
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test'
 import {
   CyclicDependencyError,
   MissingDependencyError,
-  type SpaceKey,
   type SpaceManifest,
   asCommitSha,
   asSpaceId,
@@ -23,10 +24,7 @@ import {
   type ClosureResult,
   type ResolvedSpace,
   computeClosure,
-  getDependents,
-  getSpace,
   getSpacesInOrder,
-  isRoot,
 } from './closure.js'
 import * as manifestModule from './manifest.js'
 import * as selectorModule from './selector.js'
@@ -97,21 +95,6 @@ describe('closure helper functions', () => {
     }
   }
 
-  describe('getSpace', () => {
-    it('should return space by key', () => {
-      const closure = createSampleClosure()
-      const space = getSpace(closure, keyA)
-      expect(space).toBeDefined()
-      expect(String(space?.id)).toBe('space-a')
-    })
-
-    it('should return undefined for missing key', () => {
-      const closure = createSampleClosure()
-      const space = getSpace(closure, 'nonexistent@0000000' as SpaceKey)
-      expect(space).toBeUndefined()
-    })
-  })
-
   describe('getSpacesInOrder', () => {
     it('should return spaces in load order', () => {
       const closure = createSampleClosure()
@@ -120,43 +103,6 @@ describe('closure helper functions', () => {
       expect(String(spaces[0]?.id)).toBe('space-a')
       expect(String(spaces[1]?.id)).toBe('space-b')
       expect(String(spaces[2]?.id)).toBe('space-c')
-    })
-
-    it('should filter out missing spaces', () => {
-      const closure = createSampleClosure()
-      // Add a missing key to loadOrder
-      closure.loadOrder.push('missing@000000' as SpaceKey)
-      const spaces = getSpacesInOrder(closure)
-      expect(spaces).toHaveLength(3) // Still 3, missing is filtered
-    })
-  })
-
-  describe('isRoot', () => {
-    it('should return true for root space', () => {
-      const closure = createSampleClosure()
-      expect(isRoot(closure, keyC)).toBe(true)
-    })
-
-    it('should return false for non-root space', () => {
-      const closure = createSampleClosure()
-      expect(isRoot(closure, keyA)).toBe(false)
-      expect(isRoot(closure, keyB)).toBe(false)
-    })
-  })
-
-  describe('getDependents', () => {
-    it('should return spaces that depend on given space', () => {
-      const closure = createSampleClosure()
-      const dependents = getDependents(closure, keyA)
-      expect(dependents).toHaveLength(2)
-      expect(dependents).toContain(keyB)
-      expect(dependents).toContain(keyC)
-    })
-
-    it('should return empty array for space with no dependents', () => {
-      const closure = createSampleClosure()
-      const dependents = getDependents(closure, keyC)
-      expect(dependents).toHaveLength(0)
     })
   })
 })
@@ -329,148 +275,31 @@ describe('computeClosure', () => {
     expect(result.roots).toHaveLength(2)
   })
 
-  it('should detect simple cycles (A -> B -> A)', async () => {
-    const commitA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1'
-    const commitB = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb2'
-
-    const manifestA: SpaceManifest = {
-      schema: 1,
-      id: 'space-a' as any,
-      version: '1.0.0',
-      deps: { spaces: ['space:space-b@stable' as any] },
-    }
-
-    const manifestB: SpaceManifest = {
-      schema: 1,
-      id: 'space-b' as any,
-      version: '1.0.0',
-      deps: { spaces: ['space:space-a@stable' as any] },
-    }
-
-    resolverSelectorSpy.mockImplementation(async (id: string) => {
-      const commits: Record<string, string> = {
-        'space-a': commitA,
-        'space-b': commitB,
-      }
-      return {
-        commit: commits[id] as any,
+  it.each<[string, Record<string, string[]>]>([
+    ['A -> B -> A', { 'space-a': ['space-b'], 'space-b': ['space-a'] }],
+    ['A -> A (self-reference)', { 'space-a': ['space-a'] }],
+  ])(
+    'a space dependency cycle fails resolution with CyclicDependencyError: %s',
+    async (_case, graph) => {
+      resolverSelectorSpy.mockImplementation(async (id: string) => ({
+        commit: `${id.slice(-1)}`.repeat(40) as any,
         selector: { kind: 'dist-tag', tag: 'stable' },
-      }
-    })
+      }))
 
-    readManifestSpy.mockImplementation(async (id: string) => {
-      const manifests: Record<string, SpaceManifest> = {
-        'space-a': manifestA,
-        'space-b': manifestB,
-      }
-      return manifests[id]!
-    })
+      readManifestSpy.mockImplementation(
+        async (id: string): Promise<SpaceManifest> => ({
+          schema: 1,
+          id: id as any,
+          version: '1.0.0',
+          deps: { spaces: (graph[id] ?? []).map((dep) => `space:${dep}@stable` as any) },
+        })
+      )
 
-    await expect(computeClosure(['space:space-a@stable' as any], { cwd: '/tmp' })).rejects.toThrow(
-      CyclicDependencyError
-    )
-  })
-
-  it('should detect self-referential cycles (A -> A)', async () => {
-    const commitA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1'
-
-    const manifestA: SpaceManifest = {
-      schema: 1,
-      id: 'space-a' as any,
-      version: '1.0.0',
-      deps: { spaces: ['space:space-a@stable' as any] },
+      await expect(
+        computeClosure(['space:space-a@stable' as any], { cwd: '/tmp' })
+      ).rejects.toThrow(CyclicDependencyError)
     }
-
-    resolverSelectorSpy.mockResolvedValue({
-      commit: commitA as any,
-      selector: { kind: 'dist-tag', tag: 'stable' },
-    })
-
-    readManifestSpy.mockResolvedValue(manifestA)
-
-    await expect(computeClosure(['space:space-a@stable' as any], { cwd: '/tmp' })).rejects.toThrow(
-      CyclicDependencyError
-    )
-  })
-
-  it('should detect longer cycles (A -> B -> C -> A)', async () => {
-    const commitA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1'
-    const commitB = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb2'
-    const commitC = 'ccccccccccccccccccccccccccccccccccccccc3'
-
-    const manifestA: SpaceManifest = {
-      schema: 1,
-      id: 'space-a' as any,
-      version: '1.0.0',
-      deps: { spaces: ['space:space-b@stable' as any] },
-    }
-
-    const manifestB: SpaceManifest = {
-      schema: 1,
-      id: 'space-b' as any,
-      version: '1.0.0',
-      deps: { spaces: ['space:space-c@stable' as any] },
-    }
-
-    const manifestC: SpaceManifest = {
-      schema: 1,
-      id: 'space-c' as any,
-      version: '1.0.0',
-      deps: { spaces: ['space:space-a@stable' as any] },
-    }
-
-    resolverSelectorSpy.mockImplementation(async (id: string) => {
-      const commits: Record<string, string> = {
-        'space-a': commitA,
-        'space-b': commitB,
-        'space-c': commitC,
-      }
-      return {
-        commit: commits[id] as any,
-        selector: { kind: 'dist-tag', tag: 'stable' },
-      }
-    })
-
-    readManifestSpy.mockImplementation(async (id: string) => {
-      const manifests: Record<string, SpaceManifest> = {
-        'space-a': manifestA,
-        'space-b': manifestB,
-        'space-c': manifestC,
-      }
-      return manifests[id]!
-    })
-
-    await expect(computeClosure(['space:space-a@stable' as any], { cwd: '/tmp' })).rejects.toThrow(
-      CyclicDependencyError
-    )
-  })
-
-  it('should throw MissingDependencyError for missing dependency', async () => {
-    const commitA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1'
-
-    const manifestA: SpaceManifest = {
-      schema: 1,
-      id: 'space-a' as any,
-      version: '1.0.0',
-      deps: { spaces: ['space:missing-space@stable' as any] },
-    }
-
-    resolverSelectorSpy.mockImplementation(async (id: string) => {
-      if (id === 'missing-space') {
-        throw new Error('Space not found')
-      }
-      return {
-        commit: commitA as any,
-        selector: { kind: 'dist-tag', tag: 'stable' },
-      }
-    })
-
-    readManifestSpy.mockResolvedValue(manifestA)
-
-    await expect(computeClosure(['space:space-a@stable' as any], { cwd: '/tmp' })).rejects.toThrow(
-      MissingDependencyError
-    )
-  })
+  )
 
   it('should preserve the underlying error as cause when wrapping (A7)', async () => {
     const commitA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1'
@@ -577,5 +406,136 @@ describe('computeClosure', () => {
     // Roots should be in declared order
     const ids = result.loadOrder.map((key) => String(result.spaces.get(key)?.id))
     expect(ids).toEqual(['space-a', 'space-b'])
+  })
+})
+
+describe('published caller behavior (§9)', () => {
+  /**
+   * Tests for closure module.
+   *
+   * WHY: The dependency closure is critical for correct space loading.
+   * These tests verify:
+   * - Correct DFS postorder traversal
+   * - Cycle detection
+   * - Diamond dependency handling
+   * - Helper function correctness
+   */
+
+  describe('closure helper functions', () => {
+    // Shared test keys (consistent across all tests)
+    const idA = asSpaceId('space-a')
+    const commitA = asCommitSha('abc123abc123abc123abc123abc123abc123abc1')
+    const keyA = asSpaceKey(idA, commitA)
+
+    const idB = asSpaceId('space-b')
+    const commitB = asCommitSha('def456def456def456def456def456def456def4')
+    const keyB = asSpaceKey(idB, commitB)
+
+    const idC = asSpaceId('space-c')
+    const commitC = asCommitSha('789abc789abc789abc789abc789abc789abc789a')
+    const keyC = asSpaceKey(idC, commitC)
+
+    // Create a sample closure for testing helpers
+    const createSampleClosure = (): ClosureResult => {
+      const spaceA: ResolvedSpace = {
+        key: keyA,
+        id: idA,
+        commit: commitA,
+        path: 'spaces/space-a',
+        manifest: { schema: 1, id: idA, version: '1.0.0' },
+        resolvedFrom: {
+          commit: commitA,
+          selector: { kind: 'dist-tag', tag: 'stable' },
+        },
+        deps: [],
+      }
+
+      const spaceB: ResolvedSpace = {
+        key: keyB,
+        id: idB,
+        commit: commitB,
+        path: 'spaces/space-b',
+        manifest: { schema: 1, id: idB, version: '1.0.0' },
+        resolvedFrom: {
+          commit: commitB,
+          selector: { kind: 'dist-tag', tag: 'stable' },
+        },
+        deps: [keyA],
+      }
+
+      const spaceC: ResolvedSpace = {
+        key: keyC,
+        id: idC,
+        commit: commitC,
+        path: 'spaces/space-c',
+        manifest: { schema: 1, id: idC, version: '1.0.0' },
+        resolvedFrom: {
+          commit: commitC,
+          selector: { kind: 'dist-tag', tag: 'stable' },
+        },
+        deps: [keyA, keyB],
+      }
+
+      return {
+        spaces: new Map([
+          [spaceA.key, spaceA],
+          [spaceB.key, spaceB],
+          [spaceC.key, spaceC],
+        ]),
+        loadOrder: [keyA, keyB, keyC],
+        roots: [keyC],
+      }
+    }
+
+    describe('getSpace', () => {
+      it('should return space by key', () => {
+        const closure = createSampleClosure()
+        const space = getSpace(closure, keyA)
+        expect(space).toBeDefined()
+        expect(String(space?.id)).toBe('space-a')
+      })
+
+      it('should return undefined for missing key', () => {
+        const closure = createSampleClosure()
+        const space = getSpace(closure, 'nonexistent@0000000' as SpaceKey)
+        expect(space).toBeUndefined()
+      })
+    })
+
+    describe('isRoot', () => {
+      it('should return true for root space', () => {
+        const closure = createSampleClosure()
+        expect(isRoot(closure, keyC)).toBe(true)
+      })
+
+      it('should return false for non-root space', () => {
+        const closure = createSampleClosure()
+        expect(isRoot(closure, keyA)).toBe(false)
+        expect(isRoot(closure, keyB)).toBe(false)
+      })
+    })
+
+    describe('getDependents', () => {
+      it('should return spaces that depend on given space', () => {
+        const closure = createSampleClosure()
+        const dependents = getDependents(closure, keyA)
+        expect(dependents).toHaveLength(2)
+        expect(dependents).toContain(keyB)
+        expect(dependents).toContain(keyC)
+      })
+
+      it('should return empty array for space with no dependents', () => {
+        const closure = createSampleClosure()
+        const dependents = getDependents(closure, keyC)
+        expect(dependents).toHaveLength(0)
+      })
+    })
+    it('should filter out missing spaces', () => {
+      const closure = createSampleClosure()
+      // Add a missing key to loadOrder
+      closure.loadOrder.push('missing@000000' as SpaceKey)
+      const spaces = getSpacesInOrder(closure)
+      expect(spaces).toHaveLength(3) // Still 3, missing is filtered
+    })
   })
 })

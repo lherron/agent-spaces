@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -18,16 +18,21 @@ import {
   loadFactory,
   now,
   pastedTexts,
+  removeTempHookDirs,
   specWithIds,
+  tempHookSocketPath,
   tmuxArgv,
 } from './driver-red.helpers'
 
+afterEach(removeTempHookDirs)
+
 describe('claude-code-tmux driver RED lifecycle', () => {
-  test('hook envelopes received by the driver flow through ctx.emit in start-to-complete order', async () => {
+  test('hook envelopes carrying a broker turn id bracket that turn: turn.started, submission.executed, turn.completed in order', async () => {
     const createDriver = await loadFactory()
     const tmuxCalls: TmuxExecCall[] = []
     let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
     const events: InvocationEventEnvelope[] = []
+    const hookSocket = tempHookSocketPath()
     const driver = createDriver({
       tmux: {
         tmuxBin: '/opt/bin/tmux',
@@ -36,10 +41,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       hooks: {
         listen: async (handler) => {
           hookHandler = handler as (envelope: HookEnvelope) => Promise<void>
-          return {
-            socketPath: '/tmp/harness-broker/claude-hooks.sock',
-            close: async () => undefined,
-          }
+          return { socketPath: hookSocket, close: async () => undefined }
         },
       },
       now,
@@ -49,14 +51,14 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     await hookHandler?.({
       invocationId: 'inv_claude_tmux_1',
       generation: 1,
-      callbackSocket: '/tmp/harness-broker/claude-hooks.sock',
+      callbackSocket: hookSocket,
       turnId: 'turn_driver_envelope_1',
       hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'go' },
     })
     await hookHandler?.({
       invocationId: 'inv_claude_tmux_1',
       generation: 1,
-      callbackSocket: '/tmp/harness-broker/claude-hooks.sock',
+      callbackSocket: hookSocket,
       turnId: 'turn_driver_envelope_1',
       hookData: {
         hook_event_name: 'PreToolUse',
@@ -65,18 +67,46 @@ describe('claude-code-tmux driver RED lifecycle', () => {
         tool_input: { file_path: 'README.md' },
       },
     })
+    // Display and tool-result hooks carry conversation facts the transcript
+    // owns: they must not mint assistant.message.* or tool.call.* events.
     await hookHandler?.({
       invocationId: 'inv_claude_tmux_1',
       generation: 1,
-      callbackSocket: '/tmp/harness-broker/claude-hooks.sock',
+      callbackSocket: hookSocket,
+      turnId: 'turn_driver_envelope_1',
+      hookData: {
+        hook_event_name: 'MessageDisplay',
+        message_id: 'msg_1',
+        index: 0,
+        delta: 'reading README',
+        final: true,
+      },
+    })
+    await hookHandler?.({
+      invocationId: 'inv_claude_tmux_1',
+      generation: 1,
+      callbackSocket: hookSocket,
+      turnId: 'turn_driver_envelope_1',
+      hookData: {
+        hook_event_name: 'PostToolUse',
+        tool_use_id: 'toolu_1',
+        tool_name: 'Read',
+        tool_input: { file_path: 'README.md' },
+        tool_response: { content: 'readme text' },
+      },
+    })
+    await hookHandler?.({
+      invocationId: 'inv_claude_tmux_1',
+      generation: 1,
+      callbackSocket: hookSocket,
       turnId: 'turn_driver_envelope_1',
       hookData: { hook_event_name: 'Stop' },
     })
 
-    // Since T-07873 the tool call and the prompt text come from the session
-    // JSONL, not from the hooks. This harness feeds hooks only (no transcript
-    // file), so what remains is exactly the hook-owned bracket plus the
-    // idle-path submission disposition.
+    // Since T-07873 the tool call, the prompt text and the assistant prose come
+    // from the session JSONL, not from the hooks. This harness feeds hooks only
+    // (no transcript file), so what remains is exactly the hook-owned bracket
+    // plus the idle-path submission disposition.
     expect(events.map((event) => event.type)).toEqual(
       expect.arrayContaining(['turn.started', 'turn.completed'])
     )
@@ -90,8 +120,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     const tmuxCalls: TmuxExecCall[] = []
     let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
     const events: InvocationEventEnvelope[] = []
-    const hookSocket =
-      '/tmp/praesidium/runtime/broker-ipc/runtime-claude/hooks/claude-hooks.live.sock'
+    const hookSocket = tempHookSocketPath('claude-hooks.live.sock')
     const driver = createDriver({
       tmux: {
         tmuxBin: '/opt/bin/tmux',
@@ -100,10 +129,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       hooks: {
         listen: async (handler) => {
           hookHandler = handler as (envelope: HookEnvelope) => Promise<void>
-          return {
-            socketPath: hookSocket,
-            close: async () => undefined,
-          }
+          return { socketPath: hookSocket, close: async () => undefined }
         },
       },
       now,
@@ -137,7 +163,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     ])
   })
 
-  test('second concurrent hook listener ignores stale envelopes from the first invocation', async () => {
+  test('an envelope from another invocation reaching a second concurrent listener emits nothing', async () => {
     const createDriver = await loadFactory()
     const firstTmuxCalls: TmuxExecCall[] = []
     const secondTmuxCalls: TmuxExecCall[] = []
@@ -145,6 +171,12 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     const secondEvents: InvocationEventEnvelope[] = []
     const hookHandlers: Array<(envelope: HookEnvelope) => Promise<void>> = []
     const listenerMetas: HookListenerMeta[] = []
+    const socketPaths: string[] = []
+    const listenOn = (meta: HookListenerMeta | undefined) => {
+      const socketPath = tempHookSocketPath(`claude-hooks.${meta?.invocationId ?? 'missing'}.sock`)
+      socketPaths.push(socketPath)
+      return { socketPath, close: async () => undefined }
+    }
 
     const firstDriver = createDriver({
       tmux: {
@@ -155,10 +187,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
         listen: async (handler, meta?: HookListenerMeta) => {
           hookHandlers.push(handler as (envelope: HookEnvelope) => Promise<void>)
           if (meta !== undefined) listenerMetas.push(meta)
-          return {
-            socketPath: `/tmp/harness-broker/claude-hooks.${meta?.invocationId ?? 'missing'}.sock`,
-            close: async () => undefined,
-          }
+          return listenOn(meta)
         },
       },
       now,
@@ -172,10 +201,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
         listen: async (handler, meta?: HookListenerMeta) => {
           hookHandlers.push(handler as (envelope: HookEnvelope) => Promise<void>)
           if (meta !== undefined) listenerMetas.push(meta)
-          return {
-            socketPath: `/tmp/harness-broker/claude-hooks.${meta?.invocationId ?? 'missing'}.sock`,
-            close: async () => undefined,
-          }
+          return listenOn(meta)
         },
       },
       now,
@@ -201,7 +227,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     await secondHandler({
       invocationId: 'inv_first_concurrent',
       generation: 1,
-      callbackSocket: '/tmp/harness-broker/claude-hooks.inv_first_concurrent.sock',
+      callbackSocket: socketPaths[0] ?? '',
       runtimeId: 'runtime-first-concurrent',
       turnId: 'turn_foreign_1',
       hookData: {
@@ -215,7 +241,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     await secondHandler({
       invocationId: 'inv_first_concurrent',
       generation: 1,
-      callbackSocket: '/tmp/harness-broker/claude-hooks.inv_first_concurrent.sock',
+      callbackSocket: socketPaths[0] ?? '',
       runtimeId: 'runtime-first-concurrent',
       turnId: 'turn_foreign_1',
       hookData: {
@@ -231,17 +257,13 @@ describe('claude-code-tmux driver RED lifecycle', () => {
   test('start installs a real Claude hook bridge in the tmux launch, not only broker env vars', async () => {
     const createDriver = await loadFactory()
     const tmuxCalls: TmuxExecCall[] = []
+    const hookSocket = tempHookSocketPath()
     const driver = createDriver({
       tmux: {
         tmuxBin: '/opt/bin/tmux',
         exec: createRecordingExec(tmuxCalls),
       },
-      hooks: {
-        listen: async () => ({
-          socketPath: '/tmp/harness-broker/claude-hooks.sock',
-          close: async () => undefined,
-        }),
-      },
+      hooks: { listen: async () => ({ socketPath: hookSocket, close: async () => undefined }) },
       now,
     })
 
@@ -251,9 +273,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     expect(artifact.argv).toContain('/opt/bin/claude')
     expect(artifact.env?.['HARNESS_BROKER_INVOCATION_ID']).toBe('inv_claude_tmux_1')
     expect(artifact.env?.['HARNESS_BROKER_RUNTIME_ID']).toBe('runtime-driver-red')
-    expect(artifact.env?.['HARNESS_BROKER_CALLBACK_SOCKET']).toBe(
-      '/tmp/harness-broker/claude-hooks.sock'
-    )
+    expect(artifact.env?.['HARNESS_BROKER_CALLBACK_SOCKET']).toBe(hookSocket)
 
     // Env vars alone do not make Claude Code invoke hooks. The tmux launch must
     // include a Claude hook settings overlay / hook command so the real runtime
@@ -286,7 +306,10 @@ describe('claude-code-tmux driver RED lifecycle', () => {
         call.argv.includes('load-buffer') && (call.loadedText ?? '').includes('tmux-launch-runner')
     )
     expect(launchLoadBuffer?.loadedText).toMatch(
-      /^exec bun \S*tmux-launch-runner\.(ts|js) --launch-file \/tmp\/harness-broker\/claude-hooks\.sock\.claude\.launch\.json$/
+      /^exec bun \S*tmux-launch-runner\.(ts|js) --launch-file /
+    )
+    expect(launchLoadBuffer?.loadedText).toEndWith(
+      ` --launch-file ${hookSocket}.claude.launch.json`
     )
     expect(launchLoadBuffer?.argv.some((arg) => arg.includes('tmux-launch-runner'))).toBe(false)
     // The launch command is NOT typed as a send-keys -l literal (that path is the
@@ -313,7 +336,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     ])
   })
 
-  test('threads spec.process.lockedEnv and ctx.dispatchEnv into the tmux launch env (codex parity)', async () => {
+  test('lockedEnv and dispatchEnv both reach the launched pane env alongside the broker hook vars', async () => {
     const createDriver = await loadFactory()
     const tmuxCalls: TmuxExecCall[] = []
     const driver = createDriver({
@@ -322,10 +345,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
         exec: createRecordingExec(tmuxCalls),
       },
       hooks: {
-        listen: async () => ({
-          socketPath: '/tmp/harness-broker/claude-hooks.sock',
-          close: async () => undefined,
-        }),
+        listen: async () => ({ socketPath: tempHookSocketPath(), close: async () => undefined }),
       },
       now,
     })
@@ -371,16 +391,14 @@ describe('claude-code-tmux driver RED lifecycle', () => {
 
       const createDriver = await loadFactory()
       const tmuxCalls: TmuxExecCall[] = []
+      const hookSocket = tempHookSocketPath()
       const driver = createDriver({
         tmux: {
           tmuxBin: '/opt/bin/tmux',
           exec: createRecordingExec(tmuxCalls),
         },
         hooks: {
-          listen: async () => ({
-            socketPath: '/tmp/harness-broker/claude-hooks.sock',
-            close: async () => undefined,
-          }),
+          listen: async () => ({ socketPath: hookSocket, close: async () => undefined }),
         },
         now,
       })
@@ -412,7 +430,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
         readFileSync(preSeparatorArgs[settingsIndex + 1] ?? '', 'utf8')
       ) as {
         statusLine?: unknown
-        hooks?: Record<string, unknown>
+        hooks?: Record<string, Array<{ matcher?: string; hooks: Array<{ command: string }> }>>
       }
       expect(effectiveSettings.statusLine).toEqual(durableStatusLine)
       expect(effectiveSettings.hooks).toBeDefined()
@@ -424,19 +442,31 @@ describe('claude-code-tmux driver RED lifecycle', () => {
         'Stop',
       ]) {
         expect(JSON.stringify(effectiveSettings.hooks?.[hookName])).toContain(
-          'harness-broker claude-hook --socket /tmp/harness-broker/claude-hooks.sock'
+          `harness-broker claude-hook --socket ${hookSocket}`
         )
       }
+      // Only Stop and PostToolUse need stdout-capable decisions; every other
+      // hook keeps the fire-and-forget bridge.
+      const hooks = effectiveSettings.hooks ?? {}
+      expect(hooks['PreToolUse']?.[0]?.hooks[0]?.command).toContain('claude-hook ')
+      expect(hooks['MessageDisplay']?.[0]?.hooks[0]?.command).toContain('claude-hook ')
+      expect(hooks['PostToolUse']?.[0]?.hooks[0]?.command).toContain('claude-hook-decision ')
+      expect(hooks['PostToolUse']?.[0]?.matcher).toBe('*')
+      expect(hooks['Stop']?.[0]?.hooks[0]?.command).toContain('claude-hook-decision ')
+      expect(
+        JSON.parse(JSON.stringify(hooks).replaceAll(hookSocket, '<hook-socket>'))
+      ).toMatchSnapshot()
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }
   })
 
-  test('applyInputNow tracks the active broker turn id for raw hook envelopes with no turn id', async () => {
+  test('turn-id-less hooks after applyInputNow open and complete the turn under the id applyInputNow returned', async () => {
     const createDriver = await loadFactory()
     const tmuxCalls: TmuxExecCall[] = []
     let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
     const events: InvocationEventEnvelope[] = []
+    const hookSocket = tempHookSocketPath()
     const driver = createDriver({
       tmux: {
         tmuxBin: '/opt/bin/tmux',
@@ -445,10 +475,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       hooks: {
         listen: async (handler) => {
           hookHandler = handler as (envelope: HookEnvelope) => Promise<void>
-          return {
-            socketPath: '/tmp/harness-broker/claude-hooks.sock',
-            close: async () => undefined,
-          }
+          return { socketPath: hookSocket, close: async () => undefined }
         },
       },
       now,
@@ -465,13 +492,13 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     await hookHandler?.({
       invocationId: 'inv_claude_tmux_1',
       generation: 1,
-      callbackSocket: '/tmp/harness-broker/claude-hooks.sock',
+      callbackSocket: hookSocket,
       hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'drive a real hooked turn' },
     })
     await hookHandler?.({
       invocationId: 'inv_claude_tmux_1',
       generation: 1,
-      callbackSocket: '/tmp/harness-broker/claude-hooks.sock',
+      callbackSocket: hookSocket,
       hookData: { hook_event_name: 'Stop' },
     })
 

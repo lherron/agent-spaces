@@ -73,6 +73,14 @@ test('aspd discovery and L3 request lines cross the real socket boundary', async
         advice: 'Call surface with params: {} to list valid operations.',
       },
     })
+    // aspd serves only the compile plane: neither the retired cohosted compile-and-start
+    // nor the broker's invocation.start is a route.
+    for (const method of ['aspc.compileAndStart', 'invocation.start']) {
+      expect((await rpc(method)).error).toMatchObject({
+        code: -32601,
+        data: { reason: 'op_unknown' },
+      })
+    }
     expect((await call('{bad-json}\n')).error).toMatchObject({
       code: -32700,
       data: { reason: 'parse_error' },
@@ -94,7 +102,7 @@ test('aspd discovery and L3 request lines cross the real socket boundary', async
       .filter((line) => line.startsWith('{'))
       .map((line) => JSON.parse(line))
       .filter((line) => line.event === 'rpc.request')
-    expect(requests).toHaveLength(9)
+    expect(requests).toHaveLength(11)
     expect(
       requests.filter(
         (line) =>

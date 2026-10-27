@@ -75,6 +75,11 @@ describe('asp install', () => {
     expect(result.lock.targets).toHaveProperty('dev')
     expect(result.lock.targets['dev']!.loadOrder).toBeDefined()
     expect(result.lock.targets['dev']!.loadOrder.length).toBeGreaterThan(0)
+    expect(result.lock.targets['dev']!.envHash).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(Object.values(result.lock.spaces).length).toBeGreaterThan(0)
+    for (const space of Object.values(result.lock.spaces)) {
+      expect(space.integrity).toMatch(/^sha256:[0-9a-f]{64}$/)
+    }
   })
 
   test('resolves transitive dependencies', async () => {
@@ -117,53 +122,5 @@ describe('asp install', () => {
     const entries = await fs.readdir(snapshotsDir, { withFileTypes: true })
     const hasSnapshots = entries.some((e) => e.isDirectory())
     expect(hasSnapshots).toBe(true)
-  })
-
-  test('computes environment hash', async () => {
-    const result = await install({
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-    })
-
-    // Check envHash is present and properly formatted
-    const envHash = result.lock.targets['dev']!.envHash
-    expect(envHash).toMatch(/^sha256:[0-9a-f]{64}$/)
-  })
-
-  test('records integrity hashes for spaces', async () => {
-    const result = await install({
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-    })
-
-    // Check that spaces have integrity hashes
-    const spaces = Object.values(result.lock.spaces)
-    expect(spaces.length).toBeGreaterThan(0)
-    for (const space of spaces) {
-      expect(space.integrity).toMatch(/^sha256:[0-9a-f]{64}$/)
-    }
-  })
-
-  test('handles single target', async () => {
-    // Create project with single frontend target
-    await cleanupTempProject(projectDir)
-    projectDir = await createTempProject({
-      frontend: {
-        compose: ['space:frontend@stable'],
-      },
-    })
-
-    const result = await install({
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-    })
-
-    expect(result.resolvedTargets).toContain('frontend')
-    expect(result.resolvedTargets).not.toContain('dev')
-    expect(result.lock.targets).toHaveProperty('frontend')
-    expect(result.lock.targets).not.toHaveProperty('dev')
   })
 })

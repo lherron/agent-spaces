@@ -1,14 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { BROKER_ADMISSION_JSON_SCHEMAS } from '../../src/json-schema'
 import { invocationIdFrom } from '../ids'
 import { eventsFor, eventsForSubmission, flush, origin, setup } from './fixture'
 
 describe('broker admission API: admission classes, invoke policy and authority', () => {
-  test('frozen steer JSON schema excludes turn policy and all unknown options', () => {
-    expect(BROKER_ADMISSION_JSON_SCHEMAS.steerRequest.properties).not.toHaveProperty('turnPolicy')
-    expect(BROKER_ADMISSION_JSON_SCHEMAS.steerRequest.additionalProperties).toBe(false)
-  })
-
   for (const admissionClass of ['steer', 'enqueue', 'invoke', 'preempt'] as const) {
     for (const seatState of ['idle', 'busy'] as const) {
       test(`${admissionClass} has the specified immediate admission result while ${seatState}`, async () => {

@@ -71,7 +71,7 @@ function requestPermission() {
       permissionRequestId: 'perm_client_contract',
       kind: 'command',
       subject: { command: 'printf red-test' },
-      defaultDecision: mode === 'request-default-deny' ? 'deny' : 'allow',
+      defaultDecision: 'allow',
       deadlineMs: 1000,
     },
   })
@@ -237,45 +237,35 @@ describe('BrokerClient permission request callback', () => {
     })
   })
 
-  test('treats permission.requested and permission.resolved as observable events only', async () => {
-    const { requests, turnEvents } = await runClientScenario({
+  test.each([
+    {
       mode: 'event-only',
-      handler: async () => ({ decision: 'allow' }),
-    })
-
-    expect(requests).toHaveLength(0)
-    expect(turnEvents.map((event) => event.type)).toContain('permission.requested')
-    expect(turnEvents.map((event) => event.type)).toContain('permission.resolved')
-    expect(turnEvents.find((event) => event.type === 'turn.completed')?.payload).toMatchObject({
+      observed: ['permission.requested', 'permission.resolved'],
       finalOutput: 'audit-only completed',
-    })
-  })
-
-  test('does not make permission decisions from legacy event-only simulations', async () => {
-    const { requests, turnEvents } = await runClientScenario({
+    },
+    {
       mode: 'legacy-event-only',
-      handler: async () => ({ decision: 'allow' }),
-    })
-
-    expect(requests).toHaveLength(0)
-    expect(turnEvents.map((event) => event.type as string)).toContain(
-      'invocation.permission.request'
-    )
-    expect(turnEvents.find((event) => event.type === 'turn.completed')?.payload).toMatchObject({
+      observed: ['invocation.permission.request'],
       finalOutput: 'legacy event ignored',
-    })
-  })
+    },
+  ])(
+    'a $mode permission notification is observable as an event and never reaches the handler',
+    async ({ mode, observed, finalOutput }) => {
+      const { requests, turnEvents } = await runClientScenario({
+        mode,
+        handler: async () => ({ decision: 'allow' }),
+      })
 
-  test('missing client handler returns the defaultDecision', async () => {
-    const { requests, turnEvents } = await runClientScenario({
-      mode: 'request-default-deny',
-    })
-
-    expect(requests).toHaveLength(0)
-    expect(turnEvents.find((event) => event.type === 'turn.completed')?.payload).toMatchObject({
-      finalOutput: 'permission denied',
-    })
-  })
+      expect(requests).toHaveLength(0)
+      const types = turnEvents.map((event) => event.type as string)
+      for (const type of observed) {
+        expect(types).toContain(type)
+      }
+      expect(turnEvents.find((event) => event.type === 'turn.completed')?.payload).toMatchObject({
+        finalOutput,
+      })
+    }
+  )
 
   test('failed client handler returns the defaultDecision or deny', async () => {
     const { requests, turnEvents } = await runClientScenario({

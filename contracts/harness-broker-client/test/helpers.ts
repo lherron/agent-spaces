@@ -7,7 +7,14 @@ import type {
   InvocationId,
   InvocationInput,
   InvocationStartRequest,
+  JsonRpcNotification,
 } from 'spaces-harness-broker-protocol'
+import type {
+  BrokerJsonRpcTransport,
+  CloseHandler,
+  NotificationHandler,
+  RequestHandler,
+} from '../src/transport'
 import { inputIdFrom, invocationIdFrom } from './ids'
 
 export const repoRoot = new URL('../../..', import.meta.url).pathname
@@ -182,4 +189,33 @@ export function findBrokerChildPid(): number {
     }
   }
   throw new Error(`could not find broker child process under test process ${process.pid}`)
+}
+
+/**
+ * Transport fake at the broker wire boundary that only delivers
+ * `invocation.event` notifications: tests push envelopes through `emit` and
+ * observe what BrokerClient.streamInvocationEvents yields.
+ */
+export class NotificationTransport implements BrokerJsonRpcTransport {
+  #notificationHandler: NotificationHandler | undefined
+
+  async request<T>(_method: string, _params?: unknown): Promise<T> {
+    throw new Error('request not expected')
+  }
+
+  onNotification(handler: NotificationHandler): void {
+    this.#notificationHandler = handler
+  }
+
+  onRequest(_handler: RequestHandler): void {}
+  onClose(_handler: CloseHandler): void {}
+  async close(): Promise<void> {}
+
+  emit(envelope: InvocationEventEnvelope): void {
+    this.#notificationHandler?.({
+      jsonrpc: '2.0',
+      method: 'invocation.event',
+      params: envelope,
+    } as JsonRpcNotification)
+  }
 }

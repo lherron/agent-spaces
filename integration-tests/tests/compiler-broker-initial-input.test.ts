@@ -17,34 +17,22 @@ async function initial(options: Parameters<typeof compileV2>[1]) {
 }
 
 describe('v2 broker initial input composition', () => {
-  test.each([
-    [false, 'caller prompt'],
-    [true, 'caller prompt'],
-  ])('keeps a caller prompt when omitPriming=%s', async (omitPriming, prompt) => {
-    const input = await initial({
-      namespace: `initial-caller-${omitPriming}`,
-      harness: 'codex',
-      modelProvider: 'openai-codex',
-      model: 'gpt-5.6-terra',
-      presentation: false,
-      omitPriming,
-      prompt,
-    })
-    expect(input?.content).toEqual([{ type: 'text', text: prompt }])
-  })
-
-  test('puts the caller prompt in the only start request with the allocated input id', async () => {
-    const input = await initial({
-      namespace: 'initial-prompt',
-      harness: 'codex',
-      modelProvider: 'openai-codex',
-      model: 'gpt-5.6-terra',
-      presentation: false,
-      prompt: 'initial input must be canonical',
-    })
-    expect(String(input?.inputId)).toBe('input_initial-prompt')
-    expect(input?.content).toContainEqual({ type: 'text', text: 'initial input must be canonical' })
-  })
+  test.each([false, true])(
+    'puts the caller prompt in the only start request with the allocated input id, omitPriming=%s',
+    async (omitPriming) => {
+      const input = await initial({
+        namespace: 'initial-prompt',
+        omitPriming,
+        harness: 'codex',
+        modelProvider: 'openai-codex',
+        model: 'gpt-5.6-terra',
+        presentation: false,
+        prompt: 'initial input must be canonical',
+      })
+      expect(String(input?.inputId)).toBe('input_initial-prompt')
+      expect(input?.content).toEqual([{ type: 'text', text: 'initial input must be canonical' }])
+    }
+  )
 
   test('does not create an input when prompt, attachments, and response format are absent', async () => {
     const input = await initial({
@@ -81,10 +69,12 @@ describe('v2 broker initial input composition', () => {
       model: 'gpt-5.6-terra',
       presentation: false,
       prompt: 'inspect image',
+      omitPriming: true,
       attachments: [{ kind: 'image', path: image, mimeType: 'image/png' }],
     })
     expect(response.ok).toBe(true)
     if (!response.ok) return
+    expect(response.plan.omitPriming).toBe(true)
     const start = response.plan.execution.dispatchRequest.startRequest
     expect(start.initialInput?.content).toContainEqual({ type: 'local_image', path: image })
     expect(start.spec.driver).not.toHaveProperty('defaultImageAttachments')
@@ -157,94 +147,87 @@ describe('v2 broker initial input composition', () => {
     expect(input).toBeUndefined()
   })
 
-  test('changes the canonical start hash when prompt text changes', async () => {
-    const fixture = createV2CompileFixture()
-    fixtures.push(fixture)
-    const common = {
-      harness: 'codex' as const,
-      modelProvider: 'openai-codex',
-      model: 'gpt-5.6-terra',
-      presentation: false,
-    }
-    const first = await compileV2(fixture, {
-      ...common,
-      namespace: 'initial-hash-prompt-a',
-      prompt: 'first prompt',
-    })
-    const second = await compileV2(fixture, {
-      ...common,
-      namespace: 'initial-hash-prompt-b',
-      prompt: 'second prompt',
-    })
-    expect(first.ok).toBe(true)
-    expect(second.ok).toBe(true)
-    if (!first.ok || !second.ok) return
-    expect(second.plan.execution.profile.startRequestHash).not.toBe(
-      first.plan.execution.profile.startRequestHash
-    )
-  })
-
-  test('changes the canonical start hash when attachment mechanics change', async () => {
-    const fixture = createV2CompileFixture()
-    fixtures.push(fixture)
-    const common = {
-      harness: 'codex' as const,
-      modelProvider: 'openai-codex',
-      model: 'gpt-5.6-terra',
-      presentation: false,
-      prompt: 'same prompt',
-    }
-    const first = await compileV2(fixture, {
-      ...common,
-      namespace: 'initial-hash-image-a',
-      attachments: [{ kind: 'image', path: `${fixture.projectRoot}/a.png`, mimeType: 'image/png' }],
-    })
-    const second = await compileV2(fixture, {
-      ...common,
-      namespace: 'initial-hash-image-b',
-      attachments: [{ kind: 'image', path: `${fixture.projectRoot}/b.png`, mimeType: 'image/png' }],
-    })
-    expect(first.ok).toBe(true)
-    expect(second.ok).toBe(true)
-    if (!first.ok || !second.ok) return
-    expect(second.plan.execution.profile.startRequestHash).not.toBe(
-      first.plan.execution.profile.startRequestHash
-    )
-  })
-
-  test('changes the canonical start hash when response-format mechanics change', async () => {
-    const fixture = createV2CompileFixture()
-    fixtures.push(fixture)
-    const common = {
-      harness: 'codex' as const,
-      modelProvider: 'openai-codex',
-      model: 'gpt-5.6-terra',
-      presentation: false,
-      prompt: 'return structured output',
-    }
-    const first = await compileV2(fixture, {
-      ...common,
-      namespace: 'initial-hash-schema-a',
-      responseFormat: {
-        kind: 'json_schema',
-        schema: { type: 'object', properties: { ok: { type: 'boolean' } } },
+  test.each([
+    {
+      change: 'prompt',
+      first: { prompt: 'first prompt' },
+      second: { prompt: 'second prompt' },
+    },
+    {
+      change: 'attachments',
+      first: {
+        prompt: 'same prompt',
+        attachments: [{ kind: 'image' as const, path: 'a.png', mimeType: 'image/png' }],
       },
-    })
-    const second = await compileV2(fixture, {
-      ...common,
-      namespace: 'initial-hash-schema-b',
-      responseFormat: {
-        kind: 'json_schema',
-        schema: { type: 'object', properties: { count: { type: 'number' } } },
+      second: {
+        prompt: 'same prompt',
+        attachments: [{ kind: 'image' as const, path: 'b.png', mimeType: 'image/png' }],
       },
-    })
-    expect(first.ok).toBe(true)
-    expect(second.ok).toBe(true)
-    if (!first.ok || !second.ok) return
-    expect(second.plan.execution.profile.startRequestHash).not.toBe(
-      first.plan.execution.profile.startRequestHash
-    )
-  })
+    },
+    {
+      change: 'response format',
+      first: {
+        prompt: 'return structured output',
+        responseFormat: {
+          kind: 'json_schema' as const,
+          schema: { type: 'object', properties: { ok: { type: 'boolean' } } },
+        },
+      },
+      second: {
+        prompt: 'return structured output',
+        responseFormat: {
+          kind: 'json_schema' as const,
+          schema: { type: 'object', properties: { count: { type: 'number' } } },
+        },
+      },
+    },
+  ])(
+    'start-request hash changes when initial input $change changes',
+    async ({ change, first: firstInput, second: secondInput }) => {
+      const fixture = createV2CompileFixture()
+      fixtures.push(fixture)
+      const common = {
+        harness: 'codex' as const,
+        modelProvider: 'openai-codex',
+        model: 'gpt-5.6-terra',
+        presentation: false,
+      }
+      // Attachment paths are made absolute under this fixture's project root.
+      const anchor = (input: {
+        prompt: string
+        attachments?: ReadonlyArray<{ kind: 'image'; path: string; mimeType: string }>
+        responseFormat?: Parameters<typeof compileV2>[1]['responseFormat']
+      }): Pick<Parameters<typeof compileV2>[1], 'prompt' | 'attachments' | 'responseFormat'> => ({
+        prompt: input.prompt,
+        ...(input.responseFormat === undefined ? {} : { responseFormat: input.responseFormat }),
+        ...(input.attachments === undefined
+          ? {}
+          : {
+              attachments: input.attachments.map((attachment) => ({
+                ...attachment,
+                path: `${fixture.projectRoot}/${attachment.path}`,
+              })),
+            }),
+      })
+      const slug = change.replace(/\s+/g, '-')
+      const first = await compileV2(fixture, {
+        ...common,
+        ...anchor(firstInput),
+        namespace: `initial-hash-${slug}-a`,
+      })
+      const second = await compileV2(fixture, {
+        ...common,
+        ...anchor(secondInput),
+        namespace: `initial-hash-${slug}-b`,
+      })
+      expect(first.ok).toBe(true)
+      expect(second.ok).toBe(true)
+      if (!first.ok || !second.ok) return
+      expect(second.plan.execution.profile.startRequestHash).not.toBe(
+        first.plan.execution.profile.startRequestHash
+      )
+    }
+  )
 
   test('retains materialization task context as correlation-safe labels on the start spec', async () => {
     const fixture = createV2CompileFixture()

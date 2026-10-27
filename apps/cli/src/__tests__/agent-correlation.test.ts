@@ -39,15 +39,6 @@ const cases: Array<{
     env: { AGENT_SCOPE_REF: 'agent:alice', AGENT_LANE_REF: 'deploy' },
   },
   {
-    name: '--host-session-id sets AGENT_HOST_SESSION_ID alongside scope/lane',
-    invocation: { flags: ['--host-session-id', 'hs-corr-test'] },
-    env: {
-      AGENT_HOST_SESSION_ID: 'hs-corr-test',
-      AGENT_SCOPE_REF: 'agent:alice',
-      AGENT_LANE_REF: 'main',
-    },
-  },
-  {
     name: 'compound ScopeRef propagates full ref',
     invocation: { scopeRef: 'agent:alice:project:demo', withProjectRoot: true },
     env: {
@@ -60,7 +51,7 @@ const cases: Array<{
 describe('agent dry-run correlation env (T-00872, T-00892)', () => {
   for (const { name, invocation, env, timeout } of cases) {
     cliTest(
-      name,
+      `asp agent --dry-run correlation env: ${name}`,
       () => {
         const { result, spec } = agentDryRunSpec({ prompt: 'Hello', ...invocation })
 

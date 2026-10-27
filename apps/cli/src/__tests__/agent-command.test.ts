@@ -3,14 +3,14 @@
  * requirements, resolve output and bundle selection flags.
  *
  * wrkq: T-00865 (modes), T-00866 (resolve), T-00868 (bundle selection),
- *       T-01092 (foreground selection), T-00872 (hostSessionId handler)
+ *       T-01092 (foreground selection)
  */
 
 import { describe, expect } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { agentArgs, cliTest, runAsp } from './asp-cli'
+import { AGENT_ROOT, agentArgs, cliTest, defaultAspHome, runAsp } from './asp-cli'
 
 const AGENT_COMMAND_SOURCE = join(import.meta.dirname, '..', 'commands', 'agent', 'index.ts')
 
@@ -21,33 +21,22 @@ function agentOutput(...args: Parameters<typeof agentArgs>): string {
 }
 
 describe('asp agent <scope-ref> <mode> (T-00865)', () => {
-  cliTest('asp agent --help shows agent subcommand', () => {
-    const result = runAsp(['agent', '--help'])
-    const output = result.stdout + result.stderr
+  cliTest(
+    'query --dry-run prints the would-execute argv ending in the prompt and spawns nothing',
+    () => {
+      const result = runAsp(
+        agentArgs({ prompt: 'What is your name?', harness: 'claude', flags: ['--dry-run'] })
+      )
 
-    // The agent subcommand should be recognized and show help
-    expect(output).toMatch(/agent/i)
-    // Should mention scope in usage
-    expect(output).toMatch(/scope|agent:/i)
-  })
-
-  cliTest('asp agent "agent:alice" query --dry-run shows invocation', () => {
-    const output = agentOutput({
-      prompt: 'What is your name?',
-      harness: 'claude',
-      flags: ['--dry-run'],
-    })
-
-    // --dry-run should not spawn, just print invocation details
-    expect(output).toMatch(/dry.?run|invocation|command|resolve/i)
-  })
-
-  cliTest('asp agent "agent:alice" heartbeat --dry-run works without prompt', () => {
-    const result = runAsp(agentArgs({ mode: 'heartbeat', harness: 'claude', flags: ['--dry-run'] }))
-
-    // heartbeat mode should not require a prompt
-    expect(result.exitCode).toBe(0)
-  })
+      expect(result.exitCode).toBe(0)
+      const lines = result.stdout.split('\n')
+      expect(lines).toContain('Dry run — would execute:')
+      const argvLine = lines.find((line) => line.startsWith('  argv: '))
+      expect(argvLine).toBeDefined()
+      const argv = JSON.parse(argvLine?.slice('  argv: '.length) ?? '[]') as string[]
+      expect(argv.slice(-2)).toEqual(['--', 'What is your name?'])
+    }
+  )
 
   cliTest('asp agent "agent:alice" query requires a prompt', () => {
     const output = agentOutput({ harness: 'claude', flags: ['--dry-run'] })
@@ -56,55 +45,58 @@ describe('asp agent <scope-ref> <mode> (T-00865)', () => {
     expect(output).toMatch(/prompt.*required|missing.*prompt/i)
   })
 
-  cliTest('--print-command shows shell command', () => {
-    const output = agentOutput({
-      prompt: 'Hello',
-      harness: 'claude',
-      flags: ['--dry-run', '--print-command'],
-    })
+  cliTest(
+    '--print-command prints the env-prefixed claude shell command ending in the prompt',
+    () => {
+      const result = runAsp(
+        agentArgs({ prompt: 'Hello', harness: 'claude', flags: ['--dry-run', '--print-command'] })
+      )
 
-    expect(output).toMatch(/print|command|claude|codex/i)
-  })
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toStartWith(`ASP_PLUGIN_ROOT=${join(defaultAspHome(), 'codex-homes')}/`)
+      expect(result.stdout).toMatch(/ ASP_PRIMING_PROMPT=Hello \S*claude --model /)
+      expect(result.stdout).toContain(' -- Hello\n')
+    }
+  )
 })
 
 describe('asp agent resolve (T-00866)', () => {
-  cliTest('asp agent resolve shows resolved bundle', () => {
-    // Should print resolution output, not execute
-    expect(agentOutput({ mode: 'resolve' })).toMatch(
-      /resolve|bundle|placement|instructions|spaces/i
-    )
-  })
+  cliTest('resolve prints the placement and the resolved bundle without executing', () => {
+    const result = runAsp(agentArgs({ mode: 'resolve' }))
 
-  cliTest('asp agent resolve --json outputs JSON', () => {
-    expect(agentOutput({ mode: 'resolve', flags: ['--json'] })).toMatch(/\{|json|resolve/i)
-  })
-
-  cliTest('asp agent resolve with project context', () => {
-    const output = agentOutput({
-      scopeRef: 'agent:alice:project:demo',
-      mode: 'resolve',
-      withProjectRoot: true,
-    })
-
-    expect(output).toMatch(/resolve|bundle|placement/i)
+    expect(result.exitCode).toBe(0)
+    const lines = result.stdout.split('\n')
+    expect(lines).toContain(`  agentRoot: ${AGENT_ROOT}`)
+    expect(lines).toContain('  runMode:   resolve')
+    expect(lines).toContain('  bundle:    agent-project')
+    expect(lines).toContain('Resolved Bundle:')
+    expect(lines.some((line) => /^ {2}identity: {5}bundle:[0-9a-f]+$/.test(line))).toBe(true)
+    expect(lines).toContain('    space:agent:private-ops -> private-ops@agent')
   })
 })
 
 describe('bundle selection flags (T-00868)', () => {
-  cliTest('--compose accepts repeated space refs', () => {
-    const output = agentOutput({
-      prompt: 'Hello',
-      harness: 'claude',
-      flags: [
-        '--compose',
-        'space:agent:private-ops',
-        '--compose',
-        'space:agent:task-worker',
-        '--dry-run',
-      ],
-    })
+  cliTest('repeated --compose refs replace the agent-project bundle, in the given order', () => {
+    const result = runAsp(
+      agentArgs({
+        mode: 'resolve',
+        flags: [
+          '--compose',
+          'space:agent:task-worker',
+          '--compose',
+          'space:agent:private-ops',
+          '--json',
+        ],
+      })
+    )
 
-    expect(output).not.toMatch(/unknown.*option.*compose/i)
+    expect(result.exitCode).toBe(0)
+    const parsed = JSON.parse(result.stdout)
+    // compose takes precedence over the agent name the scope ref selects (T-00993)
+    expect(parsed.placement.bundle).toEqual({
+      kind: 'compose',
+      compose: ['space:agent:task-worker', 'space:agent:private-ops'],
+    })
   })
 })
 
@@ -120,12 +112,4 @@ describe('agent command handler source', () => {
       expect(source).not.toMatch(/if \(input === '(?:claude|codex|muse|agent-harness)'\)/)
     }
   )
-
-  // T-00872: the handler must use hostSessionId, never the legacy cpSessionId.
-  cliTest('source code has no cpSessionId in agent command handler', () => {
-    const cpSessionIdLines = readFileSync(AGENT_COMMAND_SOURCE, 'utf8')
-      .split('\n')
-      .filter((line) => line.includes('cpSessionId') && !line.trimStart().startsWith('//'))
-    expect(cpSessionIdLines).toEqual([])
-  })
 })

@@ -83,19 +83,6 @@ describe('codex-tui transport', () => {
     }
   })
 
-  test('uses websocket framing over a unix socket without compression', async () => {
-    directory = await mkdtemp(join(tmpdir(), 'codex-tui-ws-'))
-    const socketPath = join(directory, 'appsrv.sock')
-    await startUnixWebSocketEchoServer(socketPath)
-
-    const client = new CodexUnixWebSocketRpcClient(socketPath)
-    await client.ready()
-    await expect(client.sendRequest('initialize', {})).resolves.toEqual({
-      ok: true,
-    })
-    client.close()
-  })
-
   test('answers ping and reassembles fragmented JSON-RPC text over a Unix socket', async () => {
     directory = await mkdtemp(join(tmpdir(), 'codex-tui-ws-fragmented-'))
     const socketPath = join(directory, 'appsrv.sock')

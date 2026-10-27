@@ -12,7 +12,7 @@
  *   (fail on 5a018ce5: ND-1 dispatchEnv, ND-2 lane, ND-3 correlation env,
  *   ND-4 bare file base, ND-5 template discovery).
  * - P3 prepareProcessInvocation shares the same bytes and hash; Q8 hints.
- * - P4 Q3 identity conflicts refuse; P6 capability key; P7 source arms.
+ * - P4 Q3 identity conflicts refuse; P7 source arms.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import {
@@ -27,11 +27,10 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import { type AspcService, createAspcService } from 'spaces-aspc'
-import {
-  type AspcCompileHarnessInvocationResponse,
-  type AspcInspectRuntimePlacementResponse,
-  type AspcPrepareProcessInvocationResponse,
-  validateAspcInspectRuntimePlacementRequest,
+import type {
+  AspcCompileHarnessInvocationResponse,
+  AspcInspectRuntimePlacementResponse,
+  AspcPrepareProcessInvocationResponse,
 } from 'spaces-aspc-protocol'
 import { createRuntimeCompiler, runtimeDependencies } from '../src/runtime-compiler.js'
 
@@ -367,10 +366,17 @@ describe('T-08579 P1 preview/compile parity', () => {
     { agent: 'pov', project: 'projoverlay', dispatchEnv: DISPATCH },
     { agent: 'pov', project: 'projplain' },
     { agent: 'pov2', project: 'projplain', dispatchEnv: DISPATCH },
+    // Explicit arm: compile's request aspHome and inspect's caller agentSources name the same home.
+    { agent: 'pov2', project: 'projoverlay', compileAspHome: 'explicit-home' },
   ] as Case[]) {
     test(`inspection systemPrompt and environment hash equal compile for ${caseKey(c)}`, async () => {
       const { prompt, response } = await compile(c)
-      const inspected = await inspectOk(c)
+      const inspected = await inspectOk(
+        c,
+        c.compileAspHome === 'explicit-home'
+          ? { agentSources: { aspHome: join(root, 'explicit-home') } }
+          : {}
+      )
       expect(normalize(systemPromptOf(inspected))).toEqual(normalize(prompt))
       expect(inspected.effectiveEnvironmentHash).toEqual(expect.any(String))
       expect(response.effectiveEnvironmentHash).toBe(inspected.effectiveEnvironmentHash)
@@ -517,26 +523,8 @@ describe('T-08579 P4 identity conflict refusal', () => {
 })
 
 // ---------------------------------------------------------------------------
-// P6: capability key; P7: explicit vs ambient source arms (Q5, Q6)
+// P7: explicit vs ambient source arms (Q5, Q6)
 // ---------------------------------------------------------------------------
-
-describe('T-08579 P6 capability', () => {
-  test('hello advertises inspectRuntimePlacementPreparationCorrelation exactly', async () => {
-    const hello = await service.hello({
-      clientInfo: { name: 't08579' },
-      protocolVersions: ['aspc/0.1'],
-    })
-    expect(hello.capabilities.inspectRuntimePlacementPreparationCorrelation).toBe(true)
-  })
-
-  test('the inspect request validator accepts preparationCorrelation', () => {
-    expect(() =>
-      validateAspcInspectRuntimePlacementRequest(
-        inspectRequest({ agent: 'pov', project: 'projplain' })
-      )
-    ).not.toThrow()
-  })
-})
 
 describe('T-08579 P7 explicit source arms never merge with ambient', () => {
   test('compile: request aspHome anchors the canonical root and the aspHome template', async () => {
@@ -570,18 +558,5 @@ describe('T-08579 P7 explicit source arms never merge with ambient', () => {
     expect(systemPromptOf(overlay)).not.toContain('ambient')
     const plain = await inspectOk({ agent: 'pov2', project: 'projplain' }, sources)
     expect(systemPromptOf(plain)).toContain('TPL=explicit-home')
-  })
-
-  test('inspect and compile agree on the explicit arm', async () => {
-    const compiled = await compile({
-      agent: 'pov2',
-      project: 'projoverlay',
-      compileAspHome: 'explicit-home',
-    })
-    const inspected = await inspectOk(
-      { agent: 'pov2', project: 'projoverlay' },
-      { agentSources: { aspHome: join(root, 'explicit-home') } }
-    )
-    expect(normalize(systemPromptOf(inspected))).toBe(normalize(compiled.prompt))
   })
 })

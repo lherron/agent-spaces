@@ -21,6 +21,10 @@ function flagValue(args: string[], flag: string): string {
   return value as string
 }
 
+function containsSequence(args: string[], sequence: string[]): boolean {
+  return args.some((_, start) => sequence.every((token, offset) => args[start + offset] === token))
+}
+
 describe('ClaudeAdapter.buildRunArgs', () => {
   describe('permissions and tools', () => {
     test('names bypassPermissions explicitly for yolo targets', () => {
@@ -63,7 +67,7 @@ describe('ClaudeAdapter.buildRunArgs', () => {
     })
   })
 
-  // Each bundle field or run option surfaces as its flag and value in argv.
+  // Each bundle field or run option surfaces as its flag and value, adjacent, in argv.
   const flagCases: Array<{
     name: string
     bundle?: Partial<ComposedTargetBundle>
@@ -73,7 +77,7 @@ describe('ClaudeAdapter.buildRunArgs', () => {
     {
       name: 'builds args from bundle with plugin dirs',
       bundle: { pluginDirs: ['/plugin1', '/plugin2'] },
-      expected: ['--plugin-dir', '/plugin1', '/plugin2'],
+      expected: ['--plugin-dir', '/plugin1', '--plugin-dir', '/plugin2'],
     },
     {
       name: 'builds args with MCP config',
@@ -110,9 +114,7 @@ describe('ClaudeAdapter.buildRunArgs', () => {
     test(name, () => {
       const args = adapter.buildRunArgs(bundle(overrides), options ?? {})
 
-      for (const token of expected) {
-        expect(args).toContain(token)
-      }
+      expect(containsSequence(args, expected)).toBe(true)
     })
   }
 
@@ -156,23 +158,12 @@ describe('ClaudeAdapter.buildRunArgs', () => {
 
         const sessionName = flagValue(args, '--name')
         expect(sessionName).toMatch(pattern)
+        expect(flagValue(args, '--remote-control-session-name-prefix')).toBe(sessionName)
         if (excludes !== undefined) {
           expect(sessionName).not.toContain(excludes)
         }
       })
     }
-
-    test('includes task id in remote-control session names', () => {
-      const args = adapter.buildRunArgs(bundle({ targetName: 'agent' }), {
-        projectPath: '/work/project',
-        taskId: 'task',
-        remoteControl: true,
-      })
-
-      const name = flagValue(args, '--name')
-      expect(flagValue(args, '--remote-control-session-name-prefix')).toBe(name)
-      expect(name).toMatch(/^agent-project-task-[0-9a-z]{4}$/)
-    })
   })
 
   describe('session continuity', () => {

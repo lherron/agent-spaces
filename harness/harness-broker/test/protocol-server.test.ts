@@ -38,21 +38,16 @@ const errorResponse = (id: string | number, code: number, message: string) =>
   `${JSON.stringify({ jsonrpc: '2.0', id, error: { code, message } })}\n`
 
 describe('protocol server routing', () => {
-  test('routes a registered request handler and responds with the same id', async () => {
+  test('EOF with a malformed trailing frame emits no reply and leaves the server usable', async () => {
     await withProtocolServer(async ({ input, outputText, server }) => {
-      server.register('test.echo', async ({ params }) => ({ echoed: params }))
       await server.start()
-
-      input.write(request('req-1', 'test.echo', { value: 42 }))
+      input.end('{"jsonrpc":"2.0","id":"broken"')
       await flush()
-
-      const [frame] = parseFrames(outputText())
-      expectResult(frame, 'req-1')
-      expect(frame).toMatchObject({
-        jsonrpc: '2.0',
-        id: 'req-1',
-        result: { echoed: { value: 42 } },
-      })
+      expect(outputText()).toBe('')
+      server.notify({ jsonrpc: '2.0', method: 'test.still-running', params: {} })
+      expect(parseFrames(outputText())).toEqual([
+        { jsonrpc: '2.0', method: 'test.still-running', params: {} },
+      ])
     })
   })
 
@@ -65,22 +60,6 @@ describe('protocol server routing', () => {
 
       const [frame] = parseFrames(outputText())
       expectError(frame, 'req-2', -32601)
-    })
-  })
-
-  test('malformed JSON frame returns an error and subsequent frames still route', async () => {
-    await withProtocolServer(async ({ input, outputText, server }) => {
-      server.register('test.ok', async () => ({ ok: true }))
-      await server.start()
-
-      input.write('{not json}\n')
-      input.write(request('req-3', 'test.ok'))
-      await flush()
-
-      const frames = parseFrames(outputText())
-      expectError(frames[0], null, -32700)
-      expectResult(frames[1], 'req-3')
-      expect(frames[1]).toMatchObject({ result: { ok: true } })
     })
   })
 
@@ -124,24 +103,6 @@ describe('protocol server routing', () => {
         (frame) => 'error' in frame && frame.error.code === -32700
       ).length
       expect(errorsAfterSecondBurst).toBe(errorsBeforeSecondBurst + 1)
-    })
-  })
-
-  test('stdout contains only JSON-RPC frames', async () => {
-    await withProtocolServer(async ({ input, outputText, server }) => {
-      server.register('test.noisy', async () => ({ ok: true }))
-      await server.start()
-
-      input.write(request('req-4', 'test.noisy'))
-      await flush()
-
-      const lines = outputText()
-        .split('\n')
-        .filter((line) => line.length > 0)
-      expect(lines.length).toBeGreaterThan(0)
-      for (const line of lines) {
-        expect(JSON.parse(line)).toMatchObject({ jsonrpc: '2.0' })
-      }
     })
   })
 

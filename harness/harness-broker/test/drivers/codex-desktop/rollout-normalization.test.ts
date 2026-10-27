@@ -467,6 +467,17 @@ describe('codex-desktop rollout normalization', () => {
     expect(usage[0]?.payload).toMatchObject({
       model: { id: 'gpt-5.6-sol', source: 'provider-response' },
     })
+    const withoutModel = await observe(
+      'usage-no-model',
+      [
+        row({ type: 'task_started', turn_id: 'turn-nomodel' }, 1),
+        row({ type: 'token_count', turn_id: 'turn-nomodel', info: { total_tokens: 42 } }, 2),
+        row({ type: 'task_complete', turn_id: 'turn-nomodel' }, 3),
+      ].join('')
+    )
+    const noModelUsage = withoutModel.filter((event) => event.type === 'usage.updated')
+    expect(noModelUsage).toHaveLength(1)
+    expect(noModelUsage[0]?.payload['model']).toBeUndefined()
   })
 
   test('T-10927: token_count carries context from last_token_usage and the rollout window', async () => {
@@ -503,20 +514,5 @@ describe('codex-desktop rollout normalization', () => {
     expect(usage[0]?.payload['context']).toEqual({ usedTokens: 89_011, windowTokens: 475_000 })
     // No last_token_usage: context is omitted, not guessed from the session total.
     expect(usage[1]?.payload['context']).toBeUndefined()
-  })
-
-  test('T-08430: usage carries no model when the rollout never named one', async () => {
-    const events = await observe(
-      'usage-no-model',
-      [
-        row({ type: 'task_started', turn_id: 'turn-nomodel' }, 1),
-        row({ type: 'token_count', turn_id: 'turn-nomodel', info: { total_tokens: 42 } }, 2),
-        row({ type: 'task_complete', turn_id: 'turn-nomodel' }, 3),
-      ].join('')
-    )
-
-    const usage = events.filter((event) => event.type === 'usage.updated')
-    expect(usage).toHaveLength(1)
-    expect(usage[0]?.payload['model']).toBeUndefined()
   })
 })

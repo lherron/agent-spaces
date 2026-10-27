@@ -147,26 +147,6 @@ describe('prepareAgentToolRuntime', () => {
     expect(result.env['PATH']).toBe(`${toolsBinDir}:/usr/bin`)
   })
 
-  test('sets project env and project state directory using project storage id', async () => {
-    const agentRoot = await createTempDir('agent-tools-project-')
-    const projectRoot = await createTempDir('My Project-')
-    await writeTool(agentRoot, 'spark-tool')
-
-    const result = await prepareAgentToolRuntime({
-      agentRoot,
-      projectRoot,
-      components: components(agentRoot),
-    })
-    const projectId = getProjectStorageId(projectRoot, basename(agentRoot))
-
-    expect(result.env['ASP_PROJECT_ROOT']).toBe(projectRoot)
-    expect(result.env['ASP_PROJECT_ID']).toBe(projectId)
-    expect(result.env['ASP_PROJECT_STATE_DIR']).toBe(
-      join(agentRoot, 'var', 'state', 'projects', projectId)
-    )
-    await expect(stat(result.env['ASP_PROJECT_STATE_DIR'] as string)).resolves.toMatchObject({})
-  })
-
   test('prefers semantic project id over worktree basename for project state directory', async () => {
     const agentRoot = await createTempDir('agent-tools-semantic-project-')
     const projectRoot = await createTempDir('agent-spaces-T-05831-worktree-enablement-')
@@ -191,86 +171,71 @@ describe('prepareAgentToolRuntime', () => {
 
 describe('validateAgentTools', () => {
   test('invalid names fail', async () => {
-    const agentRoot = await createTempDir('agent-tools-invalid-name-')
-    await writeTool(agentRoot, 'BadTool')
-
-    await expect(validateAgentTools(components(agentRoot))).rejects.toThrow(
-      'Invalid agent tool name'
-    )
-  })
-
-  test('reserved names fail', async () => {
-    const agentRoot = await createTempDir('agent-tools-reserved-')
-    await writeTool(agentRoot, 'git')
-
-    await expect(validateAgentTools(components(agentRoot))).rejects.toThrow('reserved')
-  })
-
-  test('directory entries fail', async () => {
-    const agentRoot = await createTempDir('agent-tools-directory-')
-    await mkdir(join(agentRoot, 'tools', 'bin', 'spark-tool'), { recursive: true })
-
-    await expect(validateAgentTools(components(agentRoot))).rejects.toThrow('regular file')
-  })
-
-  test('non-executable files fail', async () => {
-    const agentRoot = await createTempDir('agent-tools-nonexec-')
-    const toolPath = await writeTool(agentRoot, 'spark-tool')
-    await chmod(toolPath, 0o644)
-
-    await expect(validateAgentTools(components(agentRoot))).rejects.toThrow('must be executable')
-  })
-
-  test('safe symlinks inside tools succeed', async () => {
-    const agentRoot = await createTempDir('agent-tools-symlink-')
-    await mkdir(join(agentRoot, 'tools', 'bin'), { recursive: true })
-    await mkdir(join(agentRoot, 'tools', 'lib'), { recursive: true })
-    const target = join(agentRoot, 'tools', 'lib', 'spark-tool')
-    await writeFile(target, '#!/bin/sh\necho ok\n')
-    await chmod(target, 0o755)
-    await symlink(target, join(agentRoot, 'tools', 'bin', 'spark-tool'))
-
-    await expect(validateAgentTools(components(agentRoot))).resolves.toEqual([])
-  })
-
-  test('symlink escapes fail', async () => {
-    const agentRoot = await createTempDir('agent-tools-symlink-escape-')
-    const outsideRoot = await createTempDir('agent-tools-outside-')
-    await mkdir(join(agentRoot, 'tools', 'bin'), { recursive: true })
-    const target = join(outsideRoot, 'spark-tool')
-    await writeFile(target, '#!/bin/sh\necho ok\n')
-    await chmod(target, 0o755)
-    await symlink(target, join(agentRoot, 'tools', 'bin', 'spark-tool'))
-
-    await expect(validateAgentTools(components(agentRoot))).rejects.toThrow(
-      'resolves outside <agentRoot>/tools'
-    )
-  })
-
-  test('broken symlinks fail', async () => {
-    const agentRoot = await createTempDir('agent-tools-broken-symlink-')
-    await mkdir(join(agentRoot, 'tools', 'bin'), { recursive: true })
-    await symlink(
-      join(agentRoot, 'tools', 'missing'),
-      join(agentRoot, 'tools', 'bin', 'spark-tool')
-    )
-
-    await expect(validateAgentTools(components(agentRoot))).rejects.toThrow('regular file')
-  })
-
-  test('executable text files without shebang warn', async () => {
-    const agentRoot = await createTempDir('agent-tools-no-shebang-')
-    await writeTool(agentRoot, 'spark-tool', 'echo ok\n')
-
-    await expect(validateAgentTools(components(agentRoot))).resolves.toEqual([
-      'Agent tool "spark-tool" is executable text but has no shebang',
-    ])
-  })
-
-  test('binary-like executables without shebang do not warn', async () => {
-    const agentRoot = await createTempDir('agent-tools-binary-')
-    await writeTool(agentRoot, 'spark-tool', '\u0000ELF')
-
-    await expect(validateAgentTools(components(agentRoot))).resolves.toEqual([])
+    {
+      const agentRoot = await createTempDir('agent-tools-invalid-name-')
+      await writeTool(agentRoot, 'BadTool')
+      await expect(validateAgentTools(components(agentRoot))).rejects.toThrow(
+        'Invalid agent tool name'
+      )
+    }
+    {
+      const agentRoot = await createTempDir('agent-tools-reserved-')
+      await writeTool(agentRoot, 'git')
+      await expect(validateAgentTools(components(agentRoot))).rejects.toThrow('reserved')
+    }
+    {
+      const agentRoot = await createTempDir('agent-tools-directory-')
+      await mkdir(join(agentRoot, 'tools', 'bin', 'spark-tool'), { recursive: true })
+      await expect(validateAgentTools(components(agentRoot))).rejects.toThrow('regular file')
+    }
+    {
+      const agentRoot = await createTempDir('agent-tools-nonexec-')
+      const toolPath = await writeTool(agentRoot, 'spark-tool')
+      await chmod(toolPath, 0o644)
+      await expect(validateAgentTools(components(agentRoot))).rejects.toThrow('must be executable')
+    }
+    {
+      const agentRoot = await createTempDir('agent-tools-symlink-')
+      await mkdir(join(agentRoot, 'tools', 'bin'), { recursive: true })
+      await mkdir(join(agentRoot, 'tools', 'lib'), { recursive: true })
+      const target = join(agentRoot, 'tools', 'lib', 'spark-tool')
+      await writeFile(target, '#!/bin/sh\necho ok\n')
+      await chmod(target, 0o755)
+      await symlink(target, join(agentRoot, 'tools', 'bin', 'spark-tool'))
+      await expect(validateAgentTools(components(agentRoot))).resolves.toEqual([])
+    }
+    {
+      const agentRoot = await createTempDir('agent-tools-symlink-escape-')
+      const outsideRoot = await createTempDir('agent-tools-outside-')
+      await mkdir(join(agentRoot, 'tools', 'bin'), { recursive: true })
+      const target = join(outsideRoot, 'spark-tool')
+      await writeFile(target, '#!/bin/sh\necho ok\n')
+      await chmod(target, 0o755)
+      await symlink(target, join(agentRoot, 'tools', 'bin', 'spark-tool'))
+      await expect(validateAgentTools(components(agentRoot))).rejects.toThrow(
+        'resolves outside <agentRoot>/tools'
+      )
+    }
+    {
+      const agentRoot = await createTempDir('agent-tools-broken-symlink-')
+      await mkdir(join(agentRoot, 'tools', 'bin'), { recursive: true })
+      await symlink(
+        join(agentRoot, 'tools', 'missing'),
+        join(agentRoot, 'tools', 'bin', 'spark-tool')
+      )
+      await expect(validateAgentTools(components(agentRoot))).rejects.toThrow('regular file')
+    }
+    {
+      const agentRoot = await createTempDir('agent-tools-no-shebang-')
+      await writeTool(agentRoot, 'spark-tool', 'echo ok\n')
+      await expect(validateAgentTools(components(agentRoot))).resolves.toEqual([
+        'Agent tool "spark-tool" is executable text but has no shebang',
+      ])
+    }
+    {
+      const agentRoot = await createTempDir('agent-tools-binary-')
+      await writeTool(agentRoot, 'spark-tool', '\u0000ELF')
+      await expect(validateAgentTools(components(agentRoot))).resolves.toEqual([])
+    }
   })
 })

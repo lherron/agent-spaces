@@ -7,7 +7,9 @@
  */
 
 import { exec } from 'node:child_process'
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import * as fs from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { promisify } from 'node:util'
 
@@ -18,8 +20,26 @@ const execAsync = promisify(exec)
 /** Path to the fixtures directory */
 export const FIXTURES_DIR = path.join(import.meta.dir, '..', 'fixtures')
 
-/** Path to the sample-registry fixture */
-export const SAMPLE_REGISTRY_DIR = path.join(FIXTURES_DIR, 'sample-registry')
+/**
+ * Per-process scratch root for the suite's shared mutable state: the git-backed
+ * copy of the sample-registry fixture and the claude shim's output file.
+ *
+ * WHY: the registry used to be git-initialised in place, which wrote
+ * `fixtures/sample-registry/.git` into the checkout and raced between two
+ * concurrent runs on the same tree; the shim output sat at a fixed
+ * `/tmp/claude-shim-output.json` shared by every run on the host. Both now live
+ * under one mkdtemp root this process owns and removes on exit.
+ */
+const TEST_SCRATCH_ROOT = realpathSync(mkdtempSync(path.join(tmpdir(), 'asp-integration-')))
+process.on('exit', () => {
+  rmSync(TEST_SCRATCH_ROOT, { recursive: true, force: true })
+})
+
+/** Path to the committed sample-registry fixture (read-only source of the copy). */
+const SAMPLE_REGISTRY_FIXTURE_DIR = path.join(FIXTURES_DIR, 'sample-registry')
+
+/** Path to this process's git-backed copy of the sample-registry fixture. */
+export const SAMPLE_REGISTRY_DIR = path.join(TEST_SCRATCH_ROOT, 'sample-registry')
 
 /** Path to the sample-project fixture */
 export const SAMPLE_PROJECT_DIR = path.join(FIXTURES_DIR, 'sample-project')
@@ -31,51 +51,36 @@ export const CLAUDE_SHIM_PATH = path.join(FIXTURES_DIR, 'claude-shim', 'claude')
 export const CODEX_SHIM_PATH = path.join(FIXTURES_DIR, 'codex-shim', 'codex')
 
 /** Path to the claude shim output file */
-export const SHIM_OUTPUT_FILE = '/tmp/claude-shim-output.json'
+export const SHIM_OUTPUT_FILE = path.join(TEST_SCRATCH_ROOT, 'claude-shim-output.json')
+
+let sampleRegistryReady: Promise<void> | undefined
 
 /**
- * Whether an existing sample-registry git repo still reflects the fixture tree.
+ * Initialize this process's copy of the sample-registry as a git repository
+ * with proper tags.
  *
- * False when there is no repo, when the worktree is dirty relative to its commit
- * (fixture files changed since it was built), or when git itself refuses to
- * answer -- all of which mean the repo must be rebuilt.
+ * WHY: The resolver needs git tags to resolve space references. The fixture is
+ * copied fresh from the committed tree once per process (so it always reflects
+ * the files on disk) and git-initialised in the copy, never in the checkout.
  */
-async function isFreshSampleRegistryRepo(registryDir: string, gitDir: string): Promise<boolean> {
-  try {
-    await fs.access(gitDir)
-  } catch {
-    return false
-  }
-  try {
-    const { stdout } = await execAsync('git status --porcelain', { cwd: registryDir })
-    return stdout.trim() === ''
-  } catch {
-    return false
-  }
+export function initSampleRegistry(): Promise<void> {
+  sampleRegistryReady ??= buildSampleRegistry().catch((error: unknown) => {
+    sampleRegistryReady = undefined
+    throw error
+  })
+  return sampleRegistryReady
 }
 
-/**
- * Initialize the sample-registry as a git repository with proper tags.
- *
- * WHY: The resolver needs git tags to resolve space references.
- * This function creates the git repo structure and tags.
- */
-export async function initSampleRegistry(): Promise<void> {
+async function buildSampleRegistry(): Promise<void> {
   const registryDir = SAMPLE_REGISTRY_DIR
-
-  // Reuse an existing repo only when it still matches the fixture on disk.
-  //
-  // WHY: this used to return on the mere existence of `.git`, which made the repo
-  // a cache with no invalidation. Any edit to the fixture tree -- adding a space,
-  // renaming a command -- left a dev's stale `.git` serving the OLD content from
-  // its object store, so resolution succeeded against a tree that no longer
-  // exists in git. A dirty worktree is the exact signal that the commit is behind
-  // the files, so re-initialize on it rather than trusting the cache.
-  const gitDir = path.join(registryDir, '.git')
-  if (await isFreshSampleRegistryRepo(registryDir, gitDir)) {
-    return
-  }
-  await fs.rm(gitDir, { recursive: true, force: true })
+  await fs.rm(registryDir, { recursive: true, force: true })
+  // Skip any `.git` a pre-fix run left inside the committed fixture.
+  const fixtureGitDir = path.join(SAMPLE_REGISTRY_FIXTURE_DIR, '.git')
+  await fs.cp(SAMPLE_REGISTRY_FIXTURE_DIR, registryDir, {
+    recursive: true,
+    filter: (source) =>
+      source !== fixtureGitDir && !source.startsWith(`${fixtureGitDir}${path.sep}`),
+  })
 
   // Initialize git repo
   await execAsync('git init', { cwd: registryDir })
@@ -157,15 +162,12 @@ export async function initSampleRegistry(): Promise<void> {
 }
 
 /**
- * Clean up the sample-registry git repository.
+ * Discard this process's sample-registry copy so the next
+ * {@link initSampleRegistry} rebuilds it from the committed fixture.
  */
 export async function cleanupSampleRegistry(): Promise<void> {
-  const gitDir = path.join(SAMPLE_REGISTRY_DIR, '.git')
-  try {
-    await fs.rm(gitDir, { recursive: true, force: true })
-  } catch {
-    // Ignore if doesn't exist
-  }
+  sampleRegistryReady = undefined
+  await fs.rm(SAMPLE_REGISTRY_DIR, { recursive: true, force: true })
 }
 
 /**

@@ -39,56 +39,15 @@ describe('loadDefaultManifest', () => {
     if (origAspHome !== undefined) {
       process.env['ASP_HOME'] = origAspHome
     } else {
-      process.env['ASP_HOME'] = undefined
+      Reflect.deleteProperty(process.env, 'ASP_HOME')
     }
     await rm(testAspHome, { recursive: true, force: true })
-  })
-
-  test('returns ProjectManifest when default-targets.toml exists', async () => {
-    const defaultTargets = `
-schema = 2
-
-[claude]
-model = "claude-3-opus"
-permission_mode = "auto"
-
-[targets.shared]
-compose = ["space:defaults@stable"]
-`
-    await writeFile(join(testAspHome, 'default-targets.toml'), defaultTargets, 'utf8')
-
-    const result = await loadDefaultManifest()
-    expect(result).not.toBeNull()
-    expect(result!.schema).toBe(2)
-    expect(result!.claude?.model).toBe('claude-3-opus')
-    expect(result!.targets['shared']).toBeDefined()
-    expect(must(result!.targets['shared']).compose).toEqual(['space:defaults@stable'])
   })
 
   test('returns null when default-targets.toml does not exist (no error)', async () => {
     // testAspHome exists but has no default-targets.toml file
     const result = await loadDefaultManifest()
     expect(result).toBeNull()
-  })
-
-  test('uses ASP_HOME env var to locate the file', async () => {
-    const customHome = join(tmpdir(), `asp-custom-${Date.now()}`)
-    await mkdir(customHome, { recursive: true })
-    process.env['ASP_HOME'] = customHome
-
-    const toml = `
-schema = 2
-
-[targets.custom]
-compose = ["space:custom@stable"]
-`
-    await writeFile(join(customHome, 'default-targets.toml'), toml, 'utf8')
-
-    const result = await loadDefaultManifest()
-    expect(result).not.toBeNull()
-    expect(result!.targets['custom']).toBeDefined()
-
-    await rm(customHome, { recursive: true, force: true })
   })
 })
 
@@ -116,13 +75,13 @@ describe('loadProjectManifest integration with defaults', () => {
     if (origAspHome !== undefined) {
       process.env['ASP_HOME'] = origAspHome
     } else {
-      process.env['ASP_HOME'] = undefined
+      Reflect.deleteProperty(process.env, 'ASP_HOME')
     }
     await rm(testAspHome, { recursive: true, force: true })
     await rm(testProjectDir, { recursive: true, force: true })
   })
 
-  test('merges default targets under project targets when default-targets.toml exists', async () => {
+  test('default-targets.toml targets merge under project targets, claude options merging per field and a same-name project target replacing the default entirely', async () => {
     // Write default-targets.toml in ASP_HOME
     const defaultTargets = `
 schema = 2
@@ -133,6 +92,10 @@ permission_mode = "auto"
 
 [targets.shared]
 description = "Shared defaults target"
+compose = ["space:defaults@stable"]
+
+[targets.dev]
+description = "Default dev"
 compose = ["space:defaults@stable"]
 `
     await writeFile(join(testAspHome, 'default-targets.toml'), defaultTargets, 'utf8')
@@ -151,9 +114,10 @@ compose = ["space:dev@latest"]
 
     const result = await loadProjectManifest(testProjectDir)
 
-    // Project target is present
+    // Project's same-name dev target wins entirely: compose replaced, description NOT inherited
     expect(result.targets['dev']).toBeDefined()
     expect(must(result.targets['dev']).compose).toEqual(['space:dev@latest'])
+    expect(must(result.targets['dev']).description).toBeUndefined()
 
     // Default target is merged in
     expect(result.targets['shared']).toBeDefined()
@@ -162,34 +126,6 @@ compose = ["space:dev@latest"]
     // Claude options are field-merged: project model wins, defaults permission_mode inherited
     expect(result.claude?.model).toBe('claude-3-sonnet')
     expect(result.claude?.permission_mode).toBe('auto')
-  })
-
-  test('project targets override default targets with same name entirely', async () => {
-    // Write default-targets.toml
-    const defaultTargets = `
-schema = 2
-
-[targets.dev]
-description = "Default dev"
-compose = ["space:defaults@stable"]
-`
-    await writeFile(join(testAspHome, 'default-targets.toml'), defaultTargets, 'utf8')
-
-    // Write project asp-targets.toml with same target name
-    const projectTargets = `
-schema = 2
-
-[targets.dev]
-compose = ["space:project-dev@latest"]
-`
-    await writeFile(join(testProjectDir, 'asp-targets.toml'), projectTargets, 'utf8')
-
-    const result = await loadProjectManifest(testProjectDir)
-
-    // Project's dev target wins entirely
-    expect(must(result.targets['dev']).compose).toEqual(['space:project-dev@latest'])
-    // Description from defaults is NOT inherited
-    expect(must(result.targets['dev']).description).toBeUndefined()
   })
 
   test('no default-targets.toml → loadProjectManifest works as before', async () => {
@@ -285,10 +221,10 @@ compose = ["space:defaults@stable"]
   })
 
   // T-00810: Edge case — neither file exists → should still throw
-  test('T-00810: no asp-targets.toml + no default-targets.toml → throws ConfigParseError', async () => {
+  test('with neither asp-targets.toml nor default-targets.toml, target loading fails with ConfigParseError', async () => {
     // Neither asp-targets.toml in project nor default-targets.toml in ASP_HOME
     const { ConfigParseError } = await import('../core/index.js')
 
-    expect(loadProjectManifest(testProjectDir)).rejects.toThrow(ConfigParseError)
+    await expect(loadProjectManifest(testProjectDir)).rejects.toThrow(ConfigParseError)
   })
 })

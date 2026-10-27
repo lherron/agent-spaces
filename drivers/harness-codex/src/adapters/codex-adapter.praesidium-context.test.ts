@@ -48,17 +48,11 @@ describe('applyPraesidiumContextToCodexHome', () => {
     expect(out.indexOf('I am Cody.')).toBeLessThan(out.indexOf('wrkq has 3 tasks.'))
   })
 
-  test('creates AGENTS.md when none exists', async () => {
-    const wrote = await applyPraesidiumContextToCodexHome(workDir, { systemPrompt: 'soul only' })
-    expect(wrote).toBe(true)
-    const out = await readFile(join(workDir, 'AGENTS.md'), 'utf-8')
-    expect(out).toContain('soul only')
-    expect(out).toContain('<!-- BEGIN praesidium-context -->')
-    expect(out).not.toContain('# Space content')
-  })
-
   test('writes only systemPrompt when reminderContent is empty', async () => {
-    await applyPraesidiumContextToCodexHome(workDir, { systemPrompt: 'identity here' })
+    const wrote = await applyPraesidiumContextToCodexHome(workDir, {
+      systemPrompt: 'identity here',
+    })
+    expect(wrote).toBe(true)
     const out = await readFile(join(workDir, 'AGENTS.md'), 'utf-8')
     const endMarker = '<!-- END praesidium-context -->'
     const block = out.slice(out.indexOf('<!-- BEGIN'), out.indexOf(endMarker) + endMarker.length)
@@ -75,21 +69,6 @@ describe('applyPraesidiumContextToCodexHome', () => {
     expect(block).toBe(
       '<!-- BEGIN praesidium-context -->\nwrkq state\n<!-- END praesidium-context -->'
     )
-  })
-
-  test('replaces existing praesidium block on repeated calls (no accumulation)', async () => {
-    await writeFile(join(workDir, 'AGENTS.md'), '# Space content\n')
-    await applyPraesidiumContextToCodexHome(workDir, { systemPrompt: 'first run' })
-    await applyPraesidiumContextToCodexHome(workDir, { systemPrompt: 'second run' })
-    const out = await readFile(join(workDir, 'AGENTS.md'), 'utf-8')
-    expect(out).toContain('# Space content')
-    expect(out).toContain('second run')
-    expect(out).not.toContain('first run')
-    // Exactly one praesidium block
-    const beginCount = (out.match(/<!-- BEGIN praesidium-context -->/g) ?? []).length
-    const endCount = (out.match(/<!-- END praesidium-context -->/g) ?? []).length
-    expect(beginCount).toBe(1)
-    expect(endCount).toBe(1)
   })
 
   test('removes every stale praesidium block before appending fresh content', async () => {

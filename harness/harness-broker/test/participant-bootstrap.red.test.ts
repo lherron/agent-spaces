@@ -3,6 +3,7 @@ import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { type Socket, connect } from 'node:net'
 import { join } from 'node:path'
 import type { HarnessInvocationSpec, InvocationId } from 'spaces-harness-broker-protocol'
+import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { brokerProcessEnv } from './helpers'
 import { invocationIdFrom } from './ids'
 
@@ -405,17 +406,25 @@ afterEach(async () => {
 })
 
 describe('T-08346 participant bootstrap and resident invocation acceptance', () => {
-  test('participant bootstrap exposes only installIdentity and fences install retries by epoch', async () => {
+  test('participant bootstrap refuses hello, health, attach and ensure with BrokerBootstrapRequired until installIdentity, and fences install retries by epoch', async () => {
     const broker = await startBroker({ suffix: 'participant_bootstrap' })
     const who = identity('participant_bootstrap')
     const rpc = await RpcConnection.connect(broker.socketPath)
 
-    expectError(await rpc.request('broker.hello', helloParams), /bootstrap|install.?identity/i)
-    expectError(await rpc.request('broker.health', {}), /bootstrap|install.?identity/i)
-    expectError(
-      await rpc.request('broker.attach', attachParams(who, 'controller-before-install')),
-      /bootstrap|install.?identity/i
-    )
+    const preInstall: [method: string, params: unknown][] = [
+      ['broker.hello', helloParams],
+      ['broker.health', {}],
+      ['broker.attach', attachParams(who, 'controller-before-install')],
+      ['broker.ensureInvocation', ensureParams('attempt_before_install', who)],
+    ]
+    for (const [method, params] of preInstall) {
+      const refused = await rpc.request(method, params)
+      expectError(refused, /bootstrap|install.?identity/i)
+      if ('error' in refused)
+        expect(refused.error.code).toBe(BrokerErrorCode.BrokerBootstrapRequired)
+    }
+    // A refused ensure never reaches the driver.
+    expect(await effectCount(broker.effectsPath)).toBe(0)
 
     const firstAck = await install(rpc, who)
     const replayAck = await install(rpc, structuredClone(who))

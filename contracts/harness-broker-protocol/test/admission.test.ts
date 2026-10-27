@@ -4,6 +4,7 @@ import {
   validateCommand,
   validateEventEnvelope,
 } from '../src/index'
+import { expectInvalidCommand } from './schema-test-helpers'
 
 const request = (method: string, params: Record<string, unknown>) => ({
   jsonrpc: '2.0' as const,
@@ -21,23 +22,6 @@ const common = {
 describe('harness-broker/0.3 admission protocol', () => {
   test('v0.3 is preferred while v0.2 remains compatible', () => {
     expect(SUPPORTED_BROKER_PROTOCOL_VERSIONS).toEqual(['harness-broker/0.3', 'harness-broker/0.2'])
-  })
-
-  test('validates all four class-in-method submit requests', () => {
-    expect(validateCommand(request('submission.steer', common))).toBeDefined()
-    expect(
-      validateCommand(
-        request('submission.enqueue', { ...common, ttlMs: 1000, turnPolicy: 'guarded' })
-      )
-    ).toBeDefined()
-    expect(
-      validateCommand(request('submission.invoke', { ...common, turnPolicy: 'open' }))
-    ).toBeDefined()
-    expect(
-      validateCommand(
-        request('submission.preempt', { ...common, ttlMs: 1000, turnPolicy: 'guarded' })
-      )
-    ).toBeDefined()
   })
 
   test('validates submission withdrawal requests and events', () => {
@@ -88,14 +72,18 @@ describe('harness-broker/0.3 admission protocol', () => {
 
   test('steer cannot represent turn policy, wait, reply, or obligation fields', () => {
     for (const forbidden of ['turnPolicy', 'wait', 'reply', 'obligation']) {
-      expect(() =>
-        validateCommand(request('submission.steer', { ...common, [forbidden]: true }))
-      ).toThrow()
+      expectInvalidCommand(request('submission.steer', { ...common, [forbidden]: true }), {
+        path: `params.${forbidden}`,
+        code: 'unexpected_key',
+      })
     }
   })
 
   test('TTL must be positive', () => {
-    expect(() => validateCommand(request('submission.enqueue', { ...common, ttlMs: 0 }))).toThrow()
+    expectInvalidCommand(request('submission.enqueue', { ...common, ttlMs: 0 }), {
+      path: 'params.ttlMs',
+      code: 'out_of_range',
+    })
   })
 
   test('decision events require broker provenance in the shared envelope', () => {

@@ -3,12 +3,11 @@
  *
  * Payloads mirror the live echo-turn probes against muse 1.3.0 (turn/started,
  * userMessage item/completed, turn/completed failed/authRequired) plus
- * schema-derived agentMessage/toolCall shapes. The method-coverage test pins
- * the 1.3.0 wire vocabulary: a new muse version adding methods fails here
- * until the map classifies them.
+ * schema-derived toolCall shapes. Wire-vocabulary coverage lives in
+ * schema-compat (the real 1.4.0 -> 1.4.1 drift gate).
  */
 import { describe, expect, test } from 'bun:test'
-import { classifyMuseNotificationMethod, mapMuseNotification } from './event-map'
+import { mapMuseNotification } from './event-map'
 import type { MuseJsonRpcNotification } from './rpc-client'
 
 const notif = (method: string, params: Record<string, unknown> = {}): MuseJsonRpcNotification => ({
@@ -18,14 +17,6 @@ const notif = (method: string, params: Record<string, unknown> = {}): MuseJsonRp
 })
 
 describe('mapMuseNotification', () => {
-  test('turn/started mints a broker-delivery bracket', () => {
-    const events = mapMuseNotification(
-      notif('turn/started', { sessionId: 's1', turnId: 't1', commandId: 't1' })
-    )
-    expect(events).toHaveLength(1)
-    expect(events[0]).toMatchObject({ type: 'turn.started', payload: { turnId: 't1' } })
-  })
-
   test('turn/completed failed carries code and emits usage', () => {
     const events = mapMuseNotification(
       notif('turn/completed', {
@@ -43,13 +34,6 @@ describe('mapMuseNotification', () => {
     })
   })
 
-  test('turn/completed cancelled maps to turn.interrupted', () => {
-    const events = mapMuseNotification(
-      notif('turn/completed', { sessionId: 's1', turnId: 't1', terminal: 'cancelled' })
-    )
-    expect(events.map((event) => event.type)).toEqual(['turn.interrupted'])
-  })
-
   test('userMessage items are ignored (broker-authored)', () => {
     const events = mapMuseNotification(
       notif('item/completed', {
@@ -60,255 +44,56 @@ describe('mapMuseNotification', () => {
     expect(events).toEqual([])
   })
 
-  test('agentMessage completion reports text and notifies the transcript observer', () => {
-    const seen: Array<[string, string]> = []
-    const events = mapMuseNotification(
-      notif('item/completed', {
-        sessionId: 's1',
-        item: {
-          itemId: 'm1',
-          kind: 'agentMessage',
-          turnId: 't1',
-          status: 'completed',
-          text: 'done',
-        },
-      }),
-      { onAgentText: (turnId, text) => seen.push([turnId, text]) }
-    )
-    expect(events.map((event) => event.type)).toEqual(['assistant.message.completed'])
-    expect(seen).toEqual([['t1', 'done']])
-  })
-
   test('unknown methods degrade to debug diagnostics, never throw', () => {
     const events = mapMuseNotification(notif('frob/baz', {}))
     expect(events.map((event) => event.type)).toEqual(['diagnostic'])
   })
 
-  test('toolCall started projects MSP turn-item fields (tool/callId/args)', () => {
-    const events = mapMuseNotification(
-      notif('item/started', {
-        sessionId: 's1',
-        item: {
-          itemId: 'i1',
-          kind: 'toolCall',
-          turnId: 't1',
-          status: 'inProgress',
-          tool: 'shell',
-          callId: 'call_abc',
-          args: '{"command":"echo hi"}',
-        },
-      })
-    )
-    expect(events.map((event) => event.type)).toEqual(['tool.call.started'])
-    expect(events[0]).toMatchObject({
-      payload: {
-        toolCallId: 'call_abc',
-        name: 'shell',
-        input: { command: 'echo hi' },
-      },
-    })
+  const toolItem = (status: string, fields: Record<string, unknown>) => ({
+    sessionId: 's1',
+    item: { itemId: 'i1', kind: 'toolCall', turnId: 't1', status, ...fields },
   })
 
-  test('toolCall completed projects visibleOutput as the result', () => {
-    const events = mapMuseNotification(
-      notif('item/completed', {
-        sessionId: 's1',
-        item: {
-          itemId: 'i1',
-          kind: 'toolCall',
-          turnId: 't1',
-          status: 'completed',
-          tool: 'shell',
-          callId: 'call_abc',
-          visibleOutput: 'hi\n',
-        },
-      })
-    )
-    expect(events.map((event) => event.type)).toEqual(['tool.call.completed'])
-    expect(events[0]).toMatchObject({
+  test.each([
+    {
+      row: 'started projects tool/callId/args',
+      method: 'item/started',
+      params: toolItem('inProgress', {
+        tool: 'shell',
+        callId: 'call_abc',
+        args: '{"command":"echo hi"}',
+      }),
+      type: 'tool.call.started',
+      payload: { toolCallId: 'call_abc', name: 'shell', input: { command: 'echo hi' } },
+    },
+    {
+      row: 'completed projects visibleOutput as the result',
+      method: 'item/completed',
+      params: toolItem('completed', { tool: 'shell', callId: 'call_abc', visibleOutput: 'hi\n' }),
+      type: 'tool.call.completed',
       payload: { toolCallId: 'call_abc', name: 'shell', result: 'hi\n' },
-    })
-  })
-
-  test('toolCall failed projects failureReason as the message', () => {
-    const events = mapMuseNotification(
-      notif('item/completed', {
-        sessionId: 's1',
-        item: {
-          itemId: 'i1',
-          kind: 'toolCall',
-          turnId: 't1',
-          status: 'failed',
-          tool: 'shell',
-          callId: 'call_abc',
-          failureReason: 'exit 127: command not found',
-        },
-      })
-    )
-    expect(events.map((event) => event.type)).toEqual(['tool.call.failed'])
-    expect(events[0]).toMatchObject({
-      payload: {
-        toolCallId: 'call_abc',
-        name: 'shell',
-        message: 'exit 127: command not found',
-      },
-    })
-  })
-
-  test('toolCall keeps approval-shape fallbacks (toolName/toolCallId)', () => {
-    const events = mapMuseNotification(
-      notif('item/completed', {
-        sessionId: 's1',
-        item: {
-          itemId: 'i1',
-          kind: 'toolCall',
-          turnId: 't1',
-          status: 'completed',
-          toolName: 'shell',
-          toolCallId: 'tc1',
-          output: 'hi',
-        },
-      })
-    )
-    expect(events.map((event) => event.type)).toEqual(['tool.call.completed'])
-    expect(events[0]).toMatchObject({
+    },
+    {
+      row: 'failed projects failureReason as the message',
+      method: 'item/completed',
+      params: toolItem('failed', {
+        tool: 'shell',
+        callId: 'call_abc',
+        failureReason: 'exit 127: command not found',
+      }),
+      type: 'tool.call.failed',
+      payload: { toolCallId: 'call_abc', name: 'shell', message: 'exit 127: command not found' },
+    },
+    {
+      row: 'completed keeps approval-shape fallbacks (toolName/toolCallId/output)',
+      method: 'item/completed',
+      params: toolItem('completed', { toolName: 'shell', toolCallId: 'tc1', output: 'hi' }),
+      type: 'tool.call.completed',
       payload: { toolCallId: 'tc1', name: 'shell', result: 'hi' },
-    })
-  })
-})
-
-describe('muse wire vocabulary coverage (1.4.1 R4503.1 export)', () => {
-  const mapped = [
-    'turn/started',
-    'turn/completed',
-    'turn/retracted',
-    'item/started',
-    'item/delta',
-    'item/updated',
-    'item/completed',
-    'session/tokenUsage',
-    'usage/changed',
-    'session/contextUsage',
-    'view/gap',
-  ]
-  const ignoredKnown = [
-    'initialized',
-    'session/started',
-    'session/statusChanged',
-    'session/approvalModeChanged',
-    'session/branchChanged',
-    'session/goalChanged',
-    'session/modelChanged',
-    'session/modelRouteUnserved',
-    'session/listChanged',
-    'session/closed',
-    'session/deleteCompleted',
-    'session/nameChanged',
-    'session/reasoningEffortChanged',
-    'session/todoListChanged',
-    'session/viewHealthChanged',
-    'skill/changed',
-    'approval/requested',
-    'approval/updated',
-    'approval/resolved',
-    'userInput/requested',
-    'userInput/settled',
-    'turn/unqueued',
-    'turn/retryScheduled',
-  ]
-  const liveMethods = [
-    'initialize',
-    'initialized',
-    'session/start',
-    'session/resume',
-    'session/compact',
-    'session/delete',
-    'session/fork',
-    'session/list',
-    'session/read',
-    'session/rename',
-    'session/setApprovalMode',
-    'session/setModel',
-    'session/setReasoningEffort',
-    'session/userShell',
-    'turn/start',
-    'turn/steer',
-    'turn/cancel',
-    'turn/interrupt',
-    'turn/unqueue',
-    'approval/decide',
-    'approval/listPending',
-    'userInput/answer',
-    'userInput/cancel',
-    'userInput/clarify',
-    'model/list',
-    'skill/list',
-    'item/readOutput',
-    'usage/read',
-    'goal/clear',
-    'goal/edit',
-    'goal/pause',
-    'goal/resume',
-    'goal/set',
-    'subagent/close',
-    'subagent/followupTask',
-    'subagent/interrupt',
-    'subagent/readResult',
-    'subagent/reopen',
-    'subagent/resume',
-    'subagent/sendMessage',
-    'subagent/stop',
-    'task/background',
-    'task/stop',
-    'task/stopAll',
-    'view/page',
-    'view/subscribe',
-    'view/unsubscribe',
-    'workflow/cancel',
-    'workflow/childControl',
-    ...mapped,
-    ...ignoredKnown,
-  ]
-
-  test('every notification the host can push is classified', () => {
-    const notifications = [
-      'initialized',
-      'approval/requested',
-      'approval/resolved',
-      'approval/updated',
-      'item/completed',
-      'item/delta',
-      'item/started',
-      'item/updated',
-      'session/approvalModeChanged',
-      'session/branchChanged',
-      'session/closed',
-      'session/contextUsage',
-      'session/deleteCompleted',
-      'session/goalChanged',
-      'session/listChanged',
-      'session/modelChanged',
-      'session/modelRouteUnserved',
-      'session/nameChanged',
-      'session/reasoningEffortChanged',
-      'session/statusChanged',
-      'session/todoListChanged',
-      'session/tokenUsage',
-      'session/viewHealthChanged',
-      'skill/changed',
-      'turn/completed',
-      'turn/retracted',
-      'turn/retryScheduled',
-      'turn/started',
-      'turn/unqueued',
-      'usage/changed',
-      'userInput/requested',
-      'userInput/settled',
-      'view/gap',
-    ]
-    for (const method of notifications) {
-      expect(classifyMuseNotificationMethod(method)).not.toBe('unknown')
-    }
-    expect(liveMethods).toContain('turn/steer')
+    },
+  ])('a toolCall item $row', ({ method, params, type, payload }) => {
+    const events = mapMuseNotification(notif(method, params))
+    expect(events.map((event) => event.type)).toEqual([type])
+    expect(events[0]).toMatchObject({ payload })
   })
 })

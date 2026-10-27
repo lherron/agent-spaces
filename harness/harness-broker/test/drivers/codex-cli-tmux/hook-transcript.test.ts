@@ -126,37 +126,6 @@ const createHarness = async () => {
 }
 
 describe('codex-cli-tmux hook-driven transcript reader', () => {
-  test('SessionStart records the path and reads no events', async () => {
-    const path = tempTranscript()
-    const { reader } = await createHarness()
-    expect(reader.handleHook(sessionStart(path))).toEqual([])
-  })
-
-  test('single-message terminal turn: held agent_message flushes final:true on Stop', async () => {
-    const path = tempTranscript()
-    const { reader } = await createHarness()
-
-    reader.handleHook(sessionStart(path))
-    appendFileSync(path, agentMessage('only answer', { id: 'rollout_msg_a' }))
-    appendFileSync(path, taskComplete({ last_agent_message: 'only answer' }))
-
-    const events = reader.handleHook(stop({ last_assistant_message: 'only answer' }))
-
-    expect(eventTypes(events)).toEqual(['assistant.message.completed'])
-    expect(events[0]).toMatchObject({
-      invocationId,
-      turnId: 'turn_codex_1',
-      itemId: 'rollout_msg_a',
-      type: 'assistant.message.completed',
-      driver: { kind: 'codex-cli-tmux', rawType: 'agent_message' },
-      payload: {
-        messageId: 'rollout_msg_a',
-        content: [{ type: 'text', text: 'only answer' }],
-        final: true,
-      },
-    })
-  })
-
   test('multi-message narration: interim final:false emits mid-stream before the terminal final:true', async () => {
     const path = tempTranscript()
     const harness = await createHarness()
@@ -344,17 +313,15 @@ describe('codex-cli-tmux hook-driven transcript reader', () => {
     expect(events[0]).toMatchObject({
       payload: { content: [{ type: 'text', text: 'completed via task_complete' }], final: true },
     })
-  })
 
-  test('terminal fallback via Stop.last_assistant_message when the transcript is empty', async () => {
-    const path = tempTranscript()
-    const { reader } = await createHarness()
-
-    reader.handleHook(sessionStart(path))
-    const events = reader.handleHook(stop({ last_assistant_message: 'answer from Stop hook' }))
-
-    expect(eventTypes(events)).toEqual(['assistant.message.completed'])
-    expect(events[0]).toMatchObject({
+    const secondPath = tempTranscript()
+    const second = await createHarness()
+    second.reader.handleHook(sessionStart(secondPath))
+    const fallback = second.reader.handleHook(
+      stop({ last_assistant_message: 'answer from Stop hook' })
+    )
+    expect(eventTypes(fallback)).toEqual(['assistant.message.completed'])
+    expect(fallback[0]).toMatchObject({
       payload: { content: [{ type: 'text', text: 'answer from Stop hook' }], final: true },
     })
   })
@@ -365,24 +332,15 @@ describe('codex-cli-tmux hook-driven transcript reader', () => {
 
     reader.handleHook(sessionStart(path))
     appendFileSync(path, agentMessage('the answer', { id: 'm9' }))
+    appendFileSync(path, taskComplete({ last_agent_message: 'the answer' }))
     const events = reader.handleHook(stop({ last_assistant_message: 'the answer' }))
 
     expect(events).toHaveLength(1)
     expect(events[0]).toMatchObject({
+      itemId: 'm9',
+      driver: { rawType: 'agent_message' },
       payload: { messageId: 'm9', content: [{ type: 'text', text: 'the answer' }], final: true },
     })
-  })
-
-  test('no timer, no sleeps: events are returned synchronously from handleHook', async () => {
-    const path = tempTranscript()
-    const { reader } = await createHarness()
-
-    reader.handleHook(sessionStart(path))
-    appendFileSync(path, agentMessage('immediate', { id: 'm0' }))
-    // No await, no settle: the Stop hook reads and returns in the same tick.
-    const events = reader.handleHook(stop({ last_assistant_message: 'immediate' }))
-    expect(events).toHaveLength(1)
-    expect(text(events[0] as InvocationEventEnvelope)).toBe('immediate')
   })
 
   test('byte-offset tailing preserves partial-line buffering, multi-record order, and offset resume', async () => {

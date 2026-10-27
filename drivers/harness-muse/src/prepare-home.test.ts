@@ -56,6 +56,7 @@ describe('prepareMuseHome', () => {
       expect(env['XDG_CONFIG_HOME']).toBe(join(base, 'muse-serve-xdg-inv-test-op', '.config'))
       expect(env['XDG_DATA_HOME']).toBe(join(base, 'muse-serve-xdg-inv-test-op', '.local', 'share'))
       expect(await readFile(join(home.configDir, 'auth.json'), 'utf-8')).toContain('token')
+      expect(home.warnings.some((warning) => warning.includes('auth.json not found'))).toBe(false)
     } finally {
       await rm(base, { recursive: true, force: true })
     }
@@ -75,23 +76,6 @@ describe('prepareMuseHome', () => {
       expect(home.home).toBe(operator)
       expect(home.configDir).toBe(join(stable, '.config', 'muse'))
       expect(museHomeEnv(home)['HOME']).toBe(operator)
-    } finally {
-      await rm(base, { recursive: true, force: true })
-    }
-  })
-
-  test('symlinks operator auth.json when present', async () => {
-    const base = await mkdtemp(join(tmpdir(), 'muse-home-'))
-    try {
-      const operatorConfig = join(base, 'operator', '.config', 'muse')
-      await mkdir(operatorConfig, { recursive: true })
-      await writeFile(join(operatorConfig, 'auth.json'), '{"token":"x"}\n')
-      const home = await prepareMuseHome('inv-test-2', {
-        baseDir: base,
-        operatorHome: join(base, 'operator'),
-      })
-      expect(await readFile(join(home.configDir, 'auth.json'), 'utf-8')).toContain('token')
-      expect(home.warnings.some((warning) => warning.includes('auth.json not found'))).toBe(false)
     } finally {
       await rm(base, { recursive: true, force: true })
     }

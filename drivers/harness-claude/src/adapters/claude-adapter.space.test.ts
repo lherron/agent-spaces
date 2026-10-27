@@ -38,27 +38,6 @@ function createMaterializeInput(
 }
 
 describe('ClaudeAdapter.validateSpace', () => {
-  test('validates space with valid id', () => {
-    const result = adapter.validateSpace(
-      createMaterializeInput('/test/snapshot', { id: asSpaceId('valid-space') })
-    )
-
-    expect(result.valid).toBe(true)
-    expect(result.errors).toHaveLength(0)
-  })
-
-  test('validates space with plugin name', () => {
-    const result = adapter.validateSpace(
-      createMaterializeInput('/test/snapshot', {
-        id: asSpaceId('test'),
-        plugin: { name: 'my-plugin' },
-      })
-    )
-
-    expect(result.valid).toBe(true)
-    expect(result.errors).toHaveLength(0)
-  })
-
   test('rejects space without id or plugin name', () => {
     // deliberately invalid: a manifest with neither id nor plugin.name exercises the rejection path
     const manifestWithoutIdentity = {
@@ -86,14 +65,27 @@ describe('ClaudeAdapter.validateSpace', () => {
     expect(result.warnings.some((w) => w.includes('should be kebab-case'))).toBe(true)
   })
 
-  test('accepts kebab-case plugin names without warning', () => {
-    const result = adapter.validateSpace(
-      createMaterializeInput('/test/snapshot', { id: asSpaceId('my-valid-plugin') })
-    )
+  // The plugin name is plugin.name when set, else the space id; a kebab-case
+  // plugin name validates with no errors and no warnings.
+  for (const { name, manifest } of [
+    {
+      name: 'a kebab-case space id validates without warning',
+      manifest: { id: asSpaceId('my-valid-plugin') },
+    },
+    {
+      name: 'a kebab-case plugin.name wins over a non-kebab space id',
+      // deliberately not kebab-case: only plugin.name taking precedence avoids the warning
+      manifest: { id: 'BadId' as SpaceId, plugin: { name: 'my-plugin' } },
+    },
+  ] satisfies Array<{ name: string; manifest: Partial<SpaceManifest> }>) {
+    test(name, () => {
+      const result = adapter.validateSpace(createMaterializeInput('/test/snapshot', manifest))
 
-    expect(result.valid).toBe(true)
-    expect(result.warnings).toHaveLength(0)
-  })
+      expect(result.valid).toBe(true)
+      expect(result.errors).toHaveLength(0)
+      expect(result.warnings).toHaveLength(0)
+    })
+  }
 })
 
 describe('ClaudeAdapter.materializeSpace', () => {
@@ -175,26 +167,19 @@ script = "hooks/validate.sh"
   })
 
   test('copies permissions.toml when present', async () => {
-    await writeFile(
-      join(snapshotDir, 'permissions.toml'),
-      `
+    const permissionsToml = `
 [read]
 allow = ["/tmp", "/var"]
 
 [write]
 allow = ["/tmp"]
 `
-    )
+    await writeFile(join(snapshotDir, 'permissions.toml'), permissionsToml)
 
     const result = await materialize()
 
     expect(result.files).toContain('permissions.toml')
-  })
-
-  test('returns artifact path', async () => {
-    const result = await materialize()
-
-    expect(result.artifactPath).toBe(cacheDir)
+    expect(await Bun.file(join(cacheDir, 'permissions.toml')).text()).toBe(permissionsToml)
   })
 
   test('cleans cache directory when force: true', async () => {
@@ -216,6 +201,7 @@ allow = ["/tmp"]
       const result = await materialize()
 
       expect(result.files.some((f) => f.includes(component))).toBe(true)
+      expect(await Bun.file(join(cacheDir, component, file)).text()).toBe(`# Test ${component}`)
     })
   }
 })

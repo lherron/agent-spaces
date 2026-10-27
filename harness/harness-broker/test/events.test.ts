@@ -3,10 +3,9 @@ import { validateEventEnvelope } from 'spaces-harness-broker-protocol'
 import type { HarnessInvocationSpec, InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../src/broker'
 import type { Driver } from '../src/drivers/driver'
-import { createInvocationEventSequencer } from '../src/events'
 import { createTestDriver } from '../src/testing/test-driver'
 import { noopCapabilities, stubDriverDeclarations } from './helpers'
-import { inputIdFrom, invocationIdFrom, messageIdFrom, toolCallIdFrom } from './ids'
+import { inputIdFrom, invocationIdFrom, messageIdFrom } from './ids'
 
 const now = () => new Date('2026-05-20T18:00:00.000Z')
 
@@ -31,109 +30,52 @@ const userInput = (inputId: string) => ({
 })
 
 describe('invocation event sequencing', () => {
-  test('seq is monotonic per invocation and starts at 1', () => {
-    const sequencer = createInvocationEventSequencer({
-      now: () => new Date('2026-05-20T18:00:00.000Z'),
-    })
+  test('a driver-supplied native source time becomes the event time without changing broker seq', async () => {
+    const sourceTime = '2026-05-20T17:59:59.125Z'
+    const events: InvocationEventEnvelope[] = []
+    const { driver: baseDriver } = createTestDriver()
+    const driver: Driver = {
+      ...baseDriver,
+      async start(spec, ctx) {
+        const result = await baseDriver.start(spec, ctx)
+        ctx.emit('driver.notice', { message: 'native record' }, { sourceTime })
+        return result
+      },
+    }
+    const broker = createBroker({ drivers: [driver], onEvent: (event) => events.push(event), now })
 
-    expect([
-      sequencer.next(invocationIdFrom('inv_a'), 'invocation.started', {
-        command: 'test-driver',
-        args: [],
-        cwd: process.cwd(),
-      }),
-      sequencer.next(invocationIdFrom('inv_a'), 'invocation.ready', { state: 'ready' }),
-      sequencer.next(invocationIdFrom('inv_b'), 'invocation.started', {
-        command: 'test-driver',
-        args: [],
-        cwd: process.cwd(),
-      }),
-    ]).toMatchObject([{ seq: 1 }, { seq: 2 }, { seq: 1 }])
-  })
+    await broker.start({ spec: testDriverSpec('inv_native_time') })
 
-  test('event envelope includes invocationId', () => {
-    const sequencer = createInvocationEventSequencer({
-      now: () => new Date('2026-05-20T18:00:00.000Z'),
-    })
-
+    const notice = events.find((event) => event.type === 'driver.notice')
+    expect(notice?.time).toBe(sourceTime)
+    // Events without a native time keep the broker's observation time.
     expect(
-      sequencer.next(invocationIdFrom('inv_with_id'), 'invocation.ready', { state: 'ready' })
-    ).toMatchObject({
-      invocationId: 'inv_with_id',
-      seq: 1,
-      time: '2026-05-20T18:00:00.000Z',
-      type: 'invocation.ready',
-      payload: { state: 'ready' },
-    })
-  })
-
-  test('a native source time overrides observation time without changing broker sequencing', () => {
-    const sequencer = createInvocationEventSequencer({ now })
-    const event = sequencer.next(
-      invocationIdFrom('inv_native_time'),
-      'tool.call.started',
-      { toolCallId: toolCallIdFrom('call_1'), name: 'command' },
-      { sourceTime: '2026-05-20T17:59:59.125Z' }
+      events.filter((event) => event.type !== 'driver.notice').map((event) => event.time)
+    ).toEqual(
+      events.filter((event) => event.type !== 'driver.notice').map(() => now().toISOString())
     )
-
-    expect(event).toMatchObject({
-      seq: 1,
-      time: '2026-05-20T17:59:59.125Z',
-      type: 'tool.call.started',
-    })
+    expect(events.map((event) => event.seq)).toEqual(events.map((_, index) => index + 1))
   })
 
-  test('correlation is echoed verbatim and never interpreted', () => {
+  test('spec correlation is echoed verbatim on every emitted event and never replaces broker seq', async () => {
     const correlation = {
       'client.session': 'runtime-123',
       phase: 'opaque-client-value',
       seq: 'not-a-broker-seq',
     }
-    const sequencer = createInvocationEventSequencer({
-      now: () => new Date('2026-05-20T18:00:00.000Z'),
-      correlation,
-    })
+    const events: InvocationEventEnvelope[] = []
+    const { driver, controller } = createTestDriver()
+    const broker = createBroker({ drivers: [driver], onEvent: (event) => events.push(event), now })
 
-    const event = sequencer.next(invocationIdFrom('inv_corr'), 'driver.notice', {
-      message: 'notice',
-    })
+    await broker.start({ spec: { ...testDriverSpec('inv_corr'), correlation } })
+    await broker.input({ invocationId: invocationIdFrom('inv_corr'), input: userInput('in_1') })
+    controller.completeActiveTurn()
 
-    expect(event.correlation).toEqual(correlation)
-    expect(event.seq).toBe(1)
-    expect(event.type).toBe('driver.notice')
-  })
-
-  test('rejected candidates do not consume a sequence number through either API', () => {
-    const sequencer = createInvocationEventSequencer({ now })
-    const malformedPayload = { turnId: 'turn_wrong_payload', status: 'completed' }
-
-    for (const [invocationId, reject] of [
-      [
-        'inv_rejected_next',
-        () =>
-          Reflect.apply(sequencer.next, sequencer, [
-            'inv_rejected_next',
-            'assistant.message.delta',
-            malformedPayload,
-          ]),
-      ],
-      [
-        'inv_rejected_next_event',
-        () =>
-          Reflect.apply(sequencer.nextEvent, sequencer, [
-            'inv_rejected_next_event',
-            { type: 'assistant.message.delta', payload: malformedPayload },
-          ]),
-      ],
-    ] as const) {
-      expect(reject).toThrow()
-      expect(
-        sequencer.next(invocationIdFrom(invocationId), 'driver.notice', { message: 'recovered' })
-      ).toMatchObject({
-        seq: 1,
-        type: 'driver.notice',
-      })
+    expect(events.length).toBeGreaterThan(2)
+    for (const event of events) {
+      expect(event.correlation).toEqual(correlation)
     }
+    expect(events.map((event) => event.seq)).toEqual(events.map((_, index) => index + 1))
   })
 })
 

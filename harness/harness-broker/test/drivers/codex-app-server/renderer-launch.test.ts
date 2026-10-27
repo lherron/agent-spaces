@@ -2,7 +2,8 @@
  * T-08554 — the codex-app-server viewer renderer launch. A standalone ASP
  * release is a bun-compiled payload with no renderer entry file on disk, so it
  * launches the renderer through its own executable (`<payload> renderer …`);
- * checkout and package brokers keep `bun <entry>`.
+ * checkout and package brokers keep `bun <entry>` (asserted on the pasted launch
+ * line in app-server-viewer).
  */
 import { describe, expect, test } from 'bun:test'
 
@@ -18,11 +19,6 @@ const flags = {
 }
 
 describe('codex-app-server renderer launch (T-08554)', () => {
-  test('without a launcher the renderer entry file runs under bun', () => {
-    const command = buildRendererLaunchCommand({ ...flags, rendererEntryPath: '/src/entry.ts' })
-    expect(command.startsWith('exec bun /src/entry.ts --driver codex-app-server')).toBe(true)
-  })
-
   test('a launcher runs the renderer through that executable, with the same flags', () => {
     const command = buildRendererLaunchCommand({
       ...flags,

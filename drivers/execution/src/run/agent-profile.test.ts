@@ -118,26 +118,6 @@ describe('agent-local component discovery (T-01067)', () => {
       await expect(detectAgentLocalComponents(agentRoot)).resolves.toBeUndefined()
     })
   }
-
-  test('detectAgentLocalComponents has the signature run() expects', async () => {
-    // Structural gate: run() in run.ts threads the detector's return value
-    // into materializeFromRefs as `agentLocalComponents`. That call site
-    // requires a Promise<{ hasSkills, hasCommands, ... } | undefined>.
-    const agentRoot = await createTempDir('agent-local-signature-')
-    await mkdir(join(agentRoot, 'skills'), { recursive: true })
-
-    const components = await detectAgentLocalComponents(agentRoot)
-    expect(components).toBeDefined()
-    expect(components?.agentRoot).toBe(agentRoot)
-    expect(typeof components?.hasSkills).toBe('boolean')
-    expect(typeof components?.hasCommands).toBe('boolean')
-    expect(typeof components?.hasTools).toBe('boolean')
-    expect(typeof components?.skillsDir).toBe('string')
-    expect(typeof components?.commandsDir).toBe('string')
-    expect(typeof components?.toolsDir).toBe('string')
-    expect(typeof components?.toolsBinDir).toBe('string')
-    expect(typeof components?.agentVarDir).toBe('string')
-  })
 })
 
 // ---------------------------------------------------------------------------

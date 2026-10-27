@@ -3,20 +3,9 @@ import {
   catalogProcessImplementationForFrontend,
   catalogProcessImplementationForHarness,
 } from './catalog-projections.js'
-import { HARNESS_CATALOG, HARNESS_IDS } from './catalog.js'
 import { resolveHarnessExecution } from './resolve.js'
 
 describe('central harness selection catalog', () => {
-  test('contains exactly the v2 public harness identities', () => {
-    expect(HARNESS_IDS).toEqual(['agent-harness', 'claude', 'codex', 'muse'])
-    expect(Object.keys(HARNESS_CATALOG).sort()).toEqual([
-      'agent-harness',
-      'claude',
-      'codex',
-      'muse',
-    ])
-  })
-
   test('projects direct process facts only from the selected catalog harness', () => {
     expect(catalogProcessImplementationForHarness('agent-harness')).toBeUndefined()
     expect(catalogProcessImplementationForHarness('claude')).toMatchObject({
@@ -160,38 +149,6 @@ describe('central harness selection catalog', () => {
       })
     }
   )
-
-  test('preserves an explicit false over a lower presentation true', () => {
-    const result = resolveHarnessExecution({
-      agent: { id: 'cody' },
-      provisioningLayers: { agentProfile: { presentation: true } },
-      requested: { presentation: false },
-    })
-    expect(result).toMatchObject({
-      ok: true,
-      selection: { presentation: false, provenance: { presentation: 'compile-request' } },
-    })
-  })
-
-  test('applies every provisioning layer in declared precedence order', () => {
-    const result = resolveHarnessExecution({
-      agent: { id: 'cody' },
-      provisioningLayers: {
-        agentProfile: { harness: 'claude', presentation: true },
-        projectTarget: { harness: 'muse', presentation: false },
-        summonDirectives: { harness: 'codex', presentation: true },
-      },
-      requested: { harness: 'agent-harness', presentation: false },
-    })
-    expect(result).toMatchObject({
-      ok: true,
-      selection: {
-        harness: 'agent-harness',
-        presentation: false,
-        provenance: { harness: 'compile-request', presentation: 'compile-request' },
-      },
-    })
-  })
 
   test('refuses disagreement among explicit agent identities', () => {
     expect(

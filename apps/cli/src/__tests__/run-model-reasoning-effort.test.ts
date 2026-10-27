@@ -6,7 +6,7 @@
  * output (--print-command) must include `-c model_reasoning_effort="<value>"`.
  *
  * PASS CONDITIONS (all tests green when):
- * 1. `asp run --help` lists `--model-reasoning-effort` as a recognized option
+ * 1. `asp run --help` lists `--model-reasoning-effort` (asserted in run-retired-sdk-help.test.ts)
  * 2. `asp run <target> --harness codex --model-reasoning-effort high --print-command`
  *    emits a command string containing `model_reasoning_effort="high"`
  * 3. An unknown `--model-reasoning-effort` option does NOT cause "unknown option" error
@@ -17,7 +17,7 @@
 
 import { describe, expect, test } from 'bun:test'
 import { execFileSync } from 'node:child_process'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -47,18 +47,6 @@ function runAsp(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. --help shows the flag
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('asp run --help: --model-reasoning-effort (T-00947)', () => {
-  test('help output lists --model-reasoning-effort option', () => {
-    const { stdout, stderr } = runAsp(['run', '--help'])
-    const combined = stdout + stderr
-    expect(combined).toContain('--model-reasoning-effort')
-  })
-})
-
-// ─────────────────────────────────────────────────────────────────────────────
 // 2. --print-command with codex harness includes the -c override
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -69,8 +57,8 @@ describe('asp run --print-command: model_reasoning_effort in codex invocation (T
   // Set up a minimal project with asp-targets.toml and a pre-composed bundle
   // directory so dry-run can load the bundle without a real registry.
   async function setupMinimalProject(): Promise<void> {
-    aspHome = join(tmpdir(), `asp-mre-home-${Date.now()}`)
-    projectDir = join(tmpdir(), `asp-mre-cli-test-${Date.now()}`)
+    aspHome = await mkdtemp(join(tmpdir(), 'asp-mre-home-'))
+    projectDir = await mkdtemp(join(tmpdir(), 'asp-mre-cli-test-'))
     await mkdir(aspHome, { recursive: true })
     await mkdir(projectDir, { recursive: true })
 
@@ -182,7 +170,7 @@ model = "gpt-5.5"
   test('command does not include model_reasoning_effort when flag omitted', async () => {
     await setupMinimalProject()
     try {
-      const { stdout, stderr } = runAsp(
+      const { stdout, stderr, exitCode } = runAsp(
         [
           'run',
           'codex-target',
@@ -197,8 +185,11 @@ model = "gpt-5.5"
         ],
         { env: { ASP_AGENTS_ROOT: join(aspHome, 'agents') } }
       )
-      const combined = stdout + stderr
-      expect(combined).not.toContain('model_reasoning_effort')
+      // The codex command really printed; absence below is not an error path.
+      expect(exitCode).toBe(0)
+      expect(stdout).toContain(`CODEX_HOME=${join(aspHome, 'codex-homes')}/`)
+      expect(stdout).toMatch(/ \S*codex --enable goals .*--model /)
+      expect(stdout + stderr).not.toContain('model_reasoning_effort')
     } finally {
       await teardownProject()
     }

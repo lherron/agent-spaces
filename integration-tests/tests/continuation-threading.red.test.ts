@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import { compileV2, createV2CompileFixture } from './v2-compile-fixture.js'
 
@@ -56,18 +58,6 @@ describe('v2 continuation threading', () => {
     })
   })
 
-  test('does not manufacture a continuation for a fresh compile', async () => {
-    const plan = await compile({
-      namespace: 'continuation-fresh',
-      harness: 'codex',
-      modelProvider: 'openai-codex',
-      model: 'gpt-5.6-terra',
-      presentation: false,
-      prompt: 'start a fresh thread',
-    })
-    expect(plan.execution.dispatchRequest.startRequest.spec.continuation).toBeUndefined()
-  })
-
   test('uses the Anthropic session continuation for the retained Claude route', async () => {
     const plan = await compile({
       namespace: 'continuation-claude',
@@ -113,40 +103,34 @@ describe('v2 continuation threading', () => {
     expect(spec.process.args).not.toContain('--resume')
   })
 
-  test('changes the start-request hash when continuation mechanics change', async () => {
+  test('a fresh launch receives configured priming while a continuation without prompt receives none', async () => {
     const fixture = createV2CompileFixture()
     fixtures.push(fixture)
+    writeFileSync(
+      join(fixture.agentRoot, 'agent-profile.toml'),
+      'version = 4\npriming = "configured priming"\n\n[spaces]\nbase = []\n'
+    )
     const common = {
       harness: 'codex' as const,
       modelProvider: 'openai-codex',
       model: 'gpt-5.6-terra',
       presentation: false,
+      omitPriming: false,
     }
-    const fresh = await compileV2(fixture, { ...common, namespace: 'continuation-hash-fresh' })
+    const fresh = await compileV2(fixture, { ...common, namespace: 'priming-fresh' })
     const resumed = await compileV2(fixture, {
       ...common,
-      namespace: 'continuation-hash-resume',
+      namespace: 'priming-resumed',
       continuation: codexContinuation,
     })
     expect(fresh.ok).toBe(true)
     expect(resumed.ok).toBe(true)
     if (!fresh.ok || !resumed.ok) return
-    expect(resumed.plan.execution.profile.startRequestHash).not.toBe(
-      fresh.plan.execution.profile.startRequestHash
-    )
-  })
-
-  test('omits initial priming for a continuation when no caller prompt is supplied', async () => {
-    const plan = await compile({
-      namespace: 'continuation-no-input',
-      harness: 'codex',
-      modelProvider: 'openai-codex',
-      model: 'gpt-5.6-terra',
-      presentation: false,
-      continuation: codexContinuation,
-      omitPriming: false,
+    expect(fresh.plan.execution.dispatchRequest.startRequest.initialInput?.content).toContainEqual({
+      type: 'text',
+      text: 'configured priming',
     })
-    expect(plan.execution.dispatchRequest.startRequest.initialInput).toBeUndefined()
+    expect(resumed.plan.execution.dispatchRequest.startRequest.initialInput).toBeUndefined()
   })
 
   test('uses the preserved continuation key as a hash-covered execution mechanic', async () => {
@@ -172,9 +156,14 @@ describe('v2 continuation threading', () => {
         broker: { ...codexContinuation.broker, key: 'thread_T08704_other' },
       },
     })
+    const fresh = await compileV2(fixture, { ...common, namespace: 'continuation-key-fresh' })
+    expect(fresh.ok).toBe(true)
     expect(first.ok).toBe(true)
     expect(second.ok).toBe(true)
-    if (!first.ok || !second.ok) return
+    if (!first.ok || !second.ok || !fresh.ok) return
+    expect(first.plan.execution.profile.startRequestHash).not.toBe(
+      fresh.plan.execution.profile.startRequestHash
+    )
     expect(second.plan.execution.profile.startRequestHash).not.toBe(
       first.plan.execution.profile.startRequestHash
     )

@@ -5,10 +5,11 @@
  * check-manifest-edges.ts do not emit the six §3 diagnostic fields yet.
  * Larry's impl task upgrades the scripts to make them green.
  *
- * Mechanism: PLANT a temp source file under a real package, run the real
- * check from REPO_ROOT (no --root flag), assert the §3 fields appear for
- * the planted violation, then DELETE the fixture in afterEach (force-cleanup
- * even on assertion failure or uncaught throw).
+ * Mechanism: check-boundaries.ts and check-manifest-edges.ts scan the tree
+ * under their cwd, so each test builds a fixture tree in a fresh temp dir and
+ * runs the real script there. check-runtime-contract-harness-boundaries.ts
+ * pins its scan root to the script's own location, so that test copies the
+ * script to a scratch root and links its shared read-only libraries there.
  *
  * The six §3 fields (per archagent/agent-enablement/checks/conformance-diagnostic.md):
  *   1. file:line      — fixture path with a real line number (not just path)
@@ -20,8 +21,9 @@
  */
 
 import { afterEach, describe, expect, test } from 'bun:test'
-import { rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { copyFile, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 
 // Repo root — CWD for all subprocess invocations.
 const REPO_ROOT = join(import.meta.dir, '..')
@@ -66,10 +68,11 @@ const HARNESS_FIXTURE_CONTENT = [
 // ---------------------------------------------------------------------------
 
 async function runScript(
-  script: string
+  script: string,
+  cwd = REPO_ROOT
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const proc = Bun.spawn(['bun', script], {
-    cwd: REPO_ROOT,
+  const proc = Bun.spawn(['bun', join(REPO_ROOT, script)], {
+    cwd,
     stdout: 'pipe',
     stderr: 'pipe',
   })
@@ -77,6 +80,22 @@ async function runScript(
   const stdout = await new Response(proc.stdout).text()
   const stderr = await new Response(proc.stderr).text()
   return { exitCode: proc.exitCode ?? -1, stdout, stderr }
+}
+
+// The six workspace roots check-manifest-edges.ts reads; each must exist.
+const WORKSPACE_ROOTS = ['contracts', 'core', 'drivers', 'compiler', 'harness', 'apps']
+
+/** Builds a fixture tree in a fresh temp dir; returns its path. */
+async function writeFixtureTree(files: Record<string, string>): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), 'asp-diag-fixture-'))
+  for (const workspaceRoot of WORKSPACE_ROOTS) {
+    await mkdir(join(root, workspaceRoot), { recursive: true })
+  }
+  for (const [relativePath, content] of Object.entries(files)) {
+    await mkdir(dirname(join(root, relativePath)), { recursive: true })
+    await writeFile(join(root, relativePath), content)
+  }
+  return root
 }
 
 /** Combined stdout + stderr for assertion convenience. */
@@ -89,16 +108,19 @@ function out(r: { stdout: string; stderr: string }): string {
 // ---------------------------------------------------------------------------
 
 describe('check-boundaries.ts — §3 six-field diagnostics', () => {
+  let fixtureRoot = ''
   afterEach(async () => {
-    // Force-remove even if the test threw before writeFile (force: true is a no-op if absent).
-    await rm(join(REPO_ROOT, BOUNDARY_FIXTURE_REL), { force: true })
+    if (fixtureRoot) await rm(fixtureRoot, { force: true, recursive: true })
+    fixtureRoot = ''
   })
 
   test('boundary violation carries all six §3 teaching fields', async () => {
     // Plant: forbidden 'agent-spaces' import on a deterministic line.
-    await writeFile(join(REPO_ROOT, BOUNDARY_FIXTURE_REL), BOUNDARY_FIXTURE_CONTENT)
+    fixtureRoot = await writeFixtureTree({
+      [BOUNDARY_FIXTURE_REL]: BOUNDARY_FIXTURE_CONTENT,
+    })
 
-    const result = await runScript('scripts/check-boundaries.ts')
+    const result = await runScript('scripts/check-boundaries.ts', fixtureRoot)
     const combined = out(result)
 
     // Must detect the violation and exit non-zero.
@@ -130,21 +152,32 @@ describe('check-boundaries.ts — §3 six-field diagnostics', () => {
 // ---------------------------------------------------------------------------
 
 describe('check-manifest-edges.ts — §3 six-field diagnostics', () => {
+  let fixtureRoot = ''
   afterEach(async () => {
-    // Force-remove even if the test threw before writeFile (force: true is a no-op if absent).
-    await rm(join(REPO_ROOT, MANIFEST_FIXTURE_REL), { force: true })
+    if (fixtureRoot) await rm(fixtureRoot, { force: true, recursive: true })
+    fixtureRoot = ''
   })
 
   test('manifest missing-edge violation carries all six §3 teaching fields', async () => {
-    // Plant: import 'spaces-harness-broker-protocol' — a real workspace package that is
-    // NOT declared in contracts/agent-scope/package.json (verified: only @types/bun + tsc).
-    await writeFile(join(REPO_ROOT, MANIFEST_FIXTURE_REL), MANIFEST_FIXTURE_CONTENT)
+    // Plant: import 'spaces-harness-broker-protocol' — a workspace package of the
+    // fixture tree that agent-scope's package.json does NOT declare.
+    fixtureRoot = await writeFixtureTree({
+      'contracts/agent-scope/package.json': JSON.stringify({ name: 'agent-scope' }),
+      'contracts/harness-broker-protocol/package.json': JSON.stringify({
+        name: 'spaces-harness-broker-protocol',
+      }),
+      'contracts/harness-broker-protocol/src/index.ts': 'export const protocol = true\n',
+      [MANIFEST_FIXTURE_REL]: MANIFEST_FIXTURE_CONTENT,
+    })
 
-    const result = await runScript('scripts/check-manifest-edges.ts')
+    const result = await runScript('scripts/check-manifest-edges.ts', fixtureRoot)
     const combined = out(result)
 
     // Must detect the missing manifest edge and exit non-zero.
     expect(result.exitCode).not.toBe(0)
+
+    // The missing dependency is named.
+    expect(combined).toMatch(/spaces-harness-broker-protocol/)
 
     // §3 field 1 — file:line (fixture path with concrete line number, not just path).
     expect(combined).toMatch(new RegExp(`__diag_fixture__\\.ts:${MANIFEST_FIXTURE_LINE}`))
@@ -172,16 +205,34 @@ describe('check-manifest-edges.ts — §3 six-field diagnostics', () => {
 // ---------------------------------------------------------------------------
 
 describe('check-runtime-contract-harness-boundaries.ts — §3 six-field diagnostics', () => {
+  let fixtureRoot = ''
   afterEach(async () => {
-    // Force-remove even if the test threw before writeFile (force: true is a no-op if absent).
-    await rm(join(REPO_ROOT, HARNESS_FIXTURE_REL), { force: true })
+    if (fixtureRoot) await rm(fixtureRoot, { recursive: true, force: true })
+    fixtureRoot = ''
   })
 
   test('contract-harness no-hrc-import violation carries all six §3 teaching fields', async () => {
-    // Plant: forbidden 'hrc-runtime' import on a deterministic line.
-    await writeFile(join(REPO_ROOT, HARNESS_FIXTURE_REL), HARNESS_FIXTURE_CONTENT)
+    fixtureRoot = await writeFixtureTree({
+      [HARNESS_FIXTURE_REL]: HARNESS_FIXTURE_CONTENT,
+      'compiler/agent-spaces/src/testing/control.ts': 'startInvocationFromRequest()\n',
+    })
+    await mkdir(join(fixtureRoot, 'scripts'), { recursive: true })
+    await copyFile(
+      join(REPO_ROOT, 'scripts/check-runtime-contract-harness-boundaries.ts'),
+      join(fixtureRoot, 'scripts/check-runtime-contract-harness-boundaries.ts')
+    )
+    await symlink(join(REPO_ROOT, 'scripts/lib'), join(fixtureRoot, 'scripts/lib'))
 
-    const result = await runScript('scripts/check-runtime-contract-harness-boundaries.ts')
+    const proc = Bun.spawn(
+      ['bun', join(fixtureRoot, 'scripts/check-runtime-contract-harness-boundaries.ts')],
+      { cwd: fixtureRoot, stdout: 'pipe', stderr: 'pipe' }
+    )
+    await proc.exited
+    const result = {
+      exitCode: proc.exitCode ?? -1,
+      stdout: await new Response(proc.stdout).text(),
+      stderr: await new Response(proc.stderr).text(),
+    }
     const combined = out(result)
 
     // Must detect the violation and exit non-zero.

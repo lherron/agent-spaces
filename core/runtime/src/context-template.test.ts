@@ -3,391 +3,147 @@
  *
  * Spec source: PROMPT_TEMPLATE_UPDATES.md, "v2 Template Format" and
  * "Parser tests (context-template.test.ts)".
- * These tests intentionally define the parser contract before implementation
- * exists so future sessions can verify the requested v1/v2 behavior and errors.
+ *
+ * A malformed context-template.toml is rejected when the system prompt is
+ * inspected, and the error names the template file and the offending field.
+ * The well-formed grammar (zones, wrap tables, per-section max_chars, when
+ * predicates, slots) is exercised by the context-resolver-*.test.ts files,
+ * which author their templates as TOML through the same entry point.
  */
 
-import { describe, expect, test } from 'bun:test'
-import { parseContextTemplate } from './context-template.js'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import {
+  type ResolverRoots,
+  createResolverRoots,
+  inspectTemplate,
+  removeResolverRoots,
+} from './test-support/context-resolver-fixture.js'
+
+function inlineSection(zone: 'prompt' | 'reminder', extra: string): string {
+  return `
+schema_version = 2
+
+[[${zone}]]
+name = "x"
+type = "inline"
+content = "body"
+${extra}
+`
+}
+
+function wrapSection(zone: 'prompt' | 'reminder', wrapLines: string): string {
+  return inlineSection(zone, `\n[${zone}.wrap]\n${wrapLines}`)
+}
 
 describe('parseContextTemplate', () => {
-  test('parses v2 prompt and reminder sections into separate arrays', () => {
-    const template = parseContextTemplate(`
-schema_version = 2
-mode = "append"
-max_chars = 10000
+  let roots: ResolverRoots
 
-[[prompt]]
-name = "platform"
-type = "file"
-path = "AGENT_MOTD.md"
-
-[[prompt]]
-name = "inline-prompt"
-type = "inline"
-content = "Prompt inline"
-
-[[prompt]]
-name = "prompt-exec"
-type = "exec"
-command = "date '+Today is %Y-%m-%d.'"
-timeout = 3000
-
-[[prompt]]
-name = "prompt-slot"
-type = "slot"
-source = "instructions.additionalBase"
-
-[[reminder]]
-name = "reminder-file"
-type = "file"
-path = "project-root:///README.md"
-
-[[reminder]]
-name = "reminder-inline"
-type = "inline"
-content = "Reminder inline"
-
-[[reminder]]
-name = "reminder-exec"
-type = "exec"
-command = "just info 2>/dev/null"
-timeout = 1500
-
-[[reminder]]
-name = "reminder-slot"
-type = "slot"
-source = "session.additionalContext"
-`)
-
-    expect(template).toEqual({
-      schemaVersion: 2,
-      mode: 'append',
-      maxChars: 10000,
-      promptSections: [
-        {
-          name: 'platform',
-          type: 'file',
-          path: 'AGENT_MOTD.md',
-        },
-        {
-          name: 'inline-prompt',
-          type: 'inline',
-          content: 'Prompt inline',
-        },
-        {
-          name: 'prompt-exec',
-          type: 'exec',
-          command: "date '+Today is %Y-%m-%d.'",
-          timeout: 3000,
-        },
-        {
-          name: 'prompt-slot',
-          type: 'slot',
-          source: 'instructions.additionalBase',
-        },
-      ],
-      reminderSections: [
-        {
-          name: 'reminder-file',
-          type: 'file',
-          path: 'project-root:///README.md',
-        },
-        {
-          name: 'reminder-inline',
-          type: 'inline',
-          content: 'Reminder inline',
-        },
-        {
-          name: 'reminder-exec',
-          type: 'exec',
-          command: 'just info 2>/dev/null',
-          timeout: 1500,
-        },
-        {
-          name: 'reminder-slot',
-          type: 'slot',
-          source: 'session.additionalContext',
-        },
-      ],
-    })
+  beforeEach(async () => {
+    roots = await createResolverRoots()
   })
 
-  test('rejects schema_version 1 templates', () => {
-    expect(() =>
-      parseContextTemplate(`
-schema_version = 1
-
-[[section]]
-name = "platform"
-type = "file"
-path = "platform-prompt.md"
-`)
-    ).toThrow(/schema_version.*2/i)
-  })
-
-  test('rejects section headers in v2 templates', () => {
-    expect(() =>
-      parseContextTemplate(`
-schema_version = 2
-
-[[section]]
-name = "platform"
-type = "file"
-path = "AGENT_MOTD.md"
-`)
-    ).toThrow(/section|prompt|reminder/i)
+  afterEach(async () => {
+    await removeResolverRoots(roots)
   })
 
   test.each([
     [
-      'rejects non-positive top-level max_chars',
-      `
-schema_version = 2
-max_chars = 0
-`,
+      'schema_version 1',
+      'schema_version = 1\n\n[[section]]\nname = "platform"\ntype = "file"\npath = "platform-prompt.md"\n',
+      'schema_version must be 2, received 1',
     ],
     [
-      'rejects non-integer top-level max_chars',
-      `
-schema_version = 2
-max_chars = 1.5
-`,
+      'a v1 [[section]] header in a v2 template',
+      'schema_version = 2\n\n[[section]]\nname = "platform"\ntype = "file"\npath = "AGENT_MOTD.md"\n',
+      'does not support [[section]]; use [[prompt]] and [[reminder]]',
     ],
     [
-      'rejects non-positive section max_chars',
-      `
-schema_version = 2
-
-[[prompt]]
-name = "services"
-type = "exec"
-command = "stackctl status dev --brief"
-max_chars = -1
-`,
+      'a non-positive top-level max_chars',
+      'schema_version = 2\nmax_chars = 0\n',
+      'Context template max_chars must be a positive integer, received 0',
     ],
     [
-      'rejects non-integer section max_chars',
-      `
-schema_version = 2
-
-[[reminder]]
-name = "project-tooling"
-type = "exec"
-command = "just info"
-max_chars = 9.1
-`,
+      'a non-integer top-level max_chars',
+      'schema_version = 2\nmax_chars = 1.5\n',
+      'Context template max_chars must be a positive integer, received 1.5',
     ],
-  ])('%s', (_label, input) => {
-    expect(() => parseContextTemplate(input)).toThrow(/max_chars/i)
-  })
+    [
+      'a non-positive section max_chars',
+      'schema_version = 2\n\n[[prompt]]\nname = "services"\ntype = "exec"\ncommand = "stackctl status dev --brief"\nmax_chars = -1\n',
+      'prompt[1].max_chars must be a positive integer, received -1',
+    ],
+    [
+      'a non-integer section max_chars',
+      'schema_version = 2\n\n[[reminder]]\nname = "project-tooling"\ntype = "exec"\ncommand = "just info"\nmax_chars = 9.1\n',
+      'reminder[1].max_chars must be a positive integer, received 9.1',
+    ],
+    [
+      'a slot section without a source',
+      'schema_version = 2\n\n[[prompt]]\nname = "additional-base"\ntype = "slot"\n',
+      'prompt[1] (additional-base).source must be a non-empty string',
+    ],
+    [
+      'a non-string when.exists',
+      'schema_version = 2\n\n[[reminder]]\nname = "project-tooling"\ntype = "exec"\ncommand = "just info"\nwhen = { exists = true }\n',
+      'reminder[1].when.exists must be a string, received true',
+    ],
+    [
+      'an unknown when predicate key',
+      'schema_version = 2\n\n[[prompt]]\nname = "platform"\ntype = "file"\npath = "AGENT_MOTD.md"\nwhen = { runMode = "heartbeat", branch = "main" }\n',
+      'prompt[1].when.branch is not supported',
+    ],
+    [
+      'an unknown when.taskField',
+      inlineSection('prompt', 'when = { taskField = "owner" }'),
+      'prompt[1].when.taskField must be one of id, phase, role, requiredEvidence, hints, received "owner"',
+    ],
+    [
+      'an array where the when table belongs',
+      inlineSection('prompt', 'when = []'),
+      'prompt[1].when must be a TOML table, received an array',
+    ],
+    [
+      'a section declaring both content and parts',
+      inlineSection('prompt', 'parts = [{ content = "b" }]'),
+      'prompt[1] (x) must declare either content or parts, not both',
+    ],
+    [
+      'an unsupported wrap key indent',
+      wrapSection('prompt', 'prefix = ">"\nindent = "left"'),
+      'prompt[1].wrap.indent is not supported; only prefix and suffix are allowed',
+    ],
+    [
+      'an unsupported wrap key align',
+      wrapSection('prompt', 'prefix = ">"\nalign = "left"'),
+      'prompt[1].wrap.align is not supported; only prefix and suffix are allowed',
+    ],
+    [
+      'a numeric wrap prefix',
+      wrapSection('reminder', 'prefix = 42'),
+      'reminder[1].wrap.prefix must be a string, received 42',
+    ],
+    [
+      'an array wrap suffix',
+      wrapSection('reminder', 'suffix = ["a", "b"]'),
+      'reminder[1].wrap.suffix must be a string, received an array',
+    ],
+    [
+      'a table wrap prefix',
+      wrapSection('reminder', 'prefix = { text = "heading" }'),
+      'reminder[1].wrap.prefix must be a string, received an object',
+    ],
+  ])(
+    'a malformed context template is rejected naming the offending field: %s',
+    async (_label, templateToml, offendingField) => {
+      const error = await inspectTemplate(roots, templateToml).then(
+        () => undefined,
+        (rejected: unknown) => rejected
+      )
 
-  test('requires source for v2 slot sections', () => {
-    expect(() =>
-      parseContextTemplate(`
-schema_version = 2
-
-[[prompt]]
-name = "additional-base"
-type = "slot"
-`)
-    ).toThrow(/source/i)
-  })
-
-  test('validates when.exists is a string', () => {
-    expect(() =>
-      parseContextTemplate(`
-schema_version = 2
-
-[[reminder]]
-name = "project-tooling"
-type = "exec"
-command = "just info"
-when = { exists = true }
-`)
-    ).toThrow(/exists/i)
-  })
-
-  test('rejects unknown when predicate keys', () => {
-    expect(() =>
-      parseContextTemplate(`
-schema_version = 2
-
-[[prompt]]
-name = "platform"
-type = "file"
-path = "AGENT_MOTD.md"
-when = { runMode = "heartbeat", branch = "main" }
-`)
-    ).toThrow(/when|branch/i)
-  })
-
-  test('accepts empty prompt and reminder arrays', () => {
-    const template = parseContextTemplate(`
-schema_version = 2
-mode = "replace"
-`)
-
-    expect(template).toEqual({
-      schemaVersion: 2,
-      mode: 'replace',
-      promptSections: [],
-      reminderSections: [],
-    })
-  })
-
-  test('stores per-section max_chars in both prompt and reminder zones', () => {
-    const template = parseContextTemplate(`
-schema_version = 2
-
-[[prompt]]
-name = "services"
-type = "exec"
-command = "stackctl status dev --brief"
-max_chars = 600
-
-[[reminder]]
-name = "wrkq-context"
-type = "exec"
-command = "wrkq agent-info"
-max_chars = 250
-`)
-
-    expect(template.promptSections).toEqual([
-      {
-        name: 'services',
-        type: 'exec',
-        command: 'stackctl status dev --brief',
-        maxChars: 600,
-      },
-    ])
-
-    expect(template.reminderSections).toEqual([
-      {
-        name: 'wrkq-context',
-        type: 'exec',
-        command: 'wrkq agent-info',
-        maxChars: 250,
-      },
-    ])
-  })
-
-  test('parses when predicates with runMode and exists', () => {
-    const template = parseContextTemplate(`
-schema_version = 2
-
-[[prompt]]
-name = "heartbeat"
-type = "file"
-path = "agent-root:///HEARTBEAT.md"
-when = { runMode = "heartbeat" }
-
-[[reminder]]
-name = "project-tooling"
-type = "exec"
-command = "just info"
-when = { exists = "justfile" }
-
-[[prompt]]
-name = "not-overlay"
-type = "inline"
-content = "static scope"
-when = { envNotEquals = { name = "ASP_CODEX_APP_OVERLAY", value = "1" } }
-`)
-
-    expect(template.promptSections).toEqual([
-      {
-        name: 'heartbeat',
-        type: 'file',
-        path: 'agent-root:///HEARTBEAT.md',
-        when: {
-          runMode: 'heartbeat',
-        },
-      },
-      {
-        name: 'not-overlay',
-        type: 'inline',
-        content: 'static scope',
-        when: {
-          envNotEquals: {
-            name: 'ASP_CODEX_APP_OVERLAY',
-            value: '1',
-          },
-        },
-      },
-    ])
-
-    expect(template.reminderSections).toEqual([
-      {
-        name: 'project-tooling',
-        type: 'exec',
-        command: 'just info',
-        when: {
-          exists: 'justfile',
-        },
-      },
-    ])
-  })
-
-  test('parses section wrap prefix and suffix tables', () => {
-    const template = parseContextTemplate(`
-schema_version = 2
-
-[[reminder]]
-name = "next-step"
-type = "inline"
-content = "Read the task"
-
-[reminder.wrap]
-prefix = "## {{ agent_name }}\\n\\n"
-suffix = "\\n\\nEnd."
-`)
-
-    expect(template.reminderSections[0]).toEqual({
-      name: 'next-step',
-      type: 'inline',
-      content: 'Read the task',
-      wrap: {
-        prefix: '## {{ agent_name }}\n\n',
-        suffix: '\n\nEnd.',
-      },
-    })
-  })
-
-  test.each(['indent', 'align'])('rejects unsupported wrap key %s', (key) => {
-    expect(() =>
-      parseContextTemplate(`
-schema_version = 2
-
-[[prompt]]
-name = "bad-wrap"
-type = "inline"
-content = "body"
-
-[prompt.wrap]
-prefix = ">"
-${key} = "left"
-`)
-    ).toThrow(new RegExp(`wrap.*${key}|${key}.*wrap`, 'i'))
-  })
-
-  test.each([
-    ['numeric prefix', 'prefix = 42'],
-    ['array suffix', 'suffix = ["a", "b"]'],
-    ['table prefix', 'prefix = { text = "heading" }'],
-  ])('rejects non-string wrap %s', (_label, wrapLine) => {
-    expect(() =>
-      parseContextTemplate(`
-schema_version = 2
-
-[[reminder]]
-name = "bad-wrap"
-type = "inline"
-content = "body"
-
-[reminder.wrap]
-${wrapLine}
-`)
-    ).toThrow(/wrap.*(prefix|suffix).*string|(prefix|suffix).*wrap.*string/i)
-  })
+      expect(error).toBeInstanceOf(Error)
+      const message = (error as Error).message
+      expect(message).toContain(`Invalid system prompt template at ${roots.agentsRoot}`)
+      expect(message).toContain(offendingField)
+    }
+  )
 })

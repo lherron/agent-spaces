@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, test } from 'bun:test'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -20,105 +20,78 @@ import {
   getAgentsRoot,
 } from '../store/asp-config.js'
 
-async function makeTempAspHome(
-  configContent?: string
-): Promise<{ aspHome: string; cleanup: () => Promise<void> }> {
-  const aspHome = join(
-    tmpdir(),
-    `asp-config-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
-  )
-  await mkdir(aspHome, { recursive: true })
-  if (configContent !== undefined) {
-    await writeFile(join(aspHome, 'config.toml'), configContent, 'utf8')
-  }
-  return {
-    aspHome,
-    cleanup: async () => {
-      await rm(aspHome, { recursive: true, force: true })
-    },
-  }
-}
-
 describe('getAgentsRoot', () => {
-  test('returns ASP_AGENTS_ROOT env var when set', async () => {
-    const result = getAgentsRoot({
-      env: { ASP_AGENTS_ROOT: '/tmp/my-agents' },
-    })
-    expect(result).toBe('/tmp/my-agents')
-  })
+  type Expected = 'env' | 'config' | 'convention' | 'undefined'
+  test.each<{
+    row: string
+    envRoot?: string
+    config?: string
+    conventionDir: boolean
+    expected: Expected
+  }>([
+    {
+      row: 'env + config.toml + convention dir -> env',
+      envRoot: '/from-env',
+      config: 'agents-root = "/from-config"\n',
+      conventionDir: true,
+      expected: 'env',
+    },
+    {
+      row: 'config.toml + convention dir -> config.toml',
+      config: 'agents-root = "/from-config"\n',
+      conventionDir: true,
+      expected: 'config',
+    },
+    {
+      row: 'convention dir only -> ~/praesidium/var/agents',
+      conventionDir: true,
+      expected: 'convention',
+    },
+    {
+      row: 'HOME without the convention dir -> undefined',
+      conventionDir: false,
+      expected: 'undefined',
+    },
+    {
+      row: 'config.toml with a legacy projects-root key -> agents-root value',
+      config: 'agents-root = "/from-config"\nprojects-root = "/projects-ignored"\n',
+      conventionDir: false,
+      expected: 'config',
+    },
+    {
+      row: 'malformed config.toml -> falls through to the convention dir without throwing',
+      config: '{{{{ this is not valid TOML }}}}!@#$',
+      conventionDir: true,
+      expected: 'convention',
+    },
+  ])(
+    'agents root resolves env first, then config.toml, then the ~/praesidium/var/agents convention: $row',
+    async ({ envRoot, config, conventionDir, expected }) => {
+      const base = await mkdtemp(join(tmpdir(), 'asp-config-precedence-'))
+      const home = join(base, 'home')
+      const aspHome = join(base, 'asp-home')
+      const conventionPath = join(home, 'praesidium', 'var', 'agents')
+      try {
+        await mkdir(aspHome, { recursive: true })
+        await mkdir(home, { recursive: true })
+        if (conventionDir) await mkdir(conventionPath, { recursive: true })
+        if (config !== undefined) await writeFile(join(aspHome, 'config.toml'), config, 'utf8')
 
-  test('reads agents-root from $ASP_HOME/config.toml when env not set', async () => {
-    const { aspHome, cleanup } = await makeTempAspHome('agents-root = "/home/user/agents"\n')
-    try {
-      const result = getAgentsRoot({ aspHome, env: {} })
-      expect(result).toBe('/home/user/agents')
-    } finally {
-      await cleanup()
-    }
-  })
+        const env: Record<string, string | undefined> = { HOME: home }
+        if (envRoot !== undefined) env['ASP_AGENTS_ROOT'] = envRoot
 
-  test('returns undefined when neither env nor config exists', async () => {
-    const { aspHome, cleanup } = await makeTempAspHome()
-    try {
-      const result = getAgentsRoot({ aspHome, env: {} })
-      expect(result).toBeUndefined()
-    } finally {
-      await cleanup()
+        const want = {
+          env: '/from-env',
+          config: '/from-config',
+          convention: conventionPath,
+          undefined: undefined,
+        }[expected]
+        expect(getAgentsRoot({ aspHome, env })).toBe(want)
+      } finally {
+        await rm(base, { recursive: true, force: true })
+      }
     }
-  })
-
-  test('env var takes precedence over config.toml', async () => {
-    const { aspHome, cleanup } = await makeTempAspHome('agents-root = "/from-config"\n')
-    try {
-      const result = getAgentsRoot({
-        aspHome,
-        env: { ASP_AGENTS_ROOT: '/from-env' },
-      })
-      expect(result).toBe('/from-env')
-    } finally {
-      await cleanup()
-    }
-  })
-})
-
-describe('config.toml parsing', () => {
-  test('valid TOML with agents-root', async () => {
-    const { aspHome, cleanup } = await makeTempAspHome('agents-root = "/agents"\n')
-    try {
-      expect(getAgentsRoot({ aspHome, env: {} })).toBe('/agents')
-    } finally {
-      await cleanup()
-    }
-  })
-
-  test('unknown keys are ignored (no crash on old projects-root entries)', async () => {
-    const { aspHome, cleanup } = await makeTempAspHome(
-      'agents-root = "/agents"\nprojects-root = "/projects-ignored"\n'
-    )
-    try {
-      expect(getAgentsRoot({ aspHome, env: {} })).toBe('/agents')
-    } finally {
-      await cleanup()
-    }
-  })
-
-  test('missing config file returns undefined', async () => {
-    const { aspHome, cleanup } = await makeTempAspHome()
-    try {
-      expect(getAgentsRoot({ aspHome, env: {} })).toBeUndefined()
-    } finally {
-      await cleanup()
-    }
-  })
-
-  test('malformed TOML returns undefined (no crash)', async () => {
-    const { aspHome, cleanup } = await makeTempAspHome('{{{{ this is not valid TOML }}}}!@#$')
-    try {
-      expect(getAgentsRoot({ aspHome, env: {} })).toBeUndefined()
-    } finally {
-      await cleanup()
-    }
-  })
+  )
 })
 
 describe('getAgentRootsForProject', () => {
@@ -143,55 +116,48 @@ describe('getAgentRootsForProject', () => {
     }
   })
 
-  test('skips missing project-local agents-root with a warning and keeps canonical root', async () => {
-    const base = join(
-      tmpdir(),
-      `asp-config-project-missing-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    )
-    const projectRoot = join(base, 'project')
-    const canonicalRoot = join(base, 'canonical')
-    try {
-      await mkdir(projectRoot, { recursive: true })
-      await mkdir(canonicalRoot, { recursive: true })
-      await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 2\nagents-root = "agents"\n')
+  test.each<{ row: string; targets: string; warnsMissingRoot: boolean }>([
+    {
+      row: 'declared agents-root that does not exist -> warning',
+      targets: 'schema = 2\nagents-root = "agents"\n',
+      warnsMissingRoot: true,
+    },
+    {
+      row: 'asp-targets.toml without agents-root -> no warnings',
+      targets: 'schema = 2\n',
+      warnsMissingRoot: false,
+    },
+  ])(
+    'project search path keeps only the canonical root and warns only for a declared missing root: $row',
+    async ({ targets, warnsMissingRoot }) => {
+      const base = await mkdtemp(join(tmpdir(), 'asp-config-project-search-'))
+      const projectRoot = join(base, 'project')
+      const canonicalRoot = join(base, 'canonical')
+      try {
+        await mkdir(projectRoot, { recursive: true })
+        await mkdir(canonicalRoot, { recursive: true })
+        await writeFile(join(projectRoot, 'asp-targets.toml'), targets)
 
-      const result = getAgentRootSearchPathForProject(projectRoot, {
-        env: { ASP_AGENTS_ROOT: canonicalRoot },
-      })
-      expect(result.roots).toEqual([canonicalRoot])
-      expect(result.warnings).toEqual([
-        {
-          code: 'declared_agents_root_missing',
-          message: `Declared project agents root does not exist: ${join(projectRoot, 'agents')}`,
-          root: join(projectRoot, 'agents'),
-          projectRoot,
-          declaredPath: 'agents',
-        },
-      ])
-    } finally {
-      await rm(base, { recursive: true, force: true })
+        const result = getAgentRootSearchPathForProject(projectRoot, {
+          env: { ASP_AGENTS_ROOT: canonicalRoot },
+        })
+        expect(result.roots).toEqual([canonicalRoot])
+        expect(result.warnings).toEqual(
+          warnsMissingRoot
+            ? [
+                {
+                  code: 'declared_agents_root_missing',
+                  message: `Declared project agents root does not exist: ${join(projectRoot, 'agents')}`,
+                  root: join(projectRoot, 'agents'),
+                  projectRoot,
+                  declaredPath: 'agents',
+                },
+              ]
+            : []
+        )
+      } finally {
+        await rm(base, { recursive: true, force: true })
+      }
     }
-  })
-
-  test('project without agents-root has canonical-only search path and no warnings', async () => {
-    const base = join(
-      tmpdir(),
-      `asp-config-project-no-key-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    )
-    const projectRoot = join(base, 'project')
-    const canonicalRoot = join(base, 'canonical')
-    try {
-      await mkdir(projectRoot, { recursive: true })
-      await mkdir(canonicalRoot, { recursive: true })
-      await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 2\n')
-
-      const result = getAgentRootSearchPathForProject(projectRoot, {
-        env: { ASP_AGENTS_ROOT: canonicalRoot },
-      })
-      expect(result.roots).toEqual([canonicalRoot])
-      expect(result.warnings).toEqual([])
-    } finally {
-      await rm(base, { recursive: true, force: true })
-    }
-  })
+  )
 })

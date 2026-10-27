@@ -4,6 +4,8 @@
 
 import { test } from 'bun:test'
 import { execFileSync } from 'node:child_process'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ASP_CLI = join(import.meta.dirname, '..', '..', 'bin', 'asp.js')
@@ -27,13 +29,31 @@ export function cliTest(
 
 export type AspResult = { stdout: string; stderr: string; exitCode: number }
 
-/** Run the asp CLI; a nonzero exit is returned, not thrown. */
-export function runAsp(args: string[], env: Record<string, string> = {}): AspResult {
+let scratchAspHome: string | undefined
+
+/**
+ * The ASP_HOME a CLI run gets when the test passes none: one temp dir per test
+ * process, removed on exit. Never the caller's ASP_HOME, which on a dev host is
+ * the live spaces repo (`asp agent ... --dry-run` materializes codex-homes there).
+ */
+export function defaultAspHome(): string {
+  if (scratchAspHome === undefined) {
+    const dir = mkdtempSync(join(tmpdir(), 'asp-cli-test-home-'))
+    scratchAspHome = dir
+    process.once('exit', () => rmSync(dir, { recursive: true, force: true }))
+  }
+  return scratchAspHome
+}
+
+/** Run the asp CLI; a nonzero exit is returned, not thrown. ASP_HOME defaults to {@link defaultAspHome}. */
+export function runAsp(args: string[], env: Record<string, string> = {}, cwd?: string): AspResult {
+  const aspHome = env['ASP_HOME'] ?? defaultAspHome()
   try {
     const stdout = execFileSync('bun', ['run', ASP_CLI, ...args], {
       encoding: 'utf8',
+      cwd,
       timeout: CLI_TEST_TIMEOUT_MS,
-      env: { ...process.env, ...env, NO_COLOR: '1' },
+      env: { ...process.env, ...env, ASP_HOME: aspHome, NO_COLOR: '1' },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     return { stdout, stderr: '', exitCode: 0 }
@@ -88,7 +108,10 @@ export type DryRunSpec = {
 }
 
 /** `asp agent ... --dry-run --json` and its parsed invocation spec. */
-export function agentDryRunSpec(invocation: AgentInvocation): {
+export function agentDryRunSpec(
+  invocation: AgentInvocation,
+  env: Record<string, string> = {}
+): {
   result: AspResult
   spec: DryRunSpec
 } {
@@ -97,7 +120,8 @@ export function agentDryRunSpec(invocation: AgentInvocation): {
       harness: 'claude',
       ...invocation,
       flags: [...(invocation.flags ?? []), '--dry-run', '--json'],
-    })
+    }),
+    env
   )
   return { result, spec: (JSON.parse(result.stdout) as { spec: DryRunSpec }).spec }
 }

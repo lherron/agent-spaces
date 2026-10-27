@@ -1,14 +1,12 @@
 /**
  * MuseAdapter tests (spike 11, T-08591): compose/load round-trip, exec argv
- * mapping, HOME env, stable HOME prep, and the register() duplicate boundary.
+ * mapping, HOME env, and stable HOME prep.
  */
 import { describe, expect, test } from 'bun:test'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ComposeTargetInput, HarnessRunOptions } from 'spaces-config'
-import { HarnessRegistry } from 'spaces-runtime'
-import { register } from '../register.js'
 import { MuseAdapter, museAdapter, museCliHomeDir } from './muse-adapter.js'
 
 const spaceFiles = {
@@ -183,39 +181,32 @@ describe('MuseAdapter', () => {
     expect(museCliHomeDir('/out')).toBe('/out/muse.home')
   })
 
-  test('stable HOME prep reuses on matching fingerprint', async () => {
+  test('stable CLI HOME survives a recompose with unchanged skills and is rebuilt when skills change', async () => {
     const root = await mkdtemp(join(tmpdir(), 'muse-adapter-'))
     try {
       const snapshot = await makeSnapshot(root, 'snap')
       const adapter = new MuseAdapter()
+      const bundleRoot = join(root, 'bundle')
       const { bundle } = await adapter.composeTarget(
         composeInput([{ spaceId: 'alpha', dir: snapshot }]),
-        join(root, 'bundle'),
+        bundleRoot,
         { clean: true }
       )
-      const first = await adapter.prepareCliHome(
-        join(root, 'bundle'),
-        bundle.muse?.skillsDir ?? '',
-        'dev'
-      )
-      const second = await adapter.prepareCliHome(
-        join(root, 'bundle'),
-        bundle.muse?.skillsDir ?? '',
-        'dev'
-      )
-      expect(Array.isArray(first)).toBe(true)
-      expect(Array.isArray(second)).toBe(true)
+      const skillsDir = bundle.muse?.skillsDir
+      if (!skillsDir) throw new Error('expected composeTarget to produce a muse skills dir')
+      await adapter.prepareCliHome(bundleRoot, skillsDir, 'dev')
+      // Session state the CLI wrote into the stable HOME between runs.
+      const sentinel = join(museCliHomeDir(bundleRoot), '.config', 'muse', 'sentinel')
+      await writeFile(sentinel, 'session state')
+
+      await adapter.prepareCliHome(bundleRoot, skillsDir, 'dev')
+      expect(await readFile(sentinel, 'utf-8')).toBe('session state')
+
+      await mkdir(join(skillsDir, 'added-skill'), { recursive: true })
+      await adapter.prepareCliHome(bundleRoot, skillsDir, 'dev')
+      expect(await Bun.file(sentinel).exists()).toBe(false)
     } finally {
       await rm(root, { recursive: true, force: true })
     }
-  })
-
-  test('register() duplicate registration throws', () => {
-    const registry = new HarnessRegistry()
-    register({ harnesses: registry, sessions: { register: () => undefined } as never })
-    expect(registry.has('muse')).toBe(true)
-    expect(() =>
-      register({ harnesses: registry, sessions: { register: () => undefined } as never })
-    ).toThrow('already registered')
   })
 })

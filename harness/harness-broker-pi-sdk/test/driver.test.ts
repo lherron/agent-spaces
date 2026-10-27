@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import type { AgentSessionEvent, ToolDefinition } from '@earendil-works/pi-coding-agent'
-import { type DriverContext, defaultPiAuthStorePath } from 'spaces-harness-broker'
+import { type DriverContext, createBroker, defaultPiAuthStorePath } from 'spaces-harness-broker'
 import type {
   HarnessInvocationSpec,
   InvocationEventEnvelope,
@@ -12,7 +12,6 @@ import type {
 import {
   type PiSdkSession,
   type PiSdkSessionFactoryInput,
-  applyPiSdkAuthentication,
   createPiSdkDriver,
   resolvePiSdkModelReference,
 } from '../src/driver'
@@ -20,8 +19,13 @@ import { inputIdFrom, invocationIdFrom } from './ids'
 
 type CapturedEvent = Pick<InvocationEventEnvelope, 'seq' | 'type' | 'payload'>
 
-test('pi SDK declares ack-backed interrupt landing evidence', () => {
-  expect(createPiSdkDriver().capabilities().interrupt.landingEvidence).toBe('ack')
+test('broker hello declares Pi SDK ack-backed interrupt landing evidence', async () => {
+  const broker = createBroker({ drivers: [createPiSdkDriver()] })
+  const hello = await broker.hello({
+    clientInfo: { name: 'pi-sdk-capabilities' },
+    protocolVersions: ['harness-broker/0.2'],
+  })
+  expect(hello.drivers[0]?.capabilities?.interrupt.landingEvidence).toBe('ack')
 })
 
 describe('native release-worker Pi composition', () => {
@@ -193,27 +197,24 @@ describe('pi SDK model resolution', () => {
     },
   }
 
-  test('resolves an Anthropic-qualified model through its pi provider namespace', () => {
-    expect(
-      resolvePiSdkModelReference(registry, 'anthropic', 'anthropic/claude-sonnet-4-5')
-    ).toEqual({
-      providerId: 'anthropic',
-      modelId: 'claude-sonnet-4-5',
-    })
-  })
-
-  test('resolves an OpenAI-qualified model through the openai-codex pi provider', () => {
-    expect(resolvePiSdkModelReference(registry, 'openai', 'openai-codex/gpt-5.5')).toEqual({
-      providerId: 'openai-codex',
-      modelId: 'gpt-5.5',
-    })
-  })
-
-  test('keeps the ASP provider for an unqualified model id', () => {
-    expect(resolvePiSdkModelReference(registry, 'openai', 'gpt-4.1-nano')).toEqual({
-      providerId: 'openai',
-      modelId: 'gpt-4.1-nano',
-    })
+  test.each([
+    {
+      provider: 'anthropic',
+      model: 'anthropic/claude-sonnet-4-5',
+      expected: { providerId: 'anthropic', modelId: 'claude-sonnet-4-5' },
+    },
+    {
+      provider: 'openai',
+      model: 'openai-codex/gpt-5.5',
+      expected: { providerId: 'openai-codex', modelId: 'gpt-5.5' },
+    },
+    {
+      provider: 'openai',
+      model: 'gpt-4.1-nano',
+      expected: { providerId: 'openai', modelId: 'gpt-4.1-nano' },
+    },
+  ])('model $model resolves to its Pi provider and model id', ({ provider, model, expected }) => {
+    expect(resolvePiSdkModelReference(registry, provider, model)).toEqual(expected)
   })
 })
 
@@ -263,7 +264,10 @@ describe('pi SDK authentication modes', () => {
       })
     )
     const priorKey = process.env['OPENAI_API_KEY']
+    const priorAnthropicToken = process.env['ANTHROPIC_AUTH_TOKEN']
     process.env['OPENAI_API_KEY'] = 'must-not-reach-oauth'
+    process.env['ANTHROPIC_AUTH_TOKEN'] = 'must-not-reach-oauth'
+    const originalEnvironment = { ...process.env }
 
     try {
       const events: CapturedEvent[] = []
@@ -286,6 +290,9 @@ describe('pi SDK authentication modes', () => {
         storeBound: true,
       })
       expect(requireFactoryInput(factoryInput).environment['OPENAI_API_KEY']).toBeUndefined()
+      expect(requireFactoryInput(factoryInput).environment['ANTHROPIC_AUTH_TOKEN']).toBeUndefined()
+      expect(requireFactoryInput(factoryInput).environment['HARNESS_PI_AUTH_STORE']).toBe(authPath)
+      expect(process.env).toEqual(originalEnvironment)
       expect(authNotice(events)).toMatchObject({
         kind: 'auth-resolved',
         providerId: 'openai-codex',
@@ -294,41 +301,54 @@ describe('pi SDK authentication modes', () => {
       })
       expectStartupSequence(events)
 
+      const startupCount = events.length
+      const authNoticeIndex = events.findIndex((event) => event.type === 'driver.notice')
+      expect(authNoticeIndex).toBeGreaterThanOrEqual(0)
       await driver.applyInputNow(userInput())
-      events.push({ type: 'turn.started', payload: { turnId: 'synthetic' } } as CapturedEvent)
-      expect(events.findIndex((event) => event.type === 'driver.notice')).toBeLessThan(
-        events.findIndex((event) => event.type === 'turn.started')
+      expect(events.slice(startupCount).filter((event) => event.type === 'driver.notice')).toEqual(
+        []
       )
     } finally {
       if (priorKey === undefined) process.env['OPENAI_API_KEY'] = undefined
       else process.env['OPENAI_API_KEY'] = priorKey
+      if (priorAnthropicToken === undefined)
+        Reflect.deleteProperty(process.env, 'ANTHROPIC_AUTH_TOKEN')
+      else process.env['ANTHROPIC_AUTH_TOKEN'] = priorAnthropicToken
       await rm(temporaryDir, { recursive: true, force: true })
     }
   })
 
-  test('oauth mode without HARNESS_PI_AUTH_STORE fails a missing default store before session construction', async () => {
-    const temporaryDir = await mkdtemp(join(tmpdir(), 'pi-sdk-auth-default-missing-test-'))
-    const defaultAuthStorePath = join(temporaryDir, '.pi', 'agent', 'auth.json')
-    try {
-      const events: CapturedEvent[] = []
-      let factoryCalled = false
-      const driver = createPiSdkDriver({
-        defaultAuthStorePath,
-        async createSession() {
-          factoryCalled = true
-          return idleSession()
-        },
-      })
-
-      await expect(driver.start(spec('oauth'), createContext(events))).rejects.toThrow(
-        `missing or unreadable: ${defaultAuthStorePath}`
-      )
-      expect(factoryCalled).toBe(false)
-      expect(failure(events)).toMatchObject({ code: 'missing_auth_store' })
-    } finally {
-      await rm(temporaryDir, { recursive: true, force: true })
+  test.each(['missing default store', 'malformed explicit store'])(
+    'oauth mode refuses a %s before session construction',
+    async (row) => {
+      const temporaryDir = await mkdtemp(join(tmpdir(), 'pi-sdk-auth-missing-test-'))
+      const defaultAuthStorePath = join(temporaryDir, '.pi', 'agent', 'auth.json')
+      const explicitPath = join(temporaryDir, 'malformed.json')
+      if (row === 'malformed explicit store') await writeFile(explicitPath, '{not-json')
+      try {
+        const events: CapturedEvent[] = []
+        let factoryCalled = false
+        const driver = createPiSdkDriver({
+          defaultAuthStorePath,
+          async createSession() {
+            factoryCalled = true
+            return idleSession()
+          },
+        })
+        const env =
+          row === 'malformed explicit store' ? { HARNESS_PI_AUTH_STORE: explicitPath } : {}
+        const expectedPath =
+          row === 'malformed explicit store' ? explicitPath : defaultAuthStorePath
+        await expect(driver.start(spec('oauth'), createContext(events, env))).rejects.toThrow(
+          `missing or unreadable: ${expectedPath}`
+        )
+        expect(factoryCalled).toBe(false)
+        expect(failure(events)).toMatchObject({ code: 'missing_auth_store' })
+      } finally {
+        await rm(temporaryDir, { recursive: true, force: true })
+      }
     }
-  })
+  )
 
   test('oauth mode without HARNESS_PI_AUTH_STORE binds the account default Pi store', async () => {
     const temporaryDir = await mkdtemp(join(tmpdir(), 'pi-sdk-auth-default-test-'))
@@ -383,34 +403,13 @@ describe('pi SDK authentication modes', () => {
     }
   })
 
-  test('oauth mode classifies a malformed store as unreadable', async () => {
-    const temporaryDir = await mkdtemp(join(tmpdir(), 'pi-sdk-auth-malformed-test-'))
-    const authPath = join(temporaryDir, 'auth.json')
-    await writeFile(authPath, '{not-json')
-    try {
-      const events: CapturedEvent[] = []
-      let factoryCalled = false
-      const driver = createPiSdkDriver({
-        async createSession() {
-          factoryCalled = true
-          return idleSession()
-        },
-      })
-
-      await expect(
-        driver.start(spec('oauth'), createContext(events, { HARNESS_PI_AUTH_STORE: authPath }))
-      ).rejects.toThrow('missing or unreadable')
-      expect(factoryCalled).toBe(false)
-      expect(failure(events)).toMatchObject({ code: 'missing_auth_store' })
-    } finally {
-      await rm(temporaryDir, { recursive: true, force: true })
-    }
-  })
-
-  test('oauth mode rejects an api_key-typed provider entry', async () => {
+  test.each([
+    { row: 'api_key-typed provider', store: { openai: { type: 'api_key', key: 'test-key' } } },
+    { row: 'absent provider', store: { anthropic: { type: 'api_key', key: 'unused' } } },
+  ])('oauth mode rejects an $row entry before session construction', async ({ store }) => {
     const temporaryDir = await mkdtemp(join(tmpdir(), 'pi-sdk-auth-mismatch-test-'))
     const authPath = join(temporaryDir, 'auth.json')
-    await writeFile(authPath, JSON.stringify({ openai: { type: 'api_key', key: 'test-key' } }))
+    await writeFile(authPath, JSON.stringify(store))
     try {
       const events: CapturedEvent[] = []
       let factoryCalled = false
@@ -429,57 +428,6 @@ describe('pi SDK authentication modes', () => {
     } finally {
       await rm(temporaryDir, { recursive: true, force: true })
     }
-  })
-
-  test('oauth mode rejects an absent provider entry', async () => {
-    const temporaryDir = await mkdtemp(join(tmpdir(), 'pi-sdk-auth-absent-test-'))
-    const authPath = join(temporaryDir, 'auth.json')
-    await writeFile(authPath, JSON.stringify({ anthropic: { type: 'api_key', key: 'unused' } }))
-    try {
-      const events: CapturedEvent[] = []
-      const driver = createPiSdkDriver({ createSession: async () => idleSession() })
-
-      await expect(
-        driver.start(spec('oauth'), createContext(events, { HARNESS_PI_AUTH_STORE: authPath }))
-      ).rejects.toThrow('not OAuth-typed')
-      expect(failure(events)).toMatchObject({ code: 'auth_mode_mismatch' })
-    } finally {
-      await rm(temporaryDir, { recursive: true, force: true })
-    }
-  })
-
-  test('oauth authentication never applies a runtime API key', async () => {
-    const calls: Array<[string, string]> = []
-    const runtime = {
-      async setRuntimeApiKey(providerId: string, key: string) {
-        calls.push([providerId, key])
-      },
-    }
-    await applyPiSdkAuthentication(
-      runtime,
-      {
-        authMode: 'oauth',
-        authPath: '/managed/auth.json',
-        providerId: 'anthropic',
-        credentialType: 'oauth',
-        storeBound: true,
-      },
-      { ANTHROPIC_API_KEY: 'must-not-apply' }
-    )
-    expect(calls).toEqual([])
-
-    await applyPiSdkAuthentication(
-      runtime,
-      {
-        authMode: 'api-key',
-        authPath: '/fresh/auth.json',
-        providerId: 'anthropic',
-        credentialType: 'api-key',
-        storeBound: false,
-      },
-      { ANTHROPIC_API_KEY: 'expected-key' }
-    )
-    expect(calls).toEqual([['anthropic', 'expected-key']])
   })
 })
 

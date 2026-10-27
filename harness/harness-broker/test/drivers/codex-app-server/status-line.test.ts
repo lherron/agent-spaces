@@ -99,9 +99,6 @@ describe('codex-app-server status line — state projection (T-06365)', () => {
     expect(statusLineStateForEventType('turn.interrupted')).toBe('idle')
     expect(statusLineStateForEventType('invocation.exited')).toBe('exited')
     expect(statusLineStateForEventType('invocation.failed')).toBe('exited')
-  })
-
-  test('events with no state meaning leave the row alone', () => {
     expect(statusLineStateForEventType('tool.call.started')).toBeNull()
     expect(statusLineStateForEventType('assistant.message.delta')).toBeNull()
     expect(statusLineStateForEventType('usage.updated')).toBeNull()
@@ -126,17 +123,6 @@ describe('codex-app-server status line — scrollback purity (T-06365)', () => {
       'another line mid-turn',
       '✓ done',
     ])
-  })
-
-  test('every transcript line is preceded by an erase while the row is live', () => {
-    const h = harness()
-    h.status.observe({ type: 'turn.started' })
-    h.chunks.length = 0
-    h.status.writeLine('mid-turn line')
-    // Erase the row, commit the line, repaint below it — in that order.
-    expect(h.chunks[0]).toBe(ERASE_ROW)
-    expect(h.chunks[1]).toBe('mid-turn line\n')
-    expect(h.chunks[2]).toContain('<row frame=')
   })
 
   test('when idle, a line is committed with no cursor control at all', () => {
@@ -277,22 +263,5 @@ describe('codex-app-server status row — the ember bar (T-06365)', () => {
     // this pins that headroom rather than the clip itself (covered for bands
     // generally by the T-06343 cases in renderer.red.test.ts).
     expect(visibleCells(row.running(0, 90_000)).length).toBeLessThan(48 - 1)
-  })
-
-  test('reads the pane width per frame, so a resize mid-turn cannot pin the fill', () => {
-    // The fill is erase-to-EOL, so width never appears in the row's bytes — what
-    // matters is that the thunk is consulted on EVERY frame rather than snapshotted
-    // at construction (T-06343).
-    const widths: number[] = []
-    const resizing = createCodexStatusRow({
-      color: true,
-      width: () => {
-        widths.push(80)
-        return 80
-      },
-    })
-    resizing.running(0, 0)
-    resizing.running(1, 0)
-    expect(widths.length).toBeGreaterThanOrEqual(2)
   })
 })

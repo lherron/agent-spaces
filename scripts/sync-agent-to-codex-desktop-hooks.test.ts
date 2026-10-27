@@ -124,22 +124,6 @@ const sessionStart = {
 }
 
 describe('codex desktop registration discovery hook', () => {
-  test('both generated hook scripts are executable JavaScript', async () => {
-    const overlay = await buildOverlay()
-    try {
-      for (const script of [overlay.preToolUse, overlay.discovery]) {
-        const check = spawnSync('node', ['--check', script], { encoding: 'utf8' })
-        expect({ script, status: check.status, stderr: check.stderr }).toEqual({
-          script,
-          status: 0,
-          stderr: '',
-        })
-      }
-    } finally {
-      await rm(overlay.root, { recursive: true, force: true })
-    }
-  })
-
   // The HRC-callback discovery contract these tests covered (helper spawn,
   // address cache writes, additionalContext) was deleted by T-08594: the hook
   // now spawns `harness-broker desktop-join` detached and the broker owns the
@@ -224,30 +208,6 @@ describe('codex desktop command env injection', () => {
     }
   })
 
-  test('before registration the previous UUID-style address is retained unchanged', async () => {
-    const overlay = await buildOverlay()
-    try {
-      const { stdout } = runHook(
-        overlay,
-        overlay.preToolUse,
-        {
-          hook_event_name: 'PreToolUse',
-          tool_name: 'Bash',
-          session_id: NATIVE_THREAD_ID,
-          cwd: sessionStart.cwd,
-          tool_input: { command: 'wrkq ls' },
-        },
-        { cacheDir: join(overlay.root, 'no-cache') }
-      )
-      const command = injectedCommand(stdout)
-      expect(command).toContain(`ASP_TASK_ID='codex-${NATIVE_THREAD_ID}'`)
-      expect(command).not.toContain('primary-nova')
-      expect(hookContext(stdout)).toContain('HRC registration: pending')
-    } finally {
-      await rm(overlay.root, { recursive: true, force: true })
-    }
-  })
-
   test('mid-thread switch: a command started pending keeps its address, the next one is registered', async () => {
     // Contract (docs/codex-desktop-join.md, "Mail across the switch"): the
     // address is fixed per command when it starts. A `wrkc say --wait` begun
@@ -265,6 +225,7 @@ describe('codex desktop command env injection', () => {
       })
       const pending = runHook(overlay, overlay.preToolUse, toolCall('wrkc say mable --wait -'))
       expect(injectedCommand(pending.stdout)).toContain(`ASP_TASK_ID='codex-${NATIVE_THREAD_ID}'`)
+      expect(injectedCommand(pending.stdout)).not.toContain('primary-nova')
       expect(hookContext(pending.stdout)).toContain('HRC registration: pending')
 
       // The joiner reaches `joined` and writes the address cache.

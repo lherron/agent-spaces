@@ -126,7 +126,7 @@ describe('ClaudeAdapter.composeTarget', () => {
     }
   })
 
-  test('composes settings from inputs', async () => {
+  test('space settings inputs land in the composed settings.json', async () => {
     const input = composeInput(
       [artifact('space1', 'abc', artifact1Dir, 'plugin1')],
       [{ model: 'opus', permissionMode: 'full' } as SpaceSettings]
@@ -134,7 +134,8 @@ describe('ClaudeAdapter.composeTarget', () => {
 
     const result = await adapter.composeTarget(input, outputDir, {})
 
-    expect(result.bundle.settingsPath).toBeDefined()
+    const settings = await readSettings(result)
+    expect(settings.model).toBe('opus')
   })
 
   test('installs statusline script and adds to settings', async () => {

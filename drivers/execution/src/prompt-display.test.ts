@@ -25,19 +25,6 @@ function footer(lines: string[]): string {
 }
 
 describe('decodeForDisplay', () => {
-  test('decodes a lone content envelope to the markdown it carries', () => {
-    const markdown = '<task_tracking_rules>\n# Heading\n\n- bullet "quoted"\n'
-    expect(decodeForDisplay(JSON.stringify({ content: markdown }))).toBe(markdown)
-  })
-
-  test('decodes an envelope section and leaves its siblings byte-for-byte', () => {
-    const markdown = '# wrkq\n\nline two'
-    const siblings = ['## Ready promises\n\n- PR-00008', '## Agent memory\n\n- a note']
-    const joined = [JSON.stringify({ content: markdown }), ...siblings].join(SECTION_SEPARATOR)
-
-    expect(decodeForDisplay(joined)).toBe([markdown, ...siblings].join(SECTION_SEPARATOR))
-  })
-
   test.each([
     ['plain markdown', '## Ready promises\n\n- PR-00008'],
     ['an extra key', '{"content":"x","other":1}'],
@@ -72,6 +59,16 @@ describe('renderSection', () => {
     expect(body(rendered)).not.toContain('\\u003c')
   })
 
+  test('prints an envelope section decoded and its sibling sections byte-for-byte', () => {
+    const markdown = '# wrkq\n\nline two'
+    const siblings = ['## Ready promises\n\n- PR-00008', '## Agent memory\n\n- a note']
+    const joined = [JSON.stringify({ content: markdown }), ...siblings].join(SECTION_SEPARATOR)
+
+    expect(body(renderSection(section(joined)))).toBe(
+      [markdown, ...siblings].join(SECTION_SEPARATOR)
+    )
+  })
+
   test('reports the undecoded size so budget comparisons do not move', () => {
     const markdown = '# wrkq\n\nline two'
     const envelope = JSON.stringify({ content: markdown })
@@ -85,13 +82,5 @@ describe('renderSection', () => {
     expect(footer(rendered)).toContain(`${envelope.length.toLocaleString()} chars`)
     expect(footer(rendered)).toContain(`reminder.wrkq-context=${envelope.length}`)
     expect(footer(rendered)).not.toContain(`${markdown.length.toLocaleString()} chars`)
-  })
-
-  test('leaves a section that carries no envelope untouched', () => {
-    const content = '## Ready promises\n\n- PR-00008'
-    const rendered = renderSection(section(content))
-
-    expect(body(rendered)).toBe(content)
-    expect(footer(rendered)).toContain(`${content.length} chars`)
   })
 })

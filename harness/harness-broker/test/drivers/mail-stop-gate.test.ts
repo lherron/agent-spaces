@@ -137,6 +137,26 @@ describe('mail Stop gate', () => {
         '{"decision":"block","reason":"Drain envelope env_1 with hrcmail inbox."}'
       )
 
+      const quietSocket = join(root, 'claude-quiet.sock')
+      const quietListener = await listenForHookEnvelopes<ClaudeCodeHookEnvelope>(
+        quietSocket,
+        () => undefined
+      )
+      let quietOutput = ''
+      await runClaudeHookDecisionBridge({
+        socketPath: quietSocket,
+        stdin: stdin(rawStop),
+        env: { ...env, HARNESS_BROKER_CALLBACK_SOCKET: quietSocket },
+        stdout: {
+          write(chunk) {
+            quietOutput += String(chunk)
+            return true
+          },
+        },
+      })
+      await quietListener.close()
+      expect(quietOutput).toBe('')
+
       const codexSocket = join(root, 'codex.sock')
       let codexEnvelope: CodexCliTmuxHookEnvelope | undefined
       const codexListener = await listenForHookEnvelopes<CodexCliTmuxHookEnvelope>(

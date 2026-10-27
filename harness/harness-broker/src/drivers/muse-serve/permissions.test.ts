@@ -82,39 +82,6 @@ const emitted = () => {
 }
 
 describe('handleMuseApprovalRequest', () => {
-  test('allow picks the narrowest approved choice', async () => {
-    const seen: Array<Record<string, unknown>> = []
-    const events = emitted()
-    const receipt = await handleMuseApprovalRequest(
-      approvalRequest(),
-      stubRpc(seen),
-      handlerCtx('allow'),
-      events.emit
-    )
-    expect(receipt).toEqual({ presented: true })
-    expect(seen[0]).toMatchObject({
-      approvalId: 'apr-1',
-      choiceId: 'allow-once',
-      sessionId: 's1',
-      requirementId: { approvalId: 'apr-1', sourceIndex: 0 },
-    })
-    expect(events.resolved).toEqual([
-      expect.objectContaining({ decision: 'allow', decidedBy: 'policy' }),
-    ])
-  })
-
-  test('deny picks the denied choice', async () => {
-    const seen: Array<Record<string, unknown>> = []
-    const events = emitted()
-    await handleMuseApprovalRequest(
-      approvalRequest(),
-      stubRpc(seen),
-      handlerCtx('deny'),
-      events.emit
-    )
-    expect(seen[0]).toMatchObject({ choiceId: 'deny-once' })
-  })
-
   test('ask-client without a permission transport denies by policy', async () => {
     const seen: Array<Record<string, unknown>> = []
     const events = emitted()

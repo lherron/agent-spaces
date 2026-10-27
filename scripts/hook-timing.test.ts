@@ -3,7 +3,6 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import { buildHookStats, percentile } from './hook-stats.ts'
 import { HOOK_TIMINGS_PATH_ENV, readTimingRecords } from './lib/hook-timing.ts'
 import type { HookStepTimingRecord, HookTimingRecord, TimingRecord } from './lib/hook-timing.ts'
 
@@ -243,16 +242,17 @@ describe('hook timing statistics', () => {
     expect(output).toContain('--since <duration>')
   })
 
-  test('uses nearest-rank percentiles and groups hook and step outcomes', () => {
-    expect(percentile([100, 200, 300, 400], 0.5)).toBe(200)
-    expect(percentile([100, 200, 300, 400], 0.95)).toBe(400)
-
+  test('hook-stats reports nearest-rank percentiles and outcome counts per hook and step, skipping malformed lines', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'agent-spaces-hook-records-'))
+    temporaryRoots.push(root)
+    const path = join(root, 'timings.jsonl')
+    const recordedAt = new Date().toISOString()
     const base = {
       schemaVersion: 1 as const,
-      recordedAt: '2026-08-28T20:00:00.000Z',
+      recordedAt,
       runId: 'run-1',
       hook: 'pre-commit' as const,
-      startedAt: '2026-08-28T19:59:59.000Z',
+      startedAt: recordedAt,
       exitCode: 0,
       change: { kind: 'code' as const, fileCount: 1 },
     }
@@ -260,51 +260,70 @@ describe('hook timing statistics', () => {
       {
         ...base,
         recordType: 'hook',
-        finishedAt: '2026-08-28T20:00:00.000Z',
+        finishedAt: recordedAt,
         durationMs: 1000,
         result: 'passed',
         platform: 'darwin',
         arch: 'arm64',
         bunVersion: '1.3.14',
       },
-      {
-        ...base,
-        recordType: 'step',
-        step: 'build',
-        durationMs: 900,
-        result: 'passed',
-      },
-      {
-        ...base,
-        runId: 'run-2',
-        recordType: 'step',
-        step: 'build',
-        durationMs: 50,
-        result: 'skipped',
-      },
+      ...(
+        [
+          [100, 'passed'],
+          [200, 'passed'],
+          [300, 'failed'],
+          [400, 'skipped'],
+        ] as const
+      ).map(
+        ([durationMs, result], index): HookStepTimingRecord => ({
+          ...base,
+          runId: `run-${index + 1}`,
+          recordType: 'step',
+          step: 'build',
+          durationMs,
+          result,
+        })
+      ),
     ]
-
-    const stats = buildHookStats(records, Date.parse('2026-08-28T19:00:00.000Z'))
-    expect(stats.hookStats[0]?.durations).toEqual({
-      count: 1,
-      p50Ms: 1000,
-      p95Ms: 1000,
-      maxMs: 1000,
-    })
-    expect(stats.stepStats[0]?.results).toEqual({ passed: 1, failed: 0, skipped: 1 })
-  })
-
-  test('ignores malformed JSONL records without discarding valid history', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'agent-spaces-hook-records-'))
-    temporaryRoots.push(root)
-    const path = join(root, 'timings.jsonl')
     await writeFile(
       path,
-      `${JSON.stringify({ schemaVersion: 1, recordType: 'step', runId: 'one', durationMs: 3 })}\nnot-json\n`
+      `${records.map((record) => JSON.stringify(record)).join('\n')}\nnot-json\n`
     )
 
-    const result = await readTimingRecords(path)
-    expect(result.records).toHaveLength(1)
-    expect(result.malformedLines).toBe(1)
+    const report = JSON.parse(
+      run(
+        [
+          'bun',
+          join(repoRoot, 'scripts', 'hook-stats.ts'),
+          '--json',
+          '--since',
+          '1d',
+          '--path',
+          path,
+        ],
+        repoRoot
+      )
+    ) as {
+      malformedLines: number
+      hookStats: unknown[]
+      stepStats: unknown[]
+    }
+
+    expect(report.malformedLines).toBe(1)
+    expect(report.hookStats).toEqual([
+      {
+        hook: 'pre-commit',
+        durations: { count: 1, p50Ms: 1000, p95Ms: 1000, maxMs: 1000 },
+        results: { passed: 1, failed: 0, skipped: 0 },
+      },
+    ])
+    // Nearest rank over [100, 200, 300, 400]: p50 = 200, p95 = 400 (not interpolated).
+    expect(report.stepStats).toEqual([
+      {
+        step: 'pre-commit/build',
+        durations: { count: 4, p50Ms: 200, p95Ms: 400, maxMs: 400 },
+        results: { passed: 2, failed: 1, skipped: 1 },
+      },
+    ])
   })
 })

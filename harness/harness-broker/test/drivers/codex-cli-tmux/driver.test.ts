@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { afterAll, describe, expect, test } from 'bun:test'
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,9 +7,14 @@ import type {
   InvocationEventEnvelope,
   InvocationInput,
 } from 'spaces-harness-broker-protocol'
+import { buildClaudeHookSocketPath } from '../../../src/drivers/claude-code-tmux/driver'
 import type { createCodexCliTmuxDriver } from '../../../src/drivers/codex-cli-tmux/driver'
 import type { DriverContext } from '../../../src/drivers/driver'
 import { inputIdFrom, invocationIdFrom, turnIdFrom } from '../../ids'
+
+// Short owned directory keeps unix socket paths within the platform limit.
+const socketRoot = mkdtempSync('/tmp/codex-driver-')
+afterAll(() => rmSync(socketRoot, { recursive: true, force: true }))
 
 type TmuxExecCall = {
   argv: string[]
@@ -125,7 +130,7 @@ const recordingExec = (calls: TmuxExecCall[]) => {
 const paneLease = (overrides: Partial<TerminalSurfaceLease> = {}): TerminalSurfaceLease => ({
   kind: 'tmux-pane',
   ownership: 'hrc',
-  socketPath: '/tmp/harness-broker/codex-tmux.sock',
+  socketPath: `${socketRoot}/codex-tmux.sock`,
   sessionId: '$9',
   windowId: '@4',
   paneId: '%42',
@@ -181,12 +186,11 @@ const pastedTexts = (calls: TmuxExecCall[]): string[] =>
 
 function launchArtifact(calls: TmuxExecCall[]): LaunchArtifact {
   const launchCommand = pastedTexts(calls).find((text) =>
-    text.includes('/tmp/harness-broker/codex-hooks.sock.codex.launch.json')
+    text.includes(`${socketRoot}/codex-hooks.sock.codex.launch.json`)
   )
   if (launchCommand === undefined) throw new Error('tmux launch artifact command was not pasted')
-  const match = launchCommand.match(/\/tmp\/harness-broker\/codex-hooks\.sock\.codex\.launch\.json/)
-  if (!match) throw new Error(`unable to parse launch artifact path from: ${launchCommand}`)
-  return JSON.parse(readFileSync(match[0], 'utf8')) as LaunchArtifact
+  const artifactPath = join(socketRoot, 'codex-hooks.sock.codex.launch.json')
+  return JSON.parse(readFileSync(artifactPath, 'utf8')) as LaunchArtifact
 }
 
 const expectNoForbiddenLifecycleCommands = (calls: TmuxExecCall[]): void => {
@@ -226,13 +230,13 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     const createDriver = await loadFactory()
     const driver = createDriver({
       tmux: {
-        socketPath: '/tmp/harness-broker/codex-tmux.sock',
+        socketPath: `${socketRoot}/codex-tmux.sock`,
         tmuxBin: '/opt/bin/tmux',
         exec: recordingExec([]),
       },
       hooks: {
         listen: async () => ({
-          socketPath: '/tmp/harness-broker/codex-hooks.sock',
+          socketPath: `${socketRoot}/codex-hooks.sock`,
           close: async () => undefined,
         }),
       },
@@ -298,65 +302,48 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     ).toBe(false)
   })
 
-  test('advertises no live driver attach-to-existing-surface support distinct from operator attach', async () => {
-    const createDriver = await loadFactory()
-    const driver = createDriver({
-      tmux: {
-        socketPath: '/tmp/harness-broker/codex-tmux.sock',
-        tmuxBin: '/opt/bin/tmux',
-        exec: recordingExec([]),
-      },
-      hooks: {
-        listen: async () => ({
-          socketPath: '/tmp/harness-broker/codex-hooks.sock',
-          close: async () => undefined,
-        }),
-      },
-      now,
-    })
+  test.each([
+    { prefix: 'codex-hooks', load: loadSocketPathBuilder },
+    { prefix: 'claude-hooks', load: async () => buildClaudeHookSocketPath },
+  ])(
+    'runtime-scoped $prefix callback socket path is per invocation/runtime and stays under hooks dir',
+    async ({ prefix, load }) => {
+      const buildSocketPath = await load()
+      const hooksDir = `${socketRoot}/runtime-a/hooks`
+      const first = buildSocketPath(hooksDir, {
+        invocationId: 'inv_runtime_scope_first',
+        runtimeId: 'runtime-a',
+      })
+      const second = buildSocketPath(hooksDir, {
+        invocationId: 'inv_runtime_scope_second',
+        runtimeId: 'runtime-b',
+      })
 
-    // T-01794 Phase D: control.attach means operator can attach to the TUI.
-    // It must not imply the broker can restart and reattach this driver to an
-    // already-live surface; that separate capability defaults false.
-    expect(driver.capabilities().control.attach).toBe(true)
-    expect(driver.capabilities().control.driverAttachExistingSurface).toBe(false)
-  })
-
-  test('runtime-scoped hook callback socket path is per invocation/runtime and stays under hooks dir', async () => {
-    const buildSocketPath = await loadSocketPathBuilder()
-    const hooksDir = '/tmp/praesidium/runtime/broker-ipc/runtime-a/hooks'
-    const first = buildSocketPath(hooksDir, {
-      invocationId: 'inv_codex_runtime_scope_first',
-      runtimeId: 'runtime-codex-a',
-    })
-    const second = buildSocketPath(hooksDir, {
-      invocationId: 'inv_codex_runtime_scope_second',
-      runtimeId: 'runtime-codex-b',
-    })
-
-    // T-01794 Phase D: codex-cli-tmux must stop sharing the legacy global
-    // /tmp/harness-broker/codex-hooks.sock between durable broker runtimes.
-    expect(first).toStartWith(`${hooksDir}/`)
-    expect(second).toStartWith(`${hooksDir}/`)
-    expect(first).not.toBe('/tmp/harness-broker/codex-hooks.sock')
-    expect(second).not.toBe('/tmp/harness-broker/codex-hooks.sock')
-    expect(first).not.toBe(second)
-    expect(first.split('/').at(-1)).toMatch(/^codex-hooks\.[0-9a-f]{16}\.sock$/)
-    expect(second.split('/').at(-1)).toMatch(/^codex-hooks\.[0-9a-f]{16}\.sock$/)
-  })
+      // T-01794 Phase D: tmux drivers must stop sharing the legacy global
+      // /tmp/harness-broker/<prefix>.sock between durable broker runtimes.
+      expect(first).toStartWith(`${hooksDir}/`)
+      expect(second).toStartWith(`${hooksDir}/`)
+      expect(first).not.toBe(`/tmp/harness-broker/${prefix}.sock`)
+      expect(second).not.toBe(`/tmp/harness-broker/${prefix}.sock`)
+      expect(first).not.toBe(second)
+      const tokenShape = new RegExp(`^${prefix}\\.[0-9a-f]{16}\\.sock$`)
+      expect(first.split('/').at(-1)).toMatch(tokenShape)
+      expect(second.split('/').at(-1)).toMatch(tokenShape)
+    }
+  )
 
   test('rejects start when runtime terminalSurface is absent', async () => {
     const createDriver = await loadFactory()
     const tmuxCalls: TmuxExecCall[] = []
     const driver = createDriver({
       tmux: {
-        socketPath: '/tmp/harness-broker/hidden-default-should-not-be-used.sock',
+        socketPath: `${socketRoot}/hidden-default-should-not-be-used.sock`,
         tmuxBin: '/opt/bin/tmux',
         exec: recordingExec(tmuxCalls),
       },
       hooks: {
         listen: async () => ({
-          socketPath: '/tmp/harness-broker/codex-hooks.sock',
+          socketPath: `${socketRoot}/codex-hooks.sock`,
           close: async () => undefined,
         }),
       },
@@ -374,13 +361,13 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     const tmuxCalls: TmuxExecCall[] = []
     const driver = createDriver({
       tmux: {
-        socketPath: '/tmp/harness-broker/hidden-default-should-not-be-used.sock',
+        socketPath: `${socketRoot}/hidden-default-should-not-be-used.sock`,
         tmuxBin: '/opt/bin/tmux',
         exec: recordingExec(tmuxCalls),
       },
       hooks: {
         listen: async () => ({
-          socketPath: '/tmp/harness-broker/codex-hooks.sock',
+          socketPath: `${socketRoot}/codex-hooks.sock`,
           close: async () => undefined,
         }),
       },
@@ -403,7 +390,7 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     const tmuxCalls: TmuxExecCall[] = []
     const driver = createDriver({
       tmux: {
-        socketPath: '/tmp/harness-broker/hidden-default-should-not-be-used.sock',
+        socketPath: `${socketRoot}/hidden-default-should-not-be-used.sock`,
         tmuxBin: '/opt/bin/tmux',
         exec: async (argv, options) => {
           tmuxCalls.push({ argv, env: options?.env })
@@ -413,7 +400,7 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
       },
       hooks: {
         listen: async () => ({
-          socketPath: '/tmp/harness-broker/codex-hooks.sock',
+          socketPath: `${socketRoot}/codex-hooks.sock`,
           close: async () => undefined,
         }),
       },
@@ -427,7 +414,7 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
       expect.arrayContaining([
         '/opt/bin/tmux',
         '-S',
-        '/tmp/harness-broker/codex-tmux.sock',
+        `${socketRoot}/codex-tmux.sock`,
         'display-message',
         '-t',
         '%42',
@@ -442,13 +429,13 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     const lease = paneLease()
     const driver = createDriver({
       tmux: {
-        socketPath: '/tmp/harness-broker/hidden-default-should-not-be-used.sock',
+        socketPath: `${socketRoot}/hidden-default-should-not-be-used.sock`,
         tmuxBin: '/opt/bin/tmux',
         exec: recordingExec(tmuxCalls),
       },
       hooks: {
         listen: async () => ({
-          socketPath: '/tmp/harness-broker/codex-hooks.sock',
+          socketPath: `${socketRoot}/codex-hooks.sock`,
           close: async () => undefined,
         }),
       },
@@ -484,9 +471,7 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     expect(artifact.argv).toEqual(['/opt/bin/codex', '--', 'launch'])
     expect(artifact.env?.['OPENAI_API_KEY']).toBe('test-key')
     expect(artifact.env?.['HARNESS_BROKER_INVOCATION_ID']).toBe(invocationId)
-    expect(artifact.env?.['HARNESS_BROKER_CALLBACK_SOCKET']).toBe(
-      '/tmp/harness-broker/codex-hooks.sock'
-    )
+    expect(artifact.env?.['HARNESS_BROKER_CALLBACK_SOCKET']).toBe(`${socketRoot}/codex-hooks.sock`)
     // T-01798: the launch env must authoritatively stamp the invocation's
     // runtimeId so an inherited/leaked HARNESS_BROKER_RUNTIME_ID cannot poison
     // the hook envelope and trip the identity fence (which drops every hook).
@@ -508,13 +493,12 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     const tmuxCalls: TmuxExecCall[] = []
     const events: InvocationEventEnvelope[] = []
     let hookHandler: ((envelope: HookEnvelope) => Promise<HookResult> | HookResult) | undefined
-    const hookSocket =
-      '/tmp/praesidium/runtime/broker-ipc/runtime-codex/hooks/codex-hooks.live.sock'
+    const hookSocket = `${socketRoot}/runtime-codex/hooks/codex-hooks.live.sock`
     const liveInvocationId = 'inv_codex_identity_live'
     const liveRuntimeId = 'runtime-codex-identity-live'
     const driver = createDriver({
       tmux: {
-        socketPath: '/tmp/harness-broker/hidden-default-should-not-be-used.sock',
+        socketPath: `${socketRoot}/hidden-default-should-not-be-used.sock`,
         tmuxBin: '/opt/bin/tmux',
         exec: recordingExec(tmuxCalls),
       },
@@ -562,10 +546,10 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     const tmuxCalls: TmuxExecCall[] = []
     const events: InvocationEventEnvelope[] = []
     let hookHandler: ((envelope: HookEnvelope) => Promise<HookResult> | HookResult) | undefined
-    const hookSocket = '/tmp/harness-broker/codex-hooks.sock'
+    const hookSocket = `${socketRoot}/codex-hooks.sock`
     const driver = createDriver({
       tmux: {
-        socketPath: '/tmp/harness-broker/hidden-default-should-not-be-used.sock',
+        socketPath: `${socketRoot}/hidden-default-should-not-be-used.sock`,
         tmuxBin: '/opt/bin/tmux',
         exec: recordingExec(tmuxCalls),
       },
@@ -603,10 +587,10 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     const tmuxCalls: TmuxExecCall[] = []
     const events: InvocationEventEnvelope[] = []
     let hookHandler: ((envelope: HookEnvelope) => Promise<HookResult> | HookResult) | undefined
-    const hookSocket = '/tmp/harness-broker/codex-mail-stop.sock'
+    const hookSocket = `${socketRoot}/codex-mail-stop.sock`
     const driver = createDriver({
       tmux: {
-        socketPath: '/tmp/harness-broker/hidden-default-should-not-be-used.sock',
+        socketPath: `${socketRoot}/hidden-default-should-not-be-used.sock`,
         tmuxBin: '/opt/bin/tmux',
         exec: recordingExec(tmuxCalls),
       },
@@ -666,14 +650,14 @@ describe('codex-cli-tmux driver: hook-ordered transcript reading', () => {
       const tmuxCalls: TmuxExecCall[] = []
       let hookHandler: ((envelope: HookEnvelope) => Promise<HookResult> | HookResult) | undefined
       const events: InvocationEventEnvelope[] = []
-      const socketPath = '/tmp/harness-broker/codex-tmux.sock'
+      const socketPath = `${socketRoot}/codex-tmux.sock`
       const driver = createDriver({
         tmux: { socketPath, tmuxBin: '/opt/bin/tmux', exec: recordingExec(tmuxCalls) },
         hooks: {
           listen: async (handler) => {
             hookHandler = handler
             return {
-              socketPath: '/tmp/harness-broker/codex-hooks.sock',
+              socketPath: `${socketRoot}/codex-hooks.sock`,
               close: async () => undefined,
             }
           },
@@ -687,7 +671,7 @@ describe('codex-cli-tmux driver: hook-ordered transcript reading', () => {
       const env = (hookData: unknown): HookEnvelope => ({
         invocationId,
         generation: 1,
-        callbackSocket: '/tmp/harness-broker/codex-hooks.sock',
+        callbackSocket: `${socketRoot}/codex-hooks.sock`,
         turnId: 'turn_codex_driver_1',
         hookData,
       })

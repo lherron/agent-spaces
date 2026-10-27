@@ -1,44 +1,29 @@
 /**
- * Integration tests for the agent-spaces client public API.
+ * Integration tests for `asp describe`.
  *
- * WHY: The agent-spaces client (resolve, describe, buildProcessInvocationSpec,
- * runTurnNonInteractive, getHarnessCapabilities) is the primary programmatic
- * interface for the control plane. These tests exercise the success paths that
- * require real fixtures — registry resolution, materialization, and harness
- * adapter integration — which cannot be tested in unit tests without a registry.
+ * WHY: `asp describe` is the shipped surface over the agent-spaces client's
+ * describe(): it materializes each target and reports its hooks, skills, tools
+ * and lint warnings. Driving the real CLI against the git-backed sample
+ * registry proves the report reflects what the composed spaces actually ship.
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import * as path from 'node:path'
 
-import { createAgentSpacesClient } from 'agent-spaces'
-import type { BuildProcessInvocationSpecResponse, DescribeResponse } from 'agent-spaces'
-import { compilerRuntime } from './compiler-runtime.js'
-
 import {
-  CLAUDE_SHIM_PATH,
-  CODEX_SHIM_PATH,
-  SAMPLE_PROJECT_DIR,
   SAMPLE_REGISTRY_DIR,
   cleanupTempAspHome,
+  cleanupTempProject,
   createTempAspHome,
+  createTempProject,
+  getTestEnv,
   initSampleRegistry,
 } from './setup.js'
 
-// `registryPath` is the client-level surface for pointing resolution at a local
-// registry with no remote -- the same thing `asp --registry <path>` exposes on nine
-// CLI commands. The suite previously symlinked `<aspHome>/repo` at the fixture
-// instead, which `getRegistryPath` stopped consulting once the agents root became
-// the default shared-space source: it only falls back to `paths.repo` when
-// `getAgentsRoot()` is empty, which it never is on a praesidium node.
-const client = createAgentSpacesClient({
-  runtime: compilerRuntime,
-  registryPath: SAMPLE_REGISTRY_DIR,
-})
+const CLI_PATH = path.join(import.meta.dir, '..', '..', 'apps', 'cli', 'bin', 'asp.js')
 
 let aspHome: string
-let savedClaudePath: string | undefined
-let savedPath: string | undefined
+let projectDir: string
 
 beforeAll(async () => {
   await initSampleRegistry()
@@ -46,294 +31,73 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   aspHome = await createTempAspHome()
-
-  // Save and set env for harness detection
-  savedClaudePath = process.env['ASP_CLAUDE_PATH']
-  savedPath = process.env['PATH']
-  process.env['ASP_CLAUDE_PATH'] = CLAUDE_SHIM_PATH
-  const codexShimDir = path.dirname(CODEX_SHIM_PATH)
-  process.env['PATH'] = [codexShimDir, savedPath ?? ''].filter(Boolean).join(path.delimiter)
+  projectDir = await createTempProject({
+    collide: { compose: ['space:cmd-collision-a@stable', 'space:cmd-collision-b@stable'] },
+    hooked: { compose: ['space:hooks-bad-path@stable'] },
+    mcp: { compose: ['space:mcp-server-a@stable'] },
+  })
 })
 
 afterEach(async () => {
-  // Restore env
-  if (savedClaudePath !== undefined) {
-    process.env['ASP_CLAUDE_PATH'] = savedClaudePath
-  } else {
-    // biome-ignore lint/performance/noDelete: delete is the correct idiom for removing process.env keys
-    delete process.env['ASP_CLAUDE_PATH']
-  }
-  if (savedPath !== undefined) {
-    process.env['PATH'] = savedPath
-  }
   await cleanupTempAspHome(aspHome)
+  await cleanupTempProject(projectDir)
 })
 
-// ---------------------------------------------------------------------------
-// resolve() success paths
-// ---------------------------------------------------------------------------
-
-describe('resolve success paths', () => {
-  test('resolves a target spec pointing to sample-project', async () => {
-    const result = await client.resolve({
+async function runCli(
+  args: string[]
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const proc = Bun.spawn(
+    [
+      'bun',
+      CLI_PATH,
+      ...args,
+      '--harness',
+      'claude',
+      '--project',
+      projectDir,
+      '--registry',
+      SAMPLE_REGISTRY_DIR,
+      '--asp-home',
       aspHome,
-      spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
-    })
+    ],
+    { cwd: projectDir, env: getTestEnv(aspHome), stdout: 'pipe', stderr: 'pipe' }
+  )
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ])
+  return { exitCode, stdout, stderr }
+}
 
-    expect(result.ok).toBe(true)
-    expect(result.error).toBeUndefined()
-  })
+describe('asp describe', () => {
+  test('--json reports each installed target hooks, MCP tools and lint warnings, flagging a command collision as W201', async () => {
+    const installed = await runCli(['install'])
+    expect(installed.exitCode, installed.stderr).toBe(0)
 
-  test('resolves a frontend-only target', async () => {
-    const result = await client.resolve({
-      aspHome,
-      spec: { target: { targetName: 'frontend-only', targetDir: SAMPLE_PROJECT_DIR } },
-    })
+    const { exitCode, stdout, stderr } = await runCli(['describe', '--json'])
+    expect(exitCode, stderr).toBe(0)
+    const { targets } = JSON.parse(stdout) as {
+      targets: Record<
+        string,
+        {
+          hooks: string[]
+          skills: string[]
+          tools: string[]
+          lintWarnings: Array<{ code: string; details?: Record<string, unknown> }>
+        }
+      >
+    }
 
-    expect(result.ok).toBe(true)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// describe() coverage
-// ---------------------------------------------------------------------------
-
-describe('describe', () => {
-  test('returns hooks, skills, and tools for target spec', async () => {
-    const response: DescribeResponse = await client.describe({
-      aspHome,
-      spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
-      registryPath: SAMPLE_REGISTRY_DIR,
-      harness: 'claude',
-    })
-
-    // Structure validation
-    expect(Array.isArray(response.hooks)).toBe(true)
-    expect(Array.isArray(response.skills)).toBe(true)
-    expect(Array.isArray(response.tools)).toBe(true)
-  })
-
-  test('materializes a retained Claude description without SDK session parameters', async () => {
-    const response = await client.describe({
-      aspHome,
-      spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
-      registryPath: SAMPLE_REGISTRY_DIR,
-      harness: 'claude',
-    })
-
-    expect('agentSdkSessionParams' in response).toBe(false)
-  })
-
-  test('rejects the retired frontend selector at runtime', async () => {
-    await expect(
-      client.describe({
-        aspHome,
-        spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
-        registryPath: SAMPLE_REGISTRY_DIR,
-        frontend: 'agent-sdk',
-      } as never)
-    ).rejects.toMatchObject({ code: 'unsupported_frontend' })
-  })
-
-  test('returns lintWarnings when runLint is true', async () => {
-    const response = await client.describe({
-      aspHome,
-      spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
-      registryPath: SAMPLE_REGISTRY_DIR,
-      harness: 'claude',
-      runLint: true,
-    })
-
-    // lintWarnings should be present (even if empty array)
-    expect(response.lintWarnings).toBeDefined()
-    expect(Array.isArray(response.lintWarnings)).toBe(true)
-  })
-
-  test('omits lintWarnings when runLint is false or absent', async () => {
-    const response = await client.describe({
-      aspHome,
-      spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
-      registryPath: SAMPLE_REGISTRY_DIR,
-      harness: 'claude',
-    })
-
-    expect(response.lintWarnings).toBeUndefined()
-  })
-})
-
-// ---------------------------------------------------------------------------
-// buildProcessInvocationSpec() success paths
-// ---------------------------------------------------------------------------
-
-// No 'merges request env into spec env' case: `BuildProcessInvocationSpecRequest.env`
-// was a deprecated alias for `lockedEnv` and T-04600 (64d5f9c, 2026-06-21) deleted it
-// along with `cpSessionId`. The test outlived the contract it asserted and only ever
-// passed an excess property. The surviving `lockedEnv`/`dispatchEnv` are composed by
-// the `placement` branch, not this legacy one, which has no production caller (HRC's
-// cli-adapter always supplies `placement`) -- see T-07694.
-describe('buildProcessInvocationSpec', () => {
-  test('returns complete invocation spec for claude-code', async () => {
-    const response: BuildProcessInvocationSpecResponse = await client.buildProcessInvocationSpec({
-      hostSessionId: 'test-session',
-      aspHome,
-      spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
-      provider: 'anthropic',
-      frontend: 'claude-code',
-      interactionMode: 'interactive',
-      ioMode: 'pty',
-      cwd: '/tmp',
-    })
-
-    // Verify spec structure
-    expect(response.spec).toBeDefined()
-    expect(response.spec.provider).toBe('anthropic')
-    expect(response.spec.frontend).toBe('claude-code')
-    expect(response.spec.interactionMode).toBe('interactive')
-    expect(response.spec.ioMode).toBe('pty')
-    expect(response.spec.cwd).toBe('/tmp')
-
-    // argv should be an array starting with the binary path
-    expect(Array.isArray(response.spec.argv)).toBe(true)
-    expect(response.spec.argv.length).toBeGreaterThan(0)
-    // First element is the binary path (from claude-shim)
-    expect(response.spec.argv[0]).toBeDefined()
-
-    // env should include ASP_HOME
-    expect(response.spec.env['ASP_HOME']).toBe(aspHome)
-
-    // displayCommand should be a non-empty string
-    expect(typeof response.spec.displayCommand).toBe('string')
-    expect(response.spec.displayCommand!.length).toBeGreaterThan(0)
-  })
-
-  test('argv includes plugin-dir flags for claude-code', async () => {
-    const response = await client.buildProcessInvocationSpec({
-      hostSessionId: 'test-session',
-      aspHome,
-      spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
-      provider: 'anthropic',
-      frontend: 'claude-code',
-      interactionMode: 'headless',
-      ioMode: 'pipes',
-      cwd: '/tmp',
-    })
-
-    // The claude adapter should include --plugin-dir flags for each plugin directory
-    const argv = response.spec.argv
-    expect(argv.some((arg) => arg === '--plugin-dir')).toBe(true)
-  })
-
-  test('env includes ASP_PLUGIN_ROOT for claude-code', async () => {
-    const response = await client.buildProcessInvocationSpec({
-      hostSessionId: 'test-session',
-      aspHome,
-      spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
-      provider: 'anthropic',
-      frontend: 'claude-code',
-      interactionMode: 'interactive',
-      ioMode: 'pty',
-      cwd: '/tmp',
-    })
-
-    // Claude adapter sets ASP_PLUGIN_ROOT in env
-    expect(response.spec.env['ASP_PLUGIN_ROOT']).toBeDefined()
-  })
-
-  test('includes continuation ref when provided', async () => {
-    const response = await client.buildProcessInvocationSpec({
-      hostSessionId: 'test-session',
-      aspHome,
-      spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
-      provider: 'anthropic',
-      frontend: 'claude-code',
-      interactionMode: 'interactive',
-      ioMode: 'pty',
-      continuation: { provider: 'anthropic', key: 'session-key-abc' },
-      cwd: '/tmp',
-    })
-
-    expect(response.spec.continuation).toBeDefined()
-    expect(response.spec.continuation?.provider).toBe('anthropic')
-    expect(response.spec.continuation?.key).toBe('session-key-abc')
-
-    // argv should include resume flag
-    const argv = response.spec.argv
-    expect(argv.some((arg) => arg === '--resume' || arg === 'resume')).toBe(true)
-  })
-
-  test('omits continuation when not provided', async () => {
-    const response = await client.buildProcessInvocationSpec({
-      hostSessionId: 'test-session',
-      aspHome,
-      spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
-      provider: 'anthropic',
-      frontend: 'claude-code',
-      interactionMode: 'interactive',
-      ioMode: 'pty',
-      cwd: '/tmp',
-    })
-
-    expect(response.spec.continuation).toBeUndefined()
-  })
-
-  test('uses specified model in argv', async () => {
-    const response = await client.buildProcessInvocationSpec({
-      hostSessionId: 'test-session',
-      aspHome,
-      spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
-      provider: 'anthropic',
-      frontend: 'claude-code',
-      model: 'claude-sonnet-4-5',
-      interactionMode: 'interactive',
-      ioMode: 'pty',
-      cwd: '/tmp',
-    })
-
-    // argv should include model flag
-    const argv = response.spec.argv
-    const modelIdx = argv.indexOf('--model')
-    expect(modelIdx).toBeGreaterThan(-1)
-    expect(argv[modelIdx + 1]).toBe('claude-sonnet-4-5')
-  })
-
-  test('returns codex-cli invocation spec', async () => {
-    const response = await client.buildProcessInvocationSpec({
-      hostSessionId: 'test-session',
-      aspHome,
-      spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
-      provider: 'openai',
-      frontend: 'codex-cli',
-      interactionMode: 'headless',
-      ioMode: 'pipes',
-      cwd: '/tmp',
-    })
-
-    expect(response.spec.provider).toBe('openai')
-    expect(response.spec.frontend).toBe('codex-cli')
-    expect(response.spec.interactionMode).toBe('headless')
-    expect(response.spec.ioMode).toBe('pipes')
-    expect(response.spec.cwd).toBe('/tmp')
-    expect(response.spec.argv.length).toBeGreaterThan(0)
-    expect(response.spec.env['ASP_HOME']).toBe(aspHome)
-  })
-
-  test('displayCommand is a shell-safe string', async () => {
-    const response = await client.buildProcessInvocationSpec({
-      hostSessionId: 'test-session',
-      aspHome,
-      spec: { target: { targetName: 'dev', targetDir: SAMPLE_PROJECT_DIR } },
-      provider: 'anthropic',
-      frontend: 'claude-code',
-      interactionMode: 'interactive',
-      ioMode: 'pty',
-      cwd: '/tmp',
-    })
-
-    const display = response.spec.displayCommand
-    expect(display).toBeDefined()
-    // Should not contain unquoted special characters that would break shell copy-paste
-    // The display command should contain the binary path
-    expect(typeof display).toBe('string')
-    expect(display!.length).toBeGreaterThan(0)
-  })
+    expect(Object.keys(targets).sort()).toEqual(['collide', 'hooked', 'mcp'])
+    expect(targets['collide']?.lintWarnings).toContainEqual(
+      expect.objectContaining({
+        code: 'W201',
+        details: expect.objectContaining({ command: 'build' }),
+      })
+    )
+    expect(targets['hooked']?.hooks).toEqual(['SessionStart'])
+    expect(targets['mcp']?.tools).toEqual(['server-alpha'])
+    expect(targets['mcp']?.lintWarnings).toEqual([])
+  }, 30_000)
 })

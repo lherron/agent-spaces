@@ -1,20 +1,14 @@
 /**
- * T-08577 protocol reds for the ASPC preparation operations.
+ * T-08577 protocol contract for the ASPC preparation operation.
  *
- * The protocol module already exists and loads normally. Future exports are
- * reached through its public namespace so today's failures are collected
- * behavioral assertions (`typeof validator === 'function'`, closed validation,
- * and exact method/schema membership), never missing-import failures.
  * T-08594 retired the three Desktop preparation ops from the RPC surface; only
- * prepareProcessInvocation remains.
+ * prepareProcessInvocation remains. Retired methods are refused as unknown
+ * methods (schemas.test.ts), and the registered route is pinned by the exact
+ * registered method set (harness/aspc compile-only-registration.test.ts).
  */
 import { describe, expect, test } from 'bun:test'
 import * as protocol from '../src/index.js'
-
-type Validator = (value: unknown) => unknown
-type ProtocolNamespace = Record<string, unknown>
-
-const namespace = protocol as unknown as ProtocolNamespace
+import { validateAspcCommand, validateAspcPrepareProcessInvocationRequest } from '../src/index.js'
 
 const DIRECT_REQUEST = {
   schemaVersion: 'aspc-prepare-process-invocation-request/v1',
@@ -44,75 +38,42 @@ const DIRECT_REQUEST = {
   dispatchEnv: { CALLER_FLAG: 'preserved' },
 }
 
-function requireValidator(name: string): Validator {
-  const candidate = namespace[name]
-  expect(typeof candidate, `${name} must be exported from spaces-aspc-protocol`).toBe('function')
-  return candidate as Validator
-}
-
-function expectClosedV1Validator(name: string, valid: Record<string, unknown>): void {
-  const validate = requireValidator(name)
-  expect(validate(valid)).toEqual(valid)
-  expect(() => validate({ ...valid, unknownT08577Field: true })).toThrow()
-  expect(() => validate({ ...valid, schemaVersion: 'wrong/v0' })).toThrow()
-}
-
-function expectCommand(method: string, params: unknown): void {
-  expect(
-    protocol.validateAspcCommand({
-      jsonrpc: '2.0',
-      id: `t08577-${method}`,
-      method,
-      params,
-    })
-  ).toMatchObject({ method })
+/** The distinct issue paths a rejected request names (one path may carry several issues). */
+function issuePathsThrownBy(value: unknown): string[] {
+  try {
+    validateAspcPrepareProcessInvocationRequest(value)
+  } catch (error) {
+    const issues = (error as { issues?: Array<{ path: string }> }).issues
+    if (!Array.isArray(issues)) throw error
+    return [...new Set(issues.map((issue) => issue.path))]
+  }
+  throw new Error('expected the prepareProcessInvocation request to be rejected')
 }
 
 describe('ASPC execution-preparation contract (T-08577)', () => {
-  test('control: the pre-existing command validator remains fail-closed', () => {
-    expect(() =>
-      protocol.validateAspcCommand({
-        jsonrpc: '2.0',
-        id: 'control',
-        method: 'aspc.notARealMethod',
-        params: {},
-      })
-    ).toThrow(protocol.AspcCommandValidationError)
-  })
-
-  test('A2: the canonical method set contains exactly the one remaining preparation method', () => {
-    const preparationMethods = protocol.ASPC_METHODS.filter((method) =>
-      ['aspc.prepareProcessInvocation'].includes(method)
-    )
-
-    expect(preparationMethods).toEqual(['aspc.prepareProcessInvocation'])
-  })
-
-  test('A2/retired: the three Desktop methods are gone from the method set and fail closed', () => {
-    for (const method of [
-      'aspc.resolveDesktopIdentity',
-      'aspc.admitDesktopRegistration',
-      'aspc.prepareDesktopObserver',
-    ]) {
-      expect(protocol.ASPC_METHODS.includes(method as never)).toBe(false)
-      expect(() =>
-        protocol.validateAspcCommand({ jsonrpc: '2.0', id: 'retired', method, params: {} })
-      ).toThrow(protocol.AspcCommandValidationError)
-    }
-    expect(namespace['validateAspcResolveDesktopIdentityRequest']).toBeUndefined()
-    expect(namespace['validateAspcAdmitDesktopRegistrationRequest']).toBeUndefined()
-    expect(namespace['validateAspcPrepareDesktopObserverRequest']).toBeUndefined()
-  })
-
   test('B3/B8: direct preparation has a closed v1 request and required optional-member correlation object', () => {
-    expectClosedV1Validator('validateAspcPrepareProcessInvocationRequest', DIRECT_REQUEST)
-    expectCommand('aspc.prepareProcessInvocation', DIRECT_REQUEST)
-
-    const validate = requireValidator('validateAspcPrepareProcessInvocationRequest')
-    const { preparationCorrelation: _required, ...withoutCorrelation } = DIRECT_REQUEST
-    expect(() => validate(withoutCorrelation)).toThrow()
+    expect<unknown>(validateAspcPrepareProcessInvocationRequest(DIRECT_REQUEST)).toEqual(
+      DIRECT_REQUEST
+    )
     expect(
-      validate({
+      validateAspcCommand({
+        jsonrpc: '2.0',
+        id: 't08577-aspc.prepareProcessInvocation',
+        method: 'aspc.prepareProcessInvocation',
+        params: DIRECT_REQUEST,
+      })
+    ).toMatchObject({ method: 'aspc.prepareProcessInvocation' })
+
+    expect(issuePathsThrownBy({ ...DIRECT_REQUEST, unknownT08577Field: true })).toEqual([
+      'params.unknownT08577Field',
+    ])
+    expect(issuePathsThrownBy({ ...DIRECT_REQUEST, schemaVersion: 'wrong/v0' })).toEqual([
+      'params.schemaVersion',
+    ])
+    const { preparationCorrelation: _required, ...withoutCorrelation } = DIRECT_REQUEST
+    expect(issuePathsThrownBy(withoutCorrelation)).toEqual(['params.preparationCorrelation'])
+    expect(
+      validateAspcPrepareProcessInvocationRequest({
         ...DIRECT_REQUEST,
         preparationCorrelation: {
           sessionRef: {
@@ -122,22 +83,27 @@ describe('ASPC execution-preparation contract (T-08577)', () => {
         },
       })
     ).toBeDefined()
-    expect(() =>
-      validate({
+    expect(
+      issuePathsThrownBy({
         ...DIRECT_REQUEST,
         launch: { ...DIRECT_REQUEST.launch, hostSessionId: 'duplicated-wire-home' },
       })
-    ).toThrow()
+    ).toEqual(['params.launch.hostSessionId'])
   })
+})
 
-  test('B8: the remaining response discriminator is the exact v1 literal', () => {
-    expect({
-      direct: namespace['ASPC_PREPARE_PROCESS_INVOCATION_RESPONSE_VERSION'],
-    }).toEqual({
-      direct: 'aspc-prepare-process-invocation-response/v1',
+describe('published caller behavior (§9)', () => {
+  const namespace = protocol as unknown as Record<string, unknown>
+  describe('published preparation response discriminator', () => {
+    test('B8: the remaining response discriminator is the exact v1 literal', () => {
+      expect({
+        direct: namespace['ASPC_PREPARE_PROCESS_INVOCATION_RESPONSE_VERSION'],
+      }).toEqual({
+        direct: 'aspc-prepare-process-invocation-response/v1',
+      })
+      expect(namespace['ASPC_RESOLVE_DESKTOP_IDENTITY_RESPONSE_VERSION']).toBeUndefined()
+      expect(namespace['ASPC_ADMIT_DESKTOP_REGISTRATION_RESPONSE_VERSION']).toBeUndefined()
+      expect(namespace['ASPC_PREPARE_DESKTOP_OBSERVER_RESPONSE_VERSION']).toBeUndefined()
     })
-    expect(namespace['ASPC_RESOLVE_DESKTOP_IDENTITY_RESPONSE_VERSION']).toBeUndefined()
-    expect(namespace['ASPC_ADMIT_DESKTOP_REGISTRATION_RESPONSE_VERSION']).toBeUndefined()
-    expect(namespace['ASPC_PREPARE_DESKTOP_OBSERVER_RESPONSE_VERSION']).toBeUndefined()
   })
 })

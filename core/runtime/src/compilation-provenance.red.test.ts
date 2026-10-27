@@ -6,8 +6,7 @@ import type {
   AgentInspectionDisposition,
   AgentInspectionProvenance,
 } from 'spaces-runtime-contracts'
-import { type ResolvedContextSection, resolveContextTemplateDetailed } from './context-resolver.js'
-import type { ContextTemplate } from './context-template.js'
+import type { ResolvedContextSection } from './context-resolver.js'
 import { inspectAgentSystemPrompt } from './system-prompt.js'
 
 type ProvenanceReport = ResolvedContextSection & {
@@ -42,23 +41,35 @@ describe('T-06329 compilation provenance', () => {
       "printf 'NONZERO-LEAK'; printf 'stderr-start:' >&2; printf 'x%.0s' {1..12000} >&2; printf ':stderr-end' >&2; exit 23"
     const timeoutCommand = "printf 'TIMEOUT-LEAK'; printf 'timeout-stderr' >&2; sleep 6"
     const missingCommand = 't06329-command-that-does-not-exist'
-    const resolved = await resolveContextTemplateDetailed(
-      template({
-        promptSections: [
-          { name: 'stable', type: 'inline', content: 'stable prompt' },
-          { name: 'nonzero', type: 'exec', command: nonzeroCommand },
-          { name: 'timeout', type: 'exec', command: timeoutCommand },
-          { name: 'missing-command', type: 'exec', command: missingCommand },
-        ],
-      }),
-      context()
-    )
+    await writeContextTemplate(`
+[[prompt]]
+name = "stable"
+type = "inline"
+content = "stable prompt"
 
-    expect(resolved.prompt?.content).toBe('stable prompt')
-    expect(resolved.prompt?.content).not.toContain('NONZERO-LEAK')
-    expect(resolved.prompt?.content).not.toContain('TIMEOUT-LEAK')
+[[prompt]]
+name = "nonzero"
+type = "exec"
+command = '''${nonzeroCommand}'''
 
-    const failures = resolved.promptSections.slice(1).map(asProvenanceReport)
+[[prompt]]
+name = "timeout"
+type = "exec"
+command = '''${timeoutCommand}'''
+
+[[prompt]]
+name = "missing-command"
+type = "exec"
+command = '''${missingCommand}'''
+`)
+    const inspected = await inspect()
+
+    expect(inspected?.prompt.content).toBe('stable prompt')
+    expect(inspected?.prompt.content).not.toContain('NONZERO-LEAK')
+    expect(inspected?.prompt.content).not.toContain('TIMEOUT-LEAK')
+
+    const failures = (inspected?.prompt.sections ?? []).slice(1).map(asProvenanceReport)
+    expect(failures).toHaveLength(3)
     for (const [index, report] of failures.entries()) {
       expect(report.disposition).toMatchObject({
         kind: 'failed',
@@ -90,27 +101,27 @@ describe('T-06329 compilation provenance', () => {
     const unreadablePath = join(agentRoot, 'unreadable.md')
     await writeFile(unreadablePath, 'must not compile')
     await chmod(unreadablePath, 0o000)
+    await writeContextTemplate(`
+[[prompt]]
+name = "empty-exec"
+type = "exec"
+command = "printf ''"
 
-    const resolved = await resolveContextTemplateDetailed(
-      template({
-        promptSections: [
-          { name: 'empty-exec', type: 'exec', command: "printf ''" },
-          {
-            name: 'optional-missing',
-            type: 'file',
-            path: 'agent-root:///missing.md',
-          },
-          {
-            name: 'unreadable',
-            type: 'file',
-            path: 'agent-root:///unreadable.md',
-          },
-        ],
-      }),
-      context()
+[[prompt]]
+name = "optional-missing"
+type = "file"
+path = "agent-root:///missing.md"
+
+[[prompt]]
+name = "unreadable"
+type = "file"
+path = "agent-root:///unreadable.md"
+`)
+    const inspected = await inspect()
+
+    const [emptyExec, optionalMissing, unreadable] = (inspected?.prompt.sections ?? []).map(
+      asProvenanceReport
     )
-
-    const [emptyExec, optionalMissing, unreadable] = resolved.promptSections.map(asProvenanceReport)
     expect(emptyExec?.disposition).toEqual({ kind: 'skipped', reason: 'empty' })
     expect(optionalMissing?.disposition).toEqual({ kind: 'skipped', reason: 'empty' })
     expect(unreadable?.disposition).toMatchObject({
@@ -120,89 +131,47 @@ describe('T-06329 compilation provenance', () => {
     expect(failedReason(unreadable?.disposition)).toMatch(/unreadable|EACCES|permission/i)
     expect(emptyExec?.disposition).not.toEqual(unreadable?.disposition)
     expect(optionalMissing?.disposition).not.toEqual(unreadable?.disposition)
-  })
-
-  test('keeps prompt and reminder bytes pinned across success, failure, predicate skip, and empty', async () => {
-    const resolved = await resolveContextTemplateDetailed(
-      template({
-        promptSections: [
-          { name: 'prompt-success', type: 'inline', content: 'prompt-ok' },
-          {
-            name: 'prompt-failure',
-            type: 'exec',
-            command: "printf 'FAILED-PROMPT-BYTES'; exit 9",
-          },
-          {
-            name: 'prompt-predicate-skip',
-            type: 'inline',
-            content: 'PREDICATE-PROMPT-BYTES',
-            when: { runMode: 'heartbeat' },
-          },
-          { name: 'prompt-empty', type: 'inline', content: '' },
-        ],
-        reminderSections: [
-          { name: 'reminder-success', type: 'inline', content: 'reminder-ok' },
-          {
-            name: 'reminder-failure',
-            type: 'exec',
-            command: "printf 'FAILED-REMINDER-BYTES'; exit 10",
-          },
-          {
-            name: 'reminder-predicate-skip',
-            type: 'inline',
-            content: 'PREDICATE-REMINDER-BYTES',
-            when: { runMode: 'heartbeat' },
-          },
-          { name: 'reminder-empty', type: 'exec', command: "printf ''" },
-        ],
-      }),
-      context()
-    )
-
-    expect(resolved.prompt).toEqual({ content: 'prompt-ok', mode: 'replace' })
-    expect(resolved.reminder).toBe('reminder-ok')
+    expect(inspected?.prompt.content).not.toContain('must not compile')
   })
 
   test('distinguishes service probe execution failure from a probe that ran and reported down', async () => {
-    const failed = await resolveContextTemplateDetailed(
-      template({
-        promptSections: [
-          {
-            name: 'invalid-probe',
-            type: 'service-probe',
-            services: [{ name: 'invalid', endpoint: 'not-a-probeable-endpoint' }],
-          },
-        ],
-      }),
-      context()
-    )
-    const failedReport = asProvenanceReport(failed.promptSections[0])
+    await writeContextTemplate(`
+[[prompt]]
+name = "invalid-probe"
+type = "service-probe"
+services = [{ name = "invalid", endpoint = "not-a-probeable-endpoint" }]
+`)
+    const failed = await inspect()
+    const failedReport = asProvenanceReport(failed?.prompt.sections[0])
     expect(failedReport.disposition).toMatchObject({
       kind: 'failed',
       source: { kind: 'service-probe', services: ['invalid'] },
     })
     expect(failedReason(failedReport.disposition)).toMatch(/execute|invalid|unsupported|probe/i)
-    expect(failed.prompt).toBeUndefined()
+    expect(failed?.prompt.content).toBe('')
 
-    const down = await resolveContextTemplateDetailed(
-      template({
-        promptSections: [
-          {
-            name: 'down-probe',
-            type: 'service-probe',
-            services: [{ name: 'broker', endpoint: 'tcp://127.0.0.1:1' }],
-          },
-        ],
-      }),
-      context({
+    await writeContextTemplate(`
+[[prompt]]
+name = "down-probe"
+type = "service-probe"
+services = [{ name = "broker", endpoint = "tcp://127.0.0.1:1" }]
+`)
+    const down = await inspect({
+      resolverContext: {
+        agentRoot,
+        agentsRoot,
+        projectRoot,
+        runMode: 'task',
+        execCwd: agentRoot,
+        execEnv: {},
         serviceProbeResponses: [{ name: 'broker', endpoint: 'tcp://127.0.0.1:1', up: false }],
-      })
-    )
-    const downReport = asProvenanceReport(down.promptSections[0])
+      },
+    })
+    const downReport = asProvenanceReport(down?.prompt.sections[0])
     expect(downReport.disposition).toEqual({ kind: 'effective' })
     expect(downReport.content).toContain('❌')
     expect(downReport.content).toContain('broker')
-    expect(down.prompt?.content).toBe(downReport.content)
+    expect(down?.prompt.content).toBe(downReport.content)
   })
 
   test('reports the winning and shadowed template candidates plus deduplicated search roots', async () => {
@@ -246,28 +215,25 @@ describe('T-06329 compilation provenance', () => {
     expect(duplicateRoot?.provenance?.contributions.length).toBeGreaterThan(0)
   })
 
-  function context(overrides: Record<string, unknown> = {}) {
-    return {
+  async function writeContextTemplate(sections: string): Promise<void> {
+    await writeFile(
+      join(agentsRoot, 'context-template.toml'),
+      `schema_version = 2\nmode = "replace"\n${sections}`
+    )
+  }
+
+  function inspect(overrides: Partial<Parameters<typeof inspectAgentSystemPrompt>[0]> = {}) {
+    return inspectAgentSystemPrompt({
       agentRoot,
       agentsRoot,
+      aspHome,
       projectRoot,
       runMode: 'task',
-      execCwd: agentRoot,
-      execEnv: {},
+      env: {},
       ...overrides,
-    }
+    })
   }
 })
-
-function template(overrides: Partial<ContextTemplate>): ContextTemplate {
-  return {
-    schemaVersion: 2,
-    mode: 'replace',
-    promptSections: [],
-    reminderSections: [],
-    ...overrides,
-  } as ContextTemplate
-}
 
 function asProvenanceReport(report: ResolvedContextSection | undefined): ProvenanceReport {
   if (report === undefined) throw new Error('expected a resolved context section')

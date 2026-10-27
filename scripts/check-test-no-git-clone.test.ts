@@ -1,42 +1,53 @@
 import { describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
-import { join } from 'node:path'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 
-import {
-  findForbiddenTestCloneCommands,
-  isTestExecutionPath,
-  scanTestCloneCommands,
-} from './lib/test-no-git-clone.ts'
+import { scanTestCloneCommands } from './lib/test-no-git-clone.ts'
 
 const repositoryRoot = join(import.meta.dir, '..')
 
 describe('test repository-clone boundary', () => {
-  test('recognizes test files, test directories, and official runners', () => {
-    expect(isTestExecutionPath('core/config/src/repo.test.ts')).toBeTrue()
-    expect(isTestExecutionPath('integration-tests/tests/repo.ts')).toBeTrue()
-    expect(isTestExecutionPath('scripts/test-fast.ts')).toBeTrue()
-    expect(isTestExecutionPath('core/config/package.json')).toBeTrue()
-    expect(isTestExecutionPath('core/config/src/git/repo.ts')).toBeFalse()
-  })
-
-  test('finds shell, helper, and subprocess clone commands only on the test surface', () => {
+  test('the scan reports clone commands in test files, test dirs, test runners and package test scripts, and nowhere else', async () => {
+    // Built from pieces so this file does not itself match the scan.
     const shellCommand = ['git', 'clone', 'remote', 'work'].join(' ')
     const helperCommand = ['g', 'it(root, ', "'clone'", ', remote, work)'].join('')
     const subprocessCommand = ['Bun.spawn([', "'git'", ', ', "'clone'", ', remote])'].join('')
+    const root = mkdtempSync(join(tmpdir(), 'asp-no-git-clone-'))
+    try {
+      const files: Record<string, string> = {
+        'scripts/probe.test.ts': [shellCommand, helperCommand, subprocessCommand].join('\n'),
+        'integration-tests/tests/repo.ts': shellCommand,
+        'scripts/test-fast.ts': shellCommand,
+        'core/config/src/git/repo.ts': shellCommand,
+        'package.json': JSON.stringify(
+          { scripts: { build: shellCommand, test: shellCommand } },
+          null,
+          2
+        ),
+      }
+      for (const [path, source] of Object.entries(files)) {
+        mkdirSync(dirname(join(root, path)), { recursive: true })
+        writeFileSync(join(root, path), source)
+      }
 
-    expect(findForbiddenTestCloneCommands('scripts/probe.test.ts', shellCommand)).toHaveLength(1)
-    expect(findForbiddenTestCloneCommands('scripts/probe.test.ts', helperCommand)).toHaveLength(1)
-    expect(findForbiddenTestCloneCommands('scripts/probe.test.ts', subprocessCommand)).toHaveLength(
-      1
-    )
-    expect(findForbiddenTestCloneCommands('core/config/src/git/repo.ts', shellCommand)).toEqual([])
+      const findings = (await scanTestCloneCommands(root)).sort(
+        (left, right) => left.path.localeCompare(right.path) || left.line - right.line
+      )
 
-    const packageManifest = JSON.stringify({ scripts: { test: shellCommand, build: shellCommand } })
-    expect(findForbiddenTestCloneCommands('package.json', packageManifest)).toHaveLength(1)
-  })
-
-  test('the repository test surface is clean', async () => {
-    expect(await scanTestCloneCommands(repositoryRoot)).toEqual([])
+      expect(findings).toEqual([
+        { path: 'integration-tests/tests/repo.ts', line: 1 },
+        // Only the test script is a test execution path; build is not.
+        { path: 'package.json', line: 4 },
+        { path: 'scripts/probe.test.ts', line: 1 },
+        { path: 'scripts/probe.test.ts', line: 2 },
+        { path: 'scripts/probe.test.ts', line: 3 },
+        { path: 'scripts/test-fast.ts', line: 1 },
+      ])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   test('the runtime guard rejects clone after Git global options', () => {

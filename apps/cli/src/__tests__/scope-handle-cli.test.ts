@@ -1,424 +1,144 @@
 /**
- * RED tests for T-00894: CLI accepts ScopeHandle shorthand in `asp agent`.
- *
- * The `asp agent` and `asp agent resolve` commands currently only accept
- * canonical ScopeRef (agent:alice:project:demo). This test verifies that
- * shorthand ScopeHandle (alice@demo) is also accepted and produces
- * identical canonical output.
- *
- * PASS CONDITIONS:
- * 1. `asp agent resolve alice@demo ...` resolves identically to `agent:alice:project:demo`.
- * 2. `asp agent alice@demo query ... --dry-run` produces canonical scopeRef in correlation.
- * 3. SessionHandle ~lane suffix populates correlation.sessionRef.laneRef.
- * 4. Canonical ScopeRef still works unchanged (backward compat).
- * 5. Invalid shorthand (@demo, empty, etc.) produces clear errors.
+ * T-00894: `asp agent` accepts ScopeHandle / SessionHandle shorthand as well as
+ * canonical ScopeRefs, and canonicalizes it on both the resolve and the execute
+ * path. Handle parsing itself lives in agent-scope; these tables pin that the CLI
+ * routes every handle shape through it.
  */
 
-import { describe, expect, test } from 'bun:test'
-import { execFileSync } from 'node:child_process'
-import { join } from 'node:path'
+import { describe, expect } from 'bun:test'
+import { AGENT_ROOT, PROJECT_ROOT, cliTest, runAsp } from './asp-cli'
 
-// The callback type bun:test itself accepts.
-type TestFn = Parameters<typeof test>[1]
-
-const FIXTURES_DIR = join(
-  import.meta.dirname,
-  '..',
-  '..',
-  '..',
-  '..',
-  'core',
-  'config',
-  'src',
-  '__fixtures__',
-  'v2'
-)
-function resolveAgentRoot(): string {
-  return join(FIXTURES_DIR, 'agent-root')
-}
-function resolveProjectRoot(): string {
-  return join(FIXTURES_DIR, 'project-root')
+function agentRun(
+  scope: string,
+  mode: 'resolve' | 'query',
+  withProjectRoot: boolean,
+  ...rest: string[]
+) {
+  return runAsp([
+    'agent',
+    scope,
+    mode,
+    ...(mode === 'query' ? ['test prompt'] : []),
+    '--agent-root',
+    AGENT_ROOT,
+    ...(withProjectRoot ? ['--project-root', PROJECT_ROOT] : []),
+    ...rest,
+  ])
 }
 
-const ASP_CLI = join(import.meta.dirname, '..', '..', 'bin', 'asp.js')
-const CLI_TEST_TIMEOUT_MS = 60000
-
-function cliTest(name: string, fn: TestFn): void
-function cliTest(name: string, fn: TestFn, timeout: number): void
-function cliTest(name: string, options: { timeout?: number }, fn: TestFn): void
-function cliTest(
-  name: string,
-  optionsOrFn: { timeout?: number } | TestFn,
-  maybeFnOrTimeout?: TestFn | number
-): void {
-  if (typeof optionsOrFn === 'function') {
-    const timeout = typeof maybeFnOrTimeout === 'number' ? maybeFnOrTimeout : CLI_TEST_TIMEOUT_MS
-    test(name, optionsOrFn, timeout)
-    return
-  }
-
-  if (typeof maybeFnOrTimeout === 'function') {
-    const timeout = optionsOrFn.timeout ?? CLI_TEST_TIMEOUT_MS
-    test(name, maybeFnOrTimeout, timeout)
-    return
-  }
-
-  throw new TypeError(`Invalid cliTest arguments for ${name}`)
-}
-
-function runAsp(
-  args: string[],
-  options: { env?: Record<string, string>; expectError?: boolean } = {}
-): { stdout: string; stderr: string; exitCode: number } {
-  try {
-    const result = execFileSync('bun', ['run', ASP_CLI, ...args], {
-      encoding: 'utf8',
-      timeout: CLI_TEST_TIMEOUT_MS,
-      env: { ...process.env, ...options.env, NO_COLOR: '1' },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
-    return { stdout: result, stderr: '', exitCode: 0 }
-  } catch (err: any) {
-    if (options.expectError) {
-      return {
-        stdout: err.stdout?.toString() ?? '',
-        stderr: err.stderr?.toString() ?? '',
-        exitCode: err.status ?? 1,
-      }
-    }
-    return {
-      stdout: err.stdout?.toString() ?? '',
-      stderr: err.stderr?.toString() ?? '',
-      exitCode: err.status ?? 1,
-    }
-  }
-}
-
-// ===================================================================
-// T-00894: ScopeHandle acceptance in resolve path
-// ===================================================================
 describe('ScopeHandle in asp agent resolve (T-00894)', () => {
-  cliTest('alice@demo resolves same as agent:alice:project:demo', () => {
-    const agentRoot = resolveAgentRoot()
-    const projectRoot = resolveProjectRoot()
+  const rows: Array<{
+    input: string
+    withProjectRoot: boolean
+    scopeRef: string
+    laneRef: string
+  }> = [
+    {
+      input: 'alice@demo',
+      withProjectRoot: true,
+      scopeRef: 'agent:alice:project:demo:task:primary',
+      laneRef: 'main',
+    },
+    {
+      input: 'agent:alice:project:demo',
+      withProjectRoot: true,
+      scopeRef: 'agent:alice:project:demo:task:primary',
+      laneRef: 'main',
+    },
+    {
+      input: 'alice@demo:t1/reviewer',
+      withProjectRoot: true,
+      scopeRef: 'agent:alice:project:demo:task:t1:role:reviewer',
+      laneRef: 'main',
+    },
+    {
+      input: 'alice@demo~repair',
+      withProjectRoot: true,
+      scopeRef: 'agent:alice:project:demo:task:primary',
+      laneRef: 'lane:repair',
+    },
+    {
+      input: 'alice@demo~main',
+      withProjectRoot: true,
+      scopeRef: 'agent:alice:project:demo:task:primary',
+      laneRef: 'main',
+    },
+    { input: 'agent:alice', withProjectRoot: false, scopeRef: 'agent:alice', laneRef: 'main' },
+  ]
 
-    // Run with shorthand
-    const shorthand = runAsp(
-      [
-        'agent',
-        'alice@demo',
-        'resolve',
-        '--agent-root',
-        agentRoot,
-        '--project-root',
-        projectRoot,
-        '--json',
-      ],
-      { expectError: true }
+  for (const row of rows) {
+    cliTest(
+      `asp agent resolve canonicalizes ${row.input} to ${row.scopeRef} on ${row.laneRef}`,
+      () => {
+        const result = agentRun(row.input, 'resolve', row.withProjectRoot, '--json')
+
+        expect(result.exitCode).toBe(0)
+        const parsed = JSON.parse(result.stdout)
+        expect(parsed.placement.correlation.sessionRef.scopeRef).toBe(row.scopeRef)
+        expect(parsed.placement.correlation.sessionRef.laneRef).toBe(row.laneRef)
+      }
     )
-
-    // Run with canonical
-    const canonical = runAsp(
-      [
-        'agent',
-        'agent:alice:project:demo',
-        'resolve',
-        '--agent-root',
-        agentRoot,
-        '--project-root',
-        projectRoot,
-        '--json',
-      ],
-      { expectError: true }
-    )
-
-    // Both should succeed
-    expect(shorthand.exitCode).toBe(0)
-    expect(canonical.exitCode).toBe(0)
-
-    // Placement scopeRef should be canonical in both
-    const shorthandParsed = JSON.parse(shorthand.stdout)
-    const canonicalParsed = JSON.parse(canonical.stdout)
-    expect(shorthandParsed.placement.correlation.sessionRef.scopeRef).toBe(
-      'agent:alice:project:demo:task:primary'
-    )
-    expect(shorthandParsed.placement.correlation.sessionRef.scopeRef).toBe(
-      canonicalParsed.placement.correlation.sessionRef.scopeRef
-    )
-  })
-
-  cliTest('alice@demo:t1/reviewer resolves as full task-role scope', () => {
-    const agentRoot = resolveAgentRoot()
-    const projectRoot = resolveProjectRoot()
-
-    const result = runAsp(
-      [
-        'agent',
-        'alice@demo:t1/reviewer',
-        'resolve',
-        '--agent-root',
-        agentRoot,
-        '--project-root',
-        projectRoot,
-        '--json',
-      ],
-      { expectError: true }
-    )
-
-    expect(result.exitCode).toBe(0)
-    const parsed = JSON.parse(result.stdout)
-    expect(parsed.placement.correlation.sessionRef.scopeRef).toBe(
-      'agent:alice:project:demo:task:t1:role:reviewer'
-    )
-  })
+  }
 })
 
-// ===================================================================
-// T-00894: ScopeHandle acceptance in execute path
-// ===================================================================
 describe('ScopeHandle in asp agent execute (T-00894)', () => {
-  cliTest('alice@demo query --dry-run works and uses canonical scopeRef', () => {
-    const agentRoot = resolveAgentRoot()
-    const projectRoot = resolveProjectRoot()
+  const rows: Array<{
+    input: string
+    withProjectRoot: boolean
+    scopeRef: string
+    laneRef: string
+  }> = [
+    {
+      input: 'alice@demo',
+      withProjectRoot: true,
+      scopeRef: 'agent:alice:project:demo:task:primary',
+      laneRef: 'main',
+    },
+    { input: 'alice', withProjectRoot: false, scopeRef: 'agent:alice', laneRef: 'main' },
+    { input: 'alice~deploy', withProjectRoot: false, scopeRef: 'agent:alice', laneRef: 'deploy' },
+    {
+      input: 'agent:alice:project:demo:task:t1:role:reviewer',
+      withProjectRoot: true,
+      scopeRef: 'agent:alice:project:demo:task:t1:role:reviewer',
+      laneRef: 'main',
+    },
+  ]
 
-    const result = runAsp(
-      [
-        'agent',
-        'alice@demo',
-        'query',
-        'test prompt',
-        '--agent-root',
-        agentRoot,
-        '--project-root',
-        projectRoot,
-        '--harness',
-        'claude',
-        '--dry-run',
-        '--json',
-      ],
-      { expectError: true }
+  for (const row of rows) {
+    cliTest(
+      `asp agent ${row.input} query --dry-run puts ${row.scopeRef} on ${row.laneRef} in the spec env`,
+      () => {
+        const result = agentRun(
+          row.input,
+          'query',
+          row.withProjectRoot,
+          '--harness',
+          'claude',
+          '--dry-run',
+          '--json'
+        )
+
+        expect(result.exitCode).toBe(0)
+        const parsed = JSON.parse(result.stdout)
+        expect(parsed.spec.env.AGENT_SCOPE_REF).toBe(row.scopeRef)
+        expect(parsed.spec.env.AGENT_LANE_REF).toBe(row.laneRef)
+      }
     )
-
-    expect(result.exitCode).toBe(0)
-    const parsed = JSON.parse(result.stdout)
-    // Correlation scopeRef must be canonical, qualified form
-    expect(parsed.spec.env.AGENT_SCOPE_REF).toBe('agent:alice:project:demo:task:primary')
-  })
-
-  cliTest('correlation sessionRef.scopeRef is canonical even with shorthand input', () => {
-    const agentRoot = resolveAgentRoot()
-
-    const result = runAsp(
-      [
-        'agent',
-        'alice',
-        'query',
-        'test',
-        '--agent-root',
-        agentRoot,
-        '--harness',
-        'claude',
-        '--dry-run',
-        '--json',
-      ],
-      { expectError: true }
-    )
-
-    expect(result.exitCode).toBe(0)
-    const parsed = JSON.parse(result.stdout)
-    expect(parsed.spec.env.AGENT_SCOPE_REF).toBe('agent:alice')
-  })
+  }
 })
 
-// ===================================================================
-// T-00894: SessionHandle ~lane in CLI
-// ===================================================================
-describe('SessionHandle ~lane in CLI (T-00894)', () => {
-  cliTest('alice@demo~repair sets laneRef to lane:repair', () => {
-    const agentRoot = resolveAgentRoot()
-    const projectRoot = resolveProjectRoot()
-
-    const result = runAsp(
-      [
-        'agent',
-        'alice@demo~repair',
-        'resolve',
-        '--agent-root',
-        agentRoot,
-        '--project-root',
-        projectRoot,
-        '--json',
-      ],
-      { expectError: true }
-    )
-
-    expect(result.exitCode).toBe(0)
-    const parsed = JSON.parse(result.stdout)
-    expect(parsed.placement.correlation.sessionRef.scopeRef).toBe(
-      'agent:alice:project:demo:task:primary'
-    )
-    expect(parsed.placement.correlation.sessionRef.laneRef).toBe('lane:repair')
-  })
-
-  cliTest('alice@demo~main uses main lane (no lane: prefix)', () => {
-    const agentRoot = resolveAgentRoot()
-    const projectRoot = resolveProjectRoot()
-
-    const result = runAsp(
-      [
-        'agent',
-        'alice@demo~main',
-        'resolve',
-        '--agent-root',
-        agentRoot,
-        '--project-root',
-        projectRoot,
-        '--json',
-      ],
-      { expectError: true }
-    )
-
-    expect(result.exitCode).toBe(0)
-    const parsed = JSON.parse(result.stdout)
-    expect(parsed.placement.correlation.sessionRef.scopeRef).toBe(
-      'agent:alice:project:demo:task:primary'
-    )
-    expect(parsed.placement.correlation.sessionRef.laneRef).toBe('main')
-  })
-
-  cliTest('~lane in execute path sets AGENT_LANE_REF', () => {
-    const agentRoot = resolveAgentRoot()
-
-    const result = runAsp(
-      [
-        'agent',
-        'alice~deploy',
-        'query',
-        'test',
-        '--agent-root',
-        agentRoot,
-        '--harness',
-        'claude',
-        '--dry-run',
-        '--json',
-      ],
-      { expectError: true }
-    )
-
-    expect(result.exitCode).toBe(0)
-    const parsed = JSON.parse(result.stdout)
-    expect(parsed.spec.env.AGENT_SCOPE_REF).toBe('agent:alice')
-    expect(parsed.spec.env.AGENT_LANE_REF).toBe('deploy')
-  })
-
-  cliTest('--lane-ref flag still works without ~lane suffix', () => {
-    const agentRoot = resolveAgentRoot()
-
-    const result = runAsp(
-      [
-        'agent',
-        'alice@demo',
-        'query',
-        'test',
-        '--agent-root',
-        agentRoot,
-        '--harness',
-        'claude',
-        '--lane-ref',
-        'hotfix',
-        '--dry-run',
-        '--json',
-      ],
-      { expectError: true }
-    )
-
-    expect(result.exitCode).toBe(0)
-    const parsed = JSON.parse(result.stdout)
-    expect(parsed.spec.env.AGENT_LANE_REF).toBe('hotfix')
-  })
-})
-
-// ===================================================================
-// T-00894: Backward compatibility — canonical ScopeRef unchanged
-// ===================================================================
-describe('backward compat: canonical ScopeRef still works (T-00894)', () => {
-  cliTest('agent:alice still works in resolve', () => {
-    const agentRoot = resolveAgentRoot()
-
-    const result = runAsp(
-      ['agent', 'agent:alice', 'resolve', '--agent-root', agentRoot, '--json'],
-      { expectError: true }
-    )
-
-    expect(result.exitCode).toBe(0)
-    const parsed = JSON.parse(result.stdout)
-    expect(parsed.placement.correlation.sessionRef.scopeRef).toBe('agent:alice')
-  })
-
-  cliTest('agent:alice:project:demo:task:t1:role:reviewer still works in execute', () => {
-    const agentRoot = resolveAgentRoot()
-    const projectRoot = resolveProjectRoot()
-
-    const result = runAsp(
-      [
-        'agent',
-        'agent:alice:project:demo:task:t1:role:reviewer',
-        'query',
-        'test',
-        '--agent-root',
-        agentRoot,
-        '--project-root',
-        projectRoot,
-        '--harness',
-        'claude',
-        '--dry-run',
-        '--json',
-      ],
-      { expectError: true }
-    )
-
-    expect(result.exitCode).toBe(0)
-    const parsed = JSON.parse(result.stdout)
-    expect(parsed.spec.env.AGENT_SCOPE_REF).toBe('agent:alice:project:demo:task:t1:role:reviewer')
-  })
-})
-
-// ===================================================================
-// T-00894: Error cases — invalid shorthand
-// ===================================================================
 describe('invalid ScopeHandle errors (T-00894)', () => {
-  cliTest('@demo produces clear error', () => {
-    const agentRoot = resolveAgentRoot()
+  for (const input of ['@demo', '', 'alice@']) {
+    cliTest(
+      `invalid scope handle ${JSON.stringify(input)} exits non-zero naming the rejected input`,
+      () => {
+        const result = agentRun(input, 'resolve', false)
 
-    const result = runAsp(['agent', '@demo', 'resolve', '--agent-root', agentRoot], {
-      expectError: true,
-    })
-
-    expect(result.exitCode).not.toBe(0)
-    const output = result.stdout + result.stderr
-    expect(output).toMatch(/[Ii]nvalid|error/i)
-  })
-
-  cliTest('empty scope-ref produces clear error', () => {
-    const agentRoot = resolveAgentRoot()
-
-    // Pass -- to prevent "" being swallowed by commander
-    const result = runAsp(['agent', '', 'resolve', '--agent-root', agentRoot], {
-      expectError: true,
-    })
-
-    expect(result.exitCode).not.toBe(0)
-  })
-
-  cliTest('alice@ (trailing @) produces clear error', () => {
-    const agentRoot = resolveAgentRoot()
-
-    const result = runAsp(['agent', 'alice@', 'resolve', '--agent-root', agentRoot], {
-      expectError: true,
-    })
-
-    expect(result.exitCode).not.toBe(0)
-    const output = result.stdout + result.stderr
-    expect(output).toMatch(/[Ii]nvalid|error/i)
-  })
+        expect(result.exitCode).not.toBe(0)
+        expect(result.stderr).toContain(
+          `Invalid scope input "${input}": expected a ScopeHandle, SessionHandle, or ScopeRef`
+        )
+      }
+    )
+  }
 })

@@ -1,67 +1,76 @@
 import { describe, expect, test } from 'bun:test'
-import {
-  CODEX_DRIVER_KIND,
-  createCodexNotificationMapper,
-} from '../../../src/drivers/codex-app-server/event-map'
-import { codexMapperPerTest, note } from './codex-notifications'
+import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
+import { withCodexTui } from './codex-tui-transport-support'
 
-const { map: mapCodexNotification } = codexMapperPerTest()
+// Native plan, reasoning and diff notifications pushed through the real
+// codex-tui driver (FakeCodexRpc), asserted on the broker diagnostics the
+// renderer draws as progress cards.
 
-describe('mapCodexNotification — plan, reasoning and diff cards', () => {
+const T = 'thread_test'
+
+const cards = (events: InvocationEventEnvelope[], kind: string) =>
+  events.filter(
+    (event) =>
+      event.type === 'diagnostic' &&
+      ('kind' in event.payload ? event.payload.kind : undefined) === kind
+  )
+
+describe('codex plan, reasoning and diff cards reach the broker', () => {
   describe('turn/plan/updated (T-06325)', () => {
-    test('projects a plan diagnostic carrying structured steps for the renderer', () => {
-      const events = mapCodexNotification(
-        note('turn/plan/updated', {
+    test('a plan update is one plan diagnostic carrying structured steps; an empty plan yields none', async () => {
+      await withCodexTui('inv_plan_card', (tui) => {
+        tui.startTurn('turn_1')
+        tui.emit('turn/plan/updated', { threadId: T, turnId: 'turn_1', plan: [] })
+        expect(cards(tui.since(), 'plan')).toEqual([])
+
+        tui.emit('turn/plan/updated', {
+          threadId: T,
+          turnId: 'turn_1',
           explanation: null,
           plan: [
             { step: 'Add failing tests', status: 'inProgress' },
             { step: 'Implement', status: 'pending' },
           ],
         })
-      )
-      expect(events).toHaveLength(1)
-      expect(events[0]?.type).toBe('diagnostic')
-      const payload = events[0]?.payload as Record<string, unknown>
-      expect(payload['kind']).toBe('plan')
-      expect(payload['data']).toEqual({
-        steps: [
-          { step: 'Add failing tests', status: 'inProgress' },
-          { step: 'Implement', status: 'pending' },
-        ],
+        const plans = cards(tui.since(), 'plan')
+        expect(plans).toHaveLength(1)
+        expect((plans[0]?.payload as Record<string, unknown>)['data']).toEqual({
+          steps: [
+            { step: 'Add failing tests', status: 'inProgress' },
+            { step: 'Implement', status: 'pending' },
+          ],
+        })
+        expect(plans[0]?.provenance?.nativeType).toBe('turn/plan/updated')
       })
-      expect(events[0]?.extra?.driver?.rawType).toBe('turn/plan/updated')
-    })
-
-    test('empty plan yields no event', () => {
-      expect(mapCodexNotification(note('turn/plan/updated', { plan: [] }))).toEqual([])
     })
   })
 
   describe('reasoning summary capture (T-06380)', () => {
-    test('collapses streamed summary churn into one durable diagnostic at item completion', () => {
-      const map = createCodexNotificationMapper()
-      const beforeCompletion = [
-        note('item/started', {
+    test('collapses streamed summary churn into one durable diagnostic at item completion', async () => {
+      await withCodexTui('inv_reasoning_summary', (tui) => {
+        tui.startTurn('turn_1')
+        tui.emit('item/started', {
+          threadId: T,
           turnId: 'turn_1',
           item: { type: 'reasoning', id: 'reason_1', summary: [], content: [] },
-        }),
-        note('item/reasoning/summaryPartAdded', {
+        })
+        tui.emit('item/reasoning/summaryPartAdded', {
+          threadId: T,
           turnId: 'turn_1',
           itemId: 'reason_1',
           summaryIndex: 0,
-        }),
-        note('item/reasoning/summaryTextDelta', {
+        })
+        tui.emit('item/reasoning/summaryTextDelta', {
+          threadId: T,
           turnId: 'turn_1',
           itemId: 'reason_1',
           summaryIndex: 0,
           delta: '**Planning the inspection**',
-        }),
-      ].flatMap(map)
+        })
+        expect(cards(tui.since(), 'reasoning')).toEqual([])
 
-      expect(beforeCompletion).toEqual([])
-
-      const events = map(
-        note('item/completed', {
+        tui.emit('item/completed', {
+          threadId: T,
           turnId: 'turn_1',
           item: {
             type: 'reasoning',
@@ -70,60 +79,55 @@ describe('mapCodexNotification — plan, reasoning and diff cards', () => {
             content: [],
           },
         })
-      )
-
-      expect(events).toHaveLength(1)
-      expect(events[0]).toMatchObject({
-        type: 'diagnostic',
-        payload: {
-          level: 'debug',
-          source: 'driver',
-          kind: 'reasoning',
-          message: 'Codex reasoning summary captured',
-          data: {
-            summary: '**Planning the inspection**\n\nChecking the package name',
-            truncated: false,
-          },
-        },
-        extra: {
+        const reasoning = cards(tui.since(), 'reasoning')
+        expect(reasoning).toHaveLength(1)
+        expect(reasoning[0]).toMatchObject({
           turnId: 'turn_1',
-          itemId: 'reason_1',
-          driver: { kind: CODEX_DRIVER_KIND, rawType: 'item/completed' },
-        },
+          payload: {
+            level: 'debug',
+            source: 'driver',
+            kind: 'reasoning',
+            message: 'Codex reasoning summary captured',
+            data: {
+              summary: '**Planning the inspection**\n\nChecking the package name',
+              truncated: false,
+            },
+          },
+          provenance: { nativeType: 'item/completed' },
+        })
       })
     })
 
-    test('never persists raw reasoning text when no provider summary is present', () => {
-      const map = createCodexNotificationMapper()
-      expect(
-        map(
-          note('item/reasoning/textDelta', {
-            turnId: 'turn_1',
-            itemId: 'reason_1',
-            contentIndex: 0,
-            delta: 'raw chain of thought',
-          })
-        )
-      ).toEqual([])
-      expect(
-        map(
-          note('item/completed', {
-            turnId: 'turn_1',
-            item: {
-              type: 'reasoning',
-              id: 'reason_1',
-              summary: [],
-              content: ['raw chain of thought'],
-            },
-          })
-        )
-      ).toEqual([])
+    test('never persists raw reasoning text when no provider summary is present', async () => {
+      await withCodexTui('inv_reasoning_raw_text', (tui) => {
+        tui.startTurn('turn_1')
+        tui.emit('item/reasoning/textDelta', {
+          threadId: T,
+          turnId: 'turn_1',
+          itemId: 'reason_1',
+          contentIndex: 0,
+          delta: 'raw chain of thought',
+        })
+        tui.emit('item/completed', {
+          threadId: T,
+          turnId: 'turn_1',
+          item: {
+            type: 'reasoning',
+            id: 'reason_1',
+            summary: [],
+            content: ['raw chain of thought'],
+          },
+        })
+        expect(cards(tui.since(), 'reasoning')).toEqual([])
+        expect(JSON.stringify(tui.since())).not.toContain('raw chain of thought')
+      })
     })
 
-    test('bounds a captured summary by both part count and character count', () => {
-      const map = createCodexNotificationMapper()
-      const events = map(
-        note('item/completed', {
+    test('bounds a captured summary by both part count and character count', async () => {
+      await withCodexTui('inv_reasoning_bounded', (tui) => {
+        tui.startTurn('turn_1')
+        tui.emit('item/completed', {
+          threadId: T,
           turnId: 'turn_1',
           item: {
             type: 'reasoning',
@@ -131,17 +135,17 @@ describe('mapCodexNotification — plan, reasoning and diff cards', () => {
             summary: ['x'.repeat(5_000), ...Array.from({ length: 9 }, (_, i) => `part ${i}`)],
           },
         })
-      )
-      const payload = events[0]?.payload as {
-        data: { summary: string; truncated: boolean }
-      }
-      expect(payload.data.summary).toHaveLength(4_096)
-      expect(payload.data.truncated).toBe(true)
+        const payload = cards(tui.since(), 'reasoning')[0]?.payload as {
+          data: { summary: string; truncated: boolean }
+        }
+        expect(payload.data.summary).toHaveLength(4_096)
+        expect(payload.data.truncated).toBe(true)
+      })
     })
   })
 
   describe('turn/diff/updated (T-06325)', () => {
-    test('summarizes a unified diff into compact per-file add/remove counts', () => {
+    test('summarizes a unified diff into compact per-file add/remove counts; a blank diff yields none', async () => {
       const diff = [
         'diff --git a/src/a.ts b/src/a.ts',
         'index 000..111 100644',
@@ -158,23 +162,24 @@ describe('mapCodexNotification — plan, reasoning and diff cards', () => {
         '@@ -1 +1 @@',
         '-removed',
       ].join('\n')
-      const events = mapCodexNotification(note('turn/diff/updated', { diff }))
-      expect(events).toHaveLength(1)
-      const payload = events[0]?.payload as Record<string, unknown>
-      expect(payload['kind']).toBe('diff')
-      expect(payload['data']).toEqual({
-        files: [
-          { path: 'src/a.ts', added: 2, removed: 1 },
-          { path: 'src/b.ts', added: 0, removed: 1 },
-        ],
-        totalAdded: 2,
-        totalRemoved: 2,
-        truncated: 0,
-      })
-    })
+      await withCodexTui('inv_diff_card', (tui) => {
+        tui.startTurn('turn_1')
+        tui.emit('turn/diff/updated', { threadId: T, turnId: 'turn_1', diff: '   ' })
+        expect(cards(tui.since(), 'diff')).toEqual([])
 
-    test('empty diff yields no event', () => {
-      expect(mapCodexNotification(note('turn/diff/updated', { diff: '   ' }))).toEqual([])
+        tui.emit('turn/diff/updated', { threadId: T, turnId: 'turn_1', diff })
+        const diffs = cards(tui.since(), 'diff')
+        expect(diffs).toHaveLength(1)
+        expect((diffs[0]?.payload as Record<string, unknown>)['data']).toEqual({
+          files: [
+            { path: 'src/a.ts', added: 2, removed: 1 },
+            { path: 'src/b.ts', added: 0, removed: 1 },
+          ],
+          totalAdded: 2,
+          totalRemoved: 2,
+          truncated: 0,
+        })
+      })
     })
   })
 
@@ -191,45 +196,51 @@ describe('mapCodexNotification — plan, reasoning and diff cards', () => {
         ...added.map((l) => `+${l}`),
       ].join('\n')
 
-    const diffNote = (diff: string, turnId = 'turn_1') =>
-      note('turn/diff/updated', { threadId: 'thread_1', turnId, diff })
-    const heartbeat = () => note('account/rateLimits/updated', { rateLimits: { used: 1 } })
-    const diffEvents = (events: ReturnType<typeof mapCodexNotification>) =>
-      events.filter((e) => (e.payload as Record<string, unknown>)['kind'] === 'diff')
+    test('an unchanged cumulative diff re-sent on heartbeats renders once, and a grown diff renders again', async () => {
+      await withCodexTui('inv_diff_dedupe_heartbeat', (tui) => {
+        tui.startTurn('turn_1')
+        const diff = diffFor(['one'])
+        // The real firing pattern: heartbeat, then the same diff again, over and over.
+        tui.emit('turn/diff/updated', { threadId: T, turnId: 'turn_1', diff })
+        for (let i = 0; i < 5; i++) {
+          tui.emit('account/rateLimits/updated', { rateLimits: { used: 1 } })
+          tui.emit('turn/diff/updated', { threadId: T, turnId: 'turn_1', diff })
+        }
+        expect(cards(tui.since(), 'diff')).toHaveLength(1)
+        // An edit lands: the cumulative diff grows, so the summary changes.
+        tui.emit('turn/diff/updated', {
+          threadId: T,
+          turnId: 'turn_1',
+          diff: diffFor(['one', 'two']),
+        })
+        expect(cards(tui.since(), 'diff')).toHaveLength(2)
+      })
+    })
 
-    test('an unchanged cumulative diff re-sent on heartbeats renders once, not once per beat', () => {
-      const map = createCodexNotificationMapper()
+    test('a new turn re-renders its first diff even if identical to the previous turn', async () => {
+      await withCodexTui('inv_diff_dedupe_new_turn', (tui) => {
+        const diff = diffFor(['one'])
+        tui.startTurn('turn_1')
+        tui.emit('turn/diff/updated', { threadId: T, turnId: 'turn_1', diff })
+        tui.emit('turn/diff/updated', { threadId: T, turnId: 'turn_1', diff })
+        expect(cards(tui.since(), 'diff')).toHaveLength(1)
+        // Dedupe is keyed by turn id, so the reset must come from turn/started
+        // itself: re-start the SAME id rather than a fresh one.
+        tui.startTurn('turn_1')
+        tui.emit('turn/diff/updated', { threadId: T, turnId: 'turn_1', diff })
+        expect(cards(tui.since(), 'diff')).toHaveLength(2)
+      })
+    })
+
+    test('dedupe is per-invocation, so a second invocation renders the same first diff', async () => {
       const diff = diffFor(['one'])
-      const first = diffEvents(map(diffNote(diff)))
-      expect(first).toHaveLength(1)
-      // The real firing pattern: heartbeat, then the same diff again, over and over.
-      for (let i = 0; i < 5; i++) {
-        expect(map(heartbeat())).toEqual([])
-        expect(diffEvents(map(diffNote(diff)))).toEqual([])
+      for (const id of ['inv_diff_dedupe_first', 'inv_diff_dedupe_second']) {
+        await withCodexTui(id, (tui) => {
+          tui.startTurn('turn_1')
+          tui.emit('turn/diff/updated', { threadId: T, turnId: 'turn_1', diff })
+          expect(cards(tui.since(), 'diff')).toHaveLength(1)
+        })
       }
-    })
-
-    test('a diff that actually changed still renders', () => {
-      const map = createCodexNotificationMapper()
-      expect(diffEvents(map(diffNote(diffFor(['one']))))).toHaveLength(1)
-      expect(diffEvents(map(diffNote(diffFor(['one']))))).toHaveLength(0)
-      // An edit lands: the cumulative diff grows, so the summary changes.
-      expect(diffEvents(map(diffNote(diffFor(['one', 'two']))))).toHaveLength(1)
-    })
-
-    test('a new turn re-renders its first diff even if identical to the previous turn', () => {
-      const map = createCodexNotificationMapper()
-      const diff = diffFor(['one'])
-      expect(diffEvents(map(diffNote(diff, 'turn_1')))).toHaveLength(1)
-      expect(diffEvents(map(diffNote(diff, 'turn_1')))).toHaveLength(0)
-      map(note('turn/started', { turnId: 'turn_1' }))
-      expect(diffEvents(map(diffNote(diff, 'turn_1')))).toHaveLength(1)
-    })
-
-    test('dedupe is per-invocation, so a fresh mapper never inherits another turn state', () => {
-      const diff = diffFor(['one'])
-      expect(diffEvents(createCodexNotificationMapper()(diffNote(diff)))).toHaveLength(1)
-      expect(diffEvents(createCodexNotificationMapper()(diffNote(diff)))).toHaveLength(1)
     })
   })
 })

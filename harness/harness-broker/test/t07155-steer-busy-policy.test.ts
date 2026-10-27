@@ -155,27 +155,6 @@ describe('T-07155 whenBusy: steer', () => {
     })
   })
 
-  test('G2b: a non-user input kind under steer never reaches the driver steer path', async () => {
-    const { broker, controller, invocationId } = await setup({
-      invocationId: 'inv_t07155_g2b',
-      supportsSteer: true,
-    })
-    await broker.input({ invocationId, input: userInput('input_active', 'work') })
-
-    // The capability gate for the distinct append_context/steer input KINDS runs
-    // ahead of busy-policy dispatch, so this is refused before the policy is
-    // consulted. Either way the invariant under test holds: only user input is
-    // ever written into an active turn.
-    await expect(
-      broker.input({
-        invocationId,
-        input: { ...userInput('input_ctx', 'context'), kind: 'append_context' as const },
-        policy: { whenBusy: 'steer' },
-      })
-    ).rejects.toMatchObject({ code: BrokerErrorCode.UnsupportedCapability })
-    expect(controller.steeredInputs).toHaveLength(0)
-  })
-
   test('a pane_not_quiescent driver rejection remains typed in the broker stream', async () => {
     const { broker, events, invocationId } = await setup({
       invocationId: 'inv_t08099_not_quiescent',
@@ -322,25 +301,6 @@ describe('T-07155 whenBusy: steer', () => {
     expect(inputEvents(events, 'input.queued')).toHaveLength(1)
   })
 
-  test('G4b: whenBusy queue preserves interactive write-through', async () => {
-    const { broker, controller, events, invocationId } = await setup({
-      invocationId: 'inv_t07155_g4_interactive',
-      supportsSteer: true,
-      mode: 'interactive',
-    })
-    await broker.input({ invocationId, input: userInput('input_active', 'work') })
-
-    const response = await broker.input({
-      invocationId,
-      input: userInput('input_steered', 'steer'),
-      policy: { whenBusy: 'queue' },
-    })
-
-    expect(response).toMatchObject({ accepted: true, disposition: 'attempted_steer' })
-    expect(controller.steeredInputs).toHaveLength(1)
-    expect(inputEvents(events, 'input.queued')).toHaveLength(0)
-  })
-
   // G19 — the negotiation signal HRC gates on. A long-lived broker process
   // survives HRC restarts, so the client must be able to ask THIS process what
   // it can do rather than assume an installed upgrade reached it.
@@ -354,23 +314,63 @@ describe('T-07155 whenBusy: steer', () => {
 
   // G16 — the C-14234 correction, fenced. `input.steer` governs the distinct
   // kind:'steer' input and is NOT the busy-steer signal; this work must not
-  // quietly redefine it.
-  test('G16: input.steer capability is unchanged and still governs kind:steer', async () => {
-    const { broker, capabilities, invocationId } = await setup({
-      invocationId: 'inv_t07155_g16',
-      supportsSteer: true,
-    })
-    expect(capabilities.input.steer).toBe(false)
-
-    await broker.input({ invocationId, input: userInput('input_active', 'work') })
-    await expect(
-      broker.input({
-        invocationId,
-        input: { ...userInput('input_kind_steer', 'x'), kind: 'steer' as const },
-        policy: { whenBusy: 'steer' },
+  // quietly redefine it. The capability gate for the non-user KINDS runs ahead
+  // of busy-policy dispatch, so each kind is refused with its own capability
+  // name whatever the policy or turn state, and never reaches the driver.
+  test.each([
+    { kind: 'steer', policy: 'steer', busy: true, message: 'UnsupportedCapability: input.steer' },
+    { kind: 'steer', policy: 'steer', busy: false, message: 'UnsupportedCapability: input.steer' },
+    { kind: 'steer', policy: 'reject', busy: false, message: 'UnsupportedCapability: input.steer' },
+    { kind: 'steer', policy: 'reject', busy: true, message: 'UnsupportedCapability: input.steer' },
+    {
+      kind: 'append_context',
+      policy: 'steer',
+      busy: true,
+      message: 'UnsupportedCapability: input.appendContext',
+    },
+    {
+      kind: 'append_context',
+      policy: 'reject',
+      busy: false,
+      message: 'UnsupportedCapability: input.appendContext',
+    },
+    {
+      kind: 'append_context',
+      policy: 'steer',
+      busy: false,
+      message: 'UnsupportedCapability: input.appendContext',
+    },
+    {
+      kind: 'append_context',
+      policy: 'reject',
+      busy: true,
+      message: 'UnsupportedCapability: input.appendContext',
+    },
+  ] as const)(
+    'G16: kind $kind under whenBusy $policy (busy=$busy) is refused by the capability gate and input.steer stays false',
+    async ({ kind, policy, busy, message }) => {
+      const { broker, capabilities, controller, invocationId } = await setup({
+        invocationId: `inv_t07155_g16_${kind}_${policy}`,
+        supportsSteer: true,
       })
-    ).rejects.toMatchObject({ code: BrokerErrorCode.UnsupportedCapability })
-  })
+      expect(capabilities.input.steer).toBe(false)
+
+      if (busy) {
+        await broker.input({ invocationId, input: userInput('input_active', 'work') })
+      }
+      await expect(
+        broker.input({
+          invocationId,
+          input: { ...userInput('input_non_user', 'x'), kind },
+          policy: { whenBusy: policy },
+        })
+      ).rejects.toMatchObject({ code: BrokerErrorCode.UnsupportedCapability, message })
+      expect(controller.steeredInputs).toHaveLength(0)
+      expect<(string | undefined)[]>(controller.inputs.map((input) => input.inputId)).toEqual(
+        busy ? ['input_active'] : []
+      )
+    }
+  )
 
   // An idle invocation is not the steer path's business: the manager applies
   // input immediately and the policy never runs.

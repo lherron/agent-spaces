@@ -9,7 +9,8 @@ import { describe, expect, test } from 'bun:test'
 import type { CommitSha, SpaceId, SpaceKey, SpaceManifest } from '../core/index.js'
 import { LOCK_HARNESSES } from '../core/index.js'
 import { must } from '../test-support/must.js'
-import type { ClosureResult, ResolvedSpace } from './closure.js'
+import type { ResolvedSpace } from './closure.js'
+import { computeHarnessEnvHash } from './integrity.js'
 import { type LockGeneratorOptions, type TargetInput, generateLockFile } from './lock-generator.js'
 
 // Mock resolved spaces for testing
@@ -45,175 +46,89 @@ function createMockSpace(
   }
 }
 
+function lockTargetFor(spaces: ResolvedSpace[]): TargetInput {
+  const keys = spaces.map((space) => space.key)
+  return {
+    name: 'test-target',
+    compose: spaces.map((space) => `space:${space.id}@stable` as TargetInput['compose'][number]),
+    closure: {
+      spaces: new Map<SpaceKey, ResolvedSpace>(spaces.map((space) => [space.key, space])),
+      roots: keys,
+      loadOrder: keys,
+    },
+  }
+}
+
+const lockOptions: LockGeneratorOptions = {
+  cwd: '/mock/registry',
+  registry: { type: 'git', url: 'https://example.com/repo' },
+}
+
 describe('lock-generator', () => {
   describe('W205 plugin name collision warnings', () => {
-    test('detects plugin name collisions in lock file', async () => {
-      // Create two spaces with the same plugin name
-      const spaceA = createMockSpace('space-a', 'abc1234', 'shared-plugin')
-      const spaceB = createMockSpace('space-b', 'def5678', 'shared-plugin')
+    test.each<[string, ResolvedSpace[], string[] | undefined]>([
+      [
+        'two spaces with the same plugin.name',
+        [
+          createMockSpace('space-a', 'abc1234', 'shared-plugin'),
+          createMockSpace('space-b', 'def5678', 'shared-plugin'),
+        ],
+        ['shared-plugin', 'space-a', 'space-b'],
+      ],
+      [
+        'a space id colliding with another space plugin.name',
+        [createMockSpace('shared', 'abc1234'), createMockSpace('other', 'def5678', 'shared')],
+        ['shared'],
+      ],
+      [
+        'unique plugin names',
+        [
+          createMockSpace('space-a', 'abc1234', 'plugin-a'),
+          createMockSpace('space-b', 'def5678', 'plugin-b'),
+        ],
+        undefined,
+      ],
+    ])(
+      'two spaces sharing a plugin name record a W205 warning in the lock target: %s',
+      async (_case, spaces, messageNames) => {
+        const lock = await generateLockFile([lockTargetFor(spaces)], lockOptions)
+        const targetEntry = must(lock.targets['test-target'], 'targetEntry')
 
-      const keyA = 'space-a@abc1234' as SpaceKey
-      const keyB = 'space-b@def5678' as SpaceKey
+        if (messageNames === undefined) {
+          expect(targetEntry.warnings).toBeUndefined()
+          return
+        }
 
-      const spacesMap = new Map<SpaceKey, ResolvedSpace>([
-        [keyA, spaceA],
-        [keyB, spaceB],
-      ])
-
-      const closure: ClosureResult = {
-        spaces: spacesMap,
-        roots: [keyA, keyB],
-        loadOrder: [keyA, keyB],
+        const warnings = must(targetEntry.warnings, 'targetEntry.warnings')
+        expect(warnings).toHaveLength(1)
+        expect(warnings[0]?.code).toBe('W205')
+        for (const name of messageNames) {
+          expect(warnings[0]?.message).toContain(name)
+        }
       }
-
-      const target: TargetInput = {
-        name: 'test-target',
-        compose: ['space:space-a@stable', 'space:space-b@stable'],
-        closure,
-      }
-
-      const options: LockGeneratorOptions = {
-        cwd: '/mock/registry',
-        registry: { type: 'git', url: 'https://example.com/repo' },
-      }
-
-      // Generate lock file
-      const lock = await generateLockFile([target], options)
-
-      // Should have warnings in the target entry
-      const targetEntry = lock.targets['test-target']
-      expect(targetEntry).toBeDefined()
-      if (!targetEntry) throw new Error('targetEntry is undefined')
-      expect(targetEntry.warnings).toBeDefined()
-      if (!targetEntry.warnings) throw new Error('warnings is undefined')
-      expect(targetEntry.warnings.length).toBe(1)
-
-      const warning = targetEntry.warnings[0]
-      expect(warning).toBeDefined()
-      if (!warning) throw new Error('warning is undefined')
-      expect(warning.code).toBe('W205')
-      expect(warning.message).toContain('shared-plugin')
-      expect(warning.message).toContain('space-a')
-      expect(warning.message).toContain('space-b')
-    })
-
-    test('no warnings when plugin names are unique', async () => {
-      // Create two spaces with different plugin names
-      const spaceA = createMockSpace('space-a', 'abc1234', 'plugin-a')
-      const spaceB = createMockSpace('space-b', 'def5678', 'plugin-b')
-
-      const keyA = 'space-a@abc1234' as SpaceKey
-      const keyB = 'space-b@def5678' as SpaceKey
-
-      const spacesMap = new Map<SpaceKey, ResolvedSpace>([
-        [keyA, spaceA],
-        [keyB, spaceB],
-      ])
-
-      const closure: ClosureResult = {
-        spaces: spacesMap,
-        roots: [keyA, keyB],
-        loadOrder: [keyA, keyB],
-      }
-
-      const target: TargetInput = {
-        name: 'test-target',
-        compose: ['space:space-a@stable', 'space:space-b@stable'],
-        closure,
-      }
-
-      const options: LockGeneratorOptions = {
-        cwd: '/mock/registry',
-        registry: { type: 'git', url: 'https://example.com/repo' },
-      }
-
-      // Generate lock file
-      const lock = await generateLockFile([target], options)
-
-      // Should have no warnings
-      const targetEntry = lock.targets['test-target']
-      expect(targetEntry).toBeDefined()
-      if (!targetEntry) throw new Error('targetEntry is undefined')
-      expect(targetEntry.warnings).toBeUndefined()
-    })
+    )
   })
 
   describe('harness enumeration (A6)', () => {
-    test('emits one harness entry per LOCK_HARNESSES, defaulting to agent-harness', async () => {
+    test('the lock records one harness entry per lock harness with its own harness envHash', async () => {
       const space = createMockSpace('space-a', 'abc1234', 'plugin-a')
-      const key = 'space-a@abc1234' as SpaceKey
 
-      const closure: ClosureResult = {
-        spaces: new Map<SpaceKey, ResolvedSpace>([[key, space]]),
-        roots: [key],
-        loadOrder: [key],
-      }
-      const target: TargetInput = {
-        name: 'test-target',
-        compose: ['space:space-a@stable'],
-        closure,
-      }
-      const options: LockGeneratorOptions = {
-        cwd: '/mock/registry',
-        registry: { type: 'git', url: 'https://example.com/repo' },
-      }
-
-      const lock = await generateLockFile([target], options)
-      const targetEntry = lock.targets['test-target']
-      if (!targetEntry) throw new Error('targetEntry is undefined')
+      const lock = await generateLockFile([lockTargetFor([space])], lockOptions)
+      const targetEntry = must(lock.targets['test-target'], 'targetEntry')
       const harnesses = must(targetEntry.harnesses, 'targetEntry.harnesses')
 
       // Behavior is driven by the shared enumeration, not an inline literal.
       expect(Object.keys(harnesses).sort()).toEqual([...LOCK_HARNESSES].sort())
       // Preserved default: only the agent-harness entry (T-08701 contract default).
       expect(LOCK_HARNESSES).toEqual(['agent-harness'])
-      expect(harnesses['agent-harness']?.envHash).toBeDefined()
-    })
-  })
 
-  describe('W205 plugin name collision warnings (continued)', () => {
-    test('uses space id as plugin name when plugin.name not specified', async () => {
-      // Create two spaces with the same ID would be invalid,
-      // but if they somehow got the same derived plugin name, it should warn
-      const spaceA = createMockSpace('shared', 'abc1234') // Uses id as plugin name
-      const spaceB = createMockSpace('other', 'def5678', 'shared') // Overrides to same name
-
-      const keyA = 'shared@abc1234' as SpaceKey
-      const keyB = 'other@def5678' as SpaceKey
-
-      const spacesMap = new Map<SpaceKey, ResolvedSpace>([
-        [keyA, spaceA],
-        [keyB, spaceB],
+      // The harness entry carries the per-harness hash, not the target-level envHash.
+      const integrity = must(lock.spaces[space.key], 'lock space entry').integrity
+      const expectedHarnessHash = computeHarnessEnvHash('agent-harness', [
+        { spaceKey: space.key, integrity, pluginName: 'plugin-a' },
       ])
-
-      const closure: ClosureResult = {
-        spaces: spacesMap,
-        roots: [keyA, keyB],
-        loadOrder: [keyA, keyB],
-      }
-
-      const target: TargetInput = {
-        name: 'test-target',
-        compose: ['space:shared@stable', 'space:other@stable'],
-        closure,
-      }
-
-      const options: LockGeneratorOptions = {
-        cwd: '/mock/registry',
-        registry: { type: 'git', url: 'https://example.com/repo' },
-      }
-
-      // Generate lock file
-      const lock = await generateLockFile([target], options)
-
-      // Should have warning for the 'shared' plugin name
-      const targetEntry = lock.targets['test-target']
-      expect(targetEntry).toBeDefined()
-      if (!targetEntry) throw new Error('targetEntry is undefined')
-      expect(targetEntry.warnings).toBeDefined()
-      if (!targetEntry.warnings) throw new Error('warnings is undefined')
-      expect(targetEntry.warnings.length).toBe(1)
-      expect(targetEntry.warnings[0]?.code).toBe('W205')
+      expect(harnesses['agent-harness']?.envHash).toBe(expectedHarnessHash)
+      expect(harnesses['agent-harness']?.envHash).not.toBe(targetEntry.envHash)
     })
   })
 })

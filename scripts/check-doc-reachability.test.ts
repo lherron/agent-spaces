@@ -10,8 +10,8 @@
  *
  * The checker must resolve routed relative markdown links from --doc within
  * --root, including optional #anchor fragments, and emit §3 diagnostics for
- * every unreachable target. The fixture is self-contained under scripts/ and
- * force-cleaned in afterEach even on assertion failure or throw.
+ * every unreachable target. Each test gets its own fixture root under the OS temp
+ * dir, force-cleaned in afterEach even on assertion failure or throw.
  *
  * The six §3 fields (per archagent/agent-enablement/checks/conformance-diagnostic.md):
  *   1. file:line       - source doc path with a real line number
@@ -22,16 +22,16 @@
  *   6. do-not-suppress - explicit "do not suppress/silence/disable" wording
  */
 
-import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 // Repo root - CWD for all subprocess invocations.
 const REPO_ROOT = join(import.meta.dir, '..')
 
-// Self-contained fixture root. This directory must never be committed.
-const FIXTURE_DIR_REL = 'scripts/__reach_fixture__'
-const FIXTURE_ROOT = join(REPO_ROOT, FIXTURE_DIR_REL)
+// Per-test fixture root under the OS temp dir (set in beforeEach).
+let FIXTURE_ROOT = ''
 
 const MISSING_FILE_DOC = 'missing-file.md'
 const MISSING_FILE_LINK_LINE = 5
@@ -74,7 +74,6 @@ const PRESENT_CONTENT = [
 ].join('\n')
 
 async function writeFixture(files: Record<string, string>): Promise<void> {
-  await mkdir(FIXTURE_ROOT, { recursive: true })
   for (const [relativePath, content] of Object.entries(files)) {
     await writeFile(join(FIXTURE_ROOT, relativePath), content)
   }
@@ -130,6 +129,10 @@ function expectSixFieldDiagnostic(
 }
 
 describe('check-doc-reachability.ts - routed markdown reachability', () => {
+  beforeEach(async () => {
+    FIXTURE_ROOT = await mkdtemp(join(tmpdir(), 'asp-reach-fixture-'))
+  })
+
   afterEach(async () => {
     // Force-remove even if the test threw before writeFixture completed.
     await rm(FIXTURE_ROOT, { force: true, recursive: true })

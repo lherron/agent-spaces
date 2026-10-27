@@ -71,7 +71,7 @@ describe('canonical lifecycle policy JSON', () => {
       extra: undefined,
     } as unknown as BrokerLifecyclePolicyOverlayInput
 
-    expect(canonicalLifecyclePolicyJson(withUndefined)).toBe(canonicalLifecyclePolicyJson(present))
+    expect(lifecyclePolicyHash(withUndefined)).toBe(lifecyclePolicyHash(present))
   })
 
   test('throws RangeError on a non-finite number in the hash material', () => {
@@ -87,9 +87,12 @@ describe('canonical lifecycle policy JSON', () => {
     expect(() => lifecyclePolicyHash(nonFinite)).toThrow(RangeError)
   })
 
-  test('produces a stable hex digest for the conservative default overlay', () => {
-    // Determinism guard: the same input always yields the same digest.
-    expect(lifecyclePolicyHash(base)).toBe(lifecyclePolicyHash(base))
-    expect(lifecyclePolicyHash(base)).toMatch(/^[0-9a-f]{64}$/)
+  test('the conservative default overlay hashes to its pinned golden digest', () => {
+    // hrc-runtime persists policyHash, so any change to canonicalization (key
+    // order, value coercion, the digest itself) must show up here, not in stored
+    // comparisons. Update the digest only for a deliberate, migrated change.
+    expect(lifecyclePolicyHash(conservativeDefaultLifecyclePolicyOverlay('policy_canon'))).toBe(
+      '3e3bcd72dd2dfec646b3205f6a02ce5fbb5191e3856d51ed0069881cc6876862'
+    )
   })
 })

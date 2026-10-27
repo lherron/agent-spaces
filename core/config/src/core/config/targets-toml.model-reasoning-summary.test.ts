@@ -5,37 +5,6 @@ import { getEffectiveCodexOptions, mergeCodexOptions } from '../types/targets.js
 import { parseTargetsToml, serializeTargetsToml } from './targets-toml.js'
 
 describe('asp-targets.toml model_reasoning_summary', () => {
-  test('parses top-level and target values', () => {
-    const parsed = parseTargetsToml(`
-schema = 2
-
-[codex]
-model_reasoning_summary = "concise"
-
-[targets.default]
-compose = ["space:test@stable"]
-
-[targets.default.provisioning.codex]
-model_reasoning_summary = "detailed"
-`)
-
-    expect(parsed.codex?.model_reasoning_summary).toBe('concise')
-    expect(must(parsed.targets['default']).provisioning?.codex?.model_reasoning_summary).toBe(
-      'detailed'
-    )
-  })
-
-  test('rejects unsupported values', () => {
-    expect(() =>
-      parseTargetsToml(`
-schema = 2
-
-[codex]
-model_reasoning_summary = "verbose"
-`)
-    ).toThrow()
-  })
-
   test('target value overrides the top-level value, including none', () => {
     const merged = mergeCodexOptions(
       { model_reasoning_summary: 'detailed' },

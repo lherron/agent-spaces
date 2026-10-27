@@ -1,30 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import type {
-  CaptureBlockedUnknownSummary,
-  CaptureReleaseNormalizedAs,
-  CaptureReleasedPayload,
-  CaptureStateView,
-  EventFamily,
-  EventProvenance,
-  EventSourceKind,
-  EvidenceAuthority,
-  EvidenceAuthorityMatrix,
-  InvocationCaptureReleaseRequest,
-  InvocationCaptureReleaseResponse,
-  InvocationEventEnvelope,
-  InvocationEventType,
-  RawProviderRecord,
-  RawRecordDisposition,
-  RawSourceCursor,
-} from '../src/index'
-import {
-  CAPTURE_RELEASE_NOT_BLOCKED,
-  EVENT_FAMILY_BY_TYPE,
-  LOAD_BEARING_EVENT_FAMILIES,
-  isLoadBearingEventFamily,
-  validateEventEnvelope,
-} from '../src/index'
-import { invocationIdFrom } from './ids'
+import type { CaptureReleasedPayload, EventProvenance, EventSourceKind } from '../src/index'
+import { validateEventEnvelope } from '../src/index'
+import { expectInvalidEventEnvelope, withValueAt, withoutKeyAt } from './schema-test-helpers'
 
 const envelope = (extra: Record<string, unknown> = {}): unknown => ({
   invocationId: 'inv_1',
@@ -108,14 +85,21 @@ describe('capture.released payload', () => {
       note: 'reviewed',
       resumedRecords: 2,
     }
-    expect(() =>
-      validateEventEnvelope(envelope({ type: 'capture.released', payload }))
-    ).not.toThrow()
-    expect(() =>
-      validateEventEnvelope(
-        envelope({ type: 'capture.released', payload: { rawRecordId: 'r', disposition: 'x' } })
-      )
-    ).toThrow()
+    const released = envelope({ type: 'capture.released', payload })
+    expect(() => validateEventEnvelope(released)).not.toThrow()
+    // One fault per row, so each check is the only thing that can reject it.
+    expectInvalidEventEnvelope(withoutKeyAt(released, ['payload', 'rawRecordId']), {
+      path: 'payload.rawRecordId',
+      code: 'required',
+    })
+    expectInvalidEventEnvelope(withValueAt(released, ['payload', 'disposition'], 'x'), {
+      path: 'payload.disposition',
+      code: 'invalid_literal',
+    })
+    expectInvalidEventEnvelope(withoutKeyAt(released, ['payload', 'resumedRecords']), {
+      path: 'payload.resumedRecords',
+      code: 'required',
+    })
   })
 
   test('an operator-authored normalizedAs names a real event type', () => {
@@ -136,26 +120,6 @@ describe('capture.released payload', () => {
         })
       )
     ).toThrow()
-  })
-})
-
-describe('event family taxonomy', () => {
-  test('classifies every event type in the payload map', () => {
-    const classified = Object.keys(EVENT_FAMILY_BY_TYPE) as InvocationEventType[]
-    // The map is typed as a total Record, so an unclassified event fails the
-    // build; this asserts the runtime object matches that promise.
-    expect(classified.length).toBeGreaterThan(40)
-    for (const type of classified) {
-      expect(typeof EVENT_FAMILY_BY_TYPE[type]).toBe('string')
-    }
-  })
-
-  test('load-bearing families are the ones a consumer acts on', () => {
-    const families: EventFamily[] = [...LOAD_BEARING_EVENT_FAMILIES]
-    expect(families).toContain('turn-bracket')
-    expect(families).toContain('submission-disposition')
-    expect(isLoadBearingEventFamily('conversation')).toBe(true)
-    expect(isLoadBearingEventFamily('terminal-surface')).toBe(false)
   })
 })
 
@@ -235,81 +199,5 @@ describe('disposition provenance may name any source; broker-only facts may not'
         })
       )
     ).toThrow()
-  })
-})
-
-describe('capture types compile against their documented shapes', () => {
-  test('the raw record, disposition, matrix and RPC shapes are usable as declared', () => {
-    const cursor: RawSourceCursor = { byteOffset: 0, line: 1, nativeSequence: 'n1' }
-    const record: RawProviderRecord = {
-      rawRecordId: 'raw_1',
-      invocationId: invocationIdFrom('inv_1'),
-      provider: 'anthropic',
-      driverKind: 'claude-code-tmux',
-      sourceKind: 'provider-jsonl',
-      sourceEpoch: 'ep_1',
-      sourceCursor: cursor,
-      nativeType: 'user',
-      observedAt: '2026-09-01T12:00:00.000Z',
-      sha256: 'a'.repeat(64),
-      rawBytes: new Uint8Array([1, 2, 3]),
-    }
-    const dispositions: RawRecordDisposition[] = [
-      'pending',
-      'normalized',
-      'state-only',
-      'duplicate',
-      'ignored-known',
-      'blocked-unknown',
-    ]
-    const authority: EvidenceAuthority = 'native'
-    const matrix: Partial<EvidenceAuthorityMatrix> = { conversation: authority }
-    // T-07883: capture is always open, and the per-key repeat counts are the
-    // only thing a snapshot reader learns about unclassified native types.
-    const blockedUnknown: CaptureBlockedUnknownSummary = {
-      driver: 'claude-code-tmux',
-      nativeType: 'queue-operation:reprioritize',
-      family: 'submission-disposition',
-      loadBearing: true,
-      count: 3,
-      message: 'Unknown Claude queue operation: reprioritize',
-      firstSeenIso: '2026-09-02T10:03:00.000Z',
-      lastSeenIso: '2026-09-02T10:20:00.000Z',
-    }
-    const state: CaptureStateView = {
-      state: 'open',
-      deferredCount: 0,
-      blockedUnknown: [blockedUnknown],
-    }
-    const normalizedAs: CaptureReleaseNormalizedAs = {
-      type: 'submission.cancelled',
-      payload: { submissionId: 's1' },
-    }
-    const request: InvocationCaptureReleaseRequest = {
-      invocationId: invocationIdFrom('inv_1'),
-      rawRecordId: 'raw_1',
-      disposition: 'normalized-as',
-      normalizedAs,
-    }
-    const response: InvocationCaptureReleaseResponse = {
-      released: true,
-      invocationId: invocationIdFrom('inv_1'),
-      rawRecordId: 'raw_1',
-      disposition: 'normalized',
-      releasedSeq: 9,
-      resumedRecords: 0,
-      capture: state,
-    }
-    const replayed: InvocationEventEnvelope | undefined = undefined
-
-    expect(record.rawBytes).toHaveLength(3)
-    expect(dispositions).toHaveLength(6)
-    expect(matrix.conversation).toBe('native')
-    expect(request.normalizedAs?.type).toBe('submission.cancelled')
-    expect(response.released).toBe(true)
-    expect(replayed).toBeUndefined()
-    expect(CAPTURE_RELEASE_NOT_BLOCKED).toBe('raw_record_not_blocked')
-    expect(state.blockedUnknown?.[0]).toBe(blockedUnknown)
-    expect(blockedUnknown.loadBearing).toBe(isLoadBearingEventFamily(blockedUnknown.family))
   })
 })

@@ -378,41 +378,7 @@ describe('T-07861 committed-event publisher', () => {
 // ---------------------------------------------------------------------------
 
 describe('T-07861 startup trailing-segment repair', () => {
-  test('a torn final record is truncated once, recorded as capture.warning, and seq continues', async () => {
-    const dir = scratchDir()
-    const path = join(dir, 'events.ndjson')
-    const first = openLedger(dir)
-    first.appendSync(event('inv_tail', 1))
-    first.appendSync(event('inv_tail', 2))
-    first.close()
-    ledgers.pop()
-
-    // Simulate a crash mid-append: a partial record with no terminating newline.
-    const intact = readFileSync(path, 'utf8')
-    writeFileSync(path, `${intact}{"invocationId":"inv_tail","seq":3,"ty`)
-
-    const reopened = openLedger(dir)
-    const repair = reopened.tailRepair()
-    expect(repair).toMatchObject({
-      truncatedAtOffset: intact.length,
-      lastIntact: { invocationId: 'inv_tail', seq: 2 },
-    })
-    // The file is repaired on disk, so nothing torn survives the restart.
-    expect(readFileSync(path, 'utf8')).toBe(intact)
-    // seq continues from the last INTACT record — no duplicate, no skip.
-    expect(reopened.currentSeq('inv_tail' as InvocationId)).toBe(2)
-    expect((await reopened.eventsSince('inv_tail' as InvocationId, 0)).map((e) => e.seq)).toEqual([
-      1, 2,
-    ])
-
-    // Repair is once-only: a third open sees an intact file and repairs nothing.
-    reopened.close()
-    ledgers.pop()
-    const third = openLedger(dir)
-    expect(third.tailRepair()).toBeUndefined()
-  })
-
-  test('the broker commits exactly one ledger_tail_repaired warning and resumes seq after it', async () => {
+  test('a torn final record is truncated to the intact bytes once and the broker commits one ledger_tail_repaired warning, resuming seq after it', async () => {
     const dir = scratchDir()
     const path = join(dir, 'events.ndjson')
     const first = openLedger(dir)
@@ -420,10 +386,18 @@ describe('T-07861 startup trailing-segment repair', () => {
     first.appendSync(event('inv_warn', 2))
     first.close()
     ledgers.pop()
-    writeFileSync(path, `${readFileSync(path, 'utf8')}{"invocationId":"inv_warn","seq":3`)
+    // Simulate a crash mid-append: a partial record with no terminating newline.
+    const intact = readFileSync(path, 'utf8')
+    writeFileSync(path, `${intact}{"invocationId":"inv_warn","seq":3`)
 
     const published: InvocationEventEnvelope[] = []
     const ledger = openLedger(dir)
+    expect(ledger.tailRepair()).toMatchObject({
+      truncatedAtOffset: intact.length,
+      lastIntact: { invocationId: 'inv_warn', seq: 2 },
+    })
+    // The file is repaired on disk, so nothing torn survives the restart.
+    expect(readFileSync(path, 'utf8')).toBe(intact)
     createBroker({
       drivers: [createDurabilityDriver()],
       eventLedger: ledger,
@@ -437,10 +411,24 @@ describe('T-07861 startup trailing-segment repair', () => {
       type: 'capture.warning',
       payload: { kind: 'ledger_tail_repaired' },
     })
-    // Committed like any other event, so replay delivers it too.
-    expect((await ledger.eventsSince('inv_warn' as InvocationId, 2)).map((e) => e.type)).toEqual([
-      'capture.warning',
-    ])
+    // seq continues from the last INTACT record, and the warning is committed
+    // like any other event, so replay delivers it too.
+    expect(
+      (await ledger.eventsSince('inv_warn' as InvocationId, 0)).map((e) => `${e.type}#${e.seq}`)
+    ).toEqual(['diagnostic#1', 'diagnostic#2', 'capture.warning#3'])
+
+    // Repair is once-only: a broker over the repaired ledger warns about nothing.
+    ledger.close()
+    ledgers.pop()
+    const repaired = openLedger(dir)
+    expect(repaired.tailRepair()).toBeUndefined()
+    const republished: InvocationEventEnvelope[] = []
+    createBroker({
+      drivers: [createDurabilityDriver()],
+      eventLedger: repaired,
+      onEvent: (evt) => republished.push(evt),
+    })
+    expect(republished).toHaveLength(0)
   })
 
   test('an unreadable INTERIOR record is typed corruption, never a silent skip', () => {
@@ -489,58 +477,37 @@ describe('T-07861 durable consumer state', () => {
     expect(after.currentSeq('inv_durable' as InvocationId)).toBe(6)
   })
 
-  test('currentSeq never regresses below the floor even when pruning emptied the file', async () => {
-    const dir = scratchDir()
-    const before = openLedger(dir)
-    for (let seq = 1; seq <= 3; seq += 1) {
-      before.appendSync(event('inv_emptied', seq))
+  test.each([
+    { case: 'records survive', committed: 2, ackAndPrune: false, firstSeq: 3 },
+    { case: 'ack+prune emptied the file', committed: 3, ackAndPrune: true, firstSeq: 4 },
+  ])(
+    'a restarted broker resumes seq after the last committed record ($case)',
+    async ({ committed, ackAndPrune, firstSeq }) => {
+      const dir = scratchDir()
+      const before = openLedger(dir)
+      for (let seq = 1; seq <= committed; seq += 1) {
+        before.appendSync(event('inv_resume', seq))
+      }
+      if (ackAndPrune) {
+        await before.ackEvents('inv_resume' as InvocationId, committed)
+        await before.prune({ activeInvocationIds: [] })
+      }
+      ledgers.pop()
+
+      const ledger = openLedger(dir)
+      const published: InvocationEventEnvelope[] = []
+      const broker = createBroker({
+        drivers: [createDurabilityDriver()],
+        eventLedger: ledger,
+        onEvent: (evt) => published.push(evt),
+      })
+      await broker.start({ spec: testSpec('inv_resume') })
+
+      // No collision with the surviving (or pruned) seqs, and no gap either:
+      // currentSeq never regresses below the persisted floor.
+      expect(published[0]?.seq).toBe(firstSeq)
     }
-    await before.ackEvents('inv_emptied' as InvocationId, 3)
-    await before.prune({ activeInvocationIds: [] })
-    ledgers.pop()
-
-    const after = openLedger(dir)
-    expect(after.currentSeq('inv_emptied' as InvocationId)).toBe(3)
-  })
-
-  test('prune only ever advances the persisted floor', async () => {
-    const dir = scratchDir()
-    const ledger = openLedger(dir)
-    for (let seq = 1; seq <= 5; seq += 1) {
-      ledger.appendSync(event('inv_floor', seq))
-    }
-    await ledger.ackEvents('inv_floor' as InvocationId, 4)
-    await ledger.prune({ activeInvocationIds: [] })
-    expect(await ledger.retentionFloorSeq('inv_floor' as InvocationId)).toBe(4)
-
-    // Re-acking at the same seq and pruning again is a no-op, not a rollback.
-    await ledger.ackEvents('inv_floor' as InvocationId, 4)
-    await ledger.prune({ activeInvocationIds: [] })
-    expect(await ledger.retentionFloorSeq('inv_floor' as InvocationId)).toBe(4)
-    expect((await ledger.eventsSince('inv_floor' as InvocationId, 4)).map((e) => e.seq)).toEqual([
-      5,
-    ])
-  })
-
-  test('a restarted broker resumes seq after the last committed record', async () => {
-    const dir = scratchDir()
-    const before = openLedger(dir)
-    before.appendSync(event('inv_resume', 1))
-    before.appendSync(event('inv_resume', 2))
-    ledgers.pop()
-
-    const ledger = openLedger(dir)
-    const published: InvocationEventEnvelope[] = []
-    const broker = createBroker({
-      drivers: [createDurabilityDriver()],
-      eventLedger: ledger,
-      onEvent: (evt) => published.push(evt),
-    })
-    await broker.start({ spec: testSpec('inv_resume') })
-
-    // No collision with the surviving seq 1/2, and no gap either.
-    expect(published[0]?.seq).toBe(3)
-  })
+  )
 })
 
 // ---------------------------------------------------------------------------

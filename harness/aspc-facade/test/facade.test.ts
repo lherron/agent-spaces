@@ -60,48 +60,6 @@ describe('ASPC cohosted composition facade', () => {
     }
   })
 
-  test('compileHarnessInvocation returns one execution and one canonical dispatch request', async () => {
-    const client = await startFacadeClient(fixture)
-    try {
-      const response = await client.compileHarnessInvocation({
-        compileRequest: buildCompileRequest(fixture, 'harness_invocation'),
-        aspHome: fixture.aspHome,
-        dispatchEnv: { EXTRA_FLAG: 'aspc' },
-      })
-      expect(response.ok).toBe(true)
-      if (!response.ok) return
-
-      expect(response.plan.execution.driver).toBe('codex-app-server')
-      expect(response.plan.execution.dispatchRequest.dispatchEnv).toEqual({ EXTRA_FLAG: 'aspc' })
-      expect(response).not.toHaveProperty('selectedProfile')
-      expect(response).not.toHaveProperty('startRequest')
-      expect(response).not.toHaveProperty('dispatchRequest')
-    } finally {
-      await client.close()
-    }
-  })
-
-  test('compileHarnessInvocation carries lifecycle policy only on dispatch envelope', async () => {
-    const client = await startFacadeClient(fixture)
-    const lifecyclePolicy = conservativeDefaultLifecyclePolicyOverlay('policy_aspc_default')
-    try {
-      const response = await client.compileHarnessInvocation({
-        compileRequest: buildCompileRequest(fixture, 'harness_invocation_lifecycle'),
-        aspHome: fixture.aspHome,
-        lifecyclePolicy,
-      })
-      expect(response.ok).toBe(true)
-      if (!response.ok) return
-
-      expect(response.plan.execution.dispatchRequest.lifecyclePolicy).toEqual(lifecyclePolicy)
-      expect(JSON.stringify(response.plan.execution.dispatchRequest.startRequest)).not.toContain(
-        'lifecyclePolicy'
-      )
-    } finally {
-      await client.close()
-    }
-  })
-
   test('client onRequest/onNotification reject double registration (single-writer contract)', async () => {
     const client = await startFacadeClient(fixture)
     try {
@@ -119,7 +77,7 @@ describe('ASPC cohosted composition facade', () => {
     }
   })
 
-  test('starts the compiled canonical dispatch through the separate broker route', async () => {
+  test('a compiled dispatch carrying dispatchEnv and lifecyclePolicy starts through invocation.start', async () => {
     const client = await startFacadeClient(fixture)
     const lifecyclePolicy = conservativeDefaultLifecyclePolicyOverlay('policy_aspc_start')
     try {
@@ -132,9 +90,17 @@ describe('ASPC cohosted composition facade', () => {
       expect(compile.ok).toBe(true)
       if (!compile.ok) return
 
+      // One execution, one canonical dispatch request: nothing rides at the top level.
+      expect(compile.plan.execution.driver).toBe('codex-app-server')
+      expect(compile).not.toHaveProperty('selectedProfile')
+      expect(compile).not.toHaveProperty('startRequest')
+      expect(compile).not.toHaveProperty('dispatchRequest')
+
       const dispatch = compile.plan.execution.dispatchRequest
       expect(dispatch.dispatchEnv).toEqual({ EXTRA_FLAG: 'aspc-start' })
+      // lifecyclePolicy rides the dispatch envelope only, never the start request.
       expect(dispatch.lifecyclePolicy).toEqual(lifecyclePolicy)
+      expect(JSON.stringify(dispatch.startRequest)).not.toContain('lifecyclePolicy')
 
       const startResponse = await client.request<{ invocationId: string }>('invocation.start', {
         ...dispatch,

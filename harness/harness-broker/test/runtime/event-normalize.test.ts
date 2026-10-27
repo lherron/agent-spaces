@@ -1,128 +1,156 @@
 import { describe, expect, test } from 'bun:test'
-import type { InvocationEventType } from 'spaces-harness-broker-protocol'
-import {
-  type NormalizeEventPayloadInput,
-  normalizeEventPayload,
-  safeStartedPayload,
-} from '../../src/runtime/event-normalize'
+import type { InvocationEventEnvelope, InvocationEventType } from 'spaces-harness-broker-protocol'
+import { createBroker } from '../../src/broker'
+import { createTestDriver } from '../../src/testing/test-driver'
+import { testDriverSpec } from '../helpers'
 import { messageIdFrom } from '../ids'
 
 /**
- * Feeds the normalizer a payload that breaks its declared shape (extra keys,
- * missing fields, foreign leaves), as a misbehaving driver would at runtime.
- * Repairing exactly that is the normalizer's job.
+ * Every driver event passes through the broker's central event-safety path
+ * before it is sequenced. These tests drive it the way a (misbehaving) driver
+ * does: emit a payload through the real manager seam and read the envelope the
+ * broker publishes. Payloads deliberately break their declared shape (extra
+ * keys, foreign leaves), which is exactly what the normalizer repairs.
  */
-const normalizeMalformed = <K extends InvocationEventType>(input: {
-  type: K
-  payload: object
-  maxEventBytes?: number
-}) =>
-  // deliberately invalid: the payload does not satisfy InvocationEventPayloadMap[K].
-  normalizeEventPayload(input as NormalizeEventPayloadInput<K>)
+let seq = 0
+async function emitThrough(
+  type: InvocationEventType,
+  payload: object,
+  options: { maxEventBytes?: number; cwd?: string } = {}
+): Promise<{ emitted: InvocationEventEnvelope | undefined; events: InvocationEventEnvelope[] }> {
+  seq += 1
+  const events: InvocationEventEnvelope[] = []
+  const { driver, controller } = createTestDriver()
+  const broker = createBroker({ drivers: [driver], onEvent: (event) => events.push(event) })
+  const spec = testDriverSpec(`inv_event_normalize_${seq}`)
+  await broker.start({
+    spec: {
+      ...spec,
+      process: {
+        ...spec.process,
+        ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+        ...(options.maxEventBytes !== undefined
+          ? { limits: { maxEventBytes: options.maxEventBytes } }
+          : {}),
+      },
+    },
+  })
+  const before = events.length
+  // deliberately invalid: the payload need not satisfy InvocationEventPayloadMap[type].
+  controller.emitRaw(type, payload as never)
+  const emitted = events.slice(before).find((event) => event.type === type)
+  return { emitted, events: events.slice(before) }
+}
 
 describe('normalizeEventPayload — central event normalization + size bounding', () => {
-  test('normalizes invocation.ready payload to { state: "ready" }', () => {
-    const { payload } = normalizeMalformed({
-      type: 'invocation.ready',
+  test.each([
+    {
+      row: 'invocation.ready',
+      type: 'invocation.ready' as const,
       payload: { extra: 'ignored' },
-    })
-    expect(payload).toEqual({ state: 'ready' })
-  })
-
-  test('normalizes invocation.disposed payload to { disposed: true }', () => {
-    const { payload } = normalizeMalformed({
-      type: 'invocation.disposed',
+      expected: { state: 'ready' },
+    },
+    {
+      row: 'invocation.disposed',
+      type: 'invocation.disposed' as const,
       payload: { disposed: true, extra: 'ignored' },
+      expected: { disposed: true },
+    },
+  ])(
+    'a driver-emitted $row drops driver-supplied extra keys',
+    async ({ type, payload, expected }) => {
+      const { emitted } = await emitThrough(type, payload)
+      expect(emitted?.payload).toEqual(expected)
+    }
+  )
+
+  test('constrains invocation.started to pid/command/args/cwd only', async () => {
+    const { emitted } = await emitThrough('invocation.started', {
+      pid: 7,
+      command: 'codex',
+      args: ['app-server'],
+      cwd: '/work',
+      // A leaked env block must be dropped by the positive projection.
+      env: { CODEX_HOME: '/tmp/codex-home' },
     })
-    expect(payload).toEqual({ disposed: true })
+    expect(Object.keys(emitted?.payload ?? {}).sort()).toEqual(['args', 'command', 'cwd', 'pid'])
+    expect(JSON.stringify(emitted)).not.toContain('CODEX_HOME')
   })
 
-  test('constrains invocation.started to pid/command/args/cwd only', () => {
-    const { payload } = normalizeMalformed({
-      type: 'invocation.started',
-      payload: {
-        pid: 7,
-        command: 'codex',
-        args: ['app-server'],
-        cwd: '/work',
-        // A leaked env block must be dropped by the positive projection.
-        env: { CODEX_HOME: '/tmp/codex-home' },
-      },
+  test('serializes started args under cwd as stable cwd-relative paths', async () => {
+    const { emitted } = await emitThrough('invocation.started', {
+      command: 'codex',
+      args: ['/work/project/bin/fake-codex.ts', '--literal'],
+      cwd: '/work/project',
     })
-    expect(Object.keys(payload).sort()).toEqual(['args', 'command', 'cwd', 'pid'])
-    expect(JSON.stringify(payload)).not.toContain('CODEX_HOME')
-  })
-
-  test('serializes started args under cwd as stable cwd-relative paths', () => {
-    const { payload } = normalizeEventPayload({
-      type: 'invocation.started',
-      payload: {
-        command: 'codex',
-        args: ['/work/project/bin/fake-codex.ts', '--literal'],
-        cwd: '/work/project',
-      },
-    })
-    expect((payload as { args: string[] }).args).toEqual([
+    expect((emitted?.payload as { args: string[] }).args).toEqual([
       '/work/project/bin/fake-codex.ts',
       '--literal',
     ])
-    expect(JSON.stringify(payload)).toContain('"<cwd>/bin/fake-codex.ts"')
-    expect(JSON.stringify(payload)).not.toContain('/work/project/bin/fake-codex.ts')
+    // What goes on the wire / into the ledger is the JSON form.
+    expect(JSON.stringify(emitted)).toContain('"<cwd>/bin/fake-codex.ts"')
+    expect(JSON.stringify(emitted)).not.toContain('/work/project/bin/fake-codex.ts')
   })
 
-  test('safeStartedPayload returns non-object payloads unchanged', () => {
-    expect(safeStartedPayload('plain')).toBe('plain')
-    expect(safeStartedPayload(null)).toBeNull()
-  })
-
-  test('truncates an oversized payload field to [TRUNCATED] and returns a broker diagnostic', () => {
-    const big = 'x'.repeat(5000)
-    const { payload, diagnostics } = normalizeEventPayload({
-      type: 'assistant.message.delta',
-      payload: { messageId: messageIdFrom('m1'), text: big },
-      maxEventBytes: 256,
-    })
-    expect((payload as { messageId: string }).messageId).toBe('m1')
-    expect((payload as { text: string }).text).toBe('[TRUNCATED]')
-    expect(diagnostics?.length ?? 0).toBeGreaterThan(0)
-    expect(diagnostics?.[0]).toMatchObject({
+  test('an event larger than maxEventBytes has its largest leaf replaced by [TRUNCATED] and a warn diagnostic', async () => {
+    const { emitted, events } = await emitThrough(
+      'assistant.message.delta',
+      { messageId: messageIdFrom('m1'), text: 'x'.repeat(5000) },
+      { maxEventBytes: 256 }
+    )
+    expect(emitted?.payload).toMatchObject({ messageId: 'm1', text: '[TRUNCATED]' })
+    const diagnostics = events.filter((event) => event.type === 'diagnostic')
+    expect(diagnostics).toHaveLength(1)
+    expect(diagnostics[0]?.payload).toMatchObject({
       level: 'warn',
       source: 'broker',
       data: { eventType: 'assistant.message.delta', maxEventBytes: 256 },
     })
   })
 
-  test('does not truncate payloads within maxEventBytes', () => {
-    const { payload, diagnostics } = normalizeEventPayload({
-      type: 'assistant.message.delta',
+  test.each([
+    {
+      row: 'within maxEventBytes',
+      type: 'assistant.message.delta' as const,
       payload: { messageId: messageIdFrom('m1'), text: 'short' },
       maxEventBytes: 4096,
-    })
-    expect((payload as { text: string }).text).toBe('short')
-    expect(diagnostics ?? []).toHaveLength(0)
-  })
-
-  test('does not truncate when maxEventBytes is unset', () => {
-    const big = 'y'.repeat(5000)
-    const { payload, diagnostics } = normalizeEventPayload({
-      type: 'diagnostic',
-      payload: { level: 'info', message: big },
-    })
-    expect((payload as { message: string }).message).toBe(big)
-    expect(diagnostics ?? []).toHaveLength(0)
-  })
-
-  test('truncation is deterministic — largest leaf first, stable across runs', () => {
-    const input = {
-      type: 'assistant.message.delta' as const,
-      payload: { small: 'tiny', big: 'z'.repeat(4000), medium: 'm'.repeat(500) },
-      maxEventBytes: 600,
+    },
+    {
+      row: 'with maxEventBytes unset',
+      type: 'diagnostic' as const,
+      payload: { level: 'info', message: 'y'.repeat(5000) },
+      maxEventBytes: undefined,
+    },
+  ])(
+    'an event $row is published untouched with no diagnostic',
+    async ({ type, payload, maxEventBytes }) => {
+      const { emitted, events } = await emitThrough(
+        type,
+        payload,
+        maxEventBytes !== undefined ? { maxEventBytes } : {}
+      )
+      expect(emitted?.payload).toMatchObject(payload)
+      expect(events.filter((event) => event.type === 'diagnostic')).toHaveLength(
+        type === 'diagnostic' ? 1 : 0
+      )
     }
-    const first = normalizeMalformed(input)
-    const second = normalizeMalformed(input)
-    expect(first.payload).toEqual(second.payload)
-    // The largest leaf (`big`) is truncated; the smallest survives.
-    expect(first.payload).toHaveProperty('big', '[TRUNCATED]')
-    expect(first.payload).toHaveProperty('small', 'tiny')
+  )
+
+  test('truncation takes the largest leaf first and keeps the small ones', async () => {
+    const { emitted } = await emitThrough(
+      'diagnostic',
+      { level: 'info', message: 'tiny', data: { big: 'z'.repeat(4000), medium: 'm'.repeat(500) } },
+      { maxEventBytes: 600 }
+    )
+    expect(emitted?.payload).toMatchObject({
+      message: 'tiny',
+      data: { big: '[TRUNCATED]', medium: 'm'.repeat(500) },
+    })
+    const repeated = await emitThrough(
+      'diagnostic',
+      { level: 'info', message: 'tiny', data: { big: 'z'.repeat(4000), medium: 'm'.repeat(500) } },
+      { maxEventBytes: 600 }
+    )
+    expect(repeated.emitted?.payload).toEqual(emitted?.payload)
   })
 })

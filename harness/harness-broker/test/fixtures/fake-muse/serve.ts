@@ -16,7 +16,7 @@
  * - steer-roll: like long, but turn/steer absorbs into a rolled turn and
  *   reports the absorbing turn id with no prior turn/started notification.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { MSP_LAST_VERIFIED_SCHEMA_FINGERPRINT } from '../../../src/drivers/muse-serve/schema-surface'
 
@@ -37,6 +37,9 @@ const servedFingerprint = DRIFT_FINGERPRINTS[scenario] ?? MSP_LAST_VERIFIED_SCHE
 // `<fixture> <scenario> schema generate-json-schema --out DIR`: the driver's
 // schema export, derived from the `<fixture> <scenario> serve` command line.
 if (process.argv[3] === 'schema') {
+  if (process.env['MUSE_SCHEMA_EXPORT_MARKER']) {
+    appendFileSync(process.env['MUSE_SCHEMA_EXPORT_MARKER'], 'export\n')
+  }
   if (scenario === 'export-fails') {
     process.stderr.write('fake-muse: schema export unavailable\n')
     process.exit(2)

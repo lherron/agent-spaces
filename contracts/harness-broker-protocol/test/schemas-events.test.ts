@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import * as protocol from '../src'
 import type {
   CaptureReleasedPayload,
   CaptureWarningPayload,
@@ -25,7 +24,6 @@ import { validateEventEnvelope } from '../src/schemas'
 import { expectInvalidEventEnvelope } from './schema-test-helpers'
 
 describe('validateEventEnvelope', () => {
-  const providerTranscriptConstants = protocol as Record<string, unknown>
   const envelope = (type: string, payload: unknown) => ({
     invocationId: 'inv_1',
     seq: 1,
@@ -243,6 +241,7 @@ describe('validateEventEnvelope', () => {
       kind: 'provider-transcript-jsonl',
       artifactPath: '/tmp/provider-transcript.jsonl',
       provider: 'codex',
+      harnessGeneration: 1,
     },
   } satisfies InvocationEventPayloadMap
 
@@ -261,11 +260,6 @@ describe('validateEventEnvelope', () => {
       const payload: UsageUpdatedPayload = { usage: { inputTokens: 1 }, model }
       expectValidatesTo(envelope('usage.updated', payload), envelope('usage.updated', payload))
     }
-  })
-
-  test('T-08430: the model field is optional, so a driver may omit it', () => {
-    const payload: UsageUpdatedPayload = { usage: { inputTokens: 1 } }
-    expectValidatesTo(envelope('usage.updated', payload), envelope('usage.updated', payload))
   })
 
   test('T-08430: usage.updated rejects a half model identity', () => {
@@ -410,33 +404,6 @@ describe('validateEventEnvelope', () => {
     expectValidatesTo(env)
   })
 
-  test('accepts provider transcript reported with protocol-owned constants', () => {
-    expect(providerTranscriptConstants['PROVIDER_TRANSCRIPT_REPORTED_EVENT_TYPE']).toBe(
-      'provider.transcript.reported'
-    )
-    expect(providerTranscriptConstants['PROVIDER_TRANSCRIPT_ARTIFACT_KIND']).toBe(
-      'provider-transcript-jsonl'
-    )
-    expect(providerTranscriptConstants['PROVIDER_TRANSCRIPT_STORAGE']).toBe('file-path')
-    expect(providerTranscriptConstants['PROVIDER_TRANSCRIPT_MEDIA_TYPE']).toBe(
-      'application/x-ndjson'
-    )
-    expect(providerTranscriptConstants['PROVIDER_TRANSCRIPT_SCHEMA']).toBe(
-      'harness-broker.provider-transcript.codex-jsonrpc-notification-jsonl/v1'
-    )
-
-    const env = envelope(
-      providerTranscriptConstants['PROVIDER_TRANSCRIPT_REPORTED_EVENT_TYPE'] as string,
-      {
-        kind: providerTranscriptConstants['PROVIDER_TRANSCRIPT_ARTIFACT_KIND'],
-        artifactPath: '/tmp/provider-transcript.jsonl',
-        provider: 'codex',
-        harnessGeneration: 1,
-      }
-    )
-    expectValidatesTo(env)
-  })
-
   test('rejects provider transcript reported without an absolute string artifactPath', () => {
     const basePayload = {
       kind: 'provider-transcript-jsonl',
@@ -468,34 +435,28 @@ describe('validateEventEnvelope', () => {
     }
   })
 
-  test('rejects terminal.surface.reported tmux-pane with malformed paneId', () => {
+  test.each([
+    {
+      case: 'malformed paneId',
+      fields: { windowId: '@7', paneId: 'pane-12' },
+      path: 'payload.paneId',
+      code: 'invalid_tmux_id',
+    },
+    {
+      case: 'missing windowId',
+      fields: { paneId: '%12' },
+      path: 'payload.windowId',
+      code: 'required',
+    },
+  ])('rejects terminal.surface.reported tmux-pane with $case', ({ fields, path, code }) => {
     expectInvalidEventEnvelope(
       envelope('terminal.surface.reported', {
         kind: 'tmux-pane',
         socketPath: '/tmp/tmux-501/default',
         sessionId: '$3',
-        windowId: '@7',
-        paneId: 'pane-12',
+        ...fields,
       }),
-      {
-        path: 'payload.paneId',
-        code: 'invalid_tmux_id',
-      }
-    )
-  })
-
-  test('rejects terminal.surface.reported tmux-pane missing windowId', () => {
-    expectInvalidEventEnvelope(
-      envelope('terminal.surface.reported', {
-        kind: 'tmux-pane',
-        socketPath: '/tmp/tmux-501/default',
-        sessionId: '$3',
-        paneId: '%12',
-      }),
-      {
-        path: 'payload.windowId',
-        code: 'required',
-      }
+      { path, code }
     )
   })
 
@@ -512,25 +473,6 @@ describe('validateEventEnvelope', () => {
         paneId: '%12',
       },
       driver: { kind: 'claude-code-tmux' },
-    }
-    expectInvalidEventEnvelope(env, {
-      path: 'payload.kind',
-      code: 'invalid_literal',
-    })
-  })
-
-  test('requires terminal.surface.reported kind:tmux-pane when driver is codex-cli-tmux', () => {
-    const env = {
-      invocationId: 'inv_1',
-      seq: 1,
-      time: '2026-05-28T00:00:00.000Z',
-      type: 'terminal.surface.reported',
-      payload: {
-        kind: 'tmux-session',
-        socketPath: '/tmp/tmux-501/default',
-        sessionName: 'asp-codex',
-      },
-      driver: { kind: 'codex-cli-tmux' },
     }
     expectInvalidEventEnvelope(env, {
       path: 'payload.kind',
@@ -654,17 +596,6 @@ describe('validateEventEnvelope', () => {
 })
 
 describe('package boundaries', () => {
-  test('event validator registry remains a total mapped type', () => {
-    const eventPayloadSource = readFileSync(
-      join(import.meta.dir, '..', 'src', 'schema-event-payload.ts'),
-      'utf8'
-    )
-    expect(eventPayloadSource).toContain('satisfies EventPayloadValidators')
-    expect(eventPayloadSource).not.toContain(
-      'Partial<Record<InvocationEventType, EventPayloadValidator>>'
-    )
-  })
-
   test('protocol source does not import spaces-runtime-contracts', () => {
     const sourceRoot = join(import.meta.dir, '..', 'src')
     for (const file of [

@@ -11,9 +11,7 @@ import type {
 import { createBroker } from '../../../src/broker'
 import { openCaptureIndex } from '../../../src/capture/capture-index'
 import { createCodexAppServerDriver } from '../../../src/drivers/codex-app-server/driver'
-import { createCodexNotificationMapper } from '../../../src/drivers/codex-app-server/event-map'
 import { createEventLedger } from '../../../src/event-ledger'
-import { normalizeEventPayload } from '../../../src/runtime/event-normalize'
 import { inputIdFrom } from '../../ids'
 
 /**
@@ -195,47 +193,15 @@ describe('codex-app-server committed-row normalization', () => {
     expect(run.events.filter((event) => event.type === 'capture.warning')).toHaveLength(0)
   })
 
-  test('normalizing from the committed bytes reproduces the pre-change mapper output exactly', async () => {
-    // The parity regression (§14 row 8): feeding the SAME committed frames
-    // through the bare mapper — the pre-Phase-2 path, which read the in-memory
-    // notification — must yield the identical normalized sequence. If the
-    // committed copy and the wire copy could ever differ, this is where it shows.
-    for (const scenario of ['tool-calls', 'assistant-deltas', 'usage-update', 'start-fresh-turn']) {
-      const run = await runScenario(scenario)
-      const mapCodexNotification = createCodexNotificationMapper()
-      const fromCommittedBytes = run
-        .journalRows()
-        .flatMap((row) => mapCodexNotification(JSON.parse(frameOf(row))))
-      const emitted = recordEvents(run.events).map((event) => ({
-        type: event.type,
-        payload: event.payload,
-      }))
-      // delivery-acknowledged and the matching native notification race to
-      // mint the same deduped bracket. If the response won, the committed
-      // turn/started record still normalizes successfully but emits no second
-      // event; every non-deduped mapper output remains an exact parity claim.
-      const comparable = emitted.some((event) => event.type === 'turn.started')
-        ? fromCommittedBytes
-        : fromCommittedBytes.filter((event) => event.type !== 'turn.started')
-      // Both copies pass the broker's central payload normalization on emit.
-      expect(
-        comparable.map((event) => ({
-          type: event.type,
-          payload: normalizeEventPayload({ type: event.type, payload: event.payload }).payload,
-        }))
-      ).toEqual(emitted)
-    }
-  })
-
-  test('the exported provider transcript is a projection of the journal, never a superset', async () => {
-    const run = await runScenario('tool-calls')
+  test('a multi-turn export appends each committed row exactly once (T-10581)', async () => {
+    const run = await runScenario('three-turns', { turns: 3 })
+    expect(run.events.filter((event) => event.type === 'turn.completed')).toHaveLength(3)
     const exported = readFileSync(
       join(run.dir, `${run.invocationId}.provider-transcript.jsonl`),
       'utf8'
     )
       .split('\n')
       .filter((line) => line.trim().length > 0)
-
     // Row-for-row identity in commit order: the sidecar cannot hold a row the
     // journal does not, because it IS the journal.
     expect(exported).toEqual(run.journalRows().map(frameOf))
@@ -246,18 +212,6 @@ describe('codex-app-server committed-row normalization', () => {
       expect(row.jsonrpc).toBe('2.0')
       expect(typeof row.method).toBe('string')
     }
-  })
-
-  test('a multi-turn export appends each committed row exactly once (T-10581)', async () => {
-    const run = await runScenario('three-turns', { turns: 3 })
-    expect(run.events.filter((event) => event.type === 'turn.completed')).toHaveLength(3)
-    const exported = readFileSync(
-      join(run.dir, `${run.invocationId}.provider-transcript.jsonl`),
-      'utf8'
-    )
-      .split('\n')
-      .filter((line) => line.trim().length > 0)
-    expect(exported).toEqual(run.journalRows().map(frameOf))
     expect(
       run.events.filter((event) => (event.type as string) === 'provider.transcript.reported')
     ).toHaveLength(1)

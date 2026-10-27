@@ -2,7 +2,8 @@
  * Zone assembly for the v2 context resolver (wrkq T-01043): prompt/reminder
  * zones resolve independently, sections join with SECTION_SEPARATOR, per-section
  * and global character budgets apply, and file/inline content interpolates
- * resolver variables. Real temp directories and file I/O, no mocks.
+ * resolver variables. Each test writes a real context-template.toml and drives
+ * it through inspectAgentSystemPrompt / materializeSystemPrompt.
  *
  * Spec sources: PROMPT_TEMPLATE_UPDATES.md ("v2 Template Format", "Design
  * decisions", "Resolver tests"); agentchat DM #26 and #29.
@@ -11,13 +12,13 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { parseContextTemplate } from './context-template.js'
 import {
   type ResolverRoots,
   SECTION_SEPARATOR,
   createResolverRoots,
+  inspectTemplate,
+  materializeTemplate,
   removeResolverRoots,
-  resolveZones,
 } from './test-support/context-resolver-fixture.js'
 
 describe('resolveContextTemplate zone assembly', () => {
@@ -31,13 +32,13 @@ describe('resolveContextTemplate zone assembly', () => {
     await removeResolverRoots(roots)
   })
 
-  test('resolves prompt and reminder sections independently with root-relative file refs', async () => {
+  test('prompt and reminder sections materialize into separate files with root-relative file refs', async () => {
     await writeFile(join(roots.agentRoot, 'SOUL.md'), 'Agent soul\n')
     await writeFile(join(roots.projectRoot, 'README.md'), 'Project reminder\n')
 
-    const resolved = await resolveZones(
+    const files = await materializeTemplate(
       roots,
-      parseContextTemplate(`
+      `
 schema_version = 2
 mode = "append"
 
@@ -61,27 +62,19 @@ path = "project-root:///README.md"
 name = "notice"
 type = "inline"
 content = "Reminder for {{project_id}}"
-`),
-      {
-        runMode: 'task',
-        projectId: 'agent-spaces',
-        agentName: 'smokey',
-      }
+`
     )
 
-    expect(resolved).toEqual({
-      prompt: {
-        content: `Agent soul\n${SECTION_SEPARATOR}Prompt for smokey`,
-        mode: 'append',
-      },
-      reminder: `Project reminder\n${SECTION_SEPARATOR}Reminder for agent-spaces`,
+    expect(files).toEqual({
+      systemPrompt: `Agent soul\n${SECTION_SEPARATOR}Prompt for smokey`,
+      sessionReminder: `Project reminder\n${SECTION_SEPARATOR}Reminder for agent-spaces`,
     })
   })
 
-  test('truncates section output with a truncated marker before joining', async () => {
-    const resolved = await resolveZones(
+  test('an inline or exec section over its max_chars is truncated with a marker before joining, in either zone', async () => {
+    const inspection = await inspectTemplate(
       roots,
-      parseContextTemplate(`
+      `
 schema_version = 2
 mode = "replace"
 
@@ -95,21 +88,30 @@ max_chars = 24
 name = "tail"
 type = "inline"
 content = "tail"
-`)
+
+[[reminder]]
+name = "wrkq-context"
+type = "exec"
+command = "printf '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'"
+max_chars = 24
+`
     )
 
-    expect(resolved.prompt).toBeDefined()
-    expect(resolved.prompt?.mode).toBe('replace')
-    expect(resolved.prompt?.content).toContain('[truncated]')
-    expect(resolved.prompt?.content).toStartWith('0123456789AB')
-    expect(resolved.prompt?.content).toEndWith(`${SECTION_SEPARATOR}tail`)
+    expect(inspection.prompt.mode).toBe('replace')
+    expect(inspection.prompt.content).toBe(`0123456789ABC[truncated]${SECTION_SEPARATOR}tail`)
+    expect(inspection.reminder.content).toBe('0123456789ABC[truncated]')
+    expect(inspection.prompt.sections[0]).toMatchObject({ name: 'services', truncated: true })
+    expect(inspection.reminder.sections[0]).toMatchObject({
+      name: 'wrkq-context',
+      truncated: true,
+    })
   })
 
-  test('throws when resolved content exceeds the global max_chars budget', async () => {
+  test('content over the global max_chars budget fails the template', async () => {
     await expect(
-      resolveZones(
+      inspectTemplate(
         roots,
-        parseContextTemplate(`
+        `
 schema_version = 2
 mode = "replace"
 max_chars = 10
@@ -118,40 +120,40 @@ max_chars = 10
 name = "too-large"
 type = "inline"
 content = "01234567890"
-`)
+`
       )
-    ).rejects.toThrow(/max_chars|budget|exceeds/i)
+    ).rejects.toThrow('Resolved context template exceeds max_chars 10 (got 11)')
   })
 
-  test('interpolates inline variables from resolver context', async () => {
-    const resolved = await resolveZones(
+  test('inline content interpolates agent, project, root and run-mode variables', async () => {
+    const inspection = await inspectTemplate(
       roots,
-      parseContextTemplate(`
+      `
 schema_version = 2
 
 [[prompt]]
 name = "identity"
 type = "inline"
 content = "You are {{agent_name}} in {{project_id}} at {{agent_root}} with run mode {{run_mode}}."
-`)
+`
     )
 
-    expect(resolved.prompt).toEqual({
+    expect(inspection.prompt).toMatchObject({
       content: `You are smokey in agent-spaces at ${roots.agentRoot} with run mode task.`,
       mode: 'replace',
     })
-    expect(resolved.reminder).toBeUndefined()
+    expect(inspection.reminder.content).toBeUndefined()
   })
 
-  test('interpolates file section content from resolver context', async () => {
+  test('file section content is interpolated after it is read', async () => {
     await writeFile(
       join(roots.agentRoot, 'MOTD.md'),
       'You are {{agent_name}} in {{project_id}} at {{agent_root}} with run mode {{run_mode}}.\n'
     )
 
-    const resolved = await resolveZones(
+    const inspection = await inspectTemplate(
       roots,
-      parseContextTemplate(`
+      `
 schema_version = 2
 
 [[prompt]]
@@ -159,13 +161,13 @@ name = "motd"
 type = "file"
 path = "agent-root:///MOTD.md"
 required = true
-`)
+`
     )
 
-    expect(resolved.prompt).toEqual({
+    expect(inspection.prompt).toMatchObject({
       content: `You are smokey in agent-spaces at ${roots.agentRoot} with run mode task.\n`,
       mode: 'replace',
     })
-    expect(resolved.reminder).toBeUndefined()
+    expect(inspection.reminder.content).toBeUndefined()
   })
 })

@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
-import { EventIterator } from '../src/event-iterator'
+import type { InvocationEventEnvelope, InvocationId } from 'spaces-harness-broker-protocol'
+import { BrokerClient } from '../src/client'
 import { InvocationEventHub } from '../src/invocation-event-hub'
+import { NotificationTransport } from './helpers'
 
 // Locks the fix: EventIterator.return() (a `for await … of` break / early
 // return) must deregister the iterator's stream from the owning
@@ -34,39 +35,28 @@ describe('EventIterator.return() hub deregistration', () => {
     expect(next).not.toBe(stream)
   })
 
-  test('return() preserves de-dupe state so re-streaming still drops old seqs', async () => {
-    const hub = new InvocationEventHub()
-    const first = hub.stream('inv-2')
-    hub.ingest(eventFor('inv-2', 1))
+  test('breaking out of a client event stream and re-streaming still drops already-delivered seqs', async () => {
+    const transport = new NotificationTransport()
+    const client = BrokerClient.fromTransport(transport)
+    const invocationId = 'inv-2' as InvocationId
+    const first = client.streamInvocationEvents(invocationId)[Symbol.asyncIterator]()
+    transport.emit(eventFor(invocationId, 1))
 
-    // Drain the one buffered event, then abandon the stream.
+    // Drain the one delivered event, then abandon the stream (for-await break).
     const drained = await first.next()
-    expect(drained.done).toBe(false)
-    await first.return()
+    expect((drained.value as InvocationEventEnvelope).seq).toBe(1)
+    await first.return?.()
 
     // Re-stream the same invocation. A replayed event at the already-surfaced
-    // seq must still be suppressed by #lastEventSeq (return() must mirror drop(),
-    // not dispose()).
-    const second = hub.stream('inv-2')
+    // seq must still be suppressed (return() mirrors drop(), not dispose()).
+    const second = client.streamInvocationEvents(invocationId)[Symbol.asyncIterator]()
     expect(second).not.toBe(first)
-    hub.ingest(eventFor('inv-2', 1)) // duplicate seq -> dropped
-    hub.ingest(eventFor('inv-2', 2)) // new seq -> surfaced
+    transport.emit(eventFor(invocationId, 1)) // duplicate seq -> dropped
+    transport.emit(eventFor(invocationId, 2)) // new seq -> surfaced
 
     const result = await second.next()
     expect(result.done).toBe(false)
     expect((result.value as InvocationEventEnvelope).seq).toBe(2)
-  })
-
-  test('return() fires the owner hook exactly once', async () => {
-    const iterator = new EventIterator<number>()
-    let fired = 0
-    iterator.setOnReturn(() => {
-      fired += 1
-    })
-
-    await iterator.return()
-    await iterator.return()
-
-    expect(fired).toBe(1)
+    await client.close()
   })
 })

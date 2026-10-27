@@ -1,161 +1,186 @@
 /**
- * RED tests: agent-project merge utilities (T-00992)
+ * Agent-project merge (T-00992), driven through resolvePlacementContext.
  *
- * WHY: When asp agent runs, agent-profile.toml defaults must merge with optional
- * project-level asp-targets.toml overrides. This merge covers compose (replace/merge),
- * priming prompt (replace/append), harness options (field-level), and priming_prompt_file
- * resolution from the agent root directory.
+ * WHY: When asp agent runs, agent-profile.toml defaults merge with the optional
+ * project-level asp-targets.toml target of the same name. These tests write
+ * both files to disk and assert the effective config placement resolution
+ * hands downstream: compose (replace/merge, byMode), priming (replace/append/
+ * priming_file), provisioning scalars (target over agent, presence kept),
+ * and field-level claude/codex option merge.
  *
- * PASS CONDITIONS (all tests green when):
- * 1. mergeAgentWithProjectTarget exists and is importable from agent-project-merge.ts
- * 2. Agent-only (no project target) → agent defaults pass through
- * 3. compose_mode = 'replace' (default) → project compose replaces agent spaces
- * 4. compose_mode = 'merge' → project compose appended to agent spaces, deduplicated
- * 5. priming_prompt on project → replaces agent default
- * 6. priming_prompt_append on project → appended to agent default with newline
- * 7. Both priming_prompt + priming_prompt_append on project → ConfigValidationError
- * 8. Claude/codex options merge field-level (project overrides agent)
- * 9. yolo override from project target
- * 10. resolveAgentPrimingPrompt reads priming_prompt_file from agent root
- * 11. model cascading: project target > agent harnessDefaults
+ * toSelectionLayers stays a direct unit test: its consumer is the compiler's
+ * harness-selection provenance, which has no surface test here yet.
  *
  * wrkq task: T-00992
  */
 
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { afterEach, describe, expect, test } from 'bun:test'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PROVISIONING_SCALAR_KINDS, type ProvisioningScalars } from 'agent-scope'
+import { PROVISIONING_SCALAR_KINDS } from 'agent-scope'
 
+import { resolvePlacementContext } from '../../../resolver/placement-resolver.js'
 import { ConfigValidationError } from '../../errors.js'
-import type { AgentRuntimeProfile } from '../../types/agent-profile.js'
-import type { SpaceRefString } from '../../types/refs.js'
-import type { TargetDefinition } from '../../types/targets.js'
-
-// These imports will fail until the module is created — that's the RED gate.
-import {
-  mergeAgentWithProjectTarget,
-  mergePrimingPrompt,
-  resolveAgentPrimingPrompt,
-  toSelectionLayers,
-} from '../agent-project-merge.js'
+import type { RunMode } from '../../types/agent-profile.js'
+import { toSelectionLayers } from '../agent-project-merge.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function makeProfile(overrides: Partial<AgentRuntimeProfile> = {}): AgentRuntimeProfile {
-  return {
-    version: 4,
-    identity: { display: 'TestAgent', role: 'coder' },
-    priming: 'You are TestAgent.',
-    spaces: {
-      base: ['space:defaults@dev' as SpaceRefString],
-    },
-    provisioning: {
-      harness: 'codex',
-      model: 'claude-opus-4-6',
-      yolo: false,
-      claude: { permission_mode: 'default' },
-      codex: { model_reasoning_effort: 'high' },
-    },
-    ...overrides,
-  } as AgentRuntimeProfile
-}
+const AGENT_NAME = 'smokey'
+const tempRoots: string[] = []
 
-function makeTarget(overrides: Partial<TargetDefinition> = {}): TargetDefinition {
-  return {
-    compose: ['space:project-space@dev' as SpaceRefString],
-    ...overrides,
+afterEach(async () => {
+  for (const root of tempRoots.splice(0)) {
+    await rm(root, { recursive: true, force: true })
   }
+})
+
+/**
+ * Write agent-profile.toml (and asp-targets.toml when given) to a temp agent
+ * root / project root and return the effective config placement resolves.
+ */
+async function resolveEffectiveConfig(options: {
+  profile: string
+  targets?: string
+  runMode?: RunMode
+  agentFiles?: Record<string, string>
+}) {
+  const root = await mkdtemp(join(tmpdir(), 'agent-project-merge-'))
+  tempRoots.push(root)
+  const agentRoot = join(root, 'agent-root')
+  const projectRoot = join(root, 'project-root')
+  await mkdir(agentRoot, { recursive: true })
+  await mkdir(projectRoot, { recursive: true })
+  await writeFile(join(agentRoot, 'SOUL.md'), '# Test Agent\n')
+  await writeFile(join(agentRoot, 'agent-profile.toml'), options.profile)
+  for (const [name, content] of Object.entries(options.agentFiles ?? {})) {
+    await writeFile(join(agentRoot, name), content)
+  }
+  if (options.targets !== undefined) {
+    await writeFile(join(projectRoot, 'asp-targets.toml'), options.targets)
+  }
+
+  const context = await resolvePlacementContext({
+    agentRoot,
+    projectRoot,
+    runMode: options.runMode ?? 'query',
+    bundle: { kind: 'agent-project', agentName: AGENT_NAME, projectRoot },
+  })
+  const effective = context.materialization.effectiveConfig
+  if (effective === undefined) {
+    throw new Error('agent-project placement returned no effectiveConfig')
+  }
+  return effective
 }
 
-function scalarValues(prefix: string, booleanValue: boolean): ProvisioningScalars {
+type ScalarRecord = Record<string, string | boolean>
+
+/** One value per declared provisioning scalar, so new scalars join the table automatically. */
+function scalarValues(prefix: string, booleanValue: boolean, harness: string): ScalarRecord {
   return Object.fromEntries(
     Object.entries(PROVISIONING_SCALAR_KINDS).map(([key, kind]) => [
       key,
-      kind === 'boolean' ? booleanValue : `${prefix}-${key}`,
+      key === 'harness' ? harness : kind === 'boolean' ? booleanValue : `${prefix}-${key}`,
     ])
-  ) as ProvisioningScalars
+  )
 }
 
-describe('mergeAgentWithProjectTarget: v4 projection characterization', () => {
-  test('full named-field result and override precedence stay byte-identical', () => {
-    const profile = makeProfile({
-      priming: 'Agent priming.',
-      spaces: { base: ['space:agent@dev' as SpaceRefString] },
-      provisioning: {
-        harness: 'claude',
-        model_provider: 'anthropic',
-        model: 'agent-model',
-        reasoning_effort: 'low',
-        sandbox: 'read-only',
-        approval: 'on-request',
-        claude: {
-          model: 'agent-claude-model',
-          permission_mode: 'agent-permission',
-          args: ['--agent'],
-        },
-        codex: {
-          model: 'agent-codex-model',
-          model_reasoning_effort: 'low',
-          model_reasoning_summary: 'concise',
-          status_line: ['agent-status'],
-          approval_policy: 'untrusted',
-          sandbox_mode: 'read-only',
-        },
-      },
-    })
-    const target = makeTarget({
-      description: 'Project description.',
-      priming: 'Project priming.',
-      compose: ['space:project@dev' as SpaceRefString],
-      provisioning: {
-        harness: 'codex',
-        model_provider: 'openai-codex',
-        model: 'target-model',
-        reasoning_effort: 'high',
-        presentation: false,
-        sandbox: 'danger-full-access',
-        approval: 'never',
-        claude: {
-          model: 'target-claude-model',
-          permission_mode: 'target-permission',
-          args: ['--target'],
-        },
-        codex: {
-          model: 'target-codex-model',
-          model_reasoning_effort: 'medium',
-          model_reasoning_summary: 'detailed',
-          status_line: ['target-status'],
-          approval_policy: 'on-failure',
-          sandbox_mode: 'workspace-write',
-        },
-      },
-    })
+function tomlScalars(values: ScalarRecord): string {
+  return Object.entries(values)
+    .map(([key, value]) => `${key} = ${JSON.stringify(value)}`)
+    .join('\n')
+}
 
-    const result = mergeAgentWithProjectTarget(profile, target, 'query')
+// ─────────────────────────────────────────────────────────────────────────────
+// Characterization
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('mergeAgentWithProjectTarget: v4 projection characterization', () => {
+  test('full named-field result and override precedence stay byte-identical', async () => {
+    const result = await resolveEffectiveConfig({
+      profile: `
+version = 4
+priming = "Agent priming."
+
+[spaces]
+base = ["space:agent@dev"]
+
+[provisioning]
+harness = "claude"
+model_provider = "anthropic"
+model = "agent-model"
+reasoning_effort = "low"
+sandbox = "read-only"
+approval = "on-request"
+
+[provisioning.claude]
+model = "agent-claude-model"
+permission_mode = "agent-permission"
+args = ["--agent"]
+
+[provisioning.codex]
+model = "agent-codex-model"
+model_reasoning_effort = "low"
+model_reasoning_summary = "concise"
+status_line = ["agent-status"]
+approval_policy = "untrusted"
+sandbox_mode = "read-only"
+`,
+      targets: `
+schema = 2
+
+[targets.smokey]
+description = "Project description."
+priming = "Project priming."
+compose = ["space:project@dev"]
+
+[targets.smokey.provisioning]
+harness = "codex"
+model_provider = "openai-codex"
+model = "target-model"
+reasoning_effort = "high"
+presentation = false
+sandbox = "danger-full-access"
+approval = "never"
+
+[targets.smokey.provisioning.claude]
+model = "target-claude-model"
+permission_mode = "target-permission"
+args = ["--target"]
+
+[targets.smokey.provisioning.codex]
+model = "target-codex-model"
+model_reasoning_effort = "medium"
+model_reasoning_summary = "detailed"
+status_line = ["target-status"]
+approval_policy = "on-failure"
+sandbox_mode = "workspace-write"
+`,
+    })
     const { provisioning: _provisioning, ...projection } = result
 
+    // No compose_mode on the target: the default is replace, so agent base spaces drop out.
     expect(JSON.stringify(projection)).toBe(
       '{"priming":"Project priming.","compose":["space:project@dev"],"yolo":false,"remoteControl":false,"harness":"codex","model_provider":"openai-codex","model":"target-model","reasoning_effort":"high","presentation":false,"sandbox":"danger-full-access","approval":"never","claude":{"model":"target-claude-model","permission_mode":"target-permission","args":["--target"]},"codex":{"model":"target-codex-model","model_reasoning_effort":"high","model_reasoning_summary":"detailed","status_line":["target-status"],"approval_policy":"never","sandbox_mode":"danger-full-access"},"description":"Project description."}'
     )
   })
 })
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Provisioning scalars
+// ─────────────────────────────────────────────────────────────────────────────
+
 describe('mergeAgentWithProjectTarget: structural provisioning scalars', () => {
-  test('omitted presentation stays absent; explicit false is preserved by presence', () => {
-    const explicitFalse = mergeAgentWithProjectTarget(
-      makeProfile({ provisioning: { harness: 'codex', presentation: false } }),
-      undefined,
-      'query'
-    )
-    const omitted = mergeAgentWithProjectTarget(
-      makeProfile({ provisioning: { harness: 'codex' } }),
-      undefined,
-      'query'
-    )
+  test('omitted presentation stays absent; explicit false is preserved by presence', async () => {
+    const explicitFalse = await resolveEffectiveConfig({
+      profile: 'version = 4\n\n[provisioning]\nharness = "codex"\npresentation = false\n',
+    })
+    const omitted = await resolveEffectiveConfig({
+      profile: 'version = 4\n\n[provisioning]\nharness = "codex"\n',
+    })
 
     expect(explicitFalse.presentation).toBe(false)
     expect(Object.hasOwn(explicitFalse, 'presentation')).toBe(true)
@@ -166,42 +191,51 @@ describe('mergeAgentWithProjectTarget: structural provisioning scalars', () => {
     expect(omitted.provisioning).toEqual({ harness: 'codex', yolo: false, remote: false })
   })
 
-  test('config never defaults presentation: target omission does not revive agent false', () => {
-    const result = mergeAgentWithProjectTarget(
-      makeProfile({ provisioning: { harness: 'codex', presentation: false } }),
-      makeTarget({ provisioning: { model: 'target-model' } }),
-      'query'
-    )
-    expect(result.presentation).toBe(false)
-    expect(result.provisioning.presentation).toBe(false)
-  })
+  const agentWithFalsePresentation = {
+    ...scalarValues('agent', true, 'codex'),
+    presentation: false,
+  }
 
-  test('carries node without naming that scalar in the merge implementation', () => {
-    const result = mergeAgentWithProjectTarget(
-      makeProfile({ provisioning: { node: 'agent-node' } }),
-      undefined,
-      'query'
-    )
+  test.each<{
+    name: string
+    agent: ScalarRecord
+    target: ScalarRecord
+    expected: ScalarRecord
+    remoteControl: boolean
+  }>([
+    {
+      name: 'target sets every scalar, so every target value wins',
+      agent: scalarValues('agent', true, 'claude'),
+      target: scalarValues('target', false, 'codex'),
+      expected: scalarValues('target', false, 'codex'),
+      remoteControl: false,
+    },
+    {
+      name: 'target sets only model, so every other agent value (harness, remote=true, presentation=false) carries through',
+      agent: agentWithFalsePresentation,
+      target: { model: 'target-model' },
+      expected: { ...agentWithFalsePresentation, model: 'target-model' },
+      remoteControl: true,
+    },
+  ])(
+    'every provisioning scalar takes the project target value when set and the agent value otherwise: $name',
+    async ({ agent, target, expected, remoteControl }) => {
+      const result = await resolveEffectiveConfig({
+        profile: `version = 4\n\n[provisioning]\n${tomlScalars(agent)}\n`,
+        targets: `schema = 2\n\n[targets.smokey]\ncompose = ["space:project@dev"]\n\n[targets.smokey.provisioning]\n${tomlScalars(target)}\n`,
+      })
 
-    expect(result.provisioning.node).toBe('agent-node')
-  })
+      expect(result.provisioning).toEqual(expected)
+      expect(result.remoteControl).toBe(remoteControl)
+      expect(result.harness).toBe(expected['harness'] as string)
+      expect(Object.hasOwn(result.provisioning, 'presentation')).toBe(true)
+    }
+  )
 
-  test('project target wins independently for every declared scalar', () => {
-    const agentScalars = scalarValues('agent', true)
-    const targetScalars = scalarValues('target', false)
-    const result = mergeAgentWithProjectTarget(
-      makeProfile({ provisioning: agentScalars }),
-      makeTarget({ provisioning: targetScalars }),
-      'query'
-    )
-
-    expect(result.provisioning).toEqual(targetScalars)
-    expect(result.remoteControl).toBe(false)
-  })
-
-  test('toSelectionLayers emits wire-spelled layers with presence preserved', () => {
-    const layers = toSelectionLayers(
-      {
+  test.each([
+    {
+      name: 'agent, target and summon layers are wire-spelled; presence of false is kept; non-selection scalars are dropped',
+      agent: {
         harness: 'claude',
         model_provider: 'anthropic',
         model: 'agent-model',
@@ -210,39 +244,62 @@ describe('mergeAgentWithProjectTarget: structural provisioning scalars', () => {
         node: 'agent-node',
         yolo: true,
       },
-      { model: 'target-model', reasoning_effort: 'high' },
-      { presentation: true, model_provider: 'openai-codex' }
-    )
-
-    expect(layers).toEqual({
-      agentProfile: {
-        harness: 'claude',
-        modelProvider: 'anthropic',
-        model: 'agent-model',
-        reasoningEffort: 'low',
-        presentation: false,
+      target: { model: 'target-model', reasoning_effort: 'high' },
+      summon: { presentation: true, model_provider: 'openai-codex' },
+      expected: {
+        agentProfile: {
+          harness: 'claude',
+          modelProvider: 'anthropic',
+          model: 'agent-model',
+          reasoningEffort: 'low',
+          presentation: false,
+        },
+        projectTarget: { model: 'target-model', reasoningEffort: 'high' },
+        summonDirectives: { presentation: true, modelProvider: 'openai-codex' },
       },
-      projectTarget: { model: 'target-model', reasoningEffort: 'high' },
-      summonDirectives: { presentation: true, modelProvider: 'openai-codex' },
-    })
-  })
-
-  test('toSelectionLayers omits empty layers and drops non-selection scalars', () => {
-    expect(toSelectionLayers(undefined, undefined, undefined)).toEqual({})
-    expect(
-      toSelectionLayers({ node: 'svc', yolo: true }, { sandbox: 'workspace-write' }, undefined)
-    ).toEqual({})
-  })
+    },
+    {
+      name: 'all layers undefined -> no layers',
+      agent: undefined,
+      target: undefined,
+      summon: undefined,
+      expected: {},
+    },
+    {
+      name: 'only non-selection scalars (node, yolo, sandbox) -> no layers',
+      agent: { node: 'svc', yolo: true },
+      target: { sandbox: 'workspace-write' },
+      summon: undefined,
+      expected: {},
+    },
+  ])(
+    'toSelectionLayers emits wire-spelled layers with presence preserved: $name',
+    ({ agent, target, summon, expected }) => {
+      expect(toSelectionLayers(agent, target, summon)).toEqual(expected)
+    }
+  )
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. Agent-only (no project target)
+// Agent-only (no project target)
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('mergeAgentWithProjectTarget: agent-only', () => {
-  test('no project target → agent defaults pass through', () => {
-    const profile = makeProfile()
-    const result = mergeAgentWithProjectTarget(profile, undefined, 'query')
+  test('no project target → agent defaults pass through', async () => {
+    const result = await resolveEffectiveConfig({
+      profile: `
+version = 4
+priming = "You are TestAgent."
+
+[spaces]
+base = ["space:defaults@dev"]
+
+[provisioning]
+harness = "codex"
+model = "claude-opus-4-6"
+yolo = false
+`,
+    })
     expect(result.priming).toBe('You are TestAgent.')
     expect(result.compose).toEqual(['space:defaults@dev'])
     expect(result.harness).toBe('codex')
@@ -250,320 +307,160 @@ describe('mergeAgentWithProjectTarget: agent-only', () => {
     expect(result.yolo).toBe(false)
   })
 
-  test('agent with byMode spaces included for matching mode', () => {
-    const profile = makeProfile({
-      spaces: {
-        base: ['space:defaults@dev' as SpaceRefString],
-        modes: {
-          heartbeat: ['space:heartbeat-extra@dev' as SpaceRefString],
-        },
-      },
+  test('agent with byMode spaces included for matching mode', async () => {
+    const result = await resolveEffectiveConfig({
+      profile: `
+version = 4
+
+[spaces]
+base = ["space:defaults@dev"]
+
+[spaces.modes]
+heartbeat = ["space:heartbeat-extra@dev"]
+`,
+      runMode: 'heartbeat',
     })
-    const result = mergeAgentWithProjectTarget(profile, undefined, 'heartbeat')
     expect(result.compose).toContain('space:defaults@dev')
     expect(result.compose).toContain('space:heartbeat-extra@dev')
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2. Compose mode: replace (default)
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('mergeAgentWithProjectTarget: compose replace', () => {
-  test('compose_mode = replace → project replaces agent spaces entirely', () => {
-    const profile = makeProfile()
-    const target = makeTarget({
-      compose_mode: 'replace',
-      compose: ['space:project-only@dev' as SpaceRefString],
-    })
-    const result = mergeAgentWithProjectTarget(profile, target, 'query')
-    expect(result.compose).toEqual(['space:project-only@dev'])
-  })
-
-  test('compose_mode defaults to replace when not set', () => {
-    const profile = makeProfile()
-    const target = makeTarget({
-      compose: ['space:project-only@dev' as SpaceRefString],
-    })
-    const result = mergeAgentWithProjectTarget(profile, target, 'query')
-    expect(result.compose).toEqual(['space:project-only@dev'])
-  })
-})
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 3. Compose mode: merge
+// Compose mode: merge
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('mergeAgentWithProjectTarget: compose merge', () => {
-  test('compose_mode = merge → agent + project, deduplicated', () => {
-    const profile = makeProfile({
-      spaces: {
-        base: ['space:a@dev' as SpaceRefString, 'space:b@dev' as SpaceRefString],
-      },
+  test('compose_mode = merge → agent + project, deduplicated', async () => {
+    const result = await resolveEffectiveConfig({
+      profile: 'version = 4\n\n[spaces]\nbase = ["space:a@dev", "space:b@dev"]\n',
+      targets: `
+schema = 2
+
+[targets.smokey]
+compose_mode = "merge"
+compose = ["space:b@dev", "space:c@dev"]
+`,
     })
-    const target = makeTarget({
-      compose_mode: 'merge',
-      compose: ['space:b@dev' as SpaceRefString, 'space:c@dev' as SpaceRefString],
-    })
-    const result = mergeAgentWithProjectTarget(profile, target, 'query')
     // a, b from agent; b deduplicated; c from project
     expect(result.compose).toEqual(['space:a@dev', 'space:b@dev', 'space:c@dev'])
   })
-
-  test('compose_mode = merge includes byMode spaces', () => {
-    const profile = makeProfile({
-      spaces: {
-        base: ['space:a@dev' as SpaceRefString],
-        modes: {
-          heartbeat: ['space:hb@dev' as SpaceRefString],
-        },
-      },
-    })
-    const target = makeTarget({
-      compose_mode: 'merge',
-      compose: ['space:extra@dev' as SpaceRefString],
-    })
-    const result = mergeAgentWithProjectTarget(profile, target, 'heartbeat')
-    expect(result.compose).toContain('space:a@dev')
-    expect(result.compose).toContain('space:hb@dev')
-    expect(result.compose).toContain('space:extra@dev')
-  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 4. Priming prompt merge
+// Priming
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('mergePrimingPrompt', () => {
-  test('no project target → agent default', () => {
-    const result = mergePrimingPrompt('Agent prompt.', undefined)
-    expect(result).toBe('Agent prompt.')
-  })
+  test('priming_prompt_append with no agent default → agent default unchanged', async () => {
+    const result = await resolveEffectiveConfig({
+      profile: 'version = 4\n',
+      targets: `
+schema = 2
 
-  test('project priming_prompt → replaces agent default', () => {
-    const result = mergePrimingPrompt('Agent prompt.', {
-      priming: 'Project prompt.',
+[targets.smokey]
+compose = ["space:project@dev"]
+priming_append = "## Extra context"
+`,
     })
-    expect(result).toBe('Project prompt.')
+    expect(result.priming).toBeUndefined()
   })
 
-  test('project priming_prompt_append → appended to agent default', () => {
-    const result = mergePrimingPrompt('Agent prompt.', {
-      priming_append: '## Extra context',
+  test('both priming_prompt + priming_prompt_append → ConfigValidationError', async () => {
+    const resolution = resolveEffectiveConfig({
+      profile: 'version = 4\npriming = "Agent prompt."\n',
+      targets: `
+schema = 2
+
+[targets.smokey]
+compose = ["space:project@dev"]
+priming = "Replace."
+priming_append = "Append."
+`,
     })
-    expect(result).toBe('Agent prompt.\n## Extra context')
-  })
-
-  test('priming_prompt_append with no agent default → agent default unchanged', () => {
-    const result = mergePrimingPrompt(undefined, {
-      priming_append: '## Extra context',
-    })
-    expect(result).toBeUndefined()
-  })
-
-  test('both priming_prompt + priming_prompt_append → ConfigValidationError', () => {
-    expect(() =>
-      mergePrimingPrompt('Agent prompt.', {
-        priming: 'Replace.',
-        priming_append: 'Append.',
-      })
-    ).toThrow(ConfigValidationError)
+    await expect(resolution).rejects.toBeInstanceOf(ConfigValidationError)
+    await expect(resolution).rejects.toThrow(/cannot set both priming and priming_append/)
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 5. Harness option merge (field-level)
+// Harness option merge (field-level)
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('mergeAgentWithProjectTarget: harness option merge', () => {
-  test('project claude options override agent claude defaults', () => {
-    const profile = makeProfile({
-      provisioning: {
-        claude: { permission_mode: 'default', args: ['--verbose'] },
-      },
-    })
-    const target = makeTarget({
-      provisioning: { claude: { permission_mode: 'auto-accept' } },
-    })
-    const result = mergeAgentWithProjectTarget(profile, target, 'query')
-    expect(result.claude.permission_mode).toBe('auto-accept')
-    // args inherited from agent since project didn't override
-    expect(result.claude.args).toEqual(['--verbose'])
-  })
-
-  test('project codex options override agent codex defaults', () => {
-    const profile = makeProfile({
-      provisioning: {
-        codex: { model_reasoning_effort: 'high', approval_policy: 'on-request' },
-      },
-    })
-    const target = makeTarget({
-      provisioning: { codex: { model_reasoning_effort: 'low' } },
-    })
-    const result = mergeAgentWithProjectTarget(profile, target, 'query')
-    expect(result.codex.model_reasoning_effort).toBe('low')
-    // approval_policy inherited from agent
-    expect(result.codex.approval_policy).toBe('on-request')
-  })
+  test.each([
+    {
+      name: 'claude permission_mode overridden, args inherited',
+      agentOptions: '[provisioning.claude]\npermission_mode = "default"\nargs = ["--verbose"]\n',
+      targetOptions: '[targets.smokey.provisioning.claude]\npermission_mode = "auto-accept"\n',
+      expected: { claude: { permission_mode: 'auto-accept', args: ['--verbose'] } },
+    },
+    {
+      name: 'codex model_reasoning_effort overridden, approval_policy inherited',
+      agentOptions:
+        '[provisioning.codex]\nmodel_reasoning_effort = "high"\napproval_policy = "on-request"\n',
+      targetOptions: '[targets.smokey.provisioning.codex]\nmodel_reasoning_effort = "low"\n',
+      expected: { codex: { model_reasoning_effort: 'low', approval_policy: 'on-request' } },
+    },
+  ])(
+    'project harness options override agent options field by field and inherit unset fields: $name',
+    async ({ agentOptions, targetOptions, expected }) => {
+      const result = await resolveEffectiveConfig({
+        profile: `version = 4\n\n${agentOptions}`,
+        targets: `schema = 2\n\n[targets.smokey]\ncompose = ["space:project@dev"]\n\n${targetOptions}`,
+      })
+      expect(result).toMatchObject(expected)
+    }
+  )
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 6. yolo and model override
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('mergeAgentWithProjectTarget: yolo and model', () => {
-  test('project yolo overrides agent default', () => {
-    const profile = makeProfile({
-      provisioning: { yolo: false },
-    })
-    const target = makeTarget({ provisioning: { yolo: true } })
-    const result = mergeAgentWithProjectTarget(profile, target, 'query')
-    expect(result.yolo).toBe(true)
-  })
-
-  test('agent yolo used when project does not set it', () => {
-    const profile = makeProfile({
-      provisioning: { yolo: true },
-    })
-    const target = makeTarget({})
-    const result = mergeAgentWithProjectTarget(profile, target, 'query')
-    expect(result.yolo).toBe(true)
-  })
-
-  test('model from agent harnessDefaults when project has none', () => {
-    const profile = makeProfile({
-      provisioning: { model: 'claude-opus-4-6' },
-    })
-    const target = makeTarget({})
-    const result = mergeAgentWithProjectTarget(profile, target, 'query')
-    expect(result.model).toBe('claude-opus-4-6')
-  })
-})
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 6b. remoteControl override
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('mergeAgentWithProjectTarget: remoteControl', () => {
-  test('project remote_control overrides agent default', () => {
-    const profile = makeProfile({
-      provisioning: { remote: false },
-    })
-    const target = makeTarget({ provisioning: { remote: true } })
-    const result = mergeAgentWithProjectTarget(profile, target, 'query')
-    expect(result.remoteControl).toBe(true)
-  })
-
-  test('agent remote_control used when project does not set it', () => {
-    const profile = makeProfile({
-      provisioning: { remote: true },
-    })
-    const target = makeTarget({})
-    const result = mergeAgentWithProjectTarget(profile, target, 'query')
-    expect(result.remoteControl).toBe(true)
-  })
-
-  test('defaults to false when neither agent nor project sets it', () => {
-    const profile = makeProfile({})
-    const target = makeTarget({})
-    const result = mergeAgentWithProjectTarget(profile, target, 'query')
-    expect(result.remoteControl).toBe(false)
-  })
-})
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 7. Target-level harness precedence (T-00996, T-08701)
+// Target-level harness (T-00996, T-08701)
 //
-// mergeAgentWithProjectTarget prefers target.harness over profile harness.
 // An undeclared harness stays absent: config owns no default (the central
 // compiler resolver applies the catalog default).
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('mergeAgentWithProjectTarget: target-level harness (T-00996)', () => {
-  test('target.harness overrides profile provisioning.harness', () => {
-    const profile = makeProfile({
-      identity: { display: 'Larry', role: 'implementer' },
-      provisioning: { harness: 'codex' },
+  test('harness stays absent when neither target nor profile declare it', async () => {
+    const result = await resolveEffectiveConfig({
+      profile: 'version = 4\n',
+      targets: 'schema = 2\n\n[targets.smokey]\ncompose = ["space:project@dev"]\n',
     })
-    const target = makeTarget({
-      provisioning: { harness: 'claude' },
-    })
-    const result = mergeAgentWithProjectTarget(profile, target, 'query')
-    expect(result.harness).toBe('claude')
-  })
-
-  test('profile provisioning.harness used when target has no harness', () => {
-    const profile = makeProfile({
-      identity: { display: 'Larry', role: 'implementer' },
-      provisioning: { harness: 'codex' },
-    })
-    const target = makeTarget({}) // no harness field
-    const result = mergeAgentWithProjectTarget(profile, target, 'query')
-    expect(result.harness).toBe('codex')
-  })
-
-  test('harness stays absent when neither target nor profile declare it', () => {
-    const profile = makeProfile({
-      identity: { display: 'Smokey', role: 'tester' },
-      provisioning: undefined,
-    })
-    const target = makeTarget({})
-    const result = mergeAgentWithProjectTarget(profile, target, 'query')
     expect(result.harness).toBeUndefined()
     expect(Object.hasOwn(result, 'harness')).toBe(false)
     expect(Object.hasOwn(result.provisioning, 'harness')).toBe(false)
   })
-
-  test('target.harness = "muse" overrides profile harness = "codex"', () => {
-    const profile = makeProfile({
-      identity: { display: 'Animata', role: 'coordinator' },
-      provisioning: { harness: 'codex' },
-    })
-    const target = makeTarget({
-      provisioning: { harness: 'muse' },
-    })
-    const result = mergeAgentWithProjectTarget(profile, target, 'query')
-    expect(result.harness).toBe('muse')
-  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 8. priming_prompt_file resolution
+// priming / priming_file resolution from the agent root
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('resolveAgentPrimingPrompt', () => {
-  let agentRoot: string
-
-  beforeEach(async () => {
-    agentRoot = await mkdtemp(join(tmpdir(), 'agent-root-'))
-  })
-
-  afterEach(async () => {
-    await rm(agentRoot, { recursive: true, force: true })
-  })
-
-  test('returns priming_prompt when set directly', () => {
-    const profile = makeProfile({ priming: 'Direct prompt.' })
-    const result = resolveAgentPrimingPrompt(profile, agentRoot)
-    expect(result).toBe('Direct prompt.')
-  })
-
-  test('reads priming_prompt_file from agent root', async () => {
-    await writeFile(join(agentRoot, 'PRIMING.md'), '# Agent Priming\nYou are a test agent.')
-    const profile = makeProfile({
-      priming: undefined,
-      priming_file: 'PRIMING.md',
-    } as Partial<AgentRuntimeProfile>)
-    const result = resolveAgentPrimingPrompt(profile, agentRoot)
-    expect(result).toContain('# Agent Priming')
-    expect(result).toContain('You are a test agent.')
-  })
-
-  test('returns undefined when neither priming_prompt nor priming_prompt_file set', () => {
-    const profile = makeProfile({
-      priming: undefined,
-    } as Partial<AgentRuntimeProfile>)
-    const result = resolveAgentPrimingPrompt(profile, agentRoot)
-    expect(result).toBeUndefined()
-  })
+  test.each([
+    {
+      name: 'priming set -> returned verbatim',
+      profile: 'version = 4\npriming = "Direct prompt."\n',
+      agentFiles: {},
+      expected: 'Direct prompt.',
+    },
+    {
+      name: 'priming_file -> read from the agent root',
+      profile: 'version = 4\npriming_file = "PRIMING.md"\n',
+      agentFiles: { 'PRIMING.md': '# Agent Priming\nYou are a test agent.' },
+      expected: '# Agent Priming\nYou are a test agent.',
+    },
+    {
+      name: 'neither -> undefined',
+      profile: 'version = 4\n',
+      agentFiles: {},
+      expected: undefined,
+    },
+  ])(
+    'agent priming comes from priming, else from priming_file under the agent root, else is absent: $name',
+    async ({ profile, agentFiles, expected }) => {
+      const result = await resolveEffectiveConfig({ profile, agentFiles })
+      expect(result.priming).toBe(expected)
+    }
+  )
 })

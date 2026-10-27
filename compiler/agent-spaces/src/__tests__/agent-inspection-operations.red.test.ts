@@ -107,7 +107,7 @@ describe('T-06330 agent catalog and contextual inspection operations', () => {
     expect(row?.errorCount).toBe(1)
   })
 
-  test('performs one canonical compile and exposes that producer to both CLI and wire surfaces', async () => {
+  test('one inspection compiles once and yields every part kind', async () => {
     const { inspectAgentForContext } = operations()
     await writeFile(
       join(fixture.validRoot, 'context-template.toml'),
@@ -479,7 +479,6 @@ type = "inline"
 content = "${content}"
 `
 }
-
 async function readTypeScriptTree(root: URL): Promise<string> {
   const entries = await readdir(root, { withFileTypes: true })
   const chunks = await Promise.all(

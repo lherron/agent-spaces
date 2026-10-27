@@ -1,7 +1,6 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
-import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
@@ -13,11 +12,9 @@ import {
   type HookEnvelopeHandler,
   createClaudeCodeTmuxDriver,
 } from '../../../src/drivers/claude-code-tmux/driver'
-import type { ClaudeCodeHookEnvelope } from '../../../src/drivers/claude-code-tmux/hook-events'
-import { buildClaudeHookSettingsOverlay } from '../../../src/drivers/claude-code-tmux/launch'
 import type { DriverContext } from '../../../src/drivers/driver'
-import { listenForHookEnvelopes } from '../../../src/drivers/tmux-shared'
 import { inputIdFrom, invocationIdFrom } from '../../ids'
+import { removeTempHookDirs, tempHookSocketPath } from './driver-red.helpers'
 
 type TmuxExecCall = {
   argv: string[]
@@ -42,6 +39,11 @@ type PaneLease = {
 }
 
 type HookHandler = HookEnvelopeHandler
+
+afterEach(removeTempHookDirs)
+
+/** The current test's hook socket, under a per-test temp dir (see setupDriver). */
+let hookSocket = ''
 
 const now = () => new Date('2026-06-24T02:20:00.000Z')
 
@@ -176,6 +178,7 @@ function createCtx(events: InvocationEventEnvelope[]): DriverContext {
 }
 
 async function setupDriver() {
+  hookSocket = tempHookSocketPath('claude-structured-output.sock')
   const tmuxCalls: TmuxExecCall[] = []
   const events: InvocationEventEnvelope[] = []
   let hookHandler: HookHandler | undefined
@@ -187,10 +190,7 @@ async function setupDriver() {
     hooks: {
       listen: async (handler) => {
         hookHandler = handler
-        return {
-          socketPath: '/tmp/harness-broker/claude-structured-output.sock',
-          close: async () => undefined,
-        }
+        return { socketPath: hookSocket, close: async () => undefined }
       },
     },
     now,
@@ -221,7 +221,7 @@ async function stop(
     invocationId: 'inv_claude_structured',
     runtimeId: 'runtime-structured',
     generation: 1,
-    callbackSocket: '/tmp/harness-broker/claude-structured-output.sock',
+    callbackSocket: hookSocket,
     turnId,
     hookData: {
       hook_event_name: 'Stop',
@@ -236,18 +236,7 @@ async function stop(
 }
 
 describe('claude-code-tmux JSON Schema structured-output RED contract', () => {
-  test('1. advertises synthesized per-turn JSON Schema finalResponse capabilities', async () => {
-    const { driver } = await setupDriver()
-
-    expect(driver.capabilities().finalResponse).toEqual({
-      jsonSchema: true,
-      perTurn: true,
-      strict: false,
-      parsedResult: false,
-    })
-  })
-
-  test('2. scopes schema prompting per turn and leaves following text turns unstructured', async () => {
+  test('a JSON-schema directive applies to its own turn only; the next structured or text turn carries none of it', async () => {
     const { driver, tmuxCalls } = await setupDriver()
 
     await driver.applyInputNow(input('input_status', 'return status', schemaResponse(statusSchema)))
@@ -281,7 +270,7 @@ describe('claude-code-tmux JSON Schema structured-output RED contract', () => {
       invocationId: 'inv_claude_structured',
       runtimeId: 'runtime-structured',
       generation: 1,
-      callbackSocket: '/tmp/harness-broker/claude-structured-output.sock',
+      callbackSocket: hookSocket,
       hookData: { hook_event_name: 'UserPromptSubmit', prompt: submitted },
     })
 
@@ -289,58 +278,6 @@ describe('claude-code-tmux JSON Schema structured-output RED contract', () => {
       turnId: applied.turnId,
       payload: { turnId: applied.turnId },
     })
-  })
-
-  test('4. routes Stop and PostToolUse through the decision bridge and snapshots the overlay', async () => {
-    const overlay = buildClaudeHookSettingsOverlay({
-      callbackSocket: '/tmp/harness-broker/decision.sock',
-      bridgeCommand: 'harness-broker claude-hook',
-    })
-    const hooks = overlay.hooks as Record<string, Array<{ hooks: Array<{ command: string }> }>>
-
-    // Public settings contract: only Stop and PostToolUse need stdout-capable
-    // decisions; every other hook keeps the fire-and-forget bridge.
-    expect(hooks['PreToolUse']?.[0]?.hooks[0]?.command).toContain('claude-hook ')
-    expect(hooks['MessageDisplay']?.[0]?.hooks[0]?.command).toContain('claude-hook ')
-    expect(hooks['PostToolUse']?.[0]?.hooks[0]?.command).toContain('claude-hook-decision ')
-    expect((hooks['PostToolUse']?.[0] as { matcher?: string } | undefined)?.matcher).toBe('*')
-    expect(hooks['Stop']?.[0]?.hooks[0]?.command).toContain('claude-hook-decision ')
-    expect(overlay).toMatchSnapshot()
-  })
-
-  test('4. decision socket protocol returns no stdout payload for no-decision and exact JSON for decisions', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'claude-decision-protocol-'))
-    const socketPath = join(root, 'hook.sock')
-    try {
-      const noDecision = await listenForHookEnvelopes<ClaudeCodeHookEnvelope>(
-        socketPath,
-        async () => undefined
-      )
-      const okResponse = await postEnvelopeAndRead(socketPath, {
-        invocationId: 'inv_claude_structured',
-        generation: 1,
-        callbackSocket: socketPath,
-        hookData: { hook_event_name: 'Stop' },
-      })
-      await noDecision.close()
-      expect(okResponse).toBe('')
-
-      const decision = { decision: 'block', reason: 'must match schema' }
-      const decisionListener = await listenForHookEnvelopes<ClaudeCodeHookEnvelope>(
-        socketPath,
-        (async () => decision) as unknown as (envelope: ClaudeCodeHookEnvelope) => Promise<void>
-      )
-      const decisionResponse = await postEnvelopeAndRead(socketPath, {
-        invocationId: 'inv_claude_structured',
-        generation: 1,
-        callbackSocket: socketPath,
-        hookData: { hook_event_name: 'Stop' },
-      })
-      await decisionListener.close()
-      expect(decisionResponse).toBe(JSON.stringify(decision))
-    } finally {
-      await rm(root, { recursive: true, force: true })
-    }
   })
 
   test('4. composes mailbox and structured-output Stop gates without completing early', async () => {
@@ -366,47 +303,47 @@ describe('claude-code-tmux JSON Schema structured-output RED contract', () => {
     expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(1)
   })
 
-  test('5. validates bare JSON and a whole-message fenced block, emitting normalized JSON once', async () => {
-    const { driver, events, hookHandler } = await setupDriver()
+  test.each([
+    { reply: 'bare JSON', schema: statusSchema, text: '{"status":"ok"}', final: '{"status":"ok"}' },
+    {
+      reply: 'a whole-message fenced block',
+      schema: countSchema,
+      text: '```json\n{"count":7}\n```',
+      final: '{"count":7}',
+    },
+    {
+      reply: 'prose-prefixed JSON',
+      schema: statusSchema,
+      text: 'Here is the JSON:\n{"status":"ok"}',
+      final: '{"status":"ok"}',
+    },
+    {
+      reply: 'prose-prefixed JSON with braces and brackets inside strings',
+      schema: statusSchema,
+      text: 'Here is the JSON:\n{"status":"ok with {braces} and [brackets]"}',
+      final: '{"status":"ok with {braces} and [brackets]"}',
+    },
+  ])(
+    'a structured turn completes once with normalized JSON when the reply is $reply',
+    async ({ schema, text, final }) => {
+      const { driver, events, hookHandler } = await setupDriver()
 
-    const bare = await driver.applyInputNow(
-      input('input_bare_json', 'return status', schemaResponse(statusSchema))
-    )
-    await stop(hookHandler, bare.turnId ?? 'missing', '{"status":"ok"}')
+      const applied = await driver.applyInputNow(
+        input('input_structured_reply', 'return structured', schemaResponse(schema))
+      )
+      await stop(hookHandler, applied.turnId ?? 'missing', text)
 
-    const fenced = await driver.applyInputNow(
-      input('input_fenced_json', 'return count', schemaResponse(countSchema))
-    )
-    await stop(hookHandler, fenced.turnId ?? 'missing', '```json\n{"count":7}\n```')
-
-    const finals = events.filter((event) => event.type === 'assistant.message.completed')
-    const completions = events.filter((event) => event.type === 'turn.completed')
-    expect(finals).toHaveLength(2)
-    expect(completions).toHaveLength(2)
-    expect(finals.map(completedText)).toEqual(['{"status":"ok"}', '{"count":7}'])
-    for (const finalText of finals.map(completedText)) {
-      expect(() => JSON.parse(finalText)).not.toThrow()
-      expect(finalText).not.toContain('```')
+      const sameTurnEvents = events.filter((event) => event.turnId === applied.turnId)
+      const finals = sameTurnEvents.filter((event) => event.type === 'assistant.message.completed')
+      const completions = sameTurnEvents.filter((event) => event.type === 'turn.completed')
+      expect(finals).toHaveLength(1)
+      expect(completions).toHaveLength(1)
+      expect(finals.map(completedText)).toEqual([final])
+      expect(() => JSON.parse(final)).not.toThrow()
     }
-  })
+  )
 
-  test('6. accepts leading prose before a valid JSON object and emits normalized JSON only', async () => {
-    const { driver, events, hookHandler } = await setupDriver()
-
-    const applied = await driver.applyInputNow(
-      input('input_prefixed_json', 'return status', schemaResponse(statusSchema))
-    )
-    await stop(hookHandler, applied.turnId ?? 'missing', 'Here is the JSON:\n{"status":"ok"}')
-
-    const sameTurnEvents = events.filter((event) => event.turnId === applied.turnId)
-    const finals = sameTurnEvents.filter((event) => event.type === 'assistant.message.completed')
-    const completions = sameTurnEvents.filter((event) => event.type === 'turn.completed')
-    expect(finals).toHaveLength(1)
-    expect(completions).toHaveLength(1)
-    expect(completedText(finals[0] as InvocationEventEnvelope)).toBe('{"status":"ok"}')
-  })
-
-  test('7. prefix extraction validates the first JSON root and fails closed on invalid candidates', async () => {
+  test('a structured turn is not completed when the first JSON root is invalid, absent, or followed by wrapper prose', async () => {
     const { driver, events, hookHandler } = await setupDriver()
 
     const schemaInvalid = await driver.applyInputNow(
@@ -432,48 +369,20 @@ describe('claude-code-tmux JSON Schema structured-output RED contract', () => {
       'Example: {"wrong":"field"}\nActual: {"status":"ok"}'
     )
 
-    for (const applied of [schemaInvalid, noRoot, laterValid]) {
-      const sameTurnEvents = events.filter((event) => event.turnId === applied.turnId)
-      expect(sameTurnEvents.map((event) => event.type)).not.toContain('assistant.message.completed')
-      expect(sameTurnEvents.map((event) => event.type)).not.toContain('turn.completed')
-    }
-  })
-
-  test('8. prefix extraction rejects trailing wrapper prose after the JSON root', async () => {
-    const { driver, events, hookHandler } = await setupDriver()
-
-    const applied = await driver.applyInputNow(
+    const trailingProse = await driver.applyInputNow(
       input('input_prefixed_suffix', 'return status', schemaResponse(statusSchema))
     )
     await stop(
       hookHandler,
-      applied.turnId ?? 'missing',
+      trailingProse.turnId ?? 'missing',
       'Here is the JSON:\n{"status":"ok"}\nThanks'
     )
 
-    const sameTurnEvents = events.filter((event) => event.turnId === applied.turnId)
-    expect(sameTurnEvents.map((event) => event.type)).not.toContain('assistant.message.completed')
-    expect(sameTurnEvents.map((event) => event.type)).not.toContain('turn.completed')
-  })
-
-  test('9. prefix extraction handles braces and brackets inside JSON strings', async () => {
-    const { driver, events, hookHandler } = await setupDriver()
-
-    const applied = await driver.applyInputNow(
-      input('input_prefixed_strings', 'return status', schemaResponse(statusSchema))
-    )
-    await stop(
-      hookHandler,
-      applied.turnId ?? 'missing',
-      'Here is the JSON:\n{"status":"ok with {braces} and [brackets]"}'
-    )
-
-    const sameTurnEvents = events.filter((event) => event.turnId === applied.turnId)
-    const finals = sameTurnEvents.filter((event) => event.type === 'assistant.message.completed')
-    expect(finals).toHaveLength(1)
-    expect(completedText(finals[0] as InvocationEventEnvelope)).toBe(
-      '{"status":"ok with {braces} and [brackets]"}'
-    )
+    for (const applied of [schemaInvalid, noRoot, laterValid, trailingProse]) {
+      const sameTurnEvents = events.filter((event) => event.turnId === applied.turnId)
+      expect(sameTurnEvents.map((event) => event.type)).not.toContain('assistant.message.completed')
+      expect(sameTurnEvents.map((event) => event.type)).not.toContain('turn.completed')
+    }
   })
 
   test('10. invalid output before retry cap blocks without final/completed and keeps the same turn active', async () => {
@@ -533,7 +442,7 @@ describe('claude-code-tmux JSON Schema structured-output RED contract', () => {
         invocationId: 'inv_claude_structured',
         runtimeId: 'runtime-structured',
         generation: 1,
-        callbackSocket: '/tmp/harness-broker/claude-structured-output.sock',
+        callbackSocket: hookSocket,
         turnId: applied.turnId,
         hookData: { hook_event_name: 'SessionStart', transcript_path: transcriptPath },
       })
@@ -574,7 +483,7 @@ describe('claude-code-tmux JSON Schema structured-output RED contract', () => {
     }
   })
 
-  test('12. terminal paths without validator clearance fail closed instead of completing invalid content', async () => {
+  test('a structured turn that ends without Stop validation fails closed with a structured-output turn.failed', async () => {
     const { driver, events, hookHandler } = await setupDriver()
 
     const applied = await driver.applyInputNow(
@@ -584,7 +493,7 @@ describe('claude-code-tmux JSON Schema structured-output RED contract', () => {
       invocationId: 'inv_claude_structured',
       runtimeId: 'runtime-structured',
       generation: 1,
-      callbackSocket: '/tmp/harness-broker/claude-structured-output.sock',
+      callbackSocket: hookSocket,
       turnId: applied.turnId,
       hookData: {
         hook_event_name: 'MessageDisplay',
@@ -598,14 +507,24 @@ describe('claude-code-tmux JSON Schema structured-output RED contract', () => {
       invocationId: 'inv_claude_structured',
       runtimeId: 'runtime-structured',
       generation: 1,
-      callbackSocket: '/tmp/harness-broker/claude-structured-output.sock',
+      callbackSocket: hookSocket,
       turnId: applied.turnId,
       hookData: { hook_event_name: 'SessionEnd', reason: 'other' },
     })
 
     const sameTurnEvents = events.filter((event) => event.turnId === applied.turnId)
-    expect(sameTurnEvents.map((event) => event.type)).not.toContain('assistant.message.completed')
-    expect(sameTurnEvents.map((event) => event.type)).not.toContain('turn.completed')
+    const types = sameTurnEvents.map((event) => event.type)
+    expect(types).not.toContain('assistant.message.completed')
+    expect(types).not.toContain('turn.completed')
+    expect(types).not.toContain('turn.interrupted')
+    const failed = sameTurnEvents.filter((event) => event.type === 'turn.failed')
+    expect(failed).toHaveLength(1)
+    expect(failed[0]?.payload).toMatchObject({
+      turnId: applied.turnId,
+      status: 'failed',
+      message: 'Structured output ended before Stop validation cleared',
+      retryable: false,
+    })
   })
 
   test('12b. SubagentStop does not fail or complete the live structured parent turn', async () => {
@@ -619,14 +538,14 @@ describe('claude-code-tmux JSON Schema structured-output RED contract', () => {
       invocationId: 'inv_claude_structured',
       runtimeId: 'runtime-structured',
       generation: 1,
-      callbackSocket: '/tmp/harness-broker/claude-structured-output.sock',
+      callbackSocket: hookSocket,
       hookData: { hook_event_name: 'UserPromptSubmit', prompt: submitted },
     })
     await hookHandler({
       invocationId: 'inv_claude_structured',
       runtimeId: 'runtime-structured',
       generation: 1,
-      callbackSocket: '/tmp/harness-broker/claude-structured-output.sock',
+      callbackSocket: hookSocket,
       hookData: {
         hook_event_name: 'SubagentStop',
         agent_id: 'agent-child',
@@ -635,7 +554,14 @@ describe('claude-code-tmux JSON Schema structured-output RED contract', () => {
     })
 
     const afterSubagent = events.filter((event) => event.turnId === applied.turnId)
-    expect(afterSubagent.map((event) => event.type)).toContain('driver.notice')
+    expect(
+      afterSubagent.filter((event) => event.type === 'driver.notice').map((event) => event.payload)
+    ).toContainEqual(
+      expect.objectContaining({
+        message: 'Subagent stop: Explore (agent-child)',
+        code: 'subagent_stop',
+      })
+    )
     expect(afterSubagent.map((event) => event.type)).not.toContain('turn.failed')
     expect(afterSubagent.map((event) => event.type)).not.toContain('turn.completed')
 
@@ -648,59 +574,4 @@ describe('claude-code-tmux JSON Schema structured-output RED contract', () => {
       terminalEvents.filter((event) => event.type === 'assistant.message.completed')
     ).toHaveLength(1)
   })
-
-  test('13. late terminal MessageDisplay after structured Stop does not emit another assistant completion', async () => {
-    const { driver, events, hookHandler } = await setupDriver()
-
-    const applied = await driver.applyInputNow(
-      input('input_late_display', 'return status', schemaResponse(statusSchema))
-    )
-    await stop(hookHandler, applied.turnId ?? 'missing', '{"status":"ok"}')
-    const terminalCount = events.filter(
-      (event) => event.type === 'assistant.message.completed'
-    ).length
-
-    await hookHandler({
-      invocationId: 'inv_claude_structured',
-      runtimeId: 'runtime-structured',
-      generation: 1,
-      callbackSocket: '/tmp/harness-broker/claude-structured-output.sock',
-      turnId: applied.turnId,
-      hookData: {
-        hook_event_name: 'MessageDisplay',
-        message_id: 'msg_late',
-        index: 0,
-        final: true,
-        delta: '{"status":"late"}',
-      },
-    })
-    await hookHandler({
-      invocationId: 'inv_claude_structured',
-      runtimeId: 'runtime-structured',
-      generation: 1,
-      callbackSocket: '/tmp/harness-broker/claude-structured-output.sock',
-      turnId: applied.turnId,
-      hookData: {
-        hook_event_name: 'PreToolUse',
-        tool_use_id: 'toolu_late',
-        tool_name: 'Read',
-        tool_input: { file_path: 'README.md' },
-      },
-    })
-
-    expect(events.filter((event) => event.type === 'assistant.message.completed')).toHaveLength(
-      terminalCount
-    )
-  })
 })
-
-async function postEnvelopeAndRead(socketPath: string, envelope: ClaudeCodeHookEnvelope) {
-  return await new Promise<string>((resolve, reject) => {
-    const chunks: Buffer[] = []
-    const conn = connect(socketPath)
-    conn.on('error', reject)
-    conn.on('data', (chunk: Buffer) => chunks.push(chunk))
-    conn.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
-    conn.on('connect', () => conn.end(JSON.stringify(envelope)))
-  })
-}

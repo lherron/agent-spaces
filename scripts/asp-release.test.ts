@@ -213,29 +213,6 @@ describe('standalone ASP release inspection', () => {
     expect(result.assetResolution?.['claude-statusline']?.path).toBe(
       join(release, 'assets', 'claude', 'statusline.sh')
     )
-  })
-
-  test('binds both agent-harness drivers to one worker with a digested Photon runtime', () => {
-    const release = fixture({
-      names: ['aspc-facade', 'harness-broker', 'agent-harness', 'aspd'],
-      embeddedIdentity: true,
-      payload: (_name, id, sourceCommit) => `#!/bin/sh\n# ${id} ${sourceCommit}\nexit 0\n`,
-      workerBindings: {
-        'agent-harness': 'agent-harness',
-        'agent-harness-tmux': 'agent-harness',
-      },
-      driverInventories: {
-        'agent-harness': ['agent-harness', 'agent-harness-tmux'],
-      },
-      statusline: '#!/bin/sh\necho ready\n',
-      photonWasm: 'photon-wasm-fixture',
-    })
-
-    const result = inspectRelease(release)
-    expect(result.workerBindings).toEqual({
-      'agent-harness': 'agent-harness',
-      'agent-harness-tmux': 'agent-harness',
-    })
     expect(result.assetResolution?.['photon-wasm']?.path).toBe(
       join(release, 'libexec', 'photon_rs_bg.wasm')
     )

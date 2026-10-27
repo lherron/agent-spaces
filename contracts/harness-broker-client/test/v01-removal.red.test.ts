@@ -26,7 +26,7 @@ class FixedReplyTransport implements BrokerJsonRpcTransport {
 }
 
 describe('Ph6 red: BrokerClient rejects harness-broker/0.1 hello response (T-01867)', () => {
-  test('hello() throws when broker responds with protocolVersion harness-broker/0.1', async () => {
+  test('a broker that selects harness-broker/0.1 makes hello() reject naming the unsupported version', async () => {
     // RED today: BrokerClient.hello() is a raw passthrough — it returns the broker's
     // response without validating the negotiated protocolVersion.
     const transport = new FixedReplyTransport({
@@ -53,36 +53,6 @@ describe('Ph6 red: BrokerClient rejects harness-broker/0.1 hello response (T-018
         clientInfo: { name: 'harness-broker-client-test', version: '0.1.0' },
         protocolVersions: ['harness-broker/0.2'],
       })
-    ).rejects.toThrow()
-  })
-
-  test('hello() succeeds when broker responds with protocolVersion harness-broker/0.2', async () => {
-    // This is the positive guard — v0.2 response should not throw after the fix
-    const transport = new FixedReplyTransport({
-      'broker.hello': {
-        brokerInfo: { name: 'harness-broker', version: '0.2.0' },
-        protocolVersion: 'harness-broker/0.2',
-        capabilities: {
-          transports: ['unix-jsonrpc-ndjson'],
-          invocationLifecycle: {
-            start: true,
-            stop: true,
-            status: true,
-            attach: true,
-            events: true,
-          },
-        },
-        drivers: [],
-      },
-    })
-    const client = BrokerClient.fromTransport(transport)
-
-    // GREEN today and after fix — valid v0.2 response should resolve
-    await expect(
-      client.hello({
-        clientInfo: { name: 'harness-broker-client-test', version: '0.1.0' },
-        protocolVersions: ['harness-broker/0.2'],
-      })
-    ).resolves.toMatchObject({ protocolVersion: 'harness-broker/0.2' })
+    ).rejects.toThrow('broker selected unsupported protocol version: harness-broker/0.1')
   })
 })

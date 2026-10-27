@@ -1,5 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 
+// The shared schemas come through the browser-safe package subpath that
+// presentation consumers import, so its export surface is pinned here too.
+import {
+  AspcSharedAgentInspectionSchemaError,
+  type AspcSharedSchema,
+  agentCatalogResponseSchema,
+  agentInspectionOutcomeSchema,
+  agentInspectionRequestSchema,
+} from 'spaces-aspc-protocol/agent-inspection'
 import type {
   AgentInspectionIdentity,
   AgentInspectionRequest,
@@ -7,11 +16,6 @@ import type {
 import {
   AspcCatalogAgentInspectionRequestValidationError,
   AspcInspectAgentSelectionRequestValidationError,
-  AspcSharedAgentInspectionSchemaError,
-  type AspcSharedSchema,
-  agentCatalogResponseSchema,
-  agentInspectionOutcomeSchema,
-  agentInspectionRequestSchema,
   validateAspcCatalogAgentInspectionRequest,
   validateAspcCommand,
   validateAspcInspectAgentSelectionRequest,
@@ -25,6 +29,17 @@ const identifiers: AgentInspectionIdentity = {
   lane: 'main',
   harness: 'codex',
   presentation: true,
+}
+
+function issuesThrownBy(validate: () => unknown): Array<{ path: string; code: string }> {
+  try {
+    validate()
+  } catch (error) {
+    const issues = (error as { issues?: Array<{ path: string; code: string }> }).issues
+    if (!Array.isArray(issues)) throw error
+    return issues.map(({ path, code }) => ({ path, code }))
+  }
+  throw new Error('expected the validator to reject')
 }
 
 const request: AgentInspectionRequest = {
@@ -73,7 +88,9 @@ describe('identifier-only ASPC inspection authority protocol', () => {
     ['evaluationContext', {}],
     ['executable', '/caller/bin/codex'],
   ])('rejects forbidden catalog input %s', (field, value) => {
-    expect(() => validateAspcCatalogAgentInspectionRequest({ [field]: value })).toThrow()
+    expect(
+      issuesThrownBy(() => validateAspcCatalogAgentInspectionRequest({ [field]: value }))
+    ).toEqual([{ path: `params.${field}`, code: 'forbidden_input' }])
   })
 
   test.each([
@@ -88,9 +105,11 @@ describe('identifier-only ASPC inspection authority protocol', () => {
     ['evaluationContext', {}],
     ['executable', '/caller/bin/codex'],
   ])('rejects forbidden inspection input %s', (field, value) => {
-    expect(() =>
-      validateAspcInspectAgentSelectionRequest({ agentId: 'cody', request, [field]: value })
-    ).toThrow()
+    expect(
+      issuesThrownBy(() =>
+        validateAspcInspectAgentSelectionRequest({ agentId: 'cody', request, [field]: value })
+      )
+    ).toEqual([{ path: `params.${field}`, code: 'forbidden_input' }])
   })
 
   test('rejects malformed ids and hidden context fields inside identifiers', () => {

@@ -5,16 +5,21 @@
  * and return proper results with error handling.
  */
 
-import { describe, expect, it } from 'bun:test'
+import { afterEach, describe, expect, it } from 'bun:test'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { GitError } from '../core/errors.js'
 import { gitExec, gitExecLines, gitExecStdout } from './exec.js'
+import { initRepo } from './repo.js'
+
+const roots: string[] = []
+
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
+})
 
 describe('gitExec', () => {
-  it('should execute git version and return result', async () => {
-    const result = await gitExec(['--version'])
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain('git version')
-  })
-
   it('should handle non-zero exit codes with ignoreExitCode', async () => {
     const result = await gitExec(['status', '--invalid-flag'], {
       ignoreExitCode: true,
@@ -22,8 +27,18 @@ describe('gitExec', () => {
     expect(result.exitCode).not.toBe(0)
   })
 
-  it('should throw GitError on failed commands', async () => {
-    await expect(gitExec(['status', '--invalid-flag'])).rejects.toThrow()
+  it('a failed git command rejects with a GitError carrying its exit code and stderr', async () => {
+    let caught: unknown
+    try {
+      await gitExec(['status', '--invalid-flag'])
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(GitError)
+    const gitError = caught as GitError
+    expect(gitError.exitCode).not.toBe(0)
+    expect(gitError.command).toContain('status --invalid-flag')
+    expect(gitError.stderr).toContain('invalid-flag')
   })
 })
 
@@ -36,15 +51,28 @@ describe('gitExecStdout', () => {
 })
 
 describe('gitExecLines', () => {
-  it('should return array of lines', async () => {
-    // List git config as it reliably returns multiple lines
-    const lines = await gitExecLines(['config', '--list'])
-    expect(Array.isArray(lines)).toBe(true)
-    expect(lines.length).toBeGreaterThan(0)
-  })
+  it('drops blank lines inside multi-line git output', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'asp-git-exec-lines-'))
+    roots.push(repo)
+    await initRepo(repo, { initialBranch: 'main' })
+    for (const subject of ['first', 'second']) {
+      await gitExec(
+        [
+          '-c',
+          'user.email=exec@example.test',
+          '-c',
+          'user.name=Exec Test',
+          'commit',
+          '--allow-empty',
+          '-m',
+          subject,
+        ],
+        { cwd: repo }
+      )
+    }
 
-  it('should filter empty lines', async () => {
-    const lines = await gitExecLines(['--version'])
-    expect(lines.every((line) => line.length > 0)).toBe(true)
+    // %n after each subject puts a blank line between entries.
+    const lines = await gitExecLines(['log', '-2', '--format=%s%n'], { cwd: repo })
+    expect(lines).toEqual(['second', 'first'])
   })
 })

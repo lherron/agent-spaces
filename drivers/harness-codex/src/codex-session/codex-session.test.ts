@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
@@ -8,8 +8,7 @@ import { CodexSession } from './codex-session.js'
 let tmpDir: string
 
 beforeEach(async () => {
-  tmpDir = join(tmpdir(), `codex-session-${Date.now()}`)
-  await mkdir(tmpDir, { recursive: true })
+  tmpDir = await mkdtemp(join(tmpdir(), 'codex-session-'))
 })
 
 afterEach(async () => {

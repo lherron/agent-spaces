@@ -79,6 +79,8 @@ describe('Codex app-server turn error notifications', () => {
     test('keeps one retryable error diagnostic until Codex completes the turn', async () => {
       const events = await runScenario('turn-error-rate-limit')
       expect(ofType(events, 'diagnostic')).toHaveLength(1)
+      // The one diagnostic is the willRetry:true error, never a turn terminal.
+      expect(retryDiagnostics(events)).toHaveLength(1)
       // Codex reports this completion with status=failed, which intentionally
       // normalizes to turn.failed. Its finalOutput proves that terminal came
       // from turn/completed rather than the reconnect diagnostic.
@@ -91,6 +93,9 @@ describe('Codex app-server turn error notifications', () => {
           }),
         }),
       ])
+      expect(
+        (ofType(events, 'turn.failed')[0]?.payload as { retryable?: boolean }).retryable
+      ).not.toBe(true)
       expect(ofType(events, 'invocation.failed')).toHaveLength(0)
     })
 
@@ -164,17 +169,6 @@ describe('Codex app-server turn error notifications', () => {
     }
   )
 
-  test('a willRetry error is a diagnostic; the turn fails only from codex turn/completed', async () => {
-    const events = await runScenario('turn-error-rate-limit')
-    await Bun.sleep(50)
-
-    expect(retryDiagnostics(events)).toHaveLength(1)
-    const failed = ofType(events, 'turn.failed')
-    expect(failed).toHaveLength(1)
-    expect((failed[0]?.payload as { retryable?: boolean }).retryable).not.toBe(true)
-    expect(events.some((event) => event.type === 'invocation.failed')).toBe(false)
-  })
-
   test('retries then a final willRetry:false error fail the turn once, with the final message', async () => {
     const events = await runScenario('turn-error-retry-then-exhausted')
     await Bun.sleep(50)
@@ -188,16 +182,6 @@ describe('Codex app-server turn error notifications', () => {
       turnId: 'turn_1',
       payload: { message: 'unexpected status 401 Unauthorized', retryable: false },
     })
-    expect(events.some((event) => event.type === 'invocation.failed')).toBe(false)
-  })
-
-  test('retries that codex recovers from leave the turn to complete normally', async () => {
-    const events = await runScenario('turn-error-retry-then-recovered')
-    await Bun.sleep(50)
-
-    expect(retryDiagnostics(events)).toHaveLength(2)
-    expect(events.some((event) => event.type === 'turn.completed')).toBe(true)
-    expect(events.some((event) => event.type === 'turn.failed')).toBe(false)
     expect(events.some((event) => event.type === 'invocation.failed')).toBe(false)
   })
 })

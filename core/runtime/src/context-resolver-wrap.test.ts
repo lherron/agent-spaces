@@ -1,21 +1,20 @@
 /**
  * Section wrap in the context resolver: prefix/suffix interpolate, apply after
  * resolution and before per-section truncation and zone joining, and never
- * produce orphan headings for empty content.
+ * produce orphan headings for empty content. Templates are real
+ * context-template.toml files (`[prompt.wrap]` / `[reminder.wrap]` tables)
+ * resolved through inspectAgentSystemPrompt.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { ContextResolverContext } from './context-resolver.js'
-import type { ContextSection } from './context-template.js'
 import {
   type ResolverRoots,
   SECTION_SEPARATOR,
   createResolverRoots,
+  inspectTemplate,
   removeResolverRoots,
-  resolveDetailed,
-  templateWith,
 } from './test-support/context-resolver-fixture.js'
 
 describe('resolveContextTemplate section wrap', () => {
@@ -29,58 +28,58 @@ describe('resolveContextTemplate section wrap', () => {
     await removeResolverRoots(roots)
   })
 
-  test('wraps resolved section content with interpolated prefix and suffix before zone joining', async () => {
-    const resolved = await resolveDetailed(
+  test('a [prompt.wrap] table wraps the section in its interpolated prefix and suffix before zone joining', async () => {
+    const inspection = await inspectTemplate(
       roots,
-      templateWith({
-        promptSections: [
-          {
-            name: 'identity',
-            type: 'inline',
-            content: 'Body',
-            wrap: {
-              prefix: '## {{ agent_name }}\n\n',
-              suffix: '\n\nProject: {{ project_id }}',
-            },
-          },
-          {
-            name: 'tail',
-            type: 'inline',
-            content: 'Tail',
-          },
-        ],
-      })
+      `
+schema_version = 2
+
+[[prompt]]
+name = "identity"
+type = "inline"
+content = "Body"
+
+[prompt.wrap]
+prefix = "## {{ agent_name }}\\n\\n"
+suffix = "\\n\\nProject: {{ project_id }}"
+
+[[prompt]]
+name = "tail"
+type = "inline"
+content = "Tail"
+`
     )
 
-    expect(resolved.prompt?.content).toBe(
+    expect(inspection.prompt.content).toBe(
       `## smokey\n\nBody\n\nProject: agent-spaces${SECTION_SEPARATOR}Tail`
     )
-    expect(resolved.promptSections[0]).toMatchObject({
+    expect(inspection.prompt.sections[0]).toMatchObject({
       content: '## smokey\n\nBody\n\nProject: agent-spaces',
       wrapped: true,
     })
   })
 
+  // The parser rejects empty inline content, so the empty raw content comes
+  // from an exec section that prints nothing.
   test('skips empty raw content before wrap and does not emit orphan headings', async () => {
-    const resolved = await resolveDetailed(
+    const inspection = await inspectTemplate(
       roots,
-      templateWith({
-        reminderSections: [
-          {
-            name: 'empty-heading',
-            type: 'inline',
-            content: '',
-            wrap: {
-              prefix: '## Heading\n\n',
-              suffix: '\nEnd',
-            },
-          },
-        ],
-      })
+      `
+schema_version = 2
+
+[[reminder]]
+name = "empty-heading"
+type = "exec"
+command = "printf ''"
+
+[reminder.wrap]
+prefix = "## Heading\\n\\n"
+suffix = "\\nEnd"
+`
     )
 
-    expect(resolved.reminder).toBeUndefined()
-    expect(resolved.reminderSections[0]).toMatchObject({
+    expect(inspection.reminder.content).toBeUndefined()
+    expect(inspection.reminder.sections[0]).toMatchObject({
       included: false,
       skippedReason: 'empty',
       wrapped: false,
@@ -88,54 +87,52 @@ describe('resolveContextTemplate section wrap', () => {
   })
 
   test('counts wrap text against per-section max_chars while preserving the wrap prefix', async () => {
-    const resolved = await resolveDetailed(
+    const inspection = await inspectTemplate(
       roots,
-      templateWith({
-        reminderSections: [
-          {
-            name: 'budgeted',
-            type: 'inline',
-            content: 'abcdefghijklmnopqrstuvwxyz',
-            maxChars: 20,
-            wrap: {
-              prefix: '## Header\n',
-              suffix: '',
-            },
-          },
-        ],
-      })
+      `
+schema_version = 2
+
+[[reminder]]
+name = "budgeted"
+type = "inline"
+content = "abcdefghijklmnopqrstuvwxyz"
+max_chars = 20
+
+[reminder.wrap]
+prefix = "## Header\\n"
+suffix = ""
+`
     )
 
-    expect(resolved.reminderSections[0]).toMatchObject({
+    expect(inspection.reminder.sections[0]).toMatchObject({
       content: '## Header\n[truncated]',
       chars: 21,
       bytes: 21,
       truncated: true,
       wrapped: true,
     })
-    expect(resolved.reminder).toBe('## Header\n[truncated]')
+    expect(inspection.reminder.content).toBe('## Header\n[truncated]')
   })
 
   test('computes truncation diagnostics from post-wrap content length', async () => {
-    const resolved = await resolveDetailed(
+    const inspection = await inspectTemplate(
       roots,
-      templateWith({
-        promptSections: [
-          {
-            name: 'raw-short-wrapped-long',
-            type: 'inline',
-            content: 'short',
-            maxChars: 12,
-            wrap: {
-              prefix: 'prefix-',
-              suffix: '-suffix',
-            },
-          },
-        ],
-      })
+      `
+schema_version = 2
+
+[[prompt]]
+name = "raw-short-wrapped-long"
+type = "inline"
+content = "short"
+max_chars = 12
+
+[prompt.wrap]
+prefix = "prefix-"
+suffix = "-suffix"
+`
     )
 
-    expect(resolved.promptSections[0]).toMatchObject({
+    expect(inspection.prompt.sections[0]).toMatchObject({
       content: '[truncated]',
       chars: 11,
       bytes: 11,
@@ -145,124 +142,80 @@ describe('resolveContextTemplate section wrap', () => {
   })
 
   test('sets wrapped false when wrap prefix and suffix interpolate to empty strings', async () => {
-    const resolved = await resolveDetailed(
+    const inspection = await inspectTemplate(
       roots,
-      templateWith({
-        reminderSections: [
-          {
-            name: 'empty-wrap',
-            type: 'inline',
-            content: 'body',
-            wrap: {
-              prefix: '',
-              suffix: '',
-            },
-          },
-          {
-            name: 'absent-wrap',
-            type: 'inline',
-            content: 'plain',
-          },
-        ],
-      })
+      `
+schema_version = 2
+
+[[reminder]]
+name = "empty-wrap"
+type = "inline"
+content = "body"
+
+[reminder.wrap]
+prefix = ""
+suffix = ""
+
+[[reminder]]
+name = "absent-wrap"
+type = "inline"
+content = "plain"
+`
     )
 
-    expect(resolved.reminderSections.map((section) => section.wrapped)).toEqual([false, false])
+    expect(inspection.reminder.sections.map((section) => section.wrapped)).toEqual([false, false])
   })
 
   test.each<{
     type: string
     zone: 'prompt' | 'reminder'
-    section: ContextSection
+    body: string
     setup?: (r: ResolverRoots) => Promise<void>
-    context?: Partial<ContextResolverContext>
+    profileToml?: string
   }>([
     {
       type: 'file',
       zone: 'prompt',
-      section: {
-        name: 'file-wrap',
-        type: 'file',
-        path: 'agent-root:///wrapped-file.md',
-        required: true,
-        wrap: { prefix: '<file>', suffix: '</file>' },
-      },
+      body: 'type = "file"\npath = "agent-root:///wrapped-file.md"\nrequired = true',
       setup: (r) => writeFile(join(r.agentRoot, 'wrapped-file.md'), 'file body'),
     },
     {
       type: 'inline',
       zone: 'prompt',
-      section: {
-        name: 'inline-wrap',
-        type: 'inline',
-        content: 'inline body',
-        wrap: { prefix: '<inline>', suffix: '</inline>' },
-      },
+      body: 'type = "inline"\ncontent = "inline body"',
     },
     {
       type: 'exec',
       zone: 'reminder',
-      section: {
-        name: 'exec-wrap',
-        type: 'exec',
-        command: "printf 'exec body'",
-        wrap: { prefix: '<exec>', suffix: '</exec>' },
-      },
+      body: `type = "exec"\ncommand = "printf 'exec body'"`,
     },
     {
       type: 'slot',
       zone: 'reminder',
-      section: {
-        name: 'slot-wrap',
-        type: 'slot',
-        source: 'session.additionalContext',
-        wrap: { prefix: '<slot>', suffix: '</slot>' },
-      },
+      body: 'type = "slot"\nsource = "session.additionalContext"',
       setup: (r) => writeFile(join(r.agentRoot, 'slot-body.md'), 'slot body'),
-      context: { agentProfile: { session: { additionalContext: ['agent-root:///slot-body.md'] } } },
+      profileToml: '[session]\nadditionalContext = ["agent-root:///slot-body.md"]\n',
     },
-  ])('applies wrap to $type sections', async ({ type, zone, section, setup, context }) => {
+  ])('applies wrap to $type sections', async ({ type, zone, body, setup, profileToml }) => {
     await setup?.(roots)
 
-    const resolved = await resolveDetailed(
+    const inspection = await inspectTemplate(
       roots,
-      templateWith(
-        zone === 'prompt' ? { promptSections: [section] } : { reminderSections: [section] }
-      ),
-      context
+      `
+schema_version = 2
+
+[[${zone}]]
+name = "${type}-wrap"
+${body}
+
+[${zone}.wrap]
+prefix = "<${type}>"
+suffix = "</${type}>"
+`,
+      { profileToml }
     )
 
-    const rendered = zone === 'prompt' ? resolved.prompt?.content : resolved.reminder
+    const rendered = zone === 'prompt' ? inspection.prompt.content : inspection.reminder.content
     expect(rendered).toBe(`<${type}>${type} body</${type}>`)
-  })
-
-  test('applies wrap before SECTION_SEPARATOR joins resolved sections', async () => {
-    const resolved = await resolveDetailed(
-      roots,
-      templateWith({
-        reminderSections: [
-          {
-            name: 'first',
-            type: 'inline',
-            content: 'one',
-            wrap: {
-              prefix: '<first>',
-              suffix: '</first>',
-            },
-          },
-          {
-            name: 'second',
-            type: 'inline',
-            content: 'two',
-            wrap: {
-              prefix: '<second>',
-              suffix: '</second>',
-            },
-          },
-        ],
-      })
-    )
-
-    expect(resolved.reminder).toBe(`<first>one</first>${SECTION_SEPARATOR}<second>two</second>`)
   })
 })

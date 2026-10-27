@@ -229,7 +229,7 @@ describe('offline evidence integrity contract', () => {
     })
   })
 
-  test('event maxBytes applies to the exact newline-terminated final response', async () => {
+  test('an event exactly maxBytes as a newline-terminated response is served and one byte over is refused whole as offline_record_too_large', async () => {
     const root = scratch()
     const ledgerPath = join(root, 'events.ndjson')
     const indexPath = join(root, 'ledger-index.db')
@@ -280,11 +280,14 @@ describe('offline evidence integrity contract', () => {
     expect(oneByteShort.exitCode).toBe(2)
     expect(oneByteShort.response).toMatchObject({
       ok: false,
+      operation: 'eventsSince',
       error: {
         code: 'offline_record_too_large',
         data: { kind: 'event', seq: 10, bytes: exactBytes, maxBytes: exactBytes - 1 },
       },
     })
+    // Refusal is whole: no partial page of results rides along with the error.
+    expect(oneByteShort.response.result).toBeUndefined()
   })
 
   test('filtered EOF advances across a cursor digit boundary within maxBytes', async () => {

@@ -2,7 +2,6 @@ import { describe, expect, test } from 'bun:test'
 import { materialPackageFingerprint } from './lib/asp-publish/fingerprint'
 import { timestampVersion } from './lib/asp-publish/options'
 import { RELEASE_PUBLISH_PACKAGES } from './lib/asp-publish/package-set'
-import { PRAESIDIUM_BUILD_FIELDS, createPraesidiumBuild } from './lib/asp-publish/provenance'
 import {
   type PublishDecisionInput,
   resolvePublishPlanForActiveTag,
@@ -12,28 +11,6 @@ import { assertNoCanonicalVersionReplacement } from './publish-local-verdaccio'
 test('publishes the installable public CLI after its workspace package set', () => {
   expect(RELEASE_PUBLISH_PACKAGES.at(-1)).toBe('apps/cli')
   expect(RELEASE_PUBLISH_PACKAGES.filter((rel) => rel === 'apps/cli')).toHaveLength(1)
-})
-
-test('stages the exact normative praesidiumBuild tuple and no package fingerprint', () => {
-  const build = createPraesidiumBuild({
-    repository: 'agent-spaces',
-    canonicalRemote: 'git@github.com:lherron/agent-spaces.git',
-    sourceCommit: 'a'.repeat(40),
-    setVersion: '0.1.1-dev.20260725010101',
-    builtAt: '2026-07-25T01:01:01.000Z',
-  })
-
-  expect(Object.keys(build)).toEqual(PRAESIDIUM_BUILD_FIELDS)
-  expect(build).toEqual({
-    schema: 1,
-    repository: 'agent-spaces',
-    canonicalRemote: 'git@github.com:lherron/agent-spaces.git',
-    sourceCommit: 'a'.repeat(40),
-    setName: 'asp',
-    setVersion: '0.1.1-dev.20260725010101',
-    builtAt: '2026-07-25T01:01:01.000Z',
-  })
-  expect(build).not.toHaveProperty('fingerprint')
 })
 
 test('canonical publication refuses same-name/version replacement before publishing', async () => {
@@ -56,14 +33,17 @@ test('canonical publication refuses same-name/version replacement before publish
 describe('publish-local-verdaccio channel versions', () => {
   const now = new Date('2026-07-06T22:13:14Z')
 
-  test('keeps the default dev channel shape unchanged', () => {
-    expect(timestampVersion('0.1.1', 'dev', now, 'abc123')).toBe('0.1.1-dev.20260706221314')
-  })
-
-  test('uses a distinct worktree prerelease channel with the source short sha', () => {
-    const version = timestampVersion('0.1.1', 'worktree', now, 'abc123def456')
-    expect(version).toBe('0.1.1-worktree.20260706221314.abc123def456')
-    expect(version).not.toContain('-dev.')
+  test.each([
+    { channel: 'dev', sha: 'abc123', expected: '0.1.1-dev.20260706221314' },
+    {
+      channel: 'worktree',
+      sha: 'abc123def456',
+      expected: '0.1.1-worktree.20260706221314.abc123def456',
+    },
+  ] as const)('$channel publishes a distinct timestamped version', ({ channel, sha, expected }) => {
+    const version = timestampVersion('0.1.1', channel, now, sha)
+    expect(version).toBe(expected)
+    if (channel === 'worktree') expect(version).not.toContain('-dev.')
   })
 })
 

@@ -178,6 +178,10 @@ describe('Codex app-server renderer process red tests (T-04909 Phase B)', () => 
         // viewer mode by swapping to codex-cli-tmux or only reporting the pane.
         expect(launchLines, `tmux log:\n${lines.join('\n')}`).toHaveLength(1)
         for (const line of launchLines) {
+          // T-08554: with no launcher the renderer entry file runs under bun.
+          expect(line).toMatch(
+            /^loaded-buffer exec bun '?\S*\/renderer-entry\.ts'? --driver codex-app-server /
+          )
           expect(line).toContain('invocation.eventsSince')
           expect(line).toContain('invocation.event')
           expect(line).not.toContain('codex-cli-tmux')

@@ -1,88 +1,46 @@
 import { describe, expect, test } from 'bun:test'
-import type {
-  BrokerCommand,
-  InvocationDispatchRequest,
-  PermissionRequestParams,
-} from '../src/commands'
+import type { PermissionRequestParams } from '../src/commands'
+import type { BrokerCommand } from '../src/commands'
 import { conservativeDefaultLifecyclePolicyOverlay, lifecyclePolicyHash } from '../src/lifecycle'
 import type { BrokerLifecyclePolicyOverlay } from '../src/lifecycle'
-import {
-  validateCommand,
-  validateInvocationDispatchRequest,
-  validatePermissionRequestParams,
-} from '../src/schemas'
-import { inputIdFrom, invocationIdFrom, permissionRequestIdFrom, turnIdFrom } from './ids'
+import { validatePermissionRequestParams } from '../src/schemas'
+import { validateCommand } from '../src/schemas'
+import { invocationIdFrom, permissionRequestIdFrom, turnIdFrom } from './ids'
+import { inputIdFrom } from './ids'
+
 import {
   claudeCodeTmuxSpec,
+  dispatchCommand,
   expectInvalidCommand,
   expectInvalidDispatchRequest,
-  expectInvalidPermissionRequestParams,
+  expectValidCommand,
   specSection19InvocationStartSpec,
   withValueAt,
+  withoutKeyAt,
 } from './schema-test-helpers'
 
-describe('validateInvocationDispatchRequest', () => {
-  test('accepts a dispatch envelope with a verbatim start request and dispatchEnv', () => {
-    const request: InvocationDispatchRequest = {
-      startRequest: {
-        spec: specSection19InvocationStartSpec,
-        initialInput: {
-          inputId: inputIdFrom('input_1'),
-          kind: 'user',
-          content: [{ type: 'text', text: 'hello' }],
-        },
-      },
-      dispatchEnv: {
-        WRKQ_HANDOFF_ID: 'handoff_1',
-      },
-    }
-
-    expect(validateInvocationDispatchRequest(request)).toEqual(request)
-  })
-
+// Dispatch envelopes ride in `invocation.start` params and are validated by
+// `validateCommand`, the registry the broker runs before each JSON-RPC handler;
+// issue paths below are relative to `params.`.
+describe('invocation.start dispatch envelope validation', () => {
   test('accepts an explicit conservative lifecycle overlay with a deterministic hash', () => {
     const lifecyclePolicy = conservativeDefaultLifecyclePolicyOverlay('policy_default')
-    const request = {
-      startRequest: { spec: specSection19InvocationStartSpec },
-      lifecyclePolicy,
-    }
 
-    expect(validateInvocationDispatchRequest(request)).toEqual(request)
+    expectValidCommand(
+      dispatchCommand({ startRequest: { spec: specSection19InvocationStartSpec }, lifecyclePolicy })
+    )
     expect(lifecyclePolicy.policyHash).toBe(lifecyclePolicyHash(lifecyclePolicy))
   })
 
   test('rejects lifecycle policy hash mismatches', () => {
-    const lifecyclePolicy = {
+    const badHash = {
       ...conservativeDefaultLifecyclePolicyOverlay('policy_bad_hash'),
       policyHash: 'not-the-canonical-hash',
     }
 
-    expectInvalidDispatchRequest(
-      {
-        startRequest: { spec: specSection19InvocationStartSpec },
-        lifecyclePolicy,
-      },
-      {
-        path: 'lifecyclePolicy.policyHash',
-        code: 'lifecycle_policy_hash_mismatch',
-      }
-    )
-  })
-
-  test('validates the lifecycle policyHash against the canonical lifecyclePolicyHash (inlined hasher)', () => {
-    // Locks the de-abstracted validator: validateLifecyclePolicyOverlay now
-    // hashes directly via lifecyclePolicyHash (no injectable seam). A correctly
-    // normalized overlay must pass; flipping a single material field must trip
-    // the canonical-hash mismatch with the unchanged digest.
+    // Same digest string, but material changed -> hash no longer canonical, so
+    // the hash covers the policy material, not just its own field.
     const accepted = conservativeDefaultLifecyclePolicyOverlay('policy_inlined_hash')
-    const acceptRequest = {
-      startRequest: { spec: specSection19InvocationStartSpec },
-      lifecyclePolicy: accepted,
-    }
-    expect(validateInvocationDispatchRequest(acceptRequest)).toEqual(acceptRequest)
-    expect(accepted.policyHash).toBe(lifecyclePolicyHash(accepted))
-
-    // Same digest string, but material changed -> hash no longer canonical.
     const tampered: BrokerLifecyclePolicyOverlay = {
       ...accepted,
       turnRetry: {
@@ -103,16 +61,13 @@ describe('validateInvocationDispatchRequest', () => {
       },
     }
     expect(tampered.policyHash).not.toBe(lifecyclePolicyHash(tampered))
-    expectInvalidDispatchRequest(
-      {
-        startRequest: { spec: specSection19InvocationStartSpec },
-        lifecyclePolicy: tampered,
-      },
-      {
-        path: 'lifecyclePolicy.policyHash',
-        code: 'lifecycle_policy_hash_mismatch',
-      }
-    )
+
+    for (const lifecyclePolicy of [badHash, tampered]) {
+      expectInvalidDispatchRequest(
+        { startRequest: { spec: specSection19InvocationStartSpec }, lifecyclePolicy },
+        { path: 'lifecyclePolicy.policyHash', code: 'lifecycle_policy_hash_mismatch' }
+      )
+    }
   })
 
   test('rejects lifecycle overlays patched into HarnessInvocationSpec', () => {
@@ -204,7 +159,7 @@ describe('validateInvocationDispatchRequest', () => {
       },
     }
 
-    expect(validateInvocationDispatchRequest(request)).toEqual(request)
+    expectValidCommand(dispatchCommand(request))
   })
 
   const validTerminalSurface = {
@@ -230,123 +185,65 @@ describe('validateInvocationDispatchRequest', () => {
       startRequest: { spec: claudeCodeTmuxSpec },
       runtime: { terminalSurface: validTerminalSurface },
     }
-    expect(validateInvocationDispatchRequest(request)).toEqual(request)
+    expectValidCommand(dispatchCommand(request))
   })
 
-  test('accepts both legacy tmux.socketPath AND terminalSurface together (terminalSurface wins downstream)', () => {
-    const request = {
-      startRequest: { spec: claudeCodeTmuxSpec },
-      runtime: {
-        tmux: { socketPath: '/tmp/preallocated/hrc-owned-tmux.sock' },
-        terminalSurface: validTerminalSurface,
-      },
+  test.each([
+    {
+      case: 'paneId missing %',
+      surface: withValueAt(validTerminalSurface, ['paneId'], 'pane-12'),
+      path: 'paneId',
+      code: 'invalid_tmux_id',
+    },
+    {
+      case: 'paneId absent',
+      surface: withoutKeyAt(validTerminalSurface, ['paneId']),
+      path: 'paneId',
+      code: 'required',
+    },
+    {
+      case: 'sessionId missing $',
+      surface: withValueAt(validTerminalSurface, ['sessionId'], 'session-3'),
+      path: 'sessionId',
+      code: 'invalid_tmux_id',
+    },
+    {
+      case: 'windowId missing @',
+      surface: withValueAt(validTerminalSurface, ['windowId'], 'win-7'),
+      path: 'windowId',
+      code: 'invalid_tmux_id',
+    },
+    {
+      case: 'ownership not hrc',
+      surface: withValueAt(validTerminalSurface, ['ownership'], 'driver'),
+      path: 'ownership',
+      code: 'invalid_literal',
+    },
+    {
+      case: 'kind not tmux-pane',
+      surface: withValueAt(validTerminalSurface, ['kind'], 'tmux-session'),
+      path: 'kind',
+      code: 'invalid_literal',
+    },
+    {
+      case: 'allowedOps.inspect false',
+      surface: withValueAt(validTerminalSurface, ['allowedOps'], {
+        inspect: false,
+        sendInput: true,
+        sendInterrupt: true,
+      }),
+      path: 'allowedOps.inspect',
+      code: 'invalid_literal',
+    },
+  ])(
+    'a malformed runtime terminalSurface is refused with the offending field and code: $case',
+    ({ surface, path, code }) => {
+      expectInvalidDispatchRequest(
+        { startRequest: { spec: claudeCodeTmuxSpec }, runtime: { terminalSurface: surface } },
+        { path: `runtime.terminalSurface.${path}`, code }
+      )
     }
-    expect(validateInvocationDispatchRequest(request)).toEqual(request)
-  })
-
-  test('rejects terminalSurface with a malformed paneId', () => {
-    const surface = structuredClone(validTerminalSurface) as typeof validTerminalSurface & {
-      paneId: string
-    }
-    surface.paneId = 'pane-12' // missing leading %, not a tmux pane id
-    expectInvalidDispatchRequest(
-      {
-        startRequest: { spec: claudeCodeTmuxSpec },
-        runtime: { terminalSurface: surface },
-      },
-      {
-        path: 'runtime.terminalSurface.paneId',
-        code: 'invalid_tmux_id',
-      }
-    )
-  })
-
-  test('rejects terminalSurface missing paneId', () => {
-    const surface = structuredClone(validTerminalSurface) as Partial<typeof validTerminalSurface>
-    Reflect.deleteProperty(surface, 'paneId')
-    expectInvalidDispatchRequest(
-      {
-        startRequest: { spec: claudeCodeTmuxSpec },
-        runtime: { terminalSurface: surface },
-      },
-      {
-        path: 'runtime.terminalSurface.paneId',
-        code: 'required',
-      }
-    )
-  })
-
-  test('rejects terminalSurface with malformed sessionId / windowId', () => {
-    const badSession = structuredClone(validTerminalSurface)
-    badSession.sessionId = 'session-3'
-    expectInvalidDispatchRequest(
-      {
-        startRequest: { spec: claudeCodeTmuxSpec },
-        runtime: { terminalSurface: badSession },
-      },
-      {
-        path: 'runtime.terminalSurface.sessionId',
-        code: 'invalid_tmux_id',
-      }
-    )
-
-    const badWindow = structuredClone(validTerminalSurface)
-    badWindow.windowId = 'win-7'
-    expectInvalidDispatchRequest(
-      {
-        startRequest: { spec: claudeCodeTmuxSpec },
-        runtime: { terminalSurface: badWindow },
-      },
-      {
-        path: 'runtime.terminalSurface.windowId',
-        code: 'invalid_tmux_id',
-      }
-    )
-  })
-
-  test('rejects terminalSurface with wrong ownership or kind', () => {
-    const badOwnership = withValueAt(validTerminalSurface, ['ownership'], 'driver')
-    expectInvalidDispatchRequest(
-      {
-        startRequest: { spec: claudeCodeTmuxSpec },
-        runtime: { terminalSurface: badOwnership },
-      },
-      {
-        path: 'runtime.terminalSurface.ownership',
-        code: 'invalid_literal',
-      }
-    )
-
-    const badKind = withValueAt(validTerminalSurface, ['kind'], 'tmux-session')
-    expectInvalidDispatchRequest(
-      {
-        startRequest: { spec: claudeCodeTmuxSpec },
-        runtime: { terminalSurface: badKind },
-      },
-      {
-        path: 'runtime.terminalSurface.kind',
-        code: 'invalid_literal',
-      }
-    )
-  })
-
-  test('rejects terminalSurface allowedOps without inspect/sendInput/sendInterrupt = true', () => {
-    const surface = withValueAt(validTerminalSurface, ['allowedOps'], {
-      inspect: false,
-      sendInput: true,
-      sendInterrupt: true,
-    })
-    expectInvalidDispatchRequest(
-      {
-        startRequest: { spec: claudeCodeTmuxSpec },
-        runtime: { terminalSurface: surface },
-      },
-      {
-        path: 'runtime.terminalSurface.allowedOps.inspect',
-        code: 'invalid_literal',
-      }
-    )
-  })
+  )
 
   test('rejects stale runtime overlays nested inside dispatch startRequest', () => {
     expectInvalidDispatchRequest(
@@ -392,6 +289,11 @@ describe('validateCommand', () => {
       params: {
         startRequest: {
           spec: specSection19InvocationStartSpec,
+          initialInput: {
+            inputId: inputIdFrom('input_1'),
+            kind: 'user',
+            content: [{ type: 'text', text: 'hello' }],
+          },
         },
         dispatchEnv: {
           WRKQ_HANDOFF_ID: 'handoff_1',
@@ -480,6 +382,12 @@ describe('validateCommand', () => {
       { path: 'params.controllerInstanceId', code: 'required' },
     ],
     [
+      'invocation.status',
+      { invocationId: 'inv_1', probeLiveness: true },
+      { invocationId: 'inv_1', probeLiveness: 'yes' },
+      { path: 'params.probeLiveness', code: 'invalid_type' },
+    ],
+    [
       'invocation.snapshot',
       { invocationId: 'inv_1', probeLiveness: true },
       { invocationId: 'inv_1', probeLiveness: 'yes' },
@@ -519,73 +427,65 @@ describe('validateCommand', () => {
       )
     }
   )
-
-  test('invocation.status accepts an optional bounded liveness probe flag', () => {
-    // T-01850: status uses the same cached-by-default inspection surface as
-    // snapshot/list, with probeLiveness requesting a bounded active probe.
-    const command: BrokerCommand = {
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'invocation.status',
-      params: { invocationId: invocationIdFrom('inv_1'), probeLiveness: true },
-    }
-    expect(validateCommand(command)).toEqual(command)
-
-    expectInvalidCommand(
-      {
-        jsonrpc: '2.0',
-        id: 2,
-        method: 'invocation.status',
-        params: { invocationId: 'inv_1', probeLiveness: 'yes' },
-      },
-      { path: 'params.probeLiveness', code: 'invalid_type' }
-    )
-  })
 })
 
-describe('validatePermissionRequestParams', () => {
-  test('accepts broker-to-client permission request params', () => {
-    const params: PermissionRequestParams = {
-      invocationId: invocationIdFrom('inv_1'),
-      turnId: turnIdFrom('turn_1'),
-      permissionRequestId: permissionRequestIdFrom('perm_1'),
-      kind: 'command',
-      subject: { argv: ['ls'] },
-      defaultDecision: 'deny',
-      deadlineMs: 1000,
-    }
+const expectInvalidPermissionRequestParams = (
+  value: unknown,
+  expectedIssue: { path: string; code: string }
+) => {
+  expect(() => validatePermissionRequestParams(value)).toThrow(
+    expect.objectContaining({
+      code: 'INVALID_PERMISSION_REQUEST_PARAMS',
+      issues: expect.arrayContaining([expect.objectContaining(expectedIssue)]),
+    })
+  )
+}
 
-    expect(validatePermissionRequestParams(params)).toEqual(params)
-  })
-
-  test('rejects unsupported default decisions', () => {
-    expectInvalidPermissionRequestParams(
-      {
-        invocationId: 'inv_1',
-        permissionRequestId: 'perm_1',
+describe('published caller behavior (§9)', () => {
+  describe('validatePermissionRequestParams', () => {
+    test('accepts broker-to-client permission request params', () => {
+      const params: PermissionRequestParams = {
+        invocationId: invocationIdFrom('inv_1'),
+        turnId: turnIdFrom('turn_1'),
+        permissionRequestId: permissionRequestIdFrom('perm_1'),
         kind: 'command',
         subject: { argv: ['ls'] },
-        defaultDecision: 'prompt',
-      },
-      {
-        path: 'defaultDecision',
-        code: 'invalid_literal',
-      }
-    )
-  })
-
-  test('requires the subject field even when display subject is absent', () => {
-    expectInvalidPermissionRequestParams(
-      {
-        invocationId: 'inv_1',
-        permissionRequestId: 'perm_1',
-        kind: 'command',
         defaultDecision: 'deny',
-      },
-      {
-        path: 'subject',
-        code: 'required',
+        deadlineMs: 1000,
       }
-    )
+
+      expect(validatePermissionRequestParams(params)).toEqual(params)
+    })
+
+    test('rejects unsupported default decisions', () => {
+      expectInvalidPermissionRequestParams(
+        {
+          invocationId: 'inv_1',
+          permissionRequestId: 'perm_1',
+          kind: 'command',
+          subject: { argv: ['ls'] },
+          defaultDecision: 'prompt',
+        },
+        {
+          path: 'defaultDecision',
+          code: 'invalid_literal',
+        }
+      )
+    })
+
+    test('requires the subject field even when display subject is absent', () => {
+      expectInvalidPermissionRequestParams(
+        {
+          invocationId: 'inv_1',
+          permissionRequestId: 'perm_1',
+          kind: 'command',
+          defaultDecision: 'deny',
+        },
+        {
+          path: 'subject',
+          code: 'required',
+        }
+      )
+    })
   })
 })

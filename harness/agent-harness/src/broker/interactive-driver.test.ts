@@ -28,10 +28,10 @@ test('registers the interactive identity as an available external-child driver',
 })
 
 test('requires the HRC-supplied pane lease before launching the TUI child', async () => {
-  const driver = createAgentHarnessTmuxDriver()
+  const broker = createBroker({ drivers: [createAgentHarnessTmuxDriver()] })
   await expect(
-    driver.start(
-      {
+    broker.start({
+      spec: {
         specVersion: 'harness-broker.invocation/v1',
         invocationId: 'agent-harness-interactive-no-lease' as InvocationId,
         harness: { frontend: 'agent-harness', provider: 'openai', driver: 'agent-harness-tmux' },
@@ -49,14 +49,13 @@ test('requires the HRC-supplied pane lease before launching the TUI child', asyn
           harnessTransport: { kind: 'native-worker' },
         },
       } as never,
-      {
-        invocationId: 'agent-harness-interactive-no-lease' as InvocationId,
-        clientCapabilities: {},
-        emit: () => ({}) as never,
-        emitEvent: () => ({}) as never,
-      }
-    )
-  ).rejects.toThrow('terminalSurface')
+    })
+  ).rejects.toMatchObject({
+    code: -32602,
+    data: {
+      issues: [expect.objectContaining({ path: 'runtime.terminalSurface', code: 'required' })],
+    },
+  })
 })
 
 test('resident leaf builder serves only pane-owning native-worker kinds', () => {

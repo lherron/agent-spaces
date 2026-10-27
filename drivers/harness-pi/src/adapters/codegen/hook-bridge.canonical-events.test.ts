@@ -15,7 +15,7 @@
 
 import { describe, expect, test } from 'bun:test'
 
-import { type HookDefinition, generateHookBridgeCode } from './hook-bridge.js'
+import { generateHookBridgeCode } from './hook-bridge.js'
 
 function piEventFor(event: string): string | undefined {
   const code = generateHookBridgeCode([{ event, script: 'h.sh' }], ['space-a'])
@@ -35,31 +35,16 @@ describe('PI_EVENT_MAP canonical event-name coverage (T-04645)', () => {
     ['session_end', 'session_shutdown'], // abstract hooks.toml name
     ['Stop', 'session_shutdown'], // PascalCase Stop (simple-array hooks.json)
     ['SessionStart', 'session_start'],
+    // The dead lowercased compensation entries are gone: an unmapped name now
+    // falls back to registering under its raw event string.
+    ['pretooluse', 'pretooluse'],
+    ['posttooluse', 'posttooluse'],
+    ['sessionstart', 'sessionstart'],
   ]
 
   for (const [event, expected] of cases) {
-    test(`'${event}' registers Pi event '${expected}'`, () => {
+    test(`hook event '${event}' registers Pi event '${expected}' in the generated bridge`, () => {
       expect(piEventFor(event)).toBe(expected)
     })
   }
-
-  test('hook registration still fires for a Stop hook (single-word canonical)', () => {
-    const hooks: HookDefinition[] = [{ event: 'stop', script: 'shutdown.sh' }]
-    const code = generateHookBridgeCode(hooks, ['space-a'])
-    expect(code).toContain("pi.on('session_shutdown', async")
-  })
-
-  test('hook registration still fires for a SessionStart hook (canonical underscored)', () => {
-    const hooks: HookDefinition[] = [{ event: 'session_start', script: 'boot.sh' }]
-    const code = generateHookBridgeCode(hooks, ['space-a'])
-    expect(code).toContain("pi.on('session_start', async")
-  })
-
-  test('dead lowercased compensation entries are gone (would map via fallback now)', () => {
-    // 'pretooluse' is no longer a known name; with the entry removed the codegen
-    // falls back to the raw event string instead of mapping to 'tool_call'.
-    expect(piEventFor('pretooluse')).toBe('pretooluse')
-    expect(piEventFor('posttooluse')).toBe('posttooluse')
-    expect(piEventFor('sessionstart')).toBe('sessionstart')
-  })
 })

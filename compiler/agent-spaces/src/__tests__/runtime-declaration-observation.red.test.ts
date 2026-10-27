@@ -76,90 +76,41 @@ describe('T-08701 runtime declaration observation', () => {
     )
   })
 
-  test('honors exact caller source/root provenance and baseline then directive overlay', async () => {
-    const alias = join(root, 'outside-alias')
-    await symlink(outsideRoot, alias)
-    const response = await operation()(
-      request({
-        agentRoot: alias,
-        project: { mode: 'root', projectRoot, projectId: 'agent-spaces' },
-        provisionDirectives: {
-          harness: 'muse',
-          model_provider: 'meta',
-          model: 'muse-spark-1.3-contributor',
-        },
-      }),
-      daemonDefaults()
-    )
+  test.each([
+    ['muse', { harness: 'muse', model_provider: 'meta', model: 'muse-spark-1.3-contributor' }],
+    // agent-harness is its own first-party declaration, not normalized into another harness.
+    ['agent-harness', { harness: 'agent-harness', model: 'gpt-5.6-terra' }],
+  ] as const)(
+    'honors exact caller source/root provenance and baseline then a %s directive overlay',
+    async (effectiveHarness, provisionDirectives) => {
+      const alias = join(root, 'outside-alias')
+      await symlink(outsideRoot, alias)
+      const response = await operation()(
+        request({
+          agentRoot: alias,
+          project: { mode: 'root', projectRoot, projectId: 'agent-spaces' },
+          provisionDirectives,
+        }),
+        daemonDefaults()
+      )
 
-    expect(response.ok).toBe(true)
-    expect(response['agentSources'].provenance).toBe('caller-agent-root')
-    expect(await realpath(response['placement'].agentRoot)).toBe(await realpath(outsideRoot))
-    expect(await realpath(response['agentSources'].aspHome)).toBe(await realpath(aspHome))
-    expect(await realpath(response['agentSources'].agentsRoot)).toBe(await realpath(agentsRoot))
-    expect(response['baselineProvisioning']).toEqual({
-      scalars: { harness: 'codex', model: 'gpt-5.6-sol', yolo: false, remote: false },
-      declaredHarness: 'claude',
-      effectiveHarness: 'codex',
-    })
-    expect(response['provisioning']).toEqual({
-      scalars: {
-        harness: 'muse',
-        model_provider: 'meta',
-        model: 'muse-spark-1.3-contributor',
-        yolo: false,
-        remote: false,
-      },
-      declaredHarness: 'claude',
-      effectiveHarness: 'muse',
-    })
-  })
-
-  test('reports closed-vocabulary baseline scalars without driver projections', async () => {
-    const response = await operation()(request(), daemonDefaults())
-    expect(response.ok).toBe(true)
-    expect(response['baselineProvisioning']).toEqual({
-      scalars: { harness: 'codex', model: 'gpt-5.6-sol', yolo: false, remote: false },
-      declaredHarness: 'claude',
-      effectiveHarness: 'codex',
-    })
-    for (const key of ['frontend', 'transport', 'provider', 'family', 'runtime']) {
-      expect(response['baselineProvisioning']).not.toHaveProperty(key)
-      expect(response['provisioning']).not.toHaveProperty(key)
+      expect(response.ok).toBe(true)
+      expect(response['agentSources'].provenance).toBe('caller-agent-root')
+      expect(await realpath(response['placement'].agentRoot)).toBe(await realpath(outsideRoot))
+      expect(await realpath(response['agentSources'].aspHome)).toBe(await realpath(aspHome))
+      expect(await realpath(response['agentSources'].agentsRoot)).toBe(await realpath(agentsRoot))
+      expect(response['baselineProvisioning']).toEqual({
+        scalars: { harness: 'codex', model: 'gpt-5.6-sol', yolo: false, remote: false },
+        declaredHarness: 'claude',
+        effectiveHarness: 'codex',
+      })
+      expect(response['provisioning']).toEqual({
+        scalars: { ...provisionDirectives, yolo: false, remote: false },
+        declaredHarness: 'claude',
+        effectiveHarness,
+      })
     }
-  })
-
-  test('lets a directive replace the target-selected harness', async () => {
-    const response = await operation()(
-      request({ provisionDirectives: { harness: 'claude' } }),
-      daemonDefaults()
-    )
-    expect(response.ok).toBe(true)
-    expect(response['provisioning']).toEqual({
-      scalars: { harness: 'claude', model: 'gpt-5.6-sol', yolo: false, remote: false },
-      declaredHarness: 'claude',
-      effectiveHarness: 'claude',
-    })
-  })
-
-  test('preserves agent-harness as its own first-party declaration', async () => {
-    const response = await operation()(
-      request({ provisionDirectives: { harness: 'agent-harness', model: 'gpt-5.6-terra' } }),
-      daemonDefaults()
-    )
-
-    expect(response.ok).toBe(true)
-    expect(response['provisioning']).toEqual({
-      scalars: {
-        harness: 'agent-harness',
-        model: 'gpt-5.6-terra',
-        yolo: false,
-        remote: false,
-      },
-      declaredHarness: 'claude',
-      effectiveHarness: 'agent-harness',
-    })
-  })
+  )
 
   test('rejects a directive naming a harness outside the closed vocabulary', async () => {
     const response = await operation()(
@@ -316,37 +267,61 @@ describe('T-08701 runtime declaration observation', () => {
     expect(defaultOnly['baselineProvisioning']).not.toHaveProperty('declaredHarness')
   })
 
+  const MALFORMED = 'version = [not valid'
+  const SCHEMA_INVALID = 'version = 4\nunknown_key = true\n'
+  // The profile fails to parse before any project target is read, so neither a
+  // valid target for the agent, nor no project, nor no target for the agent changes the outcome.
   test.each([
-    ['malformed TOML', 'version = [not valid'],
-    ['schema-invalid TOML', 'version = 4\nunknown_key = true\n'],
-  ])('rejects an invalid profile without target fallback: %s', async (_case, invalidProfile) => {
-    const profilePath = join(agentRoot, 'agent-profile.toml')
-    await writeFile(profilePath, invalidProfile)
+    ['malformed TOML / targeted agent', MALFORMED, () => request()],
+    ['schema-invalid TOML / targeted agent', SCHEMA_INVALID, () => request()],
+    ['malformed TOML / mode none', MALFORMED, () => request({ project: { mode: 'none' } })],
+    [
+      'schema-invalid TOML / mode none',
+      SCHEMA_INVALID,
+      () => request({ project: { mode: 'none' } }),
+    ],
+    [
+      'malformed TOML / valid targets without a selected agent',
+      MALFORMED,
+      () => request({ agentId: 'not-targeted', agentRoot }),
+    ],
+    [
+      'schema-invalid TOML / valid targets without a selected agent',
+      SCHEMA_INVALID,
+      () => request({ agentId: 'not-targeted', agentRoot }),
+    ],
+  ])(
+    'rejects an invalid profile without target fallback: %s',
+    async (_case, invalidProfile, makeRequest) => {
+      const profilePath = join(agentRoot, 'agent-profile.toml')
+      await writeFile(profilePath, invalidProfile)
 
-    const response = await operation()(request(), daemonDefaults())
+      const response = await operation()(makeRequest(), daemonDefaults())
 
-    expect(response).toMatchObject({
-      ok: false,
-      resolution: { state: 'invalid', code: 'agent_profile_invalid' },
-      source: {
-        agentProfile: {
-          state: 'invalid',
-          diagnostics: [
-            {
-              severity: 'error',
-              code: 'agent_profile_invalid',
-              source: 'agent-profile',
-            },
-          ],
+      expect(response).toMatchObject({
+        ok: false,
+        resolution: { state: 'invalid', code: 'agent_profile_invalid' },
+        source: {
+          agentProfile: {
+            state: 'invalid',
+            diagnostics: [
+              {
+                severity: 'error',
+                code: 'agent_profile_invalid',
+                source: 'agent-profile',
+              },
+            ],
+          },
+          projectTargets: { state: 'absent', code: 'not_declared' },
         },
-        projectTargets: { state: 'absent', code: 'not_declared' },
-      },
-    })
-    expect(response).not.toHaveProperty('failure')
-    expect(response).not.toHaveProperty('provisioning')
-    expect(response).not.toHaveProperty('baselineProvisioning')
-    expect(response['source'].agentProfile).not.toHaveProperty('declaredHarness')
-  })
+      })
+      expect(response).not.toHaveProperty('failure')
+      expect(response).not.toHaveProperty('provisioning')
+      expect(response).not.toHaveProperty('baselineProvisioning')
+      expect(response).not.toHaveProperty('placement')
+      expect(response['source'].agentProfile).not.toHaveProperty('declaredHarness')
+    }
+  )
 
   test('does not invent a harness scalar when the selected target omits one', async () => {
     await rm(join(agentRoot, 'agent-profile.toml'))
@@ -430,58 +405,6 @@ remote = ${remote}
         },
         effectiveHarness: 'codex',
       })
-    }
-  )
-
-  test.each([
-    [
-      'malformed TOML / mode none',
-      'version = [not valid',
-      () => request({ project: { mode: 'none' } }),
-    ],
-    [
-      'schema-invalid TOML / mode none',
-      'version = 4\nunknown_key = true\n',
-      () => request({ project: { mode: 'none' } }),
-    ],
-    [
-      'malformed TOML / valid targets without a selected agent',
-      'version = [not valid',
-      () => request({ agentId: 'not-targeted', agentRoot }),
-    ],
-    [
-      'schema-invalid TOML / valid targets without a selected agent',
-      'version = 4\nunknown_key = true\n',
-      () => request({ agentId: 'not-targeted', agentRoot }),
-    ],
-  ])(
-    'rejects invalid profiles without target fallback: %s',
-    async (_case, invalidProfile, makeRequest) => {
-      const profilePath = join(agentRoot, 'agent-profile.toml')
-      await writeFile(profilePath, invalidProfile)
-
-      const response = await operation()(makeRequest(), daemonDefaults())
-
-      expect(response).toMatchObject({
-        ok: false,
-        resolution: { state: 'invalid', code: 'agent_profile_invalid' },
-        source: {
-          agentProfile: {
-            state: 'invalid',
-            diagnostics: [
-              {
-                severity: 'error',
-                code: 'agent_profile_invalid',
-                source: 'agent-profile',
-              },
-            ],
-          },
-        },
-      })
-      expect(response).not.toHaveProperty('failure')
-      expect(response).not.toHaveProperty('provisioning')
-      expect(response).not.toHaveProperty('baselineProvisioning')
-      expect(response).not.toHaveProperty('placement')
     }
   )
 

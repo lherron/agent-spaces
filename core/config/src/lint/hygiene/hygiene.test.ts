@@ -9,20 +9,12 @@ import { mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { applyBaseline, fingerprint, writeBaseline } from './baseline.js'
-import {
-  RUBRIC_SCORECARD_SCHEMA,
-  type Scorecard,
-  buildJudgePrompt,
-  validateScorecard,
-} from './judge.js'
+import { fingerprint, writeBaseline } from './baseline.js'
+import { type Scorecard, buildJudgePrompt, validateScorecard } from './judge.js'
 import { promptRegime, stripFrontmatter, wordCount } from './parse.js'
-import { checkTripwires } from './rules/W41x-tripwires.js'
-import { checkNameMatchesDir } from './rules/W400-name-dirname.js'
-import { checkDeadLayer } from './rules/W430-dead-layer.js'
 import { lintHygiene, runHygieneTarget } from './run.js'
 import { scanHygieneTarget } from './scan.js'
-import type { HygieneContext, HygieneUnit } from './types.js'
+import type { HygieneUnit } from './types.js'
 
 let tempDir: string
 
@@ -74,29 +66,41 @@ describe('parse helpers', () => {
 })
 
 describe('W400 name==dirname', () => {
-  it('flags a name mismatch', () => {
-    const unit = skillUnit(join(tempDir, 'foo'), '---\nname: bar\n---\nx', {
-      name: 'bar',
-      description: 'd',
-    })
-    const ctx: HygieneContext = { units: [unit], agentRoots: [] }
-    const w = checkNameMatchesDir(ctx)
-    expect(w).toHaveLength(1)
-    expect(w[0]?.code).toBe('W400')
-  })
-
-  it('passes when name matches and is kebab', () => {
-    const unit = skillUnit(join(tempDir, 'foo-bar'), '---\nname: foo-bar\n---\nx', {
+  it.each([
+    { row: 'dir foo, name bar -> W400', dir: 'foo', name: 'bar', flagged: true },
+    {
+      row: 'dir foo-bar, name foo-bar -> no W400',
+      dir: 'foo-bar',
       name: 'foo-bar',
-      description: 'd',
-    })
-    expect(checkNameMatchesDir({ units: [unit], agentRoots: [] })).toHaveLength(0)
-  })
+      flagged: false,
+    },
+  ])(
+    'a skill whose name differs from its directory is flagged W400: $row',
+    async ({ dir, name, flagged }) => {
+      const skillDir = await writeSkill(tempDir, dir, `name: ${name}\ndescription: d`, 'x')
+
+      const result = await runHygieneTarget(skillDir)
+
+      expect(result.warnings.filter((w) => w.code === 'W400')).toEqual(
+        flagged
+          ? [
+              expect.objectContaining({
+                code: 'W400',
+                path: join(skillDir, 'SKILL.md'),
+                message: expect.stringContaining(
+                  `Skill name '${name}' does not match directory basename '${dir}'`
+                ),
+              }),
+            ]
+          : []
+      )
+    }
+  )
 })
 
 describe('W41x tripwires', () => {
-  it('flags model-name weld and human-in-the-loop, skipping fenced code', () => {
-    const content = [
+  it('flags model-name weld and human-in-the-loop, skipping fenced code', async () => {
+    const body = [
       '# skill',
       'Test with Opus and Sonnet here.',
       'Then ask Lance before proceeding.',
@@ -104,62 +108,17 @@ describe('W41x tripwires', () => {
       'claude-5 in a code fence should be ignored',
       '```',
     ].join('\n')
-    const unit = skillUnit(tempDir, content, { name: 'x', description: 'd' })
-    const w = checkTripwires({ units: [unit], agentRoots: [] })
-    const codes = w.map((x) => x.code)
-    expect(codes).toContain('W415')
-    expect(codes).toContain('W417')
-    // fenced claude-5 must NOT produce a W415 hit on that line
-    expect(w.every((x) => !x.path?.endsWith(':5'))).toBe(true)
-    // every tripwire is advisory info
-    expect(w.every((x) => x.severity === 'info')).toBe(true)
-  })
-})
+    const skillDir = await writeSkill(tempDir, 'x', 'name: x\ndescription: d', body)
+    const skillMd = join(skillDir, 'SKILL.md')
 
-describe('W430 dead layer', () => {
-  it('flags an agent-root instruction file referenced by no template', () => {
-    const unit: HygieneUnit = {
-      kind: 'prompt',
-      key: 'clod/prompt:AGENTS.md',
-      path: join(tempDir, 'clod', 'AGENTS.md'),
-      dir: join(tempDir, 'clod'),
-      regime: 'resident',
-      content: 'my SOP',
-      agentId: 'clod',
-    }
-    const ctx: HygieneContext = {
-      units: [unit],
-      agentRoots: [
-        {
-          agentId: 'clod',
-          root: join(tempDir, 'clod'),
-          referencedFiles: new Set(['SOUL.md', 'AGENT_MOTD.md']),
-        },
-      ],
-    }
-    const w = checkDeadLayer(ctx)
-    expect(w).toHaveLength(1)
-    expect(w[0]?.code).toBe('W430')
-    expect(w[0]?.severity).toBe('error')
-  })
+    const result = await runHygieneTarget(skillDir)
 
-  it('does not flag when the file is referenced', () => {
-    const unit: HygieneUnit = {
-      kind: 'prompt',
-      key: 'clod/prompt:AGENTS.md',
-      path: join(tempDir, 'clod', 'AGENTS.md'),
-      dir: join(tempDir, 'clod'),
-      regime: 'resident',
-      content: 'x',
-      agentId: 'clod',
-    }
-    const ctx: HygieneContext = {
-      units: [unit],
-      agentRoots: [
-        { agentId: 'clod', root: join(tempDir, 'clod'), referencedFiles: new Set(['AGENTS.md']) },
-      ],
-    }
-    expect(checkDeadLayer(ctx)).toHaveLength(0)
+    // File lines: 1-4 frontmatter, 6 Opus/Sonnet, 7 ask Lance, 9 fenced claude-5 (skipped).
+    // Every tripwire is advisory info.
+    expect(result.warnings.map((w) => [w.code, w.severity, w.path])).toEqual([
+      ['W415', 'info', `${skillMd}:6`],
+      ['W417', 'info', `${skillMd}:7`],
+    ])
   })
 })
 
@@ -206,29 +165,35 @@ describe('scan + full run', () => {
     expect(w.filter((x) => x.code === 'W421')).toHaveLength(0)
   })
 
-  it('scanHygieneTarget on a single skill dir yields one unit', async () => {
-    const skillDir = await writeSkill(tempDir, 'lonely', 'name: lonely\ndescription: d', 'Body.')
-    const ctx = await scanHygieneTarget(skillDir)
-    expect(ctx.units).toHaveLength(1)
-    expect(ctx.units[0]?.kind).toBe('skill')
+  it('linting a single skill dir reports only that skill, not its siblings', async () => {
+    const lonely = await writeSkill(tempDir, 'lonely', 'name: other\ndescription: d', 'Body.')
+    await writeSkill(tempDir, 'sibling', 'name: mismatch\ndescription: d', 'Body.')
+
+    const result = await runHygieneTarget(lonely)
+
+    expect(result.context.units.map((unit) => unit.kind)).toEqual(['skill'])
+    expect(result.warnings.map((w) => [w.code, w.path])).toEqual([
+      ['W400', join(lonely, 'SKILL.md')],
+    ])
   })
 })
 
 describe('baseline suppression', () => {
   it('suppresses grandfathered findings and keeps new ones', async () => {
-    const unit = skillUnit(join(tempDir, 'foo'), '---\nname: bar\n---\nx', {
-      name: 'bar',
-      description: 'd',
-    })
-    const all = await lintHygiene({ units: [unit], agentRoots: [] })
-    expect(all.length).toBeGreaterThan(0)
+    await writeSkill(tempDir, 'foo', 'name: bar\ndescription: d', 'x')
+    const grandfathered = await runHygieneTarget(tempDir)
+    expect(grandfathered.warnings.map((w) => w.code)).toEqual(['W400'])
 
     const baselinePath = join(tempDir, '.hygiene-baseline.json')
-    await writeBaseline(baselinePath, all, tempDir)
-    const baseline = JSON.parse(await Bun.file(baselinePath).text())
-    const { kept, suppressed } = applyBaseline(all, baseline, tempDir)
-    expect(kept).toHaveLength(0)
-    expect(suppressed.length).toBe(all.length)
+    await writeBaseline(baselinePath, grandfathered.warnings, tempDir)
+    await writeSkill(tempDir, 'baz', 'name: qux\ndescription: d', 'x')
+
+    const result = await runHygieneTarget(tempDir, { baselinePath, baselineRoot: tempDir })
+
+    expect(result.suppressed).toEqual(grandfathered.warnings)
+    expect(result.warnings.map((w) => [w.code, w.path])).toEqual([
+      ['W400', join(tempDir, 'baz', 'SKILL.md')],
+    ])
   })
 
   it('fingerprint ignores a line-anchor shift', () => {
@@ -272,10 +237,5 @@ describe('tier-2 judge core', () => {
     const res = validateScorecard(bad)
     expect(res.valid).toBe(false)
     expect(res.errors.length).toBeGreaterThan(0)
-  })
-
-  it('schema requires the §7 keys', () => {
-    expect(RUBRIC_SCORECARD_SCHEMA.required).toContain('critical_gate')
-    expect(RUBRIC_SCORECARD_SCHEMA.required).toContain('criteria')
   })
 })

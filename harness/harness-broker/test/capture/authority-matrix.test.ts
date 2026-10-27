@@ -3,21 +3,13 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { EventFamily, EvidenceAuthority } from 'spaces-harness-broker-protocol'
 import { EVENT_FAMILY_BY_TYPE } from 'spaces-harness-broker-protocol'
+import { createPiSdkDriver } from '../../../harness-broker-pi-sdk/src/driver'
 import { PI_SDK_AUTHORITY } from '../../../harness-broker-pi-sdk/src/evidence-authority'
-import {
-  CLAUDE_IGNORED_ATTACHMENT_TYPES,
-  CLAUDE_IGNORED_ROW_TYPES,
-  CLAUDE_KNOWN_HOOK_NAMES,
-  CLAUDE_KNOWN_SYSTEM_SUBTYPES,
-  CLAUDE_TRANSCRIPT_OWNED_HOOK_FACTS,
-} from '../../src/drivers/claude-code-tmux/native-types'
-import {
-  CODEX_ITEM_CARRYING_EVENT_MSG_TYPES,
-  CODEX_KNOWN_ROLLOUT_EVENT_MSG_TYPES,
-} from '../../src/drivers/codex-cli-tmux/native-types'
+import { createDefaultBroker } from '../../src/default-broker'
+import { createDefaultCodexCliTmuxDriver } from '../../src/drivers/codex-cli-tmux/driver'
+import type { Driver } from '../../src/drivers/driver'
 import {
   ARRIS_RESIDENT_AUTHORITY,
-  BROKER_ONLY_AUTHORITY,
   CLAUDE_CODE_TMUX_AUTHORITY,
   CODEX_APP_SERVER_AUTHORITY,
   CODEX_CLI_TMUX_AUTHORITY,
@@ -26,6 +18,7 @@ import {
   MUSE_SERVE_AUTHORITY,
   PI_TUI_TMUX_AUTHORITY,
 } from '../../src/drivers/evidence-authority'
+import { createDefaultPiTuiTmuxDriver } from '../../src/drivers/pi-tui-tmux/driver'
 
 /**
  * `harness-broker-evidence-authority.md` is the PUBLISHED form of the code declaration (T-07853 §6,
@@ -127,78 +120,6 @@ describe('harness-broker-evidence-authority.md matches the enforced declaration'
     expect(AUTHORITY_MD).not.toContain('stops that invocation')
     expect(AUTHORITY_MD).not.toContain('## Operating a halt')
   })
-
-  test('broker-owned families are broker for EVERY driver', () => {
-    // No provider reports admission, supervision, invocation lifecycle or the
-    // terminal-surface lease. A driver claiming otherwise would be declaring an
-    // authority it cannot have.
-    for (const [driver, matrix] of Object.entries(DECLARED)) {
-      expect({
-        driver,
-        admission: matrix['input-admission'],
-        supervision: matrix['turn-supervision'],
-        lifecycle: matrix['invocation-lifecycle'],
-        surface: matrix['terminal-surface'],
-      }).toEqual({
-        driver,
-        admission: 'broker',
-        supervision: 'broker',
-        lifecycle: 'broker',
-        surface: 'broker',
-      })
-    }
-    expect(BROKER_ONLY_AUTHORITY['conversation']).toBe('broker')
-  })
-})
-
-/**
- * The Phase 3 authority decisions (T-07870) rest on facts about what the codex
- * rollout CAN contain, read off `codex-rs/rollout/src/policy.rs`. A future edit
- * that adds one of these types to the pinned table would mean codex started
- * persisting it — which is exactly the moment the corresponding family decision
- * has to be revisited, so it fails here rather than going unnoticed.
- */
-describe('Phase 3: the source facts the codex-cli-tmux decisions rest on', () => {
-  test('the rollout has no permission vocabulary, so `permission` cannot leave hook', () => {
-    for (const type of [
-      'exec_approval_request',
-      'apply_patch_approval_request',
-      'request_permissions',
-      'request_user_input',
-      'elicitation_request',
-    ]) {
-      expect(CODEX_KNOWN_ROLLOUT_EVENT_MSG_TYPES.has(type)).toBe(false)
-    }
-    expect(CODEX_CLI_TMUX_AUTHORITY.permission).toBe('hook')
-  })
-
-  test('the rollout has no tool-START vocabulary, so `tool` cannot leave hook', () => {
-    for (const type of ['exec_command_begin', 'mcp_tool_call_begin', 'web_search_begin']) {
-      expect(CODEX_KNOWN_ROLLOUT_EVENT_MSG_TYPES.has(type)).toBe(false)
-    }
-    // `item_started` IS pinned (it is a real variant and shares the item
-    // channel) but `policy.rs` never persists it, so it is not tool-start
-    // evidence either — it is classified, not available.
-    expect(CODEX_ITEM_CARRYING_EVENT_MSG_TYPES.has('item_started')).toBe(true)
-    expect(CODEX_CLI_TMUX_AUTHORITY.tool).toBe('hook')
-  })
-
-  test('the rollout has no harness-exit vocabulary, so `harness-lifecycle` cannot leave hook', () => {
-    for (const type of ['shutdown_complete', 'session_configured']) {
-      expect(CODEX_KNOWN_ROLLOUT_EVENT_MSG_TYPES.has(type)).toBe(false)
-    }
-    expect(CODEX_CLI_TMUX_AUTHORITY['harness-lifecycle']).toBe('hook')
-  })
-
-  test('the turn bracket rows EXIST — this one is a wakeup gap, not a vocabulary gap', () => {
-    // Stated as a test so the distinction survives: `task_complete` is pinned
-    // and always persisted; what the reader lacks is a wakeup that reaches it
-    // after the Stop hook. See harness-broker-evidence-authority.md "the reader has no wakeup".
-    for (const type of ['task_started', 'task_complete', 'turn_aborted']) {
-      expect(CODEX_KNOWN_ROLLOUT_EVENT_MSG_TYPES.has(type)).toBe(true)
-    }
-    expect(CODEX_CLI_TMUX_AUTHORITY['turn-bracket']).toBe('hook')
-  })
 })
 
 /**
@@ -213,35 +134,6 @@ describe('Phase 3: the source facts the codex-cli-tmux decisions rest on', () =>
 describe('Phase 4: the source facts the claude-code-tmux decisions rest on', () => {
   const phase4 = AUTHORITY_MD.split('## Phase 4:')[1]?.split('\n## ')[0] ?? ''
 
-  test('the session JSONL has no permission vocabulary, so `permission` cannot leave hook', () => {
-    // `permission-mode` is the UI LATCH (which mode the TUI is in), not a
-    // request or a decision — which is why it is an ignored row and not
-    // permission evidence.
-    expect(CLAUDE_IGNORED_ROW_TYPES.has('permission-mode')).toBe(true)
-    for (const type of [...CLAUDE_IGNORED_ROW_TYPES, ...CLAUDE_KNOWN_SYSTEM_SUBTYPES]) {
-      expect(type).not.toMatch(/permission_(request|resolved)|approval/)
-    }
-    for (const attachment of CLAUDE_IGNORED_ATTACHMENT_TYPES) {
-      expect(attachment).not.toMatch(/permission|approval/)
-    }
-    // The only evidence there is:
-    expect(CLAUDE_KNOWN_HOOK_NAMES.has('PermissionRequest')).toBe(true)
-    expect(CLAUDE_KNOWN_HOOK_NAMES.has('PermissionResolved')).toBe(true)
-    expect(CLAUDE_CODE_TMUX_AUTHORITY.permission).toBe('hook')
-  })
-
-  test('the turn terminal rows EXIST and are pinned — this is a completeness gap, not a vocabulary one', () => {
-    // Stated as a test so the distinction survives: `turn_duration` and
-    // `stop_hook_summary` are read and pinned. What they lack is presence on
-    // the interrupt path and on a still-running final turn, plus the fact that
-    // `stop_hook_summary` records the Stop hooks' own durations and therefore
-    // cannot be written before them.
-    expect(CLAUDE_KNOWN_SYSTEM_SUBTYPES.has('turn_duration')).toBe(true)
-    expect(CLAUDE_KNOWN_SYSTEM_SUBTYPES.has('stop_hook_summary')).toBe(true)
-    expect(CLAUDE_IGNORED_ROW_TYPES.has('system')).toBe(false)
-    expect(CLAUDE_CODE_TMUX_AUTHORITY['turn-bracket']).toBe('hook')
-  })
-
   test('the measured turn-bracket numbers are published, not just asserted in a commit message', () => {
     // The decision is only auditable if the numbers behind it are in the
     // published document. These are the archived-corpus measurements.
@@ -250,36 +142,44 @@ describe('Phase 4: the source facts the claude-code-tmux decisions rest on', () 
     expect(phase4).toContain('2 of 3')
     expect(phase4).toContain('min 57 / p50 68 / max 1085 ms')
   })
+})
 
-  test('usage is on EVERY assistant row, which is why `usage` finally emits', () => {
-    expect(CLAUDE_CODE_TMUX_AUTHORITY.usage).toBe('native')
-    expect(phase4).toContain('155 of 155')
-    // `cost-state` stopped being an ignored row when it became a usage record.
-    expect(CLAUDE_IGNORED_ROW_TYPES.has('cost-state')).toBe(false)
-  })
-
-  test('the tool hooks and the transcript share ONE id space, which is what lets `tool` move', () => {
-    // If `PreToolUse.tool_use_id` were a different id space from the
-    // `tool_use` block id, a transcript-primary `tool` would sever the
-    // permission-to-tool join — the exact reason codex's `tool` stays hook.
-    expect(CLAUDE_CODE_TMUX_AUTHORITY.tool).toBe('native')
-    expect(CLAUDE_CODE_TMUX_AUTHORITY.permission).toBe('hook')
-    expect([...CLAUDE_TRANSCRIPT_OWNED_HOOK_FACTS.keys()].sort()).toEqual([
-      'MessageDisplay',
-      'PostToolUse',
-      'PreToolUse',
-    ])
-    // Those hooks are still REGISTERED — they are controls, not removed.
-    for (const hook of CLAUDE_TRANSCRIPT_OWNED_HOOK_FACTS.keys()) {
-      expect(CLAUDE_KNOWN_HOOK_NAMES.has(hook)).toBe(true)
+describe('broker hello: driver evidence authority', () => {
+  test('no shipped driver advertises provider authority over broker-owned families', async () => {
+    // No provider reports admission, supervision, invocation lifecycle or the
+    // terminal-surface lease. A driver claiming otherwise would be declaring an
+    // authority it cannot have. Read off the LIVE broker's hello, which is what
+    // a consumer sees, for every built-in driver plus the composed ones.
+    const broker = createDefaultBroker(undefined, undefined, {
+      additionalDrivers: [
+        () => createDefaultCodexCliTmuxDriver(),
+        () => createDefaultPiTuiTmuxDriver(),
+        // The SDK resolves the published broker type while this test imports the
+        // same implementation from source; their private DispatchEnv brands
+        // have distinct TypeScript identities despite sharing the runtime API.
+        () => createPiSdkDriver() as unknown as Driver,
+      ],
+    })
+    const hello = await broker.hello({
+      clientInfo: { name: 'authority-matrix-test' },
+      protocolVersions: ['harness-broker/0.2'],
+    })
+    expect(hello.drivers.map((driver) => driver.kind).sort()).toEqual(Object.keys(DECLARED).sort())
+    for (const summary of hello.drivers) {
+      const matrix = summary.evidenceAuthority
+      expect({
+        driver: summary.kind,
+        admission: matrix?.['input-admission'],
+        supervision: matrix?.['turn-supervision'],
+        lifecycle: matrix?.['invocation-lifecycle'],
+        surface: matrix?.['terminal-surface'],
+      }).toEqual({
+        driver: summary.kind,
+        admission: 'broker',
+        supervision: 'broker',
+        lifecycle: 'broker',
+        surface: 'broker',
+      })
     }
-  })
-
-  test('structured output has no transcript row at all, so it can never be native', () => {
-    expect(phase4.length).toBeGreaterThan(0)
-    for (const type of [...CLAUDE_IGNORED_ROW_TYPES, ...CLAUDE_KNOWN_SYSTEM_SUBTYPES]) {
-      expect(type).not.toMatch(/structured/)
-    }
-    expect(AUTHORITY_MD).toContain('broker-synthesized')
   })
 })

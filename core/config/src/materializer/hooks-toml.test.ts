@@ -1,25 +1,24 @@
+import { filterHooksForHarness, translateToPiEvent } from './hooks-toml.js'
 /**
  * Tests for hooks.toml parsing and translation
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   type CanonicalHookDefinition,
-  filterHooksForHarness,
-  generateClaudeHooksJson,
+  type ClaudeHooksConfig,
   parseHooksToml,
   readHooksToml,
   readHooksWithPrecedence,
   toClaudeHooksConfig,
   translateToClaudeEvent,
-  translateToPiEvent,
-  writeClaudeHooksJson,
 } from './hooks-toml.js'
 
 describe('parseHooksToml', () => {
-  it('parses a valid hooks.toml with all fields', () => {
+  it("hooks.toml parsing keeps each hook's event, script, tools, matcher, blocking and harness, and a comment-only file yields no hooks", () => {
     const content = `
 [[hook]]
 event = "pre_tool_use"
@@ -36,62 +35,7 @@ blocking = false
 event = "session_end"
 script = "hooks/cleanup.sh"
 harness = "claude"
-`
 
-    const result = parseHooksToml(content)
-
-    expect(result.hook).toHaveLength(3)
-
-    expect(result.hook[0]).toEqual({
-      event: 'pre_tool_use',
-      script: 'hooks/pre-tool-use.sh',
-      tools: ['Bash', 'Write'],
-      matcher: undefined,
-      blocking: true,
-      harness: undefined,
-    })
-
-    expect(result.hook[1]).toEqual({
-      event: 'post_tool_use',
-      script: 'hooks/post-tool-use.sh',
-      tools: undefined,
-      matcher: undefined,
-      blocking: false,
-      harness: undefined,
-    })
-
-    expect(result.hook[2]).toEqual({
-      event: 'session_end',
-      script: 'hooks/cleanup.sh',
-      tools: undefined,
-      matcher: undefined,
-      blocking: undefined,
-      harness: 'claude',
-    })
-  })
-
-  it('parses hooks.toml with minimal fields', () => {
-    const content = `
-[[hook]]
-event = "pre_tool_use"
-script = "validate.sh"
-`
-
-    const result = parseHooksToml(content)
-
-    expect(result.hook).toHaveLength(1)
-    expect(result.hook[0]).toEqual({
-      event: 'pre_tool_use',
-      script: 'validate.sh',
-      tools: undefined,
-      matcher: undefined,
-      blocking: undefined,
-      harness: undefined,
-    })
-  })
-
-  it('parses hooks.toml with matcher field', () => {
-    const content = `
 [[hook]]
 event = "session_start"
 script = "hooks/inject-priming.sh"
@@ -100,315 +44,203 @@ matcher = "compact"
 
     const result = parseHooksToml(content)
 
-    expect(result.hook).toHaveLength(1)
-    expect(result.hook[0]).toEqual({
-      event: 'session_start',
-      script: 'hooks/inject-priming.sh',
-      tools: undefined,
-      matcher: 'compact',
-      blocking: undefined,
-      harness: undefined,
-    })
-  })
+    expect(result.hook).toEqual([
+      {
+        event: 'pre_tool_use',
+        script: 'hooks/pre-tool-use.sh',
+        tools: ['Bash', 'Write'],
+        matcher: undefined,
+        blocking: true,
+        harness: undefined,
+      },
+      {
+        event: 'post_tool_use',
+        script: 'hooks/post-tool-use.sh',
+        tools: undefined,
+        matcher: undefined,
+        blocking: false,
+        harness: undefined,
+      },
+      {
+        event: 'session_end',
+        script: 'hooks/cleanup.sh',
+        tools: undefined,
+        matcher: undefined,
+        blocking: undefined,
+        harness: 'claude',
+      },
+      {
+        event: 'session_start',
+        script: 'hooks/inject-priming.sh',
+        tools: undefined,
+        matcher: 'compact',
+        blocking: undefined,
+        harness: undefined,
+      },
+    ])
 
-  it('returns empty array when no hooks defined', () => {
-    const content = '# Empty hooks file'
-    const result = parseHooksToml(content)
-    expect(result.hook).toHaveLength(0)
+    expect(parseHooksToml('# Empty hooks file').hook).toEqual([])
   })
 })
 
 describe('translateToClaudeEvent', () => {
-  it('translates pre_tool_use to PreToolUse', () => {
-    expect(translateToClaudeEvent('pre_tool_use')).toBe('PreToolUse')
-  })
+  it('every canonical hook event maps to its Claude hooks.json event key', () => {
+    const canonicalEvents = [
+      'pre_tool_use',
+      'post_tool_use',
+      'post_tool_use_failure',
+      'permission_request',
+      'notification',
+      'user_prompt_submit',
+      'stop',
+      'subagent_start',
+      'subagent_stop',
+      'pre_compact',
+      'session_start',
+      'session_end',
+    ]
 
-  it('translates post_tool_use to PostToolUse', () => {
-    expect(translateToClaudeEvent('post_tool_use')).toBe('PostToolUse')
-  })
-
-  it('translates session_end to SessionEnd', () => {
-    expect(translateToClaudeEvent('session_end')).toBe('SessionEnd')
-  })
-
-  it('translates stop to Stop', () => {
-    expect(translateToClaudeEvent('stop')).toBe('Stop')
-  })
-
-  it('translates session_start to SessionStart', () => {
-    expect(translateToClaudeEvent('session_start')).toBe('SessionStart')
-  })
-
-  it('translates all new hook events', () => {
-    expect(translateToClaudeEvent('post_tool_use_failure')).toBe('PostToolUseFailure')
-    expect(translateToClaudeEvent('permission_request')).toBe('PermissionRequest')
-    expect(translateToClaudeEvent('notification')).toBe('Notification')
-    expect(translateToClaudeEvent('user_prompt_submit')).toBe('UserPromptSubmit')
-    expect(translateToClaudeEvent('subagent_start')).toBe('SubagentStart')
-    expect(translateToClaudeEvent('subagent_stop')).toBe('SubagentStop')
-    expect(translateToClaudeEvent('pre_compact')).toBe('PreCompact')
-  })
-
-  it('returns null for unknown events', () => {
-    expect(translateToClaudeEvent('unknown_event')).toBeNull()
-  })
-})
-
-describe('translateToPiEvent', () => {
-  it('translates pre_tool_use to tool_call', () => {
-    expect(translateToPiEvent('pre_tool_use')).toBe('tool_call')
-  })
-
-  it('translates post_tool_use to tool_result', () => {
-    expect(translateToPiEvent('post_tool_use')).toBe('tool_result')
-  })
-
-  it('translates session_start to session_start', () => {
-    expect(translateToPiEvent('session_start')).toBe('session_start')
-  })
-
-  it('translates session_end to session_end', () => {
-    expect(translateToPiEvent('session_end')).toBe('session_end')
-  })
-
-  it('returns original event for unknown events', () => {
-    expect(translateToPiEvent('unknown_event')).toBe('unknown_event')
+    expect(
+      Object.fromEntries(canonicalEvents.map((event) => [event, translateToClaudeEvent(event)]))
+    ).toEqual({
+      pre_tool_use: 'PreToolUse',
+      post_tool_use: 'PostToolUse',
+      post_tool_use_failure: 'PostToolUseFailure',
+      permission_request: 'PermissionRequest',
+      notification: 'Notification',
+      user_prompt_submit: 'UserPromptSubmit',
+      stop: 'Stop',
+      subagent_start: 'SubagentStart',
+      subagent_stop: 'SubagentStop',
+      pre_compact: 'PreCompact',
+      session_start: 'SessionStart',
+      session_end: 'SessionEnd',
+    })
   })
 })
 
-describe('filterHooksForHarness', () => {
-  const hooks: CanonicalHookDefinition[] = [
-    { event: 'pre_tool_use', script: 'all.sh' },
-    { event: 'post_tool_use', script: 'claude-only.sh', harness: 'claude' },
-    { event: 'session_start', script: 'pi-only.sh', harness: 'pi' },
-    { event: 'session_end', script: 'both.sh' },
-  ]
-
-  it('filters hooks for claude harness', () => {
-    const filtered = filterHooksForHarness(hooks, 'claude')
-
-    expect(filtered).toHaveLength(3)
-    expect(filtered.map((h) => h.script)).toEqual(['all.sh', 'claude-only.sh', 'both.sh'])
-  })
-
-  it('filters hooks for pi harness', () => {
-    const filtered = filterHooksForHarness(hooks, 'pi')
-
-    expect(filtered).toHaveLength(3)
-    expect(filtered.map((h) => h.script)).toEqual(['all.sh', 'pi-only.sh', 'both.sh'])
-  })
+const pluginCommand = (script: string) => ({
+  type: 'command' as const,
+  command: `\${CLAUDE_PLUGIN_ROOT}/${script}`,
 })
 
-describe('toClaudeHooksConfig', () => {
-  it('converts canonical hooks to Claude format', () => {
-    const hooks: CanonicalHookDefinition[] = [
+const claudeHooksCases: Array<[string, CanonicalHookDefinition[], ClaudeHooksConfig['hooks']]> = [
+  [
+    'tool events without tools get matcher * and plugin-rooted commands',
+    [
       { event: 'pre_tool_use', script: 'hooks/validate.sh' },
       { event: 'post_tool_use', script: 'hooks/log.sh' },
-    ]
-
-    const config = toClaudeHooksConfig(hooks)
-
-    expect(config.hooks['PreToolUse']).toEqual([
-      {
-        matcher: '*',
-        hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/hooks/validate.sh' }],
-      },
-    ])
-    expect(config.hooks['PostToolUse']).toEqual([
-      {
-        matcher: '*',
-        hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/hooks/log.sh' }],
-      },
-    ])
-  })
-
-  it('groups multiple hooks for the same event', () => {
-    const hooks: CanonicalHookDefinition[] = [
+    ],
+    {
+      PreToolUse: [{ matcher: '*', hooks: [pluginCommand('hooks/validate.sh')] }],
+      PostToolUse: [{ matcher: '*', hooks: [pluginCommand('hooks/log.sh')] }],
+    },
+  ],
+  [
+    'hooks on one event and matcher group into one entry',
+    [
       { event: 'pre_tool_use', script: 'hooks/first.sh' },
       { event: 'pre_tool_use', script: 'hooks/second.sh' },
-    ]
-
-    const config = toClaudeHooksConfig(hooks)
-
-    expect(config.hooks['PreToolUse']).toHaveLength(1)
-    expect(config.hooks['PreToolUse']?.[0]?.matcher).toBe('*')
-    expect(config.hooks['PreToolUse']?.[0]?.hooks).toHaveLength(2)
-  })
-
-  it('uses matcher from tools list when provided', () => {
-    const hooks: CanonicalHookDefinition[] = [
-      { event: 'pre_tool_use', script: 'hooks/first.sh', tools: ['Write', 'Edit'] },
-    ]
-
-    const config = toClaudeHooksConfig(hooks)
-
-    expect(config.hooks['PreToolUse']).toHaveLength(1)
-    expect(config.hooks['PreToolUse']?.[0]?.matcher).toBe('Write|Edit')
-  })
-
-  it('filters out Pi-only hooks', () => {
-    const hooks: CanonicalHookDefinition[] = [
+    ],
+    {
+      PreToolUse: [
+        {
+          matcher: '*',
+          hooks: [pluginCommand('hooks/first.sh'), pluginCommand('hooks/second.sh')],
+        },
+      ],
+    },
+  ],
+  [
+    'a tools list becomes the tool-event matcher',
+    [{ event: 'pre_tool_use', script: 'hooks/first.sh', tools: ['Write', 'Edit'] }],
+    { PreToolUse: [{ matcher: 'Write|Edit', hooks: [pluginCommand('hooks/first.sh')] }] },
+  ],
+  [
+    'claude and claude-agent-sdk hooks are kept',
+    [
+      { event: 'pre_tool_use', script: 'all.sh' },
+      { event: 'post_tool_use', script: 'claude-only.sh', harness: 'claude' },
+      { event: 'session_end', script: 'sdk-only.sh', harness: 'claude-agent-sdk' },
+    ],
+    {
+      PreToolUse: [{ matcher: '*', hooks: [pluginCommand('all.sh')] }],
+      PostToolUse: [{ matcher: '*', hooks: [pluginCommand('claude-only.sh')] }],
+      SessionEnd: [{ hooks: [pluginCommand('sdk-only.sh')] }],
+    },
+  ],
+  [
+    'pi-only hooks are omitted',
+    [
       { event: 'pre_tool_use', script: 'universal.sh' },
       { event: 'session_start', script: 'pi-init.sh', harness: 'pi' },
-    ]
-
-    const config = toClaudeHooksConfig(hooks)
-
-    expect(config.hooks['PreToolUse']).toHaveLength(1)
-    expect(config.hooks['PreToolUse']?.[0]?.matcher).toBe('*')
-  })
-
-  it('skips events that have no Claude mapping', () => {
-    const hooks: CanonicalHookDefinition[] = [
+    ],
+    { PreToolUse: [{ matcher: '*', hooks: [pluginCommand('universal.sh')] }] },
+  ],
+  [
+    'events with no Claude mapping are omitted without a stray key',
+    [
       { event: 'pre_tool_use', script: 'mapped.sh' },
       { event: 'totally_unknown', script: 'unmapped.sh' },
-    ]
-
-    const config = toClaudeHooksConfig(hooks)
-
-    expect(config.hooks['PreToolUse']).toHaveLength(1)
-    expect(config.hooks['PreToolUse']?.[0]?.matcher).toBe('*')
-    expect(Object.keys(config.hooks)).toHaveLength(1)
-  })
-
-  it('uses matcher for non-tool events like session_start', () => {
-    const hooks: CanonicalHookDefinition[] = [
-      { event: 'session_start', script: 'hooks/inject-priming.sh', matcher: 'compact' },
-    ]
-
-    const config = toClaudeHooksConfig(hooks)
-
-    expect(config.hooks['SessionStart']).toHaveLength(1)
-    expect(config.hooks['SessionStart']?.[0]?.matcher).toBe('compact')
-    expect(config.hooks['SessionStart']?.[0]?.hooks).toEqual([
-      { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/hooks/inject-priming.sh' },
-    ])
-  })
-
-  it('groups non-tool hooks by matcher', () => {
-    const hooks: CanonicalHookDefinition[] = [
+    ],
+    { PreToolUse: [{ matcher: '*', hooks: [pluginCommand('mapped.sh')] }] },
+  ],
+  [
+    'non-tool hooks with different matchers become separate entries',
+    [
       { event: 'session_start', script: 'hooks/on-compact.sh', matcher: 'compact' },
       { event: 'session_start', script: 'hooks/on-startup.sh', matcher: 'startup' },
-    ]
-
-    const config = toClaudeHooksConfig(hooks)
-
-    expect(config.hooks['SessionStart']).toHaveLength(2)
-    const matchers = config.hooks['SessionStart']?.map((h) => h.matcher)
-    expect(matchers).toContain('compact')
-    expect(matchers).toContain('startup')
-  })
-
-  it('omits matcher for non-tool events when not specified', () => {
-    const hooks: CanonicalHookDefinition[] = [{ event: 'session_start', script: 'hooks/always.sh' }]
-
-    const config = toClaudeHooksConfig(hooks)
-
-    expect(config.hooks['SessionStart']).toHaveLength(1)
-    expect(config.hooks['SessionStart']?.[0]?.matcher).toBeUndefined()
-  })
-
-  it('materializes Claude lifecycle hooks with matcher and plugin-rooted commands', () => {
-    const hooks: CanonicalHookDefinition[] = [
+    ],
+    {
+      SessionStart: [
+        { matcher: 'compact', hooks: [pluginCommand('hooks/on-compact.sh')] },
+        { matcher: 'startup', hooks: [pluginCommand('hooks/on-startup.sh')] },
+      ],
+    },
+  ],
+  [
+    'lifecycle hooks keep a declared matcher and omit an undeclared one',
+    [
       {
         event: 'session_start',
         matcher: 'startup',
         script: 'hooks/scripts/session-ready.sh',
         harness: 'claude',
       },
-      {
-        event: 'user_prompt_submit',
-        script: 'hooks/scripts/turn-started.sh',
-        harness: 'claude',
-      },
-      {
-        event: 'stop',
-        script: 'hooks/scripts/turn-stopped.sh',
-        harness: 'claude',
-      },
-    ]
+      { event: 'user_prompt_submit', script: 'hooks/scripts/turn-started.sh', harness: 'claude' },
+      { event: 'stop', script: 'hooks/scripts/turn-stopped.sh', harness: 'claude' },
+    ],
+    {
+      SessionStart: [
+        { matcher: 'startup', hooks: [pluginCommand('hooks/scripts/session-ready.sh')] },
+      ],
+      UserPromptSubmit: [{ hooks: [pluginCommand('hooks/scripts/turn-started.sh')] }],
+      Stop: [{ hooks: [pluginCommand('hooks/scripts/turn-stopped.sh')] }],
+    },
+  ],
+]
 
-    const config = toClaudeHooksConfig(hooks)
-
-    expect(config.hooks['SessionStart']).toEqual([
-      {
-        matcher: 'startup',
-        hooks: [
-          {
-            type: 'command',
-            command: '${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-ready.sh',
-          },
-        ],
-      },
-    ])
-    expect(config.hooks['UserPromptSubmit']).toEqual([
-      {
-        hooks: [
-          {
-            type: 'command',
-            command: '${CLAUDE_PLUGIN_ROOT}/hooks/scripts/turn-started.sh',
-          },
-        ],
-      },
-    ])
-    expect(config.hooks['Stop']).toEqual([
-      {
-        hooks: [
-          {
-            type: 'command',
-            command: '${CLAUDE_PLUGIN_ROOT}/hooks/scripts/turn-stopped.sh',
-          },
-        ],
-      },
-    ])
-  })
+describe('toClaudeHooksConfig', () => {
+  it.each(claudeHooksCases)(
+    'hooks.toml hooks materialize into Claude hooks.json grouped by event and matcher: %s',
+    (_case, hooks, expected) => {
+      expect(toClaudeHooksConfig(hooks).hooks).toEqual(expected)
+    }
+  )
 })
 
-describe('generateClaudeHooksJson', () => {
-  it('generates valid JSON string', () => {
-    const hooks: CanonicalHookDefinition[] = [
-      { event: 'pre_tool_use', script: 'hooks/validate.sh' },
-    ]
-
-    const json = generateClaudeHooksJson(hooks)
-    const parsed = JSON.parse(json)
-
-    expect(parsed.hooks.PreToolUse).toHaveLength(1)
-    expect(parsed.hooks.PreToolUse[0].matcher).toBe('*')
-  })
-})
-
-describe('readHooksToml / writeClaudeHooksJson', () => {
-  const testDir = join(import.meta.dir, '../../.test-hooks-toml')
-  const hooksDir = join(testDir, 'hooks')
+describe('readHooksToml', () => {
+  let testDir: string
+  let hooksDir: string
 
   beforeEach(async () => {
+    testDir = await mkdtemp(join(tmpdir(), 'asp-hooks-toml-'))
+    hooksDir = join(testDir, 'hooks')
     await mkdir(hooksDir, { recursive: true })
   })
 
   afterEach(async () => {
     await rm(testDir, { recursive: true, force: true })
-  })
-
-  it('reads hooks.toml from directory', async () => {
-    const tomlContent = `
-[[hook]]
-event = "pre_tool_use"
-script = "validate.sh"
-blocking = true
-`
-    await writeFile(join(hooksDir, 'hooks.toml'), tomlContent)
-
-    const result = await readHooksToml(hooksDir)
-
-    expect(result).not.toBeNull()
-    expect(result?.hook).toHaveLength(1)
-    expect(result?.hook[0]?.event).toBe('pre_tool_use')
-  })
-
-  it('returns null when hooks.toml does not exist', async () => {
-    const result = await readHooksToml(hooksDir)
-    expect(result).toBeNull()
   })
 
   it('throws (does not silently return null) for a malformed hooks.toml', async () => {
@@ -417,26 +249,15 @@ blocking = true
 
     await expect(readHooksToml(hooksDir)).rejects.toThrow()
   })
-
-  it('writes Claude hooks.json from canonical hooks', async () => {
-    const hooks: CanonicalHookDefinition[] = [{ event: 'pre_tool_use', script: 'validate.sh' }]
-
-    await writeClaudeHooksJson(hooks, hooksDir)
-
-    const file = Bun.file(join(hooksDir, 'hooks.json'))
-    expect(await file.exists()).toBe(true)
-
-    const content = await file.json()
-    expect(content.hooks.PreToolUse).toHaveLength(1)
-    expect(content.hooks.PreToolUse[0].matcher).toBe('*')
-  })
 })
 
 describe('readHooksWithPrecedence', () => {
-  const testDir = join(import.meta.dir, '../../.test-hooks-precedence')
-  const hooksDir = join(testDir, 'hooks')
+  let testDir: string
+  let hooksDir: string
 
   beforeEach(async () => {
+    testDir = await mkdtemp(join(tmpdir(), 'asp-hooks-precedence-'))
+    hooksDir = join(testDir, 'hooks')
     await mkdir(hooksDir, { recursive: true })
   })
 
@@ -444,41 +265,43 @@ describe('readHooksWithPrecedence', () => {
     await rm(testDir, { recursive: true, force: true })
   })
 
-  it('prefers hooks.toml over hooks.json', async () => {
-    // Create both files with different content
-    const tomlContent = `
+  const tomlContent = `
 [[hook]]
 event = "pre_tool_use"
 script = "from-toml.sh"
 `
-    const jsonContent = JSON.stringify({
-      hooks: [{ event: 'post_tool_use', script: 'from-json.sh' }],
-    })
-
-    await writeFile(join(hooksDir, 'hooks.toml'), tomlContent)
-    await writeFile(join(hooksDir, 'hooks.json'), jsonContent)
-
-    const result = await readHooksWithPrecedence(hooksDir)
-
-    expect(result.source).toBe('toml')
-    expect(result.hooks).toHaveLength(1)
-    expect(result.hooks[0]?.event).toBe('pre_tool_use')
-    expect(result.hooks[0]?.script).toBe('from-toml.sh')
+  const jsonContent = JSON.stringify({
+    hooks: [{ event: 'post_tool_use', script: 'from-json.sh' }],
   })
 
-  it('falls back to hooks.json when no hooks.toml', async () => {
-    const jsonContent = JSON.stringify({
+  it.each<{
+    files: string[]
+    source: 'toml' | 'json' | 'none'
+    hooks: Array<{ event: string; script: string }>
+  }>([
+    {
+      files: ['hooks.toml', 'hooks.json'],
+      source: 'toml',
+      hooks: [{ event: 'pre_tool_use', script: 'from-toml.sh' }],
+    },
+    {
+      files: ['hooks.json'],
+      source: 'json',
       hooks: [{ event: 'post_tool_use', script: 'from-json.sh' }],
-    })
+    },
+    { files: [], source: 'none', hooks: [] },
+  ])(
+    'hooks.toml wins over hooks.json, hooks.json is the fallback, and neither yields no hooks (files: $files)',
+    async ({ files, source, hooks }) => {
+      if (files.includes('hooks.toml')) await writeFile(join(hooksDir, 'hooks.toml'), tomlContent)
+      if (files.includes('hooks.json')) await writeFile(join(hooksDir, 'hooks.json'), jsonContent)
 
-    await writeFile(join(hooksDir, 'hooks.json'), jsonContent)
+      const result = await readHooksWithPrecedence(hooksDir)
 
-    const result = await readHooksWithPrecedence(hooksDir)
-
-    expect(result.source).toBe('json')
-    expect(result.hooks).toHaveLength(1)
-    expect(result.hooks[0]?.event).toBe('post_tool_use')
-  })
+      expect(result.source).toBe(source)
+      expect(result.hooks.map(({ event, script }) => ({ event, script }))).toEqual(hooks)
+    }
+  )
 
   it('normalizes Claude native event names to canonical snake case', async () => {
     const jsonContent = JSON.stringify({
@@ -501,35 +324,101 @@ script = "from-toml.sh"
       'stop',
     ])
   })
+})
 
-  it('returns empty when neither file exists', async () => {
-    const result = await readHooksWithPrecedence(hooksDir)
+describe('published caller behavior (§9)', () => {
+  /**
+   * Tests for hooks.toml parsing and translation
+   */
 
-    expect(result.source).toBe('none')
-    expect(result.hooks).toHaveLength(0)
+  describe('translateToPiEvent', () => {
+    it('translates pre_tool_use to tool_call', () => {
+      expect(translateToPiEvent('pre_tool_use')).toBe('tool_call')
+    })
+
+    it('translates post_tool_use to tool_result', () => {
+      expect(translateToPiEvent('post_tool_use')).toBe('tool_result')
+    })
+
+    it('translates session_start to session_start', () => {
+      expect(translateToPiEvent('session_start')).toBe('session_start')
+    })
+
+    it('translates session_end to session_end', () => {
+      expect(translateToPiEvent('session_end')).toBe('session_end')
+    })
+
+    it('returns original event for unknown events', () => {
+      expect(translateToPiEvent('unknown_event')).toBe('unknown_event')
+    })
   })
 
-  it('returns sourcePath for toml source', async () => {
-    const tomlContent = `
+  describe('filterHooksForHarness', () => {
+    const hooks: CanonicalHookDefinition[] = [
+      { event: 'pre_tool_use', script: 'all.sh' },
+      { event: 'post_tool_use', script: 'claude-only.sh', harness: 'claude' },
+      { event: 'session_start', script: 'pi-only.sh', harness: 'pi' },
+      { event: 'session_end', script: 'both.sh' },
+    ]
+
+    it('filters hooks for pi harness', () => {
+      const filtered = filterHooksForHarness(hooks, 'pi')
+
+      expect(filtered).toHaveLength(3)
+      expect(filtered.map((h) => h.script)).toEqual(['all.sh', 'pi-only.sh', 'both.sh'])
+    })
+  })
+
+  describe('readHooksWithPrecedence', () => {
+    let testDir: string
+    let hooksDir: string
+
+    beforeEach(async () => {
+      testDir = await mkdtemp(join(tmpdir(), 'hooks-precedence-'))
+      hooksDir = join(testDir, 'hooks')
+      await mkdir(hooksDir, { recursive: true })
+    })
+
+    afterEach(async () => {
+      await rm(testDir, { recursive: true, force: true })
+    })
+
+    it('returns sourcePath for toml source', async () => {
+      const tomlContent = `
 [[hook]]
 event = "pre_tool_use"
 script = "validate.sh"
 `
-    await writeFile(join(hooksDir, 'hooks.toml'), tomlContent)
+      await writeFile(join(hooksDir, 'hooks.toml'), tomlContent)
 
-    const result = await readHooksWithPrecedence(hooksDir)
+      const result = await readHooksWithPrecedence(hooksDir)
 
-    expect(result.sourcePath).toBe(join(hooksDir, 'hooks.toml'))
+      expect(result.sourcePath).toBe(join(hooksDir, 'hooks.toml'))
+    })
+
+    it('returns sourcePath for json source', async () => {
+      const jsonContent = JSON.stringify({
+        hooks: [{ event: 'pre_tool_use', script: 'validate.sh' }],
+      })
+      await writeFile(join(hooksDir, 'hooks.json'), jsonContent)
+
+      const result = await readHooksWithPrecedence(hooksDir)
+
+      expect(result.sourcePath).toBe(join(hooksDir, 'hooks.json'))
+    })
   })
 
-  it('returns sourcePath for json source', async () => {
-    const jsonContent = JSON.stringify({
-      hooks: [{ event: 'pre_tool_use', script: 'validate.sh' }],
+  describe('missing hooks file', () => {
+    let hooksDir: string
+    beforeEach(async () => {
+      hooksDir = await mkdtemp(join(tmpdir(), 'hooks-missing-'))
     })
-    await writeFile(join(hooksDir, 'hooks.json'), jsonContent)
-
-    const result = await readHooksWithPrecedence(hooksDir)
-
-    expect(result.sourcePath).toBe(join(hooksDir, 'hooks.json'))
+    afterEach(async () => {
+      await rm(hooksDir, { recursive: true, force: true })
+    })
+    it('returns null when hooks.toml does not exist', async () => {
+      const result = await readHooksToml(hooksDir)
+      expect(result).toBeNull()
+    })
   })
 })

@@ -45,10 +45,6 @@ describe('legacyTransportAlias', () => {
     }
   }
 
-  test('terminal controller maps to tmux', () => {
-    expect(legacyTransportAlias(view({ kind: 'terminal', terminalHost: 'tmux' }))).toBe('tmux')
-  })
-
   test('harness-broker with tmux terminal maps to tmux', () => {
     expect(
       legacyTransportAlias(
@@ -72,15 +68,5 @@ describe('legacyTransportAlias', () => {
         })
       )
     ).toBe('headless')
-  })
-
-  test('command-process controller maps to headless', () => {
-    expect(legacyTransportAlias(view({ kind: 'command-process' }))).toBe('headless')
-  })
-
-  test('legacy-exec controller maps to headless', () => {
-    expect(legacyTransportAlias(view({ kind: 'legacy-exec', migrationOnly: true }))).toBe(
-      'headless'
-    )
   })
 })

@@ -1,35 +1,36 @@
 /**
- * detectMuse tests: candidate ordering and the absent-binary path.
- * No binary or credentials required.
+ * Muse binary detection through MuseAdapter.detect(): explicit-path
+ * precedence, absent and failing binaries, and the probe cache, all against
+ * shims on a scratch PATH with common install paths skipped. The candidate
+ * list is tested directly only for the skip flag, whose effect needs a muse
+ * at a host-fixed common path. No real binary or credentials required.
  */
 import { afterEach, describe, expect, test } from 'bun:test'
 import { chmod, mkdir, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { MUSE_PATH_ENV, detectMuse, museCommandCandidates } from './detect.js'
+import { museAdapter } from './adapters/muse-adapter.js'
+import { MUSE_PATH_ENV, MUSE_SKIP_COMMON_PATHS_ENV, museCommandCandidates } from './detect.js'
 
 const originalPath = process.env['PATH']
-const originalSkipCommonPaths = process.env['ASP_MUSE_SKIP_COMMON_PATHS']
+const originalSkipCommonPaths = process.env[MUSE_SKIP_COMMON_PATHS_ENV]
+const originalMusePath = process.env[MUSE_PATH_ENV]
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    process.env[key] = undefined
+  } else {
+    process.env[key] = value
+  }
+}
 
 afterEach(() => {
-  process.env['PATH'] = originalPath
-  if (originalSkipCommonPaths === undefined) {
-    process.env['ASP_MUSE_SKIP_COMMON_PATHS'] = undefined
-  } else {
-    process.env['ASP_MUSE_SKIP_COMMON_PATHS'] = originalSkipCommonPaths
-  }
+  restoreEnv('PATH', originalPath)
+  restoreEnv(MUSE_SKIP_COMMON_PATHS_ENV, originalSkipCommonPaths)
+  restoreEnv(MUSE_PATH_ENV, originalMusePath)
 })
 
 describe('museCommandCandidates', () => {
-  test('explicit ASP_MUSE_PATH leads the candidate list', () => {
-    const candidates = museCommandCandidates({
-      home: '/nonexistent-home',
-      pathValue: '',
-      env: { [MUSE_PATH_ENV]: '/custom/muse' } as NodeJS.ProcessEnv,
-    })
-    expect(candidates[0]).toBe('/custom/muse')
-  })
-
   test('skip flag removes common paths', () => {
     const candidates = museCommandCandidates({
       home: '/fake-home',
@@ -41,60 +42,6 @@ describe('museCommandCandidates', () => {
 })
 
 describe('detectMuse', () => {
-  test('absent binary reports available:false without throwing', async () => {
-    const detection = await detectMuse({
-      home: '/nonexistent-home',
-      pathValue: '',
-      env: {
-        [MUSE_PATH_ENV]: '/nonexistent/muse',
-        ASP_MUSE_SKIP_COMMON_PATHS: '1',
-      } as NodeJS.ProcessEnv,
-      exists: () => false,
-    })
-    expect(detection.available).toBe(false)
-  })
-
-  test('present-but-failing binary attributes the cause', async () => {
-    const detection = await detectMuse({
-      home: '/nonexistent-home',
-      pathValue: '',
-      env: {
-        [MUSE_PATH_ENV]: '/bin/muse',
-        ASP_MUSE_SKIP_COMMON_PATHS: '1',
-      } as NodeJS.ProcessEnv,
-      exists: (path) => path === '/bin/muse',
-      run: async () => ({ exitCode: 1, stdout: '', stderr: 'boom' }),
-    })
-    expect(detection.available).toBe(false)
-    if (!detection.available) {
-      expect(detection.error).toContain('/bin/muse: boom')
-    }
-  })
-
-  test('working binary reports version + serve capability', async () => {
-    const detection = await detectMuse({
-      home: '/nonexistent-home',
-      pathValue: '',
-      env: {
-        [MUSE_PATH_ENV]: '/bin/muse',
-        ASP_MUSE_SKIP_COMMON_PATHS: '1',
-      } as NodeJS.ProcessEnv,
-      exists: (path) => path === '/bin/muse',
-      run: async (args) => {
-        if (args[1] === '--version') {
-          return { exitCode: 0, stdout: 'muse 1.3.0\n', stderr: '' }
-        }
-        return { exitCode: 0, stdout: 'serve help\n', stderr: '' }
-      },
-    })
-    expect(detection).toEqual({
-      available: true,
-      version: '1.3.0',
-      path: '/bin/muse',
-      capabilities: ['serve'],
-    })
-  })
-
   async function withTempDir(run: (dir: string) => Promise<void>): Promise<void> {
     const dir = join(tmpdir(), `muse-detect-${Date.now()}-${Math.random()}`)
     try {
@@ -104,6 +51,7 @@ describe('detectMuse', () => {
     }
   }
 
+  /** A muse shim that records each invocation in `<dir>/probes`. */
   async function writeCountingShim(dir: string, version: string, exitCode = 0): Promise<string> {
     await mkdir(dir, { recursive: true })
     const shim = join(dir, 'muse')
@@ -123,20 +71,61 @@ describe('detectMuse', () => {
     }
   }
 
-  function useOnlyShim(dir: string): void {
-    process.env['PATH'] = dir
-    process.env['ASP_MUSE_SKIP_COMMON_PATHS'] = '1'
+  /** Resolve muse only from `pathValue`: no explicit path, no common install paths. */
+  function useOnlyPath(pathValue: string): void {
+    process.env['PATH'] = pathValue
+    process.env[MUSE_SKIP_COMMON_PATHS_ENV] = '1'
+    restoreEnv(MUSE_PATH_ENV, undefined)
   }
+
+  test('explicit ASP_MUSE_PATH leads the candidate list', () =>
+    withTempDir(async (dir) => {
+      await writeCountingShim(join(dir, 'on-path'), '1.3.0')
+      const explicit = await writeCountingShim(join(dir, 'explicit'), '1.3.0')
+      useOnlyPath(join(dir, 'on-path'))
+      process.env[MUSE_PATH_ENV] = explicit
+
+      const detection = await museAdapter.detect()
+
+      expect(detection.available).toBe(true)
+      expect(detection.path).toBe(explicit)
+    }))
+
+  test('absent binary reports available:false without throwing', async () => {
+    useOnlyPath('')
+    process.env[MUSE_PATH_ENV] = '/nonexistent/muse'
+
+    const detection = await museAdapter.detect()
+
+    expect(detection.available).toBe(false)
+    expect(detection.error).toBe(
+      `muse not found on PATH, ${MUSE_PATH_ENV}, or common user install paths`
+    )
+  })
+
+  test('present-but-failing binary attributes the cause', () =>
+    withTempDir(async (dir) => {
+      await mkdir(dir, { recursive: true })
+      const shim = join(dir, 'muse')
+      await writeFile(shim, '#!/bin/sh\necho boom >&2\nexit 1\n')
+      await chmod(shim, 0o755)
+      useOnlyPath(dir)
+
+      const detection = await museAdapter.detect()
+
+      expect(detection.available).toBe(false)
+      expect(detection.error).toContain(`${shim}: boom`)
+    }))
 
   test('reuses a successful detection while the binary is unchanged', () =>
     withTempDir(async (dir) => {
-      await writeCountingShim(dir, '1.3.0')
-      useOnlyShim(dir)
+      const shim = await writeCountingShim(dir, '1.3.0')
+      useOnlyPath(dir)
 
-      const first = await detectMuse()
-      const second = await detectMuse()
+      const first = await museAdapter.detect()
+      const second = await museAdapter.detect()
 
-      expect(first).toMatchObject({ available: true, version: '1.3.0' })
+      expect(first).toMatchObject({ available: true, version: '1.3.0', path: shim })
       expect(second).toEqual(first)
       expect(await probeCount(dir)).toBe(2)
     }))
@@ -144,23 +133,23 @@ describe('detectMuse', () => {
   test('re-probes after the binary is replaced', () =>
     withTempDir(async (dir) => {
       const shim = await writeCountingShim(dir, '1.3.0')
-      useOnlyShim(dir)
+      useOnlyPath(dir)
 
-      await detectMuse()
+      await museAdapter.detect()
       await writeCountingShim(dir, '1.3.1')
       await utimes(shim, new Date(), new Date(Date.now() + 5_000))
 
-      expect(await detectMuse()).toMatchObject({ available: true, version: '1.3.1' })
+      expect(await museAdapter.detect()).toMatchObject({ available: true, version: '1.3.1' })
       expect(await probeCount(dir)).toBe(4)
     }))
 
   test('does not cache a failed probe', () =>
     withTempDir(async (dir) => {
       await writeCountingShim(dir, '1.3.0', 1)
-      useOnlyShim(dir)
+      useOnlyPath(dir)
 
-      expect((await detectMuse()).available).toBe(false)
-      expect((await detectMuse()).available).toBe(false)
+      expect((await museAdapter.detect()).available).toBe(false)
+      expect((await museAdapter.detect()).available).toBe(false)
       expect(await probeCount(dir)).toBe(2)
     }))
 })

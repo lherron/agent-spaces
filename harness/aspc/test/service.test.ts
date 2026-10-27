@@ -1,10 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
-import {
-  ASPC_PROTOCOL_VERSION,
-  type AspcCompileHarnessInvocationRequest,
-  type AspcHelloRequest,
-} from 'spaces-aspc-protocol'
+import type { AspcCompileHarnessInvocationRequest } from 'spaces-aspc-protocol'
 import { conservativeDefaultLifecyclePolicyOverlay } from 'spaces-harness-broker-protocol'
 import type {
   CompiledRuntimePlan,
@@ -13,11 +8,6 @@ import type {
 } from 'spaces-runtime-contracts'
 import type { AspcCompiler } from '../src/service.js'
 import { createAspcService } from '../src/service.js'
-
-const HELLO_REQUEST: AspcHelloRequest = {
-  clientInfo: { name: 'aspc-service-test' },
-  protocolVersions: [ASPC_PROTOCOL_VERSION],
-}
 
 const COMPILE_REQUEST = {
   schemaVersion: 'agent-runtime-compile-request/v2',
@@ -65,22 +55,7 @@ function buildRequest(): AspcCompileHarnessInvocationRequest {
   return { compileRequest: COMPILE_REQUEST }
 }
 
-function packageVersion(): string {
-  const manifest = JSON.parse(
-    readFileSync(new URL('../package.json', import.meta.url), 'utf8')
-  ) as { version?: unknown }
-  if (typeof manifest.version !== 'string') throw new Error('missing package version')
-  return manifest.version
-}
-
 describe('AspcService', () => {
-  test('hello reports the package version and one ordinary compile capability', async () => {
-    const response = await createAspcService({}).hello(HELLO_REQUEST)
-    expect(response.facadeInfo.version).toBe(packageVersion())
-    expect(response.capabilities.compileHarnessInvocation).toBe(true)
-    expect(response.capabilities).not.toHaveProperty('compileRuntimePlan')
-  })
-
   test('returns the compiler singular plan without selecting or echoing a profile', async () => {
     const response = await createAspcService({
       compiler: compilerReturning(OK_RESPONSE),
@@ -136,7 +111,7 @@ describe('AspcService', () => {
     })
   })
 
-  test('propagates compile failure diagnostics without a nested legacy response', async () => {
+  test('a failed compile passes its diagnostics (with details) through unchanged', async () => {
     const response = await createAspcService({
       compiler: compilerReturning({
         schemaVersion: 'agent-runtime-compile-response/v2',
@@ -144,9 +119,10 @@ describe('AspcService', () => {
         diagnostics: [
           {
             level: 'error',
-            code: 'upstream_failure',
-            message: 'compile failed',
+            code: 'materialization_hygiene_error',
+            message: 'broken pointer to ./does-not-exist.md',
             plane: 'asp-compiler',
+            details: { code: 'W421', severity: 'error', path: 'skills/probe-skill/SKILL.md' },
           },
         ],
       }),
@@ -154,7 +130,10 @@ describe('AspcService', () => {
 
     expect(response.ok).toBe(false)
     if (response.ok) return
-    expect(response.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['upstream_failure'])
+    expect(response.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      'materialization_hygiene_error',
+    ])
+    expect(response.diagnostics[0]?.details).toMatchObject({ code: 'W421', severity: 'error' })
     expect(response).not.toHaveProperty('compileResponse')
   })
 })

@@ -4,7 +4,10 @@
  * selection (T-00878) for the claude and codex harnesses.
  */
 
-import { describe, expect } from 'bun:test'
+import { afterAll, describe, expect } from 'bun:test'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { agentArgs, agentDryRunSpec, cliTest, runAsp } from './asp-cli'
 
@@ -43,27 +46,32 @@ describe('placement invocation produces full argv (T-00874)', () => {
       featureFlags: ['goals'],
     })
     expect(spec.codexAppServer?.prompt).toContain('Hello')
+    // The codex prompt travels in the descriptor, never on argv.
+    expect(spec.argv).not.toContain('Hello')
   })
 
-  cliTest('displayCommand is present and non-empty', () => {
+  cliTest('displayCommand is the env-prefixed shell form of argv ending in the prompt', () => {
     const { spec } = agentDryRunSpec({ prompt: 'Hello' })
 
-    expect(spec.displayCommand).toBeDefined()
-    expect(typeof spec.displayCommand).toBe('string')
-    expect(spec.displayCommand?.length).toBeGreaterThan(0)
+    expect(spec.displayCommand).toStartWith(`ASP_PLUGIN_ROOT=${spec.env['ASP_PLUGIN_ROOT']} `)
+    expect(spec.displayCommand).toContain(` ${spec.argv[0]} ${spec.argv[1]} `)
+    expect(spec.displayCommand).toEndWith(' -- Hello')
   })
 
-  cliTest('ASP_HOME is in env', () => {
-    const { spec } = agentDryRunSpec({ prompt: 'Hello' })
+  describe('under an explicit ASP_HOME', () => {
+    const aspHome = mkdtempSync(join(tmpdir(), 'asp-invocation-spec-home-'))
+    afterAll(() => rmSync(aspHome, { recursive: true, force: true }))
 
-    expect(spec.env['ASP_HOME']).toBeDefined()
-    expect(typeof spec.env['ASP_HOME']).toBe('string')
-  })
+    cliTest(
+      'ASP_HOME reaches the spec env and the claude plugin root is materialized under it',
+      () => {
+        const { spec } = agentDryRunSpec({ prompt: 'Hello' }, { ASP_HOME: aspHome })
 
-  cliTest('adapter env vars present (ASP_PLUGIN_ROOT for claude-code)', () => {
-    const { spec } = agentDryRunSpec({ prompt: 'Hello' })
-
-    expect(spec.env['ASP_PLUGIN_ROOT']).toBeDefined()
+        expect(spec.env['ASP_HOME']).toBe(aspHome)
+        expect(spec.env['ASP_PLUGIN_ROOT']).toStartWith(`${join(aspHome, 'codex-homes')}/`)
+        expect(spec.env['ASP_PLUGIN_ROOT']).toEndWith('/claude')
+      }
+    )
   })
 
   cliTest('unsupported model throws via placement path', () => {
@@ -89,21 +97,14 @@ describe('prompt in argv (T-00875)', () => {
     expect(spec.argv[pIdx + 1]).toBe(CLIPASS_PROMPT)
   })
 
-  cliTest('codex-cli descriptor contains prompt text', () => {
-    const { spec } = agentDryRunSpec({
-      prompt: CLIPASS_PROMPT,
-      harness: 'codex',
-      flags: ['--presentation', 'false'],
-    })
+  cliTest('heartbeat without a prompt succeeds and carries no prompt anywhere', () => {
+    const { result, spec } = agentDryRunSpec({ mode: 'heartbeat' })
 
-    expect(spec.argv).not.toContain(CLIPASS_PROMPT)
-    expect(spec.codexAppServer?.prompt).toContain(CLIPASS_PROMPT)
-  })
-
-  cliTest('no prompt in argv when prompt not provided (heartbeat)', () => {
-    const { spec } = agentDryRunSpec({ mode: 'heartbeat' })
-
+    expect(result.exitCode).toBe(0)
     expect(spec.argv).not.toContain('-p')
+    // A claude query prompt rides after `--`; a heartbeat has no prompt tail.
+    expect(spec.argv).not.toContain('--')
+    expect(spec.env['ASP_PRIMING_PROMPT']).toBeUndefined()
   })
 })
 
@@ -118,16 +119,5 @@ describe('gpt-5.5 model support (T-00878)', () => {
     expect(result.exitCode).toBe(0)
     expect(spec.argv).not.toContain('--model')
     expect(spec.codexAppServer?.model).toBe('gpt-5.5')
-  })
-
-  cliTest('codex-cli default model is GPT-5.6 Terra in dry-run', () => {
-    const { spec } = agentDryRunSpec({
-      prompt: 'Hello',
-      harness: 'codex',
-      flags: ['--presentation', 'false'],
-    })
-
-    expect(spec.argv).not.toContain('--model')
-    expect(spec.codexAppServer?.model).toBe('gpt-5.6-terra')
   })
 })

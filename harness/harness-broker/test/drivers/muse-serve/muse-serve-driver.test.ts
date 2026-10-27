@@ -8,6 +8,7 @@
  * ack, turn/completed, commandRejected/missing_run).
  */
 import { describe, expect, test } from 'bun:test'
+import { existsSync } from 'node:fs'
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -301,62 +302,58 @@ describe('muse-serve driver', () => {
     await broker.stop({ invocationId: invocationIdFrom('inv_muse_interrupt') })
   })
 
-  test('the last-verified schema starts with no drift warning', async () => {
-    const events: InvocationEventEnvelope[] = []
-    const broker = createBroker({
-      drivers: [createMuseServeDriver()],
-      onEvent: (event) => events.push(event),
-      now,
-    })
-    const spec = scenarioSpec('ok', 'inv_muse_schema_ok')
-    await broker.start({ spec })
-    const drift = events.filter(
-      (event): event is InvocationEventEnvelopeFor<'diagnostic'> =>
-        event.type === 'diagnostic' && String(event.payload.message).includes('schema drift')
-    )
-    expect(drift).toHaveLength(0)
-    await broker.stop({ invocationId: invocationIdFrom('inv_muse_schema_ok') })
-  })
-
-  test('compatible schema drift starts and warns exactly once per start', async () => {
-    const events: InvocationEventEnvelope[] = []
-    const broker = createBroker({
-      drivers: [createMuseServeDriver()],
-      onEvent: (event) => events.push(event),
-      now,
-    })
-    const spec = scenarioSpec('drift-compatible', 'inv_muse_drift')
-    await broker.start({ spec })
-    const drift = events.filter(
-      (event): event is InvocationEventEnvelopeFor<'diagnostic'> =>
-        event.type === 'diagnostic' && String(event.payload.message).includes('schema drift')
-    )
-    expect(drift).toHaveLength(1)
-    expect(drift[0]?.payload).toMatchObject({ level: 'warn' })
-    expect(String(drift[0]?.payload.message)).toContain(`sha256:${'a'.repeat(64)}`)
-    expect(String(drift[0]?.payload.message)).toContain(MSP_LAST_VERIFIED_SCHEMA_FINGERPRINT)
-    await broker.stop({ invocationId: invocationIdFrom('inv_muse_drift') })
-  })
-
-  test('refuses startup when the installed schema drops a driver-used method', async () => {
-    const broker = createBroker({ drivers: [createMuseServeDriver()], now })
-    const spec = scenarioSpec('drift-incompatible', 'inv_muse_incompat')
-    await expect(broker.start({ spec })).rejects.toThrow(
-      'method turn/start was removed (the driver calls it)'
-    )
-  })
-
-  test('refuses startup when the schema export belongs to another binary', async () => {
-    const broker = createBroker({ drivers: [createMuseServeDriver()], now })
-    const spec = scenarioSpec('export-mismatch', 'inv_muse_export_mismatch')
-    await expect(broker.start({ spec })).rejects.toThrow('does not match the served')
-  })
-
-  test('refuses startup when the drifted schema cannot be exported', async () => {
-    const broker = createBroker({ drivers: [createMuseServeDriver()], now })
-    const spec = scenarioSpec('export-fails', 'inv_muse_export_fails')
-    await expect(broker.start({ spec })).rejects.toThrow('cannot verify schema sha256:dddd')
-  })
+  test.each([
+    { scenario: 'ok', error: undefined },
+    { scenario: 'drift-compatible', error: undefined },
+    {
+      scenario: 'drift-incompatible',
+      error: 'method turn/start was removed (the driver calls it)',
+    },
+    { scenario: 'export-mismatch', error: 'does not match the served' },
+    { scenario: 'export-fails', error: 'cannot verify schema sha256:dddd' },
+  ])(
+    'schema $scenario permits or refuses startup with the expected export and warning',
+    async ({ scenario, error }) => {
+      const root = await mkdtemp(join(tmpdir(), 'muse-schema-check-'))
+      const marker = join(root, 'exports')
+      const events: InvocationEventEnvelope[] = []
+      const broker = createBroker({
+        drivers: [createMuseServeDriver()],
+        onEvent: (event) => events.push(event),
+        now,
+      })
+      const invocationId = `inv_muse_schema_${scenario}`
+      const base = scenarioSpec(scenario, invocationId)
+      const spec = {
+        ...base,
+        process: { ...base.process, lockedEnv: { MUSE_SCHEMA_EXPORT_MARKER: marker } },
+      }
+      try {
+        if (error !== undefined) {
+          await expect(broker.start({ spec })).rejects.toThrow(error)
+          expect(existsSync(marker)).toBe(true)
+        } else {
+          await broker.start({ spec })
+          const drift = events.filter(
+            (event): event is InvocationEventEnvelopeFor<'diagnostic'> =>
+              event.type === 'diagnostic' && String(event.payload.message).includes('schema drift')
+          )
+          expect(drift).toHaveLength(scenario === 'ok' ? 0 : 1)
+          expect(existsSync(marker)).toBe(scenario !== 'ok')
+          if (scenario === 'drift-compatible') {
+            expect(drift[0]?.payload).toMatchObject({ level: 'warn' })
+            expect(String(drift[0]?.payload.message)).toContain(`sha256:${'a'.repeat(64)}`)
+            expect(String(drift[0]?.payload.message)).toContain(
+              MSP_LAST_VERIFIED_SCHEMA_FINGERPRINT
+            )
+          }
+          await broker.stop({ invocationId: invocationIdFrom(invocationId) })
+        }
+      } finally {
+        await rm(root, { recursive: true, force: true })
+      }
+    }
+  )
 
   test('fails closed before invocation readiness when the renderer never acknowledges startup', async () => {
     const invocationId = invocationIdFrom('inv_muse_renderer_submit_lost')
@@ -442,6 +439,12 @@ describe('muse-serve driver', () => {
           command = await readFile(commandPath, 'utf8').catch(() => '')
           return command.length > 0
         })
+        expect(command).toContain('--driver muse-serve')
+        expect(command).toContain(`--invocation-id ${invocationId}`)
+        expect(command).toContain('--bootstrap-method invocation.eventsSince')
+        expect(command).toContain('--live-method invocation.event')
+        expect(command).toContain('--observer-socket')
+        expect(command).toContain('--control-socket')
         const match = command.match(/--control-socket\s+(?:"([^"]+)"|'([^']+)'|(\S+))/)
         const controlSocket = match?.[1] ?? match?.[2] ?? match?.[3]
         expect(controlSocket).toBeString()
@@ -468,63 +471,41 @@ describe('muse-serve driver', () => {
     )
   })
 
-  test('decides approval by policy allow with the approved choice', async () => {
+  test.each([
+    { mode: 'allow', decision: 'allow-once' },
+    { mode: 'deny', decision: 'deny-once' },
+  ] as const)('approval policy $mode returns $decision', async ({ mode, decision }) => {
     const events: InvocationEventEnvelope[] = []
     const broker = createBroker({
       drivers: [createMuseServeDriver()],
       onEvent: (event) => events.push(event),
       now,
     })
-    const spec = scenarioSpec('approve', 'inv_muse_allow', {
-      driver: {
-        kind: 'muse-serve',
-        resumeFallback: 'start-fresh',
-        permissionPolicy: { mode: 'allow' },
-      },
+    const id = `inv_muse_${mode}`
+    const spec = scenarioSpec('approve', id, {
+      driver: { kind: 'muse-serve', resumeFallback: 'start-fresh', permissionPolicy: { mode } },
     })
     await broker.start({ spec })
     await broker.input({
-      invocationId: invocationIdFrom('inv_muse_allow'),
+      invocationId: invocationIdFrom(id),
       input: userInput('input_a', 'list files'),
     })
     await waitFor(() =>
       events.some(
         (event) =>
           event.type === 'assistant.message.completed' &&
-          JSON.stringify(event.payload).includes('decided:allow-once')
+          JSON.stringify(event.payload).includes(`decided:${decision}`)
       )
     )
-    expect(
-      events.some(
-        (event) =>
-          event.type === 'permission.requested' &&
-          event.payload.permissionRequestId.startsWith('perm_inv_muse_allow')
-      )
-    ).toBe(true)
-    await broker.stop({ invocationId: invocationIdFrom('inv_muse_allow') })
-  })
-
-  test('decides approval by policy deny with the denied choice', async () => {
-    const events: InvocationEventEnvelope[] = []
-    const broker = createBroker({
-      drivers: [createMuseServeDriver()],
-      onEvent: (event) => events.push(event),
-      now,
-    })
-    const spec = scenarioSpec('approve', 'inv_muse_deny')
-    await broker.start({ spec })
-    await broker.input({
-      invocationId: invocationIdFrom('inv_muse_deny'),
-      input: userInput('input_d', 'list files'),
-    })
-    await waitFor(() =>
-      events.some(
-        (event) =>
-          event.type === 'assistant.message.completed' &&
-          JSON.stringify(event.payload).includes('decided:deny-once')
-      )
-    )
-    await broker.stop({ invocationId: invocationIdFrom('inv_muse_deny') })
+    if (mode === 'allow')
+      expect(
+        events.some(
+          (event) =>
+            event.type === 'permission.requested' &&
+            event.payload.permissionRequestId.startsWith(`perm_${id}`)
+        )
+      ).toBe(true)
+    await broker.stop({ invocationId: invocationIdFrom(id) })
   })
 
   test('resumes a known session id', async () => {

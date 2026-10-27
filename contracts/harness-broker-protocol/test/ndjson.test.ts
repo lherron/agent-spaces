@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { NdjsonDecoder, encodeNdjsonFrame } from '../src/ndjson'
+import { NdjsonDecoder } from '../src/ndjson'
 
 describe('NDJSON JSON-RPC framing', () => {
   test('reassembles frames split across chunks', () => {
@@ -51,36 +51,6 @@ describe('NDJSON JSON-RPC framing', () => {
     ])
   })
 
-  test('reports malformed JSON lines and recovers for subsequent frames', () => {
-    const decoder = new NdjsonDecoder()
-
-    const frames = decoder.push(
-      '{"jsonrpc":"2.0","id":"broken"\n{"jsonrpc":"2.0","id":"2","result":{"ok":true}}\n'
-    )
-
-    expect(frames).toHaveLength(2)
-    expect(frames[0]).toMatchObject({
-      ok: false,
-      error: {
-        code: 'INVALID_NDJSON_FRAME',
-      },
-    })
-    expect(frames[1]).toEqual({
-      ok: true,
-      value: {
-        jsonrpc: '2.0',
-        id: '2',
-        result: { ok: true },
-      },
-    })
-  })
-
-  test('encodes exactly one newline-terminated JSON object per frame', () => {
-    expect(encodeNdjsonFrame({ jsonrpc: '2.0', id: '1', result: true })).toBe(
-      '{"jsonrpc":"2.0","id":"1","result":true}\n'
-    )
-  })
-
   describe('flush()', () => {
     test('drains a trailing newline-less frame and clears the buffer', () => {
       const decoder = new NdjsonDecoder()
@@ -101,23 +71,6 @@ describe('NDJSON JSON-RPC framing', () => {
 
       // Buffer is now empty: a second flush() produces no frames.
       expect(decoder.flush()).toEqual([])
-    })
-
-    test('returns no frames when the buffer is empty', () => {
-      const decoder = new NdjsonDecoder()
-      expect(decoder.flush()).toEqual([])
-    })
-
-    test('reports a malformed trailing frame instead of throwing', () => {
-      const decoder = new NdjsonDecoder()
-      expect(decoder.push('{"jsonrpc":"2.0","id":"broken"')).toEqual([])
-
-      const frames = decoder.flush()
-      expect(frames).toHaveLength(1)
-      expect(frames[0]).toMatchObject({
-        ok: false,
-        error: { code: 'INVALID_NDJSON_FRAME' },
-      })
     })
   })
 

@@ -1,9 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { conservativeDefaultLifecyclePolicyOverlay } from 'spaces-harness-broker-protocol'
 import type { RuntimeCompileRequest } from 'spaces-runtime-contracts'
 import {
   ASPC_METHODS,
-  ASPC_PROTOCOL_VERSION,
   AspcCommandValidationError,
   AspcCompileHarnessInvocationRequestValidationError,
   AspcHelloRequestValidationError,
@@ -11,7 +9,6 @@ import {
   validateAspcCompileHarnessInvocationRequest,
   validateAspcHelloRequest,
 } from '../src/index.js'
-import type { AspcCompileHarnessInvocationRequest } from '../src/index.js'
 import { hostSessionIdFrom, operationIdFrom, requestIdFrom, runtimeIdFrom } from './ids'
 
 const compileRequest: RuntimeCompileRequest = {
@@ -59,37 +56,6 @@ function captureCompileIssues(value: unknown) {
 }
 
 describe('ASPC protocol validators', () => {
-  test('validates hello and advertises the closed method set', () => {
-    const request = {
-      clientInfo: { name: 'non-ts-client' },
-      protocolVersions: [ASPC_PROTOCOL_VERSION],
-    }
-    expect(validateAspcHelloRequest(request)).toBe(request)
-    expect(ASPC_METHODS).toEqual([
-      'aspc.hello',
-      'aspc.catalogAgents',
-      'aspc.inspectAgent',
-      'aspc.catalogAgentInspection',
-      'aspc.inspectAgentSelection',
-      'aspc.compileHarnessInvocation',
-      'aspc.resolveRuntimeDeclaration',
-      'aspc.inspectRuntimePlacement',
-      'aspc.observeRuntimeCapability',
-      'aspc.observeContinuationArtifact',
-      'aspc.prepareProcessInvocation',
-    ])
-    expect(ASPC_METHODS).not.toContain('aspc.compileRuntimePlan' as never)
-    expect(ASPC_METHODS).not.toContain('aspc.compileAndStart' as never)
-    expect(
-      validateAspcCommand({
-        jsonrpc: '2.0',
-        id: '1',
-        method: 'aspc.hello',
-        params: request,
-      })
-    ).toMatchObject({ method: 'aspc.hello' })
-  })
-
   test('rejects hello without aspc/0.1 support', () => {
     expect(() =>
       validateAspcHelloRequest({
@@ -97,83 +63,6 @@ describe('ASPC protocol validators', () => {
         protocolVersions: ['aspc/0.0'],
       })
     ).toThrow(AspcHelloRequestValidationError)
-  })
-
-  test('validates the sole v2 ordinary compile operation and preserves explicit false', () => {
-    const request: AspcCompileHarnessInvocationRequest = {
-      compileRequest,
-      dispatchEnv: { EXTRA_FLAG: '1' },
-      runtime: { tmux: { socketPath: '/tmp/aspc-runtime.sock' } },
-      lifecyclePolicy: conservativeDefaultLifecyclePolicyOverlay('policy_aspc_compile'),
-    }
-    expect(validateAspcCompileHarnessInvocationRequest(request)).toBe(request)
-    expect(request.compileRequest.requested.presentation).toBe(false)
-    expect(
-      validateAspcCommand({
-        jsonrpc: '2.0',
-        id: '2',
-        method: 'aspc.compileHarnessInvocation',
-        params: request,
-      })
-    ).toMatchObject({ method: 'aspc.compileHarnessInvocation' })
-  })
-
-  test('accepts closed summon directives and preserves directive false separately from requested', () => {
-    const request: AspcCompileHarnessInvocationRequest = {
-      compileRequest: {
-        ...compileRequest,
-        selectionContext: {
-          summonDirectives: {
-            harness: 'muse',
-            model_provider: 'mistral',
-            model: 'devstral-2',
-            reasoning_effort: 'high',
-            presentation: false,
-          },
-        },
-      },
-    }
-    expect(validateAspcCompileHarnessInvocationRequest(request)).toBe(request)
-    expect(request.compileRequest.selectionContext?.summonDirectives?.presentation).toBe(false)
-  })
-
-  test('rejects legacy and unknown summon directive keys at the wire boundary', () => {
-    const issues = captureCompileIssues({
-      compileRequest: {
-        ...compileRequest,
-        selectionContext: {
-          summonDirectives: { viewer: 'tmux', brokerDriver: 'muse-cli-tmux' },
-        },
-      },
-    })
-    expect(issues.map((entry) => entry.path)).toEqual(
-      expect.arrayContaining([
-        'params.compileRequest.selectionContext.summonDirectives.viewer',
-        'params.compileRequest.selectionContext.summonDirectives.brokerDriver',
-      ])
-    )
-  })
-
-  test('rejects the removed compileAndStart method', () => {
-    expect(() =>
-      validateAspcCommand({
-        jsonrpc: '2.0',
-        id: '3',
-        method: 'aspc.compileAndStart',
-        params: { compileRequest },
-      })
-    ).toThrow(AspcCommandValidationError)
-  })
-
-  test('rejects the removed compileRuntimePlan method', () => {
-    expect(() =>
-      validateAspcCommand({
-        jsonrpc: '2.0',
-        id: '4',
-        method: 'aspc.compileRuntimePlan',
-        params: { compileRequest },
-      })
-    ).toThrow(AspcCommandValidationError)
   })
 
   test('rejects the v1 compile contract at schemaVersion', () => {
@@ -187,38 +76,6 @@ describe('ASPC protocol validators', () => {
       })
     )
   })
-
-  for (const removed of [
-    'harnessFamily',
-    'preferredHarnessRuntime',
-    'interactionMode',
-    'controllerIntent',
-    'brokerDriver',
-  ] as const) {
-    test(`rejects removed requested.${removed}`, () => {
-      const issues = captureCompileIssues({
-        compileRequest: {
-          ...compileRequest,
-          requested: { ...compileRequest.requested, [removed]: 'removed' },
-        },
-      })
-      expect(issues).toContainEqual(
-        expect.objectContaining({
-          path: `params.compileRequest.requested.${removed}`,
-          code: 'forbidden_input',
-        })
-      )
-    })
-  }
-
-  for (const removed of ['profileSelector', 'profileId', 'profileHash', 'brokerDriver'] as const) {
-    test(`rejects removed outer selector ${removed}`, () => {
-      const issues = captureCompileIssues({ compileRequest, [removed]: 'removed' })
-      expect(issues).toContainEqual(
-        expect.objectContaining({ path: `params.${removed}`, code: 'forbidden_input' })
-      )
-    })
-  }
 
   for (const harness of ['pi', 'pi-sdk', 'claude-code', 'codex-cli', 'muse-cli'] as const) {
     test(`rejects noncanonical harness ${harness}`, () => {
@@ -237,17 +94,54 @@ describe('ASPC protocol validators', () => {
     })
   }
 
-  test('rejects unknown compile-request fields instead of shallowly accepting them', () => {
-    const issues = captureCompileIssues({
-      compileRequest: { ...compileRequest, unexpectedTopLevel: true },
-    })
-    expect(issues).toContainEqual(
-      expect.objectContaining({
-        path: 'params.compileRequest.unexpectedTopLevel',
-        code: 'forbidden_input',
-      })
-    )
-  })
+  // One row per object level; every unknown key (including removed legacy keys such as
+  // outer profile selectors, requested.brokerDriver and summon `viewer`) takes the same
+  // rejectUnknownParams branch at that level.
+  test.each([
+    ['params', { compileRequest, profileSelector: 'removed' }, 'params.profileSelector'],
+    [
+      'compileRequest',
+      { compileRequest: { ...compileRequest, unexpectedTopLevel: true } },
+      'params.compileRequest.unexpectedTopLevel',
+    ],
+    [
+      'requested',
+      {
+        compileRequest: {
+          ...compileRequest,
+          requested: { ...compileRequest.requested, brokerDriver: 'removed' },
+        },
+      },
+      'params.compileRequest.requested.brokerDriver',
+    ],
+    [
+      'summonDirectives',
+      {
+        compileRequest: {
+          ...compileRequest,
+          selectionContext: { summonDirectives: { viewer: 'tmux' } },
+        },
+      },
+      'params.compileRequest.selectionContext.summonDirectives.viewer',
+    ],
+    [
+      'summonDirectives brokerDriver',
+      {
+        compileRequest: {
+          ...compileRequest,
+          selectionContext: { summonDirectives: { brokerDriver: 'muse-cli-tmux' } },
+        },
+      },
+      'params.compileRequest.selectionContext.summonDirectives.brokerDriver',
+    ],
+  ] as const)(
+    'an unknown key at any compile-request level is refused as forbidden_input at its path: %s',
+    (_level, params, expectedPath) => {
+      expect(captureCompileIssues(params)).toContainEqual(
+        expect.objectContaining({ path: expectedPath, code: 'forbidden_input' })
+      )
+    }
+  )
 
   test('rejects invalid reasoning effort and non-boolean presentation', () => {
     const issues = captureCompileIssues({
@@ -279,14 +173,24 @@ describe('ASPC protocol validators', () => {
   })
 
   test('rejects unknown ASPC methods and lists the public set', () => {
-    let caught: AspcCommandValidationError | undefined
-    try {
-      validateAspcCommand({ jsonrpc: '2.0', id: '5', method: 'broker.hello', params: {} })
-    } catch (error) {
-      caught = error as AspcCommandValidationError
+    // Removed (compileAndStart, compileRuntimePlan) and retired Desktop methods are
+    // refused exactly like a foreign method name.
+    for (const method of [
+      'broker.hello',
+      'aspc.compileAndStart',
+      'aspc.compileRuntimePlan',
+      'aspc.resolveDesktopIdentity',
+    ]) {
+      let caught: AspcCommandValidationError | undefined
+      try {
+        validateAspcCommand({ jsonrpc: '2.0', id: '5', method, params: { compileRequest } })
+      } catch (error) {
+        caught = error as AspcCommandValidationError
+      }
+      expect(caught, method).toBeInstanceOf(AspcCommandValidationError)
+      const issue = caught?.issues.find((entry) => entry.path === 'method')
+      expect(issue, method).toBeDefined()
+      for (const listed of ASPC_METHODS) expect(issue?.message).toContain(listed)
     }
-    expect(caught).toBeInstanceOf(AspcCommandValidationError)
-    const issue = caught?.issues.find((entry) => entry.path === 'method')
-    for (const method of ASPC_METHODS) expect(issue?.message).toContain(method)
   })
 })

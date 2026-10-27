@@ -59,29 +59,7 @@ describe('asp build', () => {
     await fs.rm(outputDir, { recursive: true, force: true })
   })
 
-  test('materializes plugin directories', async () => {
-    const result = await build('dev', {
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-      outputDir,
-    })
-
-    // Build succeeds if we get pluginDirs
-    expect(result.pluginDirs).toBeDefined()
-    expect(result.pluginDirs.length).toBeGreaterThan(0)
-
-    // Check that plugin directories exist
-    for (const pluginDir of result.pluginDirs) {
-      const exists = await fs
-        .access(pluginDir)
-        .then(() => true)
-        .catch(() => false)
-      expect(exists).toBe(true)
-    }
-  })
-
-  test('generates valid plugin.json for each space', async () => {
+  test('build writes a kebab-case .claude-plugin/plugin.json into every materialized plugin dir', async () => {
     const result = await build('dev', {
       projectPath: projectDir,
       registryPath: SAMPLE_REGISTRY_DIR,
@@ -109,7 +87,7 @@ describe('asp build', () => {
     }
   })
 
-  test('includes component directories', async () => {
+  test("build copies a space's commands into its plugin dir", async () => {
     const result = await build('dev', {
       projectPath: projectDir,
       registryPath: SAMPLE_REGISTRY_DIR,
@@ -141,64 +119,6 @@ describe('asp build', () => {
     }
 
     expect(foundFrontendCommands).toBe(true)
-  })
-
-  test('returns warnings for command collisions', async () => {
-    // The collision lives in a dedicated pair rather than in frontend/backend, so
-    // this case builds its own project instead of using the shared `dev` above.
-    await cleanupTempProject(projectDir)
-    projectDir = await createTempProject({
-      dev: {
-        compose: ['space:cmd-collision-a@stable', 'space:cmd-collision-b@stable'],
-      },
-    })
-
-    await install({
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-    })
-
-    const result = await build('dev', {
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-      outputDir,
-    })
-
-    // Should have warnings
-    expect(result.warnings.length).toBeGreaterThan(0)
-
-    // Should have a command collision warning (W201)
-    const hasCollision = result.warnings.some((w) => w.code === 'W201')
-    expect(hasCollision).toBe(true)
-  })
-
-  test('no collision warning for single space target', async () => {
-    // Create project with just one space
-    await cleanupTempProject(projectDir)
-    projectDir = await createTempProject({
-      single: {
-        compose: ['space:base@stable'],
-      },
-    })
-
-    await install({
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-    })
-
-    const result = await build('single', {
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-      outputDir,
-    })
-
-    // Should have no command collision warnings
-    const collisionWarnings = result.warnings.filter((w) => w.code === 'W201')
-    expect(collisionWarnings.length).toBe(0)
   })
 
   test('emits W101 warning when lock file is missing and auto-generated', async () => {

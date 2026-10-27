@@ -107,44 +107,6 @@ function launchEnv(env: Record<string, string | undefined>): Record<string, stri
 }
 
 describe('HRC launch identity env (T-09271)', () => {
-  test('format 1: runId present exports run keys and the three launch keys', async () => {
-    const fixture = createV2CompileFixture()
-    fixtures.push(fixture)
-    const req = request(fixture, 'format-1')
-
-    const { spec, env } = await compileAndReadEnv(req, fixture)
-
-    expect(spec.agent?.runId).toBe(req.identity.runId)
-    expect(spec.correlation?.['runId']).toBe(req.correlation.runId)
-    expect(launchEnv(env)).toEqual({
-      HRC_RUN_ID: req.identity.runId,
-      AGENT_RUN_ID: req.identity.runId,
-      HRC_RUNTIME_ID: req.correlation.runtimeId,
-      HRC_INVOCATION_ID: req.identity.invocationId,
-      HRC_INITIAL_INPUT_ID: req.identity.initialInputId,
-    })
-  })
-
-  test('format 2: runId absent exports no run keys and never synthesizes one', async () => {
-    const fixture = createV2CompileFixture()
-    fixtures.push(fixture)
-    const req = request(fixture, 'format-2')
-
-    const { spec, env } = await compileAndReadEnv(req, fixture)
-
-    expect(spec.agent).not.toHaveProperty('runId')
-    expect(spec.correlation).not.toHaveProperty('runId')
-    expect(env).not.toHaveProperty('HRC_RUN_ID')
-    expect(env).not.toHaveProperty('AGENT_RUN_ID')
-    expect(launchEnv(env)).toEqual({
-      HRC_RUN_ID: undefined,
-      AGENT_RUN_ID: undefined,
-      HRC_RUNTIME_ID: req.correlation.runtimeId,
-      HRC_INVOCATION_ID: req.identity.invocationId,
-      HRC_INITIAL_INPUT_ID: req.identity.initialInputId,
-    })
-  })
-
   test('format 2: an absent launch source leaves its key absent, even under a spoof', async () => {
     const fixture = createV2CompileFixture()
     fixtures.push(fixture)
@@ -168,7 +130,16 @@ describe('HRC launch identity env (T-09271)', () => {
       const spoof = Object.fromEntries(LAUNCH_KEYS.map((key) => [key, `spoofed-${key}`]))
       const req = request(fixture, format, { ...spoof, KEEP_ME: 'yes' })
 
-      const { env } = await compileAndReadEnv(req, fixture)
+      const { spec, env } = await compileAndReadEnv(req, fixture)
+      if (format === 'format-1') {
+        expect(spec.agent?.runId).toBe(req.identity.runId)
+        expect(spec.correlation?.['runId']).toBe(req.correlation.runId)
+      } else {
+        expect(spec.agent).not.toHaveProperty('runId')
+        expect(spec.correlation).not.toHaveProperty('runId')
+        expect(env).not.toHaveProperty('HRC_RUN_ID')
+        expect(env).not.toHaveProperty('AGENT_RUN_ID')
+      }
 
       expect(env['KEEP_ME']).toBe('yes')
       expect(launchEnv(env)).toEqual({

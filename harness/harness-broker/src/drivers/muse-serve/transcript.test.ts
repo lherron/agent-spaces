@@ -135,34 +135,28 @@ describe('createMuseTranscriptModel', () => {
     expect(bare).toEqual(['tool bash started'])
   })
 
-  test('debug diagnostics stay off the pane unless verbose', () => {
-    const debug = {
+  test.each([
+    {
+      row: 'debug diagnostics',
       type: 'diagnostic',
       payload: { level: 'debug', message: 'muse-serve context usage' },
-    }
-    expect(render([debug])).toEqual([])
-    const lines: string[] = []
-    const model = createMuseTranscriptModel({
-      emit: (line) => lines.push(line),
-      verbose: true,
-    })
-    model.apply(envelope(debug.type, debug.payload))
-    expect(lines).toEqual(['[diagnostic] [debug] muse-serve context usage'])
-  })
-
-  test('usage payloads stay off the pane unless verbose', () => {
-    const update = {
+      verboseLine: '[diagnostic] [debug] muse-serve context usage',
+    },
+    {
+      row: 'usage updates',
       type: 'usage.updated',
       payload: { usage: { inputTokens: 25008, outputTokens: 203 } },
-    }
-    expect(render([update])).toEqual([])
+      verboseLine: '[usage.updated] usage: {"inputTokens":25008,"outputTokens":203}',
+    },
+  ])('$row stay off the pane unless verbose', ({ type, payload, verboseLine }) => {
+    expect(render([{ type, payload }])).toEqual([])
     const lines: string[] = []
     const model = createMuseTranscriptModel({
       emit: (line) => lines.push(line),
       verbose: true,
     })
-    model.apply(envelope(update.type, update.payload))
-    expect(lines).toEqual(['[usage.updated] usage: {"inputTokens":25008,"outputTokens":203}'])
+    model.apply(envelope(type, payload))
+    expect(lines).toEqual([verboseLine])
   })
 
   test('tool output renders without header, capped at four lines', () => {

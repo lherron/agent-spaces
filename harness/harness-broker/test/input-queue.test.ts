@@ -393,65 +393,33 @@ describe('broker-owned FIFO input queue', () => {
     expect(inputIds(controller.steeredInputs)).toEqual(['input_attempted_steer_replay'])
   })
 
-  test('turn.completed drains the next queued input on a microtask', async () => {
-    const { broker, controller, events, invocationId } = await setup({
-      invocationId: 'inv_queue_completed_drain',
-    })
-    await broker.input({ invocationId, input: userInput('input_active', 'active') })
-    await broker.input({
-      invocationId,
-      input: userInput('input_after_completed', 'queued'),
-      policy: { whenBusy: 'queue' },
-    })
+  test.each([
+    { terminal: 'turn.completed', end: 'completeActiveTurn' },
+    { terminal: 'turn.failed', end: 'failActiveTurn' },
+    { terminal: 'turn.interrupted', end: 'interruptActiveTurn' },
+  ] as const)(
+    '$terminal drains the next queued input on a microtask and starts its turn',
+    async ({ terminal, end }) => {
+      const { broker, controller, events, invocationId } = await setup({
+        invocationId: `inv_queue_${terminal.replace('.', '_')}_drain`,
+      })
+      await broker.input({ invocationId, input: userInput('input_active', 'active') })
+      await broker.input({
+        invocationId,
+        input: userInput('input_after_terminal', 'queued'),
+        policy: { whenBusy: 'queue' },
+      })
 
-    controller.completeActiveTurn()
-    await flushMicrotasks()
+      controller[end]()
+      await flushMicrotasks()
 
-    expect(inputIds(controller.inputs)).toEqual(['input_active', 'input_after_completed'])
-    expect(inputEvents(events, 'turn.started').at(-1)).toMatchObject({
-      inputId: 'input_after_completed',
-    })
-  })
-
-  test('turn.failed drains the next queued input on a microtask', async () => {
-    const { broker, controller, events, invocationId } = await setup({
-      invocationId: 'inv_queue_failed_drain',
-    })
-    await broker.input({ invocationId, input: userInput('input_active', 'active') })
-    await broker.input({
-      invocationId,
-      input: userInput('input_after_failed', 'queued'),
-      policy: { whenBusy: 'queue' },
-    })
-
-    controller.failActiveTurn()
-    await flushMicrotasks()
-
-    expect(inputIds(controller.inputs)).toEqual(['input_active', 'input_after_failed'])
-    expect(inputEvents(events, 'turn.started').at(-1)).toMatchObject({
-      inputId: 'input_after_failed',
-    })
-  })
-
-  test('turn.interrupted drains the next queued input on a microtask', async () => {
-    const { broker, controller, events, invocationId } = await setup({
-      invocationId: 'inv_queue_interrupted_drain',
-    })
-    await broker.input({ invocationId, input: userInput('input_active', 'active') })
-    await broker.input({
-      invocationId,
-      input: userInput('input_after_interrupted', 'queued'),
-      policy: { whenBusy: 'queue' },
-    })
-
-    controller.interruptActiveTurn()
-    await flushMicrotasks()
-
-    expect(inputIds(controller.inputs)).toEqual(['input_active', 'input_after_interrupted'])
-    expect(inputEvents(events, 'turn.started').at(-1)).toMatchObject({
-      inputId: 'input_after_interrupted',
-    })
-  })
+      expect(inputEvents(events, terminal)).toHaveLength(1)
+      expect(inputIds(controller.inputs)).toEqual(['input_active', 'input_after_terminal'])
+      expect(inputEvents(events, 'turn.started').at(-1)).toMatchObject({
+        inputId: 'input_after_terminal',
+      })
+    }
+  )
 
   test('FIFO drain order is preserved across three queued inputs', async () => {
     const { broker, controller, invocationId } = await setup({ invocationId: 'inv_queue_fifo' })
@@ -473,8 +441,8 @@ describe('broker-owned FIFO input queue', () => {
     expect(inputIds(controller.inputs)).toEqual(['input_active', 'a', 'b', 'c'])
   })
 
-  test('inputQueue none with queue policy rejects with a stable structured reason', async () => {
-    const { broker, invocationId } = await setup({
+  test('inputQueue none with queue policy rejects with reason queue_not_supported in the response and input.rejected', async () => {
+    const { broker, events, invocationId } = await setup({
       invocationId: 'inv_queue_disabled',
       inputQueue: 'none',
     })
@@ -490,22 +458,12 @@ describe('broker-owned FIFO input queue', () => {
       inputId: 'input_queue_disabled',
       accepted: false,
       disposition: 'rejected',
+      reason: 'queue_not_supported',
     })
-    expect(response.reason).toBeString()
-    expect(response.reason).not.toHaveLength(0)
-  })
-
-  test('whenBusy reject preserves busy-turn rejection behavior', async () => {
-    const { broker, invocationId } = await setup({ invocationId: 'inv_queue_reject_regression' })
-    await broker.input({ invocationId, input: userInput('input_active', 'active') })
-
-    await expect(
-      broker.input({
-        invocationId,
-        input: userInput('input_reject_regression', 'reject'),
-        policy: { whenBusy: 'reject' },
-      })
-    ).rejects.toMatchObject({ code: BrokerErrorCode.InputRejected })
+    expect(inputEvents(events, 'input.rejected').at(-1)).toMatchObject({
+      inputId: 'input_queue_disabled',
+      payload: { inputId: 'input_queue_disabled', reason: 'queue_not_supported' },
+    })
   })
 
   test('queue depth cap rejects the fourth queued input with queue_full and emits input.rejected', async () => {
@@ -628,63 +586,36 @@ describe('broker-owned FIFO input queue', () => {
     })
   })
 
-  test('broker-assigned inputId is stable in response and input.accepted event', async () => {
-    const { broker, events, invocationId } = await setup({
-      invocationId: 'inv_queue_assigned_started',
-    })
+  test.each([
+    { event: 'input.accepted', disposition: 'started', busy: false, inputQueue: 'fifo' },
+    { event: 'input.queued', disposition: 'queued', busy: true, inputQueue: 'fifo' },
+    { event: 'input.rejected', disposition: 'rejected', busy: true, inputQueue: 'none' },
+  ] as const)(
+    'an input without an inputId gets a broker-assigned id that $event carries ($disposition)',
+    async ({ event, disposition, busy, inputQueue }) => {
+      const { broker, events, invocationId } = await setup({
+        invocationId: `inv_queue_assigned_${disposition}`,
+        inputQueue,
+      })
+      if (busy) {
+        await broker.input({ invocationId, input: userInput('input_active', 'active') })
+      }
 
-    const response = await broker.input({
-      invocationId,
-      input: userInput(undefined, 'assign an id'),
-    })
+      const response = await broker.input({
+        invocationId,
+        input: userInput(undefined, 'assign an id'),
+        ...(busy ? { policy: { whenBusy: 'queue' as const } } : {}),
+      })
 
-    expect(response.inputId).toBeString()
-    expect(response.inputId).not.toHaveLength(0)
-    expect(inputEvents(events, 'input.accepted').at(-1)).toMatchObject({
-      inputId: response.inputId,
-      payload: { inputId: response.inputId },
-    })
-  })
-
-  test('broker-assigned inputId is stable in response and input.queued event', async () => {
-    const { broker, events, invocationId } = await setup({
-      invocationId: 'inv_queue_assigned_queued',
-    })
-    await broker.input({ invocationId, input: userInput('input_active', 'active') })
-
-    const response = await broker.input({
-      invocationId,
-      input: userInput(undefined, 'assign queued id'),
-      policy: { whenBusy: 'queue' },
-    })
-
-    expect(response.inputId).toBeString()
-    expect(inputEvents(events, 'input.queued').at(-1)).toMatchObject({
-      inputId: response.inputId,
-      payload: { inputId: response.inputId },
-    })
-  })
-
-  test('broker-assigned inputId is stable in response and input.rejected event', async () => {
-    const { broker, events, invocationId } = await setup({
-      invocationId: 'inv_queue_assigned_rejected',
-      inputQueue: 'none',
-    })
-    await broker.input({ invocationId, input: userInput('input_active', 'active') })
-
-    const response = await broker.input({
-      invocationId,
-      input: userInput(undefined, 'assign rejected id'),
-      policy: { whenBusy: 'queue' },
-    })
-
-    expect(response.inputId).toBeString()
-    expect(response.disposition).toBe('rejected')
-    expect(inputEvents(events, 'input.rejected').at(-1)).toMatchObject({
-      inputId: response.inputId,
-      payload: { inputId: response.inputId },
-    })
-  })
+      expect(response.inputId).toBeString()
+      expect(response.inputId).not.toHaveLength(0)
+      expect(response.disposition).toBe(disposition)
+      expect(inputEvents(events, event).at(-1)).toMatchObject({
+        inputId: response.inputId,
+        payload: { inputId: response.inputId },
+      })
+    }
+  )
 
   test('drain rejection for one queued input does not block later queued inputs', async () => {
     const { broker, controller, events, invocationId } = await setup({

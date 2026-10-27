@@ -13,9 +13,12 @@ afterEach(async () => {
 // Bun reports a connect failure to a missing unix socket synchronously when
 // connect() runs inside a Bun.serve request handler. A listener attached after
 // connect() returns never sees it and the host process dies on an uncaught
-// `error`. A child process isolates that crash from the test runner.
+// `error`. A child process isolates that crash from the test runner. The probe
+// lives in the test's own temp dir, so it imports the client by the path the
+// package specifier resolves to from this test.
+const clientEntry = Bun.resolveSync('spaces-harness-broker-client', import.meta.dir)
 const probeScript = (serverSocket: string, missingSocket: string): string => `
-import { UnixSocketTransport } from 'spaces-harness-broker-client'
+import { UnixSocketTransport } from ${JSON.stringify(clientEntry)}
 const server = Bun.serve({
   unix: ${JSON.stringify(serverSocket)},
   async fetch() {
@@ -40,29 +43,21 @@ describe('UnixSocketTransport.connect refusal', () => {
   test('a missing socket rejects inside a Bun.serve handler without an uncaught error', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'uds-refusal-'))
     tmpDirs.push(dir)
-    const scriptPath = join(
-      repoRoot,
-      'contracts/harness-broker-client/test',
-      `.refusal-probe-${process.pid}.ts`
-    )
+    const scriptPath = join(dir, 'refusal-probe.ts')
     await Bun.write(scriptPath, probeScript(join(dir, 'http.sock'), join(dir, 'missing.sock')))
-    try {
-      const proc = Bun.spawn(['bun', scriptPath], { cwd: repoRoot, stdout: 'pipe', stderr: 'pipe' })
-      const [stdout, stderr, exitCode] = await Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-        proc.exited,
-      ])
-      expect({ exitCode, stderr: stderr.trim() }).toEqual({ exitCode: 0, stderr: '' })
-      const lines = stdout.trim().split('\n')
-      expect(lines).toEqual([
-        'refused: Failed to connect to broker unix socket',
-        'refused: Failed to connect to broker unix socket',
-        'refused: Failed to connect to broker unix socket',
-        'survived',
-      ])
-    } finally {
-      await rm(scriptPath, { force: true })
-    }
+    const proc = Bun.spawn(['bun', scriptPath], { cwd: repoRoot, stdout: 'pipe', stderr: 'pipe' })
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ])
+    expect({ exitCode, stderr: stderr.trim() }).toEqual({ exitCode: 0, stderr: '' })
+    const lines = stdout.trim().split('\n')
+    expect(lines).toEqual([
+      'refused: Failed to connect to broker unix socket',
+      'refused: Failed to connect to broker unix socket',
+      'refused: Failed to connect to broker unix socket',
+      'survived',
+    ])
   }, 15_000)
 })

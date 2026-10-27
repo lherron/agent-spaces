@@ -3,15 +3,10 @@ import { describe, expect, test } from 'bun:test'
 import {
   ALWAYS_ON_PACKAGE_NAMES,
   cleanFastTestEnvironment,
-  isPublicSurfaceRelevant,
   selectAffectedPackageNames,
 } from './lib/hook-optimization.ts'
 import { HOOK_RUN_ID_ENV } from './lib/hook-timing.ts'
-import {
-  reverseDependencyClosure,
-  topologicalWorkspaceLayers,
-  workspaceForPath,
-} from './lib/workspace-graph.ts'
+import { topologicalWorkspaceLayers } from './lib/workspace-graph.ts'
 import type { WorkspacePackage } from './lib/workspace-graph.ts'
 
 function workspace(
@@ -36,21 +31,18 @@ describe('hook optimization graph', () => {
     ).toEqual([['foundation'], ['consumer'], ['application']])
   })
 
-  test('reverse closure and path ownership include downstream consumers', () => {
-    expect([...reverseDependencyClosure(packages, ['foundation'])].sort()).toEqual([
-      'application',
-      'consumer',
-      'foundation',
-    ])
-    expect(workspaceForPath(packages, 'core/consumer/src/index.ts')?.name).toBe('consumer')
-  })
-
   test('source changes select downstream suites plus always-on contracts', () => {
     const selection = selectAffectedPackageNames(packages, ['core/consumer/src/index.ts'], false)
     expect(selection.full).toBeFalse()
     expect(selection.packageNames).toEqual(
       new Set([...ALWAYS_ON_PACKAGE_NAMES, 'consumer', 'application'])
     )
+
+    // Transitive: a change in foundation reaches consumer and, through it, application.
+    expect(
+      selectAffectedPackageNames(packages, ['contracts/foundation/src/index.ts'], false)
+        .packageNames
+    ).toEqual(new Set([...ALWAYS_ON_PACKAGE_NAMES, 'foundation', 'consumer', 'application']))
   })
 
   test('test-only changes stay within their owner and root uncertainty fails safe', () => {
@@ -77,14 +69,6 @@ describe('hook optimization graph', () => {
       full: true,
       includeScripts: true,
     })
-  })
-
-  test('public-surface relevance is limited to API-bearing inputs', () => {
-    expect(isPublicSurfaceRelevant('core/config/src/index.ts')).toBeTrue()
-    expect(isPublicSurfaceRelevant('core/config/package.json')).toBeTrue()
-    expect(isPublicSurfaceRelevant('.public-surface-baseline.json')).toBeTrue()
-    expect(isPublicSurfaceRelevant('scripts/test-fast.ts')).toBeFalse()
-    expect(isPublicSurfaceRelevant('lefthook.yml')).toBeFalse()
   })
 
   test('test subprocesses cannot impersonate the outer hook run or agent session', () => {

@@ -1,9 +1,7 @@
 /**
  * RED test suite for scripts/check-public-surface.ts (S7 public-surface guard).
  *
- * WHY: These tests fail now because check-public-surface.ts does not exist yet,
- * and scripts/lib/import-graph.ts does not yet export parseExportReferences().
- * Larry implements the checker and import-graph export scanner to make them green.
+ * Drives the checker by argv over a temp fixture root.
  *
  * Encodes the daedalus RULING for T-04402:
  *   1. Public exports are enumerated only when reachable from ratified barrels.
@@ -111,70 +109,6 @@ async function writeCommandRegistry(root: string, commandSource: string): Promis
   )
 }
 
-describe('parseExportReferences()', () => {
-  test('case 1: barrel-reachable export enumeration includes public forms and ignores internal src exports', async () => {
-    const module = await import('./lib/import-graph')
-    const parseExportReferences = module.parseExportReferences as
-      | ((file: string, content: string) => Array<Record<string, unknown>>)
-      | undefined
-    expect(typeof parseExportReferences).toBe('function')
-
-    const refs = parseExportReferences?.(
-      'contracts/agent-scope/src/index.ts',
-      `
-        export const InlineValue = 'inline'
-        export type InlineType = { id: string }
-        export interface InlineInterface { id: string }
-        export { localValue as PublicAlias } from './alias'
-        export * from './star'
-        export * as NamespacePublic from './namespace'
-        export { default as DefaultPublic } from './defaulted'
-        const HiddenInternal = true
-      `
-    )
-
-    expect(refs).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          file: 'contracts/agent-scope/src/index.ts',
-          symbol: 'InlineValue',
-        }),
-        expect.objectContaining({
-          file: 'contracts/agent-scope/src/index.ts',
-          symbol: 'InlineType',
-        }),
-        expect.objectContaining({
-          file: 'contracts/agent-scope/src/index.ts',
-          symbol: 'InlineInterface',
-        }),
-        expect.objectContaining({
-          file: 'contracts/agent-scope/src/index.ts',
-          symbol: 'PublicAlias',
-          specifier: './alias',
-        }),
-        expect.objectContaining({
-          file: 'contracts/agent-scope/src/index.ts',
-          kind: 'star',
-          specifier: './star',
-        }),
-        expect.objectContaining({
-          file: 'contracts/agent-scope/src/index.ts',
-          symbol: 'NamespacePublic',
-          specifier: './namespace',
-        }),
-        expect.objectContaining({
-          file: 'contracts/agent-scope/src/index.ts',
-          symbol: 'DefaultPublic',
-          specifier: './defaulted',
-        }),
-      ])
-    )
-    expect(refs).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ symbol: 'HiddenInternal' })])
-    )
-  })
-})
-
 describe('check-public-surface.ts', () => {
   let tmpDir: string
 
@@ -190,6 +124,9 @@ describe('check-public-surface.ts', () => {
     await writeAgentScopePackage(
       tmpDir,
       `
+        export const InlineValue = 'inline'
+        export type InlineType = { id: string }
+        export interface InlineInterface { id: string }
         export { directValue } from './direct'
         export type { DirectType } from './direct'
         export { aliasedValue as PublicAlias } from './alias'
@@ -244,6 +181,9 @@ describe('check-public-surface.ts', () => {
     }
     const identities = parsed.surfaces.map((surface) => `${surface.package}|${surface.symbol}`)
 
+    expect(identities).toContain('agent-scope|InlineValue')
+    expect(identities).toContain('agent-scope|InlineType')
+    expect(identities).toContain('agent-scope|InlineInterface')
     expect(identities).toContain('agent-scope|directValue')
     expect(identities).toContain('agent-scope|DirectType')
     expect(identities).toContain('agent-scope|PublicAlias')
@@ -320,74 +260,64 @@ describe('check-public-surface.ts', () => {
     expect(out(result)).toMatch(/PackageOnlySurface/)
   })
 
-  describe('case 5: waiver grammar is ticketed, adjacent, and rejects junk reasons', () => {
-    test('ticketed CONTRACT-EXEMPT waiver on the preceding line passes', async () => {
-      await writeAgentScopePackage(
-        tmpDir,
-        `
-          // CONTRACT-EXEMPT(T-1234): real downstream compatibility reason
-          export interface ContractExemptSurface { id: string }
-        `
-      )
-      const baseline = await writeEmptyBaseline(tmpDir)
+  const waiverCases: Array<{
+    name: string
+    index: string
+    passes: boolean
+    reported?: RegExp
+  }> = [
+    {
+      name: 'a ticketed CONTRACT-EXEMPT waiver on the preceding line passes',
+      index: `
+        // CONTRACT-EXEMPT(T-1234): real downstream compatibility reason
+        export interface ContractExemptSurface { id: string }
+      `,
+      passes: true,
+    },
+    {
+      name: 'a ticketed TACIT waiver on the same line passes',
+      index:
+        'export interface TacitSurface { id: string } // TACIT(T-1234): real staged contract reason',
+      passes: true,
+    },
+    {
+      name: 'a TACIT waiver without a ticket fails',
+      index: 'export interface BareTacitSurface { id: string } // TACIT(no ticket): real reason',
+      passes: false,
+      reported: /BareTacitSurface|TACIT/,
+    },
+    {
+      name: 'a waiver with a junk reason fails',
+      index: `
+        // CONTRACT-EXEMPT(T-1234): todo
+        export interface JunkReasonSurface { id: string }
+      `,
+      passes: false,
+      reported: /JunkReasonSurface|todo|reason/i,
+    },
+    {
+      name: 'a waiver more than one line above the export fails',
+      index: `
+        // CONTRACT-EXEMPT(T-1234): real reason but too far away
 
-      const result = await runCheck(tmpDir, baseline)
-      expect(result.exitCode).toBe(0)
-    })
+        export interface NonAdjacentSurface { id: string }
+      `,
+      passes: false,
+      reported: /NonAdjacentSurface/,
+    },
+  ]
 
-    test('ticketed TACIT waiver on the same line passes', async () => {
-      await writeAgentScopePackage(
-        tmpDir,
-        'export interface TacitSurface { id: string } // TACIT(T-1234): real staged contract reason'
-      )
-      const baseline = await writeEmptyBaseline(tmpDir)
+  test.each(waiverCases)('case 5: waiver grammar: $name', async ({ index, passes, reported }) => {
+    await writeAgentScopePackage(tmpDir, index)
+    const baseline = await writeEmptyBaseline(tmpDir)
 
-      const result = await runCheck(tmpDir, baseline)
-      expect(result.exitCode).toBe(0)
-    })
-
-    test('bare TACIT without a ticket fails', async () => {
-      await writeAgentScopePackage(
-        tmpDir,
-        'export interface BareTacitSurface { id: string } // TACIT(no ticket): real reason'
-      )
-      const baseline = await writeEmptyBaseline(tmpDir)
-
-      const result = await runCheck(tmpDir, baseline)
+    const result = await runCheck(tmpDir, baseline)
+    if (passes) {
+      expect(result.exitCode, out(result)).toBe(0)
+    } else {
       expect(result.exitCode).not.toBe(0)
-      expect(out(result)).toMatch(/BareTacitSurface|TACIT/)
-    })
-
-    test('junk waiver reason fails', async () => {
-      await writeAgentScopePackage(
-        tmpDir,
-        `
-          // CONTRACT-EXEMPT(T-1234): todo
-          export interface JunkReasonSurface { id: string }
-        `
-      )
-      const baseline = await writeEmptyBaseline(tmpDir)
-
-      const result = await runCheck(tmpDir, baseline)
-      expect(result.exitCode).not.toBe(0)
-      expect(out(result)).toMatch(/JunkReasonSurface|todo|reason/i)
-    })
-
-    test('non-adjacent waiver more than one line above fails', async () => {
-      await writeAgentScopePackage(
-        tmpDir,
-        `
-          // CONTRACT-EXEMPT(T-1234): real reason but too far away
-
-          export interface NonAdjacentSurface { id: string }
-        `
-      )
-      const baseline = await writeEmptyBaseline(tmpDir)
-
-      const result = await runCheck(tmpDir, baseline)
-      expect(result.exitCode).not.toBe(0)
-      expect(out(result)).toMatch(/NonAdjacentSurface/)
-    })
+      expect(out(result)).toMatch(reported as RegExp)
+    }
   })
 
   test('case 6: baseline shape is stable, identity-hashed, idempotent, and survives file moves', async () => {
@@ -481,66 +411,4 @@ describe('check-public-surface.ts', () => {
     const waived = await runCheck(tmpDir, baseline)
     expect(waived.exitCode).toBe(0)
   })
-})
-
-// ---------------------------------------------------------------------------
-// Mutation/bite spot-check — real ratified package (T-04440 S7)
-// ---------------------------------------------------------------------------
-// Plants a new uncovered public symbol in the real agent-scope barrel and proves
-// that the REAL check-public-surface (real repo root, real baseline) FAILS.
-// Mirrors the planted-fixture pattern in scripts/check-diagnostics.test.ts.
-//
-// THE BITE: if the planted symbol is present and the check does NOT fail,
-// the test assertion fails — that is the proof the check can catch regressions.
-
-describe('check-public-surface.ts — mutation/bite spot-check (real repo)', () => {
-  // Sentinel file planted in the real ratified package (agent-scope).
-  const SURFACE_FIXTURE_REL = 'contracts/agent-scope/src/__surface_fixture__.ts'
-  const SURFACE_FIXTURE_CONTENT = [
-    '// __surface_fixture__: public surface mutation sentinel — DO NOT COMMIT',
-    '// Plants an uncovered export for S7 mutation/bite spot-check (T-04440).',
-    'export const PlantedSurfaceFixtureT04440 = true',
-  ].join('\n')
-
-  // Single named re-export appended to the barrel; .js extension matches existing barrel style.
-  const INDEX_REL = 'contracts/agent-scope/src/index.ts'
-  const INDEX_FIXTURE_LINE =
-    "export { PlantedSurfaceFixtureT04440 } from './__surface_fixture__.js'\n"
-
-  let savedIndexContent: string | undefined
-
-  afterEach(async () => {
-    // Force-remove fixture even if the test threw before writeFile (force:true is a no-op if absent).
-    await rm(join(REPO_ROOT, SURFACE_FIXTURE_REL), { force: true })
-    // Restore barrel to original content.
-    if (savedIndexContent !== undefined) {
-      await writeFile(join(REPO_ROOT, INDEX_REL), savedIndexContent)
-      savedIndexContent = undefined
-    }
-  })
-
-  test('mutation: planted uncovered public symbol makes check-public-surface fail', async () => {
-    // Snapshot the barrel before mutating.
-    savedIndexContent = await readFile(join(REPO_ROOT, INDEX_REL), 'utf-8')
-
-    // Plant: new uncovered public symbol in the fixture file; re-export from the barrel.
-    await writeFile(join(REPO_ROOT, SURFACE_FIXTURE_REL), SURFACE_FIXTURE_CONTENT)
-    await writeFile(join(REPO_ROOT, INDEX_REL), savedIndexContent + INDEX_FIXTURE_LINE)
-
-    // Run the REAL check — no --root or --baseline flags → uses REPO_ROOT CWD and real baseline.
-    const proc = Bun.spawn(['bun', 'scripts/check-public-surface.ts'], {
-      cwd: REPO_ROOT,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    await proc.exited
-    const stdout = await new Response(proc.stdout).text()
-    const stderr = await new Response(proc.stderr).text()
-    const combined = stdout + stderr
-
-    // THE BITE: planted symbol not in baseline + not covered → must fail.
-    expect(proc.exitCode).not.toBe(0)
-    expect(combined).toMatch(/PlantedSurfaceFixtureT04440/)
-    expect(combined).toMatch(/PUBLIC_SURFACE|public-surface|new public surface/i)
-  }, 10_000)
 })

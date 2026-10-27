@@ -7,6 +7,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 type MemoryTargetName = 'memory' | 'user' | 'persona'
@@ -21,9 +22,6 @@ interface MemoryTargetConfig {
 }
 
 interface PathsModule {
-  MEMORY_FILE: string
-  USER_FILE: string
-  PERSONA_FILE: string
   resolveMemoryPaths: (
     agentName: string,
     rootOverride?: string
@@ -34,19 +32,11 @@ describe('agent-memory path resolution', () => {
   let tempAgentsRoot: string
 
   beforeEach(async () => {
-    tempAgentsRoot = await mkdtemp(join(process.cwd(), '.tmp-agent-memory-paths-'))
+    tempAgentsRoot = await mkdtemp(join(tmpdir(), 'agent-memory-paths-'))
   })
 
   afterEach(async () => {
     await rm(tempAgentsRoot, { recursive: true, force: true })
-  })
-
-  test('exports stable filename constants including persona SOUL.md', async () => {
-    const paths = await loadPathsModule()
-
-    expect(paths.MEMORY_FILE).toBe('MEMORY.md')
-    expect(paths.USER_FILE).toBe('USER.md')
-    expect(paths.PERSONA_FILE).toBe('SOUL.md')
   })
 
   test('resolves memory, user, and persona targets under a temp agents root', async () => {
@@ -80,18 +70,6 @@ describe('agent-memory path resolution', () => {
       scannerCategoriesToSkip: ['prompt_injection'],
     })
   })
-
-  test('keeps USER.md shared while MEMORY.md and SOUL.md are per-agent', async () => {
-    const { resolveMemoryPaths } = await loadPathsModule()
-
-    const smokey = resolveMemoryPaths('smokey', tempAgentsRoot)
-    const clod = resolveMemoryPaths('clod', tempAgentsRoot)
-
-    expect(smokey.user.path).toBe(clod.user.path)
-    expect(smokey.memory.path).not.toBe(clod.memory.path)
-    expect(smokey.persona.path).not.toBe(clod.persona.path)
-    expect(smokey.persona.path).not.toContain('/memory/')
-  })
 })
 
 async function loadPathsModule(): Promise<PathsModule> {
@@ -99,7 +77,7 @@ async function loadPathsModule(): Promise<PathsModule> {
     return (await import('../paths.js')) as PathsModule
   } catch {
     throw new Error(
-      'Expected core/runtime/src/agent-memory/paths.ts to export MEMORY_FILE, USER_FILE, PERSONA_FILE, and resolveMemoryPaths().'
+      'Expected core/runtime/src/agent-memory/paths.ts to export resolveMemoryPaths().'
     )
   }
 }

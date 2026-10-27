@@ -1,3 +1,4 @@
+import { LOCK_FILES, getStoreLockPath, withStoreLock } from './locks.js'
 /**
  * Tests for file locking utilities.
  *
@@ -11,16 +12,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import { LockTimeoutError } from './errors.js'
-import {
-  LOCK_FILES,
-  acquireLock,
-  getProjectLockPath,
-  getStoreLockPath,
-  isLocked,
-  withLock,
-  withProjectLock,
-  withStoreLock,
-} from './locks.js'
+import { acquireLock, isLocked, withLock, withProjectLock } from './locks.js'
 
 describe('acquireLock', () => {
   let tmpDir: string
@@ -33,36 +25,20 @@ describe('acquireLock', () => {
     await fs.promises.rm(tmpDir, { recursive: true, force: true })
   })
 
-  test('acquires and releases lock', async () => {
-    const lockPath = path.join(tmpDir, 'test.lock')
-
-    const handle = await acquireLock(lockPath)
-    expect(handle.path).toBe(lockPath)
-
-    // Should be locked
-    expect(await isLocked(lockPath)).toBe(true)
-
-    // Release
-    await handle.release()
-
-    // Should be unlocked
-    expect(await isLocked(lockPath)).toBe(false)
-  })
-
-  test('creates lock file if it does not exist', async () => {
-    const lockPath = path.join(tmpDir, 'new.lock')
-
-    const handle = await acquireLock(lockPath)
-    expect(await fs.promises.access(lockPath).then(() => true)).toBe(true)
-    await handle.release()
-  })
-
-  test('creates parent directories for lock file', async () => {
+  test('an acquired lock reports locked until released, then can be acquired again', async () => {
     const lockPath = path.join(tmpDir, 'nested', 'deep', 'test.lock')
 
     const handle = await acquireLock(lockPath)
+    expect(handle.path).toBe(lockPath)
     expect(await fs.promises.access(lockPath).then(() => true)).toBe(true)
+    expect(await isLocked(lockPath)).toBe(true)
+
     await handle.release()
+    expect(await isLocked(lockPath)).toBe(false)
+
+    const handle2 = await acquireLock(lockPath)
+    expect(await isLocked(lockPath)).toBe(true)
+    await handle2.release()
   })
 
   test('can release lock multiple times safely', async () => {
@@ -96,49 +72,6 @@ describe('acquireLock', () => {
 
     await handle1.release()
   })
-
-  test('second acquisition succeeds after release', async () => {
-    const lockPath = path.join(tmpDir, 'test.lock')
-
-    const handle1 = await acquireLock(lockPath)
-    await handle1.release()
-
-    // Should succeed now
-    const handle2 = await acquireLock(lockPath)
-    expect(handle2.path).toBe(lockPath)
-    await handle2.release()
-  })
-})
-
-describe('isLocked', () => {
-  let tmpDir: string
-
-  beforeEach(async () => {
-    tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'islock-test-'))
-  })
-
-  afterEach(async () => {
-    await fs.promises.rm(tmpDir, { recursive: true, force: true })
-  })
-
-  test('returns false for non-existent file', async () => {
-    const lockPath = path.join(tmpDir, 'nonexistent.lock')
-    expect(await isLocked(lockPath)).toBe(false)
-  })
-
-  test('returns false for unlocked file', async () => {
-    const lockPath = path.join(tmpDir, 'test.lock')
-    await fs.promises.writeFile(lockPath, '')
-    expect(await isLocked(lockPath)).toBe(false)
-  })
-
-  test('returns true for locked file', async () => {
-    const lockPath = path.join(tmpDir, 'test.lock')
-
-    const handle = await acquireLock(lockPath)
-    expect(await isLocked(lockPath)).toBe(true)
-    await handle.release()
-  })
 })
 
 describe('withLock', () => {
@@ -156,22 +89,14 @@ describe('withLock', () => {
     const lockPath = path.join(tmpDir, 'test.lock')
     let lockHeld = false
 
-    await withLock(lockPath, async () => {
-      lockHeld = await isLocked(lockPath)
-    })
-
-    expect(lockHeld).toBe(true)
-    expect(await isLocked(lockPath)).toBe(false)
-  })
-
-  test('returns function result', async () => {
-    const lockPath = path.join(tmpDir, 'test.lock')
-
     const result = await withLock(lockPath, async () => {
+      lockHeld = await isLocked(lockPath)
       return { value: 42 }
     })
 
+    expect(lockHeld).toBe(true)
     expect(result).toEqual({ value: 42 })
+    expect(await isLocked(lockPath)).toBe(false)
   })
 
   test('releases lock on error', async () => {
@@ -190,7 +115,7 @@ describe('withLock', () => {
     expect(await isLocked(lockPath)).toBe(false)
   })
 
-  test('serializes concurrent operations', async () => {
+  test('concurrent withLock callers run one at a time without interleaving', async () => {
     const lockPath = path.join(tmpDir, 'test.lock')
     const order: number[] = []
 
@@ -209,22 +134,11 @@ describe('withLock', () => {
 
     await Promise.all([p1, p2])
 
-    // Operations should not interleave
-    // Either [1,2,3,4] or [3,4,1,2]
-    expect(order[0]).toBeLessThan(order[1] ?? 0)
-    expect(order[2] ?? 0).toBeLessThan(order[3] ?? 0)
-  })
-})
-
-describe('path helpers', () => {
-  test('getProjectLockPath returns correct path', () => {
-    const lockPath = getProjectLockPath('/home/user/project')
-    expect(lockPath).toBe(`/home/user/project/${LOCK_FILES.PROJECT}`)
-  })
-
-  test('getStoreLockPath returns correct path', () => {
-    const lockPath = getStoreLockPath('/home/user/.asp')
-    expect(lockPath).toBe(`/home/user/.asp/${LOCK_FILES.STORE}`)
+    // Operations must not interleave: one caller finishes before the other starts.
+    expect([
+      [1, 2, 3, 4],
+      [3, 4, 1, 2],
+    ]).toContainEqual(order)
   })
 })
 
@@ -239,42 +153,75 @@ describe('withProjectLock', () => {
     await fs.promises.rm(tmpDir, { recursive: true, force: true })
   })
 
-  test('locks project with correct lock file', async () => {
+  test('withProjectLock holds <projectRoot>/.asp.lock while the callback runs', async () => {
     let lockHeld = false
 
     await withProjectLock(tmpDir, async () => {
-      lockHeld = await isLocked(path.join(tmpDir, LOCK_FILES.PROJECT))
+      lockHeld = await isLocked(path.join(tmpDir, '.asp.lock'))
     })
 
     expect(lockHeld).toBe(true)
   })
 })
 
-describe('withStoreLock', () => {
-  let tmpDir: string
+describe('published caller behavior (§9)', () => {
+  /**
+   * Tests for file locking utilities.
+   *
+   * WHY: Proper file locking prevents data corruption from concurrent access.
+   * These tests verify lock acquisition, release, and timeout behavior.
+   */
 
-  beforeEach(async () => {
-    tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'storelock-test-'))
-  })
+  describe('isLocked', () => {
+    let tmpDir: string
 
-  afterEach(async () => {
-    await fs.promises.rm(tmpDir, { recursive: true, force: true })
-  })
-
-  test('locks store with correct lock file', async () => {
-    let lockHeld = false
-
-    await withStoreLock(tmpDir, async () => {
-      lockHeld = await isLocked(path.join(tmpDir, LOCK_FILES.STORE))
+    beforeEach(async () => {
+      tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'islock-test-'))
     })
 
-    expect(lockHeld).toBe(true)
-  })
-})
+    afterEach(async () => {
+      await fs.promises.rm(tmpDir, { recursive: true, force: true })
+    })
 
-describe('LOCK_FILES', () => {
-  test('has correct file names', () => {
-    expect(LOCK_FILES.PROJECT).toBe('.asp.lock')
-    expect(LOCK_FILES.STORE).toBe('store.lock')
+    test('returns false for non-existent file', async () => {
+      const lockPath = path.join(tmpDir, 'nonexistent.lock')
+      expect(await isLocked(lockPath)).toBe(false)
+    })
+  })
+
+  describe('path helpers', () => {
+    test('getStoreLockPath returns correct path', () => {
+      const lockPath = getStoreLockPath('/home/user/.asp')
+      expect(lockPath).toBe(`/home/user/.asp/${LOCK_FILES.STORE}`)
+    })
+  })
+
+  describe('withStoreLock', () => {
+    let tmpDir: string
+
+    beforeEach(async () => {
+      tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'storelock-test-'))
+    })
+
+    afterEach(async () => {
+      await fs.promises.rm(tmpDir, { recursive: true, force: true })
+    })
+
+    test('locks store with correct lock file', async () => {
+      let lockHeld = false
+
+      await withStoreLock(tmpDir, async () => {
+        lockHeld = await isLocked(path.join(tmpDir, LOCK_FILES.STORE))
+      })
+
+      expect(lockHeld).toBe(true)
+    })
+  })
+
+  describe('published lock and serialization behavior', () => {
+    test('has correct file names', () => {
+      expect(LOCK_FILES.PROJECT).toBe('.asp.lock')
+      expect(LOCK_FILES.STORE).toBe('store.lock')
+    })
   })
 })

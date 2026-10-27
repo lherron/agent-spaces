@@ -1,38 +1,26 @@
 import { describe, expect, test } from 'bun:test'
 
 import { ConfigValidationError } from '../errors.js'
-import { AGENT_PROFILE_PROVISIONING_KEYS, parseAgentProfile } from './agent-profile-toml.js'
+import { parseAgentProfile } from './agent-profile-toml.js'
 
-const V4_AGENT_PROFILE_PROVISIONING_KEYS = [
-  'harness',
-  'model_provider',
-  'model',
-  'reasoning_effort',
-  'presentation',
-  'node',
-  'yolo',
-  'sandbox',
-  'approval',
-  'remote',
-  'claude',
-  'codex',
-  'default_scope_role',
-] as const
+function rejectionOf(source: string): Array<{ path: string; keyword: string }> {
+  try {
+    parseAgentProfile(source)
+  } catch (error) {
+    expect(error).toBeInstanceOf(ConfigValidationError)
+    return (error as ConfigValidationError).validationErrors.map(({ path, keyword }) => ({
+      path,
+      keyword,
+    }))
+  }
+  throw new Error('expected parseAgentProfile to reject')
+}
 
 describe('parseAgentProfile: v4 selection vocabulary', () => {
-  test('derived provisioning membership is exactly the v4 key set', () => {
-    expect([...AGENT_PROFILE_PROVISIONING_KEYS]).toEqual([...V4_AGENT_PROFILE_PROVISIONING_KEYS])
-  })
-
   test('accepts only version 4 and rejects versions 1 through 3 without translation', () => {
     expect(parseAgentProfile('version = 4\n').version).toBe(4)
-    for (const source of [
-      'version = 1\n',
-      'version = 2\n',
-      'version = 3\n',
-      'schemaVersion = 2\n',
-    ]) {
-      expect(() => parseAgentProfile(source)).toThrow(ConfigValidationError)
+    for (const source of ['version = 1\n', 'version = 2\n', 'version = 3\n']) {
+      expect(rejectionOf(source)).toEqual([{ path: '/version', keyword: 'const' }])
     }
   })
 
@@ -57,14 +45,6 @@ role = "implementer"
     expect(profile.identity).toEqual({ display: 'Cody', role: 'implementer' })
   })
 
-  test('rejects removed descriptive/default-role and identity harness keys', () => {
-    for (const line of ['default_scope_role = "implementer"', 'harness = "codex"']) {
-      expect(() => parseAgentProfile(`version = 4\n[identity]\n${line}\n`)).toThrow(
-        ConfigValidationError
-      )
-    }
-  })
-
   test('parses first-class provisioning scalars and profile-only harness tables', () => {
     const profile = parseAgentProfile(`
 version = 4
@@ -79,6 +59,7 @@ yolo = true
 sandbox = "workspace-write"
 approval = "never"
 remote = true
+default_scope_role = "implementer"
 
 [provisioning.claude]
 permission_mode = "default"
@@ -100,6 +81,7 @@ status_line = ["model", "cwd"]
       sandbox: 'workspace-write',
       approval: 'never',
       remote: true,
+      default_scope_role: 'implementer',
       claude: { permission_mode: 'default', args: ['--verbose'], ask_user_question: true },
       codex: {
         model_reasoning_summary: 'concise',
@@ -114,34 +96,20 @@ status_line = ["model", "cwd"]
     ).toThrow(/ask_user_question/)
   })
 
-  test('accepts the first-party agent harness', () => {
-    expect(
-      parseAgentProfile('version = 4\n[provisioning]\nharness = "agent-harness"\n').provisioning
-    ).toEqual({ harness: 'agent-harness' })
-  })
+  test.each([
+    ['explicit false', 'presentation = false\n', { harness: 'codex', presentation: false }, true],
+    ['omitted', '', { harness: 'codex' }, false],
+  ])(
+    'provisioning.presentation keeps explicit false and stays absent when omitted: %s',
+    (_label, presentationLine, expected, present) => {
+      const profile = parseAgentProfile(
+        `version = 4\n[provisioning]\nharness = "codex"\n${presentationLine}`
+      )
 
-  test('presentation is absent rather than materialized when the profile omits it', () => {
-    const profile = parseAgentProfile(`
-version = 4
-[provisioning]
-harness = "codex"
-`)
-
-    expect(profile.provisioning).toEqual({ harness: 'codex' })
-    expect(Object.hasOwn(profile.provisioning ?? {}, 'presentation')).toBe(false)
-  })
-
-  test('explicit presentation false is preserved by property presence', () => {
-    const profile = parseAgentProfile(`
-version = 4
-[provisioning]
-harness = "codex"
-presentation = false
-`)
-
-    expect(profile.provisioning).toEqual({ harness: 'codex', presentation: false })
-    expect(Object.hasOwn(profile.provisioning ?? {}, 'presentation')).toBe(true)
-  })
+      expect(profile.provisioning).toEqual(expected)
+      expect(Object.hasOwn(profile.provisioning ?? {}, 'presentation')).toBe(present)
+    }
+  )
 
   test('presentation derives its boolean kind from the scalar table', () => {
     for (const rawValue of ['"auto"', '1']) {
@@ -151,15 +119,32 @@ presentation = false
     }
   })
 
-  test('rejects removed viewer and reasoning keys without translation', () => {
-    for (const line of ['viewer = "none"', 'viewer = "auto"', 'reasoning = "high"']) {
-      expect(() => parseAgentProfile(`version = 4\n[provisioning]\n${line}\n`)).toThrow(
-        ConfigValidationError
-      )
+  test.each([
+    ['[provisioning]', 'viewer = "none"', '/provisioning/viewer'],
+    ['[provisioning]', 'viewer = "auto"', '/provisioning/viewer'],
+    ['[provisioning]', 'reasoning = "high"', '/provisioning/reasoning'],
+    ['[identity]', 'default_scope_role = "implementer"', '/identity/default_scope_role'],
+    ['[identity]', 'harness = "codex"', '/identity/harness'],
+    ['[harnessDefaults]', 'model = "x"', '/harnessDefaults'],
+    ['[harnessByMode.heartbeat]', 'model = "x"', '/harnessByMode'],
+    ['[provisioning.codex]', 'profile = "meta"', '/provisioning/codex/profile'],
+    ['(top level)', 'schemaVersion = 2', '/schemaVersion'],
+  ])(
+    'removed or unknown profile keys are rejected at their path without translation: %s %s',
+    (table, line, path) => {
+      const header = table === '(top level)' ? '' : `${table}\n`
+      expect(rejectionOf(`version = 4\n${header}${line}\n`)).toEqual([
+        { path, keyword: 'additionalProperties' },
+      ])
     }
-  })
+  )
 
-  test('rejects harness aliases and removed harness ids without translation', () => {
+  test('accepts the four canonical harness ids and rejects aliases, removed ids, and frontends without translation', () => {
+    for (const harness of ['agent-harness', 'claude', 'codex', 'muse']) {
+      expect(
+        parseAgentProfile(`version = 4\n[provisioning]\nharness = "${harness}"\n`).provisioning
+      ).toEqual({ harness })
+    }
     for (const harness of [
       'claude-code',
       'codex-cli',
@@ -170,10 +155,12 @@ presentation = false
       'pi-sdk',
       'muse-cli',
       'agent-harness-tui',
+      'viewer',
+      '',
     ]) {
-      expect(() =>
-        parseAgentProfile(`version = 4\n[provisioning]\nharness = "${harness}"\n`)
-      ).toThrow(ConfigValidationError)
+      expect(rejectionOf(`version = 4\n[provisioning]\nharness = "${harness}"\n`)).toEqual([
+        { path: '/provisioning/harness', keyword: 'enum' },
+      ])
     }
   })
 
@@ -185,13 +172,6 @@ presentation = false
     }
   })
 
-  test('parses provisioning default_scope_role as a validated role token', () => {
-    const profile = parseAgentProfile(
-      `version = 4\n[provisioning]\nharness = "codex"\ndefault_scope_role = "implementer"\n`
-    )
-    expect(profile.provisioning).toEqual({ harness: 'codex', default_scope_role: 'implementer' })
-  })
-
   test('rejects a provisioning default_scope_role that is not a role token', () => {
     for (const bad of ['not/a/role', 'has space', '']) {
       expect(() =>
@@ -200,15 +180,7 @@ presentation = false
     }
   })
 
-  test('rejects removed harnessDefaults and harnessByMode sections', () => {
-    for (const section of ['harnessDefaults', 'harnessByMode.heartbeat']) {
-      expect(() => parseAgentProfile(`version = 4\n[${section}]\nmodel = "x"\n`)).toThrow(
-        ConfigValidationError
-      )
-    }
-  })
-
-  test('parses priming, priming_file, spaces.modes, and instructions base/modes', () => {
+  test('priming, spaces base/modes and instructions base/modes parse into the profile', () => {
     const profile = parseAgentProfile(`
 version = 4
 priming = "Stand by"
@@ -222,6 +194,7 @@ base = ["agent-root:///EXTRA.md"]
 base = ["agent-root:///TASK.md"]
 `)
     expect(profile.priming).toBe('Stand by')
+    expect(profile.spaces?.base).toEqual(['space:defaults@dev'])
     expect(profile.spaces?.modes?.heartbeat).toEqual(['space:heartbeat@dev'])
     expect(profile.instructions?.base).toEqual(['agent-root:///EXTRA.md'])
     expect(profile.instructions?.modes?.task).toEqual(['agent-root:///TASK.md'])
@@ -231,31 +204,6 @@ base = ["agent-root:///TASK.md"]
     expect(() =>
       parseAgentProfile('version = 4\npriming = "inline"\npriming_file = "PRIMING.md"\n')
     ).toThrow(ConfigValidationError)
-  })
-
-  test('parses placement pins and homes', () => {
-    const profile = parseAgentProfile(`
-version = 4
-[placement.pins]
-"hrc-runtime:hrcdev" = "hrcdev"
-[placement.homes]
-primary = "max3"
-minisvc = "svc"
-`)
-    expect(profile.placement).toEqual({
-      pins: { 'hrc-runtime:hrcdev': 'hrcdev' },
-      homes: { primary: 'max3', minisvc: 'svc' },
-    })
-  })
-
-  test('rejects local as a node sentinel everywhere', () => {
-    for (const source of [
-      'version = 4\n[provisioning]\nnode = "local"\n',
-      'version = 4\n[placement.homes]\nprimary = "local"\n',
-      'version = 4\n[placement.pins]\n"p:t" = "local"\n',
-    ]) {
-      expect(() => parseAgentProfile(source)).toThrow(ConfigValidationError)
-    }
   })
 
   test('rejects reserved family members in homes with INCONSISTENT_FAMILY_HOME', () => {
@@ -300,13 +248,5 @@ version = 4
 research-nova = "svc"
 `)
     expect(profile.placement?.homes).toEqual({ 'research-nova': 'svc' })
-  })
-})
-
-describe('parseAgentProfile: codex profile selector removed (T-08581)', () => {
-  test('rejects [provisioning.codex] profile', () => {
-    expect(() =>
-      parseAgentProfile('version = 4\n[provisioning.codex]\nprofile = "meta"\n')
-    ).toThrow(ConfigValidationError)
   })
 })

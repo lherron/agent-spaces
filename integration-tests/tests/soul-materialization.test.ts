@@ -65,44 +65,7 @@ function getSystemPromptFromArgv(argv: string[]): string | undefined {
 // ===================================================================
 // T-00900: SOUL.md content appears via --system-prompt
 // ===================================================================
-describe('system prompt materialization (T-00900)', () => {
-  test(
-    'SOUL.md content appears as --system-prompt value in argv',
-    async () => {
-      const { agentRoot, aspHome, cleanup } = createTempAgentRoot({
-        soulContent: '# Alice\n\nYou are Alice, a helpful coding assistant.',
-        heartbeatContent: '# Heartbeat\n\nCheck system status.',
-      })
-
-      try {
-        const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
-        const client = createAgentSpacesClient({ aspHome, runtime: compilerRuntime })
-
-        const response = await client.buildProcessInvocationSpec({
-          placement: {
-            agentRoot,
-            runMode: 'query',
-            bundle: { kind: 'agent-project', agentName: 'alice' },
-          },
-          provider: 'anthropic',
-          frontend: 'claude-code',
-          interactionMode: 'headless',
-          ioMode: 'pipes',
-        } as any)
-
-        const systemPrompt = getSystemPromptFromArgv(response.spec.argv)
-        expect(systemPrompt).toBeDefined()
-        expect(systemPrompt).toContain('You are Alice')
-
-        // spec should carry the materialized file path for audit
-        expect(response.spec.systemPromptFile).toBeDefined()
-      } finally {
-        cleanup()
-      }
-    },
-    HEAVY_TEST_TIMEOUT_MS
-  )
-})
+describe('system prompt materialization (T-00900)', () => {})
 
 // ===================================================================
 // T-00900: HEARTBEAT.md included in heartbeat mode
@@ -176,6 +139,7 @@ describe('no HEARTBEAT.md in query mode (T-00900)', () => {
         expect(systemPrompt).toBeDefined()
         expect(systemPrompt).toContain('You are Alice')
         expect(systemPrompt).not.toContain('DO NOT INCLUDE THIS IN QUERY MODE')
+        expect(response.spec.systemPromptFile).toBeDefined()
       } finally {
         cleanup()
       }

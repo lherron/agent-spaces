@@ -95,49 +95,69 @@ function replay(lines: string[]): Replay {
 }
 
 describe('claude native-type disposition coverage (archived T-07849 vocabulary)', () => {
-  test('every distinct archived native type reaches exactly one terminal disposition', () => {
-    const lines = inventory.types.map((type) => JSON.stringify(inventory.rows[type]))
-    const { dispositions } = replay(lines)
-
-    expect(dispositions).toHaveLength(inventory.types.length)
-    // `pending` is the ONLY non-terminal disposition. Nothing may be left in it.
-    expect(dispositions.filter((d) => d.disposition === 'pending')).toEqual([])
-  })
-
   test('no archived native type is blocked-unknown: the table covers the real vocabulary', () => {
     const lines = inventory.types.map((type) => JSON.stringify(inventory.rows[type]))
     const { dispositions, warnings } = replay(lines)
+    // Every distinct archived type reaches exactly one terminal disposition:
+    // `pending` is the ONLY non-terminal one, and nothing may be left in it.
+    expect(dispositions).toHaveLength(inventory.types.length)
+    expect(dispositions.filter((d) => d.disposition === 'pending')).toEqual([])
     const blocked = dispositions.filter((d) => d.disposition === 'blocked-unknown')
     expect({ blocked, warnings }).toEqual({ blocked: [], warnings: [] })
   })
 
-  test('a native type OUTSIDE the archived vocabulary is blocked, not silently dropped', () => {
-    // The mutation that proves the rule can fail: an operation Claude has never
-    // emitted must be reported rather than pass through as state-only. Since
-    // T-07883 it keeps its blocked-unknown disposition and the cursor advances.
-    const { dispositions, warnings } = replay([
-      JSON.stringify({ type: 'queue-operation', operation: 'reprioritize', content: 'x' }),
-    ])
-    expect(dispositions).toEqual([
-      { nativeType: 'queue-operation:reprioritize', disposition: 'blocked-unknown' },
-    ])
-    expect(warnings).toEqual(['Unknown Claude queue operation: reprioritize'])
-  })
+  // The mutation that proves the rule can fail: a native type Claude has never
+  // emitted must be reported rather than pass through as state-only. Since
+  // T-07883 it keeps its blocked-unknown disposition and the cursor advances
+  // (the known row after it is still classified). `command_permissions` is
+  // deliberately left loud until the authority matrix reviews it.
+  test.each([
+    {
+      row: 'queue operation',
+      line: { type: 'queue-operation', operation: 'reprioritize', content: 'x' },
+      nativeType: 'queue-operation:reprioritize',
+      warning: 'Unknown Claude queue operation: reprioritize',
+    },
+    {
+      row: 'permission-named attachment subtype',
+      line: { type: 'attachment', attachment: { type: 'command_permissions', allowedTools: [] } },
+      nativeType: 'attachment:command_permissions',
+      warning: 'Unknown Claude attachment type: command_permissions',
+    },
+    {
+      row: 'unseen attachment subtype',
+      line: { type: 'attachment', attachment: { type: 'never_seen_subtype' } },
+      nativeType: 'attachment:never_seen_subtype',
+      warning: 'Unknown Claude attachment type: never_seen_subtype',
+    },
+    {
+      row: 'unpinned system subtype',
+      line: { type: 'system', subtype: 'brand_new_subtype' },
+      nativeType: 'system:brand_new_subtype',
+      warning: 'Unknown Claude system row subtype: brand_new_subtype',
+    },
+    {
+      row: 'top-level row type',
+      line: { type: 'brand-new-row-kind', payload: {} },
+      nativeType: 'brand-new-row-kind',
+      warning: 'Unknown Claude transcript row type: brand-new-row-kind',
+    },
+  ])(
+    'an unknown $row is blocked-unknown and warned, and the cursor advances past it',
+    ({ line, nativeType, warning }) => {
+      const { dispositions, warnings } = replay([
+        JSON.stringify(line),
+        JSON.stringify({ type: 'cost-state', totalCostUSD: 1.25, modelUsage: {} }),
+      ])
+      expect<unknown>(dispositions).toEqual([
+        { nativeType, disposition: 'blocked-unknown' },
+        { nativeType: 'cost-state', disposition: 'normalized' },
+      ])
+      expect(warnings).toEqual([warning])
+    }
+  )
 
-  test('native types found by the LIVE smoke are classified, not blocked', () => {
-    // `ai-title` and `attachment:auto_mode_exit` appear in no archived session.
-    // The first real Claude session run against this code produced both, which
-    // is why "one real call before trusting a fixture" is a validation rule and
-    // not advice.
-    const { dispositions, warnings } = replay([
-      JSON.stringify({ type: 'ai-title', aiTitle: 'x', sessionId: 's' }),
-      JSON.stringify({ type: 'attachment', attachment: { type: 'auto_mode_exit' } }),
-    ])
-    expect(dispositions.map((d) => d.disposition)).toEqual(['ignored-known', 'ignored-known'])
-    expect(warnings).toEqual([])
-  })
-
-  test('per-turn session-metadata attachments are ignored-known, not warned (R-00320)', () => {
+  test('per-turn session metadata, live-smoke rows and 2.1.259 mail hints are ignored-known, not warned (R-00320)', () => {
     // Every live Claude turn wrote these; T-10297's evidence showed one warning
     // per type per turn, burying real capture warnings. Shapes are the key sets
     // observed in 60 local transcripts on 2026-10-05, with placeholder values.
@@ -158,47 +178,35 @@ describe('claude native-type disposition coverage (archived T-07849 vocabulary)'
       invoked_skills: { skills: [] },
       inlined_image_paths: { paths: [] },
     }
-    const { dispositions, warnings } = replay(
-      Object.entries(metadata).map(([type, fields]) =>
-        JSON.stringify({ type: 'attachment', attachment: { type, ...fields } })
-      )
-    )
-    expect(dispositions).toEqual(
-      Object.keys(metadata).map((type) => ({
-        nativeType: `attachment:${type}`,
-        disposition: 'ignored-known',
-      }))
-    )
-    expect(warnings).toEqual([])
-  })
-
-  test('permission-named and unseen attachment subtypes still warn', () => {
-    // `command_permissions` is deliberately left loud until the authority
-    // matrix reviews it; an invented subtype proves the rule can still fail.
-    const { dispositions, warnings } = replay([
-      JSON.stringify({
-        type: 'attachment',
-        attachment: { type: 'command_permissions', allowedTools: [] },
-      }),
-      JSON.stringify({ type: 'attachment', attachment: { type: 'never_seen_subtype' } }),
-    ])
-    expect(dispositions.map((d) => d.disposition)).toEqual(['blocked-unknown', 'blocked-unknown'])
-    expect(warnings).toEqual([
-      'Unknown Claude attachment type: command_permissions',
-      'Unknown Claude attachment type: never_seen_subtype',
-    ])
-  })
-
-  test('real Claude 2.1.259 mail-hint attachments are non-load-bearing and warning-free', () => {
-    const lines = readFileSync(
+    // `ai-title` (a top-level row) and `attachment:auto_mode_exit` appear in no
+    // archived session; the first real Claude session run against this code
+    // produced both, which is why "one real call before trusting a fixture" is
+    // a validation rule and not advice.
+    const liveSmoke = [
+      JSON.stringify({ type: 'ai-title', aiTitle: 'x', sessionId: 's' }),
+      JSON.stringify({ type: 'attachment', attachment: { type: 'auto_mode_exit' } }),
+    ]
+    // Real Claude 2.1.259 mail-hint attachments, recorded.
+    const mailHints = readFileSync(
       join(import.meta.dir, '../fixtures/claude-transcript/mail-hint-attachments-2.1.259.jsonl'),
       'utf8'
     )
       .trimEnd()
       .split('\n')
-    const { dispositions, warnings } = replay(lines)
-
-    expect(dispositions).toEqual([
+    const { dispositions, warnings } = replay([
+      ...Object.entries(metadata).map(([type, fields]) =>
+        JSON.stringify({ type: 'attachment', attachment: { type, ...fields } })
+      ),
+      ...liveSmoke,
+      ...mailHints,
+    ])
+    expect<unknown>(dispositions).toEqual([
+      ...Object.keys(metadata).map((type) => ({
+        nativeType: `attachment:${type}`,
+        disposition: 'ignored-known',
+      })),
+      { nativeType: 'ai-title', disposition: 'ignored-known' },
+      { nativeType: 'attachment:auto_mode_exit', disposition: 'ignored-known' },
       { nativeType: 'attachment:hook_success', disposition: 'ignored-known' },
       { nativeType: 'attachment:hook_additional_context', disposition: 'ignored-known' },
     ])
@@ -220,7 +228,7 @@ describe('claude native-type disposition coverage (archived T-07849 vocabulary)'
       }),
     ])
 
-    expect(dispositions).toEqual([
+    expect<unknown>(dispositions).toEqual([
       { nativeType: 'attachment:hook_cancelled', disposition: 'ignored-known' },
     ])
     expect(JSON.parse(details[0]?.detail ?? 'null')).toEqual({
@@ -251,7 +259,7 @@ describe('claude native-type disposition coverage (archived T-07849 vocabulary)'
       }),
       JSON.stringify({ type: 'system', subtype: 'bridge_status', content: 'x' }),
     ])
-    expect(dispositions).toEqual([
+    expect<unknown>(dispositions).toEqual([
       { nativeType: 'system:turn_duration', disposition: 'duplicate' },
       { nativeType: 'system:stop_hook_summary', disposition: 'duplicate' },
       { nativeType: 'system:bridge_status', disposition: 'ignored-known' },
@@ -269,23 +277,11 @@ describe('claude native-type disposition coverage (archived T-07849 vocabulary)'
     expect(warnings).toEqual([])
   })
 
-  test('MUTATION: an unpinned `system` subtype warns and does not halt', () => {
-    // Delete `turn_duration` from CLAUDE_KNOWN_SYSTEM_SUBTYPES and this is what
-    // the reader does with it — the guard can fail, which is what makes it a
-    // guard. Same law as an unknown row type: a subtype we cannot place in a
-    // family cannot be asserted to be load-bearing, so it warns.
-    const { dispositions, warnings } = replay([
-      JSON.stringify({ type: 'system', subtype: 'brand_new_subtype' }),
-    ])
-    expect(warnings).toEqual(['Unknown Claude system row subtype: brand_new_subtype'])
-    expect(dispositions.map((d) => d.nativeType)).toEqual(['system:brand_new_subtype'])
-  })
-
   test('`cost-state` is a usage record now, not an ignored row', () => {
     const { dispositions, warnings } = replay([
       JSON.stringify({ type: 'cost-state', totalCostUSD: 1.25, modelUsage: {} }),
     ])
-    expect(dispositions).toEqual([{ nativeType: 'cost-state', disposition: 'normalized' }])
+    expect<unknown>(dispositions).toEqual([{ nativeType: 'cost-state', disposition: 'normalized' }])
     expect(warnings).toEqual([])
   })
 
@@ -316,7 +312,7 @@ describe('claude native-type disposition coverage (archived T-07849 vocabulary)'
         },
       }),
     ])
-    expect(dispositions).toEqual([
+    expect<unknown>(dispositions).toEqual([
       // The mirror is stubbed to "no fact minted" in this harness, so the user
       // row's classification is the driver's job and is asserted in the driver
       // suite; here the point is that the ATTACHMENT no longer warns.
@@ -331,13 +327,6 @@ describe('claude native-type disposition coverage (archived T-07849 vocabulary)'
     // The command carries socket paths and is deliberately not copied.
     expect(details[1]?.detail).not.toContain('secret.sock')
     expect(warnings).toEqual([])
-  })
-
-  test('an unknown top-level row type is reported but does NOT halt the cursor', () => {
-    // We cannot assert a row type we cannot place is load-bearing, and the law
-    // halts only on an unclassified LOAD-BEARING type. It still warns.
-    const { warnings } = replay([JSON.stringify({ type: 'brand-new-row-kind', payload: {} })])
-    expect(warnings).toEqual(['Unknown Claude transcript row type: brand-new-row-kind'])
   })
 })
 

@@ -1,30 +1,13 @@
 /**
- * RED tests: Phase 2 — agent-project bundle kind + agent-default profile spaces (T-00993)
+ * agent-project bundle composition (T-00993): agent-profile.toml spaces merged
+ * with an optional project asp-targets.toml target (replace by default, merge
+ * with dedup under compose_mode = "merge").
  *
- * WHY: The placement resolver must handle the new `agent-project` RuntimeBundleRef kind,
- * which merges agent-profile.toml defaults with optional project asp-targets.toml overrides.
- * Additionally, `agent-default` must load agent-profile.toml spaces.base + spaces.byMode
- * instead of returning [].
- *
- * PASS CONDITIONS (all tests green when):
- * 1. RuntimeBundleRef union includes { kind: 'agent-project', agentName, projectRoot? }
- * 2. isValidBundleRefKind('agent-project') returns true
- * 3. resolvePlacement handles agent-project bundle with agent profile only (no project targets)
- *    → compose = agent spaces.base + spaces.byMode for the run mode
- * 4. resolvePlacement handles agent-project bundle with project override (replace compose)
- *    → compose = project compose list only
- * 5. resolvePlacement handles agent-project bundle with project override (merge compose)
- *    → compose = agent spaces + project compose, deduplicated
- * 6. agent-default bundle now loads agent-profile.toml spaces.base when available
- *    (currently returns [])
- * 7. agent-default bundle includes byMode spaces for matching run mode
- *
- * wrkq task: T-00993
+ * The cwd default for agent-project lives in the m4 cwd rule table.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -48,33 +31,6 @@ function createProjectRoot(tempDir: string, targetsToml: string): string {
 }
 
 // ===================================================================
-// T-00993 Phase 2.1: agent-project bundle kind exists in type system
-// ===================================================================
-describe('agent-project bundle kind registration (T-00993)', () => {
-  test('isValidBundleRefKind recognizes agent-project', async () => {
-    const { isValidBundleRefKind } = await import('../core/types/placement.js')
-    expect(isValidBundleRefKind('agent-project')).toBe(true)
-  })
-
-  test('createRuntimePlacement accepts agent-project bundle', async () => {
-    const { createRuntimePlacement } = await import('../core/types/placement.js')
-
-    const placement = createRuntimePlacement({
-      agentRoot: '/srv/agents/larry',
-      runMode: 'query',
-      bundle: {
-        kind: 'agent-project',
-        agentName: 'larry',
-        projectRoot: '/srv/projects/myproject',
-      } as any, // 'as any' until the type is extended — RED gate
-    })
-
-    expect(placement.bundle.kind).toBe('agent-project')
-    expect((placement.bundle as any).agentName).toBe('larry')
-  })
-})
-
-// ===================================================================
 // T-00993 Phase 2.2: placement resolver handles agent-project bundle
 // ===================================================================
 describe('placement resolver: agent-project bundle (T-00993)', () => {
@@ -88,10 +44,16 @@ describe('placement resolver: agent-project bundle (T-00993)', () => {
     rmSync(tempDir, { recursive: true, force: true })
   })
 
-  test('agent-project with profile only (no project targets) → agent spaces', async () => {
-    const agentRoot = createAgentRoot(
-      tempDir,
-      `
+  test.each<{
+    row: string
+    profile: string
+    targets?: string
+    projectRoot: boolean
+    expected: string[]
+  }>([
+    {
+      row: 'no projectRoot -> profile spaces.base for the run mode',
+      profile: `
 version = 4
 
 [spaces]
@@ -99,168 +61,57 @@ base = ["space:defaults@dev"]
 
 [spaces.modes.heartbeat]
 base = ["space:heartbeat-extra@dev"]
+`,
+      projectRoot: false,
+      expected: ['space:defaults@dev'],
+    },
+    {
+      row: 'project target compose (default replace) -> project compose only',
+      profile: '\nversion = 4\n\n[spaces]\nbase = ["space:agent-base@dev"]\n',
+      targets: '\nschema = 2\n\n[targets.testagent]\ncompose = ["space:project-only@dev"]\n',
+      projectRoot: true,
+      expected: ['space:project-only@dev'],
+    },
+    {
+      row: 'compose_mode = "merge" -> agent [a, b] + project [b, c] with b once',
+      profile: '\nversion = 4\n\n[spaces]\nbase = ["space:a@dev", "space:b@dev"]\n',
+      targets:
+        '\nschema = 2\n\n[targets.testagent]\ncompose_mode = "merge"\ncompose = ["space:b@dev", "space:c@dev"]\n',
+      projectRoot: true,
+      expected: ['space:a@dev', 'space:b@dev', 'space:c@dev'],
+    },
+    {
+      row: 'projectRoot without asp-targets.toml -> profile spaces',
+      profile: '\nversion = 4\n\n[spaces]\nbase = ["space:fallback@dev"]\n',
+      projectRoot: true,
+      expected: ['space:fallback@dev'],
+    },
+  ])(
+    'project target compose replaces profile spaces by default, merges and dedups with compose_mode=merge: $row',
+    async ({ profile, targets, projectRoot: withProjectRoot, expected }) => {
+      const agentRoot = createAgentRoot(tempDir, profile)
+      let projectRoot: string | undefined
+      if (targets !== undefined) {
+        projectRoot = createProjectRoot(tempDir, targets)
+      } else if (withProjectRoot) {
+        projectRoot = join(tempDir, 'bare-project')
+        mkdirSync(projectRoot, { recursive: true })
+      }
 
-[provisioning]
-model = "claude-opus-4-6"
-`
-    )
+      const { resolvePlacement } = await import('../resolver/placement-resolver.js')
 
-    const { resolvePlacement } = await import('../resolver/placement-resolver.js')
+      const result = await resolvePlacement({
+        agentRoot,
+        ...(projectRoot !== undefined ? { projectRoot } : {}),
+        runMode: 'query',
+        bundle: {
+          kind: 'agent-project',
+          agentName: 'testagent',
+          ...(projectRoot !== undefined ? { projectRoot } : {}),
+        },
+      })
 
-    const result = await resolvePlacement({
-      agentRoot,
-      runMode: 'query',
-      bundle: {
-        kind: 'agent-project',
-        agentName: 'testagent',
-      } as any,
-    })
-
-    const spaceRefs = result.spaces.map((s) => s.ref)
-    expect(spaceRefs).toContain('space:defaults@dev')
-  })
-
-  test('agent-project with project override (replace) → project compose only', async () => {
-    const agentRoot = createAgentRoot(
-      tempDir,
-      `
-version = 4
-
-[spaces]
-base = ["space:agent-base@dev"]
-`
-    )
-
-    const projectRoot = createProjectRoot(
-      tempDir,
-      `
-schema = 2
-
-[targets.testagent]
-compose = ["space:project-only@dev"]
-`
-    )
-
-    const { resolvePlacement } = await import('../resolver/placement-resolver.js')
-
-    const result = await resolvePlacement({
-      agentRoot,
-      projectRoot,
-      runMode: 'query',
-      bundle: {
-        kind: 'agent-project',
-        agentName: 'testagent',
-        projectRoot,
-      } as any,
-    })
-
-    const spaceRefs = result.spaces.map((s) => s.ref)
-    // Project replaces agent spaces (compose_mode defaults to 'replace')
-    expect(spaceRefs).toContain('space:project-only@dev')
-    expect(spaceRefs).not.toContain('space:agent-base@dev')
-  })
-
-  test('agent-project with project override (merge) → agent + project deduplicated', async () => {
-    const agentRoot = createAgentRoot(
-      tempDir,
-      `
-version = 4
-
-[spaces]
-base = ["space:a@dev", "space:b@dev"]
-`
-    )
-
-    const projectRoot = createProjectRoot(
-      tempDir,
-      `
-schema = 2
-
-[targets.testagent]
-compose_mode = "merge"
-compose = ["space:b@dev", "space:c@dev"]
-`
-    )
-
-    const { resolvePlacement } = await import('../resolver/placement-resolver.js')
-
-    const result = await resolvePlacement({
-      agentRoot,
-      projectRoot,
-      runMode: 'query',
-      bundle: {
-        kind: 'agent-project',
-        agentName: 'testagent',
-        projectRoot,
-      } as any,
-    })
-
-    const spaceRefs = result.spaces.map((s) => s.ref)
-    // Agent [a, b] + project [b, c] → deduplicated [a, b, c]
-    expect(spaceRefs).toContain('space:a@dev')
-    expect(spaceRefs).toContain('space:b@dev')
-    expect(spaceRefs).toContain('space:c@dev')
-    // b should not be duplicated
-    const bCount = spaceRefs.filter((r) => r === 'space:b@dev').length
-    expect(bCount).toBe(1)
-  })
-
-  test('agent-project with no project asp-targets.toml → falls back to agent spaces', async () => {
-    const agentRoot = createAgentRoot(
-      tempDir,
-      `
-version = 4
-
-[spaces]
-base = ["space:fallback@dev"]
-`
-    )
-    // projectRoot exists but has no asp-targets.toml
-    const projectRoot = join(tempDir, 'bare-project')
-    mkdirSync(projectRoot, { recursive: true })
-
-    const { resolvePlacement } = await import('../resolver/placement-resolver.js')
-
-    const result = await resolvePlacement({
-      agentRoot,
-      projectRoot,
-      runMode: 'query',
-      bundle: {
-        kind: 'agent-project',
-        agentName: 'testagent',
-        projectRoot,
-      } as any,
-    })
-
-    const spaceRefs = result.spaces.map((s) => s.ref)
-    expect(spaceRefs).toContain('space:fallback@dev')
-  })
-
-  test('agent-project cwd defaults to projectRoot when present', async () => {
-    const agentRoot = createAgentRoot(
-      tempDir,
-      `
-version = 4
-
-[spaces]
-base = ["space:defaults@dev"]
-`
-    )
-    const projectRoot = createProjectRoot(tempDir, 'schema = 2\n[targets]\n')
-
-    const { resolvePlacement } = await import('../resolver/placement-resolver.js')
-
-    const result = await resolvePlacement({
-      agentRoot,
-      projectRoot,
-      runMode: 'query',
-      bundle: {
-        kind: 'agent-project',
-        agentName: 'testagent',
-        projectRoot,
-      } as any,
-    })
-
-    expect(result.cwd).toBe(projectRoot)
-  })
+      expect(result.spaces.map((s) => s.ref)).toEqual(expected)
+    }
+  )
 })

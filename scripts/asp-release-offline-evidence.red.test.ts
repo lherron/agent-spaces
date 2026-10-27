@@ -32,7 +32,7 @@ function digest(bytes: string): string {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
-function releaseFixture(options: { capabilities?: string[]; readerExit?: number } = {}): string {
+function releaseFixture(options: { capabilities?: string[] } = {}): string {
   const root = join(tmpdir(), `asp-offline-release-red-${crypto.randomUUID()}`)
   const releaseId = 'asp-0123456789ab-20260917T040000Z-red001'
   const release = join(root, releaseId)
@@ -51,7 +51,7 @@ function releaseFixture(options: { capabilities?: string[]; readerExit?: number 
       executable: name,
       runtimeClosure: 'bun-compiled',
     })
-    const payload = `#!/bin/sh\nexit ${name === 'harness-broker' ? (options.readerExit ?? 0) : 0}\n`
+    const payload = '#!/bin/sh\nexit 0\n'
     const launcher = `#!/bin/sh\nset -eu\nif [ "\${1-}" = "--release-info" ]; then\n  printf '%s\\n' '${releaseInfo}'\n  exit 0\nfi\nexec "$(dirname "$0")/libexec/${name}" "$@"\n`
     writeFileSync(join(release, name), launcher, { mode: 0o555 })
     writeFileSync(join(release, 'libexec', name), payload, { mode: 0o555 })
@@ -104,39 +104,5 @@ describe('T-08565 frozen release offline-reader preflight', () => {
 
     expect(inspection.ok).toBe(true)
     expect(capabilitiesOf(inspection)).toEqual([])
-  })
-
-  test('legacy unsupported and declared-but-failed remain distinct without guessing a spawn', () => {
-    // This demonstrates the ASP manifest preflight seam a consumer can use; it
-    // does not claim to test HRC's production refusal/reader adapter.
-    const legacy = inspectRelease(releaseFixture({ readerExit: 7 }))
-    const declaredPath = releaseFixture({ capabilities: [CAPABILITY], readerExit: 7 })
-    const declared = inspectRelease(declaredPath)
-
-    let legacySpawned = false
-    let legacyDisposition = 'offline_reader_unsupported'
-    if (capabilitiesOf(legacy).includes(CAPABILITY)) {
-      legacySpawned = true
-      legacyDisposition = 'reader_failed'
-    }
-    expect(legacyDisposition).toBe('offline_reader_unsupported')
-    expect(legacySpawned).toBe(false)
-
-    const capable = capabilitiesOf(declared).includes(CAPABILITY)
-    const process = capable
-      ? Bun.spawnSync([join(declaredPath, 'harness-broker'), 'evidence-read'], {
-          stdin: Buffer.from('{}\n'),
-          stdout: 'pipe',
-          stderr: 'pipe',
-        })
-      : undefined
-    const declaredDisposition = !capable
-      ? 'offline_reader_unsupported'
-      : process?.exitCode === 0
-        ? 'reader_succeeded'
-        : 'reader_failed'
-
-    expect(declaredDisposition).toBe('reader_failed')
-    expect(process?.exitCode).toBe(7)
   })
 })

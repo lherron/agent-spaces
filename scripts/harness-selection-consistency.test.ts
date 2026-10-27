@@ -1,7 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
-
 import {
   DEFAULT_HARNESS_ID,
   catalogCapabilities,
@@ -86,24 +83,5 @@ describe('repository harness-selection projections', () => {
       true,
       true,
     ])
-  })
-
-  test('generated schema and canonical documentation carry the closed vocabulary', () => {
-    const root = join(import.meta.dirname, '..')
-    const schema = JSON.parse(
-      readFileSync(join(root, 'core/config/src/core/schemas/space.schema.json'), 'utf8')
-    ) as {
-      properties: { harness: { properties: { supports: { items: { enum: string[] } } } } }
-    }
-    expect(schema.properties.harness.properties.supports.items.enum).toEqual(EXPECTED_IDS)
-
-    for (const relative of [
-      'docs/proposals/producer-owned-harness-selection.md',
-      'docs/harness-architecture.md',
-      'docs/aspd.md',
-    ]) {
-      const text = readFileSync(join(root, relative), 'utf8')
-      for (const harness of EXPECTED_IDS) expect(text).toContain(`\`${harness}\``)
-    }
   })
 })

@@ -1,6 +1,6 @@
 /** T-08563 rev 5 historical-continuation reds through the public compiler entrypoint. */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as AgentSpaces from '../index.js'
@@ -147,8 +147,124 @@ describe('T-08563 historical continuation observation', () => {
       basis: 'none',
     })
     expect(JSON.stringify(response)).not.toContain('start-fresh')
+
+    const unsupported = await operation()(continuationRequest('pi-cloud-api', KEY))
+    expect(unsupported).toMatchObject({
+      ok: false,
+      failure: { kind: 'incompatible', code: 'unsupported_provider' },
+    })
+  })
+
+  test('a Pi key file that cannot be read is still present: presence is a stat, never an open', async () => {
+    const piKey = join(root, 'pi-session.jsonl')
+    await writeFile(piKey, '{}\n')
+    await chmod(piKey, 0o000)
+    try {
+      const response = await operation()(continuationRequest('pi-sdk', piKey, 'pi'))
+      expect(response['artifact']).toEqual({ state: 'present', code: 'artifact_present' })
+    } finally {
+      await chmod(piKey, 0o644)
+    }
+  })
+
+  test('an unreadable sessions tree in the frozen Codex home is unknown, never missing', async () => {
+    await mkdir(join(h1, 'sessions'), { recursive: true })
+    await chmod(join(h1, 'sessions'), 0o000)
+    try {
+      const response = await operation()(codexRequest({ frozenStartRequest: frozenEvidence(h1) }), {
+        aspHome,
+      })
+      expect(response).toMatchObject({
+        ok: true,
+        artifact: { state: 'unknown', code: 'home_unreadable' },
+        basis: 'frozen-home',
+      })
+    } finally {
+      await chmod(join(h1, 'sessions'), 0o755)
+    }
+  })
+
+  test('finds a Claude transcript under the frozen config dir by its encoded cwd, even when unreadable', async () => {
+    const claudeHome = join(root, 'claude-config')
+    const cwd = join(root, 'my_project.v2', 'sub dir')
+    const transcript = await writeClaudeTranscript(claudeHome, cwd, KEY)
+
+    const present = await operation()(claudeRequest(claudeHome, cwd))
+    expect(present).toMatchObject({
+      ok: true,
+      executionProvider: 'anthropic',
+      artifactFormat: 'claude',
+      artifact: { state: 'present', code: 'artifact_present' },
+      basis: 'frozen-home',
+    })
+
+    await chmod(transcript, 0o000)
+    try {
+      const unreadable = await operation()(claudeRequest(claudeHome, cwd))
+      expect(unreadable['artifact']).toEqual({ state: 'present', code: 'artifact_present' })
+    } finally {
+      await chmod(transcript, 0o644)
+    }
+  })
+
+  test('a Claude transcript absent under the encoded cwd is missing', async () => {
+    const claudeHome = join(root, 'claude-config')
+    const cwd = join(root, 'workspace')
+    await writeClaudeTranscript(claudeHome, join(root, 'other-workspace'), KEY)
+
+    const response = await operation()(claudeRequest(claudeHome, cwd))
+    expect(response).toMatchObject({
+      ok: true,
+      artifact: { state: 'missing', code: 'artifact_missing' },
+      basis: 'frozen-home',
+    })
+  })
+
+  test('a Claude continuation without a frozen cwd is context_unavailable, not missing', async () => {
+    const claudeHome = join(root, 'claude-config')
+    await writeClaudeTranscript(claudeHome, join(root, 'workspace'), KEY)
+
+    const response = await operation()(claudeRequest(claudeHome, undefined))
+    expect(response).toMatchObject({
+      ok: true,
+      artifactFormat: 'claude',
+      artifact: { state: 'unknown', code: 'context_unavailable' },
+      basis: 'none',
+    })
   })
 })
+
+function claudeRequest(claudeHome: string, cwd: string | undefined): Record<string, unknown> {
+  return {
+    ...continuationRequest('anthropic', KEY),
+    historicalExecution: {
+      frozenStartRequest: {
+        keyBinding: 'runtime-continuation',
+        placement: { ...placement(), ...(cwd === undefined ? {} : { cwd }) },
+        brokerDriver: 'claude-code-tmux',
+        startRequest: {
+          spec: {
+            process: { lockedEnv: { CLAUDE_CONFIG_DIR: claudeHome } },
+            driver: { kind: 'claude-code-tmux' },
+          },
+        },
+      },
+    },
+  }
+}
+
+/** Claude Code stores a transcript at projects/<cwd with every non-alphanumeric as "-">/<key>.jsonl. */
+async function writeClaudeTranscript(
+  claudeHome: string,
+  cwd: string,
+  key: string
+): Promise<string> {
+  const dir = join(claudeHome, 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'))
+  await mkdir(dir, { recursive: true })
+  const path = join(dir, `${key}.jsonl`)
+  await writeFile(path, '{}\n')
+  return path
+}
 
 function operation(): ObserveContinuationArtifact {
   const value = (AgentSpaces as Record<string, unknown>)['observeContinuationArtifact']

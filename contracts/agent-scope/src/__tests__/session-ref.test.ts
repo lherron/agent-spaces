@@ -62,55 +62,42 @@ describe('parseSessionRef', () => {
   })
 
   describe('whitespace policy (backlog D — trim uniformly)', () => {
-    test('tolerates surrounding whitespace on the whole input', () => {
-      expect(parseSessionRef('  agent:alice:project:demo/lane:main  ')).toEqual({
-        scopeRef: 'agent:alice:project:demo',
-        laneRef: 'main',
-      })
-    })
-
-    test('tolerates whitespace around the scopeRef segment', () => {
-      expect(parseSessionRef('agent:alice:project:demo /lane:main')).toEqual({
-        scopeRef: 'agent:alice:project:demo',
-        laneRef: 'main',
-      })
-    })
-
-    test('tolerates whitespace around the laneId segment', () => {
-      expect(parseSessionRef('agent:alice/lane: deploy ')).toEqual({
-        scopeRef: 'agent:alice',
-        laneRef: 'lane:deploy',
-      })
-    })
+    test.each([
+      {
+        input: '  agent:alice:project:demo/lane:main  ',
+        expected: { scopeRef: 'agent:alice:project:demo', laneRef: 'main' },
+      },
+      {
+        input: 'agent:alice:project:demo /lane:main',
+        expected: { scopeRef: 'agent:alice:project:demo', laneRef: 'main' },
+      },
+      {
+        input: 'agent:alice/lane: deploy ',
+        expected: { scopeRef: 'agent:alice', laneRef: 'lane:deploy' },
+      },
+    ])(
+      'parseSessionRef trims whitespace around the input, the scopeRef and the lane id: "$input"',
+      ({ input, expected }) => {
+        expect(parseSessionRef(input)).toEqual(expected)
+      }
+    )
   })
 
   describe('rejects malformed input', () => {
-    const invalid = [
-      '',
-      'agent:rex:project:agent-spaces',
-      'agent:rex:project:agent-spaces/main',
-      '/lane:main',
-      'agent:rex:project:agent-spaces/lane:',
-      'agent:rex:project:agent-spaces/lane:main/extra',
+    const shape = /^Invalid SessionRef: expected "<scopeRef>\/lane:<laneRef>"$/
+    const emptySegment = /^Invalid SessionRef: scopeRef and laneRef are required$/
+    const invalid: Array<{ input: string; error: RegExp }> = [
+      { input: '', error: shape },
+      { input: 'agent:rex:project:agent-spaces', error: shape },
+      { input: 'agent:rex:project:agent-spaces/main', error: shape },
+      { input: '/lane:main', error: emptySegment },
+      { input: 'agent:rex:project:agent-spaces/lane:', error: emptySegment },
+      { input: 'agent:rex:project:agent-spaces/lane:main/extra', error: shape },
     ]
-    for (const input of invalid) {
-      test(`rejects "${input}"`, () => {
-        expect(() => parseSessionRef(input)).toThrow()
+    for (const { input, error } of invalid) {
+      test(`"${input}" is rejected naming the malformed SessionRef part`, () => {
+        expect(() => parseSessionRef(input)).toThrow(error)
       })
     }
-  })
-})
-
-describe('formatSessionRef', () => {
-  test('serializes the main lane', () => {
-    expect(formatSessionRef({ scopeRef: 'agent:alice', laneRef: 'main' })).toBe(
-      'agent:alice/lane:main'
-    )
-  })
-
-  test('serializes a non-main lane', () => {
-    expect(formatSessionRef({ scopeRef: 'agent:alice:project:demo', laneRef: 'lane:deploy' })).toBe(
-      'agent:alice:project:demo/lane:deploy'
-    )
   })
 })

@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -12,7 +12,6 @@ import { type CaptureGate, createCaptureGate } from '../../../src/capture/captur
 import { openCaptureIndex } from '../../../src/capture/capture-index'
 import { createRawJournal } from '../../../src/capture/raw-journal'
 import { createClaudeCodeTmuxDriver } from '../../../src/drivers/claude-code-tmux/driver'
-import { createClaudeStatusLineReader } from '../../../src/drivers/claude-code-tmux/status-line'
 import { listenForHookEnvelopes } from '../../../src/drivers/tmux-shared'
 import type { HookEnvelope, TmuxExecCall } from './driver-red.helpers'
 import {
@@ -23,8 +22,12 @@ import {
   loadFactory,
   now,
   pastedTexts,
+  removeTempHookDirs,
+  tempHookSocketPath,
   waitFor,
 } from './driver-red.helpers'
+
+afterEach(removeTempHookDirs)
 
 /**
  * T-10929: Claude Code's statusline input is the ONE source of the Claude
@@ -72,74 +75,87 @@ function withUsage(
 }
 
 describe('Claude statusline reading (T-10929)', () => {
-  test('mints the fill and window from current_usage + context_window_size, deduped', () => {
-    const reader = createClaudeStatusLineReader()
-    // Startup render: the window is known but there is no fill yet.
-    expect(reader.observe(STARTUP)).toBeUndefined()
+  /** Run StatusLine records through a fresh captured driver; return its usage.updated payloads. */
+  async function usageReadings(records: Record<string, unknown>[]): Promise<UsageReading[]> {
+    const root = mkdtempSync(join(tmpdir(), 'claude-statusline-reading-'))
+    const live = await startCapturedDriver(root, 'reading')
+    try {
+      for (const record of records) await live.hook(statusLine(record))
+      return live.events
+        .filter((event) => event.type === 'usage.updated')
+        .map((event) => event.payload as UsageReading)
+    } finally {
+      await live.close()
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
 
-    expect(reader.observe(AFTER_TURN)).toEqual({
+  test('a StatusLine record mints a usage reading only when fill, window or model changes', async () => {
+    const readings = await usageReadings([
+      // Startup render: the window is known but there is no fill yet.
+      STARTUP,
+      AFTER_TURN,
+      // Re-renders with the same reading are state-only.
+      AFTER_TURN,
+      { ...AFTER_TURN, cost: { total_cost_usd: 9 } },
+      // Any of the three keys changing is a new reading.
+      withUsage(AFTER_TURN, { used: 10 }),
+      withUsage(AFTER_TURN, { used: 10, window: 200_000 }),
+      withUsage(AFTER_TURN, { used: 10, window: 200_000, model: 'claude-x' }),
+    ])
+
+    expect(readings[0]).toEqual({
       usage: AFTER_TURN['context_window'],
       model: { id: 'claude-opus-5-5', source: 'provider-response' },
       context: { usedTokens: AFTER_TURN_USED, windowTokens: 1_000_000 },
     })
-    // Re-renders with the same reading are state-only.
-    expect(reader.observe(AFTER_TURN)).toBeUndefined()
-    expect(reader.observe({ ...AFTER_TURN, cost: { total_cost_usd: 9 } })).toBeUndefined()
-
-    // Any of the three keys changing is a new reading.
-    expect(reader.observe(withUsage(AFTER_TURN, { used: 10 }))?.context?.usedTokens).toBe(
-      AFTER_TURN_USED + 10
-    )
-    expect(reader.observe(withUsage(AFTER_TURN, { used: 10, window: 200_000 }))?.context).toEqual({
-      usedTokens: AFTER_TURN_USED + 10,
-      windowTokens: 200_000,
-    })
-    expect(
-      reader.observe(withUsage(AFTER_TURN, { used: 10, window: 200_000, model: 'claude-x' }))?.model
-    ).toEqual({ id: 'claude-x', source: 'provider-response' })
+    expect(readings.map((reading) => [reading.model?.id, reading.context])).toEqual([
+      ['claude-opus-5-5', { usedTokens: AFTER_TURN_USED, windowTokens: 1_000_000 }],
+      ['claude-opus-5-5', { usedTokens: AFTER_TURN_USED + 10, windowTokens: 1_000_000 }],
+      ['claude-opus-5-5', { usedTokens: AFTER_TURN_USED + 10, windowTokens: 200_000 }],
+      ['claude-x', { usedTokens: AFTER_TURN_USED + 10, windowTokens: 200_000 }],
+    ])
   })
 
-  test('a [1m] record mints the base model id and leaves the raw usage verbatim', () => {
+  test('a [1m] StatusLine model mints the base model id and leaves the raw usage verbatim', async () => {
     const variant: Record<string, unknown> = {
       ...AFTER_TURN,
       model: { id: 'claude-opus-5-5[1m]', display_name: 'Opus 5.5' },
     }
     const before = JSON.stringify(variant)
-    const reading = createClaudeStatusLineReader().observe(variant)
-    expect(reading?.model).toEqual({ id: 'claude-opus-5-5', source: 'provider-response' })
-    expect(reading?.usage).toBe(variant['context_window'])
+    const readings = await usageReadings([
+      variant,
+      // Only a TRAILING bracketed variant is dropped.
+      { ...AFTER_TURN, model: { id: 'claude-x[a]-1' } },
+    ])
+
+    expect(readings[0]?.model).toEqual({ id: 'claude-opus-5-5', source: 'provider-response' })
+    expect(readings[0]?.usage).toEqual(variant['context_window'])
     expect(JSON.stringify(variant)).toBe(before)
-    // Only a TRAILING bracketed variant is dropped.
-    expect(
-      createClaudeStatusLineReader().observe({ ...AFTER_TURN, model: { id: 'claude-x[a]-1' } })
-        ?.model?.id
-    ).toBe('claude-x[a]-1')
+    expect(readings[1]?.model?.id).toBe('claude-x[a]-1')
   })
 
-  test('the statusline fill equals the transcript sum for the same model call', () => {
-    const reading = createClaudeStatusLineReader().observe(AFTER_TURN)
-    const cw = AFTER_TURN['context_window'] as { current_usage: Record<string, number> }
-    const u = cw.current_usage
-    expect(reading?.context?.usedTokens).toBe(
-      (u['input_tokens'] ?? 0) +
-        (u['cache_read_input_tokens'] ?? 0) +
-        (u['cache_creation_input_tokens'] ?? 0) +
-        (u['output_tokens'] ?? 0)
-    )
-  })
-
-  test('a malformed fill mints nothing; a missing window still mints the fill', () => {
-    const reader = createClaudeStatusLineReader()
-    expect(reader.observe({ context_window: { current_usage: { input_tokens: 1 } } })).toBe(
-      undefined
-    )
+  test('a StatusLine with a malformed fill mints nothing; one missing the window still mints the fill', async () => {
     const cw = AFTER_TURN['context_window'] as Record<string, unknown>
-    expect(reader.observe({ context_window: { current_usage: cw['current_usage'] } })).toEqual({
-      usage: { current_usage: cw['current_usage'] },
-      context: { usedTokens: AFTER_TURN_USED },
-    })
+    const readings = await usageReadings([
+      { context_window: { current_usage: { input_tokens: 1 } } },
+      { context_window: { current_usage: cw['current_usage'] } },
+    ])
+
+    expect(readings).toEqual([
+      {
+        usage: { current_usage: cw['current_usage'] },
+        context: { usedTokens: AFTER_TURN_USED },
+      },
+    ])
   })
 })
+
+type UsageReading = {
+  usage?: unknown
+  model?: { id: string; source: string } | undefined
+  context?: { usedTokens: number; windowTokens?: number } | undefined
+}
 
 type Harness = {
   events: InvocationEventEnvelope[]
@@ -156,7 +172,7 @@ async function startCapturedDriver(root: string, name: string): Promise<Harness>
   const tmuxCalls: TmuxExecCall[] = []
   const events: InvocationEventEnvelope[] = []
   let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
-  const hookSocket = '/tmp/harness-broker/claude-hooks.sock'
+  const hookSocket = tempHookSocketPath()
   const transcript = join(root, `${name}.jsonl`)
   writeFileSync(transcript, '')
   const index = openCaptureIndex(join(root, `${name}.db`))

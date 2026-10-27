@@ -15,7 +15,7 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { promisify } from 'node:util'
 
-import { harnessRegistry, install } from 'spaces-execution'
+import { install } from 'spaces-execution'
 
 import { useHermeticAgentsRoot } from './hermetic.js'
 import {
@@ -95,28 +95,12 @@ describe('asp harnesses', () => {
     expect(claudeHarness).toBeDefined()
     expect(claudeHarness.name).toBe('Claude Code')
     expect(claudeHarness.detection).toHaveProperty('available')
-  })
-
-  test('lists exactly the four public harnesses', async () => {
-    const { stdout, exitCode } = await runCli(['harnesses', '--json'])
-
-    expect(exitCode).toBe(0)
-
-    const output = JSON.parse(stdout)
     expect(output.harnesses.map((h: { id: string }) => h.id)).toEqual([
       'agent-harness',
       'claude',
       'codex',
       'muse',
     ])
-  })
-
-  test('shows detection status for each harness', async () => {
-    const { stdout, exitCode } = await runCli(['harnesses', '--json'])
-
-    expect(exitCode).toBe(0)
-
-    const output = JSON.parse(stdout)
     for (const harness of output.harnesses) {
       expect(harness.detection).toHaveProperty('available')
       // If not available, should have error message
@@ -165,6 +149,7 @@ describe('asp run --harness', () => {
     expect(stdout).toContain('Dry run')
     expect(extractDryRunCommand(stdout)).not.toBe('')
     expect(stdout).toContain('--plugin-dir')
+    expect(stdout.match(/--plugin-dir\s+(\S+)/)?.[1]).toContain('/claude/')
     expect(stdout).toContain('claude')
   })
 
@@ -214,24 +199,6 @@ describe('asp run --harness', () => {
     expect(command).toContain('Register with agentchat and send READY\n\nplan-next-steps')
   })
 
-  test.each(['pi', 'pi-sdk'])(
-    '--harness %s is rejected by the closed public vocabulary',
-    async (harness) => {
-      const testEnv = getTestEnv(aspHome)
-      const { stderr, exitCode } = await runCli(
-        ['run', 'claude-target', '--harness', harness, '--dry-run'],
-        { env: testEnv, cwd: projectDir }
-      )
-
-      expect(exitCode).not.toBe(0)
-      expect(stderr).toContain(`Unknown harness "${harness}"`)
-      expect(stderr).toContain('agent-harness')
-      expect(stderr).toContain('claude')
-      expect(stderr).toContain('codex')
-      expect(stderr).toContain('muse')
-    }
-  )
-
   test('omitted --harness resolves to agent-harness', async () => {
     const testEnv = getTestEnv(aspHome)
 
@@ -245,21 +212,6 @@ describe('asp run --harness', () => {
     // selecting a different foreground harness.
     expect(exitCode).not.toBe(0)
     expect(stderr).toContain('agent-harness requires a validated agent profile')
-  })
-
-  test('output path includes harness subdirectory', async () => {
-    const testEnv = getTestEnv(aspHome)
-    const { stdout, exitCode } = await runCli(
-      ['run', 'claude-target', '--harness', 'claude', '--dry-run'],
-      { env: testEnv, cwd: projectDir }
-    )
-
-    expect(exitCode).toBe(0)
-    // Verify the plugin-dir path contains /claude/ (harness subdirectory)
-    const pluginDirMatch = stdout.match(/--plugin-dir\s+(\S+)/)
-    if (pluginDirMatch) {
-      expect(pluginDirMatch[1]).toContain('/claude/')
-    }
   })
 })
 
@@ -287,24 +239,6 @@ describe('asp install --harness', () => {
     return match?.[1] ?? ''
   }
 
-  test('installs with --harness claude', async () => {
-    const { stdout, exitCode } = await runCli(
-      ['install', '--harness', 'claude', '--asp-home', aspHome],
-      { cwd: projectDir }
-    )
-
-    expect(exitCode).toBe(0)
-    expect(stdout).toContain('Installed')
-    expect(stdout).toContain(`${aspHome}/codex-homes/`)
-
-    const harnessOutputPath = extractHarnessPath(stdout)
-    const exists = await fs
-      .access(harnessOutputPath)
-      .then(() => true)
-      .catch(() => false)
-    expect(exists).toBe(true)
-  })
-
   test('creates harness-specific output directory structure', async () => {
     const { stdout, exitCode } = await runCli(
       ['install', '--harness', 'claude', '--asp-home', aspHome],
@@ -312,6 +246,8 @@ describe('asp install --harness', () => {
     )
     expect(exitCode).toBe(0)
 
+    expect(stdout).toContain('Installed')
+    expect(stdout).toContain(`${aspHome}/codex-homes/`)
     const harnessPath = extractHarnessPath(stdout)
 
     // Should have plugins directory
@@ -353,16 +289,6 @@ describe('asp explain --harness', () => {
     await cleanupTempProject(projectDir)
   })
 
-  test('explain accepts --harness flag', async () => {
-    const { stdout, exitCode } = await runCli(
-      ['explain', 'explain-target', '--harness', 'claude', '--asp-home', aspHome],
-      { cwd: projectDir }
-    )
-
-    expect(exitCode).toBe(0)
-    expect(stdout).toContain('explain-target')
-  })
-
   test('explain --json includes harness info', async () => {
     const { stdout, exitCode } = await runCli(
       ['explain', 'explain-target', '--harness', 'claude', '--json', '--asp-home', aspHome],
@@ -395,83 +321,26 @@ describe('invalid harness handling', () => {
   })
 
   test('run command rejects invalid harness ID', async () => {
-    const testEnv = getTestEnv(aspHome)
-    const { stderr, exitCode } = await runCli(
-      ['run', 'target', '--harness', 'invalid-harness', '--dry-run'],
-      { env: testEnv, cwd: projectDir }
-    )
-
-    expect(exitCode).toBe(1)
-    expect(stderr).toContain('Unknown harness')
-    expect(stderr).toContain('invalid-harness')
-    // Should list available harnesses
-    expect(stderr).toContain('claude')
-  })
-
-  test('install command rejects invalid harness ID', async () => {
-    const { stderr, exitCode } = await runCli(
-      ['install', '--harness', 'not-a-harness', '--asp-home', aspHome],
-      { cwd: projectDir }
-    )
-
-    expect(exitCode).toBe(1)
-    expect(stderr).toContain('Unknown harness')
-    expect(stderr).toContain('not-a-harness')
-  })
-
-  test('build command rejects invalid harness ID', async () => {
-    const { stderr, exitCode } = await runCli(
-      ['build', 'target', '--harness', 'fake', '--output', '/tmp/out', '--asp-home', aspHome],
-      { cwd: projectDir }
-    )
-
-    expect(exitCode).toBe(1)
-    expect(stderr).toContain('Unknown harness')
-    expect(stderr).toContain('fake')
-  })
-
-  test('explain command rejects invalid harness ID', async () => {
-    const { stderr, exitCode } = await runCli(
-      ['explain', 'target', '--harness', 'nope', '--asp-home', aspHome],
-      { cwd: projectDir }
-    )
-
-    expect(exitCode).toBe(1)
-    expect(stderr).toContain('Unknown harness')
-    expect(stderr).toContain('nope')
-  })
-
-  test('error message lists available harnesses', async () => {
-    const { stderr, exitCode } = await runCli(
-      ['run', 'target', '--harness', 'wrong', '--asp-home', aspHome],
-      { cwd: projectDir }
-    )
-
-    expect(exitCode).toBe(1)
-    // Should list all registered harnesses
-    expect(stderr).toContain('claude')
-    expect(stderr).toContain('agent-harness')
-    expect(stderr).toContain('codex')
-    expect(stderr).toContain('muse')
-  })
-})
-
-describe('harness registry', () => {
-  test('has claude adapter registered', () => {
-    expect(harnessRegistry.has('claude')).toBe(true)
-    const claude = harnessRegistry.get('claude')
-    expect(claude).toBeDefined()
-    expect(claude?.name).toBe('Claude Code')
-  })
-
-  test('does not expose retired Pi IDs', () => {
-    expect(harnessRegistry.has('pi')).toBe(false)
-    expect(harnessRegistry.has('pi-sdk')).toBe(false)
-  })
-
-  test('getAll returns all adapters', () => {
-    const adapters = harnessRegistry.getAll()
-    const ids = adapters.map((a) => a.id).sort()
-    expect(ids).toEqual(['agent-harness', 'claude', 'codex', 'muse'])
+    const rows = [
+      { id: 'invalid-harness', args: ['run', 'target', '--dry-run'] },
+      { id: 'pi', args: ['run', 'target', '--dry-run'] },
+      { id: 'pi-sdk', args: ['run', 'target', '--dry-run'] },
+      { id: 'not-a-harness', args: ['install'] },
+      { id: 'fake', args: ['build', 'target', '--output', path.join(projectDir, 'out')] },
+      { id: 'nope', args: ['explain', 'target'] },
+    ]
+    for (const { id, args } of rows) {
+      const { stderr, exitCode } = await runCli([...args, '--harness', id, '--asp-home', aspHome], {
+        env: getTestEnv(aspHome),
+        cwd: projectDir,
+      })
+      expect(exitCode).toBe(1)
+      expect(stderr).toContain(`Unknown harness "${id}"`)
+      if (args[0] === 'run') {
+        for (const available of ['agent-harness', 'claude', 'codex', 'muse']) {
+          expect(stderr).toContain(available)
+        }
+      }
+    }
   })
 })

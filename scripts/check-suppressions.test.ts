@@ -4,13 +4,12 @@
  * WHY: These tests FAIL now because check-suppressions.ts does not exist yet.
  * Larry implements scripts/check-suppressions.ts to make them green.
  *
- * Encodes all 8 invariant cases from the daedalus RULING (T-04389):
- *   1. Clean fixture — generated baseline + check PASSES on grandfathered suppressions.
- *   2. New bare biome-ignore (not in baseline, no EXCEPTION) → FAILS with rich diagnostic.
- *   3. Same suppression with preceding EXCEPTION annotation → PASSES.
+ * Encodes the invariant cases from the daedalus RULING (T-04389):
+ *   2. A new biome-ignore, @ts-ignore, or prose @ts-expect-error (not in baseline,
+ *      no EXCEPTION) → FAILS with rich diagnostic.
+ *   3. A preceding-line or same-line EXCEPTION annotation → PASSES.
  *   4. Existing grandfathered suppression PASSES via baseline (no EXCEPTION needed).
  *   5. Duplicate identical same-file suppression (count > baseline) → FAILS (multiset teeth).
- *   6. @ts-ignore and @ts-expect-error prose both FAIL; @ts-expect-error EXCEPTION(…) PASSES.
  *   7. dist/, nested node_modules/, and .md files are excluded from the scan.
  *   8. --update-baseline is idempotent: stable sorted output, no diff on immediate rerun.
  *
@@ -78,90 +77,108 @@ describe('check-suppressions.ts', () => {
   })
 
   // -------------------------------------------------------------------------
-  // Case 1 — clean fixture: generated baseline + check PASSES
+  // Case 2 — a new suppression without EXCEPTION → FAILS with rich diagnostic
   // -------------------------------------------------------------------------
-  test('case 1: clean fixture passes after --update-baseline', async () => {
-    const srcDir = join(tmpDir, 'src')
-    await mkdir(srcDir, { recursive: true })
-
-    // One suppression that will be grandfathered into the baseline.
-    await writeFile(
-      join(srcDir, 'clean.ts'),
-      [
-        '// biome-ignore lint/performance/noDelete: grandfathered — legacy idiom',
-        'delete (process.env as Record<string, string>)["CLEAN_KEY"]',
-      ].join('\n')
-    )
-
-    const baseline = join(tmpDir, 'baseline.json')
-
-    // Step 1: capture baseline — must succeed
-    const updateResult = await runCheck(tmpDir, baseline, true)
-    expect(updateResult.exitCode).toBe(0)
-
-    // Step 2: check against captured baseline — must pass
-    const checkResult = await runCheck(tmpDir, baseline)
-    expect(checkResult.exitCode).toBe(0)
-  })
-
-  // -------------------------------------------------------------------------
-  // Case 2 — new bare biome-ignore → FAILS with rich diagnostic
-  // -------------------------------------------------------------------------
-  test('case 2: new bare biome-ignore (no baseline, no EXCEPTION) fails with diagnostics', async () => {
-    const srcDir = join(tmpDir, 'src')
-    await mkdir(srcDir, { recursive: true })
-
-    await writeFile(
-      join(srcDir, 'new-suppression.ts'),
-      [
+  const unexceptedSuppressions: Array<{
+    name: string
+    file: string
+    lines: string[]
+    kind: RegExp
+  }> = [
+    {
+      name: 'a bare biome-ignore',
+      file: 'new-suppression.ts',
+      lines: [
         'const arr: string[] = []',
         '// biome-ignore lint/style/noNonNullAssertion: prose without exception',
         'const y = arr[0]',
-      ].join('\n')
-    )
+      ],
+      kind: /biome-ignore/,
+    },
+    {
+      name: 'a @ts-ignore',
+      file: 'ts-ignore.ts',
+      lines: ['// @ts-ignore', 'const _x: string = 42 as unknown as string'],
+      kind: /@ts-ignore/,
+    },
+    {
+      // Prose after @ts-expect-error is NOT a sanctioned EXCEPTION channel.
+      name: 'a @ts-expect-error with a prose reason',
+      file: 'ts-expect-prose.ts',
+      lines: [
+        '// @ts-expect-error: normal prose reason — not a sanctioned EXCEPTION',
+        'const _x: string = 42 as unknown as string',
+      ],
+      kind: /@ts-expect-error/,
+    },
+  ]
 
-    // Empty baseline — this suppression is not grandfathered.
-    await writeFile(join(tmpDir, 'baseline.json'), JSON.stringify({ suppressions: [] }))
+  test.each(unexceptedSuppressions)(
+    'case 2: $name with no baseline entry and no EXCEPTION fails with diagnostics',
+    async ({ file, lines, kind }) => {
+      const srcDir = join(tmpDir, 'src')
+      await mkdir(srcDir, { recursive: true })
+      await writeFile(join(srcDir, file), lines.join('\n'))
 
-    const result = await runCheck(tmpDir, join(tmpDir, 'baseline.json'))
-    const combined = out(result)
+      // Empty baseline — this suppression is not grandfathered.
+      await writeFile(join(tmpDir, 'baseline.json'), JSON.stringify({ suppressions: [] }))
 
-    // Must fail
-    expect(result.exitCode).not.toBe(0)
-    // Must report file reference
-    expect(combined).toMatch(/new-suppression\.ts/)
-    // Must echo the suppression kind
-    expect(combined).toMatch(/biome-ignore/)
-    // Must include the blessed fix
-    expect(combined).toMatch(/EXCEPTION\s*\(.*\).*reason|add EXCEPTION/i)
-    // Must carry the do-not-suppress-this-check note
-    expect(combined).toMatch(/do not suppress|check-suppressions/i)
-  })
+      const result = await runCheck(tmpDir, join(tmpDir, 'baseline.json'))
+      const combined = out(result)
+
+      // Must fail
+      expect(result.exitCode).not.toBe(0)
+      // Must report file reference
+      expect(combined).toContain(file)
+      // Must echo the suppression kind (not just a bun module-not-found error)
+      expect(combined).toMatch(kind)
+      // Must include the blessed fix
+      expect(combined).toMatch(/EXCEPTION\s*\(.*\).*reason|add EXCEPTION/i)
+      // Must carry the do-not-suppress-this-check note
+      expect(combined).toMatch(/do not suppress|check-suppressions/i)
+    }
+  )
 
   // -------------------------------------------------------------------------
-  // Case 3 — preceding EXCEPTION annotation → PASSES
+  // Case 3 — an adjacent EXCEPTION annotation → PASSES
   // -------------------------------------------------------------------------
-  test('case 3: suppression with preceding EXCEPTION annotation passes', async () => {
-    const srcDir = join(tmpDir, 'src')
-    await mkdir(srcDir, { recursive: true })
-
-    // EXCEPTION on the immediately preceding comment line — no blank line between.
-    await writeFile(
-      join(srcDir, 'excepted.ts'),
-      [
+  const exceptedSuppressions: Array<{ name: string; file: string; lines: string[] }> = [
+    {
+      // EXCEPTION on the immediately preceding comment line — no blank line between.
+      name: 'an EXCEPTION on the preceding line',
+      file: 'excepted.ts',
+      lines: [
         'const arr: string[] = []',
         '// EXCEPTION(T-04389): real reason for keeping this suppression',
         '// biome-ignore lint/style/noNonNullAssertion: needed here',
         'const y = arr[0]',
-      ].join('\n')
-    )
+      ],
+    },
+    {
+      // EXCEPTION annotation on the same physical line as @ts-expect-error.
+      name: 'an EXCEPTION on the same line',
+      file: 'ts-expect-excepted.ts',
+      lines: [
+        '// @ts-expect-error EXCEPTION(T-04389): proper sanctioned exception with ticket',
+        'const _x: string = 42 as unknown as string',
+      ],
+    },
+  ]
 
-    // Empty baseline — EXCEPTION annotation exempts this suppression.
-    await writeFile(join(tmpDir, 'baseline.json'), JSON.stringify({ suppressions: [] }))
+  test.each(exceptedSuppressions)(
+    'case 3: a suppression with $name passes without a baseline entry',
+    async ({ file, lines }) => {
+      const srcDir = join(tmpDir, 'src')
+      await mkdir(srcDir, { recursive: true })
+      await writeFile(join(srcDir, file), lines.join('\n'))
 
-    const result = await runCheck(tmpDir, join(tmpDir, 'baseline.json'))
-    expect(result.exitCode).toBe(0)
-  })
+      // Empty baseline — the EXCEPTION annotation exempts this suppression.
+      await writeFile(join(tmpDir, 'baseline.json'), JSON.stringify({ suppressions: [] }))
+
+      const result = await runCheck(tmpDir, join(tmpDir, 'baseline.json'))
+      expect(result.exitCode, out(result)).toBe(0)
+    }
+  )
 
   // -------------------------------------------------------------------------
   // Case 4 — grandfathered suppression PASSES via baseline (no EXCEPTION needed)
@@ -221,67 +238,6 @@ describe('check-suppressions.ts', () => {
 
     const result = await runCheck(tmpDir, baseline)
     expect(result.exitCode).not.toBe(0)
-  })
-
-  // -------------------------------------------------------------------------
-  // Case 6 — TypeScript suppression comments
-  // -------------------------------------------------------------------------
-  describe('case 6: TypeScript suppression comments', () => {
-    test('6a: @ts-ignore without EXCEPTION fails', async () => {
-      const srcDir = join(tmpDir, 'src')
-      await mkdir(srcDir, { recursive: true })
-
-      await writeFile(
-        join(srcDir, 'ts-ignore.ts'),
-        ['// @ts-ignore', 'const _x: string = 42 as unknown as string'].join('\n')
-      )
-
-      await writeFile(join(tmpDir, 'baseline.json'), JSON.stringify({ suppressions: [] }))
-
-      const result = await runCheck(tmpDir, join(tmpDir, 'baseline.json'))
-      expect(result.exitCode).not.toBe(0)
-      // Diagnostic must mention the suppression kind (not just a bun module-not-found error)
-      expect(out(result)).toMatch(/@ts-ignore/)
-    })
-
-    test('6b: @ts-expect-error with prose reason (not EXCEPTION) fails', async () => {
-      const srcDir = join(tmpDir, 'src')
-      await mkdir(srcDir, { recursive: true })
-
-      // Prose after @ts-expect-error is NOT a sanctioned EXCEPTION channel.
-      await writeFile(
-        join(srcDir, 'ts-expect-prose.ts'),
-        [
-          '// @ts-expect-error: normal prose reason — not a sanctioned EXCEPTION',
-          'const _x: string = 42 as unknown as string',
-        ].join('\n')
-      )
-
-      await writeFile(join(tmpDir, 'baseline.json'), JSON.stringify({ suppressions: [] }))
-
-      const result = await runCheck(tmpDir, join(tmpDir, 'baseline.json'))
-      expect(result.exitCode).not.toBe(0)
-      expect(out(result)).toMatch(/@ts-expect-error/)
-    })
-
-    test('6c: @ts-expect-error EXCEPTION(T-04389): reason passes', async () => {
-      const srcDir = join(tmpDir, 'src')
-      await mkdir(srcDir, { recursive: true })
-
-      // EXCEPTION annotation on the same physical line as @ts-expect-error → sanctioned.
-      await writeFile(
-        join(srcDir, 'ts-expect-excepted.ts'),
-        [
-          '// @ts-expect-error EXCEPTION(T-04389): proper sanctioned exception with ticket',
-          'const _x: string = 42 as unknown as string',
-        ].join('\n')
-      )
-
-      await writeFile(join(tmpDir, 'baseline.json'), JSON.stringify({ suppressions: [] }))
-
-      const result = await runCheck(tmpDir, join(tmpDir, 'baseline.json'))
-      expect(result.exitCode).toBe(0)
-    })
   })
 
   // -------------------------------------------------------------------------

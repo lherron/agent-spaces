@@ -287,6 +287,45 @@ describe('lefthook v2 real pre-commit boundaries', () => {
     expect(await readInvocations(fixture.logPath)).toEqual([])
   })
 
+  test('public-surface validation runs only when an API-bearing path is staged', async () => {
+    const fixture = await makeHookFixture()
+    const cases: Array<{ path: string; runs: boolean }> = [
+      { path: 'core/config/src/index.ts', runs: true },
+      { path: 'core/config/package.json', runs: true },
+      { path: '.public-surface-baseline.json', runs: true },
+      { path: 'scripts/test-fast.ts', runs: false },
+      { path: 'lefthook.yml', runs: false },
+    ]
+
+    for (const { path, runs } of cases) {
+      const target = join(fixture.work, path)
+      await mkdir(dirname(target), { recursive: true })
+      if (!existsSync(target)) await writeFile(target, '{}\n')
+      run(['git', 'add', '--', path], fixture.work)
+      await writeFile(fixture.logPath, '')
+
+      const output = run(
+        [
+          'bun',
+          'scripts/run-if-code-changed.ts',
+          'pre-commit',
+          'public-surface',
+          '--only=public-surface',
+          '--',
+          'hook-probe',
+          'public-surface',
+        ],
+        fixture.work,
+        hookEnvironment(fixture)
+      )
+
+      expect(await readInvocations(fixture.logPath), path).toEqual(runs ? ['public-surface'] : [])
+      if (!runs)
+        expect(output).toContain('skipping public-surface validation for unrelated changes')
+      run(['git', 'reset', '-q'], fixture.work)
+    }
+  })
+
   test('runs only unconditional checks for documentation extensions regardless of case', async () => {
     const fixture = await makeHookFixture()
     await mkdir(join(fixture.work, 'docs'), { recursive: true })

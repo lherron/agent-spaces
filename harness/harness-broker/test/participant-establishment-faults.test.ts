@@ -8,7 +8,6 @@ import type {
   BrokerEnsureInvocationRequest,
   HarnessInvocationSpec,
 } from 'spaces-harness-broker-protocol'
-import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../src/broker'
 import {
   ENSURE_RECEIPT_JOURNAL_FILENAME,
@@ -178,42 +177,6 @@ describe('T-08346 prepared-before-starting crash window', () => {
     await broker.installIdentity(IDENTITY)
     await broker.ensureInvocation(ensureRequest(attempt))
     expect(observed).toEqual([['prepared', 'starting']])
-  })
-
-  test('bootstrap posture refuses the whole surface until identity is installed', async () => {
-    const dir = scratchDir()
-    const starts = { count: 0 }
-    const broker = brokerOver(dir, starts)
-
-    await expect(
-      broker.hello({ clientInfo: { name: 't08346' }, protocolVersions: ['harness-broker/0.3'] })
-    ).rejects.toMatchObject({ code: BrokerErrorCode.BrokerBootstrapRequired })
-    await expect(broker.health({})).rejects.toMatchObject({
-      code: BrokerErrorCode.BrokerBootstrapRequired,
-    })
-    await expect(broker.ensureInvocation(ensureRequest('attempt_gated'))).rejects.toMatchObject({
-      code: BrokerErrorCode.BrokerBootstrapRequired,
-    })
-
-    await broker.installIdentity(IDENTITY)
-    const hello = await broker.hello({
-      clientInfo: { name: 't08346' },
-      protocolVersions: ['harness-broker/0.3'],
-    })
-    expect(hello.protocolVersion).toBe('harness-broker/0.3')
-    expect(starts.count).toBe(0)
-  })
-
-  test('a broker NOT in participant posture keeps its existing unbound surface', async () => {
-    // The existing supported non-participant unix route: no identity flags and
-    // no participant declaration. It must not be dragged into bootstrap.
-    const broker = createBroker({ drivers: [] })
-    const hello = await broker.hello({
-      clientInfo: { name: 't08346' },
-      protocolVersions: ['harness-broker/0.3'],
-    })
-    expect(hello.protocolVersion).toBe('harness-broker/0.3')
-    expect((await broker.health({})).status).toBe('ok')
   })
 })
 

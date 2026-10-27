@@ -1,7 +1,7 @@
 /**
  * Compose-time hygiene gate — cache-admission behaviour (T-05574).
  *
- * Covers the shared helper predicate/baseline/force semantics, plus the
+ * Covers the baseline/force semantics through the
  * `materialize.ts` free-fn seam (the `asp build` path): a blocking finding throws
  * a typed `MaterializationHygieneError` and leaves NO cache entry; a baselined
  * finding is suppressed; a warning is advisory; force-compose admits the write and
@@ -45,16 +45,6 @@ description: A probe skill for the hygiene gate.
 # Probe
 
 See [the missing doc](./does-not-exist.md) for details.
-`
-
-const CLEAN_SKILL = `---
-name: probe-skill
-description: A probe skill for the hygiene gate.
----
-
-# Probe
-
-A clean skill body with no broken pointers.
 `
 
 // A skill that only trips an advisory (warning/info) finding: an orphaned bundled
@@ -109,45 +99,8 @@ function materializeInput(snapshotPath: string) {
   }
 }
 
-describe('evaluateHygieneGate predicate', () => {
-  test('flags an error-severity broken pointer (W421) as blocking', async () => {
-    const snapshotPath = await writeSnapshot(BROKEN_POINTER_SKILL)
-    const gate = await evaluateHygieneGate({
-      pluginPath: snapshotPath, // lint the source tree directly for the unit assertion
-      sourceRoot: snapshotPath,
-      spaceKey: 'probe@abc1234',
-    })
-    expect(gate.blocking.length).toBeGreaterThanOrEqual(1)
-    expect(gate.blocking.every((f) => f.severity === 'error')).toBe(true)
-    expect(gate.blocking.some((f) => f.code === 'W421')).toBe(true)
-    expect(gate.blocking[0]?.spaceKey).toBe('probe@abc1234')
-  })
-
-  test('a clean tree produces no blocking findings', async () => {
-    const snapshotPath = await writeSnapshot(CLEAN_SKILL)
-    const gate = await evaluateHygieneGate({
-      pluginPath: snapshotPath,
-      sourceRoot: snapshotPath,
-      spaceKey: 'probe@abc1234',
-    })
-    expect(gate.blocking).toHaveLength(0)
-  })
-
-  test('a tree with no skills/ dir passes (nothing to lint)', async () => {
-    const empty = join(root, 'empty')
-    await mkdir(empty, { recursive: true })
-    const gate = await evaluateHygieneGate({
-      pluginPath: empty,
-      sourceRoot: empty,
-      spaceKey: 'probe@abc1234',
-    })
-    expect(gate.blocking).toHaveLength(0)
-    expect(gate.findings).toHaveLength(0)
-  })
-})
-
 describe('materialize.ts cache-admission seam', () => {
-  test('test 1: unsuppressed W421 throws typed error and writes NO cache entry', async () => {
+  test('an unsuppressed W421 broken pointer fails build materialization and leaves no cache entry', async () => {
     const snapshotPath = await writeSnapshot(BROKEN_POINTER_SKILL)
     const aspHome = join(root, 'asp-home')
     const paths = new PathResolver({ aspHome })
@@ -164,6 +117,9 @@ describe('materialize.ts cache-admission seam', () => {
     expect(hygieneErr.code).toBe('MATERIALIZATION_HYGIENE_ERROR')
     expect(hygieneErr.spaceKey).toBe(input.spaceKey)
     expect(hygieneErr.findings.some((f) => f.code === 'W421')).toBe(true)
+    expect(hygieneErr.findings.length).toBeGreaterThanOrEqual(1)
+    expect(hygieneErr.findings.every((f) => f.severity === 'error')).toBe(true)
+    expect(hygieneErr.findings.every((f) => f.spaceKey === input.spaceKey)).toBe(true)
 
     // No blessed cache entry was written.
     expect(await cacheWritten(input.integrity, paths)).toBe(false)

@@ -20,15 +20,12 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { createAgentSpacesClient } from 'agent-spaces'
 import type { OutputManifest, RuntimeCompileRequest } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 
 import { allocatePreHrcRuntimeIdentity, buildPlacementFromScopeRef } from 'agent-spaces/testing'
-import { runtimeDependencies } from '../src/compiler-runtime.js'
 import { AspcClient } from '../src/index.js'
-import { buildOutputManifest, canonicalJson } from '../src/manifest.js'
-import type { verifyRelease } from '../src/verify-release.js'
+import { canonicalJson } from '../src/manifest.js'
 
 type Fixture = {
   base: string
@@ -184,6 +181,23 @@ describe('T-04133 red: reproducible ASPC compiler surfaces', () => {
     expect(JSON.stringify(manifest)).not.toContain(process.env['HOME'] ?? '__no_home__')
     expect(manifest.entries?.some((entry) => 'mtime' in entry)).toBe(false)
     expect(manifest.startedHarness).not.toBe(true)
+
+    // Mode A is normalized self-stability evidence only: it can never authorize cutover.
+    const report = runAspcCli([
+      'verify-release',
+      '--mode',
+      'a',
+      '--baseline',
+      aspcCliPath(),
+      '--candidate',
+      aspcCliPath(),
+      '--corpus',
+      writeGoldCorpusFixture(),
+      '--compile-context',
+      JSON.stringify(fixedCompileContext),
+    ])
+    expect(report.status, report.stderr).toBe(0)
+    expect(JSON.parse(report.stdout)).toMatchObject({ mode: 'A', authorizesCutover: false })
   })
 
   test('aspc verify-release reports byte-identical builds and classifies deterministic mechanics/content changes', () => {
@@ -256,13 +270,6 @@ describe('T-04133 red: reproducible ASPC compiler surfaces', () => {
 
 describe('P0 red: verifier Mode A/B split', () => {
   test('AC1: mode is mandatory, recorded, and included in the output manifest hash', () => {
-    type BuildInput = Parameters<typeof buildOutputManifest>[0]
-    type VerifyInput = Parameters<typeof verifyRelease>[0]
-    const buildModeIsRequired: BuildInput extends { mode: 'A' | 'B' } ? true : false = true
-    const verifyModeIsRequired: VerifyInput extends { mode: 'A' | 'B' } ? true : false = true
-    expect(buildModeIsRequired).toBe(true)
-    expect(verifyModeIsRequired).toBe(true)
-
     const requestPath = writeRequestFixture('required_mode')
     const corpusRoot = writeGoldCorpusFixture()
     const manifestBase = [
@@ -321,52 +328,7 @@ describe('P0 red: verifier Mode A/B split', () => {
     expect(JSON.parse(report.stdout)).toMatchObject({ mode: 'A' })
   })
 
-  test('AC2: Mode A remains cross-home normalized self-stability evidence and cannot authorize cutover', () => {
-    const requestPath = writeRequestFixture('mode_a_stability')
-    const firstHome = join(fixture.base, 'mode-a-home-one')
-    const secondHome = join(fixture.base, 'mode-a-home-two')
-    mkdirSync(firstHome, { recursive: true })
-    mkdirSync(secondHome, { recursive: true })
-
-    const run = (aspHome: string) =>
-      runAspcCli([
-        'manifest',
-        '--mode',
-        'a',
-        '--request',
-        requestPath,
-        '--asp-home',
-        aspHome,
-        '--compile-context',
-        JSON.stringify(fixedCompileContext),
-      ])
-    const first = run(firstHome)
-    const second = run(secondHome)
-    expect(first.status, first.stderr).toBe(0)
-    expect(second.status, second.stderr).toBe(0)
-    expect(second.stdout).toBe(first.stdout)
-
-    const report = runAspcCli([
-      'verify-release',
-      '--mode',
-      'a',
-      '--baseline',
-      aspcCliPath(),
-      '--candidate',
-      aspcCliPath(),
-      '--corpus',
-      writeGoldCorpusFixture(),
-      '--compile-context',
-      JSON.stringify(fixedCompileContext),
-    ])
-    expect(report.status, report.stderr).toBe(0)
-    expect(JSON.parse(report.stdout)).toMatchObject({
-      mode: 'A',
-      authorizesCutover: false,
-    })
-  })
-
-  test('AC3: Mode B hashes raw file bytes, raw byte size, and raw symlink targets', async () => {
+  test('AC3: Mode B hashes raw file bytes, raw byte size, and raw symlink targets', () => {
     const probeDir = join(fixture.aspHome, 'codex-homes', 'raw-byte-probe')
     mkdirSync(probeDir, { recursive: true })
     const rawPath = join(probeDir, 'invalid-utf8.bin')
@@ -378,8 +340,8 @@ describe('P0 red: verifier Mode A/B split', () => {
     const rawTarget = `${fixture.aspHome}/target-${'b'.repeat(64)}-2026-08-18T12:34:56Z`
     symlinkSync(rawTarget, join(probeDir, 'raw-target-link'))
 
-    const modeB = await buildManifest('B', 'mode_b_raw')
-    const modeA = await buildManifest('A', 'mode_a_normalized')
+    const modeB = buildManifest('B', 'mode_b_raw')
+    const modeA = buildManifest('A', 'mode_a_normalized')
     const rawEntry = requireManifestEntry(modeB, 'codex-homes/raw-byte-probe/invalid-utf8.bin')
     const normalizedEntry = requireManifestEntry(
       modeA,
@@ -393,7 +355,7 @@ describe('P0 red: verifier Mode A/B split', () => {
     expect(linkEntry.sha256).toBe(sha256Hex(`symlink:${rawTarget}`))
   })
 
-  test('AC4: Mode B walks the full ASP_HOME and fails loudly on unreadable directories', async () => {
+  test('AC4: Mode B walks the full ASP_HOME and fails loudly on unreadable directories', () => {
     const cachePath = join(fixture.aspHome, 'cache', 'plugin-cache', 'plugin.txt')
     const promptPath = join(
       fixture.aspHome,
@@ -409,7 +371,7 @@ describe('P0 red: verifier Mode A/B split', () => {
     writeFileSync(cachePath, 'plugin cache emission\n')
     writeFileSync(promptPath, 'system prompt emission\n')
 
-    const manifest = await buildManifest('B', 'whole_home_walk')
+    const manifest = buildManifest('B', 'whole_home_walk')
     expect(manifest.entries.map((entry) => entry.path)).toEqual(
       expect.arrayContaining([
         'cache/plugin-cache/plugin.txt',
@@ -420,36 +382,32 @@ describe('P0 red: verifier Mode A/B split', () => {
     const unreadable = join(fixture.aspHome, 'walk-error-probe')
     mkdirSync(unreadable, { recursive: true })
     writeFileSync(join(unreadable, 'must-not-disappear.txt'), 'emitted\n')
-    const readable = await buildManifest('B', 'readable_walk_control')
+    const readable = buildManifest('B', 'readable_walk_control')
     expect(readable.entries.map((entry) => entry.path)).toContain(
       'walk-error-probe/must-not-disappear.txt'
     )
 
     chmodSync(unreadable, 0o000)
     try {
-      let caught: unknown
-      try {
-        await buildManifest('B', 'unreadable_walk')
-      } catch (error) {
-        caught = error
-      }
-      expect(caught).toBeInstanceOf(Error)
-      const message = caught instanceof Error ? caught.message : String(caught)
-      expect(message).toMatch(
+      const failed = runManifestCli('B', 'unreadable_walk')
+      expect(failed.status).not.toBe(0)
+      expect(failed.stdout).toBe('')
+      expect(failed.stderr).toMatch(
         /walk-error-probe.*(?:permission|EACCES)|(?:permission|EACCES).*walk-error-probe/i
       )
-      expect(message).not.toContain('manifest compile failed')
+      // A walk failure is its own loud error, not a compile failure.
+      expect(failed.stderr).not.toContain('compile failed')
     } finally {
       chmodSync(unreadable, 0o755)
     }
   })
 
-  test('AC5: exclusions are committed exact declarations with lock-only reasons and visible entries', async () => {
+  test('AC5: exclusions are committed exact declarations with lock-only reasons and visible entries', () => {
     const lockDir = join(fixture.aspHome, 'codex-homes', 'locks')
     mkdirSync(lockDir, { recursive: true })
     writeFileSync(join(lockDir, 'runtime.lock'), 'ephemeral lock\n')
 
-    const manifest = await buildManifest('B', 'declared_lock')
+    const manifest = buildManifest('B', 'declared_lock')
     expect(manifest.exclusions).toContainEqual({
       path: 'codex-homes/locks/runtime.lock',
       reason: 'ephemeral-lock',
@@ -457,7 +415,9 @@ describe('P0 red: verifier Mode A/B split', () => {
     expect(manifest.entries.some((entry) => entry.path.endsWith('.lock'))).toBe(false)
 
     writeFileSync(join(lockDir, 'unlisted.lock'), 'not declared\n')
-    await expect(buildManifest('B', 'undeclared_lock')).rejects.toThrow(
+    const undeclared = runManifestCli('B', 'undeclared_lock')
+    expect(undeclared.status).not.toBe(0)
+    expect(undeclared.stderr).toMatch(
       /unlisted\.lock.*declared exclusion|declared exclusion.*unlisted\.lock/i
     )
   })
@@ -841,21 +801,30 @@ process.stdout.write(
   return emitterPath
 }
 
-async function buildManifest(mode: 'A' | 'B', namespace: string): Promise<OutputManifest> {
-  const input = {
-    compileRequest: buildCompileRequest(namespace),
-    aspHome: fixture.aspHome,
-    compileContext: fixedCompileContext,
-    mode,
-  } as Parameters<typeof buildOutputManifest>[0] & { mode: 'A' | 'B' }
-  const result = await buildOutputManifest(
-    input,
-    createAgentSpacesClient({ aspHome: input.aspHome, runtime: runtimeDependencies })
-  )
-  if (!result.ok) {
-    throw new Error(`manifest compile failed: ${JSON.stringify(result.diagnostics)}`)
+/** `aspc manifest --mode a|b` over the fixture ASP_HOME, through the shipped CLI. */
+function runManifestCli(
+  mode: 'A' | 'B',
+  namespace: string
+): { status: number | null; stdout: string; stderr: string } {
+  return runAspcCli([
+    'manifest',
+    '--mode',
+    mode === 'A' ? 'a' : 'b',
+    '--request',
+    writeRequestFixture(namespace),
+    '--asp-home',
+    fixture.aspHome,
+    '--compile-context',
+    JSON.stringify(fixedCompileContext),
+  ])
+}
+
+function buildManifest(mode: 'A' | 'B', namespace: string): OutputManifest {
+  const result = runManifestCli(mode, namespace)
+  if (result.status !== 0) {
+    throw new Error(`aspc manifest exited ${result.status}: ${result.stderr}`)
   }
-  return result.manifest
+  return JSON.parse(result.stdout) as OutputManifest
 }
 
 function requireManifestEntry(manifest: OutputManifest, path: string) {

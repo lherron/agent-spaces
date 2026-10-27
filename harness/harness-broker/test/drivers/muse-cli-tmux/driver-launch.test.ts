@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
@@ -12,6 +12,19 @@ import type {
 import type { DriverContext } from '../../../src/drivers/driver'
 import { createMuseCliTmuxDriver } from '../../../src/drivers/muse-cli-tmux/driver'
 import { invocationIdFrom } from '../../ids'
+
+let scratch: string
+let previousTmpdir: string | undefined
+beforeEach(() => {
+  previousTmpdir = process.env['TMPDIR']
+  scratch = mkdtempSync('/tmp/muse-driver-')
+  process.env['TMPDIR'] = scratch
+})
+afterEach(() => {
+  if (previousTmpdir === undefined) Reflect.deleteProperty(process.env, 'TMPDIR')
+  else process.env['TMPDIR'] = previousTmpdir
+  rmSync(scratch, { recursive: true, force: true })
+})
 
 type ExecResult = { stdout: string; stderr: string }
 type ExecFn = (
@@ -247,7 +260,10 @@ describe('muse-cli-tmux /quit teardown', () => {
       invocationId,
       hookData: { hook_event_name: 'SessionEnd', reason: 'other' },
     })
-    await handler?.({ invocationId, hookData: { hook_event_name: 'Stop' } })
+    await handler?.({
+      invocationId,
+      hookData: { hook_event_name: 'Stop', reason: 'prompt_input_exit' },
+    })
     expect(emitted.filter((event) => event.type === 'continuation.cleared')).toHaveLength(0)
     await driver.dispose()
   })

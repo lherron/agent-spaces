@@ -14,7 +14,7 @@
 import { describe, expect, test } from 'bun:test'
 import { execFileSync } from 'node:child_process'
 import { realpathSync } from 'node:fs'
-import { cp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -88,24 +88,6 @@ async function setupConvenienceDirs(): Promise<{
 }
 
 describe('agents-root resolution', () => {
-  test('derives agent-root from ASP_AGENTS_ROOT + agentId', async () => {
-    const { agentsRoot, aspHome, cleanup } = await setupConvenienceDirs()
-    try {
-      const result = runAsp(['agent', 'alice', 'resolve', '--json'], {
-        env: {
-          ASP_AGENTS_ROOT: agentsRoot,
-          ASP_HOME: aspHome,
-        },
-      })
-
-      expect(result.exitCode).toBe(0)
-      const parsed = JSON.parse(result.stdout)
-      expect(parsed.placement.agentRoot).toBe(join(agentsRoot, 'alice'))
-    } finally {
-      await cleanup()
-    }
-  })
-
   test('--agent-root overrides ASP_AGENTS_ROOT', async () => {
     const { agentsRoot, aspHome, cleanup } = await setupConvenienceDirs()
     const explicitRoot = join(FIXTURES_DIR, 'agent-root')
@@ -172,7 +154,7 @@ describe('project-root resolution', () => {
 })
 
 describe('bare scope without projectId', () => {
-  test('alice (no @project) leaves projectRoot undefined', async () => {
+  test('bare agent id resolves agent-root from ASP_AGENTS_ROOT and leaves projectRoot unset', async () => {
     const { agentsRoot, aspHome, cleanup } = await setupConvenienceDirs()
     try {
       const result = runAsp(['agent', 'alice', 'resolve', '--json'], {
@@ -194,7 +176,7 @@ describe('bare scope without projectId', () => {
 
 describe('missing agents root error', () => {
   test('no ASP_AGENTS_ROOT and no --agent-root produces clear error', async () => {
-    const base = join(tmpdir(), `asp-empty-${Date.now()}`)
+    const base = await mkdtemp(join(tmpdir(), 'asp-empty-'))
     const aspHome = join(base, 'asp-home')
     const home = join(base, 'home')
     await mkdir(aspHome, { recursive: true })
@@ -205,13 +187,17 @@ describe('missing agents root error', () => {
         env: {
           ASP_HOME: aspHome,
           HOME: home,
+          // Never inherit the caller's (live) agents root.
+          ASP_AGENTS_ROOT: '',
         },
+        cwd: base,
         expectError: true,
       })
 
       expect(result.exitCode).not.toBe(0)
-      const output = result.stdout + result.stderr
-      expect(output).toMatch(/agent.?root|ASP_AGENTS_ROOT|config\.toml/i)
+      expect(result.stderr).toContain(
+        '--agent-root is required and no agent-profile.toml was found for the scope agent (set ASP_AGENTS_ROOT,'
+      )
     } finally {
       await rm(base, { recursive: true, force: true })
     }

@@ -25,13 +25,27 @@
 
 import { afterAll, beforeAll } from 'bun:test'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { PORTABLE_SPACES_REGISTRY, PathResolver } from 'spaces-config'
 
 let agentsRoot: string | undefined
+
+/** Temp roots this module created; removed when the test process exits. */
+const ownedTempRoots: string[] = []
+process.on('exit', () => {
+  for (const root of ownedTempRoots) rmSync(root, { recursive: true, force: true })
+})
 
 /**
  * Empty agents root to pin into every test environment.
@@ -46,6 +60,7 @@ let agentsRoot: string | undefined
 export function hermeticAgentsRoot(): string {
   if (agentsRoot === undefined) {
     agentsRoot = mkdtempSync(join(tmpdir(), 'asp-agents-root-'))
+    ownedTempRoots.push(agentsRoot)
   }
   return agentsRoot
 }
@@ -79,6 +94,7 @@ function buildMirrorTemplate(): string {
   if (mirrorTemplate) return mirrorTemplate
 
   const base = mkdtempSync(join(tmpdir(), 'asp-immutable-mirror-'))
+  ownedTempRoots.push(base)
   const upstream = join(base, 'upstream')
   const mirror = join(base, 'mirror')
   const sshShim = join(base, 'ssh-shim')

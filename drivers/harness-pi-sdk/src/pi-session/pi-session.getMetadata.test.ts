@@ -21,58 +21,36 @@
 import { describe, expect, test } from 'bun:test'
 import { PiSession } from './pi-session.js'
 
-function makeSession(overrides?: { sessionId?: string }) {
+function makeSession(overrides: { sessionId: string }) {
   return new PiSession({
     ownerId: 'test-owner',
     cwd: '/tmp',
-    sessionId: overrides?.sessionId ?? 'test-pi-1',
+    sessionId: overrides.sessionId,
   })
 }
 
 describe('PiSession.getMetadata (T-00940)', () => {
-  test('getMetadata() exists and returns a snapshot object', () => {
-    const session = makeSession()
-    const meta = session.getMetadata()
-    expect(meta).toBeDefined()
-    expect(typeof meta).toBe('object')
-  })
-
-  test('snapshot contains correct capability flags for pi (all false)', () => {
-    const session = makeSession()
-    const meta = session.getMetadata()
-    expect(meta.capabilities).toEqual({
-      supportsInterrupt: false,
-      supportsInFlightInput: false,
-      supportsNativeResume: false,
-      supportsAttach: false,
-    })
-  })
-
-  test('snapshot reflects sessionId, kind, and current state', () => {
+  test('a fresh pi session snapshot carries its id, idle state, all-false capabilities and no native identity or pid', () => {
+    const before = Date.now()
     const session = makeSession({ sessionId: 'pi-session-99' })
     const meta = session.getMetadata()
-    expect(meta.sessionId).toBe('pi-session-99')
-    expect(meta.kind).toBe('pi')
-    expect(meta.state).toBe(session.getState())
-  })
-
-  test('nativeIdentity is always undefined for pi sessions', () => {
-    const session = makeSession()
-    const meta = session.getMetadata()
-    expect(meta.nativeIdentity).toBeUndefined()
-  })
-
-  test('pid is always undefined for pi sessions', () => {
-    const session = makeSession()
-    const meta = session.getMetadata()
-    expect(meta.pid).toBeUndefined()
-  })
-
-  test('lastActivityAt is a recent timestamp', () => {
-    const before = Date.now()
-    const session = makeSession()
-    const meta = session.getMetadata()
     const after = Date.now()
+
+    expect<unknown>(meta).toEqual({
+      sessionId: 'pi-session-99',
+      kind: 'pi',
+      state: 'idle',
+      lastActivityAt: expect.any(Number),
+      capabilities: {
+        supportsInterrupt: false,
+        supportsInFlightInput: false,
+        supportsNativeResume: false,
+        supportsAttach: false,
+      },
+      nativeIdentity: undefined,
+      pid: undefined,
+    })
+    expect(meta.state).toBe(session.getState())
     expect(meta.lastActivityAt).toBeGreaterThanOrEqual(before)
     expect(meta.lastActivityAt).toBeLessThanOrEqual(after)
   })

@@ -3,8 +3,7 @@
  * preparation input shared by inspection, direct preparation, and launch.
  *
  * For the same placement and the same optional taskContext, all three surfaces
- * render identical prompt bytes and effectiveEnvironmentHash; each advertises
- * its taskContext input by an exact capability; a conflicting scope task is
+ * render identical prompt bytes and effectiveEnvironmentHash; a conflicting scope task is
  * refused as configured_context_mismatch; nothing renders synthesized task
  * metadata. Real in-process compiler + ASPC service, hermetic fixture.
  */
@@ -125,7 +124,7 @@ function correlation(scopeTask: string | undefined) {
   }
 }
 
-function context(scopeTask: string | undefined): UnknownRecord {
+function context(contextTaskId: string | undefined): UnknownRecord {
   const projectRoot = join(root, 'proj')
   return {
     agentId: 'pov',
@@ -133,7 +132,7 @@ function context(scopeTask: string | undefined): UnknownRecord {
     project: { mode: 'root', projectRoot, projectId: 'proj' },
     cwd: projectRoot,
     runMode: 'task',
-    ...(scopeTask !== undefined ? { taskId: scopeTask } : {}),
+    ...(contextTaskId !== undefined ? { taskId: contextTaskId } : {}),
   }
 }
 
@@ -179,13 +178,15 @@ async function compile(
   } as never)
 }
 
+// contextTaskId defaults to the scope's task; null leaves the context taskId out.
 async function inspect(
   scopeTask: string | undefined,
-  taskContext?: typeof ROLE
+  taskContext?: typeof ROLE,
+  contextTaskId: string | null = scopeTask ?? null
 ): Promise<AspcInspectRuntimePlacementResponse> {
   return await service.inspectRuntimePlacement({
     schemaVersion: 'aspc-inspect-runtime-placement-request/v1',
-    context: context(scopeTask),
+    context: context(contextTaskId ?? undefined),
     preparationCorrelation: correlation(scopeTask),
     ...(taskContext !== undefined ? { preparationTaskContext: taskContext } : {}),
   } as never)
@@ -193,11 +194,12 @@ async function inspect(
 
 async function prepare(
   scopeTask: string | undefined,
-  taskContext?: typeof ROLE
+  taskContext?: typeof ROLE,
+  contextTaskId: string | null = scopeTask ?? null
 ): Promise<AspcPrepareProcessInvocationResponse> {
   return await service.prepareProcessInvocation({
     schemaVersion: 'aspc-prepare-process-invocation-request/v1',
-    context: context(scopeTask),
+    context: context(contextTaskId ?? undefined),
     preparationCorrelation: correlation(scopeTask),
     expected: { provider: 'openai', frontend: 'codex-cli' },
     launch: { interactionMode: 'headless', ioMode: 'pipes' },
@@ -230,6 +232,7 @@ async function threeSurfaces(scopeTask: string | undefined, taskContext?: typeof
     ],
     compiled,
     inspected,
+    prepared,
   }
 }
 
@@ -249,61 +252,89 @@ describe('T-09860 same inputs, same facts and hash on every surface', () => {
     expect(plain.prompts[0]).toContain(`## Current task context\n- Task ID: ${TASK}`)
     expect(plain.prompts[0]).not.toContain('- Role:')
     expect(plain.hashes[0]).not.toBe(role.hashes[0])
+
+    // Nothing renders synthesized inspection task metadata.
+    const everything = JSON.stringify({
+      prompts: plain.prompts,
+      inspected: plain.inspected,
+      compiled: plain.compiled,
+    })
+    expect(everything).not.toContain('agent-inspection"')
+    expect(everything).not.toContain("role:'agent-inspection'")
+
+    // The taskContext joins the hash: a hints change moves it on every surface, and the
+    // same taskContext hashes the same again.
+    const otherHints = await threeSurfaces(TASK, { ...ROLE, hintsText: 'Keep it smaller.' })
+    expect(new Set(otherHints.hashes).size).toBe(1)
+    expect(otherHints.hashes[0]).not.toBe(role.hashes[0])
+    const again = await compile(TASK, ROLE)
+    if (!again.ok) throw new Error(`compile failed: ${JSON.stringify(again.diagnostics)}`)
+    expect(again.effectiveEnvironmentHash).toBe(role.hashes[0])
   })
 
   test('role scope without a task segment: identity unchanged, facts from taskContext', async () => {
-    const { prompts, hashes } = await threeSurfaces(undefined, ROLE)
+    const { prompts, hashes, prepared } = await threeSurfaces(undefined, ROLE)
     expect(new Set(prompts).size).toBe(1)
     expect(new Set(hashes).size).toBe(1)
     expect(prompts[0]).toContain('IDENT task=\n')
     expect(prompts[0]).toContain(ROLE_SECTION)
-  })
-
-  test('nothing renders synthesized inspection task metadata', async () => {
-    const { prompts, inspected, compiled } = await threeSurfaces(TASK)
-    const everything = JSON.stringify({ prompts, inspected, compiled })
-    expect(everything).not.toContain('agent-inspection"')
-    expect(everything).not.toContain("role:'agent-inspection'")
+    // taskContext supplies facts only: it never puts a task into the prepared exec env
+    // (which carries the AGENT_* correlation keys; the compiled lockedEnv carries none).
+    expect(prepared.spec.env).toHaveProperty('AGENT_SCOPE_REF')
+    expect(prepared.spec.env).not.toHaveProperty('AGENT_TASK')
   })
 })
 
 describe('T-09860 conflicting task identity is refused before materialization', () => {
-  const other = { ...ROLE, taskId: 'T-00001' }
+  // One row per scope form. contextTaskId stays out of the request unless it agrees with
+  // the scope, so the only conflict is the scope's task against the taskContext's.
+  const conflicts: Array<{ scopeTask: string; contextTaskId: string | null; taskId: string }> = [
+    { scopeTask: TASK, contextTaskId: TASK, taskId: 'T-00001' },
+    { scopeTask: 'primary', contextTaskId: null, taskId: TASK },
+    { scopeTask: `${TASK}-b7p`, contextTaskId: null, taskId: TASK },
+    { scopeTask: 'T-00001:role:implementer', contextTaskId: null, taskId: TASK },
+  ]
+  const surfaces = ['compile', 'inspect', 'prepare'] as const
+  const cases = surfaces.flatMap((surface) =>
+    conflicts.map((row) => [surface, row.scopeTask, row.taskId, row] as const)
+  )
 
-  test('compile', async () => {
-    const response = await compile(TASK, other)
-    expect(response.ok).toBe(false)
-    expect(response.diagnostics.map((d) => d.code)).toEqual(['configured_context_mismatch'])
-  })
-
-  test('inspect', async () => {
-    expect(await inspect(TASK, other)).toMatchObject({
-      ok: false,
-      declaration: { failure: { kind: 'incompatible', code: 'configured_context_mismatch' } },
-    })
-  })
-
-  test('prepare', async () => {
-    const prepared = await prepare(TASK, other)
-    expect(prepared).toMatchObject({
-      ok: false,
-      failure: { kind: 'incompatible', code: 'configured_context_mismatch' },
-    })
-    expect(Object.hasOwn(prepared, 'spec')).toBe(false)
-  })
+  test.each(cases)(
+    'a taskContext for another task is refused as configured_context_mismatch on %s (scope task %s, taskContext %s)',
+    async (surface, scopeTask, taskId, row) => {
+      const taskContext = { ...ROLE, taskId }
+      if (surface === 'compile') {
+        const response = await compile(scopeTask, taskContext)
+        expect(response.ok).toBe(false)
+        expect(response.diagnostics.map((d) => d.code)).toEqual(['configured_context_mismatch'])
+      } else if (surface === 'inspect') {
+        expect(await inspect(scopeTask, taskContext, row.contextTaskId)).toMatchObject({
+          ok: false,
+          declaration: { failure: { kind: 'incompatible', code: 'configured_context_mismatch' } },
+        })
+      } else {
+        const prepared = await prepare(scopeTask, taskContext, row.contextTaskId)
+        expect(prepared).toMatchObject({
+          ok: false,
+          failure: { kind: 'incompatible', code: 'configured_context_mismatch' },
+        })
+        expect(Object.hasOwn(prepared, 'spec')).toBe(false)
+      }
+    }
+  )
 })
 
-describe('T-09860 capabilities and validators', () => {
-  test('hello advertises both exact taskContext capabilities', async () => {
-    const hello = await service.hello({
-      clientInfo: { name: 't09860' },
-      protocolVersions: ['aspc/0.1'],
-    })
-    expect(hello.capabilities.inspectRuntimePlacementPreparationTaskContext).toBe(true)
-    expect(hello.capabilities.prepareProcessInvocationTaskContext).toBe(true)
-  })
+describe('T-09860 validators', () => {
+  function issuesOf(validate: () => unknown): Array<{ path: string; code: string }> {
+    try {
+      validate()
+    } catch (error) {
+      return (error as { issues: Array<{ path: string; code: string }> }).issues
+    }
+    throw new Error('expected the validator to refuse the request')
+  }
 
-  test('validators accept a well-formed taskContext and reject a malformed one', () => {
+  test('a well-formed taskContext or preparationCorrelation is accepted; a malformed taskContext is refused at its path', () => {
     const inspectReq = {
       schemaVersion: 'aspc-inspect-runtime-placement-request/v1',
       context: context(TASK),
@@ -312,10 +343,24 @@ describe('T-09860 capabilities and validators', () => {
     expect(() => validateAspcInspectRuntimePlacementRequest(inspectReq)).not.toThrow()
     expect(() =>
       validateAspcInspectRuntimePlacementRequest({
-        ...inspectReq,
-        preparationTaskContext: { ...ROLE, requiredEvidenceKinds: 'x' },
+        schemaVersion: 'aspc-inspect-runtime-placement-request/v1',
+        context: context(TASK),
+        preparationCorrelation: correlation(TASK),
       })
-    ).toThrow()
+    ).not.toThrow()
+    expect(
+      issuesOf(() =>
+        validateAspcInspectRuntimePlacementRequest({
+          ...inspectReq,
+          preparationTaskContext: { ...ROLE, requiredEvidenceKinds: 'x' },
+        })
+      )
+    ).toEqual([
+      expect.objectContaining({
+        path: 'params.preparationTaskContext.requiredEvidenceKinds',
+        code: 'invalid_type',
+      }),
+    ])
     const prepareReq = {
       schemaVersion: 'aspc-prepare-process-invocation-request/v1',
       context: context(TASK),
@@ -325,11 +370,16 @@ describe('T-09860 capabilities and validators', () => {
       taskContext: ROLE,
     }
     expect(() => validateAspcPrepareProcessInvocationRequest(prepareReq)).not.toThrow()
-    expect(() =>
-      validateAspcPrepareProcessInvocationRequest({
-        ...prepareReq,
-        taskContext: { ...ROLE, phase: undefined, extra: 1 },
-      })
-    ).toThrow()
+    expect(
+      issuesOf(() =>
+        validateAspcPrepareProcessInvocationRequest({
+          ...prepareReq,
+          taskContext: { ...ROLE, phase: undefined, extra: 1 },
+        })
+      )
+    ).toEqual([
+      expect.objectContaining({ path: 'params.taskContext.phase', code: 'required' }),
+      expect.objectContaining({ path: 'params.taskContext.extra', code: 'forbidden_input' }),
+    ])
   })
 })

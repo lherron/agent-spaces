@@ -26,28 +26,6 @@ test('environment composition does not mutate broker process.env', () => {
   }
 })
 
-test('oauth environment composition starves credential variables', () => {
-  const priorOpenAiKey = process.env['OPENAI_API_KEY']
-  const priorAnthropicToken = process.env['ANTHROPIC_AUTH_TOKEN']
-  process.env['OPENAI_API_KEY'] = 'openai-secret'
-  process.env['ANTHROPIC_AUTH_TOKEN'] = 'anthropic-secret'
-  const before = { ...process.env }
-  try {
-    const env = composePiSdkEnvironment(spec('oauth'), {
-      dispatchEnv: dispatchEnv({ HARNESS_PI_AUTH_STORE: '/managed/auth.json' }),
-    })
-    expect(env['OPENAI_API_KEY']).toBeUndefined()
-    expect(env['ANTHROPIC_AUTH_TOKEN']).toBeUndefined()
-    expect(env['HARNESS_PI_AUTH_STORE']).toBe('/managed/auth.json')
-    expect(process.env).toEqual(before)
-  } finally {
-    if (priorOpenAiKey === undefined) process.env['OPENAI_API_KEY'] = undefined
-    else process.env['OPENAI_API_KEY'] = priorOpenAiKey
-    if (priorAnthropicToken === undefined) process.env['ANTHROPIC_AUTH_TOKEN'] = undefined
-    else process.env['ANTHROPIC_AUTH_TOKEN'] = priorAnthropicToken
-  }
-})
-
 // The broker brands dispatchEnv once parseDispatchEnv has validated it; these
 // fixture keys are already valid, so this one cast stands in for that parse.
 function dispatchEnv(values: Record<string, string>): DriverContext['dispatchEnv'] {

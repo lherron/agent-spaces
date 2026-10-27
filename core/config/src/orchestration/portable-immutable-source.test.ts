@@ -6,7 +6,6 @@ import { join } from 'node:path'
 import {
   PORTABLE_SPACES_REGISTRY,
   asCommitSha,
-  asSpaceId,
   computeClosure,
   generateLockFileForTarget,
   git,
@@ -153,13 +152,7 @@ describe('portable immutable source locks', () => {
     await expect(retry).rejects.toThrow('not a git repository')
   })
 
-  test('an explicit placement is used as-is and never deferred', () => {
-    expect(deferImmutableRegistry({ projectPath: '/p', registryPath: '/explicit/registry' })).toBe(
-      '/explicit/registry'
-    )
-  })
-
-  test('regenerates a legacy path-bearing registry into the portable identity', async () => {
+  test('a legacy path-bearing lock is regenerated with the portable registry identity', async () => {
     const legacy = {
       lockfileVersion: 1 as const,
       resolverVersion: 1 as const,
@@ -180,6 +173,5 @@ describe('portable immutable source locks', () => {
     const regenerated = mergeLockFiles(legacy, update)
     expect(regenerated.registry).toEqual(PORTABLE_SPACES_REGISTRY)
     expect(JSON.stringify(regenerated)).not.toContain('/Users/someone-else')
-    expect<string>(asSpaceId('legacy')).toBe('legacy')
   })
 })

@@ -2,11 +2,10 @@
  * Tests for agent-local discovery validation in materialize-refs.
  *
  * WHY: T-01067 adds agent-local skills/commands that are merged with
- * space-provided plugins at materialization time. Conflicts must fail fast,
- * and the thread-through contract into materializeTarget must remain intact.
+ * space-provided plugins at materialization time. Conflicts must fail fast.
  */
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -89,16 +88,5 @@ describe('detectCommandConflicts (T-01067)', () => {
     await writeFile(join(pluginB, 'commands', 'build.md'), '# build\n')
 
     await expect(detectCommandConflicts([pluginA, pluginB])).resolves.toBeUndefined()
-  })
-})
-
-describe('materializeFromRefs threading (T-01067)', () => {
-  test('threads agentLocalComponents through to materializeTarget and keeps backward compatibility', async () => {
-    const source = await readFile(join(import.meta.dir, 'materialize-refs.ts'), 'utf-8')
-
-    expect(source).toContain('agentLocalComponents?: AgentLocalComponents | undefined')
-    expect(source).toContain(
-      '...(options.agentLocalComponents ? { agentLocalComponents: options.agentLocalComponents } : {})'
-    )
   })
 })

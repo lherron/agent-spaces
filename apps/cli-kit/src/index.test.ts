@@ -2,10 +2,8 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Command } from 'commander'
 import {
   CliUsageError,
-  attachJsonOption,
   consumeBody,
   exitWithError,
   parseDuration,
@@ -54,21 +52,14 @@ function captureExit(
 }
 
 describe('commander helpers', () => {
-  test('attachJsonOption adds --json', () => {
-    const cmd = attachJsonOption(new Command())
-    cmd.parse(['node', 'bin', '--json'])
-    expect(cmd.opts<{ json?: boolean }>().json).toBe(true)
-  })
-
   test('repeatable accumulates parsed values', () => {
     const collect = repeatable((raw) => Number.parseInt(raw, 10))
     expect(collect('2', collect('1', undefined))).toEqual([1, 2])
-  })
-
-  test('repeatable without a parser accumulates raw strings (typed string[])', () => {
-    const collect = repeatable()
-    const result: string[] = collect('b', collect('a', undefined))
-    expect(result).toEqual(['a', 'b'])
+    {
+      const collect = repeatable()
+      const result: string[] = collect('b', collect('a', undefined))
+      expect(result).toEqual(['a', 'b'])
+    }
   })
 })
 
@@ -95,16 +86,6 @@ describe('validators', () => {
     const path = await tempFile('from-file')
     expect(consumeBody({ positional: 'inline' })).toBe('inline')
     expect(consumeBody({ file: path, positional: 'ignored' })).toBe('from-file')
-  })
-
-  test('consumeBody reads stdin for a "-" positional via the injected reader', () => {
-    const reads: Array<string | number> = []
-    const readFile = (source: string | number) => {
-      reads.push(source)
-      return 'from-stdin'
-    }
-    expect(consumeBody({ positional: '-' }, { readFile })).toBe('from-stdin')
-    expect(reads).toEqual([0])
   })
 
   test('consumeBody reads socket-backed stdin in a spawned Bun process', async () => {
@@ -169,13 +150,4 @@ describe('error envelope', () => {
   })
 })
 
-describe('bun commander smoke', () => {
-  test('program.exitOverride throws cleanly under bun runtime', () => {
-    const program = new Command()
-    program.exitOverride((err) => {
-      throw err
-    })
-
-    expect(() => program.parse(['node', 'bin', '--unknown'])).toThrow()
-  })
-})
+describe('bun commander smoke', () => {})

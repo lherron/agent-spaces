@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'bun:test'
 import type { SpaceId, SpaceManifest } from '../core/index.js'
-import { generatePluginJson } from './plugin-json.js'
+import { type PluginJson, generatePluginJson } from './plugin-json.js'
 
 function createManifest(overrides: Partial<SpaceManifest> = {}): SpaceManifest {
   return {
@@ -17,90 +17,66 @@ function createManifest(overrides: Partial<SpaceManifest> = {}): SpaceManifest {
   }
 }
 
-describe('generatePluginJson', () => {
-  it('should use space id as plugin name by default', () => {
-    const manifest = createManifest()
-    const json = generatePluginJson(manifest)
-    expect(json.name).toBe('test-space')
-  })
-
-  it('should use plugin.name if specified', () => {
-    const manifest = createManifest({
-      plugin: { name: 'custom-plugin' },
-    })
-    const json = generatePluginJson(manifest)
-    expect(json.name).toBe('custom-plugin')
-  })
-
-  it('should include version from space', () => {
-    const manifest = createManifest({ version: '1.2.3' })
-    const json = generatePluginJson(manifest)
-    expect(json.version).toBe('1.2.3')
-  })
-
-  it('should use plugin.version over space version', () => {
-    const manifest = createManifest({
-      version: '1.0.0',
-      plugin: { version: '2.0.0' },
-    })
-    const json = generatePluginJson(manifest)
-    expect(json.version).toBe('2.0.0')
-  })
-
-  it('should include description from plugin', () => {
-    const manifest = createManifest({
-      plugin: { description: 'A test plugin' },
-    })
-    const json = generatePluginJson(manifest)
-    expect(json.description).toBe('A test plugin')
-  })
-
-  it('should fall back to space description', () => {
-    const manifest = createManifest({
-      description: 'Space description',
-    })
-    const json = generatePluginJson(manifest)
-    expect(json.description).toBe('Space description')
-  })
-
-  it('should include author information', () => {
-    const manifest = createManifest({
+const pluginJsonCases: Array<[string, Partial<SpaceManifest>, PluginJson]> = [
+  [
+    'plugin.name overrides the space id',
+    { plugin: { name: 'custom-plugin' } },
+    { name: 'custom-plugin' },
+  ],
+  ['the space version is copied', { version: '1.2.3' }, { name: 'test-space', version: '1.2.3' }],
+  [
+    'plugin.version beats the space version',
+    { version: '1.0.0', plugin: { version: '2.0.0' } },
+    { name: 'test-space', version: '2.0.0' },
+  ],
+  [
+    'plugin.description is used',
+    { plugin: { description: 'A test plugin' } },
+    { name: 'test-space', description: 'A test plugin' },
+  ],
+  [
+    'the space description is the fallback',
+    { description: 'Space description' },
+    { name: 'test-space', description: 'Space description' },
+  ],
+  [
+    'author name, email and url are copied',
+    {
       plugin: {
-        author: {
-          name: 'Test Author',
-          email: 'test@example.com',
-          url: 'https://example.com',
-        },
+        author: { name: 'Test Author', email: 'test@example.com', url: 'https://example.com' },
       },
-    })
-    const json = generatePluginJson(manifest)
-    expect(json.author?.name).toBe('Test Author')
-    expect(json.author?.email).toBe('test@example.com')
-    expect(json.author?.url).toBe('https://example.com')
-  })
-
-  it('should include optional fields when present', () => {
-    const manifest = createManifest({
+    },
+    {
+      name: 'test-space',
+      author: { name: 'Test Author', email: 'test@example.com', url: 'https://example.com' },
+    },
+  ],
+  [
+    'homepage, repository, license and keywords are copied',
+    {
       plugin: {
         homepage: 'https://example.com',
         repository: 'https://github.com/test/repo',
         license: 'MIT',
         keywords: ['test', 'plugin'],
       },
-    })
-    const json = generatePluginJson(manifest)
-    expect(json.homepage).toBe('https://example.com')
-    expect(json.repository).toBe('https://github.com/test/repo')
-    expect(json.license).toBe('MIT')
-    expect(json.keywords).toEqual(['test', 'plugin'])
-  })
+    },
+    {
+      name: 'test-space',
+      homepage: 'https://example.com',
+      repository: 'https://github.com/test/repo',
+      license: 'MIT',
+      keywords: ['test', 'plugin'],
+    },
+  ],
+  ['absent optional fields are omitted', {}, { name: 'test-space' }],
+]
 
-  it('should not include undefined optional fields', () => {
-    const manifest = createManifest()
-    const json = generatePluginJson(manifest)
-    expect(json.version).toBeUndefined()
-    expect(json.description).toBeUndefined()
-    expect(json.author).toBeUndefined()
-    expect(json.homepage).toBeUndefined()
-  })
+describe('generatePluginJson', () => {
+  it.each(pluginJsonCases)(
+    'space.toml plugin metadata maps into .claude-plugin/plugin.json, plugin.* overriding space fields: %s',
+    (_case, overrides, expected) => {
+      expect(generatePluginJson(createManifest(overrides))).toStrictEqual(expected)
+    }
+  )
 })

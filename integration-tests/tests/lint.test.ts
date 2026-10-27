@@ -106,55 +106,10 @@ describe('asp lint integration', () => {
     const collisionWarning = result.warnings.find((w) => w.code === 'W201')
     expect(collisionWarning).toBeDefined()
 
-    if (collisionWarning) {
-      expect(collisionWarning.message).toContain('build')
-    }
-  })
-
-  test('no collision warning for unique commands', async () => {
-    // Create project with just frontend (has unique test command)
-    await cleanupTempProject(projectDir)
-    projectDir = await createTempProject({
-      single: {
-        compose: ['space:frontend@stable'],
-      },
-    })
-
-    await install({
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-    })
-
-    const result = await build('single', {
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-      outputDir,
-    })
-
-    // Should have no command collision warnings
-    const collisionWarnings = result.warnings.filter((w) => w.code === 'W201')
-    expect(collisionWarnings.length).toBe(0)
-  })
-
-  test('includes all spaces in collision warning details', async () => {
-    // cmd-collision-a and cmd-collision-b both ship /build
-    const result = await build('dev', {
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-      outputDir,
-    })
-
-    const collisionWarning = result.warnings.find((w) => w.code === 'W201')
-    expect(collisionWarning).toBeDefined()
-
-    if (collisionWarning?.details) {
-      const details = collisionWarning.details as { command: string; spaces: string[] }
-      expect(details.command).toBe('build')
-      expect(details.spaces.length).toBe(2)
-    }
+    expect(collisionWarning?.message).toContain('build')
+    const details = collisionWarning?.details as { command: string; spaces: string[] } | undefined
+    expect(details?.command).toBe('build')
+    expect(details?.spaces.length).toBe(2)
   })
 
   test('detects hook paths with relative references (W203)', async () => {

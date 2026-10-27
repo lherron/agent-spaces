@@ -40,24 +40,31 @@ function append(journal: ReturnType<typeof createRawJournal>, text: string, sour
 const text = (record: { rawBytes: Uint8Array }) => Buffer.from(record.rawBytes).toString('utf8')
 
 describe('raw journal: streaming scan', () => {
-  test('scan visits every record in commit order and resumes from its cursor', () => {
-    const journal = createRawJournal({ invocationId, dir: scratch() })
-    append(journal, 'one')
-    append(journal, 'two')
+  test.each([
+    { row: 'on-disk', open: () => createRawJournal({ invocationId, dir: scratch() }) },
+    { row: 'in-memory', open: () => createRawJournal({ invocationId }) },
+  ])(
+    'an $row journal scan visits every record in commit order and resumes from its cursor',
+    ({ open }) => {
+      const journal = open()
+      append(journal, 'one')
+      append(journal, 'two')
 
-    const first: string[] = []
-    const cursor = journal.scan((record) => void first.push(text(record)))
-    expect(first).toEqual(['one', 'two'])
+      const first: string[] = []
+      const cursor = journal.scan((record) => void first.push(text(record)))
+      expect(first).toEqual(['one', 'two'])
 
-    append(journal, 'three')
-    const rest: string[] = []
-    const next = journal.scan((record) => void rest.push(text(record)), cursor)
-    expect(rest).toEqual(['three'])
+      append(journal, 'three')
+      const rest: string[] = []
+      const next = journal.scan((record) => void rest.push(text(record)), cursor)
+      expect(rest).toEqual(['three'])
 
-    const none: string[] = []
-    expect(journal.scan((record) => void none.push(text(record)), next)).toBe(next)
-    expect(none).toEqual([])
-  })
+      const none: string[] = []
+      expect(journal.scan((record) => void none.push(text(record)), next)).toBe(next)
+      expect(none).toEqual([])
+      expect(journal.read().map(text)).toEqual(['one', 'two', 'three'])
+    }
+  )
 
   test('rows larger than the read chunk survive intact', () => {
     const big = 'x'.repeat(3 * 1024 * 1024 + 17)
@@ -69,17 +76,6 @@ describe('raw journal: streaming scan', () => {
     journal.scan((record) => void seen.push(text(record)))
     expect(seen.map((value) => value.length)).toEqual([5, big.length, 4])
     expect(seen[1]).toBe(big)
-  })
-
-  test('an in-memory journal scans and resumes the same way', () => {
-    const journal = createRawJournal({ invocationId })
-    append(journal, 'a')
-    const cursor = journal.scan(() => {})
-    append(journal, 'b')
-    const seen: string[] = []
-    journal.scan((record) => void seen.push(text(record)), cursor)
-    expect(seen).toEqual(['b'])
-    expect(journal.read().map(text)).toEqual(['a', 'b'])
   })
 })
 

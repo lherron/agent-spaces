@@ -115,15 +115,6 @@ afterEach(async () => {
 })
 
 describe('v2 inspection identity contract', () => {
-  test('accepts the producer-owned harness and presentation identity', () => {
-    const request: AgentInspectionRequest = {
-      schemaVersion: 'agent-inspection-request/v2',
-      identifiers: identifiers(),
-      declaredOverrides: { modelId: 'gpt-5.6-terra', reasoningEffort: 'medium' },
-    }
-    expect(validateAgentInspectionRequest(request)).toEqual(request)
-  })
-
   test('fails closed for the retired selection-bearing inspection discriminator', () => {
     expect(() =>
       validateAgentInspectionRequest({
@@ -166,6 +157,13 @@ describe('T-06331 contextual inspection parity with the singular compiled plan',
       reason: expect.stringMatching(/exit[ -]?code[^\n]*23/i),
     })
     expect(failed?.provenance.contributions.length).toBeGreaterThan(0)
+    expect(compiled.inspection.diagnostics).toContainEqual(
+      expect.objectContaining({
+        kind: 'resolution',
+        code: 'part_resolution_failed',
+        partId: 'prompt:prompt:dynamic-failure',
+      })
+    )
     expect(
       promptParts.find((part) => part.partId === 'prompt:prompt:predicate-skipped')?.disposition
     ).toEqual({ kind: 'skipped', reason: 'predicate' })
@@ -190,20 +188,6 @@ describe('T-06331 contextual inspection parity with the singular compiled plan',
     expect(second.inspection).toEqual(first.inspection)
     expect(stableIdentity(second.response, second.inspection)).toEqual(
       stableIdentity(first.response, first.inspection)
-    )
-  })
-
-  test('preserves a partial inspection from one singular compile', async () => {
-    const compiled = await compilePinnedFixture()
-    expect(compiled.compileCount).toBe(1)
-    expect(compiled.response.ok).toBe(true)
-    expect(compiled.inspection.completeness.kind).toBe('partial')
-    expect(compiled.inspection.diagnostics).toContainEqual(
-      expect.objectContaining({
-        kind: 'resolution',
-        code: 'part_resolution_failed',
-        partId: 'prompt:prompt:dynamic-failure',
-      })
     )
   })
 })

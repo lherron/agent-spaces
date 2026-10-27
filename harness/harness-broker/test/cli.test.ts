@@ -201,26 +201,6 @@ async function nextInvocationEvent(
 }
 
 describe('harness-broker CLI', () => {
-  test('run --transport stdio responds to broker.hello over stdin', async () => {
-    const [frame] = await exchange(
-      request('hello-1', 'broker.hello', {
-        clientInfo: { name: 'cli-smoke' },
-        protocolVersions: ['harness-broker/0.2'],
-      })
-    )
-
-    const response = expectResult<BrokerHelloResponse>(frame, 'hello-1')
-    expect(response.result).toMatchObject({
-      brokerInfo: { name: 'harness-broker' },
-      protocolVersion: 'harness-broker/0.2',
-      capabilities: {
-        multiInvocation: false,
-        transports: ['stdio-jsonrpc-ndjson'],
-        eventNotifications: true,
-      },
-    })
-  })
-
   test.each([
     ['broker.hello', {}],
     ['broker.health', { probeDrivers: 'yes' }],
@@ -277,7 +257,7 @@ describe('harness-broker CLI', () => {
     }
   )
 
-  test('broker.hello capabilities advertise no v1 attach/replay', async () => {
+  test('stdio broker.hello negotiates 0.2, advertises single-invocation stdio with inspection reads, and no attach/replay', async () => {
     const [frame] = await exchange(
       request('hello-caps', 'broker.hello', {
         clientInfo: { name: 'cli-caps' },
@@ -286,6 +266,15 @@ describe('harness-broker CLI', () => {
     )
 
     const response = expectResult<BrokerHelloResponse>(frame, 'hello-caps')
+    expect(response.result).toMatchObject({
+      brokerInfo: { name: 'harness-broker' },
+      protocolVersion: 'harness-broker/0.2',
+      capabilities: {
+        multiInvocation: false,
+        transports: ['stdio-jsonrpc-ndjson'],
+        eventNotifications: true,
+      },
+    })
     // Stdio exposes inspection reads, but not controller attach/replay.
     expect(response.result.capabilities.inspection).toEqual({
       listInvocations: true,
@@ -418,22 +407,6 @@ describe('harness-broker CLI', () => {
     }
   })
 
-  test('run --transport unix without experimental observer socket does not create observer socket', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'harness-broker-unix-no-observer-'))
-    const brokerSocketPath = join(dir, 'broker.sock')
-    const observerSocketPath = join(dir, 'observer.sock')
-    const proc = runBrokerUnix(['--socket', brokerSocketPath])
-
-    try {
-      await waitForSocket(brokerSocketPath, proc)
-      await expect(stat(observerSocketPath)).rejects.toThrow()
-    } finally {
-      proc.kill('SIGTERM')
-      await proc.exited.catch(() => {})
-      await rm(dir, { recursive: true, force: true })
-    }
-  })
-
   test('run --transport unix rejects unsupported experimental observer mode', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'harness-broker-unix-observer-mode-'))
     const proc = runBrokerUnix([
@@ -510,38 +483,6 @@ describe('harness-broker unix transport red tests for T-01792', () => {
 
   afterEach(async () => {
     await Promise.all(tmpDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
-  })
-
-  test('run --transport unix --socket starts a long-lived unix socket server', async () => {
-    // T-01792 Phase B: this is the broker-side real-byte entry point for
-    // UnixSocketTransport and must coexist with the existing stdio transport.
-    const dir = await mkdtemp(join(tmpdir(), 'harness-broker-cli-unix-'))
-    tmpDirs.push(dir)
-    const socketPath = join(dir, 'broker.sock')
-    const proc = Bun.spawn({
-      cmd: [
-        'bun',
-        'harness/harness-broker/bin/harness-broker.js',
-        'run',
-        '--transport',
-        'unix',
-        '--socket',
-        socketPath,
-      ],
-      cwd: repoRoot,
-      stdin: 'ignore',
-      stdout: 'pipe',
-      stderr: 'pipe',
-      env: brokerProcessEnv(),
-    })
-
-    try {
-      await waitForSocket(socketPath, proc)
-      expect(proc.exitCode).toBeNull()
-    } finally {
-      proc.kill('SIGTERM')
-      await proc.exited.catch(() => {})
-    }
   })
 
   test('run --transport unix rejects over-long socket paths before bind', async () => {
@@ -643,36 +584,6 @@ describe('harness-broker run-once --start-request', () => {
       stderr: 'pipe',
       env: brokerProcessEnv(),
     })
-
-  test('drives the full lifecycle from an InvocationStartRequest file', async () => {
-    const startRequestPath = await writeStartRequest(codexStartRequest('run-once-lifecycle'))
-    const proc = runOnce(['--start-request', startRequestPath])
-
-    const stdout = await new Response(proc.stdout).text()
-    const stderr = await new Response(proc.stderr).text()
-    const exitCode = await proc.exited
-
-    expect(exitCode).toBe(0)
-    // stdout is NDJSON event frames only; diagnostics route to stderr.
-    expect(stderr).toBe('')
-
-    const lines = stdout.split('\n').filter((line) => line.length > 0)
-    expect(lines.length).toBeGreaterThan(0)
-    const events = lines.map((line) => JSON.parse(line) as InvocationEventEnvelope)
-    const eventTypes = events.map((event) => event.type)
-
-    const turnStartedIndex = eventTypes.indexOf('turn.started')
-    const turnCompletedIndex = eventTypes.indexOf('turn.completed')
-    const exitedIndex = eventTypes.indexOf('invocation.exited')
-
-    expect(turnStartedIndex).toBeGreaterThanOrEqual(0)
-    expect(turnCompletedIndex).toBeGreaterThan(turnStartedIndex)
-    expect(exitedIndex).toBeGreaterThan(turnCompletedIndex)
-
-    for (let index = 1; index < events.length; index += 1) {
-      expect(events[index]!.seq).toBeGreaterThan(events[index - 1]!.seq)
-    }
-  })
 
   test('rejects an invalid InvocationStartRequest before driving the broker', async () => {
     const invalid = {

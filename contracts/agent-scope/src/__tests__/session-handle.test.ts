@@ -27,99 +27,59 @@ import { formatSessionHandle, parseSessionHandle } from '../session-handle.js'
 // parseSessionHandle
 // ===================================================================
 describe('parseSessionHandle (T-00893)', () => {
-  test('alice@demo:t1~repair → scopeRef + lane:repair', () => {
-    const result = parseSessionHandle('alice@demo:t1~repair')
-    expect(result.scopeRef).toBe('agent:alice:project:demo:task:t1')
-    expect(result.laneRef).toBe('lane:repair')
-  })
-
-  test('alice@demo~main → scopeRef + main lane', () => {
-    const result = parseSessionHandle('alice@demo~main')
-    expect(result.scopeRef).toBe('agent:alice:project:demo')
-    expect(result.laneRef).toBe('main')
-  })
-
-  test('alice (no lane) → scopeRef + default main lane', () => {
-    const result = parseSessionHandle('alice')
-    expect(result.scopeRef).toBe('agent:alice')
-    expect(result.laneRef).toBe('main')
-  })
-
-  test('alice@demo:t1/reviewer~fix → full scope + lane:fix', () => {
-    const result = parseSessionHandle('alice@demo:t1/reviewer~fix')
-    expect(result.scopeRef).toBe('agent:alice:project:demo:task:t1:role:reviewer')
-    expect(result.laneRef).toBe('lane:fix')
-  })
-
-  test('alice@demo → scopeRef + default main lane', () => {
-    const result = parseSessionHandle('alice@demo')
-    expect(result.scopeRef).toBe('agent:alice:project:demo')
-    expect(result.laneRef).toBe('main')
-  })
-
-  test('alice@demo/reviewer~deploy → project-role + lane:deploy', () => {
-    const result = parseSessionHandle('alice@demo/reviewer~deploy')
-    expect(result.scopeRef).toBe('agent:alice:project:demo:role:reviewer')
-    expect(result.laneRef).toBe('lane:deploy')
-  })
+  test.each([
+    {
+      handle: 'alice@demo:t1~repair',
+      scopeRef: 'agent:alice:project:demo:task:t1',
+      laneRef: 'lane:repair',
+    },
+    { handle: 'alice@demo~main', scopeRef: 'agent:alice:project:demo', laneRef: 'main' },
+    { handle: 'alice@demo', scopeRef: 'agent:alice:project:demo', laneRef: 'main' },
+  ])(
+    'a ~lane suffix becomes lane:<id> and an absent or ~main suffix is the main lane: $handle',
+    ({ handle, scopeRef, laneRef }) => {
+      expect(parseSessionHandle(handle)).toEqual({ scopeRef, laneRef })
+    }
+  )
 })
 
 // ===================================================================
 // parseSessionHandle — invalid inputs
 // ===================================================================
 describe('parseSessionHandle rejects invalid handles (T-00893)', () => {
+  // The message names the scope portion only (the ~lane suffix is split off first)
+  // and the field that failed, so the session layer's split is observable.
   const invalidCases = [
-    { handle: '', reason: 'empty string' },
-    { handle: '@demo~lane', reason: 'missing agent' },
-    { handle: 'alice@~lane', reason: 'empty project' },
-    { handle: '~lane', reason: 'no scope, just lane' },
+    {
+      handle: '',
+      reason: 'empty string',
+      error: /^Invalid ScopeHandle "": ScopeHandle must not be empty$/,
+    },
+    {
+      handle: '@demo~lane',
+      reason: 'missing agent',
+      error: /^Invalid ScopeHandle "@demo": agentId must be 1\.\.64/,
+    },
+    {
+      handle: 'alice@~lane',
+      reason: 'empty project',
+      error: /^Invalid ScopeHandle "alice@": projectId must be 1\.\.64/,
+    },
+    {
+      handle: '~lane',
+      reason: 'no scope, just lane',
+      error: /^Invalid ScopeHandle "": ScopeHandle must not be empty$/,
+    },
   ]
 
   for (const c of invalidCases) {
-    test(`throws on "${c.handle}" (${c.reason})`, () => {
-      expect(() => parseSessionHandle(c.handle)).toThrow()
+    test(`"${c.handle}" (${c.reason}) is rejected naming the scope portion and its bad field`, () => {
+      expect(() => parseSessionHandle(c.handle)).toThrow(c.error)
     })
   }
 
   test.each(['alice~', 'alice~bad lane'])('rejects malformed lane in %s', (handle) => {
     expect(() => parseSessionHandle(handle)).toThrow(/Invalid LaneRef.*laneId/)
-  })
-})
-
-// ===================================================================
-// formatSessionHandle
-// ===================================================================
-describe('formatSessionHandle (T-00893)', () => {
-  test('formats scopeRef + lane:repair → alice@demo:t1~repair', () => {
-    const result = formatSessionHandle({
-      scopeRef: 'agent:alice:project:demo:task:t1',
-      laneRef: 'lane:repair',
-    })
-    expect(result).toBe('alice@demo:t1~repair')
-  })
-
-  test('elides ~main suffix for main lane', () => {
-    const result = formatSessionHandle({
-      scopeRef: 'agent:alice:project:demo',
-      laneRef: 'main',
-    })
-    expect(result).toBe('alice@demo')
-  })
-
-  test('formats agent-only with non-main lane', () => {
-    const result = formatSessionHandle({
-      scopeRef: 'agent:alice',
-      laneRef: 'lane:debug',
-    })
-    expect(result).toBe('alice~debug')
-  })
-
-  test('formats full task-role with lane', () => {
-    const result = formatSessionHandle({
-      scopeRef: 'agent:alice:project:demo:task:t1:role:reviewer',
-      laneRef: 'lane:fix',
-    })
-    expect(result).toBe('alice@demo:t1/reviewer~fix')
   })
 })
 

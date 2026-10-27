@@ -1,22 +1,22 @@
 /**
  * Shared-file refs in context template file sections (T-04143): the explicit
  * `agents-root:///` scheme resolves through the same overlay-first agent-root
- * search path as bare-relative shared files (T-04141).
+ * search path as bare-relative shared files (T-04141). Templates are real
+ * context-template.toml files resolved through inspectAgentSystemPrompt.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { parseContextTemplate } from './context-template.js'
 import {
   type ResolverRoots,
   createResolverRoots,
+  inspectTemplate,
   removeResolverRoots,
-  resolveZones,
 } from './test-support/context-resolver-fixture.js'
 
-function fileSectionTemplate(name: string, path: string, required: boolean) {
-  return parseContextTemplate(`
+function fileSectionTemplate(name: string, path: string, required: boolean): string {
+  return `
 schema_version = 2
 
 [[prompt]]
@@ -24,7 +24,7 @@ name = "${name}"
 type = "file"
 path = "${path}"
 required = ${required}
-`)
+`
 }
 
 describe('resolveContextTemplate shared-file refs', () => {
@@ -45,70 +45,54 @@ describe('resolveContextTemplate shared-file refs', () => {
     return { agentRootSearchPath: [localAgentsRoot, roots.agentsRoot] }
   }
 
-  test('T-04143 resolves agents-root scheme through the overlay-first agent-root search path', async () => {
-    await writeFile(join(localAgentsRoot, 'AGENT_MOTD.md'), 'local motd')
-    await writeFile(join(roots.agentsRoot, 'AGENT_MOTD.md'), 'canonical motd')
+  // T-04143 red/green gate: agents-root:/// is explicit shared-file syntax,
+  // but it must still resolve through the same overlay-first search path as
+  // T-04141 bare-relative shared files.
+  test.each([
+    { label: 'the overlay has the file', overlay: 'local motd', expected: 'local motd' },
+    {
+      label: 'only the canonical root has the file',
+      overlay: undefined,
+      expected: 'canonical motd',
+    },
+  ])(
+    'T-04143 agents-root:/// resolves overlay-first when $label',
+    async ({ overlay, expected }) => {
+      if (overlay !== undefined) {
+        await writeFile(join(localAgentsRoot, 'AGENT_MOTD.md'), overlay)
+      }
+      await writeFile(join(roots.agentsRoot, 'AGENT_MOTD.md'), 'canonical motd')
 
-    const resolved = await resolveZones(
-      roots,
-      fileSectionTemplate('motd', 'agents-root:///AGENT_MOTD.md', true),
-      overlayFirst()
-    )
+      const inspection = await inspectTemplate(
+        roots,
+        fileSectionTemplate('motd', 'agents-root:///AGENT_MOTD.md', true),
+        overlayFirst()
+      )
 
-    // T-04143 red/green gate: agents-root:/// is explicit shared-file syntax,
-    // but it must still resolve through the same overlay-first search path as
-    // T-04141 bare-relative shared files.
-    expect(resolved).toEqual({
-      prompt: { content: 'local motd', mode: 'replace' },
-      reminder: undefined,
-    })
-  })
+      expect(inspection.prompt).toMatchObject({ content: expected, mode: 'replace' })
+      expect(inspection.reminder.content).toBeUndefined()
+    }
+  )
 
-  test('T-04143 agents-root scheme falls back to canonical when the overlay has no file', async () => {
-    await writeFile(join(roots.agentsRoot, 'AGENT_MOTD.md'), 'canonical motd')
-
-    const resolved = await resolveZones(
-      roots,
-      fileSectionTemplate('motd', 'agents-root:///AGENT_MOTD.md', true),
-      overlayFirst()
-    )
-
-    expect(resolved).toEqual({
-      prompt: { content: 'canonical motd', mode: 'replace' },
-      reminder: undefined,
-    })
-  })
-
-  test('T-04143 agents-root scheme keeps required and non-required not-found behavior', async () => {
-    const optional = await resolveZones(
+  test('T-04143 a missing agents-root:/// file is skipped when optional and fails the template when required', async () => {
+    const optional = await inspectTemplate(
       roots,
       fileSectionTemplate('optional-missing', 'agents-root:///missing.md', false),
       overlayFirst()
     )
-    expect(optional).toEqual({ prompt: undefined, reminder: undefined })
+    expect(optional.prompt.content).toBe('')
+    expect(optional.reminder.content).toBeUndefined()
+    expect(optional.prompt.sections[0]).toMatchObject({
+      name: 'optional-missing',
+      included: false,
+    })
 
     await expect(
-      resolveZones(
+      inspectTemplate(
         roots,
         fileSectionTemplate('required-missing', 'agents-root:///missing.md', true),
         overlayFirst()
       )
     ).rejects.toThrow(/missing\.md/)
-  })
-
-  test('T-04143 keeps bare-relative shared-file fallback semantics unchanged', async () => {
-    await writeFile(join(localAgentsRoot, 'AGENT_MOTD.md'), 'local motd')
-    await writeFile(join(roots.agentsRoot, 'AGENT_MOTD.md'), 'canonical motd')
-
-    const resolved = await resolveZones(
-      roots,
-      fileSectionTemplate('motd', 'AGENT_MOTD.md', true),
-      overlayFirst()
-    )
-
-    expect(resolved).toEqual({
-      prompt: { content: 'local motd', mode: 'replace' },
-      reminder: undefined,
-    })
   })
 })

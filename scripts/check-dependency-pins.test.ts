@@ -30,43 +30,31 @@ function memberManifest(devDependencies: Record<string, string>): string {
 const sourceFile = { rel: 'contracts/member/src/index.ts', content: 'export const value = 1\n' }
 
 describe('check-dependency-pins', () => {
-  test('flags a governed dependency declared with a floating specifier', async () => {
-    const { diagnostics } = await assertGuardDiagnostics(guard, {
-      expectExit: 1,
-      files: [
-        { rel: 'package.json', content: rootManifest({ '@types/bun': '1.3.14' }) },
-        {
-          rel: 'contracts/member/package.json',
-          content: memberManifest({ '@types/bun': 'latest' }),
-        },
-        sourceFile,
-      ],
-    })
+  // The caret row is the anti-flattening case: a range that is not the root pin
+  // shadows it just as 'latest' does.
+  test.each(['latest', '^1.1.14'])(
+    'flags a governed dependency declared as %p instead of the root pin',
+    async (specifier) => {
+      const { diagnostics } = await assertGuardDiagnostics(guard, {
+        expectExit: 1,
+        files: [
+          { rel: 'package.json', content: rootManifest({ '@types/bun': '1.3.14' }) },
+          {
+            rel: 'contracts/member/package.json',
+            content: memberManifest({ '@types/bun': specifier }),
+          },
+          sourceFile,
+        ],
+      })
 
-    expect(diagnostics).toHaveLength(1)
-    expect(diagnostics[0]?.ruleId).toBe('PINS:unpinned-governed-dependency')
-    expect(diagnostics[0]?.location.file).toBe('contracts/member/package.json')
-    // The line must point at the declaration itself, not the top of the manifest.
-    expect(diagnostics[0]?.location.line).toBe(4)
-    expect(diagnostics[0]?.got).toContain('"latest"')
-  })
-
-  test('flags a governed dependency declared as a range that resolves elsewhere', async () => {
-    const { diagnostics } = await assertGuardDiagnostics(guard, {
-      expectExit: 1,
-      files: [
-        { rel: 'package.json', content: rootManifest({ '@types/bun': '1.3.14' }) },
-        {
-          rel: 'contracts/member/package.json',
-          content: memberManifest({ '@types/bun': '^1.1.14' }),
-        },
-        sourceFile,
-      ],
-    })
-
-    expect(diagnostics).toHaveLength(1)
-    expect(diagnostics[0]?.got).toContain('"^1.1.14"')
-  })
+      expect(diagnostics).toHaveLength(1)
+      expect(diagnostics[0]?.ruleId).toBe('PINS:unpinned-governed-dependency')
+      expect(diagnostics[0]?.location.file).toBe('contracts/member/package.json')
+      // The line must point at the declaration itself, not the top of the manifest.
+      expect(diagnostics[0]?.location.line).toBe(4)
+      expect(diagnostics[0]?.got).toContain(`"${specifier}"`)
+    }
+  )
 
   test('accepts a governed dependency declared at exactly the pinned version', async () => {
     await assertGuardDiagnostics(guard, {

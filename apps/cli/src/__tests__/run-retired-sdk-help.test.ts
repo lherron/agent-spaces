@@ -14,6 +14,7 @@ test('asp run help exposes exactly the catalog harnesses and agent-harness defau
   expect(result.status).toBe(0)
   expect(help).toContain('--harness <id>')
   expect(help).toContain('--model <model>')
+  expect(help).toContain('--model-reasoning-effort')
   expect(help).toMatch(/default:\s+agent-harness; supported: agent-harness,\s+claude, codex, muse/)
   expect({
     piAdvertised: /\bpi\b/.test(help),

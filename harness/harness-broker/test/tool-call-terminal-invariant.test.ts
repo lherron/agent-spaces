@@ -98,32 +98,41 @@ describe('broker-guaranteed tool.call terminal bracket (T-06550)', () => {
     expect(ofType(events, 'tool.call.failed')).toHaveLength(0)
   })
 
-  test('a call left open at turn end is synthesized as failed BEFORE the turn terminal', async () => {
-    const { broker, controller, events, invocationId } = await setup('inv_vanished_at_turn_end')
-    await broker.input({ invocationId, input: userInput('input_1', 'go') })
-    controller.startToolCall('call_vanished', 'command')
-    // Turn completes without ever closing call_vanished — the vanished-call defect.
-    controller.completeActiveTurn()
-    await flushMicrotasks()
+  test.each([
+    ['turn.completed', (controller: TestDriverController) => controller.completeActiveTurn()],
+    ['turn.failed', (controller: TestDriverController) => controller.failActiveTurn()],
+    ['turn.interrupted', (controller: TestDriverController) => controller.interruptActiveTurn()],
+  ] as const)(
+    'a call left open at %s is synthesized as failed BEFORE the turn terminal',
+    async (terminalType, terminate) => {
+      const { broker, controller, events, invocationId } = await setup(
+        `inv_vanished_${terminalType}`
+      )
+      await broker.input({ invocationId, input: userInput('input_1', 'go') })
+      controller.startToolCall('call_vanished', 'command')
+      // The turn ends without ever closing call_vanished — the vanished-call defect.
+      terminate(controller)
+      await flushMicrotasks()
 
-    assertExactlyOneTerminalPerStart(events)
-    const failures = ofType(events, 'tool.call.failed')
-    expect(failures).toHaveLength(1)
-    const payload = failures[0]?.payload as Record<string, unknown>
-    expect(payload['toolCallId']).toBe('call_vanished')
-    expect(payload['code']).toBe('broker_unterminated_tool_call')
-    expect(typeof payload['message']).toBe('string')
-    // Provenance: broker-originated, machine-traceable.
-    expect(failures[0]?.driver?.kind).toBe('broker')
-    expect((payload['data'] as { synthesized?: boolean })?.synthesized).toBe(true)
+      assertExactlyOneTerminalPerStart(events)
+      const failures = ofType(events, 'tool.call.failed')
+      expect(failures).toHaveLength(1)
+      const payload = failures[0]?.payload as Record<string, unknown>
+      expect(payload['toolCallId']).toBe('call_vanished')
+      expect(payload['code']).toBe('broker_unterminated_tool_call')
+      expect(typeof payload['message']).toBe('string')
+      // Provenance: broker-originated, machine-traceable.
+      expect(failures[0]?.driver?.kind).toBe('broker')
+      expect((payload['data'] as { synthesized?: boolean })?.synthesized).toBe(true)
 
-    // Ordering: the synthesized terminal lands strictly before the turn terminal.
-    expect(seqOfFirst(events, 'tool.call.failed')).toBeLessThan(
-      seqOfFirst(events, 'turn.completed')
-    )
-    // The synthesized envelope is a valid contract event (message + code present).
-    expect(() => validateEventEnvelope(failures[0])).not.toThrow()
-  })
+      // Ordering: the synthesized terminal lands strictly before the turn terminal.
+      const turnTerminalIndex = seqOfFirst(events, terminalType)
+      expect(turnTerminalIndex).toBeGreaterThanOrEqual(0)
+      expect(seqOfFirst(events, 'tool.call.failed')).toBeLessThan(turnTerminalIndex)
+      // The synthesized envelope is a valid contract event (message + code present).
+      expect(() => validateEventEnvelope(failures[0])).not.toThrow()
+    }
+  )
 
   test('turn-scoped synthesis leaves other turns’ calls untouched', async () => {
     const { broker, controller, events, invocationId } = await setup('inv_turn_scoped')
@@ -153,28 +162,6 @@ describe('broker-guaranteed tool.call terminal bracket (T-06550)', () => {
       turnCompletions[0]?.seq ?? Number.POSITIVE_INFINITY
     )
   })
-
-  test.each([
-    ['turn.failed', (controller: TestDriverController) => controller.failActiveTurn()],
-    ['turn.interrupted', (controller: TestDriverController) => controller.interruptActiveTurn()],
-  ] as const)(
-    'an open call is synthesized as failed before a %s terminal',
-    async (terminalType, terminate) => {
-      const { broker, controller, events, invocationId } = await setup(`inv_${terminalType}`)
-      await broker.input({ invocationId, input: userInput('input_1', 'go') })
-      controller.startToolCall('call_open', 'command')
-      terminate(controller)
-      await flushMicrotasks()
-
-      const toolFailureIndex = seqOfFirst(events, 'tool.call.failed')
-      const turnTerminalIndex = seqOfFirst(events, terminalType)
-      expect(toolFailureIndex).toBeGreaterThanOrEqual(0)
-      expect(toolFailureIndex).toBeLessThan(turnTerminalIndex)
-      expect(
-        (ofType(events, 'tool.call.failed')[0]?.payload as Record<string, unknown>)['code']
-      ).toBe('broker_unterminated_tool_call')
-    }
-  )
 
   test('provider death mid-tool-call synthesizes failed at invocation teardown', async () => {
     const { broker, controller, events, invocationId } = await setup('inv_provider_death')

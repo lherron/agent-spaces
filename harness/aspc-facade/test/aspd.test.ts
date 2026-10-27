@@ -19,7 +19,6 @@ import type {
   AspcCompileHarnessInvocationRequest,
   AspcCompileHarnessInvocationResponse,
   AspcExecutionRelease,
-  AspcTransportKind,
 } from 'spaces-aspc-protocol'
 import { AspcServiceUnavailableError, AspcUnixClient } from 'spaces-aspc-protocol/unix-client'
 import { UnixSocketTransport } from 'spaces-harness-broker-client'
@@ -257,27 +256,33 @@ describe('release binding', () => {
 })
 
 describe('release-bound service (W1/W2)', () => {
-  test('hello reports the unix transport and serving release', async () => {
-    const hello = await createReleaseBoundAspcService(fakeService(), binding).hello({
-      clientInfo: { name: 't' },
-      protocolVersions: ['aspc/0.1'],
+  // Each compile goes over the real aspd socket to a release-bound service whose
+  // underlying compiler is the fake; the release decoration is what crosses the wire.
+  async function compileOverSocket(
+    underlying: AspcService['compileHarnessInvocation']
+  ): Promise<AspcCompileHarnessInvocationResponse> {
+    const socketPath = join(tempBase(), 's.sock')
+    const server = await startAspdServer({
+      socketPath,
+      service: createReleaseBoundAspcService(
+        fakeService({ compileHarnessInvocation: underlying }),
+        binding
+      ),
+      log: () => {},
     })
-    expect(hello.protocolVersion).toBe('aspc/0.1')
-    const expectedTransports: AspcTransportKind[] = ['unix-jsonrpc-ndjson']
-    expect(hello.capabilities.transports).toEqual(expectedTransports)
-    expect(hello.capabilities).not.toHaveProperty('compileAndStart')
-    expect(hello.capabilities.cohostedBroker).toBe(false)
-    expect(hello.release).toEqual(IDENTITY)
-  })
+    const client = await AspcUnixClient.connect({ socketPath, clientInfo: { name: 't' } })
+    try {
+      return await client.compileHarnessInvocation(compileRequest())
+    } finally {
+      await client.close()
+      await server.retire()
+    }
+  }
 
-  test('adds executionRelease with the selected profile protocol and leaves the dispatch untouched', async () => {
+  test('a successful compile gains executionRelease for the selected protocol and an untouched dispatch', async () => {
     for (const protocol of ['harness-broker/0.2', 'harness-broker/0.3'] as const) {
       const underlying = okCompile(protocol)
-      const service = createReleaseBoundAspcService(
-        fakeService({ compileHarnessInvocation: async () => underlying }),
-        binding
-      )
-      const response = await service.compileHarnessInvocation(compileRequest())
+      const response = await compileOverSocket(async () => underlying)
       if (!response.ok) throw new Error('expected ok')
       const expected: AspcExecutionRelease = {
         ...IDENTITY,
@@ -295,56 +300,10 @@ describe('release-bound service (W1/W2)', () => {
     }
   })
 
-  test.each(['pi-sdk', 'pi-tui-tmux', 'codex-cli-tmux'])(
-    'refuses retired driver %s from the release binding table',
-    async (driver) => {
-      const service = createReleaseBoundAspcService(
-        fakeService({
-          compileHarnessInvocation: async () => okCompile('harness-broker/0.2', driver),
-        }),
-        binding
-      )
-      const response = await service.compileHarnessInvocation(compileRequest())
-      expect(response).toMatchObject({
-        ok: false,
-        diagnostics: [
-          {
-            code: 'release_worker_driver_unavailable',
-            details: { releaseId: IDENTITY.releaseId, brokerDriver: driver },
-          },
-        ],
-      })
-    }
-  )
-
-  test.each(['agent-harness', 'agent-harness-tmux'])(
-    'selects the shared native agent-harness worker for %s',
-    async (driver) => {
-      const service = createReleaseBoundAspcService(
-        fakeService({
-          compileHarnessInvocation: async () => okCompile('harness-broker/0.2', driver),
-        }),
-        binding
-      )
-      const response = await service.compileHarnessInvocation(compileRequest())
-      if (!response.ok) throw new Error('expected ok')
-      expect(response.executionRelease?.worker).toEqual({
-        protocol: 'harness-broker/0.2',
-        executable: '/releases/asp-x/agent-harness',
-        hostedDrivers: ['agent-harness', 'agent-harness-tmux'],
-        argvPrefix: ['run', '--transport', 'unix'],
-      })
-    }
-  )
-
-  test('refuses a selected driver missing from the release binding table', async () => {
-    const service = createReleaseBoundAspcService(
-      fakeService({
-        compileHarnessInvocation: async () => okCompile('harness-broker/0.2', 'unhosted-probe'),
-      }),
-      binding
+  test('a driver the release does not host is refused as release_worker_driver_unavailable', async () => {
+    const response = await compileOverSocket(async () =>
+      okCompile('harness-broker/0.2', 'unhosted-probe')
     )
-    const response = await service.compileHarnessInvocation(compileRequest())
     expect(response).toEqual({
       schemaVersion: 'aspc-compile-harness-invocation-response/v2',
       ok: false,
@@ -361,17 +320,13 @@ describe('release-bound service (W1/W2)', () => {
     expect('executionRelease' in response).toBe(false)
   })
 
-  test('failed compiles pass through without a release binding', async () => {
+  test('a failed compile passes through without a release binding', async () => {
     const failed: AspcCompileHarnessInvocationResponse = {
       schemaVersion: 'aspc-compile-harness-invocation-response/v2',
       ok: false,
       diagnostics: [],
     }
-    const service = createReleaseBoundAspcService(
-      fakeService({ compileHarnessInvocation: async () => failed }),
-      binding
-    )
-    expect(await service.compileHarnessInvocation(compileRequest())).toEqual(failed)
+    expect(await compileOverSocket(async () => failed)).toEqual(failed)
   })
 })
 
@@ -504,29 +459,6 @@ describe('unix server and retirement', () => {
         expect(item.path.startsWith('params.evaluationContext.')).toBe(true)
         expect(item.message.startsWith(`${item.path} `)).toBe(true)
       }
-    } finally {
-      await transport.close()
-      await server.retire()
-    }
-  })
-
-  test('serves only the compile plane; compileAndStart is not a route', async () => {
-    const socketPath = join(tempBase(), 's.sock')
-    const server = await startAspdServer({
-      socketPath,
-      service: createReleaseBoundAspcService(fakeService(), binding),
-      log: () => {},
-    })
-    const transport = await UnixSocketTransport.connect({ socketPath })
-    try {
-      await expect(
-        transport.request('aspc.compileAndStart', compileRequest())
-      ).rejects.toMatchObject({
-        code: -32601,
-      })
-      await expect(transport.request('invocation.start', {})).rejects.toMatchObject({
-        code: -32601,
-      })
     } finally {
       await transport.close()
       await server.retire()

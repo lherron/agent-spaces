@@ -53,57 +53,67 @@ const userInput = {
   content: [{ type: 'text' as const, text: 'Please complete the lifecycle.' }],
 }
 
-describe('harness-broker run-once', () => {
-  test('waits for turn completion before stopping the invocation', async () => {
-    const tmpDir = await mkdtemp(join(tmpdir(), 'harness-broker-run-once-'))
-    tmpDirs.push(tmpDir)
+const writeArgv = async (
+  form: 'spec-and-input' | 'start-request',
+  tmpDir: string
+): Promise<string[]> => {
+  const spec = runOnceSpec('run-once-lifecycle')
+  if (form === 'spec-and-input') {
     const specPath = join(tmpDir, 'spec.json')
     const inputPath = join(tmpDir, 'input.json')
-
-    await Bun.write(specPath, JSON.stringify(runOnceSpec('run-once-lifecycle')))
+    await Bun.write(specPath, JSON.stringify(spec))
     await Bun.write(inputPath, JSON.stringify(userInput))
+    return ['--spec', specPath, '--input', inputPath]
+  }
+  // An InvocationStartRequest file carries the spec and its initialInput together.
+  const startRequestPath = join(tmpDir, 'start-request.json')
+  await Bun.write(startRequestPath, JSON.stringify({ spec, initialInput: userInput }))
+  return ['--start-request', startRequestPath]
+}
 
-    const proc = Bun.spawn({
-      cmd: [
-        'bun',
-        'harness/harness-broker/bin/harness-broker.js',
-        'run-once',
-        '--spec',
-        specPath,
-        '--input',
-        inputPath,
-      ],
-      cwd: repoRoot,
-      stdin: 'ignore',
-      stdout: 'pipe',
-      stderr: 'pipe',
-      env: brokerProcessEnv(),
-    })
+describe('harness-broker run-once', () => {
+  test.each(['spec-and-input', 'start-request'] as const)(
+    'run-once (%s argv) waits for turn completion before stopping the invocation',
+    async (form) => {
+      const tmpDir = await mkdtemp(join(tmpdir(), 'harness-broker-run-once-'))
+      tmpDirs.push(tmpDir)
+      const argv = await writeArgv(form, tmpDir)
 
-    const stdout = await new Response(proc.stdout).text()
-    const stderr = await new Response(proc.stderr).text()
-    const exitCode = await proc.exited
+      const proc = Bun.spawn({
+        cmd: ['bun', 'harness/harness-broker/bin/harness-broker.js', 'run-once', ...argv],
+        cwd: repoRoot,
+        stdin: 'ignore',
+        stdout: 'pipe',
+        stderr: 'pipe',
+        env: brokerProcessEnv(),
+      })
 
-    expect(exitCode).toBe(0)
-    expect(stderr).toBe('')
+      const stdout = await new Response(proc.stdout).text()
+      const stderr = await new Response(proc.stderr).text()
+      const exitCode = await proc.exited
 
-    const events = stdout
-      .split('\n')
-      .filter((line) => line.length > 0)
-      .map((line) => JSON.parse(line) as InvocationEventEnvelope)
-    const eventTypes = events.map((event) => event.type)
-    const turnStartedIndex = eventTypes.indexOf('turn.started')
-    const turnCompletedIndex = eventTypes.indexOf('turn.completed')
-    const stoppingIndex = eventTypes.indexOf('invocation.stopping')
-    const exitedIndex = eventTypes.indexOf('invocation.exited')
+      expect(exitCode).toBe(0)
+      // stdout is NDJSON event frames only; diagnostics route to stderr.
+      expect(stderr).toBe('')
 
-    expect(turnStartedIndex).toBeGreaterThanOrEqual(0)
-    expect(turnCompletedIndex).toBeGreaterThan(turnStartedIndex)
-    expect(stoppingIndex).toBeGreaterThan(turnCompletedIndex)
-    expect(exitedIndex).toBeGreaterThan(stoppingIndex)
+      const events = stdout
+        .split('\n')
+        .filter((line) => line.length > 0)
+        .map((line) => JSON.parse(line) as InvocationEventEnvelope)
+      const eventTypes = events.map((event) => event.type)
+      const turnStartedIndex = eventTypes.indexOf('turn.started')
+      const turnCompletedIndex = eventTypes.indexOf('turn.completed')
+      const stoppingIndex = eventTypes.indexOf('invocation.stopping')
+      const exitedIndex = eventTypes.indexOf('invocation.exited')
 
-    for (let index = 1; index < events.length; index += 1) {
-      expect(events[index]!.seq).toBeGreaterThan(events[index - 1]!.seq)
+      expect(turnStartedIndex).toBeGreaterThanOrEqual(0)
+      expect(turnCompletedIndex).toBeGreaterThan(turnStartedIndex)
+      expect(stoppingIndex).toBeGreaterThan(turnCompletedIndex)
+      expect(exitedIndex).toBeGreaterThan(stoppingIndex)
+
+      for (let index = 1; index < events.length; index += 1) {
+        expect(events[index]!.seq).toBeGreaterThan(events[index - 1]!.seq)
+      }
     }
-  })
+  )
 })

@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'bun:test'
-import { validateInvocationSpec } from '../src/schemas.js'
+import { describe, test } from 'bun:test'
+import { expectInvalidSpec, expectValidCommand, startCommand } from './schema-test-helpers'
 
 function nativeSpec(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   const { process: processOverride, driver: driverOverride, ...rest } = overrides
@@ -27,17 +27,24 @@ function nativeSpec(overrides: Record<string, unknown> = {}): Record<string, unk
   }
 }
 
+// Specs are driven through `invocation.start` via `validateCommand`; issue paths
+// are relative to `params.startRequest.spec.`.
 describe('native agent-harness process contract', () => {
   test('accepts the no-child native-worker shape', () => {
-    expect(() => validateInvocationSpec(nativeSpec())).not.toThrow()
+    expectValidCommand(startCommand(nativeSpec()))
   })
 
   test.each([
-    ['command', { command: undefined }],
-    ['args', { args: undefined }],
-    ['child transport', { harnessTransport: { kind: 'pty' } }],
-  ])('rejects native worker %s', (_name, process) => {
-    expect(() => validateInvocationSpec(nativeSpec({ process }))).toThrow()
+    ['command', { command: 'agent-harness' }, 'process.command', 'forbidden'],
+    ['args', { args: [] }, 'process.args', 'forbidden'],
+    [
+      'child transport',
+      { harnessTransport: { kind: 'pty' } },
+      'process.harnessTransport.kind',
+      'invalid_literal',
+    ],
+  ])('rejects native worker %s', (_name, process, path, code) => {
+    expectInvalidSpec(nativeSpec({ process }), { path, code })
   })
 
   test('rejects native-worker transport for a non-agent driver', () => {
@@ -45,14 +52,17 @@ describe('native agent-harness process contract', () => {
       harness: { frontend: 'codex', provider: 'openai', driver: 'codex-app-server' },
       driver: { kind: 'codex-app-server' },
     })
-    expect(() => validateInvocationSpec(invalid)).toThrow()
+    expectInvalidSpec(invalid, { path: 'process.harnessTransport.kind', code: 'forbidden' })
+    expectInvalidSpec(invalid, { path: 'process.execution', code: 'forbidden' })
   })
 
   test('rejects a private control declaration', () => {
-    expect(() =>
-      validateInvocationSpec(
-        nativeSpec({ driver: { kind: 'agent-harness', controlProtocol: 'private/v1' } })
-      )
-    ).toThrow()
+    expectInvalidSpec(
+      nativeSpec({ driver: { kind: 'agent-harness', controlProtocol: 'private/v1' } }),
+      {
+        path: 'driver.controlProtocol',
+        code: 'forbidden',
+      }
+    )
   })
 })

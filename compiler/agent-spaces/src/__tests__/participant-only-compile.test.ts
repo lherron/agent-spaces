@@ -27,42 +27,44 @@ async function agentHome(profile: string): Promise<string> {
   return agentRoot
 }
 
+/**
+ * The request names an agent id that disagrees with the agent root, so a
+ * launchable profile passes the participant-only gate and stops at the very
+ * next one (`configured_context_mismatch`) before anything is materialized.
+ */
 function requestFor(agentRoot: string): RuntimeCompileRequest {
   return {
     placement: { agentRoot, bundle: { kind: 'agent-default' }, cwd: agentRoot, runMode: 'task' },
+    materialization: {},
+    agent: { id: 'not-foundry' },
     requested: {},
   } as unknown as RuntimeCompileRequest
 }
 
-async function diagnosticCodes(agentRoot: string): Promise<string[]> {
-  try {
-    const response = await compileRuntimePlan(requestFor(agentRoot))
-    return response.diagnostics.map((d) => d.code)
-  } catch {
-    return ['<threw>']
-  }
-}
+const LAUNCHABLE = 'version = 4\n\n[provisioning]\nharness = "agent-harness"\n'
 
 describe('participant-only agents (T-09061)', () => {
-  test('refuses to compile, even with SOUL.md present', async () => {
-    const agentRoot = await agentHome(
-      'version = 4\n\n[provisioning]\nharness = "agent-harness"\n\n[placement]\nlaunch = "participant-only"\n'
-    )
+  test.each([
+    [
+      'participant-only is refused, even with SOUL.md present',
+      `${LAUNCHABLE}\n[placement]\nlaunch = "participant-only"\n`,
+      'agent_participant_only',
+      'participant-only',
+    ],
+    [
+      'a launchable profile passes the participant-only gate',
+      LAUNCHABLE,
+      'configured_context_mismatch',
+      'disagrees',
+    ],
+  ])('%s', async (_name, profile, code, message) => {
+    const agentRoot = await agentHome(profile)
 
     const response = await compileRuntimePlan(requestFor(agentRoot))
 
     expect(response.ok).toBe(false)
     expect(response.diagnostics).toHaveLength(1)
-    expect(response.diagnostics[0]).toMatchObject({
-      level: 'error',
-      code: 'agent_participant_only',
-    })
-    expect(response.diagnostics[0]?.message).toContain('participant-only')
-  })
-
-  test('control: a launchable profile is not refused as participant-only', async () => {
-    const agentRoot = await agentHome('version = 4\n\n[provisioning]\nharness = "agent-harness"\n')
-
-    expect(await diagnosticCodes(agentRoot)).not.toContain('agent_participant_only')
+    expect(response.diagnostics[0]).toMatchObject({ level: 'error', code })
+    expect(response.diagnostics[0]?.message).toContain(message)
   })
 })

@@ -1,6 +1,6 @@
 import { expect } from 'bun:test'
 import { type ChildProcess, spawn } from 'node:child_process'
-import { mkdtemp, readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
   HarnessInvocationSpec,
@@ -367,4 +367,102 @@ export async function setupDriver(
   })
   const invocationSpec = spec(invocationId, driverOverrides)
   return { broker, driver, events, invocationSpec, socketDir, tmux }
+}
+
+type CodexDriverOverrides = Partial<
+  Extract<HarnessInvocationSpec['driver'], { kind: 'codex-app-server' }>
+>
+
+/**
+ * Start a codex-tui invocation over FakeCodexRpc and return the first
+ * thread/start or thread/resume request the driver sent. `editSpec` may drop
+ * fields the support spec() sets by default (e.g. approvalPolicy).
+ */
+export async function firstThreadRequest(
+  invocationId: string,
+  driverOverrides: CodexDriverOverrides = {},
+  editSpec: (spec: HarnessInvocationSpec) => void = () => {}
+): Promise<RpcRequest | undefined> {
+  const rpc = new FakeCodexRpc()
+  const resumeThreadId = driverOverrides.resumeThreadId
+  rpc.onRequest = async (method) => {
+    if (method === 'initialize') return {}
+    if (method === 'hooks/list') return { data: [] }
+    if (method === 'thread/queue/list') return { data: [] }
+    if (method === 'thread/start') return { thread: { id: 'thread_fresh' } }
+    if (method === 'thread/resume') return { thread: { id: resumeThreadId } }
+    throw new Error(`unhandled fake RPC request: ${method}`)
+  }
+  const run = await setupDriver(rpc, invocationId, driverOverrides)
+  editSpec(run.invocationSpec)
+  const id = run.invocationSpec.invocationId
+  if (!id) throw new Error('driver fixture requires an invocation id')
+  try {
+    await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
+    return rpc.requests.find(
+      (request) => request.method === 'thread/start' || request.method === 'thread/resume'
+    )
+  } finally {
+    await run.broker.stop({ invocationId: id, reason: 'test cleanup' })
+    await run.broker.dispose({ invocationId: id })
+    await rm(run.socketDir, { recursive: true, force: true })
+  }
+}
+
+export type CodexTuiRun = {
+  rpc: FakeCodexRpc
+  /** Push a native notification through the real driver normalizer. */
+  emit: (method: string, params: unknown) => void
+  /** Emit native turn/started for `turnId` on thread_test. */
+  startTurn: (turnId?: string) => void
+  /** Broker events emitted after invocation.ready. */
+  since: () => InvocationEventEnvelope[]
+  /** Broker events of `type` emitted after invocation.ready. */
+  ofType: (type: string) => InvocationEventEnvelope[]
+}
+
+/**
+ * Run `body` against a started codex-tui invocation over FakeCodexRpc: the
+ * real broker + driver, with native notifications pushed in by `emit`.
+ * `threadModel` is the model the fake thread/start response reports.
+ */
+export async function withCodexTui(
+  invocationId: string,
+  body: (tui: CodexTuiRun) => void | Promise<void>,
+  options: { driver?: CodexDriverOverrides; threadModel?: string } = {}
+): Promise<void> {
+  const rpc = new FakeCodexRpc()
+  if (options.threadModel !== undefined) {
+    const model = options.threadModel
+    rpc.onRequest = async (method) => {
+      if (method === 'initialize') return {}
+      if (method === 'hooks/list') return { data: [] }
+      if (method === 'thread/queue/list') return { data: [] }
+      if (method === 'thread/start') return { thread: { id: 'thread_test', model } }
+      throw new Error(`unhandled fake RPC request: ${method}`)
+    }
+  }
+  const run = await setupDriver(rpc, invocationId, options.driver ?? {})
+  const id = run.invocationSpec.invocationId
+  if (!id) throw new Error('driver fixture requires an invocation id')
+  try {
+    await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
+    const startCount = run.events.length
+    const since = () => run.events.slice(startCount)
+    await body({
+      rpc,
+      emit: (method, params) => rpc.emit(method, params),
+      startTurn: (turnId = 'turn_1') =>
+        rpc.emit('turn/started', {
+          threadId: 'thread_test',
+          turn: { id: turnId, status: 'inProgress', items: [] },
+        }),
+      since,
+      ofType: (type) => since().filter((event) => event.type === type),
+    })
+  } finally {
+    await run.broker.stop({ invocationId: id, reason: 'test cleanup' })
+    await run.broker.dispose({ invocationId: id })
+    await rm(run.socketDir, { recursive: true, force: true })
+  }
 }

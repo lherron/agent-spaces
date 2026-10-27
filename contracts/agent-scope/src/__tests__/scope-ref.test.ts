@@ -1,3 +1,4 @@
+import { ancestorScopeRefs } from '../../index.js'
 /**
  * RED tests for M1: agent-scope package — ScopeRef, LaneRef, SessionRef.
  *
@@ -11,10 +12,9 @@
  * 2. Token grammar: [A-Za-z0-9._-]+ length 1..64 enforced by validateScopeRef/validateLaneRef.
  * 3. All valid ScopeRef forms parse and roundtrip correctly.
  * 4. All invalid ScopeRef forms are rejected with descriptive errors.
- * 5. LaneRef normalization: omitted/undefined -> "main", "main" -> "main", "lane:foo" -> "lane:foo".
- * 6. parseScopeRef, formatScopeRef, validateScopeRef, normalizeLaneRef, validateLaneRef,
- *    normalizeSessionRef, ancestorScopeRefs all exist and behave per contract.
- * 7. ancestorScopeRefs returns least-specific to most-specific ancestry.
+ * 5. LaneRef normalization: omitted/undefined -> "main", "lane:foo" -> "lane:foo".
+ * 6. parseScopeRef, formatScopeRef, validateScopeRef, buildScopeRef, normalizeLaneRef and
+ *    validateLaneRef behave per contract. SessionRef lives in session-ref.test.ts.
  */
 
 import { describe, expect, test } from 'bun:test'
@@ -23,14 +23,10 @@ import { describe, expect, test } from 'bun:test'
 // Import from the package that doesn't exist yet (RED)
 // ---------------------------------------------------------------------------
 import {
-  ancestorScopeRefs,
   buildScopeRef,
   formatScopeRef,
-  formatSessionRef,
   normalizeLaneRef,
-  normalizeSessionRef,
   parseScopeRef,
-  parseSessionRef,
   validateLaneRef,
   validateScopeRef,
 } from '../../index.js'
@@ -53,29 +49,11 @@ describe('token grammar (T-00845)', () => {
     '0.1.2',
   ]
 
-  const invalidTokens = [
-    '', // empty
-    'a'.repeat(65), // too long
-    'has space', // space
-    'has/slash', // slash
-    'has:colon', // colon (delimiter, not token)
-    'has@at', // at sign
-    'emoji\u{1F600}', // non-ASCII
-  ]
-
   for (const token of validTokens) {
     test(`valid token: "${token}"`, () => {
       const ref = `agent:${token}`
       const result = validateScopeRef(ref)
       expect(result.ok).toBe(true)
-    })
-  }
-
-  for (const token of invalidTokens) {
-    test(`invalid token: "${token}"`, () => {
-      const ref = `agent:${token}`
-      const result = validateScopeRef(ref)
-      expect(result.ok).toBe(false)
     })
   }
 })
@@ -138,15 +116,10 @@ describe('valid ScopeRef forms (T-00845)', () => {
       expect(parsed.scopeRef).toBe(c.input)
     })
 
-    test(`roundtrips "${c.input}" through format`, () => {
+    test(`formatScopeRef reproduces every canonical ScopeRef kind it parsed: "${c.input}"`, () => {
       const parsed = parseScopeRef(c.input)
       const formatted = formatScopeRef(parsed)
       expect(formatted).toBe(c.input)
-    })
-
-    test(`validates "${c.input}" as ok`, () => {
-      const result = validateScopeRef(c.input)
-      expect(result.ok).toBe(true)
     })
   }
 })
@@ -155,40 +128,10 @@ describe('valid ScopeRef forms (T-00845)', () => {
 // Invalid ScopeRef forms
 // ===================================================================
 describe('invalid ScopeRef forms (T-00845)', () => {
-  const invalidRefs = [
-    // project alone (no agent)
-    { input: 'project:demo', reason: 'project without agent prefix' },
-    // embedded sessionId
-    { input: 'agent:alice:session:s1', reason: 'embedded sessionId' },
-    // task without project
-    { input: 'agent:alice:task:t1', reason: 'task without project' },
-    // role without project
-    { input: 'agent:alice:role:tester', reason: 'role without project' },
-    // empty string
-    { input: '', reason: 'empty string' },
-    // random garbage
-    { input: 'not-a-scope-ref', reason: 'missing agent: prefix' },
-    // double colon
-    { input: 'agent::alice', reason: 'double colon (empty token)' },
-    // trailing colon
-    { input: 'agent:alice:', reason: 'trailing colon' },
-    // unknown segment
-    { input: 'agent:alice:project:demo:channel:general', reason: 'unknown segment type' },
-  ]
-
-  for (const c of invalidRefs) {
-    test(`rejects "${c.input}" (${c.reason})`, () => {
-      const result = validateScopeRef(c.input)
-      expect(result.ok).toBe(false)
-      if (!result.ok) {
-        expect(typeof result.error).toBe('string')
-        expect(result.error.length).toBeGreaterThan(0)
-      }
-    })
-  }
-
-  test('parseScopeRef throws on invalid input', () => {
-    expect(() => parseScopeRef('project:demo')).toThrow()
+  test('parseScopeRef on a ref without the agent prefix throws naming the input and the rule', () => {
+    expect(() => parseScopeRef('project:demo')).toThrow(
+      /^Invalid ScopeRef "project:demo": ScopeRef must start with "agent:<agentId>"$/
+    )
   })
 })
 
@@ -196,20 +139,12 @@ describe('invalid ScopeRef forms (T-00845)', () => {
 // LaneRef (T-00845)
 // ===================================================================
 describe('LaneRef normalization (T-00845)', () => {
-  test('"main" normalizes to "main"', () => {
-    expect(normalizeLaneRef('main')).toBe('main')
-  })
-
   test('"lane:deploy" normalizes to "lane:deploy"', () => {
     expect(normalizeLaneRef('lane:deploy')).toBe('lane:deploy')
   })
 
   test('undefined normalizes to "main"', () => {
     expect(normalizeLaneRef(undefined)).toBe('main')
-  })
-
-  test('omitted normalizes to "main"', () => {
-    expect(normalizeLaneRef()).toBe('main')
   })
 })
 
@@ -222,14 +157,6 @@ describe('LaneRef validation (T-00845)', () => {
     expect(validateLaneRef('lane:deploy').ok).toBe(true)
   })
 
-  test('validates "lane:my-lane.1"', () => {
-    expect(validateLaneRef('lane:my-lane.1').ok).toBe(true)
-  })
-
-  test('rejects empty string', () => {
-    expect(validateLaneRef('').ok).toBe(false)
-  })
-
   test('rejects "lane:" (empty lane id)', () => {
     expect(validateLaneRef('lane:').ok).toBe(false)
   })
@@ -240,154 +167,30 @@ describe('LaneRef validation (T-00845)', () => {
 })
 
 // ===================================================================
-// normalizeSessionRef (T-00846)
-// ===================================================================
-describe('normalizeSessionRef (T-00846)', () => {
-  test('normalizes with explicit lane', () => {
-    const result = normalizeSessionRef({
-      scopeRef: 'agent:alice:project:demo',
-      laneRef: 'lane:deploy',
-    })
-    expect(result.scopeRef).toBe('agent:alice:project:demo')
-    expect(result.laneRef).toBe('lane:deploy')
-  })
-
-  test('defaults lane to "main" when omitted', () => {
-    const result = normalizeSessionRef({
-      scopeRef: 'agent:alice',
-    })
-    expect(result.scopeRef).toBe('agent:alice')
-    expect(result.laneRef).toBe('main')
-  })
-})
-
-describe('parseSessionRef', () => {
-  test('parses canonical sessionRef strings and formats them back', () => {
-    const parsed = parseSessionRef('agent:rex:project:agent-spaces/lane:main')
-
-    expect(parsed).toEqual({
-      scopeRef: 'agent:rex:project:agent-spaces',
-      laneRef: 'main',
-    })
-    expect(formatSessionRef(parsed)).toBe('agent:rex:project:agent-spaces/lane:main')
-  })
-
-  test('normalizes non-main lane ids to lane refs', () => {
-    expect(parseSessionRef('agent:rex:project:agent-spaces/lane:repair')).toEqual({
-      scopeRef: 'agent:rex:project:agent-spaces',
-      laneRef: 'lane:repair',
-    })
-  })
-
-  test('rejects malformed sessionRef strings', () => {
-    const invalid = [
-      '',
-      'agent:rex:project:agent-spaces',
-      'agent:rex:project:agent-spaces/main',
-      '/lane:main',
-      'agent:rex:project:agent-spaces/lane:',
-      'agent:rex:project:agent-spaces/lane:main/extra',
-    ]
-
-    for (const input of invalid) {
-      expect(() => parseSessionRef(input)).toThrow()
-    }
-  })
-})
-
-// ===================================================================
-// ancestorScopeRefs (T-00846)
-// ===================================================================
-describe('ancestorScopeRefs (T-00846)', () => {
-  test('agent:alice -> ["agent:alice"]', () => {
-    expect(ancestorScopeRefs('agent:alice')).toEqual(['agent:alice'])
-  })
-
-  test('agent:alice:project:demo -> ["agent:alice", "agent:alice:project:demo"]', () => {
-    expect(ancestorScopeRefs('agent:alice:project:demo')).toEqual([
-      'agent:alice',
-      'agent:alice:project:demo',
-    ])
-  })
-
-  test('agent:alice:project:demo:role:tester -> 3 ancestors', () => {
-    expect(ancestorScopeRefs('agent:alice:project:demo:role:tester')).toEqual([
-      'agent:alice',
-      'agent:alice:project:demo',
-      'agent:alice:project:demo:role:tester',
-    ])
-  })
-
-  test('agent:alice:project:demo:task:t1 -> 3 ancestors', () => {
-    expect(ancestorScopeRefs('agent:alice:project:demo:task:t1')).toEqual([
-      'agent:alice',
-      'agent:alice:project:demo',
-      'agent:alice:project:demo:task:t1',
-    ])
-  })
-
-  test('agent:alice:project:demo:task:t1:role:tester -> 4 ancestors (from plan)', () => {
-    expect(ancestorScopeRefs('agent:alice:project:demo:task:t1:role:tester')).toEqual([
-      'agent:alice',
-      'agent:alice:project:demo',
-      'agent:alice:project:demo:task:t1',
-      'agent:alice:project:demo:task:t1:role:tester',
-    ])
-  })
-
-  test('returns least-specific to most-specific order', () => {
-    const ancestors = ancestorScopeRefs('agent:alice:project:demo:task:t1')
-    // First element is always the agent-only scope
-    expect(ancestors[0]).toBe('agent:alice')
-    // Last element is always the input itself
-    expect(ancestors[ancestors.length - 1]).toBe('agent:alice:project:demo:task:t1')
-  })
-})
-
-// ===================================================================
 // buildScopeRef / formatScopeRef — canonical assembly (backlog G)
 // ===================================================================
 describe('buildScopeRef (backlog G)', () => {
-  test('agent only', () => {
-    expect(buildScopeRef({ agentId: 'alice' })).toBe('agent:alice')
-  })
-
-  test('agent + project', () => {
-    expect(buildScopeRef({ agentId: 'alice', projectId: 'demo' })).toBe('agent:alice:project:demo')
-  })
-
-  test('agent + project + task', () => {
-    expect(buildScopeRef({ agentId: 'alice', projectId: 'demo', taskId: 't1' })).toBe(
-      'agent:alice:project:demo:task:t1'
-    )
-  })
-
-  test('agent + project + task + role', () => {
-    expect(
-      buildScopeRef({ agentId: 'alice', projectId: 'demo', taskId: 't1', roleName: 'tester' })
-    ).toBe('agent:alice:project:demo:task:t1:role:tester')
-  })
-
-  test('agent + project + role (no task)', () => {
-    expect(buildScopeRef({ agentId: 'alice', projectId: 'demo', roleName: 'tester' })).toBe(
-      'agent:alice:project:demo:role:tester'
-    )
-  })
-})
-
-describe('formatScopeRef parse round-trip per kind (backlog G)', () => {
-  const refs = [
-    'agent:alice',
-    'agent:alice:project:demo',
-    'agent:alice:project:demo:role:tester',
-    'agent:alice:project:demo:task:t1',
-    'agent:alice:project:demo:task:t1:role:tester',
-  ]
-  for (const ref of refs) {
-    test(`formatScopeRef(parseScopeRef("${ref}")) === input`, () => {
-      expect(formatScopeRef(parseScopeRef(ref))).toBe(ref)
-    })
-  }
+  test.each([
+    { segments: { agentId: 'alice' }, expected: 'agent:alice' },
+    { segments: { agentId: 'alice', projectId: 'demo' }, expected: 'agent:alice:project:demo' },
+    {
+      segments: { agentId: 'alice', projectId: 'demo', taskId: 't1' },
+      expected: 'agent:alice:project:demo:task:t1',
+    },
+    {
+      segments: { agentId: 'alice', projectId: 'demo', taskId: 't1', roleName: 'tester' },
+      expected: 'agent:alice:project:demo:task:t1:role:tester',
+    },
+    {
+      segments: { agentId: 'alice', projectId: 'demo', roleName: 'tester' },
+      expected: 'agent:alice:project:demo:role:tester',
+    },
+  ])(
+    'buildScopeRef appends each present segment in agent/project/task/role order: $expected',
+    ({ segments, expected }) => {
+      expect(buildScopeRef(segments)).toBe(expected)
+    }
+  )
 })
 
 // ===================================================================
@@ -396,7 +199,12 @@ describe('formatScopeRef parse round-trip per kind (backlog G)', () => {
 describe('validateScopeRef error branches (backlog G)', () => {
   const branches: Array<{ input: string; match: RegExp }> = [
     { input: 'project:demo', match: /must start with "agent:<agentId>"/ },
+    { input: '', match: /must start with "agent:<agentId>"/ },
+    { input: 'agent:', match: /agentId must be 1\.\.64 characters/ },
+    { input: 'agent::alice', match: /agentId must be 1\.\.64 characters/ },
+    { input: `agent:${'a'.repeat(65)}`, match: /agentId must be 1\.\.64 characters/ },
     { input: 'agent:has space', match: /agentId contains invalid characters/ },
+    { input: 'agent:emoji\u{1F600}', match: /agentId contains invalid characters/ },
     { input: 'agent:alice:task:t1', match: /expected "project:<projectId>"/ },
     { input: 'agent:alice:project:has space', match: /projectId contains invalid characters/ },
     {
@@ -436,44 +244,91 @@ describe('validateScopeRef error branches (backlog G)', () => {
   }
 })
 
-// ===================================================================
-// ancestorScopeRefs — project-role-without-task ordering (backlog G)
-// ===================================================================
-describe('ancestorScopeRefs project-role ordering (backlog G)', () => {
-  test('project-role (no task) skips the task ancestor', () => {
-    // The role ref is appended as the most-specific entry even though there is
-    // no intervening task level.
-    expect(ancestorScopeRefs('agent:alice:project:demo:role:reviewer')).toEqual([
-      'agent:alice',
-      'agent:alice:project:demo',
-      'agent:alice:project:demo:role:reviewer',
-    ])
-  })
-})
+describe('published caller behavior (§9)', () => {
+  /**
+   * RED tests for M1: agent-scope package — ScopeRef, LaneRef, SessionRef.
+   *
+   * These tests exercise the full agent-scope contract from AGENT_SPACES_PLAN.md
+   * sections 1 (agent-scope contract) and the required APIs.
+   *
+   * wrkq tasks: T-00844 (scaffold), T-00845 (types/grammar), T-00846 (APIs), T-00847 (tests)
+   *
+   * PASS CONDITIONS:
+   * 1. contracts/agent-scope exists as a Bun workspace package with zero workspace deps.
+   * 2. Token grammar: [A-Za-z0-9._-]+ length 1..64 enforced by validateScopeRef/validateLaneRef.
+   * 3. All valid ScopeRef forms parse and roundtrip correctly.
+   * 4. All invalid ScopeRef forms are rejected with descriptive errors.
+   * 5. LaneRef normalization: omitted/undefined -> "main", "main" -> "main", "lane:foo" -> "lane:foo".
+   * 6. parseScopeRef, formatScopeRef, validateScopeRef, normalizeLaneRef, validateLaneRef,
+   *    normalizeSessionRef, ancestorScopeRefs all exist and behave per contract.
+   * 7. ancestorScopeRefs returns least-specific to most-specific ancestry.
+   */
 
-// ===================================================================
-// Type-level checks (T-00845)
-// ===================================================================
-describe('type exports (T-00845)', () => {
-  test('ScopeKind union is complete', () => {
-    // Verify all five kinds are valid values at runtime
-    const kinds: ScopeKind[] = [
-      'agent',
-      'project',
-      'project-role',
-      'project-task',
-      'project-task-role',
-    ]
-    expect(kinds).toHaveLength(5)
+  // ---------------------------------------------------------------------------
+  // Import from the package that doesn't exist yet (RED)
+  // ---------------------------------------------------------------------------
+
+  // ===================================================================
+  // ancestorScopeRefs (T-00846)
+  // ===================================================================
+  describe('ancestorScopeRefs (T-00846)', () => {
+    test('agent:alice -> ["agent:alice"]', () => {
+      expect(ancestorScopeRefs('agent:alice')).toEqual(['agent:alice'])
+    })
+
+    test('agent:alice:project:demo -> ["agent:alice", "agent:alice:project:demo"]', () => {
+      expect(ancestorScopeRefs('agent:alice:project:demo')).toEqual([
+        'agent:alice',
+        'agent:alice:project:demo',
+      ])
+    })
+
+    test('agent:alice:project:demo:role:tester -> 3 ancestors', () => {
+      expect(ancestorScopeRefs('agent:alice:project:demo:role:tester')).toEqual([
+        'agent:alice',
+        'agent:alice:project:demo',
+        'agent:alice:project:demo:role:tester',
+      ])
+    })
+
+    test('agent:alice:project:demo:task:t1 -> 3 ancestors', () => {
+      expect(ancestorScopeRefs('agent:alice:project:demo:task:t1')).toEqual([
+        'agent:alice',
+        'agent:alice:project:demo',
+        'agent:alice:project:demo:task:t1',
+      ])
+    })
+
+    test('agent:alice:project:demo:task:t1:role:tester -> 4 ancestors (from plan)', () => {
+      expect(ancestorScopeRefs('agent:alice:project:demo:task:t1:role:tester')).toEqual([
+        'agent:alice',
+        'agent:alice:project:demo',
+        'agent:alice:project:demo:task:t1',
+        'agent:alice:project:demo:task:t1:role:tester',
+      ])
+    })
+
+    test('returns least-specific to most-specific order', () => {
+      const ancestors = ancestorScopeRefs('agent:alice:project:demo:task:t1')
+      // First element is always the agent-only scope
+      expect(ancestors[0]).toBe('agent:alice')
+      // Last element is always the input itself
+      expect(ancestors[ancestors.length - 1]).toBe('agent:alice:project:demo:task:t1')
+    })
   })
 
-  test('ParsedScopeRef shape is correct', () => {
-    const parsed = parseScopeRef('agent:alice:project:demo')
-    // Verify the shape has all required fields
-    expect(parsed).toHaveProperty('kind')
-    expect(parsed).toHaveProperty('agentId')
-    expect(parsed).toHaveProperty('scopeRef')
-    // projectId is present for project-scoped refs
-    expect(parsed).toHaveProperty('projectId')
+  // ===================================================================
+  // ancestorScopeRefs — project-role-without-task ordering (backlog G)
+  // ===================================================================
+  describe('ancestorScopeRefs project-role ordering (backlog G)', () => {
+    test('project-role (no task) skips the task ancestor', () => {
+      // The role ref is appended as the most-specific entry even though there is
+      // no intervening task level.
+      expect(ancestorScopeRefs('agent:alice:project:demo:role:reviewer')).toEqual([
+        'agent:alice',
+        'agent:alice:project:demo',
+        'agent:alice:project:demo:role:reviewer',
+      ])
+    })
   })
 })

@@ -93,11 +93,7 @@ describe('codex-cli-tmux hook event normalization', () => {
         payload: { content: 'start from flat hookData', turnId: 'turn_from_envelope' },
       },
     ])
-  })
-
-  test('normalizeCodexHookEnvelope unwraps top-level hookEvent and preserves event order', async () => {
-    const normalize = await loadNormalizeCodexHookEnvelope()
-    const events = normalize(
+    const wrapped = normalize(
       {
         invocationId,
         generation: 1,
@@ -110,17 +106,16 @@ describe('codex-cli-tmux hook event normalization', () => {
       },
       { now: () => new Date('2026-05-27T15:00:00.000Z') }
     )
-
-    expect(eventTypes(events)).toEqual(['turn.started', 'user.message'])
-    expect<Array<string | undefined>>(events.map((event) => event.turnId)).toEqual([
+    expect(eventTypes(wrapped)).toEqual(['turn.started', 'user.message'])
+    expect<Array<string | undefined>>(wrapped.map((event) => event.turnId)).toEqual([
       'turn_from_hook_event_envelope',
       'turn_from_hook_event_envelope',
     ])
-    expect(events.map((event) => event.driver?.rawType)).toEqual([
+    expect(wrapped.map((event) => event.driver?.rawType)).toEqual([
       'UserPromptSubmit',
       'UserPromptSubmit',
     ])
-    expect(events[1]).toMatchObject({
+    expect(wrapped[1]).toMatchObject({
       type: 'user.message',
       payload: {
         content: 'start from top-level hookEvent',
@@ -269,14 +264,8 @@ describe('codex-cli-tmux hook event normalization', () => {
       payload: { reason: 'prompt_input_exit' },
       driver: { kind: 'codex-cli-tmux', rawType: 'SessionEnd' },
     })
-  })
-
-  test('synthetic SessionEnd reason=other (crash/external kill) keeps the continuation', async () => {
-    const events = (await createNormalizer()).normalizeHook({
-      hook_event_name: 'SessionEnd',
-      reason: 'other',
-    })
-
-    expect(events).toHaveLength(0)
+    expect(
+      (await createNormalizer()).normalizeHook({ hook_event_name: 'SessionEnd', reason: 'other' })
+    ).toEqual([])
   })
 })

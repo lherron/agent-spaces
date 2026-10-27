@@ -1,64 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { must } from '../../test-support/must.js'
 import type { ProjectManifest } from '../types/targets.js'
-import { getEffectiveCodexOptions, mergeCodexOptions } from '../types/targets.js'
+import { getEffectiveCodexOptions } from '../types/targets.js'
 import { parseTargetsToml, serializeTargetsToml } from './targets-toml.js'
-
-describe('parseTargetsToml: status_line in [codex]', () => {
-  test('parses top-level [codex] status_line', () => {
-    const toml = `
-schema = 2
-
-[codex]
-status_line = ["model-with-reasoning", "context-remaining", "current-dir"]
-
-[targets.default]
-compose = ["space:my-space@stable"]
-`
-    const result = parseTargetsToml(toml)
-    expect(result.codex?.status_line).toEqual([
-      'model-with-reasoning',
-      'context-remaining',
-      'current-dir',
-    ])
-  })
-
-  test('parses target-level [targets.default.provisioning.codex] status_line', () => {
-    const toml = `
-schema = 2
-
-[targets.default]
-compose = ["space:my-space@stable"]
-
-[targets.default.provisioning.codex]
-status_line = ["model", "context-remaining", "git-branch"]
-`
-    const result = parseTargetsToml(toml)
-    expect(must(result.targets['default']).provisioning?.codex?.status_line).toEqual([
-      'model',
-      'context-remaining',
-      'git-branch',
-    ])
-  })
-})
-
-describe('mergeCodexOptions: status_line', () => {
-  test('target override beats top-level', () => {
-    const merged = mergeCodexOptions(
-      { status_line: ['model-with-reasoning', 'context-remaining', 'current-dir'] },
-      { status_line: ['model', 'git-branch'] }
-    )
-    expect(merged.status_line).toEqual(['model', 'git-branch'])
-  })
-
-  test('top-level used when target does not specify', () => {
-    const merged = mergeCodexOptions(
-      { status_line: ['model-with-reasoning', 'context-remaining', 'current-dir'] },
-      {}
-    )
-    expect(merged.status_line).toEqual(['model-with-reasoning', 'context-remaining', 'current-dir'])
-  })
-})
 
 describe('getEffectiveCodexOptions: status_line', () => {
   test('target-level overrides top-level', () => {

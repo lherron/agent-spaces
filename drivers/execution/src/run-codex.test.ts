@@ -7,7 +7,6 @@ import { getProjectHarnessOutputPath } from 'spaces-config'
 
 import { useTempDirs } from '../test/temp-dirs.js'
 import {
-  ensureCodexProjectTrust,
   getProjectCodexRuntimeHomePath,
   migrateLegacyProjectCodexRuntimeHome,
   prepareCodexRuntimeHome,
@@ -56,29 +55,6 @@ async function readRuntimeMetadata(
 function countPraesidiumBlocks(agents: string): number {
   return (agents.match(/<!-- BEGIN praesidium-context -->/g) ?? []).length
 }
-
-describe('ensureCodexProjectTrust', () => {
-  test('appends a trusted project entry when one is missing', () => {
-    const config = 'model = "gpt-5.3-codex"\n'
-    const updated = ensureCodexProjectTrust(config, '/tmp/project')
-
-    expect(updated).toContain('[projects."/tmp/project"]')
-    expect(updated).toContain('trust_level = "trusted"')
-  })
-
-  test('does not duplicate an existing trusted project entry', () => {
-    const config = [
-      'model = "gpt-5.3-codex"',
-      '',
-      '[projects."/tmp/project"]',
-      'trust_level = "trusted"',
-      '',
-    ].join('\n')
-
-    const updated = ensureCodexProjectTrust(config, '/tmp/project')
-    expect(updated).toBe(config)
-  })
-})
 
 describe('getProjectCodexRuntimeHomePath', () => {
   test('builds a readable runtime path from project basename and target name', () => {
@@ -170,7 +146,7 @@ describe('prepareCodexRuntimeHome', () => {
 
     const config = await readFile(join(runtimeHome, 'config.toml'), 'utf-8')
     expect(config).toContain('model = "gpt-5.5"')
-    expect(config).toContain(`[projects.${JSON.stringify(projectPath)}]`)
+    expect(config).toContain(`[projects.${JSON.stringify(projectPath)}]\ntrust_level = "trusted"\n`)
     const runtimeHookKey = `${await realpath(join(runtimeHome, 'hooks.json'))}:stop:0:0`
     const templateHookKey = `${await realpath(join(templateHome, 'hooks.json'))}:stop:0:0`
     expect(config).toContain(`[hooks.state.${JSON.stringify(runtimeHookKey)}]`)
@@ -181,6 +157,27 @@ describe('prepareCodexRuntimeHome', () => {
     expect(metadata.mode).toBe('project')
     expect(metadata.targetName).toBe('codex')
     expect(metadata.projectPath).toBe(projectPath)
+  })
+
+  test('a template that already trusts the project keeps exactly one trusted project table', async () => {
+    const root = await createTempDir('run-runtime-trusted-')
+    const aspHome = join(root, 'asp-home')
+    const projectPath = join(root, 'control-plane')
+    const bundle = codexBundle(
+      getProjectHarnessOutputPath(projectPath, 'codex', 'codex', aspHome),
+      'codex'
+    )
+    const projectTable = `[projects.${JSON.stringify(projectPath)}]`
+    await writeCodexTemplate(bundle.codex.homeTemplatePath, {
+      agents: 'agents\n',
+      config: `model = "gpt-5.5"\n\n${projectTable}\ntrust_level = "trusted"\n`,
+    })
+
+    const runtimeHome = await prepareCodexRuntimeHome(bundle, { aspHome, projectPath })
+
+    const config = await readFile(join(runtimeHome, 'config.toml'), 'utf-8')
+    expect(config.split(projectTable)).toHaveLength(2)
+    expect(config).toContain(`${projectTable}\ntrust_level = "trusted"\n`)
   })
 
   test('interactive runtime home keeps space hooks beside the HRC capture set (T-10389)', async () => {

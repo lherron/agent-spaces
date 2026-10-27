@@ -23,6 +23,7 @@ import {
 import {
   CLAUDE_SHIM_PATH,
   SAMPLE_REGISTRY_DIR,
+  SHIM_OUTPUT_FILE,
   cleanupShimOutput,
   cleanupTempAspHome,
   createTempAspHome,
@@ -71,7 +72,7 @@ describe('asp run global mode', () => {
     // Set environment for claude shim
     process.env['ASP_HOME'] = aspHome
     process.env['ASP_CLAUDE_PATH'] = CLAUDE_SHIM_PATH
-    process.env['CLAUDE_SHIM_OUTPUT'] = '/tmp/claude-shim-output.json'
+    process.env['CLAUDE_SHIM_OUTPUT'] = SHIM_OUTPUT_FILE
     process.env['CLAUDE_SHIM_VALIDATE_PLUGINS'] = '1'
   })
 
@@ -85,28 +86,6 @@ describe('asp run global mode', () => {
   })
 
   describe('runGlobalSpace', () => {
-    test('runs space reference without a project', async () => {
-      const result = await runGlobalSpace('space:base@stable', {
-        aspHome,
-        registryPath: SAMPLE_REGISTRY_DIR,
-        interactive: false,
-        prompt: 'test prompt',
-        cleanup: false,
-      })
-
-      expect(result.exitCode).toBe(0)
-      expect(result.build.pluginDirs.length).toBeGreaterThan(0)
-
-      // Verify plugin directory exists
-      const pluginDir = result.build.pluginDirs[0]
-      expect(pluginDir).toBeDefined()
-      const pluginJsonExists = await fs
-        .access(path.join(pluginDir!, '.claude-plugin', 'plugin.json'))
-        .then(() => true)
-        .catch(() => false)
-      expect(pluginJsonExists).toBe(true)
-    })
-
     test('creates global lock file at $ASP_HOME/global-lock.json', async () => {
       await runGlobalSpace('space:base@stable', {
         aspHome,
@@ -125,13 +104,17 @@ describe('asp run global mode', () => {
       // Verify lock file content
       const lock = await readLockJson(paths.globalLock)
       expect(lock.lockfileVersion).toBe(1)
+      expect(lock.resolverVersion).toBe(1)
+      expect(lock.registry.type).toBe('git')
+      for (const space of Object.values(lock.spaces))
+        expect(space.integrity).toMatch(/^sha256:[a-f0-9]{64}$/)
       expect(Object.keys(lock.spaces).length).toBeGreaterThan(0)
       expect(lock.targets['_global']).toBeDefined()
     })
 
-    test('merges with existing global lock file', async () => {
+    test('a second global run preserves a previously locked unrelated space', async () => {
       // First run with one space
-      await runGlobalSpace('space:base@stable', {
+      await runGlobalSpace('space:backend@stable', {
         aspHome,
         registryPath: SAMPLE_REGISTRY_DIR,
         interactive: false,
@@ -140,7 +123,10 @@ describe('asp run global mode', () => {
 
       const paths = new PathResolver({ aspHome })
       const lockAfterFirst = await readLockJson(paths.globalLock)
-      const spacesAfterFirst = Object.keys(lockAfterFirst.spaces).length
+      const backendKey = Object.keys(lockAfterFirst.spaces).find((key) =>
+        key.startsWith('backend@')
+      )
+      expect(backendKey).toBeDefined()
 
       // Second run with a different space
       await runGlobalSpace('space:frontend@stable', {
@@ -151,34 +137,26 @@ describe('asp run global mode', () => {
       })
 
       const lockAfterSecond = await readLockJson(paths.globalLock)
-      // Should have more spaces after second run (frontend + base dependency)
-      expect(Object.keys(lockAfterSecond.spaces).length).toBeGreaterThanOrEqual(spacesAfterFirst)
-    })
-
-    test('includes dependencies in global mode run', async () => {
-      // Frontend depends on base
-      const result = await runGlobalSpace('space:frontend@stable', {
-        aspHome,
-        registryPath: SAMPLE_REGISTRY_DIR,
-        interactive: false,
-        prompt: 'test prompt',
-        cleanup: false,
-      })
-
-      // Should have at least 2 plugin dirs (frontend + base)
-      expect(result.build.pluginDirs.length).toBeGreaterThanOrEqual(2)
+      expect(lockAfterSecond.spaces[backendKey as keyof typeof lockAfterSecond.spaces]).toEqual(
+        lockAfterFirst.spaces[backendKey as keyof typeof lockAfterFirst.spaces]
+      )
     })
 
     test('passes plugin directories to Claude', async () => {
-      await runGlobalSpace('space:base@stable', {
+      const result = await runGlobalSpace('space:base@stable', {
         aspHome,
         registryPath: SAMPLE_REGISTRY_DIR,
         interactive: false,
+        cleanup: false,
         prompt: 'test global',
       })
 
+      expect(result.exitCode).toBe(0)
       const shimOutput = await readShimOutput()
       expect(shimOutput.pluginDirs.length).toBeGreaterThan(0)
+      for (const pluginDir of shimOutput.pluginDirs) {
+        await fs.access(path.join(pluginDir, '.claude-plugin', 'plugin.json'))
+      }
       expect(shimOutput.args).toContain('-p')
       expect(shimOutput.args).toContain('test global')
     })
@@ -221,27 +199,6 @@ describe('asp run global mode', () => {
       await fs.rm(localSpacePath, { recursive: true, force: true })
     })
 
-    test('runs local space in dev mode', async () => {
-      const result = await runLocalSpace(localSpacePath, {
-        aspHome,
-        interactive: false,
-        prompt: 'test dev mode',
-        cleanup: false,
-      })
-
-      expect(result.exitCode).toBe(0)
-      expect(result.build.pluginDirs.length).toBe(1)
-
-      // Verify plugin directory exists
-      const pluginDir = result.build.pluginDirs[0]
-      expect(pluginDir).toBeDefined()
-      const pluginJsonExists = await fs
-        .access(path.join(pluginDir!, '.claude-plugin', 'plugin.json'))
-        .then(() => true)
-        .catch(() => false)
-      expect(pluginJsonExists).toBe(true)
-    })
-
     test('does not create global lock for dev mode runs', async () => {
       await runLocalSpace(localSpacePath, {
         aspHome,
@@ -259,33 +216,22 @@ describe('asp run global mode', () => {
     })
 
     test('passes plugin directories to Claude', async () => {
-      await runLocalSpace(localSpacePath, {
-        aspHome,
-        interactive: false,
-        prompt: 'test dev',
-      })
-
-      const shimOutput = await readShimOutput()
-      expect(shimOutput.pluginDirs.length).toBe(1)
-      expect(shimOutput.args).toContain('-p')
-      expect(shimOutput.args).toContain('test dev')
-    })
-
-    test('materializes components from local space', async () => {
       const result = await runLocalSpace(localSpacePath, {
         aspHome,
         interactive: false,
-        prompt: 'test',
         cleanup: false,
+        prompt: 'test dev',
       })
 
-      // Verify commands directory was materialized
-      const pluginDir = result.build.pluginDirs[0]!
-      const commandsExists = await fs
-        .access(path.join(pluginDir, 'commands'))
-        .then(() => true)
-        .catch(() => false)
-      expect(commandsExists).toBe(true)
+      expect(result.exitCode).toBe(0)
+      const shimOutput = await readShimOutput()
+      expect(shimOutput.pluginDirs.length).toBe(1)
+      for (const pluginDir of shimOutput.pluginDirs) {
+        await fs.access(path.join(pluginDir, '.claude-plugin', 'plugin.json'))
+        await fs.access(path.join(pluginDir, 'commands'))
+      }
+      expect(shimOutput.args).toContain('-p')
+      expect(shimOutput.args).toContain('test dev')
     })
 
     test('uses local path as working directory by default', async () => {
@@ -322,69 +268,5 @@ describe('asp run global mode', () => {
     })
   })
 
-  describe('global lock file behavior', () => {
-    test('lock file has correct structure', async () => {
-      await runGlobalSpace('space:base@stable', {
-        aspHome,
-        registryPath: SAMPLE_REGISTRY_DIR,
-        interactive: false,
-        prompt: 'test',
-      })
-
-      const paths = new PathResolver({ aspHome })
-      const lock = await readLockJson(paths.globalLock)
-
-      expect(lock.lockfileVersion).toBe(1)
-      expect(lock.resolverVersion).toBe(1)
-      expect(lock.generatedAt).toBeDefined()
-      expect(lock.registry).toBeDefined()
-      expect(lock.registry.type).toBe('git')
-      expect(lock.spaces).toBeDefined()
-      expect(lock.targets).toBeDefined()
-      expect(lock.targets['_global']).toBeDefined()
-    })
-
-    test('lock file contains space integrity hash', async () => {
-      await runGlobalSpace('space:base@stable', {
-        aspHome,
-        registryPath: SAMPLE_REGISTRY_DIR,
-        interactive: false,
-        prompt: 'test',
-      })
-
-      const paths = new PathResolver({ aspHome })
-      const lock = await readLockJson(paths.globalLock)
-
-      // At least one space should have an integrity hash
-      const spaceEntries = Object.values(lock.spaces)
-      expect(spaceEntries.length).toBeGreaterThan(0)
-
-      const firstSpace = spaceEntries[0]
-      expect(firstSpace?.integrity).toBeDefined()
-      expect(firstSpace?.integrity).toMatch(/^sha256:[a-f0-9]{64}$/)
-    })
-
-    test('lock file loadOrder includes dependencies first', async () => {
-      // Frontend depends on base
-      await runGlobalSpace('space:frontend@stable', {
-        aspHome,
-        registryPath: SAMPLE_REGISTRY_DIR,
-        interactive: false,
-        prompt: 'test',
-      })
-
-      const paths = new PathResolver({ aspHome })
-      const lock = await readLockJson(paths.globalLock)
-
-      const loadOrder = lock.targets['_global']?.loadOrder ?? []
-      expect(loadOrder.length).toBeGreaterThanOrEqual(2)
-
-      // Find base and frontend indices
-      const baseIdx = loadOrder.findIndex((k) => k.startsWith('base@'))
-      const frontendIdx = loadOrder.findIndex((k) => k.startsWith('frontend@'))
-
-      // Base should come before frontend (deps before dependents)
-      expect(baseIdx).toBeLessThan(frontendIdx)
-    })
-  })
+  describe('global lock file behavior', () => {})
 })

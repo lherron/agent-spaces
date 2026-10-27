@@ -432,6 +432,7 @@ describe('W204: checkHooksConfig', () => {
     const warnings = await checkHooksConfig(context)
     expect(warnings).toHaveLength(1)
     expect(warnings[0]?.code).toBe(WARNING_CODES.INVALID_HOOKS_CONFIG)
+    expect(warnings[0]?.message).toContain('Neither hooks.toml nor hooks.json found')
   })
 
   it('should warn when hooks.json missing hooks object', async () => {
@@ -447,7 +448,7 @@ describe('W204: checkHooksConfig', () => {
 
     const warnings = await checkHooksConfig(context)
     expect(warnings).toHaveLength(1)
-    expect(warnings[0]?.message).toContain('hooks')
+    expect(warnings[0]?.message).toContain('Neither hooks.toml nor hooks.json found')
   })
 
   it('should return no warnings for valid hooks.json', async () => {
@@ -682,8 +683,11 @@ describe('W207: checkPluginStructure', () => {
     expect(warnings[0]?.message).toContain('plugin root')
   })
 
-  it('should warn when agents/ is inside .claude-plugin/', async () => {
+  it('should detect multiple nested component directories', async () => {
     const plugin = join(tempDir, 'plugin')
+    await mkdir(join(plugin, '.claude-plugin', 'commands'), { recursive: true })
+    await mkdir(join(plugin, '.claude-plugin', 'skills'), { recursive: true })
+    await mkdir(join(plugin, '.claude-plugin', 'hooks'), { recursive: true })
     await mkdir(join(plugin, '.claude-plugin', 'agents'), { recursive: true })
     await writeFile(join(plugin, '.claude-plugin', 'agents', 'agent.md'), '# Agent')
 
@@ -694,26 +698,9 @@ describe('W207: checkPluginStructure', () => {
     }
 
     const warnings = await checkPluginStructure(context)
-    expect(warnings).toHaveLength(1)
-    expect(warnings[0]?.code).toBe(WARNING_CODES.INVALID_PLUGIN_STRUCTURE)
-    expect(warnings[0]?.message).toContain('agents/')
-  })
-
-  it('should detect multiple nested component directories', async () => {
-    const plugin = join(tempDir, 'plugin')
-    await mkdir(join(plugin, '.claude-plugin', 'commands'), { recursive: true })
-    await mkdir(join(plugin, '.claude-plugin', 'skills'), { recursive: true })
-    await mkdir(join(plugin, '.claude-plugin', 'hooks'), { recursive: true })
-
-    const context: LintContext = {
-      spaces: [
-        createSpaceLintData('space1@abc123', createManifest({ id: 'space1' as SpaceId }), plugin),
-      ],
-    }
-
-    const warnings = await checkPluginStructure(context)
-    expect(warnings).toHaveLength(3)
+    expect(warnings).toHaveLength(4)
     expect(warnings.every((w) => w.code === WARNING_CODES.INVALID_PLUGIN_STRUCTURE)).toBe(true)
+    expect(warnings.filter((w) => w.message.includes('agents/'))).toHaveLength(1)
   })
 
   it('should not warn about non-component directories in .claude-plugin', async () => {
@@ -786,68 +773,47 @@ describe('E208: checkSkillMdFrontmatter', () => {
     expect(warnings[0]?.message).toContain('missing frontmatter')
   })
 
-  it('should error when SKILL.md frontmatter is missing name', async () => {
-    const plugin = join(tempDir, 'plugin')
-    await mkdir(join(plugin, 'skills', 'my-skill'), { recursive: true })
-    await writeFile(
-      join(plugin, 'skills', 'my-skill', 'SKILL.md'),
-      '---\ndescription: A test skill\n---\n\n# My Skill'
-    )
+  it.each([
+    {
+      row: 'missing name',
+      frontmatter: 'description: A test skill',
+      missing: 'name',
+    },
+    {
+      row: 'missing description',
+      frontmatter: 'name: my-skill',
+      missing: 'description',
+    },
+    {
+      row: 'missing both',
+      frontmatter: 'author: someone',
+      missing: 'name, description',
+    },
+  ])(
+    'SKILL.md frontmatter without a required field is one error naming the missing fields: $row',
+    async ({ frontmatter, missing }) => {
+      const plugin = join(tempDir, 'plugin')
+      await mkdir(join(plugin, 'skills', 'my-skill'), { recursive: true })
+      await writeFile(
+        join(plugin, 'skills', 'my-skill', 'SKILL.md'),
+        `---\n${frontmatter}\n---\n\n# My Skill`
+      )
 
-    const context: LintContext = {
-      spaces: [
-        createSpaceLintData('space1@abc123', createManifest({ id: 'space1' as SpaceId }), plugin),
-      ],
+      const context: LintContext = {
+        spaces: [
+          createSpaceLintData('space1@abc123', createManifest({ id: 'space1' as SpaceId }), plugin),
+        ],
+      }
+
+      const warnings = await checkSkillMdFrontmatter(context)
+      expect(warnings).toHaveLength(1)
+      expect(warnings[0]?.code).toBe(WARNING_CODES.SKILL_MD_MISSING_FRONTMATTER)
+      expect(warnings[0]?.severity).toBe('error')
+      expect(warnings[0]?.message).toBe(
+        `SKILL.md frontmatter is missing required field(s): ${missing}`
+      )
     }
-
-    const warnings = await checkSkillMdFrontmatter(context)
-    expect(warnings).toHaveLength(1)
-    expect(warnings[0]?.code).toBe(WARNING_CODES.SKILL_MD_MISSING_FRONTMATTER)
-    expect(warnings[0]?.severity).toBe('error')
-    expect(warnings[0]?.message).toContain('name')
-  })
-
-  it('should error when SKILL.md frontmatter is missing description', async () => {
-    const plugin = join(tempDir, 'plugin')
-    await mkdir(join(plugin, 'skills', 'my-skill'), { recursive: true })
-    await writeFile(
-      join(plugin, 'skills', 'my-skill', 'SKILL.md'),
-      '---\nname: my-skill\n---\n\n# My Skill'
-    )
-
-    const context: LintContext = {
-      spaces: [
-        createSpaceLintData('space1@abc123', createManifest({ id: 'space1' as SpaceId }), plugin),
-      ],
-    }
-
-    const warnings = await checkSkillMdFrontmatter(context)
-    expect(warnings).toHaveLength(1)
-    expect(warnings[0]?.code).toBe(WARNING_CODES.SKILL_MD_MISSING_FRONTMATTER)
-    expect(warnings[0]?.severity).toBe('error')
-    expect(warnings[0]?.message).toContain('description')
-  })
-
-  it('should error when SKILL.md frontmatter is missing both name and description', async () => {
-    const plugin = join(tempDir, 'plugin')
-    await mkdir(join(plugin, 'skills', 'my-skill'), { recursive: true })
-    await writeFile(
-      join(plugin, 'skills', 'my-skill', 'SKILL.md'),
-      '---\nauthor: someone\n---\n\n# My Skill'
-    )
-
-    const context: LintContext = {
-      spaces: [
-        createSpaceLintData('space1@abc123', createManifest({ id: 'space1' as SpaceId }), plugin),
-      ],
-    }
-
-    const warnings = await checkSkillMdFrontmatter(context)
-    expect(warnings).toHaveLength(1)
-    expect(warnings[0]?.code).toBe(WARNING_CODES.SKILL_MD_MISSING_FRONTMATTER)
-    expect(warnings[0]?.message).toContain('name')
-    expect(warnings[0]?.message).toContain('description')
-  })
+  )
 
   it('should check multiple skills in same space', async () => {
     const plugin = join(tempDir, 'plugin')

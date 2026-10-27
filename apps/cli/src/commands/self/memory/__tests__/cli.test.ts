@@ -207,29 +207,29 @@ describe('asp self memory add', () => {
     const read = runAsp(['self', 'memory', 'read', '--target', 'memory'], fixture.env)
     expect(read.exitCode).toBe(0)
     expect(read.stdout).toContain('new memory entry')
-  })
+    {
+      const fixture = await setupMemoryFixture()
+      const result = runAsp(
+        ['self', 'memory', 'add', '--target', 'user', '--content', 'new shared entry'],
+        fixture.env
+      )
 
-  test('persists user entries to shared USER.md', async () => {
-    const fixture = await setupMemoryFixture()
-    const result = runAsp(
-      ['self', 'memory', 'add', '--target', 'user', '--content', 'new shared entry'],
-      fixture.env
-    )
+      expect(result.exitCode).toBe(0)
+      await expect(readFile(fixture.paths.user, 'utf8')).resolves.toContain('new shared entry')
+    }
+    {
+      const fixture = await setupMemoryFixture()
+      const result = runAsp(
+        ['self', 'memory', 'add', '--target', 'persona', '--content', 'new persona entry'],
+        fixture.env
+      )
 
-    expect(result.exitCode).toBe(0)
-    await expect(readFile(fixture.paths.user, 'utf8')).resolves.toContain('new shared entry')
-  })
-
-  test('persists persona entries to SOUL.md, not memory/MEMORY.md', async () => {
-    const fixture = await setupMemoryFixture()
-    const result = runAsp(
-      ['self', 'memory', 'add', '--target', 'persona', '--content', 'new persona entry'],
-      fixture.env
-    )
-
-    expect(result.exitCode).toBe(0)
-    await expect(readFile(fixture.paths.persona, 'utf8')).resolves.toContain('new persona entry')
-    await expect(readFile(fixture.paths.memory, 'utf8')).resolves.not.toContain('new persona entry')
+      expect(result.exitCode).toBe(0)
+      await expect(readFile(fixture.paths.persona, 'utf8')).resolves.toContain('new persona entry')
+      await expect(readFile(fixture.paths.memory, 'utf8')).resolves.not.toContain(
+        'new persona entry'
+      )
+    }
   })
 
   test('returns cap_exceeded JSON when append would exceed target cap', async () => {

@@ -161,45 +161,20 @@ describe('the published descriptor validator is additive under arris.host-descri
    * future exact-key relapse names which field it broke on.
    */
   test.each([
-    ['control.approval_responder', 'approval_responder', 'arris_host'],
-    ['control.pending_approvals', 'pending_approvals', []],
-    ['control.mail_reply', 'mail_reply', true],
-  ])('%s alone no longer refuses the host', async (_name, key, value) => {
+    ['control.approval_responder', { control: { approval_responder: 'arris_host' } }],
+    ['control.pending_approvals', { control: { pending_approvals: [] } }],
+    ['control.mail_reply', { control: { mail_reply: true } }],
+    ['the top-level identity block', { identity: { participant: null } }],
+  ] as const)('%s alone no longer refuses the host', async (_name, added) => {
     const base = await fixture()
-    const descriptor = {
+    const stripped = {
       ...without(base, 'identity'),
-      control: {
-        ...without(controlOf(base), 'approval_responder', 'pending_approvals', 'mail_reply'),
-        [key]: value,
-      },
-    }
-
-    expect(validateArrisHostDescriptor(descriptor)).toMatchObject({ ok: true })
-    expect(await prepareThroughAdapter(descriptor)).toEqual({
-      admission: 'admitted',
-      prepared: 'prepared',
-    })
-  })
-
-  test('the top-level identity block alone no longer refuses the host', async () => {
-    const base = await fixture()
-    const descriptor: Record<string, unknown> = {
-      ...base,
       control: without(controlOf(base), 'approval_responder', 'pending_approvals', 'mail_reply'),
     }
-    expect(descriptor['identity']).toEqual({ participant: null })
-
-    expect(validateArrisHostDescriptor(descriptor)).toMatchObject({ ok: true })
-    expect(await prepareThroughAdapter(descriptor)).toEqual({
-      admission: 'admitted',
-      prepared: 'prepared',
-    })
-  })
-
-  test('a descriptor carrying one extra unknown key in control still prepares', async () => {
-    const descriptor = await fixture()
-    controlOf(descriptor)['a_field_this_consumer_has_never_heard_of'] = {
-      nested: true,
+    const descriptor: Record<string, unknown> = {
+      ...stripped,
+      ...('identity' in added ? { identity: added.identity } : {}),
+      control: { ...stripped.control, ...('control' in added ? added.control : {}) },
     }
 
     expect(validateArrisHostDescriptor(descriptor)).toMatchObject({ ok: true })
@@ -208,6 +183,25 @@ describe('the published descriptor validator is additive under arris.host-descri
       prepared: 'prepared',
     })
   })
+
+  test.each([
+    ['control', (descriptor: Record<string, unknown>) => controlOf(descriptor)],
+    ['the top level', (descriptor: Record<string, unknown>) => descriptor],
+  ] as const)(
+    'a descriptor carrying one extra unknown key in %s still prepares',
+    async (_where, block) => {
+      const descriptor = await fixture()
+      block(descriptor)['a_field_this_consumer_has_never_heard_of'] = {
+        nested: true,
+      }
+
+      expect(validateArrisHostDescriptor(descriptor)).toMatchObject({ ok: true })
+      expect(await prepareThroughAdapter(descriptor)).toEqual({
+        admission: 'admitted',
+        prepared: 'prepared',
+      })
+    }
+  )
 
   /**
    * `readiness` is the block where tolerance is not optional. The producer's
@@ -231,13 +225,6 @@ describe('the published descriptor validator is additive under arris.host-descri
         offered_at_ms: 1789540260000,
       },
     ]
-
-    expect(validateArrisHostDescriptor(descriptor)).toMatchObject({ ok: true })
-  })
-
-  test('an unknown key at the top level does not refuse the host', async () => {
-    const descriptor = await fixture()
-    descriptor['a_block_added_after_this_consumer_shipped'] = { anything: 1 }
 
     expect(validateArrisHostDescriptor(descriptor)).toMatchObject({ ok: true })
   })

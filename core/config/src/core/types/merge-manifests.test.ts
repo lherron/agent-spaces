@@ -9,7 +9,6 @@
  *   - Targets: full-override by name (project wins entirely, no field-level merge)
  *   - Top-level claude/codex options: field-level merge (project overrides defaults per field)
  *   - defaults null/undefined: returns project as-is
- *   - Both manifests must have schema: 2
  */
 
 import { describe, expect, test } from 'bun:test'
@@ -55,18 +54,6 @@ describe('mergeManifests', () => {
   }
 
   // -- Target merge tests --
-
-  test('target exists only in defaults → included in result', () => {
-    const result = mergeManifests(defaultsManifest, projectManifest)
-    expect(result.targets['shared']).toBeDefined()
-    expect(must(result.targets['shared']).compose).toEqual(['space:defaults@stable'])
-  })
-
-  test('target exists only in project → included in result', () => {
-    const result = mergeManifests(defaultsManifest, projectManifest)
-    expect(result.targets['dev']).toBeDefined()
-    expect(must(result.targets['dev']).compose).toEqual(['space:dev@latest'])
-  })
 
   test('target exists in both → project wins entirely (no field-level merge)', () => {
     const defaults: ProjectManifest = {
@@ -142,6 +129,9 @@ describe('mergeManifests', () => {
       schema: 2,
       codex: {
         model: 'gpt-5.3-codex',
+        model_reasoning_effort: 'high',
+        model_reasoning_summary: 'concise',
+        status_line: ['model', 'cwd'],
         approval_policy: 'on-request',
         sandbox_mode: 'workspace-write',
       },
@@ -151,41 +141,34 @@ describe('mergeManifests', () => {
       schema: 2,
       codex: {
         model: 'gpt-5.1-codex-mini',
-        // approval_policy not set → inherits from defaults
-        // sandbox_mode not set → inherits from defaults
+        // every other field is unset → inherits from defaults
       },
       targets: { a: { compose: ['space:a@stable'] } },
     }
     const result = mergeManifests(defaults, project)
-    expect(result.codex?.model).toBe('gpt-5.1-codex-mini')
-    expect(result.codex?.approval_policy).toBe('on-request')
-    expect(result.codex?.sandbox_mode).toBe('workspace-write')
-  })
-
-  // -- Schema validation --
-
-  test('result always has schema: 2', () => {
-    const result = mergeManifests(defaultsManifest, projectManifest)
-    expect(result.schema).toBe(2)
+    expect(result.codex).toEqual({
+      model: 'gpt-5.1-codex-mini',
+      model_reasoning_effort: 'high',
+      model_reasoning_summary: 'concise',
+      status_line: ['model', 'cwd'],
+      approval_policy: 'on-request',
+      sandbox_mode: 'workspace-write',
+    })
   })
 
   // -- Null/undefined defaults --
 
-  test('defaults is null → returns project as-is', () => {
-    const result = mergeManifests(null, projectManifest)
-    expect(result).toEqual(projectManifest)
-  })
-
-  test('defaults is undefined → returns project as-is', () => {
-    const result = mergeManifests(undefined, projectManifest)
-    expect(result).toEqual(projectManifest)
+  test.each([null, undefined])('defaults %p → returns project as-is', (defaults) => {
+    expect(mergeManifests(defaults, projectManifest)).toEqual(projectManifest)
   })
 
   // -- Edge: merged result has all targets from both sides --
 
-  test('merged result has union of all target names', () => {
+  test('merged result has the union of target names, each side keeping its compose', () => {
     const result = mergeManifests(defaultsManifest, projectManifest)
     const names = Object.keys(result.targets).sort()
     expect(names).toEqual(['dev', 'shared'])
+    expect(must(result.targets['shared']).compose).toEqual(['space:defaults@stable'])
+    expect(must(result.targets['dev']).compose).toEqual(['space:dev@latest'])
   })
 })

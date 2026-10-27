@@ -2,14 +2,13 @@ import { describe, expect, test } from 'bun:test'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-
 import {
   agentCatalogResponseSchema,
   agentInspectionRequestSchema,
 } from 'spaces-aspc-protocol/agent-inspection'
 
 describe('browser-safe agent-inspection entrypoint', () => {
-  test('exposes the shared inspection schemas through the package subpath', () => {
+  test('bundles for browsers without Node or harness-broker imports', async () => {
     expect(
       agentInspectionRequestSchema.safeParse({
         schemaVersion: 'agent-inspection-request/v2',
@@ -28,9 +27,6 @@ describe('browser-safe agent-inspection entrypoint', () => {
     expect(
       agentCatalogResponseSchema.safeParse({ projectId: null, agents: [], contexts: {} }).success
     ).toBe(true)
-  })
-
-  test('bundles for browsers without Node or harness-broker imports', async () => {
     const outputDir = await mkdtemp(join(tmpdir(), 'aspc-browser-entry-'))
     try {
       const result = await Bun.build({

@@ -1,8 +1,8 @@
 /**
- * T-07314 RED (AC-1, AC-2, AC-5): after the facade split, `spaces-aspc` is a
- * COMPILE-ONLY package. It must carry no live-broker dependency, must no longer
- * own the `aspc-facade` bin, and its `AspcService` must have lost the start
- * plane. The cohosted plane moves to the `spaces-aspc-facade` composition
+ * T-07314 RED (AC-1): after the facade split, `spaces-aspc` is a COMPILE-ONLY
+ * package. It must carry no live-broker dependency. The start-plane absence is
+ * pinned by the exact registered method set in compile-only-registration.test.ts.
+ * The cohosted plane moves to the `spaces-aspc-facade` composition
  * package (see harness/aspc-facade/test/).
  *
  * The `spaces-harness-broker-protocol` / `spaces-harness-broker-client` edges
@@ -10,15 +10,13 @@
  * to REMAIN, so "drop the broker dep" cannot be over-satisfied by deleting them.
  */
 import { describe, expect, test } from 'bun:test'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { createAspcService } from '../src/service.js'
 
 const packageRoot = new URL('..', import.meta.url).pathname
 const srcRoot = join(packageRoot, 'src')
 
 type Manifest = {
-  bin?: Record<string, string> | string | undefined
   dependencies?: Record<string, string> | undefined
   devDependencies?: Record<string, string> | undefined
   peerDependencies?: Record<string, string> | undefined
@@ -71,46 +69,5 @@ describe('spaces-aspc is compile-only', () => {
     // seams are accepted residual and must NOT be removed by this task.
     expect(Object.keys(pkg.dependencies ?? {})).toContain('spaces-harness-broker-protocol')
     expect(Object.keys(pkg.dependencies ?? {})).toContain('spaces-harness-broker-client')
-  })
-
-  test('AC-2: the package no longer owns the aspc-facade bin', () => {
-    const pkg = manifest()
-    expect(Object.keys((pkg.bin ?? {}) as Record<string, string>)).toEqual(['aspc'])
-    expect(existsSync(join(packageRoot, 'bin', 'aspc-facade.js'))).toBe(false)
-    // Positive control: the compile-only CLI bin stays.
-    expect(existsSync(join(packageRoot, 'bin', 'aspc.js'))).toBe(true)
-  })
-
-  test('AC-5: AspcService loses the start plane', () => {
-    const service = createAspcService({})
-
-    expect('compileAndStart' in service).toBe(false)
-    // Positive control: the selector-free compile member remains on the service.
-    for (const member of [
-      'hello',
-      'catalogAgents',
-      'inspectAgent',
-      'catalogAgentInspection',
-      'inspectAgentSelection',
-      'compileHarnessInvocation',
-    ]) {
-      expect(typeof (service as unknown as Record<string, unknown>)[member]).toBe('function')
-    }
-    expect('compileRuntimePlan' in service).toBe(false)
-
-    const serviceSource = readFileSync(join(srcRoot, 'service.ts'), 'utf8')
-    const optionsBlock = /export interface AspcServiceOptions\s*\{([^}]*)\}/.exec(serviceSource)
-    expect(optionsBlock).not.toBeNull()
-    expect(optionsBlock?.[1] ?? '').not.toMatch(/\bbroker\b/)
-
-    const interfaceBlock = /export interface AspcService\s*\{([\s\S]*?)\n\}/.exec(serviceSource)
-    expect(interfaceBlock).not.toBeNull()
-    expect(interfaceBlock?.[1] ?? '').not.toMatch(/\bcompileAndStart\b/)
-
-    // The compile package has no broker start route or implementation.
-    const withStartPlane = sourceFiles(srcRoot).filter((file) =>
-      /\b(?:broker|invocation)\.start\b/.test(readFileSync(file, 'utf8'))
-    )
-    expect(withStartPlane).toEqual([])
   })
 })

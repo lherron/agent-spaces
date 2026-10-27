@@ -45,46 +45,7 @@ afterEach(async () => {
 })
 
 describe('lint', () => {
-  it('should return no warnings for clean context', async () => {
-    const plugin = join(tempDir, 'plugin')
-    await mkdir(plugin, { recursive: true })
-
-    const context: LintContext = {
-      spaces: [
-        createSpaceLintData('space1@abc123', createManifest({ id: 'space1' as SpaceId }), plugin),
-      ],
-    }
-
-    const warnings = await lint(context)
-    expect(warnings).toHaveLength(0)
-  })
-
-  it('should aggregate warnings from multiple rules', async () => {
-    const plugin1 = join(tempDir, 'plugin1')
-    const plugin2 = join(tempDir, 'plugin2')
-
-    // Setup for command collision
-    await mkdir(join(plugin1, 'commands'), { recursive: true })
-    await mkdir(join(plugin2, 'commands'), { recursive: true })
-    await writeFile(join(plugin1, 'commands', 'shared.md'), '# Cmd')
-    await writeFile(join(plugin2, 'commands', 'shared.md'), '# Cmd')
-
-    // Setup for invalid hooks
-    await mkdir(join(plugin1, 'hooks'), { recursive: true })
-    // No hooks.json - should trigger W204
-
-    const context: LintContext = {
-      spaces: [
-        createSpaceLintData('space1@abc123', createManifest({ id: 'space1' as SpaceId }), plugin1),
-        createSpaceLintData('space2@def456', createManifest({ id: 'space2' as SpaceId }), plugin2),
-      ],
-    }
-
-    const warnings = await lint(context)
-    expect(warnings.length).toBeGreaterThanOrEqual(2)
-  })
-
-  it('should sort warnings by code', async () => {
+  it('lint aggregates every rule and orders findings by code', async () => {
     const plugin1 = join(tempDir, 'plugin1')
     const plugin2 = join(tempDir, 'plugin2')
 
@@ -97,6 +58,10 @@ describe('lint', () => {
     await mkdir(join(plugin2, 'commands'), { recursive: true })
     await writeFile(join(plugin1, 'commands', 'cmd.md'), '# Cmd')
     await writeFile(join(plugin2, 'commands', 'cmd.md'), '# Cmd')
+
+    // SKILL.md without frontmatter (E208): its rule runs last, so only the sort puts it first.
+    await mkdir(join(plugin1, 'skills', 'x'), { recursive: true })
+    await writeFile(join(plugin1, 'skills', 'x', 'SKILL.md'), '# No frontmatter\n')
 
     const context: LintContext = {
       spaces: [
@@ -120,15 +85,6 @@ describe('lint', () => {
     }
 
     const warnings = await lint(context)
-    expect(warnings.length).toBeGreaterThanOrEqual(2)
-
-    // Check sorting
-    for (let i = 1; i < warnings.length; i++) {
-      const current = warnings[i]
-      const previous = warnings[i - 1]
-      if (current && previous) {
-        expect(current.code >= previous.code).toBe(true)
-      }
-    }
+    expect(warnings.map((warning) => warning.code)).toEqual(['E208', 'W201', 'W205'])
   })
 })

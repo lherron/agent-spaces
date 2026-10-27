@@ -169,15 +169,12 @@ describe('codex rollout native-type disposition coverage', () => {
     expect(inventory.types.length).toBe(inventory.observed.length + inventory.synthesized.length)
   })
 
-  test('every pinned native type reaches exactly one terminal disposition', () => {
-    const { dispositions } = replay(inventoryLines())
-    expect(dispositions).toHaveLength(inventory.types.length)
-    // `pending` is the ONLY non-terminal disposition. Nothing may be left in it.
-    expect(dispositions.filter((row) => row.disposition === 'pending')).toEqual([])
-  })
-
   test('no pinned native type is blocked-unknown: the table covers the real vocabulary', () => {
     const { dispositions, warnings } = replay(inventoryLines())
+    // Every pinned type reaches exactly one terminal disposition: `pending` is
+    // the ONLY non-terminal one, and nothing may be left in it.
+    expect(dispositions).toHaveLength(inventory.types.length)
+    expect(dispositions.filter((row) => row.disposition === 'pending')).toEqual([])
     const blocked = dispositions.filter((row) => row.disposition === 'blocked-unknown')
     expect({ blocked, warnings }).toEqual({ blocked: [], warnings: [] })
   })
@@ -237,27 +234,25 @@ describe('codex rollout native-type disposition coverage', () => {
     ])
   })
 
-  test('an UNKNOWN event_msg payload type is the quieter class', () => {
-    const { warnings, loadBearing } = replay([
-      JSON.stringify({ type: 'event_msg', payload: { type: 'brand_new_event' } }),
-    ])
-    expect(warnings).toEqual(['Unknown Codex rollout event_msg type: brand_new_event'])
-    expect(loadBearing).toEqual([])
-  })
-
-  test('an UNKNOWN top-level row type is the quieter class', () => {
-    const { warnings, loadBearing } = replay([
-      JSON.stringify({ type: 'brand_new_row_kind', payload: {} }),
-    ])
-    expect(warnings).toEqual(['Unknown Codex rollout row type: brand_new_row_kind'])
-    expect(loadBearing).toEqual([])
-  })
-
-  test('an UNKNOWN response_item payload type is the quieter class', () => {
-    const { warnings, loadBearing } = replay([
-      JSON.stringify({ type: 'response_item', payload: { type: 'brand_new_item' } }),
-    ])
-    expect(warnings).toEqual(['Unknown Codex rollout response_item type: brand_new_item'])
+  test.each([
+    {
+      row: 'event_msg payload type',
+      line: { type: 'event_msg', payload: { type: 'brand_new_event' } },
+      warning: 'Unknown Codex rollout event_msg type: brand_new_event',
+    },
+    {
+      row: 'top-level row type',
+      line: { type: 'brand_new_row_kind', payload: {} },
+      warning: 'Unknown Codex rollout row type: brand_new_row_kind',
+    },
+    {
+      row: 'response_item payload type',
+      line: { type: 'response_item', payload: { type: 'brand_new_item' } },
+      warning: 'Unknown Codex rollout response_item type: brand_new_item',
+    },
+  ])('an UNKNOWN $row is the quieter class: warned, not load-bearing', ({ line, warning }) => {
+    const { warnings, loadBearing } = replay([JSON.stringify(line)])
+    expect(warnings).toEqual([warning])
     expect(loadBearing).toEqual([])
   })
 })

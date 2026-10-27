@@ -37,18 +37,6 @@ function flat(payloadType: string, payload: unknown, sequence = 1, sessionId = '
 const RUN = 'run_11111111-1111-4111-8111-111111111111'
 
 describe('parseMuseSessionLine', () => {
-  test('parses a flat envelope', () => {
-    const records = parseMuseSessionLine(
-      flat('runtime.session', {
-        kind: 'run',
-        run_id: RUN,
-        event: { kind: 'started', prompt: 'hi' },
-      })
-    )
-    expect(records).toHaveLength(1)
-    expect(records[0]?.payloadType).toBe('runtime.session')
-  })
-
   test('unwraps retained_frame children', () => {
     const inner = JSON.stringify({
       schema_version: 1,
@@ -276,7 +264,7 @@ describe('interrupt and steer', () => {
     )
   })
 
-  test('user_steer inbox items ride the running turn as user messages', () => {
+  test('user_steer inbox items ride the running turn as user messages; other inbox sources emit nothing', () => {
     const events = normalize([
       flat('runtime.session', {
         kind: 'run',
@@ -301,22 +289,21 @@ describe('interrupt and steer', () => {
     expect(user).toHaveLength(2)
     expect((user[1]?.payload as { content?: string }).content).toBe('hurry')
     expect<string | undefined>(user[1]?.turnId).toBe(RUN)
-  })
 
-  test('non-steer inbox items are ignored', () => {
-    const events = normalize([
+    // A non-steer inbox source (background) emits nothing.
+    const background = normalize([
       flat('runtime.session', {
         kind: 'run',
         run_id: RUN,
         event: { kind: 'inbox_item_queued', source: { source: 'background' }, body: 'x' },
       }),
     ])
-    expect(events).toHaveLength(0)
+    expect(background).toHaveLength(0)
   })
 })
 
 describe('unknown vocabulary', () => {
-  test('unknown payload types warn once and the tail continues', () => {
+  test('unknown payload types and unknown run event kinds each warn once and the tail continues', () => {
     const record: MuseSessionRecord = {
       sequence: 1,
       payloadType: 'runtime.something_new',
@@ -327,14 +314,12 @@ describe('unknown vocabulary', () => {
     const second = normalizer.normalizeRecord(record)
     expect(first.filter((e) => e.type === 'diagnostic')).toHaveLength(1)
     expect(second).toHaveLength(0)
-  })
 
-  test('unknown run event kinds warn once', () => {
-    const events = normalize([
+    const runKinds = normalize([
       flat('runtime.session', { kind: 'run', run_id: RUN, event: { kind: 'future_kind' } }),
       flat('runtime.session', { kind: 'run', run_id: RUN, event: { kind: 'future_kind' } }),
     ])
-    expect(events.filter((e) => e.type === 'diagnostic')).toHaveLength(1)
+    expect(runKinds.filter((e) => e.type === 'diagnostic')).toHaveLength(1)
   })
 
   test('approval questions surface as diagnostics, never permission requests', () => {

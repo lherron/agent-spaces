@@ -90,6 +90,16 @@ describe('Codex app-server golden scenarios', () => {
         }),
       })
     ).rejects.toMatchObject({ code: BrokerErrorCode.HarnessError })
+    // T-04829: fail must never silently start fresh. Explicit so the guard
+    // survives an UPDATE_GOLDEN regeneration.
+    expect(
+      events.some(
+        (event) =>
+          event.type === 'driver.notice' &&
+          (event.payload as { code?: string }).code === 'resume_fallback_start_fresh'
+      )
+    ).toBe(false)
+    expect(eventTypes(events)).not.toContain('invocation.started')
     await expectGolden('resume-missing-fail', events)
   })
 
@@ -104,7 +114,11 @@ describe('Codex app-server golden scenarios', () => {
         (event.payload as { message?: string }).message?.includes('thread/experimentalSignal')
     )
     expect(diagnostic).toBeDefined()
-    expect((diagnostic?.payload as { level: string }).level).toBe('debug')
+    expect(diagnostic?.payload).toMatchObject({
+      level: 'debug',
+      message: 'Unhandled Codex notification: thread/experimentalSignal',
+      source: 'driver',
+    })
     expect(diagnostic?.driver).toEqual({
       kind: 'codex-app-server',
       rawType: 'thread/experimentalSignal',
@@ -223,46 +237,6 @@ describe('Codex app-server turn brackets and input', () => {
         cursorHalted: false,
       },
     })
-  })
-
-  test('legacy no-lease start stays pure headless with no reported terminal surface', async () => {
-    const { broker, events } = appServerBroker()
-    const spec = scenarioSpec('start-fresh-turn')
-
-    await broker.start({ spec })
-    await broker.input({
-      invocationId: spec.invocationId,
-      input: userInput,
-      policy: { whenBusy: 'reject' },
-    })
-
-    expect(spec.harness.driver).toBe('codex-app-server')
-    expect(spec.interaction?.mode).toBe('headless')
-    expect(spec.process.harnessTransport.kind).toBe('jsonrpc-stdio')
-    expect(eventTypes(events)).toContain('invocation.started')
-    expect(eventTypes(events)).toContain('invocation.ready')
-    expect(eventTypes(events)).toContain('turn.started')
-    expect(eventTypes(events)).not.toContain('terminal.surface.reported')
-    expect(JSON.stringify(events)).not.toContain('codex-cli-tmux')
-    expect(JSON.stringify(events)).not.toContain('brokerTerminal')
-  })
-
-  test('applied app-server input emits durable user.message with input id and text', async () => {
-    const events = await runScenario('start-fresh-turn')
-
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: 'user.message',
-        inputId: userInput.inputId,
-        payload: {
-          content: 'Please respond.',
-          inputId: userInput.inputId,
-          role: 'user',
-        },
-        driver: { kind: 'codex-app-server', rawType: 'broker.input' },
-      })
-    )
-    expect(eventTypes(events)).toContain('input.accepted')
   })
 
   test('reports provider transcript provenance through live and durable broker streams', async () => {

@@ -195,25 +195,6 @@ function expectOnlyAvailabilityProbes(f: Fixture): void {
 }
 
 describe('direct process preparation (T-08577)', () => {
-  test('control: the real legacy builder consumes caller-authored correlation', async () => {
-    const f = fixture()
-    const correlation = {
-      sessionRef: {
-        scopeRef: 'agent:cody:project:agent-spaces:task:T-08577:role:tester',
-        laneRef: 'lane:repair',
-      },
-      hostSessionId: 'hsid-t08577',
-    }
-    const client = createAgentSpacesClient({ aspHome: f.aspHome, runtime: compilerRuntime })
-    const baseline = await client.buildProcessInvocationSpec(legacyRequest(f, correlation))
-
-    expect(baseline.spec.env['AGENT_SCOPE_REF']).toBe(correlation.sessionRef.scopeRef)
-    expect(baseline.spec.env['AGENT_LANE']).toBe('repair')
-    expect(baseline.spec.env['AGENT_HOST_SESSION_ID']).toBe('hsid-t08577')
-    expect(baseline.spec.env['CALLER_FLAG']).toBe('t08577')
-    expectOnlyAvailabilityProbes(f)
-  })
-
   test('B1/B2/B3: producer output is byte-equal to the correlated legacy builder and adds structured prompts', async () => {
     const f = fixture()
     const correlation = {
@@ -225,6 +206,10 @@ describe('direct process preparation (T-08577)', () => {
     }
     const client = createAgentSpacesClient({ aspHome: f.aspHome, runtime: compilerRuntime })
     const baseline = await client.buildProcessInvocationSpec(legacyRequest(f, correlation))
+    expect(baseline.spec.env['AGENT_SCOPE_REF']).toBe(correlation.sessionRef.scopeRef)
+    expect(baseline.spec.env['AGENT_LANE']).toBe('repair')
+    expect(baseline.spec.env['AGENT_HOST_SESSION_ID']).toBe('hsid-t08577')
+    expect(baseline.spec.env['CALLER_FLAG']).toBe('t08577')
     const prepare = requirePreparation(client)
     const response = await prepare.call(client, preparationRequest(f, correlation))
 
@@ -254,11 +239,14 @@ describe('direct process preparation (T-08577)', () => {
     expectOnlyAvailabilityProbes(f)
   })
 
-  test('B3: an empty required correlation stays empty and never derives an app identity', async () => {
+  test.each([
+    ['empty', {}],
+    ['omitted', undefined],
+  ] as const)('B3: %s correlation never derives an app identity', async (_name, correlation) => {
     const f = fixture()
     const client = createAgentSpacesClient({ aspHome: f.aspHome, runtime: compilerRuntime })
     const prepare = requirePreparation(client)
-    const response = await prepare.call(client, preparationRequest(f, {}))
+    const response = await prepare.call(client, preparationRequest(f, correlation))
 
     expect(response['ok']).toBe(true)
     const env = ((response['spec'] as UnknownRecord)['env'] ?? {}) as UnknownRecord

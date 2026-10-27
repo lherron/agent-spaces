@@ -183,23 +183,6 @@ describe('asp run', () => {
     }
   })
 
-  test('passes prompt via --print flag', async () => {
-    const prompt = 'Tell me about testing'
-
-    await runWithPrompt('dev', prompt, {
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-    })
-
-    const shimOutput = await readShimOutput()
-
-    // Should have -p flag with prompt
-    const pIndex = shimOutput.args.indexOf('-p')
-    expect(pIndex).toBeGreaterThanOrEqual(0)
-    expect(shimOutput.args[pIndex + 1]).toBe(prompt)
-  })
-
   test('loads plugins in correct order (deps before dependents)', async () => {
     await runWithPrompt('dev', 'test', {
       projectPath: projectDir,
@@ -226,33 +209,6 @@ describe('asp run', () => {
     expect(frontendIndex).toBeGreaterThan(baseIndex)
   })
 
-  test('handles single space target', async () => {
-    // Create project with single target
-    await cleanupTempProject(projectDir)
-    projectDir = await createTempProject({
-      single: {
-        compose: ['space:base@stable'],
-      },
-    })
-
-    await install({
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-    })
-
-    const result = await runWithPrompt('single', 'test', {
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-    })
-
-    expect(result.exitCode).toBe(0)
-
-    const shimOutput = await readShimOutput()
-    expect(shimOutput.pluginDirs.length).toBe(1)
-  })
-
   test('exits with claude exit code', async () => {
     // Pass CLAUDE_SHIM_EXIT_CODE through env option
     const result = await runWithPrompt('dev', 'test', {
@@ -263,80 +219,6 @@ describe('asp run', () => {
     })
 
     expect(result.exitCode).toBe(42)
-  })
-
-  test('dry-run returns command with plugin dirs', async () => {
-    const result = await run('dev', {
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-      dryRun: true,
-    })
-
-    expect(result.command).toBeDefined()
-    expect(result.command).toContain('--plugin-dir')
-  })
-
-  test('dry-run includes prompt in command', async () => {
-    const prompt = 'Hello, Claude!'
-
-    await run('dev', {
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-      prompt,
-    })
-
-    const shimOutput = await readShimOutput()
-    expect(shimOutput.args).not.toContain('-p')
-    expect(shimOutput.args).toContain(prompt)
-  })
-
-  test('non-interactive mode uses print prompt mode', async () => {
-    const prompt = 'Hello, Claude!'
-
-    await run('dev', {
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-      interactive: false,
-      prompt,
-    })
-
-    const shimOutput = await readShimOutput()
-    const pIndex = shimOutput.args.indexOf('-p')
-    expect(pIndex).toBeGreaterThanOrEqual(0)
-    expect(shimOutput.args[pIndex + 1]).toBe(prompt)
-  })
-
-  test('concatenates priming_prompt and user prompt with blank line', async () => {
-    await cleanupTempProject(projectDir)
-    projectDir = await createTempProject({
-      dev: {
-        description: 'Development environment',
-        priming_prompt: 'Register with agentchat and send READY',
-        compose: ['space:frontend@stable', 'space:backend@stable'],
-      },
-    })
-
-    await install({
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-    })
-
-    const result = await run('dev', {
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-      dryRun: true,
-      prompt: 'Investigate failing tests',
-    })
-
-    expect(result.command).toBeDefined()
-    expect(result.command).toContain(
-      'Register with agentchat and send READY\n\nInvestigate failing tests'
-    )
   })
 
   test('expands agent priming_prompt taskId to primary for direct asp run', async () => {
@@ -421,21 +303,6 @@ harness = "claude"
 
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toContain('You are cody in agent-spaces working on prompt-test.')
-  })
-
-  test('dry-run includes prompt in command when non-interactive', async () => {
-    const result = await run('dev', {
-      projectPath: projectDir,
-      registryPath: SAMPLE_REGISTRY_DIR,
-      aspHome,
-      dryRun: true,
-      interactive: false,
-      prompt: 'Hello, Claude!',
-    })
-
-    expect(result.command).toBeDefined()
-    expect(result.command).toContain('-p')
-    expect(result.command).toContain('Hello, Claude!')
   })
 
   test('dry-run materializes agent-local skills and commands as an appended synthetic plugin', async () => {

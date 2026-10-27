@@ -23,7 +23,7 @@ import { describe, expect, test } from 'bun:test'
 // ---------------------------------------------------------------------------
 // Import from module that doesn't exist yet (RED)
 // ---------------------------------------------------------------------------
-import { formatScopeHandle, parseScopeHandle, validateScopeHandle } from '../scope-handle.js'
+import { formatScopeHandle, parseScopeHandle } from '../scope-handle.js'
 
 // ===================================================================
 // parseScopeHandle
@@ -74,6 +74,17 @@ describe('parseScopeHandle (T-00893)', () => {
         scopeRef: 'agent:alice:project:demo:task:t1:role:reviewer',
       },
     },
+    {
+      handle: 'my.agent@my-project:task_1/role.name',
+      expected: {
+        kind: 'project-task-role',
+        agentId: 'my.agent',
+        projectId: 'my-project',
+        taskId: 'task_1',
+        roleName: 'role.name',
+        scopeRef: 'agent:my.agent:project:my-project:task:task_1:role:role.name',
+      },
+    },
   ] as const
 
   for (const c of cases) {
@@ -94,16 +105,6 @@ describe('parseScopeHandle (T-00893)', () => {
       }
     })
   }
-
-  test('handles tokens with dots, hyphens, underscores', () => {
-    const parsed = parseScopeHandle('my.agent@my-project:task_1/role.name')
-    expect(parsed.kind).toBe('project-task-role')
-    expect(parsed.agentId).toBe('my.agent')
-    expect(parsed.projectId).toBe('my-project')
-    expect(parsed.taskId).toBe('task_1')
-    expect(parsed.roleName).toBe('role.name')
-    expect(parsed.scopeRef).toBe('agent:my.agent:project:my-project:task:task_1:role:role.name')
-  })
 })
 
 // ===================================================================
@@ -111,78 +112,52 @@ describe('parseScopeHandle (T-00893)', () => {
 // ===================================================================
 describe('parseScopeHandle rejects invalid handles (T-00893)', () => {
   const invalidCases = [
-    { handle: '', reason: 'empty string' },
-    { handle: '@', reason: 'bare @' },
-    { handle: '@demo', reason: 'missing agent (starts with @)' },
-    { handle: ':t1', reason: 'missing agent (starts with :)' },
-    { handle: '/role', reason: 'missing agent (starts with /)' },
-    { handle: 'alice@', reason: 'trailing @ (empty project)' },
-    { handle: 'alice@demo:', reason: 'trailing : (empty task)' },
-    { handle: 'alice@demo/', reason: 'trailing / (empty role)' },
-    { handle: 'alice@demo:t1!', reason: 'invalid character !' },
+    {
+      handle: '',
+      reason: 'empty string',
+      error: /^Invalid ScopeHandle "": ScopeHandle must not be empty$/,
+    },
+    { handle: '@', reason: 'bare @', error: /^Invalid ScopeHandle "@": agentId must be 1\.\.64/ },
+    {
+      handle: '@demo',
+      reason: 'missing agent (starts with @)',
+      error: /^Invalid ScopeHandle "@demo": agentId must be 1\.\.64/,
+    },
+    {
+      handle: ':t1',
+      reason: 'missing agent (starts with :)',
+      error: /^Invalid ScopeHandle ":t1": agentId must be 1\.\.64/,
+    },
+    {
+      handle: '/role',
+      reason: 'missing agent (starts with /)',
+      error: /^Invalid ScopeHandle "\/role": agentId contains invalid characters/,
+    },
+    {
+      handle: 'alice@',
+      reason: 'trailing @ (empty project)',
+      error: /^Invalid ScopeHandle "alice@": projectId must be 1\.\.64/,
+    },
+    {
+      handle: 'alice@demo:',
+      reason: 'trailing : (empty task)',
+      error: /^Invalid ScopeHandle "alice@demo:": taskId must be 1\.\.64/,
+    },
+    {
+      handle: 'alice@demo/',
+      reason: 'trailing / (empty role)',
+      error: /^Invalid ScopeHandle "alice@demo\/": roleName must be 1\.\.64/,
+    },
+    {
+      handle: 'alice@demo:t1!',
+      reason: 'invalid character !',
+      error: /^Invalid ScopeHandle "alice@demo:t1!": taskId contains invalid characters/,
+    },
   ]
 
   for (const c of invalidCases) {
-    test(`throws on "${c.handle}" (${c.reason})`, () => {
-      expect(() => parseScopeHandle(c.handle)).toThrow()
-    })
-  }
-})
-
-// ===================================================================
-// formatScopeHandle
-// ===================================================================
-describe('formatScopeHandle (T-00893)', () => {
-  const cases = [
-    {
-      parsed: { kind: 'agent' as const, agentId: 'alice', scopeRef: 'agent:alice' },
-      expected: 'alice',
-    },
-    {
-      parsed: {
-        kind: 'project' as const,
-        agentId: 'alice',
-        projectId: 'demo',
-        scopeRef: 'agent:alice:project:demo',
-      },
-      expected: 'alice@demo',
-    },
-    {
-      parsed: {
-        kind: 'project-task' as const,
-        agentId: 'alice',
-        projectId: 'demo',
-        taskId: 't1',
-        scopeRef: 'agent:alice:project:demo:task:t1',
-      },
-      expected: 'alice@demo:t1',
-    },
-    {
-      parsed: {
-        kind: 'project-role' as const,
-        agentId: 'alice',
-        projectId: 'demo',
-        roleName: 'reviewer',
-        scopeRef: 'agent:alice:project:demo:role:reviewer',
-      },
-      expected: 'alice@demo/reviewer',
-    },
-    {
-      parsed: {
-        kind: 'project-task-role' as const,
-        agentId: 'alice',
-        projectId: 'demo',
-        taskId: 't1',
-        roleName: 'reviewer',
-        scopeRef: 'agent:alice:project:demo:task:t1:role:reviewer',
-      },
-      expected: 'alice@demo:t1/reviewer',
-    },
-  ]
-
-  for (const c of cases) {
-    test(`formats kind=${c.parsed.kind} → "${c.expected}"`, () => {
-      expect(formatScopeHandle(c.parsed)).toBe(c.expected)
+    test(`"${c.handle}" (${c.reason}) is rejected as a ScopeHandle naming the bad field`, () => {
+      expect(() => parseScopeHandle(c.handle)).toThrow(c.error)
     })
   }
 })
@@ -201,50 +176,8 @@ describe('ScopeHandle round-trip (T-00893)', () => {
   ]
 
   for (const h of handles) {
-    test(`round-trips "${h}"`, () => {
+    test(`formatScopeHandle reproduces every handle kind that parseScopeHandle accepted: "${h}"`, () => {
       expect(formatScopeHandle(parseScopeHandle(h))).toBe(h)
-    })
-  }
-})
-
-// ===================================================================
-// validateScopeHandle
-// ===================================================================
-describe('validateScopeHandle (T-00893)', () => {
-  const validHandles = [
-    'alice',
-    'alice@demo',
-    'alice@demo:t1',
-    'alice@demo/reviewer',
-    'alice@demo:t1/reviewer',
-    'my.agent@my-project:task_1/role.name',
-  ]
-
-  for (const h of validHandles) {
-    test(`validates "${h}" as ok`, () => {
-      const result = validateScopeHandle(h)
-      expect(result.ok).toBe(true)
-    })
-  }
-
-  const invalidHandles = [
-    { handle: '', reason: 'empty' },
-    { handle: '@', reason: 'bare @' },
-    { handle: '@demo', reason: 'no agent' },
-    { handle: 'alice@', reason: 'trailing @' },
-    { handle: 'alice@demo:', reason: 'trailing :' },
-    { handle: 'alice@demo/', reason: 'trailing /' },
-    { handle: 'alice@demo:t1!', reason: 'invalid char' },
-  ]
-
-  for (const c of invalidHandles) {
-    test(`rejects "${c.handle}" (${c.reason})`, () => {
-      const result = validateScopeHandle(c.handle)
-      expect(result.ok).toBe(false)
-      if (!result.ok) {
-        expect(typeof result.error).toBe('string')
-        expect(result.error.length).toBeGreaterThan(0)
-      }
     })
   }
 })

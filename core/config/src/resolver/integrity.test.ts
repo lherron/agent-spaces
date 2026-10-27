@@ -10,77 +10,31 @@ import type { Sha256Integrity } from '../core/index.js'
 import { computeEnvHash } from './integrity.js'
 
 describe('computeEnvHash', () => {
-  it('should compute consistent hash for same input', () => {
-    const input = [
-      {
-        spaceKey: 'space-a@abc123',
-        integrity:
-          'sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef' as Sha256Integrity,
-        pluginName: 'space-a',
-      },
-      {
-        spaceKey: 'space-b@def456',
-        integrity:
-          'sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890' as Sha256Integrity,
-        pluginName: 'space-b',
-      },
-    ]
-
-    const hash1 = computeEnvHash(input)
-    const hash2 = computeEnvHash(input)
-
-    expect(hash1).toBe(hash2)
-    expect(hash1.startsWith('sha256:')).toBe(true)
-    expect(hash1.length).toBe(7 + 64) // "sha256:" + 64 hex chars
-  })
-
-  it('should produce different hash for different input', () => {
-    const input1 = [
-      {
-        spaceKey: 'space-a@abc123',
-        integrity:
-          'sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef' as Sha256Integrity,
-        pluginName: 'space-a',
-      },
-    ]
-
-    const input2 = [
-      {
-        spaceKey: 'space-a@abc123',
-        integrity:
-          'sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef' as Sha256Integrity,
-        pluginName: 'space-b', // different plugin name
-      },
-    ]
-
-    const hash1 = computeEnvHash(input1)
-    const hash2 = computeEnvHash(input2)
-
-    expect(hash1).not.toBe(hash2)
-  })
-
-  it('should produce different hash for different order', () => {
+  it('lock envHash is deterministic and changes with plugin name and load order', () => {
     const a = {
       spaceKey: 'space-a@abc123',
       integrity:
-        'sha256:1111111111111111111111111111111111111111111111111111111111111111' as Sha256Integrity,
+        'sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef' as Sha256Integrity,
       pluginName: 'space-a',
     }
     const b = {
       spaceKey: 'space-b@def456',
       integrity:
-        'sha256:2222222222222222222222222222222222222222222222222222222222222222' as Sha256Integrity,
+        'sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890' as Sha256Integrity,
       pluginName: 'space-b',
     }
 
-    const hash1 = computeEnvHash([a, b])
-    const hash2 = computeEnvHash([b, a])
+    const hash = computeEnvHash([a, b])
 
-    expect(hash1).not.toBe(hash2)
-  })
-
-  it('should handle empty input', () => {
-    const hash = computeEnvHash([])
+    // Same input -> same hash, in sha256:<64 hex> form.
+    expect(computeEnvHash([a, b])).toBe(hash)
     expect(hash.startsWith('sha256:')).toBe(true)
+    expect(hash.length).toBe(7 + 64) // "sha256:" + 64 hex chars
+
+    // Row: a differing plugin name changes the hash.
+    expect(computeEnvHash([{ ...a, pluginName: 'space-b' }])).not.toBe(computeEnvHash([a]))
+
+    // Row: swapping load order changes the hash.
+    expect(computeEnvHash([b, a])).not.toBe(hash)
   })
 })

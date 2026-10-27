@@ -303,18 +303,40 @@ describe('asp codex harness', () => {
     expect(stdout).not.toContain('/tmp/run-')
   })
 
-  test('build --harness codex completes', async () => {
+  test('build --harness codex materializes the project space as a named plugin and writes settings to --output', async () => {
     const outputDir = await fs.mkdtemp('/tmp/asp-codex-build-')
     const testEnv = getCodexTestEnv(aspHome)
 
-    const { stdout, exitCode } = await runCli(
-      ['build', 'codex-target', '--harness', 'codex', '--output', outputDir, '--asp-home', aspHome],
-      { env: testEnv, cwd: projectDir }
-    )
+    try {
+      const { stdout, stderr, exitCode } = await runCli(
+        [
+          'build',
+          'codex-target',
+          '--harness',
+          'codex',
+          '--output',
+          outputDir,
+          '--asp-home',
+          aspHome,
+        ],
+        { env: testEnv, cwd: projectDir }
+      )
 
-    expect(exitCode).toBe(0)
-    expect(stdout).toContain('Build complete')
+      expect(exitCode, stderr).toBe(0)
+      expect(stdout).toContain('Build complete')
+      expect(stdout).toContain('Plugin directories: 1')
 
-    await fs.rm(outputDir, { recursive: true, force: true })
+      const pluginDir = stdout.match(/^\s+- (\S+)$/m)?.[1]
+      if (pluginDir === undefined) {
+        throw new Error(`asp build printed no plugin directory:\n${stdout}`)
+      }
+      const pluginJson = JSON.parse(
+        await fs.readFile(path.join(pluginDir, '.claude-plugin', 'plugin.json'), 'utf-8')
+      )
+      expect(pluginJson).toEqual({ name: 'codex-space', version: '1.0.0' })
+      expect(await fs.readdir(outputDir)).toContain('settings.json')
+    } finally {
+      await fs.rm(outputDir, { recursive: true, force: true })
+    }
   })
 })

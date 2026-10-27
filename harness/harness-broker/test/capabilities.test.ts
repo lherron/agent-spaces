@@ -1,11 +1,25 @@
 import { describe, expect, test } from 'bun:test'
-import type { InvocationCapabilities } from 'spaces-harness-broker-protocol'
+import type { BrokerHelloResponse, InvocationCapabilities } from 'spaces-harness-broker-protocol'
 import { CONSERVATIVE_LIFECYCLE_CAPABILITIES } from 'spaces-harness-broker-protocol'
-import { createDefaultClaudeCodeTmuxDriver } from '../src/drivers/claude-code-tmux/driver'
-import { createCodexAppServerDriver } from '../src/drivers/codex-app-server/driver'
+import { createDefaultBroker } from '../src'
 import { createDefaultCodexCliTmuxDriver } from '../src/drivers/codex-cli-tmux/driver'
 import { createNoopDriver } from '../src/drivers/noop-driver'
-import { createDefaultPiTuiTmuxDriver } from '../src/drivers/pi-tui-tmux/driver'
+
+/** The capability matrix a client reads from the default broker's hello. */
+const helloDriverCapabilities = async (): Promise<Map<string, InvocationCapabilities>> => {
+  const hello: BrokerHelloResponse = await createDefaultBroker(undefined, undefined, {
+    additionalDrivers: [() => createNoopDriver(), () => createDefaultCodexCliTmuxDriver()],
+  }).hello({
+    clientInfo: { name: 'capability-matrix' },
+    protocolVersions: ['harness-broker/0.2'],
+  })
+  return new Map(
+    hello.drivers.map((driver) => {
+      if (!driver.capabilities) throw new Error(`missing capabilities for ${driver.kind}`)
+      return [driver.kind, driver.capabilities]
+    })
+  )
+}
 
 const CODEX_APP_SERVER_V0_CAPABILITIES: InvocationCapabilities = {
   admission: { classes: ['steer', 'queue', 'exclusive', 'preempt'] },
@@ -58,69 +72,61 @@ const CODEX_APP_SERVER_V0_CAPABILITIES: InvocationCapabilities = {
 }
 
 describe('Codex app-server v0 capability matrix', () => {
-  test('driver capabilities deep-equal the spec fixture exactly', () => {
-    expect(createCodexAppServerDriver().capabilities()).toEqual(CODEX_APP_SERVER_V0_CAPABILITIES)
+  test('broker.hello advertises the codex-app-server v0 capability matrix exactly', async () => {
+    expect((await helloDriverCapabilities()).get('codex-app-server')).toEqual(
+      CODEX_APP_SERVER_V0_CAPABILITIES
+    )
   })
 })
 
 describe('Claude Code tmux capability matrix', () => {
-  test('advertises durable Anthropic session continuation and synthesized JSON Schema finals', () => {
-    const capabilities =
-      createDefaultClaudeCodeTmuxDriver().capabilities() as InvocationCapabilities & {
-        finalResponse?:
-          | {
-              jsonSchema?: boolean
-              perTurn?: boolean
-              strict?: boolean
-              parsedResult?: boolean
-            }
-          | undefined
-      }
-    expect(capabilities.continuation).toEqual({
+  test('broker.hello advertises Claude durable Anthropic session continuation, synthesized JSON Schema finals and operator-only attach', async () => {
+    const capabilities = (await helloDriverCapabilities()).get('claude-code-tmux') as
+      | (InvocationCapabilities & {
+          finalResponse?:
+            | {
+                jsonSchema?: boolean
+                perTurn?: boolean
+                strict?: boolean
+                parsedResult?: boolean
+              }
+            | undefined
+        })
+      | undefined
+    expect(capabilities?.continuation).toEqual({
       supported: true,
       provider: 'anthropic',
       keyKind: 'session',
     })
-    expect(capabilities.finalResponse).toEqual({
+    expect(capabilities?.finalResponse).toEqual({
       jsonSchema: true,
       perTurn: true,
       strict: false,
       parsedResult: false,
     })
+    // Operator attach is supported; the driver never attaches to an existing surface itself.
+    expect(capabilities?.control.attach).toBe(true)
+    expect(capabilities?.control.driverAttachExistingSurface).toBe(false)
   })
 })
 
-describe('Pi TUI tmux capability matrix', () => {
-  test('advertises durable OpenAI session continuation and operator attach', () => {
-    const capabilities = createDefaultPiTuiTmuxDriver().capabilities() as InvocationCapabilities & {
-      finalResponse?: { jsonSchema?: boolean } | undefined
-    }
-    expect(capabilities.continuation).toEqual({
-      supported: true,
-      provider: 'openai',
-      keyKind: 'session',
-    })
-    expect(capabilities.control.attach).toBe(true)
-    expect(capabilities.control.driverAttachExistingSurface).toBe(false)
-    expect(capabilities.finalResponse?.jsonSchema).not.toBe(true)
-  })
+test('broker.hello advertises Codex tmux operator attach without driver reattachment', async () => {
+  const capabilities = (await helloDriverCapabilities()).get('codex-cli-tmux')
+  expect(capabilities?.control.attach).toBe(true)
+  expect(capabilities?.control.driverAttachExistingSurface).toBe(false)
 })
 
 describe('interrupt landing evidence capability matrix', () => {
-  test('declares the evidence each broker driver actually observes', () => {
+  test('broker.hello declares the interrupt landing evidence each registered driver observes', async () => {
+    const capabilities = await helloDriverCapabilities()
     expect({
-      'codex-app-server': createCodexAppServerDriver().capabilities().interrupt.landingEvidence,
-      'claude-code-tmux':
-        createDefaultClaudeCodeTmuxDriver().capabilities().interrupt.landingEvidence,
-      'codex-cli-tmux': createDefaultCodexCliTmuxDriver().capabilities().interrupt.landingEvidence,
-      'pi-tui-tmux': createDefaultPiTuiTmuxDriver().capabilities().interrupt.landingEvidence,
-      noop: createNoopDriver().capabilities().interrupt.landingEvidence,
+      'codex-app-server': capabilities.get('codex-app-server')?.interrupt.landingEvidence,
+      'claude-code-tmux': capabilities.get('claude-code-tmux')?.interrupt.landingEvidence,
+      'noop-driver': capabilities.get('noop-driver')?.interrupt.landingEvidence,
     }).toEqual({
       'codex-app-server': 'ack',
       'claude-code-tmux': 'transcript',
-      'codex-cli-tmux': 'asserted',
-      'pi-tui-tmux': 'asserted',
-      noop: null,
+      'noop-driver': null,
     })
   })
 })
