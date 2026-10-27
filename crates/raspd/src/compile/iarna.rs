@@ -276,6 +276,15 @@ mod tests {
     }
 
     #[test]
+    fn integers_group_by_thousands() {
+        assert_eq!(integer("1000"), "1_000");
+        assert_eq!(integer("-1234567"), "-1_234_567");
+        assert_eq!(integer("999"), "999");
+        assert_eq!(float(0.5), "0.5");
+        assert_eq!(float(1234.5), "1_234.5");
+    }
+
+    #[test]
     fn layout_matches_iarna() {
         // Expected bytes produced by node_modules/@iarna/toml 2.2.5.
         let v = parse(
@@ -286,10 +295,5 @@ mod tests {
         let v = parse(r#"{"m":"a\nb\"","c":"x\u0001y\u0002","f":5.25,"big":1234567.5}"#);
         let expected = "m = \"\"\"\na\nb\"\\\n\"\"\"\nc = \"x\\u0001y\u{2}\"\nf = 5.25\nbig = 1_234_567.5\n";
         assert_eq!(stringify(&v).unwrap(), expected);
-        let v = parse(r#"{"negative":-1234567,"small":999,"fraction":0.5}"#);
-        assert_eq!(
-            stringify(&v).unwrap(),
-            "negative = -1_234_567\nsmall = 999\nfraction = 0.5\n"
-        );
     }
 }

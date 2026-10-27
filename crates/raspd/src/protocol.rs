@@ -247,6 +247,16 @@ mod tests {
     }
 
     #[test]
+    fn failure_code_labels_a_failure_result() {
+        let c = reply(json!({
+            "ok": false,
+            "failure": { "kind": "unavailable", "code": "configured_source_unavailable", "message": "no root" }
+        }));
+        assert_eq!(c.outcome, "configured_source_unavailable");
+        assert_eq!(c.message.as_deref(), Some("no root"));
+    }
+
+    #[test]
     fn diagnostics_then_resolution_then_failure_then_body() {
         let all = json!({
             "ok": false,
