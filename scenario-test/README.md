@@ -6,5 +6,3 @@
 $ ./greet.sh World
 Hello, World!
 ```
-
-`test-greet.sh` is the accompanying test script.

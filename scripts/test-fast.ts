@@ -100,10 +100,7 @@ async function makeSuites(): Promise<{ suites: FastSuite[]; mode: 'affected' | '
   if (selection.full || selection.packageNames.has('@lherron/agent-spaces')) {
     suites.push({
       id: 'agent-spaces-cli-fast',
-      paths: [
-        'apps/cli/src/index.test.ts',
-        'apps/cli/src/commands/agent/__tests__/build-bundle-ref-agent-project.test.ts',
-      ],
+      paths: ['apps/cli/src/index.test.ts', 'core/config/src/store/runtime-placement.test.ts'],
     })
   }
   if (selection.includeScripts) {
