@@ -63,7 +63,7 @@ const CODEX_AGENT = 'pathmark-codex'
  * A mutable space with everything the Codex adapter materializes: skills,
  * commands (prompts), MCP, AGENTS.md instructions, `[codex.config]` overrides
  * and a codex-targeted pre_tool_use hook; and an agent composing it whose
- * context template has a reminder and a task-scoped section.
+ * context template has a reminder, an exec reminder and a task-scoped section.
  */
 function seedCodexAgent(agentsRoot: string): void {
   const space = join(agentsRoot, 'spaces', 'pm-codex')
@@ -120,6 +120,12 @@ function seedCodexAgent(agentsRoot: string): void {
       'name = "scope"',
       'type = "inline"',
       'content = "Reminder for {{agentId}}"',
+      '',
+      // T-12023: exec runs in the project root (else agentRoot) on both sides.
+      '[[reminder]]',
+      'name = "exec-cwd"',
+      'type = "exec"',
+      `command = "printf 'cwd=%s' \\"$(pwd -P)\\""`,
       '',
     ].join('\n')
   )

@@ -254,7 +254,7 @@ async function inspectResolvedRuntimePlacement(
     nowIso,
     environment,
     predicateInputs: { cwd: context['cwd'], environment },
-    execInputs: { cwd: placement.agentRoot, environment },
+    execInputs: { cwd: projectRoot, environment },
     serviceProbeInputs: { responses: options.serviceProbeResponses ?? [] },
     scaffoldPackets: options.scaffoldPackets ?? [],
     agentProfile: (existsSync(profilePath)

@@ -132,7 +132,8 @@ async function resolveExecSection(
     return asSectionResolution(content.length > 0 ? content : undefined)
   }
   const timeout = section.timeout ?? DEFAULT_EXEC_TIMEOUT_MS
-  const cwd = context.execCwd ?? context.agentRoot ?? context.agentsRoot
+  // Exec runs in the project when one is known, so project tooling resolves.
+  const cwd = context.execCwd ?? context.projectRoot ?? context.agentRoot ?? context.agentsRoot
 
   try {
     const { stdout } = await execFileAsync('bash', ['-c', section.command], {

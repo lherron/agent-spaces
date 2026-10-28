@@ -227,7 +227,7 @@ export function createAspcInspectionAuthority(
           nowIso: evaluatedAt,
           environment: pinnedEnvironment,
           predicateInputs: { cwd: projectRoot, environment: pinnedEnvironment },
-          execInputs: { cwd: agentRoot, environment: pinnedEnvironment },
+          execInputs: { cwd: projectRoot, environment: pinnedEnvironment },
           serviceProbeInputs: { responses: options.serviceProbeResponses?.() ?? [] },
           scaffoldPackets: scaffoldPackets(),
           agentProfile: profile,

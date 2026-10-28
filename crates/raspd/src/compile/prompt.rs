@@ -741,7 +741,9 @@ fn as_res(content: Option<String>) -> Res {
 fn run_exec(command: &str, timeout_ms: f64, ctx: &Ctx) -> Option<String> {
     const MAX_BUFFER: usize = 1024 * 1024;
     let mut cmd = Command::new("bash");
-    cmd.arg("-c").arg(command).current_dir(&ctx.agent_root);
+    // Bun: `execCwd ?? projectRoot ?? agentRoot` (no execCwd on a compile).
+    let cwd = ctx.project_root.as_ref().unwrap_or(&ctx.agent_root);
+    cmd.arg("-c").arg(command).current_dir(cwd);
     if let Some(env) = &ctx.exec_env {
         cmd.env_clear().envs(env);
     }
@@ -1562,11 +1564,33 @@ mod tests {
     fn exec_runs_bash_with_trimmed_stdout() {
         let mut c = ctx();
         c.agent_root = "/".into();
+        c.project_root = None;
         assert_eq!(
             run_exec("printf '  hi \\n'", 5000.0, &c).as_deref(),
             Some("hi")
         );
         assert_eq!(run_exec("exit 3", 5000.0, &c), None);
         assert_eq!(run_exec("sleep 2", 100.0, &c), None);
+    }
+
+    /// T-12023: exec runs in the project root when one is known, else agentRoot,
+    /// matching Bun's `execCwd ?? projectRoot ?? agentRoot`.
+    #[test]
+    fn exec_runs_in_project_root_else_agent_root() {
+        let base = std::env::temp_dir().join(format!("raspd-exec-cwd-{}", std::process::id()));
+        let (project, agent) = (base.join("project"), base.join("agent"));
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::create_dir_all(&agent).unwrap();
+        let real = |p: &std::path::Path| p.canonicalize().unwrap().to_string_lossy().into_owned();
+        let (project_real, agent_real) = (real(&project), real(&agent));
+        let mut c = ctx();
+        c.agent_root = agent.to_string_lossy().into_owned();
+        c.project_root = Some(project.to_string_lossy().into_owned());
+        let in_project = run_exec("pwd -P", 5000.0, &c);
+        c.project_root = None;
+        let no_project = run_exec("pwd -P", 5000.0, &c);
+        std::fs::remove_dir_all(&base).unwrap();
+        assert_eq!(in_project, Some(project_real));
+        assert_eq!(no_project, Some(agent_real));
     }
 }
