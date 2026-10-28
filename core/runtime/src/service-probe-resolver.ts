@@ -1,12 +1,13 @@
 import type { ContextResolverContext } from './context-resolver.js'
-import type { ServiceProbeSectionDef } from './context-template.js'
-import { DynamicReplayLedger } from './dynamic-replay.js'
+import type { ContextTemplate, ServiceProbeSectionDef } from './context-template.js'
+import { DynamicReplayLedger, type RecordedServiceProbeResponse } from './dynamic-replay.js'
 import {
   displayServiceEndpoint,
   parseServiceEndpoint,
   probeServiceEndpoint,
 } from './service-probe.js'
 import { interpolateVariables } from './template-vars.js'
+import { matchesWhenPredicate } from './when-predicate.js'
 
 const DEFAULT_SERVICE_PROBE_TIMEOUT_MS = 250
 const UP_MARK = '✅'
@@ -63,4 +64,34 @@ export async function resolveServiceProbeSection(
     lines.push(`  ${mark} ${spec.name.padEnd(nameWidth)}  ${displayServiceEndpoint(spec.endpoint)}`)
   }
   return lines.join('\n')
+}
+
+/**
+ * Probe, live, every endpoint the template's included service-probe sections
+ * declare, in resolution order, so a caller can pin the results and replay them.
+ * Applies the same `when` predicates, interpolation and timeouts as resolution.
+ */
+export async function recordTemplateServiceProbes(
+  template: ContextTemplate,
+  context: ContextResolverContext
+): Promise<RecordedServiceProbeResponse[]> {
+  const probes = [...template.promptSections, ...template.reminderSections].flatMap((section) =>
+    section.type === 'service-probe' && matchesWhenPredicate(section, context)
+      ? section.services.map((spec) => ({
+          name: spec.name,
+          endpoint: interpolateVariables(spec.endpoint, context),
+          timeout: section.timeout ?? DEFAULT_SERVICE_PROBE_TIMEOUT_MS,
+        }))
+      : []
+  )
+  const occurrences = new Map<string, number>()
+  return Promise.all(
+    probes.map(async ({ name, endpoint, timeout }) => {
+      const key = `${name}\u0000${endpoint}`
+      const occurrence = (occurrences.get(key) ?? 0) + 1
+      occurrences.set(key, occurrence)
+      const up = await probeServiceEndpoint(endpoint, timeout)
+      return occurrence === 1 ? { name, endpoint, up } : { name, endpoint, up, occurrence }
+    })
+  )
 }

@@ -23,6 +23,7 @@ export {
   discoverContextTemplate,
   inspectAgentSystemPrompt,
   materializeSystemPrompt,
+  recordAgentSystemPromptServiceProbes,
 } from './system-prompt.js'
 export { interpolateVariables } from './template-vars.js'
 export type { ContextTemplate, SectionWrap } from './context-template.js'

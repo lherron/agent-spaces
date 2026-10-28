@@ -6,9 +6,11 @@ import { isHarnessId } from 'spaces-config'
 import { pathMarker } from 'spaces-config/path-markers'
 import {
   type InspectAgentSystemPromptInput,
+  type NormalizedAgentInspectionEvaluationContext,
   type ResolvedContextSection,
   inspectAgentSystemPrompt,
   normalizeAgentInspectionEvaluationContext,
+  recordAgentSystemPromptServiceProbes,
 } from 'spaces-runtime'
 import {
   type AgentInspectionDiagnostic,
@@ -394,6 +396,39 @@ export async function catalogAgentSources(input: {
 }
 
 /**
+ * Probe, live, the services the evaluation context's prompt template declares.
+ * Its own `serviceProbeInputs` are ignored; pin the result there to inspect.
+ */
+export async function recordAgentInspectionServiceProbes(input: {
+  evaluationContext: unknown
+}): Promise<AgentInspectionEvaluationContext['serviceProbeInputs']['responses']> {
+  return recordAgentSystemPromptServiceProbes(
+    inspectionPromptInput(normalizeAgentInspectionEvaluationContext(input.evaluationContext))
+  )
+}
+
+function inspectionPromptInput(
+  normalized: NormalizedAgentInspectionEvaluationContext
+): InspectAgentSystemPromptInput {
+  const { identifiers, paths, scaffoldPackets, environment } = normalized.evaluationContext
+  return {
+    agentRoot: paths.agentRoot,
+    agentsRoot: paths.agentsRoot,
+    aspHome: dirname(paths.agentsRoot),
+    projectRoot: paths.projectRoot,
+    projectId: identifiers.projectId,
+    agentId: identifiers.agentId,
+    taskId: identifiers.taskId,
+    lane: identifiers.lane,
+    runMode: asRunMode(identifiers.mode),
+    scaffoldPackets,
+    env: environment,
+    agentRootSearchPath: [paths.agentRoot, paths.agentsRoot],
+    resolverContext: normalized.resolverContext,
+  }
+}
+
+/**
  * Produce one consumer-independent inspection from one prompt-resolution report
  * and exactly one canonical runtime compile.
  */
@@ -410,24 +445,7 @@ export async function inspectAgentForContext(
   let initialPrompt = ''
   try {
     const inspected = await inspectAgentSystemPrompt(
-      options.promptInput ?? {
-        agentRoot: normalized.evaluationContext.paths.agentRoot,
-        agentsRoot: normalized.evaluationContext.paths.agentsRoot,
-        aspHome: dirname(normalized.evaluationContext.paths.agentsRoot),
-        projectRoot: normalized.evaluationContext.paths.projectRoot,
-        projectId: request.identifiers.projectId,
-        agentId: request.identifiers.agentId,
-        taskId: request.identifiers.taskId,
-        lane: request.identifiers.lane,
-        runMode: asRunMode(request.identifiers.mode),
-        scaffoldPackets: normalized.evaluationContext.scaffoldPackets,
-        env: normalized.evaluationContext.environment,
-        agentRootSearchPath: [
-          normalized.evaluationContext.paths.agentRoot,
-          normalized.evaluationContext.paths.agentsRoot,
-        ],
-        resolverContext: normalized.resolverContext,
-      }
+      options.promptInput ?? inspectionPromptInput(normalized)
     )
     if (inspected !== undefined) {
       promptSections = [...inspected.prompt.sections, ...inspected.reminder.sections]

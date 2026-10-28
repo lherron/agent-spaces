@@ -1,7 +1,12 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 
-import { DEFAULT_HARNESS_ID, catalogAgentSources, inspectAgentForContext } from 'agent-spaces'
+import {
+  DEFAULT_HARNESS_ID,
+  catalogAgentSources,
+  inspectAgentForContext,
+  recordAgentInspectionServiceProbes,
+} from 'agent-spaces'
 import {
   agentCatalogResponseSchema,
   agentInspectionOutcomeSchema,
@@ -36,6 +41,7 @@ export interface AspcInspectionAuthorityOptions {
   resolveProjectRoot?: AspcProjectRootResolver | undefined
   environment?: (() => Record<string, string | undefined>) | undefined
   now?: (() => string) | undefined
+  /** Pinned probe responses. When absent, each inspection records the template's probes live. */
   serviceProbeResponses?: (() => AgentInspectionServiceProbeResponse[]) | undefined
   scaffoldPackets?: (() => AgentInspectionScaffoldPacket[]) | undefined
 }
@@ -85,7 +91,6 @@ export function createAspcInspectionAuthority(
   const configuredAgentsRoot = normalizeConfiguredRoot(options.agentsRoot ?? getAgentsRoot())
   const environment = options.environment ?? (() => process.env)
   const now = options.now ?? (() => new Date().toISOString())
-  const serviceProbeResponses = options.serviceProbeResponses ?? (() => [])
   const scaffoldPackets = options.scaffoldPackets ?? (() => [])
 
   async function assembleCatalog(projectId?: string): Promise<CatalogAssembly> {
@@ -223,7 +228,7 @@ export function createAspcInspectionAuthority(
           environment: pinnedEnvironment,
           predicateInputs: { cwd: projectRoot, environment: pinnedEnvironment },
           execInputs: { cwd: agentRoot, environment: pinnedEnvironment },
-          serviceProbeInputs: { responses: serviceProbeResponses() },
+          serviceProbeInputs: { responses: options.serviceProbeResponses?.() ?? [] },
           scaffoldPackets: scaffoldPackets(),
           agentProfile: profile,
           declaredOverrides: selected.declaredOverrides,
@@ -232,6 +237,13 @@ export function createAspcInspectionAuthority(
             idSalt: `aspc-agent-inspection:${selected.identifiers.projectId}`,
             toolchainManifest: { schemaVersion: 'compile-toolchain/v1' },
           },
+        }
+        // Without caller-supplied responses, record the template's probes live
+        // and pin them, so the evaluation context stays a complete replay input.
+        if (options.serviceProbeResponses === undefined) {
+          evaluationContext.serviceProbeInputs.responses = await recordAgentInspectionServiceProbes(
+            { evaluationContext }
+          )
         }
         const outcome = await inspectAgentForContext(
           { request: req.request, evaluationContext },

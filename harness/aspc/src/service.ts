@@ -45,6 +45,7 @@ import {
   type AspcInspectionAuthorityOptions,
   createAspcInspectionAuthority,
 } from './agent-inspection-authority.js'
+import { runtimeDependencies as releaseRuntimeDependencies } from './compiler-runtime.js'
 import { DIAGNOSTIC_CODES, compilerDiagnostic, errorDetails, formatError } from './diagnostics.js'
 
 const ASPC_FACADE_VERSION: string = packageManifest.version
@@ -103,7 +104,8 @@ export interface AspcService {
 }
 
 export function createAspcService(options: AspcServiceOptions = {}): AspcService {
-  const compiler = options.compiler ?? defaultCompiler
+  const runtime = options.runtimeDependencies ?? releaseRuntimeDependencies
+  const compiler = options.compiler ?? createDefaultCompiler(runtime)
   const inspectionAuthority = createAspcInspectionAuthority(compiler, {
     ...(options.agentsRoot ? { agentsRoot: options.agentsRoot } : {}),
     ...(options.resolveProjectRoot ? { resolveProjectRoot: options.resolveProjectRoot } : {}),
@@ -153,7 +155,7 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
     async prepareProcessInvocation(req) {
       const client = createAgentSpacesClient({
         aspHome: req.context.agentSources?.aspHome ?? serviceEnvironment(options)['ASP_HOME'],
-        runtime: options.runtimeDependencies,
+        runtime,
       })
       return client.prepareProcessInvocation(req) as Promise<AspcPrepareProcessInvocationResponse>
     },
@@ -247,34 +249,29 @@ function serviceEnvironment(options: AspcServiceOptions): Record<string, string 
     : (options.environment ?? process.env)
 }
 
-async function defaultCompiler(
-  req: RuntimeCompileRequest,
-  options?: {
-    aspHome?: string | undefined
-    compileContext?: CompileContext | undefined
-    materializeCodexRuntimeHome?: boolean | undefined
-    dispatch?:
-      | Omit<import('spaces-harness-broker-protocol').InvocationDispatchRequest, 'startRequest'>
-      | undefined
+/** In-process callers compile with the release execution dependencies unless they inject their own. */
+function createDefaultCompiler(
+  runtime: NonNullable<AspcServiceOptions['runtimeDependencies']>
+): AspcCompiler {
+  return (req, options) => {
+    const client = createAgentSpacesClient({ aspHome: options?.aspHome, runtime })
+    return client.compileRuntimePlan(
+      req,
+      options?.compileContext !== undefined ||
+        options?.materializeCodexRuntimeHome !== undefined ||
+        options?.dispatch !== undefined
+        ? {
+            ...(options.compileContext !== undefined
+              ? { compileContext: options.compileContext }
+              : {}),
+            ...(options.materializeCodexRuntimeHome !== undefined
+              ? { materializeCodexRuntimeHome: options.materializeCodexRuntimeHome }
+              : {}),
+            ...(options.dispatch !== undefined ? { dispatch: options.dispatch } : {}),
+          }
+        : undefined
+    )
   }
-): Promise<RuntimeCompileResponse> {
-  const client = createAgentSpacesClient({ aspHome: options?.aspHome })
-  return client.compileRuntimePlan(
-    req,
-    options?.compileContext !== undefined ||
-      options?.materializeCodexRuntimeHome !== undefined ||
-      options?.dispatch !== undefined
-      ? {
-          ...(options.compileContext !== undefined
-            ? { compileContext: options.compileContext }
-            : {}),
-          ...(options.materializeCodexRuntimeHome !== undefined
-            ? { materializeCodexRuntimeHome: options.materializeCodexRuntimeHome }
-            : {}),
-          ...(options.dispatch !== undefined ? { dispatch: options.dispatch } : {}),
-        }
-      : undefined
-  )
 }
 
 async function compileRuntimePlanSafe(

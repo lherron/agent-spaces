@@ -25,11 +25,13 @@ import {
   parseContextTemplate,
 } from './context-template.js'
 import type { SystemPromptMode } from './context-template.js'
+import type { RecordedServiceProbeResponse } from './dynamic-replay.js'
 import {
   type MaterializeResult,
   writeMaterializedContext,
   writeMaterializedPrompt,
 } from './materialize-io.js'
+import { recordTemplateServiceProbes } from './service-probe-resolver.js'
 import { isRecord } from './type-guards.js'
 
 export interface MaterializeSystemPromptInput {
@@ -213,55 +215,26 @@ export async function materializeSystemPrompt(
   }
 }
 
+/**
+ * Live service probes for the template `inspectAgentSystemPrompt` would resolve
+ * with the same input. Pin the result as `serviceProbeResponses` to replay it.
+ */
+export async function recordAgentSystemPromptServiceProbes(
+  input: InspectAgentSystemPromptInput
+): Promise<RecordedServiceProbeResponse[]> {
+  const selected = selectSystemPromptTemplate(input)
+  if (selected === undefined) return []
+  return recordTemplateServiceProbes(selected.template, selected.resolverContext)
+}
+
 export async function inspectAgentSystemPrompt(
   input: InspectAgentSystemPromptInput
 ): Promise<AgentSystemPromptInspection | undefined> {
-  const discovered = discoverContextTemplate({
-    agentRoot: input.agentRoot,
-    agentsRoot: input.agentsRoot,
-    aspHome: input.aspHome,
-    projectRoot: input.projectRoot,
-    agentRootSearchPath: input.agentRootSearchPath,
-    sharedRootOptions: input.sharedRootOptions,
-  })
-  const { agentsRoot, agentRootSearchPath, profile, templateSource } = discovered
-
-  if (!templateSource && !existsSync(join(input.agentRoot, 'SOUL.md'))) {
-    return undefined
-  }
-
-  const template =
-    templateSource?.template ?? buildDefaultTemplate(profile.base, input.scaffoldPackets)
-  const resolved = await resolveContextTemplateDetailed(
-    template,
-    input.resolverContext ?? {
-      agentRoot: input.agentRoot,
-      agentName: basename(input.agentRoot),
-      agentId: input.agentId ?? basename(input.agentRoot),
-      agentsRoot,
-      agentRootSearchPath,
-      projectRoot: input.projectRoot,
-      projectId: input.projectId,
-      taskId: input.taskId,
-      ...(input.taskContext !== undefined ? { taskContext: input.taskContext } : {}),
-      lane: input.lane,
-      runMode: input.runMode,
-      scaffoldPackets: input.scaffoldPackets,
-      env: input.env,
-      ...(input.env !== undefined ? { execEnv: input.env } : {}),
-      ...(templateSource
-        ? { agentProfile: profile.rawProfile }
-        : profile.base
-          ? {
-              agentProfile: {
-                instructions: {
-                  base: profile.base,
-                },
-              },
-            }
-          : {}),
-    }
-  )
+  const selected = selectSystemPromptTemplate(input)
+  if (selected === undefined) return undefined
+  const { discovered, templateSource, template } = selected
+  const { agentsRoot } = discovered
+  const resolved = await resolveContextTemplateDetailed(template, selected.resolverContext)
 
   const promptContent = resolved.prompt?.content ?? ''
   const promptSections = resolved.promptSections
@@ -294,6 +267,60 @@ export async function inspectAgentSystemPrompt(
     provenanceRecords: discovered.provenanceRecords,
     ...(resolved.taskScoped !== undefined ? { taskScoped: resolved.taskScoped } : {}),
   }
+}
+
+function selectSystemPromptTemplate(input: InspectAgentSystemPromptInput):
+  | {
+      discovered: DiscoveredContextTemplate
+      templateSource: DiscoveredTemplateSource | undefined
+      template: ContextTemplate
+      resolverContext: ContextResolverContext
+    }
+  | undefined {
+  const discovered = discoverContextTemplate({
+    agentRoot: input.agentRoot,
+    agentsRoot: input.agentsRoot,
+    aspHome: input.aspHome,
+    projectRoot: input.projectRoot,
+    agentRootSearchPath: input.agentRootSearchPath,
+    sharedRootOptions: input.sharedRootOptions,
+  })
+  const { agentsRoot, agentRootSearchPath, profile, templateSource } = discovered
+
+  if (!templateSource && !existsSync(join(input.agentRoot, 'SOUL.md'))) {
+    return undefined
+  }
+
+  const template =
+    templateSource?.template ?? buildDefaultTemplate(profile.base, input.scaffoldPackets)
+  const resolverContext: ContextResolverContext = input.resolverContext ?? {
+    agentRoot: input.agentRoot,
+    agentName: basename(input.agentRoot),
+    agentId: input.agentId ?? basename(input.agentRoot),
+    agentsRoot,
+    agentRootSearchPath,
+    projectRoot: input.projectRoot,
+    projectId: input.projectId,
+    taskId: input.taskId,
+    ...(input.taskContext !== undefined ? { taskContext: input.taskContext } : {}),
+    lane: input.lane,
+    runMode: input.runMode,
+    scaffoldPackets: input.scaffoldPackets,
+    env: input.env,
+    ...(input.env !== undefined ? { execEnv: input.env } : {}),
+    ...(templateSource
+      ? { agentProfile: profile.rawProfile }
+      : profile.base
+        ? {
+            agentProfile: {
+              instructions: {
+                base: profile.base,
+              },
+            },
+          }
+        : {}),
+  }
+  return { discovered, templateSource, template, resolverContext }
 }
 
 function loadSystemPromptTemplate(input: {

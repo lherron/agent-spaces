@@ -126,6 +126,7 @@ export {
   catalogAgentSources,
   inspectAgentForContext,
   inspectRuntimePlacement,
+  recordAgentInspectionServiceProbes,
   type AgentCatalogDiagnostic,
   type AgentCatalogResult,
   type AgentCatalogRow,
