@@ -96,6 +96,12 @@ export async function printLaunchHeader(
  * The one exception is the pane identity tmux sets on this runner: TMUX and
  * TMUX_PANE name the pane the harness is about to run in, and Claude Code needs
  * them to ask tmux whether it passes Kitty graphics through.
+ *
+ * In a pane, images are also forced on. Claude Code reads the outer terminal
+ * from tmux's #{client_termtype} once at startup, and an HRC seat starts in a
+ * detached session before any client attaches, so that read is empty and it
+ * draws no pictures for the life of the process. Forced, it redraws them on the
+ * focus-in an attach brings (T-12030).
  */
 const PANE_ENV_KEYS = ['TMUX', 'TMUX_PANE']
 
@@ -113,6 +119,7 @@ export function buildTmuxHarnessSpawnEnv(
     const value = paneEnv[key]
     if (value) env[key] = value
   }
+  if (env['TMUX']) env['CLAUDE_CODE_FORCE_TERMINAL_IMAGES'] = '1'
   return env
 }
 

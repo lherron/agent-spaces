@@ -77,7 +77,7 @@ describe('buildTmuxHarnessSpawnEnv', () => {
     expect(env).toEqual({ KEEP: 'yes' })
   })
 
-  test("carries the runner pane's TMUX and TMUX_PANE so the harness knows it runs in tmux", () => {
+  test("carries the runner pane's TMUX and TMUX_PANE, and forces terminal images, so the harness draws pictures in tmux", () => {
     const env = buildTmuxHarnessSpawnEnv(
       { argv: ['/usr/bin/true'], cwd: '/tmp', env: { HOME: '/Users/tester' } },
       {
@@ -91,6 +91,7 @@ describe('buildTmuxHarnessSpawnEnv', () => {
       HOME: '/Users/tester',
       TMUX: '/var/run/hrc/btmux/claude-code--rt-x.sock,4242,0',
       TMUX_PANE: '%1',
+      CLAUDE_CODE_FORCE_TERMINAL_IMAGES: '1',
     })
   })
 })
