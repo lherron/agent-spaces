@@ -532,7 +532,8 @@ Phase A: ASP red tests and fixture contract.
 - Add red fixture tests for deterministic plan JSON, stable `sourceHash`,
   stable `desiredProjectionHash`, and schedule/channel/event-hook projection
   fixtures.
-- Cover rejection of unsupported v1 fields, `timezone`, bare `hooks/`,
+- Cover rejection of unsupported v1 fields, top-level `timezone`, invalid
+  `[trigger].timezone`, bare `hooks/`,
   cross-owner targets, generic-event target templates, lane templates,
   payload/title/labels/container/arbitrary structural target fields,
   `originPolicy.agent = "allow"`, malformed cooldowns, and missing authored
@@ -624,7 +625,8 @@ ASP compiler fixture tests:
 - Deterministic plan JSON from schedule, channel, and event-hook fixtures.
 - Stable normalized source hash across TOML formatting/comment changes.
 - Stable desired projection hash for semantically identical resources.
-- Rejection of unsupported or unknown v1 fields, including `timezone`.
+- Rejection of unsupported or unknown v1 fields, including top-level `timezone`.
+- Acceptance of valid `[trigger].timezone` and rejection of invalid zones.
 - Rejection of cross-owner targets in v1.
 - Rejection of bare `hooks/`.
 - Static target enforcement for generic ACP event hooks.
@@ -731,7 +733,8 @@ Live validation:
 9. Live validation covers at least one schedule, one event hook driven by a real
    wrkq transition, and one Discord binding using real installed commands and,
    for gateway behavior, real Discord route evidence.
-10. V1 rejects unsupported fields such as `timezone`, rejects bare `hooks/`, and
+10. V1 rejects top-level `timezone` and invalid `[trigger].timezone`, accepts
+    valid trigger zones, rejects bare `hooks/`, and
     rejects unsafe event-hook target templates.
 11. Mixed schedule/event-hook/channel apply failures are machine-readable and
     converge on retry, unless ACP adds an operation ledger with stronger batch
@@ -749,7 +752,8 @@ Live validation:
 - A GUI editor.
 - Automatic cross-agent adoption or rename migration.
 - Cross-agent or cross-project authored targets in v1.
-- Timezone-aware cron semantics unless ACP implements and tests them first.
+- Timezone-aware cron semantics beyond the implemented `[trigger].timezone`
+  support described above.
 - Bare `hooks/`; v1 uses `event-hooks/`.
 - A second hook engine separate from ACP event-triggered jobs.
 - External integration/authentication management such as `connections/`.
@@ -796,8 +800,9 @@ Required changes incorporated from the conditional review:
 - Source owner and target are distinct concepts; v1 is same-owner only.
 - Managed apply must not reuse generic binding upsert semantics.
 - Missing source defaults to disable-only; prune/archive is explicit later.
-- `timezone` is removed from v1 schedule resources because ACP cron evaluation
-  is currently UTC-only.
+- The original review removed `timezone` because ACP cron evaluation was
+  UTC-only. T-10806 subsequently added `[trigger].timezone` support, as
+  described above; top-level `timezone` remains unsupported.
 - Work should be split by ownership: `agent-spaces` for read-only compiler/plan;
   `agent-control-plane` for provenance/apply/status/store invariants.
 - Event hooks are folded into the same split under Daedalus #8338:
