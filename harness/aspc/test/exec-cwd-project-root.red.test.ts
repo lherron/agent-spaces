@@ -81,23 +81,18 @@ describe('inspection exec sections run in the project root (T-12023)', () => {
 
   test('runtime placement inspection renders the project-gated exec', async () => {
     const service = createAspcService({ agentsRoot: fixture.agentsRoot })
-    // This producer's predicates read the process cwd; launch from the project.
-    const originalCwd = process.cwd()
-    process.chdir(fixture.projectRoot)
 
-    const response = await service
-      .inspectRuntimePlacement({
-        schemaVersion: 'aspc-inspect-runtime-placement-request/v1',
-        context: {
-          agentId: 'cody',
-          agentRoot: join(fixture.agentsRoot, 'cody'),
-          project: { mode: 'root', projectRoot: fixture.projectRoot, projectId: 'agent-spaces' },
-          cwd: fixture.projectRoot,
-          runMode: 'task',
-          agentSources: { agentsRoot: fixture.agentsRoot },
-        },
-      })
-      .finally(() => process.chdir(originalCwd))
+    const response = await service.inspectRuntimePlacement({
+      schemaVersion: 'aspc-inspect-runtime-placement-request/v1',
+      context: {
+        agentId: 'cody',
+        agentRoot: join(fixture.agentsRoot, 'cody'),
+        project: { mode: 'root', projectRoot: fixture.projectRoot, projectId: 'agent-spaces' },
+        cwd: fixture.projectRoot,
+        runMode: 'task',
+        agentSources: { agentsRoot: fixture.agentsRoot },
+      },
+    })
 
     if (!response.ok) throw new Error(JSON.stringify(response))
     expect(response.inspection.completeness).toEqual({ kind: 'complete' })

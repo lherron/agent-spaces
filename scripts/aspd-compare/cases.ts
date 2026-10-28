@@ -58,6 +58,8 @@ const PROJECT_SPACE_AGENT = 'pathmark-project-space'
 const PARTICIPANT_AGENT = 'pathmark-participant'
 /** The codex agent whose space and template exercise every codex compose branch (T-11932). */
 const CODEX_AGENT = 'pathmark-codex'
+/** A file only the project root holds; the codex template gates a reminder on it. */
+const PROJECT_GATE = 'pm-project-gate'
 
 /**
  * A mutable space with everything the Codex adapter materializes: skills,
@@ -127,6 +129,13 @@ function seedCodexAgent(agentsRoot: string): void {
       'type = "exec"',
       `command = "printf 'cwd=%s' \\"$(pwd -P)\\""`,
       '',
+      // T-12027: when.exists checks the placement folder, not the daemon's cwd.
+      '[[reminder]]',
+      'name = "project-gated"',
+      'type = "inline"',
+      `when = { exists = "${PROJECT_GATE}" }`,
+      'content = "project-gated reminder"',
+      '',
     ].join('\n')
   )
 }
@@ -142,6 +151,7 @@ export function seedStage(asp: Asp, base: string): Stage {
   mkdirSync(brokenProjectRoot, { recursive: true })
   writeFileSync(join(brokenProjectRoot, 'asp-targets.toml'), 'schema = [\n')
   seedCodexAgent(fixture.agentsRoot)
+  writeFileSync(join(fixture.projectRoot, PROJECT_GATE), '')
   // T-11951: an agent composing a project space, which the inspection
   // compile resolves from its placement.projectRoot (it carried none before
   // the fix), the project space itself, and a participant-only agent.

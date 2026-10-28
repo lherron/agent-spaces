@@ -27,6 +27,9 @@ pub struct Ctx {
     pub agents_root: String,
     pub search_path: Vec<String>,
     pub project_root: Option<String>,
+    /// The placement's working folder; `when.exists` resolves against it, else
+    /// `project_root`, never the daemon's own cwd (T-12027).
+    pub cwd: Option<String>,
     pub project_id: Option<String>,
     pub agent_id: Option<String>,
     pub agent_name: Option<String>,
@@ -683,9 +686,13 @@ fn matches(when: Option<&When>, ctx: &Ctx) -> bool {
         return false;
     }
     if let Some(e) = &w.exists {
-        let cwd = std::env::current_dir()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|_| "/".into());
+        // Bun: `cwd ?? projectRoot ?? process.cwd()`.
+        let cwd = match ctx.cwd.as_ref().or(ctx.project_root.as_ref()) {
+            Some(c) => c.clone(),
+            None => std::env::current_dir()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| "/".into()),
+        };
         if !std::path::Path::new(&join(&[&cwd, e])).exists() {
             return false;
         }
@@ -1523,6 +1530,7 @@ mod tests {
             agents_root: "/a".into(),
             search_path: vec![],
             project_root: Some("/p".into()),
+            cwd: None,
             project_id: Some("proj".into()),
             agent_id: Some("clod".into()),
             agent_name: None,
@@ -1592,5 +1600,31 @@ mod tests {
         std::fs::remove_dir_all(&base).unwrap();
         assert_eq!(in_project, Some(project_real));
         assert_eq!(no_project, Some(agent_real));
+    }
+
+    /// T-12027: `when.exists` checks the placement folder (`cwd ?? projectRoot`),
+    /// never the daemon's process cwd, matching Bun's resolver context.
+    #[test]
+    fn when_exists_checks_the_placement_folder() {
+        let base = std::env::temp_dir().join(format!("raspd-when-cwd-{}", std::process::id()));
+        let project = base.join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(project.join("pm-gate"), "").unwrap();
+        let gate = When {
+            run_mode: None,
+            exists: Some("pm-gate".into()),
+            env_set: None,
+            env_equals: None,
+            env_not_equals: None,
+            task_field: None,
+        };
+        let mut c = ctx();
+        c.project_root = Some(project.to_string_lossy().into_owned());
+        let via_project_root = matches(Some(&gate), &c);
+        c.cwd = Some(base.to_string_lossy().into_owned());
+        let cwd_wins = matches(Some(&gate), &c);
+        std::fs::remove_dir_all(&base).unwrap();
+        assert!(via_project_root);
+        assert!(!cwd_wins);
     }
 }

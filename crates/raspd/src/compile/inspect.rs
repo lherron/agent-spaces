@@ -243,6 +243,7 @@ fn inspect_prompt(
         agents_root: discovered.agents_root.clone(),
         search_path: discovered.search_path.clone(),
         project_root: project_root.map(str::to_owned),
+        cwd: s(placement.get("cwd")).map(str::to_owned),
         project_id: prep.project_id.clone(),
         agent_id: Some(prep.agent_id.clone()),
         agent_name: Some(basename(agent_root)),

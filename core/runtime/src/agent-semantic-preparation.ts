@@ -117,6 +117,7 @@ export async function loadAgentSemantics(
     agentRoot: paths.agentRoot,
     aspHome,
     ...(paths.projectRoot !== undefined ? { projectRoot: paths.projectRoot } : {}),
+    cwd: placement.cwd,
     ...((promptScope.projectId ?? options.projectId)
       ? { projectId: promptScope.projectId ?? options.projectId }
       : {}),

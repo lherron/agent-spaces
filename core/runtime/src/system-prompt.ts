@@ -39,6 +39,12 @@ export interface MaterializeSystemPromptInput {
   agentsRoot?: string | undefined
   aspHome?: string | undefined
   projectRoot?: string | undefined
+  /**
+   * The placement's working folder. `when.exists` predicates resolve against it
+   * (else projectRoot), never the resolving process's cwd: a daemon such as
+   * aspd runs from its own folder (T-12027).
+   */
+  cwd?: string | undefined
   projectId?: string | undefined
   agentId?: string | undefined
   taskId?: string | undefined
@@ -300,6 +306,7 @@ function selectSystemPromptTemplate(input: InspectAgentSystemPromptInput):
     agentsRoot,
     agentRootSearchPath,
     projectRoot: input.projectRoot,
+    cwd: input.cwd ?? input.projectRoot,
     projectId: input.projectId,
     taskId: input.taskId,
     ...(input.taskContext !== undefined ? { taskContext: input.taskContext } : {}),
