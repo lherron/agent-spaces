@@ -92,13 +92,26 @@ export async function printLaunchHeader(
  * The broker already reduced ambient state to its explicit allowlist before it
  * wrote this artifact. Merging the runner's own process.env here would bypass
  * that fence and could reintroduce credentials the broker deliberately omitted.
+ *
+ * The one exception is the pane identity tmux sets on this runner: TMUX and
+ * TMUX_PANE name the pane the harness is about to run in, and Claude Code needs
+ * them to ask tmux whether it passes Kitty graphics through.
  */
-export function buildTmuxHarnessSpawnEnv(artifact: TmuxLaunchExecArtifact): Record<string, string> {
+const PANE_ENV_KEYS = ['TMUX', 'TMUX_PANE']
+
+export function buildTmuxHarnessSpawnEnv(
+  artifact: TmuxLaunchExecArtifact,
+  paneEnv: NodeJS.ProcessEnv = process.env
+): Record<string, string> {
   const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(artifact.env ?? {})) {
     if (typeof value === 'string') {
       env[key] = value
     }
+  }
+  for (const key of PANE_ENV_KEYS) {
+    const value = paneEnv[key]
+    if (value) env[key] = value
   }
   return env
 }

@@ -76,6 +76,23 @@ describe('buildTmuxHarnessSpawnEnv', () => {
 
     expect(env).toEqual({ KEEP: 'yes' })
   })
+
+  test("carries the runner pane's TMUX and TMUX_PANE so the harness knows it runs in tmux", () => {
+    const env = buildTmuxHarnessSpawnEnv(
+      { argv: ['/usr/bin/true'], cwd: '/tmp', env: { HOME: '/Users/tester' } },
+      {
+        TMUX: '/var/run/hrc/btmux/claude-code--rt-x.sock,4242,0',
+        TMUX_PANE: '%1',
+        WRKQD_TOKEN: 'stale-ambient-token',
+      }
+    )
+
+    expect(env).toEqual({
+      HOME: '/Users/tester',
+      TMUX: '/var/run/hrc/btmux/claude-code--rt-x.sock,4242,0',
+      TMUX_PANE: '%1',
+    })
+  })
 })
 
 /**
