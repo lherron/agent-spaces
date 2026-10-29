@@ -71,6 +71,21 @@ export type {
   TmuxPaneInspection,
   TmuxPaneResize,
 } from './runtime/tmux'
+export {
+  connectHrcptyOps,
+  HRCPTY_PROTOCOL,
+  HrcptyPtyController,
+  HrcptyRpcError,
+} from './runtime/hrcpty'
+export type {
+  HrcptyAllowedOps,
+  HrcptyCapture,
+  HrcptyConnect,
+  HrcptyHello,
+  HrcptyOpsConnection,
+  HrcptyPtyControllerOptions,
+  HrcptySpawnRequest,
+} from './runtime/hrcpty'
 export { tmuxHelperRunner, writeTmuxLaunchExecFiles } from './runtime/tmux-launch-exec'
 export type {
   TmuxHelperLauncher,
@@ -102,6 +117,12 @@ export {
 } from './drivers/arris-resident/control-client'
 export type { ArrisControlClient } from './drivers/arris-resident/control-client'
 export { CLAUDE_CODE_TMUX_DRIVER_KIND } from './drivers/claude-code-tmux/hook-events'
+export {
+  CLAUDE_CODE_HRCPTY_DRIVER_KIND,
+  createClaudeCodeHrcptyDriver,
+  createDefaultClaudeCodeHrcptyDriver,
+} from './drivers/claude-code-hrcpty/driver'
+export type { ClaudeCodeHrcptyDriverOptions } from './drivers/claude-code-hrcpty/driver'
 export { CODEX_DRIVER_KIND } from './drivers/codex-app-server/event-map'
 export { MUSE_DRIVER_KIND } from './drivers/muse-serve/event-map'
 export { createCodexDesktopDriver } from './drivers/codex-desktop/driver'

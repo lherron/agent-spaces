@@ -22,7 +22,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 import {
   detectAgentLocalComponents,
@@ -42,9 +42,14 @@ import type {
 } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 
+import { createDefaultClaudeCodeHrcptyDriver } from '../../../harness/harness-broker/src/drivers/claude-code-hrcpty/driver'
 import { createDefaultClaudeCodeTmuxDriver } from '../../../harness/harness-broker/src/drivers/claude-code-tmux/driver'
 import { createCodexAppServerDriver } from '../../../harness/harness-broker/src/drivers/codex-app-server/driver'
 import type { Driver } from '../../../harness/harness-broker/src/drivers/driver'
+import {
+  resolveHrcptyBinary,
+  startHrcptySupervisor,
+} from '../../../harness/harness-broker/src/testing/hrcpty-supervisor'
 
 export const NOOP_DRIVER_KIND = 'noop-driver'
 
@@ -81,11 +86,15 @@ export type RowRecipe = {
 // ---------------------------------------------------------------------------
 
 /**
- * The two driver kinds selected by the v2 matrix request shapes. `noop-driver`
- * is deliberately absent: it is not a real harness and the contract excludes it.
+ * The driver kinds selected by the v2 matrix request shapes. `noop-driver` is
+ * deliberately absent: it is not a real harness and the contract excludes it.
  */
 export function buildMatrixDrivers(hookIpcDir: string): Driver[] {
-  return [createDefaultClaudeCodeTmuxDriver(hookIpcDir), createCodexAppServerDriver()]
+  return [
+    createDefaultClaudeCodeHrcptyDriver(hookIpcDir),
+    createDefaultClaudeCodeTmuxDriver(hookIpcDir),
+    createCodexAppServerDriver(),
+  ]
 }
 
 // ---------------------------------------------------------------------------
@@ -157,6 +166,23 @@ function tmuxProbe(): DependencyProbe | undefined {
   const tmux = resolveTmuxBin()
   if (tmux === 'tmux' && onPath('tmux') === undefined) {
     return { available: false, reason: 'tmux binary not found (set TMUX_BIN)' }
+  }
+  return undefined
+}
+
+function hrcptyProbe(): DependencyProbe | undefined {
+  const binary = resolveHrcptyBinary()
+  if (binary === undefined) {
+    return { available: false, reason: 'hrc-pty binary not found (set HRC_PTY_BIN)' }
+  }
+  // hrc-pty's spawn refuses without the entry (§4.7); name it here instead.
+  const terminfo = Bun.spawnSync(['/usr/bin/infocmp', 'xterm-ghostty'], {
+    env: { HOME: homedir(), TERMINFO_DIRS: `${join(homedir(), '.terminfo')}:` },
+    stdout: 'ignore',
+    stderr: 'ignore',
+  })
+  if (terminfo.exitCode !== 0) {
+    return { available: false, reason: 'xterm-ghostty terminfo missing from ~/.terminfo' }
   }
   return undefined
 }
@@ -323,7 +349,10 @@ function compileRequest(input: {
       inputPolicy: DEFAULT_CODEX_BROKER_INPUT_POLICY,
       exposurePolicy: headless
         ? { mode: 'none' }
-        : { mode: 'broker-reports-target', targetKind: 'tmux-session' },
+        : {
+            mode: 'broker-reports-target',
+            targetKind: input.kind === 'claude-code-hrcpty' ? 'hrcpty-socket' : 'tmux-session',
+          },
       resourceLimits: { startupTimeoutMs: input.timeoutMs, turnTimeoutMs: input.timeoutMs },
       observability: { traceId: requestIdentity.traceId },
       capabilityPolicy: { allowDegrade: false, requireBrokerDefaultForCodexHeadless: true },
@@ -478,6 +507,36 @@ async function allocatePane(
 }
 
 // ---------------------------------------------------------------------------
+// hrcpty supervisor allocation
+// ---------------------------------------------------------------------------
+
+let supervisorCounter = 0
+
+/**
+ * A real `hrc-pty serve` in rusthrc's place: socket and attach token in one
+ * short directory, the lease the dispatch carries. Never a tmux pane.
+ */
+async function allocateSupervisor(
+  ctx: PlanContext
+): Promise<{ runtime: InvocationRuntimeContext; cleanup: () => Promise<void> }> {
+  const binary = resolveHrcptyBinary()
+  if (binary === undefined) throw new Error('hrc-pty binary not found (set HRC_PTY_BIN)')
+  supervisorCounter += 1
+  const supervisor = await startHrcptySupervisor({
+    binary,
+    dir: join('/tmp', `amp-${process.pid}-${supervisorCounter}`),
+    runtimeId: `runtime_admission_matrix_${ctx.marker}`,
+  })
+  return {
+    runtime: { terminalSurface: supervisor.lease },
+    cleanup: async () => {
+      await supervisor.shutdown()
+      rmSync(dirname(supervisor.socketPath), { recursive: true, force: true })
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Recipes
 // ---------------------------------------------------------------------------
 
@@ -494,7 +553,8 @@ export const PRIMING_PROMPT = 'Reply with exactly READY and nothing else. Do not
 function compiledRecipe(input: {
   kind: string
   agentName: string
-  needsPane: boolean
+  /** The terminal the row's dispatch leases: a tmux pane, an hrc-pty supervisor, or none. */
+  terminal: 'tmux-pane' | 'hrcpty' | 'none'
   probe: () => DependencyProbe
   driver: (hookIpcDir: string, controlDir: string) => Driver
   /**
@@ -527,10 +587,13 @@ function compiledRecipe(input: {
           })
         )
         let runtime: InvocationRuntimeContext | undefined
-        if (input.needsPane) {
-          const pane = await allocatePane(ctx, input.kind)
-          runtime = pane.runtime
-          cleanups.push(pane.cleanup)
+        if (input.terminal !== 'none') {
+          const surface =
+            input.terminal === 'hrcpty'
+              ? await allocateSupervisor(ctx)
+              : await allocatePane(ctx, input.kind)
+          runtime = surface.runtime
+          cleanups.push(surface.cleanup)
         }
         return {
           driver: input.driver(ctx.hookIpcDir, join(ctx.hookIpcDir, 'control')),
@@ -554,21 +617,27 @@ function compiledRecipe(input: {
 }
 
 export const ROW_RECIPES: Record<string, RowRecipe> = {
-  // Task D supplies the driver and supervisor allocation. Never substitute a tmux pane.
-  'claude-code-hrcpty': {
+  'claude-code-hrcpty': compiledRecipe({
     kind: 'claude-code-hrcpty',
-    probe: () => ({
-      available: false,
-      reason: 'hrcpty driver and supervisor lease allocator pending task D',
-    }),
-    plan: async () => {
-      throw new Error('hrcpty admission requires task D driver and supervisor lease allocator')
+    agentName: 'curly',
+    terminal: 'hrcpty',
+    driver: (hookIpcDir) => createDefaultClaudeCodeHrcptyDriver(hookIpcDir),
+    probe: () => {
+      const claude = resolveClaudeBin()
+      if (claude === undefined)
+        return { available: false, reason: 'claude binary not found (set ASP_CLAUDE_PATH)' }
+      const hrcpty = hrcptyProbe()
+      if (hrcpty !== undefined) return hrcpty
+      return {
+        available: true,
+        reason: `real claude at ${claude}, hrc-pty at ${resolveHrcptyBinary()}`,
+      }
     },
-  },
+  }),
   'claude-code-tmux': compiledRecipe({
     kind: 'claude-code-tmux',
     agentName: 'curly',
-    needsPane: true,
+    terminal: 'tmux-pane',
     driver: (hookIpcDir) => createDefaultClaudeCodeTmuxDriver(hookIpcDir),
     probe: () => {
       const claude = resolveClaudeBin()
@@ -582,7 +651,7 @@ export const ROW_RECIPES: Record<string, RowRecipe> = {
   'codex-app-server': compiledRecipe({
     kind: 'codex-app-server',
     agentName: 'curly',
-    needsPane: false,
+    terminal: 'none',
     prepareEnv: exportCodexPath,
     driver: () => createCodexAppServerDriver(),
     probe: () => {

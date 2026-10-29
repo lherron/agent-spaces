@@ -7,6 +7,7 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { type BrokerAttachIdentity, createBroker } from './broker'
 import { createArrisResidentDriver } from './drivers/arris-resident/driver'
+import { createDefaultClaudeCodeHrcptyDriver } from './drivers/claude-code-hrcpty/driver'
 import { createDefaultClaudeCodeTmuxDriver } from './drivers/claude-code-tmux/driver'
 import type { CodexTuiLauncher } from './drivers/codex-app-server/codex-tui-wrapper'
 import { createCodexAppServerDriver } from './drivers/codex-app-server/driver'
@@ -93,6 +94,13 @@ export function createDefaultBroker(
       createDefaultMuseCliTmuxDriver(options.hookIpcDir, options.tmuxHelperLauncher),
       createArrisResidentDriver(),
       createDefaultClaudeCodeTmuxDriver(options.hookIpcDir, options.tmuxHelperLauncher),
+      // hrc-pty's ops socket takes the same attach token the durable broker
+      // holds; without one the driver reads hrc-pty's default token file.
+      createDefaultClaudeCodeHrcptyDriver(
+        options.hookIpcDir,
+        options.tmuxHelperLauncher,
+        options.attachIdentity?.attachToken
+      ),
       ...(options.additionalDrivers?.map((createDriver) => createDriver()) ?? []),
     ],
     ...(onEvent !== undefined ? { onEvent } : {}),

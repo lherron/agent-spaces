@@ -85,6 +85,13 @@ export const CLAUDE_CODE_TMUX_AUTHORITY: EvidenceAuthorityMatrix = {
 }
 
 /**
+ * Claude Code under hrc-pty (T-12046). The same Claude process, hooks and
+ * session JSONL as {@link CLAUDE_CODE_TMUX_AUTHORITY}; only the terminal host
+ * differs, and the host carries no evidence.
+ */
+export const CLAUDE_CODE_HRCPTY_AUTHORITY: EvidenceAuthorityMatrix = CLAUDE_CODE_TMUX_AUTHORITY
+
+/**
  * Codex CLI TUI. Hooks own lifecycle, tools, turn brackets and permissions;
  * the rollout JSONL already owns assistant prose (the held-latest transcript
  * reader), which is why `conversation` is native here while Claude's is not.

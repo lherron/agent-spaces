@@ -1,6 +1,7 @@
 import { dirname } from 'node:path'
 import {
   type TmuxHelperLauncher,
+  type TmuxLaunchExecInput,
   tmuxHelperRunner,
   writeTmuxLaunchExecFiles,
 } from '../../runtime/tmux-launch-exec'
@@ -84,17 +85,25 @@ function toDecisionBridgeCommand(bridgeCommand: string): string {
   return bridgeCommand.replace(/\bclaude-hook\b/, 'claude-hook-decision')
 }
 
-export async function buildClaudeLaunchCommandLine(
+export interface ClaudeLaunchHookEnv {
+  invocationId: string
+  runtimeId?: string | undefined
+  callbackSocket: string
+  bridgeCommand?: string | undefined
+  helperLauncher?: TmuxHelperLauncher | undefined
+}
+
+/**
+ * The Claude process every terminal host launches: the hook settings overlay
+ * merged into `--settings` and the `HARNESS_BROKER_*` env. The tmux route
+ * writes it to a launch artifact for its pane runner; the hrcpty route passes
+ * it to hrc-pty's `spawn`.
+ */
+export async function buildClaudeLaunchInput(
   spec: ChildProcessInvocationSpec,
   ctx: DriverContext,
-  hookEnv: {
-    invocationId: string
-    runtimeId?: string | undefined
-    callbackSocket: string
-    bridgeCommand?: string | undefined
-    helperLauncher?: TmuxHelperLauncher | undefined
-  }
-): Promise<string> {
+  hookEnv: ClaudeLaunchHookEnv
+): Promise<TmuxLaunchExecInput> {
   const env = {
     ...spec.process.lockedEnv,
     ...(ctx.dispatchEnv ?? {}),
@@ -106,15 +115,23 @@ export async function buildClaudeLaunchCommandLine(
     ...(hookEnv.runtimeId !== undefined ? { HARNESS_BROKER_RUNTIME_ID: hookEnv.runtimeId } : {}),
   }
   const launchArgs = await buildArgsWithMergedSettings(spec.process.args, hookEnv)
+  return {
+    argv: [spec.process.command, ...launchArgs],
+    cwd: spec.process.cwd,
+    env,
+    pathPrepend: spec.process.pathPrepend,
+    ...(spec.launch !== undefined ? { prompts: spec.launch } : {}),
+  }
+}
+
+export async function buildClaudeLaunchCommandLine(
+  spec: ChildProcessInvocationSpec,
+  ctx: DriverContext,
+  hookEnv: ClaudeLaunchHookEnv
+): Promise<string> {
   const launch = await writeTmuxLaunchExecFiles(
     `${hookEnv.callbackSocket}.claude`,
-    {
-      argv: [spec.process.command, ...launchArgs],
-      cwd: spec.process.cwd,
-      env,
-      pathPrepend: spec.process.pathPrepend,
-      ...(spec.launch !== undefined ? { prompts: spec.launch } : {}),
-    },
+    await buildClaudeLaunchInput(spec, ctx, hookEnv),
     hookEnv.helperLauncher !== undefined
       ? { runner: tmuxHelperRunner(hookEnv.helperLauncher, 'tmux-launch') }
       : {}

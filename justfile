@@ -107,6 +107,10 @@ e2e: env-up
 lint:
     bun run lint
 
+# Run the claude-code-hrcpty driver against a real `hrc-pty serve` (HRC_PTY_BIN, else hrc-runtime's cargo build)
+e2e-hrcpty-driver out:
+    bun scripts/hrcpty-driver-live-e2e.ts --out {{out}}
+
 # Attach-before-start live debugger for the real codex-cli-tmux broker path.
 debug-codex-tmux-live *args:
     bun scripts/debug-codex-tmux-live.ts --broker-transport stdio {{args}}
