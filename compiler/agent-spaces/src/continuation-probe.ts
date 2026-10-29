@@ -259,7 +259,7 @@ function resolveArtifactFormat(
 function driverFormat(driver: unknown): 'claude' | 'codex' | 'pi' | undefined {
   if (driver === 'pi-sdk' || driver === 'pi-tui-tmux') return 'pi'
   if (driver === 'codex-app-server' || driver === 'codex-cli-tmux') return 'codex'
-  if (driver === 'claude-code-tmux') return 'claude'
+  if (driver === 'claude-code-tmux' || driver === 'claude-code-hrcpty') return 'claude'
   return undefined
 }
 

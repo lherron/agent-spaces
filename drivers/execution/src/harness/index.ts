@@ -30,7 +30,7 @@ export type {
 
 export { DEFAULT_HARNESS, HARNESS_IDS, isHarnessId } from 'spaces-config'
 
-import { register as registerClaude } from 'spaces-harness-claude'
+import { ClaudeAdapter, register as registerClaude } from 'spaces-harness-claude'
 import { codexAdapter } from 'spaces-harness-codex'
 import { museAdapter } from 'spaces-harness-muse'
 import { piAdapter as agentHarnessAdapter } from 'spaces-harness-pi'
@@ -42,6 +42,11 @@ export const sessionRegistry = new SessionRegistry()
 setSessionRegistry(sessionRegistry)
 
 registerClaude({ harnesses: harnessRegistry, sessions: sessionRegistry })
+// Same Claude composer and detection, with the selected harness identity intact.
+class ClaudeHrcptyAdapter extends ClaudeAdapter {
+  override readonly id = 'claude-hrcpty'
+}
+harnessRegistry.register(new ClaudeHrcptyAdapter())
 harnessRegistry.register(agentHarnessAdapter)
 
 // Codex harness adapter registered eagerly (session factory removed — CodexSession

@@ -18,14 +18,16 @@ export const SUPPORTED_BROKER_PROTOCOL_VERSIONS = [
   'harness-broker/0.2',
 ] as const satisfies readonly BrokerProtocolVersion[]
 
-export type BrokerTerminalSurfaceReport = {
-  kind: 'tmux-session'
-  socketPath: string
-  sessionName: string
-  windowId?: string | undefined
-  windowName?: string | undefined
-  paneId?: string | undefined
-}
+export type BrokerTerminalSurfaceReport =
+  | { kind: 'hrcpty-socket'; socketPath: string }
+  | {
+      kind: 'tmux-session'
+      socketPath: string
+      sessionName: string
+      windowId?: string | undefined
+      windowName?: string | undefined
+      paneId?: string | undefined
+    }
 
 export interface BrokerAttachRequest {
   runtimeId: string

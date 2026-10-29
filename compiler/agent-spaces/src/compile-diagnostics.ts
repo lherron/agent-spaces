@@ -104,7 +104,7 @@ export function disallowedToolsUnsupportedDiagnostic(
   return {
     level: 'warning',
     code: 'disallowed_tools_unsupported_driver',
-    message: `hrcPolicy.disallowedTools was not applied for ${selectedDriver}; only claude-code-tmux currently supports compiler-enforced tool denial.`,
+    message: `hrcPolicy.disallowedTools was not applied for ${selectedDriver}; only claude-code-tmux and claude-code-hrcpty currently support compiler-enforced tool denial.`,
     plane: 'asp-compiler',
     ...(profileId !== undefined ? { profileId } : {}),
     details: { selectedDriver, disallowedTools, applied: false },

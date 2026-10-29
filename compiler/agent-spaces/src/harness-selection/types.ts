@@ -11,6 +11,7 @@ export type BuilderId =
   | 'agent-harness'
   | 'agent-harness-tmux'
   | 'claude-code-tmux'
+  | 'claude-code-hrcpty'
   | 'codex-app-server'
   | 'muse-serve'
   | 'muse-cli-tmux'

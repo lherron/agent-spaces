@@ -25,13 +25,14 @@ export type { HarnessId }
 
 /**
  * The complete, deliberately closed, public harness vocabulary. Exactly the
- * four canonical ids — no aliases, frontends, or removed ids. Membership here
+ * canonical ids — no aliases, frontends, or removed ids. Membership here
  * is the only harness question config answers; everything else resolves in
  * the central compiler resolver.
  */
 export const HARNESS_IDS: readonly HarnessId[] = [
   'agent-harness',
   'claude',
+  'claude-hrcpty',
   'codex',
   'muse',
 ] as const

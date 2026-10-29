@@ -13,7 +13,7 @@ import {
   parseTargetsToml,
 } from 'spaces-config'
 
-const EXPECTED_IDS = ['agent-harness', 'claude', 'codex', 'muse'] as const
+const EXPECTED_IDS = ['agent-harness', 'claude', 'claude-hrcpty', 'codex', 'muse'] as const
 
 function wireRequest(harness: (typeof EXPECTED_IDS)[number]) {
   return {
@@ -48,7 +48,7 @@ function wireRequest(harness: (typeof EXPECTED_IDS)[number]) {
 }
 
 describe('repository harness-selection projections', () => {
-  test('protocol, config, profile, target, and catalog expose the same four IDs', () => {
+  test('protocol, config, profile, target, and catalog expose the same five IDs', () => {
     expect([...catalogHarnessIds()]).toEqual(EXPECTED_IDS)
     expect([...CONFIG_HARNESS_IDS]).toEqual(EXPECTED_IDS)
     expect(catalogCapabilities().map(({ id }) => id)).toEqual(EXPECTED_IDS)
@@ -78,6 +78,7 @@ describe('repository harness-selection projections', () => {
       recipe: { driver: 'agent-harness-tmux' },
     })
     expect(catalogCapabilities().map(({ presentationDefault }) => presentationDefault)).toEqual([
+      true,
       true,
       true,
       true,

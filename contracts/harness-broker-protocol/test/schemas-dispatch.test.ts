@@ -489,3 +489,65 @@ describe('published caller behavior (§9)', () => {
     })
   })
 })
+
+describe('hrcpty terminal lease', () => {
+  const spec = {
+    ...claudeCodeTmuxSpec,
+    harness: { ...claudeCodeTmuxSpec.harness, driver: 'claude-code-hrcpty' },
+    driver: { kind: 'claude-code-hrcpty', terminalHost: 'hrcpty' },
+  }
+  const surface = {
+    kind: 'hrcpty',
+    socketPath: '/tmp/hrcpty.sock',
+    ownership: 'hrc',
+    allowedOps: {
+      inspect: true,
+      sendInput: true,
+      sendInterrupt: true,
+      capture: true,
+      resize: false,
+      spawn: true,
+    },
+  }
+  test('accepts an hrcpty socket lease without tmux coordinates', () => {
+    expectValidCommand(
+      dispatchCommand({ startRequest: { spec }, runtime: { terminalSurface: surface } })
+    )
+  })
+  test('requires a supervisor lease and spawn capability', () => {
+    expectInvalidDispatchRequest(
+      { startRequest: { spec } },
+      { path: 'runtime.terminalSurface', code: 'required' }
+    )
+    expectInvalidDispatchRequest(
+      { startRequest: { spec }, runtime: { tmux: { socketPath: '/tmp/tmux.sock' } } },
+      { path: 'runtime.terminalSurface', code: 'required' }
+    )
+    expectInvalidDispatchRequest(
+      {
+        startRequest: { spec },
+        runtime: {
+          terminalSurface: { ...surface, allowedOps: { ...surface.allowedOps, spawn: false } },
+        },
+      },
+      { path: 'runtime.terminalSurface.allowedOps.spawn', code: 'invalid_literal' }
+    )
+  })
+  test('rejects a tmux lease on the supervisor driver', () => {
+    expectInvalidDispatchRequest(
+      {
+        startRequest: { spec },
+        runtime: {
+          terminalSurface: {
+            ...surface,
+            kind: 'tmux-pane',
+            sessionId: '$1',
+            windowId: '@1',
+            paneId: '%1',
+          },
+        },
+      },
+      { path: 'runtime.terminalSurface.kind', code: 'invalid_literal' }
+    )
+  })
+})

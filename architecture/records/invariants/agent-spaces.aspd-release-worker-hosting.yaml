@@ -4,9 +4,14 @@ status: active
 owner_project: agent-spaces
 scope: immutable ASP release worker selection, helper closure, and positive hosting evidence
 predicate: >
+  Amendment T-12048 (2026-10-29), approved T-12046 REV 5: claude-hrcpty
+  selects claude-code-hrcpty, positively bound to harness-broker, with pty
+  execution, hrcpty terminal host, supervisor-process ownership and a required
+  terminal in both presentation variants. HRC allocates the supervisor socket
+  lease; the compiler carries launch intent for spawn, never tmux paste.
   Under agent-spaces.producer-owned-harness-selection, a v2 ASP release is
   activatable only when its immutable binding table positively covers every
-  driver the four-harness catalog can select: claude-code-tmux,
+  driver the five-harness catalog can select: claude-code-tmux, claude-code-hrcpty,
   codex-app-server, muse-serve, muse-cli-tmux, agent-harness, and
   agent-harness-tmux. There is no Codex exemption and no inferred hosting.
   A binding-aware standalone ASP release declares each release-supported broker
@@ -40,6 +45,8 @@ predicate: >
   active release and served in-process, never HRC-hosted.
 authority: Daedalus approval of wrkq T-08561 revision de063d73 and Pi SDK scope-narrowing amendment c6d821ce on 2026-09-16; T-08594 Desktop amendment under Lance ruling (hrc-runtime T-08567 C-23749); T-08680 native agent-harness worker amendment ruled by Lance 2026-09-21; producer-owned selection amendment approved by EN-15959 and Lance on 2026-09-21
 source:
+  - wrkq:T-12046
+  - wrkq:T-12048
   - wrkq:T-08699
   - wrkq:T-08680
   - architecture/records/invariants/agent-spaces.producer-owned-harness-selection.yaml
@@ -56,7 +63,7 @@ source:
   - architecture/records/invariants/agent-spaces.harness-broker-turn-evidence.yaml
   - architecture/records/invariants/agent-spaces.codex-tui-app-server-presentation.yaml
 required_tests:
-  - v2 release activation rejects unless bindings and positive hostedDrivers cover claude-code-tmux codex-app-server muse-serve muse-cli-tmux agent-harness and agent-harness-tmux
+  - v2 release activation rejects unless bindings and positive hostedDrivers cover claude-code-tmux claude-code-hrcpty codex-app-server muse-serve muse-cli-tmux agent-harness and agent-harness-tmux
   - the identity-bound agent-harness executable passes release closure and identity inspection advertises both agent-harness drivers and owns both explicit bindings
   - aspd preparation for either agent-harness driver returns that exact executable with the selected driver in positive hostedDrivers and refuses missing or mismatched evidence before executionRelease
   - new release build and inspection validate worker bindings driver inventories identity and payload and asset digests
@@ -77,9 +84,9 @@ reopen_when:
   - an unbound driver can receive executionRelease or cause a hosting effect
   - a release worker resolves an ASP-owned Claude or Pi helper or required statusline asset outside its immutable release payload
   - a retained v1 release is rewritten or is accepted as a v2-compatible producer fallback reader or rollback path
-  - any of the six compiler-selectable drivers lacks a positive v2 release binding or Codex receives an exemption
+  - any compiler-selectable driver lacks a positive v2 release binding or Codex receives an exemption
   - caller input or a selectedProfile brokerDriver chooses the release worker instead of the compiler's singular execution and canonical dispatch request
-  - pi or pi-sdk becomes a public selectable harness or an activation prerequisite for the four-harness v2 matrix
+  - pi or pi-sdk becomes a public selectable harness or an activation prerequisite for the five-harness v2 matrix
   - worker hosting lifecycle placement or routing authority moves from HRC
 supersedes: []
 superseded_by: null

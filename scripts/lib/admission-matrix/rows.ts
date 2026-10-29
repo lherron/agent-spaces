@@ -224,6 +224,12 @@ function createFixture(kind: string, agentName: string, repoRoot: string): Fixtu
 // ---------------------------------------------------------------------------
 
 const REQUESTED: Record<string, RuntimeCompileRequest['requested']> = {
+  'claude-code-hrcpty': {
+    harness: 'claude-hrcpty',
+    modelProvider: 'anthropic',
+    model: 'sonnet',
+    presentation: true,
+  },
   'claude-code-tmux': {
     harness: 'claude',
     modelProvider: 'anthropic',
@@ -548,6 +554,17 @@ function compiledRecipe(input: {
 }
 
 export const ROW_RECIPES: Record<string, RowRecipe> = {
+  // Task D supplies the driver and supervisor allocation. Never substitute a tmux pane.
+  'claude-code-hrcpty': {
+    kind: 'claude-code-hrcpty',
+    probe: () => ({
+      available: false,
+      reason: 'hrcpty driver and supervisor lease allocator pending task D',
+    }),
+    plan: async () => {
+      throw new Error('hrcpty admission requires task D driver and supervisor lease allocator')
+    },
+  },
   'claude-code-tmux': compiledRecipe({
     kind: 'claude-code-tmux',
     agentName: 'curly',

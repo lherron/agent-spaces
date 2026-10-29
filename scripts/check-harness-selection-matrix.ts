@@ -25,7 +25,10 @@ type ExpectedRow = {
   /** Human label for the table. */
   name: string
   /** Selection inputs. Omitted keys exercise catalog defaults. */
-  requested?: { harness?: 'agent-harness' | 'claude' | 'codex' | 'muse'; presentation?: boolean }
+  requested?: {
+    harness?: 'agent-harness' | 'claude' | 'claude-hrcpty' | 'codex' | 'muse'
+    presentation?: boolean
+  }
   expected: {
     harness: string
     presentation: boolean
@@ -108,6 +111,36 @@ const EXPECTED_ROWS: readonly ExpectedRow[] = [
     },
   },
   {
+    name: 'claude-hrcpty / no presentation (supervisor terminal required internally)',
+    requested: { harness: 'claude-hrcpty', presentation: false },
+    expected: {
+      harness: 'claude-hrcpty',
+      presentation: false,
+      driver: 'claude-code-hrcpty',
+      executionTransport: 'pty',
+      terminalRequired: true,
+      terminalHost: 'hrcpty',
+      processExecution: 'supervisor-process',
+      presentationFulfillment: 'intrinsic',
+      presentationSurface: undefined,
+    },
+  },
+  {
+    name: 'claude-hrcpty / presentation',
+    requested: { harness: 'claude-hrcpty', presentation: true },
+    expected: {
+      harness: 'claude-hrcpty',
+      presentation: true,
+      driver: 'claude-code-hrcpty',
+      executionTransport: 'pty',
+      terminalRequired: true,
+      terminalHost: 'hrcpty',
+      processExecution: 'supervisor-process',
+      presentationFulfillment: 'intrinsic',
+      presentationSurface: undefined,
+    },
+  },
+  {
     name: 'codex / no presentation',
     requested: { harness: 'codex', presentation: false },
     expected: {
@@ -172,11 +205,11 @@ const EXPECTED_ROWS: readonly ExpectedRow[] = [
     requested: undefined,
     expected: {
       harness: 'agent-harness',
-      presentation: false,
-      driver: 'agent-harness',
+      presentation: true,
+      driver: 'agent-harness-tmux',
       executionTransport: 'native-worker',
-      terminalRequired: false,
-      terminalHost: undefined,
+      terminalRequired: true,
+      terminalHost: 'tmux',
       processExecution: 'native-worker',
       presentationFulfillment: 'birth-variant',
       presentationSurface: undefined,
@@ -292,7 +325,7 @@ const widths = headers.map((header, column) =>
 const formatLine = (cells: string[]): string =>
   cells.map((cell, column) => padEnd(cell, widths[column] ?? cell.length)).join(' | ')
 
-console.log('resolver capability matrix (expected 9 rows, independent fixture)')
+console.log('resolver capability matrix (expected 11 rows, independent fixture)')
 console.log(formatLine(headers))
 console.log(widths.map((width) => '-'.repeat(width)).join('-|-'))
 for (const cells of tableRows) console.log(formatLine(cells))

@@ -130,6 +130,47 @@ export const HARNESS_CATALOG: Readonly<Record<HarnessId, HarnessDefinition>> = {
     },
     processImplementation: { frontend: 'claude-code', provider: 'anthropic' },
   },
+  'claude-hrcpty': {
+    id: 'claude-hrcpty',
+    defaultModelProvider: 'anthropic',
+    supportedModelProviders: [
+      {
+        id: 'anthropic',
+        defaultModel: 'opus[1m]',
+        supportedModels: ['opus[1m]', 'opus', 'fable', 'sonnet', 'haiku', 'claude-sonnet-4-5'],
+      },
+    ],
+    presentationDefault: true,
+    executionVariants: {
+      withoutPresentation: {
+        recipeId: 'claude-code',
+        builder: 'claude-code-hrcpty',
+        driver: 'claude-code-hrcpty',
+        protocol: broker,
+        hosting: {
+          executionTransport: 'pty',
+          terminalRequired: true,
+          terminalHost: 'hrcpty',
+          processExecution: 'supervisor-process',
+        },
+        presentationFulfillment: 'intrinsic',
+      },
+      withPresentation: {
+        recipeId: 'claude-code',
+        builder: 'claude-code-hrcpty',
+        driver: 'claude-code-hrcpty',
+        protocol: broker,
+        hosting: {
+          executionTransport: 'pty',
+          terminalRequired: true,
+          terminalHost: 'hrcpty',
+          processExecution: 'supervisor-process',
+        },
+        presentationFulfillment: 'intrinsic',
+      },
+    },
+    processImplementation: { frontend: 'claude-code', provider: 'anthropic' },
+  },
   codex: {
     id: 'codex',
     defaultModelProvider: 'openai-codex',

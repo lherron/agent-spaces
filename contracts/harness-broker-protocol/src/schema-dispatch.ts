@@ -92,6 +92,39 @@ export function validateDispatchRuntime(
     issues
   )
 
+  if (driverKind === 'claude-code-hrcpty') {
+    if (terminalSurfaceRaw === undefined) {
+      issues.push(
+        makeIssue(
+          joinPath(runtimePath, 'terminalSurface'),
+          'required',
+          'claude-code-hrcpty dispatch requires an hrcpty terminal lease'
+        )
+      )
+    } else if (asRecord(terminalSurfaceRaw)?.['kind'] !== 'hrcpty') {
+      issues.push(
+        makeIssue(
+          joinPath(runtimePath, 'terminalSurface.kind'),
+          'invalid_literal',
+          'claude-code-hrcpty requires terminalSurface.kind hrcpty'
+        )
+      )
+    }
+    return
+  }
+  if (
+    isDriverKindIn(TMUX_SURFACE_DRIVER_KINDS, driverKind) &&
+    asRecord(terminalSurfaceRaw)?.['kind'] === 'hrcpty'
+  ) {
+    issues.push(
+      makeIssue(
+        joinPath(runtimePath, 'terminalSurface.kind'),
+        'invalid_literal',
+        `${driverKind} requires a tmux-pane terminal lease`
+      )
+    )
+  }
+
   if (!isDriverKindIn(TMUX_SURFACE_DRIVER_KINDS, driverKind)) {
     return
   }
@@ -134,12 +167,12 @@ function validateTerminalSurfaceLease(
 
   let ok = true
 
-  if (surface['kind'] !== 'tmux-pane') {
+  if (surface['kind'] !== 'tmux-pane' && surface['kind'] !== 'hrcpty') {
     issues.push(
       makeIssue(
         joinPath(basePath, 'kind'),
         'invalid_literal',
-        "terminalSurface.kind must be 'tmux-pane'"
+        "terminalSurface.kind must be 'tmux-pane' or 'hrcpty'"
       )
     )
     ok = false
@@ -167,7 +200,9 @@ function validateTerminalSurfaceLease(
     ok = false
   }
 
-  ok = validateTmuxPaneIds(surface, basePath, 'terminalSurface', issues) && ok
+  if (surface['kind'] === 'tmux-pane') {
+    ok = validateTmuxPaneIds(surface, basePath, 'terminalSurface', issues) && ok
+  }
 
   optionalString(surface['sessionName'], joinPath(basePath, 'sessionName'), issues)
   optionalString(surface['windowName'], joinPath(basePath, 'windowName'), issues)
@@ -181,6 +216,11 @@ function validateTerminalSurfaceLease(
     requireTrue(allowedOps['inspect'], joinPath(allowedOpsPath, 'inspect'), issues)
     requireTrue(allowedOps['sendInput'], joinPath(allowedOpsPath, 'sendInput'), issues)
     requireTrue(allowedOps['sendInterrupt'], joinPath(allowedOpsPath, 'sendInterrupt'), issues)
+    if (surface['kind'] === 'hrcpty') {
+      requireTrue(allowedOps['spawn'], joinPath(allowedOpsPath, 'spawn'), issues)
+      requireTrue(allowedOps['capture'], joinPath(allowedOpsPath, 'capture'), issues)
+      if (allowedOps['spawn'] !== true || allowedOps['capture'] !== true) ok = false
+    }
     optionalBoolean(allowedOps['capture'], joinPath(allowedOpsPath, 'capture'), issues)
     optionalBoolean(allowedOps['resize'], joinPath(allowedOpsPath, 'resize'), issues)
     if (

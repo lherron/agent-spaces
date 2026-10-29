@@ -661,7 +661,27 @@ function validateTerminalSurfaceReportedPayload(
     driverKind === 'pi-tui-tmux' ||
     driverKind === 'muse-cli-tmux'
 
-  if (payload['kind'] === 'tmux-pane') {
+  if (driverKind === 'claude-code-hrcpty' && payload['kind'] !== 'hrcpty-socket') {
+    issues.push(
+      makeIssue(
+        'payload.kind',
+        'invalid_literal',
+        'claude-code-hrcpty requires terminal.surface.reported payload kind hrcpty-socket'
+      )
+    )
+  }
+  if (payload['kind'] === 'hrcpty-socket') {
+    requireNonEmptyString(payload['socketPath'], 'payload.socketPath', issues)
+    if (requiresPaneKind) {
+      issues.push(
+        makeIssue(
+          'payload.kind',
+          'invalid_literal',
+          `${driverKind} requires terminal.surface.reported payload kind tmux-pane`
+        )
+      )
+    }
+  } else if (payload['kind'] === 'tmux-pane') {
     requireString(payload['socketPath'], 'payload.socketPath', issues)
     validateTmuxPaneIds(payload, 'payload', 'payload', issues)
     optionalString(payload['sessionName'], 'payload.sessionName', issues)
@@ -680,7 +700,13 @@ function validateTerminalSurfaceReportedPayload(
     requireString(payload['sessionName'], 'payload.sessionName', issues)
     optionalString(payload['paneId'], 'payload.paneId', issues)
   } else {
-    optionalEnum(payload['kind'], ['tmux-session', 'tmux-pane'], 'payload.kind', issues, true)
+    optionalEnum(
+      payload['kind'],
+      ['tmux-session', 'tmux-pane', 'hrcpty-socket'],
+      'payload.kind',
+      issues,
+      true
+    )
   }
 }
 

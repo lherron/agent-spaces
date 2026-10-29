@@ -25,7 +25,7 @@ import {
  */
 const RUNTIME_COMPILE_REQUEST_SCHEMA_VERSION = 'agent-runtime-compile-request/v2'
 
-const HARNESS_IDS = ['agent-harness', 'claude', 'codex', 'muse'] as const
+const HARNESS_IDS = ['agent-harness', 'claude', 'claude-hrcpty', 'codex', 'muse'] as const
 const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh'] as const
 
 /**

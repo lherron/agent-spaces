@@ -12,7 +12,13 @@ const client = createAgentSpacesClient({ runtime: compilerRuntime })
 describe('getHarnessCapabilities', () => {
   test('returns provider-typed harnesses with correct structure', async () => {
     const caps = await client.getHarnessCapabilities()
-    expect(caps.harnesses.map((h) => h.id)).toEqual(['agent-harness', 'claude', 'codex', 'muse'])
+    expect(caps.harnesses.map((h) => h.id)).toEqual([
+      'agent-harness',
+      'claude',
+      'claude-hrcpty',
+      'codex',
+      'muse',
+    ])
 
     const claude = caps.harnesses.find((h) => h.id === 'claude')
     expect(claude).toMatchObject({ provider: 'anthropic', frontends: ['claude-code'] })

@@ -323,6 +323,7 @@ export type AspcHistoricalExecutionEvidence = {
         brokerDriver?:
           | 'codex-app-server'
           | 'claude-code-tmux'
+          | 'claude-code-hrcpty'
           | 'codex-cli-tmux'
           | 'pi-tui-tmux'
           | 'pi-sdk'

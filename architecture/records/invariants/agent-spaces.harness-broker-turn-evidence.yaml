@@ -4,6 +4,10 @@ status: active
 owner_project: agent-spaces
 scope: harness-broker turn brackets and external-harness submission disposition attribution
 predicate: >
+  Amendment T-12048 (2026-10-29), approved T-12046 REV 5: claude-code-hrcpty
+  follows the same harness-evidence and native hook/transcript attribution
+  law as claude-code-tmux. Supervisor spawn or input acknowledgements never
+  mint turn evidence; its reported terminal target is an hrcpty-socket.
   Amendment T-08680 (2026-09-21, ruled by Lance): agent-harness-tmux is
   worker-native and no longer uses delivery acknowledgement through a private
   turn.begin handshake. Its outer driver sends standard invocation.input to a
@@ -112,6 +116,8 @@ authority:
   repo: agent-spaces
   surface: wrkq T-07849 rev 11 approved by Daedalus on Lance's authority; amended by Daedalus approvals of wrkq T-07962 rev 3 on 2026-09-03, wrkq T-08097 rev 13 on 2026-09-05, wrkq T-08204 rev 2 (C-19934) plus rev 3 attribution reconciliation, and wrkq T-08206 rev 2 (C-19948) on 2026-09-07; agent-harness child-handshake clauses superseded by Lance ruling T-08680 on 2026-09-21; Codex steer ambiguity changed to always fail-open by direct Lance ruling on 2026-09-21
 source:
+  - wrkq:T-12046
+  - wrkq:T-12048
   - wrkq:T-08680
   - wrkq:T-07849
   - wrkq:T-07962

@@ -5,6 +5,7 @@
  * Layout: spaces/<id>/space.toml
  */
 
+import type { HarnessId } from './harness.js'
 import type { SpaceId, SpaceRefString } from './refs.js'
 
 /** Author information for plugin metadata */
@@ -63,7 +64,7 @@ export interface SpaceSettings {
 /** Multi-harness support configuration */
 export interface SpaceHarnessConfig {
   /** List of harnesses this space supports */
-  supports?: Array<'agent-harness' | 'claude' | 'codex' | 'muse'> | undefined
+  supports?: HarnessId[] | undefined
 }
 
 /** Claude-specific space configuration */

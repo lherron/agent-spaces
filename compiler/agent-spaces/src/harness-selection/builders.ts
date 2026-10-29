@@ -1,4 +1,5 @@
 import { compileBrokerPlan } from '../compile-broker-plan.js'
+import { compileClaudeHrcptyPlan } from '../compile-hrcpty-broker-plan.js'
 import { compileNativeAgentHarnessPlan } from '../compile-native-agent-harness-plan.js'
 import type { ResolvedRecipeBuilder } from '../compile-plan-types.js'
 import { compileClaudeTmuxPlan, compileMuseTmuxPlan } from '../compile-tmux-broker-plan.js'
@@ -12,6 +13,7 @@ import type { BuilderId, ExecutionRecipe } from './types.js'
 export const BUILDER_REGISTRY: Readonly<Record<BuilderId, ResolvedRecipeBuilder>> = {
   'agent-harness': (...args) => compileNativeAgentHarnessPlan(...args),
   'agent-harness-tmux': (...args) => compileNativeAgentHarnessPlan(...args),
+  'claude-code-hrcpty': (...args) => compileClaudeHrcptyPlan(...args),
   'claude-code-tmux': (...args) => compileClaudeTmuxPlan(...args),
   'codex-app-server': (...args) => compileBrokerPlan(...args),
   'muse-serve': (...args) => compileBrokerPlan(...args),
@@ -29,7 +31,7 @@ export function assertCatalogBuilderCoherence(recipes: readonly ExecutionRecipe[
         `Catalog recipe ${recipe.recipeId} references unregistered builder ${recipe.builder}`
       )
     }
-    if (recipe.hosting.terminalRequired !== (recipe.hosting.terminalHost === 'tmux')) {
+    if (recipe.hosting.terminalRequired !== (recipe.hosting.terminalHost !== undefined)) {
       throw new Error(`Catalog recipe ${recipe.recipeId} has incoherent terminal hosting`)
     }
   }

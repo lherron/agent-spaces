@@ -29,11 +29,12 @@ import {
 } from './prepare-cli-runtime.js'
 
 /**
- * Build the harness-kind-agnostic launch payload for tmux broker routes. The
+ * Build the harness-kind-agnostic launch payload for terminal broker routes. The
  * priming is delivered to the harness via launch argv (see the prompt-through-
  * argv tests); this payload carries the same material so the tmux launch wrapper
  * can frame-print the header (system prompt + priming) into the pane before the
- * harness boots. Returns undefined when there is nothing to frame.
+ * harness boots. The hrcpty driver carries it into spawn instead.
+ * Returns undefined when there is nothing to frame.
  */
 function buildTmuxLaunchSpec(prepared: PreparedPlacementCliRuntime): HarnessLaunchSpec | undefined {
   const launch: HarnessLaunchSpec = {
@@ -54,21 +55,22 @@ function buildTmuxLaunchSpec(prepared: PreparedPlacementCliRuntime): HarnessLaun
  * prepare + the broker policy); muse-cli-tmux does NOT support it and instead
  * surfaces a `disallowed_tools_unsupported` diagnostic.
  */
-interface TmuxBrokerDriverConfig {
-  driverKind: 'claude-code-tmux' | 'muse-cli-tmux'
+interface TerminalBrokerDriverConfig {
+  driverKind: 'claude-code-tmux' | 'claude-code-hrcpty' | 'muse-cli-tmux'
+  terminalHost?: 'tmux' | 'hrcpty'
   provider: 'anthropic' | 'meta'
   frontend: 'claude-code' | 'muse-cli'
   honorDisallowedTools: boolean
 }
 
-const CLAUDE_TMUX_DRIVER_CONFIG: TmuxBrokerDriverConfig = {
+const CLAUDE_TMUX_DRIVER_CONFIG: TerminalBrokerDriverConfig = {
   driverKind: 'claude-code-tmux',
   provider: 'anthropic',
   frontend: 'claude-code',
   honorDisallowedTools: true,
 }
 
-const MUSE_TMUX_DRIVER_CONFIG: TmuxBrokerDriverConfig = {
+const MUSE_TMUX_DRIVER_CONFIG: TerminalBrokerDriverConfig = {
   driverKind: 'muse-cli-tmux',
   provider: 'meta',
   frontend: 'muse-cli',
@@ -84,22 +86,22 @@ const MUSE_TMUX_DRIVER_CONFIG: TmuxBrokerDriverConfig = {
  * allocation is deferred to the driver runtime.
  */
 export const compileClaudeTmuxPlan: ResolvedRecipeBuilder = (req, placement, resolved, options) =>
-  compileTmuxBrokerPlan(req, placement, resolved, CLAUDE_TMUX_DRIVER_CONFIG, options)
+  compileTerminalBrokerPlan(req, placement, resolved, CLAUDE_TMUX_DRIVER_CONFIG, options)
 
 export const compileMuseTmuxPlan: ResolvedRecipeBuilder = (req, placement, resolved, options) =>
-  compileTmuxBrokerPlan(req, placement, resolved, MUSE_TMUX_DRIVER_CONFIG, options)
+  compileTerminalBrokerPlan(req, placement, resolved, MUSE_TMUX_DRIVER_CONFIG, options)
 
 /**
- * Harness-kind-agnostic interactive tmux broker compiler. The tmux routes are
- * byte-identical except for the per-driver knobs in {@link TmuxBrokerDriverConfig},
- * so they delegate here. The spec/profile/plan field shapes are preserved
+ * Shared interactive terminal broker compiler. Launch preparation is
+ * identical except for the per-driver knobs in {@link TerminalBrokerDriverConfig},
+ * so terminal routes delegate here. The spec/profile/plan field shapes are preserved
  * verbatim to keep specHash/profileHash/planHash stable for each driver.
  */
-async function compileTmuxBrokerPlan(
+export async function compileTerminalBrokerPlan(
   req: RuntimeCompileRequest,
   placement: CompilePlacement,
   resolved: ResolvedHarnessExecution,
-  driverConfig: TmuxBrokerDriverConfig,
+  driverConfig: TerminalBrokerDriverConfig,
   options?: CompileRuntimePlanOptions
 ): Promise<RuntimeCompileResponse> {
   const { driverKind, provider, frontend, honorDisallowedTools } = driverConfig
@@ -205,7 +207,7 @@ async function compileTmuxBrokerPlan(
       : {}),
     driver: {
       kind: driverKind,
-      terminalHost: 'tmux',
+      terminalHost: driverConfig.terminalHost ?? 'tmux',
       // Operator HOME is REQUIRED for muse model calls: keychain-bound oauth
       // never leaves the operator HOME, so the muse TUI stalls at device-flow
       // login under an isolated HOME even with auth.json symlinked (same

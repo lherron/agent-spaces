@@ -11,7 +11,10 @@ import type { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { createCodexAppServerDriver } from '../../../src/drivers/codex-app-server/driver'
 import { now, scenarioSpec } from './fake-codex-scenario'
 
-type TerminalSurfaceLease = NonNullable<InvocationRuntimeContext['terminalSurface']>
+type TerminalSurfaceLease = Extract<
+  NonNullable<InvocationRuntimeContext['terminalSurface']>,
+  { kind: 'tmux-pane' }
+>
 type ViewerRuntime = InvocationRuntimeContext & {
   terminalSurfaceRequired?: true | undefined
 }

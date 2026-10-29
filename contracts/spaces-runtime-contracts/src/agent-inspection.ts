@@ -405,7 +405,7 @@ function validateIdentity(value: unknown, path: string, issues: ValidationIssue[
   }
   oneOf(
     identity['harness'],
-    ['agent-harness', 'claude', 'codex', 'muse'],
+    ['agent-harness', 'claude', 'claude-hrcpty', 'codex', 'muse'],
     `${path}.harness`,
     issues
   )

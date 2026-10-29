@@ -5,6 +5,7 @@ import type {
   HarnessId,
   RuntimeCompileRequest,
   RuntimeCompileResponse,
+  RuntimeHrcptyMetadata,
   SchemaVersion,
 } from 'spaces-runtime-contracts'
 
@@ -46,4 +47,11 @@ type _NoV1CompileSchemas = Expect<
   >
 >
 
-type _HarnessIdIsClosed = Expect<Equal<HarnessId, 'agent-harness' | 'claude' | 'codex' | 'muse'>>
+type _HarnessIdIsClosed = Expect<
+  Equal<HarnessId, 'agent-harness' | 'claude' | 'claude-hrcpty' | 'codex' | 'muse'>
+>
+
+// The supervisor endpoint is a socket, with no tmux pane coordinates.
+type _HrcptyMetadataIsSocket = Expect<
+  Equal<RuntimeHrcptyMetadata, { host: 'hrcpty'; socketPath: string }>
+>

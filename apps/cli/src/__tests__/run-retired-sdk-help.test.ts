@@ -35,7 +35,13 @@ test('asp harnesses JSON projects the catalog and its default', () => {
     harnesses: Array<{ id: string }>
   }
   expect(output.defaultHarness).toBe('agent-harness')
-  expect(output.harnesses.map(({ id }) => id)).toEqual(['agent-harness', 'claude', 'codex', 'muse'])
+  expect(output.harnesses.map(({ id }) => id)).toEqual([
+    'agent-harness',
+    'claude',
+    'claude-hrcpty',
+    'codex',
+    'muse',
+  ])
 })
 
 test('asp run rejects pi rather than mapping it to a local adapter', () => {

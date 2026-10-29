@@ -74,7 +74,10 @@ const waitFor = async (
   throw new Error('timed out waiting for condition')
 }
 
-type TerminalSurfaceLease = NonNullable<InvocationRuntimeContext['terminalSurface']>
+type TerminalSurfaceLease = Extract<
+  NonNullable<InvocationRuntimeContext['terminalSurface']>,
+  { kind: 'tmux-pane' }
+>
 
 const rendererLease = (): TerminalSurfaceLease => ({
   kind: 'tmux-pane',

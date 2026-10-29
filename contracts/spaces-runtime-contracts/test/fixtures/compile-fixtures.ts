@@ -16,7 +16,7 @@ import type {
 import type { BrokerInputRuntimeState } from '../../src/input'
 import type { BrokerPermissionRuntimeState } from '../../src/permissions'
 import type { RuntimeRouteDecision } from '../../src/route-decision'
-import type { BrokerRuntimeState } from '../../src/runtime-state'
+import type { BrokerRuntimeState, RuntimeHrcptyMetadata } from '../../src/runtime-state'
 
 // Shared capability sub-blocks. These input/turns/continuation shapes are
 // identical across the runtime-capabilities fixture and both invocation
@@ -331,3 +331,8 @@ export const durableUnixBrokerRuntimeState = {
   permission: BASE_PERMISSION_STATE,
   input: BASE_INPUT_STATE,
 } satisfies BrokerRuntimeState
+
+export const hrcptyMetadataFixture = {
+  host: 'hrcpty',
+  socketPath: '/tmp/praesidium/runtime/hrcpty/runtime_1/hrcpty.sock',
+} satisfies RuntimeHrcptyMetadata

@@ -1,7 +1,7 @@
 import { constants, access } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
-import { isHarnessId } from 'spaces-config'
+import { type HarnessId, isHarnessId } from 'spaces-config'
 import { pathMarker } from 'spaces-config/path-markers'
 import { HARNESS_CATALOG } from './harness-selection/catalog.js'
 
@@ -78,7 +78,7 @@ async function observeHarnessCapability(
     )
   }
   const command =
-    harness === 'claude'
+    harness === 'claude' || harness === 'claude-hrcpty'
       ? findCommand('ASP_CLAUDE_PATH', 'claude')
       : findCommand('ASP_MUSE_PATH', 'muse')
   if (!command) return capabilitySuccess(requested, harness, 'absent', 'absent', diagnostics)
@@ -443,9 +443,7 @@ function capabilityFailure(kind: 'unavailable' | 'incompatible', code: string, m
   }
 }
 
-function normalizeHarness(
-  value: string
-): 'agent-harness' | 'claude' | 'codex' | 'muse' | undefined {
+function normalizeHarness(value: string): HarnessId | undefined {
   return isHarnessId(value) ? value : undefined
 }
 

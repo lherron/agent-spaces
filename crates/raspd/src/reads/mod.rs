@@ -330,9 +330,10 @@ fn valid_capability(params: Option<&J>) -> bool {
     })
 }
 
-const BROKER_DRIVERS: [&str; 7] = [
+const BROKER_DRIVERS: [&str; 8] = [
     "codex-app-server",
     "claude-code-tmux",
+    "claude-code-hrcpty",
     "codex-cli-tmux",
     "pi-tui-tmux",
     "pi-sdk",

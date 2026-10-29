@@ -32,6 +32,57 @@ async function planFor(options: Parameters<typeof compileV2>[1], agentId?: strin
 }
 
 describe('v2 runtime compile plan', () => {
+  test.each([false, true])(
+    'profile-selected claude-hrcpty presentation=%s carries supervisor hosting and tool denial',
+    async (presentation) => {
+      const value = fixture()
+      writeFileSync(
+        join(value.agentRoot, 'agent-profile.toml'),
+        'version = 4\n[spaces]\nbase = []\n[provisioning]\nharness = "claude-hrcpty"\n'
+      )
+      const request = buildV2CompileRequest(value, {
+        namespace: `hrcpty-${presentation}`,
+        harness: 'claude',
+        modelProvider: 'anthropic',
+        model: 'sonnet',
+        presentation,
+        prompt: 'compile the supervisor launch',
+        disallowedTools: ['Bash'],
+      })
+      request.requested.harness = undefined
+      const response = await compileV2Request(value, request)
+      expect(response.ok).toBe(true)
+      if (!response.ok) throw new Error(JSON.stringify(response.diagnostics))
+      const { plan } = response
+      expect(plan.selection).toMatchObject({
+        harness: 'claude-hrcpty',
+        presentation,
+        provenance: { harness: 'agent-profile' },
+      })
+      expect(plan.execution).toMatchObject({
+        driver: 'claude-code-hrcpty',
+        recipeId: 'claude-code',
+        presentationFulfillment: 'intrinsic',
+        hosting: {
+          executionTransport: 'pty',
+          terminalHost: 'hrcpty',
+          processExecution: 'supervisor-process',
+          terminalRequired: true,
+        },
+      })
+      const { spec } = plan.execution.dispatchRequest.startRequest
+      expect(spec.driver).toMatchObject({ kind: 'claude-code-hrcpty', terminalHost: 'hrcpty' })
+      expect(spec.process?.harnessTransport).toEqual({ kind: 'pty' })
+      expect(spec.process?.args).toContain('--disallowedTools')
+      expect(spec.process?.args).toContain('Bash')
+      expect(spec.launch?.initialPrompt).toContain('compile the supervisor launch')
+      expect(
+        response.diagnostics.some((d) => d.code === 'disallowed_tools_unsupported_driver')
+      ).toBe(false)
+      expect(() => validateInvocationStartRequest({ spec })).not.toThrow()
+    }
+  )
+
   test.each([
     [
       'agent-harness',

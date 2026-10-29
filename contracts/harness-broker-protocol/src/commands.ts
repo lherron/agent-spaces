@@ -220,6 +220,19 @@ export interface InvocationRuntimeContext {
           resize?: boolean | undefined
         }
       }
+    | {
+        kind: 'hrcpty'
+        ownership: 'hrc'
+        socketPath: string
+        allowedOps: {
+          inspect: true
+          sendInput: true
+          sendInterrupt: true
+          capture: true
+          resize?: boolean | undefined
+          spawn: true
+        }
+      }
     | undefined
   /**
    * Explicit route-policy bit for headless drivers that require an operator

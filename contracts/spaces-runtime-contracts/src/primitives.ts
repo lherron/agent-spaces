@@ -38,8 +38,8 @@ export type RuntimeControllerKind =
   | 'legacy-exec'
 
 /** Terminal hosts that can be owned and addressed by the runtime controller. */
-export type ControllerOwnedTerminalHost = 'tmux' | 'ghostty'
-export type LegacyTransportAlias = 'tmux' | 'headless' | 'sdk'
+export type ControllerOwnedTerminalHost = 'tmux' | 'hrcpty'
+export type LegacyTransportAlias = 'tmux' | 'hrcpty' | 'headless' | 'sdk'
 
 export const RUNTIME_STATE_STATUS_VALUES = [
   'allocating',

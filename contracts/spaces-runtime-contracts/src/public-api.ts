@@ -48,7 +48,7 @@ export type RuntimeExecutionView = {
         kind: 'harness-broker'
         brokerDriver: string
         brokerProtocol: 'harness-broker/0.2'
-        brokerTerminal?: { host: 'tmux' } | undefined
+        brokerTerminal?: { host: 'tmux' | 'hrcpty' } | undefined
       }
     | { kind: 'command-process' }
     | { kind: 'legacy-exec'; migrationOnly: true }
@@ -86,13 +86,13 @@ export type RuntimeExecutionView = {
  */
 export function transportAliasFor(
   controllerKind: RuntimeControllerKind,
-  brokerTerminalHost?: 'tmux' | undefined
+  brokerTerminalHost?: 'tmux' | 'hrcpty' | undefined
 ): LegacyTransportAlias {
   switch (controllerKind) {
     case 'terminal':
       return 'tmux'
     case 'harness-broker':
-      return brokerTerminalHost === 'tmux' ? 'tmux' : 'headless'
+      return brokerTerminalHost ?? 'headless'
     case 'command-process':
     case 'legacy-exec':
       return 'headless'

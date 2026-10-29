@@ -25,7 +25,7 @@ import type { BrokerPermissionPolicy } from './permissions'
 import type { RuntimeResourceLimits } from './resources'
 
 /** The complete, deliberately closed, public harness vocabulary. */
-export type HarnessId = 'agent-harness' | 'claude' | 'codex' | 'muse'
+export type HarnessId = 'agent-harness' | 'claude' | 'claude-hrcpty' | 'codex' | 'muse'
 
 export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
 
@@ -113,13 +113,13 @@ export type SelectionProvenance = {
 export type HostingRequirements = {
   executionTransport: 'jsonrpc-stdio' | 'pty' | 'native-worker'
   terminalRequired: boolean
-  terminalHost?: 'tmux' | undefined
-  processExecution: 'native-worker' | 'broker-process'
+  terminalHost?: 'tmux' | 'hrcpty' | undefined
+  processExecution: 'native-worker' | 'broker-process' | 'supervisor-process'
 }
 
 /** Presentation is a separate surface from the execution protocol transport. */
 export type PresentationSurface =
-  | { transport: 'terminal'; terminalHost: 'tmux' }
+  | { transport: 'terminal'; terminalHost: 'tmux' | 'hrcpty' }
   | { transport: 'websocket-unix'; terminalHost: 'tmux' }
 
 export type ResolvedHarnessSelection = {

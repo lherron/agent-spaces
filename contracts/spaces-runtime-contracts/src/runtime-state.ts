@@ -83,6 +83,11 @@ export type RuntimeTmuxPaneMetadata = {
   paneId?: string | undefined
 }
 
+export type RuntimeHrcptyMetadata = {
+  host: 'hrcpty'
+  socketPath: string
+}
+
 export type BrokerRuntimeState = RuntimeStateBase & {
   kind: 'harness-broker'
 
@@ -103,6 +108,7 @@ export type BrokerRuntimeState = RuntimeStateBase & {
     startedAt: IsoTimestamp
     ownerServerInstanceId: ServerInstanceId
     tmux?: RuntimeTmuxPaneMetadata | undefined
+    hrcpty?: RuntimeHrcptyMetadata | undefined
   }
 
   control?: {
@@ -130,8 +136,7 @@ export type BrokerRuntimeState = RuntimeStateBase & {
     | undefined
 
   tui?:
-    | (RuntimeTmuxPaneMetadata & {
-        host: 'tmux'
+    | (((RuntimeTmuxPaneMetadata & { host: 'tmux' }) | RuntimeHrcptyMetadata) & {
         operatorAttachTarget?: boolean | undefined
       })
     | undefined

@@ -96,7 +96,7 @@ fn driver_format(driver: Option<&J>) -> Option<&'static str> {
         Some(J::Str(d)) => match d.as_str() {
             "pi-sdk" | "pi-tui-tmux" => Some("pi"),
             "codex-app-server" | "codex-cli-tmux" => Some("codex"),
-            "claude-code-tmux" => Some("claude"),
+            "claude-code-tmux" | "claude-code-hrcpty" => Some("claude"),
             _ => None,
         },
         _ => None,

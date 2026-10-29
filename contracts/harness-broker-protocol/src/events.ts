@@ -688,6 +688,7 @@ export interface DriverNoticePayload {
  * MUST be `tmux-pane`.
  */
 export type TerminalSurfaceReportedPayload =
+  | { kind: 'hrcpty-socket'; socketPath: string }
   | {
       kind: 'tmux-session'
       socketPath: string
