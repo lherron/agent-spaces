@@ -6,7 +6,7 @@ use super::patterns::{is_node_id, is_space_ref, is_token_chars, validate_token};
 use super::toml::{self, TomlError};
 use crate::json::J;
 
-pub const HARNESS_IDS: [&str; 4] = ["agent-harness", "claude", "codex", "muse"];
+pub const HARNESS_IDS: [&str; 5] = ["agent-harness", "claude", "claude-hrcpty", "codex", "muse"];
 const RUN_MODES: [&str; 4] = ["query", "heartbeat", "task", "maintenance"];
 const ROSTER_SLOT_TOKENS: [&str; 10] = [
     "nova", "comet", "pulsar", "quasar", "meteor", "aurora", "zenith", "eclipse", "orbit", "cosmos",
