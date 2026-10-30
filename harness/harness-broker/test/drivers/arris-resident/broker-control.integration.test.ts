@@ -222,6 +222,20 @@ describe('Arris resident broker over a real control socket', () => {
       body: 'queue exactly once',
     })
     await waitFor(() => queueCalls === 1, 'first queue attempt did not reach Arris')
+    // The drain takes the entry off the queue while it is in flight; wait for the
+    // broker to process the busy receipt and re-hold it before reading the queue.
+    await waitFor(
+      () =>
+        events.some(
+          (event) =>
+            event.type === 'diagnostic' &&
+            (event.payload as { kind?: string; data?: { submissionId?: string } }).kind ===
+              'submission_retryable_not_written' &&
+            (event.payload as { data?: { submissionId?: string } }).data?.submissionId ===
+              admitted.submissionId
+        ),
+      'busy queue attempt was not re-held'
+    )
     expect((await broker.queueList({ invocationId })).entries).toHaveLength(1)
 
     await appendFile(
