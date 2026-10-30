@@ -220,18 +220,19 @@ export function createInvocationAdmission(deps: InvocationAdmissionDeps) {
     // evidence decides; anything a driver touched defaults to possibly-written
     // (T-08204 rev 3 §4/§5).
     const evidence = options?.deliveryEvidence ?? deliveryEvidenceOf(error) ?? 'possibly_written'
+    // The attempt is reported once, with its explicit write evidence: consumers
+    // read no-write proof from input.rejected only (T-12119).
+    if (options?.inputRejectedEmitted !== true) {
+      emit(
+        inv,
+        'input.rejected',
+        { inputId: record.submissionId as InputId, reason, deliveryEvidence: evidence },
+        { inputId: record.submissionId as InputId }
+      )
+    }
     if (evidence === 'possibly_written') {
       // No terminal submission.rejected: a late native user row must still be
-      // able to report this body consumed. The submission stays undisposed and
-      // the attempt is reported once, with its explicit write evidence.
-      if (options?.inputRejectedEmitted !== true) {
-        emit(
-          inv,
-          'input.rejected',
-          { inputId: record.submissionId as InputId, reason, deliveryEvidence: evidence },
-          { inputId: record.submissionId as InputId }
-        )
-      }
+      // able to report this body consumed. The submission stays undisposed.
       return
     }
     emit(inv, 'submission.rejected', {

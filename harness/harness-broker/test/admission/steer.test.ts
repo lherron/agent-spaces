@@ -31,6 +31,34 @@ describe('broker admission API: steer semantics', () => {
     expect(eventsForSubmission(events, 'submission.rejected', refused.submissionId)).toHaveLength(1)
   })
 
+  test('an idle steer the driver refuses before its first write reports not_written on input.rejected', async () => {
+    // EN-38597: an idle steer goes through applyInputNow; the driver's quiescence
+    // gate refused before the paste with typed not_written evidence. The mail
+    // injector reads that proof from input.rejected only, so a bare
+    // submission.rejected parked the envelope forever (T-12119).
+    const { broker, events, invocationId } = await setup('inv_idle_steer_refused_unwritten', {
+      beforeApplyInput: async () => {
+        throw Object.assign(new Error('pane_not_quiescent'), {
+          deliveryEvidence: 'not_written' as const,
+        })
+      },
+    })
+
+    const refused = await broker.steer({ invocationId, origin, body: 'never pasted' })
+    await flush()
+
+    expect(
+      eventsFor(events, 'input.rejected').filter(
+        (event) => (event.payload as { inputId?: string }).inputId === refused.submissionId
+      )
+    ).toMatchObject([
+      { payload: { reason: 'pane_not_quiescent', deliveryEvidence: 'not_written' } },
+    ])
+    expect(eventsForSubmission(events, 'submission.rejected', refused.submissionId)).toMatchObject([
+      { payload: { reason: 'pane_not_quiescent' } },
+    ])
+  })
+
   test('an idle steer never starts a turn when the driver requires strict steer semantics', async () => {
     const run = await setup('inv_strict_idle_steer')
     Object.defineProperty(run.driver, 'steerNeverStartsTurn', { value: true })
