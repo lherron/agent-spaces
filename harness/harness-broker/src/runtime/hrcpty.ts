@@ -483,15 +483,28 @@ export class HrcptyPtyController {
     }
   }
 
-  /** Wait until the input row shows an empty box: the harness is up and reading. */
+  /**
+   * Wait until the harness is up and reading: an empty box, or, on an
+   * `inputIfIdle` supervisor, a prompt row holding a draft a human typed. The
+   * human window then decides when the body may follow that draft.
+   */
   async waitForInputReady(
     selectInput: TmuxPaneInputSelector,
     timeoutMs: number,
     intervalMs = POLL_INTERVAL_MS
   ): Promise<boolean> {
     this.requireCapture()
-    return (await this.waitForInput((input) => input.empty, selectInput, timeoutMs, intervalMs))
-      .matched
+    const draftCounts = (await this.hello()).capabilities?.includes('inputIfIdle') === true
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      const snapshot = await this.captureInputSnapshot()
+      const input = snapshot === undefined ? undefined : selectInput(snapshot)
+      if (input?.empty) return true
+      if (draftCounts && input?.prompt === true && (await this.status())['humanIdleMs'] != null)
+        return true
+      if (Date.now() >= deadline) return false
+      await sleep(intervalMs)
+    }
   }
 
   /**

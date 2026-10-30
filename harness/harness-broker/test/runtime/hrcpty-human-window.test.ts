@@ -83,6 +83,20 @@ describe('hrcpty keystroke window', () => {
       expect(fake.calls.find((c) => c.method === 'input')?.params['ifIdleMs']).toBeUndefined()
     }
   })
+  test('a fresh seat holding a typed draft is ready, so the window decides', async () => {
+    const { fake, pty } = subject({ idle: 500, draft: 'draft ' })
+    expect(await pty.waitForInputReady(selectInput, 0)).toBe(true)
+    expect(fake.inputs()).toEqual([])
+  })
+  test('a draft nobody typed, or an old supervisor, still waits for an empty box', async () => {
+    for (const options of [
+      { idle: null, draft: 'draft ' },
+      { old: true, idle: 500, draft: 'draft ' },
+    ]) {
+      const { pty } = subject(options)
+      expect(await pty.waitForInputReady(selectInput, 0)).toBe(false)
+    }
+  })
   test('the default hold outlasts the 30 s draft override', () => {
     const { pty } = subject()
     expect(pty.humanWindowBudgetMs).toBe(90_000)

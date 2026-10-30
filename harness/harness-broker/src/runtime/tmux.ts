@@ -59,6 +59,8 @@ export type TmuxPaneInputState = {
   empty: boolean
   /** Stable identity for the input state; equal empty states may land a steer. */
   fingerprint: string
+  /** The cursor row is the harness's own prompt row, whatever it holds. */
+  prompt?: boolean | undefined
 }
 
 export type TmuxPaneInputSelector = (snapshot: TmuxPaneInputSnapshot) => TmuxPaneInputState

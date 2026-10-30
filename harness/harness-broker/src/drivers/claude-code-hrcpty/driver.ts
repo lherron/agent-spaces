@@ -263,8 +263,9 @@ export function createClaudeCodeHrcptyDriver(options: ClaudeCodeHrcptyDriverOpti
   }
 
   /**
-   * Before any body is written: the first turn waits for Claude's empty input
-   * box (a steer's own quiescence check already requires one), and a delivery
+   * Before any body is written: the first turn waits for Claude's input box,
+   * empty or holding a human's draft (a steer's own window check already
+   * covers one), and a delivery
    * after our own interrupt clears the prompt Claude put back. Both refuse as
    * `before_paste`, so nothing of the body was written.
    */
