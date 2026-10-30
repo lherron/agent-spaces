@@ -7,92 +7,54 @@
 //! change and wakes the binding.
 use aspd_domain::{BINDING, DOCUMENT, OPERATION, Observations, PROVIDER, observations::Observer};
 use cardo_core::{Format, document::CoreDomain};
+use cardo_host::{HostDefault, Idle, NoWork, Shutdown, SingleInstance};
 use cardo_runtime::{core_adapter::CoreAdapter, service::*, wire};
-use crossbeam_channel::Sender;
 use serde_json::{Value, json};
-use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 /// How often the wake thread checks for new observations.
 const WAKE_POLL: Duration = Duration::from_millis(250);
 
-struct NoWork;
-impl WorkExecutor for NoWork {
-    fn start(&self, _: WorkRequest, _: Sender<WorkCompletion>) -> Result<(), ExecutorFailure> {
-        Err(ExecutorFailure {
-            code: "unsupported".into(),
-            message: "raspd's kernel runs no async product operations".into(),
-        })
-    }
-    fn cancel(&self, _: WorkId) -> Result<ExecutionCancel, ExecutorFailure> {
-        Ok(ExecutionCancel::Unsupported)
-    }
-}
-
-struct Lifecycle;
-impl LifecycleParticipant for Lifecycle {
-    fn request(
-        &mut self,
-        r: LifecycleRequest,
-        completion: Sender<Result<LifecycleCompletion, LifecycleFailure>>,
-    ) -> Result<(), LifecycleFailure> {
-        let result = match r {
-            LifecycleRequest::Stop { .. } => LifecycleCompletion::Stopped(ParticipantStopped {
-                retired_generation: 1,
-                settled: vec![],
-                cancelled: vec![],
-                uncertain: vec![],
-            }),
-            LifecycleRequest::ResetActor => LifecycleCompletion::Reset(ActorResetReport {
-                retired_generation: 1,
-                active_generation: 2,
-                settled: vec![],
-                cancelled: vec![],
-                uncertain: vec![],
-            }),
-        };
-        let _ = completion.send(Ok(result));
-        Ok(())
-    }
-    fn join(self: Box<Self>) -> Result<(), LifecycleFailure> {
-        Ok(())
-    }
-}
-
+/// `cardo_host::send` with the failure as text: raspd logs a kernel that
+/// fails to set up and keeps serving aspc, so no `expect_ok` here.
 fn call(client: &KernelClient, operation: &str, arguments: Value) -> Result<Value, String> {
-    let receipt = client
-        .request(Request::Command(CommandRequest::Unguarded(KernelCommand {
-            operation: operation.into(),
-            arguments,
-            persistence: None,
-            cause: None,
-        })))
-        .map_err(|e| e.message)?;
-    let reply = receipt.reply.recv().map_err(|e| e.to_string())?;
-    match reply.outcome {
-        RequestOutcome::Command(CommandOutcome::Succeeded { value }) => Ok(value),
-        other => Err(format!("{operation}: {other:?}")),
-    }
+    cardo_host::send(client, operation, arguments)
+        .map_err(|failed| format!("{operation}: {failed:?}"))
 }
 
-/// A running kernel. Dropping it leaves the threads running for the life of
-/// the process, which is the intent.
+/// A running kernel. It stops on SIGTERM or SIGINT, alongside aspc's retire;
+/// [`Kernel::join`] waits for that teardown.
 pub struct Kernel {
-    _owner: RuntimeOwner,
+    served: JoinHandle<Result<(), String>>,
+    _lock: SingleInstance,
+}
+
+impl Kernel {
+    /// Waits for the ordered teardown (wire, then owner) to finish.
+    pub fn join(self) -> Result<(), String> {
+        self.served
+            .join()
+            .map_err(|_| "the kernel thread panicked".to_string())?
+    }
 }
 
 /// Compose the kernel and serve its wire on `socket`. Returns once the wire
 /// is bound (the kernel is accepting); the document fills in on its own.
-pub fn start(observations: Arc<Observations>, socket: &Path) -> Result<Kernel, String> {
-    if std::os::unix::net::UnixStream::connect(socket).is_ok() {
-        return Err(format!(
-            "a server is already listening on {}",
-            socket.display()
-        ));
-    }
-    let _ = std::fs::remove_file(socket);
+///
+/// Call it before tokio registers its own SIGTERM/SIGINT handlers: tokio's
+/// handler chains to the one `Shutdown::on_signal` installs here, so one
+/// signal reaches both the kernel and aspc's retire. `watchdog` bounds the
+/// kernel's teardown.
+pub fn start(
+    observations: Arc<Observations>,
+    socket: &Path,
+    watchdog: Duration,
+) -> Result<Kernel, String> {
+    let lock = SingleInstance::acquire(socket).map_err(|e| e.to_string())?;
+    let triggers = vec![Shutdown::on_signal()];
     let mut adapter = CoreAdapter::<CoreDomain>::new(
         || CoreDomain,
         aspd_domain::decode_edits,
@@ -105,14 +67,10 @@ pub fn start(observations: Arc<Observations>, socket: &Path) -> Result<Kernel, S
     let owner = RuntimeOwner::start(
         adapter,
         Arc::new(NoWork),
-        Box::new(Lifecycle),
+        Box::new(Idle),
         RuntimeConfig {
-            command_capacity: 64,
-            subscription_capacity: 4096,
-            terminal_tombstone_capacity: NonZeroUsize::new(64).expect("nonzero"),
             control_poll_millis: 10,
-            ring_events: 4096,
-            ring_bytes: 33_554_432,
+            ..RuntimeConfig::host_default()
         },
     );
     let client = owner.client(ClientRole::Tui);
@@ -132,13 +90,9 @@ pub fn start(observations: Arc<Observations>, socket: &Path) -> Result<Kernel, S
         json!({"document_id": DOCUMENT, "binding": BINDING, "operation": OPERATION, "config": {}, "interval_ms": 60000}),
     )?;
     let server = wire::bind(client, socket).map_err(|e| format!("{e:?}"))?;
-    std::thread::Builder::new()
-        .name("raspd-kernel-wire".into())
-        .spawn(move || {
-            if let Err(error) = server.run() {
-                eprintln!("raspd kernel wire stopped: {error:?}");
-            }
-        })
+    let served = std::thread::Builder::new()
+        .name("raspd-kernel".into())
+        .spawn(move || cardo_host::run(server, owner, triggers, watchdog))
         .map_err(|e| e.to_string())?;
     std::thread::Builder::new()
         .name("raspd-kernel-wake".into())
@@ -151,5 +105,8 @@ pub fn start(observations: Arc<Observations>, socket: &Path) -> Result<Kernel, S
             }
         })
         .map_err(|e| e.to_string())?;
-    Ok(Kernel { _owner: owner })
+    Ok(Kernel {
+        served,
+        _lock: lock,
+    })
 }

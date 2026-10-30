@@ -8,6 +8,7 @@ description = "aspd's Rust front door: native hello/health/version/surface, Bun 
 [dependencies]
 aspd-domain = { path = "../aspd-domain" }
 cardo-core.workspace = true
+cardo-host.workspace = true
 cardo-runtime.workspace = true
 serde.workspace = true
 serde_json.workspace = true

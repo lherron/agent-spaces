@@ -194,7 +194,9 @@ async fn serve(options: Options, log: Log) -> Result<(), String> {
     );
 
     // The kernel is observation only: if it can't start, aspc still serves.
-    let _kernel = match kernel::start(observations.clone(), &options.kernel_socket) {
+    // It goes first so tokio's signal handlers, registered right after it,
+    // chain to the kernel's (kernel::start).
+    let kernel = match kernel::start(observations.clone(), &options.kernel_socket, RETIRE_LIMIT) {
         Ok(kernel) => Some(kernel),
         Err(error) => {
             log.lifecycle(
@@ -211,6 +213,10 @@ async fn serve(options: Options, log: Log) -> Result<(), String> {
             None
         }
     };
+    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .map_err(|e| e.to_string())?;
+    let mut int = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+        .map_err(|e| e.to_string())?;
 
     let shared = server::Shared::new(
         release.clone(),
@@ -273,10 +279,6 @@ async fn serve(options: Options, log: Log) -> Result<(), String> {
         ],
     );
 
-    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-        .map_err(|e| e.to_string())?;
-    let mut int = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
-        .map_err(|e| e.to_string())?;
     tokio::select! {
         _ = term.recv() => {}
         _ = int.recv() => {}
@@ -299,7 +301,14 @@ async fn serve(options: Options, log: Log) -> Result<(), String> {
         let _ = std::fs::remove_file(&options.socket);
     }
     shared.retire(RETIRE_LIMIT).await;
-    let _ = std::fs::remove_file(&options.kernel_socket);
+    // The same signal stopped the kernel; its teardown removes its socket.
+    if let Some(Err(error)) = kernel.map(kernel::Kernel::join) {
+        log.lifecycle(
+            "error",
+            "raspd.kernel_teardown_failed",
+            vec![("error".into(), J::Str(error))],
+        );
+    }
     metrics.drain(true);
     log.event("info", "raspd", "retire.drained", vec![]);
     log.lifecycle(
