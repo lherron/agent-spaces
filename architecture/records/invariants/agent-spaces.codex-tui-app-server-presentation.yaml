@@ -17,7 +17,7 @@ predicate: >
   client identity, and only its matching committed native user item confirms
   context entry without replacing initiating ownership. The transcript landing
   evidence enum denotes asynchronous provider evidence and nativeSourceKind
-  remains provider-jsonrpc. A presented runtime owns exactly one app-server
+  remains provider-jsonrpc. A tmux-presented codex runtime owns exactly one app-server
   beneath the HRC-leased tmux pane wrapper; pane exit or teardown kills that
   server, so neither server nor queued work can outlive its owning runtime. The
   broker initializes and subscribes first with the experimental API enabled;
@@ -36,8 +36,25 @@ predicate: >
   mail-stop control only; they mint no turn events. codex-cli-tmux may remain as
   an unselectable implementation until separately removed, but is not a
   compatibility route or public selection value.
-authority: Daedalus approval of wrkq T-08097 rev 13 with companion wrkq T-08098 on 2026-09-05; native steering evidence amended by wrkq T-08206 rev 2 C-19948 on 2026-09-07; producer-owned selection amendment approved by EN-15959 and Lance on 2026-09-21
+  Harness codex-hrcpty also always resolves codex-app-server in both
+  presentation outcomes under an hrc-pty supervisor lease. The broker spawns
+  exactly one websocket-over-Unix app-server in its own process group and is
+  its first client. No TUI runs at birth. A read-write attachment with no live
+  TUI triggers the stock remote Codex TUI on the hrc-pty pty at the attaching
+  client's size; read-only attachment never spawns it. The TUI attaches as the
+  second client after thread start or resume. Detachment leaves it running;
+  clean TUI exit ends the runtime, while nonzero exit leaves the worker
+  headless and permits a fresh TUI on the next read-write attachment.
+  On every broker exit, hrc-pty's broker waiter signals the broker's process
+  group with TERM and KILLs surviving members after 5 seconds before emitting
+  broker.exited, independently of HRC crash bookkeeping or lease teardown.
+  Lease end also signals that group. The app-server and its admitted work
+  are thus subject to bounded termination when their evidence-owning broker
+  dies; work during that termination interval is outside the guarantee.
+  Delivery, evidence, queue scrub and steering rules remain unchanged.
+authority: Daedalus approval of wrkq T-08097 rev 13 with companion wrkq T-08098 on 2026-09-05; native steering evidence amended by wrkq T-08206 rev 2 C-19948 on 2026-09-07; producer-owned selection amendment approved by EN-15959 and Lance on 2026-09-21; codex-hrcpty amendment approved for wrkq T-12162 REV 2 by EN-39076 on 2026-10-30
 source:
+  - wrkq:T-12162
   - wrkq:T-08097
   - wrkq:T-08098
   - wrkq:T-08206
@@ -51,6 +68,9 @@ source:
   - compiler/agent-spaces/src/compile-runtime-plan.ts
   - compiler/agent-spaces/src/broker-invocation.ts
   - harness/harness-broker/src/drivers/codex-app-server/driver.ts
+  - harness/harness-broker/src/drivers/codex-app-server/driver-start.ts
+  - harness/harness-broker/src/drivers/codex-app-server/codex-tui-wrapper.ts
+  - harness/harness-broker/src/runtime/hrcpty.ts
   - harness/harness-broker/src/invocation-manager.ts
 required_tests:
   - codex presentation false and true both resolve codex-app-server while false omits terminal hosting and true declares codex-tui websocket-unix plus tmux presentation hosting
@@ -62,9 +82,12 @@ required_tests:
   - codex-tui refuses approval policy other than never and its hooks remain raw provenance outside turn evidence
   - real-terminal validation covers broker and human turns steer interrupt continuation pane exit runtime cleanup and false-to-later-attachment
   - TUI and nonpresented Codex steering confirm only the exact native user item preserve initiating ownership and queue waiters and never duplicate the initial user message
+  - T-12162 G2 codex-hrcpty births without a TUI and completes a turn; read-only attachment spawns nothing; first read-write attachment spawns exactly one TUI at the client's size and resumes the thread
+  - T-12162 G5 broker SIGKILL without any lease-end action leaves no app-server for the socket within 6 seconds and HRC records the runtime crashed; lease end independently leaves no app-server
+  - T-12162 G1-G5 cover real-terminal startup query relay, detach and replay, restart survival, unchanged codex tmux compilation, delivery parity and clean-TUI-exit continuation clearing
 last_verified:
-  date: 2026-09-21
-  evidence: T-08554 installed app-server attach detach reattach and post-attachment turns plus T-08699 installed capability probes; v2 selection implementation pending
+  date: 2026-10-30
+  evidence: T-12162 REV 2 design-only source verification of hrc-pty broker reaping, separate pty session, attach registration and size ordering, and HRC crash bookkeeping; approved by EN-39076. The new codex-hrcpty implementation and G1-G5 runner evidence remain pending; no build, test, install or service-health result is established by this review. Prior evidence is T-08554 installed app-server attach detach reattach and post-attachment turns plus T-08699 installed capability probes; v2 selection implementation pending.
 reopen_when:
   - codex selection resolves any driver other than codex-app-server
   - presentation false requires a terminal or presentation true silently downgrades or replaces a live worker
@@ -73,5 +96,8 @@ reopen_when:
   - exclusive or an approval policy other than never is exposed in codex-tui presentation
   - queue scrub can occur after thread load or an item can execute after its owning runtime dies
   - hooks mint turn evidence or the RPC notification stream stops being sole evidence authority
+  - codex-hrcpty selection, broker process-group ownership or cleanup on any broker exit or lease end changes
+  - a codex-hrcpty TUI starts without a read-write client attached or read-only attachment can spawn it
+  - codex-hrcpty clean TUI exit stops ending the runtime or presentation attachment replaces the worker
 supersedes: []
 superseded_by: null
