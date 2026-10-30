@@ -20,7 +20,7 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
 /// (the T-11825 defect Bun keeps until the D0 window closes), so the bundle
 /// fingerprint, manifest and space support check name `agent-harness`.
 pub const DEFAULT_HARNESS: &str = "agent-harness";
-pub const TARGET_MATERIALIZER_VERSION: &str = "target-materializer-v7-claude-skip-bypass-consent";
+pub const TARGET_MATERIALIZER_VERSION: &str = "target-materializer-v8-claude-no-suggestions-recap";
 const PLUGIN_COMPONENT_DIRS: [&str; 6] =
     ["commands", "skills", "agents", "hooks", "scripts", "mcp"];
 
@@ -948,6 +948,8 @@ fn compose_target(
     composed.set("tui", J::str("fullscreen"));
     composed.set("idleCompaction", J::Bool(false));
     composed.set("skipDangerousModePermissionPrompt", J::Bool(true));
+    composed.set("promptSuggestionEnabled", J::Bool(false));
+    composed.set("awaySummaryEnabled", J::Bool(false));
     let source = fs::read(&statusline.path).map_err(|_| fwd("statusline_asset"))?;
     if sha256_hex(&source) != statusline.sha256 {
         return Err(fwd("statusline_digest"));

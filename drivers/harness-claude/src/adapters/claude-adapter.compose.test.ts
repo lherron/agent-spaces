@@ -156,6 +156,9 @@ describe('ClaudeAdapter.composeTarget', () => {
     expect(settings.idleCompaction).toBe(false)
     // Bypass-permissions consent rides the flag settings (setting sources are empty)
     expect(settings.skipDangerousModePermissionPrompt).toBe(true)
+    // No prompt-suggestion ghost text and no away recap
+    expect(settings.promptSuggestionEnabled).toBe(false)
+    expect(settings.awaySummaryEnabled).toBe(false)
   })
 
   test('writes statusline script to staging but points settings at published output', async () => {

@@ -418,6 +418,10 @@ export class ClaudeAdapter implements HarnessAdapter {
     // bypass-permissions mode never reaches them; from Claude Code 2.1.314 the
     // consent modal then blocks birth. Record the consent in the flag settings.
     composedSettings.skipDangerousModePermissionPrompt = true
+    // No ghost-text prompt suggestions in the input box and no session recap
+    // after time away: both spend model calls and clutter the pane.
+    composedSettings.promptSuggestionEnabled = false
+    composedSettings.awaySummaryEnabled = false
     await writeFile(settingsOutputPath, JSON.stringify(composedSettings, null, 2))
 
     // Install statusline script and add to settings (best-effort)

@@ -55,6 +55,10 @@ export interface ComposedSettings {
   idleCompaction?: false | undefined
   /** Skip Claude Code's bypass-permissions consent modal at startup. */
   skipDangerousModePermissionPrompt?: true | undefined
+  /** Whether Claude Code shows ghost-text prompt suggestions in the input box. */
+  promptSuggestionEnabled?: false | undefined
+  /** Whether Claude Code shows a session recap after the user returns from 5+ minutes away. */
+  awaySummaryEnabled?: false | undefined
 }
 
 /**
