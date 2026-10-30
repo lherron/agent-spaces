@@ -279,6 +279,24 @@ describe('TmuxPaneController', () => {
         styledLine: '❯ Press up to edit queued messages',
       }).empty
     ).toBe(false)
+    // An idle seat's dim prompt suggestion, as captured live from hrc-pty (T-12094)
+    expect(
+      selectClaudeCodePaneInput({
+        ...base,
+        cursorX: 2,
+        line: '❯ land it',
+        styledLine: '❯ \x1b[0m\x1b[2mland it\x1b[0m',
+      }).empty
+    ).toBe(true)
+    // Undimmed text is editor input even with the cursor at the marker
+    expect(
+      selectClaudeCodePaneInput({
+        ...base,
+        cursorX: 2,
+        line: '❯ land it',
+        styledLine: '❯ land it',
+      }).empty
+    ).toBe(false)
     expect(selectPiTuiPaneInput({ ...base, cursorX: 0, line: '', styledLine: '' }).empty).toBe(true)
   })
 
