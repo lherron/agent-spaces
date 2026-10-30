@@ -35,6 +35,7 @@ export type HrcptyChildState = {
 }
 
 export type HrcptyHello = {
+  capabilities?: string[] | undefined
   protocol: string
   pid: number
   child: HrcptyChildState
@@ -194,6 +195,10 @@ const SUBMIT_CONFIRM_TIMEOUT_MS = 1_500
 // tmux's submit budget: five Enters, 1.5 s apart, while the box holds the paste.
 const MAX_SUBMIT_ATTEMPTS = 5
 const POLL_INTERVAL_MS = 100
+const HUMAN_WINDOW_BUDGET_MS = 30_000
+const HUMAN_IDLE_MS = 3_000
+const DRAFT_IDLE_MS = 30_000
+const HUMAN_WINDOW_POLL_MS = 250
 const STEER_QUIESCENCE_TIMEOUT_MS = 5_000
 const STEER_QUIESCENCE_POLL_INTERVAL_MS = 250
 const STEER_LANDING_TIMEOUT_MS = 1_500
@@ -288,7 +293,11 @@ export class HrcptyPtyController {
   ): Promise<HrcptyPastedLineDelivery> {
     this.requireCapture()
     const intervalMs = options.pollIntervalMs ?? POLL_INTERVAL_MS
-    await this.write(bracketedPaste(text))
+    if ((await this.hello()).capabilities?.includes('inputIfIdle')) {
+      await this.writeInHumanWindow(bracketedPaste(text), options.selectInput)
+    } else {
+      await this.write(bracketedPaste(text))
+    }
     const pasted = await this.waitForInput(
       (input) => !input.empty,
       options.selectInput,
@@ -317,23 +326,25 @@ export class HrcptyPtyController {
   }
 
   /**
-   * Guard and submit a live-turn steer, as `TmuxPaneController.sendSteer` does:
-   * two identical empty observations of the input row, the body as one
-   * bracketed paste plus `\r`, then the row must clear.
+   * Guard a live-turn steer on human idle time, then write paste plus `\r`
+   * atomically and confirm the row clears. Older supervisors retain the
+   * two-identical-empty-observations guard.
    */
   async sendSteer(text: string, options: TmuxSteerOptions): Promise<void> {
     if (this.allowedOps.capture !== true) {
       throw new TmuxPaneNotQuiescentError('before_paste')
     }
-    const quiescent = await this.waitForQuiescentInput(
-      options.selectInput,
-      options.quiescenceTimeoutMs ?? STEER_QUIESCENCE_TIMEOUT_MS,
-      options.quiescencePollIntervalMs ?? STEER_QUIESCENCE_POLL_INTERVAL_MS
-    )
-    if (!quiescent) {
-      throw new TmuxPaneNotQuiescentError('before_paste')
+    if ((await this.hello()).capabilities?.includes('inputIfIdle')) {
+      await this.writeInHumanWindow(`${bracketedPaste(text)}\r`, options.selectInput)
+    } else {
+      const quiescent = await this.waitForQuiescentInput(
+        options.selectInput,
+        options.quiescenceTimeoutMs ?? STEER_QUIESCENCE_TIMEOUT_MS,
+        options.quiescencePollIntervalMs ?? STEER_QUIESCENCE_POLL_INTERVAL_MS
+      )
+      if (!quiescent) throw new TmuxPaneNotQuiescentError('before_paste')
+      await this.write(`${bracketedPaste(text)}\r`)
     }
-    await this.write(`${bracketedPaste(text)}\r`)
     const landed = await this.waitForInput(
       (input) => input.empty,
       options.selectInput,
@@ -342,6 +353,41 @@ export class HrcptyPtyController {
     )
     if (!landed.matched) {
       throw new TmuxPaneNotQuiescentError('after_submit')
+    }
+  }
+
+  /** Keystrokes own the window; a stale draft may be submitted after 30 s. */
+  async awaitHumanWindow(selectInput: TmuxPaneInputSelector, budgetMs: number): Promise<number> {
+    const deadline = performance.now() + budgetMs
+    for (;;) {
+      const status = await this.status()
+      const idle = status['humanIdleMs']
+      if (typeof idle === 'number' && idle >= DRAFT_IDLE_MS) return DRAFT_IDLE_MS
+      if (idle === null || (typeof idle === 'number' && idle >= HUMAN_IDLE_MS)) {
+        const snapshot = await this.captureInputSnapshot()
+        if (snapshot !== undefined && selectInput(snapshot).empty) return HUMAN_IDLE_MS
+      }
+      const remaining = deadline - performance.now()
+      if (remaining <= 0) throw new TmuxPaneNotQuiescentError('before_paste')
+      await sleep(Math.min(HUMAN_WINDOW_POLL_MS, remaining))
+    }
+  }
+
+  private async writeInHumanWindow(
+    text: string,
+    selectInput: TmuxPaneInputSelector
+  ): Promise<void> {
+    const deadline = performance.now() + HUMAN_WINDOW_BUDGET_MS
+    for (;;) {
+      const ifIdleMs = await this.awaitHumanWindow(
+        selectInput,
+        Math.max(0, deadline - performance.now())
+      )
+      const result = await this.write(text, ifIdleMs)
+      if (result.written !== 0) return
+      const remaining = deadline - performance.now()
+      if (remaining <= 0) throw new TmuxPaneNotQuiescentError('before_paste')
+      await sleep(Math.min(HUMAN_WINDOW_POLL_MS, remaining))
     }
   }
 
@@ -470,11 +516,14 @@ export class HrcptyPtyController {
     void connection?.then(({ connection: open }) => open.close()).catch(() => undefined)
   }
 
-  private async write(text: string): Promise<void> {
+  private async write(text: string, ifIdleMs?: number): Promise<{ written: number }> {
     if (this.allowedOps.sendInput !== true) {
       throw new BrokerError(BrokerErrorCode.CapabilityDenied, 'input requires allowedOps.sendInput')
     }
-    await this.call('input', { bytes: Buffer.from(text, 'utf8').toString('base64') })
+    return (await this.call('input', {
+      bytes: Buffer.from(text, 'utf8').toString('base64'),
+      ...(ifIdleMs !== undefined ? { ifIdleMs } : {}),
+    })) as { written: number }
   }
 
   private requireCapture(): void {

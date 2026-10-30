@@ -530,9 +530,11 @@ export function createClaudeCodeHrcptyDriver(options: ClaudeCodeHrcptyDriverOpti
       try {
         await pty.sendPastedLine(prompt, { selectInput: selectClaudeCodePaneInput })
       } catch (error) {
-        // The paste is written before anything can fail, so the correlation is
-        // retained and the attempt is possibly written.
-        throw withDeliveryEvidence(error, 'possibly_written')
+        const evidence = claudeWriteEvidence(error)
+        if (evidence === 'not_written' && input.inputId !== undefined) {
+          attribution?.cancelBrokerSubmission(input.inputId)
+        }
+        throw withDeliveryEvidence(error, evidence)
       }
       return { turnId: turnId as ApplyInputResult['turnId'] }
     },
