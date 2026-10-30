@@ -4,7 +4,13 @@ import { HrcptyPtyController } from '../../src/runtime/hrcpty'
 import { createFakeHrcpty, hrcptyLease } from '../drivers/claude-code-hrcpty/fake-hrcpty'
 
 function subject(
-  options: { idle?: number | null; draft?: string; old?: boolean; race?: boolean } = {}
+  options: {
+    idle?: number | null
+    draft?: string
+    old?: boolean
+    race?: boolean
+    budgetMs?: number
+  } = {}
 ) {
   const fake = createFakeHrcpty({ screen: { box: options.draft ?? '' } })
   let refused = false
@@ -34,6 +40,7 @@ function subject(
       allowedOps: hrcptyLease().allowedOps,
       token: async () => 'tok-fake',
       connect,
+      ...(options.budgetMs !== undefined ? { humanWindowBudgetMs: options.budgetMs } : {}),
     }),
   }
 }
@@ -60,14 +67,25 @@ describe('hrcpty keystroke window', () => {
         ).toBeUndefined()
     }
   })
-  test('active typing and a fresh draft exhaust without any write', async () => {
+  test('an exhausted window fails open: the caller writes without a condition', async () => {
     for (const options of [{ idle: 2999 }, { idle: 29999, draft: 'draft' }]) {
       const { fake, pty } = subject(options)
-      await expect(pty.awaitHumanWindow(selectInput, 0)).rejects.toMatchObject({
-        phase: 'before_paste',
-      })
+      expect(await pty.awaitHumanWindow(selectInput, 0)).toBeUndefined()
       expect(fake.inputs()).toEqual([])
     }
+  })
+  test('a typist past the budget still gets the mail, appended to the draft, on both paths', async () => {
+    for (const path of ['steer', 'start']) {
+      const { fake, pty } = subject({ idle: 500, draft: 'draft ', budgetMs: 0 })
+      if (path === 'steer') await pty.sendSteer('mail', { selectInput })
+      else await pty.sendPastedLine('mail', { selectInput })
+      expect(fake.screen.submitted).toEqual(['draft mail'])
+      expect(fake.calls.find((c) => c.method === 'input')?.params['ifIdleMs']).toBeUndefined()
+    }
+  })
+  test('the default hold outlasts the 30 s draft override', () => {
+    const { pty } = subject()
+    expect(pty.humanWindowBudgetMs).toBe(90_000)
   })
   test('a conditional refusal retries before writing a single accepted body', async () => {
     const { fake, pty } = subject({ race: true })

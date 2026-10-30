@@ -206,6 +206,8 @@ export type HrcptyPtyControllerOptions = {
   /** The attach token `hello` presents; defaults to {@link defaultHrcptyTokenFile}. */
   token?: (() => Promise<string>) | undefined
   connect?: HrcptyConnect | undefined
+  /** How long a write waits for the human before it is written anyway. */
+  humanWindowBudgetMs?: number | undefined
 }
 
 /** Evidence from one bracketed submit, mirroring tmux's pasted-line delivery. */
@@ -237,7 +239,10 @@ const SUBMIT_CONFIRM_TIMEOUT_MS = 1_500
 // tmux's submit budget: five Enters, 1.5 s apart, while the box holds the paste.
 const MAX_SUBMIT_ATTEMPTS = 5
 const POLL_INTERVAL_MS = 100
-const HUMAN_WINDOW_BUDGET_MS = 30_000
+// Past this hold the body is written anyway: a mail held forever behind a
+// draft is worse than one appended to it (fail open, Lance 2026-10-30). It
+// outlasts DRAFT_IDLE_MS, so a draft left mid-hold still reaches the override.
+const HUMAN_WINDOW_BUDGET_MS = 90_000
 const HUMAN_IDLE_MS = 3_000
 const DRAFT_IDLE_MS = 30_000
 const HUMAN_WINDOW_POLL_MS = 250
@@ -269,6 +274,7 @@ const NAMED_KEYS: Record<string, string> = {
  */
 export class HrcptyPtyController {
   readonly socketPath: string
+  readonly humanWindowBudgetMs: number
   private readonly allowedOps: HrcptyAllowedOps
   private readonly token: () => Promise<string>
   private readonly connectImpl: HrcptyConnect
@@ -278,6 +284,7 @@ export class HrcptyPtyController {
   constructor(options: HrcptyPtyControllerOptions) {
     this.socketPath = options.socketPath
     this.allowedOps = options.allowedOps
+    this.humanWindowBudgetMs = options.humanWindowBudgetMs ?? HUMAN_WINDOW_BUDGET_MS
     this.connectImpl = options.connect ?? connectHrcptyOps
     this.token =
       options.token ??
@@ -436,8 +443,15 @@ export class HrcptyPtyController {
     }
   }
 
-  /** Keystrokes own the window; a stale draft may be submitted after 30 s. */
-  async awaitHumanWindow(selectInput: TmuxPaneInputSelector, budgetMs: number): Promise<number> {
+  /**
+   * Keystrokes own the window; a stale draft may be submitted after 30 s.
+   * Resolves the `ifIdleMs` condition for the write, or `undefined` once the
+   * budget is spent: the write then goes in unconditionally.
+   */
+  async awaitHumanWindow(
+    selectInput: TmuxPaneInputSelector,
+    budgetMs: number
+  ): Promise<number | undefined> {
     const deadline = performance.now() + budgetMs
     for (;;) {
       const status = await this.status()
@@ -448,7 +462,7 @@ export class HrcptyPtyController {
         if (snapshot !== undefined && selectInput(snapshot).empty) return HUMAN_IDLE_MS
       }
       const remaining = deadline - performance.now()
-      if (remaining <= 0) throw new TmuxPaneNotQuiescentError('before_paste')
+      if (remaining <= 0) return undefined
       await sleep(Math.min(HUMAN_WINDOW_POLL_MS, remaining))
     }
   }
@@ -457,7 +471,7 @@ export class HrcptyPtyController {
     text: string,
     selectInput: TmuxPaneInputSelector
   ): Promise<void> {
-    const deadline = performance.now() + HUMAN_WINDOW_BUDGET_MS
+    const deadline = performance.now() + this.humanWindowBudgetMs
     for (;;) {
       const ifIdleMs = await this.awaitHumanWindow(
         selectInput,
@@ -465,9 +479,7 @@ export class HrcptyPtyController {
       )
       const result = await this.write(text, ifIdleMs)
       if (result.written !== 0) return
-      const remaining = deadline - performance.now()
-      if (remaining <= 0) throw new TmuxPaneNotQuiescentError('before_paste')
-      await sleep(Math.min(HUMAN_WINDOW_POLL_MS, remaining))
+      await sleep(Math.min(HUMAN_WINDOW_POLL_MS, Math.max(0, deadline - performance.now())))
     }
   }
 
