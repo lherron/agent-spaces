@@ -53,6 +53,8 @@ export interface ComposedSettings {
    * idle. Only `false` has an effect; `true` does not turn idle compaction on.
    */
   idleCompaction?: false | undefined
+  /** Skip Claude Code's bypass-permissions consent modal at startup. */
+  skipDangerousModePermissionPrompt?: true | undefined
 }
 
 /**

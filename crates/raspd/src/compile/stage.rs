@@ -947,6 +947,7 @@ fn compose_target(
     composed.set("askUserQuestionTimeout", J::str("60s"));
     composed.set("tui", J::str("fullscreen"));
     composed.set("idleCompaction", J::Bool(false));
+    composed.set("skipDangerousModePermissionPrompt", J::Bool(true));
     let source = fs::read(&statusline.path).map_err(|_| fwd("statusline_asset"))?;
     if sha256_hex(&source) != statusline.sha256 {
         return Err(fwd("statusline_digest"));

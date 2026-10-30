@@ -154,6 +154,8 @@ describe('ClaudeAdapter.composeTarget', () => {
     expect(settings.tui).toBe('fullscreen')
     // Agent sessions never compact themselves while idle
     expect(settings.idleCompaction).toBe(false)
+    // Bypass-permissions consent rides the flag settings (setting sources are empty)
+    expect(settings.skipDangerousModePermissionPrompt).toBe(true)
   })
 
   test('writes statusline script to staging but points settings at published output', async () => {

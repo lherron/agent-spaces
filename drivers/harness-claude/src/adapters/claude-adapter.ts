@@ -414,6 +414,10 @@ export class ClaudeAdapter implements HarnessAdapter {
     // summarizes a long conversation before the prompt cache expires, which
     // silently drops context a seat waiting on mail or a dispatch still needs.
     composedSettings.idleCompaction = false
+    // Agent launches pass `--setting-sources ''`, so the user-level consent to
+    // bypass-permissions mode never reaches them; from Claude Code 2.1.314 the
+    // consent modal then blocks birth. Record the consent in the flag settings.
+    composedSettings.skipDangerousModePermissionPrompt = true
     await writeFile(settingsOutputPath, JSON.stringify(composedSettings, null, 2))
 
     // Install statusline script and add to settings (best-effort)
