@@ -7,6 +7,11 @@ import type {
   UsageModelIdentity,
 } from 'spaces-harness-broker-protocol'
 import type { RawJournalCursor } from '../../capture/raw-journal'
+import type {
+  HrcptyConnect,
+  HrcptyEventSubscription,
+  HrcptyPtyController,
+} from '../../runtime/hrcpty'
 import type { spawnHarnessProcess } from '../../runtime/process-runner'
 import type { TmuxExec, TmuxPaneController } from '../../runtime/tmux'
 import type { DriverContext } from '../driver'
@@ -105,6 +110,11 @@ export interface CodexAppServerDriverOptions {
     socketDir?: string | undefined
     connect?: ((socketPath: string, handlers: RpcHandlers) => Promise<CodexRpcPeer>) | undefined
   }
+  /** Test seams for the hrc-pty ops socket of an hrcpty lease (T-12162). */
+  hrcpty?: {
+    token?: (() => Promise<string>) | undefined
+    connect?: HrcptyConnect | undefined
+  }
 }
 
 /**
@@ -119,6 +129,14 @@ export interface CodexDriverState {
   rpc: CodexRpcPeer | undefined
   codexTui: boolean
   paneController: TmuxPaneController | undefined
+  /**
+   * hrcpty seats (T-12162 §4.2): the supervisor's ops controller, its
+   * `events` subscription, and the remote TUI it was asked to spawn, if any.
+   */
+  hrcpty: HrcptyPtyController | undefined
+  hrcptyEvents: HrcptyEventSubscription | undefined
+  tuiPid: number | undefined
+  tuiSpawning: boolean
   hookListener: HookListenerHandle | undefined
   attachTokenPath: string | undefined
   websocketSocketPath: string | undefined
@@ -212,6 +230,10 @@ export function createCodexDriverState(): CodexDriverState {
     rpc: undefined,
     codexTui: false,
     paneController: undefined,
+    hrcpty: undefined,
+    hrcptyEvents: undefined,
+    tuiPid: undefined,
+    tuiSpawning: false,
     hookListener: undefined,
     attachTokenPath: undefined,
     websocketSocketPath: undefined,

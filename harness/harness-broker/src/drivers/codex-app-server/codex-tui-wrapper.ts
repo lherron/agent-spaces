@@ -14,6 +14,8 @@ export interface AttachAttemptResult {
 
 export interface CodexTuiAttachRetryOptions {
   launch: () => Promise<AttachAttemptResult>
+  /** Whether a failed attempt is worth another; absent retries until the deadline. */
+  retryable?: ((result: AttachAttemptResult) => Promise<boolean>) | undefined
   timeoutMs?: number | undefined
   initialBackoffMs?: number | undefined
   maxBackoffMs?: number | undefined
@@ -36,6 +38,7 @@ export async function runCodexTuiAttachRetry(
   while (now() <= deadline) {
     last = await options.launch()
     if (last.code === 0 || last.signal !== null) return last
+    if (options.retryable !== undefined && !(await options.retryable(last))) return last
     if (now() + backoffMs > deadline) break
     await sleep(backoffMs)
     backoffMs = Math.min(maxBackoffMs, backoffMs * 2)
@@ -84,6 +87,11 @@ interface WrapperArgs {
   controlSocketPath: string
   invocationId: string
   runtimeId?: string | undefined
+  /**
+   * hrcpty seats (T-12162 §4.1): the broker owns the app-server, so the
+   * wrapper neither spawns, removes nor kills it; it only runs the TUI.
+   */
+  attachOnly: boolean
 }
 
 function parseArgs(argv: readonly string[]): WrapperArgs {
@@ -109,6 +117,7 @@ function parseArgs(argv: readonly string[]): WrapperArgs {
     controlSocketPath,
     invocationId,
     ...(runtimeId !== undefined ? { runtimeId } : {}),
+    attachOnly: argv.includes('--attach-only'),
   }
 }
 
@@ -141,6 +150,26 @@ async function postControl(options: WrapperArgs, envelope: Record<string, unknow
   })
 }
 
+/** Whether something still accepts connections on the app-server's unix socket. */
+export async function appServerReachable(socketPath: string, timeoutMs = 1_000): Promise<boolean> {
+  return await new Promise<boolean>((resolve) => {
+    const socket = connect(socketPath)
+    const timer = setTimeout(() => {
+      socket.destroy()
+      resolve(false)
+    }, timeoutMs)
+    socket.once('connect', () => {
+      clearTimeout(timer)
+      socket.destroy()
+      resolve(true)
+    })
+    socket.once('error', () => {
+      clearTimeout(timer)
+      resolve(false)
+    })
+  })
+}
+
 async function killChild(child: ChildProcess | undefined): Promise<void> {
   if (child === undefined || child.exitCode !== null || child.signalCode !== null) return
   child.kill('SIGTERM')
@@ -154,17 +183,8 @@ async function killChild(child: ChildProcess | undefined): Promise<void> {
 /** Run the wrapper with its flags (`harness-broker codex-tui-wrapper …` or the entry file). */
 export async function runCodexTuiWrapper(argv: readonly string[]): Promise<void> {
   const options = parseArgs(argv)
-  // Paint one line the instant we start. The broker submits the launch command
-  // with a confirm loop that re-presses Enter every 1.5s (up to five times)
-  // until the pane no longer ends with the command text, and that loop cannot
-  // tell a silent program from a swallowed Enter. This wrapper stays silent for
-  // seconds (app-server spawn, broker thread/start, attach token) while every
-  // extra Enter queues in the pane tty and lands as blank lines in the codex
-  // TUI's input box once it takes the terminal. Advancing the pane here is
-  // what every other tmux harness does by printing its banner.
-  process.stdout.write('\x1b[2mcodex tui: starting app-server\u2026\x1b[0m\n')
-  await rm(options.socketPath, { force: true }).catch(() => undefined)
   let tui: ChildProcess | undefined
+  let appServer: ChildProcess | undefined
   let terminating = false
   const terminate = async (signal: NodeJS.Signals): Promise<void> => {
     if (terminating) return
@@ -175,40 +195,64 @@ export async function runCodexTuiWrapper(argv: readonly string[]): Promise<void>
   }
   process.on('SIGHUP', () => void terminate('SIGHUP'))
   process.on('SIGTERM', () => void terminate('SIGTERM'))
+  // Codex 0.163 quits on one Ctrl-C at an empty composer and then restores
+  // cooked mode, so a second Ctrl-C right behind it is a SIGINT to the
+  // terminal's foreground group, this wrapper included. Dying there would skip
+  // the quit envelope and leave the seat up (T-12162 D3).
+  process.on('SIGINT', () => undefined)
 
-  // The app-server's stderr carries codex's tracing output (ERROR level by
-  // default). This wrapper runs inside the leased tmux `tui` pane, so an
-  // inherited stderr would be the pane tty the codex TUI is painting on raw-mode:
-  // every codex log line landed as a bare-`\n` staircase over the frame
-  // (T-08232). Pipe it instead and hand each line to the driver over the control
-  // socket, where it becomes an `info` diagnostic on the durable stream — the
-  // same treatment the headless path gives app-server stderr.
-  const appServer = spawn(
-    options.command,
-    ['app-server', '--listen', `unix://${options.socketPath}`],
-    {
-      cwd: process.cwd(),
-      env: process.env,
-      stdio: ['ignore', 'ignore', 'pipe'],
+  let serverExit: Promise<never> | undefined
+  if (!options.attachOnly) {
+    // Paint one line the instant we start. The broker submits the launch command
+    // with a confirm loop that re-presses Enter every 1.5s (up to five times)
+    // until the pane no longer ends with the command text, and that loop cannot
+    // tell a silent program from a swallowed Enter. This wrapper stays silent for
+    // seconds (app-server spawn, broker thread/start, attach token) while every
+    // extra Enter queues in the pane tty and lands as blank lines in the codex
+    // TUI's input box once it takes the terminal. Advancing the pane here is
+    // what every other tmux harness does by printing its banner.
+    process.stdout.write('\x1b[2mcodex tui: starting app-server\u2026\x1b[0m\n')
+    await rm(options.socketPath, { force: true }).catch(() => undefined)
+    // The app-server's stderr carries codex's tracing output (ERROR level by
+    // default). This wrapper runs inside the leased tmux `tui` pane, so an
+    // inherited stderr would be the pane tty the codex TUI is painting on raw-mode:
+    // every codex log line landed as a bare-`\n` staircase over the frame
+    // (T-08232). Pipe it instead and hand each line to the driver over the control
+    // socket, where it becomes an `info` diagnostic on the durable stream — the
+    // same treatment the headless path gives app-server stderr.
+    const server = spawn(
+      options.command,
+      ['app-server', '--listen', `unix://${options.socketPath}`],
+      {
+        cwd: process.cwd(),
+        env: process.env,
+        stdio: ['ignore', 'ignore', 'pipe'],
+      }
+    )
+    appServer = server
+    if (server.stderr) {
+      createInterface({ input: server.stderr }).on('line', (line) => {
+        if (line.trim().length === 0) return
+        void postControl(options, { type: 'app-server-renderer.stderr', line })
+      })
     }
-  )
-  if (appServer.stderr) {
-    createInterface({ input: appServer.stderr }).on('line', (line) => {
-      if (line.trim().length === 0) return
-      void postControl(options, { type: 'app-server-renderer.stderr', line })
+    await writeFile(`${options.socketPath}.pid`, `${server.pid ?? ''}\n`, 'utf8')
+    serverExit = new Promise<never>((_resolve, reject) => {
+      server.once('error', reject)
+      server.once('exit', (code, signal) => {
+        reject(new Error(`codex app-server exited before TUI (${signal ?? code ?? 'unknown'})`))
+      })
     })
+    serverExit.catch(() => {})
   }
-  await writeFile(`${options.socketPath}.pid`, `${appServer.pid ?? ''}\n`, 'utf8')
-  const serverExit = new Promise<never>((_resolve, reject) => {
-    appServer?.once('error', reject)
-    appServer?.once('exit', (code, signal) => {
-      reject(new Error(`codex app-server exited before TUI (${signal ?? code ?? 'unknown'})`))
-    })
-  })
-  serverExit.catch(() => {})
 
-  const threadId = await Promise.race([waitForAttachToken(options.attachTokenPath), serverExit])
+  const threadId =
+    serverExit === undefined
+      ? await waitForAttachToken(options.attachTokenPath)
+      : await Promise.race([waitForAttachToken(options.attachTokenPath), serverExit])
   const result = await runCodexTuiAttachRetry({
+    // The attach race retries against a live server; a gone one never answers.
+    ...(options.attachOnly ? { retryable: () => appServerReachable(options.socketPath) } : {}),
     launch: () =>
       new Promise<AttachAttemptResult>((resolve, reject) => {
         const stderr: Buffer[] = []
@@ -232,16 +276,27 @@ export async function runCodexTuiWrapper(argv: readonly string[]): Promise<void>
       }),
   })
 
+  // Codex 0.163's remote TUI exits 0 both on a quit and when it loses its
+  // server ("Disconnected from this task"). Only a quit with the server still
+  // up is the user's quit; the other ends the TUI, never the conversation.
+  const serverUp = options.attachOnly
+    ? await appServerReachable(options.socketPath)
+    : appServer !== undefined && appServer.exitCode === null && appServer.signalCode === null
+  // A SIGINT reaches the TUI only once it has restored cooked mode on its
+  // way out of a Ctrl-C quit (a second Ctrl-C right behind the first).
+  const quit = (result.code === 0 || result.signal === 'SIGINT') && serverUp
   await postControl(options, {
-    type: result.code === 0 ? 'app-server-renderer.quit' : 'app-server-renderer.exited',
-    ...(result.code === 0
+    type: quit ? 'app-server-renderer.quit' : 'app-server-renderer.exited',
+    ...(quit
       ? { reason: 'prompt_input_exit' }
       : { exitCode: result.code, signal: result.signal, detail: result.stderr }),
   })
   terminating = true
-  await killChild(appServer)
-  await rm(options.socketPath, { force: true }).catch(() => undefined)
-  await rm(`${options.socketPath}.pid`, { force: true }).catch(() => undefined)
+  if (!options.attachOnly) {
+    await killChild(appServer)
+    await rm(options.socketPath, { force: true }).catch(() => undefined)
+    await rm(`${options.socketPath}.pid`, { force: true }).catch(() => undefined)
+  }
   process.exit(result.code ?? (result.signal === null ? 1 : 128))
 }
 

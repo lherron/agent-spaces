@@ -74,8 +74,26 @@ export class HrcptyRpcError extends Error {
 /** One control connection. Calls may overlap; replies are matched by id. */
 export interface HrcptyOpsConnection {
   call(method: string, params?: Record<string, unknown>): Promise<unknown>
+  /** Receive id-less frames: what an `events` connection pushes after its reply. */
+  onNotification?(handler: (method: string, params: Record<string, unknown>) => void): void
+  /** Called once when the connection ends, for any reason. */
+  onClose?(handler: () => void): void
   close(): void
 }
+
+/** One push frame from an `events` subscription (§4.2 step 2). */
+export type HrcptyEvent =
+  | {
+      method: 'client.attached' | 'client.detached'
+      params: { attachId: string; readOnly: boolean }
+    }
+  | {
+      method: 'child.exited' | 'broker.exited'
+      params: { pid: number; code: number | null; signal: number | null }
+    }
+  | { method: string; params: Record<string, unknown> }
+
+export type HrcptyEventSubscription = { close(): void }
 
 export type HrcptyConnect = (socketPath: string) => Promise<HrcptyOpsConnection>
 
@@ -100,11 +118,15 @@ function createNdjsonConnection(socket: Socket): HrcptyOpsConnection {
   let nextId = 1
   let buffered = ''
   let closedError: Error | undefined
+  let notify: ((method: string, params: Record<string, unknown>) => void) | undefined
+  let closeHandler: (() => void) | undefined
 
   const failAll = (error: Error): void => {
+    const first = closedError === undefined
     closedError ??= error
     for (const call of pending.values()) call.reject(closedError)
     pending.clear()
+    if (first) closeHandler?.()
   }
 
   socket.setEncoding('utf8')
@@ -114,10 +136,24 @@ function createNdjsonConnection(socket: Socket): HrcptyOpsConnection {
       const line = buffered.slice(0, newline).trim()
       buffered = buffered.slice(newline + 1)
       if (line.length === 0) continue
-      let frame: { id?: unknown; result?: unknown; error?: { message?: unknown; data?: unknown } }
+      let frame: {
+        id?: unknown
+        method?: unknown
+        params?: unknown
+        result?: unknown
+        error?: { message?: unknown; data?: unknown }
+      }
       try {
         frame = JSON.parse(line)
       } catch {
+        continue
+      }
+      if (frame.id === undefined && typeof frame.method === 'string') {
+        const params =
+          typeof frame.params === 'object' && frame.params !== null
+            ? (frame.params as Record<string, unknown>)
+            : {}
+        notify?.(frame.method, params)
         continue
       }
       if (typeof frame.id !== 'number') continue
@@ -145,6 +181,12 @@ function createNdjsonConnection(socket: Socket): HrcptyOpsConnection {
         pending.set(id, { method, resolve, reject })
         socket.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
       })
+    },
+    onNotification(handler) {
+      notify = handler
+    },
+    onClose(handler) {
+      closeHandler = handler
     },
     close() {
       failAll(new Error('hrc-pty control connection closed'))
@@ -266,6 +308,44 @@ export class HrcptyPtyController {
       ...(request.cols !== undefined ? { cols: request.cols } : {}),
       ...(request.rows !== undefined ? { rows: request.rows } : {}),
     })) as { pid: number; cols: number; rows: number }
+  }
+
+  /** Signal the pty child (`TERM`, `HUP`, `KILL`, `INT`); `no_child` when none runs. */
+  async signal(signal: 'TERM' | 'HUP' | 'KILL' | 'INT'): Promise<void> {
+    await this.call('signal', { signal })
+  }
+
+  /**
+   * Hold an `events` subscription on its own connection: hrc-pty answers the
+   * call once, then pushes `child.exited`, `broker.exited`, `client.attached`
+   * and `client.detached` until the connection closes. `onClose` fires once
+   * when it does, whoever closed it.
+   */
+  async subscribeEvents(
+    onEvent: (event: HrcptyEvent) => void,
+    onClose?: (() => void) | undefined
+  ): Promise<HrcptyEventSubscription> {
+    if (this.closed) {
+      throw new BrokerError(BrokerErrorCode.InvalidInvocationState, 'hrc-pty controller is closed')
+    }
+    const connection = await this.connectImpl(this.socketPath)
+    if (connection.onNotification === undefined) {
+      connection.close()
+      throw new BrokerError(
+        BrokerErrorCode.CapabilityDenied,
+        'hrc-pty connection cannot carry an events subscription'
+      )
+    }
+    try {
+      await connection.call('hello', { token: await this.token() })
+      connection.onNotification((method, params) => onEvent({ method, params } as HrcptyEvent))
+      if (onClose !== undefined) connection.onClose?.(onClose)
+      await connection.call('events')
+    } catch (error) {
+      connection.close()
+      throw error
+    }
+    return { close: () => connection.close() }
   }
 
   async sendLiteral(text: string): Promise<void> {

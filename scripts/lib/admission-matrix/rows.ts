@@ -252,6 +252,13 @@ function createFixture(kind: string, agentName: string, repoRoot: string): Fixtu
 // ---------------------------------------------------------------------------
 
 const REQUESTED: Record<string, RuntimeCompileRequest['requested']> = {
+  'codex-hrcpty': {
+    harness: 'codex-hrcpty',
+    modelProvider: 'openai-codex',
+    model: 'gpt-5.6-terra',
+    reasoningEffort: 'medium',
+    presentation: true,
+  },
   'claude-code-hrcpty': {
     harness: 'claude-hrcpty',
     modelProvider: 'anthropic',
@@ -353,7 +360,10 @@ function compileRequest(input: {
         ? { mode: 'none' }
         : {
             mode: 'broker-reports-target',
-            targetKind: input.kind === 'claude-code-hrcpty' ? 'hrcpty-socket' : 'tmux-session',
+            targetKind:
+              input.kind === 'claude-code-hrcpty' || input.kind === 'codex-hrcpty'
+                ? 'hrcpty-socket'
+                : 'tmux-session',
           },
       resourceLimits: { startupTimeoutMs: input.timeoutMs, turnTimeoutMs: input.timeoutMs },
       observability: { traceId: requestIdentity.traceId },
@@ -554,6 +564,8 @@ export const PRIMING_PROMPT = 'Reply with exactly READY and nothing else. Do not
 
 function compiledRecipe(input: {
   kind: string
+  /** The registered driver a harness-variant row runs (defaults to `kind`). */
+  driverKind?: string | undefined
   agentName: string
   /** The terminal the row's dispatch leases: a tmux pane, an hrc-pty supervisor, or none. */
   terminal: 'tmux-pane' | 'hrcpty' | 'none'
@@ -570,6 +582,7 @@ function compiledRecipe(input: {
 }): RowRecipe {
   return {
     kind: input.kind,
+    ...(input.driverKind !== undefined ? { driverKind: input.driverKind } : {}),
     probe: input.probe,
     plan: async (ctx) => {
       input.prepareEnv?.()
@@ -577,7 +590,7 @@ function compiledRecipe(input: {
       const cleanups: Array<() => Promise<void> | void> = [fixture.cleanup]
       try {
         const profile = await compileProfile(
-          input.kind,
+          input.driverKind ?? input.kind,
           fixture,
           compileRequest({
             kind: input.kind,
@@ -619,18 +632,28 @@ function compiledRecipe(input: {
 }
 
 export const ROW_RECIPES: Record<string, RowRecipe> = {
-  // T-12163: task D supplies the Codex hrcpty driver branch.
-  'codex-hrcpty': {
+  // T-12166: the codex-app-server driver on an hrc-pty lease; no TUI until attach.
+  'codex-hrcpty': compiledRecipe({
     kind: 'codex-hrcpty',
     driverKind: 'codex-app-server',
-    probe: () => ({
-      available: false,
-      reason: 'codex-hrcpty driver branch pending task D',
-    }),
-    plan: async () => {
-      throw new Error('codex-hrcpty admission requires task D driver branch')
+    agentName: 'curly',
+    terminal: 'hrcpty',
+    prepareEnv: exportCodexPath,
+    driver: () => createCodexAppServerDriver(),
+    probe: () => {
+      const codex = resolveCodexBin()
+      if (codex === undefined)
+        return { available: false, reason: 'codex binary not found (set ASP_CODEX_PATH)' }
+      const auth = authProbe(join(homedir(), '.codex', 'auth.json'), 'codex')
+      if (auth !== undefined) return auth
+      const hrcpty = hrcptyProbe()
+      if (hrcpty !== undefined) return hrcpty
+      return {
+        available: true,
+        reason: `real codex at ${codex}, hrc-pty at ${resolveHrcptyBinary()}`,
+      }
     },
-  },
+  }),
   'claude-code-hrcpty': compiledRecipe({
     kind: 'claude-code-hrcpty',
     agentName: 'curly',

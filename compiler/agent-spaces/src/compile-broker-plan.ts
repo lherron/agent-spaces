@@ -36,7 +36,10 @@ export async function compileBrokerPlan(
   options?: CompileRuntimePlanOptions
 ): Promise<RuntimeCompileResponse> {
   const isMuse = resolved.recipe.builder === 'muse-serve'
-  const codexTui = resolved.selection.presentation
+  // codex-hrcpty (T-12162 §4.3): both variants are the attachable app-server
+  // whose TUI hrc-pty spawns on attach, so both compile the codex-tui shape.
+  const codexTui =
+    resolved.selection.presentation || resolved.recipe.hosting.terminalHost === 'hrcpty'
   const brokerProvider = isMuse ? ('meta' as const) : ('openai' as const)
   const brokerFrontend = isMuse ? ('muse-cli' as const) : ('codex-cli' as const)
   const brokerDriverKind = resolved.recipe.driver as 'muse-serve' | 'codex-app-server'

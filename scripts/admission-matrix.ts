@@ -305,7 +305,13 @@ async function runCell(input: {
   const expectation = expectationFor(door, state, capabilities)
 
   // 1. Arm the seat state. The base turn goes through `invoke` — the exclusive
-  //    door — so even the fixture traffic obeys the four-door rule.
+  //    door — so even the fixture traffic obeys the four-door rule. A seat
+  //    that does not advertise exclusive (codex-tui presentation: steer and
+  //    queue only) is armed through `enqueue`, which on an idle seat starts
+  //    the base turn the same way.
+  const armDoor: DoorName = capabilities.admission.classes.includes('exclusive')
+    ? 'invoke'
+    : 'enqueue'
   const base = basePrompt(state, cellMarker)
   if (base !== undefined) {
     // Watermark BEFORE the base submission: the arming predicate must look only
@@ -315,7 +321,7 @@ async function runCell(input: {
     // seat whose turn has not opened yet — which reads as a driver defect
     // (`interrupt.requested=0`) when it is really a racing harness.
     const armWatermark = events.length
-    await knock('invoke', broker, { invocationId, body: base, principalRef: MATRIX_PRINCIPAL })
+    await knock(armDoor, broker, { invocationId, body: base, principalRef: MATRIX_PRINCIPAL })
     let armed =
       state === 'busy-generating'
         ? await waitForTurnActive(broker, invocationId, ctx.timeoutMs)

@@ -19,6 +19,7 @@ import {
 import { buildCodexTuiWrapperArgvPrefix } from './codex-tui-wrapper'
 import type { CodexDriverControl } from './driver-control'
 import type { CodexDriverEvents } from './driver-events'
+import { hrcptyLeaseOf, startCodexHrcptySeat } from './driver-hrcpty'
 import type { CodexDriverNormalizer } from './driver-normalize'
 import type {
   CodexAppServerDriverOptions,
@@ -102,6 +103,15 @@ export function createCodexDriverStart(
         'Codex TUI presentation requires transport=websocket-unix'
       )
     }
+    // T-12162: an hrcpty lease makes this a codex-hrcpty seat. The driver keys
+    // on the lease kind, never on the harness id.
+    const hrcptyLease = hrcptyLeaseOf(driverCtx)
+    if (hrcptyLease !== undefined && !s.codexTui) {
+      throw new BrokerError(
+        BrokerErrorCode.DispatchValidationFailed,
+        'codex-app-server on an hrcpty lease requires presentation=codex-tui'
+      )
+    }
     const expectedRuntimeId = getInvocationRuntimeId(startSpec)
     s.terminalEmitted = false
     s.startedEmitted = false
@@ -123,13 +133,15 @@ export function createCodexDriverStart(
     rotateCaptureEpoch(driverCtx)
 
     if (s.codexTui) {
-      const leased = await consumePaneLease(driverCtx, {
-        driverKind: 'codex-app-server',
-        ...(options.codexTui?.tmuxBin !== undefined ? { tmuxBin: options.codexTui.tmuxBin } : {}),
-        ...(options.codexTui?.tmuxExec !== undefined ? { exec: options.codexTui.tmuxExec } : {}),
-      })
-      s.paneController = leased.controller
-      emitTerminalSurface(driverCtx, leased.surface)
+      if (hrcptyLease === undefined) {
+        const leased = await consumePaneLease(driverCtx, {
+          driverKind: 'codex-app-server',
+          ...(options.codexTui?.tmuxBin !== undefined ? { tmuxBin: options.codexTui.tmuxBin } : {}),
+          ...(options.codexTui?.tmuxExec !== undefined ? { exec: options.codexTui.tmuxExec } : {}),
+        })
+        s.paneController = leased.controller
+        emitTerminalSurface(driverCtx, leased.surface)
+      }
       // HRC's leased tmux sockets live below a deliberately descriptive runtime
       // hierarchy. Deriving the app-server UDS from that directory exceeds
       // macOS SUN_LEN on real scopes, so the codex-tui transport gets a short,
@@ -173,45 +185,65 @@ export function createCodexDriverStart(
         s.hookListener.socketPath,
         options.codexTuiLauncher
       )
-      const launch = await writeTmuxLaunchExecFiles(
-        `${socketBase}.codex-tui`,
-        {
-          argv: [
-            ...buildCodexTuiWrapperArgvPrefix(options.codexTuiLauncher),
-            '--command',
-            startSpec.process.command,
-            '--socket',
-            websocketPath,
-            '--attach-token',
-            s.attachTokenPath,
-            '--control-socket',
-            s.rendererControlListener.socketPath,
-            '--invocation-id',
-            driverCtx.invocationId,
-            ...(expectedRuntimeId !== undefined ? ['--runtime-id', expectedRuntimeId] : []),
-          ],
-          cwd: startSpec.process.cwd,
-          env: {
-            ...startSpec.process.lockedEnv,
-            ...(driverCtx.dispatchEnv ?? {}),
-            HRC_LAUNCH_HOOK_CLI: hookCliPath,
-            HARNESS_BROKER_INVOCATION_ID: driverCtx.invocationId,
-            HARNESS_BROKER_CALLBACK_SOCKET: s.hookListener.socketPath,
-            // Hook-protocol fence version, NOT the HRC session generation (that is HRC_GENERATION).
-            HARNESS_BROKER_HOOK_GENERATION: '1',
-            ...(expectedRuntimeId !== undefined
-              ? { HARNESS_BROKER_RUNTIME_ID: expectedRuntimeId }
-              : {}),
+      const hookEnv: Record<string, string> = {
+        HRC_LAUNCH_HOOK_CLI: hookCliPath,
+        HARNESS_BROKER_INVOCATION_ID: driverCtx.invocationId,
+        HARNESS_BROKER_CALLBACK_SOCKET: s.hookListener.socketPath,
+        // Hook-protocol fence version, NOT the HRC session generation (that is HRC_GENERATION).
+        HARNESS_BROKER_HOOK_GENERATION: '1',
+        ...(expectedRuntimeId !== undefined
+          ? { HARNESS_BROKER_RUNTIME_ID: expectedRuntimeId }
+          : {}),
+      }
+      if (hrcptyLease !== undefined) {
+        await startCodexHrcptySeat({
+          s,
+          options,
+          events,
+          ctx: driverCtx,
+          spec: startSpec,
+          lease: hrcptyLease,
+          websocketPath,
+          attachTokenPath: s.attachTokenPath,
+          controlSocketPath: s.rendererControlListener.socketPath,
+          runtimeId: expectedRuntimeId,
+          hookEnv,
+          onExit,
+        })
+      } else {
+        const launch = await writeTmuxLaunchExecFiles(
+          `${socketBase}.codex-tui`,
+          {
+            argv: [
+              ...buildCodexTuiWrapperArgvPrefix(options.codexTuiLauncher),
+              '--command',
+              startSpec.process.command,
+              '--socket',
+              websocketPath,
+              '--attach-token',
+              s.attachTokenPath,
+              '--control-socket',
+              s.rendererControlListener.socketPath,
+              '--invocation-id',
+              driverCtx.invocationId,
+              ...(expectedRuntimeId !== undefined ? ['--runtime-id', expectedRuntimeId] : []),
+            ],
+            cwd: startSpec.process.cwd,
+            env: {
+              ...startSpec.process.lockedEnv,
+              ...(driverCtx.dispatchEnv ?? {}),
+              ...hookEnv,
+            },
+            pathPrepend: startSpec.process.pathPrepend,
+            ...(startSpec.launch !== undefined ? { prompts: startSpec.launch } : {}),
           },
-          pathPrepend: startSpec.process.pathPrepend,
-          ...(startSpec.launch !== undefined ? { prompts: startSpec.launch } : {}),
-        },
-        // T-08556: a release worker runs the launch runner from its own payload.
-        options.codexTuiLauncher !== undefined
-          ? { runner: { command: options.codexTuiLauncher.command, args: ['tmux-launch'] } }
-          : {}
-      )
-      await leased.controller.sendPastedLine(launch.commandLine)
+          // T-08556: a release worker runs the launch runner from its own payload.
+          options.codexTuiLauncher !== undefined
+            ? { runner: { command: options.codexTuiLauncher.command, args: ['tmux-launch'] } }
+            : {}
+        )
+        await s.paneController?.sendPastedLine(launch.commandLine)
+      }
       s.rpc = await (options.codexTui?.connect ?? connectCodexTuiRpc)(websocketPath, {
         onNotification,
         onRequest: async (request, rawFrame) =>
@@ -369,7 +401,8 @@ export function createCodexDriverStart(
     }
     if (startupTimer !== undefined) clearTimeout(startupTimer)
 
-    const startedPid = s.codexTui ? await readCodexTuiPid(s.websocketSocketPath) : s.proc?.pid
+    const startedPid =
+      s.proc !== undefined ? s.proc.pid : await readCodexTuiPid(s.websocketSocketPath)
     requireCtx().emit('invocation.started', {
       ...(startedPid !== undefined ? { pid: startedPid } : {}),
       command: startSpec.process.command ?? process.execPath,

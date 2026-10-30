@@ -71,6 +71,8 @@ describe('v2 runtime compile plan', () => {
       })
       const { spec } = response.plan.execution.dispatchRequest.startRequest
       expect(spec.driver.kind).toBe('codex-app-server')
+      // The driver attaches the TUI on demand, so both variants compile the codex-tui shape.
+      expect(spec.driver).toMatchObject({ presentation: 'codex-tui', transport: 'websocket-unix' })
       expect(() => validateInvocationStartRequest({ spec })).not.toThrow()
     }
   )

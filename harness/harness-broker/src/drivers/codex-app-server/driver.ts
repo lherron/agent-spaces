@@ -16,6 +16,7 @@ import { CODEX_APP_SERVER_AUTHORITY } from '../evidence-authority'
 import { CODEX_CAPABILITIES, CODEX_TUI_CAPABILITIES } from './capabilities'
 import { createCodexDriverControl } from './driver-control'
 import { createCodexDriverEvents } from './driver-events'
+import { stopCodexHrcptyTui } from './driver-hrcpty'
 import { createCodexDriverInput } from './driver-input'
 import { createCodexDriverNormalizer } from './driver-normalize'
 import { createCodexDriverStart } from './driver-start'
@@ -127,6 +128,17 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
         clearTimeout(s.turnTimeout)
         s.turnTimeout = undefined
       }
+      if (s.hrcpty !== undefined) {
+        await stopCodexHrcptyTui(s)
+        s.rpc?.close()
+        if (s.proc !== undefined) {
+          await terminateProcess({
+            proc: s.proc,
+            graceMs: req.graceMs ?? s.spec?.process.limits?.stopGraceMs ?? 1000,
+          })
+        }
+        return { accepted: true, state: s.terminalEmitted ? 'exited' : 'failed' }
+      }
       if (s.codexTui) {
         await s.paneController?.interrupt().catch(() => undefined)
         s.rpc?.close()
@@ -145,6 +157,8 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
     async dispose(): Promise<void> {
       closeRendererControlListener()
       if (s.hookListener !== undefined) await s.hookListener.close().catch(() => undefined)
+      s.hrcptyEvents?.close()
+      s.hrcpty?.close()
       s.reportedTranscriptPaths.clear()
       s.ungatedFrames.length = 0
       s.rpc?.close()
@@ -154,6 +168,10 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
       s.proc = undefined
       s.rpc = undefined
       s.paneController = undefined
+      s.hrcpty = undefined
+      s.hrcptyEvents = undefined
+      s.tuiPid = undefined
+      s.tuiSpawning = false
       s.hookListener = undefined
       s.attachTokenPath = undefined
       s.websocketSocketPath = undefined

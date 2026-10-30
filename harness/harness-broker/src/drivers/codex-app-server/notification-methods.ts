@@ -41,6 +41,9 @@ export const SUPPRESSED_METHODS = new Set<string>([
   'thread/project/updated',
   'thread/environment/connected',
   'thread/environment/disconnected',
+  // T-12166 — codex 0.163 per-client read marker (`firstUnread`, `revision`);
+  // observed on every turn with the experimental API on. Not turn evidence.
+  'thread/readState/changed',
   'project/changed',
   // Deprecated by the provider in favour of the `contextCompaction` ITEM, which
   // this mapper surfaces at `item/completed`. Never observed live.

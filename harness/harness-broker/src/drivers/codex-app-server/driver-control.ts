@@ -32,6 +32,10 @@ import { CodexRpcError, type JsonRpcNotification } from './rpc-client'
 
 export type CodexDriverControl = ReturnType<typeof createCodexDriverControl>
 
+function isLive(proc: { exitCode: number | null; signalCode: NodeJS.Signals | null }): boolean {
+  return proc.exitCode === null && proc.signalCode === null
+}
+
 /**
  * Renderer control channel, thread start/resume, codex-tui hook trust and
  * the codex-tui queued-input delivery path.
@@ -70,6 +74,17 @@ export function createCodexDriverControl(s: CodexDriverState, events: CodexDrive
 
   async function handleRendererQuit(): Promise<void> {
     if (s.rendererQuitAccepted || s.terminalEmitted) return
+    // Codex 0.163's remote TUI also exits 0 when it loses its server. On an
+    // hrcpty seat the broker owns the app-server, so a quit that arrives after
+    // that process is gone is a disconnect, not a user quit: the conversation
+    // stays (T-12166).
+    if (s.hrcpty !== undefined && s.proc !== undefined && !isLive(s.proc)) {
+      emitDiagnostic('warn', 'Codex TUI exited after its app-server; continuation kept', {
+        exitCode: s.proc.exitCode,
+        signal: s.proc.signalCode,
+      })
+      return
+    }
     s.rendererQuitAccepted = true
     s.stopping = true
     if (s.turnTimeout !== undefined) {
