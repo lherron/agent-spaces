@@ -298,7 +298,10 @@ describe('broker permission reconnect red tests for T-01796 Phase C2', () => {
     try {
       client = (await connect(socketPath)) as PermissionRespondCapableClient
       const requestPromise = nextPermissionRequest(client)
-      const { invocationId } = await startReadyInvocation(client, 160)
+      const { invocationId, events } = await startReadyInvocation(client, 160)
+      // input() settles when the turn starts, not when it ends; the next input
+      // is refused while this turn is still active.
+      const firstTurnCompleted = collectUntil(events, 'turn.completed', 5000)
 
       const inputPromise = client
         .input({
@@ -333,6 +336,7 @@ describe('broker permission reconnect red tests for T-01796 Phase C2', () => {
         client.permissionRespond({ ...response, decision: 'allow' })
       ).rejects.toMatchObject({ code: BrokerErrorCode.PermissionResponseConflict })
       await inputPromise
+      await firstTurnCompleted
 
       await expect(
         client.permissionRespond({
