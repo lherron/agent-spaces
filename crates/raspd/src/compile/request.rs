@@ -982,6 +982,19 @@ mod tests {
             fail(
                 &edit(
                     &["compileRequest", "requested", "harness"],
+                    Some(J::str("codex-hrcpty"))
+                ),
+                None
+            ),
+            Some((
+                "recipe_not_native",
+                "selection.harness:codex-hrcpty@compile-request".to_owned()
+            ))
+        );
+        assert_eq!(
+            fail(
+                &edit(
+                    &["compileRequest", "requested", "harness"],
                     Some(J::str("claude"))
                 ),
                 Some(&target)

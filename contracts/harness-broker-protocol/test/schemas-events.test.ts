@@ -391,6 +391,21 @@ describe('validateEventEnvelope', () => {
     )
   })
 
+  test('codex-app-server accepts hrcpty terminal surfaces and requires a socket path', () => {
+    const env = {
+      ...envelope('terminal.surface.reported', {
+        kind: 'hrcpty-socket',
+        socketPath: '/tmp/codex-hrcpty/ops.sock',
+      }),
+      driver: { kind: 'codex-app-server' },
+    }
+    expectValidatesTo(env)
+    expectInvalidEventEnvelope(
+      { ...env, payload: { kind: 'hrcpty-socket' } },
+      { path: 'payload.socketPath', code: 'required' }
+    )
+  })
+
   test('accepts terminal.surface.reported with kind:tmux-pane and full tmux ids', () => {
     const env = envelope('terminal.surface.reported', {
       kind: 'tmux-pane',

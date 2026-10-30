@@ -220,6 +220,57 @@ export const HARNESS_CATALOG: Readonly<Record<HarnessId, HarnessDefinition>> = {
     },
     processImplementation: { frontend: 'codex-cli', provider: 'openai' },
   },
+  'codex-hrcpty': {
+    id: 'codex-hrcpty',
+    defaultModelProvider: 'openai-codex',
+    supportedModelProviders: [
+      {
+        id: 'openai-codex',
+        defaultModel: 'gpt-5.6-terra',
+        supportedModels: [
+          'gpt-5.6-terra',
+          'gpt-6.1-sol',
+          'gpt-6-astra',
+          'gpt-6-luna',
+          'gpt-5.6-sol',
+          'gpt-5.6-luna',
+          'gpt-5.5',
+        ],
+      },
+    ],
+    presentationDefault: true,
+    executionVariants: {
+      withoutPresentation: {
+        recipeId: 'codex-app-server',
+        builder: 'codex-app-server',
+        driver: 'codex-app-server',
+        protocol: broker,
+        hosting: {
+          executionTransport: 'jsonrpc-stdio',
+          terminalRequired: true,
+          terminalHost: 'hrcpty',
+          processExecution: 'supervisor-process',
+        },
+        presentationFulfillment: 'attachable',
+        presentationSurface: { transport: 'websocket-unix', terminalHost: 'hrcpty' },
+      },
+      withPresentation: {
+        recipeId: 'codex-app-server',
+        builder: 'codex-app-server',
+        driver: 'codex-app-server',
+        protocol: broker,
+        hosting: {
+          executionTransport: 'jsonrpc-stdio',
+          terminalRequired: true,
+          terminalHost: 'hrcpty',
+          processExecution: 'supervisor-process',
+        },
+        presentationFulfillment: 'attachable',
+        presentationSurface: { transport: 'websocket-unix', terminalHost: 'hrcpty' },
+      },
+    },
+    processImplementation: { frontend: 'codex-cli', provider: 'openai' },
+  },
   muse: {
     id: 'muse',
     defaultModelProvider: 'meta',

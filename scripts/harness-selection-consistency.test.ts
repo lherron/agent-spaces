@@ -10,10 +10,18 @@ import {
   DEFAULT_HARNESS as CONFIG_DEFAULT_HARNESS,
   HARNESS_IDS as CONFIG_HARNESS_IDS,
   parseAgentProfile,
+  parseSpaceToml,
   parseTargetsToml,
 } from 'spaces-config'
 
-const EXPECTED_IDS = ['agent-harness', 'claude', 'claude-hrcpty', 'codex', 'muse'] as const
+const EXPECTED_IDS = [
+  'agent-harness',
+  'claude',
+  'claude-hrcpty',
+  'codex',
+  'codex-hrcpty',
+  'muse',
+] as const
 
 function wireRequest(harness: (typeof EXPECTED_IDS)[number]) {
   return {
@@ -48,12 +56,16 @@ function wireRequest(harness: (typeof EXPECTED_IDS)[number]) {
 }
 
 describe('repository harness-selection projections', () => {
-  test('protocol, config, profile, target, and catalog expose the same five IDs', () => {
+  test('protocol, config, profile, target, and catalog expose the same six IDs', () => {
     expect([...catalogHarnessIds()]).toEqual(EXPECTED_IDS)
     expect([...CONFIG_HARNESS_IDS]).toEqual(EXPECTED_IDS)
     expect(catalogCapabilities().map(({ id }) => id)).toEqual(EXPECTED_IDS)
 
     for (const harness of EXPECTED_IDS) {
+      expect(
+        parseSpaceToml(`schema = 1\nid = "test-space"\n[harness]\nsupports = ["${harness}"]\n`)
+          .harness?.supports
+      ).toEqual([harness])
       expect(validateAspcCompileHarnessInvocationRequest(wireRequest(harness))).toBeTruthy()
       expect(
         parseAgentProfile(
@@ -78,6 +90,7 @@ describe('repository harness-selection projections', () => {
       recipe: { driver: 'agent-harness-tmux' },
     })
     expect(catalogCapabilities().map(({ presentationDefault }) => presentationDefault)).toEqual([
+      true,
       true,
       true,
       true,

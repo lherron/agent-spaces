@@ -48,7 +48,7 @@ type _NoV1CompileSchemas = Expect<
 >
 
 type _HarnessIdIsClosed = Expect<
-  Equal<HarnessId, 'agent-harness' | 'claude' | 'claude-hrcpty' | 'codex' | 'muse'>
+  Equal<HarnessId, 'agent-harness' | 'claude' | 'claude-hrcpty' | 'codex' | 'codex-hrcpty' | 'muse'>
 >
 
 // The supervisor endpoint is a socket, with no tmux pane coordinates.

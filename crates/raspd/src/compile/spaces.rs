@@ -356,7 +356,7 @@ pub fn space_manifest_valid(v: &J) -> bool {
                 let J::Arr(items) = s else { return false };
                 let mut seen: Vec<&J> = vec![];
                 items.iter().all(|i| {
-                    let ok = matches!(i, J::Str(x) if ["agent-harness", "claude", "claude-hrcpty", "codex", "muse"].contains(&x.as_str()))
+                    let ok = matches!(i, J::Str(x) if ["agent-harness", "claude", "claude-hrcpty", "codex", "codex-hrcpty", "muse"].contains(&x.as_str()))
                         && !seen.contains(&i);
                     seen.push(i);
                     ok

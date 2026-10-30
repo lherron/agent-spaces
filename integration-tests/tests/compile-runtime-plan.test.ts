@@ -33,6 +33,49 @@ async function planFor(options: Parameters<typeof compileV2>[1], agentId?: strin
 
 describe('v2 runtime compile plan', () => {
   test.each([false, true])(
+    'profile-selected codex-hrcpty presentation=%s carries attachable supervisor hosting',
+    async (presentation) => {
+      const value = fixture()
+      writeFileSync(
+        join(value.agentRoot, 'agent-profile.toml'),
+        'version = 4\n[spaces]\nbase = []\n[provisioning]\nharness = "codex-hrcpty"\n'
+      )
+      const request = buildV2CompileRequest(value, {
+        namespace: `codex-hrcpty-${presentation}`,
+        harness: 'codex',
+        modelProvider: 'openai-codex',
+        model: 'gpt-6.1-sol',
+        presentation,
+        prompt: 'compile the supervisor launch',
+      })
+      request.requested.harness = undefined
+      const response = await compileV2Request(value, request)
+      expect(response.ok).toBe(true)
+      if (!response.ok) throw new Error(JSON.stringify(response.diagnostics))
+      expect(response.plan.selection).toMatchObject({
+        harness: 'codex-hrcpty',
+        presentation,
+        provenance: { harness: 'agent-profile' },
+      })
+      expect(response.plan.execution).toMatchObject({
+        driver: 'codex-app-server',
+        recipeId: 'codex-app-server',
+        presentationFulfillment: 'attachable',
+        hosting: {
+          executionTransport: 'jsonrpc-stdio',
+          terminalHost: 'hrcpty',
+          processExecution: 'supervisor-process',
+          terminalRequired: true,
+        },
+        presentationSurface: { transport: 'websocket-unix', terminalHost: 'hrcpty' },
+      })
+      const { spec } = response.plan.execution.dispatchRequest.startRequest
+      expect(spec.driver.kind).toBe('codex-app-server')
+      expect(() => validateInvocationStartRequest({ spec })).not.toThrow()
+    }
+  )
+
+  test.each([false, true])(
     'profile-selected claude-hrcpty presentation=%s carries supervisor hosting and tool denial',
     async (presentation) => {
       const value = fixture()

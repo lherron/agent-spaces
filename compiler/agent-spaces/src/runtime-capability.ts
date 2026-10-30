@@ -67,7 +67,7 @@ async function observeHarnessCapability(
   }
 
   const diagnostics: Diagnostic[] = []
-  if (harness === 'codex') {
+  if (harness === 'codex' || harness === 'codex-hrcpty') {
     const result = await observeCodex(diagnostics)
     return capabilitySuccess(
       requested,
@@ -397,7 +397,7 @@ async function credentialFact(
     }
     return credentialPathFact(join(runtimeHome(), '.claude.json'))
   }
-  if (harness === 'codex') {
+  if (harness === 'codex' || harness === 'codex-hrcpty') {
     if (process.env['OPENAI_API_KEY']) return { state: 'present', code: 'credentials_present' }
     return credentialPathFact(join(runtimeHome(), '.codex', 'auth.json'))
   }

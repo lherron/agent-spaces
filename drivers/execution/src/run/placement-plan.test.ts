@@ -100,7 +100,14 @@ describe('placement runtime planner (T-01097)', () => {
         targets: { retained_target: { compose: [] } },
       }
 
-      for (const harnessId of ['agent-harness', 'claude', 'codex', 'muse'] as const) {
+      for (const harnessId of [
+        'agent-harness',
+        'claude',
+        'claude-hrcpty',
+        'codex',
+        'codex-hrcpty',
+        'muse',
+      ] as const) {
         const plan = planProjectTargetRuntime(manifest, 'retained_target', {
           aspHome: join(root, 'asp-home'),
           projectPath: root,

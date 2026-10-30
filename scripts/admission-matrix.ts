@@ -653,7 +653,7 @@ async function runRow(input: {
       clientInfo: { name: 'admission-matrix', version: '2' },
       protocolVersions: [...SUPPORTED_BROKER_PROTOCOL_VERSIONS],
     })
-    row.hello = hello.drivers.find((summary) => summary.kind === kind)
+    row.hello = hello.drivers.find((summary) => summary.kind === (recipe.driverKind ?? kind))
     const startResponse = await broker.start(plan.startRequest, plan.dispatchEnv, plan.runtime)
     started = true
     row.capabilities = startResponse.capabilities
@@ -788,10 +788,25 @@ async function main(): Promise<void> {
 
   // Rows are REGISTRY-DRIVEN. `noop-driver` is the only exclusion.
   const drivers = buildMatrixDrivers(hookIpcDir)
-  const summaries = createDriverRegistry(drivers)
+  const registered = createDriverRegistry(drivers)
     .summaries()
     .filter((summary) => summary.kind !== NOOP_DRIVER_KIND)
-    .filter((summary) => args.rows.length === 0 || args.rows.includes(summary.kind))
+  // Keep every registered driver row and add explicitly named harness variants.
+  const variants = Object.entries(ROW_RECIPES).flatMap(([kind, recipe]) => {
+    if (recipe.driverKind === undefined) return []
+    const driver = registered.find((summary) => summary.kind === recipe.driverKind)
+    if (driver === undefined)
+      throw new Error(`Matrix variant ${kind} has no driver ${recipe.driverKind}`)
+    return [{ ...driver, kind }]
+  })
+  const summaries = [...registered, ...variants].filter(
+    (summary) => args.rows.length === 0 || args.rows.includes(summary.kind)
+  )
+  for (const kind of args.rows) {
+    if (!summaries.some((summary) => summary.kind === kind)) {
+      throw new Error(`Unknown admission matrix row ${kind}`)
+    }
+  }
 
   const selectedCells = CELLS.filter(
     (cell) =>

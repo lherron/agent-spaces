@@ -15,7 +15,7 @@ use crate::json::J;
 
 pub const REQUEST_VERSION: &str = "aspc-resolve-runtime-declaration-request/v1";
 const RESPONSE_VERSION: &str = "aspc-resolve-runtime-declaration-response/v1";
-const HARNESS_CATALOG: [&str; 5] = ["agent-harness", "claude", "claude-hrcpty", "codex", "muse"];
+const HARNESS_CATALOG: [&str; 6] = ["agent-harness", "claude", "claude-hrcpty", "codex", "codex-hrcpty", "muse"];
 const DIRECTIVE_KEYS: [&str; 10] = [
     "harness",
     "model_provider",

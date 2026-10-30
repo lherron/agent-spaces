@@ -73,7 +73,7 @@ pub fn observe(request: &J) -> Answer {
         ));
     }
     let mut diagnostics = vec![];
-    if requested == "codex" {
+    if matches!(requested, "codex" | "codex-hrcpty") {
         let (native, preparation) = match observe_codex(&mut diagnostics, env) {
             Ok(states) => states,
             Err(reason) => return Answer::Forward(reason),
@@ -430,8 +430,8 @@ fn credentials(harness: &str, env: &Env) -> J {
         "agent-harness" => Some(join(&[&home, ".pi", "agent", "auth.json"])),
         "claude" if set("ANTHROPIC_API_KEY") => None,
         "claude" => Some(join(&[&home, ".claude.json"])),
-        "codex" if set("OPENAI_API_KEY") => None,
-        "codex" => Some(join(&[&home, ".codex", "auth.json"])),
+        "codex" | "codex-hrcpty" if set("OPENAI_API_KEY") => None,
+        "codex" | "codex-hrcpty" => Some(join(&[&home, ".codex", "auth.json"])),
         _ => return fact("present", "credentials_not_required"),
     };
     let Some(path) = path else {
@@ -531,6 +531,14 @@ fn failure(code: &str, message: &str) -> J {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codex_hrcpty_uses_codex_credentials() {
+        let env = Env::from([("HOME".into(), "/nonexistent/T-12163".into())]);
+        assert_eq!(credentials("codex-hrcpty", &env), credentials("codex", &env));
+        let with_key = Env::from([("OPENAI_API_KEY".into(), "test".into())]);
+        assert_eq!(credentials("codex-hrcpty", &with_key), credentials("codex", &with_key));
+    }
 
     #[test]
     fn semver_is_the_leftmost_match() {

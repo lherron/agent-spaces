@@ -354,7 +354,7 @@ function buildInteractiveArgs(options: HarnessRunOptions): string[] {
 }
 
 export class CodexAdapter implements HarnessAdapter {
-  readonly id = 'codex' as const
+  readonly id: string = 'codex'
   readonly name = 'OpenAI Codex'
 
   readonly models: HarnessModelInfo[] = [

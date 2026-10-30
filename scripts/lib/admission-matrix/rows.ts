@@ -77,6 +77,8 @@ export type RowPlan = {
 
 export type RowRecipe = {
   kind: string
+  /** Additional harness variant of an existing registered driver. */
+  driverKind?: string | undefined
   probe: () => DependencyProbe
   plan: (ctx: PlanContext) => Promise<RowPlan>
 }
@@ -617,6 +619,18 @@ function compiledRecipe(input: {
 }
 
 export const ROW_RECIPES: Record<string, RowRecipe> = {
+  // T-12163: task D supplies the Codex hrcpty driver branch.
+  'codex-hrcpty': {
+    kind: 'codex-hrcpty',
+    driverKind: 'codex-app-server',
+    probe: () => ({
+      available: false,
+      reason: 'codex-hrcpty driver branch pending task D',
+    }),
+    plan: async () => {
+      throw new Error('codex-hrcpty admission requires task D driver branch')
+    },
+  },
   'claude-code-hrcpty': compiledRecipe({
     kind: 'claude-code-hrcpty',
     agentName: 'curly',

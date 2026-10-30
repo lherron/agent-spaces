@@ -17,6 +17,7 @@ describe('getHarnessCapabilities', () => {
       'claude',
       'claude-hrcpty',
       'codex',
+      'codex-hrcpty',
       'muse',
     ])
 

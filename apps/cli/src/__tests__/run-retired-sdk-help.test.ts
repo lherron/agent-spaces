@@ -40,6 +40,7 @@ test('asp harnesses JSON projects the catalog and its default', () => {
     'claude',
     'claude-hrcpty',
     'codex',
+    'codex-hrcpty',
     'muse',
   ])
 })

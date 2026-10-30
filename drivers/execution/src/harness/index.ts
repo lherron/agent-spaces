@@ -31,7 +31,7 @@ export type {
 export { DEFAULT_HARNESS, HARNESS_IDS, isHarnessId } from 'spaces-config'
 
 import { ClaudeAdapter, register as registerClaude } from 'spaces-harness-claude'
-import { codexAdapter } from 'spaces-harness-codex'
+import { CodexAdapter, codexAdapter } from 'spaces-harness-codex'
 import { museAdapter } from 'spaces-harness-muse'
 import { piAdapter as agentHarnessAdapter } from 'spaces-harness-pi'
 import { HarnessRegistry, SessionRegistry, setSessionRegistry } from 'spaces-runtime'
@@ -52,6 +52,10 @@ harnessRegistry.register(agentHarnessAdapter)
 // Codex harness adapter registered eagerly (session factory removed — CodexSession
 // is constructed directly by consumers via spaces-harness-codex/codex-session).
 harnessRegistry.register(codexAdapter)
+class CodexHrcptyAdapter extends CodexAdapter {
+  override readonly id = 'codex-hrcpty'
+}
+harnessRegistry.register(new CodexHrcptyAdapter())
 
 // Muse harness adapter registered eagerly (T-08591; no session factory —
 // `muse exec` is a one-shot CLI driven through buildRunArgs).

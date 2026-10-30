@@ -26,7 +26,7 @@ type ExpectedRow = {
   name: string
   /** Selection inputs. Omitted keys exercise catalog defaults. */
   requested?: {
-    harness?: 'agent-harness' | 'claude' | 'claude-hrcpty' | 'codex' | 'muse'
+    harness?: 'agent-harness' | 'claude' | 'claude-hrcpty' | 'codex' | 'codex-hrcpty' | 'muse'
     presentation?: boolean
   }
   expected: {
@@ -138,6 +138,36 @@ const EXPECTED_ROWS: readonly ExpectedRow[] = [
       processExecution: 'supervisor-process',
       presentationFulfillment: 'intrinsic',
       presentationSurface: undefined,
+    },
+  },
+  {
+    name: 'codex-hrcpty / no presentation',
+    requested: { harness: 'codex-hrcpty', presentation: false },
+    expected: {
+      harness: 'codex-hrcpty',
+      presentation: false,
+      driver: 'codex-app-server',
+      executionTransport: 'jsonrpc-stdio',
+      terminalRequired: true,
+      terminalHost: 'hrcpty',
+      processExecution: 'supervisor-process',
+      presentationFulfillment: 'attachable',
+      presentationSurface: '{"terminalHost":"hrcpty","transport":"websocket-unix"}',
+    },
+  },
+  {
+    name: 'codex-hrcpty / presentation',
+    requested: { harness: 'codex-hrcpty', presentation: true },
+    expected: {
+      harness: 'codex-hrcpty',
+      presentation: true,
+      driver: 'codex-app-server',
+      executionTransport: 'jsonrpc-stdio',
+      terminalRequired: true,
+      terminalHost: 'hrcpty',
+      processExecution: 'supervisor-process',
+      presentationFulfillment: 'attachable',
+      presentationSurface: '{"terminalHost":"hrcpty","transport":"websocket-unix"}',
     },
   },
   {
@@ -325,7 +355,7 @@ const widths = headers.map((header, column) =>
 const formatLine = (cells: string[]): string =>
   cells.map((cell, column) => padEnd(cell, widths[column] ?? cell.length)).join(' | ')
 
-console.log('resolver capability matrix (expected 11 rows, independent fixture)')
+console.log('resolver capability matrix (expected 13 rows, independent fixture)')
 console.log(formatLine(headers))
 console.log(widths.map((width) => '-'.repeat(width)).join('-|-'))
 for (const cells of tableRows) console.log(formatLine(cells))

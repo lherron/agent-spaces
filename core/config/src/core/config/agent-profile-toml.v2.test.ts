@@ -140,7 +140,14 @@ status_line = ["model", "cwd"]
   )
 
   test('accepts the canonical harness ids and rejects aliases, removed ids, and frontends without translation', () => {
-    for (const harness of ['agent-harness', 'claude', 'claude-hrcpty', 'codex', 'muse']) {
+    for (const harness of [
+      'agent-harness',
+      'claude',
+      'claude-hrcpty',
+      'codex',
+      'codex-hrcpty',
+      'muse',
+    ]) {
       expect(
         parseAgentProfile(`version = 4\n[provisioning]\nharness = "${harness}"\n`).provisioning
       ).toEqual({ harness })
