@@ -18,7 +18,7 @@
  *                SIGINT the wrapper ignores) ends the invocation with
  *                continuation.cleared; no app-server remains
  *
- * Seats 2 and 3 (no model turn):
+ * Seats 2 and 3 (one turn each, so a real TUI is running):
  *   lost server  SIGKILL (seat 2) or SIGTERM (seat 3) the app-server under a
  *                running TUI with the broker
  *                alive: the TUI exits, the invocation ends, and there is no
@@ -28,8 +28,17 @@
  * Wrapper decision (stub TUI, no model): exit 0 with the app-server gone
  * posts `exited`; exit 0 or death by SIGINT with it up posts `quit`.
  *
- * Seat 4 (no model turn): a broker stop with the TUI attached signals the
- * TUI through hrc-pty and ends the app-server.
+ * Seats 5 and 6 (one turn each, T-12166 reopen): a seat opened before its
+ * first turn shows a waiting line (no -32600 loop, no 30 s give-up); the first
+ * turn brings the TUI up in the same attach. Detached while waiting, Codex
+ * does not start until a read-write client is back, and the responder answers
+ * none of its probe.
+ *
+ * Seat 7 (no model turn): the app-server dies while the wrapper waits for the
+ * first turn; the wrapper exits and the continuation is kept.
+ *
+ * Seat 4 (no model turn): a broker stop with the wrapper attached signals it
+ * through hrc-pty and ends the app-server.
  *
  * A missing dependency is a failure, not a skip.
  *
@@ -55,6 +64,7 @@ import { createBroker } from '../harness/harness-broker/src/broker'
 import { resolveCodexTuiWrapperEntryPath } from '../harness/harness-broker/src/drivers/codex-app-server/codex-tui-wrapper'
 import { HrcptyPtyController } from '../harness/harness-broker/src/runtime/hrcpty'
 import { resolveHrcptyBinary } from '../harness/harness-broker/src/testing/hrcpty-supervisor'
+import { knock } from './lib/admission-matrix/doors'
 import {
   type PlanContext,
   ROW_RECIPES,
@@ -148,7 +158,16 @@ async function wrapperDecision(tuiExit: 'exit 0' | 'SIGINT', serverLive: boolean
       '--invocation-id',
       'inv_wrapper_stub',
     ],
-    { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore' }
+    // No HRC_PTY_SOCKET: run from inside an hrcpty seat, the wrapper would
+    // otherwise gate on that seat's own read-write clients.
+    {
+      stdin: 'ignore',
+      stdout: 'ignore',
+      stderr: 'ignore',
+      env: Object.fromEntries(
+        Object.entries(process.env).filter(([key]) => key !== 'HRC_PTY_SOCKET')
+      ),
+    }
   )
   const exitCode = await wrapper.exited
   await Bun.sleep(200)
@@ -222,6 +241,8 @@ async function main(): Promise<void> {
       appServerSocket: string
       attach: (window: string, readOnly: boolean) => void
       tuiSpawns: () => number
+      /** One turn through the broker's queue door, as mail would arrive. */
+      enqueue: (body: string) => Promise<boolean>
       stop: () => Promise<void>
     }) => Promise<void>
   ): Promise<void> {
@@ -281,6 +302,9 @@ async function main(): Promise<void> {
         appServerSocket,
         attach,
         tuiSpawns,
+        enqueue: async (body) =>
+          (await knock('enqueue', broker, { invocationId, body, principalRef: 'agent:clod' }))
+            .admitted,
         stop: async () => {
           await broker.stop({ invocationId, graceMs: 1000 } as never).catch(() => undefined)
         },
@@ -305,9 +329,16 @@ async function main(): Promise<void> {
     }
   }
 
+  // T-12166 reopen: a seat opened before its first turn has no rollout yet.
+  const codexOn = (socketPath: string) =>
+    processesOn(socketPath).filter((line) => line.includes('--remote'))
+  const WAITING = 'waiting for the first turn'
+
+  // With a turn: the rollout exists, so a real Codex TUI is what loses its server.
   const lostServerSeat = (name: string, signal: 'SIGKILL' | 'SIGTERM') =>
-    runSeat(name, false, async (seat) => {
+    runSeat(name, true, async (seat) => {
       const { events, pty } = seat
+      await waitFor(() => events.some((event) => event.type === 'turn.completed'), 120_000)
       seat.attach(`${name}rw`, false)
       const spawned = await waitFor(async () => {
         const status = (await pty.status()) as { child?: { state?: string } }
@@ -319,7 +350,11 @@ async function main(): Promise<void> {
         30_000
       )
       await Bun.sleep(1_000)
-      check(`${name} TUI running`, spawned && seat.tuiSpawns() === 1, `spawns ${seat.tuiSpawns()}`)
+      check(
+        `${name} TUI running`,
+        spawned && seat.tuiSpawns() === 1 && codexOn(seat.appServerSocket).length > 0,
+        `spawns ${seat.tuiSpawns()}, codex ${codexOn(seat.appServerSocket).length}`
+      )
       const listen = psLine(seat.appServerPid)
       process.kill(seat.appServerPid, signal)
       log(`${signal} app-server ${listen}`)
@@ -477,6 +512,121 @@ async function main(): Promise<void> {
 
     await lostServerSeat('seat2', 'SIGKILL')
     await lostServerSeat('seat3', 'SIGTERM')
+
+    await runSeat('seat5', false, async (seat) => {
+      const { events, pty } = seat
+      seat.attach('seat5rw', false)
+      const waiting = await waitFor(
+        () => capturePane('seat5rw', 'seat5.waiting.pane.txt').includes(WAITING),
+        20_000
+      )
+      await Bun.sleep(35_000)
+      const stillWaiting = capturePane('seat5rw', 'seat5.waiting-35s.pane.txt')
+      check(
+        'seat5 zero-turn attach waits without an error loop or a deadline',
+        waiting &&
+          stillWaiting.includes(WAITING) &&
+          !/rollout|-32600|Error/.test(stillWaiting) &&
+          codexOn(seat.appServerSocket).length === 0 &&
+          seat.tuiSpawns() === 1,
+        `waiting line ${waiting}, after 35 s codex processes ${codexOn(seat.appServerSocket).length}, spawns ${seat.tuiSpawns()}`
+      )
+      const marker = `T12166_FIRST_${Date.now().toString(36).toUpperCase()}`
+      const admitted = await seat.enqueue(
+        `Reply with exactly ${marker} and nothing else. Do not use any tools.`
+      )
+      const turned = await waitFor(
+        () => events.some((event) => event.type === 'turn.completed'),
+        120_000
+      )
+      const shown = await waitFor(
+        () => capturePane('seat5rw', 'seat5.after-turn.pane.txt').split(marker).length > 2,
+        60_000
+      )
+      check(
+        'seat5 first turn brings the TUI up in the same attach',
+        admitted &&
+          turned &&
+          shown &&
+          seat.tuiSpawns() === 1 &&
+          codexOn(seat.appServerSocket).length > 0,
+        `admitted ${admitted}, turn.completed ${turned}, pane shows ${marker} (prompt + reply) ${shown}, spawns ${seat.tuiSpawns()}`
+      )
+      void pty
+    })
+
+    await runSeat('seat6', false, async (seat) => {
+      const { events, pty } = seat
+      seat.attach('seat6rw', false)
+      await waitFor(
+        () => capturePane('seat6rw', 'seat6.waiting.pane.txt').includes(WAITING),
+        20_000
+      )
+      tmux('kill-window', '-t', 'outer:seat6rw')
+      await waitFor(async () => {
+        const status = (await pty.status()) as { clients?: { total?: number } }
+        return status.clients?.total === 0
+      }, 10_000)
+      const marker = `T12166_DETACHED_${Date.now().toString(36).toUpperCase()}`
+      const admitted = await seat.enqueue(
+        `Reply with exactly ${marker} and nothing else. Do not use any tools.`
+      )
+      const turned = await waitFor(
+        () => events.some((event) => event.type === 'turn.completed'),
+        120_000
+      )
+      await Bun.sleep(3_000)
+      const detachedCodex = codexOn(seat.appServerSocket)
+      check(
+        'seat6 rollout ready while detached starts no Codex',
+        admitted && turned && detachedCodex.length === 0,
+        `turn.completed ${turned}, codex processes while detached ${JSON.stringify(detachedCodex)}`
+      )
+      const before = (await pty.status()) as { responderAnswered?: unknown }
+      seat.attach('seat6rw2', false)
+      const shown = await waitFor(
+        () => capturePane('seat6rw2', 'seat6.reattached.pane.txt').split(marker).length > 2,
+        60_000
+      )
+      const after = (await pty.status()) as { responderAnswered?: unknown; child?: unknown }
+      check(
+        'seat6 reattach starts Codex with the probe answered by the client',
+        shown &&
+          seat.tuiSpawns() === 1 &&
+          codexOn(seat.appServerSocket).length > 0 &&
+          JSON.stringify(before.responderAnswered) === JSON.stringify(after.responderAnswered),
+        `pane shows ${marker} ${shown}, spawns ${seat.tuiSpawns()}, responderAnswered ${JSON.stringify(before.responderAnswered)} -> ${JSON.stringify(after.responderAnswered)}`
+      )
+    })
+
+    await runSeat('seat7', false, async (seat) => {
+      const { events, pty } = seat
+      seat.attach('seat7rw', false)
+      await waitFor(
+        () => capturePane('seat7rw', 'seat7.waiting.pane.txt').includes(WAITING),
+        20_000
+      )
+      process.kill(seat.appServerPid, 'SIGKILL')
+      log('SIGKILL app-server while the wrapper waits (seat7)')
+      const wrapperGone = await waitFor(async () => {
+        const status = (await pty.status()) as { child?: { state?: string } }
+        return status.child?.state === 'exited'
+      }, 10_000)
+      const ended = await waitFor(
+        () => events.some((event) => event.type === 'invocation.exited'),
+        10_000
+      )
+      const status = (await pty.status()) as { child?: unknown }
+      const cleared = events.filter((event) => event.type === 'continuation.cleared')
+      check(
+        'seat7 app-server lost while waiting: wrapper exits, continuation kept',
+        wrapperGone &&
+          ended &&
+          cleared.length === 0 &&
+          processesOn(seat.appServerSocket).length === 0,
+        `wrapper ${JSON.stringify(status.child)}, invocation.exited ${ended}, continuation.cleared ${cleared.length}`
+      )
+    })
 
     await runSeat('seat4', false, async (seat) => {
       const { events, pty } = seat

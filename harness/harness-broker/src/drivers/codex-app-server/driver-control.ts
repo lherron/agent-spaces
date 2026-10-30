@@ -145,6 +145,8 @@ export function createCodexDriverControl(s: CodexDriverState, events: CodexDrive
     } else if (s.driverSpec?.model !== undefined && s.driverSpec.model.length > 0) {
       s.threadModel = { id: s.driverSpec.model, source: 'harness-config' }
     }
+    const rollout = response?.thread?.path
+    s.threadRolloutPath = typeof rollout === 'string' && rollout.length > 0 ? rollout : undefined
     return extractThreadId(response)
   }
 

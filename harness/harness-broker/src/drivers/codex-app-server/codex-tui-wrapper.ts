@@ -1,10 +1,16 @@
 #!/usr/bin/env bun
 import { type ChildProcess, spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { connect } from 'node:net'
 import { dirname, extname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
+import {
+  type HrcptyOpsConnection,
+  connectHrcptyOps,
+  defaultHrcptyTokenFile,
+} from '../../runtime/hrcpty'
 
 export interface AttachAttemptResult {
   code: number | null
@@ -92,6 +98,8 @@ interface WrapperArgs {
    * wrapper neither spawns, removes nor kills it; it only runs the TUI.
    */
   attachOnly: boolean
+  /** File the driver writes the thread's rollout path to (attach-only). */
+  rolloutMarkerPath?: string | undefined
 }
 
 function parseArgs(argv: readonly string[]): WrapperArgs {
@@ -110,6 +118,7 @@ function parseArgs(argv: readonly string[]): WrapperArgs {
     )
   }
   const runtimeId = flag('--runtime-id')
+  const rolloutMarkerPath = flag('--rollout-marker')
   return {
     command,
     socketPath,
@@ -118,6 +127,7 @@ function parseArgs(argv: readonly string[]): WrapperArgs {
     invocationId,
     ...(runtimeId !== undefined ? { runtimeId } : {}),
     attachOnly: argv.includes('--attach-only'),
+    ...(rolloutMarkerPath !== undefined ? { rolloutMarkerPath } : {}),
   }
 }
 
@@ -130,6 +140,73 @@ async function waitForAttachToken(path: string): Promise<string> {
       // The broker writes the token only after start/resume and resume scrub.
     }
     await new Promise<void>((resolve) => setTimeout(resolve, 50))
+  }
+}
+
+async function readRolloutMarker(path: string | undefined): Promise<string | undefined> {
+  if (path === undefined) return undefined
+  try {
+    const rollout = (await readFile(path, 'utf8')).trim()
+    return rollout.length > 0 ? rollout : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Read-write clients on the hrc-pty supervisor this wrapper runs under
+ * (`HRC_PTY_SOCKET`, token beside it). Undefined when there is no supervisor
+ * or it cannot be asked; the caller treats that as attached.
+ */
+function createReadWriteProbe(): () => Promise<number | undefined> {
+  const socketPath = process.env['HRC_PTY_SOCKET']
+  let open: Promise<HrcptyOpsConnection> | undefined
+  return async () => {
+    if (socketPath === undefined || socketPath.length === 0) return undefined
+    try {
+      open ??= (async () => {
+        const connection = await connectHrcptyOps(socketPath)
+        const token = (await readFile(defaultHrcptyTokenFile(socketPath), 'utf8')).trim()
+        await connection.call('hello', { token })
+        return connection
+      })()
+      const status = (await (await open).call('status')) as {
+        clients?: { readWrite?: unknown }
+      }
+      const readWrite = status.clients?.readWrite
+      return typeof readWrite === 'number' ? readWrite : undefined
+    } catch {
+      void open?.then((connection) => connection.close()).catch(() => undefined)
+      open = undefined
+      return undefined
+    }
+  }
+}
+
+/**
+ * hrcpty seats (T-12166): Codex creates the rollout on the thread's first user
+ * message, and `resume` fails with -32600 until then. Wait, without a
+ * deadline, until the rollout exists and a read-write client is attached, so
+ * the TUI's terminal probe still meets a live terminal. Showing one dim line
+ * instead of an attach-retry error loop.
+ */
+async function waitForTuiLaunchGate(
+  rolloutPath: string | undefined,
+  socketPath: string
+): Promise<'launch' | 'server-gone'> {
+  const readWriteClients = createReadWriteProbe()
+  let shown = false
+  for (let poll = 0; ; poll++) {
+    const rolloutReady = rolloutPath === undefined || existsSync(rolloutPath)
+    const readWrite = await readWriteClients()
+    if (rolloutReady && (readWrite === undefined || readWrite > 0)) return 'launch'
+    // No turn can come from a server that is gone; stop waiting on it.
+    if (poll % 8 === 7 && !(await appServerReachable(socketPath))) return 'server-gone'
+    if (!shown && !rolloutReady) {
+      process.stdout.write('\x1b[2mcodex: waiting for the first turn\u2026\x1b[0m\r\n')
+      shown = true
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 250))
   }
 }
 
@@ -250,6 +327,21 @@ export async function runCodexTuiWrapper(argv: readonly string[]): Promise<void>
     serverExit === undefined
       ? await waitForAttachToken(options.attachTokenPath)
       : await Promise.race([waitForAttachToken(options.attachTokenPath), serverExit])
+  if (
+    options.attachOnly &&
+    (await waitForTuiLaunchGate(
+      await readRolloutMarker(options.rolloutMarkerPath),
+      options.socketPath
+    )) === 'server-gone'
+  ) {
+    await postControl(options, {
+      type: 'app-server-renderer.exited',
+      exitCode: null,
+      signal: null,
+      detail: 'app-server gone before the first turn',
+    })
+    process.exit(1)
+  }
   const result = await runCodexTuiAttachRetry({
     // The attach race retries against a live server; a gone one never answers.
     ...(options.attachOnly ? { retryable: () => appServerReachable(options.socketPath) } : {}),

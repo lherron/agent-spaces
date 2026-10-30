@@ -24,7 +24,9 @@ export const CODEX_APP_SERVER_DRIVER_VERSION = '0.1.0'
 
 export interface ThreadResponse {
   threadId?: string | undefined
-  thread?: { id?: string | undefined; model?: string | undefined } | undefined
+  thread?:
+    | { id?: string | undefined; model?: string | undefined; path?: string | null | undefined }
+    | undefined
   /** Codex reports the RESOLVED model here, including when `model: null` was sent. */
   model?: string | undefined
 }
@@ -137,8 +139,16 @@ export interface CodexDriverState {
   hrcptyEvents: HrcptyEventSubscription | undefined
   tuiPid: number | undefined
   tuiSpawning: boolean
+  hrcptyEnding: Promise<void> | undefined
   hookListener: HookListenerHandle | undefined
   attachTokenPath: string | undefined
+  /**
+   * hrcpty seats: where the driver publishes the thread's rollout path for the
+   * attach-only wrapper, and that path. Codex writes the rollout lazily on the
+   * first user message; `resume` before then fails with -32600.
+   */
+  rolloutMarkerPath: string | undefined
+  threadRolloutPath: string | undefined
   websocketSocketPath: string | undefined
   readonly pendingBrokerInputs: Set<InputId>
   readonly pendingSteers: Map<InputId, PendingSteer>
@@ -234,8 +244,11 @@ export function createCodexDriverState(): CodexDriverState {
     hrcptyEvents: undefined,
     tuiPid: undefined,
     tuiSpawning: false,
+    hrcptyEnding: undefined,
     hookListener: undefined,
     attachTokenPath: undefined,
+    rolloutMarkerPath: undefined,
+    threadRolloutPath: undefined,
     websocketSocketPath: undefined,
     pendingBrokerInputs: new Set(),
     pendingSteers: new Map(),

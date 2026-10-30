@@ -19,7 +19,12 @@ import {
 import { buildCodexTuiWrapperArgvPrefix } from './codex-tui-wrapper'
 import type { CodexDriverControl } from './driver-control'
 import type { CodexDriverEvents } from './driver-events'
-import { hrcptyLeaseOf, startCodexHrcptySeat } from './driver-hrcpty'
+import {
+  endCodexHrcptySeat,
+  hrcptyLeaseOf,
+  startCodexHrcptySeat,
+  stopGraceMs,
+} from './driver-hrcpty'
 import type { CodexDriverNormalizer } from './driver-normalize'
 import type {
   CodexAppServerDriverOptions,
@@ -254,7 +259,15 @@ export function createCodexDriverStart(
             currentInputId: s.currentInputId,
             permissionRequestIds,
           }),
-        onError: handleRpcError,
+        onError: (error) => {
+          handleRpcError(error)
+          // The broker's transport to its own app-server is gone: so is the seat.
+          // Not while starting: connect attempts fail until the server listens,
+          // and a failed startup is rejected and stopped through the broker.
+          if (s.hrcpty !== undefined && !s.starting) {
+            void endCodexHrcptySeat(s, stopGraceMs(startSpec))
+          }
+        },
       })
     } else if (
       driverCtx.runtime?.terminalSurface !== undefined ||
@@ -416,6 +429,10 @@ export function createCodexDriverStart(
       key: startedThreadId,
     })
     if (s.codexTui && s.attachTokenPath !== undefined) {
+      // Before the token: once the wrapper sees the token, the marker is final.
+      if (s.rolloutMarkerPath !== undefined && s.threadRolloutPath !== undefined) {
+        await writeFile(s.rolloutMarkerPath, `${s.threadRolloutPath}\n`, 'utf8')
+      }
       await writeFile(s.attachTokenPath, `${startedThreadId}\n`, 'utf8')
     }
     requireCtx().emit('invocation.ready', { state: 'ready' })

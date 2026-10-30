@@ -16,7 +16,7 @@ import { CODEX_APP_SERVER_AUTHORITY } from '../evidence-authority'
 import { CODEX_CAPABILITIES, CODEX_TUI_CAPABILITIES } from './capabilities'
 import { createCodexDriverControl } from './driver-control'
 import { createCodexDriverEvents } from './driver-events'
-import { stopCodexHrcptyTui } from './driver-hrcpty'
+import { endCodexHrcptySeat } from './driver-hrcpty'
 import { createCodexDriverInput } from './driver-input'
 import { createCodexDriverNormalizer } from './driver-normalize'
 import { createCodexDriverStart } from './driver-start'
@@ -129,14 +129,7 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
         s.turnTimeout = undefined
       }
       if (s.hrcpty !== undefined) {
-        await stopCodexHrcptyTui(s)
-        s.rpc?.close()
-        if (s.proc !== undefined) {
-          await terminateProcess({
-            proc: s.proc,
-            graceMs: req.graceMs ?? s.spec?.process.limits?.stopGraceMs ?? 1000,
-          })
-        }
+        await endCodexHrcptySeat(s, req.graceMs ?? s.spec?.process.limits?.stopGraceMs ?? 1000)
         return { accepted: true, state: s.terminalEmitted ? 'exited' : 'failed' }
       }
       if (s.codexTui) {
@@ -172,8 +165,11 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
       s.hrcptyEvents = undefined
       s.tuiPid = undefined
       s.tuiSpawning = false
+      s.hrcptyEnding = undefined
       s.hookListener = undefined
       s.attachTokenPath = undefined
+      s.rolloutMarkerPath = undefined
+      s.threadRolloutPath = undefined
       s.websocketSocketPath = undefined
       s.pendingBrokerInputs.clear()
       settleAllPendingSteers('target-terminal')

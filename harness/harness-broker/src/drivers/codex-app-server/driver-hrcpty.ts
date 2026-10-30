@@ -5,11 +5,18 @@ import type { InvocationRuntimeContext } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../../errors'
 import { type HrcptyEvent, HrcptyPtyController, HrcptyRpcError } from '../../runtime/hrcpty'
+import { terminateProcess } from '../../runtime/signals'
 import { buildTmuxLaunchArtifactEnv } from '../../runtime/tmux-launch-exec'
 import type { ChildProcessInvocationSpec, DriverContext } from '../driver'
 import { buildCodexTuiWrapperArgvPrefix } from './codex-tui-wrapper'
 import type { CodexDriverEvents } from './driver-events'
 import type { CodexAppServerDriverOptions, CodexDriverState } from './driver-state'
+
+export function stopGraceMs(spec: {
+  process: { limits?: { stopGraceMs?: number | undefined } | undefined }
+}): number {
+  return spec.process.limits?.stopGraceMs ?? 1000
+}
 
 export type HrcptyLease = Extract<
   NonNullable<InvocationRuntimeContext['terminalSurface']>,
@@ -71,6 +78,8 @@ export async function startCodexHrcptySeat(input: {
 
   await rm(input.websocketPath, { force: true }).catch(() => undefined)
   await rm(input.attachTokenPath, { force: true }).catch(() => undefined)
+  s.rolloutMarkerPath = input.attachTokenPath.replace(/\.attach$/, '.rollout')
+  await rm(s.rolloutMarkerPath, { force: true }).catch(() => undefined)
   // The env the tmux route's wrapper hands its app-server: lockedEnv,
   // dispatchEnv and the hook env over the runner's complete-environment base.
   const proc = spawn(
@@ -89,7 +98,9 @@ export async function startCodexHrcptySeat(input: {
   proc.stdin.end()
   proc.stdout.resume()
   s.proc = proc
+  s.hrcptyEnding = undefined
   proc.on('exit', input.onExit)
+  proc.on('exit', () => void endCodexHrcptySeat(s, stopGraceMs(spec)))
   createInterface({ input: proc.stderr }).on('line', (line) => {
     if (line.trim().length > 0) emitDiagnostic('info', line)
   })
@@ -103,6 +114,8 @@ export async function startCodexHrcptySeat(input: {
     input.websocketPath,
     '--attach-token',
     input.attachTokenPath,
+    '--rollout-marker',
+    s.rolloutMarkerPath,
     '--control-socket',
     input.controlSocketPath,
     '--invocation-id',
@@ -170,12 +183,24 @@ export async function startCodexHrcptySeat(input: {
   )
 }
 
-/** Stop path (§5): signal a live TUI through the supervisor, then end the app-server. */
-export async function stopCodexHrcptyTui(s: CodexDriverState): Promise<void> {
-  s.hrcptyEvents?.close()
-  s.hrcptyEvents = undefined
-  if (s.tuiPid !== undefined) {
-    await s.hrcpty?.signal('TERM').catch(() => undefined)
-  }
-  s.hrcpty?.close()
+/**
+ * End an hrcpty seat's presentation: the broker stop path (§5), and also any
+ * loss of the broker-owned app-server or its transport. Codex 0.163's remote
+ * TUI does not exit when its server goes; it sits on "Reconnecting to
+ * server…" until signalled, so the seat signals it through hrc-pty instead of
+ * leaving it for lease end. Idempotent.
+ */
+export function endCodexHrcptySeat(s: CodexDriverState, graceMs: number): Promise<void> {
+  s.hrcptyEnding ??= (async () => {
+    s.hrcptyEvents?.close()
+    s.hrcptyEvents = undefined
+    if (s.tuiPid !== undefined) await s.hrcpty?.signal('TERM').catch(() => undefined)
+    s.hrcpty?.close()
+    s.rpc?.close()
+    const proc = s.proc
+    if (proc !== undefined && proc.exitCode === null && proc.signalCode === null) {
+      await terminateProcess({ proc, graceMs })
+    }
+  })()
+  return s.hrcptyEnding
 }
