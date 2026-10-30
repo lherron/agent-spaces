@@ -12,10 +12,10 @@ plugin-artifacts,build}.ts` and `core/config/src/materializer/`, harness layouts
 - `asp install [--targets …] [--harness h] [--update] [--refresh]`: lock plus bundles; prints per-target plugin
   count and the run line. The default harness is `agent-harness` (pi layout: `<bundle>/pi/skills/…`); `--harness
   claude` lays out `<bundle>/claude/plugins/NNN-<space>/…` plus `settings.json`, which always carries
-  `idleCompaction: false`, `tui: "fullscreen"`, `askUserQuestionTimeout: "60s"` and a `statusLine`. A space whose
+  `idleCompaction: false`, `skipDangerousModePermissionPrompt: true`, `tui: "fullscreen"`, `askUserQuestionTimeout: "60s"` and a `statusLine`. A space whose
   `[harness] supports` omits the harness is skipped silently (`defaults` supports claude and agent-harness only, so
   a codex or muse bundle of `demo` holds `avs-probe` alone). Each bundle's `.asp-materialized.json` names the
-  `materializerVersion` (`target-materializer-v6-claude-idle-compaction-off` on 2026-10-19); a version bump
+  `materializerVersion` (`target-materializer-v7-claude-skip-bypass-consent` on 2026-10-30); a version bump
   rematerializes every bundle once. Install prunes old bundle versions itself (keeps 3, 15 min).
 - `asp build [target] --harness h --output <dir>`: materializes without launching; plugin dirs live in
   `ASP_HOME/cache/<hash>`, `--output` gets `settings.json`.

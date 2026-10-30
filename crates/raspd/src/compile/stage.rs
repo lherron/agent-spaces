@@ -20,7 +20,7 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
 /// (the T-11825 defect Bun keeps until the D0 window closes), so the bundle
 /// fingerprint, manifest and space support check name `agent-harness`.
 pub const DEFAULT_HARNESS: &str = "agent-harness";
-pub const TARGET_MATERIALIZER_VERSION: &str = "target-materializer-v6-claude-idle-compaction-off";
+pub const TARGET_MATERIALIZER_VERSION: &str = "target-materializer-v7-claude-skip-bypass-consent";
 const PLUGIN_COMPONENT_DIRS: [&str; 6] =
     ["commands", "skills", "agents", "hooks", "scripts", "mcp"];
 

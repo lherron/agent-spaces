@@ -67,7 +67,7 @@ import { getRegistryPath, loadProjectManifest } from './resolve.js'
  * bundles are reused with the old copy (T-10929: the StatusLine bridge never
  * reached a fresh seat until this moved).
  */
-const TARGET_MATERIALIZER_VERSION = 'target-materializer-v6-claude-idle-compaction-off'
+const TARGET_MATERIALIZER_VERSION = 'target-materializer-v7-claude-skip-bypass-consent'
 const TARGET_MANIFEST_FILENAME = '.asp-materialized.json'
 
 /**

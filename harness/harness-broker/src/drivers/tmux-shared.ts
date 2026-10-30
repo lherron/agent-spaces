@@ -58,8 +58,7 @@ export const selectClaudeCodePaneInput: TmuxPaneInputSelector = (snapshot) => {
   const afterPrompt = snapshot.line.replace(/^\s*❯[ \u00a0]?/u, '')
   const dimTextOnly =
     snapshot.cursorX === 2 && markerIndex >= 0 && dimIndex > markerIndex && afterPrompt.length > 0
-  const empty =
-    snapshot.cursorX === 2 && (/^\s*❯[ \u00a0]*$/u.test(snapshot.line) || dimTextOnly)
+  const empty = snapshot.cursorX === 2 && (/^\s*❯[ \u00a0]*$/u.test(snapshot.line) || dimTextOnly)
   return {
     empty,
     fingerprint: empty ? 'claude-code:empty' : inputFingerprint(snapshot.line, snapshot.cursorX),
