@@ -12,7 +12,7 @@ priming_append = """
 compose = [ "space:smokey@dev", "space:defaults@dev", "space:praesidium-defaults@dev" ]
 
   [targets.smokey.provisioning]
-  harness = "codex"
+  harness = "codex-hrcpty"
   reasoning_effort = "high"
 
 [targets.curly]
