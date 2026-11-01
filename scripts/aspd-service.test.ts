@@ -19,6 +19,7 @@ import {
   renderLaunchdScript,
 } from './aspd-service/launchd.ts'
 import { namespacePaths, serviceLogPaths } from './aspd-service/namespace.ts'
+import { FIXED_EXECUTABLE_RELEASE_ROOT_CAPABILITY } from './aspd-service/release-compatibility.ts'
 
 const dirs: string[] = []
 const savedPath = process.env.PATH
@@ -153,6 +154,33 @@ describe('aspd launchd supervision rendering', () => {
 })
 
 describe('activated stable daemon executables', () => {
+  test('legacy releases keep their in-place launchers without copying or signing fixed executables', () => {
+    const ns = mkdtempSync(join(tmpdir(), 'aspd-legacy-bin-'))
+    dirs.push(ns)
+    const release = releaseWithPayloads(ns, 'asp-legacy', '/usr/bin/true')
+    const prepared = prepareActivatedExecutables(
+      namespacePaths(ns),
+      { releasePath: release },
+      { capabilities: [] }
+    )
+    const script = renderLaunchdScript({
+      ns,
+      socketPath: join(ns, 'run', 'aspd.sock'),
+      releaseId: 'asp-legacy',
+      releasePath: release,
+      executablePath: join(release, 'aspd'),
+      explicitReleaseRoot: false,
+      env: { PATH: '/usr/bin:/bin' },
+      logPath: join(ns, 'logs', 'aspd.err.log'),
+      requestLogPath: join(ns, 'logs', 'aspd.log'),
+    })
+
+    expect(prepared).toBeUndefined()
+    expect(existsSync(join(ns, 'bin'))).toBeFalse()
+    expect(script).toContain(join(release, 'aspd'))
+    expect(script).not.toContain('--release-root')
+  })
+
   function releaseWithPayloads(ns: string, id: string, payloadSource: string): string {
     const release = join(ns, 'releases', id)
     mkdirSync(join(release, 'libexec'), { recursive: true })
@@ -170,13 +198,17 @@ describe('activated stable daemon executables', () => {
     process.env.PRAESIDIUM_CODE_SIGNING_IDENTITY = undefined
     const release = releaseWithPayloads(ns, 'asp-new', '/usr/bin/true')
 
-    const prepared = prepareActivatedExecutables(namespacePaths(ns), {
-      schemaVersion: 'aspd-service-activation/v1',
-      releaseId: 'asp-new',
-      releasePath: release,
-      activatedAt: new Date().toISOString(),
-      previousReleaseId: null,
-    })
+    const prepared = prepareActivatedExecutables(
+      namespacePaths(ns),
+      {
+        schemaVersion: 'aspd-service-activation/v1',
+        releaseId: 'asp-new',
+        releasePath: release,
+        activatedAt: new Date().toISOString(),
+        previousReleaseId: null,
+      },
+      { capabilities: [FIXED_EXECUTABLE_RELEASE_ROOT_CAPABILITY] }
+    )
 
     expect(prepared).toEqual({
       signingIdentity: '-',
@@ -200,20 +232,28 @@ describe('activated stable daemon executables', () => {
     const older = releaseWithPayloads(ns, 'asp-older', '/usr/bin/false')
     const p = namespacePaths(ns)
 
-    prepareActivatedExecutables(p, {
-      schemaVersion: 'aspd-service-activation/v1',
-      releaseId: 'asp-newer',
-      releasePath: newer,
-      activatedAt: new Date().toISOString(),
-      previousReleaseId: null,
-    })
-    const activatedOlder = prepareActivatedExecutables(p, {
-      schemaVersion: 'aspd-service-activation/v1',
-      releaseId: 'asp-older',
-      releasePath: older,
-      activatedAt: new Date().toISOString(),
-      previousReleaseId: 'asp-newer',
-    })
+    prepareActivatedExecutables(
+      p,
+      {
+        schemaVersion: 'aspd-service-activation/v1',
+        releaseId: 'asp-newer',
+        releasePath: newer,
+        activatedAt: new Date().toISOString(),
+        previousReleaseId: null,
+      },
+      { capabilities: [FIXED_EXECUTABLE_RELEASE_ROOT_CAPABILITY] }
+    )
+    const activatedOlder = prepareActivatedExecutables(
+      p,
+      {
+        schemaVersion: 'aspd-service-activation/v1',
+        releaseId: 'asp-older',
+        releasePath: older,
+        activatedAt: new Date().toISOString(),
+        previousReleaseId: 'asp-newer',
+      },
+      { capabilities: [FIXED_EXECUTABLE_RELEASE_ROOT_CAPABILITY] }
+    )
 
     expect(activatedOlder.executables).toEqual({
       aspd: join(ns, 'bin', 'aspd'),

@@ -39,6 +39,7 @@ import {
   serviceLogPaths,
   writeJsonAtomic,
 } from './namespace.ts'
+import { supportsFixedExecutableReleaseRoot } from './release-compatibility.ts'
 
 /** A pid counts as our daemon only if it is still executing the recorded release. */
 export function runningBun(p: NamespacePaths): RunningRecord | undefined {
@@ -65,6 +66,7 @@ export async function startBun(
   if (aspd === undefined || !aspd.embeddedIdentity) {
     fail(`release ${active.releaseId} does not contain an identity-bound aspd`)
   }
+  const useFixedExecutable = supportsFixedExecutableReleaseRoot(inspection)
 
   if (config.supervisor !== undefined) return startSupervised(p, config, active)
   const env = serviceEnv(config)
@@ -74,15 +76,20 @@ export async function startBun(
   const logPath = join(logDir, `aspd-${active.releaseId}-${startedAt.replace(/[:.]/g, '')}.log`)
   const pid = spawnDetached(
     'aspd',
-    fixedExecutablePath(p, 'aspd'),
-    ['serve', '--socket', bunSocketPath(config), '--release-root', active.releasePath],
+    useFixedExecutable ? fixedExecutablePath(p, 'aspd') : aspd.launcher,
+    [
+      'serve',
+      '--socket',
+      bunSocketPath(config),
+      ...(useFixedExecutable ? ['--release-root', active.releasePath] : []),
+    ],
     { cwd: p.ns, env, logPath }
   )
   const record: RunningRecord = {
     pid,
     releaseId: active.releaseId,
     releasePath: active.releasePath,
-    executablePath: fixedExecutablePath(p, 'aspd'),
+    ...(useFixedExecutable ? { executablePath: fixedExecutablePath(p, 'aspd') } : {}),
     startedAt,
     logPath,
   }
@@ -154,6 +161,10 @@ function writeBunLaunchScript(
   config: ServiceConfig,
   active: ActiveSelection
 ): void {
+  const inspection = inspectRelease(active.releasePath)
+  const aspd = inspection.executableResolution.aspd
+  if (aspd === undefined) fail(`release ${active.releaseId} does not contain aspd`)
+  const useFixedExecutable = supportsFixedExecutableReleaseRoot(inspection)
   const logs = serviceLogPaths(p.ns, config)
   mkdirSync(logs.dir, { recursive: true, mode: 0o700 })
   writeLaunchScript(
@@ -163,7 +174,8 @@ function writeBunLaunchScript(
       socketPath: bunSocketPath(config),
       releaseId: active.releaseId,
       releasePath: active.releasePath,
-      executablePath: fixedExecutablePath(p, 'aspd'),
+      executablePath: useFixedExecutable ? fixedExecutablePath(p, 'aspd') : aspd.launcher,
+      explicitReleaseRoot: useFixedExecutable,
       env: serviceEnv(config),
       logPath: logs.supervisor,
       requestLogPath: logs.request,

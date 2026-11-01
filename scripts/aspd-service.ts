@@ -58,6 +58,7 @@ import {
   writeJsonAtomic,
 } from './aspd-service/namespace.ts'
 import { frontDoorStatus, raspdJob, startRaspd, stopRaspd } from './aspd-service/raspd.ts'
+import { supportsFixedExecutableReleaseRoot } from './aspd-service/release-compatibility.ts'
 
 const RASPD_DEFAULT_LABEL = 'com.praesidium.raspd'
 const BUN_FRONTED_SOCKET = 'aspd-bun.sock'
@@ -120,6 +121,18 @@ async function activate(nsInput: string, releaseId: string): Promise<Record<stri
   }
   const previous = readJson<ActiveSelection>(p.active)
   const beganAt = new Date().toISOString()
+  const useFixedExecutables = supportsFixedExecutableReleaseRoot(inspection)
+  if (!useFixedExecutables) {
+    appendFileSync(
+      p.activations,
+      `${JSON.stringify({
+        event: 'stable-exec.legacy-fallback',
+        message: 'release predates stable exec and runs from its release dir',
+        releaseId,
+        releasePath,
+      })}\n`
+    )
+  }
   // A fronted namespace retires raspd first and starts it last, on the newly
   // selected release, so it never fronts a Bun from another release.
   const raspdRetired = fronted ? await stopRaspd(p, config) : undefined
@@ -130,7 +143,14 @@ async function activate(nsInput: string, releaseId: string): Promise<Record<stri
   // Prepare and sign fixed paths while both daemons are down, before either
   // launch script can pair a new release root with a stale executable.
   // The immutable release remains untouched for digest verification.
-  const stableExecutables = prepareActivatedExecutables(p, { releasePath }, config)
+  const stableExecutables = prepareActivatedExecutables(
+    p,
+    { releasePath },
+    {
+      ...config,
+      capabilities: inspection.capabilities,
+    }
+  )
   const selection: ActiveSelection = {
     schemaVersion: ACTIVE_SCHEMA,
     releaseId,
@@ -145,7 +165,8 @@ async function activate(nsInput: string, releaseId: string): Promise<Record<stri
     beganAt,
     retired,
     started,
-    stableExecutables,
+    executableMode: useFixedExecutables ? 'fixed' : 'legacy-release',
+    ...(stableExecutables !== undefined ? { stableExecutables } : {}),
     ...(fronted ? { raspdRetired, raspdStarted: await startRaspd(p, config, selection) } : {}),
     completedAt: new Date().toISOString(),
   }

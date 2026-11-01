@@ -19,6 +19,7 @@ import {
 import { createRequire } from 'node:module'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { OFFLINE_EVIDENCE_CAPABILITY } from 'spaces-harness-broker-protocol'
+import { FIXED_EXECUTABLE_RELEASE_ROOT_CAPABILITY } from './aspd-service/release-compatibility.ts'
 
 const REPO_ROOT = resolve(import.meta.dir, '..')
 const RELEASE_SCHEMA = 'asp-standalone-release/v1' as const
@@ -767,7 +768,7 @@ async function buildRelease(outputRootInput: string): Promise<ReleaseInspection>
       builtAt,
       platform: process.platform,
       architecture: process.arch,
-      capabilities: [OFFLINE_EVIDENCE_CAPABILITY],
+      capabilities: [OFFLINE_EVIDENCE_CAPABILITY, FIXED_EXECUTABLE_RELEASE_ROOT_CAPABILITY],
       executables,
       workerBindings: { ...WORKER_BINDINGS },
       assets,

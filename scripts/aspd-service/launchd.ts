@@ -17,6 +17,7 @@ import {
   type ServiceConfig,
   fail,
 } from './namespace.ts'
+import { supportsFixedExecutableReleaseRoot } from './release-compatibility.ts'
 
 const BOOTSTRAP_ATTEMPTS = 4
 const BOOTSTRAP_RETRY_MS = 2_000
@@ -44,11 +45,14 @@ export function fixedExecutablePath(
 export function prepareActivatedExecutables(
   p: Pick<NamespacePaths, 'bin'>,
   active: Pick<ActiveSelection, 'releasePath'>,
-  config: Pick<ServiceConfig, 'codeSigningIdentity'> = {}
-): {
-  signingIdentity: string
-  executables: Record<StableExecutable, string>
-} {
+  config: Pick<ServiceConfig, 'codeSigningIdentity'> & { capabilities?: readonly string[] } = {}
+):
+  | {
+      signingIdentity: string
+      executables: Record<StableExecutable, string>
+    }
+  | undefined {
+  if (!supportsFixedExecutableReleaseRoot(config)) return undefined
   const configured = config.codeSigningIdentity ?? process.env.PRAESIDIUM_CODE_SIGNING_IDENTITY
   const signingIdentity = configured?.trim() || '-'
   mkdirSync(p.bin, { recursive: true, mode: 0o700 })
@@ -90,6 +94,8 @@ export function renderLaunchdScript(input: {
   releasePath: string
   /** Fixed, signed executable path rather than a release-relative launcher. */
   executablePath: string
+  /** Legacy releases retain their launchers, which derive their own root. */
+  explicitReleaseRoot?: boolean | undefined
   env: Record<string, string>
   logPath: string
   /** aspd's own request log (`aspd serve --log`). */
@@ -130,7 +136,7 @@ export function renderLaunchdScript(input: {
     'started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)',
     `printf ${shellQuote(format)} "$$" "$started_at" >${shellQuote(`${record}.tmp`)}`,
     `mv ${shellQuote(`${record}.tmp`)} ${shellQuote(record)}`,
-    `exec /usr/bin/env -i ${env} ${shellQuote(input.executablePath)} serve --socket ${shellQuote(input.socketPath)}${(input.extraArgs ?? []).map((arg) => ` ${shellQuote(arg)}`).join('')} --release-root ${shellQuote(input.releasePath)} --log ${shellQuote(input.requestLogPath)}`,
+    `exec /usr/bin/env -i ${env} ${shellQuote(input.executablePath)} serve --socket ${shellQuote(input.socketPath)}${(input.extraArgs ?? []).map((arg) => ` ${shellQuote(arg)}`).join('')}${input.explicitReleaseRoot === false ? '' : ` --release-root ${shellQuote(input.releasePath)}`} --log ${shellQuote(input.requestLogPath)}`,
     '',
   ].join('\n')
 }

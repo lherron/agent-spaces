@@ -35,6 +35,7 @@ import {
   serviceLogPaths,
   writeJsonAtomic,
 } from './namespace.ts'
+import { supportsFixedExecutableReleaseRoot } from './release-compatibility.ts'
 
 /** The raspd process recorded for this namespace, if it is still raspd from that release. */
 function runningRaspd(p: NamespacePaths): RunningRecord | undefined {
@@ -58,8 +59,10 @@ export async function startRaspd(
     return { alreadyRunning: existing, serving: await versionOf(config.socketPath) }
   }
   if (existing !== undefined) await stopRaspd(p, config)
-  const raspd = inspectRelease(active.releasePath).executableResolution.raspd
+  const inspection = inspectRelease(active.releasePath)
+  const raspd = inspection.executableResolution.raspd
   if (raspd === undefined) fail(`release ${active.releaseId} does not contain raspd`)
+  const useFixedExecutable = supportsFixedExecutableReleaseRoot(inspection)
   const logs = serviceLogPaths(p.ns, config)
   mkdirSync(logs.dir, { recursive: true, mode: 0o700 })
   const args = ['--upstream', front.bunSocketPath]
@@ -73,7 +76,8 @@ export async function startRaspd(
         socketPath: config.socketPath,
         releaseId: active.releaseId,
         releasePath: active.releasePath,
-        executablePath: fixedExecutablePath(p, 'raspd'),
+        executablePath: useFixedExecutable ? fixedExecutablePath(p, 'raspd') : raspd.launcher,
+        explicitReleaseRoot: useFixedExecutable,
         env: serviceEnv(config),
         logPath: logs.raspdSupervisor,
         requestLogPath: logs.raspdRequest,
@@ -91,13 +95,12 @@ export async function startRaspd(
   const startedAt = new Date().toISOString()
   const pid = spawnDetached(
     'raspd',
-    fixedExecutablePath(p, 'raspd'),
+    useFixedExecutable ? fixedExecutablePath(p, 'raspd') : raspd.launcher,
     [
       'serve',
       '--socket',
       config.socketPath,
-      '--release-root',
-      active.releasePath,
+      ...(useFixedExecutable ? ['--release-root', active.releasePath] : []),
       ...args,
       '--log',
       logs.raspdRequest,
@@ -108,7 +111,7 @@ export async function startRaspd(
     pid,
     releaseId: active.releaseId,
     releasePath: active.releasePath,
-    executablePath: fixedExecutablePath(p, 'raspd'),
+    ...(useFixedExecutable ? { executablePath: fixedExecutablePath(p, 'raspd') } : {}),
     startedAt,
     logPath: logs.raspdSupervisor,
   }
