@@ -74,10 +74,14 @@ registered address.
   while pending waits as `codex-<thread>` and consumes a reply sent to that
   address, even after the thread has switched. Incident 2026-10-01: EN-21812
   was `consumed_by_wait` 39 s after the switch.
-- HRC persists mail sent to a `codex-<uuid>` address but never summons a
-  runtime for it or delivers it (`isCodexAppOwnedScopeRef`, hrc-core). Only a
-  live waiter or a poll from the thread consumes it.
+- A provisional address is not a reliable delivery address. The HRC semantic
+  handoff path excludes `codex-<uuid>` from implicit creation
+  (`isCodexAppOwnedScopeRef`, hrc-core; `codex_owned` in the native handoff).
+  The separate mail injector in agent-control-plane does not apply that guard:
+  its ledger routing accepts provisional addresses and wakes them for
+  reply-required mail. Ordinary placement and delivery policy then apply; do
+  not assume mail there can only be consumed by a waiter or poll.
 - Nothing forwards or re-addresses provisional mail (§4: earlier addresses
-  remain historical). Mail sent to the provisional address after the switch,
-  with no waiter alive, stays pending there. Address new mail to the
-  registered scope.
+  remain historical). Mail sent to the provisional address after the switch
+  remains addressed there and can enter the injector's delivery policy.
+  Address new mail to the registered scope.
