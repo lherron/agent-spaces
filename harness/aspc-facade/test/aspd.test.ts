@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -232,6 +233,22 @@ describe('release binding', () => {
     }
     expect(resolved.claudeStatuslineSource.path).toBe(
       join(resolved.releaseRoot, 'assets', 'claude', 'statusline.sh')
+    )
+  })
+
+  test('binds a relocated stable payload to its explicit immutable release root', () => {
+    const base = tempBase()
+    const root = fakeRelease(base)
+    const stablePayload = join(base, 'bin', 'aspd')
+    mkdirSync(join(base, 'bin'))
+    copyFileSync(join(root, 'libexec', 'aspd'), stablePayload)
+    chmodSync(stablePayload, 0o755)
+
+    const resolved = resolveAspdReleaseBinding(IDENTITY, stablePayload, root)
+
+    expect(resolved.releaseRoot).toEndWith(IDENTITY.releaseId)
+    expect(resolved.workers['codex-app-server']?.executable).toBe(
+      join(resolved.releaseRoot, 'harness-broker')
     )
   })
 

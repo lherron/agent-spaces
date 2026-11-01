@@ -37,7 +37,12 @@ import {
   superviseBun,
 } from './aspd-service/bun-aspd.ts'
 import { readback } from './aspd-service/daemon-process.ts'
-import { assertLaunchdLabel, launchAgentJob, launchdPid } from './aspd-service/launchd.ts'
+import {
+  assertLaunchdLabel,
+  launchAgentJob,
+  launchdPid,
+  prepareActivatedExecutables,
+} from './aspd-service/launchd.ts'
 import {
   ACTIVE_SCHEMA,
   type ActiveSelection,
@@ -122,6 +127,10 @@ async function activate(nsInput: string, releaseId: string): Promise<Record<stri
   // KeepAlive cannot respawn anything while the selection changes; `bootstrap`
   // then starts only the newly selected release.
   const retired = await stopBun(p, config)
+  // Prepare and sign fixed paths while both daemons are down, before either
+  // launch script can pair a new release root with a stale executable.
+  // The immutable release remains untouched for digest verification.
+  const stableExecutables = prepareActivatedExecutables(p, { releasePath }, config)
   const selection: ActiveSelection = {
     schemaVersion: ACTIVE_SCHEMA,
     releaseId,
@@ -136,6 +145,7 @@ async function activate(nsInput: string, releaseId: string): Promise<Record<stri
     beganAt,
     retired,
     started,
+    stableExecutables,
     ...(fronted ? { raspdRetired, raspdStarted: await startRaspd(p, config, selection) } : {}),
     completedAt: new Date().toISOString(),
   }

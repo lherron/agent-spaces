@@ -68,14 +68,21 @@ export interface AspdReleaseBinding {
  */
 export function resolveAspdReleaseBinding(
   identity: AspReleaseIdentity | undefined,
-  executablePath: string
+  executablePath: string,
+  explicitReleaseRoot?: string
 ): AspdReleaseBinding {
   if (identity === undefined) {
     throw new Error('aspd must run from an immutable ASP release: no compiled-in release identity')
   }
   const payload = realpathSync(executablePath)
-  const releaseRoot = dirname(dirname(payload))
-  if (basename(dirname(payload)) !== 'libexec' || basename(releaseRoot) !== identity.releaseId) {
+  const releaseRoot =
+    explicitReleaseRoot === undefined
+      ? dirname(dirname(payload))
+      : realpathSync(explicitReleaseRoot)
+  if (
+    (explicitReleaseRoot === undefined && basename(dirname(payload)) !== 'libexec') ||
+    basename(releaseRoot) !== identity.releaseId
+  ) {
     throw new Error(`aspd payload is not inside release ${identity.releaseId}: ${payload}`)
   }
   const manifest = JSON.parse(readFileSync(join(releaseRoot, 'release.json'), 'utf8')) as {
@@ -852,7 +859,8 @@ export interface RunAspdCliOptions {
   releaseIdentity?: AspReleaseIdentity | undefined
 }
 
-const ASPD_USAGE = 'aspd serve --socket <absolute-path> [--log <absolute-path>]'
+const ASPD_USAGE =
+  'aspd serve --socket <absolute-path> [--log <absolute-path>] [--release-root <absolute-path>]'
 
 function flagValue(args: string[], flag: string): string | undefined {
   const index = args.indexOf(flag)
@@ -873,10 +881,12 @@ export async function runAspdCli(args: string[], options: RunAspdCliOptions): Pr
   if (command !== 'serve') refuseUsage()
   const socketPath = flagValue(rest, '--socket')
   const logPath = flagValue(rest, '--log')
+  const releaseRoot = flagValue(rest, '--release-root') ?? process.env['ASP_RELEASE_ROOT']
   if (
     socketPath === undefined ||
     !socketPath.startsWith('/') ||
-    (rest.includes('--log') && (logPath === undefined || !logPath.startsWith('/')))
+    (rest.includes('--log') && (logPath === undefined || !logPath.startsWith('/'))) ||
+    (releaseRoot !== undefined && !releaseRoot.startsWith('/'))
   ) {
     refuseUsage()
   }
@@ -901,7 +911,7 @@ export async function runAspdCli(args: string[], options: RunAspdCliOptions): Pr
   process.on('uncaughtException', fatal)
   process.on('unhandledRejection', fatal)
   try {
-    await serve(socketPath as string, logPath, options, log, lifecycle, fileLog)
+    await serve(socketPath as string, logPath, releaseRoot, options, log, lifecycle, fileLog)
   } catch (error) {
     // A startup failure (release binding, socket already served) is fatal too.
     fatal(error)
@@ -911,12 +921,13 @@ export async function runAspdCli(args: string[], options: RunAspdCliOptions): Pr
 async function serve(
   socketPath: string,
   logPath: string | undefined,
+  releaseRoot: string | undefined,
   options: RunAspdCliOptions,
   log: (line: string) => void,
   lifecycle: (level: AspdLogLevel, event: string, fields: Record<string, unknown>) => void,
   fileLog: AspdFileLog | undefined
 ): Promise<void> {
-  const binding = resolveAspdReleaseBinding(options.releaseIdentity, process.execPath)
+  const binding = resolveAspdReleaseBinding(options.releaseIdentity, process.execPath, releaseRoot)
   // Metrics warnings are L2 lines in aspd's own log, never raw stderr text.
   configureUsageMetricsHost({
     product: `aspd/${binding.identity.releaseId}`,

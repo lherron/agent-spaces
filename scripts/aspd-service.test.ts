@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -13,15 +14,19 @@ import { join } from 'node:path'
 import {
   adoptLaunchdPlist,
   bootstrapLaunchd,
+  prepareActivatedExecutables,
   renderLaunchdPlist,
   renderLaunchdScript,
 } from './aspd-service/launchd.ts'
-import { serviceLogPaths } from './aspd-service/namespace.ts'
+import { namespacePaths, serviceLogPaths } from './aspd-service/namespace.ts'
 
 const dirs: string[] = []
 const savedPath = process.env.PATH
+const savedSigningIdentity = process.env.PRAESIDIUM_CODE_SIGNING_IDENTITY
 afterEach(() => {
   process.env.PATH = savedPath
+  if (savedSigningIdentity === undefined) process.env.PRAESIDIUM_CODE_SIGNING_IDENTITY = undefined
+  else process.env.PRAESIDIUM_CODE_SIGNING_IDENTITY = savedSigningIdentity
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
@@ -61,7 +66,7 @@ function writeScratchPlist(dir: string): string {
 const ADOPT_AGENT = join(import.meta.dir, '..', '..', 'macos', 'adopt-agent')
 
 describe('aspd launchd supervision rendering', () => {
-  test('the launch script records the daemon pid and execs the release with only the literal env', async () => {
+  test('the launch script records the daemon pid and execs the fixed binary with only the literal env', async () => {
     const ns = mkdtempSync(join(tmpdir(), "aspd-ns-it's-"))
     dirs.push(ns)
     const releasePath = join(ns, 'releases', 'asp-test')
@@ -79,12 +84,19 @@ describe('aspd launchd supervision rendering', () => {
       socketPath: join(ns, 'run', 'aspd.sock'),
       releaseId: 'asp-test',
       releasePath,
+      executablePath: join(ns, 'bin', 'aspd'),
       env: { HOME: '/home/it', ASP_HOME: "/state/o'brien home", PATH: '/usr/bin:/bin' },
       logPath: join(ns, 'logs', 'aspd-launchd.log'),
       requestLogPath: join(ns, 'logs', 'aspd.log'),
     })
     const scriptPath = join(ns, 'launchd-run.sh')
     writeFileSync(scriptPath, script)
+
+    mkdirSync(join(ns, 'bin'))
+    writeFileSync(join(ns, 'bin', 'aspd'), readFileSync(fakeAspd))
+    chmodSync(join(ns, 'bin', 'aspd'), 0o755)
+    writeFileSync(fakeAspd, '#!/bin/sh\nexit 99\n')
+    chmodSync(fakeAspd, 0o755)
 
     const proc = Bun.spawn(['/bin/sh', scriptPath], {
       env: { AMBIENT_SECRET: 'must-not-leak', PATH: '/usr/bin:/bin' },
@@ -96,13 +108,19 @@ describe('aspd launchd supervision rendering', () => {
     const record = JSON.parse(readFileSync(join(ns, 'run', 'aspd.json'), 'utf8'))
 
     expect(observed).toContain(`pid=${proc.pid}`)
-    expect(record).toMatchObject({ pid: proc.pid, releaseId: 'asp-test', releasePath })
+    expect(record).toMatchObject({
+      pid: proc.pid,
+      releaseId: 'asp-test',
+      releasePath,
+      executablePath: join(ns, 'bin', 'aspd'),
+    })
     expect(observed).toContain("ASP_HOME=/state/o'brien home")
     expect(observed).toContain('HOME=/home/it')
     expect(observed).not.toContain('AMBIENT_SECRET')
     expect(observed).toContain(
-      `argv=serve --socket ${join(ns, 'run', 'aspd.sock')} --log ${join(ns, 'logs', 'aspd.log')}`
+      `argv=serve --socket ${join(ns, 'run', 'aspd.sock')} --release-root ${releasePath} --log ${join(ns, 'logs', 'aspd.log')}`
     )
+    expect(script).toContain('bin/aspd')
   })
 
   test('the plist lints and names the launch script under KeepAlive', () => {
@@ -131,6 +149,80 @@ describe('aspd launchd supervision rendering', () => {
       StandardOutPath: '/ns/logs/a&b.log',
       StandardErrorPath: '/ns/logs/a&b.log',
     })
+  })
+})
+
+describe('activated stable daemon executables', () => {
+  function releaseWithPayloads(ns: string, id: string, payloadSource: string): string {
+    const release = join(ns, 'releases', id)
+    mkdirSync(join(release, 'libexec'), { recursive: true })
+    for (const name of ['aspd', 'raspd']) {
+      const payload = join(release, 'libexec', name)
+      copyFileSync(payloadSource, payload)
+      chmodSync(payload, 0o755)
+    }
+    return release
+  }
+
+  test('without a configured identity activation signs fixed executables ad hoc', () => {
+    const ns = mkdtempSync(join(tmpdir(), 'aspd-fixed-bin-'))
+    dirs.push(ns)
+    process.env.PRAESIDIUM_CODE_SIGNING_IDENTITY = undefined
+    const release = releaseWithPayloads(ns, 'asp-new', '/usr/bin/true')
+
+    const prepared = prepareActivatedExecutables(namespacePaths(ns), {
+      schemaVersion: 'aspd-service-activation/v1',
+      releaseId: 'asp-new',
+      releasePath: release,
+      activatedAt: new Date().toISOString(),
+      previousReleaseId: null,
+    })
+
+    expect(prepared).toEqual({
+      signingIdentity: '-',
+      executables: {
+        aspd: join(ns, 'bin', 'aspd'),
+        raspd: join(ns, 'bin', 'raspd'),
+      },
+    })
+    for (const name of ['aspd', 'raspd']) {
+      const binary = join(ns, 'bin', name)
+      expect(Bun.spawnSync(['codesign', '-dv', binary]).exitCode).toBe(0)
+      expect(Bun.spawnSync([binary]).exitCode).toBe(0)
+    }
+  })
+
+  test('activating an older release recopies both fixed executable paths', () => {
+    const ns = mkdtempSync(join(tmpdir(), 'aspd-fixed-bin-'))
+    dirs.push(ns)
+    process.env.PRAESIDIUM_CODE_SIGNING_IDENTITY = undefined
+    const newer = releaseWithPayloads(ns, 'asp-newer', '/usr/bin/true')
+    const older = releaseWithPayloads(ns, 'asp-older', '/usr/bin/false')
+    const p = namespacePaths(ns)
+
+    prepareActivatedExecutables(p, {
+      schemaVersion: 'aspd-service-activation/v1',
+      releaseId: 'asp-newer',
+      releasePath: newer,
+      activatedAt: new Date().toISOString(),
+      previousReleaseId: null,
+    })
+    const activatedOlder = prepareActivatedExecutables(p, {
+      schemaVersion: 'aspd-service-activation/v1',
+      releaseId: 'asp-older',
+      releasePath: older,
+      activatedAt: new Date().toISOString(),
+      previousReleaseId: 'asp-newer',
+    })
+
+    expect(activatedOlder.executables).toEqual({
+      aspd: join(ns, 'bin', 'aspd'),
+      raspd: join(ns, 'bin', 'raspd'),
+    })
+    for (const name of ['aspd', 'raspd']) {
+      const binary = join(ns, 'bin', name)
+      expect(Bun.spawnSync([binary]).exitCode).toBe(1)
+    }
   })
 })
 

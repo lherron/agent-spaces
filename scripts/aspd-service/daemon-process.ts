@@ -33,7 +33,8 @@ export function runningProcess(
   const command = spawnSync('ps', ['-o', 'command=', '-p', String(record.pid)], {
     encoding: 'utf8',
   }).stdout
-  return command.includes(join(record.releasePath, 'libexec', program)) ||
+  return (record.executablePath !== undefined && command.includes(record.executablePath)) ||
+    command.includes(join(record.releasePath, 'libexec', program)) ||
     command.includes(join(record.releasePath, program))
     ? record
     : undefined

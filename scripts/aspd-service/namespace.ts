@@ -29,6 +29,8 @@ export type ServiceConfig = {
    * `<ns>/logs`; the system namespace records `~/praesidium/var/logs/agent-spaces`.
    */
   logDir?: string
+  /** Optional node-local signing identity for the stable launchd executables. */
+  codeSigningIdentity?: string
   /** Present once `supervise` has handed the service lifetime to launchd. */
   supervisor?: LaunchdSupervisor | undefined
   /**
@@ -56,6 +58,7 @@ export type RunningRecord = {
   pid: number
   releaseId: string
   releasePath: string
+  executablePath?: string
   startedAt: string
   logPath: string
 }
@@ -72,6 +75,7 @@ export function namespacePaths(nsInput: string) {
   return {
     ns,
     releases: join(ns, 'releases'),
+    bin: join(ns, 'bin'),
     config: join(ns, 'service', 'config.json'),
     active: join(ns, 'service', 'active.json'),
     activations: join(ns, 'service', 'activations.ndjson'),

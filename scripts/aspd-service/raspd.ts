@@ -16,6 +16,7 @@ import {
 import {
   bootoutIfLoaded,
   bootstrapJob,
+  fixedExecutablePath,
   launchAgentJob,
   launchdPid,
   renderLaunchdScript,
@@ -72,6 +73,7 @@ export async function startRaspd(
         socketPath: config.socketPath,
         releaseId: active.releaseId,
         releasePath: active.releasePath,
+        executablePath: fixedExecutablePath(p, 'raspd'),
         env: serviceEnv(config),
         logPath: logs.raspdSupervisor,
         requestLogPath: logs.raspdRequest,
@@ -89,14 +91,24 @@ export async function startRaspd(
   const startedAt = new Date().toISOString()
   const pid = spawnDetached(
     'raspd',
-    raspd.launcher,
-    ['serve', '--socket', config.socketPath, ...args, '--log', logs.raspdRequest],
+    fixedExecutablePath(p, 'raspd'),
+    [
+      'serve',
+      '--socket',
+      config.socketPath,
+      '--release-root',
+      active.releasePath,
+      ...args,
+      '--log',
+      logs.raspdRequest,
+    ],
     { cwd: p.ns, env: serviceEnv(config), logPath: logs.raspdSupervisor }
   )
   const record: RunningRecord = {
     pid,
     releaseId: active.releaseId,
     releasePath: active.releasePath,
+    executablePath: fixedExecutablePath(p, 'raspd'),
     startedAt,
     logPath: logs.raspdSupervisor,
   }

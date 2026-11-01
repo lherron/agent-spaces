@@ -7,18 +7,76 @@
  * and launchd's SIGTERM is the existing graceful retire.
  */
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { RETIRE_TIMEOUT_MS } from './daemon-process.ts'
-import { type LaunchdSupervisor, fail } from './namespace.ts'
+import {
+  type ActiveSelection,
+  type LaunchdSupervisor,
+  type NamespacePaths,
+  type ServiceConfig,
+  fail,
+} from './namespace.ts'
 
 const BOOTSTRAP_ATTEMPTS = 4
 const BOOTSTRAP_RETRY_MS = 2_000
+const STABLE_EXECUTABLES = ['aspd', 'raspd'] as const
+type StableExecutable = (typeof STABLE_EXECUTABLES)[number]
 
 const shellQuote = (value: string): string => `'${value.replaceAll("'", `'\\''`)}'`
 
 const xmlEscape = (value: string): string =>
   value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+
+/** The stable, real executable path that launchd presents to macOS TCC. */
+export function fixedExecutablePath(
+  p: Pick<NamespacePaths, 'bin'>,
+  program: StableExecutable
+): string {
+  return join(p.bin, program)
+}
+
+/**
+ * Copy native daemon payloads out of an immutable release before activation.
+ * The release stays byte-for-byte immutable; the signed destination is
+ * atomically replaced, so rolling back to an older selection is the same flow.
+ */
+export function prepareActivatedExecutables(
+  p: Pick<NamespacePaths, 'bin'>,
+  active: Pick<ActiveSelection, 'releasePath'>,
+  config: Pick<ServiceConfig, 'codeSigningIdentity'> = {}
+): {
+  signingIdentity: string
+  executables: Record<StableExecutable, string>
+} {
+  const configured = config.codeSigningIdentity ?? process.env.PRAESIDIUM_CODE_SIGNING_IDENTITY
+  const signingIdentity = configured?.trim() || '-'
+  mkdirSync(p.bin, { recursive: true, mode: 0o700 })
+  const executables = {} as Record<StableExecutable, string>
+  for (const program of STABLE_EXECUTABLES) {
+    const source = join(active.releasePath, 'libexec', program)
+    const destination = fixedExecutablePath(p, program)
+    const temporary = `${destination}.tmp-${process.pid}`
+    try {
+      copyFileSync(source, temporary)
+      chmodSync(temporary, 0o755)
+      const signed = spawnSync(
+        'codesign',
+        ['-f', '-s', signingIdentity, '-i', `com.praesidium.${program}`, temporary],
+        { encoding: 'utf8' }
+      )
+      if (signed.status !== 0) {
+        fail(`codesign ${program} failed: ${`${signed.stdout ?? ''}${signed.stderr ?? ''}`.trim()}`)
+      }
+      renameSync(temporary, destination)
+      executables[program] = destination
+    } catch (error) {
+      rmSync(temporary, { force: true })
+      throw error
+    }
+  }
+  return { signingIdentity, executables }
+}
 
 /**
  * The launchd job's program. Everything is literal: the selected release, the
@@ -30,6 +88,8 @@ export function renderLaunchdScript(input: {
   socketPath: string
   releaseId: string
   releasePath: string
+  /** Fixed, signed executable path rather than a release-relative launcher. */
+  executablePath: string
   env: Record<string, string>
   logPath: string
   /** aspd's own request log (`aspd serve --log`). */
@@ -49,6 +109,7 @@ export function renderLaunchdScript(input: {
     startedAt: '',
     logPath: input.logPath,
     requestLogPath: input.requestLogPath,
+    executablePath: input.executablePath,
   })
     .replaceAll('%', '%%')
     .replace('"pid":0', '"pid":%s')
@@ -69,7 +130,7 @@ export function renderLaunchdScript(input: {
     'started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)',
     `printf ${shellQuote(format)} "$$" "$started_at" >${shellQuote(`${record}.tmp`)}`,
     `mv ${shellQuote(`${record}.tmp`)} ${shellQuote(record)}`,
-    `exec /usr/bin/env -i ${env} ${shellQuote(join(input.releasePath, program))} serve --socket ${shellQuote(input.socketPath)}${(input.extraArgs ?? []).map((arg) => ` ${shellQuote(arg)}`).join('')} --log ${shellQuote(input.requestLogPath)}`,
+    `exec /usr/bin/env -i ${env} ${shellQuote(input.executablePath)} serve --socket ${shellQuote(input.socketPath)}${(input.extraArgs ?? []).map((arg) => ` ${shellQuote(arg)}`).join('')} --release-root ${shellQuote(input.releasePath)} --log ${shellQuote(input.requestLogPath)}`,
     '',
   ].join('\n')
 }

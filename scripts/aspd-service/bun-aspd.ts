@@ -18,6 +18,7 @@ import {
 import {
   bootoutIfLoaded,
   bootstrapJob,
+  fixedExecutablePath,
   kickstart,
   launchdLoaded,
   launchdPid,
@@ -71,15 +72,17 @@ export async function startBun(
   const logDir = serviceLogPaths(p.ns, config).dir
   mkdirSync(logDir, { recursive: true, mode: 0o700 })
   const logPath = join(logDir, `aspd-${active.releaseId}-${startedAt.replace(/[:.]/g, '')}.log`)
-  const pid = spawnDetached('aspd', aspd.launcher, ['serve', '--socket', bunSocketPath(config)], {
-    cwd: p.ns,
-    env,
-    logPath,
-  })
+  const pid = spawnDetached(
+    'aspd',
+    fixedExecutablePath(p, 'aspd'),
+    ['serve', '--socket', bunSocketPath(config), '--release-root', active.releasePath],
+    { cwd: p.ns, env, logPath }
+  )
   const record: RunningRecord = {
     pid,
     releaseId: active.releaseId,
     releasePath: active.releasePath,
+    executablePath: fixedExecutablePath(p, 'aspd'),
     startedAt,
     logPath,
   }
@@ -160,6 +163,7 @@ function writeBunLaunchScript(
       socketPath: bunSocketPath(config),
       releaseId: active.releaseId,
       releasePath: active.releasePath,
+      executablePath: fixedExecutablePath(p, 'aspd'),
       env: serviceEnv(config),
       logPath: logs.supervisor,
       requestLogPath: logs.request,
