@@ -23,7 +23,8 @@ home. It does not own *where* or *when* an agent runs; that belongs to HRC.
   Each target is a composition of spaces plus priming and provisioning. A target composition
   either replaces or merges with the agent profile's composition.
 - **Harness.** The agent program that will run the result. The public vocabulary is exactly
-  `agent-harness | claude | codex | muse`. Names like `pi`, `pi-sdk` and `codex-cli` are
+  `agent-harness | claude | claude-hrcpty | codex | codex-hrcpty | muse`. The
+  `*-hrcpty` choices use HRC's PTY transport. Names like `pi`, `pi-sdk` and `codex-cli` are
   internal adapter ids, not user-facing choices.
 - **Composition / closure.** The ordered set of spaces an agent receives: roots from the profile
   and target, expanded through each space's dependencies, deps first (a DFS postorder). Space

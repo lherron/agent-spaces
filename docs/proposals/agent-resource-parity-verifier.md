@@ -326,24 +326,21 @@ created by the direct observation.
 Recursively compare the two projected trees. Equality requires the same entry
 set, entry kinds, metadata, and regular-file bytes.
 
-The first failure is printed as:
+The implemented `verifyParityRows()` throws one error containing every mismatch,
+sorted by `(agentId, runMode, logicalPath)` in code-point order. A prompt-byte
+mismatch has this form (lengths and hashes depend on the compared inputs):
 
 ```text
-agent-resource parity mismatch
-agent: cody
-mode: task
-resource: reminder/content.bin
-compiler: length=8671 sha256=<hex>
-sdk:      length=704  sha256=<hex>
-first differing byte: 693
-compiler window: <escaped bytes>
-sdk window:      <escaped bytes>
+[cody/task] prompt/content.bin: bytes differ at 693; left length=8671 sha256=<hex>, right length=704 sha256=<hex>
 ```
 
-For missing entries, print which producer omitted the logical path. Continue
-collecting failures for other rows up to a fixed diagnostic limit, then exit
-nonzero. Output ordering is `(agentId, runMode, logicalPath)` in code-point
-order.
+Left is the compiler observation; right is the direct loader. Prompt/reminder
+content diagnostics include the first differing byte, lengths, and hashes.
+Catalog diagnostics identify catalog/order differences; package-tree diagnostics
+currently identify the skill package path with `selected package tree differs`,
+without a per-file byte window or omitted-producer detail. There is no fixed
+diagnostic-count limit in the implementation. These limits do not weaken the
+byte comparison or turn a mismatch into success.
 
 No command option may update expected output, ignore a resource category, or
 turn a mismatch into success.

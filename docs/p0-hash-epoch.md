@@ -28,7 +28,7 @@ computed their own key ordering now delegate to it:
 | --- | --- |
 | [`compiler/agent-spaces/src/agent-inspection.ts`](../compiler/agent-spaces/src/agent-inspection.ts) `sortJson` | `createCanonicalHasher().hash` |
 | [`harness/aspc/src/manifest.ts`](../harness/aspc/src/manifest.ts) `sortKeys` | `canonicalJson` delegates to `canonicalize` |
-| [`core/config/src/orchestration/install.ts`](../core/config/src/orchestration/install.ts) `stableJson` | delegates to `canonicalize` |
+| [`core/config/src/orchestration/materialize-target.ts`](../core/config/src/orchestration/materialize-target.ts) `stableJson` (extracted from `install.ts`) | delegates to `canonicalize` |
 | [`drivers/execution/src/run-codex.ts`](../drivers/execution/src/run-codex.ts) `stableJson` | delegates to `canonicalize` |
 | [`drivers/harness-codex/src/adapters/codex-hooks.ts`](../drivers/harness-codex/src/adapters/codex-hooks.ts) `canonicalJson` | `createCanonicalHasher().hash` |
 
@@ -38,7 +38,8 @@ non-finite numbers are rejected instead of silently serialized.
 
 ICU-dependent `localeCompare` is gone from every hash-material ordering; those
 sites now compare by codepoint, matching the bare `.sort()` used elsewhere:
-`install.ts` (`hashDirectory`), `resolver/integrity.ts` (both integrity
+`orchestration/materialize-target.ts` (`hashDirectory`, extracted from
+`install.ts`), `resolver/integrity.ts` (both integrity
 functions), `resolver/filesystem-registry.ts`, `store/snapshot.ts`, and
 `agent-inspection.ts`. `store/snapshot.ts` and `resolver/integrity.ts` remain
 byte-identical to each other.

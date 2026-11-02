@@ -19,7 +19,8 @@ full e2e claim. Photon remains a digested sibling release asset.
 
 - Run from a clean, pushed agent-spaces commit. The release builder refuses a
   dirty or unpushed main checkout.
-- Use an isolated absolute namespace under the task artifact directory. Never
+- Use an isolated absolute namespace under a scratch root outside the task
+  artifact directory. Keep clones, builds, and installed releases there too. Never
   activate the production aspd namespace.
 - `tmux`, `jq`, Bun, real OpenAI OAuth credentials, and a valid test agent must
   be available.
@@ -31,17 +32,26 @@ full e2e claim. Photon remains a digested sibling release asset.
 Example roots:
 
 ```sh
-export AH_E2E_ROOT=/Users/lherron/praesidium/var/wrkq-artifacts/T-08680/e2e
-export AH_E2E_NS="$AH_E2E_ROOT/ns"
-mkdir -p "$AH_E2E_ROOT"
+export AH_E2E_ROOT="/Users/lherron/praesidium/var/wrkq-artifacts/<task-id>/e2e"
+export AH_E2E_SCRATCH="/Users/lherron/praesidium/var/scratch/agent-spaces/<task-id>/e2e"
+export AH_E2E_NS="$AH_E2E_SCRATCH/ns"
+export ASP_USAGE_METRICS_VAR_ROOT="$AH_E2E_SCRATCH/metrics-var"
+unset HARNESS_BROKER_OBSERVER_SOCKET HARNESS_BROKER_OBSERVER_MODE
+mkdir -p "$AH_E2E_ROOT" "$AH_E2E_SCRATCH"
 ```
+
+Replace `<task-id>` before running. The artifact directory holds documentation
+and small evidence only (under 50 MB); retain bounded transcripts and summaries,
+with large raw captures in scratch. Metrics from CLI/worker children must use
+the scratch root above; inherited observer settings must never point probes at
+a live listener.
 
 ## 1. Build and inspect the immutable release
 
 ```sh
-just build-asp-release "$AH_E2E_ROOT/build"
-find "$AH_E2E_ROOT/build" -maxdepth 1 -type d -name 'asp-*' -print
-just inspect-asp-release "$AH_E2E_ROOT/build/<release-id>" \
+just build-asp-release "$AH_E2E_SCRATCH/build"
+find "$AH_E2E_SCRATCH/build" -maxdepth 1 -type d -name 'asp-*' -print
+just inspect-asp-release "$AH_E2E_SCRATCH/build/<release-id>" \
   | tee "$AH_E2E_ROOT/release-inspection.json"
 ```
 
@@ -57,7 +67,7 @@ The inspection must prove all of the following:
 Independent readback:
 
 ```sh
-RELEASE="$AH_E2E_ROOT/build/<release-id>"
+RELEASE="$AH_E2E_SCRATCH/build/<release-id>"
 "$RELEASE/agent-harness" --release-info | tee "$AH_E2E_ROOT/worker-release.json"
 "$RELEASE/agent-harness" drivers --json | tee "$AH_E2E_ROOT/worker-drivers.json"
 jq '[.[].kind] | sort' "$AH_E2E_ROOT/worker-drivers.json"
@@ -89,13 +99,19 @@ daemon.
 
 ## 3. Prepare both routes through aspd
 
-Compile the same semantic agent declaration twice through the real aspd RPC:
-noninteractive and interactive. Save both complete responses.
+Compile the same semantic agent declaration twice through the real aspd RPC,
+with `requested.harness = agent-harness` and `requested.presentation = false`
+then `true`. Save both complete responses. The v2 response carries the plan at
+`plan` and the invocation spec at
+`plan.execution.dispatchRequest.startRequest.spec` (called `spec` below).
+`plan.execution.profile` contains hashes and a generated `profileId`; it is not
+a `nonInteractive`/`interactive` selector.
 
 The headless response must contain:
 
 ```text
-profile = nonInteractive
+plan.selection.presentation = false
+plan.execution.driver = agent-harness
 spec.harness.driver = agent-harness
 spec.process.execution = native-worker
 spec.process.harnessTransport.kind = native-worker
@@ -109,7 +125,8 @@ executionRelease.worker.hostedDrivers includes agent-harness
 The interactive response must differ only where presentation requires:
 
 ```text
-profile = interactive
+plan.selection.presentation = true
+plan.execution.driver = agent-harness-tmux
 spec.harness.driver = agent-harness-tmux
 spec.process.execution = native-worker
 spec.process.harnessTransport.kind = native-worker
@@ -133,10 +150,12 @@ Launch exactly the returned executable with the ordinary release-worker argv:
 
 ```sh
 "$(jq -r '.executionRelease.worker.executable' headless-preparation.json)" \
-  run --transport unix --socket "$AH_E2E_ROOT/headless.sock"
+  run --transport unix --socket "$AH_E2E_SCRATCH/headless.sock"
 ```
 
-Through the standard broker client, start the frozen headless spec and submit:
+Through the standard broker client, dispatch the returned
+`plan.execution.dispatchRequest` intact, including its frozen start request,
+environment and runtime channels. Then submit:
 
 ```text
 Reply with exactly HEADLESS-AGENT-HARNESS and nothing else. Do not use tools.
@@ -194,5 +213,7 @@ just aspd-status "$AH_E2E_NS" | tee "$AH_E2E_ROOT/aspd-stopped.json"
 ```
 
 Require no running aspd process, no serving RPC, no broker socket, and no live
-tmux pane or worker PID. Retain the immutable release and evidence directory;
-do not activate this namespace in production.
+tmux pane or worker PID. Retain small evidence in the artifact directory and
+record the immutable release identity before retiring the scratch root. Never
+move or remove existing task artifacts as cleanup, and never activate this
+namespace in production.

@@ -9,19 +9,21 @@ an immutable release when the system aspd namespace is configured; see
 
 ```bash
 just build-asp-release /absolute/build-root
-just install-asp-release /absolute/build-root/<release-id> /absolute/install-root
-just inspect-asp-release /absolute/install-root/<release-id>
+just install-asp-release "/absolute/build-root/<release-id>" /absolute/install-root
+just inspect-asp-release "/absolute/install-root/<release-id>"
 ```
 
-The release root contains `aspc-facade`, `aspd`, `harness-broker`,
-`release.json`, immutable assets, and the Bun-compiled payloads under
-`libexec/`. The launchers export the selected release identity and source
+The release root contains `aspc-facade`, `aspd`, `raspd`, `harness-broker`,
+`agent-harness`, `release.json`, immutable assets, and payloads under
+`libexec/`. `raspd` is Cargo-native; the other payloads are Bun-compiled.
+The launchers export the selected release identity and source
 commit, then execute only the sibling payload. Every identity-bound launcher
 supports `--release-info`; the worker also supports `drivers --json`.
 
 Builds require a clean checkout so `sourceCommit` names the exact input. The
-builder installs no dependencies and the compiled payloads embed their runtime
-module closure. `release.json` binds supported broker drivers to workers and
+builder does not install Bun dependencies; prepare those before building.
+The native `raspd` build requires Cargo and its locked dependencies. Bun-compiled
+payloads embed their runtime module closure. `release.json` binds supported broker drivers to workers and
 records the Claude statusline asset digest. The inspector rejects symlinks,
 writable content, executable/asset digest drift, path escape, identity mismatch,
 bindings to non-identity-bound or missing executables, and bindings absent from
