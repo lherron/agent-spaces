@@ -406,6 +406,7 @@ pub fn space_manifest_valid(v: &J) -> bool {
             "plugin",
             "deps",
             "settings",
+            "path",
             "harness",
             "claude",
             "pi",
@@ -417,11 +418,38 @@ pub fn space_manifest_valid(v: &J) -> bool {
         && opt(v, "description", str_max(500))
         && opt(v, "plugin", plugin_ok)
         && opt(v, "deps", deps_ok)
+        && opt(v, "path", |p| {
+            only(p, &["exclude"])
+                && opt(p, "exclude", |e| {
+                    matches!(e, J::Arr(items) if items.iter().all(|i|
+                        matches!(i, J::Str(name) if super::path_filter::valid_name(name))))
+                })
+        })
         && opt(v, "settings", settings_ok)
         && opt(v, "harness", harness_ok)
         && opt(v, "claude", claude_ok)
         && opt(v, "pi", pi_ok)
         && opt(v, "codex", codex_ok)
+}
+
+/// Sorted, deduplicated union over the dependency closure (not just roots).
+pub fn path_exclude(closure: &Closure) -> Vec<String> {
+    closure
+        .spaces
+        .iter()
+        .flat_map(|s| {
+            s.manifest
+                .get("path")
+                .and_then(|p| p.get("exclude"))
+                .and_then(J::as_arr)
+                .into_iter()
+                .flatten()
+                .filter_map(J::as_str)
+                .map(str::to_owned)
+        })
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 // -- integrity --------------------------------------------------------------

@@ -787,6 +787,7 @@ pub struct TargetInput<'a> {
     pub lock_target: &'a J,
     pub codex_options: Option<&'a J>,
     pub public_scope_root: String,
+    pub path_exclude: Vec<String>,
     /// The release's Claude statusline asset (`claude-statusline`); a claude
     /// bundle only.
     pub statusline: Option<&'a Statusline>,
@@ -838,6 +839,12 @@ pub fn fingerprint(input: &TargetInput, artifacts: &[Artifact], hashes: &[String
             J::Arr(artifacts.iter().map(|a| a.settings.clone()).collect()),
         ),
     ]);
+    if !input.path_exclude.is_empty() {
+        material.set(
+            "pathExclude",
+            J::Arr(input.path_exclude.iter().map(J::str).collect()),
+        );
+    }
     if let Some(codex) = input.codex_options {
         material.set("codexOptions", codex.clone());
     }
@@ -1112,6 +1119,12 @@ pub fn publish_target(
                     ("harnessId", J::str(DEFAULT_HARNESS)),
                     ("targetName", J::str(input.target_name)),
                 ]);
+                if !input.path_exclude.is_empty() {
+                    manifest.set(
+                        "pathExclude",
+                        J::Arr(input.path_exclude.iter().map(J::str).collect()),
+                    );
+                }
                 manifest.set("identity", input.identity.clone());
                 manifest.set("generatedAt", J::str(now_iso()));
                 manifest.set(

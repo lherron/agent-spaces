@@ -814,7 +814,7 @@ fn runtime_plan_parts(plan: &J) -> Vec<J> {
         artifact.set("identity", l.clone());
     }
     let profile_id = at(&["execution", "profile", "profileId"]);
-    vec![
+    let mut parts = vec![
         part(
             "capability",
             "capability:runtime-plan",
@@ -857,7 +857,46 @@ fn runtime_plan_parts(plan: &J) -> Vec<J> {
                 ),
             ]),
         ),
-    ]
+    ];
+    let env = at(&[
+        "execution",
+        "dispatchRequest",
+        "startRequest",
+        "spec",
+        "process",
+        "lockedEnv",
+    ]);
+    if let Some(zdotdir) = env.get("ZDOTDIR") {
+        let manifest = plan
+            .get("artifacts")
+            .and_then(|a| a.get("materializedBundleRoot"))
+            .and_then(J::as_str)
+            .and_then(|root| std::fs::read(join(&[root, ".asp-materialized.json"])).ok())
+            .and_then(|bytes| crate::json::parse(&bytes));
+        let mut value = J::obj([
+            (
+                "exclude",
+                manifest
+                    .as_ref()
+                    .and_then(|m| m.get("pathExclude"))
+                    .cloned()
+                    .unwrap_or(J::Arr(vec![])),
+            ),
+            ("zdotdir", zdotdir.clone()),
+        ]);
+        if let Some(wrapper) = env.get("CLAUDE_ENV_FILE") {
+            value.set("claudeEnvFile", wrapper.clone());
+        }
+        parts.insert(
+            parts.len() - 1,
+            part(
+                "runtime-setting",
+                "runtime-setting:path-exclude",
+                J::obj([("settingId", J::str("path-exclude")), ("value", value)]),
+            ),
+        );
+    }
+    parts
 }
 
 /// `inspectionFreshness(plan, request, context)`. raspd compiles only

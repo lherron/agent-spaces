@@ -15,6 +15,7 @@ mod codex;
 mod iarna;
 mod inspect;
 mod lockfile;
+mod path_filter;
 mod prompt;
 mod request;
 mod spaces;
@@ -1500,6 +1501,7 @@ fn materialize_and_emit(plan: Plan, release: &Release, phases: &mut Phases) -> R
         identity: &plan.identity,
         lock_target: &lock_target,
         codex_options: plan.codex_options.as_ref(),
+        path_exclude: spaces::path_exclude(&plan.closure),
         public_scope_root: join(&[
             asp_home,
             "codex-homes",
@@ -1556,6 +1558,11 @@ fn materialize_and_emit(plan: Plan, release: &Release, phases: &mut Phases) -> R
         None => None,
     };
     phases.lap("materialize");
+    path_filter::prepare(
+        &path_filter_scope(&plan),
+        &input.path_exclude,
+        !plan.codex_home_read_only,
+    )?;
 
     match &plan.launch {
         Launch::Claude { .. } => {
@@ -2208,6 +2215,19 @@ fn broker_correlation(req: &J) -> J {
     out
 }
 
+/// Same stable per-agent home used by Bun's preparePathFilter.
+fn path_filter_scope(plan: &Plan) -> String {
+    let project_id = match plan.launch {
+        Launch::Codex { .. } => plan.handle.project_id.as_deref().unwrap_or_default(),
+        Launch::Claude { .. } => plan
+            .identity
+            .get("projectId")
+            .and_then(J::as_str)
+            .unwrap_or_default(),
+    };
+    codex::home_path(&plan.asp_home, project_id, &plan.agent_name)
+}
+
 /// `composeAgentLocalEnv`'s lockedEnv: the adapter env, the agentchat env,
 /// ASP_HOME, then the tool runtime env.
 fn locked_env(plan: &Plan, adapter_env: EnvPairs, tool_env: EnvPairs) -> EnvPairs {
@@ -2229,6 +2249,16 @@ fn locked_env(plan: &Plan, adapter_env: EnvPairs, tool_env: EnvPairs) -> EnvPair
     set("ASP_HOME".into(), plan.asp_home.clone());
     for (k, v) in tool_env {
         set(k, v);
+    }
+    if !spaces::path_exclude(&plan.closure).is_empty() {
+        let zdotdir = join(&[&path_filter_scope(plan), "zdotdir"]);
+        if matches!(plan.launch, Launch::Claude { .. }) {
+            set(
+                "CLAUDE_ENV_FILE".into(),
+                join(&[&zdotdir, "claude-env.zsh"]),
+            );
+        }
+        set("ZDOTDIR".into(), zdotdir);
     }
     locked
 }
