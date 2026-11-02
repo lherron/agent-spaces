@@ -27,6 +27,7 @@ import { CodedError, formatDisplayCommand } from './client-support.js'
 import { timeCompilePhase } from './compile-phases.js'
 import { composeAgentLocalEnv } from './compose-agent-local-env.js'
 import { catalogProcessImplementationForFrontend } from './harness-selection/catalog-projections.js'
+import { preparePathFilter } from './path-filter.js'
 import type {
   AgentSpacesRuntimeDependencies,
   CompilerPlacementRuntimePlan,
@@ -527,6 +528,23 @@ export async function preparePlacementCliRuntime(
   const dispatchEnv = composed.dispatchEnv
   const env = composed.env
   const pathPrepend = composed.pathPrepend
+  if (materialized.pathExclude?.length) {
+    if (!materialized.scopeRoot) throw new Error('PATH exclusion requires a stable scope home')
+    const zdotdir = await preparePathFilter(
+      runOptions.codexHomeDir ?? materialized.scopeRoot,
+      materialized.pathExclude,
+      req.materializeCodexRuntimeHome !== false
+    )
+    lockedEnv['ZDOTDIR'] = zdotdir
+    env['ZDOTDIR'] = zdotdir
+    if (implementation.harness === 'claude') {
+      // Claude replays a snapshot PATH after .zshenv. This documented file
+      // executes after the snapshot and is separate from the filter because
+      // SessionStart hooks may append exports to it.
+      lockedEnv['CLAUDE_ENV_FILE'] = join(zdotdir, 'claude-env.zsh')
+      env['CLAUDE_ENV_FILE'] = lockedEnv['CLAUDE_ENV_FILE']
+    }
+  }
   warnings.push(...composed.warnings)
 
   // Build display command

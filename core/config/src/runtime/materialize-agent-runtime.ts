@@ -23,6 +23,8 @@ import { generateLockFileForTarget } from '../resolver/lock-generator.js'
 import { PathResolver } from '../store/paths.js'
 
 export interface MaterializedAgentRuntimeResources {
+  pathExclude?: string[] | undefined
+  scopeRoot?: string | undefined
   targetName: string
   outputPath: string
   pluginDirs: string[]
@@ -142,6 +144,9 @@ export async function materializeAgentRuntimeResources(
     return {
       targetName,
       outputPath: materialization.outputPath,
+      ...(materialization.pathExclude
+        ? { pathExclude: materialization.pathExclude, scopeRoot: materialization.scopeRoot }
+        : {}),
       pluginDirs: materialization.pluginDirs,
       effectiveSkillRoots: materialization.effectiveSkillRoots,
       mcpConfigPath: materialization.mcpConfigPath,
@@ -176,6 +181,12 @@ export async function materializeAgentRuntimeResources(
   return {
     targetName,
     outputPath: materialized.materialization.outputPath,
+    ...(materialized.materialization.pathExclude
+      ? {
+          pathExclude: materialized.materialization.pathExclude,
+          scopeRoot: materialized.materialization.scopeRoot,
+        }
+      : {}),
     pluginDirs: materialized.materialization.pluginDirs,
     effectiveSkillRoots: materialized.materialization.effectiveSkillRoots,
     mcpConfigPath: materialized.materialization.mcpConfigPath,

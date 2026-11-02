@@ -130,6 +130,8 @@ export interface SpaceManifest {
   deps?: SpaceDeps
   /** Claude settings to apply when running with this space */
   settings?: SpaceSettings | undefined
+  /** Command basenames excluded from the composed shell PATH. */
+  path?: { exclude?: string[] | undefined } | undefined
   /** Multi-harness support configuration */
   harness?: SpaceHarnessConfig | undefined
   /** Claude-specific configuration */

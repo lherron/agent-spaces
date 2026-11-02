@@ -58,6 +58,9 @@ function formatSpaceText(space: SpaceInfo, lines: string[]): void {
  */
 function formatComposedText(composed: ComposedContent, lines: string[]): void {
   lines.push('  Composed content:')
+  if (composed.pathExclude?.length) {
+    lines.push(`    PATH exclude: ${composed.pathExclude.join(', ')}`)
+  }
 
   // Commands
   if (composed.commands.length > 0) {

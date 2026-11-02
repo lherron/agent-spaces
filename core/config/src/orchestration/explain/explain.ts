@@ -9,6 +9,7 @@
 
 import { join } from 'node:path'
 
+import { ConfigFileNotFoundError } from '../../core/errors.js'
 import {
   LOCK_FILENAME,
   type LockFile,
@@ -19,6 +20,7 @@ import {
   asSpaceId,
   lockFileExists,
   readLockJson,
+  readSpaceToml,
 } from '../../core/index.js'
 
 import { type LintContext, type LintWarning, type SpaceLintData, lint } from '../../lint/index.js'
@@ -101,6 +103,13 @@ async function buildSpaceInfo(
   // Read content from source (registry for @dev, project for project spaces) or store snapshot
   const canReadContent = readsSource || inStore
   if (canReadContent) {
+    try {
+      const spaceManifest = await readSpaceToml(join(contentDir, 'space.toml'))
+      if (spaceManifest.path?.exclude?.length) info.pathExclude = spaceManifest.path.exclude
+    } catch (error) {
+      // Synthetic agent plugins have no space.toml.
+      if (!(error instanceof ConfigFileNotFoundError)) throw error
+    }
     const hooks = await readHooksFromDir(contentDir)
     if (hooks?.length) {
       info.hooks = hooks
@@ -155,6 +164,11 @@ function composeContent(spaces: SpaceInfo[]): ComposedContent {
 
   for (const space of spaces) {
     const spaceId = space.id
+    if (space.pathExclude?.length) {
+      composed.pathExclude = [
+        ...new Set([...(composed.pathExclude ?? []), ...space.pathExclude]),
+      ].sort()
+    }
 
     // Collect hooks
     if (space.hooks) {

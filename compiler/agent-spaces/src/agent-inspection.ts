@@ -779,6 +779,32 @@ function runtimePlanParts(
       },
     },
   ]
+  const env = plan.lockedEnv.lockedEnvKeys.includes('ZDOTDIR')
+    ? plan.execution.dispatchRequest.startRequest.spec.process.lockedEnv
+    : undefined
+  if (env?.['ZDOTDIR']) {
+    const manifestPath = plan.artifacts.materializedBundleRoot
+      ? join(plan.artifacts.materializedBundleRoot, '.asp-materialized.json')
+      : undefined
+    const manifest =
+      manifestPath && existsSync(manifestPath)
+        ? (JSON.parse(readFileSync(manifestPath, 'utf8')) as { pathExclude?: string[] })
+        : undefined
+    parts.push({
+      kind: 'runtime-setting',
+      partId: 'runtime-setting:path-exclude',
+      disposition: { kind: 'effective' },
+      provenance: RUNTIME_PLAN_PROVENANCE,
+      value: {
+        settingId: 'path-exclude',
+        value: {
+          exclude: manifest?.pathExclude ?? [],
+          zdotdir: env['ZDOTDIR'],
+          ...(env['CLAUDE_ENV_FILE'] ? { claudeEnvFile: env['CLAUDE_ENV_FILE'] } : {}),
+        },
+      },
+    })
+  }
   parts.push({
     kind: 'execution-profile',
     partId: `execution-profile:${plan.execution.profile.profileId}`,

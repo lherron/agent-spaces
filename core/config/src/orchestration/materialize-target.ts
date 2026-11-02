@@ -74,6 +74,8 @@ const TARGET_MANIFEST_FILENAME = '.asp-materialized.json'
  * Result of materializing a single target.
  */
 export interface TargetMaterializationResult {
+  pathExclude?: string[] | undefined
+  scopeRoot?: string | undefined
   /** Target name */
   target: string
   /** Path to the target's output directory under ASP_HOME */
@@ -159,6 +161,7 @@ async function hashDirectory(
 }
 
 function computeTargetFingerprint(input: {
+  pathExclude?: string[] | undefined
   harnessId: HarnessId
   targetName: string
   identity?: InstallOptions['materializationIdentity']
@@ -182,6 +185,7 @@ function computeTargetFingerprint(input: {
       loadOrder: input.target?.loadOrder ?? [],
       artifacts: input.artifacts,
       settingsInputs: input.settingsInputs,
+      ...(input.pathExclude?.length ? { pathExclude: input.pathExclude } : {}),
       codexOptions: input.codexOptions,
     })
   )
@@ -309,6 +313,7 @@ export async function materializeTarget(
   const ctx: MaterializeTargetContext = { paths, registryPath, harnessId, adapter, options }
   const artifacts: ResolvedSpaceArtifact[] = []
   const settingsInputs: SpaceSettings[] = []
+  const pathExclude = new Set<string>()
   const hygieneWarnings: HygieneGateFinding[] = []
 
   for (const entry of entries) {
@@ -319,6 +324,7 @@ export async function materializeTarget(
     }
     artifacts.push(result.artifact)
     settingsInputs.push(result.settings)
+    for (const name of result.pathExclude) pathExclude.add(name)
     if (result.hygieneWarnings) {
       hygieneWarnings.push(...result.hygieneWarnings)
     }
@@ -367,6 +373,7 @@ export async function materializeTarget(
   }
 
   const fingerprint = computeTargetFingerprint({
+    ...(pathExclude.size > 0 ? { pathExclude: [...pathExclude].sort() } : {}),
     harnessId,
     targetName,
     identity: options.materializationIdentity,
@@ -411,6 +418,7 @@ export async function materializeTarget(
             identity: options.materializationIdentity,
             generatedAt: resolveNowIso(options.compileContext),
             requiredPaths,
+            ...(pathExclude.size > 0 ? { pathExclude: [...pathExclude].sort() } : {}),
           },
           null,
           2
@@ -472,6 +480,9 @@ export async function materializeTarget(
 
   return {
     target: targetName,
+    ...(pathExclude.size > 0
+      ? { pathExclude: [...pathExclude].sort(), scopeRoot: publicScopeRoot }
+      : {}),
     outputPath: bundle.rootDir,
     pluginDirs: bundle.pluginDirs ?? [],
     effectiveSkillRoots:

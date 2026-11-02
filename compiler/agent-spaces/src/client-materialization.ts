@@ -24,6 +24,8 @@ import type { SpaceSpec } from './types.js'
 export type ValidatedSpec = ResolvedPlacementSpec
 
 export interface MaterializedSpec {
+  pathExclude?: string[] | undefined
+  scopeRoot?: string | undefined
   targetName: string
   materialization: {
     outputPath: string
@@ -98,6 +100,9 @@ export async function materializeSpec(
   })
   return {
     targetName: materialized.targetName,
+    ...(materialized.pathExclude
+      ? { pathExclude: materialized.pathExclude, scopeRoot: materialized.scopeRoot }
+      : {}),
     materialization: {
       outputPath: materialized.outputPath,
       pluginDirs: materialized.pluginDirs,

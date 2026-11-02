@@ -49,6 +49,7 @@ export interface HookInfo {
  * Space information for explanation.
  */
 export interface SpaceInfo {
+  pathExclude?: string[] | undefined
   /** Space key */
   key: SpaceKey
   /** Space ID */
@@ -87,6 +88,7 @@ export interface SpaceInfo {
  * Composed content across all spaces in a target.
  */
 export interface ComposedContent {
+  pathExclude?: string[] | undefined
   /** All hooks from all spaces (in load order) */
   hooks: Array<{ space: string; hook: HookInfo }>
   /** Composed MCP servers (later spaces override) */

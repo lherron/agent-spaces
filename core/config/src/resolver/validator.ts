@@ -82,6 +82,16 @@ export function validateSpaceManifest(manifest: SpaceManifest): ValidationResult
   }
 
   // Validate space refs in deps
+  for (const name of manifest.path?.exclude ?? []) {
+    if (!/^[a-z][a-z0-9._-]*$/.test(name)) {
+      errors.push({
+        code: 'E003',
+        message: `Invalid PATH exclusion: ${name}`,
+        subject: manifest.id,
+      })
+    }
+  }
+
   if (manifest.deps?.spaces) {
     validateSpaceRefs(manifest.deps.spaces, 'E002', manifest.id, errors)
   }

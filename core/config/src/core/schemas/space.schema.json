@@ -114,6 +114,16 @@
       }
     },
 
+    "path": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "exclude": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9._-]*$" }
+        }
+      }
+    },
     "harness": {
       "type": "object",
       "description": "Multi-harness support configuration",

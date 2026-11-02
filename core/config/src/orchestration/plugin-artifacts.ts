@@ -91,6 +91,7 @@ export async function materializeSpaceEntry(
 ): Promise<{
   artifact: ResolvedSpaceArtifact
   settings: SpaceSettings
+  pathExclude: string[]
   hygieneWarnings?: HygieneGateFinding[] | undefined
 } | null> {
   const { paths, registryPath, harnessId, adapter, options } = ctx
@@ -273,6 +274,7 @@ export async function materializeSpaceEntry(
     },
     // Read settings from snapshot's space.toml for composition
     settings: manifest?.settings ?? {},
+    pathExclude: manifest?.path?.exclude ?? [],
     ...(hygieneWarnings !== undefined ? { hygieneWarnings } : {}),
   }
 }
