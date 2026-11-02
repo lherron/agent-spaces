@@ -8,7 +8,8 @@ muse,pi}`. Repo notes: `AGENTS.md` "Smoke Testing the CLI".
 
 ## Sub-features
 
-- `asp run <target|space ref|path> [prompt] --harness agent-harness|claude|codex|muse`, plus `--model`,
+- `asp run <target|space ref|path> [prompt] --harness agent-harness|claude|claude-hrcpty|codex|codex-hrcpty|muse`
+  (`--help` still lists four), plus `--model`,
   `--model-reasoning-effort`, `--permission-mode`, `--yolo`, `--inherit-*`, `--no-refresh`, `--no-interactive`,
   and the rest of `asp run --help` (`--resume`, `--remote-control`, `--name-prefix`, `--settings`, `--extra-args`,
   `--debug`, `--page-prompts`). Claude gets `--effort <e>` from `--model-reasoning-effort`; codex gets
@@ -23,6 +24,14 @@ muse,pi}`. Repo notes: `AGENTS.md` "Smoke Testing the CLI".
   driven launch with `--harness`, `--model`, `--project-root`, `--prompt-file`, `--continue-*`.
   `resolve` prints the placement and resolved bundle (instructions, spaces) without argv; `query` without a prompt
   refuses `Prompt required`, exit 1.
+- The hrcpty ids launch directly with the base harness's argv (hrcpty hosting exists only in HRC/aspd broker plans):
+  `claude-hrcpty` prints the `claude` argv with a `.../claude-hrcpty/` bundle and keeps the profile model (`asp run
+  clod --harness claude-hrcpty` has `--model opus[1m]`). Two divergences from the base harness (product gap
+  T-12329): a profile or target whose harness is hrcpty loses every `supports`-gated space (`asp run clod`, profile
+  `claude-hrcpty`, gets 5 plugins without `defaults`; `--harness claude` gets 6. `asp run smokey`, target
+  `codex-hrcpty`, lacks `smoke-testing`), and `codex-hrcpty` sets `CODEX_HOME` to the immutable bundle template
+  `<bundle>/codex-hrcpty/codex.home` instead of the per-project runtime home `codex-homes/<project>_<target>`
+  (2026-11-02, `T-12323/03-run-launch/drive.txt`).
 - `asp gui <agent>`: `/usr/bin/open -n -a Codex` with `CODEX_HOME` and a per-agent Electron profile, for any agent
   (a claude-profiled `clod` opens Codex too).
 
@@ -31,7 +40,7 @@ muse,pi}`. Repo notes: `AGENTS.md` "Smoke Testing the CLI".
 A scratch (`avs scratch up`, `asp install`) for plain targets; the canonical project (`cd ~/praesidium/agent-spaces`)
 with a scratch `ASP_HOME` for agent targets, so bundles land in the scratch. A dry-run there still rewrites the
 canonical `~/praesidium/agent-spaces/asp-lock.json` (gitignored) whenever the scratch bundle is missing
-(`run.ts:284,293-298`): on 2026-10-26 every `asp run larry --dry-run` into a fresh scratch ASP_HOME rewrote it with
+(`drivers/execution/src/run.ts:284,293-298`; 2026-11-02 shasum changed again): on 2026-10-26 every `asp run larry --dry-run` into a fresh scratch ASP_HOME rewrote it with
 only `generatedAt` changed (`T-11875/03-run-launch/drive.txt`). Harmless for content, but it is a write outside the
 scratch; say so in the evidence. Never run without `--dry-run` or
 `--print-command` in a drive: that launches a real harness.
@@ -40,7 +49,7 @@ scratch; say so in the evidence. Never run without `--dry-run` or
 
 ```bash
 cd $AVS_PROJECT
-for h in claude codex muse; do asp run local-only --harness $h --dry-run; done
+for h in claude claude-hrcpty codex codex-hrcpty muse; do asp run local-only --harness $h --dry-run; done   # codex-hrcpty: CODEX_HOME=<bundle template>
 asp run local-only --dry-run                       # agent-harness refuses a profileless target, exit 1
 cd ~/praesidium/agent-spaces
 asp run larry --dry-run                            # system prompt block, then the codex argv
@@ -49,6 +58,7 @@ asp run larry --harness agent-harness --yolo --dry-run   # refuses compiler-only
 asp agent larry@agent-spaces:avs-probe query 'hello' --print-command --project-root ~/praesidium/agent-spaces
 asp agent larry@agent-spaces:avs-probe query 'hello' --harness claude --print-command …   # refuses: model gpt-5.6-terra
 asp agent smokey@agent-spaces:avs-probe query 'hello' --harness claude --model sonnet --print-command …
+asp run clod --print-command | tr ' ' '\n' | grep -A1 -- '^--plugin-dir$'   # 5 plugins, no defaults (T-12329); --harness claude: 6
 asp gui larry --print-command
 ```
 
@@ -67,7 +77,7 @@ asp gui larry --print-command
   direct execution does not support compiler-only option: --yolo`, exit 1 (`run.ts:268-289`; `--yolo` and
   `--permission-mode` driven). They work with `--harness claude|codex|muse` (2026-10-19,
   `T-11375/03-run-launch/drive.txt`).
-- A profile's `reasoning_effort` reaches a codex direct launch but not a Claude one: `asp run larry --harness claude
+- A profile's `reasoning_effort` reaches a codex direct launch but not a Claude one (still so on 2026-11-02): `asp run larry --harness claude
   --model sonnet --print-command` has no `--effort` though larry says `high`; only the flag adds it (product gap
   T-11379; HRC compiles pass it). Assert the flag, not the profile (2026-10-19, `T-11375/03-run-launch/drive.txt`).
 - An agent-harness dry-run prints `Dry run - direct agent-harness launch:` and an `agent-harness tui …` line, not
@@ -82,6 +92,6 @@ Each harness's dry-run prints `── command ──` with the bundle path under
 argv; the agent-harness refusal and the model refusal print their reasons with exit 1; `asp agent … --print-command`
 puts the prompt after the profile priming; `asp gui --print-command` names the scratch `CODEX_HOME`.
 
-Driven 2026-10-26 on scratch `t-11875` against checkout b32c6e05 (T-11875):
-`var/wrkq-artifacts/T-11875/03-run-launch/drive.txt`. Not driven: a real (non-dry-run) launch, which needs a model
+Driven 2026-11-02 on scratch `t-12323` against checkout c9f35e8f plus T-12326's uncommitted work, re-confirmed at
+356f3344 (T-12323): `var/wrkq-artifacts/T-12323/03-run-launch/drive.txt`, `live/final-head-redrive.txt`. Not driven: a real (non-dry-run) launch, which needs a model
 login and belongs to HRC's own verification.

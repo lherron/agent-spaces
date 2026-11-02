@@ -69,7 +69,8 @@ prerequisite that stopped you. Stop any scratch aspd (`just aspd-stop <root>/asp
 
 Make at most one commit of the proven map and harness fixes, with each fix re-driven. Stage only paths under
 `spaces/verify-agent-spaces/` through a private index (`GIT_INDEX_FILE=<tmp> git read-tree HEAD; git add <paths>;
-git commit`), check `git log origin/main..HEAD` holds only your commit, and push it. Keep the commands and their
+git commit`), check `git log @{u}..HEAD` holds only your commit, and push it to the checkout's current branch (its
+upstream; a campaign can move the canonical checkout off `main`, as `prae-rev1` did on 2026-11-02). Keep the commands and their
 output in `ship.txt`. On the pass task, comment the outcome and coverage:
 
 - `clean`: nothing changed;

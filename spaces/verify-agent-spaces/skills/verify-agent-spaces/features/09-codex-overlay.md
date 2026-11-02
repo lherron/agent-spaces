@@ -42,23 +42,27 @@ bun scripts/sync-agent-to-codex-default.ts --to $X --bogus                      
 - A replan of an unchanged home reports `agents: unchanged` but every skill as `update`: skills have no
   `unchanged` action, so the plan can't show skill drift. Compare files instead (2026-10-05,
   `T-10300/09-codex-overlay/drive.txt`). The hooks plan does: `hooksAction`, `configAction`, `scriptAction` and
-  `discoveryScriptAction` all read `unchanged` on a replan (2026-10-19, `T-11375/09-codex-overlay/drive.txt`).
+    `discoveryScriptAction` all read `unchanged` on a replan (2026-10-19, `T-11375/09-codex-overlay/drive.txt`). On
+  2026-11-02 the first replan right after the apply read `agents: update`, and the three after it read `unchanged`
+  with no `var/agents` change in between. Cause not found, so rerun a replan before reading `update` as drift
+  (`T-12323/09-codex-overlay/drive.txt`).
 - **Space hooks don't reach the overlaid home** (product gap T-11380): stella composes `praesidium-defaults`, whose
   codex `pkill-guard` pre_tool_use hook is in the materialized home (`space-hooks/praesidium-defaults/`, 1 entry in
-  its `hooks.json`), but the overlay writes `hooks.json` from its own two scripts only: 0 entries, no `space-hooks/`
-  (2026-10-19, `T-11375/09-codex-overlay/drive.txt`).
+    its `hooks.json`), but the overlay writes `hooks.json` from its own two scripts only: 0 entries, no `space-hooks/`
+  (2026-10-19, `T-11375/09-codex-overlay/drive.txt`; again 2026-11-02).
 - `--asp-home` and `--agents-root` default to env `ASP_HOME`/`ASP_AGENTS_ROOT`, which a seat exports: drop
   `--asp-home` and the plan materializes into the seat's real ASP_HOME (source, `sync-agent-to-codex-default.ts:118-119`;
   both variables are set in a clod seat). The script writes usage `paths` rows like `asp` does; export the
   scratch `ASP_USAGE_METRICS_VAR_ROOT` (`avs env`) first.
 - The plan materializes the agent under `--asp-home` even without `--apply` (`codex-homes/praesidium_codex-default-
   <agent>/…`); a dry run is not write-free for ASP_HOME, only for the Codex home.
-- The skill count (26 for stella on 2026-10-05, 25 on 2026-10-19, 26 on 2026-10-26) follows stella's content in `var/agents`, not
+- The skill count (26 for stella on 2026-10-05, 25 on 2026-10-19, 26 on 2026-10-26 and 2026-11-02) follows stella's content in `var/agents`, not
   the code; check "one directory per planned skill", not the number.
 - The two hook scripts and the agent's manifest live in `$X/.asp-agent-sync/`. The discovery hook reads
   `~/praesidium/var/aspd/service/active.json` when it runs and spawns that release's `harness-broker`, so an aspd
-  activation changes the broker a desktop conversation joins without re-running the overlay (source,
-  `scripts/codex-default-overlay/constants.ts`; not driven).
+    activation changes the broker a desktop conversation joins without re-running the overlay (source,
+  `scripts/codex-default-overlay/constants.ts`; not driven). On 2026-11-02 that is
+  `asp-c9f35e8f9127-…/harness-broker`, the launcher over `libexec/harness-broker`, not a `bin/` copy (feature 6).
 - Source edits go under `~/praesidium/var/agents/`; the overlay only renders. Don't edit the Codex home's files.
 
 ## Proven when
@@ -67,5 +71,5 @@ The plan run leaves the Codex home empty; the apply run creates `AGENTS.md`, `co
 three `hooks.state` entries, `hooks.json`, and one directory per planned skill; the replan reports `agents:
 unchanged` and every hooks action `unchanged`; `plan.priming.text` names stella.
 
-Driven 2026-10-26 on scratch `t-11875` against checkout b32c6e05 (T-11875):
-`var/wrkq-artifacts/T-11875/09-codex-overlay/drive.txt`.
+Driven 2026-11-02 on scratch `t-12323` against checkout 356f3344 (T-12323):
+`var/wrkq-artifacts/T-12323/09-codex-overlay/drive.txt` (`~/.codex` mtimes unchanged across it).

@@ -12,9 +12,13 @@ hrc-runtime follows. `just install` on the canonical checkout does both and acti
 ## Sub-features
 
 - `just build-asp-release [output_root]`: refuses a dirty checkout; prints the release's inspection
-  (`releaseId` `asp-<sha12>-<UTC stamp>-<rand>`, `sourceCommit`, `executableResolution`, `workerBindings`,
-  `assetResolution`, `runtimeClosure: bun-compiled`, `mutableCheckoutReferences: false`). After the four Bun
-  compiles it always builds `raspd` with `cargo build --release --locked` (`scripts/asp-release.ts:277-324`), recorded
+  (`releaseId` `asp-<sha12>-<UTC stamp>-<rand>`, `sourceCommit`, `capabilities`, `executableResolution`,
+  `workerBindings` (7 on 2026-11-02, including `claude-code-hrcpty`), `assetResolution`, `runtimeClosure:
+  bun-compiled`, `mutableCheckoutReferences: false`). Releases built at or after c9f35e8f carry the capability
+  `aspd.fixed-executable-release-root/v1` beside `harness-broker.offline-evidence/v1`; without it aspd activates the
+  release in legacy in-place mode (feature 6). Each top-level executable is a launcher script over `libexec/<name>`.
+  No hrc-pty or hrcpty executable ships in a release. After the four Bun
+  compiles it always builds `raspd` with `cargo build --release --locked` (`scripts/asp-release.ts:279-316`), recorded
   in `release.json` as `runtimeClosure: cargo-native`; the top-level `runtimeClosure` still reads `bun-compiled`.
   Without cargo it refuses `cargo is not on PATH; building raspd needs it…`, exit 1, after the Bun compiles. The root defaults to
   `$ASP_RELEASE_BUILD_ROOT` or `~/.local/state/praesidium/asp-release-builds`; a relative root refuses `output root
@@ -40,7 +44,9 @@ hrc-runtime follows. `just install` on the canonical checkout does both and acti
   `pull-deps` and build through `scripts/sync-hrc-downstream.sh` (fast-forwards a clean HRC checkout, accepts only a
   lock-only `chore: sync bun.lock (` commit, **pushes it to HRC `origin/main`** and notifies `mable@hrc-runtime:primary`
   via `wrkc`), then build, install, `aspd-service.ts log-dir` (`var/logs/agent-spaces`) and `aspd-activate` a system
-  aspd release (which needs cargo) and verify its source commit. Operator-scale; not part of a verification drive unless the task says so.
+  aspd release (which needs cargo): on the fronted system namespace that re-copies and re-signs `var/aspd/bin/*` and
+  restarts both launchd jobs. Its post-check (justfile:479) reads only `runningEqualsSelected` and
+  `serving.release.sourceCommit == HEAD`, not `bin/raspd`'s compiled-in commit or the signature (feature 6). Operator-scale; not part of a verification drive unless the task says so.
 
 ## How to get to it
 
@@ -62,7 +68,7 @@ just install-asp-release ~/praesidium/var/aspd/releases/<releaseId> <scratch>/as
 cd <scratch>/clone && git status --porcelain --untracked-files=all | wc -l      # 0
 just build-asp-release <scratch>/release-build                                # ok, sourceCommit = clone HEAD
 just publish-dev-dry-run; git status --porcelain | wc -l                      # SKIPPED 22 or 22 DRY_RUN lines; 0
-just publish-canonical-dry-run | grep -c '^DRY_RUN'                            # 22
+just publish-canonical-dry-run | grep -c '^DRY_RUN'                            # 22 on the clone's origin/main (the checkout's local main); off it: "not contained by … origin/main", exit 1
 touch zz && bun scripts/publish-local-verdaccio.ts --channel canonical --dry-run; rm zz   # clean source tree refusal, exit 1
 bun scripts/publish-local-verdaccio.ts --dry-run --version 0.0.0-avs.1 --tag avs | grep -c '^DRY_RUN'   # 23
 bun run check:packs | grep -c '^PASS'                                          # 15
@@ -81,18 +87,24 @@ bun run check:packs | grep -c '^PASS'                                          #
 - In the scratch clone `just` prints `wrkp just: … is not a registered project root; skipping`: no fact is posted
   there.
 - `inspect-asp-release` reports `aspc-facade` and `raspd` with `embeddedIdentity: false`; `aspd`, `harness-broker`
-  and `agent-harness` carry an embedded identity (2026-10-26, `T-11875/07-releases/drive.txt`).
+  and `agent-harness` carry an embedded identity (2026-11-02, `T-12323/07-releases/drive.txt`).
+- **In a scratch clone, `origin/main` is the checkout's local `main` branch**, not GitHub's. When the canonical
+  checkout sits on another branch (`prae-rev1` for P-00919 on 2026-11-02) its local `main` lags, so a clone at its HEAD
+  refuses `Canonical publication source <sha> is not contained by freshly fetched origin/main`, exit 1, even though
+  GitHub `main` held that commit minutes later and `just install` activated it (10:04Z). Read that refusal as a clone
+  artifact; `git checkout --detach origin/main` in the clone lists the 22 (`T-12323/07-releases/drive.txt`).
 
 ## Proven when
 
 The dirty-tree and relative-root refusals exit 1 with their messages; inspect and install print `ok: true` with
 matching `releaseId` and `sourceCommit` and every executable resolved inside the release, and a second install is a
-no-op; the clone build prints a release whose `sourceCommit` is the clone's HEAD; the dev dry-run skips or lists
-every package, the canonical one lists 22 and refuses a dirty tree, semver lists 23, `check:packs` passes 15, and
-the clone stays clean.
+no-op; the clone build prints a release whose `sourceCommit` is the clone's HEAD and whose `capabilities` include the
+fixed-exec capability; the dev dry-run skips or lists every package, the canonical one lists 22 from the clone's `origin/main`
+and refuses a dirty tree and a HEAD off it, semver lists 23, `check:packs` passes 15, and the clone stays
+clean.
 
-Driven 2026-10-26 against checkout b32c6e05, scratch clone of 7d96d3f1 (release asp-7d96d3f100ad-20261026T094402Z-553d59
-with raspd), system release asp-a34f6e14bf5a-20261026T083841Z-6c5d79 (T-11875):
-`var/wrkq-artifacts/T-11875/07-releases/drive.txt`. Not driven:
-`just install` (operator-scale; publishes, syncs hrc-runtime and activates the system aspd),
-`publish-worktree-dry-run`, the canonical refusal of a HEAD not on `origin/main`, and any non-dry-run publish.
+Driven 2026-11-02 on a scratch clone of aa3bb12d (`prae-rev1`; release asp-aa3bb12d8c47-20261102T095839Z-657d2b, clone
+build 26 s, release build 38 s), system releases asp-c9f35e8f9127-… (fixed-exec) and asp-057de3dc1abd-… (legacy) (T-12323):
+`var/wrkq-artifacts/T-12323/07-releases/drive.txt`. Not driven: `just install` (operator-scale; publishes, syncs
+hrc-runtime and activates the system aspd), the missing-cargo refusal (no code change since its 2026-10-26 drive;
+costs a full Bun compile), `publish-worktree-dry-run`, and any non-dry-run publish.

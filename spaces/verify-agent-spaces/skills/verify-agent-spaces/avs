@@ -152,9 +152,12 @@ EOF
 
 broker_hello() {
   python3 - <<'EOF'
-import json, subprocess
+import json, os, subprocess
+# A seat's observer socket (HRC sets it for codex/muse viewer seats) would make this probe broker
+# try to listen on that live path and exit "already in use" before answering (T-12323).
+env = {k: v for k, v in os.environ.items() if not k.startswith("HARNESS_BROKER_OBSERVER_")}
 p = subprocess.Popen(["harness-broker", "run", "--transport", "stdio"], stdin=subprocess.PIPE,
-                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
 req = {"jsonrpc": "2.0", "id": 1, "method": "broker.hello",
        "params": {"clientInfo": {"name": "avs", "version": "1"}, "protocolVersions": ["harness-broker/0.3", "harness-broker/0.2"]}}
 p.stdin.write(json.dumps(req) + "\n"); p.stdin.flush()

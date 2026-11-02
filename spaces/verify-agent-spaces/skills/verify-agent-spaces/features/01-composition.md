@@ -15,7 +15,11 @@ list,path,diff}.ts`, `apps/cli/src/commands/{repo,spaces}/`, resolution in `core
 - `asp explain [target] [--json]`: `Spaces root:` (the resolved shared root, not the lock's registry remote), lock version, per-target compose, env hash, load order (key,
   commit, selector, components, hooks) and the composed commands, skills and hooks. Needs a lock with that target.
 - `asp describe [target] --harness <h>`: hooks, skills, tools and lint warnings as the harness would materialize
-  them.
+  them. `<h>` is any of the six harness ids (`agent-harness`, `claude`, `claude-hrcpty`, `codex`, `codex-hrcpty`,
+  `muse`). For an hrcpty id it still lists `supports`-gated spaces that `install` drops (T-12329, feature 2).
+- Since aa3bb12d (T-12326) `explain` and `lint` read each locked space's `space.toml` for an optional `[path] exclude`
+  list (composed as a sorted union; the PATH filter itself is compile-side). A synthetic agent plugin with no
+  `space.toml` counts as no exclusion (source; no space declares one yet, so not driven).
 - `asp list`: targets (locked or unlocked, env hash), paths (project, ASP_HOME, store, cache) and every agent root
   found (`canonical` for `~/praesidium/var/agents/<id>`).
 - `asp path <spaceId>`: the filesystem path of a shared space.
@@ -59,7 +63,12 @@ cd ~/praesidium/agent-spaces && asp lint --json
 - `explain` marks project (`@project`) and `@dev` spaces `[NOT IN STORE]`: they are read from source, never
   snapshotted. Not an error (2026-10-05, `T-10300/01-composition/drive.txt`).
 - `explain` exits 1 `Target not found in lock` when the target is in `asp-targets.toml` but not the lock (a
-  hand-edited targets file); rerun `asp install`.
+  hand-edited targets file, or a canonical lock rewritten by a single-target `asp run` dry-run); rerun `asp install`.
+  On 2026-11-02 the canonical lock lacked animata, animan, locallarry and foundry
+  (`T-12323/01-composition/canonical-explain-per-target.txt`).
+- Canonical `asp lint --json` warnings follow `var/agents` content: 3 `W204` errors on 2026-11-02 (the
+  `console-defaults` space has a `hooks/` dir with no hooks config), `[]` on 2026-10-26. During T-12326's pre-landing
+  work it failed `{"error":{"message":"File not found"}}` exit 1; fixed before aa3bb12d (`T-12323/01-composition/drive.txt`).
 - `asp path` resolves only shared spaces; a project space refuses `Space "<id>" not found`.
 - `asp repo init`, `asp repo new-space` and `asp spaces init` WRITE into the resolved shared root, which is the
   live `~/praesidium/var/agents` even on a scratch ASP_HOME. Drive them only with `--registry <tmpdir>`.
@@ -76,8 +85,8 @@ cd ~/praesidium/agent-spaces && asp lint --json
 On a fresh scratch: `lint` reports W101 before install and nothing after; `explain demo` shows both spaces in load
 order with the defaults hooks and lists `avs-probe (from avs-demo)` under composed skills; `describe local-only
 --harness claude` names `avs-probe`; `list` shows both targets locked; `diff --json` is empty; the registry verbs
-refuse with exit 2; `asp lint --json` on the canonical project prints its warnings array (empty, `[]`, on
-2026-10-26).
+refuse with exit 2; `asp lint --json` on the canonical project exits 0 with its warnings array (3 W204 on
+2026-11-02).
 
-Driven 2026-10-26 on scratch `t-11875` against checkout b32c6e05 (T-11875):
-`var/wrkq-artifacts/T-11875/01-composition/drive.txt`.
+Driven 2026-11-02 on scratch `t-12323` against checkout c9f35e8f plus T-12326's uncommitted work, re-confirmed at
+356f3344 (T-12323): `var/wrkq-artifacts/T-12323/01-composition/drive.txt`, `live/final-head-redrive.txt`.

@@ -49,7 +49,7 @@ asp resources plan clod --project infra                 # 1 resource (disk-sampl
 asp resources plan clod --project agent-spaces          # refuses: that schedule targets infra, exit 1
 asp resources plan clod                                 # required option '--project <project>', exit 2
 asp resources plan foundry --project foundry --include schedules/foundry-daily-report.toml   # timezone America/Chicago
-asp agents catalog --context $CTX --json        # 50 agents, 0 errors on 2026-10-26
+asp agents catalog --context $CTX --json        # 52 agents, 0 errors on 2026-11-02
 asp agents inspect --request $REQ --context $CTX --json
 ```
 
@@ -62,10 +62,16 @@ asp agents inspect --request $REQ --context $CTX --json
   resolve-reminder` or `asp self prompt reminder --recompute` (2026-10-19, `T-11375/04-agent-introspection/drive.txt`).
 - `resources plan` counts follow `var/agents` content, not the code: clod gained an `infra` schedule on 2026-10-13
   (T-10808), so `--project agent-spaces` now refuses. Plan each agent with the project its resources target.
-- `asp agents inspect` resolves templates that probe services. With `serviceProbeInputs.responses: []` the prompt
-  part is `failed`: `Missing recorded service probe response for "HRC" at "unix://…/hrc.sock", occurrence 1`, while
-  `ok` stays `true` and the other six parts are `effective`. Record probe
-  responses in the context for an `effective` prompt.
+- `asp agents inspect` replays the context file strictly. With `serviceProbeInputs.responses: []` it returns 7 parts:
+  the prompt part `failed` (`Missing recorded service probe response for "HRC" at "unix://…/hrc.sock", occurrence 1`),
+  the other six `effective`, `ok: true`. Pin `{name, endpoint, up}` responses for HRC (`unix://…/var/run/hrc/hrc.sock`),
+  ACP (`http://127.0.0.1:18470`) and taskboard (`http://127.0.0.1:18450`) and the prompt expands to 24 parts.
+- **CLI inspection runs exec sections for real.** The reminder's `just info`, `wrkq info` and `wrkc info` execute in
+  `execInputs.cwd` with `execInputs.environment` as their whole env: with `{}` all three fail exit 127 (no PATH);
+  with HOME and PATH they run and the result is 16 `effective`, 8 `skipped`. `project-tooling` (`just info`) now
+  resolves for agent-spaces since exec sections run in the project root (4d0b5d4c, 15315fb0) (2026-11-02,
+  `T-12323/04-agent-introspection/`). The aspd/ACP `inspectAgentSelection` path instead probes the three services
+  live, connect-only (f675918e; source, feature 6).
 - `asp resolve-reminder` prints one JSON object per section, back to back, not one JSON document: `json.load` fails
   `Extra data`. Count `"content"` lines or parse object by object (2026-10-05,
   `T-10364/04-agent-introspection/drive.txt`).
@@ -79,6 +85,7 @@ prints the wrkq and wrkc guides; `agents catalog` returns every agent root with 
 returns `ok: true` with parts and dispositions; `resources plan` prints a v1 plan for the project its resources
 target, projects `[trigger].timezone`, and refuses a mismatched project, a bad zone and a top-level `timezone`.
 
-Driven 2026-10-26 from seat `clod@agent-spaces:T-11875` against checkout b32c6e05 (T-11875):
-`var/wrkq-artifacts/T-11875/04-agent-introspection/` (`drive.txt`, the two input files, and the `tz-*.toml` probe
-schedules, run from a scratch agent root under the scratch).
+Driven 2026-11-02 from seat `clod@agent-spaces:T-12323` against checkout c9f35e8f plus T-12326's uncommitted work
+(T-12323): `var/wrkq-artifacts/T-12323/04-agent-introspection/` (`drive.txt`, `context.json`, `context-pinned.json`,
+`context-pinned-env.json`, `request.json` and the three `inspect-*.json`). The timezone refusals were last driven
+2026-10-26 (`T-11875/04-agent-introspection/`); no `resources/` code change since.

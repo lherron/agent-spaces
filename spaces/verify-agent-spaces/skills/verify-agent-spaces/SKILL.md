@@ -28,7 +28,10 @@ What "installed" means here differs per surface, and that decides what a drive p
   its bin prefers `src/` (a stack trace from it names `agent-spaces/harness/harness-broker/src/…`). `aspc` is
   linked the same way.
 - **`aspd` runs an immutable release.** The system namespace `~/praesidium/var/aspd` serves one release under
-  `releases/<releaseId>` built from a commit (`serving.release.sourceCommit`). It moves only when someone runs
+  `releases/<releaseId>` built from a commit (`serving.release.sourceCommit`), fronted by raspd on the public socket.
+  launchd execs re-signed copies of that release's daemons at `<ns>/bin/{aspd,raspd}` with `--release-root`, so tell
+  deployed (`selectedRelease`), served (`serving.release`) and raspd's compiled-in code identity
+  (`frontDoor.publicFrontDoor.sourceCommit`) apart ([aspd](features/06-aspd.md) Gotchas). It moves only when someone runs
   `just install` in the canonical checkout (any seat may; Lance ruling 2026-10-01). Standalone `aspd-activate`
   and `aspd-restart` on the system namespace stay with Mable primary.
 
@@ -64,7 +67,9 @@ and runs per project and `ASP_HOME`.
 ~/praesidium/agent-spaces/spaces/verify-agent-spaces/skills/verify-agent-spaces/avs doctor
 ```
 
-An aspd source commit behind checkout HEAD is normal: the release moves only on `just install`.
+An aspd source commit behind checkout HEAD is normal: the release moves only on `just install`. The canonical
+checkout's branch is not always `main` (`prae-rev1` for campaign P-00919 on 2026-11-02); `git branch --show-current`
+before you reason about `origin/main`.
 
 ## Drive
 
@@ -135,7 +140,7 @@ prints `{error, message, next}` and exits 1.
 | `env` | `avs env N [--sh]` | The scratch's paths as JSON, or `export ASP_HOME=… AVS_PROJECT=… ASP_USAGE_METRICS_VAR_ROOT=…` lines |
 | `rec` | `avs rec FILE -- 'CMD'` | Runs CMD under bash, appends `## <UTC>`, `$ CMD`, output and `[exit N]` to FILE, and echoes them |
 | `aspc` | `avs aspc SOCKET METHOD ['<json>']` | One NDJSON JSON-RPC call to an aspd socket; `aspc.hello` params are filled in |
-| `broker-hello` | `avs broker-hello` | Spawns `harness-broker run --transport stdio`, sends `broker.hello`, prints the reply |
+| `broker-hello` | `avs broker-hello` | Spawns `harness-broker run --transport stdio` without `HARNESS_BROKER_OBSERVER_*`, sends `broker.hello`, prints the reply |
 
 Product verbs the features drive: `asp` (`run`, `init`, `install`, `build`, `describe`, `explain`, `lint`,
 `list`, `path`, `doctor`, `gc`, `gui`, `add`, `remove`, `upgrade`, `diff`, `harnesses`, `resolve-reminder`,

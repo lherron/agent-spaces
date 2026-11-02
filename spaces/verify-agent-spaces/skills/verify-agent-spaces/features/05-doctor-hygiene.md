@@ -9,10 +9,11 @@ the agent-hygiene lint over skills and agent roots (`asp lint --hygiene`), and t
 
 - `asp doctor [--json]`: claude binary and version, ASP_HOME, cache and snapshot writability, the shared spaces
   root (a plain directory; no git-remote probe since T-10370), the project, agent roots, the profile-model audit.
-- `asp harnesses [--json]`: each harness (`agent-harness` default, `claude`, `codex` experimental, `muse`) with
-  path, version, capabilities and models per provider. JSON shape `{defaultHarness, harnesses: [{id, name,
+- `asp harnesses [--json]`: each harness (`agent-harness` default, `claude`, `claude-hrcpty`, `codex` experimental,
+  `codex-hrcpty`, `muse`; the hrcpty ids reuse the base detection) with path, version, capabilities and models per
+  provider. JSON shape `{defaultHarness, harnesses: [{id, name,
   detection: {available, version, path, capabilities}, modelProviders[], experimental}]}` (`codex` alone is
-  `experimental: true`).
+  `experimental: true`; `codex-hrcpty` is not).
 - `asp lint --hygiene [path] [--strict] [--baseline f] [--update-baseline] [--judge f]`: advisory `W4xx` findings
   with file:line; `--strict` exits nonzero on error severity.
 - `asp token-rent [--agent a] [--json] [--now iso] [--usage-since iso] [--since ref]`: resident system-prompt tokens
@@ -34,13 +35,13 @@ token-rent reads the HRC DB read-only. Pass `--now` to token-rent so two runs co
 
 ```bash
 cd $AVS_PROJECT && asp doctor                                   # All checks passed!
-asp harnesses                                                    # 4/4 available
+asp harnesses                                                    # 6/6 available
 asp lint --hygiene ~/praesidium/var/agents/clod | tail           # W415/W422 info findings
 asp lint --hygiene $AVS_PROJECT/spaces/avs-demo/skills/avs-probe # Scanned 1 unit, no findings
 asp lint --hygiene $AVS_PROJECT/spaces/avs-demo --strict; echo $? # Scanned 0 units, exit 0
-asp token-rent --agent clod --now 2026-10-26T09:30:00Z
-asp token-rent --json --now 2026-10-26T09:30:00Z > $OUT          # 36 agents, 26 priced on 2026-10-26
-python3 ~/praesidium/var/wrkq-artifacts/T-11875/05-doctor-hygiene/rent-check.py $OUT <agent>   # reported == computed
+asp token-rent --agent clod --now 2026-11-02T09:30:00Z
+asp token-rent --json --now 2026-11-02T09:30:00Z > $OUT          # 32 agents, 30 priced on 2026-11-02
+python3 ~/praesidium/var/wrkq-artifacts/T-12323/05-doctor-hygiene/rent-check.py $OUT <agent>   # reported == computed
 sqlite3 -readonly ~/praesidium/var/state/hrc/state.sqlite \
   "select broker_driver, count(*), sum(json_extract(spec_projection_json, '$.launch.systemPromptFile') is not null)
      from broker_invocations group by 1;"
@@ -50,13 +51,17 @@ sqlite3 -readonly ~/praesidium/var/state/hrc/state.sqlite \
 
 - `asp lint --hygiene <space dir>` scans 0 units and passes, even with `--strict`. Point it at a skill directory,
   an agent root or `var/agents`, never at a space root.
+- The `claude-code-hrcpty` broker driver's invocations carry `launch.systemPromptFile` (296/296 on 2026-11-02) and
+  report harness `claude-code`, so hrcpty Claude seats price like tmux ones.
 - A seat's own newest invocation is the one priced while its prompt file exists, so `token-rent --agent <you>`
   shows this seat's task context (`Task ID: T-…`) as a layer.
 - `asp doctor`'s `Shared spaces root found` row is the agents root (`~/praesidium/var/agents`); its `--json` check
   name stays `registry` for compatibility. It is not the retired spaces registry.
 - `asp doctor` checks the claude binary only; codex, muse and pi detection is `asp harnesses`.
 - `asp doctor` writes: its asp_home row creates `cache/ projects/ repo/ snapshots/ sources/ tmp/` under env
-  `ASP_HOME` (or `~/.asp`), ignoring `--asp-home`, while the row prints the `--asp-home` path (product gap T-11378).
+  `ASP_HOME` (or `~/.asp`), ignoring `--asp-home`, while the row prints the `--asp-home` path (product gap T-11378; again 2026-11-02). An exported but empty `ASP_HOME=` resolves to the cwd: `asp doctor` then
+  creates `cache/ projects/ repo/ snapshots/ sources/ tmp/` and `.asp.lock` in the current directory
+  (`T-12323/05-doctor-hygiene/drive.txt`).
   Export `ASP_HOME=<scratch asp-home>`; never rely on the flag alone (2026-10-19, throwaway-HOME probe in
   `T-11375/05-doctor-hygiene/drive.txt`).
 - `asp lint --hygiene --update-baseline` writes `.hygiene-baseline.json` into the target and `--judge` launches a
@@ -65,12 +70,12 @@ sqlite3 -readonly ~/praesidium/var/state/hrc/state.sqlite \
 
 ## Proven when
 
-`asp doctor` passes on the scratch; `asp harnesses` shows 4/4 with a default per provider; hygiene on a real agent
+`asp doctor` passes on the scratch; `asp harnesses` shows 6/6 with a default per provider; hygiene on a real agent
 root returns findings with file:line and on the probe skill scans 1 unit; token-rent prices every agent whose
 newest invocation carries a prompt (claude, muse, codex drivers in the count above), and `residentTokens` equals the
 sum of `ceil(section chars / 4)` over the priced text for a claude, a muse and a codex agent (the codex one over its
 context block only).
 
-Driven 2026-10-26 on scratch `t-11875` against checkout b32c6e05 (T-11875):
-`var/wrkq-artifacts/T-11875/05-doctor-hygiene/drive.txt` (with `rent-check.py`; clod, mable, muse, larry and stella
+Driven 2026-11-02 on scratch `t-12323` against checkout c9f35e8f plus T-12326's uncommitted work (T-12323):
+`var/wrkq-artifacts/T-12323/05-doctor-hygiene/drive.txt` (with `rent-check.py`; clod, mable, muse, cody and larry
 matched exactly).
