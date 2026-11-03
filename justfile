@@ -3,6 +3,9 @@
 # Each recipe run posts a run.settled fact through the wrkp `just` shim.
 # wrkp: run.settled
 
+# rbuild (arris), or a local stand-in on a node without it; see cargo-check.
+rbuild := `command -v rbuild || echo scripts/rbuild-local.sh`
+
 # Default recipe
 default:
     @just info
@@ -345,10 +348,18 @@ aspd-front-door-disable ns:
 aspd-front-door-status ns:
     bun scripts/aspd-service.ts front-door-status "{{ ns }}"
 
-# Check and test the Rust workspace (crates/: raspd, aspd-domain).
+# Check and test the Rust workspace (crates/: raspd, aspd-domain). All
+# compilation runs on build1 through rbuild (installed by arris `just install`)
+# to keep that load off max3: the build is a Mac-target compile and link check
+# (nothing here reads its output), and the tests are cross-built there for the
+# Mac and pulled back, then run here (raspd uses macOS-only libc, so its tests
+# only run on macOS). rbuild runs each step here when build1 is down and prints
+# where it ran; without rbuild, scripts/rbuild-local.sh runs them here the same
+# way. The private cardo dep resolves on build1 from the ~/.cargo/git/db rbuild
+# mirrors; the env var keeps a local fallback's fetch working.
 cargo-check:
-    CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --locked --manifest-path crates/Cargo.toml
-    CARGO_NET_GIT_FETCH_WITH_CLI=true cargo test --locked --manifest-path crates/Cargo.toml
+    CARGO_NET_GIT_FETCH_WITH_CLI=true {{ rbuild }} --mac cargo build --locked --manifest-path crates/Cargo.toml
+    CARGO_NET_GIT_FETCH_WITH_CLI=true {{ rbuild }} --mac cargo test --locked --manifest-path crates/Cargo.toml
 
 # Build the standalone aspd pilot client (the HRC stand-in) and verify its
 # bundled closure is contracts/framing/transport only.
