@@ -178,6 +178,8 @@ overlay-codex *args:
 
 # Regenerate spaces/agent-spaces-manager and the embedded `asp repo init` copy
 # from the canonical <agents-root>/spaces/agent-spaces-manager (T-10369).
+
+# Regenerate manager-space copies from the canonical source.
 sync-manager-space *args:
     bun scripts/sync-manager-space.ts {{args}}
 
@@ -357,6 +359,8 @@ aspd-front-door-status ns:
 # where it ran; without rbuild, scripts/rbuild-local.sh runs them here the same
 # way. The private cardo dep resolves on build1 from the ~/.cargo/git/db rbuild
 # mirrors; the env var keeps a local fallback's fetch working.
+
+# Build and test the Rust workspace through rbuild.
 cargo-check:
     CARGO_NET_GIT_FETCH_WITH_CLI=true {{ rbuild }} --mac cargo build --locked --manifest-path crates/Cargo.toml
     CARGO_NET_GIT_FETCH_WITH_CLI=true {{ rbuild }} --mac cargo test --locked --manifest-path crates/Cargo.toml
