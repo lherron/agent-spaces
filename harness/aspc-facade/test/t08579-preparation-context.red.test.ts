@@ -32,6 +32,7 @@ import type {
   AspcInspectRuntimePlacementResponse,
   AspcPrepareProcessInvocationResponse,
 } from 'spaces-aspc-protocol'
+import { USAGE_METRICS_VAR_ROOT_ENV } from 'spaces-config/usage-metrics'
 import { createRuntimeCompiler, runtimeDependencies } from '../src/runtime-compiler.js'
 
 type UnknownRecord = Record<string, any>
@@ -48,6 +49,7 @@ let service: AspcService & UnknownRecord
 beforeAll(() => {
   savedEnv = { ...process.env }
   for (const key of Object.keys(process.env)) {
+    if (key === USAGE_METRICS_VAR_ROOT_ENV) continue // keep the preload's scratch metrics root
     if (SCRUBBED_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))) delete process.env[key]
   }
   root = realpathSync.native(mkdtempSync('/tmp/t08579-ctx-'))
