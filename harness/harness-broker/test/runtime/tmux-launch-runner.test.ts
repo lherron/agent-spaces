@@ -37,12 +37,11 @@ describe('buildTmuxLaunchArtifactEnv', () => {
 })
 
 describe('buildTmuxHarnessSpawnEnv', () => {
+  // The ambient (pane) env is injected explicitly so these assertions do not
+  // depend on whether the test runner itself sits inside a tmux pane.
   test('does not reintroduce ambient credentials omitted by the broker artifact', () => {
-    const credentialKey = 'WRKQD_TOKEN'
-    const previous = process.env[credentialKey]
-    process.env[credentialKey] = 'stale-ambient-token'
-    try {
-      const env = buildTmuxHarnessSpawnEnv({
+    const env = buildTmuxHarnessSpawnEnv(
+      {
         argv: ['/usr/bin/true'],
         cwd: '/tmp',
         env: {
@@ -50,29 +49,27 @@ describe('buildTmuxHarnessSpawnEnv', () => {
           PATH: '/usr/bin:/bin',
           WRKQD_TOKEN_FILE: '/run/secrets/wrkqd-token',
         },
-      })
+      },
+      { WRKQD_TOKEN: 'stale-ambient-token', HOME: '/Users/ambient', PATH: '/ambient/bin' }
+    )
 
-      expect(env).toEqual({
-        HOME: '/Users/tester',
-        PATH: '/usr/bin:/bin',
-        WRKQD_TOKEN_FILE: '/run/secrets/wrkqd-token',
-      })
-      expect(env).not.toHaveProperty(credentialKey)
-    } finally {
-      if (previous === undefined) {
-        delete process.env[credentialKey]
-      } else {
-        process.env[credentialKey] = previous
-      }
-    }
+    expect(env).toEqual({
+      HOME: '/Users/tester',
+      PATH: '/usr/bin:/bin',
+      WRKQD_TOKEN_FILE: '/run/secrets/wrkqd-token',
+    })
+    expect(env).not.toHaveProperty('WRKQD_TOKEN')
   })
 
   test('drops non-string artifact values instead of inheriting an ambient replacement', () => {
-    const env = buildTmuxHarnessSpawnEnv({
-      argv: ['/usr/bin/true'],
-      cwd: '/tmp',
-      env: { KEEP: 'yes', INVALID: 42 as unknown as string },
-    })
+    const env = buildTmuxHarnessSpawnEnv(
+      {
+        argv: ['/usr/bin/true'],
+        cwd: '/tmp',
+        env: { KEEP: 'yes', INVALID: 42 as unknown as string },
+      },
+      { INVALID: 'ambient-replacement' }
+    )
 
     expect(env).toEqual({ KEEP: 'yes' })
   })
