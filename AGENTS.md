@@ -1,12 +1,7 @@
 ## Build & Run
 
-This is a Bun monorepo with packages grouped under `contracts/*`, `core/*`,
-`drivers/*`, `compiler/*`, `harness/*`, and `apps/*`.
-
-```bash
-bun install       # Install dependencies
-bun run build     # Build all packages
-```
+This Bun monorepo groups packages under `contracts/*`, `core/*`, `drivers/*`, `compiler/*`, `harness/*`, and `apps/*`.
+Run `bun install` to install dependencies and `bun run build` to build all packages.
 
 ## Install and Publish Contract
 
@@ -90,6 +85,11 @@ Use the [documentation index](docs/README.md) for references and runbooks; run t
 - Harness broker MATRIX smoke (`bun run smoke:matrix`, single row via `--config <name>`) — required for any harness-broker change. **Run it from a real terminal via ghostmux — use the `ghoste2e` skill — NOT inline in your own agent session.** A `ghostmux new` surface is a clean login shell; running inline from a Claude Code session leaks `CLAUDE_CODE_CHILD_SESSION`/`CLAUDE_CODE_SESSION_ID`/`CLAUDECODE` into the child `claude`, which then treats itself as a nested child and skips its own session-transcript persistence. The `real-claude-tmux-midturn` row tails that transcript for the mid-turn `queue-operation`/`enqueue` line, so it then **false-negatives with `midturn_user_prompt_capture: got 0`** even though the steered prompt visibly enqueued — a harness-env artifact, not a code defect. If you must run inline, strip the vars: `env -u CLAUDECODE -u CLAUDE_CODE_SESSION_ID -u CLAUDE_CODE_CHILD_SESSION -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_EXECPATH -u TMUX bun run smoke:matrix --config real-claude-tmux-midturn`.
 - Pack smoke for `@lherron/agent-spaces` (`cd apps/cli; bun scripts/smoke-test-pack.ts`) — required after packaging changes → see [apps/cli/AGENTS.md](apps/cli/AGENTS.md)
 - Pi harness env/runtime flags (`--harness pi`: `PI_CODING_AGENT_DIR`, `--no-skills`, hooks-scripts) → see [drivers/harness-pi/AGENTS.md](drivers/harness-pi/AGENTS.md)
+
+Every ASP owner-surface change must state in its delivery evidence:
+"projected in the praesidium kernel or declared human-only" (strangler rule S3).
+Include the concrete `prae describe <type>` or document readback showing the
+changed field/operation; for human-only coverage, cite the explicit ruling and scope.
 
 ## Broker Injection Doors
 
