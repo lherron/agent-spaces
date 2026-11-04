@@ -146,6 +146,7 @@ describe('aspd launchd supervision rendering', () => {
       ProgramArguments: ['/bin/sh', '/ns/service/launchd-run.sh'],
       RunAtLoad: true,
       KeepAlive: true,
+      ProcessType: 'Interactive',
       ExitTimeOut: 180,
       StandardOutPath: '/ns/logs/a&b.log',
       StandardErrorPath: '/ns/logs/a&b.log',

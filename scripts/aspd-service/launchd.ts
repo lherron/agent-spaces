@@ -161,6 +161,10 @@ export function renderLaunchdPlist(input: {
   <true/>
   <key>KeepAlive</key>
   <true/>
+  <!-- Without it launchd runs the job at utility priority (20), and under load its
+       compile file I/O and exec sections starve behind interactive seats (T-12535). -->
+  <key>ProcessType</key>
+  <string>Interactive</string>
   <key>ExitTimeOut</key>
   <integer>${Math.ceil(RETIRE_TIMEOUT_MS / 1000)}</integer>
   <key>StandardOutPath</key>
