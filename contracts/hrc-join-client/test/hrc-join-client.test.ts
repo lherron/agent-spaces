@@ -322,3 +322,108 @@ describe('caller attribution (T-11541)', () => {
     expect(receivedClients).toEqual([`hrc-join-client/${HRC_JOIN_CLIENT_VERSION}`])
   })
 })
+
+/**
+ * service-api rev 4 §3 (T-12500): every join request names its first-party
+ * caller in `X-Praesidium-Caller`: an explicit `caller` option, else
+ * PRAESIDIUM_CALLER, else ASP_HANDLE, else tty/unknown.
+ */
+describe('X-Praesidium-Caller', () => {
+  const REGISTER = {
+    registrationMode: 'direct' as const,
+    requestedSessionRef: 'agent:stella:project:demo:task:primary-nova',
+    hostIncarnationId: 'host-incarnation:abc',
+    socketPath: '/tmp/broker.sock',
+  }
+  const ATTACHED = {
+    status: 'attached',
+    registrationId: 'reg_1',
+    attemptId: 'att_1',
+    attachEpoch: 1,
+    prepared: true,
+  }
+
+  async function callersFor(
+    env: { PRAESIDIUM_CALLER?: string; ASP_HANDLE?: string },
+    run: (sock: string) => Promise<unknown>
+  ): Promise<(string | null)[]> {
+    const seen: (string | null)[] = []
+    const sock = socketPath()
+    const server = Bun.serve({
+      unix: sock,
+      fetch(request) {
+        seen.push(request.headers.get('x-praesidium-caller'))
+        const path = new URL(request.url).pathname
+        return Response.json(path.endsWith('/attach') ? ATTACHED : REGISTERED)
+      },
+    })
+    const saved = {
+      PRAESIDIUM_CALLER: process.env['PRAESIDIUM_CALLER'],
+      ASP_HANDLE: process.env['ASP_HANDLE'],
+    }
+    for (const key of ['PRAESIDIUM_CALLER', 'ASP_HANDLE'] as const) {
+      if (env[key] === undefined) Reflect.deleteProperty(process.env, key)
+      else process.env[key] = env[key]
+    }
+    try {
+      await run(sock)
+    } finally {
+      server.stop(true)
+      for (const key of ['PRAESIDIUM_CALLER', 'ASP_HANDLE'] as const) {
+        if (saved[key] === undefined) Reflect.deleteProperty(process.env, key)
+        else process.env[key] = saved[key]
+      }
+    }
+    return seen
+  }
+
+  test('an explicit caller option wins over the environment', async () => {
+    const seen = await callersFor(
+      { PRAESIDIUM_CALLER: 'from-env', ASP_HANDLE: 'mable@x:primary' },
+      (sock) => registerParticipant(sock, REGISTER, { caller: 'foundry-host:wrkq' })
+    )
+    expect(seen).toEqual(['foundry-host:wrkq'])
+  })
+
+  test('PRAESIDIUM_CALLER is used when no caller option is given', async () => {
+    const seen = await callersFor(
+      { PRAESIDIUM_CALLER: 'foundry-kernel:wrkq', ASP_HANDLE: 'mable@x:primary' },
+      (sock) => registerParticipant(sock, REGISTER)
+    )
+    expect(seen).toEqual(['foundry-kernel:wrkq'])
+  })
+
+  test('ASP_HANDLE names the seat when nothing else does', async () => {
+    const seen = await callersFor({ ASP_HANDLE: 'cody@foundry:T-12509' }, (sock) =>
+      registerParticipant(sock, REGISTER)
+    )
+    expect(seen).toEqual(['cody@foundry:T-12509'])
+  })
+
+  test('falls back to tty or unknown', async () => {
+    const seen = await callersFor({}, (sock) => registerParticipant(sock, REGISTER))
+    expect(seen).toEqual([process.stdin.isTTY ? 'tty' : 'unknown'])
+  })
+
+  test('joinAsParticipant sends its caller on both register and attach', async () => {
+    const seen = await callersFor({ PRAESIDIUM_CALLER: 'from-env' }, (sock) =>
+      joinAsParticipant({
+        hrcSocketPath: sock,
+        caller: 'foundry-host:wrkq',
+        register: REGISTER,
+        prepare: {
+          classId: 'codex-desktop',
+          participantKey: 'k',
+          workspaceCwd: '/tmp',
+          preparation: null,
+        },
+        adapter: {
+          adapterId: 'test-adapter/1',
+          admit: () => ({ status: 'rejected' as const, reason: 'unused' }),
+          prepare: () => ({ status: 'prepared' as const, descriptor: { kind: 'echo' } as never }),
+        },
+      })
+    )
+    expect(seen).toEqual(['foundry-host:wrkq', 'foundry-host:wrkq'])
+  })
+})

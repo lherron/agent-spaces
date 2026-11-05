@@ -104,6 +104,8 @@ export type JoinArgs = {
   register: JoinRegisterRequest
   prepare: JoinPrepareInput
   adapter: ParticipantAdapter
+  /** Sent as `X-Praesidium-Caller` on register and attach (service-api rev 4 §3). */
+  caller?: string | undefined
 }
 
 export type JoinResult =

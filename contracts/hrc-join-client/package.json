@@ -1,6 +1,6 @@
 {
   "name": "spaces-hrc-join-client",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Typed join client for HRC participant register/attach over the HRC unix socket",
   "type": "module",
   "main": "./dist/index.js",

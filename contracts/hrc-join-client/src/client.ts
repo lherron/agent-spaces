@@ -17,10 +17,30 @@ import type {
  * other transport failure, so callers keep a single transport-error path.
  */
 /** Keep equal to this package's `version` in package.json. */
-export const HRC_JOIN_CLIENT_VERSION = '0.1.1'
+export const HRC_JOIN_CLIENT_VERSION = '0.1.2'
 const HRC_JOIN_CLIENT_USER_AGENT = `hrc-join-client/${HRC_JOIN_CLIENT_VERSION}`
 
-export type JoinRequestOptions = { timeoutMs?: number | undefined }
+export type JoinRequestOptions = {
+  timeoutMs?: number | undefined
+  /** The first-party component behind the request; see {@link resolvePraesidiumCaller}. */
+  caller?: string | undefined
+}
+
+/**
+ * service-api rev 4 §3: the caller sent as `X-Praesidium-Caller`. The explicit
+ * component name, else `PRAESIDIUM_CALLER`, else `ASP_HANDLE` (the agent seat),
+ * else `tty` when stdin is a terminal, else `unknown`. HRC validates the value.
+ * Same order as hrc-sdk's resolvePraesidiumCaller.
+ */
+function resolvePraesidiumCaller(component?: string | undefined): string {
+  const explicit = component?.trim()
+  if (explicit) return explicit
+  const fromEnv = process.env['PRAESIDIUM_CALLER']?.trim()
+  if (fromEnv) return fromEnv
+  const seat = process.env['ASP_HANDLE']?.trim()
+  if (seat) return seat
+  return process.stdin?.isTTY ? 'tty' : 'unknown'
+}
 
 async function postJoin(
   hrcSocketPath: HrcSocketPath,
@@ -32,7 +52,11 @@ async function postJoin(
     method: 'POST',
     unix: hrcSocketPath,
     // The L3 client name HRC logs and meters this request under (hrc-runtime T-11541).
-    headers: { 'content-type': 'application/json', 'user-agent': HRC_JOIN_CLIENT_USER_AGENT },
+    headers: {
+      'content-type': 'application/json',
+      'user-agent': HRC_JOIN_CLIENT_USER_AGENT,
+      'x-praesidium-caller': resolvePraesidiumCaller(options.caller),
+    },
     body: JSON.stringify(body),
     ...(options.timeoutMs === undefined ? {} : { signal: AbortSignal.timeout(options.timeoutMs) }),
   } as never)
@@ -248,7 +272,8 @@ export function isAttachConflict(result: JoinAttachResult): boolean {
 }
 
 export async function joinAsParticipant(args: JoinArgs): Promise<JoinResult> {
-  const register = await registerParticipant(args.hrcSocketPath, args.register)
+  const options: JoinRequestOptions = args.caller === undefined ? {} : { caller: args.caller }
+  const register = await registerParticipant(args.hrcSocketPath, args.register, options)
   if (register.outcome !== 'registered') {
     return { outcome: 'register-refused', register }
   }
@@ -273,13 +298,17 @@ export async function joinAsParticipant(args: JoinArgs): Promise<JoinResult> {
   if (prepared.status !== 'prepared') {
     return { outcome: 'not-prepared', register, reason: prepared.reason }
   }
-  const attach = await attachParticipant(args.hrcSocketPath, {
-    registrationId: register.identity.registrationId,
-    attemptId: register.identity.attemptId,
-    attachEpoch: register.identity.attachEpoch,
-    ...(args.register.socketPath === undefined ? {} : { socketPath: args.register.socketPath }),
-    descriptor: prepared.descriptor,
-  })
+  const attach = await attachParticipant(
+    args.hrcSocketPath,
+    {
+      registrationId: register.identity.registrationId,
+      attemptId: register.identity.attemptId,
+      attachEpoch: register.identity.attachEpoch,
+      ...(args.register.socketPath === undefined ? {} : { socketPath: args.register.socketPath }),
+      descriptor: prepared.descriptor,
+    },
+    options
+  )
   if (attach.outcome !== 'attached') {
     return { outcome: 'attach-refused', register, attach }
   }
