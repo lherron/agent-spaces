@@ -5,7 +5,9 @@ set -euo pipefail
 fail() { printf 'hrc-sync: %s\n' "$*" >&2; exit 1; }
 [[ $# == 1 ]] || fail 'usage: sync-hrc-downstream.sh <hrc-runtime-checkout>'
 [[ -z "${GIT_INDEX_FILE:-}" ]] || fail 'GIT_INDEX_FILE is set; run outside a Git hook before syncing HRC.'
-command -v wrkc >/dev/null || fail 'wrkc is required to notify mable@hrc-runtime:primary before syncing HRC.'
+# Plumbing names wrkc by explicit path so prae seats (no wrkc on PATH, T-12646 D2) can run install.
+WRKC="${WRKC:-$(command -v wrkc || printf '%s' "$HOME/.local/bin/wrkc")}"
+[[ -x "$WRKC" ]] || fail "wrkc is required to notify mable@hrc-runtime:primary before syncing HRC (looked for $WRKC)."
 cd "$1"
 [[ "$(git branch --show-current)" == main ]] || fail 'consumer must be on main; ask the HRC owner to reconcile its checkout.'
 git fetch origin main
@@ -34,7 +36,7 @@ if [[ "$after" != "$before" ]]; then
   [[ "$subject" == 'chore: sync bun.lock ('* ]] || fail "pull commit $after is not a generated lock sync; refusing to push unrelated work."
   git push origin "$after:refs/heads/main" || fail "push failed for generated lock $after; it remains local. Ask the HRC owner to reconcile and push that exact commit; do not activate it."
   notice="ASP downstream sync pushed HRC $after (parent $before): $subject. Monitor HRC post-push-verify; this push may supersede an in-flight run. No HRC release selection/publication/activation was performed."
-  wrkc say mable@hrc-runtime:primary --to mable@hrc-runtime:primary --fyi -m "$notice" || fail "already pushed HRC $after but could not notify its owner. Retry: wrkc say mable@hrc-runtime:primary --to mable@hrc-runtime:primary --fyi -m 'Monitor post-push-verify for $after; no activation performed.'"
+  "$WRKC" say mable@hrc-runtime:primary --to mable@hrc-runtime:primary --fyi -m "$notice" || fail "already pushed HRC $after but could not notify its owner. Retry: wrkc say mable@hrc-runtime:primary --to mable@hrc-runtime:primary --fyi -m 'Monitor post-push-verify for $after; no activation performed.'"
   git fetch origin main || fail "pushed HRC $after and notified its owner, but remote readback failed."
   git merge-base --is-ancestor "$after" refs/remotes/origin/main || fail "cannot prove delivery of pushed HRC $after; ask the notified HRC owner to inspect origin/main."
   printf 'hrc-sync: delivered lock %s and notified mable@hrc-runtime:primary; HRC CI/activation remain owner-gated.\n' "$after"
