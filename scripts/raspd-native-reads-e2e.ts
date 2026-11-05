@@ -43,6 +43,7 @@ import {
   buildCases,
   seedStage,
 } from './aspd-compare/cases.ts'
+import { OWNER_BINS } from './lib/owner-bins.ts'
 import { buildScratchRelease, must } from './lib/scratch-release.ts'
 import { isolateUsageMetrics } from './lib/usage-metrics-isolation.ts'
 import { loadAsp } from './path-markers-e2e.ts'
@@ -645,11 +646,11 @@ if (!process.argv.includes('--no-hrc')) {
   // Bun hrc inspects the project's worktrees (runtime_reads.py does the same).
   must(['git', 'init', '-q'], { cwd: stage.projectRoot, env })
   must(['wrkqadm', 'migrate'], { cwd: stage.projectRoot, env })
-  must(['wrkq', 'mkdir', '/project', '--kind', 'project', '--json'], {
+  must([OWNER_BINS.wrkq, 'mkdir', '/project', '--kind', 'project', '--json'], {
     cwd: stage.projectRoot,
     env,
   })
-  must(['wrkq', 'set', '/project', '--root', stage.projectRoot, '--json'], {
+  must([OWNER_BINS.wrkq, 'set', '/project', '--root', stage.projectRoot, '--json'], {
     cwd: stage.projectRoot,
     env,
   })

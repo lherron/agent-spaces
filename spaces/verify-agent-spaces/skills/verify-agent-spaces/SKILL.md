@@ -20,9 +20,14 @@ and the agent-spaces resident when they run in project agent-spaces.
 
 What "installed" means here differs per surface, and that decides what a drive proves:
 
-- **`asp` runs the canonical checkout's source.** `~/.local/bin/asp` is `exec bun run
-  ~/praesidium/agent-spaces/apps/cli/bin/asp.js`. Every edit in the shared checkout, committed or not, is live
-  in `asp` the moment it is saved. `avs doctor`'s `asp-source` row says so.
+- **Owner CLIs by explicit path (T-12654).** A prae seat has no `asp`, `aspc`, `hrc`, `rusthrc`, `wrkq`, `wrkc` or
+  `wrkf` on PATH. In this skill and its feature files, `asp` means `~/.bun/bin/asp`, `aspc` means `~/.bun/bin/aspc`,
+  `hrc` means `~/.bun/bin/hrc`, and `wrkq`/`wrkc` mean `~/.local/bin/wrkq`/`~/.local/bin/wrkc`. Type the path; a
+  bare name fails with `command not found` on prae.
+- **`asp` runs the canonical checkout's source.** `~/.bun/bin/asp` is a `bun link` into
+  `~/praesidium/agent-spaces/apps/cli` (`~/.local/bin/asp` is `exec bun run` of the same `bin/asp.js`). Every edit
+  in the shared checkout, committed or not, is live in `asp` the moment it is saved. `avs doctor`'s `asp-source`
+  row says so.
 - **`harness-broker` also runs the checkout.** `~/.bun/bin/harness-broker` links through
   `~/.bun/install/global/node_modules/spaces-harness-broker` to `harness/harness-broker` in the checkout, and
   its bin prefers `src/` (a stack trace from it names `agent-spaces/harness/harness-broker/src/…`). `aspc` is

@@ -45,6 +45,7 @@ import { connect } from 'node:net'
 import { join, resolve } from 'node:path'
 
 import { type CallCase, HELLO_PARAMS, buildCases, seedStage } from './aspd-compare/cases.ts'
+import { OWNER_BINS } from './lib/owner-bins.ts'
 import { buildScratchRelease, installReleaseArtifact, must } from './lib/scratch-release.ts'
 import { isolateUsageMetrics } from './lib/usage-metrics-isolation.ts'
 import { loadAsp } from './path-markers-e2e.ts'
@@ -514,8 +515,14 @@ const RUSTHRC =
   must(['git', 'init', '-q'], { cwd: projectRoot, env })
   must(['git', 'commit', '-q', '--allow-empty', '-m', 'r2b callers'], { cwd: projectRoot, env })
   must(['wrkqadm', 'migrate'], { cwd: projectRoot, env })
-  must(['wrkq', 'mkdir', '/project', '--kind', 'project', '--json'], { cwd: projectRoot, env })
-  must(['wrkq', 'set', '/project', '--root', projectRoot, '--json'], { cwd: projectRoot, env })
+  must([OWNER_BINS.wrkq, 'mkdir', '/project', '--kind', 'project', '--json'], {
+    cwd: projectRoot,
+    env,
+  })
+  must([OWNER_BINS.wrkq, 'set', '/project', '--root', projectRoot, '--json'], {
+    cwd: projectRoot,
+    env,
+  })
   const hrcCli = ['bun', join(HRC_RUNTIME, 'packages', 'hrc-cli', 'src', 'cli.ts')]
   const hrcSocket = join(root, 'run', 'hrc.sock')
   const status = async () => {

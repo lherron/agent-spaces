@@ -51,6 +51,7 @@ import { connect } from 'node:net'
 import { join, resolve } from 'node:path'
 
 import { type CallCase, HELLO_PARAMS, buildCases, seedStage } from './aspd-compare/cases.ts'
+import { OWNER_BINS } from './lib/owner-bins.ts'
 import { buildScratchRelease, installReleaseArtifact, must } from './lib/scratch-release.ts'
 import { isolateUsageMetrics } from './lib/usage-metrics-isolation.ts'
 import { loadAsp } from './path-markers-e2e.ts'
@@ -243,7 +244,7 @@ const caseParams = (stage: ReturnType<typeof seedStage>, id: string) => {
 
 // -- 3. racing writers on one cold ASP_HOME --------------------------------------------
 
-const ASP_CLI = Bun.which('asp')
+const ASP_CLI = OWNER_BINS.asp
 const raceRounds: unknown[] = []
 for (let round = 1; round <= rounds && !codex; round++) {
   const stage = seedStage(asp, join(scratch, `race${round}`))
@@ -261,7 +262,7 @@ for (let round = 1; round <= rounds && !codex; round++) {
     new Promise<{ status: number | null; argv0?: string; root?: string; stderr: string }>(
       (done) => {
         const child = spawn(
-          ASP_CLI as string,
+          ASP_CLI,
           [
             'agent',
             `agent:${agent}:project:project`,
@@ -431,7 +432,7 @@ for (let round = 1; round <= rounds && codex; round++) {
   const cli = (agent: string) =>
     new Promise<{ status: number | null; home?: string; stderr: string }>((done) => {
       const child = spawn(
-        ASP_CLI as string,
+        ASP_CLI,
         [
           'agent',
           `agent:${agent}:project:project`,
@@ -556,7 +557,7 @@ for (let round = 1; round <= rounds && codex; round++) {
 }
 record('race.json', {
   aspCli: ASP_CLI,
-  aspCliVersion: must([ASP_CLI as string, '--version']).trim(),
+  aspCliVersion: must([ASP_CLI, '--version']).trim(),
   rounds: raceRounds,
 })
 
@@ -794,8 +795,14 @@ if (!process.argv.includes('--no-births')) {
   must(['git', 'init', '-q'], { cwd: projectRoot, env })
   must(['git', 'commit', '-q', '--allow-empty', '-m', 'r3a births'], { cwd: projectRoot, env })
   must(['wrkqadm', 'migrate'], { cwd: projectRoot, env })
-  must(['wrkq', 'mkdir', '/project', '--kind', 'project', '--json'], { cwd: projectRoot, env })
-  must(['wrkq', 'set', '/project', '--root', projectRoot, '--json'], { cwd: projectRoot, env })
+  must([OWNER_BINS.wrkq, 'mkdir', '/project', '--kind', 'project', '--json'], {
+    cwd: projectRoot,
+    env,
+  })
+  must([OWNER_BINS.wrkq, 'set', '/project', '--root', projectRoot, '--json'], {
+    cwd: projectRoot,
+    env,
+  })
   const hrcCli = ['bun', join(HRC_RUNTIME, 'packages', 'hrc-cli', 'src', 'cli.ts')]
   const hrcSocket = join(root, 'run', 'hrc.sock')
   const status = async () => {
