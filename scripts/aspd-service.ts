@@ -59,6 +59,7 @@ import {
 } from './aspd-service/namespace.ts'
 import { frontDoorStatus, raspdJob, startRaspd, stopRaspd } from './aspd-service/raspd.ts'
 import { supportsFixedExecutableReleaseRoot } from './aspd-service/release-compatibility.ts'
+import { pruneReleases } from './aspd-service/release-retention.ts'
 
 const RASPD_DEFAULT_LABEL = 'com.praesidium.raspd'
 const BUN_FRONTED_SOCKET = 'aspd-bun.sock'
@@ -105,6 +106,18 @@ async function supervise(nsInput: string, label: string): Promise<Record<string,
       : { stopped: false, reason: 'already supervised' }
   const started = await superviseBun(p, { ...config, supervisor }, active)
   return { supervised: supervisor, retired, started }
+}
+
+/** Prune old releases after a successful activation; never fails the activation. */
+function retainReleases(releasesDir: string, selection: ActiveSelection): unknown {
+  try {
+    return pruneReleases(releasesDir, {
+      activeReleaseId: selection.releaseId,
+      previousReleaseId: selection.previousReleaseId,
+    })
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) }
+  }
 }
 
 async function activate(nsInput: string, releaseId: string): Promise<Record<string, unknown>> {
@@ -168,6 +181,7 @@ async function activate(nsInput: string, releaseId: string): Promise<Record<stri
     executableMode: useFixedExecutables ? 'fixed' : 'legacy-release',
     ...(stableExecutables !== undefined ? { stableExecutables } : {}),
     ...(fronted ? { raspdRetired, raspdStarted: await startRaspd(p, config, selection) } : {}),
+    retention: retainReleases(p.releases, selection),
     completedAt: new Date().toISOString(),
   }
   appendFileSync(p.activations, `${JSON.stringify(result)}\n`)
