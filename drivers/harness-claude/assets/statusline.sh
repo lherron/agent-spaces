@@ -28,9 +28,11 @@ input=$(cat)
 # Inside a harness-broker launched Claude, also post the raw input through the
 # broker's hook bridge as a StatusLine record: Claude Code's own context reading
 # (T-10929). Backgrounded with every stream detached, so it never delays or
-# alters the render, and a failed post is silent.
+# alters the render, and a failed post is silent. Nothing reaps this detached
+# client, so the kernel caps its CPU time: a client that spins dies within a
+# few seconds instead of burning a core for hours (T-12660).
 if [ -n "${HARNESS_BROKER_STATUSLINE_BRIDGE:-}" ]; then
-  (printf '%s' "$input" | eval "$HARNESS_BROKER_STATUSLINE_BRIDGE") </dev/null >/dev/null 2>&1 &
+  (ulimit -t 3 || true; printf '%s' "$input" | eval "$HARNESS_BROKER_STATUSLINE_BRIDGE") </dev/null >/dev/null 2>&1 &
 fi
 
 # Extract values from JSON

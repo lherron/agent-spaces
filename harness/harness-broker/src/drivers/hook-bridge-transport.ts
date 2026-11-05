@@ -96,6 +96,14 @@ export async function postEnvelopeAndRead(
 }
 
 /**
+ * Wall-clock ceiling for one hook bridge process (T-12660). Legitimate work is
+ * a stdin read plus at most ~2 s of broker and mail queries; anything still
+ * alive at this point is blocked on a stdin writer or a peer that will never
+ * finish, and exits quietly.
+ */
+const HOOK_BRIDGE_DEADLINE_MS = 30_000
+
+/**
  * Shared CLI entrypoint for the hook bridges. Resolves `--socket <path>`,
  * exits(1) with a usage error if absent, otherwise runs the driver bridge and
  * swallows delivery errors (hooks are best-effort observability, not turn gates).
@@ -113,6 +121,8 @@ export async function runHookBridgeCli(options: {
     process.exit(1)
     return
   }
+  // Unref'd: it never holds a finished bridge open, it only ends a blocked one.
+  setTimeout(() => process.exit(0), HOOK_BRIDGE_DEADLINE_MS).unref()
   try {
     await run({ socketPath })
   } catch (error) {
