@@ -45,7 +45,7 @@ import { connect } from 'node:net'
 import { join, resolve } from 'node:path'
 
 import { type CallCase, HELLO_PARAMS, buildCases, seedStage } from './aspd-compare/cases.ts'
-import { OWNER_BINS } from './lib/owner-bins.ts'
+import { OWNER_BINS, daemonEnv } from './lib/owner-bins.ts'
 import { buildScratchRelease, installReleaseArtifact, must } from './lib/scratch-release.ts'
 import { isolateUsageMetrics } from './lib/usage-metrics-isolation.ts'
 import { loadAsp } from './path-markers-e2e.ts'
@@ -124,7 +124,7 @@ async function startPair(name: string, env: Record<string, string>): Promise<Pai
   const front = join(ns, 'run', 'aspd.sock')
   const bun = join(ns, 'run', 'aspd-bun.sock')
   const raspdLog = join(ns, 'raspd.log')
-  const options = { cwd: ns, env, stdio: ['ignore', 'ignore', 'pipe'] as const }
+  const options = { cwd: ns, env: daemonEnv(env), stdio: ['ignore', 'ignore', 'pipe'] as const }
   const bunChild = spawn(
     join(releaseDir, 'aspd'),
     ['serve', '--socket', bun, '--log', join(ns, 'aspd.log')],
@@ -540,7 +540,7 @@ const RUSTHRC =
     const from = readLog(pair.raspdLog).length
     const server = spawn(argv[0], argv.slice(1), {
       cwd: projectRoot,
-      env,
+      env: daemonEnv(env),
       stdio: ['ignore', 'ignore', 'pipe'],
     })
     let serverErr = ''

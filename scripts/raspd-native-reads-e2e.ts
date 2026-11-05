@@ -43,7 +43,7 @@ import {
   buildCases,
   seedStage,
 } from './aspd-compare/cases.ts'
-import { OWNER_BINS } from './lib/owner-bins.ts'
+import { OWNER_BINS, daemonEnv } from './lib/owner-bins.ts'
 import { buildScratchRelease, must } from './lib/scratch-release.ts'
 import { isolateUsageMetrics } from './lib/usage-metrics-isolation.ts'
 import { loadAsp } from './path-markers-e2e.ts'
@@ -118,7 +118,7 @@ async function startPair(name: string, env: Record<string, string>): Promise<Pai
   const front = join(ns, 'run', 'aspd.sock')
   const bun = join(ns, 'run', 'aspd-bun.sock')
   const raspdLog = join(ns, 'raspd.log')
-  const options = { cwd: ns, env, stdio: ['ignore', 'ignore', 'pipe'] as const }
+  const options = { cwd: ns, env: daemonEnv(env), stdio: ['ignore', 'ignore', 'pipe'] as const }
   const bunChild = spawn(
     bunAspd,
     ['serve', '--socket', bun, '--log', join(ns, 'aspd.log')],
@@ -759,7 +759,7 @@ if (!process.argv.includes('--no-hrc')) {
     const logStart = readFileSync(stagePair.raspdLog, 'utf8').length
     const child = spawn(argv[0], argv.slice(1), {
       cwd: stage.projectRoot,
-      env,
+      env: daemonEnv(env),
       stdio: ['ignore', 'ignore', 'pipe'],
     })
     let stderr = ''
