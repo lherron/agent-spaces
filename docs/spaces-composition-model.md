@@ -48,7 +48,8 @@ Notable manifest sections (all optional beyond `schema`/`id`):
 - `settings.permissions.allow` / `.deny`, `settings.env`, `settings.model` —
   Claude settings applied when running with this space
 - `harness.supports` — which public harness identities the space supports:
-  `agent-harness`, `claude`, `codex`, and `muse`. This is a closed vocabulary;
+  `agent-harness`, `claude`, `claude-hrcpty`, `codex`, `codex-hrcpty`, and `muse`.
+  This is a closed vocabulary;
   it is not a driver or provider routing table.
 - `claude.model`, `claude.mcp` — retained Claude materialization settings
 - `pi.model`, `pi.extensions`, `pi.build` — retained Pi implementation settings
@@ -128,7 +129,8 @@ are higher precedence for collision warnings and load order), and
 `compose_mode` (`replace` or `merge`). Selection scalars live only in
 `[targets.<name>.provisioning]`: `harness`, `model_provider`, `model`,
 `reasoning_effort`, and boolean `presentation`. The harness field accepts
-exactly `agent-harness`, `claude`, `codex`, or `muse`; omission defaults through
+exactly `agent-harness`, `claude`, `claude-hrcpty`, `codex`, `codex-hrcpty`,
+or `muse`; omission defaults through
 the compiler catalog to `agent-harness`. Omitted `presentation` defaults to
 `true`, while an explicit `presentation = false` remains explicit through
 every merge. Provider/model compatibility and every execution recipe remain

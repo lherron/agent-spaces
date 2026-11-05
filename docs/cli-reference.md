@@ -5,12 +5,18 @@ registration order (and therefore `asp --help` order) is defined in
 `apps/cli/src/command-registry.ts`.
 
 Public harness selection is the v2 producer contract: the only selectable
-identities are `agent-harness`, `claude`, `codex`, and `muse`. The default is
+identities are `agent-harness`, `claude`, `claude-hrcpty`, `codex`,
+`codex-hrcpty`, and `muse`. The default is
 `agent-harness`. A provider, model, reasoning effort, and `presentation`
 boolean are independent inputs; neither a provider nor a model chooses a
 harness. Driver, terminal, and presentation mechanics are compiler output, not
 CLI selection values. See `agent-spaces/harness-architecture` for the complete
 contract.
+
+The `*-hrcpty` identities select HRC terminal hosting in managed compiler plans.
+Foreground CLI runs use the corresponding Claude or Codex process implementation;
+selecting one does not start an HRC terminal host. Some command help strings still
+list only the earlier four IDs; `asp harnesses --json` reads the current catalog.
 
 ## Top-Level Commands
 
@@ -18,7 +24,7 @@ contract.
 asp run [options] <target> [prompt]
 asp init [options]
 asp install [options]
-asp build [options] [target]
+asp build [options] [target] --output <dir>
 asp describe [options] [target]
 asp explain [options] [target]
 asp lint [options] [target]
@@ -73,10 +79,10 @@ Accepts a target name from `asp-targets.toml`, a direct space ref such as
 
 Key options:
 
-- `--harness <id>`: one of `agent-harness`, `claude`, `codex`, or `muse`
+- `--harness <id>`: one of `agent-harness`, `claude`, `claude-hrcpty`, `codex`, `codex-hrcpty`, or `muse`
   (default `agent-harness`)
 - `--model <model>`: model override. A public v2 compile request carries its
-  provider separately as `modelProvider`; a `provider:model` value is rejected.
+  provider separately as `modelProvider`; a `provider/model` value is rejected.
 - `--model-reasoning-effort <effort>`: Codex reasoning effort override
 - `--permission-mode <mode>`: Claude permission mode
 - `--no-interactive`: foreground-process UI behavior only. It is not the v2
@@ -119,7 +125,7 @@ Resolve targets and materialize project bundles under `ASP_HOME`.
 
 Materialize plugins without launching. Optional `target` argument (default: all).
 
-- `--output <dir>`: output directory
+- `--output <dir>`: required output directory
 - `--harness <id>`: harness to materialize for
 - `--no-clean`: keep existing output directory contents
 - `--no-install`: do not auto-install if lock missing
@@ -130,7 +136,7 @@ Materialize plugins without launching. Optional `target` argument (default: all)
 Describe hooks, skills, tools, and lint warnings for targets.
 
 - `--json`: JSON output
-- `--harness <id>`: one of `agent-harness`, `claude`, `codex`, or `muse`
+- `--harness <id>`: one of `agent-harness`, `claude`, `claude-hrcpty`, `codex`, `codex-hrcpty`, or `muse`
   when materializing (default `agent-harness`)
 - `--model <id>`: model to use (harness-specific)
 
@@ -191,8 +197,8 @@ Show pending lock changes without writing. `--target <name>`, `--json`.
 ## `asp harnesses`
 
 List the catalog-derived public harnesses and their local availability (version,
-path, capabilities, models). The list is exactly `agent-harness`, `claude`,
-`codex`, and `muse`; availability does not create another selection route.
+path, capabilities, models). The list is exactly `agent-harness`, `claude`, `claude-hrcpty`,
+`codex`, `codex-hrcpty`, and `muse`; availability does not create another selection route.
 `--json` for JSON output.
 
 ## `asp resolve-reminder`
@@ -237,7 +243,7 @@ the directory directly.
 
 Agent-authored runtime resources:
 
-- `asp resources plan <agent>` — compile an agent-authored runtime resources plan
+- `asp resources plan <agent> --project <project>` — compile an agent-authored runtime resources plan
   (schedules/channels/event-hooks declared under the agent home)
 
 A plan compiles for one project (`--project`): every resource's `[target]`
@@ -289,7 +295,7 @@ Arguments:
 Key options:
 
 - `--agent-root <path>`, `--project-root <path>`, `--cwd <path>`: placement and execution roots
-- `--harness <harness>`: one of `agent-harness`, `claude`, `codex`, or `muse`
+- `--harness <harness>`: one of `agent-harness`, `claude`, `claude-hrcpty`, `codex`, `codex-hrcpty`, or `muse`
 - `--lane-ref <ref>`: lane selection for `SessionRef` (default `main`)
 - `--host-session-id <id>` / `--run-id <id>`: host correlation
 - `--scaffold-file <path>`: JSON file with scaffold packets

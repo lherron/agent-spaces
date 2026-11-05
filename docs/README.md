@@ -42,11 +42,11 @@ command or lifecycle as available. Current harness behavior is described in the
 - [Codex desktop driver](proposals/codex-desktop-driver.md) — Approved desktop participation design and verification boundaries.
 - [Agent-authored runtime resources](proposals/agent-authored-runtime-resources.md) — Desired-state resource plans; distinguishes ASP compilation from ACP lifecycle intent.
 - [Agent scaffolding](proposals/agent-scaffolding.md) — Approved, unimplemented agent-creation command design.
-- [Harness scenario helpers](proposals/harness-scenario-helpers.md) — Approved, unimplemented deterministic scenario package design.
 - [aspd Rust front door](proposals/aspd-rust-front-door.md) — Draft plan for the aspd Rust front door, campaign P-00890, for Daedalus review.
 
 ## Historical and supporting material
 
+- Harness scenario helpers — Archived optional package design, preserved byte-for-byte as attachment `ATT-00422` on completed task T-12632 (Archived optional harness scenario helper design). Retrieve with `wrkq attach get ATT-00422`; only the standalone protocol hardening prerequisite shipped, under T-06393.
 - [HRC-operated agent-harness interactive TUI](proposals/agent-harness-hrc-interactive.md) — Superseded interactive design rationale; its private wire contract is retired.
 - [Harness broker proposal](harness-broker-proposal/README.md) — Historical May 2026 package boundaries and migration rationale, with routes to current guidance.
 - Claude Agent SDK smoke runbook — Historical pre-v2 evidence for the retired SDK selection path, preserved byte-for-byte as attachment `ATT-00419` on completed task T-12629 (Archived pre-v2 harness smoke runbooks). Retrieve with `wrkq attach get ATT-00419`; use the [harness architecture](harness-architecture.md) and [broker matrix guidance](../harness/harness-broker/AGENTS.md) for current acceptance.

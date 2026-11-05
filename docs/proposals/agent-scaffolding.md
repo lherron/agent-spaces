@@ -17,7 +17,7 @@ and accepts optional `HEARTBEAT.md`; when `agent-profile.toml` exists,
 `parseAgentProfile` now requires `version = 4` and rejects versions 1–3.
 Current profiles use `priming` and `[provisioning]`, rather than the proposed
 `schemaVersion`, `priming_prompt`, and `harnessDefaults`. Any future implementation
-must use the current parser and fixture, including the catalog's four public
+must use the current parser and fixture, including the catalog's six public
 harness identities and default `agent-harness`, before claiming a conforming root.
 
 ## Problem

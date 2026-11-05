@@ -286,8 +286,9 @@ The ordinary public RPC is `aspc.compileHarnessInvocation`, with
 
 These packages are retained implementation layers, not public selectable
 harness identities. The active selection vocabulary is solely
-`agent-harness`, `claude`, `codex`, and `muse`; the compiler catalog decides
-which retained implementation a resolved recipe uses.
+`agent-harness`, `claude`, `claude-hrcpty`, `codex`, `codex-hrcpty`, and
+`muse`; the compiler catalog decides which retained implementation a resolved
+recipe uses. The `*-hrcpty` identities select HRC terminal hosting in managed plans.
 
 - `spaces-harness-claude`
 - `spaces-harness-codex`

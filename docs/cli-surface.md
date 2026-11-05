@@ -16,8 +16,8 @@ order) is defined in `apps/cli/src/command-registry.ts`. This page is a
 navigational summary; the authoritative option-by-option reference lives in
 this repo's own `docs/cli-reference.md`.
 
-The public v2 harness vocabulary is exactly `agent-harness`, `claude`,
-`codex`, and `muse`, with `agent-harness` as its default. A model provider,
+The public v2 harness vocabulary is exactly `agent-harness`, `claude`, `claude-hrcpty`,
+`codex`, `codex-hrcpty`, and `muse`, with `agent-harness` as its default. A model provider,
 model, reasoning effort, and boolean `presentation` are independent inputs;
 the compiler catalog alone derives the driver, transport, terminal, and
 presentation recipe. Foreground-process switches do not add selection values.
@@ -28,7 +28,7 @@ presentation recipe. Foreground-process switches do not add selection values.
 asp run [options] <target> [prompt]
 asp init [options]
 asp install [options]
-asp build [options] [target]
+asp build [options] [target] --output <dir>
 asp describe [options] [target]
 asp explain [options] [target]
 asp lint [options] [target]
@@ -70,8 +70,8 @@ Common path options accepted by most project-facing commands: `--project <path>`
    (`alice@demo:T-1/reviewer`) or canonical `ScopeRef`
    (`agent:alice:project:demo`); `mode` is one of `query`, `heartbeat`,
    `task`, `maintenance`, `resolve`. Key options: `--agent-root`,
-   `--project-root`, `--cwd`, `--harness` (`agent-harness`, `claude`, `codex`,
-   `muse`),
+   `--project-root`, `--cwd`, `--harness` (`agent-harness`, `claude`, `claude-hrcpty`,
+   `codex`, `codex-hrcpty`, `muse`),
    `--lane-ref`, `--host-session-id`, `--run-id`, `--compose <ref>`
    (repeatable; `agent-project` is implicit from the scope-ref agentId),
    `--continue-provider`/`--continue-key`, `--model-provider`,
@@ -88,8 +88,8 @@ execution rejects compiler-only switches such as `--yolo`, `--settings`, and
 ## `asp run` highlights
 
 `--harness <id>` (default `agent-harness`; one of `agent-harness`, `claude`,
-`codex`, `muse`), `--model <model>` (the ordinary v2 wire uses a separate
-`modelProvider`, never a `provider:model` token),
+`claude-hrcpty`, `codex`, `codex-hrcpty`, `muse`), `--model <model>` (the ordinary v2 wire uses a separate
+`modelProvider`, never a `provider/model` token),
 `--model-reasoning-effort` (Codex), `--permission-mode` (Claude),
 `--no-interactive` (a foreground-process UI control, not the v2 boolean
 `presentation` input), `--dry-run` / `--print-command` (print the harness
@@ -113,7 +113,7 @@ as correct; it prints the generated harness invocation without launching.
   target composing `space:defaults@dev`.
 - `asp install [--targets <names...>] [--harness <id>] [--update] [--refresh] [--no-fetch]` — resolve targets and materialize project bundles under
   `ASP_HOME`.
-- `asp build [target] [--output <dir>] [--harness <id>] [--no-clean] [--no-install] [--no-lint]` — materialize plugins without launching.
+- `asp build [target] --output <dir> [--harness <id>] [--no-clean] [--no-install] [--no-lint]` — materialize plugins without launching.
 - `asp add <spaceRef> [--target <name>] [--no-install]` / `asp remove <spaceId>` — modify a target's `compose` list.
 - `asp upgrade [spaceIds...] [--target <name>]` — update lock pins to the
   latest versions matching selectors.
@@ -132,7 +132,7 @@ as correct; it prints the generated harness invocation without launching.
 - `asp doctor [--json]` — Claude binary, shared spaces root, cache
   permissions.
 - `asp gc [--dry-run]` — garbage-collect unreferenced store/cache entries.
-- `asp harnesses [--json]` — list the four catalog-derived public harnesses,
+- `asp harnesses [--json]` — list the six catalog-derived public harnesses,
   plus local availability, versions, paths, capabilities, and models.
 
 ## Shared space authoring
@@ -153,7 +153,7 @@ The git registry and its `asp repo publish/tags/gc` verbs were retired
   — introspect this agent's own runtime launch, effective prompts, and
   memory targets (`memory`, `user`, `persona`: `inspect`, `read`, `add`,
   `replace`, `remove`, `scan`, `snapshot`, `diff`, `paths`).
-- `asp resources plan <agent>` — compile an agent-authored runtime
+- `asp resources plan <agent> --project <project>` — compile an agent-authored runtime
   resources plan (schedules/channels/event-hooks declared under the agent
   home).
 - `asp agents catalog --context <file> [--json]` / `asp agents inspect --request <file> --context <file> [--json]`
