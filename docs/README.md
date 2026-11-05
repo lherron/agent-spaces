@@ -49,9 +49,9 @@ command or lifecycle as available. Current harness behavior is described in the
 
 - [HRC-operated agent-harness interactive TUI](proposals/agent-harness-hrc-interactive.md) — Superseded interactive design rationale; its private wire contract is retired.
 - [Harness broker proposal](harness-broker-proposal/README.md) — Historical May 2026 package boundaries and migration rationale, with routes to current guidance.
-- [Claude Agent SDK smoke runbook](agent-sdk-smoke-test-runbook.md) — Historical pre-v2 integration evidence for the retired SDK selection path.
-- [Codex smoke runbook](codex-smoke-test-runbook.md) — Historical pre-v2 integration evidence, superseded by current selection and acceptance contracts.
-- [Pi SDK smoke runbook](pi-sdk-smoke-test-runbook.md) — Historical pre-v2 integration evidence for the retired Pi SDK selection path.
+- Claude Agent SDK smoke runbook — Historical pre-v2 evidence for the retired SDK selection path, preserved byte-for-byte as attachment `ATT-00419` on completed task T-12629 (Archived pre-v2 harness smoke runbooks). Retrieve with `wrkq attach get ATT-00419`; use the [harness architecture](harness-architecture.md) and [broker matrix guidance](../harness/harness-broker/AGENTS.md) for current acceptance.
+- Codex smoke runbook — Historical pre-v2 evidence for the earlier Codex integration, preserved byte-for-byte as attachment `ATT-00420` on completed task T-12629 (Archived pre-v2 harness smoke runbooks). Retrieve with `wrkq attach get ATT-00420`; use the [harness architecture](harness-architecture.md) and [broker matrix guidance](../harness/harness-broker/AGENTS.md) for current acceptance.
+- Pi SDK smoke runbook — Historical pre-v2 evidence for the retired Pi SDK selection path, preserved byte-for-byte as attachment `ATT-00421` on completed task T-12629 (Archived pre-v2 harness smoke runbooks). Retrieve with `wrkq attach get ATT-00421`; use the [harness architecture](harness-architecture.md) and [broker matrix guidance](../harness/harness-broker/AGENTS.md) for current acceptance.
 - [P0 hash epoch](p0-hash-epoch.md) — August 2026 migration baseline for compiler byte-compatibility comparisons.
 - Real Codex app-server May 2026 smoke — preserved byte-for-byte as attachment `ATT-00336` on completed task T-01554 (tool-call payload projection). Retrieve with `wrkq attach get ATT-00336`; use the [broker matrix guidance](../harness/harness-broker/AGENTS.md) for current acceptance.
 - [HTML proposal assets](html/assets/README.md) — Reusable styling and contract-viewer assets for standalone proposal pages.
