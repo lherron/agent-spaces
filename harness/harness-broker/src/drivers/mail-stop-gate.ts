@@ -50,7 +50,8 @@ export async function queryMailStopDecision(
       socketPath,
       MAIL_STOP_DECISION_PATH,
       { runtimeId },
-      MAIL_STOP_QUERY_TIMEOUT_MS
+      MAIL_STOP_QUERY_TIMEOUT_MS,
+      resolveCaller(env)
     )
     if (response.status !== 200) {
       return undefined
@@ -96,7 +97,8 @@ export async function queryMailHintDecision(
       socketPath,
       MAIL_HINT_DECISION_PATH,
       { runtimeId },
-      MAIL_HINT_QUERY_TIMEOUT_MS
+      MAIL_HINT_QUERY_TIMEOUT_MS,
+      resolveCaller(env)
     )
     if (response.status !== 200) {
       return undefined
@@ -121,11 +123,25 @@ export function getHookEventName(value: unknown): string | undefined {
   return undefined
 }
 
+/** service-api rev 4 §3 caller grammar; HRC rejects anything else. */
+const CALLER_PATTERN = /^[A-Za-z0-9._:@/+-]{1,128}$/
+
+/**
+ * The seat this hook serves, sent as `X-Praesidium-Caller`: PRAESIDIUM_CALLER,
+ * else ASP_HANDLE (agent@project:lane). The request is hand-written HTTP, so a
+ * value outside the grammar is dropped rather than written into it.
+ */
+function resolveCaller(env: Record<string, string | undefined>): string | undefined {
+  const caller = env['PRAESIDIUM_CALLER']?.trim() || env['ASP_HANDLE']?.trim()
+  return caller !== undefined && CALLER_PATTERN.test(caller) ? caller : undefined
+}
+
 async function postUnixHttpJson(
   socketPath: string,
   path: string,
   body: Record<string, unknown>,
-  timeoutMs: number
+  timeoutMs: number,
+  caller: string | undefined
 ): Promise<{ status: number; body: string }> {
   const payload = JSON.stringify(body)
   const request = [
@@ -134,6 +150,7 @@ async function postUnixHttpJson(
     'Content-Type: application/json',
     // The L3 client name HRC logs and meters this request under (hrc-runtime T-11541).
     `User-Agent: harness-broker/${HARNESS_BROKER_VERSION}`,
+    ...(caller !== undefined ? [`X-Praesidium-Caller: ${caller}`] : []),
     `Content-Length: ${Buffer.byteLength(payload)}`,
     'Connection: close',
     '',
