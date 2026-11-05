@@ -98,7 +98,9 @@ describe('asp harnesses', () => {
     expect(output.harnesses.map((h: { id: string }) => h.id)).toEqual([
       'agent-harness',
       'claude',
+      'claude-hrcpty',
       'codex',
+      'codex-hrcpty',
       'muse',
     ])
     for (const harness of output.harnesses) {
