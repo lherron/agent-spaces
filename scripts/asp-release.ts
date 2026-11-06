@@ -273,8 +273,9 @@ export async function compileReleaseExecutable(
 
 /**
  * Build one cargo executable from the release's source commit, as hrc-runtime
- * builds its kernel: `cargo build --release --locked` on this node, with a
- * dedicated target dir (cargo reuses it across releases). Source paths are
+ * builds its kernel: Apple silicon builds through rbuild on build1 and pulls
+ * the macOS binary back, with rbuild's local fallback when build1 is down.
+ * Other platforms, or hosts without rbuild, build locally. Source paths are
  * remapped so the payload names no mutable checkout.
  */
 export function buildNativeExecutable(
@@ -283,15 +284,40 @@ export function buildNativeExecutable(
   sourceCommit: string
 ): void {
   const { manifest, package: crate } = NATIVE_EXECUTABLES[name]
+  const macTarget = process.platform === 'darwin' && process.arch === 'arm64'
+  const rbuild = macTarget ? Bun.which('rbuild') : null
   const cargo = Bun.which('cargo')
-  if (cargo === null) {
+  if (rbuild === null && cargo === null) {
     fail(
       `cargo is not on PATH; building ${name} needs it. Put rustup's ~/.cargo/bin, or Homebrew's keg-only /opt/homebrew/opt/rustup/bin, on PATH`
     )
   }
   const targetDir = join(REPO_ROOT, 'crates', 'target', 'asp-release')
+  const built = macTarget
+    ? join(targetDir, 'aarch64-apple-darwin', 'release', crate)
+    : join(targetDir, 'release', crate)
+  // rbuild does not forward the environment. Cargo config arguments preserve
+  // the selected identity and remapping on both the remote and local paths.
+  const args = [
+    'build',
+    '--release',
+    '--locked',
+    '--manifest-path',
+    manifest,
+    '-p',
+    crate,
+    '--target-dir',
+    targetDir,
+    '--config',
+    `env.RASPD_SOURCE_COMMIT=${JSON.stringify(sourceCommit)}`,
+    '--config',
+    `build.rustflags=${JSON.stringify([`--remap-path-prefix=${REPO_ROOT}=agent-spaces`])}`,
+  ]
   const result = Bun.spawnSync({
-    cmd: [cargo, 'build', '--release', '--locked', '--manifest-path', manifest, '-p', crate],
+    cmd:
+      rbuild !== null
+        ? [rbuild, '--mac', '--pull', built, 'cargo', ...args]
+        : [cargo ?? 'cargo', ...args, ...(macTarget ? ['--target', 'aarch64-apple-darwin'] : [])],
     cwd: REPO_ROOT,
     env: {
       ...process.env,
@@ -303,10 +329,11 @@ export function buildNativeExecutable(
     stdout: 'pipe',
     stderr: 'pipe',
   })
+  process.stderr.write(result.stderr)
   if (result.exitCode !== 0) {
     fail(`failed to build ${name} with cargo: ${result.stderr.toString().trim().slice(-4000)}`)
   }
-  copyFileSync(join(targetDir, 'release', crate), payload, constants.COPYFILE_EXCL)
+  copyFileSync(built, payload, constants.COPYFILE_EXCL)
 }
 
 /**

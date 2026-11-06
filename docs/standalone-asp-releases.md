@@ -28,8 +28,11 @@ named in a running process's command line. This reuses aspd activation's referen
 scan, covering both the configured root and its real path. A failed reference or
 directory scan skips pruning. Hidden in-progress staging directories are untouched.
 Retention results or scan errors go to stderr; stdout remains the release inspection.
-The native `raspd` build requires Cargo and its locked dependencies. Bun-compiled
-payloads embed their runtime module closure. `release.json` binds supported broker drivers to workers and
+The native `raspd` build requires Cargo and its locked dependencies.
+On Apple silicon, an available `rbuild` sends the native build to build1 and pulls
+the macOS binary back; it falls back locally when build1 is unavailable. Without
+`rbuild`, or on other platforms, the native build runs locally.
+Bun-compiled payloads embed their runtime module closure. `release.json` binds supported broker drivers to workers and
 records the Claude statusline asset digest. The inspector rejects symlinks,
 writable content, executable/asset digest drift, path escape, identity mismatch,
 bindings to non-identity-bound or missing executables, and bindings absent from
