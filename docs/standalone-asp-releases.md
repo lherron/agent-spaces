@@ -22,6 +22,12 @@ supports `--release-info`; the worker also supports `drivers --json`.
 
 Builds require a clean checkout so `sourceCommit` names the exact input. The
 builder does not install Bun dependencies; prepare those before building.
+After a successful build and inspection, the builder prunes its output root,
+keeping the newest five releases, the build just completed, and any older release
+named in a running process's command line. This reuses aspd activation's reference
+scan, covering both the configured root and its real path. A failed reference or
+directory scan skips pruning. Hidden in-progress staging directories are untouched.
+Retention results or scan errors go to stderr; stdout remains the release inspection.
 The native `raspd` build requires Cargo and its locked dependencies. Bun-compiled
 payloads embed their runtime module closure. `release.json` binds supported broker drivers to workers and
 records the Claude statusline asset digest. The inspector rejects symlinks,

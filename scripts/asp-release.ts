@@ -20,6 +20,7 @@ import { createRequire } from 'node:module'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { OFFLINE_EVIDENCE_CAPABILITY } from 'spaces-harness-broker-protocol'
 import { FIXED_EXECUTABLE_RELEASE_ROOT_CAPABILITY } from './aspd-service/release-compatibility.ts'
+import { pruneReleases } from './aspd-service/release-retention.ts'
 
 const REPO_ROOT = resolve(import.meta.dir, '..')
 const RELEASE_SCHEMA = 'asp-standalone-release/v1' as const
@@ -777,7 +778,19 @@ async function buildRelease(outputRootInput: string): Promise<ReleaseInspection>
       mode: 0o644,
     })
     sealAndRename(staging, destination)
-    return inspectRelease(destination)
+    const inspection = inspectRelease(destination)
+    // Reuse activation's fail-closed live-process reference scan. Only sealed
+    // release IDs are candidates, so concurrent hidden staging dirs survive.
+    // Protect this build even if five newer builds finished in the meantime.
+    try {
+      const retention = pruneReleases(outputRoot, { activeReleaseId: id }, { keepRecent: 5 })
+      process.stderr.write(`[asp-release] retention ${JSON.stringify(retention)}\n`)
+    } catch (error) {
+      // A failed reference/directory scan keeps everything; don't fail a build
+      // that has already passed inspection.
+      process.stderr.write(`[asp-release] retention skipped: ${String(error)}\n`)
+    }
+    return inspection
   } catch (error) {
     removeTree(staging)
     throw error
