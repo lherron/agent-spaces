@@ -6,7 +6,8 @@
 ASP release. Its sole public ordinary compile RPC is
 `aspc.compileHarnessInvocation`, accepting only
 `schemaVersion: "agent-runtime-compile-request/v2"`. The request has a closed
-selection vocabulary — `agent-harness`, `claude`, `codex`, and `muse` — plus
+selection vocabulary — `agent-harness`, `claude`, `claude-hrcpty`, `codex`,
+`codex-hrcpty`, and `muse` — plus
 independent `modelProvider`, `model`, `reasoningEffort`, and boolean
 `presentation` inputs. The default harness is `agent-harness` and the default
 presentation is `true`.

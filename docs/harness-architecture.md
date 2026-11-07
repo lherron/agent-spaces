@@ -21,7 +21,7 @@ not extend this contract.
 The public harness vocabulary is closed:
 
 ```text
-agent-harness | claude | codex | muse
+agent-harness | claude | claude-hrcpty | codex | codex-hrcpty | muse
 ```
 
 `agent-harness` is the default. A request separately supplies an optional

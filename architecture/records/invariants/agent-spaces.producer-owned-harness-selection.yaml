@@ -4,8 +4,8 @@ status: active
 owner_project: agent-spaces
 scope: public harness selection, compiler recipe resolution, and singular aspd compilation
 predicate: >
-  Agent Spaces exposes exactly agent-harness, claude, codex, and muse as
-  selectable harness identities. Harness identifies the agent implementation;
+  Agent Spaces exposes exactly agent-harness, claude, claude-hrcpty, codex,
+  codex-hrcpty, and muse as selectable harness identities. Harness identifies the agent implementation;
   model provider, model, reasoning effort, and boolean presentation remain
   independent inputs. The compiler owns the sole exhaustive execution catalog
   and pure resolver. Only that catalog maps harness and presentation to a
