@@ -48,7 +48,7 @@ source:
   - wrkq:T-08699
   - wrkq:EN-15959
   - wrkq:T-08714
-  - docs/proposals/producer-owned-harness-selection.md
+  - wrkq:T-08699 attachment ATT-00425
   - contracts/spaces-runtime-contracts/src/harness-selection.ts
   - core/config/src/core/types/agent-profile.ts
   - compiler/agent-spaces/src/harness-selection/catalog.ts

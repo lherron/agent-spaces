@@ -3,7 +3,7 @@
  *
  * Proves the pure v2 resolver selects the drivers and hosting shapes fixed by
  * the approved retained-harness capability matrix
- * (docs/proposals/producer-owned-harness-selection.md, section 4).
+ * (T-08699, archived design attachment ATT-00425, section 4).
  *
  * Run: `just check-harness-selection-matrix` (or
  * `bun scripts/check-harness-selection-matrix.ts` directly) from a normal

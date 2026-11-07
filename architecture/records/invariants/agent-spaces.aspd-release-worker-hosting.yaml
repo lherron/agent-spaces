@@ -50,8 +50,8 @@ source:
   - wrkq:T-08699
   - wrkq:T-08680
   - architecture/records/invariants/agent-spaces.producer-owned-harness-selection.yaml
-  - docs/proposals/producer-owned-harness-selection.md
-  - docs/proposals/agent-harness-native-release-worker.md
+  - wrkq:T-08699 attachment ATT-00425
+  - wrkq:T-08680 attachment ATT-00423
   - wrkq:T-08594
   - wrkq:T-08561
   - commit:c6d821ce

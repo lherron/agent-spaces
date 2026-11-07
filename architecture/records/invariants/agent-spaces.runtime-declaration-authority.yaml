@@ -79,7 +79,7 @@ source:
   - compiler/agent-spaces/src/desktop-observer-preparation.ts
   - contracts/spaces-runtime-contracts/src/process-invocation.ts
   - architecture/records/invariants/agent-spaces.producer-owned-harness-selection.yaml
-  - docs/proposals/producer-owned-harness-selection.md
+  - wrkq:T-08699 attachment ATT-00425
   - "wrkq:T-09860 amendment r2 sha256:6902430b4946a44933a605da59d429a20c077e1885510e69341c40d816d2a87d"
   - core/runtime/src/task-prompt-facts.ts
   - compiler/agent-spaces/src/preparation-execution-context.ts

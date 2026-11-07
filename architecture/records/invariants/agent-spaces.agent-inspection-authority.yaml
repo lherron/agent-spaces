@@ -35,7 +35,7 @@ source:
   - harness/aspc/src/service.ts
   - contracts/aspc-protocol/src/types.ts
   - architecture/records/invariants/agent-spaces.producer-owned-harness-selection.yaml
-  - docs/proposals/producer-owned-harness-selection.md
+  - wrkq:T-08699 attachment ATT-00425
 required_tests:
   - consumer-facing catalog and inspection operations reject any path root environment clock probe scaffold or compile-option input
   - catalog and inspection DTOs contain no filesystem path or ambient environment field

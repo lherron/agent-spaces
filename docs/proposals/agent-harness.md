@@ -1,7 +1,7 @@
 # Praesidium Agent Harness
 
 - **Status:** accepted; broker-worker topology amended by T-08680 in
-  `docs/proposals/agent-harness-native-release-worker.md`
+  the native release-worker design (T-08680, attachment `ATT-00423`)
 - **Date:** 2026-08-24
 - **Author:** cody@agent-spaces
 - **Tracking:** T-07542
@@ -13,9 +13,9 @@ This page preserves the accepted August design and its original migration and
 acceptance baseline. The direct ASP source resolver, custom Pi resource loader,
 replacement-session factory, and separate foreground TUI/print paths are
 implemented. Use the [active runtime-boundary invariant](../../architecture/records/invariants/agent-spaces.agent-harness-runtime-boundary.yaml)
-and [harness architecture](../harness-architecture.md) for current contracts,
-and the [native release-worker amendment](agent-harness-native-release-worker.md)
-for the HRC worker topology. This proposal remains in its design home because
+and [harness architecture](../harness-architecture.md) for current contracts and HRC worker topology. The completed native release-worker amendment is
+preserved as attachment `ATT-00423` on T-08680; retrieve it with
+`wrkq attach get ATT-00423`. This proposal remains in its design home because
 the active invariant cites it as architectural rationale; it is not a smoke log
 or a claim that every original acceptance criterion still describes the code.
 

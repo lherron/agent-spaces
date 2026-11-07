@@ -64,7 +64,7 @@ source:
   - architecture/records/invariants/agent-spaces.harness-broker-admission.yaml
   - architecture/records/invariants/agent-spaces.harness-broker-turn-evidence.yaml
   - architecture/records/invariants/agent-spaces.harness-broker-local-commit-observation.yaml
-  - docs/proposals/producer-owned-harness-selection.md
+  - wrkq:T-08699 attachment ATT-00425
   - compiler/agent-spaces/src/compile-runtime-plan.ts
   - compiler/agent-spaces/src/broker-invocation.ts
   - harness/harness-broker/src/drivers/codex-app-server/driver.ts

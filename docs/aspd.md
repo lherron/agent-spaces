@@ -42,8 +42,10 @@ prepared or live v1 state are explicitly outside this document's scope.
 
 The governing active records are
 `agent-spaces.producer-owned-harness-selection` and
-`agent-spaces.aspd-release-worker-hosting`; the approved design is
-`docs/proposals/producer-owned-harness-selection.md`.
+`agent-spaces.aspd-release-worker-hosting`. The completed selection design is
+preserved as attachment `ATT-00425` on T-08699; retrieve it with
+`wrkq attach get ATT-00425`. Current selection vocabulary and defaults are
+defined by the [compiler catalog](../compiler/agent-spaces/src/harness-selection/catalog.ts).
 
 ## Current service operations
 

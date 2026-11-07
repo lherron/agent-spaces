@@ -35,9 +35,7 @@ Read each page's status and implementation-scope notes before treating a propose
 command or lifecycle as available. Current harness behavior is described in the
 [harness architecture](harness-architecture.md) and active architecture records.
 
-- [Producer-owned harness selection](proposals/producer-owned-harness-selection.md) — Approved design for lowering caller intent to execution recipes.
 - [Praesidium agent harness](proposals/agent-harness.md) — Accepted direct Pi resource-loader design, amended by the native release worker.
-- [Native release worker](proposals/agent-harness-native-release-worker.md) — Owner-approved immutable worker identity and headless/interactive topology.
 - [Agent resource parity verifier](proposals/agent-resource-parity-verifier.md) — Compare direct-loader and compatibility-compiler prompts and skills.
 - [Codex desktop driver](proposals/codex-desktop-driver.md) — Approved desktop participation design and verification boundaries.
 - [Agent-authored runtime resources](proposals/agent-authored-runtime-resources.md) — Desired-state resource plans; distinguishes ASP compilation from ACP lifecycle intent.
@@ -47,7 +45,9 @@ command or lifecycle as available. Current harness behavior is described in the
 ## Historical and supporting material
 
 - Harness scenario helpers — Archived optional package design, preserved byte-for-byte as attachment `ATT-00422` on completed task T-12632 (Archived optional harness scenario helper design). Retrieve with `wrkq attach get ATT-00422`; only the standalone protocol hardening prerequisite shipped, under T-06393.
-- [HRC-operated agent-harness interactive TUI](proposals/agent-harness-hrc-interactive.md) — Superseded interactive design rationale; its private wire contract is retired.
+- Producer-owned harness selection — Completed ASP v2 cutover design, preserved byte-for-byte as attachment `ATT-00425` on completed task T-08699 (Define the public v2 harness-selection contract). Retrieve with `wrkq attach get ATT-00425`; use the [compiler catalog](../compiler/agent-spaces/src/harness-selection/catalog.ts) and [public selection types](../contracts/spaces-runtime-contracts/src/harness-selection.ts) for current vocabulary and defaults.
+- Native release worker — Completed owner-approved worker design, preserved byte-for-byte as attachment `ATT-00423` on completed task T-08680 (Native agent-harness release worker). Retrieve with `wrkq attach get ATT-00423`; use the [active runtime-boundary invariant](../architecture/records/invariants/agent-spaces.agent-harness-runtime-boundary.yaml) and [native worker e2e runbook](runbooks/e2e-harness-agent-harness.md) for current guidance.
+- HRC-operated agent-harness interactive TUI — Superseded interactive rationale, preserved byte-for-byte as attachment `ATT-00424` on completed task T-08680 (Native agent-harness release worker). Retrieve with `wrkq attach get ATT-00424`; its private wire contract is retired. Use the [active runtime-boundary invariant](../architecture/records/invariants/agent-spaces.agent-harness-runtime-boundary.yaml).
 - [Harness broker proposal](harness-broker-proposal/README.md) — Historical May 2026 package boundaries and migration rationale, with routes to current guidance.
 - Claude Agent SDK smoke runbook — Historical pre-v2 evidence for the retired SDK selection path, preserved byte-for-byte as attachment `ATT-00419` on completed task T-12629 (Archived pre-v2 harness smoke runbooks). Retrieve with `wrkq attach get ATT-00419`; use the [harness architecture](harness-architecture.md) and [broker matrix guidance](../harness/harness-broker/AGENTS.md) for current acceptance.
 - Codex smoke runbook — Historical pre-v2 evidence for the earlier Codex integration, preserved byte-for-byte as attachment `ATT-00420` on completed task T-12629 (Archived pre-v2 harness smoke runbooks). Retrieve with `wrkq attach get ATT-00420`; use the [harness architecture](harness-architecture.md) and [broker matrix guidance](../harness/harness-broker/AGENTS.md) for current acceptance.
