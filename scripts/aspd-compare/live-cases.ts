@@ -79,7 +79,7 @@ export function seedLiveStage(base: string): LiveStage {
 }
 
 export type LiveSelection = {
-  /** Agents to compile, any harness; default every claude agent. */
+  /** Agents to compile, any harness; default every claude and claude-hrcpty agent. */
   agents?: string[] | undefined
   /** Projects to compile in; default every snapshotted project. */
   projects?: string[] | undefined
@@ -96,16 +96,16 @@ function profileHarness(agentsRoot: string, agent: string): string | undefined {
   return readFileSync(profile, 'utf8').match(/^harness\s*=\s*"([^"]+)"/m)?.[1]
 }
 
-/** Agents whose profile provisions the claude harness. */
+/** Agents whose profile provisions a claude harness (claude or, since 10-30, claude-hrcpty). */
 function claudeAgents(agentsRoot: string): string[] {
   return readdirSync(agentsRoot)
-    .filter((name) => profileHarness(agentsRoot, name) === 'claude')
+    .filter((name) => ['claude', 'claude-hrcpty'].includes(profileHarness(agentsRoot, name) ?? ''))
     .sort()
 }
 
 /** Bun HRC's continuation for a resume; the provider follows the harness (compile-broker-plan.ts). */
 function continuation(harness: string | undefined, key: string) {
-  const provider = harness === 'codex' ? 'openai' : 'anthropic'
+  const provider = harness === 'codex' || harness === 'codex-hrcpty' ? 'openai' : 'anthropic'
   return { hrc: { provider, key, continuationId: `cont_${key}` }, source: 'hrc' }
 }
 

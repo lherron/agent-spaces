@@ -590,9 +590,20 @@ pub struct Selection {
     pub reasoning_effort: Option<String>,
     pub harness: Harness,
     pub presentation: bool,
+    /// The catalog's hrcpty variant (claude-hrcpty, codex-hrcpty): the same
+    /// recipe hosted by hrc-pty's supervisor (catalog.ts).
+    pub hrcpty: bool,
 }
 
-/// The two harnesses raspd compiles natively.
+impl Selection {
+    /// compile-broker-plan.ts `codexTui`: presented, or codex-hrcpty, whose
+    /// two variants both compile the attachable codex-tui shape.
+    pub fn interactive(&self) -> bool {
+        self.presentation || self.hrcpty
+    }
+}
+
+/// The two recipes raspd compiles natively.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Harness {
     /// claude-code (claude-code-tmux).
@@ -694,10 +705,11 @@ pub fn resolve_selection(req: &J, profile: &Profile, target: Option<&J>) -> Resu
         .as_ref()
         .and_then(|(v, _)| v.as_str())
         .unwrap_or("agent-harness");
+    let hrcpty = matches!(harness_id, "claude-hrcpty" | "codex-hrcpty");
     let (kind, default_provider, default_model, models): (Harness, &str, &str, &[&str]) =
         match harness_id {
-            "claude" => (Harness::Claude, "anthropic", "opus[1m]", &CLAUDE_MODELS),
-            "codex" => (Harness::Codex, "openai-codex", "gpt-5.6-terra", &CODEX_MODELS),
+            "claude" | "claude-hrcpty" => (Harness::Claude, "anthropic", "opus[1m]", &CLAUDE_MODELS),
+            "codex" | "codex-hrcpty" => (Harness::Codex, "openai-codex", "gpt-5.6-terra", &CODEX_MODELS),
             _ => {
                 return Err(fwd_at(
                     "recipe_not_native",
@@ -772,6 +784,7 @@ pub fn resolve_selection(req: &J, profile: &Profile, target: Option<&J>) -> Resu
         reasoning_effort: effort_id,
         harness: kind,
         presentation: presentation.is_none_or(|(v, _)| v == J::Bool(true)),
+        hrcpty,
     })
 }
 
@@ -982,13 +995,13 @@ mod tests {
             fail(
                 &edit(
                     &["compileRequest", "requested", "harness"],
-                    Some(J::str("codex-hrcpty"))
+                    Some(J::str("agent-harness"))
                 ),
                 None
             ),
             Some((
                 "recipe_not_native",
-                "selection.harness:codex-hrcpty@compile-request".to_owned()
+                "selection.harness:agent-harness@compile-request".to_owned()
             ))
         );
         assert_eq!(

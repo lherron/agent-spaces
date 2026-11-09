@@ -15,7 +15,6 @@ use crate::json::J;
 
 pub const REQUEST_VERSION: &str = "aspc-resolve-runtime-declaration-request/v1";
 const RESPONSE_VERSION: &str = "aspc-resolve-runtime-declaration-response/v1";
-const HARNESS_CATALOG: [&str; 6] = ["agent-harness", "claude", "claude-hrcpty", "codex", "codex-hrcpty", "muse"];
 const DIRECTIVE_KEYS: [&str; 10] = [
     "harness",
     "model_provider",
@@ -504,7 +503,7 @@ fn provisioning(scalars: &[(String, J)], declared: Option<&str>) -> Result<J, An
         _ => None,
     };
     if let Some(h) = effective
-        && !HARNESS_CATALOG.contains(&h)
+        && !profile::HARNESS_IDS.contains(&h)
     {
         return Err(failure(
             "incompatible",

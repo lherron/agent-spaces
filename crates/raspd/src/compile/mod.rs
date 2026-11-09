@@ -1608,10 +1608,10 @@ fn materialize_and_emit(plan: Plan, release: &Release, phases: &mut Phases) -> R
                     target_name: &target_name,
                     bundle_root: &bundle_root,
                     cwd: &plan.cwd,
-                    interactive: plan.selection.presentation,
+                    interactive: plan.selection.interactive(),
                     hook_events: plan
                         .selection
-                        .presentation
+                        .interactive()
                         .then_some(&codex::TUI_HOOK_EVENTS[..]),
                     system_prompt: home_prompt.as_deref(),
                     reminder: home_reminder.as_deref(),
@@ -2146,7 +2146,7 @@ fn emit(
         J::obj([
             ("frontend", J::str("claude-code")),
             ("provider", J::str("anthropic")),
-            ("driver", J::str("claude-code-tmux")),
+            ("driver", J::str(claude_driver(plan.selection.hrcpty))),
         ]),
     );
     spec.set("process", process);
@@ -2171,8 +2171,8 @@ fn emit(
     spec.set(
         "driver",
         J::obj([
-            ("kind", J::str("claude-code-tmux")),
-            ("terminalHost", J::str("tmux")),
+            ("kind", J::str(claude_driver(plan.selection.hrcpty))),
+            ("terminalHost", J::str(terminal_host(plan.selection.hrcpty))),
         ]),
     );
     if matches!(&launch, J::Obj(f) if !f.is_empty()) {
@@ -2337,7 +2337,7 @@ fn emit_codex(
         .get("continuation")
         .and_then(|c| c.get("hrc"))
         .and_then(|h| h.get("key")));
-    let interactive = plan.selection.presentation;
+    let interactive = plan.selection.interactive();
     let prompt = plan.expanded_prompt.clone();
     let model = plan.selection.model.clone();
     let effort = plan
@@ -2540,29 +2540,53 @@ fn emit_codex(
     )
 }
 
-/// `toRecipeDto(recipe)` for the selected harness and presentation.
-fn recipe_dto(harness: request::Harness, presentation: bool) -> J {
-    if harness == request::Harness::Codex {
+/// The claude-code recipe's driver: claude-code-tmux, or claude-code-hrcpty
+/// for claude-hrcpty (compile-hrcpty-broker-plan.ts).
+fn claude_driver(hrcpty: bool) -> &'static str {
+    if hrcpty {
+        "claude-code-hrcpty"
+    } else {
+        "claude-code-tmux"
+    }
+}
+
+fn terminal_host(hrcpty: bool) -> &'static str {
+    if hrcpty { "hrcpty" } else { "tmux" }
+}
+
+/// `toRecipeDto(recipe)` for the selected harness variant and presentation
+/// (catalog.ts executionVariants).
+fn recipe_dto(selection: &request::Selection) -> J {
+    let hrcpty = selection.hrcpty;
+    let host = terminal_host(hrcpty);
+    let process_execution = if hrcpty {
+        "supervisor-process"
+    } else {
+        "broker-process"
+    };
+    if selection.harness == request::Harness::Codex {
+        // codex-hrcpty hosts both variants on a terminal.
+        let terminal = selection.interactive();
         let mut hosting = J::obj([
             ("executionTransport", J::str("jsonrpc-stdio")),
-            ("terminalRequired", J::Bool(presentation)),
+            ("terminalRequired", J::Bool(terminal)),
         ]);
-        if presentation {
-            hosting.set("terminalHost", J::str("tmux"));
+        if terminal {
+            hosting.set("terminalHost", J::str(host));
         }
-        hosting.set("processExecution", J::str("broker-process"));
+        hosting.set("processExecution", J::str(process_execution));
         let mut dto = J::obj([
             ("recipeId", J::str("codex-app-server")),
             ("driver", J::str("codex-app-server")),
             ("protocol", J::str("harness-broker/0.2")),
             ("hosting", hosting),
         ]);
-        if presentation {
+        if terminal {
             dto.set(
                 "presentationSurface",
                 J::obj([
                     ("transport", J::str("websocket-unix")),
-                    ("terminalHost", J::str("tmux")),
+                    ("terminalHost", J::str(host)),
                 ]),
             );
         }
@@ -2571,15 +2595,15 @@ fn recipe_dto(harness: request::Harness, presentation: bool) -> J {
     }
     J::obj([
         ("recipeId", J::str("claude-code")),
-        ("driver", J::str("claude-code-tmux")),
+        ("driver", J::str(claude_driver(hrcpty))),
         ("protocol", J::str("harness-broker/0.2")),
         (
             "hosting",
             J::obj([
                 ("executionTransport", J::str("pty")),
                 ("terminalRequired", J::Bool(true)),
-                ("terminalHost", J::str("tmux")),
-                ("processExecution", J::str("broker-process")),
+                ("terminalHost", J::str(host)),
+                ("processExecution", J::str(process_execution)),
             ]),
         ),
         ("presentationFulfillment", J::str("intrinsic")),
@@ -2615,7 +2639,7 @@ fn finalize(
     let req = &plan.req;
     let policy = req.get("hrcPolicy").expect("validated");
     let codex = plan.selection.harness == request::Harness::Codex;
-    let recipe = recipe_dto(plan.selection.harness, plan.selection.presentation);
+    let recipe = recipe_dto(&plan.selection);
     let recipe_id = s(recipe.get("recipeId")).unwrap_or_default().to_owned();
     let neutral = neutral_start_request(&start_request);
     let spec = neutral.get("spec").cloned().unwrap_or(J::Null);
@@ -2778,7 +2802,7 @@ fn finalize(
             (
                 "message",
                 J::str(
-                    "hrcPolicy.disallowedTools was not applied for codex-app-server; only claude-code-tmux currently supports compiler-enforced tool denial.",
+                    "hrcPolicy.disallowedTools was not applied for codex-app-server; only claude-code-tmux and claude-code-hrcpty currently support compiler-enforced tool denial.",
                 ),
             ),
             ("plane", J::str("asp-compiler")),
@@ -2888,7 +2912,7 @@ fn finalize(
     let worker = if codex {
         "codex-app-server"
     } else {
-        "claude-code-tmux"
+        claude_driver(plan.selection.hrcpty)
     };
     let execution_release = execution_release(release, protocol, worker)?;
     Ok(J::obj([

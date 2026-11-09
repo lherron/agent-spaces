@@ -80,7 +80,7 @@ pub fn observe(request: &J) -> Answer {
         };
         return Answer::Result(success(requested, native, preparation, diagnostics, env));
     }
-    let command = if requested == "claude" {
+    let command = if matches!(requested, "claude" | "claude-hrcpty") {
         find_command("ASP_CLAUDE_PATH", "claude", env)
     } else {
         find_command("ASP_MUSE_PATH", "muse", env)
@@ -459,7 +459,7 @@ fn success(
     env: &Env,
 ) -> J {
     let provider = match requested {
-        "claude" => "anthropic",
+        "claude" | "claude-hrcpty" => "anthropic",
         "muse" => "meta",
         _ => "openai-codex",
     };

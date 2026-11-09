@@ -290,8 +290,8 @@ fn inspect(params: &J, release: &Release, phases: &mut Phases) -> Result<J, Fwd>
         Some(_) => return Err(fwd("inspect_harness_unknown")),
     };
     let provider = match harness.as_str() {
-        "claude" => "anthropic",
-        "codex" => "openai-codex",
+        "claude" | "claude-hrcpty" => "anthropic",
+        "codex" | "codex-hrcpty" => "openai-codex",
         // agent-harness and muse compile through recipes raspd does not build.
         _ => return Err(fwd_at("inspect_harness", harness)),
     };

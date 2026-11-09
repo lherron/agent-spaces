@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { Database } from 'bun:sqlite'
 /**
  * Scratch E2E for R3a Native compile (T-11841, docs/proposals/aspd-rust-front-door.md).
  *
@@ -28,10 +29,19 @@
  * `.asp-runtime.lock`); the forwarded requests are muse and a registry-space
  * codex compile; births are a cold cody seat and its resume.
  *
+ * `--harness claude-hrcpty` / `--harness codex-hrcpty` (T-12837) runs them for
+ * the hrcpty ids, which the fleet's profiles provision since 10-30: the native
+ * control and latency cases are the hrcpty ones, the forwarded requests are
+ * agent-harness, muse and a registry-space hrcpty compile, and the births
+ * (tabularasa and cody, whose canonical profiles name the hrcpty ids) also
+ * record the driver and terminal host HRC launched them with. Racing writers
+ * are R3a/R3b's; run with `--rounds 0`. `--birth-servers rusthrc` births
+ * through rusthrc only (default bun,rusthrc).
+ *
  * Usage: bun scripts/raspd-native-compile-e2e.ts [--out <dir>] [--commit <sha>]
  *          [--release-artifact <built release dir>] [--raspd-binary <path>]
  *          [--rusthrc <path>] [--rounds <n>] [--iterations <n>] [--no-births]
- *          [--harness claude|codex]
+ *          [--harness claude|codex|claude-hrcpty|codex-hrcpty] [--birth-servers bun,rusthrc]
  */
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
 import {
@@ -67,11 +77,19 @@ const stamp = new Date()
   .toISOString()
   .replace(/[-:]/g, '')
   .replace(/\.\d+Z$/, 'Z')
-const codex = arg('--harness') === 'codex'
-const out = resolve(
-  arg('--out') ??
-    join(repo, '..', 'var', 'wrkq-artifacts', codex ? 'T-11932' : 'T-11841', 'e2e', stamp)
-)
+const harness = arg('--harness') ?? 'claude'
+const codex = harness === 'codex' || harness === 'codex-hrcpty'
+const hrcpty = harness.endsWith('-hrcpty')
+const task = hrcpty ? 'T-12837' : codex ? 'T-11932' : 'T-11841'
+const out = resolve(arg('--out') ?? join(repo, '..', 'var', 'wrkq-artifacts', task, 'e2e', stamp))
+/** The native case the control and latency drive. */
+const nativeCase = hrcpty
+  ? codex
+    ? 'compile:codex-hrcpty:full'
+    : 'compile:claude-hrcpty:dev'
+  : codex
+    ? 'compile:codex-tui:full'
+    : 'compile:claude-code:dev'
 mkdirSync(out, { recursive: true })
 const rounds = Number(arg('--rounds') ?? '3')
 const iterations = Number(arg('--iterations') ?? '40')
@@ -576,15 +594,25 @@ record('race.json', {
   // Bun stopped: anything raspd relays fails upstream, so any write is raspd's.
   await stopChild(pair.children[1] as ChildProcess)
   // Each forward names the value that decided it (T-11921 fallbackDetail).
-  const forwarded = codex
+  const forwarded = hrcpty
     ? ([
+        [
+          'compile:agent-harness-headless',
+          'recipe_not_native',
+          /^selection\.harness:agent-harness@/,
+        ],
         ['compile:muse-serve', 'recipe_not_native', /^selection\.harness:muse@/],
-        ['compile:codex-tui:pinned', 'registry_space', /^compose:space:.+@/],
+        ['compile:claude-hrcpty:pinned', 'registry_space', /^compose:space:.+@/],
       ] as const)
-    : ([
-        ['compile:claude-code', 'registry_space', /^compose:space:.+@/],
-        ['compile:muse-serve', 'recipe_not_native', /^selection\.harness:muse@/],
-      ] as const)
+    : codex
+      ? ([
+          ['compile:muse-serve', 'recipe_not_native', /^selection\.harness:muse@/],
+          ['compile:codex-tui:pinned', 'registry_space', /^compose:space:.+@/],
+        ] as const)
+      : ([
+          ['compile:claude-code', 'registry_space', /^compose:space:.+@/],
+          ['compile:muse-serve', 'recipe_not_native', /^selection\.harness:muse@/],
+        ] as const)
   const results: unknown[] = []
   for (const [id, reason, detail] of forwarded) {
     const before = tree(stage.base)
@@ -627,7 +655,7 @@ record('race.json', {
     pair.front,
     'r3e2e/forward',
     'aspc.compileHarnessInvocation',
-    caseParams(stage, codex ? 'compile:codex-tui:full' : 'compile:claude-code:dev')
+    caseParams(stage, nativeCase)
   )
   const changed = treeDiff(before, tree(stage.base))
   check(
@@ -652,7 +680,7 @@ record('race.json', {
     CLAUDE_CONFIG_DIR: claudeConfig,
   })
   const pair = await startPair('lat-pair', env)
-  const latencyCase = codex ? 'compile:codex-tui:full' : 'compile:claude-code:dev'
+  const latencyCase = nativeCase
   const params = caseParams(stage, latencyCase)
   const time = async (socket: string, client = 'r3e2e/latency') => {
     const times: number[] = []
@@ -814,10 +842,24 @@ if (!process.argv.includes('--no-births')) {
     }
   }
   const births: Record<string, unknown> = {}
-  for (const [kind, argv] of [
-    ['bun', [...hrcCli, 'server', 'serve']],
-    ['rusthrc', [RUSTHRC, 'server']],
-  ] as const) {
+  const birthServers = (arg('--birth-servers') ?? 'bun,rusthrc').split(',')
+  if (!birthServers.includes('bun')) {
+    // rusthrc opens an existing Bun store only; Bun hrc creates it on boot.
+    const boot = spawn(hrcCli[0] as string, [...hrcCli.slice(1), 'server', 'serve'], {
+      cwd: projectRoot,
+      env: daemonEnv(env),
+      stdio: ['ignore', 'ignore', 'ignore'],
+    })
+    for (let i = 0; i < 300 && (await status()) !== 200 && boot.exitCode === null; i++)
+      await Bun.sleep(100)
+    await stopChild(boot)
+  }
+  for (const [kind, argv] of (
+    [
+      ['bun', [...hrcCli, 'server', 'serve']],
+      ['rusthrc', [RUSTHRC, 'server']],
+    ] as const
+  ).filter(([kind]) => birthServers.includes(kind))) {
     const from = readLog(pair.raspdLog).length
     const server = spawn(argv[0], argv.slice(1), {
       cwd: projectRoot,
@@ -834,8 +876,8 @@ if (!process.argv.includes('--no-births')) {
       if (!ready) await Bun.sleep(100)
     }
     const scope = codex
-      ? `agent:cody:project:project:task:T-11932-${kind}`
-      : `agent:tabularasa:project:project:task:T-11841-${kind}`
+      ? `agent:cody:project:project:task:${task}-${kind}`
+      : `agent:tabularasa:project:project:task:${task}-${kind}`
     const turn = (word: string) =>
       ready
         ? spawnSync(
@@ -893,6 +935,31 @@ if (!process.argv.includes('--no-births')) {
     const resumedRuntimes = codex ? listRuntimes() : []
     terminateAll(resumedRuntimes)
     await stopChild(server)
+    // How HRC hosted each runtime of the scope: its transport (hrcpty for the
+    // hrc-pty supervisor), the selected harness and the broker driver.
+    const stateDb = join(root, 'state', 'state.sqlite')
+    const launched: Array<Record<string, unknown>> = []
+    if (existsSync(stateDb)) {
+      // WAL store: a readonly handle cannot map its -shm; this is the scratch store.
+      const db = new Database(stateDb)
+      try {
+        launched.push(
+          ...(db
+            .query(
+              `select r.runtime_id as runtimeId, r.transport as transport,
+                 json_extract(r.runtime_state_json, '$.selection.harness') as harness,
+                 b.broker_driver as brokerDriver,
+                 json_extract(b.start_request_projection_json, '$.spec.driver.terminalHost') as terminalHost,
+                 json_extract(b.start_request_projection_json, '$.spec.driver.resumeThreadId') as resumeThreadId
+               from runtimes r left join broker_invocations b on b.runtime_id = r.runtime_id
+               where r.scope_ref = ? order by r.created_at`
+            )
+            .all(scope) as Array<Record<string, unknown>>)
+        )
+      } finally {
+        db.close()
+      }
+    }
     // Broker tmux servers are per runtime; a terminate the server did not
     // carry out must not leave a seat running after the test.
     const btmux = join(root, 'run', 'btmux')
@@ -917,6 +984,7 @@ if (!process.argv.includes('--no-births')) {
     births[kind] = {
       ready,
       scope,
+      launched,
       start: start && {
         status: start.status,
         stdout: start.stdout.slice(-3000),
@@ -946,6 +1014,19 @@ if (!process.argv.includes('--no-births')) {
         compiles.every((r) => r['servedBy'] === 'native'),
       births[kind]
     )
+    if (hrcpty) {
+      check(
+        `${kind} hrc: every ${harness} runtime of the seat was hosted by hrc-pty (transport hrcpty, broker driver ${codex ? 'codex-app-server' : 'claude-code-hrcpty'})`,
+        launched.length >= (codex ? 2 : 1) &&
+          launched.every(
+            (r) =>
+              r['transport'] === 'hrcpty' &&
+              r['harness'] === harness &&
+              r['brokerDriver'] === (codex ? 'codex-app-server' : 'claude-code-hrcpty')
+          ),
+        launched
+      )
+    }
     if (codex) {
       check(
         `${kind} hrc: the codex seat's resume births from a raspd-native compile and completes its turn`,

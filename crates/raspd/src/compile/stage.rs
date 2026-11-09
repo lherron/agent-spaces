@@ -1119,18 +1119,19 @@ pub fn publish_target(
                     ("harnessId", J::str(DEFAULT_HARNESS)),
                     ("targetName", J::str(input.target_name)),
                 ]);
-                if !input.path_exclude.is_empty() {
-                    manifest.set(
-                        "pathExclude",
-                        J::Arr(input.path_exclude.iter().map(J::str).collect()),
-                    );
-                }
                 manifest.set("identity", input.identity.clone());
                 manifest.set("generatedAt", J::str(now_iso()));
                 manifest.set(
                     "requiredPaths",
                     J::Arr(required.into_iter().map(J::Str).collect()),
                 );
+                // materialize-target.ts writes pathExclude last.
+                if !input.path_exclude.is_empty() {
+                    manifest.set(
+                        "pathExclude",
+                        J::Arr(input.path_exclude.iter().map(J::str).collect()),
+                    );
+                }
                 write(
                     &join(&[&staging_output, ".asp-materialized.json"]),
                     &format!("{}\n", manifest.to_json_pretty()),

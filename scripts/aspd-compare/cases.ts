@@ -60,6 +60,9 @@ const PARTICIPANT_AGENT = 'pathmark-participant'
 const CODEX_AGENT = 'pathmark-codex'
 /** A file only the project root holds; the codex template gates a reminder on it. */
 const PROJECT_GATE = 'pm-project-gate'
+/** Agents whose profile provisions an hrcpty harness, the live shape since 10-30 (T-12837). */
+const CLAUDE_HRCPTY_AGENT = 'pathmark-claude-hrcpty'
+const CODEX_HRCPTY_AGENT = 'pathmark-codex-hrcpty'
 
 /**
  * A mutable space with everything the Codex adapter materializes: skills,
@@ -165,6 +168,24 @@ export function seedStage(asp: Asp, base: string): Stage {
   writeFileSync(
     join(fixture.agentsRoot, PARTICIPANT_AGENT, 'agent-profile.toml'),
     'version = 4\n\n[placement]\nlaunch = "participant-only"\n\n[spaces]\nbase = ["space:pm-dev@dev"]\n'
+  )
+  // T-12837: harness-source agent-profile, as max3's fleet provisions hrcpty.
+  // Both compose a space with a [path] exclude (the prae-only shape), which
+  // reaches the bundle manifest, the fingerprint and the launch PATH.
+  writeSpace(fixture.agentsRoot, 'pm-path')
+  writeFileSync(
+    join(fixture.agentsRoot, 'spaces', 'pm-path', 'space.toml'),
+    'schema = 1\nid = "pm-path"\nversion = "1.0.0"\ndescription = "path exclude fixture"\n\n[plugin]\nname = "pm-path"\n\n[path]\nexclude = ["pm-hidden-b", "pm-hidden-a"]\n'
+  )
+  writeAgent(fixture.agentsRoot, CLAUDE_HRCPTY_AGENT, [])
+  writeFileSync(
+    join(fixture.agentsRoot, CLAUDE_HRCPTY_AGENT, 'agent-profile.toml'),
+    'version = 4\npriming = "pathmark priming for {{agentId}}"\n\n[provisioning]\nharness = "claude-hrcpty"\nmodel = "opus"\nreasoning_effort = "high"\n\n[spaces]\nbase = ["space:pm-dev@dev", "space:pm-claude-only@dev", "space:pm-path@dev"]\n'
+  )
+  writeAgent(fixture.agentsRoot, CODEX_HRCPTY_AGENT, [])
+  writeFileSync(
+    join(fixture.agentsRoot, CODEX_HRCPTY_AGENT, 'agent-profile.toml'),
+    'version = 4\npriming = "pathmark priming for {{agentId}}"\n\n[provisioning]\nharness = "codex-hrcpty"\nmodel = "gpt-6.1-sol"\nreasoning_effort = "medium"\npresentation = true\n\n[spaces]\nbase = ["space:pm-dev@dev", "space:pm-path@dev"]\n'
   )
   // A codex rollout under the recorded-placement codex home of pathmark-dev.
   const codexHomeDev = join(fixture.aspHome, 'codex-homes', 'project_pathmark-dev')
@@ -456,8 +477,15 @@ function inspectCases(stage: Stage): CallCase[] {
         },
       })
     ),
+    // T-12837: hrcpty by directive and by profile (no directive).
+    inspect('inspect:claude-hrcpty:preview', preview('pathmark-dev', 'claude-hrcpty')),
+    inspect('inspect:codex-hrcpty:preview', preview('pathmark-dev', 'codex-hrcpty')),
+    inspect('inspect:claude-hrcpty:profile', preview(CLAUDE_HRCPTY_AGENT)),
+    inspect('inspect:codex-hrcpty:profile', preview(CODEX_HRCPTY_AGENT)),
+    inspect('inspect:codex-hrcpty:full', preview(CODEX_AGENT, 'codex-hrcpty')),
     // A git-pinned space: forwarded before any write (T-11825).
     inspect('inspect:claude:pinned', preview('pathmark', 'claude')),
+    inspect('inspect:claude-hrcpty:pinned', preview('pathmark', 'claude-hrcpty')),
     inspect('inspect:muse', preview('pathmark-dev', 'muse')),
     inspect('inspect:agent_not_found', preview('pm-nobody', 'claude')),
     inspect('inspect:agent_profile_invalid', preview('pm-broken', 'claude')),
@@ -490,6 +518,8 @@ function capabilityCases(stage: Stage): CallCase[] {
   return [
     observe('capability:claude', 'claude'),
     observe('capability:codex', 'codex'),
+    observe('capability:claude-hrcpty', 'claude-hrcpty'),
+    observe('capability:codex-hrcpty', 'codex-hrcpty'),
     observe('capability:agent-harness', 'agent-harness'),
     observe('capability:muse', 'muse'),
     observe('capability:codex:infer-from-cwd', 'codex', {
@@ -643,6 +673,92 @@ function compileCases(asp: Asp, stage: Stage): CallCase[] {
     // A git-pinned space: forwarded before any write; Bun throws on it (T-11825).
     compile('compile:codex-tui:pinned', codexRow('codex-tui-pinned', true, 'pathmark')),
   ]
+  // T-12837: the hrcpty ids. claude-hrcpty is recipe claude-code on the
+  // claude-code-hrcpty driver; codex-hrcpty is codex-app-server whose two
+  // presentation variants both compile the codex-tui shape on hrcpty. Each is
+  // driven by the compile request and by the agent profile (the live source).
+  const claudeHrcpty = (id: string, agent: string, harness?: string, resume?: boolean): Row => ({
+    id,
+    requested: harness === undefined ? {} : { harness, presentation: true },
+    agent,
+    ...(resume === true ? { resume } : {}),
+  })
+  const codexHrcpty = (id: string, agent: string, presentation?: boolean): Row => ({
+    id,
+    requested: presentation === undefined ? {} : { harness: 'codex-hrcpty', presentation },
+    agent,
+  })
+  const hrcptyCases = [
+    compile(
+      'compile:claude-hrcpty:dev',
+      claudeHrcpty('claude-hrcpty', 'pathmark-dev', 'claude-hrcpty')
+    ),
+    compile(
+      'compile:claude-hrcpty-resume:dev',
+      claudeHrcpty('claude-hrcpty-resume', 'pathmark-dev', 'claude-hrcpty', true)
+    ),
+    compile(
+      'compile:claude-hrcpty:dev:summon-model',
+      claudeHrcpty('claude-hrcpty', 'pathmark-dev', 'claude-hrcpty'),
+      { model: 'sonnet' }
+    ),
+    birth(
+      'compile:claude-hrcpty:dev:birth',
+      claudeHrcpty('claude-hrcpty', 'pathmark-dev', 'claude-hrcpty')
+    ),
+    compile(
+      'compile:claude-hrcpty:profile',
+      claudeHrcpty('claude-hrcpty-profile', CLAUDE_HRCPTY_AGENT)
+    ),
+    birth(
+      'compile:claude-hrcpty:profile:birth',
+      claudeHrcpty('claude-hrcpty-profile', CLAUDE_HRCPTY_AGENT)
+    ),
+    birth(
+      'compile:claude-hrcpty-resume:profile:birth',
+      claudeHrcpty('claude-hrcpty-profile-resume', CLAUDE_HRCPTY_AGENT, undefined, true)
+    ),
+    compile('compile:codex-hrcpty:dev', codexHrcpty('codex-hrcpty', 'pathmark-dev', true)),
+    compile(
+      'compile:codex-hrcpty-headless:dev',
+      codexHrcpty('codex-hrcpty-headless', 'pathmark-dev', false)
+    ),
+    codexResume(
+      compile(
+        'compile:codex-hrcpty-resume:dev',
+        codexHrcpty('codex-hrcpty-resume', 'pathmark-dev', true)
+      )
+    ),
+    birth('compile:codex-hrcpty:dev:birth', codexHrcpty('codex-hrcpty', 'pathmark-dev', true)),
+    compile('compile:codex-hrcpty:full', codexHrcpty('codex-hrcpty-full', CODEX_AGENT, true)),
+    birth('compile:codex-hrcpty:full:birth', codexHrcpty('codex-hrcpty-full', CODEX_AGENT, true)),
+    compile(
+      'compile:codex-hrcpty:profile',
+      codexHrcpty('codex-hrcpty-profile', CODEX_HRCPTY_AGENT)
+    ),
+    birth(
+      'compile:codex-hrcpty:profile:birth',
+      codexHrcpty('codex-hrcpty-profile', CODEX_HRCPTY_AGENT)
+    ),
+    codexResume(
+      birth(
+        'compile:codex-hrcpty-resume:profile:birth',
+        codexHrcpty('codex-hrcpty-profile-resume', CODEX_HRCPTY_AGENT)
+      )
+    ),
+    compile(
+      'compile:codex-hrcpty:profile:summon-effort',
+      codexHrcpty('codex-hrcpty-profile', CODEX_HRCPTY_AGENT),
+      {
+        reasoning_effort: 'high',
+      }
+    ),
+    // A git-pinned space still forwards before any write.
+    compile(
+      'compile:claude-hrcpty:pinned',
+      claudeHrcpty('claude-hrcpty-pinned', 'pathmark', 'claude-hrcpty')
+    ),
+  ]
   return [
     ...ROWS.map((row) => compile(`compile:${row.id}`, row)),
     compile('compile:claude-code:summon-model', byId('claude-code'), { model: 'sonnet' }),
@@ -653,6 +769,7 @@ function compileCases(asp: Asp, stage: Stage): CallCase[] {
     birth('compile:claude-code:dev:birth', dev(byId('claude-code'))),
     birth('compile:claude-code-resume:dev:birth', dev(byId('claude-code-resume'))),
     ...codexCases,
+    ...hrcptyCases,
     compile('compile:claude-code:prune', {
       ...byId('claude-code'),
       id: 'claude-code-prune',
