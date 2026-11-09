@@ -99,6 +99,7 @@ mkdir <root>/init-probe && cd <root>/init-probe && asp init && cat asp-targets.t
 project-space plugins); `gc --dry-run` deletes nothing; `upgrade` updates both targets; the add/remove legs keep
 the other target locked, leave the file unchanged on failure and keep its comments.
 
-Driven 2026-11-02 on scratch `t-12323` against checkout c9f35e8f plus T-12326's uncommitted work, re-confirmed at
-356f3344 (T-12323): `var/wrkq-artifacts/T-12323/02-install-build/drive.txt`, `live/final-head-redrive.txt`. Source
-only: the `add`/`remove` reinstall fetch (driven with `--no-install` to keep the shared root unwritten).
+Driven 2026-11-09 on scratch `t-12763` against checkout 93d96239 (T-12763):
+`var/wrkq-artifacts/T-12763/02-install-build/drive.txt` (T-11376, T-11377 and T-12329 reproduce; shared-root
+`FETCH_HEAD` mtime unchanged across the drive). Source only: the `add`/`remove` reinstall fetch (driven with
+`--no-install` to keep the shared root unwritten) and the bundle prune constants (`store/gc.ts:18-19`: keep 3, 15 min).

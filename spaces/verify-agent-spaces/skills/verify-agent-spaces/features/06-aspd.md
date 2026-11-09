@@ -16,14 +16,15 @@ validators in `contracts/aspc-protocol/src/{types,schemas,inspection-params}.ts`
   `var/spaces-repo` by hand, not the init default.
 - `aspd-activate <ns> <releaseId>`: retire the running daemon, record the selection, start the release, and finish
   only when `aspc.hello` answers with that release's identity; it returns `{activation, beganAt, retired, started,
-  completedAt, executableMode}` plus `stableExecutables` in fixed mode and `raspdRetired`/`raspdStarted` when fronted. `aspd-start` (a second start returns `alreadyRunning`; a running release other than the selection
+  completedAt, executableMode, retention}` plus `stableExecutables` in fixed mode and `raspdRetired`/`raspdStarted` when fronted. `aspd-start` (a second start returns `alreadyRunning`; a running release other than the selection
   refuses `activate instead`), `aspd-stop` (`{stopped: false, reason: "not running"}` when stopped), `aspd-restart`.
 - `supervise <ns> <label>` (script only, no recipe) hands the namespace to launchd (the system namespace is
   `com.praesidium.aspd`): it writes `~/Library/LaunchAgents/<label>.plist` and `service/launchd-run.sh`, adopts the
   plist with `praesidium-adopt` (ProgramArguments start with `~/.local/bin/praesidium-launch`;
   `AssociatedBundleIdentifiers` `com.praesidium.AgentHost`), re-adopts before every bootstrap, and retries a
-  bootstrap error 5 for up to 4 attempts in all, 2 s apart (`BOOTSTRAP_ATTEMPTS`, `aspd-service/launchd.ts:15-16`;
-  T-10818). Then stop is `bootout`, restart `kickstart -k`.
+  bootstrap error 5 for up to 4 attempts in all, 2 s apart (`BOOTSTRAP_ATTEMPTS`, `aspd-service/launchd.ts:22-23`;
+  T-10818). Both plists set `ProcessType` `Interactive` (9f963a91, T-12535; without it launchd ran the daemons at
+  PRI 20). Then stop is `bootout`, restart `kickstart -k`.
 - **Stable executables (T-12225, d6e8c923/c9f35e8f).** Activating a release whose `release.json` `capabilities` lists
   `aspd.fixed-executable-release-root/v1` (built at or after c9f35e8f) stops the daemons, copies
   `<release>/libexec/{aspd,raspd}` to `<ns>/bin/`, re-signs them `codesign -i com.praesidium.{aspd,raspd}` (ad hoc
@@ -33,6 +34,13 @@ validators in `contracts/aspc-protocol/src/{types,schemas,inspection-params}.ts`
   "legacy-release"` and one `{"event":"stable-exec.legacy-fallback",…}` line in `activations.ndjson`. Rolling back to
   a pre-c9f35e8f release takes that path. The release top-level `aspd`/`raspd` are now small launcher scripts
   (`--release-info`, then `exec libexec/<name>`), so `cmp <release>/aspd <ns>/bin/aspd` always differs.
+- **Release retention at activation (21f205f3, R-00600).** After a successful activation, `<ns>/releases` is pruned
+  to the active release, the previous selection, the newest 3 by release-id timestamp, and any release whose path a
+  running process names on its command line (`ps -Ao command`; `scripts/aspd-service/release-retention.ts`). The
+  activation result's `retention` is `{kept, removed, inUse, failed}`, also in `activations.ndjson`; `aspd-status`
+  does not show it. A failed `ps` removes nothing and never fails the activation. So a rollback reaches only releases
+  retention kept, and any seat's `just install` prunes the system namespace: on 2026-11-08 it kept 8, all in use by
+  long-lived seats' `harness-broker` processes, and 057de3dc (the last legacy system release) was gone.
 - `aspd-status <ns>`: `namespace`, `socketPath`, `supervisor` and `launchdPid` (both null when unsupervised),
   installed releases, `selectedRelease`, `runningProcess` (with `executablePath` in fixed mode), `serving` (the live
   `aspc.hello` reply, or `{unavailable}`), `runningEqualsSelected`, `frontDoor` (`{mode: "direct", bunSocket,
@@ -89,11 +97,14 @@ just aspd-init $NS; just aspd-status $NS                  # serving unavailable,
 just aspd-activate $NS <releaseId>                         # started pid, serving hello, readyAt
 avs aspc $NS/run/aspd.sock aspc.catalogAgents "{\"evaluationContext\": $(cat $CTX)}"
 just aspd-front-door-enable $NS; just aspd-front-door-status $NS; just aspd-front-door-disable $NS
-just install-asp-release ~/praesidium/var/aspd/releases/<pre-c9f35e8f id> $NS/releases
-just aspd-activate $NS <pre-c9f35e8f id>                   # executableMode legacy-release; grep legacy-fallback $NS/service/activations.ndjson
+just install-asp-release $LEGACY $NS/releases                # a pre-c9f35e8f release; see Gotchas for where one survives
+sh -c 'sleep 300; :' $NS/releases/<older id>/libexec/harness-broker >/dev/null 2>&1 &   # holds one release "in use"
+just aspd-activate $NS <legacy id>                         # executableMode legacy-release; one legacy-fallback line; retention keeps the held one
+just aspd-activate $NS <fixed id>                          # after killing the sleeper: retention.removed names it
 just aspd-stop $NS; just aspd-status $NS                   # runningProcess null, unavailable
 just aspd-status ~/praesidium/var/aspd                     # same launchdPid and raspdLaunchdPid: untouched
-bun test scripts/aspd-service.test.ts                      # 13: launch script, stable exec (legacy, ad hoc, recopy), adoption, error-5 retry
+bun test scripts/aspd-service.test.ts scripts/aspd-service-retention.test.ts   # 13 + 2: launch script, stable exec, adoption, error-5 retry, retention
+plutil -extract ProcessType raw ~/Library/LaunchAgents/com.praesidium.aspd.plist   # Interactive (raspd too)
 ```
 
 Run the scratch verbs as `bun scripts/aspd-service.ts <verb> $NS` (the `just` recipes post a `run.settled` fact) with
@@ -108,11 +119,10 @@ seat variables.
   the public listener = `frontDoor.publicFrontDoor.sourceCommit` (compiled into `bin/raspd`; raspd does not check it
   against the release), also `version.frontDoor.sourceCommit` over the socket. The signing identity is only in the
   activation record and `codesign -dv <ns>/bin/<prog>`. `just install`'s post-check reads only
-  `runningEqualsSelected` and `serving.release.sourceCommit`. On 2026-11-02 at 09:23Z all three named c9f35e8f
-  (`asp-c9f35e8f9127-20261101T105117Z-eb1b50`, fixed, ad hoc) while the checkout moved on; another seat's `just install`
-  at 10:04Z activated `asp-356f33447e05-20261102T100431Z-a4baca` (T-12326/T-12327) and all three then named 356f3344,
-  with new pids. Re-read status at the end of a pass before quoting the deployed release (`T-12323/live/system-aspd.txt`,
-  `live/system-aspd-final.txt`).
+  `runningEqualsSelected` and `serving.release.sourceCommit`. On 2026-11-09 all three named 93d96239
+  (`asp-93d96239dd19-20261108T171836Z-eb8384`, fixed, ad hoc). Another seat's `just install` can move them mid-pass (it
+  did at 10:04Z on 2026-11-02); re-read status at the end of a pass before quoting the deployed release
+  (`T-12763/06-aspd/drive.txt`, `live/system-aspd-final.txt`).
 - `$CTX` for the catalog is feature 4's evaluation-context file; over the socket the same 52 agents came back as from
   `asp agents catalog`, from both the system and the scratch daemon (2026-11-02, `T-12323/06-aspd/drive.txt`).
 - **The system namespace is fronted and supervised** (since 2026-10-26T13:04Z, `activations.ndjson`): config
@@ -129,6 +139,14 @@ seat variables.
   a stub `launchctl` first on PATH that runs the plist's ProgramArguments into its StandardOutPath; keep the scratch
   socket path under 104 bytes (`T-11719` artifacts). Fronting a scratch namespace is safe unsupervised (the raspd label
   is used only when supervised); a supervised scratch with the default label would collide with `com.praesidium.raspd`.
+- **No legacy release is left on the system namespace or the default build root** (retention, above). A pre-c9f35e8f
+  release survives at `~/praesidium/var/scratch/agent-spaces/T-12156/releases/asp-d0ae39b62d90-20261030T144744Z-19b3fa`
+  (capabilities `harness-broker.offline-evidence/v1` only, raspd present); use it as `$LEGACY`, or build one in a
+  scratch clone at a commit before c9f35e8f (2026-11-09, `T-12763/06-aspd/drive.txt`).
+- To see retention on a scratch namespace, install more than five releases first: with seven installed, activating
+  the legacy one while a sleeper held af8c8306 removed 2336a218 and 356f3344 and kept af8c8306 as `inUse`; the next
+  fixed activation then removed af8c8306 (2026-11-09, `T-12763/06-aspd/activate-{legacy,fixed}.json`). Detach any such
+  sleeper (`>/dev/null 2>&1 &`) or `avs rec` waits on it.
 - A scratch activation in fixed mode writes and ad-hoc signs `<ns>/bin/*` inside the scratch: no keychain, no system
   write (2026-11-02, `T-12323/06-aspd/drive.txt`).
 - An unsupervised namespace logs to `<logDir>/aspd-<releaseId>-<startedAt>.log`, not `aspd.log`; `logDir` is
@@ -157,16 +175,19 @@ that `git log` resolves and equals `version.frontDoor.sourceCommit`, and `runnin
 catalog call relayed (`servedBy: bun`). The scratch namespace goes unavailable → activated on a fixed-exec release
 (`executableMode: fixed`, ad-hoc `com.praesidium.aspd` copy, `--release-root`) → serving the catalog →
 `alreadyRunning` → fronted (9 native ops, catalog relayed `servedBy: bun`) → direct again → activated on a pre-c9f35e8f
-release (`legacy-release`, one fallback line, in-place launcher) → stopped → `not running`, and both system pids are
+release (`legacy-release`, one fallback line, in-place launcher) with `retention` keeping the in-use release and
+removing the expected ones → stopped → `not running`, and both system pids are
 unchanged across all of it; both system plists' ProgramArguments start with `praesidium-launch`; the aspd-service
-unit test passes (13, including the stable-exec cases).
+unit tests pass (`aspd-service.test.ts` 13 including the stable-exec cases, `aspd-service-retention.test.ts` 2);
+both plists carry `ProcessType` `Interactive`.
 
-Driven 2026-11-02 against system release asp-c9f35e8f9127-20261101T105117Z-eb1b50 (source c9f35e8f, fronted,
-supervised, fixed exec; read-only; superseded at 10:04Z by asp-356f33447e05-…, read back fixed and fronted) and a scratch namespace on that release and on asp-057de3dc1abd-… (legacy),
-through `bun scripts/aspd-service.ts` under `env -i` (T-12323): `var/wrkq-artifacts/T-12323/06-aspd/drive.txt`,
-`live/system-aspd.txt`. Not driven: a live `supervise` (see Gotchas), a codesign failure (activation would leave the
-namespace stopped on the old selection; source `aspd-service/launchd.ts:72-74`), the live probing of `inspectAgentSelection`
-(f675918e; connect-only to hrc.sock, :18470, :18450), `log-dir`, `build-aspd-pilot-client`,
-`compileHarnessInvocation` against aspd (it needs a full v2 compile request; feature 8's `--compile-transport
-aspc-rpc` row compiles through a checkout aspc-facade over stdio, not through aspd) and `aspc manifest|verify-release`
-(they need a request file and a corpus).
+Driven 2026-11-09 against system release asp-93d96239dd19-20261108T171836Z-eb8384 (source 93d96239, fronted,
+supervised, fixed exec; read-only) and a scratch namespace holding seven releases (legacy d0ae39b6 from T-12156 plus six
+fixed system releases), through `bun scripts/aspd-service.ts` under `env -i` (T-12763):
+`var/wrkq-artifacts/T-12763/06-aspd/drive.txt`, `activate-{legacy,fixed}.json`, `live/system-aspd-final.txt`. Not
+driven: a live `supervise` (see Gotchas), a codesign failure (activation would leave the namespace stopped on the old
+selection; source `aspd-service/launchd.ts:72-74`), retention's failed-`ps` path (source, `release-retention.ts:47-50`),
+the live probing of `inspectAgentSelection` (f675918e; connect-only to hrc.sock, :18470, :18450), `log-dir`,
+`build-aspd-pilot-client`, `compileHarnessInvocation` against aspd (it needs a full v2 compile request; feature 8's
+`--compile-transport aspc-rpc` row compiles through a checkout aspc-facade over stdio, not through aspd) and `aspc
+manifest|verify-release` (they need a request file and a corpus).

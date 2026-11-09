@@ -18,9 +18,20 @@ hrc-runtime follows. `just install` on the canonical checkout does both and acti
   `aspd.fixed-executable-release-root/v1` beside `harness-broker.offline-evidence/v1`; without it aspd activates the
   release in legacy in-place mode (feature 6). Each top-level executable is a launcher script over `libexec/<name>`.
   No hrc-pty or hrcpty executable ships in a release. After the four Bun
-  compiles it always builds `raspd` with `cargo build --release --locked` (`scripts/asp-release.ts:279-316`), recorded
-  in `release.json` as `runtimeClosure: cargo-native`; the top-level `runtimeClosure` still reads `bun-compiled`.
-  Without cargo it refuses `cargo is not on PATH; building raspd needs it…`, exit 1, after the Bun compiles. The root defaults to
+  compiles it builds `raspd` (`cargo build --release --locked`, recorded in `release.json` as `runtimeClosure:
+  cargo-native`; the top-level `runtimeClosure` still reads `bun-compiled`). On Apple silicon with `rbuild` on PATH the
+  cargo build runs on build1 and the binary is pulled back (8a165df8, `scripts/asp-release.ts:281-337`; stderr
+  `rbuild: running on build1:<clone>` and `rbuild: pulled …/aarch64-apple-darwin/release/raspd`). rbuild falls back to a
+  local build when build1 is unreachable, and `RBUILD_LOCAL=1` or `~/.rbuild-off` forces local; elsewhere it builds
+  with local cargo. The commit reaches raspd through `--config env.RASPD_SOURCE_COMMIT`, and a rebuild at another commit
+  on the reused build1 target dir recompiles it (`raspd --version` named fefcf61c after a 93d96239 build in the same
+  clone, 2026-11-09). With neither rbuild nor cargo on PATH it refuses `cargo is not on PATH; building raspd needs it…`,
+  exit 1, after the Bun compiles.
+- **Build-root retention (c96e0364).** After a successful build the output root is pruned to the newest 5 releases,
+  the one just built and any release a running process names (`pruneReleases`, shared with feature 6's activation
+  retention; stderr `[asp-release] retention {kept, removed, inUse, failed}`). Only names matching the release-id
+  pattern are candidates: hidden staging dirs and other names survive. The default root is shared with `just install`,
+  so never point a drive's build at it. The root defaults to
   `$ASP_RELEASE_BUILD_ROOT` or `~/.local/state/praesidium/asp-release-builds`; a relative root refuses `output root
   must be absolute`, exit 1, before the clean check.
 - `just inspect-asp-release <release>`: identity, immutability, digests and in-artifact executable resolution.
@@ -45,15 +56,16 @@ hrc-runtime follows. `just install` on the canonical checkout does both and acti
   lock-only `chore: sync bun.lock (` commit, **pushes it to HRC `origin/main`** and notifies `mable@hrc-runtime:primary`
   via `wrkc`), then build, install, `aspd-service.ts log-dir` (`var/logs/agent-spaces`) and `aspd-activate` a system
   aspd release (which needs cargo): on the fronted system namespace that re-copies and re-signs `var/aspd/bin/*` and
-  restarts both launchd jobs. Its post-check (justfile:479) reads only `runningEqualsSelected` and
+  restarts both launchd jobs. Its post-check (justfile:494) reads only `runningEqualsSelected` and
   `serving.release.sourceCommit == HEAD`, not `bin/raspd`'s compiled-in commit or the signature (feature 6). Operator-scale; not part of a verification drive unless the task says so.
 
 ## How to get to it
 
 Release builds run in a scratch clone: `git clone ~/praesidium/agent-spaces <scratch>/clone && cd
-<scratch>/clone && bun install --frozen-lockfile && bun run build` (26 s on 2026-10-26); the release build then needs
-`cargo` on PATH and the private `cardo` git dependency, which `~/.cargo/git` already caches on max3 (a node without
-it fetches over ssh from GitHub). The clone's release build took 30 s on 2026-10-26. Publish dry-runs pack each package from a staged copy
+<scratch>/clone && bun install --frozen-lockfile && bun run build` (23 s on 2026-11-09); the release build then needs
+`rbuild` (build1) or `cargo` on PATH and the private `cardo` git dependency, which `~/.cargo/git` already caches on max3
+(a node without it fetches over ssh from GitHub). The clone's release build took 21 s on 2026-11-09 with raspd on
+build1. rbuild mirrors the clone to build1 and the mirror outlives `avs scratch down`; see SKILL.md Cleanup. Publish dry-runs pack each package from a staged copy
 under `$TMPDIR` and leave the worktree clean; run them in the clone too, since the canonical dry-run fetches into
 `.git` (in a clone, `origin` is the local checkout). Inspect and install use an existing release, e.g. the system
 one under `~/praesidium/var/aspd/releases/`, into a scratch release root.
@@ -66,12 +78,15 @@ bun scripts/asp-release.ts build --output-root rel                            # 
 just inspect-asp-release ~/praesidium/var/aspd/releases/<releaseId>
 just install-asp-release ~/praesidium/var/aspd/releases/<releaseId> <scratch>/aspd-ns/releases   # twice: no-op
 cd <scratch>/clone && git status --porcelain --untracked-files=all | wc -l      # 0
-just build-asp-release <scratch>/release-build                                # ok, sourceCommit = clone HEAD
+for n in 1 2 3 4 5 6; do mkdir <scratch>/release-build/asp-00000000000$n-2020010${n}T000000Z-00000$n; done   # plant 6 old releases
+just build-asp-release <scratch>/release-build 2> rb.err                       # ok, sourceCommit = clone HEAD; rb.err: rbuild lines, retention
+<scratch>/release-build/<id>/libexec/raspd --version                           # raspd 0.1.0 (<clone HEAD>)
 just publish-dev-dry-run; git status --porcelain | wc -l                      # SKIPPED 22 or 22 DRY_RUN lines; 0
 just publish-canonical-dry-run | grep -c '^DRY_RUN'                            # 22 on the clone's origin/main (the checkout's local main); off it: "not contained by … origin/main", exit 1
 touch zz && bun scripts/publish-local-verdaccio.ts --channel canonical --dry-run; rm zz   # clean source tree refusal, exit 1
 bun scripts/publish-local-verdaccio.ts --dry-run --version 0.0.0-avs.1 --tag avs | grep -c '^DRY_RUN'   # 23
 bun run check:packs | grep -c '^PASS'                                          # 15
+env PATH=$HOME/.bun/bin:/usr/bin:/bin bun scripts/asp-release.ts build --output-root <scratch>/nocargo   # no rbuild, no cargo: refuses, exit 1
 ```
 
 ## Gotchas
@@ -99,12 +114,14 @@ bun run check:packs | grep -c '^PASS'                                          #
 The dirty-tree and relative-root refusals exit 1 with their messages; inspect and install print `ok: true` with
 matching `releaseId` and `sourceCommit` and every executable resolved inside the release, and a second install is a
 no-op; the clone build prints a release whose `sourceCommit` is the clone's HEAD and whose `capabilities` include the
-fixed-exec capability; the dev dry-run skips or lists every package, the canonical one lists 22 from the clone's `origin/main`
+fixed-exec capability, its raspd names that commit, and its retention line keeps the build plus the newest planted
+releases and removes the oldest; the dev dry-run skips or lists every package, the canonical one lists 22 from the clone's `origin/main`
 and refuses a dirty tree and a HEAD off it, semver lists 23, `check:packs` passes 15, and the clone stays
 clean.
 
-Driven 2026-11-02 on a scratch clone of aa3bb12d (`prae-rev1`; release asp-aa3bb12d8c47-20261102T095839Z-657d2b, clone
-build 26 s, release build 38 s), system releases asp-c9f35e8f9127-… (fixed-exec) and asp-057de3dc1abd-… (legacy) (T-12323):
-`var/wrkq-artifacts/T-12323/07-releases/drive.txt`. Not driven: `just install` (operator-scale; publishes, syncs
-hrc-runtime and activates the system aspd), the missing-cargo refusal (no code change since its 2026-10-26 drive;
-costs a full Bun compile), `publish-worktree-dry-run`, and any non-dry-run publish.
+Driven 2026-11-09 on a scratch clone of 93d96239 (`main`; release asp-93d96239dd19-20261109T093804Z-c7a800 with raspd
+built on build1; retention kept it, the 4 newest of 6 planted releases and a sleeper-held one, removed the oldest 2;
+rebuild at fefcf61c in the same clone recompiled raspd with that commit), system release asp-93d96239dd19-… (T-12763):
+`var/wrkq-artifacts/T-12763/07-releases/drive.txt`, `rb.err`, `rb2.err`. Not driven: `just install` (operator-scale;
+publishes, syncs hrc-runtime and activates the system aspd), rbuild's unreachable-host local fallback (a cold ~150 s
+max3 cargo build; source `asp-release.ts:281-337`), `publish-worktree-dry-run`, and any non-dry-run publish.

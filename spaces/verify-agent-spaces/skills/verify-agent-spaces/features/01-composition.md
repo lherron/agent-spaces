@@ -88,5 +88,6 @@ order with the defaults hooks and lists `avs-probe (from avs-demo)` under compos
 refuse with exit 2; `asp lint --json` on the canonical project exits 0 with its warnings array (3 W204 on
 2026-11-02).
 
-Driven 2026-11-02 on scratch `t-12323` against checkout c9f35e8f plus T-12326's uncommitted work, re-confirmed at
-356f3344 (T-12323): `var/wrkq-artifacts/T-12323/01-composition/drive.txt`, `live/final-head-redrive.txt`.
+Driven 2026-11-09 on scratch `t-12763` against checkout 93d96239 (T-12763):
+`var/wrkq-artifacts/T-12763/01-composition/drive.txt` (canonical lint: 3 `W204`; the lock still lacks animata, animan,
+locallarry and foundry).

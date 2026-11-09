@@ -16,7 +16,9 @@ muse,pi}`. Repo notes: `AGENTS.md` "Smoke Testing the CLI".
   `-c 'model_reasoning_effort="<e>"'`, also from the profile.
 - `--dry-run` prints the assembled system prompt (for profiled agents) and `── command ──` with the env prefix and
   argv; `--print-command` prints only the command (for agent-harness, a bare `agent-harness tui …` line).
-- Claude argv always has `--chrome` and `--disallowedTools AskUserQuestion`; a yolo profile adds
+- Claude argv always has `--chrome`, and `--disallowedTools AskUserQuestion` unless the profile or target sets
+  `[claude] ask_user_question = true` (`claude-adapter.ts:500`; every profile that sets it, mable, rector and vesta, sets
+  `false` on 2026-11-09; a scratch target with `true` drops the deny, `T-12763/03-run-launch/drive.txt`); a yolo profile adds
   `--dangerously-skip-permissions --permission-mode bypassPermissions`. Codex argv has `--enable goals` and
   `--dangerously-bypass-hook-trust`; a codex home of a target composing `praesidium-defaults` carries the
   `pkill-guard` space hook (`space-hooks/praesidium-defaults/`, `hooks.json`, `space-hooks.json`).
@@ -26,9 +28,9 @@ muse,pi}`. Repo notes: `AGENTS.md` "Smoke Testing the CLI".
   refuses `Prompt required`, exit 1.
 - The hrcpty ids launch directly with the base harness's argv (hrcpty hosting exists only in HRC/aspd broker plans):
   `claude-hrcpty` prints the `claude` argv with a `.../claude-hrcpty/` bundle and keeps the profile model (`asp run
-  clod --harness claude-hrcpty` has `--model opus[1m]`). Two divergences from the base harness (product gap
+  clod --harness claude-hrcpty` has clod's `--model opus`). Two divergences from the base harness (product gap
   T-12329): a profile or target whose harness is hrcpty loses every `supports`-gated space (`asp run clod`, profile
-  `claude-hrcpty`, gets 5 plugins without `defaults`; `--harness claude` gets 6. `asp run smokey`, target
+  `claude-hrcpty`, gets 5 plugins without `defaults`, `prae-tools` and `prae-only`; `--harness claude` gets 8 on 2026-11-09. `asp run smokey`, target
   `codex-hrcpty`, lacks `smoke-testing`), and `codex-hrcpty` sets `CODEX_HOME` to the immutable bundle template
   `<bundle>/codex-hrcpty/codex.home` instead of the per-project runtime home `codex-homes/<project>_<target>`
   (2026-11-02, `T-12323/03-run-launch/drive.txt`).
@@ -58,7 +60,7 @@ asp run larry --harness agent-harness --yolo --dry-run   # refuses compiler-only
 asp agent larry@agent-spaces:avs-probe query 'hello' --print-command --project-root ~/praesidium/agent-spaces
 asp agent larry@agent-spaces:avs-probe query 'hello' --harness claude --print-command …   # refuses: model gpt-5.6-terra
 asp agent smokey@agent-spaces:avs-probe query 'hello' --harness claude --model sonnet --print-command …
-asp run clod --print-command | tr ' ' '\n' | grep -A1 -- '^--plugin-dir$'   # 5 plugins, no defaults (T-12329); --harness claude: 6
+asp run clod --print-command | tr ' ' '\n' | grep -A1 -- '^--plugin-dir$'   # 5 plugins, no defaults (T-12329); --harness claude: 8
 asp gui larry --print-command
 ```
 
@@ -92,6 +94,6 @@ Each harness's dry-run prints `── command ──` with the bundle path under
 argv; the agent-harness refusal and the model refusal print their reasons with exit 1; `asp agent … --print-command`
 puts the prompt after the profile priming; `asp gui --print-command` names the scratch `CODEX_HOME`.
 
-Driven 2026-11-02 on scratch `t-12323` against checkout c9f35e8f plus T-12326's uncommitted work, re-confirmed at
-356f3344 (T-12323): `var/wrkq-artifacts/T-12323/03-run-launch/drive.txt`, `live/final-head-redrive.txt`. Not driven: a real (non-dry-run) launch, which needs a model
+Driven 2026-11-09 on scratch `t-12763` against checkout 93d96239 (T-12763):
+`var/wrkq-artifacts/T-12763/03-run-launch/drive.txt`. Not driven: a real (non-dry-run) launch, which needs a model
 login and belongs to HRC's own verification.

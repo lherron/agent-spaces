@@ -14,8 +14,13 @@ the agent-hygiene lint over skills and agent roots (`asp lint --hygiene`), and t
   provider. JSON shape `{defaultHarness, harnesses: [{id, name,
   detection: {available, version, path, capabilities}, modelProviders[], experimental}]}` (`codex` alone is
   `experimental: true`; `codex-hrcpty` is not).
-- `asp lint --hygiene [path] [--strict] [--baseline f] [--update-baseline] [--judge f]`: advisory `W4xx` findings
-  with file:line; `--strict` exits nonzero on error severity.
+- `asp lint --hygiene [path] [--strict] [--baseline f] [--update-baseline]`: advisory `W4xx` findings with file:line;
+  `--strict` exits nonzero on error severity. `--update-baseline` writes `<path>/.hygiene-baseline.json` and a rerun with
+  `--baseline` suppresses those findings.
+- `asp lint --judge <unit path>` (its own flag, not a hygiene option): runs the tier-2 rubric judge over exactly one
+  unit through the agent-loop SDK (scope `clod@agent-loop:hygiene-judge/worker`). Zero units refuses `No hygiene unit
+  found at <path>` and more than one `--judge assesses ONE unit; <path> resolves to N units`, both exit 1 before any
+  model run (`lint-hygiene.ts:177-187`).
 - `asp token-rent [--agent a] [--json] [--now iso] [--usage-since iso] [--since ref]`: resident system-prompt tokens
   per agent priced against HRC run frequency from `var/state/hrc/state.sqlite`. The prompt comes from the agent's
   newest usable `broker_invocations` spec (the newest per scope, then the first, newest-first, whose prompt is still
@@ -39,8 +44,9 @@ asp harnesses                                                    # 6/6 available
 asp lint --hygiene ~/praesidium/var/agents/clod | tail           # W415/W422 info findings
 asp lint --hygiene $AVS_PROJECT/spaces/avs-demo/skills/avs-probe # Scanned 1 unit, no findings
 asp lint --hygiene $AVS_PROJECT/spaces/avs-demo --strict; echo $? # Scanned 0 units, exit 0
+asp lint --judge ~/praesidium/var/agents/clod                     # resolves to 4 units, exit 1 (no model run)
 asp token-rent --agent clod --now 2026-11-02T09:30:00Z
-asp token-rent --json --now 2026-11-02T09:30:00Z > $OUT          # 32 agents, 30 priced on 2026-11-02
+asp token-rent --json --now 2026-11-02T09:30:00Z > $OUT          # 37 agents, 35 priced on 2026-11-09
 python3 ~/praesidium/var/wrkq-artifacts/T-12323/05-doctor-hygiene/rent-check.py $OUT <agent>   # reported == computed
 sqlite3 -readonly ~/praesidium/var/state/hrc/state.sqlite \
   "select broker_driver, count(*), sum(json_extract(spec_projection_json, '$.launch.systemPromptFile') is not null)
@@ -51,7 +57,7 @@ sqlite3 -readonly ~/praesidium/var/state/hrc/state.sqlite \
 
 - `asp lint --hygiene <space dir>` scans 0 units and passes, even with `--strict`. Point it at a skill directory,
   an agent root or `var/agents`, never at a space root.
-- The `claude-code-hrcpty` broker driver's invocations carry `launch.systemPromptFile` (296/296 on 2026-11-02) and
+- The `claude-code-hrcpty` broker driver's invocations carry `launch.systemPromptFile` (575/575 on 2026-11-09) and
   report harness `claude-code`, so hrcpty Claude seats price like tmux ones.
 - A seat's own newest invocation is the one priced while its prompt file exists, so `token-rent --agent <you>`
   shows this seat's task context (`Task ID: T-…`) as a layer.
@@ -64,9 +70,10 @@ sqlite3 -readonly ~/praesidium/var/state/hrc/state.sqlite \
   (`T-12323/05-doctor-hygiene/drive.txt`).
   Export `ASP_HOME=<scratch asp-home>`; never rely on the flag alone (2026-10-19, throwaway-HOME probe in
   `T-11375/05-doctor-hygiene/drive.txt`).
-- `asp lint --hygiene --update-baseline` writes `.hygiene-baseline.json` into the target and `--judge` launches a
-  model run; neither belongs in a drive except on a scratch copy (source, `lint-hygiene.ts:71-79,118-171`; not
-  driven).
+- `asp lint --hygiene --update-baseline` writes `.hygiene-baseline.json` into the target: drive it on a scratch copy
+  (`cp -R ~/praesidium/var/agents/clod <root>/hyg`; 6 entries, then `--baseline` leaves none, 2026-11-09,
+  `T-12763/05-doctor-hygiene/drive.txt`). `--judge` on a single unit launches a model run
+  (`lint-hygiene.ts:120-171`); drive only its refusals.
 
 ## Proven when
 
@@ -76,6 +83,6 @@ newest invocation carries a prompt (claude, muse, codex drivers in the count abo
 sum of `ceil(section chars / 4)` over the priced text for a claude, a muse and a codex agent (the codex one over its
 context block only).
 
-Driven 2026-11-02 on scratch `t-12323` against checkout c9f35e8f plus T-12326's uncommitted work (T-12323):
-`var/wrkq-artifacts/T-12323/05-doctor-hygiene/drive.txt` (with `rent-check.py`; clod, mable, muse, cody and larry
-matched exactly).
+Driven 2026-11-09 on scratch `t-12763` against checkout 93d96239 (T-12763):
+`var/wrkq-artifacts/T-12763/05-doctor-hygiene/drive.txt` (with `rent-check.py`; clod, mable, muse, cody and larry
+matched exactly; T-11378 reproduces).

@@ -27,6 +27,15 @@ operator-cli.ts,invocation-*.ts,drivers/}`, protocol in `contracts/harness-broke
   (`validate-start-request --file <json>` refuses an invalid start request, exit 1); `evidence-read` (HRC),
   `desktop-join` (the Codex overlay's discovery hook), `claude-hook`, `claude-hook-decision`, `codex-hook`,
   `codex-tui-wrapper`, `tmux-launch` and `renderer` are harness plumbing that drivers and hooks invoke.
+- The hook verbs (`claude-hook`, `claude-hook-decision`, `codex-hook`) refuse `<verb> requires --socket <path>`, exit 1,
+  without `--socket`. A delivery failure (no broker at the socket) exits 0 with empty stdout and `<verb> delivery
+  failed: …` on stderr, so a hook never fails the harness. Since 4d3978d1 a 30 s wall deadline ends each one, exit 0,
+  even while stdin stays open (`hook-bridge-transport.ts:104,125`), and `statusline.sh` runs its background bridge
+  under `ulimit -t 3` (`drivers/harness-claude/assets/statusline.sh:35`), so a spinning bridge dies after 3 s of CPU.
+- The Claude and Codex hook bridges ask HRC's mail gate (`HRC_MAIL_STOP_SOCKET`, with `HARNESS_BROKER_RUNTIME_ID`)
+  before posting to the broker: a Stop hook POSTs `/v1/internal/mail/stop-decision`, a Claude PostToolUse
+  `/v1/internal/mail/hint-decision`. Since c7468d1b (R-00605) both carry `X-Praesidium-Caller`: `PRAESIDIUM_CALLER`,
+  else `ASP_HANDLE`, omitted when unset or outside the caller grammar (`mail-stop-gate.ts:130-137`).
 - The pre-HRC matrix (`bun run smoke:matrix [--config row] [--compile-transport sdk|aspc-rpc] [--json]`): compiles a
   v2 request, starts the broker through the compiled dispatch request, drives a turn, and checks the event types,
   terminal turns and continuation. Rows: `fake-codex`, `unix-jsonrpc-ndjson` (shim-backed, no model), and
@@ -51,18 +60,29 @@ harness-broker capture status --socket /tmp/avs-no-such.sock --invocation inv-no
 harness-broker submission withdraw x --socket /tmp/avs-no-such.sock --reason avs           # same one-line error, exit 1
 harness-broker run --transport bogus                        # Unknown or missing transport: bogus, exit 1
 harness-broker bogus-verb                                   # usage, exit 1
+harness-broker claude-hook </dev/null                       # claude-hook requires --socket <path>, exit 1
+sleep 45 | /usr/bin/time -p harness-broker claude-hook --socket <root>/none.sock --event StatusLine   # real ~30, exit 0
+node stub-hrc.js <root>/hrc.sock <log> >/dev/null 2>&1 &    # a stub HRC mail socket that logs X-Praesidium-Caller
+printf '{"hook_event_name":"Stop"}' | env HRC_MAIL_STOP_SOCKET=<root>/hrc.sock HARNESS_BROKER_RUNTIME_ID=rt-avs \
+  ASP_HANDLE=larry@agent-spaces:T-1 harness-broker claude-hook-decision --socket <root>/none.sock   # log: stop-decision caller=larry@…
 ```
+
+The stub, a spinning bridge for the `ulimit -t 3` check and the commands are in `T-12763/08-harness-broker/`.
 
 ## Gotchas
 
-- **An inherited observer socket kills a stdio broker.** `run` reads `HARNESS_BROKER_OBSERVER_SOCKET` (`cli.ts:150-160`;
-  HRC sets it for codex/muse viewer seats) and refuses `Broker socket already in use by a live listener: <path>` when
+- **An inherited observer socket kills a stdio broker.** `run` reads `HARNESS_BROKER_OBSERVER_SOCKET` (`cli.ts:145-165`;
+  HRC sets it for codex/muse viewer seats) and refuses `Broker socket already in use by a live listener: <path>`
+  (`socket-path.ts:44`) when
   that path is live, before any reply; a non-`observe` `HARNESS_BROKER_OBSERVER_MODE` exits too. `avs broker-hello`
   (and so `avs doctor`) drops `HARNESS_BROKER_OBSERVER_*` from its child since T-12323; strip them yourself for the
   matrix (2026-11-02, `T-12323/index/avs-observer-gap.txt`).
 
 - The matrix has no hrcpty row: hrcpty is proven by the separate admission matrix and `just e2e-hrcpty-driver`
   (real harness, HRC terminal lease), not by a verification pass.
+- A hook drive from a seat inherits the seat's `PRAESIDIUM_CALLER`/`ASP_HANDLE`, so the stub logs the seat as the
+  caller; set or unset them per case. Synthetic `statusline.sh` input needs a `context_window` object, or the script
+  stops at `null: unbound variable` (Claude always sends one) (2026-11-09, `T-12763/08-harness-broker/drive.txt`).
 - **The installed broker is the checkout.** `~/.bun/bin/harness-broker` resolves to `harness/harness-broker` in the
   canonical checkout and runs `src/` (its stack traces name `agent-spaces/harness/harness-broker/src/…`), so the
   shim rows and `broker-hello` exercise whatever is saved in the shared tree. HRC's durable runtimes run the aspd
@@ -91,9 +111,11 @@ events, 1 terminal turn, `continuationObserved: true`, no failures, and the 17-t
 `assistant.message.{started,delta,completed}`, `continuation.updated`, `input.accepted`, `invocation.{started,ready}`,
 `provider.transcript.reported`, `submission.executed`, `tool.call.{started,delta,completed}`, `turn.{started,
 completed}`, `user.message`; no `usage.updated`, since the fixture reports no tokens); the operator verb refusals
-exit 1.
+exit 1; the hook verbs refuse without `--socket`, exit 0 on a missing broker and at the 30 s deadline; a spinning
+statusline bridge is gone within seconds; the stub HRC logs the expected caller per case.
 
-Driven 2026-11-02 against checkout 356f3344 (T-12323): `var/wrkq-artifacts/T-12323/08-harness-broker/drive.txt`
-(row output beside it).
-Not driven: the five real-harness matrix rows (they need model logins and, for tmux rows, a ghostmux surface) and the
-claude-code-hrcpty driver (needs HRC's hrc-pty lease and a real Claude).
+Driven 2026-11-09 against checkout 93d96239 (T-12763): `var/wrkq-artifacts/T-12763/08-harness-broker/drive.txt`
+(row output, `stub-hrc.js` and `spin.js` beside it).
+Not driven: the five real-harness matrix rows (they need model logins and, for tmux rows, a ghostmux surface), the
+claude-code-hrcpty driver (needs HRC's hrc-pty lease and a real Claude), and the hint's delivery into a PostToolUse
+`additionalContext` (needs a live broker socket).

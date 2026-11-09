@@ -14,7 +14,10 @@ resources (`asp resources plan`). Code: `apps/cli/src/commands/self/`, `apps/cli
   (`--kind editable|shared-editable|derived|ephemeral`; a Claude seat now lists a `bundle-statusline` DRVD row).
   `asp self prompt reminder --recompute` re-renders the reminder from the current template (`source: template
   recompute`). A bad kind, topic or `--kind` is a usage error, exit 2.
-- `asp resolve-reminder [target]`: the context template's reminder sections, as JSON `{content}` blocks.
+- `asp resolve-reminder [target]`: the rendered reminder text the SessionStart hook injects (`resolve-reminder.ts:200`
+  writes it as is; exit 0 with empty stdout when nothing resolves).
+- `asp self memory inspect|read|paths|snapshot|diff|scan` read the memory targets (MEMORY.md per agent, the shared
+  USER.md, SOUL.md) with char budgets; `add`, `replace` and `remove` write them, so a drive uses only the read verbs.
 - `asp agents catalog --context <ctx.json> [--json]`: every agent under the agents root with source availability,
   default context and diagnostic counts. Input schema `agent-inspection-evaluation-context/v2`.
 - `asp agents inspect --request <req.json> --context <ctx.json> [--json]`: one agent's parts (prompt, capability)
@@ -49,7 +52,8 @@ asp resources plan clod --project infra                 # 1 resource (disk-sampl
 asp resources plan clod --project agent-spaces          # refuses: that schedule targets infra, exit 1
 asp resources plan clod                                 # required option '--project <project>', exit 2
 asp resources plan foundry --project foundry --include schedules/foundry-daily-report.toml   # timezone America/Chicago
-asp agents catalog --context $CTX --json        # 52 agents, 0 errors on 2026-11-02
+asp self memory paths; asp self memory inspect  # memory, user, persona with zone labels and chars/budget
+asp agents catalog --context $CTX --json        # 52 agents, 0 errors on 2026-11-09
 asp agents inspect --request $REQ --context $CTX --json
 ```
 
@@ -72,20 +76,25 @@ asp agents inspect --request $REQ --context $CTX --json
   resolves for agent-spaces since exec sections run in the project root (4d0b5d4c, 15315fb0) (2026-11-02,
   `T-12323/04-agent-introspection/`). The aspd/ACP `inspectAgentSelection` path instead probes the three services
   live, connect-only (f675918e; source, feature 6).
-- `asp resolve-reminder` prints one JSON object per section, back to back, not one JSON document: `json.load` fails
-  `Extra data`. Count `"content"` lines or parse object by object (2026-10-05,
-  `T-10364/04-agent-introspection/drive.txt`).
+- **From a prae seat `resolve-reminder` renders no wrkq or wrkc guide.** The shared template's `wrkq-context` and
+  `wrkc-context` sections are exec sections (`wrkq info`, `wrkc info`, stderr dropped), and a prae seat has neither CLI
+  on PATH (T-12654), so they render empty: `asp resolve-reminder larry` is 775 bytes with 0 `wrkq` lines, and 16270
+  bytes with 2 once `~/.local/bin` is on PATH. clod's own template (rebuilt on prae, var/agents 08bd235) has no such
+  sections at all. The `{"content": …}` objects earlier passes counted were that exec output, not the command's own
+  format (2026-11-09, `T-12763/04-agent-introspection/drive.txt`).
 - The catalog's `defaultContextSummary` matched the context file's identifiers (project, mode, harness `codex`)
   for every agent on 2026-10-05; don't read it as each agent's profile default without checking the profile.
 
 ## Proven when
 
 `asp self inspect` names this seat's scope and task; `asp self paths` resolves the agent root; `resolve-reminder`
-prints the wrkq and wrkc guides; `agents catalog` returns every agent root with `errorCount` 0; `agents inspect`
+prints the reminder text (with the wrkq and wrkc guides only when those CLIs are on PATH); `self memory paths` lists the
+three targets; `agents catalog` returns every agent root with `errorCount` 0; `agents inspect`
 returns `ok: true` with parts and dispositions; `resources plan` prints a v1 plan for the project its resources
 target, projects `[trigger].timezone`, and refuses a mismatched project, a bad zone and a top-level `timezone`.
 
-Driven 2026-11-02 from seat `clod@agent-spaces:T-12323` against checkout c9f35e8f plus T-12326's uncommitted work
-(T-12323): `var/wrkq-artifacts/T-12323/04-agent-introspection/` (`drive.txt`, `context.json`, `context-pinned.json`,
-`context-pinned-env.json`, `request.json` and the three `inspect-*.json`). The timezone refusals were last driven
-2026-10-26 (`T-11875/04-agent-introspection/`); no `resources/` code change since.
+Driven 2026-11-09 from seat `clod@agent-spaces:T-12763` against checkout 93d96239 (T-12763):
+`var/wrkq-artifacts/T-12763/04-agent-introspection/` (`drive.txt`, `context.json`, `context-pinned.json`,
+`context-pinned-env.json`, `request.json` and the three `inspect-*.json`; empty responses: 7 parts, prompt `failed`;
+pinned: 24 parts, 13 effective / 8 skipped / 3 failed; pinned with env: 16 effective / 8 skipped). The timezone
+refusals were last driven 2026-10-26 (`T-11875/04-agent-introspection/`); no `resources/` code change since.

@@ -102,7 +102,9 @@ scratch clone, which is not a registered root.
   in one layout:
   - `NN-<feature>/drive.txt` per feature, written by `avs rec`: each command after a `## <UTC time>` line and
     `$ <command>`, then its output and `[exit N]`, so the file reruns as written. Put pipes inside the recorded
-    command only when the last stage keeps the exit code you are proving; otherwise record the bare command;
+    command only when the last stage keeps the exit code you are proving; otherwise record the bare command.
+    Detach any helper a command backgrounds (`… >/dev/null 2>&1 &`): `rec` waits for its output pipe to close, so a
+    stub server or sleeper that keeps it open hangs the drive (2026-11-09, `T-12763/08-harness-broker/drive.txt`);
   - input files a drive writes for itself (an evaluation-context JSON and a request JSON for feature 4; you pick
     the filenames, written here as `$CTX` and `$REQ`) next to the drive.txt that uses them;
   - `live/` for read-only reads of the system aspd and other shared state (`live/doctor.txt`).
@@ -124,6 +126,9 @@ Codex home). Built and installed releases are read-only, so `down` makes the tre
 it; a bare `rm -rf` of a scratch with a release in it fails `Permission denied`. Stop a scratch aspd first (`just aspd-stop <root>/aspd-ns`), or its process outlives the directory.
 `avs scratch down <name> --dry-run` shows the path first; `avs scratch list` shows what exists. The evidence under
 `artifact_dir` stays. Kill any ghostmux surface you opened (`ghostmux kill-surface -t <id>`).
+A release build in a scratch clone leaves rbuild's mirror of that clone on build1 (feature 7). After `scratch down`,
+run `rbuild --prune --dry-run`: it lists the mirrors of checkouts gone from every node. Run `rbuild --prune` only when
+that list holds nothing but your scratch's paths; otherwise report the leftover mirror.
 
 ## Maintain
 
