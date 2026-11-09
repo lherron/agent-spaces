@@ -1,0 +1,58 @@
+id: agent-spaces.scope-env-conformance
+kind: invariant
+status: active
+owner_project: agent-spaces
+scope: scope grammar and launch environment conformance for the T-12838 adoption set
+predicate: >
+  The producer-owned scope and env contract is the approved r2 specification
+  preserved in architecture/contracts/scope-env-conformance.md, within its
+  stated adoption scope and explicit exclusions. TypeScript agent-scope is the
+  grammar reference; its generated data fixture carries exact results or the
+  five coarse refusal codes for the ten declared operations. Consumers run
+  every case for the operations they implement, declare their existing parsing
+  operations rather than retain undeclared private parsers, and compare their
+  copied fixture with the producer when the sibling checkout is present.
+  Scope parsing preserves supplied scope specificity; qualified resolution
+  applies its declared defaults. Session refs contain canonical scope refs and
+  parsed lanes are validated. Historical identity.project remains lenient for
+  stored rows only; caller input uses strict operations. The env table records
+  each launch path's existing outputs and the composition step with the final
+  word, rather than requiring identical compat sets. Managed launch intent
+  overrides follow HRC derivation, HRC preparation adds plumbing correlation,
+  and compiled lockedEnv wins on overlapping keys. ASP_PROJECT is project
+  discovery data, including the project-root basename fallback without a
+  project-scoped identity. ASP_HANDLE is a managed-only role-omitting derived
+  handle, not a round-tripping role-scoped identity. Managed, unmanaged and
+  locked env cases exercise their respective writing steps. Copy agreement
+  under caller overrides is explicitly outside this contract. WRKQ_ACTOR's
+  dead write is removed; compat sets otherwise stay as specified. Existing
+  runtime-declaration authority and prompt-versus-dispatch environment
+  separation are unchanged.
+authority: Lance's 2026-11-09 consolidation ruling and Daedalus APPROVE of T-12838 r2 in EN-48780
+source:
+  - wrkq:T-12838
+  - wrkq:EN-48772
+  - wrkq:EN-48780
+  - architecture/contracts/scope-env-conformance.md
+  - contracts/agent-scope/src
+  - core/config/src/runtime/agent-session-env.ts
+  - compiler/agent-spaces/src/prepare-cli-runtime.ts
+  - crates/raspd/src/compile/mod.rs
+  - architecture/records/invariants/agent-spaces.runtime-declaration-authority.yaml
+required_tests:
+  - agent-scope regenerates expected fixture results and refusals from its implementation and rejects an edited committed case
+  - Rust Go and kernel consumer verify gates run every grammar case for their declared operations with red-before evidence on applicable surveyed divergences
+  - managed unmanaged and locked env writers pass their respective cases including role-scoped ASP_HANDLE and agent-only project discovery
+  - fresh managed and unmanaged max3 launches show their declared canonical and compat keys with WRKQ_ACTOR written by nothing
+  - changing a consumer fixture copy fails its verify when the sibling agent-spaces checkout is present
+last_verified:
+  date: null
+  evidence: Design approved from source reading on 2026-11-09 in EN-48780; implementation and runtime acceptance pending
+reopen_when:
+  - grammar authority operations refusal codes or parse-versus-resolve semantics change
+  - a consumer retains an undeclared private parser within the adoption scope
+  - lenient historical projection admits caller input
+  - environment composition precedence writer ownership or per-path output sets change
+  - a compat variable is retired or an explicitly unsupported surface enters scope
+supersedes: []
+superseded_by: null
