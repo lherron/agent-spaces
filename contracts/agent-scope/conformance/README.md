@@ -57,9 +57,11 @@ Managed launch: (1) HRC derives identity from the session; (2) `launch.env` /
 `launch.unsetEnv` apply on top, the caller's override channel, empty in every
 case; (3) HRC adds its plumbing ids; (4) every key in the compiled plan's
 `lockedEnv` is removed from HRC's map and `lockedEnv` supplies it; (5) the
-hrcpty harness starts through the login shell, which must not write a table
-variable. Unmanaged launch (`asp agent`): `buildAgentSessionEnv`, composed with
-ASP's `lockedEnv` in the same process.
+hrcpty harness starts through the login shell, which must not set or unset an
+identity variable (canonical, correlation, compat, project or handle rows).
+Plumbing rows are outside that rule; the table records what the profile does
+to them today. Unmanaged launch (`asp agent`): `buildAgentSessionEnv`, composed
+with ASP's `lockedEnv` in the same process. `asp run` writes no identity env.
 
 Each env case is `{"id", "kind", "in", "expected", "provenance"}`; `expected`
 is an exact map.
