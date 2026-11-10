@@ -1,4 +1,4 @@
-# Scope and env contract (r2)
+# Scope and env contract (r3)
 
 Lance ruling 2026-11-09 (T-12832 item 5): one scope and env contract with a shared conformance fixture across Go, TypeScript and Rust. Grammar and env only. No new identity model, no new variables, no variable retired.
 
@@ -15,7 +15,7 @@ The scope grammar is defined once, in TypeScript (contracts/agent-scope), and re
 | `alice@`, `a@b@c`, `alice/r` | refused | Kernel bindings/wrkq.rs: `agent:alice`, `agent:a:project:b@c`, `agent:alice/r` |
 | `agent:é×33` | bad characters | Go: bad length (counts bytes) |
 
-The env side has two writers that were never compared. For a managed launch the writer is HRC (hrc-native broker.rs:572-640); the documented writer (core/config/src/runtime/agent-session-env.ts) runs only for unmanaged `asp run`. They emit different sets: HRC writes ASP_SCOPE_REF, ASP_AGENT_ID, ASP_TASK_ID, ASP_HANDLE and WRKQ_ACTOR and not WRKQ_PRINCIPAL_REF; the TS builder writes WRKQ_PRINCIPAL_REF and none of the ASP_* identity copies. WRKQ_ACTOR never arrives: hrc-pty starts the harness through the login shell and the operator's ~/.zshenv unsets it. The compiler also computes WRKQ_PRINCIPAL_REF (raspd compile/mod.rs:421), but only into the context it evaluates prompt templates in; on a managed launch it is in neither lockedEnv nor the dispatch env, so no managed seat has it. Readers depend on keys the doc calls legacy: the kernel reads ASP_AGENT_ID and HRC_SESSION_REF; wrkq resolves AGENT_SCOPE_REF → ASP_SCOPE_REF → ASP_HANDLE → ASP_AGENT_ID+ASP_PROJECT.
+The env side has two writers that were never compared. For a managed launch the writer is HRC (hrc-native broker.rs:572-640); the documented writer (core/config/src/runtime/agent-session-env.ts) runs only for unmanaged `asp agent` launches (`asp run` writes no identity env at all). They emit different sets: HRC writes ASP_SCOPE_REF, ASP_AGENT_ID, ASP_TASK_ID, ASP_HANDLE and WRKQ_ACTOR and not WRKQ_PRINCIPAL_REF; the TS builder writes WRKQ_PRINCIPAL_REF and none of the ASP_* identity copies. WRKQ_ACTOR never arrives: hrc-pty starts the harness through the login shell and the operator's ~/.zshenv unsets it. The compiler also computes WRKQ_PRINCIPAL_REF (raspd compile/mod.rs:421), but only into the context it evaluates prompt templates in; on a managed launch it is in neither lockedEnv nor the dispatch env, so no managed seat has it. Readers depend on keys the doc calls legacy: the kernel reads ASP_AGENT_ID and HRC_SESSION_REF; wrkq resolves AGENT_SCOPE_REF → ASP_SCOPE_REF → ASP_HANDLE → ASP_AGENT_ID+ASP_PROJECT.
 
 ## Deliverables
 
@@ -53,7 +53,7 @@ Operations (the TypeScript function each one is defined by):
 | `sessionRef.parse` | string → scope ref + lane ref | parseSessionRef |
 | `sessionRef.format` | scope ref + lane ref → string | formatSessionRef |
 | `input.resolve` | string + opts (`projectId`, `taskId`, `defaultTaskId`, `envDefaultTask`, `defaultRoleName`) → scope ref + lane ref | resolveQualifiedScopeInput |
-| `identity.project` | any string → parts or `{"kind": "unparsed"}`; never refuses | new, see Lenient reads |
+| `identity.project` | any string → parts or `{"kind": "unparsed", "agentId": <the input>}`; never refuses | new, see Lenient reads |
 
 Refusal codes are coarse on purpose. Messages stay each language's own; nobody branches on finer causes today.
 
@@ -65,12 +65,12 @@ Refusal codes are coarse on purpose. Messages stay each language's own; nobody b
 | `directive_not_allowed` | a `+` directive where the operation takes none |
 | `task_requires_project` | `input.resolve` got a task with no project from input or opts |
 
-The first cut is the 52 cases in the T-12838 research note (15 scope ref, 13 handle, 7 session handle, 9 session ref, 2 lane, 6 resolve), plus format round-trips and the `identity.project` cases. The TypeScript implementation is the source of expected values: a script in the package regenerates `ok`/`refuse` from the functions above and fails if the committed file differs, so the fixture cannot drift from the canonical code.
+The fixture as produced has 140 cases: the 52 from the T-12838 research note (15 scope ref, 13 handle, 7 session handle, 9 session ref, 2 lane, 6 resolve), format round-trips, and 19 `identity.project` cases checked against the Rust function. The TypeScript implementation is the source of expected values: a script in the package regenerates `ok`/`refuse` from the functions above and fails if the committed file differs, so the fixture cannot drift from the canonical code.
 
 ### Rulings the fixture encodes
 
 1. Parse does not default; resolve does. `scopeHandle.parse("alice@demo")` is `agent:alice:project:demo`. `input.resolve("alice@demo")` is `…:task:primary`. Both stay. Which one a caller uses is that caller's decision, but it must be one of these two operations, not a third behaviour.
-2. `alice:t1` is a handle whose project comes from context. `scopeHandle.parse` refuses it (`shape_invalid`); `input.resolve` accepts it with `opts.projectId` and refuses `task_requires_project` without.
+2. `alice:t1` is a handle whose project comes from context. `scopeHandle.parse` refuses it (`shape_invalid`); `input.resolve` accepts it with `opts.projectId` and refuses `task_requires_project` without. With a lane (`alice:t1~x`) it refuses even with a project, because the session-handle path parses before the project is filled; that is the grammar as it is and the fixture records it.
 3. Lanes are validated wherever they are parsed. `~`, `~x~y`, `~lane:x` and `/lane:bad lane` refuse.
 4. A session ref's scope part is a canonical scope ref. `cody@wrkq/lane:main` refuses.
 5. `lane:default` is a lane named `default`. The `default` → `main` rewrite that some callers apply is not grammar.
@@ -78,7 +78,7 @@ The first cut is the 52 cases in the T-12838 research note (15 scope ref, 13 han
 
 ### Lenient reads
 
-Stored rows predate validation, so one operation is allowed to be lenient: `identity.project`, which projects whatever string is in a record into parts for display and filtering and returns `{"kind": "unparsed"}` when it cannot. It is defined by hrc-common `legacy_derive_identity` as it behaves today, moved into the fixture as cases. It is never used to accept input: anything that arrives from a caller (CLI argument, env, RPC parameter) goes through a strict operation. Every other lenient path found in the survey is nonconformant and is removed on adoption.
+Stored rows predate validation, so one operation is allowed to be lenient: `identity.project`, which projects whatever string is in a record into parts for display and filtering and returns `{"kind": "unparsed", "agentId": <the input>}` when it cannot. It is defined by hrc-common `legacy_derive_identity` as it behaves today, moved into the fixture as cases. It is never used to accept input: anything that arrives from a caller (CLI argument, env, RPC parameter) goes through a strict operation. Every other lenient path found in the survey is nonconformant and is removed on adoption.
 
 ### 2 and 3. Env table and env fixture
 
@@ -92,30 +92,31 @@ Managed launch (HRC births the seat):
 2. The launch intent's `launch.env` and `launch.unsetEnv` are applied on top. This is the caller's override channel. The contract does not constrain it and the fixture cases run with it empty.
 3. HRC adds its plumbing ids (HRC_RUNTIME_ID, HRC_INVOCATION_ID, HRC_INITIAL_INPUT_ID).
 4. Every key present in the compiled plan's `lockedEnv` is removed from HRC's map (broker.rs:807-810), and `lockedEnv` supplies it. So ASP's compile has the last word on any key it locks.
-5. On the hrcpty path the harness starts through the operator's login shell (`$SHELL -lc`). The profile is not a writer: it must not set or unset a variable in this table. The observed-env cases are taken after it, so a profile that does shows up as a failing case. The existing `unset WRKQ_ACTOR` line becomes moot when the write is removed.
+5. On the hrcpty path the harness starts through the operator's login shell (`$SHELL -lc`). The profile is not a writer of identity: it must not set or unset a variable in the canonical, correlation, compat, project or handle rows. The plumbing rows are outside that rule; the operator's profile today exports HRC_WRKQ_DB and HRC_WRKQD_TOKEN_FILE (so shells outside a seat can reach wrkq) and unsets WRKQ_DB_PATH and WRKQ_ACTOR, and the cases record that in their provenance, not in the map they expect. The observed-env cases are taken after it, so a profile that does shows up as a failing case. The existing `unset WRKQ_ACTOR` line becomes moot when the write is removed.
 
-Unmanaged launch (`asp run`, `asp agent`): `buildAgentSessionEnv` derives identity; ASP's `lockedEnv` is composed with it in the same process. There is no HRC correlation, so those keys are absent.
+Unmanaged launch (`asp agent`): `buildAgentSessionEnv` derives identity; ASP's `lockedEnv` is composed with it in the same process. Run and host-session correlation keys appear only when the caller passes `--run-id` or `--host-session-id`. `asp run` does not call the builder and writes no identity env.
 
 The compile plan's `dispatchRequest.dispatchEnv` is a verbatim echo of the `placement.dispatchEnv` HRC sent; the compiler adds nothing to it and it is not an override channel (hrc-native broker.rs:792-795 changes to match).
 
-What `lockedEnv` contains from this table's point of view: the agent's own directories and materialization pointers (ASP_HOME, ASP_AGENTS_ROOT, ASP_AGENT_ROOT and its VAR/STATE/CACHE/LOG dirs, ASP_AGENT_NAME, ASP_PLUGIN_ROOT, ASP_PROJECT_ID, ASP_PROJECT_STATE_DIR, ASP_PRIMING_PROMPT), AGENTCHAT_ID, and one key that overlaps identity: ASP_PROJECT, written whenever the placement has a project root (raspd compile/mod.rs:2233-2243, Bun prepare-cli-runtime.ts:509). It is the only identity-related key ASP locks, and by step 4 ASP is its writer on those launches.
+What `lockedEnv` contains from this table's point of view: the agent's own directories and materialization pointers (ASP_HOME, ASP_AGENTS_ROOT, ASP_AGENT_ROOT and its VAR/STATE/CACHE/LOG dirs, ASP_AGENT_NAME, ASP_PLUGIN_ROOT, ASP_PROJECT_ID, ASP_PROJECT_STATE_DIR, ASP_PRIMING_PROMPT), AGENTCHAT_ID, and two keys that overlap identity, both written whenever the placement has a project root: ASP_PROJECT (raspd compile/mod.rs:2233-2243, Bun prepare-cli-runtime.ts:509) and ASP_PROJECT_ROOT (the tool runtime env). They are the only identity-related keys ASP locks, and by step 4 ASP is their writer on those launches.
 
 Classes:
 
 | Class | Variables | Rule |
 | --- | --- | --- |
 | canonical identity | AGENT_SCOPE_REF, AGENT_ID, AGENT_PROJECT, AGENT_TASK, AGENT_LANE, AGENT_SESSION_REF, AGENT_ACTOR, AGENT_PROJECT_ROOT | both writers emit them, same values for the same inputs |
-| canonical correlation | AGENT_RUN_ID, AGENT_HOST_SESSION_ID, AGENT_GENERATION | managed only; run id only when a run exists at spawn |
-| compat copy | AGENT_LANE_REF, ASP_SCOPE_REF, ASP_AGENT_ID, ASP_TASK_ID, ASP_PROJECT_ROOT, HRC_SESSION_REF, HRC_RUN_ID, HRC_HOST_SESSION_ID, HRC_GENERATION, WRKQ_PRINCIPAL_REF | each is a named function of a canonical key. The row says which launch path writes it today and lists its readers; this contract does not add a compat copy to a path that lacks it. A compat row is removed by a table change once its reader list is empty, never by a writer alone |
+| canonical correlation | AGENT_RUN_ID, AGENT_HOST_SESSION_ID, AGENT_GENERATION | managed: written by HRC, run id only when a run exists at spawn. Unmanaged: run id and host session id only when the caller passes them to `asp agent` |
+| compat copy | AGENT_LANE_REF, ASP_SCOPE_REF, ASP_AGENT_ID, ASP_TASK_ID, HRC_SESSION_REF, HRC_RUN_ID, HRC_HOST_SESSION_ID, HRC_GENERATION, WRKQ_PRINCIPAL_REF | each is a named function of a canonical key. The row says which launch path writes it today and lists its readers; this contract does not add a compat copy to a path that lacks it. A compat row is removed by a table change once its reader list is empty, never by a writer alone |
 | project discovery id | ASP_PROJECT | not a copy. With a project root: written by ASP's compile in `lockedEnv`, value is the scope's project id, or the basename of the project root when the scope has no project. So it can be present when AGENT_PROJECT is absent. Managed launch with no project root: written by HRC, equal to AGENT_PROJECT |
+| locked project root | ASP_PROJECT_ROOT | written by ASP's compile in `lockedEnv` on both launch paths whenever there is a project root (core/runtime agent-local-runtime.ts:112, raspd compile/mod.rs:1834). HRC also derives it at step 1 and removes it at step 4, so HRC never has the last word on it |
 | derived handle, managed only | ASP_HANDLE | written by HRC only: `agent[@project[:task]][~lane]`, lane omitted when `main`. It leaves out the role, so for a role-scoped seat it is not the session's identity and does not round-trip; AGENT_SCOPE_REF is. `buildAgentSessionEnv` does not write it |
-| HRC plumbing | HRC_RUNTIME_ID, HRC_INVOCATION_ID, HRC_INITIAL_INPUT_ID, HRC_TASK_ID and the other HRC_TASK_* keys, HRC_PTY_SOCKET, HRC_MAIL_STOP_SOCKET, HRC_WRKQ_DB, HRC_WRKQD_TOKEN_FILE, WRKQD_TOKEN_FILE, WRKQ_DB, WRKQ_DB_PATH, WRKQ_DB_PATH_FILE | HRC only; listed, not fixture-tested |
+| runtime plumbing | HRC_RUNTIME_ID, HRC_INVOCATION_ID, HRC_INITIAL_INPUT_ID, HRC_TASK_ID and the other HRC_TASK_* keys, HRC_MAIL_STOP_SOCKET, WRKQD_TOKEN_FILE, WRKQ_DB, WRKQ_DB_PATH, WRKQ_DB_PATH_FILE (HRC's writer); HRC_PTY_SOCKET (hrc-pty, on the child it spawns); HRC_LAUNCH_HOOK_CLI (the harness broker's drivers); HRC_WRKQ_DB, HRC_WRKQD_TOKEN_FILE (the daemon's own inputs; in a seat they come from the login profile) | the keys HRC's writer emits are tested as part of the exact map in the managed cases; the rest are listed with their writer |
 | removed | WRKQ_ACTOR | written at broker.rs:597, unset by the login profile before the harness starts, read by nothing; the write is deleted |
 
 One thing changes behaviour: HRC stops writing WRKQ_ACTOR. Everything else is recorded as it is written today:
 
-- Managed launches carry the ASP_* copies (ASP_SCOPE_REF, ASP_AGENT_ID, ASP_TASK_ID, ASP_PROJECT_ROOT), ASP_HANDLE and ASP_PROJECT, and not WRKQ_PRINCIPAL_REF. wrkq derives the same principal from AGENT_SCOPE_REF (internal/attribution/principal.go: explicit env first, then scope-derived, both through `buildAttribution` with the scope attached), so no managed reader needs it.
-- Unmanaged launches carry WRKQ_PRINCIPAL_REF, the HRC_SESSION_REF copy, and ASP_PROJECT from `lockedEnv` when there is a project root; not the ASP_* identity copies and not ASP_HANDLE.
+- Managed launches carry the ASP_* copies (ASP_SCOPE_REF, ASP_AGENT_ID, ASP_TASK_ID), ASP_HANDLE, and ASP_PROJECT and ASP_PROJECT_ROOT from `lockedEnv`, and not WRKQ_PRINCIPAL_REF. wrkq derives the same principal from AGENT_SCOPE_REF (internal/attribution/principal.go: explicit env first, then scope-derived, both through `buildAttribution` with the scope attached), so no managed reader needs it.
+- Unmanaged launches carry WRKQ_PRINCIPAL_REF, the HRC_SESSION_REF copy, and ASP_PROJECT and ASP_PROJECT_ROOT from `lockedEnv` when there is a project root; not the other ASP_* identity copies and not ASP_HANDLE.
 
 Making the two paths emit the same compat set would be a behaviour change on three nodes with no reader that needs it. If one is wanted later it is its own change with its own readback (objection from mable@hrc-runtime, EN-48638, accepted).
 
@@ -127,7 +128,7 @@ Readers recorded in the first table, from code read on 2026-11-09: wrkq (AGENT_S
 - `unmanaged`: input is a placement; expected is exactly what `buildAgentSessionEnv` returns. The TypeScript builder runs these.
 - `locked`: input is a scope and a project root; expected is the ASP_PROJECT entry of `lockedEnv`, including the agent-only scope whose value is the root's basename. The compiler that builds `lockedEnv` runs these (raspd, and Bun while it exists).
 
-The managed cases are taken from the env of live seats on max3 (claude-hrcpty, and the tool shell of a codex-hrcpty seat) with ids replaced by fixed placeholders; the unmanaged cases from a real `asp run`.
+The managed cases are taken from the env of live seats on max3 (claude-hrcpty, and the tool shell of a codex-hrcpty seat) with ids replaced by fixed placeholders; the unmanaged cases from real `asp agent` launches.
 
 ## Distribution and adoption
 
@@ -148,7 +149,7 @@ The TypeScript call sites in hrc-runtime packages and agent-control-plane that p
 
 1. The grammar fixture is committed with every case generated from the TypeScript package, and the package's test fails when a case is edited by hand.
 2. Rust, Go and the kernel each run the grammar fixture in their verify and pass every case for their declared operations. Each run is shown red first on at least the divergences in the Problem table that apply to it.
-3. Both env writers pass the env cases for their launch path, and a fresh managed seat and a fresh `asp run` seat on max3 each show exactly the canonical and compat keys the table lists for that path, with WRKQ_ACTOR written by nothing.
+3. Both env writers pass the env cases for their launch path, and a fresh managed seat and a fresh `asp agent` launch on max3 each show exactly the canonical and compat keys the table lists for that path, with WRKQ_ACTOR written by nothing.
 4. Editing a consumer's copy of the fixture fails that consumer's verify on max3.
 
 ## Explicitly unsupported

@@ -4,7 +4,7 @@ status: active
 owner_project: agent-spaces
 scope: scope grammar and launch environment conformance for the T-12838 adoption set
 predicate: >
-  The producer-owned scope and env contract is the approved r2 specification
+  The producer-owned scope and env contract is the approved r3 specification
   preserved in architecture/contracts/scope-env-conformance.md, within its
   stated adoption scope and explicit exclusions. TypeScript agent-scope is the
   grammar reference; its generated data fixture carries exact results or the
@@ -14,28 +14,43 @@ predicate: >
   copied fixture with the producer when the sibling checkout is present.
   Scope parsing preserves supplied scope specificity; qualified resolution
   applies its declared defaults. Session refs contain canonical scope refs and
-  parsed lanes are validated. Historical identity.project remains lenient for
-  stored rows only; caller input uses strict operations. The env table records
+  parsed lanes are validated. Project-deferred task handles with a lane refuse
+  before project completion. Historical identity.project remains lenient for
+  stored rows only, retaining the raw input as agentId when unparsed; caller
+  input uses strict operations. The env table records
   each launch path's existing outputs and the composition step with the final
   word, rather than requiring identical compat sets. Managed launch intent
   overrides follow HRC derivation, HRC preparation adds plumbing correlation,
   and compiled lockedEnv wins on overlapping keys. ASP_PROJECT is project
   discovery data, including the project-root basename fallback without a
-  project-scoped identity. ASP_HANDLE is a managed-only role-omitting derived
+  project-scoped identity. ASP_PROJECT_ROOT is supplied through the tool runtime
+  in compiled lockedEnv whenever a project root exists on either launch path.
+  The unmanaged identity writer is asp agent, not asp run; supplied run and
+  host-session correlation are emitted on that unmanaged path. The login
+  profile must not alter identity rows; its plumbing effects are provenance.
+  ASP_HANDLE is a managed-only role-omitting derived
   handle, not a round-tripping role-scoped identity. Managed, unmanaged and
   locked env cases exercise their respective writing steps. Copy agreement
   under caller overrides is explicitly outside this contract. WRKQ_ACTOR's
   dead write is removed; compat sets otherwise stay as specified. Existing
   runtime-declaration authority and prompt-versus-dispatch environment
   separation are unchanged.
-authority: Lance's 2026-11-09 consolidation ruling and Daedalus APPROVE of T-12838 r2 in EN-48780
+authority: Lance's 2026-11-09 consolidation ruling and Daedalus APPROVE of T-12838 r2 in EN-48780, amended to r3 in EN-49138
 source:
   - wrkq:T-12838
   - wrkq:EN-48772
   - wrkq:EN-48780
+  - wrkq:EN-49130
+  - wrkq:EN-49138
+  - wrkq:C-35980
+  - wrkq:EN-49084
   - architecture/contracts/scope-env-conformance.md
   - contracts/agent-scope/src
+  - contracts/agent-scope/conformance
   - core/config/src/runtime/agent-session-env.ts
+  - core/runtime/src/agent-local-runtime.ts
+  - apps/cli/src/commands/agent/index.ts
+  - drivers/execution/src/run/execute.ts
   - compiler/agent-spaces/src/prepare-cli-runtime.ts
   - crates/raspd/src/compile/mod.rs
   - architecture/records/invariants/agent-spaces.runtime-declaration-authority.yaml
@@ -43,11 +58,11 @@ required_tests:
   - agent-scope regenerates expected fixture results and refusals from its implementation and rejects an edited committed case
   - Rust Go and kernel consumer verify gates run every grammar case for their declared operations with red-before evidence on applicable surveyed divergences
   - managed unmanaged and locked env writers pass their respective cases including role-scoped ASP_HANDLE and agent-only project discovery
-  - fresh managed and unmanaged max3 launches show their declared canonical and compat keys with WRKQ_ACTOR written by nothing
+  - fresh managed and unmanaged asp agent max3 launches show their declared canonical and compat keys with WRKQ_ACTOR written by nothing
   - changing a consumer fixture copy fails its verify when the sibling agent-spaces checkout is present
 last_verified:
   date: null
-  evidence: Design approved from source reading on 2026-11-09 in EN-48780; implementation and runtime acceptance pending
+  evidence: r3 approved from source and fixture reading on 2026-11-09 in EN-49138; no consumer verify or runtime acceptance result asserted by this ruling
 reopen_when:
   - grammar authority operations refusal codes or parse-versus-resolve semantics change
   - a consumer retains an undeclared private parser within the adoption scope
