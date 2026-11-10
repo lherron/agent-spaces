@@ -40,6 +40,7 @@ import {
   treeManifest,
   verifyFingerprints,
 } from '../aspd-compare/compare-core.ts'
+import { takeRaspdDiscoveryDifferences } from '../aspd-compare/raspd-discovery.ts'
 import { type ProbeCase, ctxFor } from './ctx.ts'
 import { type ReleaseIdentity, drive, frame, startRig } from './rig.ts'
 
@@ -51,7 +52,7 @@ export const ORACLE = join(BUN_REPLIES, '_oracle.json')
 
 export type NativeSpec = {
   /** Every case of a native row (and of a split row's native part), in run order. */
-  cases: { id: string; reason: string }[]
+  cases: { id: string; reason: string; expect?: 'success' }[]
   /** Cases where raspd deliberately answers differently from Bun. */
   departures: { case: string; reason: string; why: string }[]
 }
@@ -226,10 +227,24 @@ export type Judged = { refusal?: unknown; envelope: string[] }
 
 /** A reply's refusal shape (compile diagnostic code, failure or rpc error), or none. */
 export function refusalOf(method: string, reply: any): unknown {
-  if (reply?.error) return { rpc: [reply.error.code, reply.error.data?.reason] }
+  if (reply?.error)
+    return {
+      rpc: [
+        reply.error.code,
+        reply.error.data?.reason,
+        ...(reply.error.data?.code ? [reply.error.data.code] : []),
+      ],
+    }
   const r = reply?.result
   if (!r || r.ok !== false) return undefined
   if (method === 'aspc.compileHarnessInvocation') return { diagnostic: r.diagnostics?.[0]?.code }
+  if (method === 'aspc.inspectAgent')
+    return {
+      diagnostics: r.diagnostics?.map((d: { severity: string; code: string }) => [
+        d.severity,
+        d.code,
+      ]),
+    }
   const body = method === 'aspc.inspectRuntimePlacement' ? r.declaration : r
   if (body?.failure) return { failure: [body.failure.kind, body.failure.code] }
   if (body?.resolution) return { resolution: [body.resolution.state, body.resolution.code] }
@@ -282,10 +297,11 @@ export function compareNative(
   problems.push(...checkR.mismatches.map((m) => `raspd self-check: ${m}`))
   problems.push(...bun.violations.map((m) => `bun fingerprint: ${m}`))
   problems.push(...raspd.violations.map((m) => `raspd fingerprint: ${m}`))
-  const replyDiffs = diffMaps(
-    normalize(entry, bun.replies, checkB.verified),
-    normalize(entry, raspd.replies, checkR.verified)
-  )
+  const left = normalize(entry, bun.replies, checkB.verified)
+  const right = normalize(entry, raspd.replies, checkR.verified)
+  const discovery = takeRaspdDiscoveryDifferences(left, right)
+  problems.push(...discovery.violations)
+  const replyDiffs = diffMaps(left, right)
   const treeDiffs = diffMaps(new Map(Object.entries(bun.tree)), new Map(Object.entries(raspd.tree)))
   if (replyDiffs.length > 0) problems.push(`${replyDiffs.length} reply differences`)
   if (treeDiffs.length > 0) problems.push(`${treeDiffs.length} tree differences`)

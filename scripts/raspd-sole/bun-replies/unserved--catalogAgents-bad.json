@@ -1,0 +1,62 @@
+{
+  "method": "aspc.catalogAgents",
+  "params": {},
+  "replies": [
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "error": {
+        "code": -32602,
+        "message": "Invalid params",
+        "data": {
+          "issues": [
+            {
+              "path": "params.evaluationContext",
+              "code": "required",
+              "message": "params.evaluationContext must be an object"
+            }
+          ],
+          "reason": "invalid_params",
+          "advice": "Correct the named params issues and call aspc.catalogAgents again; call surface with params: {} to list operations."
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "facadeInfo": {
+          "name": "aspc-facade",
+          "version": "0.1.1"
+        },
+        "protocolVersion": "aspc/0.1",
+        "capabilities": {
+          "catalogAgents": true,
+          "inspectAgent": true,
+          "catalogAgentInspection": true,
+          "inspectAgentSelection": true,
+          "compileHarnessInvocation": true,
+          "resolveRuntimeDeclaration": true,
+          "inspectRuntimePlacement": true,
+          "inspectRuntimePlacementPreparationCorrelation": true,
+          "inspectRuntimePlacementPreparationTaskContext": true,
+          "observeRuntimeCapability": true,
+          "observeContinuationArtifact": true,
+          "prepareProcessInvocation": true,
+          "prepareProcessInvocationTaskContext": true,
+          "cohostedBroker": false,
+          "transports": [
+            "unix-jsonrpc-ndjson"
+          ]
+        },
+        "release": {
+          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
+          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
+          "builtAt": "2026-11-10T00:47:48.483Z"
+        }
+      }
+    }
+  ],
+  "tree": {},
+  "violations": []
+}

@@ -1,0 +1,1590 @@
+{
+  "method": "aspc.catalogAgents",
+  "params": {
+    "evaluationContext": {
+      "schemaVersion": "agent-inspection-evaluation-context/v2",
+      "identifiers": {
+        "agentId": "pathmark-dev",
+        "agentName": "pathmark-dev",
+        "projectId": "project",
+        "mode": "task",
+        "scope": "pathmark-dev@project:T-13008",
+        "taskId": "T-13008",
+        "lane": "main",
+        "harness": "claude",
+        "presentation": true
+      },
+      "paths": {
+        "agentRoot": "/private/tmp/raspd-sole-native/stage/agents/pathmark-dev",
+        "agentsRoot": "/private/tmp/raspd-sole-native/stage/agents",
+        "projectRoot": "/private/tmp/raspd-sole-native/stage/project",
+        "cwd": "/private/tmp/raspd-sole-native/stage/project"
+      },
+      "nowIso": "2026-11-09T00:00:00.000Z",
+      "environment": {},
+      "predicateInputs": {
+        "cwd": "/private/tmp/raspd-sole-native/stage/project",
+        "environment": {}
+      },
+      "execInputs": {
+        "cwd": "/private/tmp/raspd-sole-native/stage/project",
+        "environment": {}
+      },
+      "serviceProbeInputs": {
+        "responses": []
+      },
+      "scaffoldPackets": [],
+      "agentProfile": {},
+      "declaredOverrides": {},
+      "compileContext": {
+        "nowIso": "2026-11-09T00:00:00.000Z",
+        "idSalt": "t13008",
+        "toolchainManifest": {
+          "schemaVersion": "compile-toolchain/v1",
+          "tools": [
+            {
+              "name": "agent-spaces",
+              "version": "test"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "replies": [
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "facadeInfo": {
+          "name": "aspc-facade",
+          "version": "0.1.1"
+        },
+        "protocolVersion": "aspc/0.1",
+        "capabilities": {
+          "catalogAgents": true,
+          "inspectAgent": true,
+          "catalogAgentInspection": true,
+          "inspectAgentSelection": true,
+          "compileHarnessInvocation": true,
+          "resolveRuntimeDeclaration": true,
+          "inspectRuntimePlacement": true,
+          "inspectRuntimePlacementPreparationCorrelation": true,
+          "inspectRuntimePlacementPreparationTaskContext": true,
+          "observeRuntimeCapability": true,
+          "observeContinuationArtifact": true,
+          "prepareProcessInvocation": true,
+          "prepareProcessInvocationTaskContext": true,
+          "cohostedBroker": false,
+          "transports": [
+            "unix-jsonrpc-ndjson"
+          ]
+        },
+        "release": {
+          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
+          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
+          "builtAt": "2026-11-10T00:47:48.483Z"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "agents": [
+          {
+            "agentId": "_alpha",
+            "displayName": "Catalog 2",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "alpha",
+            "displayName": "Catalog 0",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "Alpha-extra",
+            "displayName": "Catalog 1",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-04",
+            "displayName": "Catalog 4",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-05",
+            "displayName": "Catalog 5",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-06",
+            "displayName": "Catalog 6",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-07",
+            "displayName": "Catalog 7",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-08",
+            "displayName": "Catalog 8",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-09",
+            "displayName": "Catalog 9",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-10",
+            "displayName": "Catalog 10",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-11",
+            "displayName": "Catalog 11",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-12",
+            "displayName": "Catalog 12",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-13",
+            "displayName": "Catalog 13",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-14",
+            "displayName": "Catalog 14",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-15",
+            "displayName": "Catalog 15",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-16",
+            "displayName": "Catalog 16",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-17",
+            "displayName": "Catalog 17",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-18",
+            "displayName": "Catalog 18",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-19",
+            "displayName": "Catalog 19",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-20",
+            "displayName": "Catalog 20",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-21",
+            "displayName": "Catalog 21",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-22",
+            "displayName": "Catalog 22",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-23",
+            "displayName": "Catalog 23",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-24",
+            "displayName": "Catalog 24",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-25",
+            "displayName": "Catalog 25",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-26",
+            "displayName": "Catalog 26",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-27",
+            "displayName": "Catalog 27",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-28",
+            "displayName": "Catalog 28",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-29",
+            "displayName": "Catalog 29",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-30",
+            "displayName": "Catalog 30",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-31",
+            "displayName": "Catalog 31",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-32",
+            "displayName": "Catalog 32",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-33",
+            "displayName": "Catalog 33",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-34",
+            "displayName": "Catalog 34",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-35",
+            "displayName": "Catalog 35",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-36",
+            "displayName": "Catalog 36",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-37",
+            "displayName": "Catalog 37",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-38",
+            "displayName": "Catalog 38",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-39",
+            "displayName": "Catalog 39",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-40",
+            "displayName": "Catalog 40",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-41",
+            "displayName": "Catalog 41",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-42",
+            "displayName": "Catalog 42",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-43",
+            "displayName": "Catalog 43",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-44",
+            "displayName": "Catalog 44",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-45",
+            "displayName": "Catalog 45",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-46",
+            "displayName": "Catalog 46",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-47",
+            "displayName": "Catalog 47",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-48",
+            "displayName": "Catalog 48",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-49",
+            "displayName": "Catalog 49",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-50",
+            "displayName": "Catalog 50",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-51",
+            "displayName": "Catalog 51",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-52",
+            "displayName": "Catalog 52",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-53",
+            "displayName": "Catalog 53",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-54",
+            "displayName": "Catalog 54",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-55",
+            "displayName": "Catalog 55",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-56",
+            "displayName": "Catalog 56",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-57",
+            "displayName": "Catalog 57",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-58",
+            "displayName": "Catalog 58",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-59",
+            "displayName": "Catalog 59",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-60",
+            "displayName": "Catalog 60",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "catalog-61",
+            "displayName": "Catalog 61",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "éclair",
+            "displayName": "Catalog 3",
+            "role": "primary",
+            "sourceAvailability": {
+              "profile": true,
+              "soul": false,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "pathmark",
+            "displayName": "pathmark",
+            "role": null,
+            "sourceAvailability": {
+              "profile": true,
+              "soul": true,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "pathmark-claude-hrcpty",
+            "displayName": "pathmark-claude-hrcpty",
+            "role": null,
+            "sourceAvailability": {
+              "profile": true,
+              "soul": true,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "pathmark-codex",
+            "displayName": "pathmark-codex",
+            "role": null,
+            "sourceAvailability": {
+              "profile": true,
+              "soul": true,
+              "contextTemplate": true
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "pathmark-codex-hrcpty",
+            "displayName": "pathmark-codex-hrcpty",
+            "role": null,
+            "sourceAvailability": {
+              "profile": true,
+              "soul": true,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "pathmark-dev",
+            "displayName": "pathmark-dev",
+            "role": null,
+            "sourceAvailability": {
+              "profile": true,
+              "soul": true,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "pathmark-participant",
+            "displayName": "pathmark-participant",
+            "role": null,
+            "sourceAvailability": {
+              "profile": true,
+              "soul": true,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "pathmark-project-space",
+            "displayName": "pathmark-project-space",
+            "role": null,
+            "sourceAvailability": {
+              "profile": true,
+              "soul": true,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "pathmark-prune",
+            "displayName": "pathmark-prune",
+            "role": null,
+            "sourceAvailability": {
+              "profile": true,
+              "soul": true,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "pm-broken",
+            "displayName": "pm-broken",
+            "role": null,
+            "sourceAvailability": {
+              "profile": true,
+              "soul": true,
+              "contextTemplate": false
+            },
+            "defaultContextSummary": {
+              "projectId": "project",
+              "mode": "task",
+              "lane": "main",
+              "harness": "claude",
+              "presentation": true
+            },
+            "diagnostics": [
+              {
+                "severity": "error",
+                "code": "invalid_agent_profile",
+                "message": "Failed to parse TOML: Unterminated inline array at row 2, col 1, pos 13:\n1: version = [\n2> \n   ^\n\n"
+              }
+            ],
+            "warningCount": 0,
+            "errorCount": 1
+          }
+        ]
+      }
+    }
+  ],
+  "tree": {
+    "agents/Alpha-extra/agent-profile.toml": "file 644 9b653d231ea1b26302eb1d758132ac3cb0d548852d60108ec3d0b1a38fe2370f",
+    "agents/_alpha/agent-profile.toml": "file 644 0b2de7c97979d2141cf446bf7cf62b1d0a9b763778ed19adea6f78b4678a46db",
+    "agents/alpha/agent-profile.toml": "file 644 e57b78b105302a5f8a3a31370178608141892480a074fcda58d619856f262fd2",
+    "agents/catalog-04/agent-profile.toml": "file 644 2a6b42cd2610a54a7206be279fbebce89a67f9815eedf2d72be0318272a7c1a3",
+    "agents/catalog-05/agent-profile.toml": "file 644 0e6ca2026a26962033ff62976cd9b20ddd9f5ba5d4f0557d95e8d3650e324f54",
+    "agents/catalog-06/agent-profile.toml": "file 644 625ae84a34655c71a7ad113137e4fc88cb0d5235a8a46cb6e37cdd802d828a10",
+    "agents/catalog-07/agent-profile.toml": "file 644 e73a30358bc5590f1b7513f9e995089f59dcb948a911e1dcb224ded21f9342ce",
+    "agents/catalog-08/agent-profile.toml": "file 644 1775d5fabdc891f7573456227ae5aadcce350d7ff898b1f0e14e0afe508aa599",
+    "agents/catalog-09/agent-profile.toml": "file 644 f763c5d0b200ed3b0c452362df8439801da30e4ac54bf7cbfe48701d42e4227c",
+    "agents/catalog-10/agent-profile.toml": "file 644 330b4e9ad88465432ad8ec91570cebaf4c2a6188bdfe9bdd3ecc9245eadb3392",
+    "agents/catalog-11/agent-profile.toml": "file 644 4fda71b00280d831e0ac6e11a6329c05ab6aa72fe2ca7a72b1fb924faca9fca3",
+    "agents/catalog-12/agent-profile.toml": "file 644 24dedc0eba525c66ffa4020a66c33ee7520837a82ec2d915339ba268a268c3ce",
+    "agents/catalog-13/agent-profile.toml": "file 644 6d86b4e437dc4bd8a4a02b57d865d3adc39606df54f3958bc3e855e81c3df2a3",
+    "agents/catalog-14/agent-profile.toml": "file 644 d9c21d56eaad9f55f145e84e49497a7a1e0e2da47d43ef979a11ad8b8fc18f79",
+    "agents/catalog-15/agent-profile.toml": "file 644 67e8b9eb74603aac9b46ff5239880350c2999fbbffd54dede7f1fd7bb6a6c4be",
+    "agents/catalog-16/agent-profile.toml": "file 644 6168b21a302944bacd6ab163b7e4a8452db9eb047bf2931eec5d403758c32067",
+    "agents/catalog-17/agent-profile.toml": "file 644 6900d7c93b0479ea9307bc3404af42186577896d89d517ada7145ee2721f58b0",
+    "agents/catalog-18/agent-profile.toml": "file 644 ad9e5eec1d4c097e0c27b638cd9b00e6cddc06c4de2cff587153f392c2472fa8",
+    "agents/catalog-19/agent-profile.toml": "file 644 b8c7f9217e1eafbbc02103286966b078e90b70802ce614cd18e1e4aa44e62525",
+    "agents/catalog-20/agent-profile.toml": "file 644 22f1ad3b155b8b2eead0a35ddf83906a4f09d48b595ea3d0a57993b7d879b3ec",
+    "agents/catalog-21/agent-profile.toml": "file 644 e131d62181b6b108642e7b6ea572799e9ff9a3673fc6cf870b2bccc2fb7a1bd2",
+    "agents/catalog-22/agent-profile.toml": "file 644 90d971647b4e6cfb0a95bc1cc79de59d24dcdd9882fd48625a9694f289c9d111",
+    "agents/catalog-23/agent-profile.toml": "file 644 01ef062fb0a62ee0d6ca2f3ac5065dfb005c12bbbd24a24ee00d54d839af5972",
+    "agents/catalog-24/agent-profile.toml": "file 644 fdf74eeeae8ab611f322265abf68e390d54ff99e2be584040a750e26394635db",
+    "agents/catalog-25/agent-profile.toml": "file 644 8d0c7f0ae51719a11a5077d6f2656699f62aad773e24af558b1e9dd71c1e95f0",
+    "agents/catalog-26/agent-profile.toml": "file 644 1ed2a8e3cb2708c60dc2472b1a44e4dcb8a7b0e384ad051b80447247e290b97d",
+    "agents/catalog-27/agent-profile.toml": "file 644 9b7a29a8a25ad9eaaed49a4cefab33265dd05396b5e2610d351878b30e1d15c4",
+    "agents/catalog-28/agent-profile.toml": "file 644 52f451fa54bc1690f4afa305568fc35993a5d967e8b44ee57f5e993b68004157",
+    "agents/catalog-29/agent-profile.toml": "file 644 f13709be25a47c704ac4510bea964774e315d446201015b277e28541c4b2b16f",
+    "agents/catalog-30/agent-profile.toml": "file 644 8e18442abf8caec62e2f43d86b8bf98c1d1a9566da90c6dffefdf756e3b1fde7",
+    "agents/catalog-31/agent-profile.toml": "file 644 30404deb073e82e857e8ad1705309c1cb4f91437987ceb615961ec19f3fc769d",
+    "agents/catalog-32/agent-profile.toml": "file 644 06cb7f55bcb09bec23815a5e37cade8a7ad765a5db9d3e7b2d08c6e8c837be7a",
+    "agents/catalog-33/agent-profile.toml": "file 644 5596aa658137fb4621a22c6cf50b75fea40afd095b3231733ad8ab4c6dee3121",
+    "agents/catalog-34/agent-profile.toml": "file 644 023c03870611b0dbbb997d66171ff827479c2badbca494a5c0d640a884f3e057",
+    "agents/catalog-35/agent-profile.toml": "file 644 c2d4872c895dc72a58009a9c22f54989a5872e377a66f2c6383ec333763e9090",
+    "agents/catalog-36/agent-profile.toml": "file 644 780d6cd2bcc51df71cc5c48cae37445af60baf99f6da5f25b432521bdc9f4976",
+    "agents/catalog-37/agent-profile.toml": "file 644 8c71c0cb6d10a27ea90e676a7b65743fda8019deff443baa26c6ca621aa41142",
+    "agents/catalog-38/agent-profile.toml": "file 644 27314cb0f989d849ff15016607b81ae77365fe2de0942abf757110353e50c771",
+    "agents/catalog-39/agent-profile.toml": "file 644 f9bc6cb6ded4b3ca5a277a5c70d3791d96cf22d1d2f2bc55ce870daf0a7e1ff8",
+    "agents/catalog-40/agent-profile.toml": "file 644 c026d9dfb39917b3551e4f805acad55a7417200febfaf4671e90c6621ed7e826",
+    "agents/catalog-41/agent-profile.toml": "file 644 ba0157b5ced508d2948006c86bbdcb4f37fa0719361816684405a4d0496b87a7",
+    "agents/catalog-42/agent-profile.toml": "file 644 c397d74624728ebc2ac7b8fb0fe2b58f2860dcf4be77e86a042bded1f5284490",
+    "agents/catalog-43/agent-profile.toml": "file 644 6a6fefd19728349ac19de69132cb723ffe2d9406aeca0b333fc3a9ae86a0e48f",
+    "agents/catalog-44/agent-profile.toml": "file 644 5f2d9d2b496ccd981382a2d14744caa460c437cc294ddcdc14de94ef893ac84a",
+    "agents/catalog-45/agent-profile.toml": "file 644 e15f4eaabe2dfe704f838f7d7248067999623119ae764ee852691924389dcaff",
+    "agents/catalog-46/agent-profile.toml": "file 644 bd5c6a6d416d9314739515f2fe7c6fd4f5021dfb4c0c4875999bf15ef849ace6",
+    "agents/catalog-47/agent-profile.toml": "file 644 7accdcd11f88e9a1b7db8c8bc70f528053648ad16186900a8aa3b42152dd509e",
+    "agents/catalog-48/agent-profile.toml": "file 644 ea92954f4ca97b04ceff119a092a2e8a9e229814369fc96db8bd84695d81155d",
+    "agents/catalog-49/agent-profile.toml": "file 644 f4b49470e5d04825c60c16690d3f299a122ce537d632dc6431b117748ffafaaa",
+    "agents/catalog-50/agent-profile.toml": "file 644 36c6740880ccd56f93255a2e413130e8e7be7ba6c64da330e4a6ed92707120da",
+    "agents/catalog-51/agent-profile.toml": "file 644 cdc6c3a3fc9379ed54eec0468030def71abdfadfb1d77a283b32b5876f004f8f",
+    "agents/catalog-52/agent-profile.toml": "file 644 ebc58eb738816f8d9aa6f6ebcb4df20bc5a06979983c8e9d702b9473bae72f7c",
+    "agents/catalog-53/agent-profile.toml": "file 644 b0b524ae322bbe10e4c383d87cbb3538efa398697ff857c759ff1cfccf2e25ea",
+    "agents/catalog-54/agent-profile.toml": "file 644 b4e079673ad1103a1764bdd316ec917bb471c7bd6439789aa17fe4269ae5252d",
+    "agents/catalog-55/agent-profile.toml": "file 644 616ad6ac535f3474d00bc20724420cc80068c74ca6efadf384c2219683001986",
+    "agents/catalog-56/agent-profile.toml": "file 644 3c373c09918b74aa1b5eb412ced77b06c726a3d29a4c5dbcbfb37809b9e44bbd",
+    "agents/catalog-57/agent-profile.toml": "file 644 aac24ea9c3ccffffd31e136098a279c96ffffe6c774fba2b430029bdc3babb56",
+    "agents/catalog-58/agent-profile.toml": "file 644 bfc51c16bcb70047a20c21aa76390abe5a773509c4db081c987cf8e85ae6e404",
+    "agents/catalog-59/agent-profile.toml": "file 644 0c514ea4e776341b9c0d5dfb4c4c9c1b74eca375bc1f36f612e42fadf42b72c7",
+    "agents/catalog-60/agent-profile.toml": "file 644 511766c70afe9e3eded250bb7349474ce5f7849d3192fff7c4ca74023dd25cfe",
+    "agents/catalog-61/agent-profile.toml": "file 644 0455d36ecddfb101ecba98a54dc6afe40dfe16e591218966b91bf9a904855ed7",
+    "agents/éclair/agent-profile.toml": "file 644 71ef301700548b5fd97b87aacc57828ca344a1ffdd3f7d87b56ee3a0ef33258b"
+  },
+  "violations": []
+}

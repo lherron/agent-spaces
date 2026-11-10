@@ -14,6 +14,7 @@
 mod codex;
 mod iarna;
 mod inspect;
+mod inspection_input;
 mod lock_schema;
 mod lockfile;
 mod path_filter;
@@ -60,7 +61,12 @@ pub(crate) fn lock_fwd(reason: Reason) -> impl Fn(lockfile::LockError) -> Fwd {
 pub const METHOD: &str = "aspc.compileHarnessInvocation";
 /// The ops answered through the native compile: the compile itself, and
 /// runtime placement inspection, which compiles (and materializes) too.
-pub const METHODS: [&str; 2] = [METHOD, inspect::METHOD];
+pub const METHODS: [&str; 4] = [
+    METHOD,
+    inspect::METHOD,
+    inspect::AGENT_METHOD,
+    inspect::CATALOG_METHOD,
+];
 
 pub fn is_compile(method: &str) -> bool {
     METHODS.contains(&method)
@@ -68,7 +74,9 @@ pub fn is_compile(method: &str) -> bool {
 
 /// Answer one of `METHODS`.
 pub fn handle_method(method: &str, params: Option<&J>, release: &Release) -> Compiled {
-    if method == inspect::METHOD {
+    if matches!(method, inspect::AGENT_METHOD | inspect::CATALOG_METHOD) {
+        inspect::handle_agent(method, params, release)
+    } else if method == inspect::METHOD {
         inspect::handle(params, release)
     } else {
         handle(params, release)
@@ -1175,6 +1183,7 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
         agent_profile: None,
         env: None,
         exec_env: None,
+        pinned: None,
     };
     let expanded_prompt = match &launch_prompt {
         Some(p) => Some(prompt::interpolate(p, &expansion)?),
@@ -1225,6 +1234,7 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
             agent_profile,
             env: Some(exec_env.clone()),
             exec_env: Some(exec_env.clone()),
+            pinned: None,
         };
         Some(prompt::resolve_template(&template, &ctx)?)
     };
@@ -1331,6 +1341,7 @@ fn expansion_ctx_stub(agent_root: &str, project_root: Option<&str>) -> Ctx {
         agent_profile: None,
         env: None,
         exec_env: None,
+        pinned: None,
     }
 }
 

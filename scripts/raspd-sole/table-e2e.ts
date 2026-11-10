@@ -58,6 +58,7 @@ import {
   spec as nativeSpec,
   readBunCapture,
 } from './native.ts'
+import { checkOperations } from './operations.ts'
 import { drive, frame, logLines, startRig } from './rig.ts'
 
 const repo = resolve(import.meta.dir, '..', '..')
@@ -79,7 +80,7 @@ mkdirSync(scratch, { recursive: true })
 
 // -- the table ---------------------------------------------------------------------
 type Reply =
-  | { rpc: [number, string] }
+  | { rpc: [number, string, string?] }
   | { diagnostic: string }
   | { failure: [string, string] }
   | { resolution: [string, string] }
@@ -133,7 +134,16 @@ function shapeOf(method: string, reply: any): { shape?: Reply; envelope: string[
   const envelope: string[] = []
   if (reply?.error) {
     if (typeof reply.error.message !== 'string') envelope.push('error.message is not a string')
-    return { shape: { rpc: [reply.error.code, reply.error.data?.reason] }, envelope }
+    return {
+      shape: {
+        rpc: [
+          reply.error.code,
+          reply.error.data?.reason,
+          ...(reply.error.data?.code ? [reply.error.data.code] : []),
+        ] as [number, string, string?],
+      },
+      envelope,
+    }
   }
   const r = reply?.result
   if (!r || r.ok !== false) return { envelope: ['not a refusal'] }
@@ -231,6 +241,17 @@ async function nativeHalf(): Promise<(Verdict & { departed?: boolean })[]> {
       continue
     }
     const v = compareNative(id, cases.get(id) as ProbeCase, bun, mine)
+    if (
+      nativeSpec.cases.find((c) => c.id === id)?.expect === 'success' &&
+      (mine.replies[1] as { result?: { ok?: boolean; agents?: unknown[] } })?.result?.ok !== true &&
+      !Array.isArray((mine.replies[1] as { result?: { agents?: unknown[] } })?.result?.agents)
+    )
+      v.problems.push('case must succeed')
+    if (
+      id === 'unserved--catalogAgents' &&
+      (mine.replies[1] as { result?: { agents?: unknown[] } })?.result?.agents?.length !== 71
+    )
+      v.problems.push('catalog must contain exactly 71 agents')
     const departure = departures.get(id)
     if (departure !== undefined) {
       if (v.problems.length === 0) failures.push(`${id}: listed departure but raspd matches Bun`)
@@ -257,6 +278,11 @@ const { stage, bases, socket, log } = rig
 const failures: string[] = []
 const results: Record<string, unknown>[] = []
 try {
+  const operations = await checkOperations(rig, raspd)
+  failures.push(...operations.problems)
+  console.log(
+    `OPERATIONS ${operations.problems.length === 0 ? 'PASS' : 'FAIL'} ${operations.problems.join(' | ')}`
+  )
   const [, version, health] = await drive(socket, [
     frame(1, 'aspc.hello', HELLO_PARAMS),
     frame(2, 'version', {}),
@@ -291,7 +317,9 @@ try {
     }
   }
 
-  const logAt = 0
+  // Discovery/equivalence calls above have their own evidence and assertions.
+  await Bun.sleep(300)
+  const logAt = logLines(log, 0).to
   /** A case's native prep (`<id>--prep`: it publishes what the case then damages). */
   const prep = async (id: string) => {
     const pc = cases.get(`${id}--prep`)
@@ -441,7 +469,7 @@ try {
   if (arg('--out'))
     writeFileSync(
       arg('--out') as string,
-      `${JSON.stringify({ summary, results, native }, null, 2)}\n`
+      `${JSON.stringify({ summary, results, native, operations }, null, 2)}\n`
     )
 } finally {
   await rig.stop()

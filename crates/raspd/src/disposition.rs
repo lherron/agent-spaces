@@ -10,8 +10,6 @@
 //! - `refuse`: Bun's envelope and code for that input (message text is not
 //!   Bun's);
 //! - `impossible`: JSON-RPC -32603, logged as a raspd defect;
-//! - `native` with `slice: 3`: a reason a later slice answers natively;
-//!   until then it refuses with the row's placeholder reply.
 //!
 //! Rows marked `bothModes` (a panic, an invalid global lock) are answered from
 //! the row in fronted mode too.
@@ -149,7 +147,7 @@ pub struct Fwd {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Reply {
     /// A JSON-RPC error: code and `data.reason`.
-    Rpc(i64, String),
+    Rpc(i64, String, Option<String>),
     /// A compile result with `diagnostics[0].code`.
     Diagnostic(String),
     /// `failure {kind, code}` (an inspection carries it in its declaration).
@@ -179,8 +177,21 @@ impl Row {
     pub fn reply(&self, op: &str, context: Option<Context>) -> Option<&Reply> {
         context
             .and_then(|c| self.contexts.get(c.as_str()))
-            .and_then(|r| r.get(op).or_else(|| r.get("*")))
+            .and_then(|r| {
+                r.get(op)
+                    .or_else(|| {
+                        (op == "aspc.inspectAgent")
+                            .then(|| r.get("aspc.inspectRuntimePlacement"))
+                            .flatten()
+                    })
+                    .or_else(|| r.get("*"))
+            })
             .or_else(|| self.replies.get(op))
+            .or_else(|| {
+                (op == "aspc.inspectAgent")
+                    .then(|| self.replies.get("aspc.inspectRuntimePlacement"))
+                    .flatten()
+            })
             .or_else(|| self.replies.get("*"))
     }
 }
@@ -193,6 +204,7 @@ fn parse_reply(v: &serde_json::Value) -> Result<Reply, String> {
         return Ok(Reply::Rpc(
             r[0].as_i64().ok_or("rpc code")?,
             r[1].as_str().ok_or("rpc reason")?.to_owned(),
+            r.get(2).and_then(|v| v.as_str()).map(str::to_owned),
         ));
     }
     if let Some(code) = v.get("diagnostic").and_then(|d| d.as_str()) {
@@ -334,14 +346,23 @@ pub fn render(id: &J, method: &str, reply: &Reply, message: &str) -> String {
         ])
     };
     match (reply, method) {
-        (Reply::Rpc(code, reason), _) => {
+        (Reply::Rpc(code, reason, application_code), _) => {
             let text = match *code {
                 -32601 => format!("Method not found: {method}"),
                 -32602 => format!("Invalid params: {message}"),
                 -32700 => "Parse error".to_owned(),
                 _ => message.to_owned(),
             };
-            error_line(id, *code, &text, vec![], reason, method)
+            let data = application_code
+                .as_ref()
+                .map(|code| {
+                    vec![
+                        ("code".into(), J::str(code)),
+                        ("status".into(), J::Num(503.0)),
+                    ]
+                })
+                .unwrap_or_default();
+            error_line(id, *code, &text, data, reason, method)
         }
         (Reply::Diagnostic(code), "aspc.compileHarnessInvocation") => result(
             id,
@@ -355,6 +376,23 @@ pub fn render(id: &J, method: &str, reply: &Reply, message: &str) -> String {
                         ("code", J::str(code)),
                         ("message", J::str(message)),
                         ("plane", J::str("asp-compiler")),
+                    ])]),
+                ),
+            ]),
+        ),
+        (
+            Reply::Failure(_, code) | Reply::Resolution(_, code) | Reply::Diagnostic(code),
+            "aspc.inspectAgent",
+        ) => result(
+            id,
+            J::obj([
+                ("ok", J::Bool(false)),
+                (
+                    "diagnostics",
+                    J::Arr(vec![J::obj([
+                        ("severity", J::str("error")),
+                        ("code", J::str(code)),
+                        ("message", J::str(message)),
                     ])]),
                 ),
             ]),
@@ -413,10 +451,9 @@ mod tests {
                 "{reason}: {}",
                 row.disposition
             );
-            assert_eq!(
-                row.disposition == "native",
-                row.slice.is_some(),
-                "{reason}: a native row names the slice that makes it native"
+            assert!(
+                row.slice.is_none(),
+                "{reason}: no pending slice marker may remain"
             );
             for name in row.contexts.keys() {
                 assert!(

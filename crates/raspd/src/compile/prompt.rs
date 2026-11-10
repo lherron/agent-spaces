@@ -42,6 +42,29 @@ pub struct Ctx {
     /// `context.env` (`undefined` reads `process.env`).
     pub env: Option<EnvMap>,
     pub exec_env: Option<EnvMap>,
+    pub pinned: Option<Pinned>,
+}
+
+/// Explicit inspection inputs; compilation and placement inspection use ambient inputs.
+#[derive(Clone)]
+pub struct Pinned {
+    pub context: J,
+    used: std::cell::RefCell<Vec<usize>>,
+}
+impl Pinned {
+    pub fn new(context: J) -> Self {
+        Self {
+            context,
+            used: std::cell::RefCell::new(vec![]),
+        }
+    }
+}
+pub fn context_env(value: &J) -> EnvMap {
+    value
+        .js_entries()
+        .into_iter()
+        .filter_map(|(k, v)| v.as_str().map(|v| (k.into(), v.into())))
+        .collect()
 }
 
 const OBJECT_PROTOTYPE_KEYS: [&str; 12] = [
@@ -147,7 +170,14 @@ fn variables(ctx: &Ctx) -> Vec<(String, String)> {
     } else {
         format!("{base}~{lane}")
     };
-    let now = chrono::Utc::now();
+    let now = ctx
+        .pinned
+        .as_ref()
+        .and_then(|p| p.context.get("nowIso"))
+        .and_then(J::as_str)
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.with_timezone(&chrono::Utc))
+        .unwrap_or_else(chrono::Utc::now);
     let canonical = vec![
         ("agentId", agent_id),
         ("agentName", agent_name),
@@ -221,6 +251,14 @@ fn var_char(c: char) -> bool {
 pub fn interpolate(content: &str, ctx: &Ctx) -> Result<String, Fwd> {
     if !content.contains("{{") {
         return Ok(content.to_owned());
+    }
+    if let Some(p) = &ctx.pinned
+        && p.context
+            .get("nowIso")
+            .and_then(J::as_str)
+            .is_none_or(|s| chrono::DateTime::parse_from_rfc3339(s).is_err())
+    {
+        return Err(fwd(crate::reason!("prompt_section_failed")));
     }
     let vars = variables(ctx);
     let mut out = String::with_capacity(content.len());
@@ -672,6 +710,37 @@ pub fn default_template(base: &[String]) -> Template {
     }
 }
 
+/// Default prompt sections with the caller's scaffold packets, in source order.
+pub fn default_template_with_scaffold(base: &[String], packets: &J) -> Template {
+    let mut t = default_template(base);
+    for (i, packet) in packets.as_arr().unwrap().iter().enumerate() {
+        for (key, prefix) in [("content", "scaffold-inline"), ("ref", "scaffold-ref")] {
+            if let Some(value) = packet
+                .get(key)
+                .and_then(J::as_str)
+                .filter(|v| !v.is_empty())
+            {
+                let body = if key == "content" {
+                    Body::Inline(value.into())
+                } else {
+                    Body::File {
+                        path: value.into(),
+                        required: false,
+                    }
+                };
+                t.prompt.push(Section {
+                    name: format!("{prefix}-{i}"),
+                    when: None,
+                    max_chars: None,
+                    wrap: None,
+                    body,
+                });
+            }
+        }
+    }
+    t
+}
+
 // -- resolution --------------------------------------------------------------
 
 fn env_lookup(ctx: &Ctx, key: &str) -> Option<String> {
@@ -684,6 +753,16 @@ fn env_lookup(ctx: &Ctx, key: &str) -> Option<String> {
 /// `matchesWhenPredicate`.
 fn matches(when: Option<&When>, ctx: &Ctx) -> bool {
     let Some(w) = when else { return true };
+    let mut predicate;
+    let ctx = if let Some(p) = &ctx.pinned {
+        predicate = ctx.clone();
+        let i = p.context.get("predicateInputs").unwrap();
+        predicate.cwd = i.get("cwd").and_then(J::as_str).map(str::to_owned);
+        predicate.env = Some(context_env(i.get("environment").unwrap()));
+        &predicate
+    } else {
+        ctx
+    };
     if w.run_mode
         .as_ref()
         .is_some_and(|m| Some(m) != ctx.run_mode.as_ref())
@@ -797,7 +876,13 @@ fn run_exec(command: &str, timeout_ms: f64, ctx: &Ctx) -> Result<String, Option<
     const MAX_BUFFER: usize = 1024 * 1024;
     let mut cmd = Command::new("bash");
     // Bun: `execCwd ?? projectRoot ?? agentRoot` (no execCwd on a compile).
-    let cwd = ctx.project_root.as_ref().unwrap_or(&ctx.agent_root);
+    let cwd = ctx
+        .pinned
+        .as_ref()
+        .and_then(|p| p.context.get("execInputs"))
+        .and_then(|i| i.get("cwd"))
+        .and_then(J::as_str)
+        .unwrap_or_else(|| ctx.project_root.as_deref().unwrap_or(&ctx.agent_root));
     cmd.arg("-c").arg(command).current_dir(cwd);
     if let Some(env) = &ctx.exec_env {
         cmd.env_clear().envs(env);
@@ -1087,8 +1172,38 @@ fn resolve_probe(
     for (name, endpoint) in services {
         specs.push((name.clone(), interpolate(endpoint, ctx)?));
     }
+    let replay = ctx
+        .pinned
+        .as_ref()
+        .map(|p| {
+            let responses = p
+                .context
+                .get("serviceProbeInputs")
+                .and_then(|i| i.get("responses"))
+                .and_then(J::as_arr)
+                .unwrap();
+            let mut used = p.used.borrow_mut();
+            let mut ups = vec![];
+            for (name, endpoint) in &specs {
+                let record = responses.iter().enumerate().find(|(n, r)| {
+                    !used.contains(n)
+                        && r.get("name").and_then(J::as_str) == Some(name)
+                        && r.get("endpoint").and_then(J::as_str) == Some(endpoint)
+                });
+                let Some((n, r)) = record else {
+                    return Err(fwd(crate::reason!("prompt_section_failed")));
+                };
+                used.push(n);
+                ups.push(r.get("up") == Some(&J::Bool(true)));
+            }
+            Ok(ups)
+        })
+        .transpose()?;
     let mut parsed = vec![];
     for (name, endpoint) in &specs {
+        if replay.is_some() {
+            continue;
+        }
         match parse_endpoint(endpoint) {
             Some(e) => parsed.push(e),
             // resolveServiceProbeSection throws; resolveSection words it.
@@ -1107,15 +1222,17 @@ fn resolve_probe(
         }
     }
     let timeout = timeout.unwrap_or(250.0);
-    let ups: Vec<bool> = std::thread::scope(|s| {
-        let handles: Vec<_> = parsed
-            .iter()
-            .map(|e| s.spawn(move || probe(e, timeout)))
-            .collect();
-        handles
-            .into_iter()
-            .map(|h| h.join().unwrap_or(false))
-            .collect()
+    let ups: Vec<bool> = replay.unwrap_or_else(|| {
+        std::thread::scope(|s| {
+            let handles: Vec<_> = parsed
+                .iter()
+                .map(|e| s.spawn(move || probe(e, timeout)))
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().unwrap_or(false))
+                .collect()
+        })
     });
     let width = specs.iter().map(|(n, _)| utf16_len(n)).max().unwrap_or(0);
     let mut lines = vec![];
@@ -1397,8 +1514,38 @@ fn resolve_detailed(
     ctx: &Ctx,
     inspect: bool,
 ) -> Result<(Resolved, Inspected), Fwd> {
+    if let Some(p) = &ctx.pinned {
+        // Duplicate replay entries are invalid even when no service section consumes them.
+        let responses = p
+            .context
+            .get("serviceProbeInputs")
+            .and_then(|i| i.get("responses"))
+            .and_then(J::as_arr)
+            .unwrap();
+        let mut keys = std::collections::HashSet::new();
+        for r in responses {
+            let key = (
+                r.get("name").and_then(J::as_str),
+                r.get("endpoint").and_then(J::as_str),
+            );
+            if !keys.insert(key) {
+                return Err(fwd(crate::reason!("prompt_section_failed")));
+            }
+        }
+    }
     let prompt = resolve_zone(&template.prompt, ctx, "prompt", inspect)?;
     let reminder = resolve_zone(&template.reminder, ctx, "reminder", inspect)?;
+    if let Some(p) = &ctx.pinned {
+        let responses = p
+            .context
+            .get("serviceProbeInputs")
+            .and_then(|i| i.get("responses"))
+            .and_then(J::as_arr)
+            .unwrap();
+        if p.used.borrow().len() != responses.len() {
+            return Err(fwd(crate::reason!("prompt_section_failed")));
+        }
+    }
     let total = prompt.chars + reminder.chars;
     if let Some(max) = template.max_chars
         && total > max
@@ -1572,6 +1719,31 @@ pub fn discover(
     all.push(agents_root.clone());
     all.push(dirname(&resolve(&[agent_root])));
     let search_path = dedupe_roots(all);
+    discover_from_roots(agent_root, agents_root, asp_home, search_path)
+}
+
+/// Caller-context discovery pins both roots and search order; no placement config
+/// or process environment participates in discovering the inspection template.
+pub fn discover_explicit(agent_root: &str, agents_root: &str) -> Result<Discovered, Fwd> {
+    let search_path = dedupe_roots(vec![
+        agent_root.into(),
+        agents_root.into(),
+        dirname(&resolve(&[agent_root])),
+    ]);
+    discover_from_roots(
+        agent_root,
+        agents_root.into(),
+        &dirname(agents_root),
+        search_path,
+    )
+}
+
+fn discover_from_roots(
+    agent_root: &str,
+    agents_root: String,
+    asp_home: &str,
+    search_path: Vec<String>,
+) -> Result<Discovered, Fwd> {
     // loadTemplateDiscoveryProfile: the raw TOML, unvalidated.
     let profile_path = join(&[agent_root, "agent-profile.toml"]);
     let (raw_profile, template_ref, base) = if std::path::Path::new(&profile_path).exists() {
@@ -1665,6 +1837,7 @@ mod tests {
             agent_profile: None,
             env: Some(EnvMap::from([("X".to_owned(), "1".to_owned())])),
             exec_env: None,
+            pinned: None,
         }
     }
 

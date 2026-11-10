@@ -1,0 +1,399 @@
+{
+  "method": "aspc.inspectAgent",
+  "params": {
+    "request": {
+      "schemaVersion": "agent-inspection-request/v2",
+      "identifiers": {
+        "agentId": "caller-context",
+        "agentName": "caller-context",
+        "projectId": "project",
+        "mode": "task",
+        "scope": "agent:caller-context:project:project:task:T-13008",
+        "taskId": "T-13008",
+        "lane": "main",
+        "harness": "claude",
+        "presentation": true
+      },
+      "declaredOverrides": {}
+    },
+    "evaluationContext": {
+      "schemaVersion": "agent-inspection-evaluation-context/v2",
+      "identifiers": {
+        "agentId": "caller-context",
+        "agentName": "caller-context",
+        "projectId": "project",
+        "mode": "task",
+        "scope": "agent:caller-context:project:project:task:T-13008",
+        "taskId": "T-13008",
+        "lane": "main",
+        "harness": "claude",
+        "presentation": true
+      },
+      "paths": {
+        "agentRoot": "/private/tmp/raspd-sole-native/stage/agents/caller-context",
+        "agentsRoot": "/private/tmp/raspd-sole-native/stage/agents",
+        "projectRoot": "/private/tmp/raspd-sole-native/stage/project",
+        "cwd": "/private/tmp/raspd-sole-native/stage/project"
+      },
+      "nowIso": "2026-11-09T00:00:00.000Z",
+      "environment": {
+        "T13054": "template"
+      },
+      "predicateInputs": {
+        "cwd": "/private/tmp/raspd-sole-native/stage/project",
+        "environment": {
+          "T13054": "predicate"
+        }
+      },
+      "execInputs": {
+        "cwd": "/private/tmp/raspd-sole-native/stage/project",
+        "environment": {
+          "T13054": "exec"
+        }
+      },
+      "serviceProbeInputs": {
+        "responses": [
+          {
+            "name": "pinned",
+            "endpoint": "tcp://127.0.0.1:1",
+            "up": true
+          }
+        ]
+      },
+      "scaffoldPackets": [],
+      "agentProfile": {},
+      "declaredOverrides": {},
+      "compileContext": {
+        "nowIso": "2026-11-09T00:00:00.000Z",
+        "idSalt": "t13008",
+        "toolchainManifest": {
+          "schemaVersion": "compile-toolchain/v1",
+          "tools": [
+            {
+              "name": "agent-spaces",
+              "version": "test"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "replies": [
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "facadeInfo": {
+          "name": "aspc-facade",
+          "version": "0.1.1"
+        },
+        "protocolVersion": "aspc/0.1",
+        "capabilities": {
+          "catalogAgents": true,
+          "inspectAgent": true,
+          "catalogAgentInspection": true,
+          "inspectAgentSelection": true,
+          "compileHarnessInvocation": true,
+          "resolveRuntimeDeclaration": true,
+          "inspectRuntimePlacement": true,
+          "inspectRuntimePlacementPreparationCorrelation": true,
+          "inspectRuntimePlacementPreparationTaskContext": true,
+          "observeRuntimeCapability": true,
+          "observeContinuationArtifact": true,
+          "prepareProcessInvocation": true,
+          "prepareProcessInvocationTaskContext": true,
+          "cohostedBroker": false,
+          "transports": [
+            "unix-jsonrpc-ndjson"
+          ]
+        },
+        "release": {
+          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
+          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
+          "builtAt": "2026-11-10T00:47:48.483Z"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "ok": true,
+        "inspection": {
+          "schemaVersion": "agent-inspection/v2",
+          "identity": {
+            "agentId": "caller-context",
+            "agentName": "caller-context",
+            "projectId": "project",
+            "mode": "task",
+            "scope": "agent:caller-context:project:project:task:T-13008",
+            "taskId": "T-13008",
+            "lane": "main",
+            "harness": "claude",
+            "presentation": true
+          },
+          "parts": [
+            {
+              "kind": "prompt",
+              "partId": "prompt:prompt:fixed",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "template",
+                    "sourceId": "context-section:prompt/0/fixed",
+                    "sourceRef": "inline content"
+                  }
+                ]
+              },
+              "value": {
+                "zone": "prompt",
+                "name": "fixed",
+                "sourceType": "inline",
+                "order": 0,
+                "content": "2026-11-09 template"
+              }
+            },
+            {
+              "kind": "prompt",
+              "partId": "prompt:prompt:predicate",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "template",
+                    "sourceId": "context-section:prompt/1/predicate",
+                    "sourceRef": "inline content"
+                  }
+                ]
+              },
+              "value": {
+                "zone": "prompt",
+                "name": "predicate",
+                "sourceType": "inline",
+                "order": 1,
+                "content": "predicate matched"
+              }
+            },
+            {
+              "kind": "prompt",
+              "partId": "prompt:prompt:exec",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "template",
+                    "sourceId": "context-section:prompt/2/exec",
+                    "sourceRef": "exec: echo $T13054; pwd"
+                  }
+                ]
+              },
+              "value": {
+                "zone": "prompt",
+                "name": "exec",
+                "sourceType": "exec",
+                "order": 2,
+                "content": "exec\n/private/tmp/raspd-sole-native/stage/project"
+              }
+            },
+            {
+              "kind": "prompt",
+              "partId": "prompt:prompt:service",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "template",
+                    "sourceId": "context-section:prompt/3/service",
+                    "sourceRef": "service-probe: pinned"
+                  }
+                ]
+              },
+              "value": {
+                "zone": "prompt",
+                "name": "service",
+                "sourceType": "service-probe",
+                "order": 3,
+                "content": "  ✅ pinned  tcp://127.0.0.1:1"
+              }
+            },
+            {
+              "kind": "capability",
+              "partId": "capability:runtime-plan",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "capabilityId": "runtime-plan",
+                "enabled": true
+              }
+            },
+            {
+              "kind": "runtime-setting",
+              "partId": "runtime-setting:locked-env-keys",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "settingId": "locked-env-keys",
+                "value": [
+                  "AGENTCHAT_ID",
+                  "ASP_AGENT_CACHE_DIR",
+                  "ASP_AGENT_LOG_DIR",
+                  "ASP_AGENT_NAME",
+                  "ASP_AGENT_ROOT",
+                  "ASP_AGENT_STATE_DIR",
+                  "ASP_AGENT_VAR_DIR",
+                  "ASP_HOME",
+                  "ASP_PLUGIN_ROOT",
+                  "ASP_PRIMING_PROMPT",
+                  "ASP_PROJECT",
+                  "ASP_PROJECT_ID",
+                  "ASP_PROJECT_ROOT",
+                  "ASP_PROJECT_STATE_DIR"
+                ]
+              }
+            },
+            {
+              "kind": "harness",
+              "partId": "harness:selected",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "family": "claude",
+                "runtime": "claude-code",
+                "provider": "anthropic"
+              }
+            },
+            {
+              "kind": "model",
+              "partId": "model:selected",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "provider": "anthropic",
+                "modelId": "opus[1m]"
+              }
+            },
+            {
+              "kind": "artifact",
+              "partId": "artifact:bundle",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "artifactKind": "bundle",
+                "bundleIdentity": "bundle:cbc543bafa125045"
+              }
+            },
+            {
+              "kind": "execution-profile",
+              "partId": "execution-profile:profile_5a94392d347971b9b4f388c762b67b03",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "profileId": "profile_5a94392d347971b9b4f388c762b67b03",
+                "controllerKind": "claude-code-tmux",
+                "configuration": {
+                  "recipeId": "claude-code"
+                }
+              }
+            }
+          ],
+          "completeness": {
+            "kind": "complete"
+          },
+          "freshness": {
+            "kind": "unknown",
+            "reason": "The canonical compile produced no lock hash"
+          },
+          "diagnostics": []
+        }
+      }
+    }
+  ],
+  "tree": {
+    "agents/caller-context/SOUL.md": "file 644 bd28eb84ca1f6ce3245f9b33f885c382765692abd43b4b6aac9516b30ca0a4de",
+    "agents/caller-context/agent-profile.toml": "file 644 9571f6ea431e594e54eb7142529ca690ce525ccf7fd05b653e4a52732f618375",
+    "agents/caller-context/context-template.toml": "file 644 ce6795106da22bf5ff919054abfbcf7978b4234cdf1f466dfab0435c78cc5d68",
+    "agents/caller-context/skills/probe-skill/SKILL.md": "file 644 5c0d43921335cc07086d88db6979921a88d8443767a43f1a46dcba30154e6c04",
+    "asp-home/codex-homes/project_caller-context/bundles/.versions/3faf496b262f0eea88211e322a869837491eeb4c7637ab4903d990bd4a3ee5e7/caller-context/claude/.asp-materialized.json": "file 644 11474447ecb4c8a35140e04eafbcd463b0a9f7b8b8d12c4a7b90606e6a481040",
+    "asp-home/codex-homes/project_caller-context/bundles/.versions/3faf496b262f0eea88211e322a869837491eeb4c7637ab4903d990bd4a3ee5e7/caller-context/claude/.asp-runtime-artifacts/system-prompts/3f/3fbfba8a2e6bda14d74caf7ec146ca1dab12abdfc15c392466cfed134a70fe7e/system-prompt.md": "file 644 3fbfba8a2e6bda14d74caf7ec146ca1dab12abdfc15c392466cfed134a70fe7e",
+    "asp-home/codex-homes/project_caller-context/bundles/.versions/3faf496b262f0eea88211e322a869837491eeb4c7637ab4903d990bd4a3ee5e7/caller-context/claude/plugins/000-pm-dev/.claude-plugin/plugin.json": "file 644 cc29571f2acf0e63c77592aeb613885f7e77090fd391fc94bfc55fe88d8dff0a",
+    "asp-home/codex-homes/project_caller-context/bundles/.versions/3faf496b262f0eea88211e322a869837491eeb4c7637ab4903d990bd4a3ee5e7/caller-context/claude/plugins/000-pm-dev/skills/pm-dev-skill/SKILL.md": "file 644 b7d3c8bec60062aeda6632528afc83e10b37c99b9c53fc557699252d5f0555a5",
+    "asp-home/codex-homes/project_caller-context/bundles/.versions/3faf496b262f0eea88211e322a869837491eeb4c7637ab4903d990bd4a3ee5e7/caller-context/claude/plugins/001-caller-context-agent/.claude-plugin/plugin.json": "file 644 a8cb500377a4d003d04a8c90e5a8a570d7c9c2e0762c2e6d0bd4dd39f573e8dc",
+    "asp-home/codex-homes/project_caller-context/bundles/.versions/3faf496b262f0eea88211e322a869837491eeb4c7637ab4903d990bd4a3ee5e7/caller-context/claude/plugins/001-caller-context-agent/skills/probe-skill/SKILL.md": "file 644 5c0d43921335cc07086d88db6979921a88d8443767a43f1a46dcba30154e6c04",
+    "asp-home/codex-homes/project_caller-context/bundles/.versions/3faf496b262f0eea88211e322a869837491eeb4c7637ab4903d990bd4a3ee5e7/caller-context/claude/settings.json": "file 644 9d1dc15000ea3b1dd13ea01a80245a87bd54c1595142a9743bdfdc1a27c5a012",
+    "asp-home/codex-homes/project_caller-context/bundles/.versions/3faf496b262f0eea88211e322a869837491eeb4c7637ab4903d990bd4a3ee5e7/caller-context/claude/statusline.sh": "file 755 1f8608e28d9a690917854e541e07e46ea737f5b3fe1b08e60524fe034af06c15",
+    "asp-home/global-lock.json": "file 644 13412162fe65425ec03501fde9d4fbceb616ee0350983253a1c4c7fa24103f7a",
+    "asp-home/tmp/locks/bundle-scope-e8874fbd8aca9d4da7a38698d50dc1cd.lock": "file 644 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "asp-home/tmp/locks/lock-file-db691e722abd598e7db0504c74c48714.lock": "file 644 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "claude-home/.claude.json": "file 600 71f065e607109d098f3f1a7228ea1b05ed2f5649bc977154d707f7efd3414a5b"
+  },
+  "violations": []
+}

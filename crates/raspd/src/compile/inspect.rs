@@ -1,4 +1,5 @@
-//! Native `aspc.inspectRuntimePlacement` (R2b): compiler/agent-spaces/src
+//! Native placement and caller-context inspection, plus agent cataloging:
+//! compiler/agent-spaces/src
 //! agent-inspection.ts (`inspectRuntimePlacement`, `inspectAgentForContext`)
 //! and preparation-execution-context.ts, reproduced byte for byte.
 //!
@@ -6,8 +7,8 @@
 //! it runs the canonical compile, which materializes the bundle under ASP_HOME
 //! (codex runtime home excepted). raspd does the same through its native
 //! compile, so it writes exactly what Bun writes, under the same lock protocol.
-//! The other harnesses, and any input the compile would not judge, relay to
-//! Bun before anything is written.
+//! A caller-context inspection is answered locally in both modes. Unsupported
+//! inputs follow the same disposition rows as placement inspection.
 use super::util::{exec_environment, hash, now_iso};
 use super::{
     Compiled, Fwd, Phases, classify, ensure_asp_home, fwd, fwd_at, handle_parts,
@@ -53,6 +54,106 @@ pub fn handle(params: Option<&J>, release: &Release) -> Compiled {
         Ok(result) => answered(Answer::Result(result), None, Some(phases.finish())),
         Err(f) => answered(Answer::Forward(f.reason), f.detail, None),
     }
+}
+
+pub const AGENT_METHOD: &str = "aspc.inspectAgent";
+pub const CATALOG_METHOD: &str = "aspc.catalogAgents";
+
+pub fn handle_agent(method: &str, params: Option<&J>, release: &Release) -> Compiled {
+    let mut phases = Phases::start();
+    let inspect = method == AGENT_METHOD;
+    let result = if !super::inspection_input::valid(params, inspect) {
+        Err(fwd(crate::reason!("invalid_params")))
+    } else {
+        let p = params.unwrap();
+        let context = p.get("evaluationContext").unwrap();
+        if inspect {
+            inspect_agent(p.get("request").unwrap(), context, release, &mut phases)
+        } else {
+            super::inspection_input::catalog(context)
+        }
+    };
+    match result {
+        Ok(r) => Compiled {
+            answer: Answer::Result(r),
+            fallback_detail: None,
+            phases: Some(phases.finish()),
+        },
+        Err(f) => Compiled {
+            answer: Answer::Forward(f.reason),
+            fallback_detail: f.detail,
+            phases: None,
+        },
+    }
+}
+
+fn inspect_agent(
+    request: &J,
+    context: &J,
+    release: &Release,
+    phases: &mut Phases,
+) -> Result<J, Fwd> {
+    let identifiers = request.get("identifiers").unwrap();
+    let context_ids = context.get("identifiers").unwrap();
+    if identifiers
+        .js_entries()
+        .iter()
+        .any(|(k, v)| context_ids.get(k) != Some(v))
+    {
+        return Err(fwd(crate::reason!("inspection_identity_mismatch")));
+    }
+    let first = inspect_context_prompt(context)?;
+    let inspection = evaluate(request, context, &first, release, phases, true)?;
+    Ok(J::obj([("ok", J::Bool(true)), ("inspection", inspection)]))
+}
+
+fn inspect_context_prompt(
+    context: &J,
+) -> Result<Option<(prompt::Resolved, prompt::Inspected, bool)>, Fwd> {
+    let paths = context.get("paths").unwrap();
+    let path = |k| s(paths.get(k)).unwrap();
+    let agent_root = path("agentRoot");
+    let agents_root = path("agentsRoot");
+    let discovered = prompt::discover_explicit(agent_root, agents_root)?;
+    if discovered.template.is_none()
+        && !std::path::Path::new(&join(&[agent_root, "SOUL.md"])).exists()
+    {
+        return Ok(None);
+    }
+    let template = match discovered.template {
+        Some(t) => t,
+        None => prompt::default_template_with_scaffold(
+            discovered.base.as_deref().unwrap_or_default(),
+            context.get("scaffoldPackets").unwrap(),
+        ),
+    };
+    let id = context.get("identifiers").unwrap();
+    let value = |k| s(id.get(k)).map(str::to_owned);
+    let ctx = prompt::Ctx {
+        agent_root: agent_root.into(),
+        agents_root: agents_root.into(),
+        search_path: vec![agent_root.into(), agents_root.into()],
+        project_root: Some(path("projectRoot").into()),
+        cwd: Some(path("cwd").into()),
+        agent_id: value("agentId"),
+        agent_name: value("agentName").or_else(|| value("agentId")),
+        project_id: value("projectId"),
+        task_id: value("taskId"),
+        task_context: None,
+        lane: value("lane"),
+        run_mode: value("mode"),
+        agent_profile: context.get("agentProfile").cloned(),
+        env: Some(prompt::context_env(context.get("environment").unwrap())),
+        exec_env: Some(prompt::context_env(
+            context
+                .get("execInputs")
+                .and_then(|i| i.get("environment"))
+                .unwrap(),
+        )),
+        pinned: Some(prompt::Pinned::new(context.clone())),
+    };
+    let (resolved, inspected) = prompt::resolve_inspected(&template, &ctx)?;
+    Ok(Some((resolved, inspected, template.append)))
 }
 
 /// `{ ok: false, declaration: { ok: false, failure } }` with an incompatible failure.
@@ -258,6 +359,7 @@ fn inspect_prompt(
         agent_profile,
         env: Some(prep.exec_env.clone()),
         exec_env: Some(prep.exec_env.clone()),
+        pinned: None,
     };
     let (resolved, inspected) = prompt::resolve_inspected(&template, &ctx)?;
     Ok(Some((resolved, inspected, template.append)))
@@ -293,12 +395,12 @@ fn inspect(params: &J, release: &Release, phases: &mut Phases) -> Result<J, Fwd>
         Some(J::Str(h)) if profile::HARNESS_IDS.contains(&h.as_str()) => h.clone(),
         Some(_) => return Err(fwd(crate::reason!("inspect_harness_unknown"))),
     };
-    let provider = match harness.as_str() {
-        "claude" | "claude-hrcpty" => "anthropic",
-        "codex" | "codex-hrcpty" => "openai-codex",
-        // agent-harness and muse compile through recipes raspd does not build.
-        _ => return Err(fwd_at(crate::reason!("inspect_harness"), harness)),
-    };
+    if !matches!(
+        harness.as_str(),
+        "claude" | "claude-hrcpty" | "codex" | "codex-hrcpty"
+    ) {
+        return Err(fwd_at(crate::reason!("inspect_harness"), harness));
+    }
 
     let placement = placement_from_declaration(
         declaration.get("placement").unwrap_or(&J::Null),
@@ -443,27 +545,146 @@ fn inspect(params: &J, release: &Release, phases: &mut Phases) -> Result<J, Fwd>
         ("identifiers", identifiers.clone()),
         ("declaredOverrides", J::Obj(vec![])),
     ]);
+    let inspection = match evaluate(
+        &request,
+        &evaluation_context,
+        &first,
+        release,
+        phases,
+        false,
+    ) {
+        Ok(i) => i,
+        Err(f) => return compile_refused(f, &agent_root),
+    };
+
+    // The reply's prompt: a second report from the same input.
+    let second = inspect_prompt(
+        &placement,
+        &prep,
+        task_context,
+        (&asp_home, agents_root_echo),
+    )?;
+    let prompt = match second {
+        None => J::obj([
+            ("state", J::str("absent")),
+            ("code", J::str("prompt_not_declared")),
+        ]),
+        Some((resolved, inspected, append)) => {
+            let mut value = J::obj([
+                ("systemPrompt", J::str(resolved.prompt.unwrap_or_default())),
+                (
+                    "systemPromptMode",
+                    J::str(if append { "append" } else { "replace" }),
+                ),
+            ]);
+            if let Some(r) = resolved.reminder {
+                value.set("reminderContent", J::Str(r));
+            }
+            if let Some(p) = declaration
+                .get("priming")
+                .and_then(|p| crate::reads::truthy_str(p.get("content")))
+            {
+                value.set("primingPrompt", J::str(p));
+            }
+            value.set("promptSectionSizes", section_sizes(&inspected.prompt_sizes));
+            value.set(
+                "reminderSectionSizes",
+                section_sizes(&inspected.reminder_sizes),
+            );
+            value.set("promptTotalChars", J::Num(inspected.prompt_chars as f64));
+            value.set(
+                "reminderTotalChars",
+                J::Num(inspected.reminder_chars as f64),
+            );
+            value.set(
+                "totalContextChars",
+                J::Num((inspected.prompt_chars + inspected.reminder_chars) as f64),
+            );
+            if let Some(max) = inspected.max_chars {
+                value.set("maxChars", J::Num(max as f64));
+            }
+            value.set("nearMaxChars", J::Bool(inspected.near_max_chars));
+            J::obj([("state", J::str("present")), ("value", value)])
+        }
+    };
+    phases.lap("inspect");
+    Ok(J::obj([
+        ("schemaVersion", J::str(RESPONSE_VERSION)),
+        ("ok", J::Bool(true)),
+        ("declaration", declaration),
+        ("inspection", inspection),
+        ("prompt", prompt),
+        (
+            "effectiveEnvironmentHash",
+            J::str(&prep.effective_environment_hash),
+        ),
+    ]))
+}
+
+/// The common one-compile inspection core; both entrypoints use these exact parts.
+fn evaluate(
+    request: &J,
+    evaluation_context: &J,
+    first: &Option<(prompt::Resolved, prompt::Inspected, bool)>,
+    release: &Release,
+    phases: &mut Phases,
+    pinned: bool,
+) -> Result<J, Fwd> {
+    let identifiers = request.get("identifiers").unwrap();
+    let get = |k| s(identifiers.get(k)).unwrap_or_default();
+    let (agent_id, scope, lane, harness) =
+        (get("agentId"), get("scope"), get("lane"), get("harness"));
+    let provider = match harness {
+        "claude" | "claude-hrcpty" => "anthropic",
+        "codex" | "codex-hrcpty" => "openai-codex",
+        _ => return Err(fwd_at(crate::reason!("inspect_harness"), harness.into())),
+    };
+    let paths = evaluation_context.get("paths").unwrap();
+    let path = |k| s(paths.get(k)).unwrap_or_default();
+    let (agent_root, project_root, cwd) = (path("agentRoot"), path("projectRoot"), path("cwd"));
     let seed = hash(
-        &J::obj([("request", request), ("context", evaluation_context)]),
+        &J::obj([
+            ("request", request.clone()),
+            ("context", evaluation_context.clone()),
+        ]),
         false,
     );
     let initial_prompt = first
         .as_ref()
         .and_then(|(r, _, _)| r.prompt.clone())
         .unwrap_or_default();
-    let compile_request = inspection_compile_request(
+    let mut compile_request = inspection_compile_request(
         &seed,
         (&agent_id, &scope, &lane, &harness, provider),
         (&project_root, &cwd, &agent_root),
         &initial_prompt,
     );
-    let mut plan = match classify(
-        &J::obj([("compileRequest", compile_request)]),
-        release,
-        phases,
-    ) {
+    if let Some(requested) = compile_request.get("requested").cloned() {
+        let mut requested = requested;
+        requested.set(
+            "presentation",
+            identifiers
+                .get("presentation")
+                .cloned()
+                .unwrap_or(J::Bool(false)),
+        );
+        for (from, to) in [("modelId", "model"), ("reasoningEffort", "reasoningEffort")] {
+            if let Some(v) = request.get("declaredOverrides").and_then(|o| o.get(from)) {
+                requested.set(to, v.clone());
+            }
+        }
+        compile_request.set("requested", requested);
+    }
+    let mut compile_params = J::obj([("compileRequest", compile_request)]);
+    if pinned {
+        compile_params.set(
+            "compileContext",
+            evaluation_context.get("compileContext").unwrap().clone(),
+        );
+    }
+    let mut plan = match classify(&compile_params, release, phases) {
         Ok(plan) => plan,
-        Err(f) => return compile_refused(f, &agent_root),
+        Err(f) => return Err(f),
     };
     plan.codex_home_read_only = true;
     super::preflight(&plan)?;
@@ -539,76 +760,13 @@ fn inspect(params: &J, release: &Release, phases: &mut Phases) -> Result<J, Fwd>
             ("missingPartIds", J::Arr(missing)),
         ])
     };
-    let inspection = J::obj([
+    Ok(J::obj([
         ("schemaVersion", J::str("agent-inspection/v2")),
-        ("identity", identifiers),
+        ("identity", identifiers.clone()),
         ("parts", J::Arr(parts)),
         ("completeness", completeness),
         ("freshness", freshness(&runtime_plan)?),
         ("diagnostics", J::Arr(diagnostics)),
-    ]);
-
-    // The reply's prompt: a second report from the same input.
-    let second = inspect_prompt(
-        &placement,
-        &prep,
-        task_context,
-        (&asp_home, agents_root_echo),
-    )?;
-    let prompt = match second {
-        None => J::obj([
-            ("state", J::str("absent")),
-            ("code", J::str("prompt_not_declared")),
-        ]),
-        Some((resolved, inspected, append)) => {
-            let mut value = J::obj([
-                ("systemPrompt", J::str(resolved.prompt.unwrap_or_default())),
-                (
-                    "systemPromptMode",
-                    J::str(if append { "append" } else { "replace" }),
-                ),
-            ]);
-            if let Some(r) = resolved.reminder {
-                value.set("reminderContent", J::Str(r));
-            }
-            if let Some(p) = declaration
-                .get("priming")
-                .and_then(|p| crate::reads::truthy_str(p.get("content")))
-            {
-                value.set("primingPrompt", J::str(p));
-            }
-            value.set("promptSectionSizes", section_sizes(&inspected.prompt_sizes));
-            value.set(
-                "reminderSectionSizes",
-                section_sizes(&inspected.reminder_sizes),
-            );
-            value.set("promptTotalChars", J::Num(inspected.prompt_chars as f64));
-            value.set(
-                "reminderTotalChars",
-                J::Num(inspected.reminder_chars as f64),
-            );
-            value.set(
-                "totalContextChars",
-                J::Num((inspected.prompt_chars + inspected.reminder_chars) as f64),
-            );
-            if let Some(max) = inspected.max_chars {
-                value.set("maxChars", J::Num(max as f64));
-            }
-            value.set("nearMaxChars", J::Bool(inspected.near_max_chars));
-            J::obj([("state", J::str("present")), ("value", value)])
-        }
-    };
-    phases.lap("inspect");
-    Ok(J::obj([
-        ("schemaVersion", J::str(RESPONSE_VERSION)),
-        ("ok", J::Bool(true)),
-        ("declaration", declaration),
-        ("inspection", inspection),
-        ("prompt", prompt),
-        (
-            "effectiveEnvironmentHash",
-            J::str(&prep.effective_environment_hash),
-        ),
     ]))
 }
 

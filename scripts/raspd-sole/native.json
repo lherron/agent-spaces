@@ -203,6 +203,93 @@
     {
       "id": "capability_probe_spawn_failed--enoent",
       "reason": "capability_probe_spawn_failed"
+    },
+    {
+      "id": "unserved--catalogAgents",
+      "reason": "unserved",
+      "expect": "success"
+    },
+    {
+      "id": "unserved--catalogAgents-bad",
+      "reason": "unserved"
+    },
+    {
+      "id": "unserved--inspectAgent",
+      "reason": "unserved"
+    },
+    {
+      "id": "unserved--catalogAgentInspection",
+      "reason": "unserved"
+    },
+    {
+      "id": "unserved--catalogAgentInspection-project",
+      "reason": "unserved"
+    },
+    {
+      "id": "unserved--inspectAgentSelection",
+      "reason": "unserved"
+    },
+    {
+      "id": "unserved--prepareProcessInvocation",
+      "reason": "unserved"
+    },
+    {
+      "id": "unserved--prepareProcessInvocation-hrcpty",
+      "reason": "unserved"
+    },
+    {
+      "id": "unserved--inspectAgent-bad-request",
+      "reason": "unserved"
+    },
+    {
+      "id": "unserved--inspectAgent-bad-context",
+      "reason": "unserved"
+    },
+    {
+      "id": "unserved--inspectAgent-unknown-param",
+      "reason": "unserved"
+    },
+    {
+      "id": "unserved--inspectAgent-unknown-override",
+      "reason": "unserved"
+    },
+    {
+      "id": "unserved--inspectAgent-identity-mismatch",
+      "reason": "unserved"
+    },
+    {
+      "id": "unserved--inspectAgent-overrides",
+      "reason": "unserved"
+    },
+    {
+      "id": "unserved--inspectAgent-canonical",
+      "reason": "unserved",
+      "expect": "success"
+    },
+    {
+      "id": "unserved--inspectAgent-canonical-overrides",
+      "reason": "unserved",
+      "expect": "success"
+    },
+    {
+      "id": "unserved--inspectAgent-canonical-codex",
+      "reason": "unserved",
+      "expect": "success"
+    },
+    {
+      "id": "unserved--inspectAgent-canonical-scaffold",
+      "reason": "unserved",
+      "expect": "success"
+    },
+    {
+      "id": "unserved--inspectAgent-canonical-pinned",
+      "reason": "unserved",
+      "expect": "success"
+    },
+    {
+      "id": "unserved--inspectAgent-canonical-roots",
+      "reason": "unserved",
+      "expect": "success"
     }
   ],
   "departures": [
@@ -225,6 +312,31 @@
       "case": "soul_unreadable--inspect",
       "reason": "soul_unreadable",
       "why": "SOUL.md is a directory: Bun inspects an empty replace-mode system prompt; raspd refuses inspection_failed (T-13018 r2)."
+    },
+    {
+      "case": "unserved--catalogAgentInspection",
+      "reason": "catalogAgentInspection",
+      "why": "T-13018 section 3 explicitly refuses this operation in both modes; Bun answers it without a project resolver."
+    },
+    {
+      "case": "unserved--prepareProcessInvocation",
+      "reason": "prepareProcessInvocation",
+      "why": "T-13018 section 3 refuses prepareProcessInvocation as op_unsupported."
+    },
+    {
+      "case": "unserved--prepareProcessInvocation-hrcpty",
+      "reason": "prepareProcessInvocation-hrcpty",
+      "why": "T-13018 section 3 refuses prepareProcessInvocation as op_unsupported."
+    },
+    {
+      "case": "unserved--inspectAgent",
+      "reason": "scope_ref_shorthand",
+      "why": "T-13018 r2 strict scope rule: the inventory caller supplies a shorthand scope; raspd refuses -32602 invalid_params."
+    },
+    {
+      "case": "unserved--inspectAgent-overrides",
+      "reason": "scope_ref_shorthand",
+      "why": "T-13018 r2 strict scope rule: the inventory caller supplies a shorthand scope; raspd refuses -32602 invalid_params."
     }
   ]
 }

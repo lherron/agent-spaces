@@ -1,0 +1,86 @@
+{
+  "method": "aspc.prepareProcessInvocation",
+  "params": {
+    "schemaVersion": "aspc-prepare-process-invocation-request/v1",
+    "context": {
+      "agentId": "pathmark-dev",
+      "agentRoot": "/private/tmp/raspd-sole-native/stage/agents/pathmark-dev",
+      "cwd": "/private/tmp/raspd-sole-native/stage/project",
+      "runMode": "task",
+      "project": {
+        "mode": "root",
+        "projectRoot": "/private/tmp/raspd-sole-native/stage/project",
+        "projectId": "project"
+      }
+    },
+    "preparationCorrelation": {
+      "hostSessionId": "host_t13008",
+      "generation": 1,
+      "sessionRef": {
+        "scopeRef": "agent:pathmark-dev:project:project:task:T-13008",
+        "laneRef": "main"
+      }
+    },
+    "expected": {
+      "provider": "anthropic",
+      "frontend": "claude-code"
+    },
+    "launch": {
+      "interactionMode": "headless",
+      "ioMode": "pipes",
+      "prompt": "hi"
+    }
+  },
+  "replies": [
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "facadeInfo": {
+          "name": "aspc-facade",
+          "version": "0.1.1"
+        },
+        "protocolVersion": "aspc/0.1",
+        "capabilities": {
+          "catalogAgents": true,
+          "inspectAgent": true,
+          "catalogAgentInspection": true,
+          "inspectAgentSelection": true,
+          "compileHarnessInvocation": true,
+          "resolveRuntimeDeclaration": true,
+          "inspectRuntimePlacement": true,
+          "inspectRuntimePlacementPreparationCorrelation": true,
+          "inspectRuntimePlacementPreparationTaskContext": true,
+          "observeRuntimeCapability": true,
+          "observeContinuationArtifact": true,
+          "prepareProcessInvocation": true,
+          "prepareProcessInvocationTaskContext": true,
+          "cohostedBroker": false,
+          "transports": [
+            "unix-jsonrpc-ndjson"
+          ]
+        },
+        "release": {
+          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
+          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
+          "builtAt": "2026-11-10T00:47:48.483Z"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "schemaVersion": "aspc-prepare-process-invocation-response/v1",
+        "ok": false,
+        "failure": {
+          "kind": "incompatible",
+          "code": "undeclared_harness",
+          "message": "No harness is declared; refusing to invent a v1 routing default"
+        }
+      }
+    }
+  ],
+  "tree": {},
+  "violations": []
+}

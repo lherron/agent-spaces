@@ -1,0 +1,339 @@
+{
+  "method": "aspc.inspectAgent",
+  "params": {
+    "request": {
+      "schemaVersion": "agent-inspection-request/v2",
+      "identifiers": {
+        "agentId": "pathmark-dev",
+        "agentName": "pathmark-dev",
+        "projectId": "project",
+        "mode": "task",
+        "scope": "agent:pathmark-dev:project:project:task:T-13008",
+        "taskId": "T-13008",
+        "lane": "main",
+        "harness": "claude",
+        "presentation": true
+      },
+      "declaredOverrides": {}
+    },
+    "evaluationContext": {
+      "schemaVersion": "agent-inspection-evaluation-context/v2",
+      "identifiers": {
+        "agentId": "pathmark-dev",
+        "agentName": "pathmark-dev",
+        "projectId": "project",
+        "mode": "task",
+        "scope": "agent:pathmark-dev:project:project:task:T-13008",
+        "taskId": "T-13008",
+        "lane": "main",
+        "harness": "claude",
+        "presentation": true
+      },
+      "paths": {
+        "agentRoot": "/private/tmp/raspd-sole-native/stage/agents/pathmark-dev",
+        "agentsRoot": "/private/tmp/raspd-sole-native/stage/agents",
+        "projectRoot": "/private/tmp/raspd-sole-native/stage/project",
+        "cwd": "/private/tmp/raspd-sole-native/stage/project"
+      },
+      "nowIso": "2026-11-09T00:00:00.000Z",
+      "environment": {},
+      "predicateInputs": {
+        "cwd": "/private/tmp/raspd-sole-native/stage/project",
+        "environment": {}
+      },
+      "execInputs": {
+        "cwd": "/private/tmp/raspd-sole-native/stage/project",
+        "environment": {}
+      },
+      "serviceProbeInputs": {
+        "responses": []
+      },
+      "scaffoldPackets": [],
+      "agentProfile": {},
+      "declaredOverrides": {},
+      "compileContext": {
+        "nowIso": "2026-11-09T00:00:00.000Z",
+        "idSalt": "t13008",
+        "toolchainManifest": {
+          "schemaVersion": "compile-toolchain/v1",
+          "tools": [
+            {
+              "name": "agent-spaces",
+              "version": "test"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "replies": [
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "facadeInfo": {
+          "name": "aspc-facade",
+          "version": "0.1.1"
+        },
+        "protocolVersion": "aspc/0.1",
+        "capabilities": {
+          "catalogAgents": true,
+          "inspectAgent": true,
+          "catalogAgentInspection": true,
+          "inspectAgentSelection": true,
+          "compileHarnessInvocation": true,
+          "resolveRuntimeDeclaration": true,
+          "inspectRuntimePlacement": true,
+          "inspectRuntimePlacementPreparationCorrelation": true,
+          "inspectRuntimePlacementPreparationTaskContext": true,
+          "observeRuntimeCapability": true,
+          "observeContinuationArtifact": true,
+          "prepareProcessInvocation": true,
+          "prepareProcessInvocationTaskContext": true,
+          "cohostedBroker": false,
+          "transports": [
+            "unix-jsonrpc-ndjson"
+          ]
+        },
+        "release": {
+          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
+          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
+          "builtAt": "2026-11-10T00:47:48.483Z"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "ok": true,
+        "inspection": {
+          "schemaVersion": "agent-inspection/v2",
+          "identity": {
+            "agentId": "pathmark-dev",
+            "agentName": "pathmark-dev",
+            "projectId": "project",
+            "mode": "task",
+            "scope": "agent:pathmark-dev:project:project:task:T-13008",
+            "taskId": "T-13008",
+            "lane": "main",
+            "harness": "claude",
+            "presentation": true
+          },
+          "parts": [
+            {
+              "kind": "prompt",
+              "partId": "prompt:prompt:soul",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "template",
+                    "sourceId": "context-section:prompt/0/soul",
+                    "sourceRef": "agent-root:///SOUL.md -> /private/tmp/raspd-sole-native/stage/agents/pathmark-dev/SOUL.md"
+                  }
+                ]
+              },
+              "value": {
+                "zone": "prompt",
+                "name": "soul",
+                "sourceType": "file",
+                "order": 0,
+                "content": "# Pathmark\n\nFixture agent for path markers.\n"
+              }
+            },
+            {
+              "kind": "prompt",
+              "partId": "prompt:prompt:heartbeat",
+              "disposition": {
+                "kind": "skipped",
+                "reason": "predicate"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "template",
+                    "sourceId": "context-section:prompt/1/heartbeat",
+                    "sourceRef": "agent-root:///HEARTBEAT.md -> /private/tmp/raspd-sole-native/stage/agents/pathmark-dev/HEARTBEAT.md"
+                  }
+                ]
+              },
+              "value": {
+                "zone": "prompt",
+                "name": "heartbeat",
+                "sourceType": "file",
+                "order": 1
+              }
+            },
+            {
+              "kind": "capability",
+              "partId": "capability:runtime-plan",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "capabilityId": "runtime-plan",
+                "enabled": true
+              }
+            },
+            {
+              "kind": "runtime-setting",
+              "partId": "runtime-setting:locked-env-keys",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "settingId": "locked-env-keys",
+                "value": [
+                  "AGENTCHAT_ID",
+                  "ASP_AGENT_CACHE_DIR",
+                  "ASP_AGENT_LOG_DIR",
+                  "ASP_AGENT_NAME",
+                  "ASP_AGENT_ROOT",
+                  "ASP_AGENT_STATE_DIR",
+                  "ASP_AGENT_VAR_DIR",
+                  "ASP_HOME",
+                  "ASP_PLUGIN_ROOT",
+                  "ASP_PRIMING_PROMPT",
+                  "ASP_PROJECT",
+                  "ASP_PROJECT_ID",
+                  "ASP_PROJECT_ROOT",
+                  "ASP_PROJECT_STATE_DIR"
+                ]
+              }
+            },
+            {
+              "kind": "harness",
+              "partId": "harness:selected",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "family": "claude",
+                "runtime": "claude-code",
+                "provider": "anthropic"
+              }
+            },
+            {
+              "kind": "model",
+              "partId": "model:selected",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "provider": "anthropic",
+                "modelId": "opus[1m]"
+              }
+            },
+            {
+              "kind": "artifact",
+              "partId": "artifact:bundle",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "artifactKind": "bundle",
+                "bundleIdentity": "bundle:6be341ad89a13a62"
+              }
+            },
+            {
+              "kind": "execution-profile",
+              "partId": "execution-profile:profile_826c9dd190c2fc56b3e8b0426e0a246a",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "profileId": "profile_826c9dd190c2fc56b3e8b0426e0a246a",
+                "controllerKind": "claude-code-tmux",
+                "configuration": {
+                  "recipeId": "claude-code"
+                }
+              }
+            }
+          ],
+          "completeness": {
+            "kind": "complete"
+          },
+          "freshness": {
+            "kind": "unknown",
+            "reason": "The canonical compile produced no lock hash"
+          },
+          "diagnostics": []
+        }
+      }
+    }
+  ],
+  "tree": {
+    "asp-home/codex-homes/project_pathmark-dev/bundles/.versions/84ca83e5b4c2a9e178d06e29658379b4a3b3ee8762ecb677b9755daefc741ed8/pathmark-dev/claude/.asp-materialized.json": "file 644 cea65927f68e73c53e068f915c3493db9dc3d1ca91908959b7fecd4119b4fca6",
+    "asp-home/codex-homes/project_pathmark-dev/bundles/.versions/84ca83e5b4c2a9e178d06e29658379b4a3b3ee8762ecb677b9755daefc741ed8/pathmark-dev/claude/.asp-runtime-artifacts/system-prompts/18/186e3cd8cdb52ed2452b94beff624d79d4ee1d1289d81bb9d2649d2827fa11e3/system-prompt.md": "file 644 186e3cd8cdb52ed2452b94beff624d79d4ee1d1289d81bb9d2649d2827fa11e3",
+    "asp-home/codex-homes/project_pathmark-dev/bundles/.versions/84ca83e5b4c2a9e178d06e29658379b4a3b3ee8762ecb677b9755daefc741ed8/pathmark-dev/claude/plugins/000-pm-dev/.claude-plugin/plugin.json": "file 644 cc29571f2acf0e63c77592aeb613885f7e77090fd391fc94bfc55fe88d8dff0a",
+    "asp-home/codex-homes/project_pathmark-dev/bundles/.versions/84ca83e5b4c2a9e178d06e29658379b4a3b3ee8762ecb677b9755daefc741ed8/pathmark-dev/claude/plugins/000-pm-dev/skills/pm-dev-skill/SKILL.md": "file 644 b7d3c8bec60062aeda6632528afc83e10b37c99b9c53fc557699252d5f0555a5",
+    "asp-home/codex-homes/project_pathmark-dev/bundles/.versions/84ca83e5b4c2a9e178d06e29658379b4a3b3ee8762ecb677b9755daefc741ed8/pathmark-dev/claude/plugins/001-pm-claude-only/.claude-plugin/plugin.json": "file 644 73fd1315c880156a2ccea22e5986c6816d5935700b8920c4697ed902ad03d375",
+    "asp-home/codex-homes/project_pathmark-dev/bundles/.versions/84ca83e5b4c2a9e178d06e29658379b4a3b3ee8762ecb677b9755daefc741ed8/pathmark-dev/claude/plugins/001-pm-claude-only/skills/pm-claude-only-skill/SKILL.md": "file 644 610052ac7b9f2d475697a14f84fd7dc26b0ef881bca9cf6ee8a1a79b0776c5d7",
+    "asp-home/codex-homes/project_pathmark-dev/bundles/.versions/84ca83e5b4c2a9e178d06e29658379b4a3b3ee8762ecb677b9755daefc741ed8/pathmark-dev/claude/plugins/002-pathmark-dev-agent/.claude-plugin/plugin.json": "file 644 26ad88cd5a2c0f97c5645236cbe49ce330395d5adc442c1ece0988687a98503a",
+    "asp-home/codex-homes/project_pathmark-dev/bundles/.versions/84ca83e5b4c2a9e178d06e29658379b4a3b3ee8762ecb677b9755daefc741ed8/pathmark-dev/claude/plugins/002-pathmark-dev-agent/skills/pathmark-skill/SKILL.md": "file 644 e452d1d420938c62dae14f77e9ee708f36451a47ae65ff6fdb95f9db2efa566f",
+    "asp-home/codex-homes/project_pathmark-dev/bundles/.versions/84ca83e5b4c2a9e178d06e29658379b4a3b3ee8762ecb677b9755daefc741ed8/pathmark-dev/claude/settings.json": "file 644 d392a8e8198f6e2eda0a7853dd7978e7ef46a57690c08e143dc520762925d2ed",
+    "asp-home/codex-homes/project_pathmark-dev/bundles/.versions/84ca83e5b4c2a9e178d06e29658379b4a3b3ee8762ecb677b9755daefc741ed8/pathmark-dev/claude/statusline.sh": "file 755 1f8608e28d9a690917854e541e07e46ea737f5b3fe1b08e60524fe034af06c15",
+    "asp-home/global-lock.json": "file 644 c1f4f413cac21993757ead2fb3a227ba571beb295ecfa09e2847abb6d1b07f98",
+    "asp-home/tmp/locks/bundle-scope-421cc0a6125d94e406e6d0225733b714.lock": "file 644 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "asp-home/tmp/locks/lock-file-db691e722abd598e7db0504c74c48714.lock": "file 644 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "claude-home/.claude.json": "file 600 71f065e607109d098f3f1a7228ea1b05ed2f5649bc977154d707f7efd3414a5b"
+  },
+  "violations": []
+}

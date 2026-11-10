@@ -1,0 +1,74 @@
+{
+  "method": "aspc.inspectAgentSelection",
+  "params": {
+    "agentId": "pathmark-dev",
+    "request": {
+      "schemaVersion": "agent-inspection-request/v2",
+      "identifiers": {
+        "agentId": "pathmark-dev",
+        "agentName": "pathmark-dev",
+        "projectId": "project",
+        "mode": "task",
+        "scope": "pathmark-dev@project:T-13008",
+        "taskId": "T-13008",
+        "lane": "main",
+        "harness": "claude",
+        "presentation": true
+      },
+      "declaredOverrides": {}
+    }
+  },
+  "replies": [
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "facadeInfo": {
+          "name": "aspc-facade",
+          "version": "0.1.1"
+        },
+        "protocolVersion": "aspc/0.1",
+        "capabilities": {
+          "catalogAgents": true,
+          "inspectAgent": true,
+          "catalogAgentInspection": true,
+          "inspectAgentSelection": true,
+          "compileHarnessInvocation": true,
+          "resolveRuntimeDeclaration": true,
+          "inspectRuntimePlacement": true,
+          "inspectRuntimePlacementPreparationCorrelation": true,
+          "inspectRuntimePlacementPreparationTaskContext": true,
+          "observeRuntimeCapability": true,
+          "observeContinuationArtifact": true,
+          "prepareProcessInvocation": true,
+          "prepareProcessInvocationTaskContext": true,
+          "cohostedBroker": false,
+          "transports": [
+            "unix-jsonrpc-ndjson"
+          ]
+        },
+        "release": {
+          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
+          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
+          "builtAt": "2026-11-10T00:47:48.483Z"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "error": {
+        "code": -32603,
+        "message": "The trusted project resolver is unavailable",
+        "data": {
+          "code": "AGENT_INSPECTION_PRODUCER_UNAVAILABLE",
+          "status": 503,
+          "reason": "internal_error",
+          "advice": "Retry aspc.inspectAgentSelection with the same params (compile service calls are idempotent); call health with params: {} if the failure persists."
+        }
+      }
+    }
+  ],
+  "tree": {},
+  "violations": []
+}

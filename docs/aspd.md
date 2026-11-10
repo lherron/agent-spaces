@@ -105,12 +105,13 @@ building node, so a node that builds releases needs cargo, as for hrc-runtime.
 
 A fronted namespace runs raspd on the public `<ns>/run/aspd.sock` and Bun aspd on
 `<ns>/run/aspd-bun.sock`, with one ASP_HOME. raspd answers `aspc.hello`,
-`health`, `version` and `surface` itself, byte for byte as Bun would from the
-same release. The exceptions: `version` adds `frontDoor`
+`health`, `version` and `surface` itself. `version` adds `frontDoor`
 (`{name: "raspd", sourceCommit, role, native, upstream, upstreamState}`), and
 `health` lists `upstream_unavailable` in `degraded` after a failed relay.
-Every other frame goes to Bun verbatim on an upstream connection tied to the
-client connection. raspd also enforces Bun's frame rules itself: 16 MiB,
+Supported read, compile and inspection requests are also native. An input whose
+disposition permits forwarding goes to Bun verbatim on an upstream connection
+tied to the client connection; explicit refusals remain local. Discovery reports
+the refused operations as described below. raspd also enforces Bun's frame rules itself: 16 MiB,
 empty-frame refusal, and parse-error envelopes. When Bun can't be reached, or
 closes before replying, a forwarded request gets JSON-RPC `-32603` with
 `data.reason: "upstream_unavailable"`.
@@ -422,6 +423,17 @@ unknown operations and malformed complete frames. Usage-metrics warnings are
 cost is `request.answered`'s `durationMs` and `phases` plus the `compile.entry`
 path marker (T-11829 retired the always-on `[asp-timing]` stderr line).
 No request or response bodies are included in the canonical request line.
+
+In both sole and fronted mode, raspd serves `aspc.catalogAgents` and
+`aspc.inspectAgent` natively. It refuses `aspc.catalogAgentInspection` and
+`aspc.inspectAgentSelection` with JSON-RPC `-32603`, `data.reason: internal_error`,
+`data.code: AGENT_INSPECTION_PRODUCER_UNAVAILABLE` and `data.status: 503`;
+`aspc.prepareProcessInvocation` refuses `-32601` / `op_unsupported`. These calls
+never relay. Hello and version capabilities report those three operations false
+(and `prepareProcessInvocationTaskContext` false); raspd's surface entries carry
+`supported: true` for served operations and `supported: false` for refused ones.
+The Bun reference's capability differences are declared and checked by the compare
+runner's `--declare-raspd-discovery` option.
 
 For discovery, call `avs aspc <socket> surface`: it returns
 `schemaVersion: "aspd-surface/v1"` and the actually registered operations with

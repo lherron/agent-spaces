@@ -5,6 +5,7 @@
  *   bun scripts/aspd-compare/run.ts --out <dir> [--commit <sha>]
  *     [--a-cmd '<json argv>'] [--b-cmd '<json argv>']
  *     [--a-declared-extra <case>:<path>]... [--b-declared-extra <case>:<path>]...
+ *     [--declare-raspd-discovery] (assert and report T-13018 capability/surface differences)
  *     [--release-artifact <built release dir>] [--cases live] [--raw] [--keep-scratch]
  *     [--live-agents a,b,..] [--live-projects p,q,..] [--live-task <id>] [--live-resume]
  *   bun scripts/aspd-compare/run.ts --out <dir> --external-a <socket> --external-b <socket>
@@ -99,6 +100,7 @@ import {
   verifyFingerprints,
 } from './compare-core.ts'
 import { type LiveStage, buildLiveCases, seedLiveStage } from './live-cases.ts'
+import { takeRaspdDiscoveryDifferences } from './raspd-discovery.ts'
 
 // Usage metrics from this script and its children stay out of the real day files (T-11824);
 // the run audits the production files for its own rows at the end.
@@ -375,12 +377,15 @@ function compare(cases: CompareCase[], a: Capture, b: Capture, subjects: [Subjec
     const right = normalize(entry, b.replies[entry.id] ?? [], checkB.verified)
     const extraA = takeDeclaredExtras(entry.id, left, right, subjects[0])
     const extraB = takeDeclaredExtras(entry.id, right, left, subjects[1])
+    const discovery = process.argv.includes('--declare-raspd-discovery')
+      ? takeRaspdDiscoveryDifferences(left, right)
+      : { declared: {}, violations: [] }
     const replyDiffs = diffMaps(left, right)
     const treeDiffs = diffMaps(
       new Map(Object.entries(a.trees[entry.id] ?? {})),
       new Map(Object.entries(b.trees[entry.id] ?? {}))
     )
-    const violations = [...extraA.violations, ...extraB.violations]
+    const violations = [...extraA.violations, ...extraB.violations, ...discovery.violations]
     const ok =
       selfChecks.a.length === 0 &&
       selfChecks.b.length === 0 &&
@@ -407,6 +412,9 @@ function compare(cases: CompareCase[], a: Capture, b: Capture, subjects: [Subjec
       ...(selfChecks.a.length + selfChecks.b.length > 0 ? { selfChecks } : {}),
       ...(Object.keys(extraA.declared).length + Object.keys(extraB.declared).length > 0
         ? { declaredExtras: { a: extraA.declared, b: extraB.declared } }
+        : {}),
+      ...(Object.keys(discovery.declared).length > 0
+        ? { declaredDiscoveryDifferences: discovery.declared }
         : {}),
       ...(violations.length > 0 ? { violations } : {}),
       ...(replyDiffs.length > 0 ? { replyDiffs } : {}),

@@ -102,15 +102,6 @@ impl Shared {
     }
 }
 
-/// The five aspc ops raspd does not serve yet (T-13018 section 3).
-const UNSERVED_OPS: [&str; 5] = [
-    "aspc.catalogAgents",
-    "aspc.inspectAgent",
-    "aspc.catalogAgentInspection",
-    "aspc.inspectAgentSelection",
-    "aspc.prepareProcessInvocation",
-];
-
 /// Reclaim a stale socket node; refuse one a live listener answers on.
 pub fn reclaim_stale_socket(path: &Path) -> Result<(), String> {
     if std::fs::symlink_metadata(path).is_err() {
@@ -503,10 +494,17 @@ impl Connection {
                 });
             }
             Frame::Request(request) => {
-                let reason = if UNSERVED_OPS.contains(&request.method.as_str()) {
-                    crate::reason!("(unserved_op)")
-                } else {
-                    crate::reason!("(non_native_method)")
+                let reason = match request.method.as_str() {
+                    "aspc.catalogAgentInspection" => {
+                        crate::reason!("catalog_agent_inspection_unavailable")
+                    }
+                    "aspc.inspectAgentSelection" => {
+                        crate::reason!("inspect_agent_selection_unavailable")
+                    }
+                    "aspc.prepareProcessInvocation" => {
+                        crate::reason!("prepare_process_invocation_unsupported")
+                    }
+                    _ => crate::reason!("(non_native_method)"),
                 };
                 self.dispose(request, line, Instant::now(), reason, None)
                     .await;
@@ -531,7 +529,11 @@ impl Connection {
         detail: Option<String>,
     ) {
         let decision = disposition::decide(
-            self.shared.sole(),
+            self.shared.sole()
+                || matches!(
+                    request.method.as_str(),
+                    "aspc.catalogAgents" | "aspc.inspectAgent"
+                ),
             &request.id,
             &request.method,
             reason,

@@ -1,0 +1,120 @@
+{
+  "method": "aspc.inspectAgent",
+  "params": {
+    "request": {
+      "schemaVersion": "agent-inspection-request/v2",
+      "identifiers": {
+        "agentId": "other",
+        "agentName": "pathmark-dev",
+        "projectId": "project",
+        "mode": "task",
+        "scope": "pathmark-dev@project:T-13008",
+        "taskId": "T-13008",
+        "lane": "main",
+        "harness": "claude",
+        "presentation": true
+      },
+      "declaredOverrides": {}
+    },
+    "evaluationContext": {
+      "schemaVersion": "agent-inspection-evaluation-context/v2",
+      "identifiers": {
+        "agentId": "pathmark-dev",
+        "agentName": "pathmark-dev",
+        "projectId": "project",
+        "mode": "task",
+        "scope": "pathmark-dev@project:T-13008",
+        "taskId": "T-13008",
+        "lane": "main",
+        "harness": "claude",
+        "presentation": true
+      },
+      "paths": {
+        "agentRoot": "/private/tmp/raspd-sole-native/stage/agents/pathmark-dev",
+        "agentsRoot": "/private/tmp/raspd-sole-native/stage/agents",
+        "projectRoot": "/private/tmp/raspd-sole-native/stage/project",
+        "cwd": "/private/tmp/raspd-sole-native/stage/project"
+      },
+      "nowIso": "2026-11-09T00:00:00.000Z",
+      "environment": {},
+      "predicateInputs": {
+        "cwd": "/private/tmp/raspd-sole-native/stage/project",
+        "environment": {}
+      },
+      "execInputs": {
+        "cwd": "/private/tmp/raspd-sole-native/stage/project",
+        "environment": {}
+      },
+      "serviceProbeInputs": {
+        "responses": []
+      },
+      "scaffoldPackets": [],
+      "agentProfile": {},
+      "declaredOverrides": {},
+      "compileContext": {
+        "nowIso": "2026-11-09T00:00:00.000Z",
+        "idSalt": "t13008",
+        "toolchainManifest": {
+          "schemaVersion": "compile-toolchain/v1",
+          "tools": [
+            {
+              "name": "agent-spaces",
+              "version": "test"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "replies": [
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "facadeInfo": {
+          "name": "aspc-facade",
+          "version": "0.1.1"
+        },
+        "protocolVersion": "aspc/0.1",
+        "capabilities": {
+          "catalogAgents": true,
+          "inspectAgent": true,
+          "catalogAgentInspection": true,
+          "inspectAgentSelection": true,
+          "compileHarnessInvocation": true,
+          "resolveRuntimeDeclaration": true,
+          "inspectRuntimePlacement": true,
+          "inspectRuntimePlacementPreparationCorrelation": true,
+          "inspectRuntimePlacementPreparationTaskContext": true,
+          "observeRuntimeCapability": true,
+          "observeContinuationArtifact": true,
+          "prepareProcessInvocation": true,
+          "prepareProcessInvocationTaskContext": true,
+          "cohostedBroker": false,
+          "transports": [
+            "unix-jsonrpc-ndjson"
+          ]
+        },
+        "release": {
+          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
+          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
+          "builtAt": "2026-11-10T00:47:48.483Z"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "error": {
+        "code": -32603,
+        "message": "Inspection request and evaluation context identities do not match",
+        "data": {
+          "reason": "internal_error",
+          "advice": "Retry aspc.inspectAgent with the same params (compile service calls are idempotent); call health with params: {} if the failure persists."
+        }
+      }
+    }
+  ],
+  "tree": {},
+  "violations": []
+}

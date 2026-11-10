@@ -47,6 +47,8 @@ pub struct Profile {
     /// The `[provisioning]` scalars, by key.
     pub provisioning: Option<Vec<(String, J)>>,
     pub identity_role: Option<String>,
+    pub identity_display: Option<String>,
+    pub identity_avatar: Option<String>,
     pub priming: Option<String>,
     pub priming_file: Option<String>,
 }
@@ -507,6 +509,43 @@ fn codex_options(value: &J, path: &str) -> R<()> {
     Ok(())
 }
 
+/// Catalog diagnostics for the EOF-after-opening-array case. The parser remains
+/// `toml::parse`; this only renders iarna's measured diagnostic after it rejects.
+pub fn catalog_parse(content: &str) -> R<Profile> {
+    match parse(content) {
+        Err(ProfileError::Forward(reason))
+            if reason.as_str() == "profile_toml_syntax"
+                && content
+                    .rsplit_once('=')
+                    .is_some_and(|(_, value)| value.trim() == "[") =>
+        {
+            let lines: Vec<&str> = content.split('\n').collect();
+            let row = lines.len();
+            let col = lines.last().unwrap().encode_utf16().count();
+            let pos = content.encode_utf16().count() + 1;
+            let mut message = format!(
+                "Failed to parse TOML: Unterminated inline array at row {row}, col {}, pos {pos}:\n",
+                col + 1
+            );
+            let width = row.to_string().len();
+            for (i, line) in lines.iter().enumerate().skip(row.saturating_sub(2)) {
+                let n = i + 1;
+                if n == row {
+                    message.push_str(&format!(
+                        "{n:>width$}> {line}\n{}^\n",
+                        " ".repeat(width + 2 + col)
+                    ));
+                } else {
+                    message.push_str(&format!("{n:>width$}: {line}\n"));
+                }
+            }
+            message.push('\n');
+            Err(ProfileError::Invalid(message))
+        }
+        other => other,
+    }
+}
+
 pub fn parse(content: &str) -> R<Profile> {
     let parsed = match toml::parse(content) {
         Ok(v) => v,
@@ -562,6 +601,16 @@ pub fn parse(content: &str) -> R<Profile> {
     profile.provisioning = provisioning(parsed.get("provisioning"), "/provisioning")?;
     jobs(parsed.get("jobs"), "/jobs")?;
     profile.identity_role = identity(parsed.get("identity"), "/identity")?;
+    profile.identity_display = parsed
+        .get("identity")
+        .and_then(|i| i.get("display"))
+        .and_then(J::as_str)
+        .map(str::to_owned);
+    profile.identity_avatar = parsed
+        .get("identity")
+        .and_then(|i| i.get("avatar"))
+        .and_then(J::as_str)
+        .map(str::to_owned);
     for key in ["priming", "priming_file"] {
         if let Some(v) = parsed.get(key) {
             let J::Str(s) = v else {

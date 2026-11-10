@@ -106,9 +106,8 @@ const COMPILE_METHODS: [&str; 11] = [
     "aspc.prepareProcessInvocation",
 ];
 
-/// The service's hello capabilities, every method true (forwarded ones too),
-/// with aspd's release binding applied: `cohostedBroker: false` and the unix
-/// transport in place of stdio.
+/// The service's hello capabilities, with the three refused operations false
+/// in both modes. Release binding keeps cohostedBroker false and the unix transport.
 const HELLO_CAPABILITIES: [&str; 13] = [
     "catalogAgents",
     "inspectAgent",
@@ -169,10 +168,21 @@ fn identity(release: &Release) -> J {
     ])
 }
 
+/// Protocol operations explicitly refused even when an upstream is present.
+fn supported(op: &str) -> bool {
+    !matches!(
+        op.strip_prefix("aspc.").unwrap_or(op),
+        "catalogAgentInspection"
+            | "inspectAgentSelection"
+            | "prepareProcessInvocation"
+            | "prepareProcessInvocationTaskContext"
+    )
+}
+
 fn hello(release: &Release) -> J {
     let mut capabilities: Vec<(String, J)> = HELLO_CAPABILITIES
         .iter()
-        .map(|c| ((*c).to_owned(), J::Bool(true)))
+        .map(|c| ((*c).to_owned(), J::Bool(supported(c))))
         .collect();
     capabilities.push(("cohostedBroker".into(), J::Bool(false)));
     capabilities.push((
@@ -213,7 +223,7 @@ fn version(door: &FrontDoor) -> J {
     capabilities.extend(
         COMPILE_METHODS
             .iter()
-            .map(|m| ((*m).to_owned(), J::Bool(true))),
+            .map(|m| ((*m).to_owned(), J::Bool(supported(m)))),
     );
     let mut front_door = J::obj([
         ("name", J::str("raspd")),
@@ -249,6 +259,7 @@ fn surface() -> J {
                 ("op", J::str(*op)),
                 ("summary", J::str(*summary)),
                 ("stream", J::Bool(false)),
+                ("supported", J::Bool(supported(op))),
             ])
         })
         .collect();

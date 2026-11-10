@@ -1,0 +1,176 @@
+{
+  "method": "aspc.catalogAgentInspection",
+  "params": {},
+  "replies": [
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "facadeInfo": {
+          "name": "aspc-facade",
+          "version": "0.1.1"
+        },
+        "protocolVersion": "aspc/0.1",
+        "capabilities": {
+          "catalogAgents": true,
+          "inspectAgent": true,
+          "catalogAgentInspection": true,
+          "inspectAgentSelection": true,
+          "compileHarnessInvocation": true,
+          "resolveRuntimeDeclaration": true,
+          "inspectRuntimePlacement": true,
+          "inspectRuntimePlacementPreparationCorrelation": true,
+          "inspectRuntimePlacementPreparationTaskContext": true,
+          "observeRuntimeCapability": true,
+          "observeContinuationArtifact": true,
+          "prepareProcessInvocation": true,
+          "prepareProcessInvocationTaskContext": true,
+          "cohostedBroker": false,
+          "transports": [
+            "unix-jsonrpc-ndjson"
+          ]
+        },
+        "release": {
+          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
+          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
+          "builtAt": "2026-11-10T00:47:48.483Z"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "projectId": null,
+        "agents": [
+          {
+            "agentId": "pathmark",
+            "displayName": "pathmark",
+            "role": null,
+            "sourceAvailability": {
+              "profile": true,
+              "soul": true,
+              "contextTemplate": false
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "pathmark-claude-hrcpty",
+            "displayName": "pathmark-claude-hrcpty",
+            "role": null,
+            "sourceAvailability": {
+              "profile": true,
+              "soul": true,
+              "contextTemplate": false
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "pathmark-codex",
+            "displayName": "pathmark-codex",
+            "role": null,
+            "sourceAvailability": {
+              "profile": true,
+              "soul": true,
+              "contextTemplate": true
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "pathmark-codex-hrcpty",
+            "displayName": "pathmark-codex-hrcpty",
+            "role": null,
+            "sourceAvailability": {
+              "profile": true,
+              "soul": true,
+              "contextTemplate": false
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "pathmark-dev",
+            "displayName": "pathmark-dev",
+            "role": null,
+            "sourceAvailability": {
+              "profile": true,
+              "soul": true,
+              "contextTemplate": false
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "pathmark-participant",
+            "displayName": "pathmark-participant",
+            "role": null,
+            "sourceAvailability": {
+              "profile": true,
+              "soul": true,
+              "contextTemplate": false
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "pathmark-project-space",
+            "displayName": "pathmark-project-space",
+            "role": null,
+            "sourceAvailability": {
+              "profile": true,
+              "soul": true,
+              "contextTemplate": false
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "pathmark-prune",
+            "displayName": "pathmark-prune",
+            "role": null,
+            "sourceAvailability": {
+              "profile": true,
+              "soul": true,
+              "contextTemplate": false
+            },
+            "diagnostics": [],
+            "warningCount": 0,
+            "errorCount": 0
+          },
+          {
+            "agentId": "pm-broken",
+            "displayName": "pm-broken",
+            "role": null,
+            "sourceAvailability": {
+              "profile": true,
+              "soul": true,
+              "contextTemplate": false
+            },
+            "diagnostics": [
+              {
+                "severity": "error",
+                "code": "invalid_agent_profile",
+                "message": "Failed to parse TOML: Unterminated inline array at row 2, col 1, pos 13:\n1: version = [\n2> \n   ^\n\n"
+              }
+            ],
+            "warningCount": 0,
+            "errorCount": 1
+          }
+        ],
+        "contexts": {}
+      }
+    }
+  ],
+  "tree": {},
+  "violations": []
+}
