@@ -1,3 +1,4 @@
+import { ScopeGrammarError } from './errors.js'
 import { DIRECTIVE_SEPARATOR } from './provisioning.js'
 import { buildScopeRef, parseScopeRef } from './scope-ref.js'
 import type { ParsedScopeRef, ScopeFields, ValidationResult } from './types.js'
@@ -77,7 +78,7 @@ export function splitHandle(handle: string): ScopeFields {
  */
 export function validateScopeHandle(handle: string): ValidationResult {
   if (handle.length === 0) {
-    return { ok: false, error: 'ScopeHandle must not be empty' }
+    return { ok: false, error: 'ScopeHandle must not be empty', code: 'empty' }
   }
 
   // A canonical handle is pure identity. Provisioning directives are an input
@@ -89,6 +90,7 @@ export function validateScopeHandle(handle: string): ValidationResult {
       error:
         'provisioning directives ("+key=value") are not part of a ScopeHandle; ' +
         'pass the directed input to resolveQualifiedScopeInput instead',
+      code: 'directive_not_allowed',
     }
   }
 
@@ -122,7 +124,10 @@ export function validateScopeHandle(handle: string): ValidationResult {
 export function parseScopeHandle(handle: string): ParsedScopeRef {
   const validation = validateScopeHandle(handle)
   if (!validation.ok) {
-    throw new Error(`Invalid ScopeHandle "${handle}": ${validation.error}`)
+    throw new ScopeGrammarError(
+      `Invalid ScopeHandle "${handle}": ${validation.error}`,
+      validation.code
+    )
   }
 
   // Reuse the validated split; build the canonical ref and parse it to derive

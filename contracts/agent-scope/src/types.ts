@@ -5,8 +5,10 @@ export const TOKEN_PATTERN = /^[A-Za-z0-9._-]+$/
 export const TOKEN_MIN_LENGTH = 1
 export const TOKEN_MAX_LENGTH = 64
 
-/** Result of a validation routine: either ok, or an explanatory error string. */
-export type ValidationResult = { ok: true } | { ok: false; error: string }
+import type { ScopeErrorCode } from './errors.js'
+
+/** Result of a validation routine: either ok, or an explanatory error string and its code. */
+export type ValidationResult = { ok: true } | { ok: false; error: string; code: ScopeErrorCode }
 
 /**
  * Validate a single identifier token against the length and charset rules.
@@ -33,7 +35,7 @@ export function validateToken(value: string, label: string): string | undefined 
  */
 export function validateTokenField(value: string, label: string): ValidationResult {
   const error = validateToken(value, label)
-  return error ? { ok: false, error } : { ok: true }
+  return error ? { ok: false, error, code: 'token_invalid' } : { ok: true }
 }
 
 /**

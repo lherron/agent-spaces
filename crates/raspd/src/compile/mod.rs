@@ -2228,19 +2228,26 @@ fn path_filter_scope(plan: &Plan) -> String {
     codex::home_path(&plan.asp_home, project_id, &plan.agent_name)
 }
 
+/// lockedEnv's ASP_PROJECT, the contract's project discovery id: written only
+/// with a project root, the scope's project id or else the root's basename
+/// (contracts/agent-scope/conformance `locked` env cases).
+fn locked_asp_project(handle: &Handle, project_root: Option<&str>) -> Option<String> {
+    let root = project_root?;
+    Some(
+        handle
+            .project_id
+            .clone()
+            .unwrap_or_else(|| basename(&resolve(&[root]))),
+    )
+}
+
 /// `composeAgentLocalEnv`'s lockedEnv: the adapter env, the agentchat env,
 /// ASP_HOME, then the tool runtime env.
 fn locked_env(plan: &Plan, adapter_env: EnvPairs, tool_env: EnvPairs) -> EnvPairs {
     let mut locked = adapter_env;
     locked.push(("AGENTCHAT_ID".into(), basename(&plan.agent_root)));
-    if let Some(root) = &plan.project_root {
-        locked.push((
-            "ASP_PROJECT".into(),
-            plan.handle
-                .project_id
-                .clone()
-                .unwrap_or_else(|| basename(&resolve(&[root]))),
-        ));
+    if let Some(project) = locked_asp_project(&plan.handle, plan.project_root.as_deref()) {
+        locked.push(("ASP_PROJECT".into(), project));
     }
     let mut set = |k: String, v: String| match locked.iter_mut().find(|(e, _)| *e == k) {
         Some(slot) => slot.1 = v,
@@ -2930,4 +2937,61 @@ fn finalize(
         ),
         ("executionRelease", execution_release),
     ]))
+}
+
+#[cfg(test)]
+mod env_conformance {
+    //! The `locked` cases of contracts/agent-scope/conformance/env-cases.json,
+    //! through the same steps `compile` takes: `handle_parts` then
+    //! `locked_asp_project`. Bun runs the same cases.
+    use super::{handle_parts, locked_asp_project};
+    use crate::json::{self, J};
+
+    const ENV_CASES: &str =
+        include_str!("../../../../contracts/agent-scope/conformance/env-cases.json");
+
+    #[test]
+    fn locked_env_cases() {
+        let doc = json::parse(ENV_CASES.as_bytes()).expect("env-cases.json parses");
+        let cases: Vec<&J> = doc
+            .get("cases")
+            .and_then(J::as_arr)
+            .expect("cases")
+            .iter()
+            .filter(|c| c.get("kind").and_then(J::as_str) == Some("locked"))
+            .collect();
+        assert!(!cases.is_empty(), "the fixture has locked cases");
+        let mut failures = vec![];
+        for case in cases {
+            let id = case.get("id").and_then(J::as_str).unwrap_or("?");
+            let input = case.get("in").expect("in");
+            let scope = input.get("scopeRef").and_then(J::as_str).expect("scopeRef");
+            let root = input.get("projectRoot").and_then(J::as_str);
+            let mut placement = J::obj([
+                ("agentRoot", J::str("/home/operator/praesidium/var/agents/alice")),
+                (
+                    "correlation",
+                    J::obj([(
+                        "sessionRef",
+                        J::obj([("scopeRef", J::str(scope)), ("laneRef", J::str("main"))]),
+                    )]),
+                ),
+            ]);
+            if let Some(root) = root {
+                placement.set("projectRoot", J::str(root));
+            }
+            let handle = handle_parts(&placement, true)
+                .unwrap_or_else(|_| panic!("{id}: handle_parts refused"));
+            let actual = locked_asp_project(&handle, root);
+            let expected = case
+                .get("expected")
+                .and_then(|e| e.get("ASP_PROJECT"))
+                .and_then(J::as_str)
+                .map(str::to_owned);
+            if actual != expected {
+                failures.push(format!("{id}: expected {expected:?}, got {actual:?}"));
+            }
+        }
+        assert!(failures.is_empty(), "locked env cases failed:\n{}", failures.join("\n"));
+    }
 }

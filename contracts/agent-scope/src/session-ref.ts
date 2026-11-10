@@ -1,3 +1,4 @@
+import { ScopeGrammarError } from './errors.js'
 import { LANE_PREFIX, laneIdFromRef, laneRefFromId, normalizeLaneRef } from './lane-ref.js'
 import { validateScopeRef } from './scope-ref.js'
 import type { SessionRef } from './types.js'
@@ -9,7 +10,10 @@ import type { SessionRef } from './types.js'
 export function normalizeSessionRef(input: { scopeRef: string; laneRef?: string }): SessionRef {
   const validation = validateScopeRef(input.scopeRef)
   if (!validation.ok) {
-    throw new Error(`Invalid ScopeRef "${input.scopeRef}": ${validation.error}`)
+    throw new ScopeGrammarError(
+      `Invalid ScopeRef "${input.scopeRef}": ${validation.error}`,
+      validation.code
+    )
   }
 
   return {
@@ -32,13 +36,21 @@ export function parseSessionRef(input: string): SessionRef {
   const normalized = input.trim()
   const parts = normalized.split('/')
   if (parts.length !== 2 || !parts[1]?.startsWith(LANE_PREFIX)) {
-    throw new Error('Invalid SessionRef: expected "<scopeRef>/lane:<laneRef>"')
+    throw new ScopeGrammarError(
+      'Invalid SessionRef: expected "<scopeRef>/lane:<laneRef>"',
+      normalized.length === 0 ? 'empty' : 'shape_invalid'
+    )
   }
 
   const scopeRef = parts[0]?.trim() ?? ''
   const laneId = parts[1].slice(LANE_PREFIX.length).trim()
   if (scopeRef.length === 0 || laneId.length === 0) {
-    throw new Error('Invalid SessionRef: scopeRef and laneRef are required')
+    // A missing scope part is a missing segment; a missing lane id is a lane
+    // token of length 0, as `alice@demo~` is in the session handle grammar.
+    throw new ScopeGrammarError(
+      'Invalid SessionRef: scopeRef and laneRef are required',
+      scopeRef.length === 0 ? 'shape_invalid' : 'token_invalid'
+    )
   }
 
   return normalizeSessionRef({ scopeRef, laneRef: laneRefFromId(laneId) })

@@ -5,6 +5,6 @@
     "composite": false,
     "rootDir": "."
   },
-  "include": ["index.ts", "src/**/*"],
+  "include": ["index.ts", "src/**/*", "conformance/**/*"],
   "exclude": ["node_modules", "dist"]
 }

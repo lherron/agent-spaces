@@ -1,3 +1,4 @@
+import { ScopeGrammarError } from './errors.js'
 import { laneIdFromRef, laneRefFromInput } from './lane-ref.js'
 import {
   type ProvisionVocabulary,
@@ -135,8 +136,9 @@ function parseScopeInput(input: string, defaultLaneId?: string): ScopeInputParts
     return { ...splitHandle(input), laneId, laneRef }
   }
 
-  throw new Error(
-    `Invalid scope input "${input}": expected a ScopeHandle, SessionHandle, or ScopeRef`
+  throw new ScopeGrammarError(
+    `Invalid scope input "${input}": expected a ScopeHandle, SessionHandle, or ScopeRef`,
+    input.length === 0 ? 'empty' : 'shape_invalid'
   )
 }
 
@@ -204,9 +206,10 @@ export function resolveQualifiedScopeInput(
   // shorthand (`alice:t1`) with no project resolvable from the caller — fail
   // loud with an actionable message rather than silently dropping the task.
   if (taskId !== undefined && projectId === undefined) {
-    throw new Error(
+    throw new ScopeGrammarError(
       `Invalid scope input "${input}": task "${taskId}" requires a project; ` +
-        `use "${agentId}@<project>:${taskId}", or set ASP_PROJECT / run from a project directory`
+        `use "${agentId}@<project>:${taskId}", or set ASP_PROJECT / run from a project directory`,
+      'task_requires_project'
     )
   }
 

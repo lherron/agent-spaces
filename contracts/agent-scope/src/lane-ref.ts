@@ -1,3 +1,4 @@
+import { ScopeGrammarError } from './errors.js'
 import type { LaneRef, ValidationResult } from './types.js'
 import { validateToken } from './types.js'
 
@@ -14,12 +15,16 @@ export function validateLaneRef(laneRef: string): ValidationResult {
   if (laneRef === DEFAULT_LANE_ID) return { ok: true }
 
   if (!laneRef.startsWith(LANE_PREFIX)) {
-    return { ok: false, error: 'LaneRef must be "main" or "lane:<laneId>"' }
+    return {
+      ok: false,
+      error: 'LaneRef must be "main" or "lane:<laneId>"',
+      code: laneRef.length === 0 ? 'empty' : 'shape_invalid',
+    }
   }
 
   const laneId = laneRef.slice(LANE_PREFIX.length)
   const laneErr = validateToken(laneId, 'laneId')
-  if (laneErr) return { ok: false, error: laneErr }
+  if (laneErr) return { ok: false, error: laneErr, code: 'token_invalid' }
 
   return { ok: true }
 }
@@ -32,7 +37,10 @@ export function normalizeLaneRef(laneRef?: string): LaneRef {
 
   const validation = validateLaneRef(laneRef)
   if (!validation.ok) {
-    throw new Error(`Invalid LaneRef "${laneRef}": ${validation.error}`)
+    throw new ScopeGrammarError(
+      `Invalid LaneRef "${laneRef}": ${validation.error}`,
+      validation.code
+    )
   }
 
   return laneRef as LaneRef

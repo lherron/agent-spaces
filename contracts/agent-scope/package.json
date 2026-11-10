@@ -10,10 +10,13 @@
       "bun": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    }
+    },
+    "./conformance/*": "./conformance/*"
   },
   "files": [
-    "dist"
+    "dist",
+    "conformance/*.json",
+    "conformance/README.md"
   ],
   "scripts": {
     "build": "tsc",

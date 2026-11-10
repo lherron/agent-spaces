@@ -171,6 +171,25 @@ async function persistSystemPromptArtifact(
 }
 
 /**
+ * The agentchat discovery env folded into lockedEnv on the CLI path: ASP_PROJECT
+ * and AGENTCHAT_ID, so tools like agentchat can discover their project and agent
+ * context without a manual .env.local. ASP_PROJECT is the contract's project
+ * discovery id (contracts/agent-scope/conformance, `locked` env cases).
+ */
+export function buildAgentchatEnv(
+  placement: RuntimePlacement,
+  handleParts: { projectId?: string | undefined }
+): Record<string, string> {
+  const agentchatEnv: Record<string, string> = {
+    AGENTCHAT_ID: basename(placement.agentRoot),
+  }
+  if (placement.projectRoot) {
+    agentchatEnv['ASP_PROJECT'] = handleParts.projectId ?? basename(resolve(placement.projectRoot))
+  }
+  return agentchatEnv
+}
+
+/**
  * Prepare placement-based CLI runtime state without choosing an output protocol.
  */
 export async function preparePlacementCliRuntime(
@@ -500,14 +519,7 @@ export async function preparePlacementCliRuntime(
   const commandPath = detection.path ?? runtimePlan.harnessId
   const argv = [commandPath, ...args]
 
-  // Derive ASP_PROJECT and AGENTCHAT_ID so tools like agentchat can discover
-  // their project and agent context without a manual .env.local.
-  const agentchatEnv: Record<string, string> = {
-    AGENTCHAT_ID: basename(placement.agentRoot),
-  }
-  if (placement.projectRoot) {
-    agentchatEnv['ASP_PROJECT'] = handleParts.projectId ?? basename(resolve(placement.projectRoot))
-  }
+  const agentchatEnv = buildAgentchatEnv(placement, handleParts)
 
   // Compose the agent-local env channels. The CLI path folds adapterEnv +
   // agentchatEnv into lockedEnv, and consumes the typed pathPrepend + tool

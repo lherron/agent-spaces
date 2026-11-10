@@ -1,4 +1,5 @@
 export { TOKEN_PATTERN, validateToken } from './types.js'
+export { SCOPE_ERROR_CODES, ScopeGrammarError, type ScopeErrorCode } from './errors.js'
 export type { LaneRef, SessionRef, ValidationResult } from './types.js'
 export {
   parseScopeRef,
