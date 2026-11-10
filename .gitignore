@@ -18,8 +18,6 @@ drivers/execution/execution
 # Runtime scratch project dirs created by tests/harness
 projects/
 integration-tests/projects/
-packages/hrc-cli/projects/
-packages/hrc-server/projects/
 packages/acp-server/state/
 
 # Runtime scratch dirs created by package-level tests/harnesses

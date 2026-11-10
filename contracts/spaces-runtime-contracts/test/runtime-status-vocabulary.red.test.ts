@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   RUNTIME_STATE_STATUS_VALUES,
@@ -65,41 +65,29 @@ const EXPECTED_HRC_RUNTIME_ROW_STATUSES = [
   'dead',
 ] as const
 
-function collectSourceFiles(hrcRoot: string, root: string): string[] {
+// HRC is Rust native (Lance ruling 2026-11-09, T-13147): the runtime-row
+// vocabulary is crates/hrc-store/src/status.rs, and hrc-native writes the
+// runtime statuses through it and `turns::set_status`.
+const HRC_STATUS_VOCABULARY = 'crates/hrc-store/src/status.rs'
+const HRC_NATIVE_SOURCE = 'crates/hrc-native/src'
+
+function collectRustSources(root: string): string[] {
   if (!existsSync(root)) return []
-  const entries = readdirSync(root)
   const files: string[] = []
-  for (const entry of entries) {
+  for (const entry of readdirSync(root)) {
     const path = join(root, entry)
-    const rel = relative(hrcRoot, path)
-    if (
-      rel.includes('/__tests__/') ||
-      rel.includes('/validation/') ||
-      rel.includes('/docs/') ||
-      rel.includes('/node_modules/')
-    ) {
-      continue
-    }
-    const stat = statSync(path)
-    if (stat.isDirectory()) {
-      files.push(...collectSourceFiles(hrcRoot, path))
-    } else if (path.endsWith('.ts')) {
-      files.push(path)
-    }
+    if (statSync(path).isDirectory()) files.push(...collectRustSources(path))
+    else if (path.endsWith('.rs')) files.push(path)
   }
   return files
 }
 
-function readHrcSource(hrcRoot: string): string {
-  const sourceRoots = [
-    join(hrcRoot, 'packages/hrc-server/src'),
-    join(hrcRoot, 'packages/hrc-core/src'),
-    join(hrcRoot, 'packages/hrc-store-sqlite/src'),
-  ]
-  return sourceRoots
-    .flatMap((root) => collectSourceFiles(hrcRoot, root))
-    .map((path) => `\n// ${relative(hrcRoot, path)}\n${readFileSync(path, 'utf8')}`)
-    .join('\n')
+/** The string literals of `pub const <name>: [&str; N] = [...]`, or undefined. */
+function rustStrArray(source: string, name: string): string[] | undefined {
+  const match = new RegExp(`pub const ${name}: \\[&str; \\d+\\] = \\[([^\\]]*)\\];`).exec(source)
+  return match?.[1] === undefined
+    ? undefined
+    : [...match[1].matchAll(/"([^"]*)"/g)].map((literal) => literal[1] as string)
 }
 
 describe('T-05007 runtime status vocabulary contract', () => {
@@ -147,27 +135,37 @@ describe('T-05007 runtime status vocabulary contract', () => {
     () => {
       // Guarded by skipIf: HRC_REPO_ROOT is defined and exists here.
       const hrcRoot = HRC_REPO_ROOT as string
-      const hrcSource = readHrcSource(hrcRoot)
+      const vocabularyPath = join(hrcRoot, HRC_STATUS_VOCABULARY)
+      expect(existsSync(vocabularyPath)).toBe(true)
+      const nativeFiles = collectRustSources(join(hrcRoot, HRC_NATIVE_SOURCE))
+      expect(nativeFiles.length).toBeGreaterThan(0)
+      const nativeSource = nativeFiles.map((path) => readFileSync(path, 'utf8')).join('\n')
 
-      // HRC now emits awaiting_input through the runtime status helper.
-      expect(hrcSource).toContain("setRuntimeStatus(db, ctx.runtimeId, 'awaiting_input'")
+      // HRC sets awaiting_input on the runtime row through the turn status helper.
+      expect(nativeSource).toMatch(/set_status\(\s*db,\s*&ctx\.runtime_id,\s*"awaiting_input"/)
+      expect(RUNTIME_STATE_STATUS_VALUES).toContain('awaiting_input')
 
+      // The unavailable runtime-row statuses HRC produces are exactly the
+      // expected ones, and the contract admits each of them.
+      const unavailable = rustStrArray(readFileSync(vocabularyPath, 'utf8'), 'UNAVAILABLE')
+      expect(unavailable).toBeDefined()
+      const produced = [...(unavailable ?? [])].sort()
+      expect(produced).toEqual(
+        EXPECTED_HRC_RUNTIME_ROW_STATUSES.filter((status) => status !== 'awaiting_input').sort()
+      )
+      const admitted: readonly string[] = RUNTIME_STATUS_VALUES
+      for (const status of produced) expect(admitted).toContain(status)
       for (const status of EXPECTED_HRC_RUNTIME_STATE_JSON_STATUSES) {
-        if (status !== 'awaiting_input') expect(hrcSource).toContain(`status: '${status}'`)
         expect(RUNTIME_STATE_STATUS_VALUES).toContain(status)
-        expect(RUNTIME_STATUS_VALUES).toContain(status)
-      }
-
-      for (const status of EXPECTED_HRC_RUNTIME_ROW_STATUSES) {
-        if (status !== 'awaiting_input') expect(hrcSource).toContain(`status: '${status}'`)
-        expect(RUNTIME_STATUS_VALUES).toContain(status)
       }
 
       expect(RUNTIME_STATE_STATUS_VALUES).not.toContain('adopted')
       expect(RUNTIME_STATE_STATUS_VALUES).not.toContain('dead')
+      // zombied is a run sweep result HRC writes, not a runtime status.
+      expect(nativeSource).toContain('"zombied"')
+      expect(produced).not.toContain('zombied')
       expect(RUNTIME_STATE_STATUS_VALUES).not.toContain('zombied')
       expect(RUNTIME_STATUS_VALUES).not.toContain('zombied')
-      expect(hrcSource).toContain("status: 'zombied'")
     }
   )
 })

@@ -55,9 +55,10 @@ by `scripts/aspd-service.ts` and `harness/aspc-facade/src/aspd.ts`; the pilot
 protocol and acceptance sections describe historical evidence. Current read and
 preparation methods are registered in `harness/aspc/src/registration.ts`.
 
-HRC's `packages/hrc-server/src/agent-spaces-adapter/aspd-preparation-client.ts`
-uses `HRC_ASPD_SOCKET`: each preparation connects, negotiates `aspc.hello`,
-compiles once, and closes. Requests after hello have a 120-second deadline.
+HRC's native client (`AspSession`, hrc-runtime
+`crates/hrc-native/src/server/placement/aspc.rs`) uses `HRC_ASPD_SOCKET`: each
+preparation connects, negotiates `aspc.hello`, compiles once, and closes. A
+connection that compiles has a 120-second deadline, a read-only one 60 seconds.
 It does not retry a compile or fall back to a bundled compiler. The launchd
 bootstrap retries below concern service loading, not RPC or invocation replay.
 
