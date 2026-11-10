@@ -273,9 +273,12 @@ const releaseOf = (v: Record<string, unknown>) =>
 const AGENT_HARNESS = ROWS.find(
   (row) => row.id === 'agent-harness-headless'
 ) as (typeof ROWS)[number]
+// pathmark-dev: the fixture's other agent composes a git-pinned space, which
+// sole raspd refuses registry_space_unsupported (T-13018 section 1).
 const CLAUDE_HRCPTY = {
   id: 'claude-hrcpty',
   requested: { harness: 'claude-hrcpty', presentation: true },
+  agent: 'pathmark-dev',
 } as unknown as (typeof ROWS)[number]
 const compile = async (row: (typeof ROWS)[number], tag: string, client: string) =>
   (
