@@ -80,7 +80,7 @@
         "declaration": {
           "schemaVersion": "aspc-resolve-runtime-declaration-response/v1",
           "ok": true,
-          "evaluatedAt": "2026-11-10T02:55:02.067Z",
+          "evaluatedAt": "2026-11-10T03:58:56.118Z",
           "contextHash": "929d7cc85839337c724d1d49c4615d2504c4f9dbcf8b936b8f23867ac145685b",
           "agentSources": {
             "aspHome": "/private/tmp/raspd-sole-native/stage/asp-home",
@@ -331,7 +331,7 @@
             },
             {
               "kind": "execution-profile",
-              "partId": "execution-profile:profile_fbec8d1a2f3936ee69a56b6ca8e17c7c",
+              "partId": "execution-profile:profile_7e3a928b5cb4092c627834ec169922e4",
               "disposition": {
                 "kind": "effective"
               },
@@ -345,7 +345,7 @@
                 ]
               },
               "value": {
-                "profileId": "profile_fbec8d1a2f3936ee69a56b6ca8e17c7c",
+                "profileId": "profile_7e3a928b5cb4092c627834ec169922e4",
                 "controllerKind": "claude-code-tmux",
                 "configuration": {
                   "recipeId": "claude-code"
@@ -380,7 +380,7 @@
             "nearMaxChars": false
           }
         },
-        "effectiveEnvironmentHash": "39b891583b6d002bd8d68bbf461d34d187ca404370b1e802361a66cfe75aa14d"
+        "effectiveEnvironmentHash": "b3135de0bbbcda1d3beaf2a50628ed9bf4b7f8da6984d9114068aba0d39a6cdd"
       }
     }
   ],

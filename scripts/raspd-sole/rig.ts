@@ -200,8 +200,9 @@ export async function startRig(
   const env: Record<string, string> = {
     HOME: home,
     PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
-    USER: process.env['USER'] ?? 'agent',
-    LOGNAME: process.env['LOGNAME'] ?? process.env['USER'] ?? 'agent',
+    // These are compile/hash inputs: never inherit the recording or CI user.
+    USER: 'agent',
+    LOGNAME: 'agent',
     SHELL: '/bin/zsh',
     TMPDIR: join(scratch, 'tmp'),
     LANG: 'en_US.UTF-8',

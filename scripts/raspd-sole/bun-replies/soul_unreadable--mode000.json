@@ -128,8 +128,8 @@
             "name": "agent-spaces",
             "version": "0.1.1"
           },
-          "compileId": "compile_cd3739ef0acfd9f1a5f13da8a6614173",
-          "createdAt": "2026-11-10T02:55:02.777Z",
+          "compileId": "compile_1f2f5c98e4c0743104bf77bc2c923cfc",
+          "createdAt": "2026-11-10T03:58:56.910Z",
           "agent": {
             "id": "p-su0"
           },
@@ -206,10 +206,10 @@
             },
             "presentationFulfillment": "intrinsic",
             "profile": {
-              "profileId": "profile_38977c81130fe7375cf0c802fcb0cd93",
-              "profileHash": "8ff4b27155dd331487dbc6b0a32e307db042e316f03a00aa8db1f1b5e5ba79c5",
-              "compatibilityHash": "690842a064a9a61ddeda5fe931cec0dd5a2a88e8607b5abe44c2ccafa6e1ee85",
-              "startRequestHash": "d5ae56e30ba270c70a65fdd5c67c2e05db2e51b76346d7701fb5024076b22c9e"
+              "profileId": "profile_9a809394de00f1704fff239ae721028c",
+              "profileHash": "d8ae74a05ec6ab8507380ea2d688481a0bf53263505f7bb8fad3abc6f3e97b36",
+              "compatibilityHash": "d39b529755a94cca49f9dfbf837814feb4530ae231b8c1de79027c2553ca8992",
+              "startRequestHash": "5c1593fc7343cf33c9455d2e522f4a8c55fc195bcb1dfc9e9aacfac3488abaeb"
             },
             "dispatchRequest": {
               "startRequest": {
@@ -241,7 +241,7 @@
                       "/private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_p-su0/bundles/.versions/1202927fda34bb7b4f1f2922c503e33f7414f6fc5516bfaafdd657b8d3540b38/p-su0/claude/settings.json",
                       "--chrome",
                       "--session-id",
-                      "0b8e377d-be11-4a04-97e8-edbab32cbb34",
+                      "b6690de4-071f-4d5e-98f6-59d717521ef4",
                       "--",
                       "pathmark prompt"
                     ],
@@ -329,11 +329,11 @@
             ]
           },
           "diagnostics": [],
-          "planHash": "f7ac4af69f4de0da1f2b5284b43527f3f6d4f27717b79530760aa2ca5b676f7d"
+          "planHash": "2753ef355a9af7b64e7da4f449b18add9b9415217f9ca3b9f72ba32f128ceb27"
         },
         "sessionMetadata": {},
         "diagnostics": [],
-        "effectiveEnvironmentHash": "8e0e11bcd9274cfa4b6377a34374affecd680a80feb3daf037de5132e587929e",
+        "effectiveEnvironmentHash": "ad941fe0ef3dfff94d0d0a43ce198faa89301a0cc92573739b9c4105d826ec8d",
         "executionRelease": {
           "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
           "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",

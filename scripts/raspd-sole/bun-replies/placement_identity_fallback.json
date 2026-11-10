@@ -120,8 +120,8 @@
             "name": "agent-spaces",
             "version": "0.1.1"
           },
-          "compileId": "compile_1142b3362e2edce0fb2f9392a446eac5",
-          "createdAt": "2026-11-10T02:55:01.663Z",
+          "compileId": "compile_b229dac13d5f9ac8429e9365eceb1747",
+          "createdAt": "2026-11-10T03:58:55.679Z",
           "agent": {
             "id": "p-pif"
           },
@@ -203,10 +203,10 @@
             },
             "presentationFulfillment": "intrinsic",
             "profile": {
-              "profileId": "profile_e306d3e9dfba4a7fec64cd9a5e9ff911",
-              "profileHash": "334683cf19f393c2427fff78445cac6c01a48f250132e320948e4a34e5e46e9d",
-              "compatibilityHash": "0920459dfed99759ae04f57e137bc9cece26ea4abc81dae2f3de1fca07742b4a",
-              "startRequestHash": "1f2cc360801d586b42a1daad5ba16fec83b6f7f290661ffc29a2a85de20ead3c"
+              "profileId": "profile_118a6dedf20cad73dd6b8f193b70f73a",
+              "profileHash": "23b59ca283d04507e4097a77343c26a3f56ed8a08107819e6367c92122aa3e0f",
+              "compatibilityHash": "42f2ec80eb3ba2f80ac5c2f1e82537ced909c10757f0eeb2f92e4041090282fc",
+              "startRequestHash": "a08b773da57b3c18805880e9328784d5e7404d8a7754d51a54db089453dcd29b"
             },
             "dispatchRequest": {
               "startRequest": {
@@ -237,7 +237,7 @@
                       "# p-pif\n\nProbe agent.\n",
                       "--chrome",
                       "--session-id",
-                      "943b5442-f476-4f3c-89a3-3da1483bf777",
+                      "b7c788f6-ed8b-4f53-b453-ce83858741cb",
                       "--",
                       "pathmark prompt"
                     ],
@@ -317,11 +317,11 @@
             ]
           },
           "diagnostics": [],
-          "planHash": "6ec519fcded37570e31813dfcea6113081e73e9b172f3b58555a40404f229ef2"
+          "planHash": "a6e1a699c20b3cdc6b3dcf6f69a274d109c552fba3287df4e350535fbe6dafea"
         },
         "sessionMetadata": {},
         "diagnostics": [],
-        "effectiveEnvironmentHash": "7fea1af15d127bb4a91ea99c3b529de5f82c7f180dd4ede6ff371164d76ac30a",
+        "effectiveEnvironmentHash": "3bc0785c70646ca87e0c395d10f38d9dc22c163a7db5568f27a26de1d1692b65",
         "executionRelease": {
           "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
           "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",

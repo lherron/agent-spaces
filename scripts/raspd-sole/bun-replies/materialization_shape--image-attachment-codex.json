@@ -136,7 +136,7 @@
             "version": "0.1.1"
           },
           "compileId": "compile_465f8b08806907744b9f24215d5d95b5",
-          "createdAt": "2026-11-10T02:55:01.588Z",
+          "createdAt": "2026-11-10T03:58:55.599Z",
           "agent": {
             "id": "pathmark-dev"
           },
@@ -353,7 +353,7 @@
         },
         "sessionMetadata": {},
         "diagnostics": [],
-        "effectiveEnvironmentHash": "c2c15af5847025523f6873912e8af0c2bd86422a2d659780816809adc91264b1",
+        "effectiveEnvironmentHash": "3c9d891d4729ff729fd80efd91a0c586d1eb7dffb3d5be02a965b9d8ae95d933",
         "executionRelease": {
           "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
           "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
