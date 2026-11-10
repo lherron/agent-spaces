@@ -2,34 +2,74 @@ id: agent-spaces.aspd-rust-front-door
 kind: invariant
 status: active
 owner_project: agent-spaces
-scope: Rust aspd front door, shared materialization, parity, and observation boundary
+scope: raspd compile daemon, phased Bun retirement, shared materialization, reference corpus, and observation boundary
 predicate: >
-  raspd and Bun aspd ship in one immutable ASP release. raspd serves the public
-  aspc socket and routes each frame either to a native handler or verbatim to
-  that release's Bun upstream on a connection tied to the client connection.
-  The public protocol, refusal envelopes, capabilities including forwarded
-  methods, and release-bound worker selection retain their existing contracts.
+  Under the T-13018 r2 retirement plan, raspd serves the public aspc socket.
+  In fronted mode it answers native requests and forwards the remaining frames
+  verbatim to the same immutable release's Bun upstream on a connection tied
+  to the client connection. Without --upstream it serves sole mode and every
+  request is answered natively or refused according to the approved inventory
+  dispositions; it never implicitly discovers a Bun upstream. Refusals retain
+  Bun's envelope and code where applicable, with the explicit r2 departures.
+  Agent-harness and muse compile requests refuse unsupported_harness;
+  registry-pinned spaces in the current target refuse
+  registry_space_unsupported, without making another target's missing pin a
+  refusal of this compile. Refused operations advertise false capabilities.
+  The legacy caller scope shorthand and seven specified JavaScript coercion
+  cases are refused; unreadable SOUL.md fails rather than silently compiling
+  an empty prompt. Bad UTF-8 bytes are read with replacement as specified.
+  Unreachable branches return internal errors rather than forwarding.
+  Release-bound worker selection retains its existing authority and contracts.
   ASP materialization has no HRC execution-owner flip: native Rust and Bun
   writers share ASP_HOME only under the same lock and publication protocols.
   The global lock merge is locked, snapshot stages have collision-free names,
   and a losing snapshot publisher verifies the winning integrity directory and
-  removes its own stage before reusing the winner. Unsupported compile branches
-  cause whole-request forwarding before any write. Bun remains the semantic
-  reference, including known defects until a coordinated fix. Compile parity
-  holds absolute paths and the release directory equal across restored seeds;
-  volatile inputs are enumerated from measured Bun differences. Each subject's
-  reported derived hashes are checked against its actual reported body before
-  measured volatile inputs are tokenized and verified derived-hash fields are
-  omitted for body comparison. The embedded cardo kernel observes service
+  removes its own stage before reusing the winner. Input-decided refusals occur
+  before the first write. Write-time I/O failures and lock timeouts fail the
+  request without undoing earlier writes; request-wide atomicity is not
+  promised. Global-lock updates retain successful-compile values and bundles
+  publish complete under their fingerprints. Under the Codex-home lock, the
+  completion record is set false before the first managed-file mutation and
+  true with the fingerprint only after synchronization completes. A partial
+  home matches no fingerprint and a subsequent compile resynchronizes it.
+  Lock contention waits once per lock, for the existing 60-second window,
+  then refuses lock_timeout. Global locks are schema-validated before use.
+  Until the first sole-mode node cutover, Bun remains the semantic reference
+  except for the explicitly approved r2 changes. At that cutover raspd becomes
+  the compile-daemon reference; the frozen TypeScript compiler serves retained
+  in-process callers until their separately specified migration and may drift
+  from the daemon. The checked-in fixture and live-corpus recordings from the
+  last dual-daemon release preserve the reference, including declared
+  departures; deliberate changes re-record affected cases in the same commit
+  for review. The approved fingerprint departure hashes staged files'
+  executable bits rather than full modes. Comparisons hold absolute paths and
+  the release directory equal across restored seeds; volatile inputs are
+  enumerated from measured differences. Each subject's reported derived hashes
+  are checked against its actual reported body before measured volatile inputs
+  are tokenized and verified derived-hash fields omitted for body comparison.
+  Namespace topology is distinct from release selection: sole-enable changes
+  fronted to sole, front-door-enable restores fronted service with Bun from the
+  active release, and activate preserves the namespace role. Sole activation
+  refuses releases whose raspd predates sole-mode support. During retirement,
+  rollback restores fronted topology before selecting an earlier release if
+  needed. Nodes cut over hrcdev, svc, then max3, each after seven consecutive
+  zero-product-relay days and with the specified native-birth and refusal
+  smoke. Bun aspd remains in releases until all three nodes have run sole for
+  seven days. A mixed fleet is transitional. Moving the CLI and ACP and
+  deleting the TypeScript compiler require their later spec; the harness
+  broker stays Bun. The embedded cardo kernel observes service
   events beside the aspc path and never mediates requests through its owner
   thread. Front-door and upstream logs remain separate. Over a closed drained
   and flushed window, per-op counts satisfy relayed <= Bun total <= relayed +
   upstream_failed; minute buckets carry no equality guarantee. HRC retains
   placement, worker hosting, lifecycle, and routing authority under the existing
   records. Per-node rollout and rollback are coordinated with the HRC owner.
-authority: Lance's 2026-10-26 scoped directive and Daedalus approval of r3 at 4cdcd566 in T-11832
+authority: Lance's 2026-10-26 scoped directive and Daedalus approval of T-11832 r3 at 4cdcd566; amended by Lance's 2026-11-09 consolidation ruling and Daedalus approval of T-13018 r2 on 2026-11-09
 source:
   - wrkq:T-11832
+  - wrkq:T-13018 revision 2
+  - wrkq:EN-49346
+  - wrkq:EN-49353
   - commit:4cdcd566
   - docs/proposals/aspd-rust-front-door.md
   - architecture/records/invariants/agent-spaces.runtime-declaration-authority.yaml
@@ -45,16 +85,24 @@ required_tests:
   - unchanged Bun HRC Rust HRC and avs clients exercise native and forwarded operations through the scratch front door and rollback restores Bun service
   - concurrent slow forwarded work does not stall native hello or health and cardo wire conformance passes against the installed kernel socket
   - drained per-op accounting obeys the stated bounds including a Bun-stopped-mid-run case and neither process shares a log file
-  - native reads match Bun refusals and continuation observations while native live-recipe compiles pass hash self-consistency and normalized body and tree parity
+  - native reads and live-recipe compiles match the phase-appropriate reference with declared departures and retain hash self-consistency and normalized body and tree comparison
   - real Bun and Rust HRC births use Rust compilation and racing Bun CLI and Rust compiles including a cold shared snapshot both succeed with consistent stores
-  - an unsupported compile branch is forwarded before any write and coordinated per-node rollout preserves the HRC birth second-turn status and runtime-list smoke
+  - runnable inventory refusal cases return their sole-mode envelopes and codes while input-decided refusals leave the stage byte-identical and native rows match the recording or declared departures
+  - a Codex-home sync failure is refused and a retry after fault removal succeeds with a home identical to a clean compile
+  - scratch sole-mode release without Bun supports Claude and Codex hrcpty births and Codex resume through rusthrc and returns unsupported_harness through the HRC 422 path
+  - restoring fronted namespace topology after the sole-mode smoke serves the same agent-harness compile through Bun
+  - existing fixture and both live corpora retain fronted-mode comparison and the checked-in reference corpus has its re-recording script
+  - coordinated per-node retirement records seven zero-product-relay days before cutover and seven clean seat-birth days after it and preserves the HRC birth second-turn status and runtime-list smoke
 last_verified:
   date: null
-  evidence: Implementation gates pending; r3 design reviewed from source on 2026-10-26 with no runtime gate claimed
+  evidence: T-13018 r2 design approved from source and recorded inventory reading on 2026-11-09; sole-mode implementation and retirement acceptance pending, with no runtime gate claimed
 reopen_when:
-  - Rust and Bun no longer share one release or a worker is inferred outside the immutable binding table
+  - fronted Rust and Bun serve different releases or a worker is inferred outside the immutable binding table
   - shared writers diverge on locks publication or snapshot integrity verification
-  - unsupported compile work writes before whole-request forwarding
+  - input-decided refusal occurs after a write or a partially synchronized Codex home retains a matching completion record
+  - sole mode discovers an implicit upstream or refusal envelopes codes or advertised operation support depart from the approved dispositions
+  - daemon reference authority recording policy or the declared Bun departures change
+  - activation changes namespace role implicitly or retirement loses its stated topology rollback
   - parity masks unmeasured differences or verifies a reported hash against tokenized rather than actual material
   - cardo mediates the aspc request path or acquires execution authority
   - logs share a file or relay failure accounting assumes every failed upstream request is absent from Bun
