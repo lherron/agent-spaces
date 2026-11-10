@@ -184,8 +184,9 @@ Garbage collect unreferenced store and cache entries, and retire unused scope ro
 - `--scope-roots` also retires `<ASP_HOME>/codex-homes/<scope>/` roots. A root is kept when a
   running process on this node names a path under it (argv or environment, from `ps`), when its
   newest `bundles/.versions/*` entry (or the root itself) is newer than `--min-age-days` (default
-  30), or when its agent is a global-lock target. One line per root with its size and reason, then
-  totals. Liveness is per node; the next compile recreates a retired root.
+  30). Lock targets do not keep a root: the global lock names agents, not agent/project pairs. One
+  line per root with its size and reason, then totals. Liveness is per node; the next compile
+  recreates a retired root.
 
 ## `asp gui`
 

@@ -3,19 +3,18 @@
  *
  * Bundle versions inside a scope root are pruned on every compile, but the
  * roots themselves (`<ASP_HOME>/codex-homes/<scope>/`) never were. A root is
- * retired only when no running process on this node names a path under it, its
- * newest bundle version (or the root itself) is older than the minimum age, and
- * its agent is not a target of the global lock. The next compile for that agent
- * and project recreates a retired root.
+ * retired only when no running process on this node names a path under it and
+ * its newest bundle version (or the root itself) is older than the minimum age.
+ * Lock targets do not keep a root: the global lock names agents, not
+ * agent/project pairs, so it cannot tell a live pair from a dead one. The next
+ * compile for that agent and project recreates a retired root.
  *
  * Liveness is per node: the process table of the node gc runs on.
  */
 import { spawnSync } from 'node:child_process'
 import type { Dirent } from 'node:fs'
-import { lstat, readFile, readdir, realpath, rename, rm } from 'node:fs/promises'
+import { lstat, readdir, realpath, rename, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { LockFile } from '../core/index.js'
-import { sanitizeProjectAgentScopeSegment } from './paths.js'
 
 export const DEFAULT_SCOPE_ROOT_MIN_AGE_DAYS = 30
 
@@ -25,13 +24,7 @@ const PROJECT_AGENT_ROOT = /^[a-z0-9.-][a-z0-9._-]*_[a-z0-9._-]+$/
 /** Codex runtime-key roots (drivers/execution run-codex computeCodexRuntimeKey). */
 const RUNTIME_KEY_ROOT = /^[0-9a-f]{24}$/
 
-export type ScopeRootReason =
-  | 'not-scope-root'
-  | 'live'
-  | 'age'
-  | 'global-lock'
-  | 'unidentified'
-  | 'retire'
+export type ScopeRootReason = 'not-scope-root' | 'live' | 'age' | 'retire'
 
 export interface ScopeRootDecision {
   name: string
@@ -54,8 +47,6 @@ export interface ScopeRootGCResult {
 
 export interface ScopeRootGCOptions {
   aspHome: string
-  /** Global lock; its targets name agents whose scope roots are kept. */
-  globalLock?: LockFile | undefined
   minAgeDays?: number | undefined
   dryRun?: boolean | undefined
   nowMs?: number | undefined
@@ -138,42 +129,14 @@ async function newestMtimeMs(root: string): Promise<number> {
   return newest
 }
 
-/** The agent a scope root belongs to, when it can be read. */
-async function scopeRootAgentMatch(
-  name: string,
-  root: string,
-  globalAgents: Set<string>
-): Promise<{ agent?: string | undefined; inGlobalLock: boolean }> {
-  if (RUNTIME_KEY_ROOT.test(name)) {
-    try {
-      const meta = JSON.parse(await readFile(join(root, 'home', '.asp-runtime.json'), 'utf8')) as {
-        targetName?: unknown
-      }
-      if (typeof meta.targetName !== 'string') return { inGlobalLock: false }
-      const agent = sanitizeProjectAgentScopeSegment(meta.targetName)
-      return { agent, inGlobalLock: globalAgents.has(agent) }
-    } catch {
-      return { inGlobalLock: false }
-    }
-  }
-  // `<project>_<agent>`: either slug may contain '_', so match every global agent as a suffix.
-  for (const agent of globalAgents) {
-    if (name.endsWith(`_${agent}`) && name.length > agent.length + 1) {
-      return { agent, inGlobalLock: true }
-    }
-  }
-  return { agent: name.slice(name.lastIndexOf('_') + 1), inGlobalLock: false }
-}
-
 function emptyCounts(): Record<ScopeRootReason, number> {
-  return { 'not-scope-root': 0, live: 0, age: 0, 'global-lock': 0, unidentified: 0, retire: 0 }
+  return { 'not-scope-root': 0, live: 0, age: 0, retire: 0 }
 }
 
 /**
  * Decide, and unless dryRun retire, every scope root under
  * `<aspHome>/codex-homes`. Each root gets one decision with its size and the
- * first rule that keeps it, in order: live reference, age, global-lock target,
- * unidentified agent.
+ * first rule that keeps it, in order: not a scope root, live reference, age.
  */
 export async function retireScopeRoots(options: ScopeRootGCOptions): Promise<ScopeRootGCResult> {
   const codexHomes = join(options.aspHome, 'codex-homes')
@@ -195,9 +158,6 @@ export async function retireScopeRoots(options: ScopeRootGCOptions): Promise<Sco
 
   const minAgeDays = options.minAgeDays ?? DEFAULT_SCOPE_ROOT_MIN_AGE_DAYS
   const nowMs = options.nowMs ?? Date.now()
-  const globalAgents = new Set(
-    Object.keys(options.globalLock?.targets ?? {}).map(sanitizeProjectAgentScopeSegment)
-  )
   // Sizes first (the slow pass), then the process table, so liveness is read
   // as close to the deletes as possible.
   const sizes = childSizes(codexHomes)
@@ -233,23 +193,7 @@ export async function retireScopeRoots(options: ScopeRootGCOptions): Promise<Sco
       if (ageDays < minAgeDays) {
         decision = decide('age', `${newestText} < ${minAgeDays}d`)
       } else {
-        const match = await scopeRootAgentMatch(name, path, globalAgents)
-        if (match.inGlobalLock) {
-          decision = decide(
-            'global-lock',
-            `${newestText}; agent ${match.agent} is a global-lock target`
-          )
-        } else if (!match.agent) {
-          decision = decide(
-            'unidentified',
-            `${newestText}; agent unreadable from home/.asp-runtime.json`
-          )
-        } else {
-          decision = decide(
-            'retire',
-            `${newestText}; no live reference; agent ${match.agent} not in global lock`
-          )
-        }
+        decision = decide('retire', `${newestText}; no live reference`)
       }
     }
 
