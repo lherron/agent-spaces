@@ -8,7 +8,9 @@ const ENV_PREFIX = 'env.'
  * Canonical template variables, keyed by their primary (camelCase) name. Every
  * value lives here exactly once; the surface names that authors may use are
  * derived from {@link VARIABLE_ALIASES} so a variable never has to be spelled
- * out in three naming conventions by hand.
+ * out in three naming conventions by hand. `agentProjectScopeRef` is the
+ * canonical agent/project scope text for shared prompts (no task, role or lane);
+ * the legacy `scopeRef` and `handle` variables retain their shorthand format.
  */
 function buildCanonicalVariables(context: ContextResolverContext): Record<string, string> {
   const agentName = context.agentName ?? getAgentNameFromProfile(context.agentProfile) ?? ''
@@ -26,6 +28,10 @@ function buildCanonicalVariables(context: ContextResolverContext): Record<string
     projectId,
     taskId,
     scopeRef,
+    // Shared by every seat of an agent in a project: deliberately no task/role.
+    agentProjectScopeRef: agentId
+      ? `agent:${agentId}${projectId ? `:project:${projectId}` : ''}`
+      : '',
     handle,
     lane,
     runMode: context.runMode,

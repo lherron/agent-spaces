@@ -104,8 +104,9 @@ function sourceEnvironment(ambientEnv: Environment, aspHome: string): Environmen
 }
 
 /**
- * Prompt identity (PROPOSAL §4.1). scopeRef facts win; context hints fill only
- * what the scopeRef does not state; a stated conflict is refused.
+ * Prompt identity (PROPOSAL §4.1, T-13112). A canonical agent scope owns
+ * project identity, including its absence. Other identity hints fill unstated
+ * facts as before; a stated conflict is refused.
  */
 export function resolvePreparationIdentity(
   placement: RuntimePlacement,
@@ -115,17 +116,19 @@ export function resolvePreparationIdentity(
   const parts = deriveHandleParts({ ...placement, projectRoot: undefined })
   // Only a canonical agent ScopeRef states identity facts; a caller-supplied
   // non-agent scope (e.g. `app:`) is preserved literally and never refused.
-  if (sessionRef !== undefined && isCanonicalAgentScope(sessionRef.scopeRef)) {
+  const canonicalScope = sessionRef !== undefined && isCanonicalAgentScope(sessionRef.scopeRef)
+  if (canonicalScope) {
     assertNoConflict('agentId', parts.agentId, hints.agentId)
     assertNoConflict('projectId', parts.projectId, hints.projectId)
     assertNoConflict('taskId', parts.taskId, hints.taskId)
   }
   const agentId =
     sessionRef !== undefined && parts.agentId ? parts.agentId : basename(placement.agentRoot)
-  const projectId =
-    parts.projectId ??
-    hints.projectId ??
-    (placement.projectRoot !== undefined ? basename(resolve(placement.projectRoot)) : undefined)
+  const projectId = canonicalScope
+    ? parts.projectId
+    : (parts.projectId ??
+      hints.projectId ??
+      (placement.projectRoot !== undefined ? basename(resolve(placement.projectRoot)) : undefined))
   const taskId = parts.taskId ?? hints.taskId
   return {
     agentId,
@@ -184,11 +187,17 @@ export function buildPreparationExecutionContext(
   const identity = resolvePreparationIdentity(placement, inputs.identityHints)
   assertPreparationTaskContext(placement, inputs.taskContext)
   const ambientEnv = inputs.ambientEnv ?? process.env
+  // Environment discovery retains its historical fallback; only prompt
+  // identity treats an assigned projectless scope as authoritative.
+  const discoveryProjectId =
+    identity.projectId ??
+    inputs.identityHints?.projectId ??
+    (placement.projectRoot !== undefined ? basename(resolve(placement.projectRoot)) : undefined)
   const execEnv: Environment = {
     ...ambientEnv,
     ...buildCorrelationEnvVars(placement),
     AGENTCHAT_ID: basename(placement.agentRoot),
-    ...(identity.projectId !== undefined ? { ASP_PROJECT: identity.projectId } : {}),
+    ...(discoveryProjectId !== undefined ? { ASP_PROJECT: discoveryProjectId } : {}),
   }
   const definedEnv: Record<string, string> = {}
   for (const [key, value] of Object.entries(execEnv)) {

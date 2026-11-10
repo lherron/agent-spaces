@@ -398,6 +398,36 @@
     {
       "id": "dropped_key--placement-taskContext",
       "reason": "placement_shape"
+    },
+    {
+      "id": "prompt_scope--projectless-cwd",
+      "reason": "placement_identity_fallback",
+      "expect": "success"
+    },
+    {
+      "id": "prompt_scope--projectless-root",
+      "reason": "placement_identity_fallback",
+      "expect": "success"
+    },
+    {
+      "id": "prompt_scope--project-cwd",
+      "reason": "placement_identity_fallback",
+      "expect": "success"
+    },
+    {
+      "id": "prompt_scope--project-root",
+      "reason": "placement_identity_fallback",
+      "expect": "success"
+    },
+    {
+      "id": "prompt_scope--unmanaged-cwd",
+      "reason": "placement_identity_fallback",
+      "expect": "success"
+    },
+    {
+      "id": "prompt_scope--unmanaged-root",
+      "reason": "placement_identity_fallback",
+      "expect": "success"
     }
   ],
   "departures": [

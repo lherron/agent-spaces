@@ -178,12 +178,21 @@ fn variables(ctx: &Ctx) -> Vec<(String, String)> {
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
         .map(|d| d.with_timezone(&chrono::Utc))
         .unwrap_or_else(chrono::Utc::now);
+    // Agent/project only: the system prompt is shared across task/role seats.
+    let agent_project_scope = if agent_id.is_empty() {
+        String::new()
+    } else if project_id.is_empty() {
+        format!("agent:{agent_id}")
+    } else {
+        format!("agent:{agent_id}:project:{project_id}")
+    };
     let canonical = vec![
         ("agentId", agent_id),
         ("agentName", agent_name),
         ("projectId", project_id),
         ("taskId", task_id),
         ("scopeRef", base),
+        ("agentProjectScopeRef", agent_project_scope),
         ("handle", handle),
         ("lane", lane),
         ("runMode", ctx.run_mode.clone().unwrap_or_default()),

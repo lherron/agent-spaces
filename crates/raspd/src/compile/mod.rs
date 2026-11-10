@@ -1027,10 +1027,24 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
     ]);
 
     // The preparation execution context (preparation-execution-context.ts).
-    let prep_project_id = scoped
+    // Prompt identity follows the canonical scope, including no project.
+    // handle_parts already refused non-canonical scopes on this compile path.
+    let has_session_scope = s(placement
+        .get("correlation")
+        .and_then(|c| c.get("sessionRef"))
+        .and_then(|r| r.get("scopeRef")))
+    .and_then(parse_scope_ref)
+    .is_some();
+    // Environment discovery keeps its old fallback independently of the prompt.
+    let discovery_project_id = scoped
         .project_id
         .clone()
         .or_else(|| project_root.as_deref().map(|p| basename(&resolve(&[p]))));
+    let prep_project_id = if has_session_scope {
+        scoped.project_id.clone()
+    } else {
+        discovery_project_id.clone()
+    };
     let prep_agent_id = if placement
         .get("correlation")
         .and_then(|c| c.get("sessionRef"))
@@ -1049,7 +1063,7 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
         exec_env.insert(k.clone(), v.clone());
     }
     exec_env.insert("AGENTCHAT_ID".into(), basename(&agent_root));
-    if let Some(p) = &prep_project_id {
+    if let Some(p) = &discovery_project_id {
         exec_env.insert("ASP_PROJECT".into(), p.clone());
     }
     let env_json = J::Obj(
@@ -1188,7 +1202,11 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
         .0,
         project_root: project_root.clone(),
         cwd: None,
-        project_id: handle.project_id.clone(),
+        project_id: if has_session_scope {
+            scoped.project_id.clone()
+        } else {
+            handle.project_id.clone()
+        },
         agent_id: handle.agent_id.clone(),
         agent_name: None,
         task_id: handle.task_id.clone(),

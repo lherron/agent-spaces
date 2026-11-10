@@ -136,7 +136,17 @@ export function deriveHandleParts(placement: RuntimePlacement): HandleParts {
 }
 
 export function buildPromptExpansionContext(placement: RuntimePlacement): ContextResolverContext {
-  const handleParts = deriveHandleParts(placement)
+  // Prompt expansion follows the assigned project, including a projectless
+  // canonical scope. Keep deriveHandleParts and its launch/env callers intact.
+  const scopeRef = placement.correlation?.sessionRef?.scopeRef
+  let handleParts = deriveHandleParts(placement)
+  if (scopeRef !== undefined) {
+    try {
+      handleParts = { ...handleParts, projectId: parseScopeRef(scopeRef).projectId }
+    } catch {
+      // Unmanaged/non-agent identity keeps the historical placement fallback.
+    }
+  }
   return {
     agentRoot: placement.agentRoot,
     agentsRoot: dirname(placement.agentRoot),
