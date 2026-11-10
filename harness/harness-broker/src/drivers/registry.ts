@@ -24,6 +24,9 @@ export function createDriverRegistry(drivers: Driver[]): DriverRegistry {
           version: d.version,
           available: unavailableReason === undefined,
           ...(unavailableReason !== undefined ? { unavailableReason } : {}),
+          // Spec-less capabilities are the driver's upper bound; per-spec
+          // capabilities are checked at start (invocation-manager.ts), which
+          // is where a Codex TUI refuses a JSON Schema initial input.
           capabilities: d.capabilities(),
           // Published so a consumer or the parity report reads the LIVE broker's
           // declared authority matrix rather than a checked-in copy of harness-broker-evidence-authority.md.

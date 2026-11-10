@@ -51,7 +51,13 @@ export const CODEX_CAPABILITIES: InvocationCapabilities = {
   lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 }
 
-/** Interactive stock-TUI presentation: own turns are queue-originated and observed. */
+/**
+ * Interactive stock-TUI presentation: own turns are queue-originated and observed.
+ * The broker.hello entry for codex-app-server is spec-less, so it carries
+ * CODEX_CAPABILITIES, the driver's upper bound; these per-spec capabilities are
+ * checked at start, which refuses a JSON Schema initial input on a TUI spec
+ * (REASON_UNSUPPORTED_FINAL_RESPONSE).
+ */
 export const CODEX_TUI_CAPABILITIES: InvocationCapabilities = {
   ...CODEX_CAPABILITIES,
   admission: { classes: ['steer', 'queue'] },

@@ -131,6 +131,34 @@ describe('Codex app-server golden scenarios', () => {
     await expectGolden('unknown-notification', events)
   })
 
+  test('a headless start whose initialInput asks for a JSON Schema is admitted (T-13091)', async () => {
+    // The TUI half: codex-tui-transport.test.ts refuses the same start with
+    // REASON_UNSUPPORTED_FINAL_RESPONSE. The spec-less hello entry is the
+    // driver's upper bound; start checks the candidate spec.
+    const { broker, events } = appServerBroker()
+    const spec = scenarioSpec('start-fresh-turn')
+    const started = await broker.start({
+      spec,
+      initialInput: {
+        ...userInput,
+        responseFormat: {
+          kind: 'json_schema',
+          schema: { type: 'object', properties: { ok: { type: 'boolean' } } },
+        },
+      },
+    })
+    expect(started.capabilities.finalResponse?.jsonSchema).toBe(true)
+    await waitForEvent(
+      events,
+      (event) =>
+        event.type === 'turn.completed' ||
+        event.type === 'turn.failed' ||
+        event.type === 'invocation.failed'
+    )
+    expect(eventTypes(events)).toContain('turn.completed')
+    await broker.stop({ invocationId: spec.invocationId, graceMs: 500 })
+  })
+
   test('stops an active invocation with graceful child termination', async () => {
     const { broker, events } = appServerBroker()
     await broker.start({ spec: scenarioSpec('stop-active') })

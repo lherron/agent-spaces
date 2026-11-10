@@ -1234,7 +1234,7 @@ export interface BrokerHelloResponse { // Negotiated broker identity and capabil
   }
   protocolVersion: BrokerProtocolVersion // Selected broker protocol version.
   capabilities: BrokerCapabilities // Broker-wide capabilities for this connection.
-  drivers: DriverSummary[] // Driver availability and capability summaries.
+  drivers: DriverSummary[] // Driver availability and capability summaries. Each entry is spec-less: the driver's upper bound (codex-app-server declares JSON Schema even though its TUI presentation cannot honour it); the capabilities for a given spec are checked at invocation.start and returned there.
 }
 
 export interface BrokerHealthRequest { // Health check request.
