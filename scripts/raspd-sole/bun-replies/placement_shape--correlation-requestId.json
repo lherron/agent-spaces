@@ -111,9 +111,9 @@
           ]
         },
         "release": {
-          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
-          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
-          "builtAt": "2026-11-10T00:47:48.483Z"
+          "releaseId": "asp-8fe3dcbe415d-20261110T141042Z-8cb506",
+          "sourceCommit": "8fe3dcbe415db69d78a72683997f9f2b2531c543",
+          "builtAt": "2026-11-10T14:10:42.977Z"
         }
       }
     },
@@ -129,8 +129,8 @@
             "name": "agent-spaces",
             "version": "0.1.1"
           },
-          "compileId": "compile_bb16df6f10bcced4f638c2fffb775ffa",
-          "createdAt": "2026-11-10T03:58:55.752Z",
+          "compileId": "compile_0e9c16365f30be1f66aca88e3b45840d",
+          "createdAt": "2026-11-10T14:11:11.323Z",
           "agent": {
             "id": "pathmark-dev"
           },
@@ -219,10 +219,10 @@
             },
             "presentationFulfillment": "intrinsic",
             "profile": {
-              "profileId": "profile_0179690efd94e31c6cd84bc9f8e2a532",
-              "profileHash": "27da64076250c10ac6cc1edea571c86b021420326aca34e69eb13d7c7e886899",
-              "compatibilityHash": "eb5f831b13566fdcca6f876c167ba95998d0368347bb09bf25e99e1e07b73d92",
-              "startRequestHash": "43175fc38dd1304ddebaba895c34c59fc9760aa1989cb1015e9dd2b6cd06d160"
+              "profileId": "profile_e64a85ce1623b172b7312264316c83a2",
+              "profileHash": "ffaffd1b5e500214740fd93f5ad8e19d81f8af2737cede4d996b7596a7d9f6e3",
+              "compatibilityHash": "f8699106dfef98ee817b5aca67b9e9883350b3ac20d7b926e76297901955654a",
+              "startRequestHash": "3eee89b7289cfeb12734eb95c489308db10087993cee7799d147561c745a01a7"
             },
             "dispatchRequest": {
               "startRequest": {
@@ -258,7 +258,7 @@
                       "# Pathmark\n\nFixture agent for path markers.\n",
                       "--chrome",
                       "--session-id",
-                      "42935748-0dcd-4d12-849b-9ce1acdabcaa",
+                      "a1d931fe-222c-4da2-8a5e-93ea68344261",
                       "--",
                       "pathmark priming for pathmark-dev\n\npathmark prompt"
                     ],
@@ -346,19 +346,19 @@
             ]
           },
           "diagnostics": [],
-          "planHash": "8abdebb8fbeb0d8625d5633c7d01ff5e1a6844f2c39efa7e7cd5d9f12095785b"
+          "planHash": "d551b3fec2b60227c3992458271623f1ab1fe9ba331c2e4c2047996d601380a7"
         },
         "sessionMetadata": {},
         "diagnostics": [],
-        "effectiveEnvironmentHash": "d660f037439e6b2fed59ebf63863afe590af5f00ad9e4698f020436a010836bc",
+        "effectiveEnvironmentHash": "07ba58ae58f59aca7231ec5170fe75c96ce849b0b9b4e82b37eb24f25093af1f",
         "executionRelease": {
-          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
-          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
-          "builtAt": "2026-11-10T00:47:48.483Z",
-          "releaseRoot": "/private/tmp/raspd-sole-native/releases/asp-26ab619396e7-20261110T004748Z-31fd9f",
+          "releaseId": "asp-8fe3dcbe415d-20261110T141042Z-8cb506",
+          "sourceCommit": "8fe3dcbe415db69d78a72683997f9f2b2531c543",
+          "builtAt": "2026-11-10T14:10:42.977Z",
+          "releaseRoot": "/private/tmp/raspd-sole-native/releases/asp-8fe3dcbe415d-20261110T141042Z-8cb506",
           "worker": {
             "protocol": "harness-broker/0.2",
-            "executable": "/private/tmp/raspd-sole-native/releases/asp-26ab619396e7-20261110T004748Z-31fd9f/harness-broker",
+            "executable": "/private/tmp/raspd-sole-native/releases/asp-8fe3dcbe415d-20261110T141042Z-8cb506/harness-broker",
             "hostedDrivers": [
               "claude-code-hrcpty",
               "claude-code-tmux",

@@ -108,9 +108,9 @@
           ]
         },
         "release": {
-          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
-          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
-          "builtAt": "2026-11-10T00:47:48.483Z"
+          "releaseId": "asp-8fe3dcbe415d-20261110T141042Z-8cb506",
+          "sourceCommit": "8fe3dcbe415db69d78a72683997f9f2b2531c543",
+          "builtAt": "2026-11-10T14:10:42.977Z"
         }
       }
     },
@@ -343,7 +343,7 @@
             },
             {
               "kind": "execution-profile",
-              "partId": "execution-profile:profile_5a94392d347971b9b4f388c762b67b03",
+              "partId": "execution-profile:profile_92e147badfa6f75cc34ff26cb4ef1ba3",
               "disposition": {
                 "kind": "effective"
               },
@@ -357,7 +357,7 @@
                 ]
               },
               "value": {
-                "profileId": "profile_5a94392d347971b9b4f388c762b67b03",
+                "profileId": "profile_92e147badfa6f75cc34ff26cb4ef1ba3",
                 "controllerKind": "claude-code-tmux",
                 "configuration": {
                   "recipeId": "claude-code"

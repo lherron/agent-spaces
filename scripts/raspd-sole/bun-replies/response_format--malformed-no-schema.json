@@ -113,9 +113,9 @@
           ]
         },
         "release": {
-          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
-          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
-          "builtAt": "2026-11-10T00:47:48.483Z"
+          "releaseId": "asp-8fe3dcbe415d-20261110T141042Z-8cb506",
+          "sourceCommit": "8fe3dcbe415db69d78a72683997f9f2b2531c543",
+          "builtAt": "2026-11-10T14:10:42.977Z"
         }
       }
     },
@@ -133,7 +133,7 @@
             "plane": "asp-compiler",
             "details": {
               "name": "InvocationInputValidationError",
-              "stack": "InvocationInputValidationError: Invalid invocation input\n    at validateInvocationInput (/$bunfs/root/aspd.js:11348:45)\n    at toHarnessBrokerStartRequest (/$bunfs/root/aspd.js:23626:28)\n    at compileBrokerPlan (/$bunfs/root/aspd.js:27340:55)\n    at processTicksAndRejections (native:7:39)"
+              "stack": "InvocationInputValidationError: Invalid invocation input\n    at validateInvocationInput (/$bunfs/root/aspd.js:11348:45)\n    at toHarnessBrokerStartRequest (/$bunfs/root/aspd.js:23642:28)\n    at compileBrokerPlan (/$bunfs/root/aspd.js:27359:55)\n    at processTicksAndRejections (native:7:39)"
             }
           }
         ]

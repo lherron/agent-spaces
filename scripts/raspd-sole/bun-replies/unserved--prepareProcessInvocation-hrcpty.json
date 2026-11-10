@@ -61,9 +61,9 @@
           ]
         },
         "release": {
-          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
-          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
-          "builtAt": "2026-11-10T00:47:48.483Z"
+          "releaseId": "asp-8fe3dcbe415d-20261110T141042Z-8cb506",
+          "sourceCommit": "8fe3dcbe415db69d78a72683997f9f2b2531c543",
+          "builtAt": "2026-11-10T14:10:42.977Z"
         }
       }
     },
@@ -98,7 +98,7 @@
             "# Pathmark\n\nFixture agent for path markers.\n",
             "--chrome",
             "--session-id",
-            "f3de8b8b-4064-46e4-a992-2868e64beb6e",
+            "a3f1d30a-c3ce-4f08-8a59-38d68b643493",
             "-p",
             "pathmark priming for pathmark-claude-hrcpty\n\nhi"
           ],
@@ -138,7 +138,7 @@
           },
           "interactionMode": "headless",
           "ioMode": "pipes",
-          "displayCommand": "ASP_PLUGIN_ROOT=/private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_pathmark-claude-hrcpty/bundles/.versions/20fbbcdc3b01d72c61e9bb91860c0fd101f7680fd238dbfd55cbb0bc925d1fd4/pathmark-claude-hrcpty/claude ASP_PRIMING_PROMPT='pathmark priming for pathmark-claude-hrcpty\n\nhi' /private/tmp/raspd-sole-native/bin/claude --plugin-dir /private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_pathmark-claude-hrcpty/bundles/.versions/20fbbcdc3b01d72c61e9bb91860c0fd101f7680fd238dbfd55cbb0bc925d1fd4/pathmark-claude-hrcpty/claude/plugins/000-pm-dev --plugin-dir /private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_pathmark-claude-hrcpty/bundles/.versions/20fbbcdc3b01d72c61e9bb91860c0fd101f7680fd238dbfd55cbb0bc925d1fd4/pathmark-claude-hrcpty/claude/plugins/001-pm-claude-only --plugin-dir /private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_pathmark-claude-hrcpty/bundles/.versions/20fbbcdc3b01d72c61e9bb91860c0fd101f7680fd238dbfd55cbb0bc925d1fd4/pathmark-claude-hrcpty/claude/plugins/002-pm-path --plugin-dir /private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_pathmark-claude-hrcpty/bundles/.versions/20fbbcdc3b01d72c61e9bb91860c0fd101f7680fd238dbfd55cbb0bc925d1fd4/pathmark-claude-hrcpty/claude/plugins/003-pathmark-claude-hrcpty-agent --model opus --disallowedTools AskUserQuestion --setting-sources '' --settings /private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_pathmark-claude-hrcpty/bundles/.versions/20fbbcdc3b01d72c61e9bb91860c0fd101f7680fd238dbfd55cbb0bc925d1fd4/pathmark-claude-hrcpty/claude/settings.json --system-prompt '# Pathmark\n\nFixture agent for path markers.\n' --chrome --session-id f3de8b8b-4064-46e4-a992-2868e64beb6e -p 'pathmark priming for pathmark-claude-hrcpty\n\nhi'",
+          "displayCommand": "ASP_PLUGIN_ROOT=/private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_pathmark-claude-hrcpty/bundles/.versions/20fbbcdc3b01d72c61e9bb91860c0fd101f7680fd238dbfd55cbb0bc925d1fd4/pathmark-claude-hrcpty/claude ASP_PRIMING_PROMPT='pathmark priming for pathmark-claude-hrcpty\n\nhi' /private/tmp/raspd-sole-native/bin/claude --plugin-dir /private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_pathmark-claude-hrcpty/bundles/.versions/20fbbcdc3b01d72c61e9bb91860c0fd101f7680fd238dbfd55cbb0bc925d1fd4/pathmark-claude-hrcpty/claude/plugins/000-pm-dev --plugin-dir /private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_pathmark-claude-hrcpty/bundles/.versions/20fbbcdc3b01d72c61e9bb91860c0fd101f7680fd238dbfd55cbb0bc925d1fd4/pathmark-claude-hrcpty/claude/plugins/001-pm-claude-only --plugin-dir /private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_pathmark-claude-hrcpty/bundles/.versions/20fbbcdc3b01d72c61e9bb91860c0fd101f7680fd238dbfd55cbb0bc925d1fd4/pathmark-claude-hrcpty/claude/plugins/002-pm-path --plugin-dir /private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_pathmark-claude-hrcpty/bundles/.versions/20fbbcdc3b01d72c61e9bb91860c0fd101f7680fd238dbfd55cbb0bc925d1fd4/pathmark-claude-hrcpty/claude/plugins/003-pathmark-claude-hrcpty-agent --model opus --disallowedTools AskUserQuestion --setting-sources '' --settings /private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_pathmark-claude-hrcpty/bundles/.versions/20fbbcdc3b01d72c61e9bb91860c0fd101f7680fd238dbfd55cbb0bc925d1fd4/pathmark-claude-hrcpty/claude/settings.json --system-prompt '# Pathmark\n\nFixture agent for path markers.\n' --chrome --session-id a3f1d30a-c3ce-4f08-8a59-38d68b643493 -p 'pathmark priming for pathmark-claude-hrcpty\n\nhi'",
           "systemPromptFile": "/private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_pathmark-claude-hrcpty/bundles/.versions/20fbbcdc3b01d72c61e9bb91860c0fd101f7680fd238dbfd55cbb0bc925d1fd4/pathmark-claude-hrcpty/claude/.asp-runtime-artifacts/system-prompts/18/186e3cd8cdb52ed2452b94beff624d79d4ee1d1289d81bb9d2649d2827fa11e3/system-prompt.md",
           "prompts": {
             "system": {
@@ -189,13 +189,13 @@
             "provenance": "caller-agent-root"
           }
         },
-        "effectiveEnvironmentHash": "a451b55fd8ce173272f2d34388c124bf16fc6aef71b9489850194b7d997e6632",
+        "effectiveEnvironmentHash": "92e47df1798e214e46cf5c7ab5a1eb1a4f326c35a7f08eaaa9cc1ec7d5f365b2",
         "diagnostics": [],
         "release": {
-          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
-          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
-          "builtAt": "2026-11-10T00:47:48.483Z",
-          "releaseRoot": "/private/tmp/raspd-sole-native/releases/asp-26ab619396e7-20261110T004748Z-31fd9f"
+          "releaseId": "asp-8fe3dcbe415d-20261110T141042Z-8cb506",
+          "sourceCommit": "8fe3dcbe415db69d78a72683997f9f2b2531c543",
+          "builtAt": "2026-11-10T14:10:42.977Z",
+          "releaseRoot": "/private/tmp/raspd-sole-native/releases/asp-8fe3dcbe415d-20261110T141042Z-8cb506"
         }
       }
     }

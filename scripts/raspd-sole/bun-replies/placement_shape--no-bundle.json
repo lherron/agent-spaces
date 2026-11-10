@@ -105,9 +105,9 @@
           ]
         },
         "release": {
-          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
-          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
-          "builtAt": "2026-11-10T00:47:48.483Z"
+          "releaseId": "asp-8fe3dcbe415d-20261110T141042Z-8cb506",
+          "sourceCommit": "8fe3dcbe415db69d78a72683997f9f2b2531c543",
+          "builtAt": "2026-11-10T14:10:42.977Z"
         }
       }
     },
@@ -125,7 +125,7 @@
             "plane": "asp-compiler",
             "details": {
               "name": "TypeError",
-              "stack": "TypeError: undefined is not an object (evaluating 'placement.bundle.kind')\n    at resolveCompileSources (/$bunfs/root/aspd.js:27700:23)\n    at compileResolvedRuntimePlan (/$bunfs/root/aspd.js:27895:95)\n    at compileRuntimePlan (/$bunfs/root/aspd.js:27880:54)\n    at compileRuntimePlan (/$bunfs/root/aspd.js:28561:32)\n    at <anonymous> (/$bunfs/root/aspd.js:57762:37)\n    at compileRuntimePlanSafe (/$bunfs/root/aspd.js:57416:27)\n    at compileHarnessInvocation (/$bunfs/root/aspd.js:57428:55)\n    at compileHarnessInvocation (/$bunfs/root/aspd.js:57363:38)\n    at compileHarnessInvocation (/$bunfs/root/aspd.js:57842:62)\n    at <anonymous> (/$bunfs/root/aspd.js:57478:18)"
+              "stack": "TypeError: undefined is not an object (evaluating 'placement.bundle.kind')\n    at resolveCompileSources (/$bunfs/root/aspd.js:27719:23)\n    at compileResolvedRuntimePlan (/$bunfs/root/aspd.js:27914:95)\n    at compileRuntimePlan (/$bunfs/root/aspd.js:27899:54)\n    at compileRuntimePlan (/$bunfs/root/aspd.js:28580:32)\n    at <anonymous> (/$bunfs/root/aspd.js:57781:37)\n    at compileRuntimePlanSafe (/$bunfs/root/aspd.js:57435:27)\n    at compileHarnessInvocation (/$bunfs/root/aspd.js:57447:55)\n    at compileHarnessInvocation (/$bunfs/root/aspd.js:57382:38)\n    at compileHarnessInvocation (/$bunfs/root/aspd.js:57861:62)\n    at <anonymous> (/$bunfs/root/aspd.js:57497:18)"
             }
           }
         ]

@@ -110,9 +110,9 @@
           ]
         },
         "release": {
-          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
-          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
-          "builtAt": "2026-11-10T00:47:48.483Z"
+          "releaseId": "asp-8fe3dcbe415d-20261110T141042Z-8cb506",
+          "sourceCommit": "8fe3dcbe415db69d78a72683997f9f2b2531c543",
+          "builtAt": "2026-11-10T14:10:42.977Z"
         }
       }
     },
@@ -126,11 +126,11 @@
           {
             "level": "error",
             "code": "compiler_exception",
-            "message": "EACCES: permission denied, copyfile '/private/tmp/raspd-sole-native/stage/agents/spaces/p-e-tunr/hooks/hooks.toml' -> '/private/tmp/raspd-sole-native/stage/asp-home/tmp/.staging/space-p-e-tunr-dev-3765-2bd4d93a-9eaf-4d0c-a0ef-d1d79a336583/hooks/hooks.toml'",
+            "message": "EACCES: permission denied, copyfile '/private/tmp/raspd-sole-native/stage/agents/spaces/p-e-tunr/hooks/hooks.toml' -> '/private/tmp/raspd-sole-native/stage/asp-home/tmp/.staging/space-p-e-tunr-dev-81124-25f71190-012c-4df9-bd13-83a0cd7e4211/hooks/hooks.toml'",
             "plane": "asp-compiler",
             "details": {
               "name": "Error",
-              "stack": "Error: EACCES: permission denied, copyfile '/private/tmp/raspd-sole-native/stage/agents/spaces/p-e-tunr/hooks/hooks.toml' -> '/private/tmp/raspd-sole-native/stage/asp-home/tmp/.staging/space-p-e-tunr-dev-3765-2bd4d93a-9eaf-4d0c-a0ef-d1d79a336583/hooks/hooks.toml'\n    at async linkFile (/$bunfs/root/aspd.js:19299:20)\n    at async linkDirectory (/$bunfs/root/aspd.js:19322:21)\n    at async linkComponents (/$bunfs/root/aspd.js:19344:26)\n    at async materializeSpace (/$bunfs/root/aspd.js:35958:42)\n    at async materializeSpaceEntry (/$bunfs/root/aspd.js:22005:35)\n    at async materializeTarget (/$bunfs/root/aspd.js:22264:47)\n    at async materializeFromRefs (/$bunfs/root/aspd.js:22536:50)\n    at async materializeAgentRuntimeResources (/$bunfs/root/aspd.js:22973:49)\n    at async materializeSpec (/$bunfs/root/aspd.js:23682:62)\n    at async timeCompilePhase (/$bunfs/root/aspd.js:23221:27)"
+              "stack": "Error: EACCES: permission denied, copyfile '/private/tmp/raspd-sole-native/stage/agents/spaces/p-e-tunr/hooks/hooks.toml' -> '/private/tmp/raspd-sole-native/stage/asp-home/tmp/.staging/space-p-e-tunr-dev-81124-25f71190-012c-4df9-bd13-83a0cd7e4211/hooks/hooks.toml'\n    at async linkFile (/$bunfs/root/aspd.js:19309:20)\n    at async linkDirectory (/$bunfs/root/aspd.js:19332:21)\n    at async linkComponents (/$bunfs/root/aspd.js:19354:26)\n    at async materializeSpace (/$bunfs/root/aspd.js:35977:42)\n    at async materializeSpaceEntry (/$bunfs/root/aspd.js:22015:35)\n    at async materializeTarget (/$bunfs/root/aspd.js:22274:47)\n    at async materializeFromRefs (/$bunfs/root/aspd.js:22546:50)\n    at async materializeAgentRuntimeResources (/$bunfs/root/aspd.js:22983:49)\n    at async materializeSpec (/$bunfs/root/aspd.js:23698:62)\n    at async timeCompilePhase (/$bunfs/root/aspd.js:23231:27)"
             }
           }
         ]
