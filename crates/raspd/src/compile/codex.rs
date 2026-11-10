@@ -60,7 +60,7 @@ fn write_json(path: &str, value: &J) -> Result<(), Fwd> {
     write(path, &format!("{}\n", value.to_json_pretty()))
 }
 
-fn parse_json(text: &str, reason: &'static str) -> Result<J, Fwd> {
+fn parse_json(text: &str, reason: crate::disposition::Reason) -> Result<J, Fwd> {
     crate::json::parse(text.as_bytes()).ok_or_else(|| fwd(reason))
 }
 
@@ -137,7 +137,10 @@ fn run(argv: &[&str]) -> Option<(i32, String, String)> {
     let mut child = Command::new(argv[0])
         .args(&argv[1..])
         .env_clear()
-        .envs(env.iter().filter(|(k, _)| !k.starts_with("HARNESS_BROKER_")))
+        .envs(
+            env.iter()
+                .filter(|(k, _)| !k.starts_with("HARNESS_BROKER_")),
+        )
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -259,7 +262,7 @@ pub fn detect() -> Result<String, Fwd> {
             return Ok(candidate);
         }
     }
-    Err(fwd("codex_unavailable"))
+    Err(fwd(crate::reason!("codex_unavailable")))
 }
 
 // -- space artifacts (CodexAdapter.materializeSpace) ------------------------------
@@ -292,10 +295,7 @@ pub fn materialize_space(plan: &SpacePlan, dir: &str) -> Result<(), Fwd> {
         mkdirp(dir)?;
         let codex = plan.manifest.get("codex");
         let enabled = |k: &str| {
-            codex
-                .and_then(|c| c.get(k))
-                .and_then(|s| s.get("enabled"))
-                != Some(&J::Bool(false))
+            codex.and_then(|c| c.get(k)).and_then(|s| s.get("enabled")) != Some(&J::Bool(false))
         };
         if enabled("skills") {
             let s = join(&[src, "skills"]);
@@ -400,8 +400,7 @@ fn hrc_hooks_config(events: &[&str]) -> J {
 /// `/^(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._/-]+$/`.
 fn safe_hook_path(p: &str) -> bool {
     !p.is_empty()
-        && p
-            .chars()
+        && p.chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '/' | '-'))
         && !p.split('/').any(|seg| seg == "..")
 }
@@ -416,7 +415,7 @@ fn space_hooks_config(spaces: &[(String, J)]) -> Result<J, Fwd> {
             }
             let script = hook.get("script").and_then(J::as_str).unwrap_or_default();
             if !safe_hook_path(space_id) || !safe_hook_path(script) {
-                return Err(fwd("codex_space_hook_unsafe"));
+                return Err(fwd(crate::reason!("codex_space_hook_unsafe")));
             }
             let command = format!(
                 "p=\"${{CODEX_HOME:-}}/space-hooks/{space_id}/{script}\"; [ -x \"$p\" ] || exit 0; exec \"$p\""
@@ -592,11 +591,11 @@ fn trust_config_toml(
     hooks_json: &str,
     stale: &[String],
 ) -> Result<String, Fwd> {
-    let hooks_config = parse_json(hooks_json, "codex_hooks_json_invalid")?;
+    let hooks_config = parse_json(hooks_json, crate::reason!("codex_hooks_json_invalid"))?;
     let parsed = match crate::reads::toml::parse(toml) {
         Ok(v) => v,
         Err(crate::reads::toml::TomlError::Unsupported(r)) => return Err(fwd(r)),
-        Err(_) => return Err(fwd("codex_config_toml_invalid")),
+        Err(_) => return Err(fwd(crate::reason!("codex_config_toml_invalid"))),
     };
     match add_trust_state(&parsed, hooks_path, &hooks_config, stale) {
         None => Ok(toml.to_owned()),
@@ -693,9 +692,73 @@ fn codex_config(servers: &[(String, J)], overrides: &[J]) -> J {
     base
 }
 
+/// The target's codex options as a config override (composeTarget).
+fn target_overrides(codex_options: Option<&J>) -> Option<J> {
+    let options = codex_options?;
+    let mut target = J::Obj(vec![]);
+    for (field, key) in [
+        ("model", "model"),
+        ("model_reasoning_effort", "model_reasoning_effort"),
+        ("model_reasoning_summary", "model_reasoning_summary"),
+        ("status_line", "tui.status_line"),
+        ("approval_policy", "approval_policy"),
+        ("sandbox_mode", "sandbox_mode"),
+    ] {
+        if let Some(v) = options.get(field).filter(|v| truthy(v)) {
+            target.set(key, v.clone());
+        }
+    }
+    matches!(&target, J::Obj(f) if !f.is_empty()).then_some(target)
+}
+
+/// composeMcpFromSpaces: later servers override earlier ones of the same name.
+fn merge_servers(servers: &mut Vec<(String, J)>, config: &J) -> Result<(), Fwd> {
+    let Some(J::Obj(entries)) = config.get("mcpServers") else {
+        return Err(fwd(crate::reason!("mcp_config_shape")));
+    };
+    for (name, server) in entries {
+        match servers.iter_mut().find(|(n, _)| n == name) {
+            Some(slot) => slot.1 = server.clone(),
+            None => servers.push((name.clone(), server.clone())),
+        }
+    }
+    Ok(())
+}
+
+/// Render the target's config.toml from the spaces' sources before anything
+/// is written: the stringify refusals (`toml_mixed_array`,
+/// `toml_stringify_type`) depend only on the inputs (T-13018 r2 2.1).
+/// The same servers and overrides `compose_target` reads from the staged
+/// copies (`materialize_space` copies mcp/mcp.json and writes `[codex.config]`
+/// verbatim); hook trust entries are raspd's own strings and tables.
+pub fn preflight_config(plans: &[SpacePlan], codex_options: Option<&J>) -> Result<(), Fwd> {
+    let mut overrides = vec![];
+    let mut servers: Vec<(String, J)> = vec![];
+    for plan in plans {
+        if let Some(config @ J::Obj(fields)) =
+            plan.manifest.get("codex").and_then(|c| c.get("config"))
+            && !fields.is_empty()
+        {
+            overrides.push(config.clone());
+        }
+        let path = join(&[&plan.input.content_dir, "mcp", "mcp.json"]);
+        if !fs::metadata(&path).is_ok_and(|m| m.is_file()) {
+            continue;
+        }
+        if let Some(config) = fs::read(&path).ok().and_then(|t| crate::json::parse(&t)) {
+            merge_servers(&mut servers, &config)?;
+        }
+    }
+    overrides.extend(target_overrides(codex_options));
+    render_config(&codex_config(&servers, &overrides)).map(|_| ())
+}
+
 /// `renderCodexConfigToml(config)`: canonical JSON round trip, then iarna.
 fn render_config(config: &J) -> Result<String, Fwd> {
-    let canonical = parse_json(&canonicalize(config, false), "codex_config_json")?;
+    let canonical = parse_json(
+        &canonicalize(config, false),
+        crate::reason!("codex_config_json"),
+    )?;
     let text = iarna::stringify(&canonical)?;
     Ok(format!("{}\n", text.trim_end_matches('\n')))
 }
@@ -787,7 +850,12 @@ fn link_or_copy(src: &str, dest: &str) -> Result<(), Fwd> {
     mkdirp(&crate::reads::jspath::dirname(dest))?;
     match fs::hard_link(src, dest) {
         Ok(()) => Ok(()),
-        Err(e) if matches!(e.raw_os_error(), Some(libc::EXDEV | libc::EPERM | libc::ENOTSUP)) => {
+        Err(e)
+            if matches!(
+                e.raw_os_error(),
+                Some(libc::EXDEV | libc::EPERM | libc::ENOTSUP)
+            ) =>
+        {
             copy_file(src, dest)
         }
         Err(e) => Err(io_fwd(e)),
@@ -872,35 +940,24 @@ pub fn compose_target(
         }
         let config = join(&[&a.path, "codex.config.json"]);
         if exists(&config) {
-            overrides.push(parse_json(&read_text(&config)?, "codex_config_json")?);
+            overrides.push(parse_json(
+                &read_text(&config)?,
+                crate::reason!("codex_config_json"),
+            )?);
         }
         let space_hooks = join(&[&a.path, "space-hooks.json"]);
         if exists(&space_hooks) {
-            let hooks = parse_json(&read_text(&space_hooks)?, "codex_space_hooks_json")?;
+            let hooks = parse_json(
+                &read_text(&space_hooks)?,
+                crate::reason!("codex_space_hooks_json"),
+            )?;
             let dest = join(&[&home, "space-hooks", &a.space_id, "hooks"]);
             rm_rf(&dest)?;
             copy_dir(&join(&[&a.path, "hooks"]), &dest, true)?;
             hook_sets.push((a.space_id.clone(), hooks));
         }
     }
-    if let Some(options) = codex_options {
-        let mut target = J::Obj(vec![]);
-        for (field, key) in [
-            ("model", "model"),
-            ("model_reasoning_effort", "model_reasoning_effort"),
-            ("model_reasoning_summary", "model_reasoning_summary"),
-            ("status_line", "tui.status_line"),
-            ("approval_policy", "approval_policy"),
-            ("sandbox_mode", "sandbox_mode"),
-        ] {
-            if let Some(v) = options.get(field).filter(|v| truthy(v)) {
-                target.set(key, v.clone());
-            }
-        }
-        if matches!(&target, J::Obj(f) if !f.is_empty()) {
-            overrides.push(target);
-        }
-    }
+    overrides.extend(target_overrides(codex_options));
     let agents_path = join(&[&home, "AGENTS.md"]);
     write(&agents_path, &agents_markdown(&blocks))?;
 
@@ -914,15 +971,7 @@ pub fn compose_target(
         let Some(config) = fs::read(&path).ok().and_then(|t| crate::json::parse(&t)) else {
             continue;
         };
-        let Some(J::Obj(entries)) = config.get("mcpServers") else {
-            return Err(fwd("mcp_config_shape"));
-        };
-        for (name, server) in entries {
-            match servers.iter_mut().find(|(n, _)| n == name) {
-                Some(slot) => slot.1 = server.clone(),
-                None => servers.push((name.clone(), server.clone())),
-            }
-        }
+        merge_servers(&mut servers, &config)?;
     }
     let mcp_path = join(&[&home, "mcp.json"]);
     if !servers.is_empty() {
@@ -1016,7 +1065,7 @@ pub fn load_bundle(output: &str) -> Result<Bundle, Fwd> {
         || !kind_ok(&join(&[&home, "config.toml"]), false)
         || !kind_ok(&join(&[&home, "AGENTS.md"]), false)
     {
-        return Err(fwd("codex_bundle_invalid"));
+        return Err(fwd(crate::reason!("codex_bundle_invalid")));
     }
     Ok(Bundle {
         root_dir: output.to_owned(),
@@ -1189,6 +1238,25 @@ pub fn prepare_runtime_home(h: &Home) -> Result<String, Fwd> {
             if home_matches(&home, &fingerprint) {
                 return Ok(());
             }
+            // Recognisably incomplete while it is synced (T-13018 r2 2.1): a
+            // sync that fails partway leaves a home no fingerprint matches,
+            // and the next compile syncs it again in full. `complete: true`
+            // and the fingerprint are written last, below.
+            let metadata = |complete: bool| {
+                let mut m = J::obj([
+                    ("schemaVersion", J::Num(1.0)),
+                    ("harnessId", J::str("codex")),
+                    ("mode", J::str("project")),
+                    ("targetName", J::str(h.target_name)),
+                    ("complete", J::Bool(complete)),
+                ]);
+                if complete {
+                    m.set("fingerprint", J::str(&fingerprint));
+                }
+                m.set("projectPath", J::str(resolve(&[h.cwd])));
+                m
+            };
+            write_json(&join(&[&home, ".asp-runtime.json"]), &metadata(false))?;
             for rel in MANAGED_FILES {
                 sync_managed_file(&template, &home, rel)?;
             }
@@ -1200,12 +1268,18 @@ pub fn prepare_runtime_home(h: &Home) -> Result<String, Fwd> {
             if h.interactive {
                 let space_path = join(&[&home, "space-hooks.json"]);
                 let space = if exists(&space_path) {
-                    parse_json(&read_text(&space_path)?, "codex_space_hooks_json")?
+                    parse_json(
+                        &read_text(&space_path)?,
+                        crate::reason!("codex_space_hooks_json"),
+                    )?
                 } else {
                     J::obj([("hooks", J::Obj(vec![]))])
                 };
                 let events = h.hook_events.unwrap_or(&INTERACTIVE_HOOK_EVENTS);
-                write_json(&hooks_path, &merge_hooks(&[&hrc_hooks_config(events), &space]))?;
+                write_json(
+                    &hooks_path,
+                    &merge_hooks(&[&hrc_hooks_config(events), &space]),
+                )?;
             }
             if exists(&config_path) {
                 let mut toml = read_text(&config_path)?;
@@ -1221,19 +1295,10 @@ pub fn prepare_runtime_home(h: &Home) -> Result<String, Fwd> {
                 write(&config_path, &toml)?;
             }
             apply_praesidium(&home, block.as_deref())?;
-            let metadata = J::obj([
-                ("schemaVersion", J::Num(1.0)),
-                ("harnessId", J::str("codex")),
-                ("mode", J::str("project")),
-                ("targetName", J::str(h.target_name)),
-                ("complete", J::Bool(true)),
-                ("fingerprint", J::str(&fingerprint)),
-                ("projectPath", J::str(resolve(&[h.cwd]))),
-            ]);
-            write_json(&join(&[&home, ".asp-runtime.json"]), &metadata)
+            write_json(&join(&[&home, ".asp-runtime.json"]), &metadata(true))
         },
     )
-    .map_err(|_| fwd("codex_home_lock"))?;
+    .map_err(super::lock_fwd(crate::reason!("codex_home_lock")))?;
     written?;
     Ok(home)
 }
@@ -1265,14 +1330,21 @@ mod tests {
         let home = dir.to_string_lossy().into_owned();
         fs::create_dir_all(&home).unwrap();
         fs::write(join(&[&home, "AGENTS.md"]), "head\n").unwrap();
-        apply_praesidium(&home, praesidium_block(Some(" sp "), Some("rem")).as_deref()).unwrap();
+        apply_praesidium(
+            &home,
+            praesidium_block(Some(" sp "), Some("rem")).as_deref(),
+        )
+        .unwrap();
         let once = fs::read_to_string(join(&[&home, "AGENTS.md"])).unwrap();
         assert_eq!(
             once,
             "head\n\n<!-- BEGIN praesidium-context -->\nsp\n\nrem\n<!-- END praesidium-context -->\n"
         );
         apply_praesidium(&home, praesidium_block(Some("sp"), Some("rem")).as_deref()).unwrap();
-        assert_eq!(fs::read_to_string(join(&[&home, "AGENTS.md"])).unwrap(), once);
+        assert_eq!(
+            fs::read_to_string(join(&[&home, "AGENTS.md"])).unwrap(),
+            once
+        );
         let _ = fs::remove_dir_all(&home);
     }
 }

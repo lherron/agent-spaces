@@ -6,7 +6,14 @@ use super::patterns::{is_node_id, is_space_ref, is_token_chars, validate_token};
 use super::toml::{self, TomlError};
 use crate::json::J;
 
-pub const HARNESS_IDS: [&str; 6] = ["agent-harness", "claude", "claude-hrcpty", "codex", "codex-hrcpty", "muse"];
+pub const HARNESS_IDS: [&str; 6] = [
+    "agent-harness",
+    "claude",
+    "claude-hrcpty",
+    "codex",
+    "codex-hrcpty",
+    "muse",
+];
 const RUN_MODES: [&str; 4] = ["query", "heartbeat", "task", "maintenance"];
 const ROSTER_SLOT_TOKENS: [&str; 10] = [
     "nova", "comet", "pulsar", "quasar", "meteor", "aurora", "zenith", "eclipse", "orbit", "cosmos",
@@ -269,7 +276,7 @@ fn identity(value: Option<&J>, path: &str) -> R<Option<String>> {
             match super::patterns::https_image_url(raw) {
                 Some(true) => {}
                 Some(false) => return fail(&key_path, "must be a public HTTPS image URL"),
-                None => return Err(ProfileError::Forward("profile_avatar_url")),
+                None => return Err(ProfileError::Forward(crate::reason!("profile_avatar_url"))),
             }
         }
         if key == "role" {
@@ -509,9 +516,13 @@ pub fn parse(content: &str) -> R<Profile> {
         Ok(v) => v,
         // iarna's own parse messages are not reproduced.
         Err(TomlError::Unparsed | TomlError::IarnaRejects) => {
-            return Err(ProfileError::Forward("profile_toml_syntax"));
+            return Err(ProfileError::Forward(crate::reason!("profile_toml_syntax")));
         }
-        Err(TomlError::Unsupported(reason)) => return Err(ProfileError::Forward(reason)),
+        Err(TomlError::Unsupported(reason)) => {
+            return Err(ProfileError::Forward(
+                reason.within(crate::disposition::Context::Profile),
+            ));
+        }
     };
     assert_only_keys(
         &parsed,

@@ -210,7 +210,7 @@ fn bounded_probe(
         // `detached: true`: its own process group, killed as one.
         .process_group(0)
         .spawn()
-        .map_err(|_| "capability_probe_spawn_failed")?;
+        .map_err(|_| crate::reason!("capability_probe_spawn_failed"))?;
     let bytes = Arc::new(AtomicUsize::new(0));
     let overflowed = Arc::new(AtomicBool::new(false));
     let reader = |stream: Option<Box<dyn Read + Send>>| {
@@ -272,7 +272,7 @@ fn bounded_probe(
         }
         match child.try_wait() {
             Ok(Some(status)) if stdout.is_finished() && stderr.is_finished() => break status,
-            Err(_) => return Err("capability_probe_wait_failed"),
+            Err(_) => return Err(crate::reason!("capability_probe_wait_failed")),
             _ => {}
         }
         if Instant::now() >= deadline {
@@ -295,7 +295,7 @@ fn bounded_probe(
     // A probe killed by a signal it did not get from here: Bun's exit code
     // for it is not reproduced.
     let Some(code) = status.code() else {
-        return Err("capability_probe_signaled");
+        return Err(crate::reason!("capability_probe_signaled"));
     };
     if code != 0 {
         let lower = stderr.to_lowercase();
@@ -535,9 +535,15 @@ mod tests {
     #[test]
     fn codex_hrcpty_uses_codex_credentials() {
         let env = Env::from([("HOME".into(), "/nonexistent/T-12163".into())]);
-        assert_eq!(credentials("codex-hrcpty", &env), credentials("codex", &env));
+        assert_eq!(
+            credentials("codex-hrcpty", &env),
+            credentials("codex", &env)
+        );
         let with_key = Env::from([("OPENAI_API_KEY".into(), "test".into())]);
-        assert_eq!(credentials("codex-hrcpty", &with_key), credentials("codex", &with_key));
+        assert_eq!(
+            credentials("codex-hrcpty", &with_key),
+            credentials("codex", &with_key)
+        );
     }
 
     #[test]

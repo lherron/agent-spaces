@@ -414,7 +414,7 @@ pub fn observe(request: &J, env: &Env) -> Answer {
         Some(J::Str(c)) => Some(c.as_str()),
         // Bun's `path.resolve` throws on a truthy non-string cwd.
         Some(other) if super::js_truthy(other) => {
-            return Answer::Forward("continuation_cwd_not_string");
+            return Answer::Forward(crate::reason!("continuation_cwd_not_string"));
         }
         _ => None,
     };

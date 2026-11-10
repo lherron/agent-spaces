@@ -127,7 +127,8 @@ const HELLO_CAPABILITIES: [&str; 13] = [
 
 pub struct FrontDoor<'a> {
     pub release: &'a Release,
-    pub upstream_socket: &'a str,
+    /// Bun aspd's socket; `None` in sole mode, which names no upstream.
+    pub upstream_socket: Option<&'a str>,
     /// `unknown`, `healthy` or `unavailable`, as last observed.
     pub upstream_state: &'a str,
 }
@@ -193,9 +194,10 @@ fn hello(release: &Release) -> J {
 }
 
 /// Bun reports `{ok: true, degraded: []}` without checking dependencies.
-/// raspd names the one dependency it has when it last failed to reach it.
+/// A fronted raspd names the one dependency it has when it last failed to
+/// reach it; a sole one has none.
 fn health(door: &FrontDoor) -> J {
-    let degraded = if door.upstream_state == "unavailable" {
+    let degraded = if door.upstream_socket.is_some() && door.upstream_state == "unavailable" {
         vec![J::str("upstream_unavailable")]
     } else {
         vec![]
@@ -213,22 +215,29 @@ fn version(door: &FrontDoor) -> J {
             .iter()
             .map(|m| ((*m).to_owned(), J::Bool(true))),
     );
+    let mut front_door = J::obj([
+        ("name", J::str("raspd")),
+        ("sourceCommit", J::str(RASPD_SOURCE_COMMIT)),
+        (
+            "role",
+            J::str(if door.upstream_socket.is_some() {
+                "front"
+            } else {
+                "sole"
+            }),
+        ),
+        ("native", J::Arr(served_natively().map(J::str).collect())),
+    ]);
+    if let Some(upstream) = door.upstream_socket {
+        front_door.set("upstream", J::str(upstream));
+        front_door.set("upstreamState", J::str(door.upstream_state));
+    }
     J::obj([
         ("buildVersion", J::str(&door.release.release_id)),
         ("interfaceVersion", J::str(ASPC_PROTOCOL_VERSION)),
         ("capabilities", J::Obj(capabilities)),
         ("release", identity(door.release)),
-        (
-            "frontDoor",
-            J::obj([
-                ("name", J::str("raspd")),
-                ("sourceCommit", J::str(RASPD_SOURCE_COMMIT)),
-                ("role", J::str("front")),
-                ("native", J::Arr(served_natively().map(J::str).collect())),
-                ("upstream", J::str(door.upstream_socket)),
-                ("upstreamState", J::str(door.upstream_state)),
-            ]),
-        ),
+        ("frontDoor", front_door),
     ])
 }
 

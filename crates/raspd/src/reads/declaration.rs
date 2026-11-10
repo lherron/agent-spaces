@@ -11,6 +11,7 @@ use super::profile::{self, Profile, ProfileError, SCALARS};
 use super::targets::{self, TargetsError};
 use super::toml::{self, TomlError};
 use super::{Answer, Env, Forward, homedir, truthy_str};
+use crate::disposition::Context;
 use crate::json::J;
 
 pub const REQUEST_VERSION: &str = "aspc-resolve-runtime-declaration-request/v1";
@@ -67,13 +68,13 @@ fn failure(kind: &str, code: &str, message: &str) -> Answer {
 
 /// A thrown fs error: its message when Bun's is pinned, else a forward.
 fn known(error: Option<FsError>) -> Step<FsError> {
-    error.ok_or(Answer::Forward("fs_errno_unported"))
+    error.ok_or(Answer::Forward(crate::reason!("fs_errno_unported")))
 }
 
 /// `canonicalDirectory`: stat, must be a directory, readable, realpath.
 fn canonical_directory(value: &str) -> Step<Result<String, String>> {
     if value.is_empty() {
-        return forward("empty_path");
+        return forward(crate::reason!("empty_path"));
     }
     match std::fs::metadata(value) {
         Err(e) => return Ok(Err(known(fs_error(&e, "stat", Some(value)))?.message)),
@@ -87,7 +88,7 @@ fn canonical_directory(value: &str) -> Step<Result<String, String>> {
     }
     match std::fs::canonicalize(value) {
         Ok(p) => Ok(Ok(p.to_string_lossy().into_owned())),
-        Err(_) => forward("realpath_failed"),
+        Err(_) => forward(crate::reason!("realpath_failed")),
     }
 }
 
@@ -137,7 +138,7 @@ fn config_agents_root(asp_home: Option<&str>) -> Step<Option<String>> {
         }),
         // iarna throws, and readAspConfig swallows it.
         Err(TomlError::IarnaRejects) => Ok(None),
-        Err(TomlError::Unparsed) => forward("config_toml_syntax"),
+        Err(TomlError::Unparsed) => forward(crate::reason!("config_toml_syntax")),
         Err(TomlError::Unsupported(reason)) => forward(reason),
     }
 }
@@ -221,7 +222,7 @@ fn source_roots(context: &J, env: &Env) -> Step<SourceRoots> {
     }
     let unavailable = |m: &str| failure("unavailable", "configured_source_unavailable", m);
     let daemon_asp_home = match env.get("ASP_HOME") {
-        Some("") => return forward("empty_asp_home"),
+        Some("") => return forward(crate::reason!("empty_asp_home")),
         home => match canonical_optional(home)? {
             Ok(v) => v,
             Err(message) => return Err(unavailable(&message)),
@@ -335,7 +336,9 @@ fn search_roots(
             Err(e) => {
                 return Err(match read_error(&e, &manifest_path) {
                     Some(fs) => SearchFailure::Threw(fs.message),
-                    None => SearchFailure::Answer(Answer::Forward("fs_errno_unported")),
+                    None => SearchFailure::Answer(Answer::Forward(
+                        crate::reason!("fs_errno_unported").within(Context::SearchTargets),
+                    )),
                 });
             }
         };
@@ -492,7 +495,7 @@ fn marker_spread(marker: &Option<String>) -> Vec<(String, J)> {
 fn read_source(path: &str) -> Step<String> {
     read_text(path).map_err(|e| match read_error(&e, path) {
         Some(fs) => failure("unavailable", "source_read_unavailable", &fs.message),
-        None => Answer::Forward("fs_errno_unported"),
+        None => Answer::Forward(crate::reason!("fs_errno_unported").within(Context::ReadSource)),
     })
 }
 
@@ -570,7 +573,7 @@ fn resolve_steps(request: &J, env: &Env) -> Step<Answer> {
     };
     let agent_id = text(context.get("agentId"));
     if agent_id.is_empty() || OBJECT_PROTOTYPE_KEYS.contains(&agent_id.as_str()) {
-        return forward("agent_id_unported");
+        return forward(crate::reason!("agent_id_unported"));
     }
     let cwd = text(context.get("cwd"));
     let run_mode = text(context.get("runMode"));
@@ -787,7 +790,7 @@ fn resolve_steps(request: &J, env: &Env) -> Step<Answer> {
             Ok(content) => priming = Some(content),
             Err(e) => {
                 let Some(fs) = read_error(&e, &path) else {
-                    return forward("fs_errno_unported");
+                    return forward(crate::reason!("fs_errno_unported").within(Context::Priming));
                 };
                 if fs.is(&["ENOENT", "EACCES"]) {
                     return Ok(failure(

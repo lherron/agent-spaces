@@ -1,10 +1,12 @@
 //! The aspc listener. Each client connection is framed with Bun's rules; each
 //! frame is routed on its own: the four native methods are answered here, the
-//! two native reads (R2) on a blocking thread beside the read loop, and
-//! everything else is relayed verbatim to Bun over an upstream connection tied
-//! to this client connection (order of requests and their ids preserved,
-//! replies unmodified). A read raspd will not judge is relayed the same way,
-//! with its fallback reason logged and counted.
+//! native reads and compiles on a blocking thread beside the read loop, and
+//! everything else is a forward. With an upstream (fronted mode) a forward is
+//! relayed verbatim to Bun over an upstream connection tied to this client
+//! connection (order of requests and their ids preserved, replies
+//! unmodified), with its fallback reason logged and counted. Without one
+//! (sole mode) `disposition::decide` answers it from the table.
+use crate::disposition::{self, Decision, Reason};
 use crate::json::{J, js_number, quoted};
 use crate::logs::{Log, now_iso};
 use crate::metrics::{Metrics, client_label};
@@ -26,7 +28,8 @@ const UPSTREAM_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct Shared {
     pub release: Release,
-    pub upstream: PathBuf,
+    /// Bun aspd behind raspd (fronted mode); `None` is sole mode.
+    pub upstream: Option<PathBuf>,
     pub upstream_display: String,
     pub log: Log,
     pub metrics: Option<Metrics>,
@@ -43,14 +46,17 @@ pub struct Shared {
 impl Shared {
     pub fn new(
         release: Release,
-        upstream: PathBuf,
+        upstream: Option<PathBuf>,
         log: Log,
         metrics: Option<Metrics>,
         observations: Arc<Observations>,
     ) -> Arc<Shared> {
         Arc::new(Shared {
             release,
-            upstream_display: upstream.display().to_string(),
+            upstream_display: upstream
+                .as_ref()
+                .map(|u| u.display().to_string())
+                .unwrap_or_default(),
             upstream,
             log,
             metrics,
@@ -90,7 +96,20 @@ impl Shared {
     pub fn outstanding(&self) -> usize {
         self.outstanding.load(Ordering::Acquire)
     }
+
+    pub fn sole(&self) -> bool {
+        self.upstream.is_none()
+    }
 }
+
+/// The five aspc ops raspd does not serve yet (T-13018 section 3).
+const UNSERVED_OPS: [&str; 5] = [
+    "aspc.catalogAgents",
+    "aspc.inspectAgent",
+    "aspc.catalogAgentInspection",
+    "aspc.inspectAgentSelection",
+    "aspc.prepareProcessInvocation",
+];
 
 /// Reclaim a stale socket node; refuse one a live listener answers on.
 pub fn reclaim_stale_socket(path: &Path) -> Result<(), String> {
@@ -140,11 +159,20 @@ struct Entry {
     fallback: Option<Fallback>,
 }
 
-/// Why a native read or compile was relayed to Bun: the reason (a metrics
-/// label) and, when the reason has one, the key or value that decided it.
+/// Why a request was not answered natively: the reason (a metrics label)
+/// and, when the reason has one, the key or value that decided it.
 struct Fallback {
     reason: &'static str,
     detail: Option<String>,
+}
+
+impl Fallback {
+    fn of(reason: Reason, detail: Option<String>) -> Fallback {
+        Fallback {
+            reason: reason.as_str(),
+            detail,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -434,7 +462,8 @@ impl Connection {
                 let started = Instant::now();
                 let door = FrontDoor {
                     release: &self.shared.release,
-                    upstream_socket: &self.shared.upstream_display,
+                    upstream_socket: (!self.shared.sole())
+                        .then_some(self.shared.upstream_display.as_str()),
                     upstream_state: self.shared.observations.upstream_state(),
                 };
                 let reply =
@@ -474,13 +503,94 @@ impl Connection {
                 });
             }
             Frame::Request(request) => {
-                self.forward(Some(request), line, None).await;
+                let reason = if UNSERVED_OPS.contains(&request.method.as_str()) {
+                    crate::reason!("(unserved_op)")
+                } else {
+                    crate::reason!("(non_native_method)")
+                };
+                self.dispose(request, line, Instant::now(), reason, None)
+                    .await;
             }
             Frame::Silent => {}
             Frame::Malformed if at_eof => {}
             Frame::Malformed => self.refuse_frame("parse_error"),
             Frame::Unjudged if at_eof => {}
+            Frame::Unjudged if self.shared.sole() => {
+                // Slice 2 parses frames as JSON.parse does; until then an
+                // unjudged frame is a parse error in sole mode.
+                self.refuse_frame("parse_error")
+            }
             Frame::Unjudged => self.forward(None, line, None).await,
+        }
+    }
+
+    /// A forward: relayed in fronted mode, answered from the disposition
+    /// table in sole mode (and in both modes where its row says so).
+    async fn dispose(
+        self: &Arc<Self>,
+        request: protocol::Request,
+        line: Vec<u8>,
+        started: Instant,
+        reason: Reason,
+        detail: Option<String>,
+    ) {
+        let decision = disposition::decide(
+            self.shared.sole(),
+            &request.id,
+            &request.method,
+            reason,
+            detail.as_deref(),
+        );
+        let fallback = Fallback::of(reason, detail);
+        let mut data = vec![
+            ("conn".into(), J::Num(self.id as f64)),
+            ("op".into(), J::str(&request.method)),
+            ("reason".into(), J::str(fallback.reason)),
+        ];
+        if let Some(context) = reason.context() {
+            data.push(("context".into(), J::str(context.as_str())));
+        }
+        if let Some(detail) = &fallback.detail {
+            data.push(("fallbackDetail".into(), J::str(detail)));
+        }
+        match decision {
+            // A method raspd never serves is relayed as before, unlabelled.
+            Decision::Relay if reason.as_str().starts_with('(') => {
+                self.forward(Some(request), line, None).await;
+            }
+            Decision::Relay => {
+                self.shared
+                    .log
+                    .event("info", "rpc", "native.fallback", data);
+                self.forward(Some(request), line, Some(fallback)).await;
+            }
+            Decision::Answer {
+                line: reply,
+                defect,
+            } => {
+                if defect {
+                    self.shared.log.event("error", "rpc", "raspd.defect", data);
+                } else {
+                    self.shared.log.event("info", "rpc", "native.refused", data);
+                }
+                let completion = protocol::completion(
+                    &serde_json::from_str(&reply).unwrap_or(serde_json::Value::Null),
+                );
+                let bytes = reply_body_bytes(reply.as_bytes());
+                self.shared.observations.native(&request.method);
+                self.send(reply.into_bytes());
+                self.complete(
+                    &request.method,
+                    &request.client,
+                    started.elapsed(),
+                    &completion,
+                    "native",
+                    Some("refused"),
+                    Some(&fallback),
+                    bytes,
+                    None,
+                );
+            }
         }
     }
 
@@ -531,28 +641,12 @@ impl Connection {
                 answer: Answer::Forward(reason),
                 fallback_detail,
                 ..
-            }) => Fallback {
-                reason,
-                detail: fallback_detail,
-            },
-            // A panic is a raspd defect; Bun still answers.
-            Err(_) => Fallback {
-                reason: "native_panic",
-                detail: None,
-            },
+            }) => (reason, fallback_detail),
+            // A panic is a raspd defect, answered -32603 in both modes.
+            Err(_) => (crate::reason!("native_panic"), None),
         };
-        let mut data = vec![
-            ("conn".into(), J::Num(self.id as f64)),
-            ("op".into(), J::str(&request.method)),
-            ("reason".into(), J::str(fallback.reason)),
-        ];
-        if let Some(detail) = &fallback.detail {
-            data.push(("fallbackDetail".into(), J::str(detail)));
-        }
-        self.shared
-            .log
-            .event("info", "rpc", "native.fallback", data);
-        self.forward(Some(request), line, Some(fallback)).await;
+        self.dispose(request, line, started, fallback.0, fallback.1)
+            .await;
     }
 
     async fn forward(
@@ -623,6 +717,9 @@ impl Connection {
 
     /// The live upstream for this connection, connecting a new one if needed.
     async fn upstream(self: &Arc<Self>) -> Result<(u64, UpstreamRef), String> {
+        let Some(path) = self.shared.upstream.clone() else {
+            return Err("sole mode: no upstream".into());
+        };
         let mut slot = self.upstream.lock().await;
         if let Some(u) = slot.as_ref()
             && u.alive.load(Ordering::Acquire)
@@ -637,7 +734,7 @@ impl Connection {
         }
         let stream = match tokio::time::timeout(
             UPSTREAM_CONNECT_TIMEOUT,
-            UnixStream::connect(&self.shared.upstream),
+            UnixStream::connect(&path),
         )
         .await
         {

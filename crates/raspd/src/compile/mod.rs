@@ -14,6 +14,7 @@
 mod codex;
 mod iarna;
 mod inspect;
+mod lock_schema;
 mod lockfile;
 mod path_filter;
 mod prompt;
@@ -30,25 +31,29 @@ use prompt::{Ctx, EnvMap};
 use std::sync::atomic::{AtomicBool, Ordering};
 use util::{hash, now_iso, sanitize_segment, sha256_hex};
 
-/// Why a compile is relayed to Bun, and, when one decides it, the key or
-/// value that did (logged as `fallbackDetail`, never sent to Bun).
-#[derive(Debug)]
-pub struct Fwd {
-    pub reason: &'static str,
-    pub detail: Option<String>,
-}
+pub use crate::disposition::Fwd;
+use crate::disposition::{Context, Reason};
 
-pub fn fwd(reason: &'static str) -> Fwd {
+pub fn fwd(reason: Reason) -> Fwd {
     Fwd {
         reason,
         detail: None,
     }
 }
 
-pub fn fwd_at(reason: &'static str, detail: String) -> Fwd {
+pub fn fwd_at(reason: Reason, detail: String) -> Fwd {
     Fwd {
         reason,
         detail: Some(detail),
+    }
+}
+
+/// A lock wait's forward: a lock still held after the one wait (60 s) is
+/// `lock_timeout`; an I/O failure taking it is the reason's own.
+pub(crate) fn lock_fwd(reason: Reason) -> impl Fn(lockfile::LockError) -> Fwd {
+    move |error| match error {
+        lockfile::LockError::Held(path) => fwd_at(reason.within(Context::Held), path),
+        lockfile::LockError::Io(message) => fwd_at(reason, message),
     }
 }
 
@@ -91,7 +96,7 @@ pub fn handle(params: Option<&J>, release: &Release) -> Compiled {
     let mut phases = Phases::start();
     if !request::params_valid(params) {
         return Compiled {
-            answer: Answer::Forward("invalid_params"),
+            answer: Answer::Forward(crate::reason!("invalid_params")),
             fallback_detail: None,
             phases: None,
         };
@@ -240,6 +245,7 @@ fn compile(params: &J, release: &Release, phases: &mut Phases) -> Result<J, Fwd>
     request::shape_supported(params)?;
     phases.lap("gate");
     let plan = classify(params, release, phases)?;
+    preflight(&plan)?;
     WROTE.store(true, Ordering::Relaxed);
     materialize_and_emit(plan, release, phases)
 }
@@ -310,7 +316,8 @@ fn handle_parts(placement: &J, with_project_root: bool) -> Result<Handle, Fwd> {
     let session = correlation.and_then(|c| c.get("sessionRef"));
     let mut h = Handle::default();
     if let Some(scope) = s(session.and_then(|x| x.get("scopeRef"))).filter(|x| !x.is_empty()) {
-        let parsed = parse_scope_ref(scope).ok_or_else(|| fwd("scope_ref_shorthand"))?;
+        let parsed =
+            parse_scope_ref(scope).ok_or_else(|| fwd(crate::reason!("scope_ref_shorthand")))?;
         h.agent_id = Some(parsed.agent_id);
         h.project_id = parsed.project_id;
         h.task_id = parsed.task_id;
@@ -352,7 +359,7 @@ fn agent_session_env(placement: &J) -> Result<Vec<(String, String)>, Fwd> {
         if normalized != "main" {
             let lane_id = &normalized["lane:".len()..];
             if request::token_error(lane_id, "laneId").is_some() {
-                return Err(fwd("lane_ref_invalid"));
+                return Err(fwd(crate::reason!("lane_ref_invalid")));
             }
         }
         put("AGENT_SCOPE_REF", scope.to_owned());
@@ -370,7 +377,8 @@ fn agent_session_env(placement: &J) -> Result<Vec<(String, String)>, Fwd> {
                 lane.to_owned()
             },
         );
-        let parsed = parse_scope_ref(scope).ok_or_else(|| fwd("scope_ref_shorthand"))?;
+        let parsed =
+            parse_scope_ref(scope).ok_or_else(|| fwd(crate::reason!("scope_ref_shorthand")))?;
         ids = (Some(parsed.agent_id), parsed.project_id, parsed.task_id);
         let session_ref = format!("{scope}/lane:{lane}");
         put("AGENT_SESSION_REF", session_ref.clone());
@@ -439,7 +447,7 @@ fn find_claude() -> Result<String, Fwd> {
         return if executable(explicit) {
             Ok(explicit.to_owned())
         } else {
-            Err(fwd("claude_not_found"))
+            Err(fwd(crate::reason!("claude_not_found")))
         };
     }
     let home = env
@@ -476,7 +484,7 @@ fn find_claude() -> Result<String, Fwd> {
         }
         seen.push(c);
     }
-    Err(fwd("claude_not_found"))
+    Err(fwd(crate::reason!("claude_not_found")))
 }
 
 fn by_mode(v: Option<&J>, mode: Option<&str>) -> Vec<String> {
@@ -578,12 +586,12 @@ fn project_manifest(project_manifest: J, asp_home: &str) -> Result<J, Fwd> {
     if !std::path::Path::new(&default_path).exists() {
         return Ok(project_manifest);
     }
-    let content =
-        std::fs::read_to_string(&default_path).map_err(|_| fwd("default_targets_unreadable"))?;
+    let content = std::fs::read_to_string(&default_path)
+        .map_err(|_| fwd(crate::reason!("default_targets_unreadable")))?;
     let defaults = match crate::reads::targets::parse(&content) {
         Ok(m) => m,
         Err(crate::reads::targets::TargetsError::Forward(r)) => return Err(fwd(r)),
-        Err(_) => return Err(fwd("default_targets_invalid")),
+        Err(_) => return Err(fwd(crate::reason!("default_targets_invalid"))),
     };
     let mut targets = defaults.get("targets").cloned().unwrap_or(J::Obj(vec![]));
     if let Some(J::Obj(fields)) = project_manifest.get("targets") {
@@ -647,7 +655,7 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
         .and_then(|p| p.launch.as_deref())
         == Some("participant-only")
     {
-        return Err(fwd("agent_participant_only"));
+        return Err(fwd(crate::reason!("agent_participant_only")));
     }
     let scoped = handle_parts(
         &{
@@ -665,7 +673,7 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
         && let Some(scoped_task) = &scoped.task_id
         && s(tc.get("taskId")) != Some(scoped_task.as_str())
     {
-        return Err(fwd("configured_context_mismatch"));
+        return Err(fwd(crate::reason!("configured_context_mismatch")));
     }
 
     // resolveCompileSources: the target comes from bundle.projectRoot.
@@ -689,7 +697,7 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
         {
             Some(file) => Some(
                 std::fs::read_to_string(join(&[&agent_root, file]))
-                    .map_err(|_| fwd("priming_file_unreadable"))?,
+                    .map_err(|_| fwd(crate::reason!("priming_file_unreadable")))?,
             ),
             None => None,
         },
@@ -697,7 +705,7 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
     let effective_priming = match &project_target {
         None => priming.clone(),
         Some(t) => match (t.get("priming"), t.get("priming_append")) {
-            (Some(_), Some(_)) => return Err(fwd("priming_conflict")),
+            (Some(_), Some(_)) => return Err(fwd(crate::reason!("priming_conflict"))),
             (Some(J::Str(p)), _) => Some(p.clone()),
             (_, Some(J::Str(a))) if priming.as_deref().is_some_and(|p| !p.is_empty()) => {
                 Some(format!("{}\n{a}", priming.clone().unwrap_or_default()))
@@ -793,7 +801,7 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
         let text = |k: &str| match options.get(k) {
             None | Some(J::Null) => Ok(None),
             Some(J::Str(v)) => Ok(Some(v.clone())),
-            Some(_) => Err(fwd_at("codex_option_shape", k.to_owned())),
+            Some(_) => Err(fwd_at(crate::reason!("codex_option_shape"), k.to_owned())),
         };
         let yolo = claude.yolo;
         CodexDefaults {
@@ -823,7 +831,7 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
                     .ok()
                     .map(|b| String::from_utf8_lossy(&b).into_owned())
             };
-            let soul_content = read(&soul).ok_or_else(|| fwd("soul_unreadable"))?;
+            let soul_content = read(&soul).ok_or_else(|| fwd(crate::reason!("soul_unreadable")))?;
             slots.push(("soul", soul_content, "agent-root:///SOUL.md".into()));
             let instruction_ref = |r: &str| -> Option<String> {
                 let path = if r.starts_with("agent-root:///") || r.starts_with("project-root:///") {
@@ -938,7 +946,10 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
         request::Harness::Codex => {
             // planPlacementRuntime throws for a model outside the adapter's list.
             if !codex::ADAPTER_MODELS.contains(&selection.model.as_str()) {
-                return Err(fwd_at("codex_model_unsupported", selection.model.clone()));
+                return Err(fwd_at(
+                    crate::reason!("codex_model_unsupported"),
+                    selection.model.clone(),
+                ));
             }
             codex::detect()?
         }
@@ -956,7 +967,7 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
     let handle = handle_parts(&placement, true)?;
     let (Some(agent_id), Some(project_id)) = (handle.agent_id.clone(), handle.project_id.clone())
     else {
-        return Err(fwd("placement_identity_fallback"));
+        return Err(fwd(crate::reason!("placement_identity_fallback")));
     };
     let identity = J::obj([
         ("agentId", J::str(&agent_id)),
@@ -1015,7 +1026,7 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
     // Spaces: closure over filesystem-backed refs, lock, snapshot presence.
     let env = Env::process();
     let registry = match crate::reads::declaration::agents_root(Some(&asp_home), env)
-        .map_err(|_| fwd("agents_root_config"))?
+        .map_err(|_| fwd(crate::reason!("agents_root_config")))?
     {
         Some(root) => root,
         None => join(&[&asp_home, "repo"]),
@@ -1034,32 +1045,20 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
     let lock_path = join(&[&asp_home, "global-lock.json"]);
     let existing_lock = match std::fs::read(&lock_path) {
         Ok(bytes) => {
-            let lock = crate::json::parse(&bytes).ok_or_else(|| fwd("global_lock_invalid"))?;
-            if !spaces::lock_shape_ok(&lock) {
-                return Err(fwd("global_lock_invalid"));
-            }
+            // Bun's readLockJson: JSON, then the lock schema. raspd neither
+            // compiles from nor rewrites a lock Bun rejects.
+            let lock = crate::json::parse(&bytes)
+                .filter(lock_schema::valid)
+                .ok_or_else(|| fwd(crate::reason!("global_lock_invalid")))?;
             Some(lock)
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(_) => return Err(fwd("global_lock_unreadable")),
+        Err(_) => return Err(fwd(crate::reason!("global_lock_unreadable"))),
     };
-    // populateSnapshotsFromLock walks the merged lock: every registry entry,
-    // other targets' included, must already have its snapshot.
-    if let Some(lock) = &existing_lock {
-        for (_, entry) in lock.get("spaces").map(J::js_entries).unwrap_or_default() {
-            if spaces::is_registry_entry(entry) {
-                let integrity = s(entry.get("integrity")).unwrap_or_default();
-                let snapshot = join(&[
-                    &asp_home,
-                    "snapshots",
-                    integrity.trim_start_matches("sha256:"),
-                ]);
-                if !std::fs::metadata(&snapshot).is_ok_and(|m| m.is_dir()) {
-                    return Err(fwd("snapshot_missing"));
-                }
-            }
-        }
-    }
+    // Bun's populateSnapshotsFromLock also demands the snapshot of every
+    // other target's registry pin in the shared lock. A pin of this target
+    // has refused already (registry_space); another target's does not refuse
+    // this compile (T-13018 r2), so nothing here reads snapshots.
     let mut space_plans = vec![];
     for (space, _) in closure.spaces.iter().zip(&integrities) {
         let (name, version) = spaces::plugin_identity(&space.manifest);
@@ -1090,12 +1089,15 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
     // The fingerprint's codex options (loadEffectiveCodexOptions).
     let codex_options = match &project_root {
         Some(root) if std::path::Path::new(&join(&[root, "asp-targets.toml"])).exists() => {
+            // Bun reads this one outside the typed targets loader: its
+            // failures throw (compiler_exception), hence PlacementTargets.
+            let placed = |r: Reason| fwd(r.within(Context::PlacementTargets));
             let content = std::fs::read_to_string(join(&[root, "asp-targets.toml"]))
-                .map_err(|_| fwd("source_read_unavailable"))?;
+                .map_err(|_| placed(crate::reason!("source_read_unavailable")))?;
             let manifest = match crate::reads::targets::parse(&content) {
                 Ok(m) => m,
-                Err(crate::reads::targets::TargetsError::Forward(r)) => return Err(fwd(r)),
-                Err(_) => return Err(fwd("project_targets_invalid")),
+                Err(crate::reads::targets::TargetsError::Forward(r)) => return Err(placed(r)),
+                Err(_) => return Err(placed(crate::reason!("project_targets_invalid"))),
             };
             Some(effective_codex_options(
                 &project_manifest(manifest, &asp_home)?,
@@ -1252,6 +1254,44 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
     })
 }
 
+/// A directory `create_dir_all` can make: its nearest existing ancestor (or
+/// itself) is a directory. Permissions are the write's to find out.
+fn dir_creatable(path: &str) -> bool {
+    for p in std::path::Path::new(path).ancestors() {
+        match std::fs::metadata(p) {
+            Ok(m) => return m.is_dir(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return false,
+        }
+    }
+    true
+}
+
+/// The refusals the request's inputs decide that Bun reaches only after
+/// writing, judged before the first write so a refused request leaves
+/// ASP_HOME and the agent root as they were (T-13018 r2 section 2.1): the
+/// path filter's zdotdir, the agent var dirs, and for codex the broker
+/// permission policy and the config.toml render.
+fn preflight(plan: &Plan) -> Result<(), Fwd> {
+    let path_exclude = spaces::path_exclude(&plan.closure);
+    if !path_exclude.is_empty() && !plan.codex_home_read_only {
+        let zdotdir = join(&[&path_filter_scope(plan), "zdotdir"]);
+        if !dir_creatable(&zdotdir) {
+            return Err(fwd_at(crate::reason!("path_filter_mkdir"), zdotdir));
+        }
+    }
+    for dir in agent_var_dirs(plan) {
+        if !dir_creatable(&dir) {
+            return Err(fwd_at(crate::reason!("agent_var_dirs"), dir));
+        }
+    }
+    if matches!(plan.launch, Launch::Codex { .. }) {
+        broker_permission_policy(plan.req.get("hrcPolicy").expect("validated"))?;
+        codex::preflight_config(&plan.space_plans, plan.codex_options.as_ref())?;
+    }
+    Ok(())
+}
+
 fn expansion_ctx_stub(agent_root: &str, project_root: Option<&str>) -> Ctx {
     Ctx {
         agent_root: agent_root.to_owned(),
@@ -1319,12 +1359,12 @@ fn release_statusline(release: &Release) -> Result<stage::Statusline, Fwd> {
         s(asset.and_then(|a| a.get("path"))),
         s(asset.and_then(|a| a.get("sha256"))),
     ) else {
-        return Err(fwd("release_statusline_missing"));
+        return Err(fwd(crate::reason!("release_statusline_missing")));
     };
     let root = release.root.to_string_lossy().into_owned();
     let full = resolve(&[&root, path]);
     if !full.starts_with(&format!("{root}/")) {
-        return Err(fwd("release_statusline_escapes"));
+        return Err(fwd(crate::reason!("release_statusline_escapes")));
     }
     Ok(stage::Statusline {
         path: full,
@@ -1333,9 +1373,9 @@ fn release_statusline(release: &Release) -> Result<stage::Statusline, Fwd> {
 }
 
 fn release_manifest(release: &Release) -> Result<J, Fwd> {
-    let bytes =
-        std::fs::read(release.root.join("release.json")).map_err(|_| fwd("release_manifest"))?;
-    crate::json::parse(&bytes).ok_or_else(|| fwd("release_manifest"))
+    let bytes = std::fs::read(release.root.join("release.json"))
+        .map_err(|_| fwd(crate::reason!("release_manifest")))?;
+    crate::json::parse(&bytes).ok_or_else(|| fwd(crate::reason!("release_manifest")))
 }
 
 /// `executionRelease` for the selected driver's worker, from release.json's
@@ -1346,23 +1386,25 @@ fn execution_release(release: &Release, protocol: &str, driver: &str) -> Result<
     let bindings = manifest
         .get("workerBindings")
         .filter(|b| b.is_record())
-        .ok_or_else(|| fwd("release_workers"))?;
+        .ok_or_else(|| fwd(crate::reason!("release_workers")))?;
     let mut workers: Vec<(String, String)> = vec![];
     for (driver, executable) in bindings.js_entries() {
-        let name = executable.as_str().ok_or_else(|| fwd("release_workers"))?;
+        let name = executable
+            .as_str()
+            .ok_or_else(|| fwd(crate::reason!("release_workers")))?;
         let launcher = s(manifest
             .get("executables")
             .and_then(|e| e.get(name))
             .and_then(|e| e.get("launcher")))
-        .ok_or_else(|| fwd("release_workers"))?;
+        .ok_or_else(|| fwd(crate::reason!("release_workers")))?;
         let real = std::fs::canonicalize(join(&[&root, launcher]))
-            .map_err(|_| fwd("release_workers"))?
+            .map_err(|_| fwd(crate::reason!("release_workers")))?
             .to_string_lossy()
             .into_owned();
         workers.push((driver.to_owned(), real));
     }
     let Some((_, executable)) = workers.iter().find(|(d, _)| d == driver) else {
-        return Err(fwd("release_worker_driver_unavailable"));
+        return Err(fwd(crate::reason!("release_worker_driver_unavailable")));
     };
     let mut hosted: Vec<String> = workers
         .iter()
@@ -1420,9 +1462,12 @@ fn materialize_and_emit(plan: Plan, release: &Release, phases: &mut Phases) -> R
         &lockfile::MATERIALIZATION,
         || -> Result<(), Fwd> {
             let current = match std::fs::read(&lock_path) {
-                Ok(bytes) => {
-                    Some(crate::json::parse(&bytes).ok_or_else(|| fwd("global_lock_invalid"))?)
-                }
+                // Read again under its lock: another writer may have changed it.
+                Ok(bytes) => Some(
+                    crate::json::parse(&bytes)
+                        .filter(lock_schema::valid)
+                        .ok_or_else(|| fwd(crate::reason!("global_lock_invalid")))?,
+                ),
                 Err(_) => None,
             };
             let merged = match &current {
@@ -1432,7 +1477,7 @@ fn materialize_and_emit(plan: Plan, release: &Release, phases: &mut Phases) -> R
             atomic_write(&lock_path, &format!("{}\n", merged.to_json_pretty()))
         },
     )
-    .map_err(|_| fwd("global_lock_lock"))?;
+    .map_err(lock_fwd(crate::reason!("global_lock_lock")))?;
     wrote?;
     let _ = &plan.existing_lock;
 
@@ -1647,7 +1692,7 @@ fn ensure_asp_home() {
 /// `atomicWriteJson`: temp file, fsync, rename.
 fn atomic_write(path: &str, content: &str) -> Result<(), Fwd> {
     let dir = dirname(path);
-    std::fs::create_dir_all(&dir).map_err(|_| fwd("atomic_write"))?;
+    std::fs::create_dir_all(&dir).map_err(|_| fwd(crate::reason!("atomic_write")))?;
     let tmp = join(&[
         &dir,
         &format!(
@@ -1671,7 +1716,7 @@ fn atomic_write(path: &str, content: &str) -> Result<(), Fwd> {
     })();
     if result.is_err() {
         let _ = std::fs::remove_file(&tmp);
-        return Err(fwd("atomic_write"));
+        return Err(fwd(crate::reason!("atomic_write")));
     }
     Ok(())
 }
@@ -1797,6 +1842,43 @@ type EnvPairs = Vec<(String, String)>;
 
 /// `prepareAgentToolRuntime`: the agent var dirs, the tool env, and the
 /// typed PATH prepend.
+/// The agent tool runtime's project id: the scope's project, else the
+/// project root's basename, joined with the agent's name.
+fn agent_project_state_id(plan: &Plan, project_root: &str) -> String {
+    let agent_name = basename(&plan.agent_root);
+    let project = plan
+        .correlation_env
+        .iter()
+        .find(|(k, _)| k == "AGENT_PROJECT")
+        .map(|(_, v)| v.clone());
+    match project {
+        Some(p) => format!("{}_{}", sanitize_segment(&p), sanitize_segment(&agent_name)),
+        None => format!(
+            "{}_{}",
+            sanitize_segment(&basename(&resolve(&[project_root]))),
+            sanitize_segment(&agent_name)
+        ),
+    }
+}
+
+/// The directories `prepareAgentToolRuntime` makes under the agent's var/.
+fn agent_var_dirs(plan: &Plan) -> Vec<String> {
+    let state = join(&[&plan.agent_root, "var", "state"]);
+    let mut dirs = vec![
+        state.clone(),
+        join(&[&plan.agent_root, "var", "cache"]),
+        join(&[&plan.agent_root, "var", "logs"]),
+    ];
+    if let Some(root) = &plan.project_root {
+        dirs.push(join(&[
+            &state,
+            "projects",
+            &agent_project_state_id(plan, root),
+        ]));
+    }
+    dirs
+}
+
 fn agent_tool_env(plan: &Plan) -> Result<(EnvPairs, Vec<String>), Fwd> {
     let agent_root = &plan.agent_root;
     let agent_name = basename(agent_root);
@@ -1805,7 +1887,8 @@ fn agent_tool_env(plan: &Plan) -> Result<(EnvPairs, Vec<String>), Fwd> {
     let cache = join(&[&var, "cache"]);
     let logs = join(&[&var, "logs"]);
     for d in [&state, &cache, &logs] {
-        std::fs::create_dir_all(d).map_err(|_| fwd("agent_var_dirs"))?;
+        std::fs::create_dir_all(d)
+            .map_err(|e| fwd_at(crate::reason!("agent_var_dirs"), e.to_string()))?;
     }
     let mut env = vec![
         ("ASP_AGENT_ROOT".to_owned(), agent_root.clone()),
@@ -1816,21 +1899,10 @@ fn agent_tool_env(plan: &Plan) -> Result<(EnvPairs, Vec<String>), Fwd> {
         ("ASP_AGENT_LOG_DIR".into(), logs),
     ];
     if let Some(project_root) = &plan.project_root {
-        let project = plan
-            .correlation_env
-            .iter()
-            .find(|(k, _)| k == "AGENT_PROJECT")
-            .map(|(_, v)| v.clone());
-        let project_id = match project {
-            Some(p) => format!("{}_{}", sanitize_segment(&p), sanitize_segment(&agent_name)),
-            None => format!(
-                "{}_{}",
-                sanitize_segment(&basename(&resolve(&[project_root]))),
-                sanitize_segment(&agent_name)
-            ),
-        };
+        let project_id = agent_project_state_id(plan, project_root);
         let project_state = join(&[&state, "projects", &project_id]);
-        std::fs::create_dir_all(&project_state).map_err(|_| fwd("agent_var_dirs"))?;
+        std::fs::create_dir_all(&project_state)
+            .map_err(|e| fwd_at(crate::reason!("agent_var_dirs"), e.to_string()))?;
         env.push(("ASP_PROJECT_ROOT".into(), project_root.clone()));
         env.push(("ASP_PROJECT_ID".into(), project_id));
         env.push(("ASP_PROJECT_STATE_DIR".into(), project_state));
@@ -1909,41 +1981,45 @@ fn validate_agent_tools(agent_root: &str) -> Result<Vec<String>, Fwd> {
     use std::os::unix::fs::PermissionsExt;
     let tools = join(&[agent_root, "tools"]);
     let bin = join(&[&tools, "bin"]);
-    let tools_real = std::fs::canonicalize(&tools).map_err(|_| fwd("agent_tools_invalid"))?;
+    let tools_real =
+        std::fs::canonicalize(&tools).map_err(|_| fwd(crate::reason!("agent_tools_invalid")))?;
     let tools_real = tools_real.to_string_lossy().into_owned();
     let mut warnings = vec![];
-    for entry in std::fs::read_dir(&bin).map_err(|_| fwd("agent_tools_invalid"))? {
-        let entry = entry.map_err(|_| fwd("agent_tools_invalid"))?;
+    for entry in std::fs::read_dir(&bin).map_err(|_| fwd(crate::reason!("agent_tools_invalid")))? {
+        let entry = entry.map_err(|_| fwd(crate::reason!("agent_tools_invalid")))?;
         let name = entry.file_name().to_string_lossy().into_owned();
         let pattern_ok = name.chars().next().is_some_and(|c| c.is_ascii_lowercase())
             && name.chars().all(|c| {
                 c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-')
             });
         if !pattern_ok || RESERVED_TOOL_NAMES.contains(&name.as_str()) {
-            return Err(fwd("agent_tools_invalid"));
+            return Err(fwd(crate::reason!("agent_tools_invalid")));
         }
         let path = join(&[&bin, &name]);
-        let meta = std::fs::symlink_metadata(&path).map_err(|_| fwd("agent_tools_invalid"))?;
+        let meta = std::fs::symlink_metadata(&path)
+            .map_err(|_| fwd(crate::reason!("agent_tools_invalid")))?;
         let resolved = if meta.file_type().is_symlink() {
-            let real = std::fs::canonicalize(&path).map_err(|_| fwd("agent_tools_invalid"))?;
+            let real = std::fs::canonicalize(&path)
+                .map_err(|_| fwd(crate::reason!("agent_tools_invalid")))?;
             let real = real.to_string_lossy().into_owned();
             if real != tools_real && !real.starts_with(&format!("{tools_real}/")) {
-                return Err(fwd("agent_tools_invalid"));
+                return Err(fwd(crate::reason!("agent_tools_invalid")));
             }
             real
         } else if meta.is_file() {
             path.clone()
         } else {
-            return Err(fwd("agent_tools_invalid"));
+            return Err(fwd(crate::reason!("agent_tools_invalid")));
         };
-        let target = std::fs::metadata(&resolved).map_err(|_| fwd("agent_tools_invalid"))?;
+        let target =
+            std::fs::metadata(&resolved).map_err(|_| fwd(crate::reason!("agent_tools_invalid")))?;
         if !target.is_file() || target.permissions().mode() & 0o111 == 0 {
-            return Err(fwd("agent_tools_invalid"));
+            return Err(fwd(crate::reason!("agent_tools_invalid")));
         }
         let mut head = vec![];
         std::fs::File::open(&resolved)
             .and_then(|f| f.take(4096).read_to_end(&mut head))
-            .map_err(|_| fwd("agent_tools_invalid"))?;
+            .map_err(|_| fwd(crate::reason!("agent_tools_invalid")))?;
         if !head.is_empty() && !head.contains(&0) && !head.starts_with(b"#!") {
             warnings.push(format!(
                 "Agent tool \"{name}\" is executable text but has no shebang"
@@ -1989,7 +2065,7 @@ fn emit(
         ..
     } = &plan.launch
     else {
-        return Err(fwd("launch_mismatch"));
+        return Err(fwd(crate::reason!("launch_mismatch")));
     };
 
     // ClaudeAdapter.buildRunArgs(bundle, runOptions).
@@ -2312,7 +2388,7 @@ fn broker_permission_policy(policy: &J) -> Result<J, Fwd> {
             Ok(out)
         }
         Some(mode) => Ok(J::obj([("mode", J::str(mode))])),
-        None => Err(fwd("permission_policy_shape")),
+        None => Err(fwd(crate::reason!("permission_policy_shape"))),
     }
 }
 
@@ -2338,7 +2414,7 @@ fn emit_codex(
         path: command,
     } = &plan.launch
     else {
-        return Err(fwd("launch_mismatch"));
+        return Err(fwd(crate::reason!("launch_mismatch")));
     };
     let continuation_key = s(req
         .get("continuation")
@@ -2968,7 +3044,10 @@ mod env_conformance {
             let scope = input.get("scopeRef").and_then(J::as_str).expect("scopeRef");
             let root = input.get("projectRoot").and_then(J::as_str);
             let mut placement = J::obj([
-                ("agentRoot", J::str("/home/operator/praesidium/var/agents/alice")),
+                (
+                    "agentRoot",
+                    J::str("/home/operator/praesidium/var/agents/alice"),
+                ),
                 (
                     "correlation",
                     J::obj([(
@@ -2992,6 +3071,10 @@ mod env_conformance {
                 failures.push(format!("{id}: expected {expected:?}, got {actual:?}"));
             }
         }
-        assert!(failures.is_empty(), "locked env cases failed:\n{}", failures.join("\n"));
+        assert!(
+            failures.is_empty(),
+            "locked env cases failed:\n{}",
+            failures.join("\n")
+        );
     }
 }

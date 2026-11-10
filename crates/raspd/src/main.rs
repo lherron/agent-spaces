@@ -1,10 +1,13 @@
 //! `raspd`: aspd's Rust front door (docs/proposals/aspd-rust-front-door.md).
 //!
 //! raspd binds the node's public aspd socket. It answers `aspc.hello`,
-//! `health`, `version` and `surface` itself and relays every other method,
-//! verbatim, to Bun aspd on a private socket in the same namespace. It logs
-//! every request it receives to its own files and serves an observation-only
-//! cardo kernel on its own socket.
+//! `health`, `version`, `surface`, the reads and the compiles itself. With
+//! `--upstream` (fronted mode) it relays every other request, verbatim, to
+//! Bun aspd on that private socket in the same namespace. Without it (sole
+//! mode, T-13018) there is no Bun: every forward is answered from the
+//! disposition table (`disposition`). It logs every request it receives to
+//! its own files and serves an observation-only cardo kernel on its own
+//! socket.
 //!
 //!     raspd serve --socket <abs> [--upstream <abs>] [--log <abs>]
 //!                 [--kernel-socket <abs>] [--release-root <dir>]
@@ -13,7 +16,25 @@
 //! `--metrics-dir` puts the usage rows somewhere other than the release's
 //! var root without touching the environment, which compiles hash (a raspd
 //! compared against a node's own Bun aspd, T-11932).
+/// A forward reason, checked at compile time against its row in
+/// `crates/raspd/dispositions.json` (see `disposition`).
+#[macro_export]
+macro_rules! reason {
+    ($name:literal) => {{
+        const _: () = assert!(
+            $crate::disposition::known($name),
+            concat!(
+                "forward reason \"",
+                $name,
+                "\" has no row in crates/raspd/dispositions.json"
+            )
+        );
+        $crate::disposition::Reason::checked($name)
+    }};
+}
+
 mod compile;
+mod disposition;
 mod json;
 mod kernel;
 mod logs;
@@ -38,7 +59,8 @@ const RETIRE_LIMIT: Duration = Duration::from_secs(175);
 
 struct Options {
     socket: PathBuf,
-    upstream: PathBuf,
+    /// Bun aspd behind raspd; absent is sole mode.
+    upstream: Option<PathBuf>,
     log: Option<PathBuf>,
     kernel_socket: PathBuf,
     release_root: Option<PathBuf>,
@@ -95,7 +117,7 @@ fn parse(args: &[String]) -> Options {
     let socket: PathBuf = socket.unwrap_or_else(|| refuse_usage(args));
     let dir = socket.parent().map(Path::to_path_buf).unwrap_or_default();
     Options {
-        upstream: upstream.unwrap_or_else(|| dir.join("aspd-bun.sock")),
+        upstream,
         kernel_socket: kernel_socket.unwrap_or_else(|| dir.join("raspd-kernel.sock")),
         socket,
         log,
@@ -158,14 +180,28 @@ async fn serve(options: Options, log: Log) -> Result<(), String> {
             .unwrap_or_else(|| metrics::resolve_dir(release::var_root(&release.root).as_deref())),
         Arc::new(move |event: &str, data| warn_log.event("warn", "metrics", event, data)),
     );
+    let upstream_display = options
+        .upstream
+        .as_ref()
+        .map(|u| u.display().to_string())
+        .unwrap_or_default();
+    let upstream_json = || match &options.upstream {
+        Some(u) => J::str(u.display().to_string()),
+        None => J::Null,
+    };
     let observations = Arc::new(Observations::new(ServiceInfo {
-        role: "front".into(),
+        role: if options.upstream.is_some() {
+            "front"
+        } else {
+            "sole"
+        }
+        .into(),
         release_id: release.release_id.clone(),
         source_commit: release.source_commit.clone(),
         built_at: release.built_at.clone(),
         raspd_source_commit: native::RASPD_SOURCE_COMMIT.into(),
         socket: options.socket.display().to_string(),
-        upstream_socket: options.upstream.display().to_string(),
+        upstream_socket: upstream_display.clone(),
         pid: std::process::id(),
         started_at: now_iso(),
     }));
@@ -186,10 +222,7 @@ async fn serve(options: Options, log: Log) -> Result<(), String> {
                 "address".into(),
                 J::str(options.socket.display().to_string()),
             ),
-            (
-                "upstream".into(),
-                J::str(options.upstream.display().to_string()),
-            ),
+            ("upstream".into(), upstream_json()),
         ],
     );
 
@@ -263,10 +296,7 @@ async fn serve(options: Options, log: Log) -> Result<(), String> {
                 "socket".into(),
                 J::str(options.socket.display().to_string()),
             ),
-            (
-                "upstream".into(),
-                J::str(options.upstream.display().to_string()),
-            ),
+            ("upstream".into(), upstream_json()),
             (
                 "kernelSocket".into(),
                 J::str(options.kernel_socket.display().to_string()),

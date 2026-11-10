@@ -24,8 +24,8 @@ pub const TARGET_MATERIALIZER_VERSION: &str = "target-materializer-v8-claude-no-
 const PLUGIN_COMPONENT_DIRS: [&str; 6] =
     ["commands", "skills", "agents", "hooks", "scripts", "mcp"];
 
-pub(super) fn io_fwd(_: io::Error) -> Fwd {
-    fwd("materialize_io")
+pub(super) fn io_fwd(e: io::Error) -> Fwd {
+    super::fwd_at(crate::reason!("materialize_io"), e.to_string())
 }
 
 /// `uniqueStagingDir(paths, prefix)`.
@@ -69,7 +69,7 @@ fn link_directory(
     let pushed = if follow {
         let real = fs::canonicalize(src).map_err(io_fwd)?;
         if ancestors.contains(&real) {
-            return Err(fwd("symlink_cycle"));
+            return Err(fwd(crate::reason!("symlink_cycle")));
         }
         ancestors.push(real);
         true
@@ -222,7 +222,7 @@ pub fn plan_space(input: SpaceInput, lock_plugin: &J) -> Result<SpacePlan, Fwd> 
             .is_some_and(|s| s.iter().any(|h| h.as_str() == Some(DEFAULT_HARNESS)))
     {
         // harness-skip: no live space takes this branch.
-        return Err(fwd("space_harness_skip"));
+        return Err(fwd(crate::reason!("space_harness_skip")));
     }
     // Staging copies hooks/ and reads hooks/hooks.toml from the copy.
     let hooks_toml = join(&[&input.content_dir, "hooks", "hooks.toml"]);
@@ -247,11 +247,11 @@ pub fn plan_space(input: SpaceInput, lock_plugin: &J) -> Result<SpacePlan, Fwd> 
 }
 
 fn parse_toml_file(path: &str) -> Result<J, Fwd> {
-    let content = fs::read_to_string(path).map_err(|_| fwd("toml_unreadable"))?;
+    let content = fs::read_to_string(path).map_err(|_| fwd(crate::reason!("toml_unreadable")))?;
     match toml::parse(&content) {
         Ok(v) => Ok(v),
         Err(toml::TomlError::Unsupported(reason)) => Err(fwd(reason)),
-        Err(_) => Err(fwd("toml_syntax")),
+        Err(_) => Err(fwd(crate::reason!("toml_syntax"))),
     }
 }
 
@@ -268,7 +268,7 @@ fn parse_hooks_toml(path: &str) -> Result<Vec<J>, Fwd> {
             let string_field = |k: &str| match h.get(k) {
                 None => Ok(J::str("")),
                 Some(J::Str(s)) => Ok(J::str(s)),
-                Some(_) => Err(fwd("hooks_toml_shape")),
+                Some(_) => Err(fwd(crate::reason!("hooks_toml_shape"))),
             };
             let mut out = J::obj([
                 ("event", string_field("event")?),
@@ -276,7 +276,7 @@ fn parse_hooks_toml(path: &str) -> Result<Vec<J>, Fwd> {
             ]);
             if let Some(J::Arr(tools)) = h.get("tools") {
                 if !tools.iter().all(|t| matches!(t, J::Str(_))) {
-                    return Err(fwd("hooks_toml_shape"));
+                    return Err(fwd(crate::reason!("hooks_toml_shape")));
                 }
                 out.set("tools", J::Arr(tools.clone()));
             }
@@ -305,7 +305,7 @@ fn parse_permissions_toml(path: &str) -> Result<J, Fwd> {
                 .map(|i| {
                     i.as_str()
                         .map(str::to_owned)
-                        .ok_or_else(|| fwd("permissions_toml_shape"))
+                        .ok_or_else(|| fwd(crate::reason!("permissions_toml_shape")))
                 })
                 .collect::<Result<Vec<_>, _>>()
                 .map(Some),
@@ -904,7 +904,7 @@ fn compose_target(
         };
         // Object.entries(config.mcpServers) throws on a missing table.
         let Some(J::Obj(entries)) = config.get("mcpServers") else {
-            return Err(fwd("mcp_config_shape"));
+            return Err(fwd(crate::reason!("mcp_config_shape")));
         };
         for (name, server) in entries {
             match servers.iter_mut().find(|(n, _)| n == name) {
@@ -957,9 +957,9 @@ fn compose_target(
     composed.set("skipDangerousModePermissionPrompt", J::Bool(true));
     composed.set("promptSuggestionEnabled", J::Bool(false));
     composed.set("awaySummaryEnabled", J::Bool(false));
-    let source = fs::read(&statusline.path).map_err(|_| fwd("statusline_asset"))?;
+    let source = fs::read(&statusline.path).map_err(|_| fwd(crate::reason!("statusline_asset")))?;
     if sha256_hex(&source) != statusline.sha256 {
-        return Err(fwd("statusline_digest"));
+        return Err(fwd(crate::reason!("statusline_digest")));
     }
     let script = join(&[output, "statusline.sh"]);
     fs::write(&script, &source).map_err(io_fwd)?;
@@ -1055,7 +1055,9 @@ pub fn publish_claude_target(
     fingerprint: &str,
     asp_home: &str,
 ) -> Result<Bundle, Fwd> {
-    let statusline = input.statusline.ok_or_else(|| fwd("release_statusline_missing"))?;
+    let statusline = input
+        .statusline
+        .ok_or_else(|| fwd(crate::reason!("release_statusline_missing")))?;
     let output = publish_target(
         input,
         artifacts,
@@ -1063,7 +1065,8 @@ pub fn publish_claude_target(
         asp_home,
         "claude",
         |staging_output, output| {
-            let bundle = compose_target(artifacts, permissions, staging_output, output, statusline)?;
+            let bundle =
+                compose_target(artifacts, permissions, staging_output, output, statusline)?;
             let mut required = vec![bundle.settings_path.clone()];
             required.extend(bundle.mcp_config_path.clone());
             required.extend(bundle.plugin_dirs.iter().cloned());
@@ -1163,10 +1166,10 @@ pub fn publish_target(
         prune_bundle_versions(&versions, fingerprint, &join(&[asp_home, "tmp"]));
         Ok(())
     })
-    .map_err(|_| fwd("bundle_scope_lock"))?;
+    .map_err(super::lock_fwd(crate::reason!("bundle_scope_lock")))?;
     published?;
     if !validate_target(&output, fingerprint) {
-        return Err(fwd("bundle_invalid_after_publish"));
+        return Err(fwd(crate::reason!("bundle_invalid_after_publish")));
     }
     let staging = join(&[asp_home, "tmp", ".staging"]);
     for a in artifacts.iter().filter(|a| a.path.starts_with(&staging)) {
@@ -1411,7 +1414,7 @@ pub fn check_skill_and_command_conflicts(plugin_dirs: &[String]) -> Result<(), F
                 rel.clone()
             };
             if skills.contains(&name) {
-                return Err(fwd("skill_name_conflict"));
+                return Err(fwd(crate::reason!("skill_name_conflict")));
             }
             skills.push(name);
         }
@@ -1428,7 +1431,7 @@ pub fn check_skill_and_command_conflicts(plugin_dirs: &[String]) -> Result<(), F
             }
             let name = name.trim_end_matches(".md").to_owned();
             if commands.contains(&name) {
-                return Err(fwd("command_name_conflict"));
+                return Err(fwd(crate::reason!("command_name_conflict")));
             }
             commands.push(name);
         }

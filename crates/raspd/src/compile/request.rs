@@ -424,31 +424,31 @@ pub fn shape_supported(p: &J) -> Result<(), Fwd> {
     // `clientAspHome ? … : …` drops an empty aspHome in one place and keeps
     // it in another; raspd does not judge that request.
     if p.get("aspHome") == Some(&J::str("")) {
-        return Err(fwd("empty_asp_home"));
+        return Err(fwd(crate::reason!("empty_asp_home")));
     }
     if p.get("compileContext").is_some() {
-        return Err(fwd("compile_context"));
+        return Err(fwd(crate::reason!("compile_context")));
     }
     let req = p.get("compileRequest").expect("validated");
-    let gates: [(&'static str, Problem); 5] = [
+    let gates: [(crate::disposition::Reason, Problem); 5] = [
         (
-            "placement_shape",
+            crate::reason!("placement_shape"),
             placement_problem(req.get("placement").expect("validated")),
         ),
         (
-            "materialization_shape",
+            crate::reason!("materialization_shape"),
             materialization_problem(req.get("materialization").expect("validated")),
         ),
         (
-            "hrc_policy_shape",
+            crate::reason!("hrc_policy_shape"),
             hrc_policy_problem(req.get("hrcPolicy").expect("validated")),
         ),
         (
-            "continuation_shape",
+            crate::reason!("continuation_shape"),
             req.get("continuation").and_then(continuation_problem),
         ),
         (
-            "correlation_shape",
+            crate::reason!("correlation_shape"),
             correlation_problem(req.get("correlation").expect("validated")),
         ),
     ];
@@ -469,16 +469,19 @@ pub struct Profile {
 pub fn read_profile(agent_root: &str) -> Result<Profile, Fwd> {
     let path = join(&[agent_root, "agent-profile.toml"]);
     let content = if std::path::Path::new(&path).exists() {
-        read_text(&path).map_err(|_| fwd("source_read_unavailable"))?
+        read_text(&path).map_err(|_| fwd(crate::reason!("source_read_unavailable")))?
     } else {
         "version = 4\n".to_owned()
     };
     let typed = match profile::parse(&content) {
         Ok(p) => p,
         Err(profile::ProfileError::Forward(r)) => return Err(fwd(r)),
-        Err(profile::ProfileError::Invalid(_)) => return Err(fwd("agent_profile_invalid")),
+        Err(profile::ProfileError::Invalid(_)) => {
+            return Err(fwd(crate::reason!("agent_profile_invalid")));
+        }
     };
-    let raw = crate::reads::toml::parse(&content).map_err(|_| fwd("profile_toml_syntax"))?;
+    let raw = crate::reads::toml::parse(&content)
+        .map_err(|_| fwd(crate::reason!("profile_toml_syntax")))?;
     Ok(Profile { raw, typed })
 }
 
@@ -495,11 +498,13 @@ pub fn read_targets(project_root: Option<&str>, agent_name: &str) -> Result<Proj
     if !std::path::Path::new(&path).exists() {
         return Ok(ProjectTargets { target: None });
     }
-    let content = read_text(&path).map_err(|_| fwd("source_read_unavailable"))?;
+    let content = read_text(&path).map_err(|_| fwd(crate::reason!("source_read_unavailable")))?;
     let manifest = match targets::parse(&content) {
         Ok(m) => m,
         Err(targets::TargetsError::Forward(r)) => return Err(fwd(r)),
-        Err(targets::TargetsError::Invalid(_)) => return Err(fwd("project_targets_invalid")),
+        Err(targets::TargetsError::Invalid(_)) => {
+            return Err(fwd(crate::reason!("project_targets_invalid")));
+        }
     };
     let target = manifest
         .get("targets")
@@ -670,7 +675,7 @@ pub fn resolve_selection(req: &J, profile: &Profile, target: Option<&J>) -> Resu
         .and_then(|b| b.get("agentName"))
         .and_then(J::as_str);
     if basename(agent_root) != agent_id || agent_name.is_some_and(|n| n != agent_id) {
-        return Err(fwd("configured_context_mismatch"));
+        return Err(fwd(crate::reason!("configured_context_mismatch")));
     }
     let profile_layer: Vec<(String, J)> = {
         let scalars = J::Obj(profile.typed.provisioning.clone().unwrap_or_default());
@@ -708,11 +713,18 @@ pub fn resolve_selection(req: &J, profile: &Profile, target: Option<&J>) -> Resu
     let hrcpty = matches!(harness_id, "claude-hrcpty" | "codex-hrcpty");
     let (kind, default_provider, default_model, models): (Harness, &str, &str, &[&str]) =
         match harness_id {
-            "claude" | "claude-hrcpty" => (Harness::Claude, "anthropic", "opus[1m]", &CLAUDE_MODELS),
-            "codex" | "codex-hrcpty" => (Harness::Codex, "openai-codex", "gpt-5.6-terra", &CODEX_MODELS),
+            "claude" | "claude-hrcpty" => {
+                (Harness::Claude, "anthropic", "opus[1m]", &CLAUDE_MODELS)
+            }
+            "codex" | "codex-hrcpty" => (
+                Harness::Codex,
+                "openai-codex",
+                "gpt-5.6-terra",
+                &CODEX_MODELS,
+            ),
             _ => {
                 return Err(fwd_at(
-                    "recipe_not_native",
+                    crate::reason!("recipe_not_native"),
                     picked("harness", harness_id, &harness),
                 ));
             }
@@ -724,19 +736,19 @@ pub fn resolve_selection(req: &J, profile: &Profile, target: Option<&J>) -> Resu
         .unwrap_or(default_provider);
     if provider_id != default_provider {
         return Err(fwd_at(
-            "unsupported_model_provider",
+            crate::reason!("unsupported_model_provider"),
             picked("modelProvider", provider_id, &provider),
         ));
     }
     let model = scalar("model");
     let model_id = match &model {
         Some((J::Str(m), _)) => m.clone(),
-        Some(_) => return Err(fwd("model_shape")),
+        Some(_) => return Err(fwd(crate::reason!("model_shape"))),
         None => default_model.into(),
     };
     if !models.contains(&model_id.as_str()) {
         return Err(fwd_at(
-            "unsupported_model",
+            crate::reason!("unsupported_model"),
             picked("model", &model_id, &model),
         ));
     }
@@ -749,7 +761,7 @@ pub fn resolve_selection(req: &J, profile: &Profile, target: Option<&J>) -> Resu
     let effort = scalar("reasoningEffort");
     let effort_id = match &effort {
         Some((J::Str(e), _)) => Some(e.clone()),
-        Some(_) => return Err(fwd("reasoning_effort_shape")),
+        Some(_) => return Err(fwd(crate::reason!("reasoning_effort_shape"))),
         None => None,
     };
     let source =
@@ -843,7 +855,7 @@ mod tests {
             params_valid(Some(p)),
             "fixture must pass aspc params validation"
         );
-        shape_supported(p).map_err(|f| (f.reason, f.detail))
+        shape_supported(p).map_err(|f| (f.reason.as_str(), f.detail))
     }
 
     fn detail(reason: &'static str, d: &str) -> Result<(), (&'static str, Option<String>)> {
@@ -982,7 +994,7 @@ mod tests {
         let fail = |req: &J, target: Option<&J>| {
             resolve_selection(req.get("compileRequest").unwrap(), &profile, target)
                 .err()
-                .map(|f| (f.reason, f.detail.unwrap_or_default()))
+                .map(|f| (f.reason.as_str(), f.detail.unwrap_or_default()))
         };
         assert_eq!(
             fail(&req, None),

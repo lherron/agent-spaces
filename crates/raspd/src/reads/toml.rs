@@ -17,17 +17,17 @@ use toml_edit::{Array, InlineTable, Item, Table, Value};
 pub enum TomlError {
     Unparsed,
     IarnaRejects,
-    Unsupported(&'static str),
+    Unsupported(crate::disposition::Reason),
 }
 
 const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
 
 pub fn parse(content: &str) -> Result<J, TomlError> {
     if content.starts_with('\u{feff}') {
-        return Err(TomlError::Unsupported("toml_bom"));
+        return Err(TomlError::Unsupported(crate::reason!("toml_bom")));
     }
     if content.contains("\"\"\"\"") || content.contains("''''") {
-        return Err(TomlError::Unsupported("toml_quote_run"));
+        return Err(TomlError::Unsupported(crate::reason!("toml_quote_run")));
     }
     let doc = content
         .parse::<toml_edit::DocumentMut>()
@@ -37,7 +37,7 @@ pub fn parse(content: &str) -> Result<J, TomlError> {
 
 fn key(k: &str) -> Result<String, TomlError> {
     if k == "__proto__" {
-        return Err(TomlError::Unsupported("toml_proto_key"));
+        return Err(TomlError::Unsupported(crate::reason!("toml_proto_key")));
     }
     Ok(k.to_owned())
 }
@@ -99,19 +99,21 @@ fn value(v: &Value) -> Result<J, TomlError> {
         Value::Integer(i) => {
             let n = *i.value();
             if !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&n) {
-                return Err(TomlError::Unsupported("toml_bigint"));
+                return Err(TomlError::Unsupported(crate::reason!("toml_bigint")));
             }
             J::Num(n as f64)
         }
         Value::Float(f) => {
             let n = *f.value();
             if !n.is_finite() {
-                return Err(TomlError::Unsupported("toml_nonfinite_float"));
+                return Err(TomlError::Unsupported(crate::reason!(
+                    "toml_nonfinite_float"
+                )));
             }
             J::Num(n)
         }
         Value::Boolean(b) => J::Bool(*b.value()),
-        Value::Datetime(_) => return Err(TomlError::Unsupported("toml_datetime")),
+        Value::Datetime(_) => return Err(TomlError::Unsupported(crate::reason!("toml_datetime"))),
         Value::Array(a) => array(a)?,
         Value::InlineTable(t) => inline(t)?,
     })

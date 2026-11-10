@@ -1,6 +1,8 @@
 //! Compile in what raspd reports about itself: its source commit (the release
 //! builder passes RASPD_SOURCE_COMMIT; a checkout build asks git) and the
-//! aspc-facade version Bun's hello reports, from the same tree.
+//! aspc-facade version Bun's hello reports, from the same tree. And the
+//! forward reasons the disposition table names (`reason!` checks a reason
+//! against them at compile time).
 use std::process::Command;
 
 fn main() {
@@ -33,4 +35,26 @@ fn main() {
         })
         .expect("harness/aspc/package.json version");
     println!("cargo:rustc-env=RASPD_ASPC_FACADE_VERSION={version}");
+
+    let table = format!("{dir}/dispositions.json");
+    println!("cargo:rerun-if-changed={table}");
+    let text = std::fs::read_to_string(&table).expect("crates/raspd/dispositions.json");
+    let parsed: serde_json::Value = serde_json::from_str(&text).expect("dispositions.json is JSON");
+    let mut reasons: Vec<String> = parsed["rows"]
+        .as_array()
+        .expect("dispositions.json rows")
+        .iter()
+        .map(|r| r["reason"].as_str().expect("row reason").to_owned())
+        .collect();
+    reasons.sort();
+    let list: Vec<String> = reasons.iter().map(|r| format!("{r:?}")).collect();
+    let out = std::env::var("OUT_DIR").expect("OUT_DIR");
+    std::fs::write(
+        format!("{out}/reasons.rs"),
+        format!(
+            "/// Every forward reason with a row in dispositions.json.\npub const REASONS: &[&str] = &[{}];\n",
+            list.join(", ")
+        ),
+    )
+    .expect("write reasons.rs");
 }

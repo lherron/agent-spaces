@@ -60,7 +60,7 @@ pub fn parse_space_ref(raw: &str) -> Result<SpaceRef, Fwd> {
     let body = raw
         .strip_prefix("spaces:")
         .or_else(|| raw.strip_prefix("space:"))
-        .ok_or_else(|| fwd("space_ref_invalid"))?;
+        .ok_or_else(|| fwd(crate::reason!("space_ref_invalid")))?;
     for (prefix, kind) in [("agent:", Kind::Agent), ("project:", Kind::Project)] {
         if let Some(rest) = body.strip_prefix(prefix) {
             let (id, selector) = match rest.split_once('@') {
@@ -69,7 +69,7 @@ pub fn parse_space_ref(raw: &str) -> Result<SpaceRef, Fwd> {
             };
             if is_space_id_chars(id) && selector.is_none_or(dot_plus) {
                 if id.len() > 64 {
-                    return Err(fwd("space_id_invalid"));
+                    return Err(fwd(crate::reason!("space_id_invalid")));
                 }
                 return Ok(SpaceRef {
                     id: id.to_owned(),
@@ -79,17 +79,17 @@ pub fn parse_space_ref(raw: &str) -> Result<SpaceRef, Fwd> {
         }
     }
     if body.starts_with("path:") {
-        return Err(fwd("space_path_ref"));
+        return Err(fwd(crate::reason!("space_path_ref")));
     }
     let (id, selector) = match body.split_once('@') {
         Some((id, sel)) => (id, Some(sel)),
         None => (body, None),
     };
     if !is_space_id_chars(id) || selector.is_some_and(|s| !dot_plus(s)) {
-        return Err(fwd("space_ref_invalid"));
+        return Err(fwd(crate::reason!("space_ref_invalid")));
     }
     if id.len() > 64 {
-        return Err(fwd("space_id_invalid"));
+        return Err(fwd(crate::reason!("space_id_invalid")));
     }
     match selector {
         None | Some("dev") => Ok(SpaceRef {
@@ -97,7 +97,10 @@ pub fn parse_space_ref(raw: &str) -> Result<SpaceRef, Fwd> {
             kind: Kind::Dev,
         }),
         // HEAD, dist-tags, semver and git pins resolve through the registry.
-        Some(_) => Err(fwd_at("registry_space", format!("compose:{raw}"))),
+        Some(_) => Err(fwd_at(
+            crate::reason!("registry_space"),
+            format!("compose:{raw}"),
+        )),
     }
 }
 
@@ -162,27 +165,30 @@ fn visit(
                 | ("project", "agent")
         )
     {
-        return Err(fwd("disallowed_dependency_edge"));
+        return Err(fwd(crate::reason!("disallowed_dependency_edge")));
     }
     let key = format!("{}@{}", r.id, r.kind.marker());
     if out.spaces.iter().any(|s| s.key == key) {
         return Ok(key);
     }
     if visiting.contains(&key) {
-        return Err(fwd("cyclic_dependency"));
+        return Err(fwd(crate::reason!("cyclic_dependency")));
     }
     visiting.push(key.clone());
     let dir = match r.kind {
         Kind::Agent => format!(
             "{}/spaces/{}",
-            roots.agent_root.ok_or_else(|| fwd("agent_root_required"))?,
+            roots
+                .agent_root
+                .ok_or_else(|| fwd(crate::reason!("agent_root_required")))?,
             r.id
         ),
         Kind::Project => format!(
             "{}/spaces/{}",
-            roots
-                .project_root
-                .ok_or_else(|| fwd_at("project_root_required", format!("space:project:{}", r.id)))?,
+            roots.project_root.ok_or_else(|| fwd_at(
+                crate::reason!("project_root_required"),
+                format!("space:project:{}", r.id)
+            ))?,
             r.id
         ),
         Kind::Dev => join(&[roots.registry, "spaces", &r.id]),
@@ -191,7 +197,10 @@ fn visit(
     let mut deps = vec![];
     if let Some(dep_refs) = manifest.get("deps").and_then(|d| d.get("spaces")) {
         for dep in dep_refs.as_arr().into_iter().flatten() {
-            let dep = parse_space_ref(dep.as_str().ok_or_else(|| fwd("space_dep_invalid"))?)?;
+            let dep = parse_space_ref(
+                dep.as_str()
+                    .ok_or_else(|| fwd(crate::reason!("space_dep_invalid")))?,
+            )?;
             deps.push(visit(&dep, Some(this), roots, out, visiting)?);
         }
     }
@@ -208,14 +217,14 @@ fn visit(
 
 /// `readSpaceManifestFromFilesystem`: the parsed, schema-valid manifest.
 pub fn read_manifest(path: &str) -> Result<J, Fwd> {
-    let content = read_text(path).map_err(|_| fwd("space_manifest_unreadable"))?;
+    let content = read_text(path).map_err(|_| fwd(crate::reason!("space_manifest_unreadable")))?;
     let parsed = match toml::parse(&content) {
         Ok(v) => v,
         Err(TomlError::Unsupported(reason)) => return Err(fwd(reason)),
-        Err(_) => return Err(fwd("space_manifest_toml")),
+        Err(_) => return Err(fwd(crate::reason!("space_manifest_toml"))),
     };
     if !space_manifest_valid(&parsed) {
-        return Err(fwd("space_manifest_invalid"));
+        return Err(fwd(crate::reason!("space_manifest_invalid")));
     }
     Ok(parsed)
 }
@@ -482,7 +491,7 @@ fn collect_fs(base: &str, rel: &str, out: &mut Vec<(String, String, String)>) ->
         return Ok(());
     };
     for entry in read {
-        let entry = entry.map_err(|_| fwd("integrity_readdir"))?;
+        let entry = entry.map_err(|_| fwd(crate::reason!("integrity_readdir")))?;
         let name = entry.file_name().to_string_lossy().into_owned();
         let item_rel = if rel.is_empty() {
             name
@@ -492,16 +501,19 @@ fn collect_fs(base: &str, rel: &str, out: &mut Vec<(String, String, String)>) ->
         if ignored(&item_rel) {
             continue;
         }
-        let ft = entry.file_type().map_err(|_| fwd("integrity_stat"))?;
+        let ft = entry
+            .file_type()
+            .map_err(|_| fwd(crate::reason!("integrity_stat")))?;
         if ft.is_dir() {
             collect_fs(base, &item_rel, out)?;
         } else if ft.is_file() {
             let path = join(&[base, &item_rel]);
-            let content = std::fs::read(&path).map_err(|_| fwd("integrity_read"))?;
+            let content =
+                std::fs::read(&path).map_err(|_| fwd(crate::reason!("integrity_read")))?;
             let mut blob = format!("blob {}\0", content.len()).into_bytes();
             blob.extend_from_slice(&content);
             let mode = std::fs::metadata(&path)
-                .map_err(|_| fwd("integrity_stat"))?
+                .map_err(|_| fwd(crate::reason!("integrity_stat")))?
                 .permissions()
                 .mode();
             let mode = if mode & 0o111 != 0 {
@@ -690,33 +702,6 @@ pub fn merge_locks(existing: &J, updates: &J) -> J {
         merged.set(key, map);
     }
     merged
-}
-
-/// `classifySpaceEntry(entry) === 'registry'`.
-pub fn is_registry_entry(entry: &J) -> bool {
-    let commit = entry.get("commit").and_then(J::as_str);
-    let integrity = entry.get("integrity").and_then(J::as_str);
-    !(commit == Some("dev")
-        || integrity == Some("sha256:dev")
-        || commit == Some("project")
-        || entry.get("projectSpace").is_some_and(super::truthy)
-        || commit == Some("agent")
-        || entry.get("agentSpace").is_some_and(super::truthy))
-}
-
-/// A lock file as `readLockJson` would accept it, as far as raspd judges.
-pub fn lock_shape_ok(lock: &J) -> bool {
-    let entries_ok = |key: &str| matches!(lock.get(key), Some(J::Obj(_)));
-    matches!(lock, J::Obj(_))
-        && entries_ok("spaces")
-        && entries_ok("targets")
-        && lock.get("spaces").is_some_and(|s| {
-            s.js_entries().iter().all(|(_, e)| {
-                ["id", "commit", "integrity"]
-                    .iter()
-                    .all(|k| matches!(e.get(k), Some(J::Str(_))))
-            })
-        })
 }
 
 #[cfg(test)]

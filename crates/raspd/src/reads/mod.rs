@@ -40,7 +40,7 @@ pub fn is_read(method: &str) -> bool {
 }
 
 /// Why an input is relayed to Bun instead of answered.
-pub type Forward = &'static str;
+pub type Forward = crate::disposition::Reason;
 
 pub enum Answer {
     Result(J),
@@ -121,7 +121,7 @@ pub fn handle(method: &str, params: Option<&J>) -> Answer {
         _ => (valid_observe(params), continuation::REQUEST_VERSION),
     };
     if !handled(valid, params, expected) {
-        return Answer::Forward("invalid_params");
+        return Answer::Forward(crate::reason!("invalid_params"));
     }
     let params = params.expect("validated or fallback params are a record");
     match method {

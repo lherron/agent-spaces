@@ -251,7 +251,7 @@ pub fn interpolate(content: &str, ctx: &Ctx) -> Result<String, Fwd> {
             } else if let Some((_, v)) = vars.iter().find(|(k, _)| k == name) {
                 out.push_str(v);
             } else if OBJECT_PROTOTYPE_KEYS.contains(&name) {
-                return Err(fwd("template_prototype_variable"));
+                return Err(fwd(crate::reason!("template_prototype_variable")));
             } else {
                 out.push_str(&rest[at..at + matched_len]);
             }
@@ -270,7 +270,7 @@ pub fn interpolate(content: &str, ctx: &Ctx) -> Result<String, Fwd> {
 fn realpath(p: &str) -> Result<String, Fwd> {
     std::fs::canonicalize(p)
         .map(|p| p.to_string_lossy().into_owned())
-        .map_err(|_| fwd("realpath_failed"))
+        .map_err(|_| fwd(crate::reason!("realpath_failed")))
 }
 
 /// `resolveContainedPath(root, relativePath)`; `Err(None)` is a thrown error.
@@ -420,7 +420,7 @@ pub struct Template {
 
 fn bad<T>() -> Result<T, Fwd> {
     // A template Bun would reject: its message is not reproduced.
-    Err(fwd("context_template_invalid"))
+    Err(fwd(crate::reason!("context_template_invalid")))
 }
 
 fn req_str(v: Option<&J>) -> Result<String, Fwd> {
@@ -811,17 +811,19 @@ fn resolve_file(path: &str, required: bool, ctx: &Ctx) -> Result<Res, Fwd> {
     let file = match template_ref(path, ctx) {
         Ok(f) => f,
         Err(Some(f)) => return Err(f),
-        Err(None) if required => return Err(fwd("required_context_file_unresolvable")),
+        Err(None) if required => {
+            return Err(fwd(crate::reason!("required_context_file_unresolvable")));
+        }
         Err(None) => return Ok(Res::Failed),
     };
     let content = match read_optional(&file) {
         Ok(c) => c,
-        Err(()) if required => return Err(fwd("required_context_file_unreadable")),
+        Err(()) if required => return Err(fwd(crate::reason!("required_context_file_unreadable"))),
         Err(()) => return Ok(Res::Failed),
     };
     match content {
         Some(c) if !c.is_empty() => Ok(as_res(Some(interpolate(&c, ctx)?))),
-        _ if required => Err(fwd("required_context_file_missing")),
+        _ if required => Err(fwd(crate::reason!("required_context_file_missing"))),
         _ => Ok(Res::Empty),
     }
 }
@@ -829,7 +831,7 @@ fn resolve_file(path: &str, required: bool, ctx: &Ctx) -> Result<Res, Fwd> {
 fn resolve_slot(source: &str, ctx: &Ctx) -> Result<Res, Fwd> {
     let segments: Vec<&str> = source.split('.').filter(|s| !s.is_empty()).collect();
     if segments.iter().any(|s| OBJECT_PROTOTYPE_KEYS.contains(s)) {
-        return Err(fwd("slot_prototype_source"));
+        return Err(fwd(crate::reason!("slot_prototype_source")));
     }
     let mut current = ctx.agent_profile.as_ref();
     if segments.is_empty() {
@@ -913,22 +915,22 @@ fn parse_endpoint(endpoint: &str) -> Result<Option<Endpoint>, Fwd> {
         return Ok(Some(Endpoint::Unix(endpoint.to_owned())));
     }
     let Some((scheme, rest)) = endpoint.split_once("://") else {
-        return Err(fwd("service_probe_endpoint"));
+        return Err(fwd(crate::reason!("service_probe_endpoint")));
     };
     let scheme = scheme.to_ascii_lowercase();
     if !["tcp", "http", "https", "ws", "wss"].contains(&scheme.as_str()) {
-        return Err(fwd("service_probe_endpoint"));
+        return Err(fwd(crate::reason!("service_probe_endpoint")));
     }
     let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
     if authority.is_empty() || authority.contains(['@', '[', ']', ' ', '%', '\\']) {
-        return Err(fwd("service_probe_endpoint"));
+        return Err(fwd(crate::reason!("service_probe_endpoint")));
     }
     let (host, port) = match authority.rsplit_once(':') {
         Some((h, p)) if !p.is_empty() => (
             h,
             Some(
                 p.parse::<u16>()
-                    .map_err(|_| fwd("service_probe_endpoint"))?,
+                    .map_err(|_| fwd(crate::reason!("service_probe_endpoint")))?,
             ),
         ),
         Some((h, _)) => (h, None),
@@ -939,7 +941,7 @@ fn parse_endpoint(endpoint: &str) -> Result<Option<Endpoint>, Fwd> {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
     {
-        return Err(fwd("service_probe_endpoint"));
+        return Err(fwd(crate::reason!("service_probe_endpoint")));
     }
     let secure = scheme == "https" || scheme == "wss";
     let default = if secure { 443 } else { 80 };
@@ -1071,7 +1073,8 @@ fn truncate(content: &str, max: Option<usize>) -> Result<String, Fwd> {
     } else {
         keep
     };
-    let kept = utf16_slice(content, 0, end).ok_or_else(|| fwd("truncate_splits_surrogate"))?;
+    let kept = utf16_slice(content, 0, end)
+        .ok_or_else(|| fwd(crate::reason!("truncate_splits_surrogate")))?;
     Ok(format!("{kept}{MARKER}"))
 }
 
@@ -1188,7 +1191,7 @@ fn resolve_zone(
                 Res::Empty => Err("empty"),
                 Res::Failed if inspect => {
                     return Err(super::fwd_at(
-                        "prompt_section_failed",
+                        crate::reason!("prompt_section_failed"),
                         format!("{zone}.{}", section.name),
                     ));
                 }
@@ -1285,7 +1288,7 @@ fn resolve_detailed(
     if let Some(max) = template.max_chars
         && total > max
     {
-        return Err(fwd("context_template_max_chars"));
+        return Err(fwd(crate::reason!("context_template_max_chars")));
     }
     let scoped: Vec<String> = prompt
         .task_scoped
@@ -1356,12 +1359,12 @@ pub fn agent_root_search_path(
     if let Some(project_root) = project_root {
         let manifest = join(&[project_root, "asp-targets.toml"]);
         if std::path::Path::new(&manifest).exists() {
-            let content =
-                std::fs::read_to_string(&manifest).map_err(|_| fwd("targets_unreadable"))?;
+            let content = std::fs::read_to_string(&manifest)
+                .map_err(|_| fwd(crate::reason!("targets_unreadable")))?;
             let parsed = match crate::reads::targets::parse(&content) {
                 Ok(m) => m,
                 Err(crate::reads::targets::TargetsError::Forward(r)) => return Err(fwd(r)),
-                Err(_) => return Err(fwd("project_targets_invalid")),
+                Err(_) => return Err(fwd(crate::reason!("project_targets_invalid"))),
             };
             if let Some(J::Str(declared)) = parsed.get("agents-root").filter(|d| super::truthy(d)) {
                 has_project = true;
@@ -1393,9 +1396,9 @@ pub fn agent_root_search_path(
     let canonical = match opts {
         Roots::Agents(r) => Some(r.to_owned()),
         Roots::Shared(home, _) => crate::reads::declaration::agents_root(Some(home), env)
-            .map_err(|_| fwd("agents_root_config"))?,
+            .map_err(|_| fwd(crate::reason!("agents_root_config")))?,
         Roots::Ambient => crate::reads::declaration::agents_root(None, env)
-            .map_err(|_| fwd("agents_root_config"))?,
+            .map_err(|_| fwd(crate::reason!("agents_root_config")))?,
     };
     if let Some(c) = canonical {
         roots.push(c);
@@ -1456,12 +1459,12 @@ pub fn discover(
     // loadTemplateDiscoveryProfile: the raw TOML, unvalidated.
     let profile_path = join(&[agent_root, "agent-profile.toml"]);
     let (raw_profile, template_ref, base) = if std::path::Path::new(&profile_path).exists() {
-        let content =
-            std::fs::read_to_string(&profile_path).map_err(|_| fwd("profile_unreadable"))?;
+        let content = std::fs::read_to_string(&profile_path)
+            .map_err(|_| fwd(crate::reason!("profile_unreadable")))?;
         let raw = match toml::parse(&content) {
             Ok(v) => v,
             Err(TomlError::Unsupported(r)) => return Err(fwd(r)),
-            Err(_) => return Err(fwd("profile_toml_syntax")),
+            Err(_) => return Err(fwd(crate::reason!("profile_toml_syntax"))),
         };
         match raw.get("instructions") {
             Some(i @ J::Obj(_)) => {
@@ -1505,10 +1508,13 @@ pub fn discover(
     let winner = candidates.iter().find(|c| std::path::Path::new(c).exists());
     let template = match winner {
         Some(path) => {
-            let content = std::fs::read_to_string(path).map_err(|_| fwd("template_unreadable"))?;
+            let content = std::fs::read_to_string(path)
+                .map_err(|_| fwd(crate::reason!("template_unreadable")))?;
             Some(parse_template(&content)?)
         }
-        None if template_ref.is_some() => return Err(fwd("configured_template_missing")),
+        None if template_ref.is_some() => {
+            return Err(fwd(crate::reason!("configured_template_missing")));
+        }
         None => None,
     };
     Ok(Discovered {

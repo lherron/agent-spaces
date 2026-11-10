@@ -20,12 +20,18 @@ pub fn parse(content: &str) -> Result<J, TargetsError> {
     let parsed = match toml::parse(content) {
         Ok(v) => v,
         Err(TomlError::Unparsed | TomlError::IarnaRejects) => {
-            return Err(TargetsError::Forward("targets_toml_syntax"));
+            return Err(TargetsError::Forward(crate::reason!("targets_toml_syntax")));
         }
-        Err(TomlError::Unsupported(reason)) => return Err(TargetsError::Forward(reason)),
+        Err(TomlError::Unsupported(reason)) => {
+            return Err(TargetsError::Forward(
+                reason.within(crate::disposition::Context::Targets),
+            ));
+        }
     };
     if !manifest_valid(&parsed) {
-        return Err(TargetsError::Forward("targets_schema_invalid"));
+        return Err(TargetsError::Forward(crate::reason!(
+            "targets_schema_invalid"
+        )));
     }
     let mut errors: Vec<(String, String)> = vec![];
     let empty = J::Obj(vec![]);

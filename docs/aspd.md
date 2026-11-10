@@ -115,6 +115,25 @@ empty-frame refusal, and parse-error envelopes. When Bun can't be reached, or
 closes before replying, a forwarded request gets JSON-RPC `-32603` with
 `data.reason: "upstream_unavailable"`.
 
+### Sole mode (T-13018)
+
+`raspd serve` without `--upstream` is sole mode: there is no Bun behind it.
+Every request raspd cannot answer natively is answered from its disposition
+table, `crates/raspd/dispositions.json` (one row per forward reason, generated
+from the T-13008 forward inventory with the T-13018 r2 overrides). A `refuse`
+row returns Bun's envelope and code for that input (the message is raspd's); an
+`impossible` row returns `-32603` and logs `raspd.defect`; a `native` row a
+later slice will answer natively refuses with its placeholder reply until then.
+A forward reason needs a row to compile (`reason!`). In sole mode `version`
+reports `frontDoor.role: "sole"` with no `upstream` fields, and `health` never
+lists `upstream_unavailable`. A panic answers `-32603`, and a global-lock.json
+that fails Bun's lock schema refuses, in both modes. The log line for a
+refusal is `native.refused` (event) and `rpc.request` with `servedBy: native`,
+`relay: refused` and `fallback: <reason>`.
+
+`bun scripts/raspd-sole/table-e2e.ts --raspd <binary>` checks the table end to
+end on scratch (run by `cargo test`, so by `just verify`).
+
 raspd writes only its own files. `rpc.request` goes to `<logDir>/raspd.log`
 (`listener: "raspd"`, plus `servedBy: native|bun` and, for Bun,
 `relay: relayed|upstream_failed`), with the supervisor's stderr in

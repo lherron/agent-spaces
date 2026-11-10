@@ -38,6 +38,20 @@
   },
   "overrides": [
     {
+      "include": ["scripts/raspd-sole/cases/**"],
+      "linter": {
+        "rules": {
+          "performance": {
+            "noDelete": "off"
+          },
+          "suspicious": {
+            "noAssignInExpressions": "off",
+            "noExplicitAny": "off"
+          }
+        }
+      }
+    },
+    {
       "include": ["**/*.test.ts"],
       "linter": {
         "rules": {

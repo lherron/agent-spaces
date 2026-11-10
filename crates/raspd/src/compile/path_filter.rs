@@ -1,5 +1,5 @@
 //! Byte-identical shell files from compiler/agent-spaces/src/path-filter.ts.
-use super::{Fwd, atomic_write, fwd};
+use super::{Fwd, atomic_write, fwd, fwd_at};
 use crate::reads::jspath::join;
 
 const BODY: &str = r#"
@@ -94,11 +94,19 @@ pub fn prepare(scope_root: &str, exclude: &[String], materialize: bool) -> Resul
         return Ok(());
     }
     let zdotdir = join(&[scope_root, "zdotdir"]);
-    std::fs::create_dir_all(&zdotdir).map_err(|_| fwd("path_filter_mkdir"))?;
-    match std::fs::remove_dir_all(join(&[&zdotdir, "farm"])) {
+    std::fs::create_dir_all(&zdotdir).map_err(|_| fwd(crate::reason!("path_filter_mkdir")))?;
+    // Bun's rm(farm, { recursive: true, force: true }): a farm that is a file
+    // or a symlink is unlinked; only one rm -rf cannot remove refuses.
+    let farm = join(&[&zdotdir, "farm"]);
+    let removed = match std::fs::symlink_metadata(&farm) {
+        Ok(m) if m.is_dir() => std::fs::remove_dir_all(&farm),
+        Ok(_) => std::fs::remove_file(&farm),
+        Err(e) => Err(e),
+    };
+    match removed {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(_) => return Err(fwd("path_filter_reset")),
+        Err(e) => return Err(fwd_at(crate::reason!("path_filter_reset"), e.to_string())),
     }
     for (name, content) in files(exclude) {
         atomic_write(&join(&[&zdotdir, &name]), &content)?;

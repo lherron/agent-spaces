@@ -32,7 +32,11 @@ pub fn handle(params: Option<&J>, release: &Release) -> Compiled {
     };
     let valid = crate::reads::valid_inspect(params);
     if !crate::reads::handled(valid, params, INSPECT_REQUEST_VERSION) {
-        return answered(Answer::Forward("invalid_params"), None, None);
+        return answered(
+            Answer::Forward(crate::reason!("invalid_params")),
+            None,
+            None,
+        );
     }
     let params = params.expect("validated or fallback params are a record");
     if params.get("schemaVersion") != Some(&J::str(INSPECT_REQUEST_VERSION)) {
@@ -287,13 +291,13 @@ fn inspect(params: &J, release: &Release, phases: &mut Phases) -> Result<J, Fwd>
     {
         None => "agent-harness".to_owned(),
         Some(J::Str(h)) if profile::HARNESS_IDS.contains(&h.as_str()) => h.clone(),
-        Some(_) => return Err(fwd("inspect_harness_unknown")),
+        Some(_) => return Err(fwd(crate::reason!("inspect_harness_unknown"))),
     };
     let provider = match harness.as_str() {
         "claude" | "claude-hrcpty" => "anthropic",
         "codex" | "codex-hrcpty" => "openai-codex",
         // agent-harness and muse compile through recipes raspd does not build.
-        _ => return Err(fwd_at("inspect_harness", harness)),
+        _ => return Err(fwd_at(crate::reason!("inspect_harness"), harness)),
     };
 
     let placement = placement_from_declaration(
@@ -366,12 +370,12 @@ fn inspect(params: &J, release: &Release, phases: &mut Phases) -> Result<J, Fwd>
     let profile_path = join(&[&agent_root, "agent-profile.toml"]);
     if !std::path::Path::new(&profile_path).exists() {
         // buildRuntimeBundleRef throws without a profile.
-        return Err(fwd("inspect_profile_missing"));
+        return Err(fwd(crate::reason!("inspect_profile_missing")));
     }
     let agent_profile = std::fs::read_to_string(&profile_path)
         .ok()
         .and_then(|c| crate::reads::toml::parse(&c).ok())
-        .ok_or_else(|| fwd("profile_unreadable"))?;
+        .ok_or_else(|| fwd(crate::reason!("profile_unreadable")))?;
     let evaluation_context = J::obj([
         (
             "schemaVersion",
@@ -462,6 +466,7 @@ fn inspect(params: &J, release: &Release, phases: &mut Phases) -> Result<J, Fwd>
         Err(f) => return compile_refused(f, &agent_root),
     };
     plan.codex_home_read_only = true;
+    super::preflight(&plan)?;
     let compiled = materialize_and_emit(plan, release, phases)?;
     let runtime_plan = compiled.get("plan").cloned().unwrap_or(J::Null);
 
@@ -475,7 +480,7 @@ fn inspect(params: &J, release: &Release, phases: &mut Phases) -> Result<J, Fwd>
     ids.sort_unstable();
     if ids.windows(2).any(|w| w[0] == w[1]) {
         // validateAgentInspectionResult's verdict on repeated part ids is Bun's.
-        return Err(fwd("inspect_duplicate_part"));
+        return Err(fwd(crate::reason!("inspect_duplicate_part")));
     }
     let mut diagnostics: Vec<J> = vec![];
     let mut seen: Vec<String> = vec![];
@@ -579,7 +584,7 @@ fn inspect(params: &J, release: &Release, phases: &mut Phases) -> Result<J, Fwd>
 /// `inspection_failed` (inspectAgentForContext's `compiler_exception` and
 /// refusal diagnostics, joined); any other relays.
 fn compile_refused(f: Fwd, agent_root: &str) -> Result<J, Fwd> {
-    let message = match (f.reason, f.detail.as_deref()) {
+    let message = match (f.reason.as_str(), f.detail.as_deref()) {
         // participantOnlyRefusal, before anything is written.
         ("agent_participant_only", _) => format!(
             "Agent at {agent_root} is participant-only ([placement] launch = \"participant-only\"): its seat joins HRC as a direct participant and is never launched"
@@ -904,7 +909,7 @@ fn runtime_plan_parts(plan: &J) -> Vec<J> {
 fn freshness(plan: &J) -> Result<J, Fwd> {
     let lock = |v: Option<&J>| v.and_then(|x| x.get("lockHash")).is_some();
     if lock(plan.get("resolvedBundle")) || lock(plan.get("artifacts")) {
-        return Err(fwd("inspect_lock_hash"));
+        return Err(fwd(crate::reason!("inspect_lock_hash")));
     }
     Ok(J::obj([
         ("kind", J::str("unknown")),

@@ -41,7 +41,7 @@ fn is_inline(v: &J) -> bool {
 /// `TOML.stringify(obj)` for a table; a mixed-type array throws in iarna.
 pub fn stringify(obj: &J) -> Result<String, Fwd> {
     if !obj.is_record() {
-        return Err(fwd("toml_stringify_type"));
+        return Err(fwd(crate::reason!("toml_stringify_type")));
     }
     stringify_object("", "", obj)
 }
@@ -72,8 +72,7 @@ fn stringify_object(prefix: &str, indent: &str, obj: &J) -> Result<String, Fwd> 
 
 fn key(k: &str) -> String {
     if !k.is_empty()
-        && k
-            .chars()
+        && k.chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     {
         k.to_owned()
@@ -185,11 +184,14 @@ fn inline_value(v: &J, t: Type) -> Result<String, Fwd> {
         (Type::Integer, J::Num(n)) => integer(&js_number(*n)),
         (Type::Float, J::Num(n)) => float(*n),
         (Type::Boolean, J::Bool(b)) => b.to_string(),
-        (Type::Array, J::Arr(items)) => {
-            inline_array(&items.iter().filter(|i| !matches!(i, J::Null)).collect::<Vec<_>>())?
-        }
+        (Type::Array, J::Arr(items)) => inline_array(
+            &items
+                .iter()
+                .filter(|i| !matches!(i, J::Null))
+                .collect::<Vec<_>>(),
+        )?,
         (Type::Table, J::Obj(_)) => inline_table(v)?,
-        _ => return Err(fwd("toml_stringify_type")),
+        _ => return Err(fwd(crate::reason!("toml_stringify_type"))),
     })
 }
 
@@ -207,7 +209,7 @@ fn array_type(values: &[&J]) -> Result<Type, Fwd> {
     {
         return Ok(Type::Float);
     }
-    Err(fwd("toml_mixed_array"))
+    Err(fwd(crate::reason!("toml_mixed_array")))
 }
 
 fn inline_array(values: &[&J]) -> Result<String, Fwd> {
@@ -218,13 +220,15 @@ fn inline_array(values: &[&J]) -> Result<String, Fwd> {
         .collect::<Result<Vec<_>, _>>()?;
     let joined = items.join(", ");
     // `/\n/.test(stringified)` tests the array's comma-joined string.
-    Ok(if joined.chars().count() > 60 || items.iter().any(|i| i.contains('\n')) {
-        format!("[\n  {}\n]", items.join(",\n  "))
-    } else if items.is_empty() {
-        "[ ]".into()
-    } else {
-        format!("[ {joined} ]")
-    })
+    Ok(
+        if joined.chars().count() > 60 || items.iter().any(|i| i.contains('\n')) {
+            format!("[\n  {}\n]", items.join(",\n  "))
+        } else if items.is_empty() {
+            "[ ]".into()
+        } else {
+            format!("[ {joined} ]")
+        },
+    )
 }
 
 fn inline_table(v: &J) -> Result<String, Fwd> {
@@ -263,7 +267,7 @@ fn stringify_complex(prefix: &str, indent: &str, k: &str, v: &J) -> Result<Strin
             out.push_str(&stringify_object(&format!("{full}."), indent, v)?);
             Ok(out)
         }
-        _ => Err(fwd("toml_stringify_type")),
+        _ => Err(fwd(crate::reason!("toml_stringify_type"))),
     }
 }
 
@@ -293,7 +297,8 @@ mod tests {
         let expected = "a = \"x\"\nn = 200_000\narr = [ \"AGENTS.md\", \"AGENT.md\" ]\nq = 'say \"hi\"'\nempty = { }\n\n[features]\nhooks = true\n\n[hooks.state.\"/p/hooks.json:stop:0:0\"]\ntrusted_hash = \"sha256:ab\"\n\n[mcp_servers.s]\ncommand = \"c\"\nenabled = true\n\n  [mcp_servers.s.env]\n  K = \"V\"\n\n[tui]\nstatus_line = [ \"model-with-reasoning\", \"context-remaining\", \"current-dir\" ]\n";
         assert_eq!(stringify(&v).unwrap(), expected);
         let v = parse(r#"{"m":"a\nb\"","c":"x\u0001y\u0002","f":5.25,"big":1234567.5}"#);
-        let expected = "m = \"\"\"\na\nb\"\\\n\"\"\"\nc = \"x\\u0001y\u{2}\"\nf = 5.25\nbig = 1_234_567.5\n";
+        let expected =
+            "m = \"\"\"\na\nb\"\\\n\"\"\"\nc = \"x\\u0001y\u{2}\"\nf = 5.25\nbig = 1_234_567.5\n";
         assert_eq!(stringify(&v).unwrap(), expected);
     }
 }
