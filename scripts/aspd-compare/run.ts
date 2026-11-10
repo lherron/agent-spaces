@@ -87,6 +87,7 @@ import {
   type Fingerprints,
   type Reply,
   type TreeEntry,
+  copyDirectoryTimes,
   deriveCodexHome,
   diffMaps,
   masking,
