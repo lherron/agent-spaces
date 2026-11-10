@@ -3,11 +3,15 @@
  *
  * Bundle versions inside a scope root are pruned on every compile, but the
  * roots themselves (`<ASP_HOME>/codex-homes/<scope>/`) never were. A root is
- * retired only when no running process on this node names a path under it and
- * its newest bundle version (or the root itself) is older than the minimum age.
+ * retired only when no running process on this node names a path under it, its
+ * newest bundle version (or the root itself) is older than the minimum age, and
+ * it holds no Codex session history. A scope root is a seat's CODEX_HOME (the
+ * root itself for `<project>_<agent>` roots, `<root>/home` for runtime-key
+ * roots), so its `sessions/` is conversation history no compile recreates; gc
+ * never deletes it, and no option overrides that.
  * Lock targets do not keep a root: the global lock names agents, not
  * agent/project pairs, so it cannot tell a live pair from a dead one. The next
- * compile for that agent and project recreates a retired root.
+ * compile for that agent and project recreates a retired root's bundles.
  *
  * Liveness is per node: the process table of the node gc runs on.
  */
@@ -24,7 +28,7 @@ const PROJECT_AGENT_ROOT = /^[a-z0-9.-][a-z0-9._-]*_[a-z0-9._-]+$/
 /** Codex runtime-key roots (drivers/execution run-codex computeCodexRuntimeKey). */
 const RUNTIME_KEY_ROOT = /^[0-9a-f]{24}$/
 
-export type ScopeRootReason = 'not-scope-root' | 'live' | 'age' | 'retire'
+export type ScopeRootReason = 'not-scope-root' | 'live' | 'age' | 'history' | 'retire'
 
 export interface ScopeRootDecision {
   name: string
@@ -129,14 +133,38 @@ async function newestMtimeMs(root: string): Promise<number> {
   return newest
 }
 
+/**
+ * CODEX_HOME candidates under a scope root: the root (`<project>_<agent>`,
+ * drivers/execution run-codex getProjectCodexRuntimeHomePath and raspd
+ * compile/codex.rs home_path) and `<root>/home` (runtime-key roots,
+ * resolveCodexRuntimeHomePath).
+ */
+const CODEX_HOME_CANDIDATES = ['', 'home']
+
+/** The first non-empty `sessions/` under a CODEX_HOME of the root, relative to it. */
+async function sessionHistory(root: string): Promise<string | undefined> {
+  for (const home of CODEX_HOME_CANDIDATES) {
+    const sessions = join(root, home, 'sessions')
+    try {
+      if ((await readdir(sessions)).length > 0) return join(home, 'sessions')
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      // Unreadable is not "absent": keep the root rather than guess.
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') return `${join(home, 'sessions')} (${code})`
+    }
+  }
+  return undefined
+}
+
 function emptyCounts(): Record<ScopeRootReason, number> {
-  return { 'not-scope-root': 0, live: 0, age: 0, retire: 0 }
+  return { 'not-scope-root': 0, live: 0, age: 0, history: 0, retire: 0 }
 }
 
 /**
  * Decide, and unless dryRun retire, every scope root under
  * `<aspHome>/codex-homes`. Each root gets one decision with its size and the
- * first rule that keeps it, in order: not a scope root, live reference, age.
+ * first rule that keeps it, in order: not a scope root, live reference, age,
+ * session history.
  */
 export async function retireScopeRoots(options: ScopeRootGCOptions): Promise<ScopeRootGCResult> {
   const codexHomes = join(options.aspHome, 'codex-homes')
@@ -193,7 +221,10 @@ export async function retireScopeRoots(options: ScopeRootGCOptions): Promise<Sco
       if (ageDays < minAgeDays) {
         decision = decide('age', `${newestText} < ${minAgeDays}d`)
       } else {
-        decision = decide('retire', `${newestText}; no live reference`)
+        const history = await sessionHistory(path)
+        decision = history
+          ? decide('history', `${newestText}; holds Codex session history (${history})`)
+          : decide('retire', `${newestText}; no live reference; no session history`)
       }
     }
 

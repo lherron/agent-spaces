@@ -147,6 +147,7 @@ export function registerGcCommand(program: Command): void {
           console.log(`  Scope roots scanned: ${scopeRoots.decisions.length}`)
           console.log(`    kept by live reference: ${bucket('live')}`)
           console.log(`    kept by age: ${bucket('age')}`)
+          console.log(`    kept by session history: ${bucket('history')}`)
           console.log(`    kept not a scope root: ${bucket('not-scope-root')}`)
           console.log(`    ${verb}: ${bucket('retire')}`)
           if (scopeRoots.errors)
