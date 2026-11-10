@@ -148,20 +148,27 @@ export function awaitServing(
   )
 }
 
-/** Wait until the public socket answers as raspd fronting `releaseId`. */
+/**
+ * Wait until the public socket answers as raspd from `releaseId` in `role`.
+ * A raspd older than sole mode reports no role; it is accepted only as front.
+ */
 export function awaitFrontDoor(
   socketPath: string,
   releaseId: string,
+  role: 'front' | 'sole',
   check: () => void = () => undefined
 ): Promise<Record<string, unknown>> {
   return pollReady(
     async () => {
       const version = await versionOf(socketPath)
-      const front = version?.['frontDoor'] as { name?: unknown } | undefined
+      const front = version?.['frontDoor'] as { name?: unknown; role?: unknown } | undefined
       const release = version?.['release'] as { releaseId?: unknown } | undefined
       if (front?.name !== 'raspd') return undefined
       if (release?.releaseId !== releaseId) {
         fail(`raspd answered as ${String(release?.releaseId)}, expected ${releaseId}`)
+      }
+      if ((front.role ?? 'front') !== role) {
+        fail(`raspd answered in role ${String(front.role)}, expected ${role}`)
       }
       return version as Record<string, unknown>
     },

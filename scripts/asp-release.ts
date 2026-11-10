@@ -19,7 +19,10 @@ import {
 import { createRequire } from 'node:module'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { OFFLINE_EVIDENCE_CAPABILITY } from 'spaces-harness-broker-protocol'
-import { FIXED_EXECUTABLE_RELEASE_ROOT_CAPABILITY } from './aspd-service/release-compatibility.ts'
+import {
+  FIXED_EXECUTABLE_RELEASE_ROOT_CAPABILITY,
+  RASPD_SOLE_CAPABILITY,
+} from './aspd-service/release-compatibility.ts'
 import { pruneReleases } from './aspd-service/release-retention.ts'
 
 const REPO_ROOT = resolve(import.meta.dir, '..')
@@ -796,7 +799,11 @@ async function buildRelease(outputRootInput: string): Promise<ReleaseInspection>
       builtAt,
       platform: process.platform,
       architecture: process.arch,
-      capabilities: [OFFLINE_EVIDENCE_CAPABILITY, FIXED_EXECUTABLE_RELEASE_ROOT_CAPABILITY],
+      capabilities: [
+        OFFLINE_EVIDENCE_CAPABILITY,
+        FIXED_EXECUTABLE_RELEASE_ROOT_CAPABILITY,
+        RASPD_SOLE_CAPABILITY,
+      ],
       executables,
       workerBindings: { ...WORKER_BINDINGS },
       assets,

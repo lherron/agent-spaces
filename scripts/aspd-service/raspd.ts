@@ -1,9 +1,10 @@
 /**
  * The front door (T-11835, docs/proposals/aspd-rust-front-door.md): raspd from
  * the selected release on the public socket, forwarding to Bun aspd on
- * `<run>/aspd-bun.sock`. Detached, or its own launchd job when supervised.
+ * `<run>/aspd-bun.sock`, or alone without `--upstream` in a sole namespace
+ * (T-13018). Detached, or its own launchd job when supervised.
  */
-import { mkdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { inspectRelease } from '../asp-release.ts'
 import {
   awaitFrontDoor,
@@ -18,6 +19,7 @@ import {
   bootstrapJob,
   fixedExecutablePath,
   launchAgentJob,
+  launchdLoaded,
   launchdPid,
   renderLaunchdScript,
   writeLaunchScript,
@@ -33,39 +35,62 @@ import {
   fail,
   serviceEnv,
   serviceLogPaths,
+  serviceRole,
   writeJsonAtomic,
 } from './namespace.ts'
-import { supportsFixedExecutableReleaseRoot } from './release-compatibility.ts'
+import { supportsFixedExecutableReleaseRoot, supportsRaspdSole } from './release-compatibility.ts'
 
 /** The raspd process recorded for this namespace, if it is still raspd from that release. */
 function runningRaspd(p: NamespacePaths): RunningRecord | undefined {
   return runningProcess(p.raspdRunning, 'raspd')
 }
 
-/** raspd's launchd job in a supervised, fronted namespace. */
+/** raspd's launchd job in a supervised, fronted or sole namespace. */
 export function raspdJob(p: NamespacePaths, config: ServiceConfig): LaunchdSupervisor {
   return launchAgentJob((config.frontDoor as FrontDoor).label, p.raspdLaunchScript)
 }
 
-/** Start raspd from `active` on the public socket, in front of Bun's socket. */
+/**
+ * Refuse a release whose raspd predates sole mode. Such a raspd reads a
+ * missing `--upstream` as `<run>/aspd-bun.sock`, so it must never be started
+ * in a sole namespace. Callers check before they stop anything.
+ */
+export function assertSoleRelease(
+  inspection: { capabilities?: readonly string[] | undefined },
+  releaseId: string
+): void {
+  if (!supportsRaspdSole(inspection)) {
+    fail(
+      `release ${releaseId} predates raspd sole mode (no raspd.sole/v1 capability); a sole namespace cannot run it`
+    )
+  }
+}
+
+/** Start raspd from `active` on the public socket: in front of Bun's socket, or alone when sole. */
 export async function startRaspd(
   p: NamespacePaths,
   config: ServiceConfig,
   active: ActiveSelection
 ): Promise<Record<string, unknown>> {
   const front = config.frontDoor as FrontDoor
+  const sole = serviceRole(config) === 'sole'
+  const role = sole ? 'sole' : 'front'
   const existing = runningRaspd(p)
   if (existing !== undefined && existing.releaseId === active.releaseId) {
-    return { alreadyRunning: existing, serving: await versionOf(config.socketPath) }
+    // The same release in the other role (front-door-enable from sole) restarts.
+    const serving = await versionOf(config.socketPath)
+    const servingRole = (serving?.['frontDoor'] as { role?: unknown } | undefined)?.role ?? 'front'
+    if (servingRole === role) return { alreadyRunning: existing, serving }
   }
   if (existing !== undefined) await stopRaspd(p, config)
   const inspection = inspectRelease(active.releasePath)
   const raspd = inspection.executableResolution.raspd
   if (raspd === undefined) fail(`release ${active.releaseId} does not contain raspd`)
+  if (sole) assertSoleRelease(inspection, active.releaseId)
   const useFixedExecutable = supportsFixedExecutableReleaseRoot(inspection)
   const logs = serviceLogPaths(p.ns, config)
   mkdirSync(logs.dir, { recursive: true, mode: 0o700 })
-  const args = ['--upstream', front.bunSocketPath]
+  const args = sole ? [] : ['--upstream', front.bunSocketPath]
 
   if (config.supervisor !== undefined) {
     const supervisor = raspdJob(p, config)
@@ -88,7 +113,7 @@ export async function startRaspd(
     bootoutIfLoaded(supervisor.label)
     writeLaunchdPlist(supervisor, logs.raspdSupervisor)
     await bootstrapJob(supervisor)
-    const serving = await awaitFrontDoor(config.socketPath, active.releaseId)
+    const serving = await awaitFrontDoor(config.socketPath, active.releaseId, role)
     return { supervisor, launchdPid: launchdPid(supervisor.label) ?? null, serving }
   }
 
@@ -116,7 +141,7 @@ export async function startRaspd(
     logPath: logs.raspdSupervisor,
   }
   writeJsonAtomic(p.raspdRunning, record)
-  const serving = await awaitFrontDoor(config.socketPath, active.releaseId, () => {
+  const serving = await awaitFrontDoor(config.socketPath, active.releaseId, role, () => {
     if (!pidAlive(pid)) fail(`raspd did not become ready; see ${logs.raspdSupervisor}`)
   })
   return { started: record, serving, readyAt: new Date().toISOString() }
@@ -147,19 +172,33 @@ export async function stopRaspd(
   return { stopped: true, pid: record.pid, signalledAt, exitedAt: new Date().toISOString() }
 }
 
-/** Which process answers each socket, direct or fronted. */
+/** Which process answers each socket, direct, fronted or sole. */
 export async function frontDoorStatus(
   p: NamespacePaths,
   config: ServiceConfig
 ): Promise<Record<string, unknown>> {
   const publicVersion = await versionOf(config.socketPath)
   const front = publicVersion?.['frontDoor'] ?? null
+  const role = serviceRole(config)
   if (config.frontDoor === undefined) {
-    return { mode: 'direct', bunSocket: config.socketPath, publicFrontDoor: front }
+    return { mode: role, bunSocket: config.socketPath, publicFrontDoor: front }
+  }
+  if (role === 'sole') {
+    return {
+      mode: role,
+      publicSocket: config.socketPath,
+      raspd: runningRaspd(p) ?? null,
+      raspdLaunchdPid:
+        config.supervisor !== undefined ? (launchdPid(config.frontDoor.label) ?? null) : null,
+      publicFrontDoor: front,
+      publicRelease: publicVersion?.['release'] ?? null,
+      bunSocketExists: existsSync(config.frontDoor.bunSocketPath),
+      bunJobLoaded: config.supervisor !== undefined ? launchdLoaded(config.supervisor.label) : null,
+    }
   }
   const bunVersion = await versionOf(config.frontDoor.bunSocketPath)
   return {
-    mode: 'fronted',
+    mode: role,
     publicSocket: config.socketPath,
     bunSocket: config.frontDoor.bunSocketPath,
     raspd: runningRaspd(p) ?? null,

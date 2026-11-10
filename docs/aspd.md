@@ -145,20 +145,62 @@ service and release, Bun upstream health, per-op native, relayed and
 upstream_failed counts, and the recent compiles. That kernel is never on the
 request path.
 
-The role lives in `config.frontDoor`, and the lifecycle verbs act on both
-processes:
+### Roles: direct, fronted, sole
+
+A namespace has one of three roles, recorded in `<ns>/service/config.json`.
+`status` (`role`) and `front-door-status` (`mode`) both name it.
+
+| role | `config.frontDoor` | public `aspd.sock` | `aspd-bun.sock` |
+| --- | --- | --- | --- |
+| direct | absent | Bun aspd | absent |
+| fronted | `{bunSocketPath, label}` | raspd `--upstream aspd-bun.sock` | Bun aspd |
+| sole | `{bunSocketPath, label, sole: true}` | raspd, no `--upstream` | absent, and no Bun process or job |
+
+In sole, `bunSocketPath` is where `front-door-enable` puts Bun back. The role
+belongs to the namespace, not the release: every verb keeps the role it finds.
+`start`, `stop` and `restart` act on both processes when fronted and on raspd
+alone when sole. `activate` stops raspd, selects, and starts raspd last on the
+new release; when sole it never starts Bun. `supervise` hands raspd its own
+launchd job when fronted or sole (and Bun its job when direct or fronted).
 
 ```bash
-just aspd-front-door-enable  <absolute-ns> [label]   # Bun -> aspd-bun.sock, raspd -> aspd.sock
+just aspd-front-door-enable  <absolute-ns> [label]   # direct -> fronted, or sole -> fronted
+just aspd-sole-enable        <absolute-ns>           # fronted -> sole
 just aspd-front-door-status  <absolute-ns>
-just aspd-front-door-disable <absolute-ns>           # rollback: raspd stops, Bun takes aspd.sock back
+just aspd-front-door-disable <absolute-ns>           # fronted -> direct; refuses from sole
 ```
+
+`aspd-sole-enable` is entered only from fronted (never direct to sole in one
+step). It stops raspd and Bun, removes `aspd-bun.sock` and, under supervision,
+Bun's launchd job and plist, records `sole: true`, and starts raspd without
+`--upstream`. It fails unless no Bun aspd process belongs to the namespace and
+`aspd-bun.sock` is gone afterwards. `aspd-front-door-enable` on a sole
+namespace starts Bun aspd from the active release on `aspd-bun.sock` (its
+launchd job back when supervised) while sole raspd still serves, then restarts
+raspd with `--upstream`. `aspd-front-door-disable` on a sole namespace refuses:
+run `aspd-front-door-enable` first.
+
+A release declares sole support with the release capability `raspd.sole/v1`
+in `release.json` (`asp-release inspect` reports it under `capabilities`).
+Releases built from this change on carry it. A raspd older than sole mode reads
+a missing `--upstream` as `<run>/aspd-bun.sock`, so it is never started without
+one: `aspd-sole-enable`, and `aspd-activate` in a sole namespace, refuse a
+release without the capability before stopping anything, and `startRaspd`
+refuses it in a sole namespace whatever verb asks.
+
+Rollback from sole is `aspd-front-door-enable` on the active release: the same
+raspd, forwarding the refuse rows to Bun again. If the release itself is at
+fault, `aspd-activate` of the previous release follows, as in any fronted
+namespace. Every release serves either role until all three nodes have run
+sole for seven days (T-13018 section 4); switching a real node is mable's.
 
 Under launchd supervision, raspd is its own job (default label
 `com.praesidium.raspd`, script `<ns>/service/raspd-launchd-run.sh`). Clients are
 unchanged, and no HRC restart is needed. Go-live on a real node is plan R4. The
-scratch proof is `bun scripts/raspd-front-door-e2e.ts`, with artifacts under
-`var/wrkq-artifacts/T-11835/e2e/`.
+scratch proofs are `bun scripts/raspd-front-door-e2e.ts` (direct, fronted and
+back; artifacts under `var/wrkq-artifacts/T-11835/e2e/`) and
+`bun scripts/raspd-sole-role-e2e.ts` (fronted, sole and back, unsupervised;
+artifacts under `var/wrkq-artifacts/T-13055/e2e/`).
 
 ## Historical pre-v2 pilot record
 

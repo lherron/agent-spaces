@@ -34,16 +34,28 @@ export type ServiceConfig = {
   /** Present once `supervise` has handed the service lifetime to launchd. */
   supervisor?: LaunchdSupervisor | undefined
   /**
-   * Present while the namespace is fronted: raspd serves `socketPath` and Bun
-   * listens on `bunSocketPath`. Under launchd supervision raspd is its own job.
+   * Present while raspd serves `socketPath` (fronted or sole). Fronted, Bun
+   * listens on `bunSocketPath`; sole, no Bun runs and that socket does not
+   * exist. Under launchd supervision raspd is its own job.
    */
   frontDoor?: FrontDoor | undefined
 }
 
 export type FrontDoor = {
+  /** Bun's socket while fronted, and where front-door-enable puts it back from sole. */
   bunSocketPath: string
   /** raspd's launchd label when the namespace is supervised. */
   label: string
+  /** Sole (T-13018): raspd runs without `--upstream` and no Bun aspd belongs to the namespace. */
+  sole?: true | undefined
+}
+
+/** direct: Bun on the public socket; fronted: raspd in front of Bun; sole: raspd alone. */
+export type ServiceRole = 'direct' | 'fronted' | 'sole'
+
+export function serviceRole(config: ServiceConfig): ServiceRole {
+  if (config.frontDoor === undefined) return 'direct'
+  return config.frontDoor.sole === true ? 'sole' : 'fronted'
 }
 
 export type ActiveSelection = {

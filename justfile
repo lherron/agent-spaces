@@ -338,7 +338,7 @@ aspd-status ns:
 # own job (default label com.praesidium.raspd). Go-live on a real node is
 # coordinated (plan R4); these recipes take an explicit namespace.
 
-# Put an aspd namespace behind the raspd front door.
+# Put an aspd namespace behind the raspd front door (from direct, or back from sole).
 aspd-front-door-enable ns label="":
     bun scripts/aspd-service.ts front-door-enable "{{ ns }}" {{ if label == "" { "" } else { quote(label) } }}
 
@@ -346,9 +346,17 @@ aspd-front-door-enable ns label="":
 aspd-front-door-disable ns:
     bun scripts/aspd-service.ts front-door-disable "{{ ns }}"
 
-# Show whether an aspd namespace is fronted and what each socket answers.
+# Show whether an aspd namespace is direct, fronted or sole and what each socket answers.
 aspd-front-door-status ns:
     bun scripts/aspd-service.ts front-door-status "{{ ns }}"
+
+# T-13018 sole role: raspd alone on aspd.sock, no Bun aspd process, job or
+# aspd-bun.sock. Entered only from fronted, and only on a release that declares
+# raspd.sole/v1. Rollback is aspd-front-door-enable on the active release.
+
+# Retire Bun aspd from a fronted namespace: raspd serves alone (sole).
+aspd-sole-enable ns:
+    bun scripts/aspd-service.ts sole-enable "{{ ns }}"
 
 # Check and test the Rust workspace (crates/: raspd, aspd-domain). All
 # compilation runs on build1 through rbuild (installed by arris `just install`)
