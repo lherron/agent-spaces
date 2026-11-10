@@ -171,7 +171,21 @@ Check Claude binary, shared spaces root, and cache permissions. `--json` for JSO
 
 ## `asp gc`
 
-Garbage collect unreferenced store and cache entries. `--dry-run` to preview deletions.
+Garbage collect unreferenced store and cache entries, and retire unused scope roots.
+`--dry-run` deletes nothing and prints the same decisions.
+
+- Roots: the project's `asp-lock.json` (`--project <dir>` or auto-detected) and
+  `<ASP_HOME>/global-lock.json`. gc prints each, or `none: <reason>`, before deleting anything.
+  Only a missing lock is "no lock"; a lock that exists but cannot be read or parsed refuses, exit 1,
+  naming the file.
+- Snapshots and cache entries are kept unless `--project-only` is passed: nothing records which
+  other project's lock references them, so without that flag gc cannot know every root.
+  `--project-only` collects against the two locks above and deletes what other projects reference.
+- `--scope-roots` also retires `<ASP_HOME>/codex-homes/<scope>/` roots. A root is kept when a
+  running process on this node names a path under it (argv or environment, from `ps`), when its
+  newest `bundles/.versions/*` entry (or the root itself) is newer than `--min-age-days` (default
+  30), or when its agent is a global-lock target. One line per root with its size and reason, then
+  totals. Liveness is per node; the next compile recreates a retired root.
 
 ## `asp gui`
 

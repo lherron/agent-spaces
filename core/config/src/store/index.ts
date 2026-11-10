@@ -91,13 +91,29 @@ export {
   pruneBundleVersions,
   runGC,
   checkGC,
+  loadGCRoots,
+  OTHER_PROJECT_LOCKS_NONE_REASON,
   DEFAULT_BUNDLE_VERSION_MIN_AGE_MS,
   DEFAULT_BUNDLE_VERSION_RETAIN_RECENT,
   type BundleVersionPruneOptions,
   type BundleVersionPruneResult,
   type GCResult,
   type GCOptions,
+  type GCRootLock,
+  type GCRoots,
 } from './gc.js'
+
+// Scope-root retirement
+export {
+  DEFAULT_SCOPE_ROOT_MIN_AGE_DAYS,
+  retireScopeRoots,
+  runningProcessTexts,
+  scopeRootsInUse,
+  type ScopeRootDecision,
+  type ScopeRootGCOptions,
+  type ScopeRootGCResult,
+  type ScopeRootReason,
+} from './scope-root-gc.js'
 
 // Temp lifecycle
 export {

@@ -30,7 +30,9 @@ plugin-artifacts,build}.ts` and `core/config/src/materializer/`, harness layouts
   refuses `Partial install changes shared space …`.
 - `asp build [target] --harness h --output <dir>`: materializes without launching; plugin dirs live in
   `ASP_HOME/cache/<hash>`, `--output` gets `settings.json`.
-- `asp gc [--dry-run]`: unreferenced snapshots, cache entries and bundle versions.
+- `asp gc [--dry-run] [--project-only] [--scope-roots]`: prints its root locks (project `asp-lock.json`,
+  `ASP_HOME/global-lock.json`), keeps snapshots and cache entries unless `--project-only`, prunes stale bundle
+  versions, and with `--scope-roots` retires unused `codex-homes/<scope>` roots. An unreadable lock refuses, exit 1.
 - `asp init [-t name] [--force]`: a new `asp-targets.toml` with one target composing `space:defaults@dev`.
 - `asp add <ref> --target t [--no-install]` / `asp remove <id> --target t [--no-install]`: edit only the target's
   compose list (comments kept), then install that target; other targets keep their lock entries. `add` validates
@@ -81,11 +83,11 @@ mkdir <root>/init-probe && cd <root>/init-probe && asp init && cat asp-targets.t
 
 - The install summary for agent-harness says `0 plugins` and prints flags without values (`--extension`,
   `--skill`, `--session-id`); the bundle still holds the skills and `asp run --dry-run` prints the full argv.
-- **`asp gc` never loads the lock** (product gap T-11376): `gc.ts:42` passes the project directory to
-  `readLockJson`, which fails `EISDIR` and is swallowed, so every snapshot and cache entry counts as unreferenced.
-  `Cache entries removed: 1` after a `build --output` is that bug; with the lock loaded the count is 0
-  (`T-11375/02-install-build/gc-lock-probe.ts` and drive.txt; again 2026-11-02, `T-12323/02-install-build/drive.txt`).
-  Only ever run `asp gc --dry-run`, never a bare `asp gc` on a shared ASP_HOME, until T-11376 lands.
+- **`asp gc` roots** (fixed T-11376): gc reads `<project>/asp-lock.json` and `ASP_HOME/global-lock.json` and prints
+  both under `Roots:`. Before the fix it read the project directory, swallowed `EISDIR`, and `Cache entries removed: 1`
+  after a `build --output` was that bug. It now keeps every snapshot and cache entry unless `--project-only`, so
+  `Cache entries removed: 0` is expected either way on this drive. Never run a real `asp gc --scope-roots` against
+  a shared ASP_HOME; that is Mable's call. Use the dry run (`T-11376/c1-*.sh`..`c5-*`).
 - **`asp build` writes empty plugins for project spaces** (product gap T-11377): it reads them from store snapshots
   that install never makes, so the cache dir holds only `.asp-cache.json` and `.claude-plugin/plugin.json`, and
   `--output/settings.json` is `{}`. `@dev` spaces build complete. Check plugin content, not that the file exists

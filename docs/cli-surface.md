@@ -131,7 +131,9 @@ as correct; it prints the generated harness invocation without launching.
 - `asp path <spaceId>` — filesystem path to a space by ID.
 - `asp doctor [--json]` — Claude binary, shared spaces root, cache
   permissions.
-- `asp gc [--dry-run]` — garbage-collect unreferenced store/cache entries.
+- `asp gc [--dry-run] [--project-only] [--scope-roots [--min-age-days N]]` —
+  print the root locks, garbage-collect store/cache entries (only with
+  `--project-only`) and stale bundle versions, and retire unused scope roots.
 - `asp harnesses [--json]` — list the six catalog-derived public harnesses,
   plus local availability, versions, paths, capabilities, and models.
 

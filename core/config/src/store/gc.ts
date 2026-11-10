@@ -1,7 +1,15 @@
 import type { Dirent, Stats } from 'node:fs'
 import { lstat, readFile, readdir, rm } from 'node:fs/promises'
 import { basename, dirname, join, relative, sep } from 'node:path'
-import { HARNESS_IDS, type LockFile, type Sha256Integrity } from '../core/index.js'
+import { ConfigFileNotFoundError } from '../core/errors.js'
+import {
+  ConfigParseError,
+  HARNESS_IDS,
+  LOCK_FILENAME,
+  type LockFile,
+  type Sha256Integrity,
+  readLockJson,
+} from '../core/index.js'
 import { pathMarker } from '../path-markers/index.js'
 import {
   type CacheOptions,
@@ -52,6 +60,72 @@ export interface GCOptions {
   bundleVersionMinAgeMs?: number | undefined
   /** Additional roots to scan for durable references to versioned bundle paths */
   bundleVersionReferenceRoots?: string[] | undefined
+  /**
+   * Collect snapshots and cache entries against `lockFiles` (default true).
+   * False when the lock files are not known to be every root, so nothing they
+   * omit is deleted.
+   */
+  collectStore?: boolean | undefined
+}
+
+/** One lock gc considered as a root: loaded, or absent with the reason. */
+export interface GCRootLock {
+  kind: 'project' | 'global'
+  path: string
+  lock?: LockFile | undefined
+  /** Set when the lock is absent; a lock that exists but cannot be used refuses instead. */
+  none?: string | undefined
+}
+
+export interface GCRoots {
+  project: GCRootLock | { kind: 'project'; none: string }
+  global: GCRootLock
+  /** Every loaded lock, in project, global order. */
+  lockFiles: LockFile[]
+}
+
+/**
+ * Other projects' locks are not discoverable: no snapshot, cache entry or
+ * bundle records the lock path it was built from, so gc cannot know every
+ * root without guessing.
+ */
+export const OTHER_PROJECT_LOCKS_NONE_REASON =
+  'no bundle or cache entry records the lock path it was built from'
+
+async function loadRootLock(kind: GCRootLock['kind'], path: string): Promise<GCRootLock> {
+  try {
+    return { kind, path, lock: await readLockJson(path) }
+  } catch (error) {
+    // Only a missing file is "no lock". Anything else (EACCES, EISDIR, bad JSON,
+    // schema) refuses, naming the file, before gc deletes anything.
+    if (error instanceof ConfigFileNotFoundError) {
+      return { kind, path, none: `${path} does not exist` }
+    }
+    const message = error instanceof Error ? error.message : String(error)
+    throw new ConfigParseError(
+      `gc refused: ${kind} lock ${path} exists but cannot be read: ${message}`,
+      path
+    )
+  }
+}
+
+/**
+ * Load the gc root locks: the project's asp-lock.json (a file under the
+ * project directory) when there is a project, and `<ASP_HOME>/global-lock.json`
+ * always. Throws when a lock exists but cannot be read or parsed.
+ */
+export async function loadGCRoots(options: {
+  paths: PathResolver
+  projectPath?: string | null | undefined
+}): Promise<GCRoots> {
+  const project = options.projectPath
+    ? await loadRootLock('project', join(options.projectPath, LOCK_FILENAME))
+    : ({ kind: 'project', none: 'no project found' } as const)
+  const global = await loadRootLock('global', options.paths.globalLock)
+  const lockFiles = [project, global].flatMap((root) =>
+    'lock' in root && root.lock ? [root.lock] : []
+  )
+  return { project, global, lockFiles }
 }
 
 export interface BundleVersionPruneResult {
@@ -215,6 +289,8 @@ async function collectReferencedBundleVersions(options: {
   referenceRoots?: string[] | undefined
 }): Promise<Set<string>> {
   const referenced = new Set<string>()
+  // Nothing to protect: skip walking every reference root for this .versions root.
+  if (options.candidates.size === 0) return referenced
   const roots = referenceRootsForVersionsRoot(options.versionsRoot, options.referenceRoots)
 
   async function scan(path: string): Promise<void> {
@@ -420,8 +496,9 @@ export async function runGC(lockFiles: LockFile[], options: GCOptions): Promise<
     paths: options.paths,
     cwd: options.cwd,
   }
+  const collectStore = options.collectStore ?? true
 
-  const snapshots = await listSnapshots(snapshotOpts)
+  const snapshots = collectStore ? await listSnapshots(snapshotOpts) : []
   for (const integrity of snapshots) {
     if (!reachableIntegrities.has(integrity)) {
       // Compute size before deletion
@@ -437,7 +514,7 @@ export async function runGC(lockFiles: LockFile[], options: GCOptions): Promise<
 
   // GC cache
   const cacheOpts: CacheOptions = { paths: options.paths }
-  const cacheEntries = await listCacheEntries(cacheOpts)
+  const cacheEntries = collectStore ? await listCacheEntries(cacheOpts) : []
 
   for (const cacheKey of cacheEntries) {
     if (!reachableCacheKeys.has(cacheKey)) {
