@@ -25,6 +25,8 @@
  *
  * Usage: bun scripts/raspd-front-door-e2e.ts [--out <dir>] [--commit <sha>]
  *          [--release <built release dir>] [--rusthrc <binary>]
+ *          [--scratch-parent <dir>]
+ * rusthrc defaults to ~/.bun/bin/rusthrc (the installed release).
  */
 import { spawn, spawnSync } from 'node:child_process'
 import {
@@ -37,6 +39,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { type Server, type Socket, connect, createServer } from 'node:net'
+import { homedir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { AspcUnixClient } from 'spaces-aspc-protocol/unix-client'
 import { isolateUsageMetrics } from './lib/usage-metrics-isolation.ts'
@@ -81,7 +84,9 @@ const out = resolve(
 )
 mkdirSync(out, { recursive: true })
 // Unix socket paths are limited to 104 bytes on macOS; keep the scratch root short.
-const scratch = mkdtempSync('/tmp/rfd-')
+const scratchParent = arg('--scratch-parent') ?? '/tmp'
+mkdirSync(scratchParent, { recursive: true })
+const scratch = mkdtempSync(join(scratchParent, 'rfd-'))
 const ns = join(scratch, 'ns')
 const publicSocket = join(ns, 'run', 'aspd.sock')
 const bunSocket = join(ns, 'run', 'aspd-bun.sock')
@@ -92,8 +97,10 @@ const service = (...args: string[]) =>
     unknown
   >
 const AVS = join(repo, 'spaces', 'verify-agent-spaces', 'skills', 'verify-agent-spaces', 'avs')
-const RUSTHRC =
-  arg('--rusthrc') ?? join(repo, 'crates', 'target', 'hrc-runtime', 'debug', 'rusthrc')
+const RUSTHRC = arg('--rusthrc') ?? join(homedir(), '.bun', 'bin', 'rusthrc')
+if (!existsSync(RUSTHRC)) {
+  throw new Error(`rusthrc not found at ${RUSTHRC}; pass --rusthrc <binary>`)
+}
 const HRC_RUNTIME = resolve(repo, '..', 'hrc-runtime')
 
 type Check = { name: string; ok: boolean; detail?: unknown }

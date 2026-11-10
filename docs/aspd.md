@@ -202,6 +202,12 @@ scratch proofs are `bun scripts/raspd-front-door-e2e.ts` (direct, fronted and
 back; artifacts under `var/wrkq-artifacts/T-11835/e2e/`) and
 `bun scripts/raspd-sole-role-e2e.ts` (fronted, sole and back, unsupervised;
 artifacts under `var/wrkq-artifacts/T-13055/e2e/`).
+`bun scripts/raspd-sole-supervised-e2e.ts --release <artifact> --out <evidence>`
+walks scratch launchd supervision, fronted-to-supervised, sole activation,
+crash recovery, restart and rollback. It records `launchctl print` beside each
+step and always unloads its randomly named scratch jobs and removes their plists.
+The release smoke and real HRC births are recorded under
+`var/wrkq-artifacts/T-13057/README.md` (including the rerun scripts).
 
 ## Historical pre-v2 pilot record
 

@@ -19,6 +19,7 @@
  *
  * Usage: bun scripts/raspd-sole-role-e2e.ts [--out <dir>] [--commit <sha>]
  *          [--release <built release dir>] [--old-release <pre-sole release dir>]
+ *          [--task <T-id>] (scratch and default evidence owner; default T-13055)
  */
 import { spawnSync } from 'node:child_process'
 import {
@@ -38,7 +39,7 @@ import { ROWS, compileRequest, createFixture } from './path-markers-e2e.ts'
 isolateUsageMetrics()
 
 const repo = resolve(import.meta.dir, '..')
-const TASK = 'T-13055'
+const TASK = arg('--task') ?? 'T-13055'
 
 function arg(name: string): string | undefined {
   const index = process.argv.indexOf(name)
