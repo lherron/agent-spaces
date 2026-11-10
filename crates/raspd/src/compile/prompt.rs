@@ -362,12 +362,17 @@ pub fn root_relative(r: &str, ctx: &Ctx) -> Option<String> {
 }
 
 /// `readFileOrUndefined`: `Ok(None)` when missing; `Err(())` for other errors.
-fn read_optional(path: &str) -> Result<Option<String>, ()> {
+fn read_optional(path: &str) -> Result<Option<String>, std::io::Error> {
     match std::fs::read(path) {
         Ok(bytes) => Ok(Some(String::from_utf8_lossy(&bytes).into_owned())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(_) => Err(()),
+        Err(e) => Err(e),
     }
+}
+
+/// Node's message for a readFile error, where raspd has its wording.
+fn read_message(error: &std::io::Error, path: &str) -> Option<String> {
+    crate::reads::jspath::read_error(error, path).map(|e| e.message)
 }
 
 // -- the template ------------------------------------------------------------
@@ -730,10 +735,19 @@ fn matches(when: Option<&When>, ctx: &Ctx) -> bool {
     true
 }
 
+/// SectionResolution `failed`: its source and reason, as Bun words them.
+/// `None` for a failure raspd cannot word as Bun does (an inspect then
+/// refuses `prompt_section_failed`; a compile skips the section either way).
+#[derive(Clone)]
+pub struct Failure {
+    pub source: J,
+    pub reason: String,
+}
+
 enum Res {
     Content(String),
     Empty,
-    Failed,
+    Failed(Option<Failure>),
 }
 
 fn as_res(content: Option<String>) -> Res {
@@ -743,9 +757,43 @@ fn as_res(content: Option<String>) -> Res {
     }
 }
 
+/// `boundedReason`: the first 8192 UTF-16 units.
+fn bounded(reason: String) -> String {
+    const MAX: usize = 8192;
+    if utf16_len(&reason) <= MAX {
+        return reason;
+    }
+    utf16_slice(&reason, 0, MAX).unwrap_or_default()
+}
+
+/// Node's name for a signal, for the ones raspd words.
+fn signal_name(signal: i32) -> Option<&'static str> {
+    Some(match signal {
+        libc::SIGHUP => "SIGHUP",
+        libc::SIGINT => "SIGINT",
+        libc::SIGQUIT => "SIGQUIT",
+        libc::SIGILL => "SIGILL",
+        libc::SIGTRAP => "SIGTRAP",
+        libc::SIGABRT => "SIGABRT",
+        libc::SIGBUS => "SIGBUS",
+        libc::SIGFPE => "SIGFPE",
+        libc::SIGKILL => "SIGKILL",
+        libc::SIGUSR1 => "SIGUSR1",
+        libc::SIGSEGV => "SIGSEGV",
+        libc::SIGUSR2 => "SIGUSR2",
+        libc::SIGPIPE => "SIGPIPE",
+        libc::SIGALRM => "SIGALRM",
+        libc::SIGTERM => "SIGTERM",
+        _ => return None,
+    })
+}
+
 /// `execFile('bash', ['-c', command], { cwd, env, timeout, maxBuffer: 1 MiB })`:
-/// the trimmed stdout on exit 0, `None` on any failure.
-fn run_exec(command: &str, timeout_ms: f64, ctx: &Ctx) -> Option<String> {
+/// the trimmed stdout on exit 0, else `formatExecFailure` of the error Bun's
+/// execFile raises (measured against Bun 1.3, T-13048), or `None` where
+/// raspd has no wording for it.
+fn run_exec(command: &str, timeout_ms: f64, ctx: &Ctx) -> Result<String, Option<String>> {
+    use std::os::unix::process::ExitStatusExt;
     const MAX_BUFFER: usize = 1024 * 1024;
     let mut cmd = Command::new("bash");
     // Bun: `execCwd ?? projectRoot ?? agentRoot` (no execCwd on a compile).
@@ -758,10 +806,10 @@ fn run_exec(command: &str, timeout_ms: f64, ctx: &Ctx) -> Option<String> {
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child = cmd.spawn().ok()?;
+    let mut child = cmd.spawn().map_err(|_| None)?;
     let stdin = child.stdin.take();
-    let mut stdout = child.stdout.take()?;
-    let mut stderr = child.stderr.take()?;
+    let mut stdout = child.stdout.take().ok_or(None)?;
+    let mut stderr = child.stderr.take().ok_or(None)?;
     let out_reader = std::thread::spawn(move || {
         let mut buf = vec![];
         let _ = (&mut stdout)
@@ -774,36 +822,75 @@ fn run_exec(command: &str, timeout_ms: f64, ctx: &Ctx) -> Option<String> {
         let _ = (&mut stderr)
             .take(MAX_BUFFER as u64 + 1)
             .read_to_end(&mut buf);
-        buf.len()
+        buf
     });
     let deadline = Instant::now() + Duration::from_millis(timeout_ms.max(0.0) as u64);
+    let mut timed_out = false;
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break Some(status),
             Ok(None) if Instant::now() >= deadline && timeout_ms > 0.0 => {
                 // SIGTERM, as Node's timeout kill does.
                 unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
-                let _ = child.wait();
-                break None;
+                timed_out = true;
+                break child.wait().ok();
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(2)),
             Err(_) => break None,
         }
     };
     drop(stdin);
-    let out = out_reader.join().ok()?;
-    let err_len = err_reader.join().ok()?;
-    let status = status?;
-    if !status.success() || out.len() > MAX_BUFFER || err_len > MAX_BUFFER {
-        return None;
+    let out = out_reader.join().map_err(|_| None)?;
+    let err = err_reader.join().map_err(|_| None)?;
+    let status = status.ok_or(None)?;
+    let stderr_text = String::from_utf8_lossy(&err).into_owned();
+    // `stderr || error.message`; the message is `Command failed: <cmd>` (Bun
+    // appends stderr to it only when there is some).
+    let failure = |code: String, signal: &str, killed: bool| {
+        let detail = if stderr_text.is_empty() {
+            format!("Command failed: bash -c {command}")
+        } else {
+            stderr_text.clone()
+        };
+        Some(bounded(format!(
+            "Exec failed; exit code: {code}; signal: {signal}; timeout: {killed}; stderr: {detail}"
+        )))
+    };
+    if err.len() > MAX_BUFFER {
+        return Err(None);
     }
-    Some(js_trim(&String::from_utf8_lossy(&out)).to_owned())
+    if out.len() > MAX_BUFFER {
+        return Err(if stderr_text.is_empty() {
+            Some(bounded(
+                "Exec failed; exit code: ERR_CHILD_PROCESS_STDIO_MAXBUFFER; signal: none; \
+                 timeout: false; stderr: stdout maxBuffer length exceeded"
+                    .to_owned(),
+            ))
+        } else {
+            None
+        });
+    }
+    if timed_out {
+        return Err(failure("unknown".into(), "SIGTERM", true));
+    }
+    if let Some(code) = status.code() {
+        if code != 0 {
+            return Err(failure(code.to_string(), "none", false));
+        }
+    } else {
+        let name = status.signal().and_then(signal_name).ok_or(None)?;
+        return Err(failure("unknown".into(), name, false));
+    }
+    Ok(js_trim(&String::from_utf8_lossy(&out)).to_owned())
 }
 
 fn resolve_exec(command: &str, timeout: Option<f64>, ctx: &Ctx) -> Res {
     match run_exec(command, timeout.unwrap_or(5000.0), ctx) {
-        Some(out) => as_res(Some(out)),
-        None => Res::Failed,
+        Ok(out) => as_res(Some(out)),
+        Err(reason) => Res::Failed(reason.map(|reason| Failure {
+            source: J::obj([("kind", J::str("exec")), ("command", J::str(command))]),
+            reason,
+        })),
     }
 }
 
@@ -814,12 +901,19 @@ fn resolve_file(path: &str, required: bool, ctx: &Ctx) -> Result<Res, Fwd> {
         Err(None) if required => {
             return Err(fwd(crate::reason!("required_context_file_unresolvable")));
         }
-        Err(None) => return Ok(Res::Failed),
+        Err(None) => return Ok(Res::Failed(None)),
     };
     let content = match read_optional(&file) {
         Ok(c) => c,
-        Err(()) if required => return Err(fwd(crate::reason!("required_context_file_unreadable"))),
-        Err(()) => return Ok(Res::Failed),
+        Err(_) if required => return Err(fwd(crate::reason!("required_context_file_unreadable"))),
+        Err(e) => {
+            return Ok(Res::Failed(read_message(&e, &file).map(|message| {
+                Failure {
+                    source: J::obj([("kind", J::str("file")), ("ref", J::str(path))]),
+                    reason: bounded(format!("Unreadable context file {path}: {message}")),
+                }
+            })));
+        }
     };
     match content {
         Some(c) if !c.is_empty() => Ok(as_res(Some(interpolate(&c, ctx)?))),
@@ -846,6 +940,7 @@ fn resolve_slot(source: &str, ctx: &Ctx) -> Result<Res, Fwd> {
     let Some(value) = current else {
         return Ok(Res::Empty);
     };
+    let slot_source = || J::obj([("kind", J::str("slot")), ("source", J::str(source))]);
     let entries: Vec<String> = match value {
         J::Str(s) if s.is_empty() => vec![],
         J::Str(s) => vec![s.clone()],
@@ -855,13 +950,21 @@ fn resolve_slot(source: &str, ctx: &Ctx) -> Result<Res, Fwd> {
             .filter(|s| !s.is_empty())
             .map(str::to_owned)
             .collect(),
-        _ => return Ok(Res::Failed),
+        _ => {
+            return Ok(Res::Failed(Some(Failure {
+                source: slot_source(),
+                reason: bounded(format!(
+                    "Slot source {source} must resolve to a string or string array"
+                )),
+            })));
+        }
     };
     if entries.is_empty() {
         return Ok(Res::Empty);
     }
     let mut contents: Vec<Option<String>> = vec![];
-    let mut failures = 0;
+    // Each failed contribution's reason; `None` where raspd has no wording.
+    let mut failures: Vec<Option<String>> = vec![];
     let exec = source.ends_with("Exec");
     for entry in &entries {
         let res = if exec {
@@ -871,17 +974,20 @@ fn resolve_slot(source: &str, ctx: &Ctx) -> Result<Res, Fwd> {
                 Ok(file) => match read_optional(&file) {
                     Ok(Some(c)) => as_res(Some(interpolate(&c, ctx)?)),
                     Ok(None) => Res::Empty,
-                    Err(()) => Res::Failed,
+                    Err(e) => Res::Failed(read_message(&e, &file).map(|message| Failure {
+                        source: J::Null,
+                        reason: bounded(format!("Unreadable slot file {entry}: {message}")),
+                    })),
                 },
                 Err(Some(f)) => return Err(f),
-                Err(None) => Res::Failed,
+                Err(None) => Res::Failed(None),
             }
         };
         match res {
             Res::Content(c) => contents.push(Some(c)),
             Res::Empty => contents.push(None),
-            Res::Failed => {
-                failures += 1;
+            Res::Failed(f) => {
+                failures.push(f.map(|f| f.reason));
                 contents.push(None);
             }
         }
@@ -894,11 +1000,19 @@ fn resolve_slot(source: &str, ctx: &Ctx) -> Result<Res, Fwd> {
     if !joined.is_empty() {
         return Ok(as_res(Some(joined.join(if exec { "\n" } else { "\n\n" }))));
     }
-    Ok(if failures > 0 {
-        Res::Failed
-    } else {
-        Res::Empty
-    })
+    if failures.is_empty() {
+        return Ok(Res::Empty);
+    }
+    // slotAggregateResolution.
+    let reasons: Option<Vec<String>> = failures.iter().cloned().collect();
+    Ok(Res::Failed(reasons.map(|reasons| Failure {
+        source: slot_source(),
+        reason: bounded(format!(
+            "Slot source {source} failed to resolve {} contribution(s): {}",
+            reasons.len(),
+            reasons.join("; ")
+        )),
+    })))
 }
 
 enum Endpoint {
@@ -906,53 +1020,27 @@ enum Endpoint {
     Tcp(String, u16),
 }
 
-/// `parseServiceEndpoint` for the forms raspd judges; `Err` forwards.
-fn parse_endpoint(endpoint: &str) -> Result<Option<Endpoint>, Fwd> {
+/// `parseServiceEndpoint` (service-probe.ts): `unix://` or an absolute path,
+/// else a WHATWG URL (the url crate) of scheme tcp, http(s) or ws(s), to
+/// `url.hostname` (an IPv6 host keeps its brackets, as in JS) and `url.port`
+/// or the scheme's default. `None`: the section fails.
+fn parse_endpoint(endpoint: &str) -> Option<Endpoint> {
     if let Some(p) = endpoint.strip_prefix("unix://") {
-        return Ok(Some(Endpoint::Unix(p.to_owned())));
+        return Some(Endpoint::Unix(p.to_owned()));
     }
     if endpoint.starts_with('/') {
-        return Ok(Some(Endpoint::Unix(endpoint.to_owned())));
+        return Some(Endpoint::Unix(endpoint.to_owned()));
     }
-    let Some((scheme, rest)) = endpoint.split_once("://") else {
-        return Err(fwd(crate::reason!("service_probe_endpoint")));
-    };
-    let scheme = scheme.to_ascii_lowercase();
-    if !["tcp", "http", "https", "ws", "wss"].contains(&scheme.as_str()) {
-        return Err(fwd(crate::reason!("service_probe_endpoint")));
+    let url = url::Url::parse(endpoint).ok()?;
+    if !["tcp", "http", "https", "ws", "wss"].contains(&url.scheme()) {
+        return None;
     }
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    if authority.is_empty() || authority.contains(['@', '[', ']', ' ', '%', '\\']) {
-        return Err(fwd(crate::reason!("service_probe_endpoint")));
-    }
-    let (host, port) = match authority.rsplit_once(':') {
-        Some((h, p)) if !p.is_empty() => (
-            h,
-            Some(
-                p.parse::<u16>()
-                    .map_err(|_| fwd(crate::reason!("service_probe_endpoint")))?,
-            ),
-        ),
-        Some((h, _)) => (h, None),
-        None => (authority, None),
-    };
-    if host.is_empty()
-        || !host
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
-    {
-        return Err(fwd(crate::reason!("service_probe_endpoint")));
-    }
-    let secure = scheme == "https" || scheme == "wss";
-    let default = if secure { 443 } else { 80 };
-    // URL drops a default port, and `url.port ? Number(url.port) : default`.
-    let port = match port {
-        Some(p) if (scheme == "http" || scheme == "ws") && p == 80 => 80,
-        Some(p) if secure && p == 443 => 443,
-        Some(p) => p,
-        None => default,
-    };
-    Ok(Some(Endpoint::Tcp(host.to_ascii_lowercase(), port)))
+    let secure = matches!(url.scheme(), "https" | "wss");
+    let port = url.port().unwrap_or(if secure { 443 } else { 80 });
+    Some(Endpoint::Tcp(
+        url.host_str().unwrap_or_default().to_owned(),
+        port,
+    ))
 }
 
 /// `probeServiceEndpoint(endpoint, timeoutMs)`: up when a connection is made
@@ -969,6 +1057,11 @@ fn probe(endpoint: &Endpoint, timeout_ms: f64) -> bool {
         let up = match &target {
             Endpoint::Unix(path) => std::os::unix::net::UnixStream::connect(path).is_ok(),
             Endpoint::Tcp(host, port) => {
+                // An IPv6 host keeps its brackets ("[::1]") on purpose: Bun
+                // passes url.hostname to net.connect, whose lookup of "[::1]"
+                // fails ENOTFOUND, so Bun reports a bracketed IPv6 endpoint
+                // down even with a listener. raspd matches it (mable ruling,
+                // T-13048 EN-49455); stripping them would be a product change.
                 use std::net::ToSocketAddrs;
                 (host.as_str(), *port)
                     .to_socket_addrs()
@@ -995,11 +1088,22 @@ fn resolve_probe(
         specs.push((name.clone(), interpolate(endpoint, ctx)?));
     }
     let mut parsed = vec![];
-    for (_, endpoint) in &specs {
-        match parse_endpoint(endpoint)? {
+    for (name, endpoint) in &specs {
+        match parse_endpoint(endpoint) {
             Some(e) => parsed.push(e),
-            // Unsupported endpoint: the section fails.
-            None => return Ok(Res::Failed),
+            // resolveServiceProbeSection throws; resolveSection words it.
+            None => {
+                let names = services.iter().map(|(n, _)| J::str(n)).collect();
+                return Ok(Res::Failed(Some(Failure {
+                    source: J::obj([
+                        ("kind", J::str("service-probe")),
+                        ("services", J::Arr(names)),
+                    ]),
+                    reason: bounded(format!(
+                        "Service probe execution failed: Unsupported service probe endpoint for {name}: {endpoint}"
+                    )),
+                })));
+            }
         }
     }
     let timeout = timeout.unwrap_or(250.0);
@@ -1073,8 +1177,9 @@ fn truncate(content: &str, max: Option<usize>) -> Result<String, Fwd> {
     } else {
         keep
     };
-    let kept = utf16_slice(content, 0, end)
-        .ok_or_else(|| fwd(crate::reason!("truncate_splits_surrogate")))?;
+    // A cut between a surrogate pair leaves a lone high surrogate, as in Bun:
+    // JSON carries it escaped, a file write or content hash as U+FFFD.
+    let kept = utf16_slice(content, 0, end).unwrap_or_default();
     Ok(format!("{kept}{MARKER}"))
 }
 
@@ -1118,9 +1223,10 @@ pub struct SectionReport {
     /// `describeSectionSource`.
     pub source: String,
     pub order: usize,
-    /// `effective`, or `skipped` with `predicate` or `empty`. A failed
-    /// section is a `Forward` (raspd does not reproduce failure reasons).
+    /// `effective`, or `skipped` with `predicate` or `empty`.
     pub skipped: Option<&'static str>,
+    /// `failed`, with Bun's source and reason (then `skipped` is unused).
+    pub failed: Option<Failure>,
     pub content: Option<String>,
 }
 
@@ -1178,6 +1284,7 @@ fn resolve_zone(
                 source: section.source(ctx)?,
                 order,
                 skipped: Some("empty"),
+                failed: None,
                 content: None,
             })
         } else {
@@ -1189,13 +1296,21 @@ fn resolve_zone(
             match resolve_section(section, ctx)? {
                 Res::Content(content) => Ok(content),
                 Res::Empty => Err("empty"),
-                Res::Failed if inspect => {
+                Res::Failed(Some(failure)) if inspect => {
+                    if let Some(mut r) = report.take() {
+                        r.failed = Some(failure);
+                        reports.push(r);
+                    }
+                    continue;
+                }
+                // A failure raspd cannot word as Bun does.
+                Res::Failed(None) if inspect => {
                     return Err(super::fwd_at(
                         crate::reason!("prompt_section_failed"),
                         format!("{zone}.{}", section.name),
                     ));
                 }
-                Res::Failed => Err("failed"),
+                Res::Failed(_) => Err("failed"),
             }
         };
         let content = match outcome {
@@ -1359,7 +1474,8 @@ pub fn agent_root_search_path(
     if let Some(project_root) = project_root {
         let manifest = join(&[project_root, "asp-targets.toml"]);
         if std::path::Path::new(&manifest).exists() {
-            let content = std::fs::read_to_string(&manifest)
+            // Lossy like Bun's readFileSync(…, 'utf8'); a read error throws there too.
+            let content = crate::reads::jspath::read_text(&manifest)
                 .map_err(|_| fwd(crate::reason!("targets_unreadable")))?;
             let parsed = match crate::reads::targets::parse(&content) {
                 Ok(m) => m,
@@ -1395,10 +1511,10 @@ pub fn agent_root_search_path(
     }
     let canonical = match opts {
         Roots::Agents(r) => Some(r.to_owned()),
-        Roots::Shared(home, _) => crate::reads::declaration::agents_root(Some(home), env)
-            .map_err(|_| fwd(crate::reason!("agents_root_config")))?,
-        Roots::Ambient => crate::reads::declaration::agents_root(None, env)
-            .map_err(|_| fwd(crate::reason!("agents_root_config")))?,
+        Roots::Shared(home, _) => {
+            crate::reads::declaration::agents_root(Some(home), env).map_err(fwd)?
+        }
+        Roots::Ambient => crate::reads::declaration::agents_root(None, env).map_err(fwd)?,
     };
     if let Some(c) = canonical {
         roots.push(c);
@@ -1459,7 +1575,8 @@ pub fn discover(
     // loadTemplateDiscoveryProfile: the raw TOML, unvalidated.
     let profile_path = join(&[agent_root, "agent-profile.toml"]);
     let (raw_profile, template_ref, base) = if std::path::Path::new(&profile_path).exists() {
-        let content = std::fs::read_to_string(&profile_path)
+        // Bun reads it as UTF-8 with replacement; only a read error refuses.
+        let content = crate::reads::jspath::read_text(&profile_path)
             .map_err(|_| fwd(crate::reason!("profile_unreadable")))?;
         let raw = match toml::parse(&content) {
             Ok(v) => v,
@@ -1508,7 +1625,8 @@ pub fn discover(
     let winner = candidates.iter().find(|c| std::path::Path::new(c).exists());
     let template = match winner {
         Some(path) => {
-            let content = std::fs::read_to_string(path)
+            // Lossy like Bun's readFileSync(…, 'utf8'); a read error throws there too.
+            let content = crate::reads::jspath::read_text(path)
                 .map_err(|_| fwd(crate::reason!("template_unreadable")))?;
             Some(parse_template(&content)?)
         }
@@ -1580,11 +1698,33 @@ mod tests {
         c.agent_root = "/".into();
         c.project_root = None;
         assert_eq!(
-            run_exec("printf '  hi \\n'", 5000.0, &c).as_deref(),
+            run_exec("printf '  hi \\n'", 5000.0, &c).ok().as_deref(),
             Some("hi")
         );
-        assert_eq!(run_exec("exit 3", 5000.0, &c), None);
-        assert_eq!(run_exec("sleep 2", 100.0, &c), None);
+        // Bun 1.3's execFile errors, as formatExecFailure words them (T-13048).
+        let reason = |cmd: &str, ms: f64| run_exec(cmd, ms, &c).err().flatten();
+        assert_eq!(
+            reason("exit 3", 5000.0).as_deref(),
+            Some(
+                "Exec failed; exit code: 3; signal: none; timeout: false; stderr: Command failed: bash -c exit 3"
+            )
+        );
+        assert_eq!(
+            reason("echo oops >&2; exit 3", 5000.0).as_deref(),
+            Some("Exec failed; exit code: 3; signal: none; timeout: false; stderr: oops\n")
+        );
+        assert_eq!(
+            reason("sleep 2", 100.0).as_deref(),
+            Some(
+                "Exec failed; exit code: unknown; signal: SIGTERM; timeout: true; stderr: Command failed: bash -c sleep 2"
+            )
+        );
+        assert_eq!(
+            reason("kill -9 $$", 5000.0).as_deref(),
+            Some(
+                "Exec failed; exit code: unknown; signal: SIGKILL; timeout: false; stderr: Command failed: bash -c kill -9 $$"
+            )
+        );
     }
 
     /// T-12023: exec runs in the project root when one is known, else agentRoot,
@@ -1600,9 +1740,9 @@ mod tests {
         let mut c = ctx();
         c.agent_root = agent.to_string_lossy().into_owned();
         c.project_root = Some(project.to_string_lossy().into_owned());
-        let in_project = run_exec("pwd -P", 5000.0, &c);
+        let in_project = run_exec("pwd -P", 5000.0, &c).ok();
         c.project_root = None;
-        let no_project = run_exec("pwd -P", 5000.0, &c);
+        let no_project = run_exec("pwd -P", 5000.0, &c).ok();
         std::fs::remove_dir_all(&base).unwrap();
         assert_eq!(in_project, Some(project_real));
         assert_eq!(no_project, Some(agent_real));

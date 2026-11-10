@@ -1,6 +1,8 @@
 //! raspd sole mode against its disposition table (T-13039): every runnable
 //! T-13008 case of every refuse and impossible row, sent to this build of
-//! raspd started without --upstream on a fresh scratch stage. The cases build
+//! raspd started without --upstream on a fresh scratch stage; and every case
+//! of the rows answered natively, judged against the recorded Bun reply
+//! (T-13048, scripts/raspd-sole/native.ts). The cases build
 //! their requests with the TypeScript compare-runner fixture, so the check is
 //! scripts/raspd-sole/table-e2e.ts; this runs it against the raspd binary
 //! cargo built for this test.

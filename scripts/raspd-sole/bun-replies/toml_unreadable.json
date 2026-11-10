@@ -1,0 +1,152 @@
+{
+  "method": "aspc.compileHarnessInvocation",
+  "params": {
+    "compileRequest": {
+      "schemaVersion": "agent-runtime-compile-request/v2",
+      "agent": {
+        "id": "p-e-tunr-agent"
+      },
+      "identity": {
+        "requestId": "request_pathmark_claude_code_dev",
+        "operationId": "operation_pathmark_claude_code_dev",
+        "hostSessionId": "host_pathmark_claude_code_dev",
+        "generation": 1,
+        "runtimeId": "runtime_pathmark_claude_code_dev",
+        "invocationId": "inv_pathmark_claude_code_dev",
+        "initialInputId": "input_pathmark_claude_code_dev",
+        "runId": "run_pathmark_claude_code_dev",
+        "traceId": "trace_pathmark_claude_code_dev"
+      },
+      "placement": {
+        "agentRoot": "/private/tmp/raspd-sole-native/stage/agents/p-e-tunr-agent",
+        "cwd": "/private/tmp/raspd-sole-native/stage/project",
+        "runMode": "task",
+        "bundle": {
+          "kind": "agent-project",
+          "agentName": "p-e-tunr-agent",
+          "projectRoot": "/private/tmp/raspd-sole-native/stage/project"
+        },
+        "dryRun": false,
+        "projectRoot": "/private/tmp/raspd-sole-native/stage/project",
+        "correlation": {
+          "sessionRef": {
+            "scopeRef": "agent:p-e-tunr-agent:project:project:task:T-11825",
+            "laneRef": "main"
+          },
+          "hostSessionId": "host_pathmark_claude_code_dev",
+          "generation": 1,
+          "runtimeId": "runtime_pathmark_claude_code_dev",
+          "invocationId": "inv_pathmark_claude_code_dev",
+          "initialInputId": "input_pathmark_claude_code_dev",
+          "runId": "run_pathmark_claude_code_dev"
+        },
+        "dispatchEnv": {
+          "AGENT_SCOPE_REF": "agent:p-e-tunr-agent:project:project:task:T-11825",
+          "AGENT_LANE_REF": "main",
+          "AGENT_SESSION_REF": "agent:p-e-tunr-agent:project:project:task:T-11825/lane:main",
+          "HRC_SESSION_REF": "agent:p-e-tunr-agent:project:project:task:T-11825/lane:main",
+          "AGENT_ID": "p-e-tunr-agent",
+          "AGENT_HOST_SESSION_ID": "host_pathmark_claude_code_dev",
+          "AGENT_GENERATION": "1",
+          "AGENT_TASK": "T-11825"
+        }
+      },
+      "requested": {
+        "harness": "claude",
+        "presentation": true
+      },
+      "materialization": {
+        "initialPrompt": "pathmark prompt",
+        "taskContext": {
+          "taskId": "T-11825",
+          "phase": "pathmark",
+          "role": "fixture",
+          "requiredEvidenceKinds": [],
+          "hintsText": "path marker fixture"
+        }
+      },
+      "hrcPolicy": {},
+      "correlation": {
+        "scopeRef": "agent:p-e-tunr-agent:project:project:task:T-11825",
+        "requestId": "request_pathmark_claude_code_dev",
+        "operationId": "operation_pathmark_claude_code_dev",
+        "hostSessionId": "host_pathmark_claude_code_dev",
+        "generation": 1,
+        "runtimeId": "runtime_pathmark_claude_code_dev",
+        "invocationId": "inv_pathmark_claude_code_dev",
+        "traceId": "trace_pathmark_claude_code_dev",
+        "runId": "run_pathmark_claude_code_dev",
+        "inputId": "input_pathmark_claude_code_dev"
+      }
+    }
+  },
+  "replies": [
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "facadeInfo": {
+          "name": "aspc-facade",
+          "version": "0.1.1"
+        },
+        "protocolVersion": "aspc/0.1",
+        "capabilities": {
+          "catalogAgents": true,
+          "inspectAgent": true,
+          "catalogAgentInspection": true,
+          "inspectAgentSelection": true,
+          "compileHarnessInvocation": true,
+          "resolveRuntimeDeclaration": true,
+          "inspectRuntimePlacement": true,
+          "inspectRuntimePlacementPreparationCorrelation": true,
+          "inspectRuntimePlacementPreparationTaskContext": true,
+          "observeRuntimeCapability": true,
+          "observeContinuationArtifact": true,
+          "prepareProcessInvocation": true,
+          "prepareProcessInvocationTaskContext": true,
+          "cohostedBroker": false,
+          "transports": [
+            "unix-jsonrpc-ndjson"
+          ]
+        },
+        "release": {
+          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
+          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
+          "builtAt": "2026-11-10T00:47:48.483Z"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "schemaVersion": "aspc-compile-harness-invocation-response/v2",
+        "ok": false,
+        "diagnostics": [
+          {
+            "level": "error",
+            "code": "compiler_exception",
+            "message": "EACCES: permission denied, copyfile '/private/tmp/raspd-sole-native/stage/agents/spaces/p-e-tunr/hooks/hooks.toml' -> '/private/tmp/raspd-sole-native/stage/asp-home/tmp/.staging/space-p-e-tunr-dev-63415-ba72f308-a6ab-4941-b536-9255123c738a/hooks/hooks.toml'",
+            "plane": "asp-compiler",
+            "details": {
+              "name": "Error",
+              "stack": "Error: EACCES: permission denied, copyfile '/private/tmp/raspd-sole-native/stage/agents/spaces/p-e-tunr/hooks/hooks.toml' -> '/private/tmp/raspd-sole-native/stage/asp-home/tmp/.staging/space-p-e-tunr-dev-63415-ba72f308-a6ab-4941-b536-9255123c738a/hooks/hooks.toml'\n    at async linkFile (/$bunfs/root/aspd.js:19299:20)\n    at async linkDirectory (/$bunfs/root/aspd.js:19322:21)\n    at async linkComponents (/$bunfs/root/aspd.js:19344:26)\n    at async materializeSpace (/$bunfs/root/aspd.js:35958:42)\n    at async materializeSpaceEntry (/$bunfs/root/aspd.js:22005:35)\n    at async materializeTarget (/$bunfs/root/aspd.js:22264:47)\n    at async materializeFromRefs (/$bunfs/root/aspd.js:22536:50)\n    at async materializeAgentRuntimeResources (/$bunfs/root/aspd.js:22973:49)\n    at async materializeSpec (/$bunfs/root/aspd.js:23682:62)\n    at async timeCompilePhase (/$bunfs/root/aspd.js:23221:27)"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tree": {
+    "agents/p-e-tunr-agent/SOUL.md": "file 644 483b67cf36c3435d18d119272c69ee5f2ec4fd9feaecd0597bd238464a55d484",
+    "agents/p-e-tunr-agent/agent-profile.toml": "file 644 1b99d270020e3d616d3bfef6984dbb3f72fbe132278c3f7b55e7a0c77cf76e7a",
+    "agents/p-e-tunr-agent/skills/probe-skill/SKILL.md": "file 644 5c0d43921335cc07086d88db6979921a88d8443767a43f1a46dcba30154e6c04",
+    "agents/spaces/p-e-tunr/hooks/a.sh": "file 644 a8076d3d28d21e02012b20eaf7dbf75409a6277134439025f282e368e3305abf",
+    "agents/spaces/p-e-tunr/hooks/hooks.toml": "file 500 e5ed858cfba163d4da8fcca96b30c783bf0a36b938db515ba25503590cae17cb",
+    "agents/spaces/p-e-tunr/skills/p-e-tunr-skill/SKILL.md": "file 644 4bf257c2f7df7660e8c6084a7ae63f055c911db05e05e13fb34e62ac1375144b",
+    "agents/spaces/p-e-tunr/space.toml": "file 644 5ae5619a5b4d574a81e925f3f52785cc27e0388752ccbd251693388c4305d63f",
+    "asp-home/global-lock.json": "file 644 e3335e2a8115bc695b7d9f2deeea76650798ee365caafc1da4ee644ab09ca851",
+    "asp-home/tmp/locks/lock-file-db691e722abd598e7db0504c74c48714.lock": "file 644 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "violations": []
+}

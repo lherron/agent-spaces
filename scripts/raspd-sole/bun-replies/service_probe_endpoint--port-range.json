@@ -1,0 +1,389 @@
+{
+  "method": "aspc.compileHarnessInvocation",
+  "params": {
+    "compileRequest": {
+      "schemaVersion": "agent-runtime-compile-request/v2",
+      "agent": {
+        "id": "p-spe-port-range"
+      },
+      "identity": {
+        "requestId": "request_pathmark_claude_code_dev",
+        "operationId": "operation_pathmark_claude_code_dev",
+        "hostSessionId": "host_pathmark_claude_code_dev",
+        "generation": 1,
+        "runtimeId": "runtime_pathmark_claude_code_dev",
+        "invocationId": "inv_pathmark_claude_code_dev",
+        "initialInputId": "input_pathmark_claude_code_dev",
+        "runId": "run_pathmark_claude_code_dev",
+        "traceId": "trace_pathmark_claude_code_dev"
+      },
+      "placement": {
+        "agentRoot": "/private/tmp/raspd-sole-native/stage/agents/p-spe-port-range",
+        "cwd": "/private/tmp/raspd-sole-native/stage/project",
+        "runMode": "task",
+        "bundle": {
+          "kind": "agent-project",
+          "agentName": "p-spe-port-range",
+          "projectRoot": "/private/tmp/raspd-sole-native/stage/project"
+        },
+        "dryRun": false,
+        "projectRoot": "/private/tmp/raspd-sole-native/stage/project",
+        "correlation": {
+          "sessionRef": {
+            "scopeRef": "agent:p-spe-port-range:project:project:task:T-11825",
+            "laneRef": "main"
+          },
+          "hostSessionId": "host_pathmark_claude_code_dev",
+          "generation": 1,
+          "runtimeId": "runtime_pathmark_claude_code_dev",
+          "invocationId": "inv_pathmark_claude_code_dev",
+          "initialInputId": "input_pathmark_claude_code_dev",
+          "runId": "run_pathmark_claude_code_dev"
+        },
+        "dispatchEnv": {
+          "AGENT_SCOPE_REF": "agent:p-spe-port-range:project:project:task:T-11825",
+          "AGENT_LANE_REF": "main",
+          "AGENT_SESSION_REF": "agent:p-spe-port-range:project:project:task:T-11825/lane:main",
+          "HRC_SESSION_REF": "agent:p-spe-port-range:project:project:task:T-11825/lane:main",
+          "AGENT_ID": "p-spe-port-range",
+          "AGENT_HOST_SESSION_ID": "host_pathmark_claude_code_dev",
+          "AGENT_GENERATION": "1",
+          "AGENT_TASK": "T-11825"
+        }
+      },
+      "requested": {
+        "harness": "claude",
+        "presentation": true
+      },
+      "materialization": {
+        "initialPrompt": "pathmark prompt",
+        "taskContext": {
+          "taskId": "T-11825",
+          "phase": "pathmark",
+          "role": "fixture",
+          "requiredEvidenceKinds": [],
+          "hintsText": "path marker fixture"
+        }
+      },
+      "hrcPolicy": {},
+      "correlation": {
+        "scopeRef": "agent:p-spe-port-range:project:project:task:T-11825",
+        "requestId": "request_pathmark_claude_code_dev",
+        "operationId": "operation_pathmark_claude_code_dev",
+        "hostSessionId": "host_pathmark_claude_code_dev",
+        "generation": 1,
+        "runtimeId": "runtime_pathmark_claude_code_dev",
+        "invocationId": "inv_pathmark_claude_code_dev",
+        "traceId": "trace_pathmark_claude_code_dev",
+        "runId": "run_pathmark_claude_code_dev",
+        "inputId": "input_pathmark_claude_code_dev"
+      }
+    }
+  },
+  "replies": [
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "facadeInfo": {
+          "name": "aspc-facade",
+          "version": "0.1.1"
+        },
+        "protocolVersion": "aspc/0.1",
+        "capabilities": {
+          "catalogAgents": true,
+          "inspectAgent": true,
+          "catalogAgentInspection": true,
+          "inspectAgentSelection": true,
+          "compileHarnessInvocation": true,
+          "resolveRuntimeDeclaration": true,
+          "inspectRuntimePlacement": true,
+          "inspectRuntimePlacementPreparationCorrelation": true,
+          "inspectRuntimePlacementPreparationTaskContext": true,
+          "observeRuntimeCapability": true,
+          "observeContinuationArtifact": true,
+          "prepareProcessInvocation": true,
+          "prepareProcessInvocationTaskContext": true,
+          "cohostedBroker": false,
+          "transports": [
+            "unix-jsonrpc-ndjson"
+          ]
+        },
+        "release": {
+          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
+          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
+          "builtAt": "2026-11-10T00:47:48.483Z"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "schemaVersion": "aspc-compile-harness-invocation-response/v2",
+        "ok": true,
+        "plan": {
+          "schemaVersion": "agent-runtime-plan/v2",
+          "compiler": {
+            "name": "agent-spaces",
+            "version": "0.1.1"
+          },
+          "compileId": "compile_d61800eafa029d6677d7f742ad18f956",
+          "createdAt": "2026-11-10T02:55:02.563Z",
+          "agent": {
+            "id": "p-spe-port-range"
+          },
+          "identity": {
+            "requestId": "request_pathmark_claude_code_dev",
+            "operationId": "operation_pathmark_claude_code_dev",
+            "hostSessionId": "host_pathmark_claude_code_dev",
+            "generation": 1,
+            "runtimeId": "runtime_pathmark_claude_code_dev",
+            "invocationId": "inv_pathmark_claude_code_dev",
+            "initialInputId": "input_pathmark_claude_code_dev",
+            "runId": "run_pathmark_claude_code_dev",
+            "traceId": "trace_pathmark_claude_code_dev"
+          },
+          "placement": {
+            "agentRoot": "/private/tmp/raspd-sole-native/stage/agents/p-spe-port-range",
+            "cwd": "/private/tmp/raspd-sole-native/stage/project",
+            "runMode": "task",
+            "bundle": {
+              "kind": "agent-project",
+              "agentName": "p-spe-port-range",
+              "projectRoot": "/private/tmp/raspd-sole-native/stage/project"
+            },
+            "dryRun": false,
+            "projectRoot": "/private/tmp/raspd-sole-native/stage/project",
+            "correlation": {
+              "sessionRef": {
+                "scopeRef": "agent:p-spe-port-range:project:project:task:T-11825",
+                "laneRef": "main"
+              },
+              "hostSessionId": "host_pathmark_claude_code_dev",
+              "generation": 1,
+              "runtimeId": "runtime_pathmark_claude_code_dev",
+              "invocationId": "inv_pathmark_claude_code_dev",
+              "initialInputId": "input_pathmark_claude_code_dev",
+              "runId": "run_pathmark_claude_code_dev"
+            }
+          },
+          "resolvedBundle": {
+            "bundleIdentity": "bundle:afbcd6f4e96ce5e2",
+            "runMode": "task",
+            "cwd": "/private/tmp/raspd-sole-native/stage/project",
+            "instructions": [
+              {
+                "slot": "soul",
+                "ref": "agent-root:///SOUL.md",
+                "contentHash": "sha256:57277e2125b9494975090a7d085ceaa168f6ebb7ff2a35b25eb9490175dc7873"
+              }
+            ],
+            "spaces": [
+              {
+                "ref": "space:pm-dev@dev",
+                "resolvedKey": "pm-dev@dev",
+                "integrity": "sha256:pending"
+              }
+            ]
+          },
+          "omitPriming": false,
+          "selection": {
+            "harness": "claude",
+            "modelProvider": "anthropic",
+            "model": "opus[1m]",
+            "presentation": true,
+            "provenance": {
+              "harness": "compile-request",
+              "modelProvider": "catalog-default",
+              "model": "catalog-default",
+              "presentation": "compile-request"
+            }
+          },
+          "execution": {
+            "recipeId": "claude-code",
+            "driver": "claude-code-tmux",
+            "protocol": "harness-broker/0.2",
+            "hosting": {
+              "executionTransport": "pty",
+              "terminalRequired": true,
+              "terminalHost": "tmux",
+              "processExecution": "broker-process"
+            },
+            "presentationFulfillment": "intrinsic",
+            "profile": {
+              "profileId": "profile_9b2e598cf614d08482d8fd40d909f106",
+              "profileHash": "387f15ce04e11753707ca49012c57b315c9147cedb4eb475791c2bb5b7fa0c84",
+              "compatibilityHash": "a46445eaf5994f9687f1a65af08f4f632c3723a0a300be4f9bf68114d23f0d76",
+              "startRequestHash": "ce1cd38f3509facf0d5aeec57f3e98d3cdf439878aa9364fcfcbf019d633d6a0"
+            },
+            "dispatchRequest": {
+              "startRequest": {
+                "spec": {
+                  "specVersion": "harness-broker.invocation/v1",
+                  "invocationId": "inv_pathmark_claude_code_dev",
+                  "labels": {
+                    "task": "T-11825"
+                  },
+                  "harness": {
+                    "frontend": "claude-code",
+                    "provider": "anthropic",
+                    "driver": "claude-code-tmux"
+                  },
+                  "process": {
+                    "command": "/private/tmp/raspd-sole-native/bin/claude",
+                    "args": [
+                      "--plugin-dir",
+                      "/private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_p-spe-port-range/bundles/.versions/c61724e7f33ee8c24e612fa05d9a8541945264b565f7799250b03c742ca3101b/p-spe-port-range/claude/plugins/000-pm-dev",
+                      "--plugin-dir",
+                      "/private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_p-spe-port-range/bundles/.versions/c61724e7f33ee8c24e612fa05d9a8541945264b565f7799250b03c742ca3101b/p-spe-port-range/claude/plugins/001-p-spe-port-range-agent",
+                      "--model",
+                      "opus[1m]",
+                      "--disallowedTools",
+                      "AskUserQuestion",
+                      "--setting-sources",
+                      "",
+                      "--settings",
+                      "/private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_p-spe-port-range/bundles/.versions/c61724e7f33ee8c24e612fa05d9a8541945264b565f7799250b03c742ca3101b/p-spe-port-range/claude/settings.json",
+                      "--system-prompt",
+                      "# p-spe-port-range\n\nProbe agent.\n",
+                      "--chrome",
+                      "--session-id",
+                      "b448693d-019d-4342-96cb-0b71d305a416",
+                      "--",
+                      "probe priming\n\npathmark prompt"
+                    ],
+                    "cwd": "/private/tmp/raspd-sole-native/stage/project",
+                    "lockedEnv": {
+                      "ASP_PLUGIN_ROOT": "/private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_p-spe-port-range/bundles/.versions/c61724e7f33ee8c24e612fa05d9a8541945264b565f7799250b03c742ca3101b/p-spe-port-range/claude",
+                      "ASP_PRIMING_PROMPT": "probe priming\n\npathmark prompt",
+                      "AGENTCHAT_ID": "p-spe-port-range",
+                      "ASP_PROJECT": "project",
+                      "ASP_HOME": "/private/tmp/raspd-sole-native/stage/asp-home",
+                      "ASP_AGENT_ROOT": "/private/tmp/raspd-sole-native/stage/agents/p-spe-port-range",
+                      "ASP_AGENT_NAME": "p-spe-port-range",
+                      "ASP_AGENT_VAR_DIR": "/private/tmp/raspd-sole-native/stage/agents/p-spe-port-range/var",
+                      "ASP_AGENT_STATE_DIR": "/private/tmp/raspd-sole-native/stage/agents/p-spe-port-range/var/state",
+                      "ASP_AGENT_CACHE_DIR": "/private/tmp/raspd-sole-native/stage/agents/p-spe-port-range/var/cache",
+                      "ASP_AGENT_LOG_DIR": "/private/tmp/raspd-sole-native/stage/agents/p-spe-port-range/var/logs",
+                      "ASP_PROJECT_ROOT": "/private/tmp/raspd-sole-native/stage/project",
+                      "ASP_PROJECT_ID": "project_p-spe-port-range",
+                      "ASP_PROJECT_STATE_DIR": "/private/tmp/raspd-sole-native/stage/agents/p-spe-port-range/var/state/projects/project_p-spe-port-range"
+                    },
+                    "harnessTransport": {
+                      "kind": "pty"
+                    }
+                  },
+                  "interaction": {
+                    "mode": "interactive",
+                    "turnConcurrency": "single",
+                    "inputQueue": "fifo"
+                  },
+                  "driver": {
+                    "kind": "claude-code-tmux",
+                    "terminalHost": "tmux"
+                  },
+                  "launch": {
+                    "systemPromptFile": "/private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_p-spe-port-range/bundles/.versions/c61724e7f33ee8c24e612fa05d9a8541945264b565f7799250b03c742ca3101b/p-spe-port-range/claude/.asp-runtime-artifacts/system-prompts/57/57277e2125b9494975090a7d085ceaa168f6ebb7ff2a35b25eb9490175dc7873/system-prompt.md",
+                    "systemPromptMode": "replace",
+                    "initialPrompt": "probe priming\n\npathmark prompt"
+                  },
+                  "correlation": {
+                    "requestId": "request_pathmark_claude_code_dev",
+                    "hostSessionId": "host_pathmark_claude_code_dev",
+                    "operationId": "operation_pathmark_claude_code_dev",
+                    "runtimeId": "runtime_pathmark_claude_code_dev",
+                    "runId": "run_pathmark_claude_code_dev",
+                    "invocationId": "inv_pathmark_claude_code_dev",
+                    "inputId": "input_pathmark_claude_code_dev",
+                    "traceId": "trace_pathmark_claude_code_dev",
+                    "scopeRef": "agent:p-spe-port-range:project:project:task:T-11825"
+                  }
+                }
+              },
+              "dispatchEnv": {
+                "AGENT_SCOPE_REF": "agent:p-spe-port-range:project:project:task:T-11825",
+                "AGENT_LANE_REF": "main",
+                "AGENT_SESSION_REF": "agent:p-spe-port-range:project:project:task:T-11825/lane:main",
+                "HRC_SESSION_REF": "agent:p-spe-port-range:project:project:task:T-11825/lane:main",
+                "AGENT_ID": "p-spe-port-range",
+                "AGENT_HOST_SESSION_ID": "host_pathmark_claude_code_dev",
+                "AGENT_GENERATION": "1",
+                "AGENT_TASK": "T-11825"
+              }
+            }
+          },
+          "artifacts": {
+            "materializedBundleRoot": "/private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_p-spe-port-range/bundles/.versions/c61724e7f33ee8c24e612fa05d9a8541945264b565f7799250b03c742ca3101b/p-spe-port-range/claude",
+            "systemPromptFile": "/private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_p-spe-port-range/bundles/.versions/c61724e7f33ee8c24e612fa05d9a8541945264b565f7799250b03c742ca3101b/p-spe-port-range/claude/.asp-runtime-artifacts/system-prompts/57/57277e2125b9494975090a7d085ceaa168f6ebb7ff2a35b25eb9490175dc7873/system-prompt.md",
+            "bundleIdentity": "bundle:afbcd6f4e96ce5e2"
+          },
+          "lockedEnv": {
+            "lockedEnvKeys": [
+              "AGENTCHAT_ID",
+              "ASP_AGENT_CACHE_DIR",
+              "ASP_AGENT_LOG_DIR",
+              "ASP_AGENT_NAME",
+              "ASP_AGENT_ROOT",
+              "ASP_AGENT_STATE_DIR",
+              "ASP_AGENT_VAR_DIR",
+              "ASP_HOME",
+              "ASP_PLUGIN_ROOT",
+              "ASP_PRIMING_PROMPT",
+              "ASP_PROJECT",
+              "ASP_PROJECT_ID",
+              "ASP_PROJECT_ROOT",
+              "ASP_PROJECT_STATE_DIR"
+            ]
+          },
+          "diagnostics": [],
+          "planHash": "fa079d0db5da242cfa086e64a09f402e52ebf14c5f51643caa59a2c998467f85"
+        },
+        "sessionMetadata": {},
+        "diagnostics": [],
+        "effectiveEnvironmentHash": "ae6bc81a483220589df91e32c994216468f6d06988ec12151490b90f34d792f5",
+        "executionRelease": {
+          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
+          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
+          "builtAt": "2026-11-10T00:47:48.483Z",
+          "releaseRoot": "/private/tmp/raspd-sole-native/releases/asp-26ab619396e7-20261110T004748Z-31fd9f",
+          "worker": {
+            "protocol": "harness-broker/0.2",
+            "executable": "/private/tmp/raspd-sole-native/releases/asp-26ab619396e7-20261110T004748Z-31fd9f/harness-broker",
+            "hostedDrivers": [
+              "claude-code-hrcpty",
+              "claude-code-tmux",
+              "codex-app-server",
+              "muse-cli-tmux",
+              "muse-serve"
+            ],
+            "argvPrefix": [
+              "run",
+              "--transport",
+              "unix"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "tree": {
+    "agents/p-spe-port-range/SOUL.md": "file 644 57277e2125b9494975090a7d085ceaa168f6ebb7ff2a35b25eb9490175dc7873",
+    "agents/p-spe-port-range/agent-profile.toml": "file 644 26d88263cab95e8ee6cfb664d5b3f98fdd99f5211316bfa0827165ba919b888c",
+    "agents/p-spe-port-range/context-template.toml": "file 644 a8e112731e14ba75ce6ee27014c5f3e2b7de886a2a0aa134031a922f0ac1d0b6",
+    "agents/p-spe-port-range/skills/probe-skill/SKILL.md": "file 644 5c0d43921335cc07086d88db6979921a88d8443767a43f1a46dcba30154e6c04",
+    "asp-home/codex-homes/project_p-spe-port-range/bundles/.versions/c61724e7f33ee8c24e612fa05d9a8541945264b565f7799250b03c742ca3101b/p-spe-port-range/claude/.asp-materialized.json": "file 644 e6429c4b38bfeaf10ec6d6214c0b97cc5c1a031053019b3ce8c6a4bb03768aaa",
+    "asp-home/codex-homes/project_p-spe-port-range/bundles/.versions/c61724e7f33ee8c24e612fa05d9a8541945264b565f7799250b03c742ca3101b/p-spe-port-range/claude/.asp-runtime-artifacts/system-prompts/57/57277e2125b9494975090a7d085ceaa168f6ebb7ff2a35b25eb9490175dc7873/system-prompt.md": "file 644 57277e2125b9494975090a7d085ceaa168f6ebb7ff2a35b25eb9490175dc7873",
+    "asp-home/codex-homes/project_p-spe-port-range/bundles/.versions/c61724e7f33ee8c24e612fa05d9a8541945264b565f7799250b03c742ca3101b/p-spe-port-range/claude/plugins/000-pm-dev/.claude-plugin/plugin.json": "file 644 cc29571f2acf0e63c77592aeb613885f7e77090fd391fc94bfc55fe88d8dff0a",
+    "asp-home/codex-homes/project_p-spe-port-range/bundles/.versions/c61724e7f33ee8c24e612fa05d9a8541945264b565f7799250b03c742ca3101b/p-spe-port-range/claude/plugins/000-pm-dev/skills/pm-dev-skill/SKILL.md": "file 644 b7d3c8bec60062aeda6632528afc83e10b37c99b9c53fc557699252d5f0555a5",
+    "asp-home/codex-homes/project_p-spe-port-range/bundles/.versions/c61724e7f33ee8c24e612fa05d9a8541945264b565f7799250b03c742ca3101b/p-spe-port-range/claude/plugins/001-p-spe-port-range-agent/.claude-plugin/plugin.json": "file 644 9cd3df8f5a03d02a968a784bfd05d8a892dd6e44cb2c20fdbe5ca9b11d9b78e9",
+    "asp-home/codex-homes/project_p-spe-port-range/bundles/.versions/c61724e7f33ee8c24e612fa05d9a8541945264b565f7799250b03c742ca3101b/p-spe-port-range/claude/plugins/001-p-spe-port-range-agent/skills/probe-skill/SKILL.md": "file 644 5c0d43921335cc07086d88db6979921a88d8443767a43f1a46dcba30154e6c04",
+    "asp-home/codex-homes/project_p-spe-port-range/bundles/.versions/c61724e7f33ee8c24e612fa05d9a8541945264b565f7799250b03c742ca3101b/p-spe-port-range/claude/settings.json": "file 644 a0504163c5e85e5da20fbc856bebbb44656594127747aff188215c1e5e156db0",
+    "asp-home/codex-homes/project_p-spe-port-range/bundles/.versions/c61724e7f33ee8c24e612fa05d9a8541945264b565f7799250b03c742ca3101b/p-spe-port-range/claude/statusline.sh": "file 755 1f8608e28d9a690917854e541e07e46ea737f5b3fe1b08e60524fe034af06c15",
+    "asp-home/global-lock.json": "file 644 594435e8b105f06bc5effa6cef0b933461c5b08d491e2eca3c6e2df1626f0a41",
+    "asp-home/tmp/locks/bundle-scope-cd28599ebcd940c73bf588d23b7f6574.lock": "file 644 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "asp-home/tmp/locks/lock-file-db691e722abd598e7db0504c74c48714.lock": "file 644 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "claude-home/.claude.json": "file 600 71f065e607109d098f3f1a7228ea1b05ed2f5649bc977154d707f7efd3414a5b"
+  },
+  "violations": []
+}

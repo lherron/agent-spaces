@@ -5,9 +5,16 @@
  */
 import { type ChildProcess, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs'
 import { connect } from 'node:net'
-import { join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 
 import { buildCases, seedStage } from '../aspd-compare/cases.ts'
 import { loadAsp } from '../path-markers-e2e.ts'
@@ -61,9 +68,22 @@ function sha256(text: string) {
   return createHash('sha256').update(text).digest('hex')
 }
 
-/** A release raspd accepts: release.json with the statusline asset and worker bindings. */
-export function syntheticRelease(root: string): string {
-  const id = 'asp-000000000000-20261109T000000Z-sole00'
+/** A release's identity (release.json releaseId, sourceCommit, builtAt). */
+export type ReleaseIdentity = { releaseId: string; sourceCommit: string; builtAt: string }
+
+const SYNTHETIC: ReleaseIdentity = {
+  releaseId: 'asp-000000000000-20261109T000000Z-sole00',
+  sourceCommit: '0000000000000000000000000000000000000000',
+  builtAt: '2026-11-09T00:00:00.000Z',
+}
+
+/**
+ * A release raspd accepts: release.json with the statusline asset and worker
+ * bindings. `identity` names it (a Bun aspd payload only serves from a release
+ * carrying its compiled-in identity).
+ */
+export function syntheticRelease(root: string, identity: ReleaseIdentity = SYNTHETIC): string {
+  const id = identity.releaseId
   const release = join(root, id)
   mkdirSync(join(release, 'assets', 'claude'), { recursive: true })
   const statusline = '#!/bin/sh\necho statusline\n'
@@ -73,8 +93,8 @@ export function syntheticRelease(root: string): string {
   const manifest = {
     schemaVersion: 'asp-standalone-release/v1',
     releaseId: id,
-    sourceCommit: '0000000000000000000000000000000000000000',
-    builtAt: '2026-11-09T00:00:00.000Z',
+    sourceCommit: identity.sourceCommit,
+    builtAt: identity.builtAt,
     assets: {
       'claude-statusline': { path: 'assets/claude/statusline.sh', sha256: sha256(statusline) },
     },
@@ -147,11 +167,19 @@ export type Rig = {
   stop: () => Promise<void>
 }
 
-/** Seed the stage under `scratch` and start `raspd` on it (no --upstream unless given). */
+/**
+ * Seed the stage under `scratch` and start `raspd` on it (no --upstream unless
+ * given). `subject: 'bun'` starts a release's Bun aspd binary (libexec/aspd)
+ * instead, the oracle the native half's recorded replies come from: both get
+ * the same environment, including the release identity a release launcher
+ * exports, so their replies are comparable byte for byte.
+ */
 export async function startRig(
   scratch: string,
   raspd: string,
-  extraArgs: string[] = []
+  extraArgs: string[] = [],
+  subject: 'raspd' | 'bun' = 'raspd',
+  identity?: ReleaseIdentity
 ): Promise<Rig> {
   const asp = await loadAsp()
   const stage = seedStage(asp, join(scratch, 'stage')) as Stage
@@ -162,7 +190,8 @@ export async function startRig(
   // so a concurrent case's compile does not add them under another's snapshot.
   for (const d of ['repo', 'sources', 'snapshots', 'cache', 'projects', 'tmp'])
     mkdirSync(join(stage.aspHome, d), { recursive: true })
-  const release = syntheticRelease(join(scratch, 'releases'))
+  const release = syntheticRelease(join(scratch, 'releases'), identity)
+  const manifest = JSON.parse(readFileSync(join(release, 'release.json'), 'utf8'))
   const bin = stubs(join(scratch, 'bin'))
   const home = join(scratch, 'home')
   mkdirSync(home, { recursive: true })
@@ -174,7 +203,7 @@ export async function startRig(
     USER: process.env['USER'] ?? 'agent',
     LOGNAME: process.env['LOGNAME'] ?? process.env['USER'] ?? 'agent',
     SHELL: '/bin/zsh',
-    TMPDIR: process.env['TMPDIR'] ?? '/tmp',
+    TMPDIR: join(scratch, 'tmp'),
     LANG: 'en_US.UTF-8',
     ASP_HOME: stage.aspHome,
     ASP_AGENTS_ROOT: stage.agentsRoot,
@@ -184,29 +213,40 @@ export async function startRig(
     ASP_CODEX_PATH: bin.codex,
     ASP_CODEX_SKIP_COMMON_PATHS: '1',
     ASP_USAGE_METRICS_VAR_ROOT: join(scratch, 'var'),
+    ASP_RELEASE_ID: manifest.releaseId,
+    ASP_RELEASE_SOURCE_COMMIT: manifest.sourceCommit,
+    ASP_RELEASE_ROOT: release,
   }
-  const child = spawn(
-    '/bin/sh',
-    [
-      '-c',
-      'umask 022; exec "$@"',
-      'raspd',
-      resolve(raspd),
-      'serve',
-      '--socket',
-      socket,
-      '--log',
-      log,
-      '--kernel-socket',
-      join(scratch, 'kernel.sock'),
-      '--release-root',
-      release,
-      '--metrics-dir',
-      join(scratch, 'metrics'),
-      ...extraArgs,
-    ],
-    { cwd: scratch, env, stdio: ['ignore', 'ignore', 'inherit'] }
-  )
+  mkdirSync(env['TMPDIR'] as string, { recursive: true })
+  // Bun aspd refuses a payload outside its release: give it this one's libexec.
+  if (subject === 'bun') {
+    mkdirSync(join(release, 'libexec'), { recursive: true })
+    for (const name of readdirSync(dirname(resolve(raspd))))
+      copyFileSync(join(dirname(resolve(raspd)), name), join(release, 'libexec', name))
+  }
+  const argv =
+    subject === 'bun'
+      ? [join(release, 'libexec', basename(raspd)), 'serve', '--socket', socket, '--log', log]
+      : [
+          resolve(raspd),
+          'serve',
+          '--socket',
+          socket,
+          '--log',
+          log,
+          '--kernel-socket',
+          join(scratch, 'kernel.sock'),
+          '--release-root',
+          release,
+          '--metrics-dir',
+          join(scratch, 'metrics'),
+          ...extraArgs,
+        ]
+  const child = spawn('/bin/sh', ['-c', 'umask 022; exec "$@"', subject, ...argv], {
+    cwd: scratch,
+    env,
+    stdio: ['ignore', 'ignore', 'inherit'],
+  })
   await waitFor(socket, child)
   const stop = async () => {
     if (child.exitCode !== null) return

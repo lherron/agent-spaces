@@ -240,6 +240,11 @@ pub fn write_str(out: &mut String, s: &str) {
             c if (c as u32) < 0x20 => {
                 let _ = write!(out, "\\u{:04x}", c as u32);
             }
+            // A lone UTF-16 surrogate a frame carried (`parse_frame`):
+            // well-formed JSON.stringify escapes it.
+            c if lone_surrogate(c).is_some() => {
+                let _ = write!(out, "\\u{:04x}", lone_surrogate(c).unwrap_or(0xfffd));
+            }
             c => out.push(c),
         }
     }
@@ -310,11 +315,273 @@ impl<'de> Visitor<'de> for JVisitor {
     }
 }
 
-/// Parse one frame. `None` where serde_json and `JSON.parse` may disagree
-/// (invalid UTF-8, lone surrogate escapes, numbers out of f64 range, deep
-/// nesting): raspd forwards such a frame to Bun rather than judge it.
+/// Parse JSON text (a file raspd reads). `None` where serde_json refuses it.
 pub fn parse(bytes: &[u8]) -> Option<J> {
     serde_json::from_slice(bytes).ok()
+}
+
+/// A lone UTF-16 surrogate `U+D800..U+DFFF` cannot live in a Rust `String`;
+/// a frame's is carried as the plane-16 private-use stand-in
+/// `U+10F800 + (s - 0xD800)`, which the writer escapes back as `\udXXX`.
+const SURROGATE_STAND_IN: u32 = 0x10_F800;
+
+/// The stand-in for lone surrogate `unit` (`0xD800..=0xDFFF`).
+pub fn stand_in(unit: u32) -> char {
+    char::from_u32(SURROGATE_STAND_IN + (unit - 0xD800)).unwrap_or('\u{fffd}')
+}
+
+/// A string as Node encodes it to UTF-8 (a file write, a hash update): each
+/// lone surrogate becomes U+FFFD.
+pub fn well_formed(s: &str) -> std::borrow::Cow<'_, str> {
+    if s.chars().any(|c| lone_surrogate(c).is_some()) {
+        std::borrow::Cow::Owned(
+            s.chars()
+                .map(|c| {
+                    if lone_surrogate(c).is_some() {
+                        '\u{fffd}'
+                    } else {
+                        c
+                    }
+                })
+                .collect(),
+        )
+    } else {
+        std::borrow::Cow::Borrowed(s)
+    }
+}
+
+/// The surrogate a stand-in carries.
+pub fn lone_surrogate(c: char) -> Option<u32> {
+    let c = c as u32;
+    (SURROGATE_STAND_IN..=SURROGATE_STAND_IN + 0x7FF)
+        .contains(&c)
+        .then(|| 0xD800 + (c - SURROGATE_STAND_IN))
+}
+
+/// One request frame, as `JSON.parse` reads it (T-13048): strict JSON
+/// grammar, a repeated key keeps its first position and takes the last
+/// value, a lone surrogate escape is kept (as its stand-in), a number beyond
+/// f64 is ±Infinity. `None` for anything `JSON.parse` throws on, and for what
+/// raspd does not chase: bytes that are not UTF-8, nesting deeper than 128.
+pub fn parse_frame(bytes: &[u8]) -> Option<J> {
+    let text = std::str::from_utf8(bytes).ok()?;
+    let mut p = FrameParser {
+        b: text.as_bytes(),
+        at: 0,
+        depth: 0,
+    };
+    p.ws();
+    let v = p.value()?;
+    p.ws();
+    (p.at == p.b.len()).then_some(v)
+}
+
+struct FrameParser<'a> {
+    b: &'a [u8],
+    at: usize,
+    depth: usize,
+}
+
+impl FrameParser<'_> {
+    fn peek(&self) -> Option<u8> {
+        self.b.get(self.at).copied()
+    }
+    fn ws(&mut self) {
+        while matches!(self.peek(), Some(b' ' | b'\t' | b'\n' | b'\r')) {
+            self.at += 1;
+        }
+    }
+    fn eat(&mut self, lit: &[u8]) -> Option<()> {
+        self.b[self.at..]
+            .starts_with(lit)
+            .then(|| self.at += lit.len())
+    }
+    fn value(&mut self) -> Option<J> {
+        match self.peek()? {
+            b'{' => self.nested(Self::object),
+            b'[' => self.nested(Self::array),
+            b'"' => self.string().map(J::Str),
+            b't' => self.eat(b"true").map(|_| J::Bool(true)),
+            b'f' => self.eat(b"false").map(|_| J::Bool(false)),
+            b'n' => self.eat(b"null").map(|_| J::Null),
+            b'-' | b'0'..=b'9' => self.number(),
+            _ => None,
+        }
+    }
+    fn nested(&mut self, f: fn(&mut Self) -> Option<J>) -> Option<J> {
+        self.depth += 1;
+        if self.depth > 128 {
+            return None;
+        }
+        let v = f(self);
+        self.depth -= 1;
+        v
+    }
+    fn object(&mut self) -> Option<J> {
+        self.at += 1;
+        let mut fields: Vec<(String, J)> = vec![];
+        let mut index: std::collections::HashMap<String, usize> = Default::default();
+        self.ws();
+        if self.peek()? == b'}' {
+            self.at += 1;
+            return Some(J::Obj(fields));
+        }
+        loop {
+            self.ws();
+            if self.peek()? != b'"' {
+                return None;
+            }
+            let k = self.string()?;
+            self.ws();
+            self.eat(b":")?;
+            self.ws();
+            let v = self.value()?;
+            match index.get(&k) {
+                Some(&at) => fields[at].1 = v,
+                None => {
+                    index.insert(k.clone(), fields.len());
+                    fields.push((k, v));
+                }
+            }
+            self.ws();
+            match self.peek()? {
+                b',' => self.at += 1,
+                b'}' => {
+                    self.at += 1;
+                    return Some(J::Obj(fields));
+                }
+                _ => return None,
+            }
+        }
+    }
+    fn array(&mut self) -> Option<J> {
+        self.at += 1;
+        let mut items = vec![];
+        self.ws();
+        if self.peek()? == b']' {
+            self.at += 1;
+            return Some(J::Arr(items));
+        }
+        loop {
+            self.ws();
+            items.push(self.value()?);
+            self.ws();
+            match self.peek()? {
+                b',' => self.at += 1,
+                b']' => {
+                    self.at += 1;
+                    return Some(J::Arr(items));
+                }
+                _ => return None,
+            }
+        }
+    }
+    fn hex4(&mut self) -> Option<u32> {
+        let h = self.b.get(self.at..self.at + 4)?;
+        let h = std::str::from_utf8(h).ok()?;
+        if !h.bytes().all(|c| c.is_ascii_hexdigit()) {
+            return None;
+        }
+        self.at += 4;
+        u32::from_str_radix(h, 16).ok()
+    }
+    fn string(&mut self) -> Option<String> {
+        self.at += 1;
+        let mut out = String::new();
+        loop {
+            let start = self.at;
+            while let Some(c) = self.peek() {
+                if c == b'"' || c == b'\\' || c < 0x20 {
+                    break;
+                }
+                self.at += 1;
+            }
+            // The input is UTF-8 and the stops are ASCII: a char boundary.
+            out.push_str(std::str::from_utf8(&self.b[start..self.at]).ok()?);
+            match self.peek()? {
+                b'"' => {
+                    self.at += 1;
+                    return Some(out);
+                }
+                b'\\' => {
+                    self.at += 1;
+                    let e = self.peek()?;
+                    self.at += 1;
+                    match e {
+                        b'"' => out.push('"'),
+                        b'\\' => out.push('\\'),
+                        b'/' => out.push('/'),
+                        b'b' => out.push('\u{8}'),
+                        b'f' => out.push('\u{c}'),
+                        b'n' => out.push('\n'),
+                        b'r' => out.push('\r'),
+                        b't' => out.push('\t'),
+                        b'u' => {
+                            let unit = self.hex4()?;
+                            if (0xD800..0xDC00).contains(&unit)
+                                && self.b[self.at..].starts_with(b"\\u")
+                            {
+                                let back = self.at;
+                                self.at += 2;
+                                match self.hex4() {
+                                    Some(low) if (0xDC00..0xE000).contains(&low) => {
+                                        let c = 0x10000 + ((unit - 0xD800) << 10) + (low - 0xDC00);
+                                        out.push(char::from_u32(c)?);
+                                        continue;
+                                    }
+                                    _ => self.at = back,
+                                }
+                            }
+                            if (0xD800..0xE000).contains(&unit) {
+                                out.push(stand_in(unit));
+                            } else {
+                                out.push(char::from_u32(unit)?);
+                            }
+                        }
+                        _ => return None,
+                    }
+                }
+                _ => return None,
+            }
+        }
+    }
+    fn number(&mut self) -> Option<J> {
+        let start = self.at;
+        self.eat(b"-");
+        match self.peek()? {
+            b'0' => self.at += 1,
+            b'1'..=b'9' => {
+                while matches!(self.peek(), Some(b'0'..=b'9')) {
+                    self.at += 1;
+                }
+            }
+            _ => return None,
+        }
+        if self.peek() == Some(b'.') {
+            self.at += 1;
+            if !matches!(self.peek(), Some(b'0'..=b'9')) {
+                return None;
+            }
+            while matches!(self.peek(), Some(b'0'..=b'9')) {
+                self.at += 1;
+            }
+        }
+        if matches!(self.peek(), Some(b'e' | b'E')) {
+            self.at += 1;
+            if matches!(self.peek(), Some(b'+' | b'-')) {
+                self.at += 1;
+            }
+            if !matches!(self.peek(), Some(b'0'..=b'9')) {
+                return None;
+            }
+            while matches!(self.peek(), Some(b'0'..=b'9')) {
+                self.at += 1;
+            }
+        }
+        // Rust's f64 parse rounds like JS and overflows to ±Infinity.
+        let text = std::str::from_utf8(&self.b[start..self.at]).ok()?;
+        text.parse::<f64>().ok().map(J::Num)
+    }
 }
 
 #[cfg(test)]

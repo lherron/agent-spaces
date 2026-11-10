@@ -1,0 +1,97 @@
+{
+  "method": "aspc.inspectRuntimePlacement",
+  "params": {
+    "schemaVersion": "aspc-inspect-runtime-placement-request/v1",
+    "context": {
+      "agentId": "pathmark-dev",
+      "agentRoot": "/private/tmp/raspd-sole-native/stage/agents/pathmark-dev",
+      "project": {
+        "mode": "root",
+        "projectRoot": "/private/tmp/raspd-sole-native/stage/project",
+        "projectId": "project"
+      },
+      "cwd": "/private/tmp/raspd-sole-native/stage/project",
+      "runMode": "task",
+      "taskId": "T-11951",
+      "provisionDirectives": {
+        "harness": "claude"
+      },
+      "agentSources": {
+        "aspHome": "/private/tmp/raspd-sole-native/case-scratch/config_toml_syntax--inspect/asp-home"
+      }
+    },
+    "preparationCorrelation": {
+      "sessionRef": {
+        "scopeRef": "agent:pathmark-dev:project:project:task:T-11951",
+        "laneRef": "main"
+      },
+      "hostSessionId": "hsid-inspect",
+      "generation": 1,
+      "runtimeId": "rt-inspect",
+      "invocationId": "inv-inspect",
+      "initialInputId": "input-inspect",
+      "runId": "run-inspect"
+    },
+    "dispatchEnv": {
+      "AGENT_SCOPE_REF": "agent:pathmark-dev:project:project:task:T-11951",
+      "AGENT_LANE_REF": "main",
+      "AGENT_TASK": "T-11951"
+    }
+  },
+  "replies": [
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "facadeInfo": {
+          "name": "aspc-facade",
+          "version": "0.1.1"
+        },
+        "protocolVersion": "aspc/0.1",
+        "capabilities": {
+          "catalogAgents": true,
+          "inspectAgent": true,
+          "catalogAgentInspection": true,
+          "inspectAgentSelection": true,
+          "compileHarnessInvocation": true,
+          "resolveRuntimeDeclaration": true,
+          "inspectRuntimePlacement": true,
+          "inspectRuntimePlacementPreparationCorrelation": true,
+          "inspectRuntimePlacementPreparationTaskContext": true,
+          "observeRuntimeCapability": true,
+          "observeContinuationArtifact": true,
+          "prepareProcessInvocation": true,
+          "prepareProcessInvocationTaskContext": true,
+          "cohostedBroker": false,
+          "transports": [
+            "unix-jsonrpc-ndjson"
+          ]
+        },
+        "release": {
+          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
+          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
+          "builtAt": "2026-11-10T00:47:48.483Z"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "schemaVersion": "aspc-inspect-runtime-placement-response/v1",
+        "ok": false,
+        "declaration": {
+          "schemaVersion": "aspc-resolve-runtime-declaration-response/v1",
+          "ok": false,
+          "failure": {
+            "kind": "incompatible",
+            "code": "configured_context_mismatch",
+            "message": "No agents root is configured"
+          }
+        }
+      }
+    }
+  ],
+  "tree": {},
+  "violations": []
+}

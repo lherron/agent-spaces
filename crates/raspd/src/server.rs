@@ -515,12 +515,8 @@ impl Connection {
             Frame::Malformed if at_eof => {}
             Frame::Malformed => self.refuse_frame("parse_error"),
             Frame::Unjudged if at_eof => {}
-            Frame::Unjudged if self.shared.sole() => {
-                // Slice 2 parses frames as JSON.parse does; until then an
-                // unjudged frame is a parse error in sole mode.
-                self.refuse_frame("parse_error")
-            }
-            Frame::Unjudged => self.forward(None, line, None).await,
+            // Text JSON.parse throws on: Bun's parse error, in both modes.
+            Frame::Unjudged => self.refuse_frame("parse_error"),
         }
     }
 

@@ -313,24 +313,64 @@ fn str_array(v: &J) -> bool {
     matches!(v, J::Arr(items) if items.iter().all(|i| matches!(i, J::Str(_))))
 }
 
-/// The space manifest schema, or false where raspd will not judge (the
-/// `email`/`uri` formats, which ajv-formats checks).
+/// ajv-formats' full `email` and `uri` (its `/i` regexes: ASCII case folding,
+/// so non-ASCII never matches, and `\d` is `[0-9]`), copied from
+/// node_modules/ajv-formats/dist/formats.js.
+static EMAIL: std::sync::LazyLock<regex::bytes::Regex> = std::sync::LazyLock::new(|| {
+    regex::bytes::Regex::new(concat!("(?i-u)", r##"^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"##)).expect("email format")
+});
+static URI: std::sync::LazyLock<regex::bytes::Regex> = std::sync::LazyLock::new(|| {
+    regex::bytes::Regex::new(concat!("(?i-u)", r##"^(?:[a-z][a-z0-9+\-.]*:)(?:/?/(?:(?:[a-z0-9\-._~!$&'()*+,;=:]|%[0-9a-f]{2})*@)?(?:\[(?:(?:(?:(?:[0-9a-f]{1,4}:){6}|::(?:[0-9a-f]{1,4}:){5}|(?:[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){4}|(?:(?:[0-9a-f]{1,4}:){0,1}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){3}|(?:(?:[0-9a-f]{1,4}:){0,2}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){2}|(?:(?:[0-9a-f]{1,4}:){0,3}[0-9a-f]{1,4})?::[0-9a-f]{1,4}:|(?:(?:[0-9a-f]{1,4}:){0,4}[0-9a-f]{1,4})?::)(?:[0-9a-f]{1,4}:[0-9a-f]{1,4}|(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))|(?:(?:[0-9a-f]{1,4}:){0,5}[0-9a-f]{1,4})?::[0-9a-f]{1,4}|(?:(?:[0-9a-f]{1,4}:){0,6}[0-9a-f]{1,4})?::)|[Vv][0-9a-f]+\.[a-z0-9\-._~!$&'()*+,;=:]+)\]|(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)|(?:[a-z0-9\-._~!$&'()*+,;=]|%[0-9a-f]{2})*)(?::[0-9]*)?(?:/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*|/(?:(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})+(?:/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*)?|(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})+(?:/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*)(?:\?(?:[a-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9a-f]{2})*)?(?:#(?:[a-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9a-f]{2})*)?$"##)).expect("uri format")
+});
+
+fn email_format(s: &str) -> bool {
+    EMAIL.is_match(s.as_bytes())
+}
+
+/// `uri`: `NOT_URI_FRAGMENT.test(str) && URI.test(str)`.
+fn uri_format(s: &str) -> bool {
+    s.contains(['/', ':']) && URI.is_match(s.as_bytes())
+}
+
+/// The space manifest schema (space.schema.json under Ajv + ajv-formats), as a verdict.
 pub fn space_manifest_valid(v: &J) -> bool {
     let id_ok = |v: &J| matches!(v, J::Str(s) if is_space_id_chars(s) && code_points(s) <= 64);
     let semver_ok = |v: &J| matches!(v, J::Str(s) if semver(s));
     let plugin_ok = |p: &J| {
-        only(p, &["name", "version", "description", "author", "homepage", "repository", "license", "keywords"])
-            && opt(p, "name", id_ok)
+        only(
+            p,
+            &[
+                "name",
+                "version",
+                "description",
+                "author",
+                "homepage",
+                "repository",
+                "license",
+                "keywords",
+            ],
+        ) && opt(p, "name", id_ok)
             && opt(p, "version", semver_ok)
             && opt(p, "description", str_max(500))
-            // email/uri formats: not judged here.
-            && p.get("author").is_none()
-            && p.get("homepage").is_none()
-            && p.get("repository").is_none()
-            && opt(p, "license", str_max(100))
-            && opt(p, "keywords", |k| {
-                matches!(k, J::Arr(items) if items.len() <= 30 && items.iter().all(str_max(50)))
+            && opt(p, "author", |a| {
+                a.is_record()
+                    && only(a, &["name", "email", "url"])
+                    && opt(a, "name", str_max(120))
+                    && opt(
+                        a,
+                        "email",
+                        |e| matches!(e, J::Str(s) if code_points(s) <= 254 && email_format(s)),
+                    )
+                    && opt(a, "url", |u| matches!(u, J::Str(s) if uri_format(s)))
             })
+            && opt(p, "homepage", |u| matches!(u, J::Str(s) if uri_format(s)))
+            && opt(p, "repository", |u| matches!(u, J::Str(s) if uri_format(s)))
+            && opt(p, "license", str_max(100))
+            && opt(
+                p,
+                "keywords",
+                |k| matches!(k, J::Arr(items) if items.len() <= 30 && items.iter().all(str_max(50))),
+            )
     };
     let deps_ok = |d: &J| {
         only(d, &["spaces"])

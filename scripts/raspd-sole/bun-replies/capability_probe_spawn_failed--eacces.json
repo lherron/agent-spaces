@@ -1,0 +1,92 @@
+{
+  "method": "aspc.observeRuntimeCapability",
+  "params": {
+    "schemaVersion": "aspc-observe-runtime-capability-request/v1",
+    "harness": "claude",
+    "context": {
+      "agentId": "pathmark-dev",
+      "project": {
+        "mode": "root",
+        "projectRoot": "/private/tmp/raspd-sole-native/stage/project",
+        "projectId": "project"
+      },
+      "cwd": "/private/tmp/raspd-sole-native/stage/project",
+      "runMode": "task"
+    }
+  },
+  "replies": [
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "facadeInfo": {
+          "name": "aspc-facade",
+          "version": "0.1.1"
+        },
+        "protocolVersion": "aspc/0.1",
+        "capabilities": {
+          "catalogAgents": true,
+          "inspectAgent": true,
+          "catalogAgentInspection": true,
+          "inspectAgentSelection": true,
+          "compileHarnessInvocation": true,
+          "resolveRuntimeDeclaration": true,
+          "inspectRuntimePlacement": true,
+          "inspectRuntimePlacementPreparationCorrelation": true,
+          "inspectRuntimePlacementPreparationTaskContext": true,
+          "observeRuntimeCapability": true,
+          "observeContinuationArtifact": true,
+          "prepareProcessInvocation": true,
+          "prepareProcessInvocationTaskContext": true,
+          "cohostedBroker": false,
+          "transports": [
+            "unix-jsonrpc-ndjson"
+          ]
+        },
+        "release": {
+          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
+          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
+          "builtAt": "2026-11-10T00:47:48.483Z"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "schemaVersion": "aspc-observe-runtime-capability-response/v1",
+        "ok": true,
+        "harness": {
+          "requested": "claude",
+          "modelProvider": "anthropic"
+        },
+        "registration": {
+          "state": "present",
+          "code": "registered"
+        },
+        "nativeRuntime": {
+          "state": "unknown",
+          "code": "detection_failed"
+        },
+        "credentials": {
+          "state": "absent",
+          "code": "credentials_missing"
+        },
+        "preparation": {
+          "state": "absent",
+          "code": "credentials_missing"
+        },
+        "diagnostics": [
+          {
+            "code": "probe_failed",
+            "probe": "version",
+            "message": "EACCES: permission denied, posix_spawn '/private/tmp/raspd-sole-native/bin/claude'",
+            "candidate": "/private/tmp/raspd-sole-native/bin/claude"
+          }
+        ]
+      }
+    }
+  ],
+  "tree": {},
+  "violations": []
+}

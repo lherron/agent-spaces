@@ -372,7 +372,7 @@ fn inspect(params: &J, release: &Release, phases: &mut Phases) -> Result<J, Fwd>
         // buildRuntimeBundleRef throws without a profile.
         return Err(fwd(crate::reason!("inspect_profile_missing")));
     }
-    let agent_profile = std::fs::read_to_string(&profile_path)
+    let agent_profile = crate::reads::jspath::read_text(&profile_path)
         .ok()
         .and_then(|c| crate::reads::toml::parse(&c).ok())
         .ok_or_else(|| fwd(crate::reason!("profile_unreadable")))?;
@@ -507,11 +507,43 @@ fn inspect(params: &J, release: &Release, phases: &mut Phases) -> Result<J, Fwd>
             diagnostics.push(diagnostic);
         }
     }
+    // failedResolutionDiagnostic per failed part, then partial completeness.
+    let mut missing = vec![];
+    for part in &parts {
+        let Some(d) = part
+            .get("disposition")
+            .filter(|d| s(d.get("kind")) == Some("failed"))
+        else {
+            continue;
+        };
+        let part_id = s(part.get("partId")).unwrap_or_default().to_owned();
+        let message = s(d.get("reason")).unwrap_or_default().to_owned();
+        let key = format!("resolution:part_resolution_failed:{message}:{part_id}");
+        if !seen.contains(&key) {
+            seen.push(key);
+            diagnostics.push(J::obj([
+                ("kind", J::str("resolution")),
+                ("severity", J::str("error")),
+                ("code", J::str("part_resolution_failed")),
+                ("message", J::str(&message)),
+                ("partId", J::str(&part_id)),
+            ]));
+        }
+        missing.push(J::str(part_id));
+    }
+    let completeness = if missing.is_empty() {
+        J::obj([("kind", J::str("complete"))])
+    } else {
+        J::obj([
+            ("kind", J::str("partial")),
+            ("missingPartIds", J::Arr(missing)),
+        ])
+    };
     let inspection = J::obj([
         ("schemaVersion", J::str("agent-inspection/v2")),
         ("identity", identifiers),
         ("parts", J::Arr(parts)),
-        ("completeness", J::obj([("kind", J::str("complete"))])),
+        ("completeness", completeness),
         ("freshness", freshness(&runtime_plan)?),
         ("diagnostics", J::Arr(diagnostics)),
     ]);
@@ -745,9 +777,14 @@ fn inspection_compile_request(
 
 fn prompt_part(r: &prompt::SectionReport) -> J {
     let part_id = format!("context-section:{}/{}/{}", r.zone, r.order, r.name);
-    let disposition = match r.skipped {
-        None => J::obj([("kind", J::str("effective"))]),
-        Some(reason) => J::obj([("kind", J::str("skipped")), ("reason", J::str(reason))]),
+    let disposition = match (&r.failed, r.skipped) {
+        (Some(f), _) => J::obj([
+            ("kind", J::str("failed")),
+            ("source", f.source.clone()),
+            ("reason", J::str(&f.reason)),
+        ]),
+        (None, None) => J::obj([("kind", J::str("effective"))]),
+        (None, Some(reason)) => J::obj([("kind", J::str("skipped")), ("reason", J::str(reason))]),
     };
     let mut value = J::obj([
         ("zone", J::str(r.zone)),

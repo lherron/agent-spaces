@@ -43,6 +43,8 @@ export type ProbeCase = {
   method: string
   condition: string
   setup?: (ctx: Ctx) => void
+  /** Undo what setup changed outside the case's own files (after the reply). */
+  teardown?: (ctx: Ctx) => void
   params: (ctx: Ctx) => unknown
   rawFrames?: (ctx: Ctx) => string[]
   note?: string

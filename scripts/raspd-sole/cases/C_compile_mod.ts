@@ -382,6 +382,13 @@ const cases: ProbeCase[] = [
     id: 'soul_unreadable--inspect',
     method: INSPECT,
     condition: 'inspect of an agent whose SOUL.md is a directory',
+    // T-13048: its own agent, so the case runs on a fresh stage (it relied on soul_unreadable's).
+    setup: (c) => {
+      rmSync(join(c.stage.agentsRoot, 'p-su', 'SOUL.md'), { recursive: true, force: true })
+      const root = c.agent('p-su', PROFILE)
+      rmSync(join(root, 'SOUL.md'), { recursive: true, force: true })
+      mkdirSync(join(root, 'SOUL.md'))
+    },
     params: (c) => inspectFor(c, 'p-su'),
   },
   {

@@ -226,6 +226,17 @@ pub fn dirname(path: &str) -> String {
     path[..end as usize].to_owned()
 }
 
+/// Node's `path.posix.extname`: from the basename's last `.`, unless that dot
+/// is its first character (a dotfile has no extension).
+pub fn extname(path: &str) -> String {
+    let base = basename(path);
+    match base.rfind('.') {
+        Some(0) | None => String::new(),
+        _ if base == ".." => String::new(),
+        Some(i) => base[i..].to_owned(),
+    }
+}
+
 pub fn basename(path: &str) -> String {
     let b = path.as_bytes();
     let mut start = 0usize;

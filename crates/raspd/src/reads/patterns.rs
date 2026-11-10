@@ -90,40 +90,15 @@ pub fn is_schema_space_ref(value: &str) -> bool {
         || id_then_selector(rest, false)
 }
 
-/// The avatar rule: `new URL(raw)` parses, protocol `https:`, no credentials,
-/// `raw` already trimmed. `Some(verdict)` only for the plain shape raspd can
-/// judge without a WHATWG URL parser (`https://` + dotted host labels + an
-/// optional printable-ASCII path, or a plain non-https scheme); `None`
-/// otherwise, and the request is forwarded.
-pub fn https_image_url(raw: &str) -> Option<bool> {
-    let (scheme, rest) = raw.split_once("://")?;
-    let plain_scheme = !scheme.is_empty()
-        && scheme.bytes().all(|b| b.is_ascii_lowercase())
-        && !matches!(scheme, "file");
-    if !plain_scheme {
-        return None;
-    }
-    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let (host, tail) = rest.split_at(end);
-    let labels: Vec<&str> = host.split('.').collect();
-    let host_ok = !host.is_empty()
-        && labels.iter().all(|l| {
-            !l.is_empty()
-                && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-                && !l.starts_with('-')
-                && !l.ends_with('-')
-                && !l.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("xn--"))
-        })
-        && labels
-            .last()
-            .is_some_and(|l| l.bytes().any(|b| b.is_ascii_alphabetic()));
-    let tail_ok = tail
-        .bytes()
-        .all(|b| (0x21..=0x7e).contains(&b) && b != b'\\');
-    if !host_ok || !tail_ok {
-        return None;
-    }
-    Some(scheme == "https")
+/// The avatar rule (agent-profile.ts): `new URL(raw)` parses (WHATWG, the
+/// url crate), protocol `https:`, no credentials, `raw` already trimmed.
+pub fn https_image_url(raw: &str) -> bool {
+    url::Url::parse(raw).is_ok_and(|u| {
+        u.scheme() == "https"
+            && raw == crate::compile::util::js_trim(raw)
+            && u.username().is_empty()
+            && u.password().is_none()
+    })
 }
 
 #[cfg(test)]
@@ -158,10 +133,11 @@ mod tests {
 
     #[test]
     fn avatars() {
-        assert_eq!(https_image_url("https://cdn.example.com/a.png"), Some(true));
-        assert_eq!(https_image_url("http://cdn.example.com/a.png"), Some(false));
-        assert_eq!(https_image_url("https://u:p@example.com/"), None);
-        assert_eq!(https_image_url(" https://example.com"), None);
-        assert_eq!(https_image_url("https://1.2.3.4/"), None);
+        assert!(https_image_url("https://cdn.example.com/a.png"));
+        assert!(!https_image_url("http://cdn.example.com/a.png"));
+        assert!(!https_image_url("https://u:p@example.com/"));
+        assert!(!https_image_url(" https://example.com"));
+        assert!(https_image_url("https://1.2.3.4/"));
+        assert!(https_image_url("HTTPS://münchen.de:8443/a.png"));
     }
 }

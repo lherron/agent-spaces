@@ -1,0 +1,138 @@
+{
+  "method": "aspc.resolveRuntimeDeclaration",
+  "params": {
+    "schemaVersion": "aspc-resolve-runtime-declaration-request/v1",
+    "context": {
+      "agentId": "p-pau-agent",
+      "agentRoot": "/private/tmp/raspd-sole-native/stage/agents/p-pau-agent",
+      "cwd": "/private/tmp/raspd-sole-native/stage/project",
+      "runMode": "task",
+      "project": {
+        "mode": "root",
+        "projectRoot": "/private/tmp/raspd-sole-native/stage/project",
+        "projectId": "project"
+      }
+    }
+  },
+  "replies": [
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "facadeInfo": {
+          "name": "aspc-facade",
+          "version": "0.1.1"
+        },
+        "protocolVersion": "aspc/0.1",
+        "capabilities": {
+          "catalogAgents": true,
+          "inspectAgent": true,
+          "catalogAgentInspection": true,
+          "inspectAgentSelection": true,
+          "compileHarnessInvocation": true,
+          "resolveRuntimeDeclaration": true,
+          "inspectRuntimePlacement": true,
+          "inspectRuntimePlacementPreparationCorrelation": true,
+          "inspectRuntimePlacementPreparationTaskContext": true,
+          "observeRuntimeCapability": true,
+          "observeContinuationArtifact": true,
+          "prepareProcessInvocation": true,
+          "prepareProcessInvocationTaskContext": true,
+          "cohostedBroker": false,
+          "transports": [
+            "unix-jsonrpc-ndjson"
+          ]
+        },
+        "release": {
+          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
+          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
+          "builtAt": "2026-11-10T00:47:48.483Z"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "schemaVersion": "aspc-resolve-runtime-declaration-response/v1",
+        "ok": true,
+        "evaluatedAt": "2026-11-10T02:55:01.901Z",
+        "contextHash": "af48d85e01a6835c34174ae04ba5bc8ead03c6f7c36c94675b8dcff73401bcf4",
+        "agentSources": {
+          "aspHome": "/private/tmp/raspd-sole-native/stage/asp-home",
+          "agentsRoot": "/private/tmp/raspd-sole-native/stage/agents",
+          "provenance": "caller-agent-root"
+        },
+        "markerProjectId": "project",
+        "searchedAgentRoots": [],
+        "source": {
+          "agentProfile": {
+            "state": "valid",
+            "code": "parsed",
+            "contentHash": "ed356a01377d2b945fb66eef58ed2553fbef31a6d6f2279846f28de785a389d0"
+          },
+          "projectTargets": {
+            "state": "absent",
+            "code": "not_declared"
+          },
+          "selectedTarget": {
+            "state": "absent",
+            "code": "not_declared"
+          },
+          "priming": {
+            "state": "absent",
+            "code": "not_declared"
+          }
+        },
+        "identity": {
+          "operator": false
+        },
+        "policy": {
+          "claimsTask": false,
+          "placement": {
+            "pins": {},
+            "homes": {}
+          }
+        },
+        "baselineProvisioning": {
+          "scalars": {
+            "yolo": false,
+            "remote": false
+          }
+        },
+        "provisioning": {
+          "scalars": {
+            "yolo": false,
+            "remote": false
+          }
+        },
+        "placement": {
+          "agentRoot": "/private/tmp/raspd-sole-native/stage/agents/p-pau-agent",
+          "projectRoot": "/private/tmp/raspd-sole-native/stage/project",
+          "cwd": "/private/tmp/raspd-sole-native/stage/project",
+          "runMode": "task",
+          "bundle": {
+            "kind": "agent-project",
+            "agentName": "p-pau-agent",
+            "projectRoot": "/private/tmp/raspd-sole-native/stage/project"
+          }
+        },
+        "bundle": {
+          "ref": {
+            "kind": "agent-project",
+            "agentName": "p-pau-agent",
+            "projectRoot": "/private/tmp/raspd-sole-native/stage/project"
+          },
+          "identity": "847a049982821f27b92b2d0a5958e57b3d1c24f78012cf29bd9cc3a104fc7f09"
+        },
+        "diagnostics": []
+      }
+    }
+  ],
+  "tree": {
+    "agents/p-pau-agent/SOUL.md": "file 644 84519fac4251e9667e1e72d1a15afb8b665d9f385946064d7e4aff61e5e8def0",
+    "agents/p-pau-agent/agent-profile.toml": "file 644 7111a46e2139478168b13c7eff482083c91c0df86a6b4d7be7d9fd41470950d8",
+    "agents/p-pau-agent/skills/probe-skill/SKILL.md": "file 644 5c0d43921335cc07086d88db6979921a88d8443767a43f1a46dcba30154e6c04"
+  },
+  "violations": []
+}

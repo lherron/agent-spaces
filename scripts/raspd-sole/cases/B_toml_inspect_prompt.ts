@@ -299,6 +299,15 @@ const cases: ProbeCase[] = [
     method: 'aspc.compileHarnessInvocation',
     condition:
       'agent-profile.toml contains a non-UTF-8 byte (Latin-1 0xE9) inside a comment; compile',
+    // T-13048: its own agent, so it runs on a fresh stage (it relied on the inspect case's).
+    setup: (c) => {
+      c.agent('p-pu-latin1', BASE_PROFILE)
+      const fs = require('node:fs')
+      fs.writeFileSync(
+        `${c.stage.agentsRoot}/p-pu-latin1/agent-profile.toml`,
+        Buffer.concat([Buffer.from('# caf'), Buffer.from([0xe9]), Buffer.from(`\n${BASE_PROFILE}`)])
+      )
+    },
     params: (c) => c.compileFor('p-pu-latin1'),
   },
   // ---- compile/prompt.rs ---------------------------------------------------

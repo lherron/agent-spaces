@@ -965,9 +965,31 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
 
     // Identity: scope-ref facts (the only live branch).
     let handle = handle_parts(&placement, true)?;
-    let (Some(agent_id), Some(project_id)) = (handle.agent_id.clone(), handle.project_id.clone())
-    else {
-        return Err(fwd(crate::reason!("placement_identity_fallback")));
+    let (agent_id, project_id) = match (handle.agent_id.clone(), handle.project_id.clone()) {
+        (Some(agent), Some(project)) => (agent, project),
+        // prepare-cli-runtime.ts placement fallback: the bundle's agent name,
+        // and the first of projectRoot ?? cwd ?? bundle.projectRoot.
+        _ => {
+            let bundle = placement.get("bundle");
+            let agent = s(bundle.and_then(|b| b.get("agentName")))
+                .unwrap_or_default()
+                .to_owned();
+            let root = [
+                placement.get("projectRoot"),
+                placement.get("cwd"),
+                bundle.and_then(|b| b.get("projectRoot")),
+            ]
+            .into_iter()
+            .flatten()
+            .find(|v| !matches!(v, J::Null))
+            .and_then(J::as_str)
+            .filter(|r| !r.is_empty());
+            let project = root.map_or_else(
+                || "missing-project".to_owned(),
+                |r| basename(&resolve(&[r])),
+            );
+            (agent, project)
+        }
     };
     let identity = J::obj([
         ("agentId", J::str(&agent_id)),
@@ -1025,12 +1047,11 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
 
     // Spaces: closure over filesystem-backed refs, lock, snapshot presence.
     let env = Env::process();
-    let registry = match crate::reads::declaration::agents_root(Some(&asp_home), env)
-        .map_err(|_| fwd(crate::reason!("agents_root_config")))?
-    {
-        Some(root) => root,
-        None => join(&[&asp_home, "repo"]),
-    };
+    let registry =
+        match crate::reads::declaration::agents_root(Some(&asp_home), env).map_err(fwd)? {
+            Some(root) => root,
+            None => join(&[&asp_home, "repo"]),
+        };
     let roots = spaces::ClosureRoots {
         registry: &registry,
         agent_root: Some(&agent_root),
@@ -1075,7 +1096,7 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
         if let Some(v) = &version {
             lock_plugin.set("version", J::str(v));
         }
-        space_plans.push(stage::plan_space(
+        space_plans.extend(stage::plan_space(
             stage::SpaceInput {
                 key: space.key.clone(),
                 id: space.id.clone(),
@@ -1092,7 +1113,8 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
             // Bun reads this one outside the typed targets loader: its
             // failures throw (compiler_exception), hence PlacementTargets.
             let placed = |r: Reason| fwd(r.within(Context::PlacementTargets));
-            let content = std::fs::read_to_string(join(&[root, "asp-targets.toml"]))
+            // Lossy like Bun's read (targets_unreadable); a read error refuses.
+            let content = crate::reads::jspath::read_text(&join(&[root, "asp-targets.toml"]))
                 .map_err(|_| placed(crate::reason!("source_read_unavailable")))?;
             let manifest = match crate::reads::targets::parse(&content) {
                 Ok(m) => m,
@@ -2585,16 +2607,31 @@ fn emit_codex(
     } else {
         prompt.filter(|p| !p.is_empty())
     };
+    let mut items = Vec::new();
     if let Some(text) = text {
-        let content = J::Arr(vec![J::obj([
-            ("type", J::str("text")),
-            ("text", J::str(text)),
-        ])]);
+        items.push(J::obj([("type", J::str("text")), ("text", J::str(text))]));
+    }
+    for path in image_attachment_paths(material) {
+        items.push(J::obj([
+            ("type", J::str("local_image")),
+            ("path", J::str(path)),
+        ]));
+    }
+    if !items.is_empty() {
+        let content = J::Arr(items);
         let identity = req.get("identity").expect("validated");
         let input_id = match identity.get("initialInputId") {
             Some(id) => id.clone(),
             None => {
+                // deriveInitialInputId: {idSalt, generation, content}.
                 let mut material = J::Obj(vec![]);
+                if let Some(salt) = plan
+                    .params
+                    .get("compileContext")
+                    .and_then(|c| c.get("idSalt"))
+                {
+                    material.set("idSalt", salt.clone());
+                }
                 if let Some(g) = identity.get("generation") {
                     material.set("generation", g.clone());
                 }
@@ -2625,6 +2662,33 @@ fn emit_codex(
 
 /// The claude-code recipe's driver: claude-code-tmux, or claude-code-hrcpty
 /// for claude-hrcpty (compile-hrcpty-broker-plan.ts).
+/// prepare-cli-runtime.ts `extractImageAttachmentPaths` over
+/// broker-request-projection.ts `toBrokerAttachments`: image and local-file
+/// attachments become file refs, and those an image by content type or
+/// extension reach the initial input. Other kinds are dropped.
+fn image_attachment_paths(material: &J) -> Vec<String> {
+    const IMAGE: [&str; 11] = [
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif", ".heic", ".heif",
+        ".avif",
+    ];
+    let Some(J::Arr(attachments)) = material.get("attachments") else {
+        return vec![];
+    };
+    attachments
+        .iter()
+        .filter(|a| matches!(s(a.get("kind")), Some("image" | "local-file")))
+        .filter_map(|a| {
+            let path = s(a.get("path")).filter(|p| !p.is_empty())?;
+            let by_type =
+                s(a.get("mimeType")).is_some_and(|t| t.to_lowercase().starts_with("image/"));
+            let clean = path.split('?').next().unwrap_or(path);
+            let clean = clean.split('#').next().unwrap_or(clean);
+            let ext = crate::reads::jspath::extname(clean).to_lowercase();
+            (by_type || IMAGE.contains(&ext.as_str())).then(|| path.to_owned())
+        })
+        .collect()
+}
+
 fn claude_driver(hrcpty: bool) -> &'static str {
     if hrcpty {
         "claude-code-hrcpty"
@@ -2947,7 +3011,12 @@ fn finalize(
             .and_then(|m| m.get("omitPriming")),
         Some(J::Bool(true))
     );
-    let created_at = now_iso();
+    // The compile context's pinned instant, else the wall clock (not plan-hash material).
+    let created_at = s(plan
+        .params
+        .get("compileContext")
+        .and_then(|c| c.get("nowIso")))
+    .map_or_else(now_iso, str::to_owned);
     let mut plan_material = J::obj([
         ("schemaVersion", J::str("agent-runtime-plan/v2")),
         (

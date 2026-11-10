@@ -1,0 +1,230 @@
+{
+  "cases": [
+    {
+      "id": "unjudged_frame--garbage",
+      "reason": "(unjudged_frame)"
+    },
+    {
+      "id": "unjudged_frame--lone-surrogate-hello",
+      "reason": "(unjudged_frame)"
+    },
+    {
+      "id": "unjudged_frame--huge-number-hello",
+      "reason": "(unjudged_frame)"
+    },
+    {
+      "id": "unjudged_frame--lone-surrogate-compile",
+      "reason": "(unjudged_frame)"
+    },
+    {
+      "id": "agents_root_config--asphome-config-syntax",
+      "reason": "agents_root_config"
+    },
+    {
+      "id": "compile_context",
+      "reason": "compile_context"
+    },
+    {
+      "id": "config_toml_syntax--resolve",
+      "reason": "config_toml_syntax"
+    },
+    {
+      "id": "config_toml_syntax--inspect",
+      "reason": "config_toml_syntax"
+    },
+    {
+      "id": "hrc_policy_shape--unknown-key",
+      "reason": "hrc_policy_shape"
+    },
+    {
+      "id": "hrc_policy_shape--timeout-string",
+      "reason": "hrc_policy_shape"
+    },
+    {
+      "id": "materialization_shape--attachments",
+      "reason": "materialization_shape"
+    },
+    {
+      "id": "materialization_shape--unknown-key",
+      "reason": "materialization_shape"
+    },
+    {
+      "id": "materialization_shape--image-attachment",
+      "reason": "materialization_shape"
+    },
+    {
+      "id": "materialization_shape--image-attachment-codex",
+      "reason": "materialization_shape"
+    },
+    {
+      "id": "placement_identity_fallback",
+      "reason": "placement_identity_fallback"
+    },
+    {
+      "id": "placement_shape--correlation-requestId",
+      "reason": "placement_shape"
+    },
+    {
+      "id": "placement_shape--relative-agentRoot",
+      "reason": "placement_shape"
+    },
+    {
+      "id": "placement_shape--no-bundle",
+      "reason": "placement_shape"
+    },
+    {
+      "id": "profile_avatar_url--resolve",
+      "reason": "profile_avatar_url"
+    },
+    {
+      "id": "profile_avatar_url--resolve-idn",
+      "reason": "profile_avatar_url"
+    },
+    {
+      "id": "profile_avatar_url--compile",
+      "reason": "profile_avatar_url"
+    },
+    {
+      "id": "profile_avatar_url--inspect",
+      "reason": "profile_avatar_url"
+    },
+    {
+      "id": "profile_unreadable--compile-latin1",
+      "reason": "profile_unreadable"
+    },
+    {
+      "id": "profile_unreadable--inspect-latin1",
+      "reason": "profile_unreadable"
+    },
+    {
+      "id": "prompt_section_failed--inspect-exec-exit1",
+      "reason": "prompt_section_failed"
+    },
+    {
+      "id": "service_probe_endpoint--no-scheme",
+      "reason": "service_probe_endpoint"
+    },
+    {
+      "id": "service_probe_endpoint--unknown-scheme",
+      "reason": "service_probe_endpoint"
+    },
+    {
+      "id": "service_probe_endpoint--ipv6",
+      "reason": "service_probe_endpoint"
+    },
+    {
+      "id": "service_probe_endpoint--port-range",
+      "reason": "service_probe_endpoint"
+    },
+    {
+      "id": "service_probe_endpoint--host-underscore",
+      "reason": "service_probe_endpoint"
+    },
+    {
+      "id": "soul_unreadable",
+      "reason": "soul_unreadable"
+    },
+    {
+      "id": "soul_unreadable--mode000",
+      "reason": "soul_unreadable"
+    },
+    {
+      "id": "soul_unreadable--inspect",
+      "reason": "soul_unreadable"
+    },
+    {
+      "id": "space_harness_skip",
+      "reason": "space_harness_skip"
+    },
+    {
+      "id": "space_harness_skip--codex",
+      "reason": "space_harness_skip"
+    },
+    {
+      "id": "space_manifest_invalid--unknown-key",
+      "reason": "space_manifest_invalid"
+    },
+    {
+      "id": "space_manifest_invalid--bad-email",
+      "reason": "space_manifest_invalid"
+    },
+    {
+      "id": "space_manifest_invalid--plugin-author",
+      "reason": "space_manifest_invalid"
+    },
+    {
+      "id": "targets_unreadable--inspect-latin1",
+      "reason": "targets_unreadable"
+    },
+    {
+      "id": "template_unreadable--latin1",
+      "reason": "template_unreadable"
+    },
+    {
+      "id": "toml_unreadable",
+      "reason": "toml_unreadable"
+    },
+    {
+      "id": "toml_unreadable--non-utf8",
+      "reason": "toml_unreadable"
+    },
+    {
+      "id": "truncate_splits_surrogate",
+      "reason": "truncate_splits_surrogate"
+    },
+    {
+      "id": "soul_unreadable--latin1",
+      "reason": "soul_unreadable"
+    },
+    {
+      "id": "soul_unreadable--latin1-inspect",
+      "reason": "soul_unreadable"
+    },
+    {
+      "id": "targets_unreadable--compile-latin1",
+      "reason": "targets_unreadable"
+    },
+    {
+      "id": "capability_probe_signaled--sigkill",
+      "reason": "capability_probe_signaled"
+    },
+    {
+      "id": "capability_probe_signaled--sigterm-stderr",
+      "reason": "capability_probe_signaled"
+    },
+    {
+      "id": "capability_probe_spawn_failed--eacces",
+      "reason": "capability_probe_spawn_failed"
+    },
+    {
+      "id": "capability_probe_spawn_failed--enoexec",
+      "reason": "capability_probe_spawn_failed"
+    },
+    {
+      "id": "capability_probe_spawn_failed--enoent",
+      "reason": "capability_probe_spawn_failed"
+    }
+  ],
+  "departures": [
+    {
+      "case": "soul_unreadable",
+      "reason": "soul_unreadable",
+      "why": "SOUL.md is a directory: Bun compiles an empty replace-mode system prompt; raspd refuses compiler_exception (T-13018 r2)."
+    },
+    {
+      "case": "soul_unreadable--mode000",
+      "reason": "soul_unreadable",
+      "why": "SOUL.md cannot be opened (mode 000): Bun compiles an empty replace-mode system prompt; raspd refuses compiler_exception (T-13018 r2)."
+    },
+    {
+      "case": "placement_shape--relative-agentRoot",
+      "reason": "placement_shape",
+      "why": "A relative placement path: Bun compiles a plan with relative paths; raspd refuses -32602 invalid_params (T-13048 brief item 3)."
+    },
+    {
+      "case": "soul_unreadable--inspect",
+      "reason": "soul_unreadable",
+      "why": "SOUL.md is a directory: Bun inspects an empty replace-mode system prompt; raspd refuses inspection_failed (T-13018 r2)."
+    }
+  ]
+}

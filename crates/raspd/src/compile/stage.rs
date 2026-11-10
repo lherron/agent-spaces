@@ -201,7 +201,9 @@ pub struct SpacePlan {
 }
 
 /// Judge everything staging a space reads, before anything is written.
-pub fn plan_space(input: SpaceInput, lock_plugin: &J) -> Result<SpacePlan, Fwd> {
+/// `None`: the space does not declare the harness and is not materialized
+/// (plugin-artifacts.ts harness-skip; the lock keeps it).
+pub fn plan_space(input: SpaceInput, lock_plugin: &J) -> Result<Option<SpacePlan>, Fwd> {
     let toml_path = join(&[&input.content_dir, "space.toml"]);
     // readSpaceToml failures fall back to the lock's plugin identity.
     let parsed = super::spaces::read_manifest(&toml_path).ok();
@@ -221,8 +223,7 @@ pub fn plan_space(input: SpaceInput, lock_plugin: &J) -> Result<SpacePlan, Fwd> 
             .as_arr()
             .is_some_and(|s| s.iter().any(|h| h.as_str() == Some(DEFAULT_HARNESS)))
     {
-        // harness-skip: no live space takes this branch.
-        return Err(fwd(crate::reason!("space_harness_skip")));
+        return Ok(None);
     }
     // Staging copies hooks/ and reads hooks/hooks.toml from the copy.
     let hooks_toml = join(&[&input.content_dir, "hooks", "hooks.toml"]);
@@ -238,16 +239,18 @@ pub fn plan_space(input: SpaceInput, lock_plugin: &J) -> Result<SpacePlan, Fwd> 
     } else {
         None
     };
-    Ok(SpacePlan {
+    Ok(Some(SpacePlan {
         input,
         manifest,
         hooks,
         permissions,
-    })
+    }))
 }
 
 fn parse_toml_file(path: &str) -> Result<J, Fwd> {
-    let content = fs::read_to_string(path).map_err(|_| fwd(crate::reason!("toml_unreadable")))?;
+    // Lossy like Bun's readFile(…, 'utf8'); a file that cannot be read refuses.
+    let content = crate::reads::jspath::read_text(path)
+        .map_err(|_| fwd(crate::reason!("toml_unreadable")))?;
     match toml::parse(&content) {
         Ok(v) => Ok(v),
         Err(toml::TomlError::Unsupported(reason)) => Err(fwd(reason)),
@@ -443,6 +446,15 @@ fn plugin_json(manifest: &J) -> J {
         .or_else(|| manifest.get("description"));
     if let Some(d) = desc {
         out.set("description", d.clone());
+    }
+    if let Some(author) = plugin.and_then(|p| p.get("author")) {
+        let mut a = J::Obj(vec![]);
+        for key in ["name", "email", "url"] {
+            if let Some(v) = author.get(key) {
+                a.set(key, v.clone());
+            }
+        }
+        out.set("author", a);
     }
     for key in ["homepage", "repository", "license"] {
         if let Some(v) = plugin.and_then(|p| p.get(key)) {
@@ -1380,6 +1392,8 @@ fn sweep_children(root: &str, now: f64, max_age: f64, skip_live: bool) {
 
 /// `writeRuntimeSystemPromptArtifact({ aspHome, artifactRoot, content })`.
 pub fn write_prompt_artifact(artifact_root: &str, content: &str) -> Result<String, Fwd> {
+    // Node writes and hashes a lone surrogate as U+FFFD.
+    let content = &*crate::json::well_formed(content);
     let hash = sha256_hex(content.as_bytes());
     let dir = join(&[artifact_root, "system-prompts", &hash[..2], &hash]);
     mkdirp(&dir)?;

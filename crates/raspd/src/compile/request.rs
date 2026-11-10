@@ -133,14 +133,6 @@ const RUN_MODES: [&str; 4] = ["query", "heartbeat", "task", "maintenance"];
 /// relay's `fallbackDetail`); `None` when it is acceptable.
 type Problem = Option<String>;
 
-/// `<path>.<key>:unexpected_key` for the first key outside `keys`.
-fn unexpected_key(v: &J, keys: &[&str], path: &str) -> Problem {
-    v.js_entries()
-        .into_iter()
-        .find(|(k, _)| !keys.contains(k))
-        .map(|(k, _)| format!("{path}.{k}:unexpected_key"))
-}
-
 /// A value's JS kind problem, for the messages below.
 fn kind(v: Option<&J>, path: &str, ok: fn(&J) -> bool, want: &str) -> Problem {
     match v {
@@ -209,22 +201,6 @@ fn placement_problem(placement: &J) -> Problem {
         .or_else(|| opt(p("correlation"), placement_correlation_problem))
         .or_else(|| opt_bool_at(p("dryRun"), "placement.dryRun"))
         .or_else(|| str_map_at(p("dispatchEnv"), "placement.dispatchEnv"))
-        .or_else(|| {
-            unexpected_key(
-                placement,
-                &[
-                    "agentRoot",
-                    "projectRoot",
-                    "cwd",
-                    "runMode",
-                    "bundle",
-                    "correlation",
-                    "dryRun",
-                    "dispatchEnv",
-                ],
-                "placement",
-            )
-        })
 }
 
 fn bundle_problem(bundle: Option<&J>) -> Problem {
@@ -241,7 +217,6 @@ fn bundle_problem(bundle: Option<&J>) -> Problem {
             })
         })
         .or_else(|| opt_absolute(b.get("projectRoot"), "placement.bundle.projectRoot"))
-        .or_else(|| unexpected_key(b, &["kind", "agentName", "projectRoot"], path))
 }
 
 fn placement_correlation_problem(correlation: Option<&J>) -> Problem {
@@ -254,7 +229,6 @@ fn placement_correlation_problem(correlation: Option<&J>) -> Problem {
                 let path = "placement.correlation.sessionRef";
                 want_str(s.get("scopeRef"), &format!("{path}.scopeRef"))
                     .or_else(|| want_str(s.get("laneRef"), &format!("{path}.laneRef")))
-                    .or_else(|| unexpected_key(s, &["scopeRef", "laneRef"], path))
             })
         })
         .or_else(|| {
@@ -274,31 +248,13 @@ fn placement_correlation_problem(correlation: Option<&J>) -> Problem {
                     .then(|| format!("{path}.generation:not_integer"))
             })
         })
-        .or_else(|| {
-            unexpected_key(
-                c,
-                &[
-                    "hostSessionId",
-                    "runId",
-                    "generation",
-                    "sessionRef",
-                    "runtimeId",
-                    "invocationId",
-                    "initialInputId",
-                ],
-                path,
-            )
-        })
 }
 
 fn materialization_problem(material: &J) -> Problem {
-    let path = "materialization";
     opt_str_at(material.get("initialPrompt"), "materialization.initialPrompt")
         .or_else(|| opt_bool_at(material.get("omitPriming"), "materialization.omitPriming"))
         .or_else(|| match material.get("attachments") {
-            None => None,
-            Some(J::Arr(x)) if x.is_empty() => None,
-            Some(J::Arr(_)) => Some("materialization.attachments:not_empty".to_owned()),
+            None | Some(J::Arr(_)) => None,
             Some(_) => Some("materialization.attachments:not_array".to_owned()),
         })
         .or_else(|| {
@@ -318,26 +274,11 @@ fn materialization_problem(material: &J) -> Problem {
                                 .map(|_| format!("{path}.{k}:not_string"))
                         })
                     })
-                    .or_else(|| {
-                        unexpected_key(
-                            t,
-                            &["taskId", "phase", "role", "requiredEvidenceKinds", "hintsText"],
-                            path,
-                        )
-                    })
             })
-        })
-        .or_else(|| {
-            unexpected_key(
-                material,
-                &["initialPrompt", "omitPriming", "attachments", "taskContext"],
-                path,
-            )
         })
 }
 
 fn hrc_policy_problem(policy: &J) -> Problem {
-    let path = "hrcPolicy";
     opt(policy.get("resourceLimits"), |l| {
         let l = l.expect("present");
         let path = "hrcPolicy.resourceLimits";
@@ -370,21 +311,6 @@ fn hrc_policy_problem(policy: &J) -> Problem {
     .or_else(|| opt_rec_at(policy.get("permissionPolicy"), "hrcPolicy.permissionPolicy"))
     .or_else(|| opt_rec_at(policy.get("inputPolicy"), "hrcPolicy.inputPolicy"))
     .or_else(|| opt_rec_at(policy.get("exposurePolicy"), "hrcPolicy.exposurePolicy"))
-    .or_else(|| {
-        unexpected_key(
-            policy,
-            &[
-                "permissionPolicy",
-                "inputPolicy",
-                "exposurePolicy",
-                "resourceLimits",
-                "observability",
-                "capabilityPolicy",
-                "disallowedTools",
-            ],
-            path,
-        )
-    })
 }
 
 fn continuation_problem(c: &J) -> Problem {
@@ -426,9 +352,6 @@ pub fn shape_supported(p: &J) -> Result<(), Fwd> {
     if p.get("aspHome") == Some(&J::str("")) {
         return Err(fwd(crate::reason!("empty_asp_home")));
     }
-    if p.get("compileContext").is_some() {
-        return Err(fwd(crate::reason!("compile_context")));
-    }
     let req = p.get("compileRequest").expect("validated");
     let gates: [(crate::disposition::Reason, Problem); 5] = [
         (
@@ -453,6 +376,12 @@ pub fn shape_supported(p: &J) -> Result<(), Fwd> {
         ),
     ];
     match gates.into_iter().find_map(|(r, p)| p.map(|d| (r, d))) {
+        // Bun compiles a relative placement path into a plan of relative
+        // paths; raspd refuses it as invalid params (T-13048).
+        Some((reason, detail)) if detail.ends_with(":not_absolute") => Err(fwd_at(
+            reason.within(crate::disposition::Context::RelativePath),
+            detail,
+        )),
         Some((reason, detail)) => Err(fwd_at(reason, detail)),
         None => Ok(()),
     }
@@ -873,7 +802,7 @@ mod tests {
         let pl = "placement";
         assert_eq!(
             verdict(&edit(&[cr, pl, "image"], Some(J::str("x")))),
-            detail("placement_shape", "placement.image:unexpected_key")
+            Ok(())
         );
         assert_eq!(
             verdict(&edit(&[cr, pl, "cwd"], Some(J::str("rel/dir")))),
@@ -900,7 +829,7 @@ mod tests {
         );
         assert_eq!(
             verdict(&edit(&[cr, pl, "bundle", "extra"], Some(J::Bool(true)))),
-            detail("placement_shape", "placement.bundle.extra:unexpected_key")
+            Ok(())
         );
         assert_eq!(
             verdict(&edit(
@@ -936,18 +865,8 @@ mod tests {
     fn the_other_gate_reasons_name_their_key() {
         let cr = "compileRequest";
         assert_eq!(
-            verdict(&edit(
-                &[cr, "materialization", "attachments"],
-                Some(parse("[1]"))
-            )),
-            detail(
-                "materialization_shape",
-                "materialization.attachments:not_empty"
-            )
-        );
-        assert_eq!(
             verdict(&edit(&[cr, "materialization", "x"], Some(J::Null))),
-            detail("materialization_shape", "materialization.x:unexpected_key")
+            Ok(())
         );
         assert_eq!(
             verdict(&edit(
@@ -961,7 +880,7 @@ mod tests {
         );
         assert_eq!(
             verdict(&edit(&[cr, "hrcPolicy", "y"], Some(J::Null))),
-            detail("hrc_policy_shape", "hrcPolicy.y:unexpected_key")
+            Ok(())
         );
         assert_eq!(
             verdict(&edit(

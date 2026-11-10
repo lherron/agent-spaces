@@ -1,0 +1,138 @@
+{
+  "method": "aspc.resolveRuntimeDeclaration",
+  "params": {
+    "schemaVersion": "aspc-resolve-runtime-declaration-request/v1",
+    "context": {
+      "agentId": "p-pau-idn-agent",
+      "agentRoot": "/private/tmp/raspd-sole-native/stage/agents/p-pau-idn-agent",
+      "cwd": "/private/tmp/raspd-sole-native/stage/project",
+      "runMode": "task",
+      "project": {
+        "mode": "root",
+        "projectRoot": "/private/tmp/raspd-sole-native/stage/project",
+        "projectId": "project"
+      }
+    }
+  },
+  "replies": [
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "facadeInfo": {
+          "name": "aspc-facade",
+          "version": "0.1.1"
+        },
+        "protocolVersion": "aspc/0.1",
+        "capabilities": {
+          "catalogAgents": true,
+          "inspectAgent": true,
+          "catalogAgentInspection": true,
+          "inspectAgentSelection": true,
+          "compileHarnessInvocation": true,
+          "resolveRuntimeDeclaration": true,
+          "inspectRuntimePlacement": true,
+          "inspectRuntimePlacementPreparationCorrelation": true,
+          "inspectRuntimePlacementPreparationTaskContext": true,
+          "observeRuntimeCapability": true,
+          "observeContinuationArtifact": true,
+          "prepareProcessInvocation": true,
+          "prepareProcessInvocationTaskContext": true,
+          "cohostedBroker": false,
+          "transports": [
+            "unix-jsonrpc-ndjson"
+          ]
+        },
+        "release": {
+          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
+          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
+          "builtAt": "2026-11-10T00:47:48.483Z"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "schemaVersion": "aspc-resolve-runtime-declaration-response/v1",
+        "ok": true,
+        "evaluatedAt": "2026-11-10T02:55:01.951Z",
+        "contextHash": "df595f2d9d75528b27bdde562c5c227bbe3ae550a2a8efe84450f1ea828451a4",
+        "agentSources": {
+          "aspHome": "/private/tmp/raspd-sole-native/stage/asp-home",
+          "agentsRoot": "/private/tmp/raspd-sole-native/stage/agents",
+          "provenance": "caller-agent-root"
+        },
+        "markerProjectId": "project",
+        "searchedAgentRoots": [],
+        "source": {
+          "agentProfile": {
+            "state": "valid",
+            "code": "parsed",
+            "contentHash": "8ec80e4980c4633a5cfc65b26bf73417abecd953773c313a02a6e855f44b9003"
+          },
+          "projectTargets": {
+            "state": "absent",
+            "code": "not_declared"
+          },
+          "selectedTarget": {
+            "state": "absent",
+            "code": "not_declared"
+          },
+          "priming": {
+            "state": "absent",
+            "code": "not_declared"
+          }
+        },
+        "identity": {
+          "operator": false
+        },
+        "policy": {
+          "claimsTask": false,
+          "placement": {
+            "pins": {},
+            "homes": {}
+          }
+        },
+        "baselineProvisioning": {
+          "scalars": {
+            "yolo": false,
+            "remote": false
+          }
+        },
+        "provisioning": {
+          "scalars": {
+            "yolo": false,
+            "remote": false
+          }
+        },
+        "placement": {
+          "agentRoot": "/private/tmp/raspd-sole-native/stage/agents/p-pau-idn-agent",
+          "projectRoot": "/private/tmp/raspd-sole-native/stage/project",
+          "cwd": "/private/tmp/raspd-sole-native/stage/project",
+          "runMode": "task",
+          "bundle": {
+            "kind": "agent-project",
+            "agentName": "p-pau-idn-agent",
+            "projectRoot": "/private/tmp/raspd-sole-native/stage/project"
+          }
+        },
+        "bundle": {
+          "ref": {
+            "kind": "agent-project",
+            "agentName": "p-pau-idn-agent",
+            "projectRoot": "/private/tmp/raspd-sole-native/stage/project"
+          },
+          "identity": "3240e3e83f18d9998abf3661627d8054e70227f7f4f1d86937eba92ff0a2e587"
+        },
+        "diagnostics": []
+      }
+    }
+  ],
+  "tree": {
+    "agents/p-pau-idn-agent/SOUL.md": "file 644 9f300deb4e5c37923120276fb1f37012c4d9b7abc46cf8bb2eb7176615a0e2e6",
+    "agents/p-pau-idn-agent/agent-profile.toml": "file 644 5b5009967805fcd0dc8ac8541be0f3daed97d52a19adf2f98684081e8be3afa2",
+    "agents/p-pau-idn-agent/skills/probe-skill/SKILL.md": "file 644 5c0d43921335cc07086d88db6979921a88d8443767a43f1a46dcba30154e6c04"
+  },
+  "violations": []
+}

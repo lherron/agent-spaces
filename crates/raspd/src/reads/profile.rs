@@ -272,12 +272,8 @@ fn identity(value: Option<&J>, path: &str) -> R<Option<String>> {
         let J::Str(raw) = raw else {
             return fail(&key_path, "must be a string");
         };
-        if key == "avatar" {
-            match super::patterns::https_image_url(raw) {
-                Some(true) => {}
-                Some(false) => return fail(&key_path, "must be a public HTTPS image URL"),
-                None => return Err(ProfileError::Forward(crate::reason!("profile_avatar_url"))),
-            }
+        if key == "avatar" && !super::patterns::https_image_url(raw) {
+            return fail(&key_path, "must be a public HTTPS image URL");
         }
         if key == "role" {
             if let Some(error) = validate_token(raw, "role") {

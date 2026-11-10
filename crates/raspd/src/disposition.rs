@@ -10,16 +10,16 @@
 //! - `refuse`: Bun's envelope and code for that input (message text is not
 //!   Bun's);
 //! - `impossible`: JSON-RPC -32603, logged as a raspd defect;
-//! - `native` with `slice: 2` (or 3): a reason a later slice answers
-//!   natively; until then it refuses with the row's placeholder reply
-//!   (`compiler_exception` or its op's equivalent).
+//! - `native` with `slice: 3`: a reason a later slice answers natively;
+//!   until then it refuses with the row's placeholder reply.
 //!
 //! Rows marked `bothModes` (a panic, an invalid global lock) are answered from
 //! the row in fronted mode too.
 //!
-//! Slice 2's seam: making a row native means answering at the forward site
-//! instead of returning its `Fwd`, then deleting the row (the build then
-//! refuses any leftover `reason!` of it).
+//! Making a row native means answering at the forward site instead of
+//! returning its `Fwd`, then deleting the row (the build then refuses any
+//! leftover `reason!` of it). Slice 2 (T-13048) did that for its rows; a row
+//! that kept a refusing part stays, as `refuse`, for that part.
 use crate::json::J;
 use crate::protocol::error_line;
 use std::collections::HashMap;
@@ -74,6 +74,8 @@ pub enum Context {
     Priming,
     /// A lock still held by another process after the one wait.
     Held,
+    /// A placement path that is not absolute.
+    RelativePath,
 }
 
 impl Context {
@@ -86,10 +88,11 @@ impl Context {
             Context::ReadSource => "read_source",
             Context::Priming => "priming",
             Context::Held => "held",
+            Context::RelativePath => "relative_path",
         }
     }
     #[cfg(test)]
-    const ALL: [Context; 7] = [
+    const ALL: [Context; 8] = [
         Context::Profile,
         Context::Targets,
         Context::PlacementTargets,
@@ -97,6 +100,7 @@ impl Context {
         Context::ReadSource,
         Context::Priming,
         Context::Held,
+        Context::RelativePath,
     ];
 }
 

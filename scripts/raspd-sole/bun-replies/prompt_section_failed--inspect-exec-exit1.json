@@ -1,0 +1,427 @@
+{
+  "method": "aspc.inspectRuntimePlacement",
+  "params": {
+    "schemaVersion": "aspc-inspect-runtime-placement-request/v1",
+    "context": {
+      "agentId": "p-psf-exec",
+      "agentRoot": "/private/tmp/raspd-sole-native/stage/agents/p-psf-exec",
+      "project": {
+        "mode": "root",
+        "projectRoot": "/private/tmp/raspd-sole-native/stage/project",
+        "projectId": "project"
+      },
+      "cwd": "/private/tmp/raspd-sole-native/stage/project",
+      "runMode": "task",
+      "taskId": "T-11951",
+      "provisionDirectives": {
+        "harness": "claude"
+      }
+    },
+    "preparationCorrelation": {
+      "sessionRef": {
+        "scopeRef": "agent:p-psf-exec:project:project:task:T-11951",
+        "laneRef": "main"
+      },
+      "hostSessionId": "hsid-inspect",
+      "generation": 1,
+      "runtimeId": "rt-inspect",
+      "invocationId": "inv-inspect",
+      "initialInputId": "input-inspect",
+      "runId": "run-inspect"
+    },
+    "dispatchEnv": {
+      "AGENT_SCOPE_REF": "agent:p-psf-exec:project:project:task:T-11951",
+      "AGENT_LANE_REF": "main",
+      "AGENT_TASK": "T-11951"
+    }
+  },
+  "replies": [
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "facadeInfo": {
+          "name": "aspc-facade",
+          "version": "0.1.1"
+        },
+        "protocolVersion": "aspc/0.1",
+        "capabilities": {
+          "catalogAgents": true,
+          "inspectAgent": true,
+          "catalogAgentInspection": true,
+          "inspectAgentSelection": true,
+          "compileHarnessInvocation": true,
+          "resolveRuntimeDeclaration": true,
+          "inspectRuntimePlacement": true,
+          "inspectRuntimePlacementPreparationCorrelation": true,
+          "inspectRuntimePlacementPreparationTaskContext": true,
+          "observeRuntimeCapability": true,
+          "observeContinuationArtifact": true,
+          "prepareProcessInvocation": true,
+          "prepareProcessInvocationTaskContext": true,
+          "cohostedBroker": false,
+          "transports": [
+            "unix-jsonrpc-ndjson"
+          ]
+        },
+        "release": {
+          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
+          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
+          "builtAt": "2026-11-10T00:47:48.483Z"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "schemaVersion": "aspc-inspect-runtime-placement-response/v1",
+        "ok": true,
+        "declaration": {
+          "schemaVersion": "aspc-resolve-runtime-declaration-response/v1",
+          "ok": true,
+          "evaluatedAt": "2026-11-10T02:55:02.266Z",
+          "contextHash": "cc20d834456148bdbd8512bdcc01e98d0f22da117ff4a7ac6a2efbb332f47a57",
+          "agentSources": {
+            "aspHome": "/private/tmp/raspd-sole-native/stage/asp-home",
+            "agentsRoot": "/private/tmp/raspd-sole-native/stage/agents",
+            "provenance": "caller-agent-root"
+          },
+          "markerProjectId": "project",
+          "searchedAgentRoots": [],
+          "source": {
+            "agentProfile": {
+              "state": "valid",
+              "code": "parsed",
+              "contentHash": "dedeac2b4ad0398d2a0f7f9c17b73d45f03a70d67ae60c45af3d03f31aa4caff"
+            },
+            "projectTargets": {
+              "state": "absent",
+              "code": "not_declared"
+            },
+            "selectedTarget": {
+              "state": "absent",
+              "code": "not_declared"
+            },
+            "priming": {
+              "state": "valid",
+              "code": "parsed",
+              "contentHash": "556346f2665ba5c56483d2f57b5cf81e13648c0f52129195ac2f7230c7f50bb3"
+            }
+          },
+          "identity": {
+            "operator": false
+          },
+          "policy": {
+            "claimsTask": false,
+            "placement": {
+              "pins": {},
+              "homes": {}
+            }
+          },
+          "baselineProvisioning": {
+            "scalars": {
+              "yolo": false,
+              "remote": false
+            }
+          },
+          "provisioning": {
+            "scalars": {
+              "yolo": false,
+              "remote": false,
+              "harness": "claude"
+            },
+            "effectiveHarness": "claude"
+          },
+          "priming": {
+            "content": "probe priming",
+            "source": "inline"
+          },
+          "placement": {
+            "agentRoot": "/private/tmp/raspd-sole-native/stage/agents/p-psf-exec",
+            "projectRoot": "/private/tmp/raspd-sole-native/stage/project",
+            "cwd": "/private/tmp/raspd-sole-native/stage/project",
+            "runMode": "task",
+            "bundle": {
+              "kind": "agent-project",
+              "agentName": "p-psf-exec",
+              "projectRoot": "/private/tmp/raspd-sole-native/stage/project"
+            }
+          },
+          "bundle": {
+            "ref": {
+              "kind": "agent-project",
+              "agentName": "p-psf-exec",
+              "projectRoot": "/private/tmp/raspd-sole-native/stage/project"
+            },
+            "identity": "941ee257d1e9129c6e451e9ae2b83e91acef8712ed0765b2abe6a0d5bfeb2e13"
+          },
+          "diagnostics": []
+        },
+        "inspection": {
+          "schemaVersion": "agent-inspection/v2",
+          "identity": {
+            "agentId": "p-psf-exec",
+            "agentName": "p-psf-exec",
+            "projectId": "project",
+            "mode": "task",
+            "scope": "agent:p-psf-exec:project:project",
+            "taskId": "T-11951",
+            "lane": "main",
+            "harness": "claude",
+            "presentation": false
+          },
+          "parts": [
+            {
+              "kind": "prompt",
+              "partId": "prompt:prompt:soul",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "template",
+                    "sourceId": "context-section:prompt/0/soul",
+                    "sourceRef": "agent-root:///SOUL.md -> /private/tmp/raspd-sole-native/stage/agents/p-psf-exec/SOUL.md"
+                  }
+                ]
+              },
+              "value": {
+                "zone": "prompt",
+                "name": "soul",
+                "sourceType": "file",
+                "order": 0,
+                "content": "# p-psf-exec\n\nProbe agent.\n"
+              }
+            },
+            {
+              "kind": "prompt",
+              "partId": "prompt:prompt:status",
+              "disposition": {
+                "kind": "failed",
+                "source": {
+                  "kind": "exec",
+                  "command": "echo partial; exit 1"
+                },
+                "reason": "Exec failed; exit code: 1; signal: none; timeout: false; stderr: Command failed: bash -c echo partial; exit 1"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "template",
+                    "sourceId": "context-section:prompt/1/status",
+                    "sourceRef": "exec: echo partial; exit 1"
+                  }
+                ]
+              },
+              "value": {
+                "zone": "prompt",
+                "name": "status",
+                "sourceType": "exec",
+                "order": 1
+              }
+            },
+            {
+              "kind": "capability",
+              "partId": "capability:runtime-plan",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "capabilityId": "runtime-plan",
+                "enabled": true
+              }
+            },
+            {
+              "kind": "runtime-setting",
+              "partId": "runtime-setting:locked-env-keys",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "settingId": "locked-env-keys",
+                "value": [
+                  "AGENTCHAT_ID",
+                  "ASP_AGENT_CACHE_DIR",
+                  "ASP_AGENT_LOG_DIR",
+                  "ASP_AGENT_NAME",
+                  "ASP_AGENT_ROOT",
+                  "ASP_AGENT_STATE_DIR",
+                  "ASP_AGENT_VAR_DIR",
+                  "ASP_HOME",
+                  "ASP_PLUGIN_ROOT",
+                  "ASP_PRIMING_PROMPT",
+                  "ASP_PROJECT",
+                  "ASP_PROJECT_ID",
+                  "ASP_PROJECT_ROOT",
+                  "ASP_PROJECT_STATE_DIR"
+                ]
+              }
+            },
+            {
+              "kind": "harness",
+              "partId": "harness:selected",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "family": "claude",
+                "runtime": "claude-code",
+                "provider": "anthropic"
+              }
+            },
+            {
+              "kind": "model",
+              "partId": "model:selected",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "provider": "anthropic",
+                "modelId": "opus[1m]"
+              }
+            },
+            {
+              "kind": "artifact",
+              "partId": "artifact:bundle",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "artifactKind": "bundle",
+                "bundleIdentity": "bundle:e234894daa821802"
+              }
+            },
+            {
+              "kind": "execution-profile",
+              "partId": "execution-profile:profile_d2f6497fc955dca1d579c9310a8338ef",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "profileId": "profile_d2f6497fc955dca1d579c9310a8338ef",
+                "controllerKind": "claude-code-tmux",
+                "configuration": {
+                  "recipeId": "claude-code"
+                }
+              }
+            }
+          ],
+          "completeness": {
+            "kind": "partial",
+            "missingPartIds": [
+              "prompt:prompt:status"
+            ]
+          },
+          "freshness": {
+            "kind": "unknown",
+            "reason": "The canonical compile produced no lock hash"
+          },
+          "diagnostics": [
+            {
+              "kind": "resolution",
+              "severity": "error",
+              "code": "part_resolution_failed",
+              "message": "Exec failed; exit code: 1; signal: none; timeout: false; stderr: Command failed: bash -c echo partial; exit 1",
+              "partId": "prompt:prompt:status"
+            }
+          ]
+        },
+        "prompt": {
+          "state": "present",
+          "value": {
+            "systemPrompt": "# p-psf-exec\n\nProbe agent.\n",
+            "systemPromptMode": "replace",
+            "primingPrompt": "probe priming",
+            "promptSectionSizes": [
+              {
+                "name": "prompt.soul",
+                "chars": 27
+              }
+            ],
+            "reminderSectionSizes": [],
+            "promptTotalChars": 27,
+            "reminderTotalChars": 0,
+            "totalContextChars": 27,
+            "nearMaxChars": false
+          }
+        },
+        "effectiveEnvironmentHash": "125faa4b5214fa4e4bc15cd3a7035d365955d5691340b2a26ee6ab8c6a2e402a"
+      }
+    }
+  ],
+  "tree": {
+    "agents/p-psf-exec/SOUL.md": "file 644 563d7cba148bf7d4e6850267b8eb1dbdbd93450ecfc66233306d4cf04d0b4c4c",
+    "agents/p-psf-exec/agent-profile.toml": "file 644 26d88263cab95e8ee6cfb664d5b3f98fdd99f5211316bfa0827165ba919b888c",
+    "agents/p-psf-exec/context-template.toml": "file 644 607f8a1b46a994ea9ae70cc6e4d149bab90e00e9da3152b54e5d9d09fb018760",
+    "agents/p-psf-exec/skills/probe-skill/SKILL.md": "file 644 5c0d43921335cc07086d88db6979921a88d8443767a43f1a46dcba30154e6c04",
+    "asp-home/codex-homes/project_p-psf-exec/bundles/.versions/4e9d7b373251269cea3aa799416b0a3d589baa0107808cb9b71a1d8a69e0c867/p-psf-exec/claude/.asp-materialized.json": "file 644 eafe2e4e7fb8f921d500df894d1b9270d2d12cc9b130a6a5782d5d4b24db714e",
+    "asp-home/codex-homes/project_p-psf-exec/bundles/.versions/4e9d7b373251269cea3aa799416b0a3d589baa0107808cb9b71a1d8a69e0c867/p-psf-exec/claude/.asp-runtime-artifacts/system-prompts/56/563d7cba148bf7d4e6850267b8eb1dbdbd93450ecfc66233306d4cf04d0b4c4c/system-prompt.md": "file 644 563d7cba148bf7d4e6850267b8eb1dbdbd93450ecfc66233306d4cf04d0b4c4c",
+    "asp-home/codex-homes/project_p-psf-exec/bundles/.versions/4e9d7b373251269cea3aa799416b0a3d589baa0107808cb9b71a1d8a69e0c867/p-psf-exec/claude/plugins/000-pm-dev/.claude-plugin/plugin.json": "file 644 cc29571f2acf0e63c77592aeb613885f7e77090fd391fc94bfc55fe88d8dff0a",
+    "asp-home/codex-homes/project_p-psf-exec/bundles/.versions/4e9d7b373251269cea3aa799416b0a3d589baa0107808cb9b71a1d8a69e0c867/p-psf-exec/claude/plugins/000-pm-dev/skills/pm-dev-skill/SKILL.md": "file 644 b7d3c8bec60062aeda6632528afc83e10b37c99b9c53fc557699252d5f0555a5",
+    "asp-home/codex-homes/project_p-psf-exec/bundles/.versions/4e9d7b373251269cea3aa799416b0a3d589baa0107808cb9b71a1d8a69e0c867/p-psf-exec/claude/plugins/001-p-psf-exec-agent/.claude-plugin/plugin.json": "file 644 d806986434c7133454ba80f94d7a3fb6e590ef7db2f14533ac7134fd41246e27",
+    "asp-home/codex-homes/project_p-psf-exec/bundles/.versions/4e9d7b373251269cea3aa799416b0a3d589baa0107808cb9b71a1d8a69e0c867/p-psf-exec/claude/plugins/001-p-psf-exec-agent/skills/probe-skill/SKILL.md": "file 644 5c0d43921335cc07086d88db6979921a88d8443767a43f1a46dcba30154e6c04",
+    "asp-home/codex-homes/project_p-psf-exec/bundles/.versions/4e9d7b373251269cea3aa799416b0a3d589baa0107808cb9b71a1d8a69e0c867/p-psf-exec/claude/settings.json": "file 644 acf8256cbf3c0a03d47d5efe190999f7df3221e63a6b4c3c2ee86e5fa80639c7",
+    "asp-home/codex-homes/project_p-psf-exec/bundles/.versions/4e9d7b373251269cea3aa799416b0a3d589baa0107808cb9b71a1d8a69e0c867/p-psf-exec/claude/statusline.sh": "file 755 1f8608e28d9a690917854e541e07e46ea737f5b3fe1b08e60524fe034af06c15",
+    "asp-home/global-lock.json": "file 644 5f83175f2e80aa0c9b4c7ffa3a75860ad1e4528b5e20b12c686753e4e4958826",
+    "asp-home/tmp/locks/bundle-scope-e50ba797825bba7bb45e123c973502b1.lock": "file 644 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "asp-home/tmp/locks/lock-file-db691e722abd598e7db0504c74c48714.lock": "file 644 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "claude-home/.claude.json": "file 600 71f065e607109d098f3f1a7228ea1b05ed2f5649bc977154d707f7efd3414a5b"
+  },
+  "violations": []
+}

@@ -18,11 +18,20 @@
  *     before and after.
  *
  * Lock waits have no test seam (one 60 s wait each): global_lock_lock--held
- * is run, concurrently with the rest; bundle_scope_lock and codex_home_lock
- * are not. Also checked: version/health name no upstream in sole mode.
+ * runs only under --locks (acceptance evidence, not verify), after the
+ * rest; bundle_scope_lock and codex_home_lock are not run. Also
+ * checked: version/health name no upstream in sole mode.
+ *
+ * The native half (T-13048, native.ts): every case of a row raspd answers
+ * natively is sent to raspd on the fixed-path native rig and judged against
+ * the Bun reply recorded for it (bun-replies/, record-bun.ts): a Bun success
+ * by its whole reply and stage tree, the way the compare runner compares; a
+ * Bun refusal by envelope and code. A mismatch fails unless native.json's
+ * `departures` lists the case; a listed departure that matches fails too.
  *
  * Usage: bun scripts/raspd-sole/table-e2e.ts --raspd <binary>
  *          [--scratch <dir>] [--only <case-id regex>] [--out <results.json>] [--keep]
+ *          [--locks] [--no-native] [--native-only]
  */
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -41,6 +50,14 @@ import { join, resolve } from 'node:path'
 
 import { HELLO_PARAMS } from '../aspd-compare/cases.ts'
 import { type ProbeCase, ctxFor } from './ctx.ts'
+import {
+  ORACLE,
+  type Verdict,
+  captureNative,
+  compareNative,
+  spec as nativeSpec,
+  readBunCapture,
+} from './native.ts'
 import { drive, frame, logLines, startRig } from './rig.ts'
 
 const repo = resolve(import.meta.dir, '..', '..')
@@ -56,6 +73,7 @@ if (raspd === undefined) {
   process.exit(2)
 }
 const only = arg('--only') ? new RegExp(arg('--only') as string) : undefined
+const flag = (name: string) => process.argv.includes(name)
 const scratch = resolve(arg('--scratch') ?? mkdtempSync(join(tmpdir(), 'raspd-sole-')))
 mkdirSync(scratch, { recursive: true })
 
@@ -100,10 +118,15 @@ const CONTEXTS: Record<string, string> = {
   'project_targets_invalid--placement': 'placement_targets',
   'source_read_unavailable--placement-targets': 'placement_targets',
   'global_lock_lock--held': 'held',
+  'placement_shape--relative-agentRoot': 'relative_path',
 }
-/** Lock rows: one 60 s wait each and no seam to shorten it; this one runs. */
+/** Lock rows: one 60 s wait each and no seam to shorten it; this one runs under --locks. */
 const LOCK_CASES = new Set(['global_lock_lock--held'])
-const UNRUN_LOCK_CASES = new Set(['bundle_scope_lock', 'codex_home_lock'])
+const UNRUN_LOCK_CASES = new Set([
+  'bundle_scope_lock',
+  'codex_home_lock',
+  ...(flag('--locks') ? [] : LOCK_CASES),
+])
 
 /** A reply as the table's shape, with the envelope checks it implies. */
 function shapeOf(method: string, reply: any): { shape?: Reply; envelope: string[] } {
@@ -181,6 +204,53 @@ function treeDiff(a: Map<string, string>, b: Map<string, string>): string[] {
   return diff
 }
 
+// -- the native half -----------------------------------------------------------------------
+async function nativeHalf(): Promise<(Verdict & { departed?: boolean })[]> {
+  const cases = new Map<string, ProbeCase>()
+  for (const m of readdirSync(join(import.meta.dir, 'cases')).filter((f) => f.endsWith('.ts'))) {
+    const mod = await import(join(import.meta.dir, 'cases', m))
+    for (const pc of mod.default as ProbeCase[]) cases.set(pc.id ?? pc.reason, pc)
+  }
+  const ids = new Set(nativeSpec.cases.map((c) => c.id))
+  const departures = new Map(nativeSpec.departures.map((d) => [d.case, d]))
+  for (const d of nativeSpec.departures)
+    if (!ids.has(d.case)) failures.push(`departure ${d.case} is not a native case`)
+  // A row made native is gone from the table; a split row keeps only its refusing part.
+  for (const { id, reason } of nativeSpec.cases) {
+    const row = _rows.get(reason) as (Row & { slice?: number }) | undefined
+    if (row?.disposition === 'native' && row.slice === 2)
+      failures.push(`${id}: ${reason} is still a slice-2 placeholder row`)
+  }
+  const identity = JSON.parse(readFileSync(ORACLE, 'utf8'))
+  const captured = await captureNative(raspd as string, 'raspd', identity, only)
+  const verdicts: (Verdict & { departed?: boolean })[] = []
+  for (const [id, mine] of Object.entries(captured)) {
+    const bun = readBunCapture(id)
+    if (bun === undefined) {
+      failures.push(`${id}: no recorded Bun reply (run record-bun.ts)`)
+      continue
+    }
+    const v = compareNative(id, cases.get(id) as ProbeCase, bun, mine)
+    const departure = departures.get(id)
+    if (departure !== undefined) {
+      if (v.problems.length === 0) failures.push(`${id}: listed departure but raspd matches Bun`)
+      verdicts.push({ ...v, departed: true })
+      console.log(`DEPART ${id} (${departure.why}) ${v.problems.join(' | ')}`)
+      continue
+    }
+    verdicts.push(v)
+    console.log(`${v.problems.length === 0 ? 'MATCH' : 'FAIL'} ${id} ${v.problems.join(' | ')}`)
+    if (v.problems.length > 0) {
+      failures.push(`${id}: ${v.problems.join(' | ')}`)
+      for (const d of [...(v.replyDiffs ?? []), ...(v.treeDiffs ?? [])].slice(0, 8))
+        console.log(
+          `    ${d.path}: bun ${JSON.stringify(d.a)?.slice(0, 200)} raspd ${JSON.stringify(d.b)?.slice(0, 200)}`
+        )
+    }
+  }
+  return verdicts
+}
+
 // -- run -----------------------------------------------------------------------------------
 const rig = await startRig(scratch, raspd)
 const { stage, bases, socket, log } = rig
@@ -206,7 +276,7 @@ try {
   }
   const selected: { id: string; pc: ProbeCase; row: Row }[] = []
   const unrunRows: string[] = []
-  for (const row of table.rows) {
+  for (const row of flag('--native-only') ? [] : table.rows) {
     if (row.disposition !== 'refuse' && row.disposition !== 'impossible') continue
     const ids = row.runnable.filter((id) => !UNRUN_LOCK_CASES.has(id))
     if (ids.length === 0) unrunRows.push(row.reason)
@@ -221,7 +291,7 @@ try {
     }
   }
 
-  let logAt = 0
+  const logAt = 0
   /** A case's native prep (`<id>--prep`: it publishes what the case then damages). */
   const prep = async (id: string) => {
     const pc = cases.get(`${id}--prep`)
@@ -249,6 +319,7 @@ try {
     const before = checkTree ? snapshot(roots) : undefined
     const replies = await drive(socket, frames)
     writeFileSync(c.done, '')
+    pc.teardown?.(c)
     const reply = replies.find((r) => r.id === 2) ?? replies[replies.length - 1]
     const problems: string[] = []
     if (before) {
@@ -264,32 +335,50 @@ try {
     return { c, reply, problems, want, got, context }
   }
 
-  // The lock case waits 60 s; it runs beside the others, on its own ASP_HOME.
-  const locks = selected
-    .filter((s) => LOCK_CASES.has(s.id))
-    .map((s) => ({ ...s, pending: runOne(s.id, s.pc, s.row, true) }))
+  // Every case first; then raspd's log (flushed every 250 ms) is read once and
+  // split by case in order: a case's lines end at its own access line (a
+  // prep compile logs one before it).
+  const ran: {
+    id: string
+    pc: ProbeCase
+    row: Row
+    out: Awaited<ReturnType<typeof runOne>>
+    ms: number
+  }[] = []
   for (const { id, pc, row } of selected.filter((s) => !LOCK_CASES.has(s.id))) {
     const started = Date.now()
-    let ran: Awaited<ReturnType<typeof runOne>>
     try {
-      ran = await runOne(id, pc, row, false)
+      ran.push({ id, pc, row, out: await runOne(id, pc, row, false), ms: Date.now() - started })
     } catch (e) {
       failures.push(`${id}: setup failed: ${(e as Error).message}`)
       console.log(`FAIL ${id} setup failed: ${(e as Error).message}`)
-      continue
     }
-    const { reply, problems, want, got, context } = ran
-    // Which forward refused it, from raspd's log (its access line follows).
-    const lines: any[] = []
-    for (const deadline = Date.now() + 5_000; Date.now() < deadline; ) {
-      const read = logLines(log, logAt)
-      logAt = read.to
-      lines.push(...read.lines)
-      // The case's own access line (a prep compile logs one before it).
-      const served = lines.filter((l) => l.event === 'rpc.request' && l.data?.op === pc.method)
-      if (served.length > (cases.has(`${id}--prep`) ? 1 : 0)) break
-      await Bun.sleep(20)
+  }
+  const slices = (lines: any[]) => {
+    const out: any[][] = []
+    let at = 0
+    for (const { id, pc } of ran) {
+      let need = cases.has(`${id}--prep`) ? 2 : 1
+      const slice: any[] = []
+      while (need > 0 && at < lines.length) {
+        const l = lines[at++]
+        slice.push(l)
+        if (l.event === 'rpc.request' && l.data?.op === pc.method) need--
+      }
+      if (need > 0) return undefined
+      out.push(slice)
     }
+    return out
+  }
+  let split: any[][] | undefined
+  for (const deadline = Date.now() + 5_000; split === undefined && Date.now() < deadline; ) {
+    split = slices(logLines(log, logAt).lines)
+    if (split === undefined) await Bun.sleep(50)
+  }
+  ran.forEach(({ id, pc, row, out, ms }, n) => {
+    const { reply, problems, want, got, context } = out
+    const lines = split?.[n] ?? []
+    if (split === undefined) problems.push('log: the access lines never all arrived')
     const refused = lines.filter(
       (l) =>
         (l.event === 'native.refused' || l.event === 'raspd.defect') &&
@@ -310,7 +399,7 @@ try {
       reason: row.reason,
       method: pc.method,
       decided: row.decided,
-      ms: Date.now() - started,
+      ms,
       want,
       got: got.shape,
       problems,
@@ -320,9 +409,10 @@ try {
       failures.push(`${id}: ${problems.join(' | ')}`)
       if (process.env['RASPD_SOLE_DEBUG']) console.log(JSON.stringify(reply).slice(0, 600))
     }
-  }
-  for (const { id, row, pc, pending } of locks) {
-    const { problems, want, got } = await pending
+  })
+  // The lock case (--locks) waits 60 s on its own ASP_HOME, after the others.
+  for (const { id, pc, row } of selected.filter((s) => LOCK_CASES.has(s.id))) {
+    const { problems, want, got } = await runOne(id, pc, row, true)
     results.push({
       id,
       reason: row.reason,
@@ -335,16 +425,24 @@ try {
     console.log(`${problems.length === 0 ? 'PASS' : 'FAIL'} ${id} ${problems.join(' | ')}`)
     if (problems.length > 0) failures.push(`${id}: ${problems.join(' | ')}`)
   }
+  await rig.stop()
+  const native = flag('--no-native') ? [] : await nativeHalf()
   const summary = {
     rowsRun: [...new Set(results.map((r) => r.reason))].length,
     casesRun: results.length,
     rowsWithoutRunnableCase: unrunRows,
     lockRowsNotRun: [...UNRUN_LOCK_CASES],
+    nativeCasesRun: native.length,
+    nativeMatched: native.filter((v) => v.problems.length === 0).length,
+    nativeDeparted: native.filter((v) => v.departed).map((v) => v.id),
     failures,
   }
   console.log(JSON.stringify({ ...summary, failures: failures.length }))
   if (arg('--out'))
-    writeFileSync(arg('--out') as string, `${JSON.stringify({ summary, results }, null, 2)}\n`)
+    writeFileSync(
+      arg('--out') as string,
+      `${JSON.stringify({ summary, results, native }, null, 2)}\n`
+    )
 } finally {
   await rig.stop()
   if (!process.argv.includes('--keep') && arg('--scratch') === undefined) {

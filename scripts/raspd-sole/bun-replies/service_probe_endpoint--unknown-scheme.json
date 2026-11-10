@@ -1,0 +1,389 @@
+{
+  "method": "aspc.compileHarnessInvocation",
+  "params": {
+    "compileRequest": {
+      "schemaVersion": "agent-runtime-compile-request/v2",
+      "agent": {
+        "id": "p-spe-unknown-scheme"
+      },
+      "identity": {
+        "requestId": "request_pathmark_claude_code_dev",
+        "operationId": "operation_pathmark_claude_code_dev",
+        "hostSessionId": "host_pathmark_claude_code_dev",
+        "generation": 1,
+        "runtimeId": "runtime_pathmark_claude_code_dev",
+        "invocationId": "inv_pathmark_claude_code_dev",
+        "initialInputId": "input_pathmark_claude_code_dev",
+        "runId": "run_pathmark_claude_code_dev",
+        "traceId": "trace_pathmark_claude_code_dev"
+      },
+      "placement": {
+        "agentRoot": "/private/tmp/raspd-sole-native/stage/agents/p-spe-unknown-scheme",
+        "cwd": "/private/tmp/raspd-sole-native/stage/project",
+        "runMode": "task",
+        "bundle": {
+          "kind": "agent-project",
+          "agentName": "p-spe-unknown-scheme",
+          "projectRoot": "/private/tmp/raspd-sole-native/stage/project"
+        },
+        "dryRun": false,
+        "projectRoot": "/private/tmp/raspd-sole-native/stage/project",
+        "correlation": {
+          "sessionRef": {
+            "scopeRef": "agent:p-spe-unknown-scheme:project:project:task:T-11825",
+            "laneRef": "main"
+          },
+          "hostSessionId": "host_pathmark_claude_code_dev",
+          "generation": 1,
+          "runtimeId": "runtime_pathmark_claude_code_dev",
+          "invocationId": "inv_pathmark_claude_code_dev",
+          "initialInputId": "input_pathmark_claude_code_dev",
+          "runId": "run_pathmark_claude_code_dev"
+        },
+        "dispatchEnv": {
+          "AGENT_SCOPE_REF": "agent:p-spe-unknown-scheme:project:project:task:T-11825",
+          "AGENT_LANE_REF": "main",
+          "AGENT_SESSION_REF": "agent:p-spe-unknown-scheme:project:project:task:T-11825/lane:main",
+          "HRC_SESSION_REF": "agent:p-spe-unknown-scheme:project:project:task:T-11825/lane:main",
+          "AGENT_ID": "p-spe-unknown-scheme",
+          "AGENT_HOST_SESSION_ID": "host_pathmark_claude_code_dev",
+          "AGENT_GENERATION": "1",
+          "AGENT_TASK": "T-11825"
+        }
+      },
+      "requested": {
+        "harness": "claude",
+        "presentation": true
+      },
+      "materialization": {
+        "initialPrompt": "pathmark prompt",
+        "taskContext": {
+          "taskId": "T-11825",
+          "phase": "pathmark",
+          "role": "fixture",
+          "requiredEvidenceKinds": [],
+          "hintsText": "path marker fixture"
+        }
+      },
+      "hrcPolicy": {},
+      "correlation": {
+        "scopeRef": "agent:p-spe-unknown-scheme:project:project:task:T-11825",
+        "requestId": "request_pathmark_claude_code_dev",
+        "operationId": "operation_pathmark_claude_code_dev",
+        "hostSessionId": "host_pathmark_claude_code_dev",
+        "generation": 1,
+        "runtimeId": "runtime_pathmark_claude_code_dev",
+        "invocationId": "inv_pathmark_claude_code_dev",
+        "traceId": "trace_pathmark_claude_code_dev",
+        "runId": "run_pathmark_claude_code_dev",
+        "inputId": "input_pathmark_claude_code_dev"
+      }
+    }
+  },
+  "replies": [
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "facadeInfo": {
+          "name": "aspc-facade",
+          "version": "0.1.1"
+        },
+        "protocolVersion": "aspc/0.1",
+        "capabilities": {
+          "catalogAgents": true,
+          "inspectAgent": true,
+          "catalogAgentInspection": true,
+          "inspectAgentSelection": true,
+          "compileHarnessInvocation": true,
+          "resolveRuntimeDeclaration": true,
+          "inspectRuntimePlacement": true,
+          "inspectRuntimePlacementPreparationCorrelation": true,
+          "inspectRuntimePlacementPreparationTaskContext": true,
+          "observeRuntimeCapability": true,
+          "observeContinuationArtifact": true,
+          "prepareProcessInvocation": true,
+          "prepareProcessInvocationTaskContext": true,
+          "cohostedBroker": false,
+          "transports": [
+            "unix-jsonrpc-ndjson"
+          ]
+        },
+        "release": {
+          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
+          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
+          "builtAt": "2026-11-10T00:47:48.483Z"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "schemaVersion": "aspc-compile-harness-invocation-response/v2",
+        "ok": true,
+        "plan": {
+          "schemaVersion": "agent-runtime-plan/v2",
+          "compiler": {
+            "name": "agent-spaces",
+            "version": "0.1.1"
+          },
+          "compileId": "compile_5c0a4adf2b738bdd4f0d9ac0dcf398fa",
+          "createdAt": "2026-11-10T02:55:02.420Z",
+          "agent": {
+            "id": "p-spe-unknown-scheme"
+          },
+          "identity": {
+            "requestId": "request_pathmark_claude_code_dev",
+            "operationId": "operation_pathmark_claude_code_dev",
+            "hostSessionId": "host_pathmark_claude_code_dev",
+            "generation": 1,
+            "runtimeId": "runtime_pathmark_claude_code_dev",
+            "invocationId": "inv_pathmark_claude_code_dev",
+            "initialInputId": "input_pathmark_claude_code_dev",
+            "runId": "run_pathmark_claude_code_dev",
+            "traceId": "trace_pathmark_claude_code_dev"
+          },
+          "placement": {
+            "agentRoot": "/private/tmp/raspd-sole-native/stage/agents/p-spe-unknown-scheme",
+            "cwd": "/private/tmp/raspd-sole-native/stage/project",
+            "runMode": "task",
+            "bundle": {
+              "kind": "agent-project",
+              "agentName": "p-spe-unknown-scheme",
+              "projectRoot": "/private/tmp/raspd-sole-native/stage/project"
+            },
+            "dryRun": false,
+            "projectRoot": "/private/tmp/raspd-sole-native/stage/project",
+            "correlation": {
+              "sessionRef": {
+                "scopeRef": "agent:p-spe-unknown-scheme:project:project:task:T-11825",
+                "laneRef": "main"
+              },
+              "hostSessionId": "host_pathmark_claude_code_dev",
+              "generation": 1,
+              "runtimeId": "runtime_pathmark_claude_code_dev",
+              "invocationId": "inv_pathmark_claude_code_dev",
+              "initialInputId": "input_pathmark_claude_code_dev",
+              "runId": "run_pathmark_claude_code_dev"
+            }
+          },
+          "resolvedBundle": {
+            "bundleIdentity": "bundle:d468d38d60b5fb08",
+            "runMode": "task",
+            "cwd": "/private/tmp/raspd-sole-native/stage/project",
+            "instructions": [
+              {
+                "slot": "soul",
+                "ref": "agent-root:///SOUL.md",
+                "contentHash": "sha256:b5ae5ef9530482509ccd7a408511f55ccdc3015c60bdd2261be1fd8d0304f138"
+              }
+            ],
+            "spaces": [
+              {
+                "ref": "space:pm-dev@dev",
+                "resolvedKey": "pm-dev@dev",
+                "integrity": "sha256:pending"
+              }
+            ]
+          },
+          "omitPriming": false,
+          "selection": {
+            "harness": "claude",
+            "modelProvider": "anthropic",
+            "model": "opus[1m]",
+            "presentation": true,
+            "provenance": {
+              "harness": "compile-request",
+              "modelProvider": "catalog-default",
+              "model": "catalog-default",
+              "presentation": "compile-request"
+            }
+          },
+          "execution": {
+            "recipeId": "claude-code",
+            "driver": "claude-code-tmux",
+            "protocol": "harness-broker/0.2",
+            "hosting": {
+              "executionTransport": "pty",
+              "terminalRequired": true,
+              "terminalHost": "tmux",
+              "processExecution": "broker-process"
+            },
+            "presentationFulfillment": "intrinsic",
+            "profile": {
+              "profileId": "profile_0bf3f0f29213727d20a4cdd59acbca28",
+              "profileHash": "d93f5d1034994784e86fa60af25fcf69585d69e284672c5df85d27b4fbb87439",
+              "compatibilityHash": "e1253da3f0b2bce2c1ddf8720133e9a28b438dc54d279c5f503bc44409af1faf",
+              "startRequestHash": "6677fdb5ca93206e9e29a5c13b478ba7f4bd2f2f21bac33b67e2c24ba1a5ead7"
+            },
+            "dispatchRequest": {
+              "startRequest": {
+                "spec": {
+                  "specVersion": "harness-broker.invocation/v1",
+                  "invocationId": "inv_pathmark_claude_code_dev",
+                  "labels": {
+                    "task": "T-11825"
+                  },
+                  "harness": {
+                    "frontend": "claude-code",
+                    "provider": "anthropic",
+                    "driver": "claude-code-tmux"
+                  },
+                  "process": {
+                    "command": "/private/tmp/raspd-sole-native/bin/claude",
+                    "args": [
+                      "--plugin-dir",
+                      "/private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_p-spe-unknown-scheme/bundles/.versions/98e4790e95cefa61d7cd89184d306807d6f1dada4430374e77b9928ed335b207/p-spe-unknown-scheme/claude/plugins/000-pm-dev",
+                      "--plugin-dir",
+                      "/private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_p-spe-unknown-scheme/bundles/.versions/98e4790e95cefa61d7cd89184d306807d6f1dada4430374e77b9928ed335b207/p-spe-unknown-scheme/claude/plugins/001-p-spe-unknown-scheme-agent",
+                      "--model",
+                      "opus[1m]",
+                      "--disallowedTools",
+                      "AskUserQuestion",
+                      "--setting-sources",
+                      "",
+                      "--settings",
+                      "/private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_p-spe-unknown-scheme/bundles/.versions/98e4790e95cefa61d7cd89184d306807d6f1dada4430374e77b9928ed335b207/p-spe-unknown-scheme/claude/settings.json",
+                      "--system-prompt",
+                      "# p-spe-unknown-scheme\n\nProbe agent.\n",
+                      "--chrome",
+                      "--session-id",
+                      "02fbbbd9-0cd0-4fbb-9f07-5412ac1930b9",
+                      "--",
+                      "probe priming\n\npathmark prompt"
+                    ],
+                    "cwd": "/private/tmp/raspd-sole-native/stage/project",
+                    "lockedEnv": {
+                      "ASP_PLUGIN_ROOT": "/private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_p-spe-unknown-scheme/bundles/.versions/98e4790e95cefa61d7cd89184d306807d6f1dada4430374e77b9928ed335b207/p-spe-unknown-scheme/claude",
+                      "ASP_PRIMING_PROMPT": "probe priming\n\npathmark prompt",
+                      "AGENTCHAT_ID": "p-spe-unknown-scheme",
+                      "ASP_PROJECT": "project",
+                      "ASP_HOME": "/private/tmp/raspd-sole-native/stage/asp-home",
+                      "ASP_AGENT_ROOT": "/private/tmp/raspd-sole-native/stage/agents/p-spe-unknown-scheme",
+                      "ASP_AGENT_NAME": "p-spe-unknown-scheme",
+                      "ASP_AGENT_VAR_DIR": "/private/tmp/raspd-sole-native/stage/agents/p-spe-unknown-scheme/var",
+                      "ASP_AGENT_STATE_DIR": "/private/tmp/raspd-sole-native/stage/agents/p-spe-unknown-scheme/var/state",
+                      "ASP_AGENT_CACHE_DIR": "/private/tmp/raspd-sole-native/stage/agents/p-spe-unknown-scheme/var/cache",
+                      "ASP_AGENT_LOG_DIR": "/private/tmp/raspd-sole-native/stage/agents/p-spe-unknown-scheme/var/logs",
+                      "ASP_PROJECT_ROOT": "/private/tmp/raspd-sole-native/stage/project",
+                      "ASP_PROJECT_ID": "project_p-spe-unknown-scheme",
+                      "ASP_PROJECT_STATE_DIR": "/private/tmp/raspd-sole-native/stage/agents/p-spe-unknown-scheme/var/state/projects/project_p-spe-unknown-scheme"
+                    },
+                    "harnessTransport": {
+                      "kind": "pty"
+                    }
+                  },
+                  "interaction": {
+                    "mode": "interactive",
+                    "turnConcurrency": "single",
+                    "inputQueue": "fifo"
+                  },
+                  "driver": {
+                    "kind": "claude-code-tmux",
+                    "terminalHost": "tmux"
+                  },
+                  "launch": {
+                    "systemPromptFile": "/private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_p-spe-unknown-scheme/bundles/.versions/98e4790e95cefa61d7cd89184d306807d6f1dada4430374e77b9928ed335b207/p-spe-unknown-scheme/claude/.asp-runtime-artifacts/system-prompts/b5/b5ae5ef9530482509ccd7a408511f55ccdc3015c60bdd2261be1fd8d0304f138/system-prompt.md",
+                    "systemPromptMode": "replace",
+                    "initialPrompt": "probe priming\n\npathmark prompt"
+                  },
+                  "correlation": {
+                    "requestId": "request_pathmark_claude_code_dev",
+                    "hostSessionId": "host_pathmark_claude_code_dev",
+                    "operationId": "operation_pathmark_claude_code_dev",
+                    "runtimeId": "runtime_pathmark_claude_code_dev",
+                    "runId": "run_pathmark_claude_code_dev",
+                    "invocationId": "inv_pathmark_claude_code_dev",
+                    "inputId": "input_pathmark_claude_code_dev",
+                    "traceId": "trace_pathmark_claude_code_dev",
+                    "scopeRef": "agent:p-spe-unknown-scheme:project:project:task:T-11825"
+                  }
+                }
+              },
+              "dispatchEnv": {
+                "AGENT_SCOPE_REF": "agent:p-spe-unknown-scheme:project:project:task:T-11825",
+                "AGENT_LANE_REF": "main",
+                "AGENT_SESSION_REF": "agent:p-spe-unknown-scheme:project:project:task:T-11825/lane:main",
+                "HRC_SESSION_REF": "agent:p-spe-unknown-scheme:project:project:task:T-11825/lane:main",
+                "AGENT_ID": "p-spe-unknown-scheme",
+                "AGENT_HOST_SESSION_ID": "host_pathmark_claude_code_dev",
+                "AGENT_GENERATION": "1",
+                "AGENT_TASK": "T-11825"
+              }
+            }
+          },
+          "artifacts": {
+            "materializedBundleRoot": "/private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_p-spe-unknown-scheme/bundles/.versions/98e4790e95cefa61d7cd89184d306807d6f1dada4430374e77b9928ed335b207/p-spe-unknown-scheme/claude",
+            "systemPromptFile": "/private/tmp/raspd-sole-native/stage/asp-home/codex-homes/project_p-spe-unknown-scheme/bundles/.versions/98e4790e95cefa61d7cd89184d306807d6f1dada4430374e77b9928ed335b207/p-spe-unknown-scheme/claude/.asp-runtime-artifacts/system-prompts/b5/b5ae5ef9530482509ccd7a408511f55ccdc3015c60bdd2261be1fd8d0304f138/system-prompt.md",
+            "bundleIdentity": "bundle:d468d38d60b5fb08"
+          },
+          "lockedEnv": {
+            "lockedEnvKeys": [
+              "AGENTCHAT_ID",
+              "ASP_AGENT_CACHE_DIR",
+              "ASP_AGENT_LOG_DIR",
+              "ASP_AGENT_NAME",
+              "ASP_AGENT_ROOT",
+              "ASP_AGENT_STATE_DIR",
+              "ASP_AGENT_VAR_DIR",
+              "ASP_HOME",
+              "ASP_PLUGIN_ROOT",
+              "ASP_PRIMING_PROMPT",
+              "ASP_PROJECT",
+              "ASP_PROJECT_ID",
+              "ASP_PROJECT_ROOT",
+              "ASP_PROJECT_STATE_DIR"
+            ]
+          },
+          "diagnostics": [],
+          "planHash": "ae2f4df28dc67e16c58fa2b53b68f7d4659c66ad25e04b980def07f6d1680c6f"
+        },
+        "sessionMetadata": {},
+        "diagnostics": [],
+        "effectiveEnvironmentHash": "6aa2e536da9864c1a146aac26051e7a1924d733e6b0d263f97e23d0d502ba9e1",
+        "executionRelease": {
+          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
+          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
+          "builtAt": "2026-11-10T00:47:48.483Z",
+          "releaseRoot": "/private/tmp/raspd-sole-native/releases/asp-26ab619396e7-20261110T004748Z-31fd9f",
+          "worker": {
+            "protocol": "harness-broker/0.2",
+            "executable": "/private/tmp/raspd-sole-native/releases/asp-26ab619396e7-20261110T004748Z-31fd9f/harness-broker",
+            "hostedDrivers": [
+              "claude-code-hrcpty",
+              "claude-code-tmux",
+              "codex-app-server",
+              "muse-cli-tmux",
+              "muse-serve"
+            ],
+            "argvPrefix": [
+              "run",
+              "--transport",
+              "unix"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "tree": {
+    "agents/p-spe-unknown-scheme/SOUL.md": "file 644 b5ae5ef9530482509ccd7a408511f55ccdc3015c60bdd2261be1fd8d0304f138",
+    "agents/p-spe-unknown-scheme/agent-profile.toml": "file 644 26d88263cab95e8ee6cfb664d5b3f98fdd99f5211316bfa0827165ba919b888c",
+    "agents/p-spe-unknown-scheme/context-template.toml": "file 644 01240949c37f0f6de59992d804c323683f190b0624ba1c717a32649da9319176",
+    "agents/p-spe-unknown-scheme/skills/probe-skill/SKILL.md": "file 644 5c0d43921335cc07086d88db6979921a88d8443767a43f1a46dcba30154e6c04",
+    "asp-home/codex-homes/project_p-spe-unknown-scheme/bundles/.versions/98e4790e95cefa61d7cd89184d306807d6f1dada4430374e77b9928ed335b207/p-spe-unknown-scheme/claude/.asp-materialized.json": "file 644 dd3013e5bb55464fcc2620ef91db01ee14f2b4b512204ace64b873aaf73afd76",
+    "asp-home/codex-homes/project_p-spe-unknown-scheme/bundles/.versions/98e4790e95cefa61d7cd89184d306807d6f1dada4430374e77b9928ed335b207/p-spe-unknown-scheme/claude/.asp-runtime-artifacts/system-prompts/b5/b5ae5ef9530482509ccd7a408511f55ccdc3015c60bdd2261be1fd8d0304f138/system-prompt.md": "file 644 b5ae5ef9530482509ccd7a408511f55ccdc3015c60bdd2261be1fd8d0304f138",
+    "asp-home/codex-homes/project_p-spe-unknown-scheme/bundles/.versions/98e4790e95cefa61d7cd89184d306807d6f1dada4430374e77b9928ed335b207/p-spe-unknown-scheme/claude/plugins/000-pm-dev/.claude-plugin/plugin.json": "file 644 cc29571f2acf0e63c77592aeb613885f7e77090fd391fc94bfc55fe88d8dff0a",
+    "asp-home/codex-homes/project_p-spe-unknown-scheme/bundles/.versions/98e4790e95cefa61d7cd89184d306807d6f1dada4430374e77b9928ed335b207/p-spe-unknown-scheme/claude/plugins/000-pm-dev/skills/pm-dev-skill/SKILL.md": "file 644 b7d3c8bec60062aeda6632528afc83e10b37c99b9c53fc557699252d5f0555a5",
+    "asp-home/codex-homes/project_p-spe-unknown-scheme/bundles/.versions/98e4790e95cefa61d7cd89184d306807d6f1dada4430374e77b9928ed335b207/p-spe-unknown-scheme/claude/plugins/001-p-spe-unknown-scheme-agent/.claude-plugin/plugin.json": "file 644 de64d5949f6c68b54f4329e7e5daa2daaac367a400bd3af0229a685aa7ec35c4",
+    "asp-home/codex-homes/project_p-spe-unknown-scheme/bundles/.versions/98e4790e95cefa61d7cd89184d306807d6f1dada4430374e77b9928ed335b207/p-spe-unknown-scheme/claude/plugins/001-p-spe-unknown-scheme-agent/skills/probe-skill/SKILL.md": "file 644 5c0d43921335cc07086d88db6979921a88d8443767a43f1a46dcba30154e6c04",
+    "asp-home/codex-homes/project_p-spe-unknown-scheme/bundles/.versions/98e4790e95cefa61d7cd89184d306807d6f1dada4430374e77b9928ed335b207/p-spe-unknown-scheme/claude/settings.json": "file 644 20f374922c774a6f5ee6cf3e87e04e0c061cde79c2966746ef6f0558b9d512a3",
+    "asp-home/codex-homes/project_p-spe-unknown-scheme/bundles/.versions/98e4790e95cefa61d7cd89184d306807d6f1dada4430374e77b9928ed335b207/p-spe-unknown-scheme/claude/statusline.sh": "file 755 1f8608e28d9a690917854e541e07e46ea737f5b3fe1b08e60524fe034af06c15",
+    "asp-home/global-lock.json": "file 644 004bee69a73d46938e12ddd9bf45e5de073a4a4a4d88e48c42302bdd4110566b",
+    "asp-home/tmp/locks/bundle-scope-7cfc4ce2d0a0371a2b698b6b231b9a43.lock": "file 644 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "asp-home/tmp/locks/lock-file-db691e722abd598e7db0504c74c48714.lock": "file 644 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "claude-home/.claude.json": "file 600 71f065e607109d098f3f1a7228ea1b05ed2f5649bc977154d707f7efd3414a5b"
+  },
+  "violations": []
+}

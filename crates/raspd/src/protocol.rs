@@ -16,7 +16,7 @@ pub enum Frame {
     Silent,
     /// Valid JSON but not a JSON-RPC message: `Parse error`.
     Malformed,
-    /// serde_json could not judge it; Bun decides.
+    /// Text `JSON.parse` throws on (or that raspd does not chase): `Parse error`.
     Unjudged,
 }
 
@@ -33,7 +33,7 @@ fn is_id(v: &J) -> bool {
 }
 
 pub fn classify(line: &[u8]) -> Frame {
-    let Some(value) = crate::json::parse(line) else {
+    let Some(value) = crate::json::parse_frame(line) else {
         return Frame::Unjudged;
     };
     if !value.is_record() || value.get("jsonrpc") != Some(&J::str("2.0")) {

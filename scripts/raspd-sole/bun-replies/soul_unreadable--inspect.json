@@ -1,0 +1,413 @@
+{
+  "method": "aspc.inspectRuntimePlacement",
+  "params": {
+    "schemaVersion": "aspc-inspect-runtime-placement-request/v1",
+    "context": {
+      "agentId": "p-su",
+      "agentRoot": "/private/tmp/raspd-sole-native/stage/agents/p-su",
+      "project": {
+        "mode": "root",
+        "projectRoot": "/private/tmp/raspd-sole-native/stage/project",
+        "projectId": "project"
+      },
+      "cwd": "/private/tmp/raspd-sole-native/stage/project",
+      "runMode": "task",
+      "taskId": "T-11951",
+      "provisionDirectives": {
+        "harness": "claude"
+      }
+    },
+    "preparationCorrelation": {
+      "sessionRef": {
+        "scopeRef": "agent:p-su:project:project:task:T-11951",
+        "laneRef": "main"
+      },
+      "hostSessionId": "hsid-inspect",
+      "generation": 1,
+      "runtimeId": "rt-inspect",
+      "invocationId": "inv-inspect",
+      "initialInputId": "input-inspect",
+      "runId": "run-inspect"
+    },
+    "dispatchEnv": {
+      "AGENT_SCOPE_REF": "agent:p-su:project:project:task:T-11951",
+      "AGENT_LANE_REF": "main",
+      "AGENT_TASK": "T-11951"
+    }
+  },
+  "replies": [
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "facadeInfo": {
+          "name": "aspc-facade",
+          "version": "0.1.1"
+        },
+        "protocolVersion": "aspc/0.1",
+        "capabilities": {
+          "catalogAgents": true,
+          "inspectAgent": true,
+          "catalogAgentInspection": true,
+          "inspectAgentSelection": true,
+          "compileHarnessInvocation": true,
+          "resolveRuntimeDeclaration": true,
+          "inspectRuntimePlacement": true,
+          "inspectRuntimePlacementPreparationCorrelation": true,
+          "inspectRuntimePlacementPreparationTaskContext": true,
+          "observeRuntimeCapability": true,
+          "observeContinuationArtifact": true,
+          "prepareProcessInvocation": true,
+          "prepareProcessInvocationTaskContext": true,
+          "cohostedBroker": false,
+          "transports": [
+            "unix-jsonrpc-ndjson"
+          ]
+        },
+        "release": {
+          "releaseId": "asp-26ab619396e7-20261110T004748Z-31fd9f",
+          "sourceCommit": "26ab619396e72bcc0186708c1940a395577529c4",
+          "builtAt": "2026-11-10T00:47:48.483Z"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "schemaVersion": "aspc-inspect-runtime-placement-response/v1",
+        "ok": true,
+        "declaration": {
+          "schemaVersion": "aspc-resolve-runtime-declaration-response/v1",
+          "ok": true,
+          "evaluatedAt": "2026-11-10T02:55:02.836Z",
+          "contextHash": "13f5504dad9617ffe04d24576257a4de206acbc644d6b6600bfe6bee20b51cfb",
+          "agentSources": {
+            "aspHome": "/private/tmp/raspd-sole-native/stage/asp-home",
+            "agentsRoot": "/private/tmp/raspd-sole-native/stage/agents",
+            "provenance": "caller-agent-root"
+          },
+          "markerProjectId": "project",
+          "searchedAgentRoots": [],
+          "source": {
+            "agentProfile": {
+              "state": "valid",
+              "code": "parsed",
+              "contentHash": "badd5f744a182a8051e84dbe7a53a09ecbc25cad93734d44e8541056cc459c83"
+            },
+            "projectTargets": {
+              "state": "absent",
+              "code": "not_declared"
+            },
+            "selectedTarget": {
+              "state": "absent",
+              "code": "not_declared"
+            },
+            "priming": {
+              "state": "absent",
+              "code": "not_declared"
+            }
+          },
+          "identity": {
+            "operator": false
+          },
+          "policy": {
+            "claimsTask": false,
+            "placement": {
+              "pins": {},
+              "homes": {}
+            }
+          },
+          "baselineProvisioning": {
+            "scalars": {
+              "yolo": false,
+              "remote": false
+            }
+          },
+          "provisioning": {
+            "scalars": {
+              "yolo": false,
+              "remote": false,
+              "harness": "claude"
+            },
+            "effectiveHarness": "claude"
+          },
+          "placement": {
+            "agentRoot": "/private/tmp/raspd-sole-native/stage/agents/p-su",
+            "projectRoot": "/private/tmp/raspd-sole-native/stage/project",
+            "cwd": "/private/tmp/raspd-sole-native/stage/project",
+            "runMode": "task",
+            "bundle": {
+              "kind": "agent-project",
+              "agentName": "p-su",
+              "projectRoot": "/private/tmp/raspd-sole-native/stage/project"
+            }
+          },
+          "bundle": {
+            "ref": {
+              "kind": "agent-project",
+              "agentName": "p-su",
+              "projectRoot": "/private/tmp/raspd-sole-native/stage/project"
+            },
+            "identity": "34e60990aa4a9384c2fe18b22c4f64782affcb2e93272e13da26d9ef111c5a0a"
+          },
+          "diagnostics": []
+        },
+        "inspection": {
+          "schemaVersion": "agent-inspection/v2",
+          "identity": {
+            "agentId": "p-su",
+            "agentName": "p-su",
+            "projectId": "project",
+            "mode": "task",
+            "scope": "agent:p-su:project:project",
+            "taskId": "T-11951",
+            "lane": "main",
+            "harness": "claude",
+            "presentation": false
+          },
+          "parts": [
+            {
+              "kind": "prompt",
+              "partId": "prompt:prompt:soul",
+              "disposition": {
+                "kind": "failed",
+                "source": {
+                  "kind": "file",
+                  "ref": "agent-root:///SOUL.md"
+                },
+                "reason": "Unreadable context file agent-root:///SOUL.md: EISDIR: illegal operation on a directory, read"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "template",
+                    "sourceId": "context-section:prompt/0/soul",
+                    "sourceRef": "agent-root:///SOUL.md -> /private/tmp/raspd-sole-native/stage/agents/p-su/SOUL.md"
+                  }
+                ]
+              },
+              "value": {
+                "zone": "prompt",
+                "name": "soul",
+                "sourceType": "file",
+                "order": 0
+              }
+            },
+            {
+              "kind": "prompt",
+              "partId": "prompt:prompt:heartbeat",
+              "disposition": {
+                "kind": "skipped",
+                "reason": "predicate"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "template",
+                    "sourceId": "context-section:prompt/1/heartbeat",
+                    "sourceRef": "agent-root:///HEARTBEAT.md -> /private/tmp/raspd-sole-native/stage/agents/p-su/HEARTBEAT.md"
+                  }
+                ]
+              },
+              "value": {
+                "zone": "prompt",
+                "name": "heartbeat",
+                "sourceType": "file",
+                "order": 1
+              }
+            },
+            {
+              "kind": "capability",
+              "partId": "capability:runtime-plan",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "capabilityId": "runtime-plan",
+                "enabled": true
+              }
+            },
+            {
+              "kind": "runtime-setting",
+              "partId": "runtime-setting:locked-env-keys",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "settingId": "locked-env-keys",
+                "value": [
+                  "AGENTCHAT_ID",
+                  "ASP_AGENT_CACHE_DIR",
+                  "ASP_AGENT_LOG_DIR",
+                  "ASP_AGENT_NAME",
+                  "ASP_AGENT_ROOT",
+                  "ASP_AGENT_STATE_DIR",
+                  "ASP_AGENT_VAR_DIR",
+                  "ASP_HOME",
+                  "ASP_PLUGIN_ROOT",
+                  "ASP_PROJECT",
+                  "ASP_PROJECT_ID",
+                  "ASP_PROJECT_ROOT",
+                  "ASP_PROJECT_STATE_DIR"
+                ]
+              }
+            },
+            {
+              "kind": "harness",
+              "partId": "harness:selected",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "family": "claude",
+                "runtime": "claude-code",
+                "provider": "anthropic"
+              }
+            },
+            {
+              "kind": "model",
+              "partId": "model:selected",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "provider": "anthropic",
+                "modelId": "opus[1m]"
+              }
+            },
+            {
+              "kind": "artifact",
+              "partId": "artifact:bundle",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "artifactKind": "bundle",
+                "bundleIdentity": "bundle:bf3a0e10eeb1457e"
+              }
+            },
+            {
+              "kind": "execution-profile",
+              "partId": "execution-profile:profile_99270b75c5942d019354c799ca036065",
+              "disposition": {
+                "kind": "effective"
+              },
+              "provenance": {
+                "contributions": [
+                  {
+                    "kind": "runtime-plan",
+                    "sourceId": "canonical-compile",
+                    "sourceRef": "agent-runtime-plan/v2"
+                  }
+                ]
+              },
+              "value": {
+                "profileId": "profile_99270b75c5942d019354c799ca036065",
+                "controllerKind": "claude-code-tmux",
+                "configuration": {
+                  "recipeId": "claude-code"
+                }
+              }
+            }
+          ],
+          "completeness": {
+            "kind": "partial",
+            "missingPartIds": [
+              "prompt:prompt:soul"
+            ]
+          },
+          "freshness": {
+            "kind": "unknown",
+            "reason": "The canonical compile produced no lock hash"
+          },
+          "diagnostics": [
+            {
+              "kind": "resolution",
+              "severity": "error",
+              "code": "part_resolution_failed",
+              "message": "Unreadable context file agent-root:///SOUL.md: EISDIR: illegal operation on a directory, read",
+              "partId": "prompt:prompt:soul"
+            }
+          ]
+        },
+        "prompt": {
+          "state": "present",
+          "value": {
+            "systemPrompt": "",
+            "systemPromptMode": "replace",
+            "promptSectionSizes": [],
+            "reminderSectionSizes": [],
+            "promptTotalChars": 0,
+            "reminderTotalChars": 0,
+            "totalContextChars": 0,
+            "nearMaxChars": false
+          }
+        },
+        "effectiveEnvironmentHash": "486874e3dc989c7e9ce3e3a4b40e3c646038c9e3996d2c45e713fbad4fcae2fd"
+      }
+    }
+  ],
+  "tree": {
+    "agents/p-su/agent-profile.toml": "file 644 9e1ce6d31c6a737d962e50d2a245c28679b4f2fafc44a254e3717ddd216cd845",
+    "agents/p-su/skills/probe-skill/SKILL.md": "file 644 5c0d43921335cc07086d88db6979921a88d8443767a43f1a46dcba30154e6c04",
+    "asp-home/codex-homes/project_p-su/bundles/.versions/38f4794edb317180aa2848bdcf7907b9f9a86f3b6c990f2efbb2be56657cb885/p-su/claude/.asp-materialized.json": "file 644 6b5fb8cccf3dc2b1ae635edfe6724311c8f0c76c4f0252c72bdd6d7b90085429",
+    "asp-home/codex-homes/project_p-su/bundles/.versions/38f4794edb317180aa2848bdcf7907b9f9a86f3b6c990f2efbb2be56657cb885/p-su/claude/.asp-runtime-artifacts/system-prompts/e3/e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855/system-prompt.md": "file 644 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "asp-home/codex-homes/project_p-su/bundles/.versions/38f4794edb317180aa2848bdcf7907b9f9a86f3b6c990f2efbb2be56657cb885/p-su/claude/plugins/000-pm-dev/.claude-plugin/plugin.json": "file 644 cc29571f2acf0e63c77592aeb613885f7e77090fd391fc94bfc55fe88d8dff0a",
+    "asp-home/codex-homes/project_p-su/bundles/.versions/38f4794edb317180aa2848bdcf7907b9f9a86f3b6c990f2efbb2be56657cb885/p-su/claude/plugins/000-pm-dev/skills/pm-dev-skill/SKILL.md": "file 644 b7d3c8bec60062aeda6632528afc83e10b37c99b9c53fc557699252d5f0555a5",
+    "asp-home/codex-homes/project_p-su/bundles/.versions/38f4794edb317180aa2848bdcf7907b9f9a86f3b6c990f2efbb2be56657cb885/p-su/claude/plugins/001-p-su-agent/.claude-plugin/plugin.json": "file 644 b7e79d8d033148670c7dd31fa7a58d9326a027756d0074c633987cdeb3375b35",
+    "asp-home/codex-homes/project_p-su/bundles/.versions/38f4794edb317180aa2848bdcf7907b9f9a86f3b6c990f2efbb2be56657cb885/p-su/claude/plugins/001-p-su-agent/skills/probe-skill/SKILL.md": "file 644 5c0d43921335cc07086d88db6979921a88d8443767a43f1a46dcba30154e6c04",
+    "asp-home/codex-homes/project_p-su/bundles/.versions/38f4794edb317180aa2848bdcf7907b9f9a86f3b6c990f2efbb2be56657cb885/p-su/claude/settings.json": "file 644 86580c4782dacb93f9fc2b1e14ec2debc2e11c2265a40066249f9ee16e41cca4",
+    "asp-home/codex-homes/project_p-su/bundles/.versions/38f4794edb317180aa2848bdcf7907b9f9a86f3b6c990f2efbb2be56657cb885/p-su/claude/statusline.sh": "file 755 1f8608e28d9a690917854e541e07e46ea737f5b3fe1b08e60524fe034af06c15",
+    "asp-home/global-lock.json": "file 644 7403a1b6d638f34252c02fe84a4bcae6e312545727fc29915517a00d4ff66e5a",
+    "asp-home/tmp/locks/bundle-scope-f31475757937d2ff361744bf031d5625.lock": "file 644 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "asp-home/tmp/locks/lock-file-db691e722abd598e7db0504c74c48714.lock": "file 644 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "claude-home/.claude.json": "file 600 71f065e607109d098f3f1a7228ea1b05ed2f5649bc977154d707f7efd3414a5b"
+  },
+  "violations": []
+}

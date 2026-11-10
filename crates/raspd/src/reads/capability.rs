@@ -10,6 +10,7 @@ use crate::json::J;
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::os::unix::process::CommandExt;
+use std::os::unix::process::ExitStatusExt;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -191,16 +192,74 @@ fn observe_codex(diagnostics: &mut Vec<Diagnostic>, env: &Env) -> Result<(State,
     Ok((State::Unknown, State::Unknown))
 }
 
-/// `boundedProbe(command, args, timeoutMs)`. `Err` when the spawn itself
-/// fails: Bun reports the spawn error's own message, which raspd does not
-/// reproduce, so it relays instead.
+/// Bun.spawn's error message for a failed spawn, for the errnos measured
+/// against Bun 1.3 (T-13048); another errno still refuses.
+fn spawn_error(error: &std::io::Error, command: &str) -> Option<String> {
+    let (code, description) = match error.raw_os_error()? {
+        libc::ENOENT => ("ENOENT", "no such file or directory"),
+        libc::EACCES => ("EACCES", "permission denied"),
+        libc::ENOTDIR => ("ENOTDIR", "not a directory"),
+        libc::ENOEXEC => ("ENOEXEC", "unknown error"),
+        libc::ELOOP => ("ELOOP", "too many symbolic links encountered"),
+        _ => return None,
+    };
+    Some(format!("{code}: {description}, posix_spawn '{command}'"))
+}
+
+/// Whether execve would load `path` itself: a `#!` script or a Mach-O (thin
+/// or fat) image. Anything unreadable is left to the spawn to report.
+fn executable_format(path: &str) -> bool {
+    // Permission is checked before the format: a non-executable file is EACCES.
+    let Ok(c) = std::ffi::CString::new(path) else {
+        return true;
+    };
+    // SAFETY: `c` is a valid NUL-terminated string for the call's duration.
+    if unsafe { libc::access(c.as_ptr(), libc::X_OK) } != 0 {
+        return true;
+    }
+    let mut head = [0u8; 4];
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return true;
+    };
+    let n = file.read(&mut head).unwrap_or(0);
+    if !std::fs::metadata(path).is_ok_and(|m| m.is_file()) {
+        return true;
+    }
+    if n >= 2 && head[..2] == *b"#!" {
+        return true;
+    }
+    n == 4
+        && [
+            [0xfe, 0xed, 0xfa, 0xce],
+            [0xfe, 0xed, 0xfa, 0xcf],
+            [0xce, 0xfa, 0xed, 0xfe],
+            [0xcf, 0xfa, 0xed, 0xfe],
+            [0xca, 0xfe, 0xba, 0xbe],
+            [0xbe, 0xba, 0xfe, 0xca],
+            [0xca, 0xfe, 0xba, 0xbf],
+            [0xbf, 0xba, 0xfe, 0xca],
+        ]
+        .contains(&head)
+}
+
+/// `boundedProbe(command, args, timeoutMs)`. A failed spawn is
+/// `probe_failed` with Bun's message; `Err` only for an errno raspd has no
+/// message for.
 fn bounded_probe(
     command: &str,
     args: &[&str],
     timeout_ms: u64,
     env: &Env,
 ) -> Result<Probe, Forward> {
-    let mut child = Command::new(command)
+    // Rust spawns through posix_spawnp, which runs a file of no known format
+    // with /bin/sh; Bun's posix_spawn fails it ENOEXEC.
+    if command.contains('/') && !executable_format(command) {
+        return Ok(Probe::Failed {
+            code: "probe_failed",
+            message: format!("ENOEXEC: unknown error, posix_spawn '{command}'"),
+        });
+    }
+    let child = Command::new(command)
         .args(args)
         .env_clear()
         .envs(env)
@@ -209,8 +268,19 @@ fn bounded_probe(
         .stderr(Stdio::piped())
         // `detached: true`: its own process group, killed as one.
         .process_group(0)
-        .spawn()
-        .map_err(|_| crate::reason!("capability_probe_spawn_failed"))?;
+        .spawn();
+    let mut child = match child {
+        Ok(child) => child,
+        Err(e) => {
+            return match spawn_error(&e, command) {
+                Some(message) => Ok(Probe::Failed {
+                    code: "probe_failed",
+                    message,
+                }),
+                None => Err(crate::reason!("capability_probe_spawn_failed")),
+            };
+        }
+    };
     let bytes = Arc::new(AtomicUsize::new(0));
     let overflowed = Arc::new(AtomicBool::new(false));
     let reader = |stream: Option<Box<dyn Read + Send>>| {
@@ -292,10 +362,11 @@ fn bounded_probe(
     }
     let stdout = String::from_utf8_lossy(&stdout.join().unwrap_or_default()).into_owned();
     let stderr = String::from_utf8_lossy(&stderr.join().unwrap_or_default()).into_owned();
-    // A probe killed by a signal it did not get from here: Bun's exit code
-    // for it is not reproduced.
-    let Some(code) = status.code() else {
-        return Err(crate::reason!("capability_probe_signaled"));
+    // Bun's `exited` for a probe killed by a signal is 128 + the signal.
+    let code = match (status.code(), status.signal()) {
+        (Some(code), _) => code,
+        (None, Some(signal)) => 128 + signal,
+        (None, None) => return Err(crate::reason!("capability_probe_wait_failed")),
     };
     if code != 0 {
         let lower = stderr.to_lowercase();
@@ -583,6 +654,12 @@ mod tests {
         assert!(
             matches!(missing, Probe::Failed { code: "probe_failed", ref message } if message == "Probe exited 127")
         );
-        assert!(bounded_probe("/nonexistent/probe", &[], 3000, env).is_err());
+        // Bun.spawn's own message for a spawn that fails (T-13048).
+        let absent = bounded_probe("/nonexistent/probe", &[], 3000, env).unwrap();
+        assert!(matches!(
+            absent,
+            Probe::Failed { code: "probe_failed", ref message }
+                if message == "ENOENT: no such file or directory, posix_spawn '/nonexistent/probe'"
+        ));
     }
 }

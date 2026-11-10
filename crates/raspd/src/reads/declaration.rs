@@ -121,8 +121,10 @@ pub(crate) fn process_asp_home() -> String {
     }
 }
 
-/// `readAspConfig(opts)['agents-root']` when it is a string.
-fn config_agents_root(asp_home: Option<&str>) -> Step<Option<String>> {
+/// `readAspConfig(opts)['agents-root']` when it is a string. readAspConfig
+/// swallows every read or parse failure ("no config"); only the TOML coercion
+/// quirks raspd does not port refuse.
+fn config_agents_root(asp_home: Option<&str>) -> Result<Option<String>, Forward> {
     let home = asp_home.map_or_else(process_asp_home, str::to_owned);
     let path = join(&[&home, "config.toml"]);
     if !exists(&path) {
@@ -137,14 +139,13 @@ fn config_agents_root(asp_home: Option<&str>) -> Step<Option<String>> {
             _ => None,
         }),
         // iarna throws, and readAspConfig swallows it.
-        Err(TomlError::IarnaRejects) => Ok(None),
-        Err(TomlError::Unparsed) => forward(crate::reason!("config_toml_syntax")),
-        Err(TomlError::Unsupported(reason)) => forward(reason),
+        Err(TomlError::IarnaRejects | TomlError::Unparsed) => Ok(None),
+        Err(TomlError::Unsupported(reason)) => Err(reason),
     }
 }
 
 /// `getAgentsRoot({ aspHome?, env })`.
-pub(crate) fn agents_root(asp_home: Option<&str>, env: &Env) -> Step<Option<String>> {
+pub(crate) fn agents_root(asp_home: Option<&str>, env: &Env) -> Result<Option<String>, Forward> {
     // getConfiguredRoot: the env value when set, else the config file's.
     let explicit = match env.get("ASP_AGENTS_ROOT").filter(|v| !v.is_empty()) {
         Some(from_env) => Some(expand_home_path(from_env, env)),
@@ -194,7 +195,7 @@ fn source_roots(context: &J, env: &Env) -> Step<SourceRoots> {
             .with("ASP_PROJECT_ROOT_OVERRIDE", None)
             .with("ASP_HOME", Some(home))
             .with("ASP_AGENTS_ROOT", None);
-        caller_configured = match agents_root(Some(home), &caller_env)? {
+        caller_configured = match agents_root(Some(home), &caller_env).map_err(Answer::Forward)? {
             Some(path) => match canonical_directory(&path)? {
                 Ok(p) => Some(p),
                 Err(message) => return Err(context_mismatch(&message)),
@@ -228,13 +229,14 @@ fn source_roots(context: &J, env: &Env) -> Step<SourceRoots> {
             Err(message) => return Err(unavailable(&message)),
         },
     };
-    let daemon_agents_root = match agents_root(daemon_asp_home.as_deref(), env)? {
-        None => return Err(unavailable("No agents root is configured")),
-        Some(path) => match canonical_directory(&path)? {
-            Ok(p) => p,
-            Err(message) => return Err(unavailable(&message)),
-        },
-    };
+    let daemon_agents_root =
+        match agents_root(daemon_asp_home.as_deref(), env).map_err(Answer::Forward)? {
+            None => return Err(unavailable("No agents root is configured")),
+            Some(path) => match canonical_directory(&path)? {
+                Ok(p) => p,
+                Err(message) => return Err(unavailable(&message)),
+            },
+        };
     Ok(SourceRoots {
         asp_home: daemon_asp_home,
         agents_root: Some(daemon_agents_root),
@@ -364,7 +366,7 @@ fn search_roots(
     match agents_root(asp_home, env) {
         Ok(Some(canonical)) => roots.push(canonical),
         Ok(None) => {}
-        Err(answer) => return Err(SearchFailure::Answer(answer)),
+        Err(reason) => return Err(SearchFailure::Answer(Answer::Forward(reason))),
     }
     let mut seen: Vec<String> = vec![];
     let mut out = vec![];

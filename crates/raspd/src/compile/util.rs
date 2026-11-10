@@ -4,23 +4,42 @@
 use crate::json::{J, js_number, write_str};
 use sha2::{Digest, Sha256};
 
-/// `string.length`.
-pub fn utf16_len(s: &str) -> usize {
-    s.encode_utf16().count()
+/// The string's UTF-16 code units as JS sees them: a lone surrogate's
+/// stand-in (`crate::json::parse_frame`) is that one unit.
+fn js_units(s: &str) -> Vec<u16> {
+    let mut out = Vec::with_capacity(s.len());
+    let mut buf = [0u16; 2];
+    for c in s.chars() {
+        match crate::json::lone_surrogate(c) {
+            Some(unit) => out.push(unit as u16),
+            None => out.extend_from_slice(c.encode_utf16(&mut buf)),
+        }
+    }
+    out
 }
 
-/// `string.slice(start, end)` in UTF-16 units, or `None` when a bound would
-/// split a surrogate pair (JS would produce a lone surrogate there).
+/// `string.length`.
+pub fn utf16_len(s: &str) -> usize {
+    js_units(s).len()
+}
+
+/// `string.slice(start, end)` in UTF-16 units. A bound that splits a
+/// surrogate pair leaves a lone surrogate, as in JS (carried as its
+/// stand-in); `Some` always.
 pub fn utf16_slice(s: &str, start: usize, end: usize) -> Option<String> {
-    let units: Vec<u16> = s.encode_utf16().collect();
+    let units = js_units(s);
     let end = end.min(units.len());
     let start = start.min(end);
-    String::from_utf16(&units[start..end]).ok()
+    Some(
+        char::decode_utf16(units[start..end].iter().copied())
+            .map(|r| r.unwrap_or_else(|e| crate::json::stand_in(u32::from(e.unpaired_surrogate()))))
+            .collect(),
+    )
 }
 
 /// The UTF-16 unit at `index` (`string[index]`), if any.
 pub fn utf16_at(s: &str, index: usize) -> Option<u16> {
-    s.encode_utf16().nth(index)
+    js_units(s).get(index).copied()
 }
 
 /// ECMAScript WhiteSpace and LineTerminator code points.
@@ -295,7 +314,12 @@ mod tests {
     #[test]
     fn utf16_semantics() {
         assert_eq!(utf16_len("a😀"), 3);
-        assert_eq!(utf16_slice("a😀b", 0, 2), None);
+        assert_eq!(
+            utf16_slice("a😀b", 0, 2)
+                .map(|s| crate::json::quoted(&s))
+                .as_deref(),
+            Some("\"a\\ud83d\"")
+        );
         assert_eq!(utf16_slice("a😀b", 0, 3).as_deref(), Some("a😀"));
         assert_eq!(js_trim("\u{feff} x \u{85}"), "x \u{85}");
     }
