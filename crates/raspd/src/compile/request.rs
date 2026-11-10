@@ -201,6 +201,127 @@ fn placement_problem(placement: &J) -> Problem {
         .or_else(|| opt(p("correlation"), placement_correlation_problem))
         .or_else(|| opt_bool_at(p("dryRun"), "placement.dryRun"))
         .or_else(|| str_map_at(p("dispatchEnv"), "placement.dispatchEnv"))
+        .or_else(|| locked_env_problem(p("lockedEnv")))
+        .or_else(|| scaffold_packets_problem(p("scaffoldPackets")))
+}
+
+/// placement.lockedEnv folds into the plan's lockedEnv (compose-agent-env.ts),
+/// which validateInvocationSpec judges with `validateEnv`: a key Bun refuses
+/// there (compiler_exception, after its writes) refuses here before any.
+fn locked_env_problem(env: Option<&J>) -> Problem {
+    let path = "placement.lockedEnv";
+    let fields = match env {
+        None | Some(J::Null) => return None,
+        Some(J::Obj(fields)) => fields,
+        Some(_) => return Some(format!("{path}:not_record")),
+    };
+    fields.iter().find_map(|(k, v)| {
+        let problem = if !env_key_shaped(k) {
+            Some("invalid_env_key")
+        } else if env_key_ambient(k) {
+            Some("ambient_env_key")
+        } else if env_key_credential(k) {
+            Some("credential_env_key")
+        } else if env_key_reserved(k) {
+            Some("reserved_env_key")
+        } else if !matches!(v, J::Str(_)) {
+            Some("not_string")
+        } else {
+            None
+        };
+        problem.map(|p| format!("{path}.{k}:{p}"))
+    })
+}
+
+/// env-keys.ts ENV_KEY_PATTERN, `^[A-Za-z_][A-Za-z0-9_]*$`.
+fn env_key_shaped(k: &str) -> bool {
+    let mut chars = k.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// env-keys.ts `isAmbientEnvKey`.
+fn env_key_ambient(k: &str) -> bool {
+    [
+        "HOME", "PATH", "SHELL", "TMPDIR", "TEMP", "TMP", "USER", "USERNAME", "TERM", "LANG", "TZ",
+    ]
+    .contains(&k)
+        || k.starts_with("LC_")
+}
+
+/// env-keys.ts `isCredentialEnvKey`.
+fn env_key_credential(k: &str) -> bool {
+    [
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "GITHUB_TOKEN",
+    ]
+    .contains(&k)
+        || k.ends_with("_TOKEN")
+        || k.ends_with("_PASSWORD")
+}
+
+/// env-keys.ts `isReservedEnvKey`.
+fn env_key_reserved(k: &str) -> bool {
+    [
+        "SSH_AUTH_SOCK",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "no_proxy",
+    ]
+    .contains(&k)
+        || ["NODE_", "npm_", "NPM_", "XDG_"]
+            .iter()
+            .any(|p| k.starts_with(p))
+}
+
+/// placement.scaffoldPackets (RunScaffoldPacket[]): the system prompt's
+/// scaffold sections and the plan's scaffold instruction slots. raspd compiles
+/// the typed shape only.
+fn scaffold_packets_problem(packets: Option<&J>) -> Problem {
+    let ok = match packets {
+        None => true,
+        Some(J::Arr(items)) => items.iter().all(|p| {
+            p.is_record()
+                && is_str(p.get("slot"))
+                && opt_str(p.get("content"))
+                && opt_str(p.get("ref"))
+        }),
+        Some(_) => false,
+    };
+    (!ok).then(|| "placement.scaffoldPackets:invalid".to_owned())
+}
+
+/// schema-shapes.ts `validateResponseFormat` over a present value: `{kind:
+/// 'text'}` without a schema, or `{kind: 'json_schema', schema}` with a plain
+/// object schema of finite numbers.
+pub fn response_format_valid(format: &J) -> bool {
+    fn finite(v: &J) -> bool {
+        match v {
+            J::Num(n) => n.is_finite(),
+            J::Arr(items) => items.iter().all(finite),
+            J::Obj(fields) => fields.iter().all(|(_, v)| finite(v)),
+            _ => true,
+        }
+    }
+    match format.get("kind") {
+        _ if !format.is_record() => false,
+        Some(J::Str(k)) if k == "text" => format.get("schema").is_none(),
+        Some(J::Str(k)) if k == "json_schema" => format
+            .get("schema")
+            .is_some_and(|s| s.is_record() && finite(s)),
+        _ => false,
+    }
 }
 
 fn bundle_problem(bundle: Option<&J>) -> Problem {

@@ -881,6 +881,21 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
                     slots.push(("by-mode", c, r));
                 }
             }
+            // resolveScaffoldPacket: inline content, else the ref's content
+            // ('' when unreadable); a packet with neither is skipped.
+            let packets = placement.get("scaffoldPackets").and_then(J::as_arr);
+            for packet in packets.into_iter().flatten() {
+                let r = packet.get("ref").and_then(J::as_str).unwrap_or_default();
+                let content = match packet.get("content").and_then(J::as_str) {
+                    Some(c) if !c.is_empty() => Some(c.to_owned()),
+                    _ if !r.is_empty() => Some(instruction_ref(r).unwrap_or_default()),
+                    c => c.map(str::to_owned),
+                };
+                if let Some(content) = content {
+                    let slot = packet.get("slot").and_then(J::as_str).unwrap_or_default();
+                    slots.push((slot, content, r.to_owned()));
+                }
+            }
             for (slot, content, r) in slots {
                 instructions.push(J::obj([
                     ("slot", J::str(slot)),
@@ -1214,9 +1229,13 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
                 )])
             })
         };
-        let template = match discovered.template {
-            Some(t) => t,
-            None => prompt::default_template(discovered.base.as_deref().unwrap_or_default()),
+        // buildDefaultTemplate(base, scaffoldPackets): the placement's packets
+        // reach the prompt input through its placement spread.
+        let base = discovered.base.as_deref().unwrap_or_default();
+        let template = match (discovered.template, placement.get("scaffoldPackets")) {
+            (Some(t), _) => t,
+            (None, Some(packets)) => prompt::default_template_with_scaffold(base, packets),
+            (None, None) => prompt::default_template(base),
         };
         let ctx = Ctx {
             agent_root: agent_root.clone(),
@@ -1320,6 +1339,18 @@ fn preflight(plan: &Plan) -> Result<(), Fwd> {
     if matches!(plan.launch, Launch::Codex { .. }) {
         broker_permission_policy(plan.req.get("hrcPolicy").expect("validated"))?;
         codex::preflight_config(&plan.space_plans, plan.codex_options.as_ref())?;
+        // validateInvocationInput judges a format only on an initial input
+        // that exists (compiler_exception, after Bun's writes).
+        let material = plan.req.get("materialization").expect("validated");
+        if let Some(format) = material.get("responseFormat")
+            && !request::response_format_valid(format)
+            && !initial_content(material, plan.expanded_prompt.as_deref()).is_empty()
+        {
+            return Err(fwd_at(
+                crate::reason!("materialization_shape"),
+                "materialization.responseFormat:invalid".to_owned(),
+            ));
+        }
     }
     Ok(())
 }
@@ -2351,7 +2382,7 @@ fn locked_asp_project(handle: &Handle, project_root: Option<&str>) -> Option<Str
 }
 
 /// `composeAgentLocalEnv`'s lockedEnv: the adapter env, the agentchat env,
-/// ASP_HOME, then the tool runtime env.
+/// the caller's placement.lockedEnv, ASP_HOME, then the tool runtime env.
 fn locked_env(plan: &Plan, adapter_env: EnvPairs, tool_env: EnvPairs) -> EnvPairs {
     let mut locked = adapter_env;
     locked.push(("AGENTCHAT_ID".into(), basename(&plan.agent_root)));
@@ -2362,6 +2393,12 @@ fn locked_env(plan: &Plan, adapter_env: EnvPairs, tool_env: EnvPairs) -> EnvPair
         Some(slot) => slot.1 = v,
         None => locked.push((k, v)),
     };
+    let caller = plan.req.get("placement").and_then(|p| p.get("lockedEnv"));
+    for (k, v) in caller.map(J::js_entries).unwrap_or_default() {
+        if let J::Str(v) = v {
+            set(k.to_owned(), v.clone());
+        }
+    }
     set("ASP_HOME".into(), plan.asp_home.clone());
     for (k, v) in tool_env {
         set(k, v);
@@ -2611,23 +2648,7 @@ fn emit_codex(
     let mut start_request = J::obj([("spec", spec)]);
 
     // buildInitialInput: the priming/caller prompt only, never the system prompt.
-    let caller = s(material.get("initialPrompt"));
-    let omit_priming = matches!(material.get("omitPriming"), Some(J::Bool(true)));
-    let text = if caller == Some("") || (omit_priming && caller.is_none()) {
-        None
-    } else {
-        prompt.filter(|p| !p.is_empty())
-    };
-    let mut items = Vec::new();
-    if let Some(text) = text {
-        items.push(J::obj([("type", J::str("text")), ("text", J::str(text))]));
-    }
-    for path in image_attachment_paths(material) {
-        items.push(J::obj([
-            ("type", J::str("local_image")),
-            ("path", J::str(path)),
-        ]));
-    }
+    let items = initial_content(material, prompt.as_deref());
     if !items.is_empty() {
         let content = J::Arr(items);
         let identity = req.get("identity").expect("validated");
@@ -2650,14 +2671,17 @@ fn emit_codex(
                 J::str(format!("input_{}", &hash(&material, true)[..32]))
             }
         };
-        start_request.set(
-            "initialInput",
-            J::obj([
-                ("inputId", input_id),
-                ("kind", J::str("user")),
-                ("content", content),
-            ]),
-        );
+        let mut input = J::obj([
+            ("inputId", input_id),
+            ("kind", J::str("user")),
+            ("content", content),
+        ]);
+        // T-03779: a per-turn response format rides on the initial turn only
+        // when there is one; a format alone never synthesizes an input.
+        if let Some(format) = material.get("responseFormat") {
+            input.set("responseFormat", format.clone());
+        }
+        start_request.set("initialInput", input);
     }
 
     finalize(
@@ -2669,6 +2693,29 @@ fn emit_codex(
         system_prompt_path,
         bundle_root,
     )
+}
+
+/// buildInitialInput's content: the launch prompt unless the caller's is
+/// empty or priming is omitted without one, then the image attachments.
+fn initial_content(material: &J, prompt: Option<&str>) -> Vec<J> {
+    let caller = s(material.get("initialPrompt"));
+    let omit_priming = matches!(material.get("omitPriming"), Some(J::Bool(true)));
+    let text = if caller == Some("") || (omit_priming && caller.is_none()) {
+        None
+    } else {
+        prompt.filter(|p| !p.is_empty())
+    };
+    let mut items = Vec::new();
+    if let Some(text) = text {
+        items.push(J::obj([("type", J::str("text")), ("text", J::str(text))]));
+    }
+    for path in image_attachment_paths(material) {
+        items.push(J::obj([
+            ("type", J::str("local_image")),
+            ("path", J::str(path)),
+        ]));
+    }
+    items
 }
 
 /// The claude-code recipe's driver: claude-code-tmux, or claude-code-hrcpty
@@ -2769,7 +2816,7 @@ fn recipe_dto(selection: &request::Selection) -> J {
 }
 
 /// `hashNeutralStartRequest`: the spec without invocationId and correlation,
-/// and the initial input's identity only.
+/// and the initial input's identity (its id and response format) only.
 fn neutral_start_request(start: &J) -> J {
     let mut spec = start.get("spec").cloned().unwrap_or(J::Null);
     spec.remove("invocationId");
@@ -2779,6 +2826,9 @@ fn neutral_start_request(start: &J) -> J {
         let mut identity = J::Obj(vec![]);
         if let Some(id) = input.get("inputId") {
             identity.set("inputId", id.clone());
+        }
+        if let Some(format) = input.get("responseFormat") {
+            identity.set("responseFormat", format.clone());
         }
         out.set("initialInput", identity);
     }

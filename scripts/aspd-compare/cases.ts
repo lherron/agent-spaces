@@ -759,6 +759,66 @@ function compileCases(asp: Asp, stage: Stage): CallCase[] {
       claudeHrcpty('claude-hrcpty-pinned', 'pathmark', 'claude-hrcpty')
     ),
   ]
+  // T-13091: HRC's per-turn JSON schema (materialization.responseFormat) on a
+  // cold compile, which rides on initialInput when it has content; and the
+  // placement keys Bun reads (lockedEnv, scaffoldPackets).
+  const responseFormat = {
+    kind: 'json_schema',
+    schema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] },
+  }
+  type Request = Record<string, Record<string, unknown>>
+  const edited = (entry: CallCase, edit: (request: Request) => void): CallCase => {
+    edit(entry.compileRequest as Request)
+    return entry
+  }
+  const withFormat = (entry: CallCase, noContent = false) =>
+    edited(entry, (request) => {
+      const { initialPrompt, ...material } = request['materialization'] as Record<string, unknown>
+      request['materialization'] = noContent
+        ? { ...material, omitPriming: true, responseFormat }
+        : { ...material, initialPrompt, responseFormat }
+    })
+  const formatCases = [
+    withFormat(
+      compile(
+        'compile:codex-hrcpty:dev:response-format',
+        codexHrcpty('codex-hrcpty', 'pathmark-dev', true)
+      )
+    ),
+    withFormat(
+      compile(
+        'compile:codex-hrcpty-headless:dev:response-format',
+        codexHrcpty('codex-hrcpty-headless', 'pathmark-dev', false)
+      )
+    ),
+    withFormat(compile('compile:codex-app-server:response-format', byId('codex-app-server'))),
+    withFormat(
+      compile(
+        'compile:codex-hrcpty:dev:response-format-no-content',
+        codexHrcpty('codex-hrcpty', 'pathmark-dev', true)
+      ),
+      true
+    ),
+    withFormat(
+      compile(
+        'compile:claude-hrcpty:dev:response-format',
+        claudeHrcpty('claude-hrcpty', 'pathmark-dev', 'claude-hrcpty')
+      )
+    ),
+    edited(
+      compile(
+        'compile:claude-hrcpty:dev:placement-env-scaffold',
+        claudeHrcpty('claude-hrcpty', 'pathmark-dev', 'claude-hrcpty')
+      ),
+      (request) => {
+        request['placement'] = {
+          ...request['placement'],
+          lockedEnv: { PATHMARK_LOCKED: 'locked' },
+          scaffoldPackets: [{ slot: 'scaffold', content: 'Pathmark scaffold' }],
+        }
+      }
+    ),
+  ]
   return [
     ...ROWS.map((row) => compile(`compile:${row.id}`, row)),
     compile('compile:claude-code:summon-model', byId('claude-code'), { model: 'sonnet' }),
@@ -770,6 +830,7 @@ function compileCases(asp: Asp, stage: Stage): CallCase[] {
     birth('compile:claude-code-resume:dev:birth', dev(byId('claude-code-resume'))),
     ...codexCases,
     ...hrcptyCases,
+    ...formatCases,
     compile('compile:claude-code:prune', {
       ...byId('claude-code'),
       id: 'claude-code-prune',

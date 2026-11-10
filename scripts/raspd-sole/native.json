@@ -290,6 +290,114 @@
       "id": "unserved--inspectAgent-canonical-roots",
       "reason": "unserved",
       "expect": "success"
+    },
+    {
+      "id": "response_format--claude-hrcpty",
+      "reason": "materialization_shape"
+    },
+    {
+      "id": "response_format--claude-code",
+      "reason": "materialization_shape"
+    },
+    {
+      "id": "response_format--codex-hrcpty",
+      "reason": "materialization_shape"
+    },
+    {
+      "id": "response_format--codex-hrcpty-headless",
+      "reason": "materialization_shape"
+    },
+    {
+      "id": "response_format--codex-app-server",
+      "reason": "materialization_shape"
+    },
+    {
+      "id": "response_format--codex-tui",
+      "reason": "materialization_shape"
+    },
+    {
+      "id": "response_format--codex-hrcpty-no-content",
+      "reason": "materialization_shape"
+    },
+    {
+      "id": "response_format--codex-app-server-no-content",
+      "reason": "materialization_shape"
+    },
+    {
+      "id": "response_format--codex-hrcpty-text",
+      "reason": "materialization_shape"
+    },
+    {
+      "id": "response_format--malformed-not-object",
+      "reason": "materialization_shape"
+    },
+    {
+      "id": "response_format--malformed-no-schema",
+      "reason": "materialization_shape"
+    },
+    {
+      "id": "response_format--malformed-array-schema",
+      "reason": "materialization_shape"
+    },
+    {
+      "id": "response_format--malformed-kind",
+      "reason": "materialization_shape"
+    },
+    {
+      "id": "response_format--malformed-text-schema",
+      "reason": "materialization_shape"
+    },
+    {
+      "id": "response_format--malformed-null",
+      "reason": "materialization_shape"
+    },
+    {
+      "id": "response_format--malformed-no-content",
+      "reason": "materialization_shape"
+    },
+    {
+      "id": "response_format--malformed-claude-hrcpty",
+      "reason": "materialization_shape"
+    },
+    {
+      "id": "dropped_key--placement-lockedEnv",
+      "reason": "placement_shape"
+    },
+    {
+      "id": "dropped_key--placement-lockedEnv-codex",
+      "reason": "placement_shape"
+    },
+    {
+      "id": "dropped_key--placement-env",
+      "reason": "placement_shape"
+    },
+    {
+      "id": "dropped_key--placement-scaffoldPackets",
+      "reason": "placement_shape"
+    },
+    {
+      "id": "dropped_key--placement-scaffoldPackets-ref",
+      "reason": "placement_shape"
+    },
+    {
+      "id": "dropped_key--placement-scaffoldPackets-codex",
+      "reason": "placement_shape"
+    },
+    {
+      "id": "dropped_key--placement-lockedEnv-path",
+      "reason": "placement_shape"
+    },
+    {
+      "id": "dropped_key--placement-agentsRoot",
+      "reason": "placement_shape"
+    },
+    {
+      "id": "dropped_key--placement-lane",
+      "reason": "placement_shape"
+    },
+    {
+      "id": "dropped_key--placement-taskContext",
+      "reason": "placement_shape"
     }
   ],
   "departures": [
