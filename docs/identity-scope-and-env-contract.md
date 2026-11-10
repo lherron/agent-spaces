@@ -159,7 +159,7 @@ Classes:
 | `ASP_AGENT_ID` | bare agent id | compat copy of `AGENT_ID` | hrc.dispatch | not written | wrkq, kernel |
 | `ASP_TASK_ID` | task id | compat copy of `AGENT_TASK` | hrc.dispatch (the scope has a task, else the launch's task context has one) | not written | none recorded |
 | `ASP_PROJECT_ROOT` | absolute project root path — written through the tool runtime env, not by either identity builder | locked project root | asp.lockedEnv (the placement has a project root; HRC's step-1 write is removed at step 4) | asp.lockedEnv (the placement has a project root) | none recorded |
-| `HRC_SESSION_REF` | `<scopeRef>/lane:<laneId>` | compat copy of `AGENT_SESSION_REF` | hrc.dispatch | buildAgentSessionEnv (the scope ref parses) | kernel, hrc CLI |
+| `HRC_SESSION_REF` | `<scopeRef>/lane:<laneId>` — wrkq stamps the host session on writes from it and reads it strictly: a lane-less or non-canonical value stamps nothing | compat copy of `AGENT_SESSION_REF` | hrc.dispatch | buildAgentSessionEnv (the scope ref parses) | wrkq, kernel, hrc CLI |
 | `HRC_RUN_ID` | run id | compat copy of `AGENT_RUN_ID` | hrc.dispatch (a run exists at spawn) | buildAgentSessionEnv (the placement carries a run id) | hrc CLI |
 | `HRC_HOST_SESSION_ID` | host session id | compat copy of `AGENT_HOST_SESSION_ID` | hrc.dispatch | buildAgentSessionEnv (the placement carries a host session id) | none recorded |
 | `HRC_GENERATION` | decimal generation | compat copy of `AGENT_GENERATION` | hrc.dispatch | buildAgentSessionEnv (the placement carries a generation) | none recorded |
