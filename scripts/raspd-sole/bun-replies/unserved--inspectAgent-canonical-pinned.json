@@ -153,7 +153,7 @@
                 "name": "fixed",
                 "sourceType": "inline",
                 "order": 0,
-                "content": "2026-11-09 template"
+                "content": "template"
               }
             },
             {
@@ -343,7 +343,7 @@
             },
             {
               "kind": "execution-profile",
-              "partId": "execution-profile:profile_92e147badfa6f75cc34ff26cb4ef1ba3",
+              "partId": "execution-profile:profile_fa9056ffbf1a3901e3c132956288979d",
               "disposition": {
                 "kind": "effective"
               },
@@ -357,7 +357,7 @@
                 ]
               },
               "value": {
-                "profileId": "profile_92e147badfa6f75cc34ff26cb4ef1ba3",
+                "profileId": "profile_fa9056ffbf1a3901e3c132956288979d",
                 "controllerKind": "claude-code-tmux",
                 "configuration": {
                   "recipeId": "claude-code"
@@ -380,10 +380,10 @@
   "tree": {
     "agents/caller-context/SOUL.md": "file 644 bd28eb84ca1f6ce3245f9b33f885c382765692abd43b4b6aac9516b30ca0a4de",
     "agents/caller-context/agent-profile.toml": "file 644 9571f6ea431e594e54eb7142529ca690ce525ccf7fd05b653e4a52732f618375",
-    "agents/caller-context/context-template.toml": "file 644 ce6795106da22bf5ff919054abfbcf7978b4234cdf1f466dfab0435c78cc5d68",
+    "agents/caller-context/context-template.toml": "file 644 0485b6761cee3f7d534e424c0d3cb05b4f638c49ddd5cbb07ee4a310e14e6247",
     "agents/caller-context/skills/probe-skill/SKILL.md": "file 644 5c0d43921335cc07086d88db6979921a88d8443767a43f1a46dcba30154e6c04",
     "asp-home/codex-homes/project_caller-context/bundles/.versions/3faf496b262f0eea88211e322a869837491eeb4c7637ab4903d990bd4a3ee5e7/caller-context/claude/.asp-materialized.json": "file 644 11474447ecb4c8a35140e04eafbcd463b0a9f7b8b8d12c4a7b90606e6a481040",
-    "asp-home/codex-homes/project_caller-context/bundles/.versions/3faf496b262f0eea88211e322a869837491eeb4c7637ab4903d990bd4a3ee5e7/caller-context/claude/.asp-runtime-artifacts/system-prompts/3f/3fbfba8a2e6bda14d74caf7ec146ca1dab12abdfc15c392466cfed134a70fe7e/system-prompt.md": "file 644 3fbfba8a2e6bda14d74caf7ec146ca1dab12abdfc15c392466cfed134a70fe7e",
+    "asp-home/codex-homes/project_caller-context/bundles/.versions/3faf496b262f0eea88211e322a869837491eeb4c7637ab4903d990bd4a3ee5e7/caller-context/claude/.asp-runtime-artifacts/system-prompts/ad/ad166c2cdcdc02eb11cd4f4b08d0984e82ef20e467a9996d912373429f3036ae/system-prompt.md": "file 644 ad166c2cdcdc02eb11cd4f4b08d0984e82ef20e467a9996d912373429f3036ae",
     "asp-home/codex-homes/project_caller-context/bundles/.versions/3faf496b262f0eea88211e322a869837491eeb4c7637ab4903d990bd4a3ee5e7/caller-context/claude/plugins/000-pm-dev/.claude-plugin/plugin.json": "file 644 cc29571f2acf0e63c77592aeb613885f7e77090fd391fc94bfc55fe88d8dff0a",
     "asp-home/codex-homes/project_caller-context/bundles/.versions/3faf496b262f0eea88211e322a869837491eeb4c7637ab4903d990bd4a3ee5e7/caller-context/claude/plugins/000-pm-dev/skills/pm-dev-skill/SKILL.md": "file 644 b7d3c8bec60062aeda6632528afc83e10b37c99b9c53fc557699252d5f0555a5",
     "asp-home/codex-homes/project_caller-context/bundles/.versions/3faf496b262f0eea88211e322a869837491eeb4c7637ab4903d990bd4a3ee5e7/caller-context/claude/plugins/001-caller-context-agent/.claude-plugin/plugin.json": "file 644 a8cb500377a4d003d04a8c90e5a8a570d7c9c2e0762c2e6d0bd4dd39f573e8dc",

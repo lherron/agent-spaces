@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Scratch E2E for R1 Front door (T-11835, docs/proposals/aspd-rust-front-door.md).
+ * Scratch E2E for R1 Front door (T-11835, docs/aspd.md).
  *
  * Builds a real release (raspd beside the Bun binaries) from a clean clone of
  * --commit, or reuses --release, installs it into an isolated aspd namespace,

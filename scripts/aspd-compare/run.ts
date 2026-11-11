@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * aspd compare runner (T-11833, plan docs/proposals/aspd-rust-front-door.md).
+ * aspd compare runner (T-11833; front door described in docs/aspd.md).
  *
  *   bun scripts/aspd-compare/run.ts --out <dir> [--commit <sha>]
  *     [--a-cmd '<json argv>'] [--b-cmd '<json argv>']

@@ -71,7 +71,7 @@ source:
   - wrkq:EN-49346
   - wrkq:EN-49353
   - commit:4cdcd566
-  - docs/proposals/aspd-rust-front-door.md
+  - wrkq:T-11832 attachment ATT-00431
   - architecture/records/invariants/agent-spaces.runtime-declaration-authority.yaml
   - architecture/records/invariants/agent-spaces.aspd-release-worker-hosting.yaml
   - core/config/src/store/snapshot.ts

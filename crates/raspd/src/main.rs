@@ -1,4 +1,4 @@
-//! `raspd`: aspd's Rust front door (docs/proposals/aspd-rust-front-door.md).
+//! `raspd`: aspd's Rust front door (docs/aspd.md).
 //!
 //! raspd binds the node's public aspd socket. It answers `aspc.hello`,
 //! `health`, `version`, `surface`, the reads and the compiles itself. With

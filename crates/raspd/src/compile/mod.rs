@@ -1,6 +1,6 @@
 //! Native `aspc.compileHarnessInvocation` for the claude-code (R3a) and
 //! codex-app-server (R3b) recipes over mutable spaces
-//! (docs/proposals/aspd-rust-front-door.md).
+//! (docs/aspd.md).
 //!
 //! Bun owns the semantics; this is compiler/agent-spaces/src
 //! (compile-runtime-plan.ts, compile-tmux-broker-plan.ts,

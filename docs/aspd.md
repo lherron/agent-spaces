@@ -98,7 +98,7 @@ start instead captures stderr in
 
 ## Front door: raspd (T-11835)
 
-`raspd` (`crates/raspd`, plan `docs/proposals/aspd-rust-front-door.md`) is
+`raspd` (`crates/raspd`, law `architecture/records/invariants/agent-spaces.aspd-rust-front-door.yaml`) is
 aspd's Rust front door. Each release carries it beside the Bun binaries
 (`<release>/raspd`, payload `libexec/raspd`, `runtimeClosure: "cargo-native"`).
 `scripts/asp-release.ts` builds it with `cargo build --release --locked` on the

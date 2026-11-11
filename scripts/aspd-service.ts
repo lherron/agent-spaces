@@ -16,7 +16,7 @@
  * the same verbs then act through launchd, which owns the one `aspd` process
  * (no second supervisor).
  *
- * Front door (T-11835, docs/proposals/aspd-rust-front-door.md): a fronted
+ * Front door (T-11835, docs/aspd.md): a fronted
  * namespace runs raspd from the selected release on the public socket and Bun
  * aspd on `<run>/aspd-bun.sock`. The role is recorded in the service config,
  * so Bun's listen socket follows it; every verb (start, stop, restart,

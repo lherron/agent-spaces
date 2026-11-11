@@ -246,7 +246,7 @@ mode = "replace"
 [[prompt]]
 name = "fixed"
 type = "inline"
-content = "{{date}} {{env.T13054}}"
+content = "{{env.T13054}}"
 [[prompt]]
 name = "predicate"
 type = "inline"

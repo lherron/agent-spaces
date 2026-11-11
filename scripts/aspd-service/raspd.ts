@@ -1,5 +1,5 @@
 /**
- * The front door (T-11835, docs/proposals/aspd-rust-front-door.md): raspd from
+ * The front door (T-11835, docs/aspd.md): raspd from
  * the selected release on the public socket, forwarding to Bun aspd on
  * `<run>/aspd-bun.sock`, or alone without `--upstream` in a sole namespace
  * (T-13018). Detached, or its own launchd job when supervised.

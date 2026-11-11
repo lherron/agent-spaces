@@ -1,6 +1,6 @@
 //! raspd's observation domain: aspd's service state as one rebuildable,
-//! ingest-only cardo document (docs/proposals/aspd-rust-front-door.md, "Cardo
-//! kernel"). raspd feeds [`Observations`] from its own request events; the
+//! ingest-only cardo document (docs/aspd.md, "Front door: raspd"). raspd
+//! feeds [`Observations`] from its own request events; the
 //! `aspd.observe` ingest operation projects it. Nothing here sees request
 //! content, and nothing here is on the aspc request path: recording is a short
 //! mutex section, and the kernel reads on its own threads.
