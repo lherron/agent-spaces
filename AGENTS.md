@@ -98,7 +98,7 @@ Ruled by Lance 2026-09-16 (H-00440, T-08533 hrc-runtime, T-08534 arris): **steer
 | Broker state | Steer | Enqueue |
 |---|---|---|
 | **Idle** (warm, no turn running) | **Starts a turn.** Steer text is the turn's input; response carries the new turn identity. Live in the broker for every driver (`steer()` applies the input as an own turn when the invocation is ready) except `arris-resident`, which sets `steerNeverStartsTurn` and forwards it to the host, and the host starts the turn itself (arris 785ac2b, T-08534: join / hold / start). The driver with no `steer` admission class (codex-desktop) is downgraded at the HRC steer door to an enqueue (T-08536, hrc 0e829518): the response carries effectiveDoor/requestedDoor/downgradeReason, the ledger gets submission.door_downgraded, the CLI prints a stderr notice; informational, never a warn. Direct broker clients still get the capability refusal. | **Starts a turn.** Own turn, own run, receipt, waitable. Live. |
-| **Busy** (turn running) | **Joins the running turn.** Injected immediately, best effort, no turn of its own; response carries the running turn's identity. Refused only for exclusive, guarded, or capability (T-08527 removed busy/unattributed refusals). Live. | **Queues a distinct turn behind the running one.** Never dropped, waitable on its own final. Live. |
+| **Busy** (turn running) | **Joins the running turn.** Injected immediately, best effort, no turn of its own; response carries the running turn's identity. Refused only for exclusive, guarded (every turn started through HRC `POST /v1/turns` is guarded), or capability (T-08527 removed busy/unattributed refusals). Live. | **Queues a distinct turn behind the running one.** Never dropped, waitable on its own final. Live. |
 | **Busy, admitted not started** | **Held and written into that turn** once it starts (Arris host, T-08529). | Queues behind it. Live. |
 | **Cold** (not yet born) | **Rides the birth turn** with the priming (T-08531). | **Rides the birth turn** with the priming (T-08531). |
 
@@ -106,7 +106,7 @@ Client defaults after the ruling:
 
 - **Mail kicker**: steer on idle and busy steer-capable seats. Enqueue only for seats that are not steer-capable, seats that permanently refused steer, and as the fallback when a busy seat refuses a steer for exclusive/guarded/capability. Preempt for authorized holds unchanged. (T-08533)
 - **hrc turn**: steer by default, `--wait` allowed with it; an explicit flag selects enqueue. (T-08533)
-- **ACP and agent-loop**: invoke through `/v1/turns`, neither door. Untouched.
+- **ACP and agent-loop**: dispatch through HRC `POST /v1/turns` (a guarded turn; not `/v1/submissions/invoke`), neither door. Untouched.
 
 Enqueue-then-steer ordering (T-08532) was cancelled as a non-scenario: a steer the broker delivers before its own queue starts the turn and the queue follows behind, which is the ruling's semantics.
 
