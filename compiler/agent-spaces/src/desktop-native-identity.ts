@@ -150,8 +150,13 @@ export async function admitDesktopRegistration(request: AdmitDesktopRegistration
   if (payload['source'] !== 'vscode') {
     return pending('non_desktop_source', 'Desktop session source must be vscode')
   }
-  if (payload['thread_source'] !== 'user') {
-    return pending('non_user_thread', 'Desktop session thread_source must be user')
+  // A main conversation is one the user opened or one an agent opened with
+  // codex_app.create_thread. Spawned subagents were refused above.
+  if (payload['thread_source'] !== 'user' && payload['thread_source'] !== 'agent_created_thread') {
+    return pending(
+      'non_user_thread',
+      'Desktop session thread_source must be user or agent_created_thread'
+    )
   }
   if (
     typeof payload['originator'] !== 'string' ||

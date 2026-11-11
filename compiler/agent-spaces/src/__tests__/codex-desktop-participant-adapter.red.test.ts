@@ -293,6 +293,21 @@ describe('codex-desktop adapter native identity and admission', () => {
     })
   })
 
+  test('a main Desktop thread another agent created is admitted like one the user opened', async () => {
+    // codex_app.create_thread writes thread_source "agent_created_thread". It is
+    // a main conversation (source vscode), not a spawned subagent.
+    const base = await scratch()
+    const home = join(base, 'codex-home')
+    const rolloutPath = await writeRollout(
+      join(home, 'sessions', '2026', '09', '17', 'agent-created.jsonl'),
+      sessionMeta({ thread_source: 'agent_created_thread' })
+    )
+
+    expect(await admit({ base, reported: { codexHome: home, rolloutPath } })).toMatchObject({
+      status: 'admitted',
+    })
+  })
+
   test.each([
     ['archived history', 'archived_sessions/rollout.jsonl', sessionMeta({}), 'archived_history'],
     [
