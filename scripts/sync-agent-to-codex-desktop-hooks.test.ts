@@ -208,6 +208,53 @@ describe('codex desktop command env injection', () => {
     }
   })
 
+  test('prae is injected and carries the joined runtime id it needs to name its caller', async () => {
+    // prae refuses a caller without HRC_RUNTIME_ID (unknown_caller). The joiner
+    // records the runtime HRC attached in the thread's join.json; the hook
+    // exports it only while that file says `joined`.
+    const overlay = await buildOverlay()
+    try {
+      writeFileSync(
+        join(overlay.cacheDir, `${NATIVE_THREAD_ID}.json`),
+        JSON.stringify({
+          scopeRef: CANONICAL_SCOPE,
+          agentId: 'stella',
+          projectId: 'hrc-ios',
+          slotToken: 'primary-nova',
+          laneRef: 'main',
+        })
+      )
+      const toolCall = {
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Bash',
+        session_id: NATIVE_THREAD_ID,
+        cwd: sessionStart.cwd,
+        tool_input: { command: 'prae room mail find --to me' },
+      }
+      const unjoined = injectedCommand(runHook(overlay, overlay.preToolUse, toolCall).stdout)
+      expect(unjoined).toContain(`HRC_SESSION_REF='${CANONICAL_SCOPE}/lane:main'`)
+      expect(unjoined).not.toContain('HRC_RUNTIME_ID=')
+
+      const threadDir = join(overlay.codexHome, 'hrc-desktop', NATIVE_THREAD_ID)
+      mkdirSync(threadDir, { recursive: true })
+      writeFileSync(
+        join(threadDir, 'join.json'),
+        JSON.stringify({ phase: 'joining', runtimeId: 'rt-not-yet' })
+      )
+      const joining = injectedCommand(runHook(overlay, overlay.preToolUse, toolCall).stdout)
+      expect(joining).not.toContain('HRC_RUNTIME_ID=')
+
+      writeFileSync(
+        join(threadDir, 'join.json'),
+        JSON.stringify({ phase: 'joined', runtimeId: 'rt-joined-1', scopeRef: CANONICAL_SCOPE })
+      )
+      const joined = injectedCommand(runHook(overlay, overlay.preToolUse, toolCall).stdout)
+      expect(joined).toContain("HRC_RUNTIME_ID='rt-joined-1'")
+    } finally {
+      await rm(overlay.root, { recursive: true, force: true })
+    }
+  })
+
   test('mid-thread switch: a command started pending keeps its address, the next one is registered', async () => {
     // Contract (docs/codex-desktop-join.md, "Mail across the switch"): the
     // address is fixed per command when it starts. A `wrkc say --wait` begun

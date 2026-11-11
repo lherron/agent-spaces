@@ -138,6 +138,27 @@ function readEstablishedScope(threadId) {
   }
 }
 
+/**
+ * The runtime HRC attached for this thread, or undefined while it is not
+ * joined. prae names its caller by HRC_RUNTIME_ID and refuses without one, so
+ * a command run before the join reports unknown_caller rather than acting
+ * under a provisional address.
+ */
+function readJoinedRuntimeId(threadId) {
+  if (!threadId) return undefined
+  try {
+    const parsed = JSON.parse(
+      readFileSync(join(codexHomeDir(), 'hrc-desktop', String(threadId), 'join.json'), 'utf8')
+    )
+    if (parsed?.phase !== 'joined') return undefined
+    return typeof parsed.runtimeId === 'string' && parsed.runtimeId.length > 0
+      ? parsed.runtimeId
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** The UUID-style address this conversation used before registration. */
 function legacyTaskId(sessionId) {
   const id = String(sessionId || 'codex-app')
@@ -164,11 +185,12 @@ import { homedir } from 'node:os'
 
 const AGENT_ID = ${escapedAgentId}
 const DEFAULT_ASP_HOME = ${escapedAspHome}
-// wrkc and wrkp were missing, which is why a desktop conversation could read
-// its mail through a presentation but not answer it: \`wrkc say\` ran with no
-// ASP_SCOPE_REF and therefore no identity (contract \u00a74, "the current command
+// Every CLI that resolves its caller from the injected env. A command missing
+// here runs with no identity: a desktop conversation could read its mail
+// through a presentation but not answer it (contract \u00a74, "the current command
 // allowlist is incomplete").
 const PRAESIDIUM_COMMANDS = new Set([
+  'prae',
   'asp',
   'wrkq',
   'wrkc',
@@ -322,6 +344,8 @@ function resolvedScope(input) {
       ASP_SCOPE_REF: established.scopeRef,
       HRC_SESSION_REF: \`\${established.scopeRef}/lane:\${established.laneRef || 'main'}\`,
     }
+    const runtimeId = readJoinedRuntimeId(input.session_id)
+    if (runtimeId !== undefined) canonical.HRC_RUNTIME_ID = runtimeId
     return {
       project: canonical.ASP_PROJECT,
       aspHome: canonical.ASP_HOME,

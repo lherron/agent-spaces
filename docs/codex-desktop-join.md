@@ -70,6 +70,12 @@ address `<agent>@<project>:codex-<thread>`. It reports `HRC registration:
 pending`. Every command that starts after the address cache exists gets the
 registered address.
 
+The managed commands are `prae`, `asp`, `hrc`, `acp` and the owner CLIs. `prae`
+names its caller by `HRC_RUNTIME_ID`, which the hook exports from the thread's
+`join.json` only while that file says `joined`. Before the join, and under a
+provisional address, `prae` refuses with `unknown_caller`. The `wrkc` examples
+below describe the owner CLI's behavior and predate prae.
+
 - A command keeps the address it started with. A `wrkc say … --wait` begun
   while pending waits as `codex-<thread>` and consumes a reply sent to that
   address, even after the thread has switched. Incident 2026-10-01: EN-21812
