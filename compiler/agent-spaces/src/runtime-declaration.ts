@@ -345,6 +345,9 @@ async function resolveObservedRuntimeDeclaration(
       ...(profile.provisioning?.node ? { provisioningNode: profile.provisioning.node } : {}),
       placement: {
         ...(profile.placement?.launch !== undefined ? { launch: profile.placement.launch } : {}),
+        ...(profile.placement?.launch_command !== undefined
+          ? { launchCommand: [...profile.placement.launch_command] }
+          : {}),
         pins: { ...(profile.placement?.pins ?? {}) },
         homes: { ...(profile.placement?.homes ?? {}) },
       },

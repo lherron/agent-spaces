@@ -336,14 +336,36 @@ function parsePlacement(
     fail(source, path, 'must be a table', 'type')
   }
 
-  assertOnlyKeys(value, ['launch', 'pins', 'homes'], source, path)
+  assertOnlyKeys(value, ['launch', 'launch_command', 'pins', 'homes'], source, path)
   const placement: AgentProfilePlacement = { pins: {}, homes: {} }
   const launch = value['launch']
   if (launch !== undefined) {
-    if (launch !== 'participant-only') {
-      fail(source, `${path}/launch`, 'must be "participant-only" when set', 'const')
+    if (launch !== 'participant-only' && launch !== 'self-brokered') {
+      fail(
+        source,
+        `${path}/launch`,
+        'must be "participant-only" or "self-brokered" when set',
+        'const'
+      )
     }
     placement.launch = launch
+  }
+  const command = value['launch_command']
+  const commandPath = `${path}/launch_command`
+  if (launch === 'self-brokered') {
+    if (command === undefined) {
+      fail(source, commandPath, 'is required when launch = "self-brokered"', 'required')
+    }
+    if (
+      !Array.isArray(command) ||
+      command.length === 0 ||
+      !command.every((item) => typeof item === 'string' && item.length > 0)
+    ) {
+      fail(source, commandPath, 'must be a non-empty array of non-empty strings', 'type')
+    }
+    placement.launch_command = [...command]
+  } else if (command !== undefined) {
+    fail(source, commandPath, 'is only allowed when launch = "self-brokered"', 'const')
   }
   parsePlacementMap(value['pins'], placement.pins, SCOPE_PIN_PATTERN, source, `${path}/pins`, true)
   parsePlacementMap(value['homes'], placement.homes, HOME_PATTERN, source, `${path}/homes`, false)

@@ -469,8 +469,14 @@ export type AspcResolveRuntimeDeclarationResponse =
         claimsTask: boolean
         provisioningNode?: string | undefined
         placement: {
-          /** participant-only: HRC must never launch this agent (T-09061). */
-          launch?: 'participant-only' | undefined
+          /**
+           * participant-only: HRC must never launch this agent (T-09061).
+           * self-brokered: HRC starts `launchCommand` with no compiled bundle
+           * (T-13434 section 3).
+           */
+          launch?: 'participant-only' | 'self-brokered' | undefined
+          /** Present only with `launch: 'self-brokered'`: the profile's argv, verbatim. */
+          launchCommand?: string[] | undefined
           pins: Record<string, string>
           homes: Record<string, string>
         }

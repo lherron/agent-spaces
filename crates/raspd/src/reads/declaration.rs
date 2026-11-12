@@ -903,6 +903,12 @@ fn resolve_steps(request: &J, env: &Env) -> Step<Answer> {
     if let Some(launch) = placement_policy.and_then(|p| p.launch.as_deref()) {
         placement_fields.push(("launch".to_owned(), J::str(launch)));
     }
+    if let Some(command) = placement_policy.and_then(|p| p.launch_command.as_ref()) {
+        placement_fields.push((
+            "launchCommand".to_owned(),
+            J::Arr(command.iter().map(J::str).collect()),
+        ));
+    }
     placement_fields.push((
         "pins".into(),
         J::Obj(placement_policy.map(|p| p.pins.clone()).unwrap_or_default()),

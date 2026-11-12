@@ -19,29 +19,42 @@ import {
   assertPreparationTaskContext,
 } from './preparation-execution-context.js'
 
+const LAUNCH_REFUSALS = {
+  'participant-only': {
+    code: 'agent_participant_only',
+    why: 'its seat joins HRC as a direct participant and is never launched',
+  },
+  'self-brokered': {
+    code: 'agent_self_brokered',
+    why: 'HRC starts its own launch_command, which serves its own broker, and never compiles a bundle for it',
+  },
+} as const
+
 /**
- * Backstop for `[placement] launch = "participant-only"` (T-09061): such an
- * agent's seat is hosted outside HRC and joins as a direct participant, so no
- * compile may produce a launchable plan for it. HRC refuses before it gets
+ * Backstop for a `[placement] launch` that HRC never compiles for: a
+ * `participant-only` agent (T-09061) joins HRC as a direct participant, and a
+ * `self-brokered` one (T-13435) is started from its own launch_command. No
+ * compile may produce a launchable plan for either. HRC refuses before it gets
  * here; this holds even if a SOUL.md is later added to the home. An absent or
  * unparsable profile is left to the normal compile path to report.
  */
-function participantOnlyRefusal(agentRoot: string): RuntimeCompileResponse | undefined {
+function launchRefusal(agentRoot: string): RuntimeCompileResponse | undefined {
   const profilePath = join(agentRoot, 'agent-profile.toml')
-  let launch: string | undefined
+  let launch: keyof typeof LAUNCH_REFUSALS | undefined
   try {
     launch = parseAgentProfile(readFileSync(profilePath, 'utf8'), profilePath).placement?.launch
   } catch {
     return undefined
   }
-  if (launch !== 'participant-only') return undefined
+  if (launch === undefined) return undefined
+  const { code, why } = LAUNCH_REFUSALS[launch]
   return {
     schemaVersion: 'agent-runtime-compile-response/v2',
     ok: false,
     diagnostics: [
       compileError(
-        'agent_participant_only',
-        `Agent at ${agentRoot} is participant-only ([placement] launch = "participant-only"): its seat joins HRC as a direct participant and is never launched`,
+        code,
+        `Agent at ${agentRoot} is ${launch} ([placement] launch = "${launch}"): ${why}`,
         { agentRoot, launch }
       ),
     ],
@@ -73,7 +86,7 @@ async function compileResolvedRuntimePlan(
 ): Promise<RuntimeCompileResponse> {
   try {
     const placement = req.placement as CompilePlacement
-    const refusal = participantOnlyRefusal(placement.agentRoot)
+    const refusal = launchRefusal(placement.agentRoot)
     if (refusal !== undefined) return refusal
     // A taskContext naming a different task than the scope states is refused
     // before any builder materializes anything (T-09860).

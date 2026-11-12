@@ -239,6 +239,22 @@ describe('T-08701 runtime declaration observation', () => {
     })
   })
 
+  test('returns placement launch = self-brokered with launchCommand verbatim (T-13435)', async () => {
+    const profilePath = join(agentRoot, 'agent-profile.toml')
+    await writeFile(
+      profilePath,
+      `${await readFile(profilePath, 'utf8')}\n[placement]\nlaunch = "self-brokered"\nlaunch_command = ["~/bin/foundry", "seat-launch"]\n`
+    )
+    const selfBrokered = await operation()(request(), daemonDefaults())
+
+    expect(selfBrokered['policy'].placement).toEqual({
+      launch: 'self-brokered',
+      launchCommand: ['~/bin/foundry', 'seat-launch'],
+      pins: {},
+      homes: {},
+    })
+  })
+
   test('keeps an existing agent root distinct from an absent profile declaration', async () => {
     await rm(join(agentRoot, 'agent-profile.toml'))
 

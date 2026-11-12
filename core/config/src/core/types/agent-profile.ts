@@ -53,13 +53,21 @@ export interface AgentProfileJobs {
 /**
  * `participant-only`: HRC never launches this agent. Its seat is hosted
  * elsewhere and joins HRC as a direct participant; compiles are refused.
+ *
+ * `self-brokered`: HRC starts the agent's own `launch_command`, which serves
+ * its own broker; there is no compiled bundle, so compiles are refused.
  */
-export type AgentPlacementLaunch = 'participant-only'
+export type AgentPlacementLaunch = 'participant-only' | 'self-brokered'
 
 /** Source-shaped federation placement declaration from agent-profile.toml. */
 export interface AgentProfilePlacement {
   /** Absent means HRC may launch the agent. */
   launch?: AgentPlacementLaunch | undefined
+  /**
+   * Required with, and only with, `launch = "self-brokered"`: a non-empty argv
+   * carried to HRC verbatim (no templating, path expansion or PATH lookup).
+   */
+  launch_command?: string[] | undefined
   pins: Record<string, string>
   homes: Record<string, string>
 }

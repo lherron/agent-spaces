@@ -34,7 +34,10 @@ pub const SCALARS: [(&str, bool); 10] = [
 
 #[derive(Default)]
 pub struct Placement {
+    /// `participant-only` or `self-brokered`.
     pub launch: Option<String>,
+    /// Required with, and only with, `self-brokered`: verbatim.
+    pub launch_command: Option<Vec<String>>,
     pub pins: Vec<(String, J)>,
     pub homes: Vec<(String, J)>,
 }
@@ -339,16 +342,51 @@ fn placement(value: Option<&J>, path: &str) -> R<Option<Placement>> {
     if !value.is_record() {
         return fail(path, "must be a table");
     }
-    assert_only_keys(value, &["launch", "pins", "homes"], path)?;
+    assert_only_keys(value, &["launch", "launch_command", "pins", "homes"], path)?;
     let mut placement = Placement::default();
     if let Some(launch) = value.get("launch") {
-        if launch != &J::str("participant-only") {
-            return fail(
-                &format!("{path}/launch"),
-                "must be \"participant-only\" when set",
+        let launch = match launch {
+            J::Str(l) if l == "participant-only" || l == "self-brokered" => l,
+            _ => {
+                return fail(
+                    &format!("{path}/launch"),
+                    "must be \"participant-only\" or \"self-brokered\" when set",
+                );
+            }
+        };
+        placement.launch = Some(launch.clone());
+    }
+    let command_path = format!("{path}/launch_command");
+    match (placement.launch.as_deref(), value.get("launch_command")) {
+        (Some("self-brokered"), None) => {
+            return fail(&command_path, "is required when launch = \"self-brokered\"");
+        }
+        (Some("self-brokered"), Some(J::Arr(items)))
+            if !items.is_empty()
+                && items
+                    .iter()
+                    .all(|i| matches!(i, J::Str(s) if !s.is_empty())) =>
+        {
+            placement.launch_command = Some(
+                items
+                    .iter()
+                    .filter_map(|i| i.as_str().map(str::to_owned))
+                    .collect(),
             );
         }
-        placement.launch = Some("participant-only".into());
+        (Some("self-brokered"), Some(_)) => {
+            return fail(
+                &command_path,
+                "must be a non-empty array of non-empty strings",
+            );
+        }
+        (_, Some(_)) => {
+            return fail(
+                &command_path,
+                "is only allowed when launch = \"self-brokered\"",
+            );
+        }
+        (_, None) => {}
     }
     placement_map(
         value.get("pins"),
@@ -684,4 +722,80 @@ pub fn parse(content: &str) -> R<Profile> {
         }
     }
     Ok(profile)
+}
+
+#[cfg(test)]
+mod placement_launch {
+    //! `[placement] launch` and `launch_command` (T-13435): the same profiles
+    //! core/config's agent-profile-federation-policy.test.ts accepts and refuses.
+    use super::{ProfileError, parse};
+
+    fn placement(body: &str) -> String {
+        format!("version = 4\n\n[placement]\n{body}\n")
+    }
+
+    fn refusal(body: &str) -> String {
+        match parse(&placement(body)) {
+            Err(ProfileError::Invalid(message)) => message,
+            Err(ProfileError::Forward(reason)) => panic!("forwarded {}", reason.as_str()),
+            Ok(_) => panic!("accepted {body:?}"),
+        }
+    }
+
+    #[test]
+    fn self_brokered_carries_launch_command_verbatim() {
+        let Ok(profile) = parse(&placement(
+            "launch = \"self-brokered\"\nlaunch_command = [\"~/bin/foundry\", \"seat-launch\", \"$HOME\"]",
+        )) else {
+            panic!("refused a self-brokered profile");
+        };
+        let placement = profile.placement.expect("placement");
+        assert_eq!(placement.launch.as_deref(), Some("self-brokered"));
+        assert_eq!(
+            placement.launch_command,
+            Some(vec![
+                "~/bin/foundry".to_owned(),
+                "seat-launch".to_owned(),
+                "$HOME".to_owned()
+            ])
+        );
+    }
+
+    #[test]
+    fn participant_only_has_no_launch_command() {
+        let Ok(profile) = parse(&placement("launch = \"participant-only\"")) else {
+            panic!("refused participant-only");
+        };
+        let placement = profile.placement.expect("placement");
+        assert_eq!(placement.launch.as_deref(), Some("participant-only"));
+        assert_eq!(placement.launch_command, None);
+    }
+
+    #[test]
+    fn other_launch_values_are_refused() {
+        for value in ["\"hrc\"", "\"\"", "\"Self-Brokered\"", "true"] {
+            assert!(
+                refusal(&format!("launch = {value}")).contains("/placement/launch: "),
+                "{value}"
+            );
+        }
+    }
+
+    #[test]
+    fn launch_command_is_refused_unless_self_brokered_and_well_formed() {
+        for body in [
+            "launch = \"self-brokered\"",
+            "launch_command = [\"foundry\"]",
+            "launch = \"participant-only\"\nlaunch_command = [\"foundry\"]",
+            "launch = \"self-brokered\"\nlaunch_command = []",
+            "launch = \"self-brokered\"\nlaunch_command = [\"foundry\", \"\"]",
+            "launch = \"self-brokered\"\nlaunch_command = [1]",
+            "launch = \"self-brokered\"\nlaunch_command = \"foundry\"",
+        ] {
+            assert!(
+                refusal(body).contains("/placement/launch_command: "),
+                "{body}"
+            );
+        }
+    }
 }

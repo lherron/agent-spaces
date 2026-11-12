@@ -43,14 +43,53 @@ minisvc = "svc_1"
     })
   })
 
-  test.each(['"hrc"', '"never"', '""', '"Participant-Only"', 'true'])(
-    'a [placement] launch other than "participant-only" is rejected at /placement/launch: %s',
+  test.each(['"hrc"', '"never"', '""', '"Participant-Only"', '"Self-Brokered"', 'true'])(
+    'a [placement] launch other than "participant-only" or "self-brokered" is rejected at /placement/launch: %s',
     (rawValue) => {
       expect(rejectionOf(`version = 4\n\n[placement]\nlaunch = ${rawValue}\n`)).toEqual([
         { path: '/placement/launch', keyword: 'const' },
       ])
     }
   )
+
+  test('self-brokered with launch_command parses to that launch and the array verbatim (T-13435)', () => {
+    const profile = parseAgentProfile(
+      'version = 4\n\n[placement]\nlaunch = "self-brokered"\nlaunch_command = ["~/bin/foundry", "seat-launch", "$HOME"]\n'
+    )
+
+    expect(profile.placement).toEqual({
+      launch: 'self-brokered',
+      launch_command: ['~/bin/foundry', 'seat-launch', '$HOME'],
+      pins: {},
+      homes: {},
+    })
+  })
+
+  test.each([
+    ['self-brokered without launch_command', 'launch = "self-brokered"', 'required'],
+    ['launch_command without launch', 'launch_command = ["foundry"]', 'const'],
+    [
+      'launch_command with participant-only',
+      'launch = "participant-only"\nlaunch_command = ["foundry"]',
+      'const',
+    ],
+    ['an empty launch_command', 'launch = "self-brokered"\nlaunch_command = []', 'type'],
+    [
+      'an empty launch_command element',
+      'launch = "self-brokered"\nlaunch_command = ["foundry", ""]',
+      'type',
+    ],
+    [
+      'a non-string launch_command element',
+      'launch = "self-brokered"\nlaunch_command = [1]',
+      'type',
+    ],
+    ['a string launch_command', 'launch = "self-brokered"\nlaunch_command = "foundry"', 'type'],
+  ])('%s is rejected at /placement/launch_command (T-13435)', (_name, body, keyword) => {
+    expect(rejectionOf(`version = 4\n\n[placement]\n${body}\n`)).toEqual([
+      { path: '/placement/launch_command', keyword },
+    ])
+  })
 
   test('defaults claims_task to false and leaves absent placement undeclared', () => {
     const profile = parseAgentProfile('version = 4\n')

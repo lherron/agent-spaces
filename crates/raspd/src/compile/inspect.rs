@@ -775,9 +775,12 @@ fn evaluate(
 /// refusal diagnostics, joined); any other relays.
 fn compile_refused(f: Fwd, agent_root: &str) -> Result<J, Fwd> {
     let message = match (f.reason.as_str(), f.detail.as_deref()) {
-        // participantOnlyRefusal, before anything is written.
+        // launchRefusal, before anything is written.
         ("agent_participant_only", _) => format!(
             "Agent at {agent_root} is participant-only ([placement] launch = \"participant-only\"): its seat joins HRC as a direct participant and is never launched"
+        ),
+        ("agent_self_brokered", _) => format!(
+            "Agent at {agent_root} is self-brokered ([placement] launch = \"self-brokered\"): HRC starts its own launch_command, which serves its own broker, and never compiles a bundle for it"
         ),
         // closure.ts throws after the temp sweep and ensureAspHome: an
         // inspection whose project root is empty carries no projectRoot, so

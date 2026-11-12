@@ -52,6 +52,12 @@ describe('participant-only agents (T-09061)', () => {
       'participant-only',
     ],
     [
+      'self-brokered is refused with its own reason (T-13435)',
+      `${LAUNCHABLE}\n[placement]\nlaunch = "self-brokered"\nlaunch_command = ["foundry", "seat-launch"]\n`,
+      'agent_self_brokered',
+      'self-brokered',
+    ],
+    [
       'a launchable profile passes the participant-only gate',
       LAUNCHABLE,
       'configured_context_mismatch',

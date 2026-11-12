@@ -131,6 +131,18 @@ const cases: ProbeCase[] = [
     params: (c) => c.compileFor('p-apo'),
   },
   {
+    reason: 'agent_self_brokered',
+    method: 'aspc.compileHarnessInvocation',
+    condition: 'agent profile [placement] launch = "self-brokered"',
+    setup: (c) => {
+      c.agent(
+        'p-asb',
+        'version = 4\n\n[placement]\nlaunch = "self-brokered"\nlaunch_command = ["foundry", "seat-launch"]\n\n[spaces]\nbase = ["space:pm-dev@dev"]\n'
+      )
+    },
+    params: (c) => c.compileFor('p-asb'),
+  },
+  {
     reason: 'scope_ref_shorthand',
     method: 'aspc.compileHarnessInvocation',
     condition:

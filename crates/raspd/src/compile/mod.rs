@@ -654,16 +654,17 @@ fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, 
     let material = req.get("materialization").expect("validated");
     let task_context = material.get("taskContext").cloned();
 
-    // participantOnlyRefusal and the taskContext check refuse before writing.
+    // launchRefusal and the taskContext check refuse before writing.
     let profile = request::read_profile(&agent_root)?;
-    if profile
+    match profile
         .typed
         .placement
         .as_ref()
         .and_then(|p| p.launch.as_deref())
-        == Some("participant-only")
     {
-        return Err(fwd(crate::reason!("agent_participant_only")));
+        Some("participant-only") => return Err(fwd(crate::reason!("agent_participant_only"))),
+        Some("self-brokered") => return Err(fwd(crate::reason!("agent_self_brokered"))),
+        _ => {}
     }
     let scoped = handle_parts(
         &{
