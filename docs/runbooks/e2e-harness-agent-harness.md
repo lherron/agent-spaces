@@ -33,7 +33,7 @@ Example roots:
 
 ```sh
 export AH_E2E_ROOT="/Users/lherron/praesidium/var/wrkq-artifacts/<task-id>/e2e"
-export AH_E2E_SCRATCH="/Users/lherron/praesidium/var/scratch/agent-spaces/<task-id>/e2e"
+export AH_E2E_SCRATCH="$SCRATCH/e2e"   # HRC sets SCRATCH for a task seat: var/scratch/<project>/<task-id>
 export AH_E2E_NS="$AH_E2E_SCRATCH/ns"
 export ASP_USAGE_METRICS_VAR_ROOT="$AH_E2E_SCRATCH/metrics-var"
 unset HARNESS_BROKER_OBSERVER_SOCKET HARNESS_BROKER_OBSERVER_MODE
