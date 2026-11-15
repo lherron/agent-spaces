@@ -1,5 +1,6 @@
 //! Byte-identical shell files from compiler/agent-spaces/src/path-filter.ts.
-use super::{Fwd, atomic_write, fwd, fwd_at};
+use super::materialize::atomic_write;
+use super::{Fwd, fwd, fwd_at};
 use crate::reads::jspath::join;
 
 const BODY: &str = r#"

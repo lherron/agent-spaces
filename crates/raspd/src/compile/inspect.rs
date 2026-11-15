@@ -9,12 +9,11 @@
 //! compile, so it writes exactly what Bun writes, under the same lock protocol.
 //! A caller-context inspection is answered locally in both modes. Unsupported
 //! inputs follow the same disposition rows as placement inspection.
+use super::materialize::{ensure_asp_home, materialize_and_emit};
+use super::plan::classify;
+use super::scope::{agent_session_env, handle_parts, parse_scope_ref};
 use super::util::{exec_environment, hash, now_iso};
-use super::{
-    Compiled, Fwd, Phases, classify, ensure_asp_home, fwd, fwd_at, handle_parts,
-    materialize_and_emit,
-};
-use super::{agent_session_env, parse_scope_ref, prompt, s};
+use super::{Compiled, Fwd, Phases, fwd, fwd_at, prompt, s};
 use crate::json::J;
 use crate::reads::jspath::{basename, dirname, join, resolve};
 use crate::reads::{Answer, Env, INSPECT_REQUEST_VERSION, declaration, profile};
@@ -687,7 +686,7 @@ fn evaluate(
         Err(f) => return Err(f),
     };
     plan.codex_home_read_only = true;
-    super::preflight(&plan)?;
+    super::preflight::preflight(&plan)?;
     let compiled = materialize_and_emit(plan, release, phases)?;
     let runtime_plan = compiled.get("plan").cloned().unwrap_or(J::Null);
 
