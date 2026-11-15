@@ -138,6 +138,7 @@ Classes:
 - **locked project root**: written by ASP's compile in `lockedEnv` on both launch paths whenever there is a project root. HRC also derives it at step 1 and removes it at step 4, so HRC never has the last word on it
 - **ASP materialization**: the agent's own directories and materialization pointers, written by ASP's compile in `lockedEnv` on both launch paths. Not identity; listed so that every variable a seat receives from the platform has a named writer
 - **derived handle, managed only**: written by HRC only: `agent[@project[:task]][~lane]`, lane omitted when `main`. It leaves out the role, so for a role-scoped seat it is not the session's identity and does not round-trip; AGENT_SCOPE_REF is
+- **scratch directory, managed only**: written by HRC only, for a scope with a project and a task: a per-task directory for throwaway files on the seat's node, which HRC creates at birth. Every seat on the task gets the same path, whatever its agent, role or lane. Not identity: nothing resolves a seat from it, and a reaper attributes a directory by its two path segments. An unmanaged launch has nobody to create the directory, so it gets no variable
 - **runtime plumbing**: wiring written by HRC's writer, hrc-pty, the harness broker or the daemon's own inputs. The keys HRC's writer emits are tested as part of the exact map in the managed cases; the rest are listed with their writer
 - **removed**: written today, read by nothing; the write is deleted
 
@@ -166,6 +167,7 @@ Classes:
 | `WRKQ_PRINCIPAL_REF` | `agent:<AGENT_ACTOR>` — managed seats have none; wrkq derives the same principal from AGENT_SCOPE_REF | compat copy of `AGENT_ACTOR` | not written | buildAgentSessionEnv | wrkq |
 | `ASP_PROJECT` | project id | project discovery id | asp.lockedEnv (the placement has a project root); hrc.dispatch (no project root and the scope has a project) | asp.lockedEnv (the placement has a project root) | wrkq, hrc CLI |
 | `ASP_HANDLE` | `agent[@project[:task]][~lane]`, no role | derived handle, managed only | hrc.dispatch | not written | wrkq, hrc CLI |
+| `SCRATCH` | absolute path `<var root>/scratch/<projectId>/<taskId>`, where the var root is two levels above HRC's runtime root (`<var root>/run/hrc`), e.g. `/Users/lherron/praesidium/var/scratch/hrc-runtime/T-13491`; a standing seat's task segment is its task id, e.g. `.../scratch/hrc-runtime/primary` | scratch directory, managed only | hrc.dispatch (the scope has a project and a task) | not written | none recorded |
 | `HRC_RUNTIME_ID` | runtime id | runtime plumbing | hrc.preparation | buildAgentSessionEnv (the placement carries one; `asp agent` never does) | kernel |
 | `HRC_INVOCATION_ID` | invocation id | runtime plumbing | hrc.preparation | buildAgentSessionEnv (the placement carries one; `asp agent` never does) | none recorded |
 | `HRC_INITIAL_INPUT_ID` | input id | runtime plumbing | hrc.preparation (the launch carries an initial input) | buildAgentSessionEnv (the placement carries one; `asp agent` never does) | none recorded |
